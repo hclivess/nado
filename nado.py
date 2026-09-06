@@ -691,50 +691,8 @@ async def submit_transaction(request):
 
 
 def _ip_registration_rejection(ip, transaction):
-    """IP-DIVERSITY cap (non-consensus relay admission control): for a `register` tx, enforce the
-    per-source-IP progressive registration budget so one device/range can't script thousands of
-    identities. Returns a rejection dict if over budget, else None. Never raises into tx submission."""
-    try:
-        if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
-            return None
-        from protocol import POSW_LEASE_EPOCHS, EPOCH_LENGTH
-        if ip in memserver.peers:
-            # PEER PUSH-GOSSIP IS EXEMPT (relay review, 2026-09-01): a relay forwarding many users' entries
-            # would look like one farm to its peers and exact-landing registrations would propagate unevenly
-            # — a mempool-convergence cost for no security gain, since a farm bypasses the cap with its own
-            # node anyway. The budget prices user ingress at THIS relay only.
-            return None
-        from ops.ratelimit import allow_registration, allow_identity
-        # IDENTITY CAP (2026-09-06): every register tx — entry OR renewal — must fit this IP's identity budget
-        # over one lease (ops/ratelimit.allow_identity). One device keeps a handful of identities alive; a
-        # farm's extra identities fail to renew here and lapse. 0 = off. Roaming: one identity from a new IP
-        # is always under the cap, so rule 4's phone still renews.
-        _sender = str(transaction.get("sender", ""))
-        _idcap = getattr(memserver, "max_identities_per_ip", 5)
-        if _idcap > 0 and not allow_identity(ip, _sender, _idcap, POSW_LEASE_EPOCHS * EPOCH_LENGTH * 6.0):
-            logger.warning(f"identity cap: refused register/renewal of {_sender[:12]}… from {ip} "
-                           f"(> {_idcap} identities per IP over one lease)")
-            return {"result": False,
-                    "message": f"Too many miner identities from this IP on this relay (cap {_idcap} per IP over "
-                               f"one 36 h lease; more per wider range). Use fewer addresses per connection, or "
-                               f"run your own node for a larger fleet."}
-        # ENTRIES ONLY (2026-09-01, Sybil rule 4): a RENEWAL never spends the budget — an established phone
-        # roaming across networks must never be refused its lease — so the budget prices exactly the thing it
-        # exists for: new identities. Same anchor derivation as the consensus entry check.
-        from ops.reg_difficulty import is_entry_registration
-        from ops.mining_ops import epoch_of
-        from protocol import POSW_ANCHOR_OFFSET
-        _anchor = epoch_of(max(0, int(transaction.get("max_block", 0)) - POSW_ANCHOR_OFFSET))
-        if not is_entry_registration(str(transaction.get("sender", "")), _anchor):
-            return None
-        cap = getattr(memserver, "max_registrations_per_ip", 8)
-        window = getattr(memserver, "max_registrations_window", 3600.0)
-        if not allow_registration(ip, str(transaction.get("sender", "")), cap, window):
-            return {"result": False,
-                    "message": "Too many registrations from this IP/range — one device can onboard only a "
-                               "limited number of mining addresses (anti-Sybil). Use fewer addresses."}
-    except Exception:
-        return None
+    """RETIRED at gen 25: the per-IP entry budget and identity cap keyed on client IPs; identities now cost an
+    attested device (doc/device-attestation.md), and IP keys penalised CGNAT households. Always None."""
     return None
 
 
@@ -1668,56 +1626,9 @@ async def get_treasury_status(request):
 
 
 async def get_posw_difficulty(request):
-    """GET /posw_difficulty: the CONSENSUS registration-PoSW difficulty at the current finalized anchor
-    epoch — multiplier, base/required sequential steps, and recent registration count in the window.
-    Wallets read it to prove at the right difficulty and show the expected wait."""
-    # Current registration PoSW difficulty (doc/ip-spoofing-and-sybil.md): the CONSENSUS multiplier + required
-    # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
-    # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
-    addr = _q(request, "address", "") or None
-    want_mb = _q(request, "max_block", "")
-    def _work():
-        """Compute the difficulty a prover should use RIGHT NOW (worker thread) — the strict v2
-        chain-derived requirement; there is no other mode."""
-        from ops.reg_difficulty import difficulty_multiplier, _window_count, entry_multiplier
-        from ops.mining_ops import epoch_of
-        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, POSW_DIFF_WINDOW
-        try:
-            h = memserver.latest_block["block_number"]
-        except Exception:
-            h = 0
-        # ANSWER FOR THE CALLER'S OWN LANDING BLOCK. The requirement is read at the anchor epoch
-        # max_block-POSW_ANCHOR_OFFSET, so an answer computed at a max_block the caller is not going to
-        # use is only accidentally right. This defaulted to h+6 (the CLI's margin) while every browser
-        # miner targets h+POSW_ANCHOR_OFFSET — two anchors 24 blocks apart, which straddle an epoch
-        # boundary for 24 of every 60 heights. Whenever the rate multiplier differs across that boundary
-        # the wallet proves the wrong T and every node rejects an honest registration (posw.verify is
-        # EXACT-T). Callers now pass their own max_block; the default is the wallet's convention.
-        try:
-            max_block = int(want_mb) if want_mb else h + POSW_TARGET_MARGIN
-        except (TypeError, ValueError):
-            max_block = h + POSW_TARGET_MARGIN
-        anchor_epoch = epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET))
-        mult = difficulty_multiplier(anchor_epoch)
-        recent = _window_count(anchor_epoch - POSW_DIFF_WINDOW, anchor_epoch - 1)
-        # ENTRY MULTIPLIER — a FIRST (or post-lapse) registration must prove POSW_ENTRY_MULT x more work.
-        # The wallet computes its PoSW client-side, so it has to be TOLD: called without `address` this
-        # endpoint can only report the rate multiplier, and a new miner proving at that would under-work
-        # its very first proof and be rejected by every node. Renewals are unaffected (multiplier 1).
-        emult = entry_multiplier(addr, anchor_epoch) if addr else 1
-        # required_t comes from the CONSENSUS function itself, not a second copy of the formula here.
-        # This endpoint exists to tell a prover what validation will demand, so any drift between the
-        # two is a rejected honest registration — the one failure it is meant to prevent.
-        from ops.reg_difficulty import required_posw_t
-        return {"block_number": h, "max_block": max_block,
-                "anchor_epoch": anchor_epoch, "multiplier": mult,
-                "base_t": POSW_T, "required_t": required_posw_t(anchor_epoch, addr),
-                "entry_multiplier": emult, "is_entry": emult > 1,
-                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
-    return _resp(await asyncio.to_thread(_work))
-
-
-_rich_list_cache = {"height": -1, "list": None}
+    """RETIRED at gen 25: registration no longer carries a sequential-work proof. Answers required_t 0 so an
+    old client learns there is nothing to compute; new wallets never call it."""
+    return _resp({"required_t": 0, "retired": True, "reason": "device attestation replaced PoSW at gen 25"})
 
 
 async def get_rich_list(request):

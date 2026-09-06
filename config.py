@@ -32,7 +32,9 @@ def get_timestamp_seconds():
 
 
 def get_protocol():
-    """The node's protocol number — peers whose /status reports a LOWER protocol than ours are
+    """The node's protocol number
+    12 (2026-09-07): the betanet-7 (gen 25) REAL-DEVICE reroll — register txs carry a hardware attestation, PoSW /
+    per-IP budgets / probation retired; pre-reroll nodes are shed at handshake. — peers whose /status reports a LOWER protocol than ours are
     rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
     3 (2026-07-18): the bit-width-audit + reg-difficulty-v2 consensus changes, strict.
     4 (2026-07-18): reg-difficulty v3 — state-index counts (see reg_difficulty.py).
@@ -68,7 +70,7 @@ def get_protocol():
     snapshot transfer payload is canonicalized (treasury_proposals + node-local meta rows excluded) and
     re-anchor/bootstrap now require a real quorum with seed anchoring. State transitions, the exec state
     root and the snapshot identity all change, so a gen-9/protocol-6 node can never agree with us. STRICT."""
-    return 11
+    return 12
 
 
 def get_port():
@@ -306,8 +308,6 @@ def create_config(ip: str, config_path: str = None):
         # networks unpenalised. Counts ENTRY registrations only (renewals never spend it) and never applies
         # to peer push-gossip, so it prices exactly new identities from one network; 0 disables. Watch the
         # 429 rate on CGNAT/campus/conference networks before lowering it further. NADO_MAX_REG_PER_IP.
-        "max_registrations_per_ip": 8,
-        "max_identities_per_ip": 5,
         # The sliding window (seconds) the per-IP budget above is measured over. Longer = tighter (the budget
         # accumulates across more time), but keep it well under the ~1-day lease so renewals don't fill it.
         # Node-local admission control only (an IP can't be a consensus input). NADO_MAX_REG_WINDOW.

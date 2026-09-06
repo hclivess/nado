@@ -511,9 +511,9 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp, device) {
     public_key: wallet.publicKey,
     max_block: targetBlock,
     chain_id: CHAIN_ID,
-    posw,                        // sequential Proof of Work (renewable presence lease); replaces pow_nonce
   };
-  if (device) draft.device = device;   // {att, cdj, rp}: hardware attestation over the anchor-bound challenge (doc/device-attestation.md)
+  if (posw) draft.posw = posw;         // retired at gen 25 (ignored by validation); never sent by this wallet
+  if (device) draft.device = device;   // the registration proof: hardware attestation over the anchor-bound challenge   // {att, cdj, rp}: hardware attestation over the anchor-bound challenge (doc/device-attestation.md)
   return finalizeTransaction(draft, wallet.privateKey, 0);
 }
 
@@ -559,18 +559,19 @@ async function miningHashDeps() {
 // Fetch the PoSW anchor (hash of block max_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
 async function computeRegisterTx(targetBlock, onProgress, requiredT) {
+  // gen 25: the registration proof IS the device attestation (doc/device-attestation.md). The sequential-work
+  // proof was retired at the betanet-7 reroll; `requiredT` and `onProgress` stay in the signature for callers.
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
   const r = await fetch(relayBase() + "/get_block?number=" + anchorNum, { cache: "no-store" });
   const b = await r.json().catch(() => null);
   const anchorHash = b && b.block_hash;
   if (!anchorHash) throw new Error("registration anchor block unavailable");
-  // Prove at the CONSENSUS required step count (base × difficulty). During a registration flood this is higher,
-  // and the node rejects a proof made with fewer steps — so match it or the registration is invalid.
-  const T = (requiredT && requiredT >= POSW_T && requiredT % POSW_S === 0) ? requiredT : POSW_T;
-  const proof = await poswProveAsync(challengeBytes(state.wallet.address, anchorHash),
-    T, POSW_S, POSW_K, await miningHashDeps(), onProgress);
+  if (onProgress) { try { onProgress(1, 1); } catch (e) {} }
   const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
-  return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds(), device);
+  if (!device) {
+    throw new Error(i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
+  }
+  return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
 }
 
 // Ask the PLATFORM authenticator first (phone secure element, Windows Hello TPM, Touch ID) so a device that has one
@@ -2472,24 +2473,15 @@ async function submitRegistration() {
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
-  // Provisional target only, to ASK for the difficulty; the real one is sized to the work that comes back.
-  const diff = await registrationDifficulty(state.wallet.address,
-                                            latest.block_number + POSW_TARGET_MARGIN);
-  // `register` lands EXACTLY at max_block, so every block of margin is latency. Budget it from the work
-  // actually owed and this device's measured rate instead of always paying the worst case (see
-  // poswTargetMarginFor): a cheap renewal lands in ~1 min, an expensive entry still gets the full window.
-  const targetBlock = latest.block_number + poswTargetMarginFor(diff.reqT);
-  const etaSec = Math.max(1, Math.ceil(diff.reqT / poswRate()));
+  // gen 25: the registration proof is the device attestation (one tap) — no sequential work, no difficulty
+  // lookup. `register` lands EXACTLY at max_block, so the margin is just propagation headroom.
+  const diff = { reqT: 0, mult: 1, entryMult: 1, recent: 0 };
+  const targetBlock = latest.block_number + poswTargetMarginFor(0);
+  const etaSec = 5;
   setStartBtnBusy(i18("mine.registering", "Registering…"));
-  const busyNote = diff.mult > 1
-    ? " " + i18("reg.difficultyHigh", "Network is busy — ×{m} difficulty from {n} recent registrations.", { m: diff.mult, n: diff.recent })
-    : "";
-  // A FIRST registration costs ×POSW_ENTRY_MULT (anti-Sybil: creating an identity is dear, keeping one is
-  // cheap). Say so, or a ~30s one-off wait reads as the app hanging — renewals after this are ~1s.
-  const entryNote = (diff.entryMult || 1) > 1
-    ? " " + i18("reg.entryCost", "This is a one-time joining proof (×{m}) — renewals are much faster.", { m: diff.entryMult })
-    : "";
-  setRegBanner(i18("reg.computingEta", "Computing your one-time registration proof — about {s}s on this device.", { s: etaSec }) + busyNote + entryNote + REASSURE);
+  const busyNote = "";
+  const entryNote = "";
+  setRegBanner(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device (one tap).") + busyNote + entryNote + REASSURE);
   showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
   let tx;
   const t0 = Date.now();

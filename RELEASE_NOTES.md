@@ -1,3 +1,19 @@
+# betanet-7 (gen 25) — the REAL-DEVICE reroll (2026-09-07)
+
+Every open-lane identity is attested hardware. A `register` transaction (entry or renewal, every 36 h) carries a
+WebAuthn hardware attestation over a chain-chosen challenge, verified by every node with the native `native/attest`
+kernel against roots pinned in protocol: iPhone/iPad (Apple), Android (TEE/StrongBox, locked bootloader), Windows
+PCs on a physical TPM (Windows Hello; virtual TPMs refused), and FIDO2 security keys (each bound to its own vendor
+root from the FIDO metadata snapshot). A VM, an emulator, a desktop without hardware, a software authenticator or a
+rooted phone cannot register. One human tap per identity per lease — non-automatable by design, no central service.
+
+Retired because a device proof makes them redundant: the sequential-work registration proof (PoSW) and its
+difficulty machinery, the per-IP entry budget and identity cap, probation (an attested identity earns from its
+first lease), the node's open-lane auto-register (nodes earn in the bonded lane), the gen-24 gate constants.
+
+Balances, bonded stake, uncollected dividends and pending withdrawals carry forward at genesis (supply Δ = 0).
+Protocol handshake 12; chain id betanet-7. Design: doc/device-attestation.md.
+
 # v1.0.0-beta.7 — 2026-09-01 — betanet-6: the sybil-rules + account-auth reroll, every amount carried
 
 > **CHAIN_GENERATION 24, protocol 9.** Nodes purge and boot betanet-6 from genesis automatically on

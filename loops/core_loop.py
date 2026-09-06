@@ -3953,62 +3953,9 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Auto-vote skipped: {e}")
 
     def maybe_auto_register(self):
-        """AUTO-REGISTER (opt-in, default off, memserver.auto_register): keep this node present in the OPEN lane
-        hands-free — register when absent, and renew the PoSW lease inside its tail. OFF by default so a headless
-        node doesn't silently join (and Sybil-load) the open lane; ON = 'mine the free lane from this box too'.
-        Computes the ~2 s sequential PoSW inline, throttled to at most once per epoch. Best-effort."""
-        if not getattr(self.memserver, "auto_register", False):
-            return
-        try:
-            from protocol import POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_LEASE_EPOCHS
-            epoch = epoch_of(self.memserver.latest_block["block_number"])
-            if self.last_auto_register_epoch == epoch:
-                return
-            acc = get_account(self.memserver.address)
-            # THE LEASE GUARD READ A FIELD THAT DOES NOT EXIST. `reg_epoch` is not stored on the account —
-            # it is an ENRICHMENT the HTTP handler adds (nado.py: data["reg_epoch"] = recert_latest(addr)).
-            # The raw doc this loop reads has no such key, so `acc.get("reg_epoch", -1)` was ALWAYS -1, the
-            # `reg_ep >= 0` test was always False, and the guard NEVER fired: this node re-registered every
-            # single epoch — 240x more often than the once-per-lease it documents.
-            #
-            # It was not harmless. A recert is +1 fidelity (there was no minimum spacing until
-            # FIDELITY_MIN_GAP_EPOCHS), so auto-registering nodes ran their fidelity to 366-379 in 1.6 days
-            # while browser miners sat at 1 — weight 10 vs 2, i.e. 5x the open-lane selection AND 5x the
-            # presence-dividend share. That is the reward gap users reported. It also burned ~240s/day of
-            # PoSW per node instead of ~1s, spammed ~240 register txs/day each, and inflated the
-            # registration-difficulty baseline (which is why the anti-flood multiplier sat at 1x).
-            #
-            # Read the recert index directly — the same source the enrichment uses.
-            if acc and int(acc.get("registered", 0)) == 1:
-                from ops import kv_ops as _kv
-                reg_ep = int(_kv.recert_latest(self.memserver.address))
-                if reg_ep >= 0 and epoch < reg_ep + POSW_LEASE_EPOCHS - 10:   # still well inside the lease
-                    self.last_auto_register_epoch = epoch
-                    return
-            from ops import posw
-            from ops.block_ops import get_block_hash_by_number
-            from protocol import POSW_T, POSW_TARGET_MARGIN
-            # tip+4 was 24 s to prove AND land. Fine for a renewal (POSW_T at ~2M h/s here is under a
-            # second), impossible for this node's FIRST registration, which owes the entry multiplier —
-            # 32x the rate requirement, 31 s of proving at today's 2x. The node was quietly relying on
-            # having registered back when the multiplier was 1. Use the same budget every other prover
-            # gets; `register` lands at exactly max_block, so a wider target costs only latency.
-            max_block = self.memserver.latest_block["block_number"] + POSW_TARGET_MARGIN
-            anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
-            if not anchor:
-                return
-            # strict v2 requirement — the one and only difficulty mode
-            # Mint at the FULL consensus requirement — rate multiplier AND entry multiplier. Using only
-            # the rate part would under-work every first registration and have it rejected by every node.
-            from ops.reg_difficulty import required_posw_t as _req_t
-            req_t = _req_t(epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET)), self.memserver.address)
-            proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
-            tx = construct_register_tx(self.memserver.keydict, max_block, proof)
-            self.memserver.merge_transaction(tx, user_origin=True)
-            self.last_auto_register_epoch = epoch
-            self.logger.info(f"Auto-register: (re)joined the open lane (max_block {max_block}, PoSW T={req_t})")
-        except Exception as e:
-            self.logger.info(f"Auto-register skipped: {e}")
+        """RETIRED at gen 25: a headless node cannot attest a device, and the open lane is for attested devices
+        (doc/device-attestation.md). A node earns in the bonded lane. Kept as a no-op so the loop shape is unchanged."""
+        return
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         """CONSENSUS validation of the block's tx set against PARENT state at the block's own height:

@@ -27,7 +27,7 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-6"  # BETANET (gen 24): the SYBIL-RULES + ACCOUNT-AUTH reroll — balances, bonded stake,
+CHAIN_ID = "betanet-7"  # BETANET (gen 25): the REAL-DEVICE reroll — every open-lane identity is attested hardware; PoSW, per-IP budgets and probation retired. Was "betanet-6"  # BETANET (gen 24): the SYBIL-RULES + ACCOUNT-AUTH reroll — balances, bonded stake,
                         # dividends and bridged coins fold forward from betanet-4
                         # (genesis_data/genesis_alloc.dat). Every 2026-08-25 rule is live from block 0
                         # with NO gate: linear bonded weight (no per-identity cap), the dividend's own
@@ -66,7 +66,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1788269732  # betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
+GENESIS_TIMESTAMP = 1788269732  # SET AT REROLL TIME (betanet-7, gen 25) — placeholder is the betanet-6 value; betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -585,7 +585,7 @@ POSW_ENTRY_MULT = 32
 #   that carried these rules for the last hours of gen 22 is deleted — it existed for replay of gen-22
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
-CHAIN_GENERATION = 24
+CHAIN_GENERATION = 25
 
 # SCHEDULED-CLEANUP (gen 24 only): the ENTRIES-ONLY flood counting (84d122f3, 2026-09-01 17:12 UTC) shipped
 # UNGATED while betanet-6 was already 1600 blocks old. Every registration validated before the fleet's update
@@ -595,7 +595,7 @@ CHAIN_GENERATION = 24
 # block 1608 (17:13:17 UTC), the first new-rule one at 1636 (17:16:37); any height in (1608, 1636] reproduces
 # history. Landing blocks BELOW this height count every register tx; from it on, entries only. Generation-keyed:
 # on gen 25+ the rule is entries-only from block 0 and this constant is 0.
-POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0
+POSW_ENTRY_COUNT_HEIGHT = 0             # retired at gen 25 (device attestation replaces the PoSW entry rules); kept as a name for the difficulty module until it is deleted
 # SCHEDULED-CLEANUP (gen 24 only): METERED DIVIDEND CARRY. While every identity was on probation (epochs 0-193
 # of betanet-6) the accrual found an empty weight set and carried the WHOLE inflow forward; at epoch 194 the one
 # identity that had just left probation received the entire backlog — 113.29 NADO against 0.587 NADO per epoch
@@ -603,7 +603,7 @@ POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0
 # (never less than DIV_CARRY_RELEASE_FLOOR, so a backlog drains even if inflow stops), so a backlog flows to
 # everyone leaving probation over the following hours instead of to whoever is first. Both accrual paths read
 # ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applies from epoch 0.
-DIV_CARRY_METER_EPOCH = 600 if CHAIN_GENERATION == 24 else 0    # 600, not 300: three nodes could not fetch for hours (git transport)
+DIV_CARRY_METER_EPOCH = 0               # gen 25: the carry is metered from epoch 0 (the gen-24 gate at 600 retired)
 DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 
@@ -1459,10 +1459,10 @@ POSW_DIFF_TRAIL_LONG = 3360          # 14 days of epochs — the long trailing r
 
 
 def on_probation(fidelity, epoch: int) -> bool:
-    """True if an identity with `fidelity` is on probation at `epoch` (rules 1+2 active and fidelity below
-    PROBATION_FIDELITY). Pure; the one predicate both the live paths and the dividend replay share."""
-    f = 0 if fidelity is None or int(fidelity) < 0 else int(fidelity)
-    return f < PROBATION_FIDELITY                        # `epoch` kept for call-site stability (no gate since gen 24)
+    """RETIRED at gen 25 (the real-device reroll): probation existed against mint-and-discard identities, which
+    now each cost an attested device and a human tap. Every attested identity earns from its first lease. Kept
+    as a name so the live paths and the dividend replay stay in lockstep; always False."""
+    return False
 
 
 def dividend_weight(fidelity, epoch: int) -> int:
@@ -1514,7 +1514,7 @@ def split_open_block_reward(reward: int):
 # chain ends at one of these PINNED vendor roots (protocol_roots/*.pem, DER bytes verified by the native attest
 # kernel). Roots are consensus constants: never fetched, never learned from a peer, changed only by a gated
 # protocol commit. Fingerprints are SHA-256 over the DER certificate.
-DEVICE_ATTEST_HEIGHT = 0                 # 0 = phase 0 (capture + probe only); a gated height activates the rule
+DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

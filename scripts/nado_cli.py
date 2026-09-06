@@ -179,7 +179,7 @@ def c_register(kd, node, a):
         pass
     print("proving PoSW (T=%d, ~sequential) …" % req_t)
     proof = posw.prove(posw.challenge_bytes(kd["address"], anchor), T=req_t, S=POSW_S, k=POSW_K)
-    _submit(node, T.construct_register_tx(kd, tb, proof))
+    raise SystemExit("register: retired at gen 25 — open-lane registration needs a hardware-attested device; use the wallet on a phone, a TPM PC or a security key. Nodes earn in the bonded lane.")
 
 
 def c_update(kd, node, a):

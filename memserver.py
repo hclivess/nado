@@ -297,39 +297,7 @@ class MemServer:
             _hrb = 0
         self.history_retention_blocks = _hrb if _hrb > 0 else _HRB
 
-        # IP-DIVERSITY registration cap (non-consensus): max distinct OPEN-lane addresses one source IP
-        # may register through this node per hour (0 = off). See ops/ratelimit.allow_registration.
-        try:
-            # 64 -> 8 (2026-09-01, Sybil rule 4): the budget now counts ENTRY registrations only (renewals are
-            # exempt in nado._ip_registration_rejection), and no household onboards 64 new identities an hour.
-            # Progressive across ranges as before (~2x per /24, ~4x per /16, ~8x per /8).
-            self.max_registrations_per_ip = int(_os.environ.get("NADO_MAX_REG_PER_IP")
-                                                 or self.config.get("max_registrations_per_ip", 8))
-        except (TypeError, ValueError):
-            self.max_registrations_per_ip = 8
-        # IDENTITY CAP (2026-09-06): distinct miner identities one source IP may keep registered (entries AND
-        # renewals) through this relay over one lease; progressive per range. 0 = off. nado._ip_registration_rejection.
-        try:
-            self.max_identities_per_ip = int(_os.environ.get("NADO_MAX_IDENT_PER_IP")
-                                             or self.config.get("max_identities_per_ip", 5))
-        except (TypeError, ValueError):
-            self.max_identities_per_ip = 5
-        # MIGRATION (2026-09-01): every generated config carried the OLD defaults 64 / 7200 literally, so the
-        # new fallback of 8 never applied anywhere. A config still holding exactly that pair is the old
-        # default, not an operator's choice — read it as the new default. An explicit other value stays.
-        if (self.max_registrations_per_ip == 64
-                and str(self.config.get("max_registrations_window", 7200)) in ("7200", "7200.0")
-                and not _os.environ.get("NADO_MAX_REG_PER_IP")):
-            self.max_registrations_per_ip = 8
-            self._legacy_reg_defaults = True
-        try:
-            self.max_registrations_window = float(_os.environ.get("NADO_MAX_REG_WINDOW")
-                                                  or self.config.get("max_registrations_window", 3600))
-        except (TypeError, ValueError):
-            self.max_registrations_window = 3600.0
-        if getattr(self, "_legacy_reg_defaults", False) and not _os.environ.get("NADO_MAX_REG_WINDOW"):
-            self.max_registrations_window = 3600.0
-
+        # per-IP registration budget + identity cap RETIRED at gen 25 (device attestation); knobs gone.
     def ban_peer(self, peer):
         """Queue a misbehaving/unreachable peer for purge (deduplicated against both the purge list
         and the already-unreachable set). Seed peers are EXEMPT — never exiled, always retried —

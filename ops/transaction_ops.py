@@ -439,7 +439,7 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     return verdict
 
 
-def construct_register_tx(keydict, max_block, posw_proof, device=None):
+def construct_register_tx(keydict, max_block, posw_proof=None, device=None):
     """Build a SIGNED open-lane registration/renewal tx. FEE-EXEMPT + zero-amount; carries the sequential
     PoSW proof (ops.posw.prove of posw.challenge_bytes(sender, anchor-block-hash)) that gates open-lane entry.
     posw rides in the signed body (create_txid commits it — only public_key is excluded), exactly like the
@@ -447,7 +447,9 @@ def construct_register_tx(keydict, max_block, posw_proof, device=None):
     tx = {"sender": keydict["address"], "recipient": "register", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0, "posw": posw_proof}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+    if posw_proof is not None:
+        tx["posw"] = posw_proof          # retired at gen 25: ignored by validation, kept for old callers
     if device is not None:
         tx["device"] = device            # {"att", "cdj", "rp"} — committed by the txid like posw
     tx["txid"] = create_txid(tx)
@@ -1159,50 +1161,19 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 "withdraw data does not match the pending unbond"
             assert acc.get("bonded", 0) >= pending["amount"], "bonded stake is below the pending unbond"
     elif recipient == "register":
-        # OPEN-lane entry/renewal: FEE-EXEMPT (a zero-balance newcomer can't pay) and moves no coins.
         assert transaction["amount"] == 0, "register tx must have zero amount"
         assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
-        # SEQUENTIAL Proof-of-Work (doc/ip-spoofing-and-sybil.md, Appendix A): a non-parallelizable hash-chain
-        # PoSW so a GPU can't mint identities in bulk. The challenge binds sender ‖ hash of block
-        # (max_block − POSW_ANCHOR_OFFSET) — a finalized, stable block — so the proof is un-precomputable
-        # far ahead and non-reusable. `register` is a RENEWABLE presence LEASE and the SINGLE presence signal
-        # (no separate heartbeat): a fresh recert keeps you eligible for POSW_LEASE_EPOCHS (doc/presence-dividend.md §2.4).
-        from ops import posw
         from ops.block_ops import get_block_hash_by_number
         anchor = get_block_hash_by_number(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET))
-        assert anchor, "PoSW anchor block not found"
-        proof = transaction.get("posw")
-        assert proof, "Missing registration PoSW"
-        # CONSENSUS registration-rate difficulty v3 (ops/reg_difficulty.py): the required sequential-work
-        # count scales with recent registration volume, counted from the recert_by_epoch CONSENSUS STATE
-        # (snapshot-carried + state_root-validated) over complete epochs strictly before the anchor — a
-        # pure function of the applied chain, independent of local BODY retention, so a from-genesis node
-        # and a snapshot-booted node compute the SAME requirement (the v2 block-scan did not: it silently
-        # counted pruned epochs as 0 and split every snapshot-booted node from every full-history node).
-        # STRICT at every height — no compatibility (policy): deployed as the PROTOCOL 4 flag day.
-        from ops.reg_difficulty import required_posw_t
-        from ops.mining_ops import epoch_of
-        # SENDER IS REQUIRED: the requirement now includes the ENTRY multiplier, which is a function of
-        # this sender's own recert history as of the anchor epoch (reg_difficulty.is_entry_registration).
-        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)),
-                                transaction["sender"], landing_height=block_height)
-        assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
-                           req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
-        # ONE RECERT PER EPOCH (revert-symmetry / anti-fork): apply_register records the recert at
-        # epoch = block_height // EPOCH_LENGTH. Two registers landing in DIFFERENT blocks of the SAME epoch
-        # (the per-block reserved_uniqueness_key only stops same-block dups) would BOTH apply, but recert_put
-        # collapses under DUPSORT and the plain-KV hb_revert record overwrites — so a rollback pops only the
-        # last net and under-reverts the doubled FIDELITY_GAIN, leaving fidelity above a from-scratch sync.
-        # fidelity drives open-lane producer selection, so that residual is a reorg-fork, not cosmetic.
+        assert anchor, "registration anchor block not found"
         assert kv_ops.recert_latest(transaction["sender"]) < (block_height // EPOCH_LENGTH), \
             "sender already recerted this epoch (one register per epoch)"
-        # DEVICE ATTESTATION (doc/device-attestation.md): from DEVICE_ATTEST_HEIGHT every register tx —
-        # entry or renewal — must carry a hardware attestation over the anchor-bound challenge, verified by
-        # the native kernel against the PINNED vendor roots. A rooted/unlocked phone, a VM, a desktop or a
-        # software authenticator cannot produce one; a genuine phone needs a human tap per identity per lease.
-        from protocol import DEVICE_ATTEST_HEIGHT
-        if DEVICE_ATTEST_HEIGHT and block_height >= DEVICE_ATTEST_HEIGHT:
-            verify_register_device(transaction, anchor)
+        # REAL DEVICE (gen 25, doc/device-attestation.md): every register tx — entry or renewal — carries a hardware
+        # attestation over the anchor-bound challenge, verified by the native kernel against the PINNED vendor
+        # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
+        # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
+        # a genuine device needs a human tap per identity per lease.
+        verify_register_device(transaction, anchor)
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

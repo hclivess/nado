@@ -163,3 +163,19 @@ CHAIN_ID / GENESIS_TIMESTAMP / CHAIN_GENERATION / protocol → retire the gen-23
 start → push → `/update` wave → `execnode.games.redeploy` → `_fund_faucet.py` → manual refunds of the pots the
 tool attributes to the operator). Audit before the wipe: DEX pool had a single LP (the operator), OTC escrow
 refunds summed to 0, lend/pool held nothing, shielded pools empty, one open HTLC (the operator's, expired).
+
+## betanet-7 (gen 25) — the real-device reroll (2026-09-07)
+
+Runbook (same order as gen 22/23/24, doc above): stop nado + nado-exec on the relay → `tools/alphanet6_carryforward.py`
+dry run, then `--write` (refuses unless supply Δ = 0) → rm private/genesis_alloc.dat is NOT needed (the tool writes
+it) → set GENESIS_TIMESTAMP (~10 min in the past), CHAIN_ID betanet-7, CHAIN_GENERATION 25, get_protocol 12 (all
+in this commit except the timestamp) → tests/test_genesis_alloc_format.py + tests/test_gen25_retirements.py →
+commit/push → `curl localhost:9173/update` to kick the wave → verify purge + regenesis on every peer by comparing
+a hash at a COMMON height → `python3 -m execnode.games.redeploy` (do not push while it runs) →
+`_fund_faucet.py <refunded pots>`.
+
+What this reroll changes (doc/device-attestation.md): every register tx carries a hardware attestation
+(DEVICE_ATTEST_HEIGHT = 1, unconditional); PoSW, reg_difficulty, the per-IP entry budget and identity cap,
+probation, the node auto-register and the gen-24 gates are retired (pinned by tests/test_gen25_retirements.py).
+Nodes no longer join the open lane themselves; they earn in the bonded lane. Wallets attest at every
+registration; a device that cannot attest sees why on the Mining page.
