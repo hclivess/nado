@@ -321,6 +321,23 @@ async def relays(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+_ATTEST_KERNEL_OK = [None]
+
+
+def _attest_kernel_ok() -> bool:
+    """Whether ops.attest_native can load the native verifier (memoised; re-checked after a failure so a
+    rebuild shows up without a restart)."""
+    if _ATTEST_KERNEL_OK[0]:
+        return True
+    try:
+        from ops import attest_native
+        attest_native._load()
+        _ATTEST_KERNEL_OK[0] = True
+    except Exception:
+        _ATTEST_KERNEL_OK[0] = False
+    return _ATTEST_KERNEL_OK[0]
+
+
 async def status(request):
     """GET /status: the node's status dict — address, chain ends (latest/earliest hash, weight),
     finalized_height + ffg_finalized, protocol/version, chain_id (the network partition key peers gate
@@ -418,6 +435,9 @@ async def status(request):
             # Advertised so the condition is visible from the OUTSIDE (network panel, a sweep of peers),
             # not only to whoever happens to call /update. False here is a node that WILL diverge.
             "update_capable": (memserver.updatability or {}).get("capable"),
+            # DEVICE ATTESTATION kernel (native/attest): False here is a node that cannot validate register txs
+            # once DEVICE_ATTEST_HEIGHT is active — audit the fleet on this field BEFORE the reroll.
+            "attest_kernel": _attest_kernel_ok(),
             # WHY it cannot update, and WHY a forked node is not healing itself — both visible from OUTSIDE.
             # `capable` is a bare boolean covering only LOCAL defects, and /log is authenticated, so a remote
             # operator had no way to tell which precondition was vetoing. That guessing is what stretched the
@@ -2585,6 +2605,18 @@ async def make_app(port):
 
 """warning, no intensive operations or locks should be invoked from API interface"""
 logger = get_logger(logger_name="main_logger")
+
+# DEVICE ATTESTATION KERNEL — REFUSE TO START without it once the rule is active. A node that updated the Python
+# code but did not build native/attest (no cargo, a failed build) would otherwise reject every register tx and
+# fork off silently; failing loudly here is the same policy as the ML-DSA backend. The updater builds the crate
+# (ops.self_update._CRATES); on a hand-installed node: cd native/attest && cargo build --release.
+try:
+    import protocol as _p_attest
+    if int(getattr(_p_attest, "DEVICE_ATTEST_HEIGHT", 0) or 0) > 0:
+        from ops import attest_native as _attest_native
+        _attest_native._load()
+except Exception as _e_attest:
+    raise SystemExit(f"device attestation kernel unavailable: {_e_attest} — build native/attest (cargo build --release). REFUSING TO START.")
 
 allow_async()
 
