@@ -39,8 +39,23 @@ def pack(obj) -> bytes:
     return json.dumps(obj, default=_default, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+_B64_MARK = b"__b64__"
+
+
 def unpack(raw):
-    """Deserialize bytes produced by pack()."""
+    """Deserialize bytes produced by pack().
+
+    The object_hook is a Python call per JSON object, which makes decoding a 10 MiB settle block 2.5x
+    slower than plain json.loads and holds the GIL the whole time (2026-09-06: the mining-history scan
+    starved the relay API through exactly this). The hook can only ever fire on a dict whose sole key is
+    "__b64__", and a key decodes to that string only if the literal appears in the input or a unicode escape
+    spells part of it (a backslash-u escape), so when neither substring is present the plain decode is byte-for-byte the same
+    result and the hook is skipped."""
     if isinstance(raw, (bytes, bytearray)):
-        raw = bytes(raw).decode("utf-8")
+        raw = bytes(raw)
+        if _B64_MARK not in raw and b"\\u" not in raw:
+            return json.loads(raw)
+        raw = raw.decode("utf-8")
+    elif "__b64__" not in raw and "\\u" not in raw:
+        return json.loads(raw)
     return json.loads(raw, object_hook=_object_hook)

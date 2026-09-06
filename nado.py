@@ -34,7 +34,7 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from ops.account_ops import get_account, fetch_totals, get_bonded_registry, get_hard_finality as _ghf
+from ops.account_ops import get_account, fetch_totals, get_bonded_registry, get_hard_finality as _ghf, get_finalized_height
 from ops.address_ops import proof_sender, is_address
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
@@ -457,10 +457,16 @@ async def _mining_history_maintainer():
     pays for the index at all. Once caught up it only folds in the handful of blocks since the last pass."""
     while True:
         try:
+            # Index up to the FINALIZED floor, never the live tip: a rollback then never touches an indexed
+            # height, so the index is built once and kept, instead of dropped and rescanned from genesis
+            # after every emergency rollback. The chart lags the tip by finality depth (~5 min), which is
+            # nothing for a per-day series. 1 s of scanning per 1 s of sleep while building: the scan holds
+            # the GIL in whole-body JSON decodes, and this node is also the public relay.
+            floor = await asyncio.to_thread(get_finalized_height)
             info = await asyncio.to_thread(mining_history.catch_up,
-                                           memserver.latest_block["block_number"],
-                                           memserver.block_time, mining_history.KEEP_DAYS, 3.0)
-            await asyncio.sleep(0.5 if info["building"] else 10.0)
+                                           min(memserver.latest_block["block_number"], floor),
+                                           memserver.block_time, mining_history.KEEP_DAYS, 1.0)
+            await asyncio.sleep(1.0 if info["building"] else 10.0)
         except Exception:
             await asyncio.sleep(30)   # a torn read / restarting store — retry, never kill the maintainer
 

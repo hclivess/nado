@@ -38,7 +38,7 @@ from protocol import split_bonded_block_reward, split_open_block_reward
 
 DAY = 86400
 KEEP_DAYS = 30          # buckets retained per address (the wallet asks for 7; the slack costs ~nothing)
-SCAN_BUDGET_S = 2.0     # max wall-clock one catch_up call spends scanning before yielding a partial index
+SCAN_BUDGET_S = 1.0     # max wall-clock one catch_up call spends scanning before yielding a partial index
 
 _LOCK = threading.Lock()
 # PERSISTED to disk, because the index is the ONLY place this history survives. A snapshot re-anchor calls
@@ -146,6 +146,9 @@ def _prune(now_ts):
 def catch_up(tip, block_time=6, days=KEEP_DAYS, budget_s=SCAN_BUDGET_S):
     """Bring the index up to `tip`. SYNCHRONOUS and block-store bound — call it from a thread.
 
+    Pass the FINALIZED height as `tip`, not the live tip: an index that stops at the finality floor is
+    never invalidated by a rollback, so it is built once per node lifetime instead of once per reorg.
+
     Returns {"upto", "tip", "building", "gaps", "start"}. `building` is True when the time budget ran out
     before reaching the tip: the index is then a correct but PARTIAL view (it always covers a contiguous
     height range, never a hole), and the next call resumes where this one stopped. On a cold chain the
@@ -160,10 +163,12 @@ def catch_up(tip, block_time=6, days=KEEP_DAYS, budget_s=SCAN_BUDGET_S):
                 # (restart after a reorg or a snapshot re-anchor), the file is about a chain we abandoned
                 if not _IDX["anchor"] or hash_by_number(_IDX["upto"]) != _IDX["anchor"]:
                     _reset()
-        if tip < _IDX["upto"] or (
-            _IDX["upto"] >= 0 and _IDX["anchor"] and hash_by_number(_IDX["upto"]) != _IDX["anchor"]
-        ):
-            _reset()        # reorg (or a rolled-back node): the cached attribution is no longer the chain
+        # A reorg is detected by the ANCHOR only: the block at `upto` is no longer the one we indexed. A bare
+        # `tip < upto` is NOT a reorg — the caller passes the finalized floor, which never moves below an
+        # indexed height on an ordinary rollback; treating every tip dip as a reorg dropped the whole index
+        # and rescanned 60k full block bodies (40 min of GIL) after each emergency rollback (2026-09-06).
+        if _IDX["upto"] >= 0 and _IDX["anchor"] and hash_by_number(_IDX["upto"]) != _IDX["anchor"]:
+            _reset()        # reorg below the indexed height: the cached attribution is no longer the chain
 
         if _IDX["upto"] < 0:
             # first build: start far enough back to cover `days`, with slack for faster-than-target blocks
