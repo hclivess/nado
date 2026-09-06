@@ -126,7 +126,10 @@ class MessageClient(threading.Thread):
         try:
             from loops.core_loop import majority_on_our_canonical
             from ops.block_ops import get_block, get_block_hash_by_number
-            if not majority_on_our_canonical(majority_hash, get_block, get_block_hash_by_number):
+            from ops import kv_ops
+            # number_by_hash_fn: height only — never load a block BODY every 10 s for a health line
+            if not majority_on_our_canonical(majority_hash, get_block, get_block_hash_by_number,
+                                             number_by_hash_fn=kv_ops.number_by_hash):
                 # NOT a lag. Deliberately no "we don't hold their block -> assume we're just behind"
                 # fallback: not holding their block is the FORK signature, not the lag signature — it is
                 # the same predicate _depth_floor_corroborated uses to refuse advancing finality. Treating

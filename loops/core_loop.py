@@ -133,14 +133,27 @@ def auto_spend_allowed(balance, committed):
     return committed > 0 and balance > 0 and committed <= balance // AUTO_SPEND_MAX_FRACTION
 
 
-def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn):
+def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn, number_by_hash_fn=None):
     """CORROBORATED DEPTH FINALITY predicate, extracted for direct testing. True when the peer-majority tip
     hash lies ON OUR CANONICAL CHAIN (it is our tip or one of its ancestors — peers lagging a healthy
     producer by a block still corroborate it). False when we don't have that block (we are behind another
     chain) or when we have it only as an orphan (it is on a different fork). The depth-based finality floor
     must only advance under this corroboration: a node producing alone on a minority fork otherwise
     self-finalizes it (max(prev, tip - FINALITY_DEPTH)) and becomes permanently unable to reorg back — the
-    partition wedge. Two KV reads; no network."""
+    partition wedge. Two KV reads; no network.
+
+    Pass `number_by_hash_fn` (kv_ops.number_by_hash) on every live path: only the HEIGHT of the majority
+    block is needed, and get_block_fn loads the whole body (zstd + JSON, 10 MiB for a settle block) —
+    the health report and the corroboration probe paid that per call (8 % of relay GIL, 2026-09-06).
+    get_block_fn stays as the fallback and for the tests that drive this with fake block dicts."""
+    if number_by_hash_fn is not None:
+        try:
+            n = number_by_hash_fn(majority_hash)
+        except Exception:
+            n = None
+        if n is None:
+            return False
+        return canonical_hash_at_fn(n) == majority_hash
     blk = get_block_fn(majority_hash)
     if not blk:
         return False
@@ -659,7 +672,7 @@ class CoreClient(threading.Thread):
                 # verdict below reads that as REORG (ancestor < our tip) and suppressed the only producers,
                 # freezing a 4-node testnet at block 4 with the other two stuck at genesis (2026-09-02).
                 if (_maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]
-                        and majority_on_our_canonical(_maj_hash, get_block, get_block_hash_by_number)):
+                        and majority_on_our_canonical(_maj_hash, get_block, get_block_hash_by_number, number_by_hash_fn=kv_ops.number_by_hash)):
                     self._prod_minority_since = None
                 elif _maj_hash and _maj_hash != self.memserver.latest_block["block_hash"]:
                     _now_g = get_timestamp_seconds()
@@ -1364,7 +1377,7 @@ class CoreClient(threading.Thread):
         if not heaviest:
             return True
         _budget = [4]      # shared prefix-probe budget for this pass (see LAGGING-PREFIX below)
-        if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number):
+        if not majority_on_our_canonical(heaviest, get_block, get_block_hash_by_number, number_by_hash_fn=kv_ops.number_by_hash):
             # LAGGING-PREFIX ESCAPE (2026-08-19, second landing of the same fix): this early return was
             # the gate the first landing never reached — a lagging node NEVER holds the heaviest
             # advertised tip (everyone is ahead of it), so this returned False before the veto-loop and
@@ -1427,7 +1440,7 @@ class CoreClient(threading.Thread):
             if not isinstance(_w, int) or _w <= _our_w:
                 continue
             _t = self.consensus.block_hash_pool.get(_peer)
-            if _t is None or not majority_on_our_canonical(_t, get_block, get_block_hash_by_number):
+            if _t is None or not majority_on_our_canonical(_t, get_block, get_block_hash_by_number, number_by_hash_fn=kv_ops.number_by_hash):
                 # FOREIGN-GENERATION EXEMPTION (2026-08-20, the betanet-4 cutover): a heavier claim can
                 # only veto if the claimant shares OUR genesis. Three un-purged reroll stragglers kept
                 # advertising the PREVIOUS chain's ~9M cumulative weight under the new CHAIN_ID and froze
@@ -1444,7 +1457,7 @@ class CoreClient(threading.Thread):
         for _peer, _hash in self.consensus.block_hash_pool.copy().items():
             if _peer in _me or not _hash:
                 continue
-            if majority_on_our_canonical(_hash, get_block, get_block_hash_by_number):
+            if majority_on_our_canonical(_hash, get_block, get_block_hash_by_number, number_by_hash_fn=kv_ops.number_by_hash):
                 return True
         # nobody advertises a tip we hold — the lagging case. Ask the heaviest few directly whether
         # their chain contains our tip (see the header comment).

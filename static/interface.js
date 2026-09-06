@@ -692,6 +692,15 @@ const RELAY_HOME_RETRY_MS = 2 * 60 * 1000;   // while on an auto relay, how ofte
 const RELAY_BAD_MS = 5 * 60 * 1000;          // a candidate that failed a probe is skipped for this long
 const RELAY_PROBE_TIMEOUT = 6000;
 const RELAY_HEIGHT_TOLERANCE = 20;           // a candidate may trail the best-known tip by this many blocks
+// SLOW IS ALSO DOWN (2026-09-06). The pool only ever rotated on hard failures (timeouts / 5xx), and every
+// answered request reset the counter — so a home relay answering every call in 3-10 s (a GIL-bound node) was
+// "healthy" all evening while psychz sat idle 20 blocks fresh. A relay whose recent answers are mostly slower
+// than RELAY_SLOW_MS is treated like an unreachable one; going back home then requires home to answer a probe
+// FAST (RELAY_HOME_FAST_MS), not merely to answer, or the wallet would ping-pong between the two.
+const RELAY_SLOW_MS = 4000;                  // a single answer slower than this is a "slow" sample
+const RELAY_SLOW_WINDOW = 6;                 // ... over the last N answers ...
+const RELAY_SLOW_MIN = 4;                    // ... and this many slow ones rotate (4 of 6)
+const RELAY_HOME_FAST_MS = 2000;             // home must answer its probe this fast to win the wallet back
 const relayPool = {
   list: (() => { try { const l = JSON.parse(localStorage.getItem(LS_RELAY_POOL) || "[]"); return Array.isArray(l) ? l.filter((c) => c && typeof c.url === "string") : []; } catch (e) { return []; } })(),
   auto: null,          // the relay we switched to, or null = on the home relay
@@ -721,7 +730,19 @@ function renderRelayTag() {
     ? i18("relay.autoTip", "Your usual relay ({h}) stopped answering, so the wallet switched to another node on the same chain. It goes back automatically once {h} is reachable again.", { h: relayHost(homeRelay()) })
     : i18("relay.homeTip", "The node this wallet reads from and sends through.");
 }
-function relayNoteSuccess() { relayPool.fails = 0; }
+function relayNoteSuccess(ms) {
+  relayPool.fails = 0;
+  if (typeof ms !== "number") return;
+  const lat = relayPool.lat || (relayPool.lat = []);
+  lat.push(ms); if (lat.length > RELAY_SLOW_WINDOW) lat.shift();
+  const slow = lat.filter((x) => x >= RELAY_SLOW_MS).length;
+  if (lat.length >= RELAY_SLOW_WINDOW && slow >= RELAY_SLOW_MIN && !relayPool.switching && relayPool.list.length) {
+    relayPool.lat = [];
+    log("warn", i18("log.relaySlow", "Relay {a} is answering slowly ({n} of the last {w} calls over {s}s) — looking for a faster node.",
+        { a: relayHost(relayBase()), n: slow, w: lat.length, s: RELAY_SLOW_MS / 1000 }));
+    relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
+  }
+}
 function relayNoteFailure() {
   relayPool.fails++;
   if (relayPool.fails >= RELAY_FAIL_THRESHOLD && !relayPool.switching) {
@@ -750,10 +771,12 @@ async function refreshRelayPool(force = false) {
   try { localStorage.setItem(LS_RELAY_POOL, JSON.stringify(list)); } catch (e) {}
 }
 async function probeRelay(url) {
+  const t0 = Date.now();
   const res = await fetchWithTimeout(url + "/status", { method: "GET", cache: "no-store" }, RELAY_PROBE_TIMEOUT);
   if (!res.ok) throw new RelayUnreachable("relay returned HTTP " + res.status);
   let st; try { st = await res.json(); } catch (e) { throw new RelayUnreachable("relay returned no JSON"); }
   if (!st || typeof st.chain_id !== "string" || !st.chain_id) throw new RelayUnreachable("relay status has no chain_id");
+  st._probeMs = Date.now() - t0;                 // how fast it answered — the slow-relay rotation reads this
   return st;
 }
 // Would we sign against this node? Same chain (never silently cross chains), and at — or within tolerance
@@ -810,7 +833,8 @@ async function relayMaintain() {
   await refreshRelayPool();
   if (relayPool.auto && Date.now() - relayPool.switchedAt > RELAY_HOME_RETRY_MS && !relayPool.switching) {
     relayPool.switchedAt = Date.now();
-    try { const st = await probeRelay(homeRelay()); if (relayAcceptable(st)) adoptRelay(null, st); } catch (e) {}
+    // home must be acceptable AND fast: a slow-but-alive home is exactly what we left (RELAY_HOME_FAST_MS)
+    try { const st = await probeRelay(homeRelay()); if (relayAcceptable(st) && st._probeMs <= RELAY_HOME_FAST_MS) adoptRelay(null, st); } catch (e) {}
   }
 }
 // Execution node (presence dividend + contracts) — same host as the relay, exec port 9273 (overridable).
@@ -925,7 +949,9 @@ async function refreshUnbond() {
   const panel = $("unbondPanel");
   if (!panel || !state.wallet) return;
   let d = null;
-  try {
+  const v = viewFresh(state.wallet.address);
+  if (v && v.unbond) d = v.unbond;
+  else try {
     const r = await rpcJSON("/get_unbond?address=" + encodeURIComponent(state.wallet.address), { retry: false });
     if (r.ok && r.data) d = r.data;
   } catch (e) { return; }                                     // relay blip — leave the panel as it was
@@ -1135,6 +1161,7 @@ async function rpcJSON(path, { timeout = 12000, retry = true } = {}) {
   const url = relayBase() + path;
   let lastTransient;
   for (let attempt = 0; attempt <= (retry ? 1 : 0); attempt++) {
+    const t0 = Date.now();
     try {
       const res = await fetchWithTimeout(url, { method: "GET", cache: "no-store" }, timeout);
       const text = await res.text();
@@ -1146,7 +1173,7 @@ async function rpcJSON(path, { timeout = 12000, retry = true } = {}) {
         lastTransient.status = res.status;
         continue;
       }
-      relayNoteSuccess();
+      relayNoteSuccess(Date.now() - t0);
       return { ok: res.ok, status: res.status, data };
     } catch (e) {
       if (!isTransient(e)) throw e;      // a real bug in our code, not a reachability blip
@@ -1193,17 +1220,43 @@ async function execJSON(path, { base = null, method = "GET", body = null, timeou
   }
 }
 
+/* WALLET VIEW — one round trip per poll tick (2026-09-06). Every tick used to fan out into six relay calls
+ * (get_latest_block, get_account ×2, mining_status, get_unbond, get_account_mempool); with ~100 open wallets
+ * that was ~110 req/s and the relay's largest remaining cost was per-request overhead, not the reads.
+ * pollOnce fetches /wallet_view once and the getters below answer from it while it is fresh (VIEW_FRESH_MS).
+ * A relay without the route (404) marks it unsupported for a while and the getters fall back to their own
+ * endpoints, so an old node keeps working exactly as before. Never cache across addresses. */
+const VIEW_FRESH_MS = 4000;
+const VIEW_UNSUPPORTED_MS = 10 * 60 * 1000;
+const walletView = { at: 0, addr: null, data: null, unsupportedAt: 0 };
+async function fetchWalletView(addr) {
+  if (Date.now() - walletView.unsupportedAt < VIEW_UNSUPPORTED_MS) return null;
+  try {
+    const r = await rpcJSON("/wallet_view?address=" + encodeURIComponent(addr) + "&since=" + msgCursor(), { retry: false });
+    if (r.status === 404) { walletView.unsupportedAt = Date.now(); return null; }
+    if (!r.ok || !r.data || typeof r.data !== "object" || !r.data.latest) return null;
+    walletView.at = Date.now(); walletView.addr = addr; walletView.data = r.data;
+    return r.data;
+  } catch (e) { if (isTransient(e)) return null; throw e; }
+}
+function viewFresh(addr) {
+  const v = walletView;
+  return (v.data && Date.now() - v.at < VIEW_FRESH_MS && (!addr || v.addr === addr)) ? v.data : null;
+}
 async function getLatestBlock() {
+  const v = viewFresh(null); if (v && v.latest) return v.latest;
   try { return (await rpcJSON("/get_latest_block")).data; }
   catch (e) { if (isTransient(e)) return null; throw e; }
 }
 async function getAccount(address) {
+  const v = viewFresh(address); if (v && "account" in v && !v.account_error) return v.account;
   try {
     const r = await rpcJSON("/get_account?address=" + encodeURIComponent(address));
     return r.ok ? r.data : null;
   } catch (e) { if (isTransient(e)) return null; throw e; }   // relay blip -> unknown, not an error
 }
 async function getMiningStatus(address) {
+  const v = viewFresh(address); if (v && v.mining_status) return v.mining_status;
   try {
     const r = await rpcJSON("/mining_status?address=" + encodeURIComponent(address));
     return r.ok ? r.data : null;
@@ -2418,9 +2471,15 @@ async function submitRegistration() {
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
 
 
+const HIDDEN_POLL_EVERY = 5;   // a background tab polls every Nth tick: ~100 wallets × 6 calls per 8 s was the relay's whole load
+let _hiddenTicks = 0;
 async function pollOnce() {
+  if (document.visibilityState === "hidden" && !state.mining) {
+    if (++_hiddenTicks % HIDDEN_POLL_EVERY) return;    // nobody is looking; a miner keeps its lease cadence
+  } else { _hiddenTicks = 0; }
   if (!netAdopted) refreshNetIdentity().catch(() => {});   // boot fetch lost to a blip: keep trying until adopted
   relayMaintain().catch(() => {});                          // pool refresh (time-gated) + drift back home
+  if (state.wallet) { try { await fetchWalletView(state.wallet.address); } catch (e) { /* getters fall back */ } }
   try {
     const latest = await getLatestBlock();
     if (latest && typeof latest.block_number === "number") {
@@ -3116,7 +3175,9 @@ async function refreshDashboard() {
  * the games use, so the wallet and the games never show two disagreeing token balances. */
 async function refreshPending(addr) {
   let mp = null;
-  try { const r = await rpcJSON("/get_account_mempool?address=" + encodeURIComponent(addr), { retry: false }); if (r.ok && r.data && typeof r.data === "object") mp = r.data; } catch (e) { /* relay blip / old node */ }
+  const v = viewFresh(addr);
+  if (v && v.mempool) mp = v.mempool;
+  else try { const r = await rpcJSON("/get_account_mempool?address=" + encodeURIComponent(addr), { retry: false }); if (r.ok && r.data && typeof r.data === "object") mp = r.data; } catch (e) { /* relay blip / old node */ }
   const freeIn = BigInt((mp && mp.free_in) || 0), freeOut = BigInt((mp && mp.free_out) || 0);
   const execIn = BigInt((mp && mp.exec_in) || 0), execOut = BigInt((mp && mp.exec_out) || 0);
 

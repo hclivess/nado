@@ -1703,6 +1703,15 @@ def hash_by_number(block_number: int):
 
 
 
+def number_by_hash(block_hash: str):
+    """Height of an INDEXED (canonical-or-orphan) block hash from block_by_hash, or None. Two-KV-read
+    predicates (majority_on_our_canonical) need only the height; loading the full body for it cost the
+    health report and the corroboration probe a zstd+JSON decode of every majority tip (8 % of relay GIL,
+    2026-09-06) — and a settle block's body is 10 MiB."""
+    raw = _read(lambda txn: txn.get(block_hash.encode(), db=_dbs()["block_by_hash"]))
+    return int.from_bytes(raw, "big") if raw else None
+
+
 def block_hash_indexed(block_hash: str) -> bool:
     """True if this exact block hash is in the index (idempotency guard for incorporate)."""
     return _read(lambda txn: txn.get(block_hash.encode(), db=_dbs()["block_by_hash"]) is not None)
