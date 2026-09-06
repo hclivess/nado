@@ -307,6 +307,7 @@ def create_config(ip: str, config_path: str = None):
         # to peer push-gossip, so it prices exactly new identities from one network; 0 disables. Watch the
         # 429 rate on CGNAT/campus/conference networks before lowering it further. NADO_MAX_REG_PER_IP.
         "max_registrations_per_ip": 8,
+        "max_identities_per_ip": 5,
         # The sliding window (seconds) the per-IP budget above is measured over. Longer = tighter (the budget
         # accumulates across more time), but keep it well under the ~1-day lease so renewals don't fill it.
         # Node-local admission control only (an IP can't be a consensus input). NADO_MAX_REG_WINDOW.

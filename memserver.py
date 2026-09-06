@@ -307,6 +307,13 @@ class MemServer:
                                                  or self.config.get("max_registrations_per_ip", 8))
         except (TypeError, ValueError):
             self.max_registrations_per_ip = 8
+        # IDENTITY CAP (2026-09-06): distinct miner identities one source IP may keep registered (entries AND
+        # renewals) through this relay over one lease; progressive per range. 0 = off. nado._ip_registration_rejection.
+        try:
+            self.max_identities_per_ip = int(_os.environ.get("NADO_MAX_IDENT_PER_IP")
+                                             or self.config.get("max_identities_per_ip", 5))
+        except (TypeError, ValueError):
+            self.max_identities_per_ip = 5
         # MIGRATION (2026-09-01): every generated config carried the OLD defaults 64 / 7200 literally, so the
         # new fallback of 8 never applied anywhere. A config still holding exactly that pair is the old
         # default, not an operator's choice — read it as the new default. An explicit other value stays.

@@ -43,6 +43,23 @@ def _prefixes(ip: str):
     return tuple(f"{ipaddress.ip_network(f'{ip}/{p}', strict=False).network_address}/{p}" for p in levels)
 
 
+# IDENTITY CAP (2026-09-06, operator decision): the same progressive crowding rule applied to EVERY register
+# tx — entries AND lease renewals — over one POSW lease (36 h). Rule 4 (2026-09-01) exempted renewals so a
+# roaming phone is never refused; that still holds for one identity per device: a renewal from a new IP is
+# allowed whenever that IP is under the cap. What it stops is one IP keeping dozens of identities alive
+# through this relay: measured 2026-09-06, two IPs in 120.105.96.0/24 each polled ~50 miner addresses and
+# nine IPs in 185.23.5.0/24 ~4 each — 1,191 registered identities, 189 of them served by 56 client IPs.
+# Over-cap identities simply fail to renew HERE and lapse out of the open registry within the lease; an
+# operator with a real fleet can run their own node. NON-CONSENSUS, relay-local, 0 = off.
+_id_levels = [defaultdict(dict), defaultdict(dict), defaultdict(dict), defaultdict(dict)]
+
+
+def allow_identity(ip: str, address: str, max_addrs: int, window: float = 360 * 60 * 6.0) -> bool:
+    """True if `ip` may keep `address` registered through this relay (see IDENTITY CAP above). Same
+    progressive crowding arithmetic as allow_registration, separate store, lease-length window."""
+    return _allow_crowding(_id_levels, ip, address, max_addrs, window)
+
+
 def allow_registration(ip: str, address: str, max_addrs: int, window: float = 3600.0) -> bool:
     """True if `ip` may onboard `address`. `max_addrs` is the crowding budget expressed as
     'equivalent same-EXACT-IP addresses': a same-/32 peer costs 1.0 of it, a same-/24 (diff /32) peer
@@ -53,6 +70,11 @@ def allow_registration(ip: str, address: str, max_addrs: int, window: float = 36
     Best-effort by design: an attacker can still spread across relays or rent scattered IPs, and a
     CGNAT'd carrier shares ranges among real phones — so keep max_addrs GENEROUS. The HARD Sybil bound
     remains the structural OPEN_BPS lane cap; this only raises the cost of the cheap single-range version."""
+    return _allow_crowding(_reg_levels, ip, address, max_addrs, window)
+
+
+def _allow_crowding(levels, ip: str, address: str, max_addrs: int, window: float) -> bool:
+    """progressive per-range crowding check + record, over the given 4-level store"""
     if max_addrs <= 0:
         return True                                        # 0/negative disables the cap
     now = time.time()
@@ -60,7 +82,7 @@ def allow_registration(ip: str, address: str, max_addrs: int, window: float = 36
     pfx = _prefixes(ip)
     seen_sets = []
     for i, key in enumerate(pfx):
-        bucket = _reg_levels[i][key]
+        bucket = levels[i][key]
         for a in [a for a, t in bucket.items() if t < cutoff]:
             del bucket[a]
         seen_sets.append(set(bucket.keys()))
@@ -75,9 +97,9 @@ def allow_registration(ip: str, address: str, max_addrs: int, window: float = 36
     if not already and crowding >= max_addrs * _LEVEL_WEIGHTS[0]:
         return False
     for i, key in enumerate(pfx):                          # record under every prefix level
-        _reg_levels[i][key][address] = now
-    if len(_reg_levels[0]) > _MAX_KEYS:                    # opportunistic GC so the maps can't grow unbounded
-        for lvl in _reg_levels:
+        levels[i][key][address] = now
+    if len(levels[0]) > _MAX_KEYS:                    # opportunistic GC so the maps can't grow unbounded
+        for lvl in levels:
             for k in list(lvl.keys()):
                 d = lvl[k]
                 for a in [a for a, t in d.items() if t < cutoff]:

@@ -677,13 +677,27 @@ def _ip_registration_rejection(ip, transaction):
     try:
         if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
             return None
+        from protocol import POSW_LEASE_EPOCHS, EPOCH_LENGTH
         if ip in memserver.peers:
             # PEER PUSH-GOSSIP IS EXEMPT (relay review, 2026-09-01): a relay forwarding many users' entries
             # would look like one farm to its peers and exact-landing registrations would propagate unevenly
             # — a mempool-convergence cost for no security gain, since a farm bypasses the cap with its own
             # node anyway. The budget prices user ingress at THIS relay only.
             return None
-        from ops.ratelimit import allow_registration
+        from ops.ratelimit import allow_registration, allow_identity
+        # IDENTITY CAP (2026-09-06): every register tx — entry OR renewal — must fit this IP's identity budget
+        # over one lease (ops/ratelimit.allow_identity). One device keeps a handful of identities alive; a
+        # farm's extra identities fail to renew here and lapse. 0 = off. Roaming: one identity from a new IP
+        # is always under the cap, so rule 4's phone still renews.
+        _sender = str(transaction.get("sender", ""))
+        _idcap = getattr(memserver, "max_identities_per_ip", 5)
+        if _idcap > 0 and not allow_identity(ip, _sender, _idcap, POSW_LEASE_EPOCHS * EPOCH_LENGTH * 6.0):
+            logger.warning(f"identity cap: refused register/renewal of {_sender[:12]}… from {ip} "
+                           f"(> {_idcap} identities per IP over one lease)")
+            return {"result": False,
+                    "message": f"Too many miner identities from this IP on this relay (cap {_idcap} per IP over "
+                               f"one 36 h lease; more per wider range). Use fewer addresses per connection, or "
+                               f"run your own node for a larger fleet."}
         # ENTRIES ONLY (2026-09-01, Sybil rule 4): a RENEWAL never spends the budget — an established phone
         # roaming across networks must never be refused its lease — so the budget prices exactly the thing it
         # exists for: new identities. Same anchor derivation as the consensus entry check.

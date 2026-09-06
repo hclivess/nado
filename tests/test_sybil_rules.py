@@ -99,7 +99,7 @@ def t5_wiring():
     nado = open(os.path.join(ROOT, "nado.py")).read()
     ms = open(os.path.join(ROOT, "memserver.py")).read()
     js = open(os.path.join(ROOT, "static", "interface.js")).read()
-    seg = nado[nado.index("def _ip_registration_rejection"):nado.index("def _ip_registration_rejection") + 2500]
+    seg = nado[nado.index("def _ip_registration_rejection"):nado.index("async def health")]   # whole hook (the identity-cap block of 2026-09-06 sits above the entry check)
     check("per-IP budget: entries only", "is_entry_registration(" in seg and "return None" in seg.split("is_entry_registration(")[1][:200])
     check("per-IP budget default 8", 'self.config.get("max_registrations_per_ip", 8)' in ms)
     check("live open weights omit probation", "if w > 0:" in nado[nado.index("async def get_open_weights"):nado.index("async def duty_committee")])
