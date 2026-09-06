@@ -176,13 +176,24 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     # Anchor inside the answerable window first, then find its lower edge and search from there. Agreement
     # at the lowest height they can serve is just as conclusive: any height they hold is one we must also
     # match to be on their chain.
+    # TIP FIRST (2026-09-06). A node that is merely SHORT of the majority — the everyday case on a loaded
+    # relay that flaps into emergency a few blocks behind — matches the majority at its own tip, and that
+    # single answer decides the verdict: nothing below the tip can change it (the range search below only
+    # serves the binary search, which never runs when `top` is True). Measured before this check: 27-28
+    # probes per verdict every FORK_STATE_TTL_S, ~15 s of serial socket waits per minute on the core thread.
+    # Equivalent to the old order: when the tip is answerable, _find_answerable returned it on its first
+    # probe anyway; when it is NOT answerable (None), everything below runs exactly as before.
+    top = agrees(tip)
+    if top:
+        return tip, probes
     _requested_floor = floor
     _anchor = _find_answerable(floor, tip, agrees)
     if _anchor is None:
         return None, probes                      # they can answer nowhere in range -> genuinely unknown
     floor = _lowest_answerable(floor, _anchor, agrees)
 
-    top = agrees(tip)
+    if top is None:
+        top = agrees(tip)
     if top is None:
         # PEERS CANNOT ANSWER AT OUR TIP — the signature of a node that is AHEAD of everyone, which is exactly
         # what a lone forker looks like: it mines every slot unopposed and outruns the honest majority. Giving
