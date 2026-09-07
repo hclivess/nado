@@ -1,4 +1,4 @@
-# betanet-7 (gen 25) — the REAL-DEVICE reroll (2026-09-07)
+# betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
 Every open-lane identity is attested hardware. A `register` transaction (entry or renewal, every 36 h) carries a
 WebAuthn hardware attestation over a chain-chosen challenge, verified by every node with the native `native/attest`
