@@ -543,6 +543,14 @@ its sender in consensus state for one lease (36 h); the same device cannot regis
 binding lives. Device classes that carry nothing per-device are not accepted at all: what cannot be bound is not
 proof of anything.
 
+### Why a device at all, and what the network sees
+
+Before this rule the free mining lane was farmed: about a thousand fake identities, run by two or three people on rented servers, took roughly 40 % of all emission. Every rule that was per identity — proof of work, waiting times, per-address limits — was dodged by making more identities. The one thing a server farm cannot fake is a real device's secure chip, so a mining identity is now one real device.
+
+It is not a passkey or a login. The wallet asks your phone or PC to create a throwaway hardware key and sign one challenge chosen by the chain. What every node verifies, offline, is the maker's certificate: "genuine Android", "genuine TPM", "genuine Ledger". No serial number, no account, no name leaves the device; the key is never used again; nothing is stored with your wallet key; no node ever contacts Google, Microsoft, Ledger or Trezor.
+
+Holding, sending and receiving NADO need no device. Attestation is only for mining rewards. If you would rather not attest from the device you mine on, "Attest from another device" lets any phone or PC you trust vouch for the wallet.
+
 **Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
 factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour
 presence lease with a register transaction that carries no statement at all — the account key signs it, no cable,
