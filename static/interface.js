@@ -2421,6 +2421,16 @@ function setStartBtnMining() {
   b.classList.remove("primary"); b.classList.add("danger");
   b.textContent = i18("btn.stopMine", "Stop mining");
 }
+// The loop is running but NOTHING is being mined yet (waiting for the Register press, for another device's statement,
+// or for a kept registration to land): the button must still stop the loop, but it must not claim mining is happening
+// (an unregistered PC read "Stop mining" while mining nothing — 2026-09-08).
+function setStartBtnWaitingReg() {
+  const b = $("btnMine");
+  b.disabled = false;
+  b.classList.remove("primary"); b.classList.add("danger");
+  b.textContent = i18("btn.stopWait", "Stop");
+  if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
+}
 function setStartBtnIdle(label) {
   const b = $("btnMine");
   b.disabled = false;
@@ -2721,7 +2731,7 @@ async function maybeRegister() {
       } else {
         setRegBanner(i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
         show("powWrap", false); show("regTapRow", false);
-        setStartBtnMining();
+        setStartBtnWaitingReg();
         return;
       }
     } catch (e) { /* relay blip: next tick */ }
@@ -2731,7 +2741,7 @@ async function maybeRegister() {
     setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
     show("powWrap", false);
     show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
-    setStartBtnMining();                         // the main button is Stop meanwhile, never a dead spinner (review 2026-09-07)
+    setStartBtnWaitingReg();                     // the main button is Stop meanwhile, never a dead spinner (review 2026-09-07) — and never "Stop mining" while nothing mines
     return;
   }
   show("regTapRow", false);
@@ -2806,7 +2816,7 @@ async function submitRegistration() {
     // the kept tx can no longer land: drop it and go back through the Register gate — never straight into a
     // new device prompt from the poll loop (review 2026-09-07)
     state.pendingRegisterTx = null;
-    if (!state.tapArmed) { setStartBtnMining(); show("regTapRow", true); return false; }
+    if (!state.tapArmed) { setStartBtnWaitingReg(); show("regTapRow", true); return false; }
   }
   state.pendingRegisterTx = null;
   const targetBlock = latest.block_number + REG_TARGET_MARGIN;
