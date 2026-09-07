@@ -47,6 +47,9 @@ struct ContentView: View {
             log.append("tip \(tip), target \(target), anchor \(anchor.prefix(12))…")
             let (att, cdj, first) = try await AttestService.statement(sender: address.lowercased(), maxBlock: target, anchorHash: anchor)
             log.append(first ? "attested this device's key (first time)" : "assertion by this device's key")
+            if let pr = try? await r.probe(att: att, cdj: cdj), let sm = pr["summary"] as? [String: Any] {
+                log.append("relay parsed it: fmt \(sm["fmt"] ?? "?"), \(sm["x5c_count"] ?? 0) certificate(s), sample kept")
+            }
             let res = try await r.drop(sender: address.lowercased(), maxBlock: target, att: att, cdj: cdj)
             log.append("dropped on the relay: \(res)")
             log.append("Now the wallet picks it up and registers (keep it open).")

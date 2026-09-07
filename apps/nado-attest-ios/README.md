@@ -55,3 +55,26 @@ keychain (which iOS keeps across app deletion), and only an app signed by the pi
 `rpIdHash`. A new key therefore needs "Erase All Content and Settings" — the same class of reset that rotates an
 Android or TPM key. Jailbroken devices: App Attest still runs; Apple's server-side fraud receipt is the only
 signal about them and it is deliberately NOT used (a network call cannot be consensus).
+
+## Release checklist (the parts only a Mac + a paid team can do)
+
+1. **Enroll**: developer.apple.com/programs → Apple Developer Program (US$99/year, 1–2 days for approval).
+   Note the 10-character **Team ID** (Membership details).
+2. **Generate the project** on the Mac: `brew install xcodegen && cd apps/nado-attest-ios && xcodegen generate`,
+   open `NadoAttest.xcodeproj`, Signing & Capabilities → your team. App Attest and the URL scheme are already in
+   the spec (`project.yml`); the icon and the privacy manifest are in place; export compliance is answered
+   (`ITSAppUsesNonExemptEncryption = NO`, only Apple CryptoKit + TLS).
+3. **First real statement**: run on a physical iPhone (App Attest does not exist in the simulator), paste any
+   wallet address, press Attest. The app POSTs the statement to the relay's `/device_attest_probe`, which keeps
+   the sample; the maintainer verifies it against the kernel from there. Send the App ID string
+   (`<TEAMID>.com.nadochain.attest`) at the same time.
+4. **Enable on chain** (maintainer): pin the App ID in `protocol.DEVICE_ATTEST_APPLE_APP_IDS`, set
+   `DEVICE_ATTEST_APPLE_HEIGHT` a few hundred blocks ahead, flip `APPLE_APP_LIVE` in the wallet, fleet wave.
+5. **TestFlight**: Product → Archive → Distribute → App Store Connect → TestFlight. Internal testers need no
+   review; external testers need Apple's beta review (a day or two).
+6. **App Store**: App Store Connect → new app, category Utilities, privacy "Data Not Collected", screenshots
+   from the phone, description below, submit for review.
+
+Suggested store description: "NADO Attest lets an iPhone, iPad or Mac vouch for a NADO mining identity. Apple's
+App Attest proves the device is genuine; the app sends that proof to your wallet through the NADO network. It holds
+no coins and no keys to your account — one device, one identity."

@@ -45,6 +45,13 @@ struct Relay {
         return h
     }
 
+    /// POST /device_attest_probe {att, cdj}: the relay parses the statement and KEEPS it as a sample (this is how the
+    /// first real device statement reaches the maintainers for verification while the chain still refuses the format).
+    func probe(att: Data, cdj: Data) async throws -> [String: Any] {
+        let body: [String: Any] = ["att": att.base64EncodedString(), "cdj": cdj.base64EncodedString(), "cid": "nado-attest-app"]
+        return try await json("device_attest_probe", body: try JSONSerialization.data(withJSONObject: body))
+    }
+
     /// POST /node_attest_drop {sender, max_block, device:{att, cdj, rp}} — the receiving wallet picks it up.
     func drop(sender: String, maxBlock: Int, att: Data, cdj: Data) async throws -> [String: Any] {
         let body: [String: Any] = ["sender": sender, "max_block": maxBlock,
