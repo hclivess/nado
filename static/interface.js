@@ -2288,7 +2288,8 @@ function clearRegBanner(tag) {
 function hideRegBannerSoon(ms = 6000) {
   setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
 }
-const REASSURE = ' <b>' + i18("reassure", "One-time setup — no need to click again.") + '</b>';
+// gen 25: registration is NOT one-time any more — every lease (36 h) renews with one tap on the device, so say so.
+const REASSURE = ' <b>' + i18("reassure", "One tap per lease (36 h) — renewals ask for a tap again.") + '</b>';
 
 // Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
 function markMiningActive() {
@@ -2573,7 +2574,8 @@ async function submitRegistration() {
   const busyNote = "";
   const entryNote = "";
   setRegBanner(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device (one tap).") + busyNote + entryNote + REASSURE);
-  showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
+  // gen 25: no proof is computed, so no "about N seconds" estimate — the only wait is the device prompt.
+  showRegProgress(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device (one tap)."), "");
   let tx;
   const t0 = Date.now();
   try {
@@ -2587,9 +2589,7 @@ async function submitRegistration() {
   } finally {
     show("powWrap", false);
   }
-  const proveMs = Date.now() - t0;
-  savePoswRate(diff.reqT, proveMs);
-  log("ok", `Sequential PoW computed in ${(proveMs / 1000).toFixed(1)}s (${diff.reqT.toLocaleString()} hashes${diff.mult > 1 ? `, ×${diff.mult} difficulty` : ""}).`);
+  const proveMs = Date.now() - t0;                    // gen 25: the "proof" is the tap; attestDevice() already logged it
   // DID THE PROOF OUTLIVE ITS OWN WINDOW? `register` is EXACT-LANDING at max_block, and max_block is
   // pinned to tip+POSW_TARGET_MARGIN at the START of proving — the anchor (max_block-POSW_ANCHOR_OFFSET)
   // has to already exist, so the budget is hard-capped at POSW_TARGET_MARGIN blocks no matter how much

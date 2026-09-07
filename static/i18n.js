@@ -4600,6 +4600,26 @@
     "vi": {"node.title": "Chứng thực node bạn đang chạy", "node.blurb": "Node không thể tự chứng thực — nó không có phần tử bảo mật và không có ai để chạm. Dán địa chỉ node của bạn (hiển thị trên trang /status của nó), rồi chạm một lần: thiết bị này bảo lãnh cho danh tính làn mở của node, node lấy chứng thực từ mạng và tự đăng ký. Một lần chạm cho mỗi kỳ thuê (36 giờ), như mọi thợ đào.", "node.addrPh": "địa chỉ node (46 ký tự hex)", "node.btn": "Chứng thực node này (một lần chạm)", "node.status.addr": "Nhập địa chỉ node để xem kỳ thuê của nó.", "node.status.needsTap": "Chưa có kỳ thuê làn mở — chạm ở đây để đăng ký node.", "node.status.renewable": "Kỳ thuê đang có hiệu lực (độ trung thành {f}) — chạm ngay để gia hạn đúng hạn.", "node.status.held": "Kỳ thuê đang có hiệu lực (độ trung thành {f}) — gia hạn có lợi từ kỷ nguyên {e}; hiện chưa cần làm gì.", "node.err.addr": "Đó không phải địa chỉ NADO (46 ký tự hex).", "node.log.attesting": "Đang chứng thực node {a} — hãy chấp nhận lời nhắc trên thiết bị này.", "node.log.dropFailed": "Relay đã từ chối chứng thực: {e}", "node.log.dropped": "Đã gửi chứng thực tới mạng — node sẽ tự đăng ký trong ~1 phút (khối mục tiêu {b}).", "node.log.registered": "Node {a} đã được đăng ký — độ trung thành {f}.", "node.log.timeout": "Chưa thấy kỳ thuê — node có thể đang ngoại tuyến, ở chuỗi khác, hoặc không thăm dò mạng; hãy kiểm tra /node_attest_status của nó."}
   };
   for (const l in T67) Object.assign(T[l] = T[l] || {}, T67[l]);
+  // T68: gen 25 registration is a tap per lease, not a one-time setup — the reassurance line said the opposite.
+  const T68 = {
+    "en": {"reassure": "One tap per lease (36 h) — renewals ask for a tap again."},
+    "cs": {"reassure": "Jedno klepnutí na pronájem (36 h) — obnova si znovu řekne o klepnutí."},
+    "es": {"reassure": "Un toque por arrendamiento (36 h): la renovación vuelve a pedir un toque."},
+    "pt": {"reassure": "Um toque por arrendamento (36 h) — a renovação pede um toque de novo."},
+    "fr": {"reassure": "Un appui par bail (36 h) — le renouvellement redemande un appui."},
+    "de": {"reassure": "Ein Tipp pro Lease (36 h) – die Verlängerung fragt erneut nach einem Tipp."},
+    "it": {"reassure": "Un tocco per lease (36 h): il rinnovo chiede di nuovo un tocco."},
+    "ru": {"reassure": "Одно нажатие на аренду (36 ч) — при продлении понадобится нажать снова."},
+    "zh": {"reassure": "每个租约（36 小时）点击一次——续期时会再次要求点击。"},
+    "ja": {"reassure": "リース（36 時間）ごとに 1 タップ。更新時にもう一度タップが求められます。"},
+    "ko": {"reassure": "리스(36시간)당 한 번 탭 — 갱신 시 다시 탭을 요청합니다."},
+    "ar": {"reassure": "نقرة واحدة لكل عقد إيجار (36 ساعة) — يطلب التجديد نقرة مرة أخرى."},
+    "hi": {"reassure": "हर लीज़ (36 घंटे) पर एक टैप — नवीनीकरण फिर से टैप माँगेगा।"},
+    "tr": {"reassure": "Her kira (36 sa) için bir dokunuş — yenileme yeniden dokunmanı ister."},
+    "id": {"reassure": "Satu ketukan per sewa (36 jam) — pembaruan meminta ketukan lagi."},
+    "vi": {"reassure": "Một lần chạm cho mỗi kỳ thuê (36 giờ) — gia hạn sẽ yêu cầu chạm lại."}
+  };
+  for (const l in T68) Object.assign(T[l] = T[l] || {}, T68[l]);
 
 
 
