@@ -276,7 +276,9 @@ a { color: var(--accent-2); }
 /* block-layout banners (the APY estimate + auto-bond controls) space their rows evenly */
 .hint-banner[style*="block"] > * + * { margin-top: 10px; }
 .hint-banner label { font-weight: 600; color: var(--txt); }
-.hint-banner .hint { color: inherit; cursor: default; font-size: 12px; margin: 0; font-weight: 400; }
+/* font-size stays 0: .hint draws its "i" with ::before and hides the literal ⓘ text behind font-size 0; the old 12px
+   here un-hid that text, so "Savings APY" showed TWO icons (user report 2026-09-07). Same drawn icon everywhere. */
+.hint-banner .hint { color: inherit; cursor: default; font-size: 0; margin: 0; font-weight: 400; }
 .hint-banner b { color: var(--txt); }
 /* staged status banner state variants (registration confirmed / failed) */
 .hint-banner.ok { background: rgba(63,185,80,.10); border-color: rgba(63,185,80,.4); color: #8be39a; }
