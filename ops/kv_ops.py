@@ -54,7 +54,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
+_PLAIN_DBS = ("devbind", "devbind_revert", "accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes", "auth_history")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -88,7 +88,10 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert"))
+                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert", "devbind_revert"))
+# devbind (device certificate -> {address, epoch}, ops/device_attest.device_binding_key) IS consensus state: written
+# only by apply_register from protocol.DEVICE_BIND_HEIGHT, block-derived, so it stays IN the snapshot and the root.
+# devbind_revert is its rollback journal (keyed epoch|address), node-local like every other *_revert.
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 DUP_DBS = frozenset(_DUP_DBS)     # the DUPSORT set, for readers that must treat multi-value keys differently
 
@@ -2063,6 +2066,56 @@ def hb_revert_pop(epoch: int, address: str):
         txn.delete(key, db=_dbs()["hb_revert"])
         prev, net = _unpack(raw)
         return int(prev), int(net)
+    return _write(_do)
+
+
+# --- ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key) ---------------
+# devbind: <device key str> -> msgpack([address, epoch]) — which identity a device certificate vouches for and the
+# recert epoch that bound it (the binding is live for POSW_LEASE_EPOCHS from that epoch). Consensus state.
+# devbind_revert: epoch|address -> msgpack([key, prev_address|None, prev_epoch]) — the EXACT inverse for rollback.
+
+def devbind_get(key: str):
+    """(address, epoch) bound to a device key, or None."""
+    def _do(txn):
+        raw = txn.get(key.encode(), db=_dbs()["devbind"])
+        if raw is None:
+            return None
+        a, e = _unpack(raw)
+        return str(a), int(e)
+    return _read(_do)
+
+
+def devbind_set(key: str, address: str, epoch: int):
+    def _do(txn):
+        txn.put(key.encode(), _pack([str(address), int(epoch)]), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def devbind_del(key: str):
+    def _do(txn):
+        txn.delete(key.encode(), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def devbind_revert_put(epoch: int, address: str, key: str, prev):
+    """Journal what a register's binding OVERWROTE: prev = (address, epoch) or None. Always written on apply so
+    pop can distinguish 'no prior binding' (delete on revert) from 'no record' (pre-gate register)."""
+    def _do(txn):
+        pa, pe = (prev[0], int(prev[1])) if prev else (None, -1)
+        txn.put(be8(int(epoch)) + address.encode(), _pack([str(key), pa, pe]), db=_dbs()["devbind_revert"])
+    _write(_do)
+
+
+def devbind_revert_pop(epoch: int, address: str):
+    """Read + DELETE the binding journal for (epoch, address): (key, prev_address|None, prev_epoch) or None."""
+    def _do(txn):
+        k = be8(int(epoch)) + address.encode()
+        raw = txn.get(k, db=_dbs()["devbind_revert"])
+        if raw is None:
+            return None
+        txn.delete(k, db=_dbs()["devbind_revert"])
+        key, pa, pe = _unpack(raw)
+        return str(key), (str(pa) if pa is not None else None), int(pe)
     return _write(_do)
 
 

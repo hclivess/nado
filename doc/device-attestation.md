@@ -163,6 +163,27 @@ Nothing is written to the account: from the gate every register tx is attested, 
 (a recert within the lease, from the recert history) already implies "attested", and the epoch weight
 derivation stays replayable from the recert index alone. The wallet shows the attestation from the tx.
 
+## One device, one identity (`DEVICE_BIND_HEIGHT`, 2026-09-07)
+
+The point of attestation: "using one device to attest 100,000 wallets must be impossible". A tap alone does not
+give that — on a genuine, unrooted Android `adb input tap` automates the tap. The device CERTIFICATE does:
+
+- `ops/device_attest.device_binding_key(device)` → `android-key:sha256(x5c[1])` (the device's remotely-provisioned
+  attestation-key certificate; a certificate valid longer than `DEVICE_BIND_MAX_CERT_SECS` = 90 days is a shared
+  batch certificate and the statement is REFUSED) or `tpm:sha256(x5c[0])` (the AIK certificate). `packed`, `apple`
+  and anything else are refused: they carry no per-device certificate, so the property cannot be enforced for them.
+- Consensus table `devbind` (kv_ops): key → (address, recert epoch). Written by `apply_register` from the gate,
+  journaled in `devbind_revert` and restored exactly on rollback; snapshot-carried and in the state root.
+- Rule (`transaction_ops`, register branch, after the kernel verdict, at the block's own height): if the key is
+  bound to a DIFFERENT sender and `epoch < bound_epoch + POSW_LEASE_EPOCHS`, the tx is invalid — "this device already
+  vouches for another identity until epoch N". The same sender renews freely; after the lease the device may move.
+- Gate hygiene: `DEVICE_BIND_HEIGHT` is a height ahead of the fleet's adoption on the live betanet-7 chain
+  (registrations below it carry no binding and replay unchanged); it becomes 1 at the next reroll.
+
+What this bounds: one Android device (per ~2-week certificate rotation, which is far longer than a lease) or one
+Windows account on one TPM holds ONE open-lane identity at a time. Tests: tests/test_device_binding.py (real
+Android chain binds on x5c[1]; batch/packed/apple refused; apply/revert symmetry; the rule's arithmetic).
+
 ## Attesting a node (`ops/node_attest`, 2026-09-07)
 
 A headless node has no secure element and nobody to tap, so from gen 25 it never auto-registers; a node with no

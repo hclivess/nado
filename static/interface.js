@@ -2466,6 +2466,7 @@ function refreshLeasePanel(acc, ms) {
 }
 async function renewLeaseManually() {
   if (!state.wallet || _renewingLease || state.registering) return;
+  state.tapArmed = true;                        // the user pressed Renew: one attestation prompt may follow
   const btn = $("btnRenewLease");
   if (btn) btn.disabled = true;
   try {
@@ -2513,6 +2514,16 @@ async function maybeRegister() {
       return;                                     // still pending; let the poll loop keep checking
     }
   }
+  // GEN 25: A REGISTRATION IS A TAP, AND A TAP IS NEVER SILENT. The poll loop reaches here on its own (first
+  // registration, an expired lease, a presence mismatch); firing navigator.credentials.create() without a user
+  // gesture yields nothing on most platforms and produced the misleading "could not attest itself" line. Only a
+  // Start/Renew press arms ONE prompt; otherwise say what is needed and wait for the press.
+  if (!state.tapArmed) {
+    setRegBanner(i18("reg.tapNeeded", "Your identity needs a tap: press Start (or Renew) to attest this device — one tap per lease."), "warn", "tap");
+    show("powWrap", false);
+    return;
+  }
+  state.tapArmed = false;
   state.registering = true;
   let accepted = false, failed = null;
   try {
@@ -2526,7 +2537,7 @@ async function maybeRegister() {
       setRegBanner(i18("reg.reconnecting", "Relay momentarily unreachable — reconnecting…"), "warn", "unreachable");
       return;
     }
-    if (e.message !== "cancelled") { log("err", "Auto-register error: " + e.message); failed = e.message; }
+    if (e.message !== "cancelled") { log("err", i18("reg.error", "Registration error: {e}", { e: e.message })); failed = e.message; }
   } finally {
     state.registering = false;
   }
@@ -2812,6 +2823,7 @@ if (typeof document !== "undefined") {
 async function startMining() {
   if (!state.wallet) return;
   if (state.starting || state.mining) return;   // idempotency guard: a start is already in flight
+  state.tapArmed = true;                        // the user pressed Start: ONE attestation prompt may follow (gen 25)
   state.mining = true;
   try { localStorage.setItem(LS_MINING, "1"); } catch (e) {}   // remember intent so a refresh auto-resumes
   state.starting = true;                          // button stays DISABLED until mining is live or fails

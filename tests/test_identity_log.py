@@ -28,20 +28,20 @@ def main():
 
     check("the log lives OUTSIDE <home>/index so a generation purge keeps it",
           IL.log_path() == os.path.join(get_home(), "identity_log.jsonl") and "/index/" not in IL.log_path())
-    check("a non-register tx writes nothing", IL.record("1.2.3.4", {"type": "transaction", "sender": "x"}, True) is None
+    check("a non-register tx writes nothing", IL.record("1.2.3.4", {"recipient": "x" * 46, "sender": "x"}, True) is None
           and not os.path.exists(IL.log_path()))
 
     # a REAL Android statement (the repo's test vector) parses to its linkage fields
     vec = json.load(open(os.path.join(ROOT, "tests", "vectors", "device_attest_android_key.json")))
     dev = {"att": vec["att"], "cdj": vec["cdj"], "rp": vec.get("rp", "get.nadochain.com")}
     a, b, c = "a" * 46, "b" * 46, "c" * 46
-    r1 = IL.record("9.9.9.9", {"type": "register", "sender": a, "max_block": 500, "device": dev}, True)
+    r1 = IL.record("9.9.9.9", {"recipient": "register", "sender": a, "max_block": 500, "device": dev}, True)
     check("a register tx is recorded with the device summary",
           r1 and r1["device"]["fmt"] == "android-key" and r1["device"]["leaf_sha256"] and r1["device"]["root_sha256"]
           and r1["device"]["aaguid"] and r1["kind"] == "entry" and r1["accepted"] is True, r1)
-    IL.record("9.9.9.9", {"type": "register", "sender": b, "max_block": 500, "device": dev}, True)
-    IL.record("9.9.9.9", {"type": "register", "sender": c, "max_block": 500, "device": {"att": "!!", "cdj": "!!"}}, False)
-    IL.record("5.5.5.5", {"type": "register", "sender": c, "max_block": 500, "device": {"att": "!!", "cdj": "!!"}}, True)
+    IL.record("9.9.9.9", {"recipient": "register", "sender": b, "max_block": 500, "device": dev}, True)
+    IL.record("9.9.9.9", {"recipient": "register", "sender": c, "max_block": 500, "device": {"att": "!!", "cdj": "!!"}}, False)
+    IL.record("5.5.5.5", {"recipient": "register", "sender": c, "max_block": 500, "device": {"att": "!!", "cdj": "!!"}}, True)
     check("a malformed statement still leaves a line (parse_error), never raises",
           any(r.get("device", {}).get("parse_error") for r in IL.iter_records()))
     # a torn line must not hide the rest

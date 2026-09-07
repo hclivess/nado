@@ -22,7 +22,7 @@ import protocol as _P
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
 
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
-                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
+                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_LEASE_EPOCHS, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
                       HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
 from protocol import ADDRESS_PREFIX, ADDRESS_LENGTH
 
@@ -1174,6 +1174,23 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
         verify_register_device(transaction, anchor)
+        # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT, doc/device-attestation.md §"One device, one identity"):
+        # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
+        # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
+        # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
+        # apply_register writes, at the block's own height.
+        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        if DEVICE_BIND_HEIGHT and block_height >= DEVICE_BIND_HEIGHT:
+            from ops.device_attest import device_binding_key
+            try:
+                dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS)
+            except ValueError as e:
+                raise AssertionError(f"register: {e}")
+            bound = kv_ops.devbind_get(dkey)
+            epoch_now = block_height // EPOCH_LENGTH
+            if bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
+                raise AssertionError(f"register: this device already vouches for another identity "
+                                     f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

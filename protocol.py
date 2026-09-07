@@ -1509,6 +1509,18 @@ def split_open_block_reward(reward: int):
 # kernel). Roots are consensus constants: never fetched, never learned from a peer, changed only by a gated
 # protocol commit. Fingerprints are SHA-256 over the DER certificate.
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
+
+# ONE DEVICE, ONE IDENTITY (2026-09-07, the point of attestation — "using one device to attest 100,000 wallets must be
+# impossible"). From DEVICE_BIND_HEIGHT every register tx's device certificate (ops/device_attest.device_binding_key:
+# the Android remote-provisioned attestation-key certificate, the Windows AIK certificate) is BOUND to its sender in
+# the consensus `devbind` table for one lease: while that binding is live (POSW_LEASE_EPOCHS from the binding recert)
+# the same certificate cannot register a DIFFERENT sender. Classes that carry no per-device certificate (FIDO2 batch
+# keys, Apple statements, batch-attested pre-RKP Android) are refused from the gate: unbindable = unacceptable.
+# Gate hygiene: shipped on the live betanet-7 chain, so it is a HEIGHT ahead of the fleet's adoption (registrations
+# below it carry no binding and replay unchanged); becomes 1 at the next reroll.
+DEVICE_BIND_HEIGHT = 1500
+DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
+DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm"))
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

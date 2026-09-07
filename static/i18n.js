@@ -4620,6 +4620,26 @@
     "vi": {"reassure": "Một lần chạm cho mỗi kỳ thuê (36 giờ) — gia hạn sẽ yêu cầu chạm lại."}
   };
   for (const l in T68) Object.assign(T[l] = T[l] || {}, T68[l]);
+  // T69: a tap is never silent — the poll loop asks for a press instead of firing the prompt on its own.
+  const T69 = {
+    "en": {"reg.tapNeeded": "Your identity needs a tap: press Start (or Renew) to attest this device — one tap per lease.", "reg.error": "Registration error: {e}"},
+    "cs": {"reg.tapNeeded": "Vaše identita potřebuje klepnutí: stiskněte Start (nebo Obnovit) a ověřte toto zařízení — jedno klepnutí na pronájem.", "reg.error": "Chyba registrace: {e}"},
+    "es": {"reg.tapNeeded": "Tu identidad necesita un toque: pulsa Iniciar (o Renovar) para atestiguar este dispositivo; un toque por arrendamiento.", "reg.error": "Error de registro: {e}"},
+    "pt": {"reg.tapNeeded": "Sua identidade precisa de um toque: pressione Iniciar (ou Renovar) para atestar este dispositivo — um toque por arrendamento.", "reg.error": "Erro de registro: {e}"},
+    "fr": {"reg.tapNeeded": "Votre identité a besoin d'un appui : appuyez sur Démarrer (ou Renouveler) pour attester cet appareil — un appui par bail.", "reg.error": "Erreur d'enregistrement : {e}"},
+    "de": {"reg.tapNeeded": "Deine Identität braucht einen Tipp: drücke Start (oder Verlängern), um dieses Gerät zu attestieren – ein Tipp pro Lease.", "reg.error": "Registrierungsfehler: {e}"},
+    "it": {"reg.tapNeeded": "La tua identità ha bisogno di un tocco: premi Avvia (o Rinnova) per attestare questo dispositivo — un tocco per lease.", "reg.error": "Errore di registrazione: {e}"},
+    "ru": {"reg.tapNeeded": "Вашей идентичности нужно нажатие: нажмите Старт (или Продлить), чтобы аттестовать это устройство — одно нажатие на аренду.", "reg.error": "Ошибка регистрации: {e}"},
+    "zh": {"reg.tapNeeded": "你的身份需要点击一次：按“开始”（或“续期”）来认证此设备——每个租约点击一次。", "reg.error": "注册错误：{e}"},
+    "ja": {"reg.tapNeeded": "ID にはタップが必要です。開始（または更新）を押してこの端末を認証してください。リースごとに 1 タップです。", "reg.error": "登録エラー: {e}"},
+    "ko": {"reg.tapNeeded": "신원에 탭이 필요합니다. 시작(또는 갱신)을 눌러 이 기기를 인증하세요. 리스당 한 번 탭입니다.", "reg.error": "등록 오류: {e}"},
+    "ar": {"reg.tapNeeded": "هويتك تحتاج نقرة: اضغط ابدأ (أو جدّد) لتوثيق هذا الجهاز — نقرة واحدة لكل عقد إيجار.", "reg.error": "خطأ في التسجيل: {e}"},
+    "hi": {"reg.tapNeeded": "आपकी पहचान को एक टैप चाहिए: इस डिवाइस को प्रमाणित करने के लिए Start (या Renew) दबाएँ — हर लीज़ पर एक टैप।", "reg.error": "पंजीकरण त्रुटि: {e}"},
+    "tr": {"reg.tapNeeded": "Kimliğin bir dokunuş istiyor: bu cihazı doğrulamak için Başlat'a (veya Yenile'ye) bas — her kira için bir dokunuş.", "reg.error": "Kayıt hatası: {e}"},
+    "id": {"reg.tapNeeded": "Identitas Anda butuh satu ketukan: tekan Mulai (atau Perbarui) untuk mengatestasi perangkat ini — satu ketukan per sewa.", "reg.error": "Kesalahan pendaftaran: {e}"},
+    "vi": {"reg.tapNeeded": "Danh tính của bạn cần một lần chạm: nhấn Bắt đầu (hoặc Gia hạn) để chứng thực thiết bị này — một lần chạm cho mỗi kỳ thuê.", "reg.error": "Lỗi đăng ký: {e}"}
+  };
+  for (const l in T69) Object.assign(T[l] = T[l] || {}, T69[l]);
 
 
 

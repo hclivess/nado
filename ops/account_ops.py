@@ -84,7 +84,16 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # registered flag; `heartbeat` (one per epoch) records presence + bumps fidelity. Neither moves
     # balance or charges a fee (a 0-balance address could not pay one) — validation enforces fee==0.
     if recipient == "register":
-        apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert)
+        # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT): from the gate the register's device certificate is
+        # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
+        # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
+        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        device_key = None
+        if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
+            from ops.device_attest import device_binding_key
+            device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS)
+        apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
+                       device_key=device_key)
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -663,13 +672,17 @@ def get_open_registry(current_epoch: int):
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
-def apply_register(address: str, epoch: int, logger, revert=False):
+def apply_register(address: str, epoch: int, logger, revert=False, device_key=None):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
     lapse loses the streak). fidelity ramps over ~FIDELITY_CAP recerts (≈ days). Revert-symmetric: the
     exact fidelity net is stored (hb_revert store reused) and restored, the recert rows removed, and
-    `registered` cleared only if no recert remains."""
+    `registered` cleared only if no recert remains.
+
+    `device_key` (from protocol.DEVICE_BIND_HEIGHT): the register's device certificate is bound to `address` at
+    `epoch` in the consensus devbind table; the value it overwrote is journaled (devbind_revert) and restored on
+    rollback — rollback_one_block must be the EXACT inverse of incorporate_block (the h4260 lesson)."""
     if revert:
         rec = kv_ops.hb_revert_pop(epoch, address)
         if rec is not None:
@@ -679,7 +692,18 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         kv_ops.recert_del(address, epoch)
         if kv_ops.recert_latest(address) < 0:
             kv_ops.account_set(address, "registered", 0)
+        brec = kv_ops.devbind_revert_pop(epoch, address)
+        if brec is not None:
+            key, prev_addr, prev_epoch = brec
+            if prev_addr is None:
+                kv_ops.devbind_del(key)
+            else:
+                kv_ops.devbind_set(key, prev_addr, prev_epoch)
     else:
+        if device_key:
+            prev_bind = kv_ops.devbind_get(device_key)
+            kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind)
+            kv_ops.devbind_set(device_key, address, epoch)
         prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
         acc = kv_ops.get_account(address)
         cur_fid = int(acc.get("fidelity", 0)) if acc else 0
