@@ -34,6 +34,13 @@ Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuinen
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
+**Staking pools** (`POOL_HEIGHT` = 6000). `pool` (terms: fee_bps, open, min, max, label), `delegate {to}` and
+`undelegate` — fee-exempt, one per sender per block. A pool produces with own + delegated stake under the same
+1,000 NADO per-device cap; delegators have no producer weight of their own; fork weight and the FFG quorum keep each
+account's own stake. Every bonded block a pool wins is split at apply — delegators pro rata minus the fee, the pool the
+rest — and journaled per height for exact rollback. `GET /pools`; the wallet's Stake card gains the pool panel in 16
+languages. Sybil surface unchanged: one real attested device per 1,000 NADO of producing weight, now rentable.
+
 **Instant device moves, by eviction** (`DEVICE_REBIND_INSTANT_HEIGHT` = 5400). A device may move to another sender in
 any block: the move writes an epoch-stamped eviction row for the identity it leaves (`devbind` key `evict:<address>`,
 naming the recert epoch it voids), and both presence readers — the live open registry and the epoch-weight

@@ -381,6 +381,32 @@ device would rest on app code, and a jailbroken checkm8-class iPhone would farm 
 ever carried one; everything was removed from the tree (git history: `apps/nado-attest-ios`, `doc/apple-app-attest.md`).
 Apple users mine via a hardware wallet on a Mac, or attest from another device.
 
+## Staking pools (`POOL_HEIGHT`, 2026-09-07 night)
+
+Operator decision after the Mac complaints ("no way to continue mining"): capital without a device may RENT a device.
+A holder points their bonded stake at an attested identity; the pool produces with own + delegated stake under the
+same per-device cap, and the chain splits every win at apply. Nothing about the Sybil surface changes — every unit of
+producing weight still sits on one real attested device with the 1,000 NADO cap; a whale still needs one device per
+1,000 NADO, only now it may be someone else's, for a fee, and that trade-off was accepted knowingly.
+
+- **Transactions** (fee-exempt, zero amount, one per sender per block): `pool` — the sender's terms
+  `{fee_bps 0..10000, open 0|1, min >= B_MIN, max <= BOND_DEVICE_CAP, label <= 32 ASCII}`; `delegate {to}` — the sender's
+  stake produces through `to` (must be an open pool with bonded stake, not itself delegating, with room under `max`
+  and fewer than 100 members; the sender must hold >= `min`); `undelegate`. A delegator cannot run a pool.
+- **State**: schemaless account fields — the pool's `pool_fee_bps/pool_open/pool_min/pool_max/pool_label/pool_members`
+  (sorted list), the delegator's `pool_to`. Consensus (in the root); every change journals its exact previous values
+  by txid in the node-local `pool_revert` DB and rollback restores them.
+- **Registry**: `bonded_pool_map` reads `bonded` and `pool_to` from the account bytes in one pass; each entry carries
+  `pooled` (stake delegated into it). `total_bonded_shares` (fork weight, FFG) keeps reading each account's OWN
+  `bonded` — pooling moves producer weight only. `bonded_producer_registry`: a delegator has no weight of its own; a
+  pool weighs `min(own + pooled, BOND_DEVICE_CAP)`, attested only, as before.
+- **Reward**: when a pool wins a bonded block, `reward_ops._pool_split` pays the delegators
+  `producer_cut * pooled // total` minus the pool's fee, pro rata by stake in sorted-address order (deterministic
+  rounding), IN THAT BLOCK; the pool keeps its own share + fee + dust. The split is journaled per height and reverted
+  integer-for-integer. Below the gate, or with nothing delegated, the whole cut is the producer's (byte-identical).
+- **Wallet**: the Stake card's "Staking pools" panel — my status, the picker (open, attested pools, cheapest first, room,
+  member count), Delegate / Undelegate, and "Run a pool" with fee, name, min, max, open. `GET /pools` lists them.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

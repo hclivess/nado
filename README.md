@@ -551,6 +551,14 @@ It is not a passkey or a login. The wallet asks your phone or PC to create a thr
 
 Holding, sending and receiving NADO need no device. Attestation is only for mining rewards. If you would rather not attest from the device you mine on, "Attest from another device" lets any phone or PC you trust vouch for the wallet.
 
+**No device? Delegate to a pool (from block 6000 of betanet-7).** Savings produce blocks only on an attested device.
+A holder without one delegates their bonded stake to a pool run by someone with a device: the pool produces with own
+plus delegated stake, still capped at 1,000 NADO per device, and the chain splits every block it wins between the pool
+and its delegators in that same block, pro rata, minus the pool's fee. Your coins never leave your account and you can
+undelegate any time. Anyone with an attested device opens a pool from the Stake card and sets its fee, name, minimum,
+maximum and whether it is open. The Sybil bound is unchanged: every unit of producing weight still sits on one real
+device with the same cap; what a pool changes is who owns the capital on it.
+
 **Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
 factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour
 presence lease with a register transaction that carries no statement at all — the account key signs it, no cable,

@@ -186,7 +186,7 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet"})
+RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -1566,6 +1566,20 @@ DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # device count. Height-gated on the live chain; becomes 1 at the next reroll.
 BOND_DEVICE_CAP_HEIGHT = 4200
 BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per attested device (100 shares at B_MIN)
+# STAKING POOLS (operator decision 2026-09-07 night, doc/device-attestation.md §"Pools"): a holder without a device
+# points their bonded stake at an ATTESTED identity (`delegate` tx, data {"to"}); the pool produces with own + delegated
+# stake, capped at BOND_DEVICE_CAP like any device, and every block it wins is split at apply: the delegators' pro-rata
+# portion minus the pool's fee goes to the delegators, the rest (own share + fee + rounding dust) to the pool. The coins
+# never leave the delegator's account (fork weight and the FFG quorum stay theirs); only producer weight moves, and a
+# delegator has no producer weight of their own while delegating. The pool sets its terms with the `pool` tx
+# (fee_bps, open, min, max, label) and leaves them with `undelegate`. Sybil surface unchanged: every unit of producing
+# weight still sits on one real attested device with the same cap; what changes is that capital may rent that device.
+# Height-gated; becomes 1 at the next reroll.
+POOL_HEIGHT = 6000
+POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delegators' portion (its own choice, visible)
+POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
+POOL_MAX_MEMBERS = 100               # BOND_DEVICE_CAP / B_MIN: more members than that could never all count
+POOL_LABEL_MAX = 32
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

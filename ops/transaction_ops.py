@@ -714,7 +714,7 @@ def reserved_uniqueness_key(tx):
     and heartbeat/reveal DUPSORT desync forks. Returns a hashable tuple."""
     r = tx.get("recipient")
     try:
-        if r in ("withdraw", "unbond", "register", "msgkey", "auth"):
+        if r in ("withdraw", "unbond", "register", "msgkey", "auth", "pool", "delegate", "undelegate"):
             return (r, tx["sender"])                                  # one per sender per block
             # `msgkey` is fee-exempt and (unlike register) not epoch-gated, so without a per-block
             # uniqueness key an account could flood unlimited distinct-txid ~2.4 KB msgkey txs for free.
@@ -1257,6 +1257,43 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
                             "register: this identity is already bound for life to another hardware wallet — use that device, " \
                             "or bind this one to a new account"
+    elif recipient in ("pool", "delegate", "undelegate"):
+        # STAKING POOLS (protocol.POOL_HEIGHT, doc/device-attestation.md §"Pools"): fee-exempt, zero-amount, sender-scoped.
+        from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, BOND_DEVICE_CAP
+        assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"
+        assert transaction["amount"] == 0 and transaction["fee"] == 0, f"{recipient} tx is fee-exempt and carries no amount"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc, f"{recipient}: sender has no account"
+        data = transaction.get("data") or {}
+        assert isinstance(data, dict), f"{recipient}: data must be an object"
+        if recipient == "pool":
+            assert int(acc.get("bonded", 0)) >= B_MIN, "pool: the sender must hold at least one bonded share"
+            assert not acc.get("pool_to"), "pool: a delegator cannot run a pool (undelegate first)"
+            fee_bps, opn, mn, mx = data.get("fee_bps"), data.get("open"), data.get("min"), data.get("max")
+            assert isinstance(fee_bps, int) and 0 <= fee_bps <= POOL_MAX_FEE_BPS, "pool: fee_bps must be 0..10000"
+            assert opn in (0, 1), "pool: open must be 0 or 1"
+            assert isinstance(mn, int) and mn >= POOL_MIN_DELEGATION, "pool: min must be at least one bonded share"
+            assert isinstance(mx, int) and mn <= mx <= BOND_DEVICE_CAP, "pool: max must be between min and the per-device cap"
+            label = data.get("label", "")
+            assert isinstance(label, str) and len(label) <= POOL_LABEL_MAX and all(32 <= ord(c) < 127 for c in label), \
+                "pool: label is up to 32 printable ASCII characters"
+        elif recipient == "delegate":
+            to = data.get("to")
+            assert isinstance(to, str) and validate_address(to) and to != transaction["sender"], "delegate: `to` must be another address"
+            assert int(acc.get("bonded", 0)) >= POOL_MIN_DELEGATION, "delegate: the sender must hold at least one bonded share"
+            pool = get_account(to, create_on_error=False)
+            assert pool and int(pool.get("pool_open", 0)) == 1, "delegate: that address is not an open pool"
+            assert not pool.get("pool_to"), "delegate: that pool is itself delegating"
+            assert int(pool.get("bonded", 0)) >= B_MIN, "delegate: the pool holds no bonded stake"
+            assert int(acc.get("bonded", 0)) >= int(pool.get("pool_min", 0)), "delegate: below the pool's minimum delegation"
+            members = [m for m in (pool.get("pool_members") or []) if m != transaction["sender"]]
+            assert len(members) < POOL_MAX_MEMBERS, "delegate: the pool is full"
+            from ops.account_ops import get_bonded_registry
+            reg = get_bonded_registry()
+            pooled_now = sum(int(reg[m]["bonded"]) for m in members if m in reg and reg[m].get("pool_to") == to)
+            assert pooled_now + int(acc.get("bonded", 0)) <= int(pool.get("pool_max", 0)), "delegate: the pool has no room for that stake"
+        else:  # undelegate
+            assert acc.get("pool_to"), "undelegate: the sender is not delegating"
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

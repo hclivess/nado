@@ -116,6 +116,11 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                      logger=logger, revert=revert)
         return
 
+    # --- STAKING POOLS (protocol.POOL_HEIGHT): pool terms, delegate, undelegate — schemaless account fields, journaled ---
+    if recipient in ("pool", "delegate", "undelegate"):
+        apply_pool_tx(transaction, revert=revert)
+        return
+
     # --- ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
     #     Fee-paying (debited + destroyed like every fee), zero amount. Revert-symmetric via auth_revert.
     if recipient == "auth":
@@ -578,10 +583,16 @@ _open_reg_lock = threading.Lock()
 
 
 def _compute_bonded_registry():
-    bonded = kv_ops.bonded_map(B_MIN)          # {address: bonded}, address order (LMDB key sort)
-    since = kv_ops.bond_since_many(list(bonded))
-    return {addr: {"bonded": b, "fidelity": None, "bond_since": since.get(addr)}
-            for addr, b in bonded.items()}
+    bp = kv_ops.bonded_pool_map(B_MIN)         # {address: (bonded, pool_to)}, address order (LMDB key sort)
+    since = kv_ops.bond_since_many(list(bp))
+    # POOLS (protocol.POOL_HEIGHT): `pooled` = stake delegated INTO this address by accounts with >= B_MIN bonded;
+    # `pool_to` = where this account's own stake produces. fork weight (total_bonded_shares) keeps reading `bonded`.
+    pooled = {}
+    for addr, (b, to) in bp.items():
+        if to:
+            pooled[to] = pooled.get(to, 0) + b
+    return {addr: {"bonded": b, "fidelity": None, "bond_since": since.get(addr), "pool_to": to, "pooled": pooled.get(addr, 0)}
+            for addr, (b, to) in bp.items()}
 
 
 def get_bonded_registry():
@@ -762,6 +773,65 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             raise AssertionError(f"Fidelity underflow for {address}")
         kv_ops.hb_revert_put(epoch, address, prev, net)         # exact inverse for rollback
     return True
+
+
+POOL_FIELDS = ("pool_fee_bps", "pool_open", "pool_min", "pool_max", "pool_label")
+
+
+def _set_or_del(address, field, value):
+    if value is None:
+        kv_ops.account_del_field(address, field)
+    else:
+        kv_ops.account_set_field(address, field, value)
+
+
+def apply_pool_tx(transaction, revert=False):
+    """`pool` writes the sender's terms (POOL_FIELDS); `delegate` sets the sender's `pool_to` and adds it to the
+    target's `pool_members` (sorted list); `undelegate` clears both. Every change journals the exact previous values by
+    txid (kv pool_revert) and restores them on rollback — validation already accepted the tx against parent state."""
+    sender, txid = transaction["sender"], transaction["txid"]
+    data = transaction.get("data") or {}
+    r = transaction["recipient"]
+    if r == "pool":
+        if revert:
+            prev = kv_ops.pool_revert_pop("cfg:" + txid)
+            if prev is not None:
+                for f, v in zip(POOL_FIELDS, prev):
+                    _set_or_del(sender, f, v)
+            return
+        acc = kv_ops.get_account(sender) or {}
+        kv_ops.pool_revert_put("cfg:" + txid, [acc.get(f) for f in POOL_FIELDS])
+        kv_ops.account_set_field(sender, "pool_fee_bps", int(data["fee_bps"]))
+        kv_ops.account_set_field(sender, "pool_open", int(data["open"]))
+        kv_ops.account_set_field(sender, "pool_min", int(data["min"]))
+        kv_ops.account_set_field(sender, "pool_max", int(data["max"]))
+        kv_ops.account_set_field(sender, "pool_label", str(data.get("label", ""))[:32])
+        return
+    # delegate / undelegate: membership lists on the pools, pool_to on the sender
+    if revert:
+        prev = kv_ops.pool_revert_pop(("del:" if r == "delegate" else "und:") + txid)
+        if prev is None:
+            return
+        prev_to, prev_old_members, new_to, prev_new_members = prev
+        _set_or_del(sender, "pool_to", prev_to)
+        if prev_to:
+            kv_ops.account_set_field(prev_to, "pool_members", list(prev_old_members or []))
+        if new_to:
+            kv_ops.account_set_field(new_to, "pool_members", list(prev_new_members or []))
+        return
+    acc = kv_ops.get_account(sender) or {}
+    prev_to = acc.get("pool_to") if isinstance(acc.get("pool_to"), str) else None
+    new_to = str(data["to"]) if r == "delegate" else None
+    prev_old_members = list((kv_ops.get_account(prev_to) or {}).get("pool_members") or []) if prev_to else None
+    prev_new_members = list((kv_ops.get_account(new_to) or {}).get("pool_members") or []) if new_to else None
+    kv_ops.pool_revert_put(("del:" if r == "delegate" else "und:") + txid, [prev_to, prev_old_members, new_to, prev_new_members])
+    if prev_to:
+        kv_ops.account_set_field(prev_to, "pool_members", sorted(m for m in prev_old_members if m != sender))
+    if new_to:
+        kv_ops.account_set_field(new_to, "pool_members", sorted(set(prev_new_members) | {sender}))
+        kv_ops.account_set_field(sender, "pool_to", new_to)
+    else:
+        kv_ops.account_del_field(sender, "pool_to")
 
 
 def apply_msgkey(address, kem_pub, txid, logger, revert=False):

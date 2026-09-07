@@ -46,7 +46,8 @@ def credit_block_reward(block, logger, revert=False):
     else:
         # BONDED lane: producer keeps the majority, a modest slice funds the presence dividend, treasury 10%.
         producer_cut, dividend, treasury = split_bonded_block_reward(reward)
-        change_balance(address=creator, amount=producer_cut, revert=revert, logger=logger)
+        creator_share = _pool_split(block, creator, producer_cut, logger, revert)
+        change_balance(address=creator, amount=creator_share, revert=revert, logger=logger)
         if dividend:
             change_balance(address=DIVIDEND_POOL, amount=dividend, revert=revert, logger=logger)
             # track the per-epoch dividend inflow (deterministic, revert-symmetric) so the exec node can
@@ -54,7 +55,55 @@ def credit_block_reward(block, logger, revert=False):
             kv_ops.dividend_inflow_add(epoch_of(block["block_number"]), dividend, revert)
         if treasury:
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
-        increase_produced_count(address=creator, amount=producer_cut, revert=revert, logger=logger)
+        increase_produced_count(address=creator, amount=creator_share, revert=revert, logger=logger)
+
+
+def _pool_split(block, creator, producer_cut, logger, revert):
+    """STAKING POOLS (protocol.POOL_HEIGHT): if the winning identity produced with delegated stake, pay the delegators
+    their pro-rata portion minus the pool's fee IN THIS BLOCK and return what the pool itself keeps (own share + fee +
+    rounding dust). The split is computed from the in-txn registry (the same bytes on every node at this point) and
+    journaled per height (kv pool_revert "rw:<h>") so rollback subtracts the identical integers. Below the gate, or for
+    a pool with nothing delegated, the whole cut is the creator's (the historical path, byte-identical)."""
+    from protocol import POOL_HEIGHT, BPS_DENOM
+    h = int(block["block_number"])
+    if revert:
+        rec = kv_ops.pool_revert_pop(f"rw:{h}")
+        if rec is None:
+            return producer_cut                       # no split happened when this block was applied
+        creator_share, payouts = int(rec[0]), rec[1]
+        for addr, amt in payouts:
+            change_balance(address=str(addr), amount=int(amt), revert=True, logger=logger)
+        return creator_share
+    if not POOL_HEIGHT or h < POOL_HEIGHT:
+        return producer_cut
+    from ops.account_ops import get_bonded_registry, get_account
+    reg = get_bonded_registry()
+    entry = reg.get(creator)
+    if not entry or int(entry.get("pooled", 0)) <= 0:
+        return producer_cut
+    acc = get_account(creator, create_on_error=False) or {}
+    members = [m for m in sorted(acc.get("pool_members") or []) if m in reg and reg[m].get("pool_to") == creator]
+    stakes = {m: int(reg[m]["bonded"]) for m in members}
+    pooled = sum(stakes.values())
+    own = int(entry.get("bonded", 0))
+    total = own + pooled
+    if pooled <= 0 or total <= 0:
+        return producer_cut
+    fee_bps = int(acc.get("pool_fee_bps", 0) or 0)
+    delegators_portion = producer_cut * pooled // total
+    fee = delegators_portion * fee_bps // BPS_DENOM
+    distributable = delegators_portion - fee
+    payouts = []
+    paid = 0
+    for m in members:                                  # sorted: deterministic rounding
+        amt = distributable * stakes[m] // pooled
+        if amt > 0:
+            payouts.append([m, amt]); paid += amt
+    creator_share = producer_cut - paid                # own share + fee + dust
+    for m, amt in payouts:
+        change_balance(address=m, amount=amt, revert=False, logger=logger)
+    kv_ops.pool_revert_put(f"rw:{h}", [creator_share, payouts])
+    return creator_share
 
 
 def apply_treasury_burn(block, logger, revert=False):

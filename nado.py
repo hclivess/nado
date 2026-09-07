@@ -1151,6 +1151,41 @@ async def device_attest_probe(request):
         return _resp({"ok": False, "error": str(e)[:200]}, status=400)
 
 
+async def pools(request):
+    """GET /pools: every account that published pool terms (protocol.POOL_HEIGHT) — address, label, fee_bps, open, min,
+    max, own stake, delegated stake, room under the per-device cap, member count, and whether the pool is attested
+    (present in the open registry, i.e. actually producing). The wallet's pool picker reads it. Rate-limited 20/min."""
+    if _rate_limited(request, 20):
+        return _RL()
+    def _work():
+        import protocol as _p
+        from ops.account_ops import get_bonded_registry, get_open_registry, get_accounts_many
+        from ops.mining_ops import epoch_of
+        from ops import kv_ops as _kv
+        tip = int(memserver.latest_block["block_number"])
+        reg = get_bonded_registry()
+        open_reg = get_open_registry(epoch_of(tip + 1))
+        accs = get_accounts_many(list(reg))
+        out = []
+        for addr, acc in accs.items():
+            if not acc or "pool_open" not in acc:
+                continue
+            e = reg.get(addr) or {}
+            own, pooled = int(e.get("bonded", 0)), int(e.get("pooled", 0))
+            mx = int(acc.get("pool_max", 0) or 0)
+            out.append({"address": addr, "label": str(acc.get("pool_label", ""))[:32], "fee_bps": int(acc.get("pool_fee_bps", 0) or 0),
+                        "open": int(acc.get("pool_open", 0) or 0), "min": int(acc.get("pool_min", 0) or 0), "max": mx,
+                        "own": own, "pooled": pooled, "room": max(0, min(mx, _p.BOND_DEVICE_CAP) - pooled),
+                        "members": len(acc.get("pool_members") or []), "attested": addr in open_reg, "delegating": bool(e.get("pool_to"))})
+        out.sort(key=lambda x: (-x["attested"], x["fee_bps"], -x["room"]))
+        return {"tip": tip, "active": bool(_p.POOL_HEIGHT and tip + 1 >= _p.POOL_HEIGHT), "pool_height": _p.POOL_HEIGHT,
+                "cap": _p.BOND_DEVICE_CAP, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out}
+    try:
+        return _resp(await asyncio.to_thread(_work))
+    except Exception as e:
+        return _resp({"error": str(e)[:200]}, status=500)
+
+
 async def devbind_lookup(request):
     """POST /devbind_lookup {att}: what the device behind a statement currently vouches for, BEFORE the wallet submits a
     hardware registration (doc/device-attestation.md §"Binding modes" — rebinding a Ledger/Trezor to another account
@@ -2558,6 +2593,7 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.get("/pools", pools),
         web.post("/devbind_lookup", devbind_lookup),
         web.post("/node_attest_drop", node_attest_drop),
         web.get("/node_attest_pickup", node_attest_pickup),

@@ -184,14 +184,19 @@ def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: i
     LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
     set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
     entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT
     if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
         return bonded_registry
+    pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT)
     out = {}
     for address, info in bonded_registry.items():
+        if pools and info.get("pool_to"):
+            continue                                   # a delegator's stake produces through its pool, never on its own
         if address in open_registry:
             capped = dict(info)
-            capped["bonded"] = min(int(info.get("bonded", 0)), BOND_DEVICE_CAP)
+            # POOLS: the pool's weight is its own stake plus what was delegated to it, under the same per-device cap
+            stake = int(info.get("bonded", 0)) + (int(info.get("pooled", 0)) if pools else 0)
+            capped["bonded"] = min(stake, BOND_DEVICE_CAP)
             out[address] = capped
     return out if out else bonded_registry
 

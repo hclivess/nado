@@ -54,7 +54,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("devbind", "devbind_revert", "accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
+_PLAIN_DBS = ("devbind", "devbind_revert", "pool_revert", "accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes", "auth_history")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -88,7 +88,7 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert", "devbind_revert"))
+                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert", "devbind_revert", "pool_revert"))
 # devbind (device certificate -> {address, epoch}, ops/device_attest.device_binding_key) IS consensus state: written
 # only by apply_register from protocol.DEVICE_BIND_HEIGHT, block-derived, so it stays IN the snapshot and the root.
 # devbind_revert is its rollback journal (keyed epoch|address), node-local like every other *_revert.
@@ -305,7 +305,7 @@ def get_env(home=None):
         env = lmdb.open(
             path,
             map_size=MAP_SIZE,
-            max_dbs=32,          # headroom over the named sub-DBs (_PLAIN_DBS + _DUP_DBS, now 17)
+            max_dbs=40,          # headroom over the named sub-DBs (_PLAIN_DBS + _DUP_DBS, now 17)
             subdir=True,
             readahead=False,     # random point lookups dominate
             writemap=False,      # safe: a full map raises MapFullError (no corruption), per spec
@@ -609,6 +609,41 @@ def account_del_field(address: str, field: str):
 
 
 _BONDED_RE = re.compile(rb'"bonded":(-?\d+)')
+_POOL_TO_RE = re.compile(rb'"pool_to":"([0-9a-f]{46})"')
+
+
+def bonded_pool_map(min_bonded: int):
+    """{address: (bonded, pool_to|None)} for every account with bonded >= min_bonded — bonded_map plus the delegation
+    target (protocol.POOL_HEIGHT), read by the same byte regex so the per-block registry scan stays one pass."""
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["accounts"]) as cur:
+            for k, v in cur:
+                m = _BONDED_RE.search(v)
+                b = int(m.group(1)) if m is not None else int(_unpack(v).get("bonded", 0))
+                if b >= min_bonded:
+                    pm = _POOL_TO_RE.search(v)
+                    out[k.decode()] = (b, pm.group(1).decode() if pm is not None else None)
+        return out
+    return _read(_do)
+
+
+def pool_revert_put(key: str, value):
+    """Node-local journal for the pool feature (block reward splits keyed "rw:<height>", config/delegation changes keyed
+    by txid) — the exact inverse for rollback, like every other *_revert."""
+    def _do(txn):
+        txn.put(key.encode(), _pack(value), db=_dbs()["pool_revert"])
+    _write(_do)
+
+
+def pool_revert_pop(key: str):
+    def _do(txn):
+        raw = txn.get(key.encode(), db=_dbs()["pool_revert"])
+        if raw is None:
+            return None
+        txn.delete(key.encode(), db=_dbs()["pool_revert"])
+        return _unpack(raw)
+    return _write(_do)
 
 
 def bonded_map(min_bonded: int):
