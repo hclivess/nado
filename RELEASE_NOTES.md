@@ -47,6 +47,14 @@ a prompt, and asks before rebinding a device that vouches for another account (`
 attested with a hardware wallet renews itself statement-free (`/node_attest_status` carries `bind_mode`). The
 identity log records `bind: lease|perm|renew`.
 
+**Savings-lane cap per attested device** (`BOND_DEVICE_CAP_HEIGHT` = 4200, `BOND_DEVICE_CAP` = 1,000 NADO,
+doc/device-attestation.md §"Savings-lane cap"). The bonded producer draw runs over `bonded_producer_registry`: only
+identities with a live open-lane lease (a device statement), each counting at most 1,000 NADO of stake; unattested
+stake weighs zero in the draw (a per-key cap was void, a per-device cap is not). Fork-choice weight, the FFG/settlement
+quorum and the duty committee are untouched. Liveness: with no attested bonded identity the draw falls back to the
+whole registry. `/mining_status` mirrors it; the wallet says whether the stake counts. At the gate every unattested
+bonded node — the relay fleet included — stops producing bonded blocks until its operator attests it.
+
 **Attest from another device.** A wallet on Linux, Mac or iPhone (nothing bindable of its own) registers with a
 statement made on an accepted device: press *Attest from another device* on the wallet, then on the phone / TPM PC /
 hardware wallet open Mining → *Attest another wallet or node*, paste the address and confirm. The wallet picks the

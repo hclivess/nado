@@ -341,6 +341,33 @@ open-lane draw, the one-register-per-epoch rule, the strict CBOR parse and the i
 permanent identity that stops renewing lapses like any other; the binding stays, so when it returns it renews
 without a statement.
 
+## Savings-lane cap per attested device (`BOND_DEVICE_CAP_HEIGHT`, 2026-09-07)
+
+Operator decision: "cap the PoS acceleration at 1,000 NADO per attested device; if savings-lane nodes are online, one
+attestation should be enough for them (has to be a unique device)."
+
+The old bond cap (1,000 NADO per KEY, removed 2026-08-25) never bound a whale — a second key restored linear weight.
+A cap per DEVICE is different in kind: the device is the one thing a farm cannot mint, and `devbind` already holds
+one identity per device. So from `BOND_DEVICE_CAP_HEIGHT` the bonded PRODUCER draw runs over
+`mining_ops.bonded_producer_registry`:
+
+- an identity is in it only while ATTESTED — present in the open registry as of the same parent state, i.e. it holds
+  a live device lease (every lease is a statement, or a statement-free renewal of a permanent binding);
+- its stake counts at most `BOND_DEVICE_CAP` (1,000 NADO → 100 shares at `B_MIN`);
+- unattested stake weighs ZERO in the draw. Anything softer is dodged by splitting keys.
+- LIVENESS: if no attested bonded identity exists at all, the draw falls back to the whole registry, uncapped —
+  the same rule as the tenure ramp's fallback. The cap protects an attested set; it must never stall a bonded slot.
+
+What it does NOT touch: `total_bonded_shares` (fork-choice weight), the FFG/settlement quorum and the duty committee
+stay uncapped and attestation-free — finality never depends on how many devices exist. The tenure ramp applies on top
+of the capped shares. `/mining_status` mirrors the draw (`bond_cap_active`, `bonded_producing`, `my_bonded_raw`,
+`bond_device_cap`), and the wallet's Mining page says whether the stake counts.
+
+Consequence at the gate on betanet-7: every bonded identity without an open-lane lease (the relay fleet included)
+stops being drawn for bonded slots until its operator attests it (Mining → *Attest another wallet or node*; a Ledger
+or Trezor does it once for life, a phone or TPM every 36 h). With a hardware wallet: bond, attest once, and the node
+keeps producing on its own with up to 1,000 NADO counting.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

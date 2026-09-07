@@ -4,7 +4,7 @@ import time
 
 from ops import codec
 import aiohttp
-from .account_ops import get_bonded_registry, get_open_registry, fetch_totals
+from .account_ops import get_bonded_registry, get_open_registry, fetch_totals, get_account
 from config import get_timestamp_seconds, get_config, hostport
 from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
@@ -700,7 +700,11 @@ def _mining_status_lanes(epoch):
             if entry is None or entry[0] != key:
                 beacon = epoch_beacon(epoch)
                 open_reg = get_open_registry(epoch)
-                bonded_reg = get_bonded_registry()
+                # DISPLAY MIRRORS THE DRAW: from BOND_DEVICE_CAP_HEIGHT the bonded producer registry is the attested,
+                # per-device-capped subset (mining_ops.bonded_producer_registry) — the wallet's "expected time to mine"
+                # and lane totals must say what the consensus draw does, not what the raw stake table holds.
+                from .mining_ops import bonded_producer_registry
+                bonded_reg = bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)
                 total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_reg.values())
                 total_bonded = sum(_bwt(i) for i in bonded_reg.values())
                 entry = (key, beacon, open_reg, bonded_reg, total_open, total_bonded)
@@ -715,7 +719,7 @@ def mining_status(address, latest_block_number, block_time):
     (display only, never consensus). For the slot after the tip: reports the lane split, each lane's
     total weight + size, and `address`'s open/bonded weight, then derives expected blocks/seconds
     between wins from this identity's share of each lane."""
-    from protocol import K_OPEN
+    from protocol import K_OPEN, BOND_DEVICE_CAP_HEIGHT as _BDC_H, BOND_DEVICE_CAP as _BDC
     next_block = latest_block_number + 1
     epoch = epoch_of(next_block)
     beacon, open_reg, bonded_reg, total_open, total_bonded, _bwt, open_shares = _mining_status_lanes(epoch)
@@ -736,6 +740,12 @@ def mining_status(address, latest_block_number, block_time):
         "bonded_registry_size": len(bonded_reg), "total_bonded_shares": total_bonded,
         "address": address, "registered_present": address in open_reg,
         "my_open_weight": my_open, "my_bonded_shares": my_bonded,
+        # SAVINGS-LANE CAP: is the cap live for the next block, does this identity's stake count in the producer draw
+        # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"
+        "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H),
+        "bonded_producing": address in bonded_reg,
+        "my_bonded_raw": int((get_account(address, create_on_error=False) or {}).get("bonded", 0) or 0) if address else 0,
+        "bond_device_cap": int(_BDC),
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
     }

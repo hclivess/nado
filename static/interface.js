@@ -3669,6 +3669,16 @@ function renderLanes(ms) {
   const _youMark = " " + i18("lane.youMark", "(you)");
   $("laneOpenYou").textContent = myOpen > 0 ? _youMark : "";
   $("laneBondedYou").textContent = myBond > 0 ? _youMark : "";
+  // SAVINGS-LANE CAP PER ATTESTED DEVICE (protocol.BOND_DEVICE_CAP_HEIGHT): say plainly whether this stake counts in
+  // the producer draw. Unattested stake weighs nothing there; at most 1,000 NADO per device counts.
+  const bcl = $("bondCapLine");
+  if (bcl) {
+    const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
+    if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
+    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. At most 1,000 NADO per device counts.", { n: (raw / 1e10).toFixed(2) });
+    else if (cap && raw > cap) bcl.textContent = i18("bond.capped", "Savings stake counts up to 1,000 NADO per attested device: {n} NADO bonded, {c} NADO counting.", { n: (raw / 1e10).toFixed(2), c: (cap / 1e10).toFixed(0) });
+    else bcl.textContent = i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });
+  }
 }
 
 function setConn(ok, tip) {

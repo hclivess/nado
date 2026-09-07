@@ -177,6 +177,25 @@ def bond_ramp_weight(base_shares: int, bond_since, epoch: int) -> int:
     return base_shares * tenure // BOND_RAMP_EPOCHS
 
 
+def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: int) -> dict:
+    """The registry the bonded PRODUCER draw runs over (protocol.BOND_DEVICE_CAP_HEIGHT, doc/device-attestation.md
+    §"Savings-lane cap"): from the gate, only ATTESTED identities (present in the open registry as of the same parent —
+    a live device lease) with their stake capped at BOND_DEVICE_CAP per device. Unattested stake weighs zero here.
+    LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
+    set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
+    entries it was given (copies), never used for fork-choice weight or the quorum."""
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP
+    if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
+        return bonded_registry
+    out = {}
+    for address, info in bonded_registry.items():
+        if address in open_registry:
+            capped = dict(info)
+            capped["bonded"] = min(int(info.get("bonded", 0)), BOND_DEVICE_CAP)
+            out[address] = capped
+    return out if out else bonded_registry
+
+
 def _bonded_ramped_weight(epoch: int):
     """Weight function (closure over the draw's epoch) for the ramped bonded producer draw."""
     return lambda info: bond_ramp_weight(_bonded_shares(info), info.get("bond_since"), epoch)
@@ -257,18 +276,22 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         The instant ANY stake bonds, bonded slots return to the bonded lane and the ceiling re-applies.
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
     bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
+    # SAVINGS-LANE CAP PER ATTESTED DEVICE (BOND_DEVICE_CAP_HEIGHT): the draw registry is the attested, per-device-capped
+    # subset; the `bonded_registry` argument keeps its meaning for the empty-lane policy below and for fork weight.
+    draw_registry = bonded_producer_registry(bonded_registry, open_registry, slot)
     def _bonded_draw():
         """Bonded-lane draw with the tenure ramp applied, plus a deterministic un-ramped
         fallback: if EVERY bonded identity is still ramping (total ramped weight 0) the
         ramp has no established set to protect, so redraw un-ramped rather than stall —
         the whale brake must never cost liveness. Same result on every node."""
-        w = _weighted_draw(bonded_registry, bonded_weight, beacon, slot)
+        w = _weighted_draw(draw_registry, bonded_weight, beacon, slot)
         # LIVENESS: the ramp must never STALL the chain. If every bonded identity is still ramping (total
         # ramped weight 0) but the registry is NON-empty, fall back to the un-ramped draw so a block is still
         # produced. Deterministic (same on every node). This only fires when NO aged validator has weight —
         # i.e. all stake is fresh — where there is no established set for the ramp to protect anyway.
-        if w is None and bonded_registry:
-            w = _weighted_draw(bonded_registry, _bonded_shares, beacon, slot)
+        # (Over the same capped/attested registry: the fallback must never re-admit unattested stake.)
+        if w is None and draw_registry:
+            w = _weighted_draw(draw_registry, _bonded_shares, beacon, slot)
         return w
     if lane_of(slot, beacon) == "open":
         winner = _weighted_draw(open_registry, _open_weight(slot // EPOCH_LENGTH), beacon, slot)

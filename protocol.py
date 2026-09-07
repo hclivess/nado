@@ -1546,6 +1546,18 @@ DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # 
 # supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
 DEVICE_BIND_PERMANENT_HEIGHT = 3900
 DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
+# SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
+# The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is
+# what a farm cannot mint. From BOND_DEVICE_CAP_HEIGHT the bonded PRODUCER draw counts an identity only while it is
+# attested (a live open-lane lease — every lease is a device statement, and devbind keeps one identity per device) and
+# counts at most BOND_DEVICE_CAP of its stake: shares = min(bonded, BOND_DEVICE_CAP) // B_MIN. Unattested stake has
+# ZERO producer weight — anything else is dodged by splitting keys. LIVENESS: if NO attested bonded identity exists the
+# draw falls back to the whole (uncapped) registry, exactly like the tenure ramp's fallback — the cap protects an
+# attested set and must never stall the chain. Producer selection and reward ONLY: fork-choice weight
+# (total_bonded_shares) and the FFG/settlement quorum stay uncapped and attestation-free, so finality never depends on
+# device count. Height-gated on the live chain; becomes 1 at the next reroll.
+BOND_DEVICE_CAP_HEIGHT = 4200
+BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per attested device (100 shares at B_MIN)
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

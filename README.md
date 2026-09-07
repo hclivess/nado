@@ -557,6 +557,14 @@ cannot renew without a device; its current lease runs out on its own). The walle
 another account — rebind it here?" before the tap is spent. One hardware wallet per identity. A node attested with
 a hardware wallet renews itself the same way; the operator attests once.
 
+**Savings stake counts only while attested, at most 1,000 NADO per device (from block 4200 of betanet-7).** The
+bonded (savings) lane draws its block producers only from identities that hold a live device lease, and counts at
+most 1,000 NADO of each one's stake. Unattested stake still votes for finality and still counts as fork weight, but
+it produces no bonded blocks — so a whale needs one real device per 1,000 NADO, and splitting keys buys nothing. A
+node you run: bond, then attest it from the Mining page. With a Ledger or Trezor that is one tap for life; the node
+renews itself and keeps producing with up to 1,000 NADO counting. If no bonded identity is attested at all, the lane
+falls back to plain stake weight so the chain never stalls.
+
 **Windows says "Windows Hello is not using a TPM" (authenticator 9ddd1817).** Windows created the Hello key inside
 virtualization-based security (VBS) instead of the TPM; a VBS key has no certificate chain. The BIOS TPM switch alone
 does not move it. Check `tpm.msc` (ready, 2.0) and `msinfo32` (VBS "Running" is the cause); on a standalone PC
