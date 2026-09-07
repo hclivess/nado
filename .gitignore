@@ -120,6 +120,10 @@ celerybeat.pid
 env/
 venv/
 nado_venv/
+# ALSO without the slash: `nado_venv/` matches only a DIRECTORY. A worktree's nado_venv SYMLINK (to the live
+# venv, for running tests) was tracked by `git add -A` on 2026-09-07 and the merge replaced the live venv
+# directory with a link to itself — the node died with 203/EXEC. Never track anything named like the venv.
+nado_venv
 ENV/
 env.bak/
 venv.bak/
