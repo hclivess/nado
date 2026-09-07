@@ -1358,7 +1358,15 @@ async function cashOutExec() {
 class RelayUnreachable extends Error {
   constructor(msg) { super(msg); this.name = "RelayUnreachable"; this.transient = true; }
 }
-function isTransient(e) { return !!(e && e.transient); }
+// Transient = the relay is momentarily unreachable, NOT a registration failure. fetchWithTimeout tags its errors, but
+// the registration path also uses bare fetch(): a node restart there surfaced as "Registration error: Failed to fetch"
+// (2026-09-07 13:09, during an update wave). Browsers spell that TypeError three ways — match all of them.
+function isTransient(e) {
+  if (!e) return false;
+  if (e.transient) return true;
+  const m = String(e.message || e);
+  return e.name === "TypeError" && /failed to fetch|networkerror|load failed|network request failed/i.test(m);
+}
 
 async function fetchWithTimeout(url, opts, ms) {
   const ctrl = new AbortController();
