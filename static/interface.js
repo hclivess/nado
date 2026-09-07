@@ -2624,10 +2624,12 @@ async function maybeRegister() {
   // gesture yields nothing on most platforms and produced the misleading "could not attest itself" line. Only a
   // Start/Renew press arms ONE prompt; otherwise say what is needed and wait for the press.
   if (!state.tapArmed && !state.pendingRegisterTx) {   // a kept (already attested) tx needs no new tap
-    setRegBanner(i18("reg.tapNeeded", "Your identity needs a tap: press Start (or Renew) to attest this device — one tap per lease."), "warn", "tap");
+    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button) — the device prompt opens only then, one tap per lease."), "warn", "tap");
     show("powWrap", false);
+    show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
     return;
   }
+  show("regTapRow", false);
   state.tapArmed = false;
   state.registering = true;
   let accepted = false, failed = null;
@@ -2948,7 +2950,8 @@ if (typeof document !== "undefined") {
 async function startMining() {
   if (!state.wallet) return;
   if (state.starting || state.mining) return;   // idempotency guard: a start is already in flight
-  state.tapArmed = true;                        // the user pressed Start: ONE attestation prompt may follow (gen 25)
+  // gen 25: Start does NOT arm an attestation prompt — only the explicit Register / Renew / hardware buttons do
+  // (user 2026-09-07: "the attestation window should only pop up after one clicks register").
   state.mining = true;
   try { localStorage.setItem(LS_MINING, "1"); } catch (e) {}   // remember intent so a refresh auto-resumes
   state.starting = true;                          // button stays DISABLED until mining is live or fails
@@ -8604,6 +8607,12 @@ function wireEvents() {
       log("ok", i18("hw.connected", "{n} connected — it will vouch for this identity at registration.", { n: state.hwDevice.name }));
       if (state.mining) state.tapArmed = true; else startMining();
     } catch (e) { log("err", i18("hw.failed", "{n}: {e}", { n: kind, e: (e && e.message) || String(e) })); }
+  };
+  // REGISTER: the one click that opens the device prompt (Windows Hello / Android). Start alone never does.
+  if ($("btnRegisterTap")) $("btnRegisterTap").onclick = () => {
+    state.tapArmed = true;
+    show("regTapRow", false);
+    if (!state.mining) startMining(); else maybeRegister().catch((e) => log("err", String(e && e.message || e)));
   };
   if ($("btnHwLedger")) $("btnHwLedger").onclick = () => hwPick("ledger");
   if ($("btnHwTrezor")) $("btnHwTrezor").onclick = () => hwPick("trezor");

@@ -292,6 +292,25 @@
       <button id="btnHwNone" class="ghost" style="width:auto;padding:6px 12px" data-i18n="hw.none">Use this device</button>
     </div>
     <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
+    <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->
+    <div class="row mt hidden" id="regTapRow">
+      <button id="btnRegisterTap" class="accent" data-i18n="reg.registerBtn">Register this device (one tap)</button>
+    </div>
+    <details class="mt">
+      <summary class="small dim" style="cursor:pointer" data-i18n="hw.guide.title">How to attest with a Ledger or Trezor</summary>
+      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.ledger">Ledger (Nano S / S Plus / X, Stax, Flex):
+1. Close Ledger Live — it holds the device.
+2. Plug the Ledger in, enter the PIN, stay on the dashboard (no app open).
+3. Use Chrome, Edge or Brave on a computer, press "Attest with Ledger" and pick the device in the browser dialog.
+4. The Ledger asks "Allow unsafe manager?" — that is the tap: press both buttons to allow. The wallet registers by itself.
+One tap per lease (36 h); the Ledger only vouches, it never holds this wallet's key.</div>
+      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.trezor">Trezor Safe 3 / 5 / 7:
+1. Close Trezor Suite (and the Trezor Bridge) — they hold the device.
+2. Plug the Trezor in and unlock it.
+3. Use Chrome, Edge or Brave on a computer, press "Attest with Trezor Safe" and pick the device in the browser dialog.
+4. Confirm the device-authentication prompt on the Trezor's screen — that is the tap. The wallet registers by itself.
+Trezor One and Model T have no secure element and cannot vouch.</div>
+    </details>
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
          starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
     <div id="mineDevice" class="small mt" role="status"></div>
