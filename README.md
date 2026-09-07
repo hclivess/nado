@@ -519,7 +519,7 @@ at all. For a full node, use a Linux VM or WSL2 and run the one-liner inside it.
 
 ## Proof of Secure Element Attestation (PoSEA)
 
-NADO's Sybil resistance is **PoSEA** — Proof of Secure Element Attestation, pronounced "poeseea": every open-lane
+NADO's Sybil resistance is **PoSEA** — Proof of Secure Element Attestation, pronounced "posee": every open-lane
 identity is a genuine device whose secure element vouches for it, and one device holds one identity at a time.
 
 A registered mining identity must prove it runs on **real hardware**. When the wallet registers (and on

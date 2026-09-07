@@ -1,4 +1,4 @@
-# PoSEA — Proof of Secure Element Attestation (pronounced "poeseea"): a registered identity is a real device
+# PoSEA — Proof of Secure Element Attestation (pronounced "posee"): a registered identity is a real device
 
 Status: DESIGN + phase 0 (2026-09-07). Operator decision: the open lane keeps free entry, no capital
 gate, and Sybil resistance must not be automatable. Every per-identity rule so far (sequential work,
