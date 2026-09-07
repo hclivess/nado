@@ -89,9 +89,10 @@ def main():
         # A prover using a different margin gets a different anchor and a rejected proof, which is exactly
         # how the CLI and the browser wallet came to disagree with the node in the first place.
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # gen 25: the node's open-lane auto-register is retired (an identity is an attested device; nodes earn in the
+        # bonded lane), so core_loop no longer computes a PoSW target at all — pin that it stays out.
         core = open(os.path.join(root, "loops", "core_loop.py")).read()
-        check("the node's auto-register targets tip + POSW_TARGET_MARGIN",
-              'latest_block["block_number"] + POSW_TARGET_MARGIN' in core)
+        check("the node no longer auto-registers with a PoSW target", "+ POSW_TARGET_MARGIN" not in core)
         cli = open(os.path.join(root, "scripts", "nado_cli.py")).read()
         check("the CLI's register targets tip + POSW_TARGET_MARGIN",
               "_tip(node) + POSW_TARGET_MARGIN" in cli)

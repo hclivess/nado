@@ -28,8 +28,9 @@ import protocol as P
 from execnode.stark import records_bind as RB
 
 G = P.DIV_CARRY_METER_EPOCH
-check("gate is generation-keyed: 600 on gen 24, 0 elsewhere", G == (600 if P.CHAIN_GENERATION == 24 else 0), G)
-check("the expression self-disarms", "DIV_CARRY_METER_EPOCH = 600 if CHAIN_GENERATION == 24 else 0" in open(os.path.join(ROOT, "protocol.py")).read())
+# gen 25: the gen-24 activation (600) was retired at the reroll — the meter is THE rule from epoch 0, no generation key.
+check("the meter is unconditional from epoch 0 (gen-24 gate retired)", G == 0 and P.CHAIN_GENERATION >= 25, (G, P.CHAIN_GENERATION))
+check("no generation-keyed expression survives", "if CHAIN_GENERATION == 24" not in open(os.path.join(ROOT, "protocol.py")).read())
 
 INF, W = 5_871_180_000, {"a": 2}
 # ---- before the gate (or a caller with no epoch): the whole backlog is in the pot — the old rule, unchanged

@@ -3198,14 +3198,9 @@ async function refreshDashboard() {
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
-    // PROBATION (protocol PROBATION_FIDELITY = 2): the first lease earns no dividend and a reduced draw weight
-    // until the first timely renewal — say so where the number is, so a day-one miner is not surprised.
-    if ($("walProbation")) {
-      const el = $("walProbation"), onProbation = Number(acc.fidelity ?? 0) < 2;
-      // one short line where the number is; the full explanation is the tooltip (it used to take three lines)
-      el.textContent = onProbation ? i18("wal.probationShort", "probation · dividends start after your first renewal (≈19–36 h)") : "";
-      el.title = onProbation ? i18("wal.probation", "Probation: your first lease earns block wins only. Dividends and full weight start after your first timely renewal — any time between ≈19 h and 36 h after you registered.") : "";
-    }
+    // Probation was RETIRED at gen 25 (real-device reroll): an attested identity earns the dividend from its first
+    // lease at weight 1, one clean line to 30 — so the "probation" line under the fidelity number stays empty.
+    if ($("walProbation")) { $("walProbation").textContent = ""; $("walProbation").title = ""; }
     refreshLeasePanel(acc, ms);                         // lease countdown + manual renew inside the earning window
     authSync(acc).then(renderAuth).catch(() => {});      // re-anchor the signing key if the account's config moved
     $("sendAvail").textContent = bal + " NADO";

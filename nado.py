@@ -1631,6 +1631,11 @@ async def get_posw_difficulty(request):
     return _resp({"required_t": 0, "retired": True, "reason": "device attestation replaced PoSW at gen 25"})
 
 
+# per-height memo of the top-100 scan below. (Lost once while the PoSW endpoint above was stubbed for gen 25 —
+# tests/test_no_undefined_names.py caught it; that check runs on the FINAL tree before every push.)
+_rich_list_cache = {"height": -1, "list": None}
+
+
 async def get_rich_list(request):
     """GET /get_rich_list?n=: top-n accounts by balance+bonded (n clamped to 1..100, default 25) — the
     wallet leaderboard. O(accounts) scan cached per block height (top 100 kept, sliced to n)."""

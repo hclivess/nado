@@ -138,10 +138,14 @@ redundant, and each is a barrier or a cap on honest newcomers:
 - the per-IP entry budget and the per-IP identity cap at ingress (`allow_registration`, `allow_identity`):
   identities now cost devices, not IPs, and IP keys penalise CGNAT households;
 - probation (no dividend before the first timely renewal): it existed against mint-and-discard identities,
-  which now each cost a device tap;
+  which now each cost a device tap. The dividend curve is therefore ONE clean line over every fidelity level,
+  `min(fidelity, 30)`: the first lease pays weight 1, no level is skipped, and the open-lane draw weight is the
+  plain 2..10 floor+bonus curve from the first lease (`protocol.dividend_weight`, `mining_ops.open_shares`;
+  pinned by tests/test_sybil_rules.py and tests/test_dividend_rules.py);
 - the generation-24 gate constants (`POSW_ENTRY_COUNT_HEIGHT`, `DIV_CARRY_METER_EPOCH`) — gate hygiene.
 
-Kept: the fidelity ramp (a continuity reward, not a Sybil brake), the lease itself, the lane split.
+Kept: the fidelity ramp (a continuity reward, not a Sybil brake), the bond unlock delay, the lease itself,
+the lane split.
 
 ## Account state
 

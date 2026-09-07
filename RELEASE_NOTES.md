@@ -11,6 +11,16 @@ Retired because a device proof makes them redundant: the sequential-work registr
 difficulty machinery, the per-IP entry budget and identity cap, probation (an attested identity earns from its
 first lease), the node's open-lane auto-register (nodes earn in the bonded lane), the gen-24 gate constants.
 
+**Clean dividend curve.** `dividend_weight = min(fidelity, 30)` over EVERY level: the first lease (fidelity 1) pays
+weight 1, then 2, 3 … 30. Gen 24 skipped fidelity 1 (probation) because identities were free to farm; an attested
+identity is a device and a tap, so the line is unbroken. Open-lane draw weight is the plain 2..10 floor+bonus curve
+from the first lease. The bond unlock delay, the fidelity ramp, the lease and the lane split are unchanged.
+
+**Updater.** The fleet could not fast-forward past 070023a9: cargo had written an untracked
+`native/attest/Cargo.lock` on every node and the next commit tracked that path. Crate locks now live at
+`Cargo.lock.pinned` (copied in before every build, one dependency set fleet-wide) and the updater moves any
+untracked file the target commit tracks aside as `<path>.local-<ts>` before merging — never deletes.
+
 Balances, bonded stake, uncollected dividends and pending withdrawals carry forward at genesis (supply Δ = 0).
 Protocol handshake 12; chain id betanet-7. Design: doc/device-attestation.md.
 

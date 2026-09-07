@@ -1,15 +1,16 @@
-"""SYBIL RULES (2026-09-01; protocol "SYBIL RULES", doc/ip-spoofing-and-sybil.md §Probation).
+"""SYBIL RULES after the gen-25 real-device reroll (protocol "SYBIL RULES", doc/device-attestation.md).
 
-Gen-23-keyed activation at SYBIL_RULES_HEIGHT (block 86 400 = epoch 1440), THE rule from block 0 of gen 24+:
-  1. probation: dividend_weight == 0 (== ABSENT from the epoch's weight set) until the first timely renewal
-     (fidelity < PROBATION_FIDELITY);
-  2. probation: open_shares == 1 (never 0) until then, the normal 2..10 curve after;
-  3. the flood difficulty baseline is capped by the 14-day trailing rate, so a burst cannot become its own
-     baseline; the honest steady state is unchanged;
-  4. the relay's per-IP registration budget counts ENTRIES only (renewals exempt) and defaults to 8/h;
-  5. the wallet says, next to the lease countdown, that a saved seed phrase renews nothing.
-Pins the byte-identity of every rule BEFORE the activation epoch (old and new nodes must agree until then),
-the exact behaviour after it, the gate's self-disarm at the next generation, and the wiring by source."""
+Gen 23/24 answered free-to-mint identities with probation (no dividend, open weight 1 until the first timely
+renewal) and per-IP budgets. Gen 25 makes every identity an attested device, so those are RETIRED and this file
+pins what replaced them:
+  1. no activation gate survives, and `on_probation` is a name that always answers False;
+  2. the dividend weight is ONE clean line over every fidelity level — fidelity 1 (the first lease) pays 1,
+     linear to 30 — and open_shares is the plain 2..10 floor+bonus curve from the first lease;
+  3. weights_at_epoch lists a day-one identity at weight 1 (only fidelity 0 is absent);
+  4. the flood difficulty baseline statistics (ops/reg_difficulty) still cap by the 14-day trailing rate;
+  5. the wallet says, next to the lease countdown, that a saved seed phrase renews nothing, and no per-IP
+     budget or probation wording survives in the node or the wallet;
+  6. the difficulty windows count ENTRIES, never renewals."""
 import os
 import re
 import sys
@@ -32,25 +33,26 @@ def t1_gate_expression():
     src = open(os.path.join(ROOT, "protocol.py")).read()
     for name in ("SYBIL_RULES_HEIGHT", "SYBIL_RULES_EPOCH", "_GEN23_SYBIL_ACTIVATION"):
         check(f"{name} is gone", re.search(r"^\s*%s\b" % name, src, re.M) is None)
-    check("gen 24+", P.CHAIN_GENERATION >= 24)
-    check("probation is unconditional", P.on_probation(1, 0) and not P.on_probation(2, 0))
+    check("gen 25+", P.CHAIN_GENERATION >= 25)
+    check("probation retired: the name always answers False", not P.on_probation(1, 0) and not P.on_probation(0, 0) and not P.on_probation(1, 10**6))
+    check("PROBATION_FIDELITY is gone", re.search(r"^\s*PROBATION_FIDELITY\b", src, re.M) is None)
 
 
-def t2_probation_weights():
+def t2_clean_curve():
+    """One line over every fidelity level, for the dividend and for the open-lane draw, from the first lease."""
     import protocol as P
     from ops.mining_ops import open_shares
-    E0, E1 = -1, 0
-    check("from activation: probation identities weigh 0 (absent) for the dividend",
-          [P.dividend_weight(f, E1) for f in (None, 0, 1)] == [0, 0, 0])
-    check("from activation: the first timely renewal ends probation (fidelity 2 -> weight 2, linear to 30)",
-          P.dividend_weight(2, E1) == 2 and P.dividend_weight(10, E1) == 10 and P.dividend_weight(30, E1) == 30)
-    check("from activation: open weight 1 on probation, never 0, 2+bonus after",
-          [open_shares(f, E1) for f in (None, 0, 1, 2, 30)] == [1, 1, 1, 2, 10])
-    check("legacy display call (no epoch) keeps the un-gated curve", open_shares(0) == 2)
-    check("on_probation predicate", P.on_probation(1, E1) and not P.on_probation(2, E1))
+    E1 = 0
+    check("dividend: fidelity 1 pays 1 from the first lease, linear to 30, capped",
+          [P.dividend_weight(f, E1) for f in (None, 0, 1, 2, 10, 30, 31)] == [0, 0, 1, 2, 10, 30, 30])
+    check("dividend: every level 1..30 is on the line (no skipped level)",
+          [P.dividend_weight(f, E1) for f in range(1, 31)] == list(range(1, 31)))
+    check("dividend: the epoch never gates the curve", all(P.dividend_weight(1, e) == 1 for e in (0, 1, 400, 10**6)))
+    check("open draw: floor+bonus from the first lease, epoch or not",
+          [open_shares(f, E1) for f in (None, 0, 1, 2, 30)] == [2, 2, 2, 2, 10] and open_shares(0) == 2 and open_shares(1, 999) == 2)
 
 
-def t3_weights_at_epoch_omits_probation():
+def t3_weights_at_epoch_lists_day_one():
     d = tempfile.mkdtemp(prefix="nado-sybil-")
     os.environ["HOME"] = d
     from ops import kv_ops
@@ -59,11 +61,11 @@ def t3_weights_at_epoch_omits_probation():
     from ops.dividend_ops import weights_at_epoch
     E = 400 + 10
     a, b = "a" * 46, "b" * 46
-    kv_ops.recert_put(a, E - 1)                                 # fresh: one recert -> fidelity 1 -> probation
-    kv_ops.recert_put(b, E - 1 - P.FIDELITY_MIN_GAP_EPOCHS)     # renewed timely -> fidelity 2
+    kv_ops.recert_put(a, E - 1)                                 # fresh: one recert -> fidelity 1 -> weight 1
+    kv_ops.recert_put(b, E - 1 - P.FIDELITY_MIN_GAP_EPOCHS)     # renewed timely -> fidelity 2 -> weight 2
     kv_ops.recert_put(b, E - 1)
     w = weights_at_epoch(E)
-    check("probation identity ABSENT from the committed weight set (exec floors listed weights to 1)", a not in w and w.get(b) == 2, w)   # linear: fidelity 2 -> weight 2
+    check("a day-one identity is IN the committed weight set at weight 1; the renewed one at 2", w.get(a) == 1 and w.get(b) == 2, w)
     kv_ops.close_all()
 
 
@@ -99,12 +101,10 @@ def t5_wiring():
     nado = open(os.path.join(ROOT, "nado.py")).read()
     ms = open(os.path.join(ROOT, "memserver.py")).read()
     js = open(os.path.join(ROOT, "static", "interface.js")).read()
-    seg = nado[nado.index("def _ip_registration_rejection"):nado.index("async def health")]   # whole hook (the identity-cap block of 2026-09-06 sits above the entry check)
-    check("per-IP budget: entries only", "is_entry_registration(" in seg and "return None" in seg.split("is_entry_registration(")[1][:200])
-    check("per-IP budget default 8", 'self.config.get("max_registrations_per_ip", 8)' in ms)
-    check("live open weights omit probation", "if w > 0:" in nado[nado.index("async def get_open_weights"):nado.index("async def duty_committee")])
+    check("no per-IP registration budget survives in the node", "max_registrations_per_ip" not in ms and "allow_registration(" not in nado)
+    check("live open weights list only positive weights (fidelity 0 absent)", "if w > 0:" in nado[nado.index("async def get_open_weights"):nado.index("async def duty_committee")])
     check("wallet: lease truth next to the countdown", "a saved seed phrase does not renew itself" in js)
-    check("wallet: probation explained where the fidelity number is", '"wal.probation"' in js)
+    check("wallet: no probation wording is shown any more", 'i18("wal.probation' not in js)
     dops = open(os.path.join(ROOT, "ops", "dividend_ops.py")).read()
     check("dividend replay uses the epoch-aware weight", "dividend_weight(fidelity_at_epoch(addr, epoch), epoch)" in dops)
 
@@ -132,7 +132,7 @@ def t6_entries_only_counting():
 
 
 if __name__ == "__main__":
-    for name in ("t1_gate_expression", "t2_probation_weights", "t3_weights_at_epoch_omits_probation", "t4_difficulty_baseline", "t5_wiring", "t6_entries_only_counting"):
+    for name in ("t1_gate_expression", "t2_clean_curve", "t3_weights_at_epoch_lists_day_one", "t4_difficulty_baseline", "t5_wiring", "t6_entries_only_counting"):
         try:
             globals()[name]()
         except Exception:

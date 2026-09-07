@@ -1,6 +1,6 @@
 [package]
 name = "nado-attest"
-version = "0.1.0"
+version = "0.2.0"   # bumped at the gen-25 reroll so every node rebuilds from Cargo.lock.pinned (one dependency set fleet-wide)
 edition = "2021"
 description = "NADO native device-attestation verifier (WebAuthn apple / android-key statements against pinned vendor roots) — Rust cdylib bound by ops/attest_native.py"
 license = "AGPL-3.0-or-later"

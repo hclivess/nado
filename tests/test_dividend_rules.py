@@ -1,5 +1,6 @@
 """The 2026-08-25 dividend rules (protocol.py), unconditional since the betanet-5 (gen 23) reroll: the
-dividend weight (LINEAR min(fidelity, 30), 0 on probation — replaced the convex 1..25 curve on 2026-09-01),
+dividend weight (LINEAR min(fidelity, 30) over EVERY level since gen 25 — gen 24 skipped fidelity 1 as probation
+while identities were free to farm; replaced the convex 1..25 curve on 2026-09-01),
 the halving lapse, and the 40% bonded levy. Also pins that NO
 activation gate exists for them any more — they rode gen 22 behind a generation-keyed gate that the reroll
 retired; a bare height sneaking back in would outlive its chain."""
@@ -35,9 +36,13 @@ def t_bonded_levy():
 
 
 def t_dividend_curve():
-    got = [P.dividend_weight(f, 0) for f in (0, 1, 5, 10, 15, 20, 25, 30, 99, None, -3)]
-    assert got == [0, 0, 5, 10, 15, 20, 25, 30, 30, 0, 0], got   # gen 24: linear = days present; probation (f < 2) -> absent (0)
+    got = [P.dividend_weight(f, 0) for f in (0, 1, 2, 5, 10, 15, 20, 25, 30, 99, None, -3)]
+    # gen 25: ONE clean line over every level — fidelity 1 (the first lease) pays 1; no skipped level, no probation
+    assert got == [0, 1, 2, 5, 10, 15, 20, 25, 30, 30, 0, 0], got
+    assert [P.dividend_weight(f, 0) for f in range(1, 31)] == list(range(1, 31)), "every fidelity level 1..30 is on the line"
     assert all(P.dividend_weight(f, 0) <= P.dividend_weight(f + 1, 0) for f in range(0, 35)), "monotonic"
+    assert P.dividend_weight(1, 0) == P.dividend_weight(1, 999_999) == 1, "no epoch ever gates the first lease"
+    assert P.on_probation(1, 0) is False and P.on_probation(0, 5) is False, "probation retired: the name always answers False"
     assert P.dividend_weight(P.FIDELITY_CAP, 0) == P.DIVIDEND_WEIGHT_MAX == P.FIDELITY_CAP == 30
     from ops.mining_ops import open_shares
     assert open_shares(0) == 2 and open_shares(30) == 10, "selection weight keeps its liveness floor"

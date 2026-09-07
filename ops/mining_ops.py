@@ -21,7 +21,7 @@ Design (from the red-teamed "Option A" hybrid):
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash
-from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON, on_probation
+from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON
 from protocol import (B_MIN, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
                       K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
@@ -147,12 +147,10 @@ def open_shares(fidelity, epoch=None) -> int:
     gets (so a zero-coin miner is ALWAYS winnable, never scaled to 0) plus a diligence bonus that
     ramps to full over FIDELITY_CAP epochs of continuous presence. Range OPEN_BASE_FLOOR ..
     OPEN_BASE_FLOOR+OPEN_FID_BONUS (1..10). NOT money-weighted — this lane is capital-FREE, so no
-    whale can buy advantage in it."""
+    whale can buy advantage in it. `epoch` is accepted (and ignored) so every caller keeps one signature:
+    gen 24 used it for probation (weight 1 until the first renewal), retired at gen 25 — an identity is an
+    attested device now, so the curve is the same clean line at every fidelity level from the first lease."""
     f = 0 if fidelity is None or fidelity < 0 else fidelity
-    # PROBATION (protocol.on_probation, rule 2): weight 1 — never 0, a newcomer stays winnable — until the first
-    # timely renewal. `epoch` None = the caller has no epoch (legacy display) -> the un-gated curve.
-    if epoch is not None and on_probation(f, epoch):
-        return 1
     return OPEN_BASE_FLOOR + min(f, FIDELITY_CAP) * OPEN_FID_BONUS // FIDELITY_CAP
 
 

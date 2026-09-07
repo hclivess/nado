@@ -48,11 +48,12 @@ def present_at_epoch(epoch: int) -> set:
 
 def weights_at_epoch(epoch: int) -> dict:
     """{address: dividend_weight(fidelity_at_epoch(address, epoch))} for the present set at `epoch` — the
-    fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight, the
-    convex 1..25 dividend curve). Deterministic and reconstructible: this is what the exec node accrues
-    against and what an L1 challenge re-derives."""
-    # PROBATION (protocol.on_probation): a 0 weight means ABSENT from the set — the exec accrual floors listed
-    # weights to 1, so omission is how "no dividend yet" is expressed. Committed into the epochw row as such.
+    fidelity-weighted weights the dividend distributes by, as of that epoch (protocol.dividend_weight, one
+    clean line min(fidelity, 30) over every level — fidelity 1 pays from the first lease since gen 25).
+    Deterministic and reconstructible: this is what the exec node accrues against and what an L1 challenge
+    re-derives."""
+    # A 0 weight (no fidelity at all) means ABSENT from the set — the exec accrual floors listed weights to 1, so
+    # listing is the grant. Gen 24 used this omission for probation; gen 25 has none, so only fidelity 0 is absent.
     out = {}
     for addr in present_at_epoch(epoch):
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
