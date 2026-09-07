@@ -576,12 +576,35 @@ class MemServer:
             return 0
         self._pool_saved_at = now
         import json as _json
+        import threading as _th
         try:
             txs = self.live_pool()                 # never persist a tx that can no longer land
-            tmp = self.pool_path + ".tmp"
-            with open(tmp, "w") as f:
-                _json.dump(txs, f)
-            os.replace(tmp, self.pool_path)
+            # UNCHANGED POOL ⇒ NO WRITE, AND NEVER ON THE CALLER'S THREAD. Six pending 10 MiB settle proofs made
+            # this a 60 MiB json.dump every 5 s on the PEER loop (py-spy 2026-09-07 13:29: 7/10 samples here),
+            # which is the loop that syncs blocks — the relay crawled 100+ blocks behind the fleet. The set of
+            # txids is the identity of the pool; serialise only when it moved, and on a daemon thread.
+            sig = tuple(sorted(str(t.get("txid", "")) for t in txs if isinstance(t, dict)))
+            if sig == getattr(self, "_pool_sig", None):
+                return len(txs)
+            w = getattr(self, "_pool_writer", None)
+            if w is not None and w.is_alive():
+                return len(txs)                    # a write is in flight; the next tick re-checks the signature
+            self._pool_sig = sig
+
+            def _write(txs=txs, sig=sig):
+                try:
+                    tmp = self.pool_path + ".tmp"
+                    with open(tmp, "w") as f:
+                        _json.dump(txs, f)
+                    os.replace(tmp, self.pool_path)
+                except Exception as e:
+                    self._pool_sig = None          # retry next tick
+                    self.logger.error(f"mempool persist failed: {e}")
+            if force:
+                _write()
+            else:
+                self._pool_writer = _th.Thread(target=_write, daemon=True, name="mempool-persist")
+                self._pool_writer.start()
             return len(txs)
         except Exception as e:
             self.logger.error(f"mempool persist failed: {e}")
