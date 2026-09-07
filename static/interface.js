@@ -569,7 +569,12 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   if (onProgress) { try { onProgress(1, 1); } catch (e) {} }
   const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
   if (!device) {
-    throw new Error(i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
+    // SAY THE REAL REASON. attestDevice() has just stored the verdict (fmt none under Windows Hello VBS, no chain,
+    // unbindable class, cancelled…); the generic sentence below buried it and a Windows user was told to "use a
+    // Windows PC with a TPM" on a Windows PC (2026-09-07). The banner gets the specific hint whenever one exists.
+    let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+    const hint = (st && !st.ok) ? deviceHint(st) : "";
+    throw new Error(hint || i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
   }
   return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
 }
