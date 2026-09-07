@@ -93,3 +93,12 @@ press Run, paste an address, press Attest. The log line answers a question nobod
 With a paid developer account signed into Playgrounds, the same project can be uploaded to App Store Connect from
 the iPad (Playgrounds → app settings → upload), though the App Attest capability still has to be enabled for the
 App ID in the developer portal.
+
+## No Mac: the GitHub build (`.github/workflows/nado-attest-ios.yml`)
+
+With a paid membership the whole release runs on a GitHub macOS runner: it generates the Xcode project, signs with
+Apple's cloud signing through an App Store Connect API key, archives and uploads to TestFlight. Set four repository
+secrets — `APPLE_TEAM_ID`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (the key file's text) — tick App Attest on the
+App ID `com.nadochain.attest` in the developer portal once, then Actions → "NADO Attest iOS" → Run workflow with a
+build number that increases every time. The upload appears under TestFlight in App Store Connect a few minutes later;
+the App Store listing, screenshots and submission are done in the App Store Connect website (an iPad's Safari is enough).

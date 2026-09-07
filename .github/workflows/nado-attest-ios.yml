@@ -1,0 +1,70 @@
+# NADO Attest — build, sign and upload the iOS app to TestFlight from a GitHub macOS runner. No Mac needed.
+# Needs four repository secrets (Settings → Secrets → Actions): APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8
+# (the App Store Connect API key's .p8 text). Cloud signing: xcodebuild registers the App ID and provisioning profile
+# itself with -allowProvisioningUpdates + the API key, so no certificate ever leaves Apple. The App Attest capability
+# must be ticked on the App ID once, in the developer portal. Manual trigger only.
+name: NADO Attest iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "CFBundleVersion (must increase every upload)"
+        required: true
+        default: "1"
+
+jobs:
+  testflight:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/nado-attest-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app && xcodebuild -version
+
+      - name: XcodeGen
+        run: brew install xcodegen && xcodegen generate
+
+      - name: App Store Connect API key
+        run: |
+          mkdir -p ~/.private_keys
+          printf '%s' "$ASC_KEY_P8" > ~/.private_keys/AuthKey_$ASC_KEY_ID.p8
+          chmod 600 ~/.private_keys/AuthKey_$ASC_KEY_ID.p8
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+
+      - name: Archive (cloud-signed)
+        run: |
+          xcodebuild -project NadoAttest.xcodeproj -scheme NadoAttest -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/NadoAttest.xcarchive archive \
+            -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+            -authenticationKeyPath ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} CURRENT_PROJECT_VERSION=${{ github.event.inputs.build_number }} \
+            CODE_SIGN_STYLE=Automatic
+
+      - name: Export for App Store
+        run: |
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath build/NadoAttest.xcarchive -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Result
+        run: ls -la build/export || true; echo "Uploaded to App Store Connect — see TestFlight in appstoreconnect.apple.com (processing takes a few minutes)."
