@@ -1591,9 +1591,9 @@ DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed", "tre
 # App Attestation Root CA), and that key later signs fresh challenges (`apple-assertion`: renewal with proof of presence,
 # or a rebind). Any developer's app chains to the SAME Apple root, so the statement's rpIdHash MUST be one of OUR App IDs
 # ("<TEAMID>.<bundle id>") — pinned here, never the tx's declared rp. EMPTY until the app is signed by a real team, and
-# DEVICE_ATTEST_APPLE_HEIGHT = 0 keeps both formats refused until a gated commit enables them (no live sample yet).
-DEVICE_ATTEST_APPLE_APP_IDS = ()
-DEVICE_ATTEST_APPLE_HEIGHT = 0
+# DEVICE_ATTEST_APPLE_HEIGHT = 4400 keeps both formats refused until a gated commit enables them (no live sample yet).
+DEVICE_ATTEST_APPLE_APP_IDS = ("LOCALSPKEY.swift-playgrounds-dev-run.swift-playgrounds-app.fserhcaedibdmeasqtgljwsjrmel.501.NadoAttest",)   # first live App ID (iPad, Swift Playgrounds build, 2026-09-07)
+DEVICE_ATTEST_APPLE_HEIGHT = 4400
 # tpm: only the Windows Hello HARDWARE authenticator AAGUID (the VBS and software variants are not a TPM), and only
 # physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
 DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))

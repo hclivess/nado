@@ -108,7 +108,7 @@ def t_binding_and_rules(att, cdj, point, a_att):
     check("binding key: an assertion resolves to the SAME row", k1 == k2, (k1, k2))
     check("class: apple-appattest is bindable and permanent", "apple-appattest" in P.DEVICE_BIND_CLASSES and "apple-appattest" in P.DEVICE_BIND_PERMANENT_CLASSES)
     check("formats: both app formats are known to the format list", {"apple-appattest", "apple-assertion"} <= P.DEVICE_ATTEST_FORMATS)
-    check("DORMANT: no App ID pinned and height 0 until a real team signs the app", P.DEVICE_ATTEST_APPLE_APP_IDS == () and P.DEVICE_ATTEST_APPLE_HEIGHT == 0)
+    check("ENABLED: an App ID is pinned and the formats are height-gated", len(P.DEVICE_ATTEST_APPLE_APP_IDS) >= 1 and P.DEVICE_ATTEST_APPLE_HEIGHT >= 1)
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     check("validation: app formats use the PINNED App IDs only (never the tx rp) and are refused until enabled",
           'if fmt_pre in ("apple-appattest", "apple-assertion"):' in src and "rp_list = list(DEVICE_ATTEST_APPLE_APP_IDS)" in src
@@ -157,7 +157,7 @@ def t_real_ipad_vector():
     cd = json.loads(cdj)
     check("real: clientData type nado.app", cd.get("type") == "nado.app")
     from ops import attest_native as AN
-    r = AN.verify(att, cdj, base64.urlsafe_b64decode(cd["challenge"] + "=" * (-len(cd["challenge"]) % 4)), 1788804290, rp_ids=list(P.DEVICE_ATTEST_APPLE_APP_IDS))
+    r = AN.verify(att, cdj, base64.urlsafe_b64decode(cd["challenge"] + "=" * (-len(cd["challenge"]) % 4)), 1788804793, rp_ids=list(P.DEVICE_ATTEST_APPLE_APP_IDS))
     if P.DEVICE_ATTEST_APPLE_APP_IDS:
         check("real: the kernel accepts it under the pinned App ID", r["ok"], r)
     else:
