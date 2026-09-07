@@ -598,6 +598,7 @@ function deviceHint(st) {
   if (st && st.ok) return "";
   if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or plug in a FIDO2 security key.");
   if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set up a PIN with a TPM 2.0 available (tpm.msc), or use a FIDO2 security key.");
+  if (st && st.reason === "unbindable") return i18("device.hint.unbindable", "A FIDO2 security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android 12+ phone or a Windows PC with a TPM 2.0.");
   if (st && st.reason === "unsupported") {
     if (isLinux) return i18("device.hint.linux", "Linux has no built-in attesting authenticator: plug in a FIDO2 security key (YubiKey, SoloKey, Titan…) and retry.");
     if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
@@ -747,9 +748,32 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
       attestation: "direct", timeout: 120000 });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const att = b64(cred.response.attestationObject), cdj = b64(cred.response.clientDataJSON);
+    // PRE-FLIGHT (2026-09-07): have the relay PARSE the statement before anything is submitted. fmt "none" (Windows
+    // Hello under VBS or a software key, an Apple passkey), no certificate chain, an unpinned root, or a class the
+    // network cannot bind to one identity (FIDO2 batch key) is refused by every node anyway — a user saw the raw
+    // "attStmt has no x5c" instead of the reason. Say WHY here, with the device hint, and do not submit.
+    try {
+      const pr = await fetch(relayBase() + "/device_attest_probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ att, cdj }) });
+      const pj = await pr.json().catch(() => null);
+      const s = pj && pj.summary;
+      if (s) {
+        const ad = s.auth_data || {};
+        const bindable = s.fmt === "android-key" || s.fmt === "tpm";
+        const st = { ok: false, fmt: s.fmt || "none", aaguid: ad.aaguid, format_accepted: s.format_accepted, root_pinned: s.root_pinned, x5c: s.x5c_count };
+        if (!s.fmt || s.fmt === "none" || !s.x5c_count) st.reason = "none";
+        else if (!bindable) st.reason = "unbindable";
+        else if (s.root_pinned === false) st.reason = "root";
+        if (st.reason) {
+          setDeviceStatus(st);
+          log("err", i18("device.refused", "This device cannot register ({f}): ", { f: st.fmt }) + deviceHint(st));
+          return null;
+        }
+      }
+    } catch (e) { /* relay without the probe: the node's own verdict still applies at submit */ }
     setDeviceStatus({ ok: true, fmt: "attested", reason: "ok" });
     log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
-    return { att: b64(cred.response.attestationObject), cdj: b64(cred.response.clientDataJSON), rp: location.hostname };
+    return { att, cdj, rp: location.hostname };
   } catch (e) {
     const stF = { ok: false, reason: (e && e.message) || String(e) };
     setDeviceStatus(stF);

@@ -4640,6 +4640,26 @@
     "vi": {"reg.tapNeeded": "Danh tính của bạn cần một lần chạm: nhấn Bắt đầu (hoặc Gia hạn) để chứng thực thiết bị này — một lần chạm cho mỗi kỳ thuê.", "reg.error": "Lỗi đăng ký: {e}"}
   };
   for (const l in T69) Object.assign(T[l] = T[l] || {}, T69[l]);
+  // T70: pre-flight refusal wording (the relay parses the statement before submit) + the "cannot be bound" hint.
+  const T70 = {
+    "en": {"device.refused": "This device cannot register ({f}): ", "device.hint.unbindable": "A FIDO2 security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android 12+ phone or a Windows PC with a TPM 2.0."},
+    "cs": {"device.refused": "Toto zařízení se nemůže zaregistrovat ({f}): ", "device.hint.unbindable": "Bezpečnostní klíč FIDO2 ani telefon s dávkovým certifikátem nenesou certifikát konkrétního zařízení, síť je tedy nemůže svázat s jednou identitou a odmítne je. Použijte telefon s Androidem 12+ nebo Windows PC s TPM 2.0."},
+    "es": {"device.refused": "Este dispositivo no puede registrarse ({f}): ", "device.hint.unbindable": "Una llave FIDO2 o un teléfono con certificado de lote no lleva un certificado por dispositivo, así que la red no puede vincularlo a una identidad y lo rechaza. Usa un Android 12+ o un PC Windows con TPM 2.0."},
+    "pt": {"device.refused": "Este dispositivo não pode se registrar ({f}): ", "device.hint.unbindable": "Uma chave FIDO2 ou um telefone com certificado de lote não traz certificado por dispositivo, então a rede não consegue vinculá-lo a uma identidade e o recusa. Use um Android 12+ ou um PC Windows com TPM 2.0."},
+    "fr": {"device.refused": "Cet appareil ne peut pas s'enregistrer ({f}) : ", "device.hint.unbindable": "Une clé FIDO2 ou un téléphone attesté par lot ne porte aucun certificat propre à l'appareil : le réseau ne peut pas le lier à une identité et le refuse. Utilisez un Android 12+ ou un PC Windows avec TPM 2.0."},
+    "de": {"device.refused": "Dieses Gerät kann sich nicht registrieren ({f}): ", "device.hint.unbindable": "Ein FIDO2-Sicherheitsschlüssel oder ein batch-attestiertes Telefon trägt kein gerätespezifisches Zertifikat; das Netz kann es nicht an eine Identität binden und lehnt es ab. Nutze ein Android-12+-Telefon oder einen Windows-PC mit TPM 2.0."},
+    "it": {"device.refused": "Questo dispositivo non può registrarsi ({f}): ", "device.hint.unbindable": "Una chiave FIDO2 o un telefono con certificato di lotto non ha un certificato per dispositivo: la rete non può legarlo a un'identità e lo rifiuta. Usa un Android 12+ o un PC Windows con TPM 2.0."},
+    "ru": {"device.refused": "Это устройство не может зарегистрироваться ({f}): ", "device.hint.unbindable": "Ключ FIDO2 или телефон с пакетным сертификатом не несёт сертификата конкретного устройства, поэтому сеть не может привязать его к одной идентичности и отклоняет. Используйте Android 12+ или ПК с Windows и TPM 2.0."},
+    "zh": {"device.refused": "此设备无法注册（{f}）：", "device.hint.unbindable": "FIDO2 安全密钥或使用批量证书的手机没有每台设备独有的证书，网络无法将其绑定到单一身份，因此拒绝。请使用 Android 12+ 手机或带 TPM 2.0 的 Windows 电脑。"},
+    "ja": {"device.refused": "この端末は登録できません（{f}）: ", "device.hint.unbindable": "FIDO2 セキュリティキーやバッチ証明書の端末には端末固有の証明書がないため、ネットワークは 1 つの ID に紐付けられず拒否します。Android 12 以降の端末か TPM 2.0 搭載の Windows PC を使ってください。"},
+    "ko": {"device.refused": "이 기기는 등록할 수 없습니다({f}): ", "device.hint.unbindable": "FIDO2 보안 키나 배치 인증 휴대폰에는 기기별 인증서가 없어 네트워크가 하나의 신원에 묶을 수 없으므로 거부합니다. Android 12 이상 휴대폰이나 TPM 2.0이 있는 Windows PC를 사용하세요."},
+    "ar": {"device.refused": "لا يمكن لهذا الجهاز التسجيل ({f}): ", "device.hint.unbindable": "مفتاح أمان FIDO2 أو هاتف بشهادة دفعة لا يحمل شهادة خاصة بالجهاز، لذلك لا تستطيع الشبكة ربطه بهوية واحدة وترفضه. استخدم هاتف Android 12+ أو حاسوب Windows مزودًا بـ TPM 2.0."},
+    "hi": {"device.refused": "यह डिवाइस पंजीकृत नहीं हो सकता ({f}): ", "device.hint.unbindable": "FIDO2 सुरक्षा कुंजी या बैच-प्रमाणित फ़ोन में प्रति-डिवाइस प्रमाणपत्र नहीं होता, इसलिए नेटवर्क उसे एक पहचान से बाँध नहीं सकता और अस्वीकार करता है। Android 12+ फ़ोन या TPM 2.0 वाला Windows PC इस्तेमाल करें।"},
+    "tr": {"device.refused": "Bu cihaz kaydolamaz ({f}): ", "device.hint.unbindable": "FIDO2 güvenlik anahtarı ya da toplu sertifikalı telefon cihaza özel sertifika taşımaz; ağ onu tek bir kimliğe bağlayamaz ve reddeder. Android 12+ telefon ya da TPM 2.0'lı Windows PC kullan."},
+    "id": {"device.refused": "Perangkat ini tidak dapat mendaftar ({f}): ", "device.hint.unbindable": "Kunci keamanan FIDO2 atau ponsel beratestasi batch tidak membawa sertifikat per perangkat, sehingga jaringan tidak bisa mengikatnya ke satu identitas dan menolaknya. Gunakan ponsel Android 12+ atau PC Windows dengan TPM 2.0."},
+    "vi": {"device.refused": "Thiết bị này không thể đăng ký ({f}): ", "device.hint.unbindable": "Khóa bảo mật FIDO2 hoặc điện thoại chứng thực theo lô không có chứng chỉ riêng cho từng thiết bị, nên mạng không thể gắn nó với một danh tính và từ chối. Hãy dùng điện thoại Android 12+ hoặc PC Windows có TPM 2.0."}
+  };
+  for (const l in T70) Object.assign(T[l] = T[l] || {}, T70[l]);
 
 
 
