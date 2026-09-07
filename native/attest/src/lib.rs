@@ -94,20 +94,6 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
         out.reason = "ok".into();
         return out;
     }
-    // APPLE APP ATTEST ASSERTION: no chain, no attested-credential authData — a key that already attested signs our
-    // challenge (doc/apple-app-attest.md). Consensus additionally requires that key's binding row to exist.
-    if fmt == "apple-assertion" {
-        let st = match cbor_get(&m, "attStmt") {
-            Some(Value::Map(s)) => s.clone(),
-            _ => return fail(out, "no attStmt"),
-        };
-        if let Err(why) = formats::apple_assertion::verify(&st, cdj, challenge, rp_ids, &mut out) {
-            return fail(out, &why);
-        }
-        out.ok = true;
-        out.reason = "ok".into();
-        return out;
-    }
     let ad = match cbor_bytes(&m, "authData") {
         Some(b) => b,
         None => return fail(out, "no authData"),
@@ -122,8 +108,7 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
     };
     out.aaguid = hex(&a.aaguid);
     out.cred_id = hex(&a.cred_id);
-    // App Attest has no user gesture (the app calls the service); every WebAuthn format needs user presence.
-    if fmt != "apple-appattest" && a.flags & 0x01 == 0 {
+    if a.flags & 0x01 == 0 {
         return fail(out, "user not present");
     }
     if !rp_ids.iter().any(|r| Sha256::digest(r.as_bytes()).as_slice() == a.rp_id_hash.as_slice()) {
@@ -134,9 +119,8 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
         Ok(v) => v,
         Err(_) => return fail(out, "clientDataJSON is not JSON"),
     };
-    let want_type = if fmt == "apple-appattest" { "nado.app" } else { "webauthn.create" };
-    if cd.get("type").and_then(|t| t.as_str()) != Some(want_type) {
-        return fail(out, &format!("clientData.type is not {want_type}"));
+    if cd.get("type").and_then(|t| t.as_str()) != Some("webauthn.create") {
+        return fail(out, "clientData.type is not webauthn.create");
     }
     let chal_b64 = cd.get("challenge").and_then(|c| c.as_str()).unwrap_or("");
     let chal = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(chal_b64) {
@@ -165,7 +149,6 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
     let ctx = formats::Ctx { st: &st, ad: &ad, cdj_hash, a: &a, leaf: &leaf };
     let res = match fmt.as_str() {
         "apple" => formats::apple::verify(&ctx, &mut out),
-        "apple-appattest" => formats::apple_appattest::verify(&ctx, &mut out),
         "android-key" => formats::android_key::verify(&ctx, &mut out),
         "packed" => formats::packed::verify(&ctx, &mut out),
         "tpm" => formats::tpm::verify(&ctx, &mut out),

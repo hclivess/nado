@@ -565,13 +565,12 @@ node you run: bond, then attest it from the Mining page. With a Ledger or Trezor
 renews itself and keeps producing with up to 1,000 NADO counting. If no bonded identity is attested at all, the lane
 falls back to plain stake weight so the chain never stalls.
 
-**iPhone, iPad, Mac.** Apple passkeys carry no attestation, so an Apple device cannot vouch for itself through a
-web page, and Apple issues device attestations only to apps registered under a paid developer team — a fee the
-project does not pay for what Android provides for free. Apple users mine anyway: on a Mac, a Ledger or Trezor in
-Chrome, Edge or Brave; on an iPhone or iPad, *Attest from another device* (an Android phone, a Windows PC or a Mac
-with a hardware wallet vouches for the wallet). The native App Attest bridge exists in the repo
-(`apps/nado-attest-ios`, `doc/apple-app-attest.md`) with a GitHub build ready for anyone who holds a membership; it
-is verified against a real iPad statement and disabled for the public.
+**iPhone, iPad, Mac.** Apple devices are not an accepted device class (decision 2026-09-07). Apple passkeys carry
+no attestation, and Apple's App Attest — built, tested against a real iPad and then withdrawn — carries no per-device
+certificate: one device, one identity would rest on app code, and a jailbroken older iPhone could farm identities
+undetected. Every other class binds on something the chip itself issues. Apple users mine anyway: on a Mac, a Ledger
+or Trezor in Chrome, Edge or Brave; on an iPhone or iPad, *Attest from another device* (an Android phone, a Windows PC
+or a Mac with a hardware wallet vouches for the wallet).
 
 **Windows says "Windows Hello is not using a TPM" (authenticator 9ddd1817).** Windows created the Hello key inside
 virtualization-based security (VBS) instead of the TPM; a VBS key has no certificate chain. The BIOS TPM switch alone

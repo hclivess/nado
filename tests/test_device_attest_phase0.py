@@ -43,12 +43,12 @@ def main():
         pass
     # pinned roots: every file's SHA-256 over DER is in the protocol set, and nothing is expired
     d = os.path.join(ROOT, "protocol_roots"); files = sorted(f for f in os.listdir(d) if f.endswith(".pem"))
-    assert len(files) == 7, files   # Apple WebAuthn, Apple App Attest, four Google, Microsoft TPM
+    assert len(files) == 6, files   # Apple WebAuthn, four Google, Microsoft TPM
     for f in files:
         der = subprocess.run(["openssl", "x509", "-in", os.path.join(d, f), "-outform", "DER"], capture_output=True).stdout
         assert hashlib.sha256(der).hexdigest() in P.DEVICE_ATTEST_ROOT_FINGERPRINTS, f
     assert P.DEVICE_ATTEST_HEIGHT == 1, "gen 25: the rule is live from block 1 (0 was the capture-only phase)"
-    assert P.DEVICE_ATTEST_FORMATS == frozenset(("apple", "android-key", "tpm", "packed", "trezor", "ledger", "apple-appattest", "apple-assertion"))
+    assert P.DEVICE_ATTEST_FORMATS == frozenset(("apple", "android-key", "tpm", "packed", "trezor", "ledger"))
     print("ALL OK")
 
 

@@ -55,12 +55,12 @@ quorum and the duty committee are untouched. Liveness: with no attested bonded i
 whole registry. `/mining_status` mirrors it; the wallet says whether the stake counts. At the gate every unattested
 bonded node — the relay fleet included — stops producing bonded blocks until its operator attests it.
 
-**Apple App Attest bridge (built, disabled).** Kernel formats `apple-appattest` (Apple's attestation object,
-chain to the pinned Apple App Attestation Root CA, production aaguid, counter 0, credentialId = sha256(key)) and
-`apple-assertion` (a later signature by the same key; consensus requires its binding row); binding key
-sha256(public key), permanent class; the NADO Attest app source (`apps/nado-attest-ios`, SwiftUI + BLAKE2b +
-App Attest + relay drop) and the wallet's hidden handoff button. Refused on chain until `DEVICE_ATTEST_APPLE_APP_IDS`
-carries a signed team's App ID and `DEVICE_ATTEST_APPLE_HEIGHT` gates it in. No live sample yet: unverified.
+**Apple: built, verified, removed.** Kernel formats `apple-appattest` / `apple-assertion` were built, verified end to
+end against a real iPad statement (Swift Playgrounds build, no paid entitlement — Apple attests any registered-looking
+App ID), and enabled for one App ID at block 4400. Withdrawn the same evening, and since no block ever carried one, removed outright (formats, constants, root, app, build): Apple's
+attestation carries no per-device certificate, so one-key-per-device rests on app code, and a jailbroken older iPhone
+(checkm8 class) would farm identities the chain cannot see. The kernel code stays dormant; the app and its build were
+removed from the tree (git history keeps them). Apple users mine through a hardware wallet on a Mac or another device.
 
 **Attest from another device.** A wallet on Linux, Mac or iPhone (nothing bindable of its own) registers with a
 statement made on an accepted device: press *Attest from another device* on the wallet, then on the phone / TPM PC /

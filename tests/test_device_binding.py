@@ -201,7 +201,7 @@ def t_binding_modes():
     for addr in (a, b):
         kv_ops.account_set(addr, "balance", 0)
     # --- constants
-    check("permanent classes are exactly the factory-fixed-key ones (Ledger, Trezor, App Attest)", P.DEVICE_BIND_PERMANENT_CLASSES == frozenset(("ledger", "trezor", "apple-appattest")))
+    check("permanent classes are exactly the factory-fixed-key ones", P.DEVICE_BIND_PERMANENT_CLASSES == frozenset(("ledger", "trezor")))
     check("permanent classes are bindable classes", P.DEVICE_BIND_PERMANENT_CLASSES <= P.DEVICE_BIND_CLASSES)
     check("the permanent gate is at/after the strict gate", P.DEVICE_BIND_PERMANENT_HEIGHT >= P.DEVICE_BIND_STRICT_HEIGHT)
     # --- row formats: a leased row is byte-identical to the historical two-element row (state root / replay)
@@ -296,7 +296,7 @@ def t_hygiene():
     check("devbind is consensus state: snapshot-carried and in the root", "devbind" in kv_ops.SNAPSHOT_DBS and "devbind" not in S.ROOT_EXCLUDED_DBS)
     check("devbind_revert is a node-local journal (never in the root)", "devbind_revert" in kv_ops._LOCAL_DBS and "devbind_revert" not in kv_ops.SNAPSHOT_DBS)
     check("the gate is a height ahead of the fleet's adoption on the live chain", isinstance(P.DEVICE_BIND_HEIGHT, int) and P.DEVICE_BIND_HEIGHT >= 1)
-    check("accepted classes are exactly the bindable ones", P.DEVICE_BIND_CLASSES == frozenset(("android-key", "tpm", "trezor", "ledger", "apple-appattest")))
+    check("accepted classes are exactly the bindable ones", P.DEVICE_BIND_CLASSES == frozenset(("android-key", "tpm", "trezor", "ledger")))
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply derives the key from the tx bytes at the block height and passes it to apply_register",
           "device_binding_key(transaction.get(\"device\")" in acc and "device_key=device_key" in acc)

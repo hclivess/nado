@@ -211,45 +211,6 @@ def cert_validity(der: bytes) -> tuple:
     return nb, na
 
 
-def cert_spki_point(der: bytes) -> bytes:
-    """The subjectPublicKey BIT STRING payload of a DER X.509 certificate (for a P-256 key: the 65-byte X9.62 uncompressed
-    point), from the same dependency-free walk as cert_validity: tbs { [0] version?, serial, sigalg, issuer, validity,
-    subject, spki SEQ { alg SEQ, BIT STRING } }. Consensus input (device_binding_key for apple-appattest)."""
-    der = bytes(der)
-    tag, h, _ = _der_tlv(der, 0)
-    if tag != 0x30:
-        raise ValueError("certificate is not a SEQUENCE")
-    p = h
-    tag, h, n = _der_tlv(der, p)
-    if tag != 0x30:
-        raise ValueError("tbsCertificate is not a SEQUENCE")
-    p += h
-    tag, h, n = _der_tlv(der, p)
-    if tag == 0xA0:
-        p += h + n
-        tag, h, n = _der_tlv(der, p)
-    if tag != 0x02:
-        raise ValueError("serialNumber missing")
-    p += h + n
-    for _ in range(4):                               # signature, issuer, validity, subject
-        tag, h, n = _der_tlv(der, p)
-        if tag != 0x30:
-            raise ValueError("tbs field is not a SEQUENCE")
-        p += h + n
-    tag, h, n = _der_tlv(der, p)                     # subjectPublicKeyInfo
-    if tag != 0x30:
-        raise ValueError("spki is not a SEQUENCE")
-    p += h
-    tag, h, n = _der_tlv(der, p)                     # AlgorithmIdentifier
-    if tag != 0x30:
-        raise ValueError("spki algorithm is not a SEQUENCE")
-    p += h + n
-    tag, h, n = _der_tlv(der, p)                     # BIT STRING
-    if tag != 0x03 or n < 2:
-        raise ValueError("spki key is not a BIT STRING")
-    return der[p + h + 1:p + h + n]                  # skip the unused-bits byte
-
-
 def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -> str:
     """The ONE-IDENTITY-PER-DEVICE handle of an attestation (doc/device-attestation.md §"One device, one identity"):
       android-key : "android-key:" + sha256(x5c[1]) — the device's remotely-provisioned attestation-key certificate
@@ -287,22 +248,6 @@ def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -
     if fmt == "ledger":
         # the factory-certified device public key — permanent for the life of the device
         return "ledger:" + hashlib.sha256(ledger_device_pubkey(att)).hexdigest()
-    if fmt == "apple-appattest":
-        # the App Attest key (Secure Enclave, one per install, persists in the keychain across reinstalls) — the leaf
-        # certificate's public key, so the SAME key names the same device on every later statement
-        if not x5c:
-            raise ValueError("apple-appattest statement has no credential certificate")
-        point = cert_spki_point(x5c[0])
-        if len(point) != 65 or point[0] != 4:
-            raise ValueError("apple-appattest leaf key is not an uncompressed P-256 point")
-        return "apple-appattest:" + hashlib.sha256(point).hexdigest()
-    if fmt == "apple-assertion":
-        # a later statement by an already-attested App Attest key: SAME namespace, so it resolves to the row the
-        # attestation wrote (validation requires that row to exist)
-        pub = (att.get("attStmt") or {}).get("pub")
-        if not isinstance(pub, (bytes, bytearray)) or len(pub) != 65 or pub[0] != 4:
-            raise ValueError("apple-assertion carries no uncompressed P-256 public key")
-        return "apple-appattest:" + hashlib.sha256(bytes(pub)).hexdigest()
     raise ValueError(f"device class '{fmt}' carries no per-device certificate and cannot be bound to one identity "
                      "(accepted: Android with remote key provisioning, Windows Hello on a physical TPM)")
 

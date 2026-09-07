@@ -370,8 +370,12 @@ keeps producing on its own with up to 1,000 NADO counting.
 
 ## Apple devices
 
-See doc/apple-app-attest.md: the App Attest bridge (`apple-appattest` / `apple-assertion`, the NADO app on
-iPhone/iPad/Mac) — built and tested on synthetic vectors, disabled on chain until a real team signs the app.
+Not an accepted class (decision 2026-09-07). Passkeys carry no attestation. Apple's App Attest bridge was built,
+verified end to end against a real iPad statement (a Swift Playgrounds build — Apple attests without a paid team) and
+withdrawn the same evening: its statement carries no per-device certificate (one CA for every iPhone), so one-key-per-
+device would rest on app code, and a jailbroken checkm8-class iPhone would farm identities the chain cannot see. No block
+ever carried one; everything was removed from the tree (git history: `apps/nado-attest-ios`, `doc/apple-app-attest.md`).
+Apple users mine via a hardware wallet on a Mac, or attest from another device.
 
 ## Phases
 
