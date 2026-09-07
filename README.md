@@ -528,10 +528,14 @@ every node; roots are never fetched and change only by a protocol commit.
 
 | you mine on | what attests | root |
 |---|---|---|
-| iPhone / iPad | Secure Enclave | Apple WebAuthn Root CA |
 | Android phone (locked bootloader) | TEE / StrongBox | Google hardware-attestation roots |
 | Windows PC | a physical TPM 2.0 via Windows Hello | Microsoft TPM Root CA 2014 (virtual TPMs refused) |
-| Linux or any PC | a FIDO2 security key (~20 $) | that key's own vendor root from the FIDO metadata snapshot |
+| Linux, Mac, iPhone or any PC | a FIDO2 security key (~20 $, USB or NFC) | that key's own vendor root from the FIDO metadata snapshot |
+| iPhone / iPad / Mac on their own | — | Apple passkeys carry **no attestation** (iOS 16+, macOS 13+), so the phone itself cannot vouch through a web page; use a FIDO2 key with it. A native App Attest bridge is the only route to make the device itself count. |
+
+**Running a node?** A node cannot attest itself (no secure element, nobody to tap). On the wallet's Mining page,
+*Attest a node you run*: paste the node's address, tap once, and the attestation reaches the node through the
+network — it signs its own registration. One tap per lease, like any miner.
 
 What that buys: a server, a VM, a desktop browser without hardware, an emulator, a software
 authenticator, a virtual TPM or a rooted phone cannot produce the chain. Farming identities needs

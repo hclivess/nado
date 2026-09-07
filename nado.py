@@ -1139,6 +1139,81 @@ async def device_attest_probe(request):
         return _resp({"ok": False, "error": str(e)[:200]}, status=400)
 
 
+async def node_attest_drop(request):
+    """POST /node_attest_drop {sender, max_block, device:{att,cdj,rp}, hop?}: a wallet drops a device attestation
+    for a NODE's address (ops/node_attest — the phone cannot reach a TLS-less node, so the statement travels
+    through any relay). Kept in memory until max_block passes; forwarded ONE hop to this relay's peers so the
+    node finds it wherever it polls. Shape-checked only — the kernel verdict happens in the node's own merge.
+    Rate-limited 10/min per IP like the probe."""
+    if _rate_limited(request, 10):
+        return _RL()
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("body must be an object")
+        from ops import node_attest as _na
+        tip = int(memserver.latest_block["block_number"])
+        out = _na.drop(str(body.get("sender") or ""), body.get("max_block"), body.get("device"), tip)
+        if not out.get("ok"):
+            return _resp(out, status=400)
+        if not body.get("hop"):                       # one hop only: a forwarded drop is never forwarded again
+            fwd = {"sender": body["sender"], "max_block": int(body["max_block"]), "device": body["device"], "hop": 1}
+            asyncio.get_event_loop().create_task(_forward_drop(fwd))
+        out["drops"] = _na.count()
+        return _resp(out)
+    except Exception as e:
+        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
+
+
+async def _forward_drop(fwd: dict):
+    """Best-effort one-hop fan-out of a node attestation drop to every linked peer (aiohttp, 4 s each)."""
+    try:
+        import aiohttp
+        from config import hostport
+        body = json.dumps(fwd)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4)) as s:
+            for peer in list(memserver.peers)[:32]:
+                try:
+                    await s.post(f"http://{hostport(peer, memserver.port)}/node_attest_drop", data=body,
+                                 headers={"Content-Type": "application/json"})
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.debug(f"node attest forward: {e}")
+
+
+async def node_attest_pickup(request):
+    """GET /node_attest_pickup?sender=: the drop held for `sender`, {"drop": {...}} or {"drop": null}. Any node may
+    ask for any sender — the blob is useless without the sender's signing key. Rate 60/min."""
+    if _rate_limited(request, 60):
+        return _RL()
+    from ops import node_attest as _na
+    sender = _q(request, "sender", "")
+    try:
+        tip = int(memserver.latest_block["block_number"])
+    except Exception:
+        tip = 0
+    b = _na.pickup(str(sender), tip) if sender else None
+    return _resp({"drop": b, "tip": tip})
+
+
+async def node_attest_status(request):
+    """GET /node_attest_status: THIS node's open-lane lease state and what an operator's tap would do —
+    {address, registered, fidelity, last_recert_epoch, epoch, renewable, wants, drop_waiting}. The wallet's
+    "Attest a node" card reads it to say "needs a tap" / "renews in N epochs" / "attested"."""
+    if _rate_limited(request, 60):
+        return _RL()
+    from ops import node_attest as _na
+    try:
+        tip = int(memserver.latest_block["block_number"])
+    except Exception:
+        tip = 0
+    st = await asyncio.to_thread(_na.lease_state, memserver.address, tip)
+    st["drop_waiting"] = _na.pickup(memserver.address, tip) is not None
+    st["tip"] = tip
+    return _resp(st)
+
+
 async def wallet_view(request):
     """GET /wallet_view?address=&since=: everything the wallet polls per tick, in ONE round trip —
     {"latest": <get_latest_block>, "account": <get_account or null>, "mining_status": <mining_status>,
@@ -2436,6 +2511,9 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.post("/node_attest_drop", node_attest_drop),
+        web.get("/node_attest_pickup", node_attest_pickup),
+        web.get("/node_attest_status", node_attest_status),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.live_pool(),
                                                     rate=30, heavy=True)),
         web.get("/invariants", invariants_report),

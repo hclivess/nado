@@ -77,7 +77,9 @@ def record(ip: str, transaction: dict, accepted) -> dict | None:
     """Append one line for a register tx. Returns the record (for tests/logging) or None for non-register txs.
     Never raises: a logging failure must never turn into a 403 for the wallet."""
     try:
-        if not isinstance(transaction, dict) or transaction.get("type") != "register":
+        # a register tx is identified by its RECIPIENT ("register"), like every identity tx (msgkey, ...) — there is
+        # no `type` field; tests/test_node_attest.py caught the first version checking one and logging nothing.
+        if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
             return None
         sender = str(transaction.get("sender", ""))
         rec = {

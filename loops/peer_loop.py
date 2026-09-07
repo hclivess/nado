@@ -228,6 +228,18 @@ class PeerClient(threading.Thread):
                 # about us so the mesh is symmetric within one pass.
                 self._announce_self_to_new_peers()
 
+                # NODE ATTESTATION (gen 25, ops/node_attest): when this node wants an open-lane lease, look for an
+                # attestation its operator dropped for its address (local store, then peers) and register from it.
+                # Lives HERE, on the peer thread, because it polls peers — a blocking probe on the core loop stalls
+                # block application (2026-09-06, 61 % of core wall time). Throttled to one poll per POLL_EVERY s.
+                if not hasattr(self, "_node_attest"):
+                    from ops.node_attest import NodeAttestPoller
+                    self._node_attest = NodeAttestPoller(self.memserver, self.logger, self.memserver.port)
+                try:
+                    self._node_attest.tick()
+                except Exception as e:
+                    self.logger.debug(f"node attest poll: {e}")
+
                 if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
                     """heavy refresh triggered"""
 

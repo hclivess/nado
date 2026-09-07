@@ -644,6 +644,97 @@ function renderDeviceStatus() {
 // identity and this lease, so it can never be replayed. One tap per lease. Returns null where the browser has
 // no platform authenticator (a desktop, a VM, a script): the node rejects such a registration once the
 // DEVICE_ATTEST_HEIGHT gate is active, and that is the point — the wallet says so instead of pretending.
+// ---- ATTEST A NODE (ops/node_attest, doc/device-attestation.md §"Attesting a node") --------------------------------
+// A headless node cannot attest itself; its operator does, here, for the node's ADDRESS. The challenge binds only
+// (chain id, sender, anchor hash, max_block) — nothing node-specific — so this page can attest for any address and
+// DROP the statement on the relay; the node polls its peers for a drop addressed to itself, builds and SIGNS its own
+// register tx. Nobody else can use the blob (the tx needs the node's key). One tap per lease, like every miner.
+const LS_NODE_ATTEST_ADDR = "nado_node_attest_addr";
+let _nodeAttestBound = false, _nodeAttestBusy = false;
+
+function nodeAttestInit() {
+  const inp = $("nodeAttestAddr"), btn = $("btnNodeAttest");
+  if (!inp || !btn) return;
+  if (!_nodeAttestBound) {
+    _nodeAttestBound = true;
+    try { inp.value = localStorage.getItem(LS_NODE_ATTEST_ADDR) || ""; } catch (e) {}
+    inp.addEventListener("change", () => {
+      try { localStorage.setItem(LS_NODE_ATTEST_ADDR, inp.value.trim()); } catch (e) {}
+      nodeAttestRefresh().catch(() => {});
+    });
+    btn.addEventListener("click", () => { nodeAttestTap().catch((e) => log("err", String(e && e.message || e))); });
+    $("nodeAttestWrap").addEventListener("toggle", () => { if ($("nodeAttestWrap").open) nodeAttestRefresh().catch(() => {}); });
+  }
+  if ($("nodeAttestWrap").open) nodeAttestRefresh().catch(() => {});
+}
+
+function nodeAttestAddr() {
+  const v = ($("nodeAttestAddr") && $("nodeAttestAddr").value || "").trim().toLowerCase();
+  return /^[0-9a-f]{46}$/.test(v) ? v : "";
+}
+
+// What a tap would do for that address right now, from the relay's view of the account: no lease → needs a tap;
+// lease older than FIDELITY_MIN_GAP epochs → a timely renewal is possible; otherwise nothing to do yet.
+async function nodeAttestRefresh() {
+  const el = $("nodeAttestStatus"); if (!el) return;
+  const addr = nodeAttestAddr();
+  if (!addr) { el.textContent = i18("node.status.addr", "Enter the node's address to see its lease."); return; }
+  const r = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" });
+  const acc = await r.json().catch(() => null);
+  const latest = await fetch(relayBase() + "/get_latest_block", { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+  const epoch = latest ? Math.floor(Number(latest.block_number) / 60) : null;
+  const registered = acc && Number(acc.registered) === 1, regEp = acc ? Number(acc.reg_epoch) : -1;
+  const since = (epoch != null && regEp >= 0) ? epoch - regEp : null;
+  if (!registered) {
+    el.textContent = i18("node.status.needsTap", "No open-lane lease — a tap here registers the node.");
+  } else if (since != null && since >= 192) {
+    el.textContent = i18("node.status.renewable", "Lease held (fidelity {f}) — a tap now renews it on time.", { f: Number(acc.fidelity || 0) });
+  } else {
+    el.textContent = i18("node.status.held", "Lease held (fidelity {f}) — renewal earns from epoch {e}; nothing to do yet.",
+                         { f: Number(acc.fidelity || 0), e: regEp >= 0 ? regEp + 192 : "?" });
+  }
+}
+
+async function nodeAttestTap() {
+  if (_nodeAttestBusy) return;
+  const addr = nodeAttestAddr();
+  if (!addr) { log("err", i18("node.err.addr", "That is not a NADO address (46 hex characters).")); return; }
+  _nodeAttestBusy = true;
+  const btn = $("btnNodeAttest"); if (btn) btn.disabled = true;
+  try {
+    const latest = await fetch(relayBase() + "/get_latest_block", { cache: "no-store" }).then((x) => x.json());
+    const targetBlock = Number(latest.block_number) + poswTargetMarginFor(0);
+    const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
+    const b = await fetch(relayBase() + "/get_block?number=" + anchorNum, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+    const anchorHash = b && b.block_hash;
+    if (!anchorHash) throw new Error("registration anchor block unavailable");
+    log("info", i18("node.log.attesting", "Attesting node {a}… — approve the prompt on this device.", { a: addr.slice(0, 12) + "…" }));
+    const device = await attestDevice(addr, anchorHash, targetBlock);
+    if (!device) throw new Error(i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
+    const r = await fetch(relayBase() + "/node_attest_drop", { method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ sender: addr, max_block: targetBlock, device }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(i18("node.log.dropFailed", "The relay refused the attestation: {e}", { e: d.reason || r.status }));
+    log("ok", i18("node.log.dropped", "Attestation delivered to the network — the node registers itself within ~1 min (target block {b}).", { b: targetBlock }));
+    // watch the account until the lease appears (a fresh recert epoch), for up to ~3 minutes
+    const before = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+    const beforeEp = before ? Number(before.reg_epoch) : -1;
+    for (let i = 0; i < 36; i++) {
+      await new Promise((res) => setTimeout(res, 5000));
+      const acc = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+      if (acc && Number(acc.registered) === 1 && Number(acc.reg_epoch) !== beforeEp) {
+        log("ok", i18("node.log.registered", "Node {a} is registered — fidelity {f}.", { a: addr.slice(0, 12) + "…", f: Number(acc.fidelity || 0) }));
+        await nodeAttestRefresh().catch(() => {});
+        return;
+      }
+    }
+    log("warn", i18("node.log.timeout", "No lease seen yet — the node may be offline, on another chain, or not polling; check its /node_attest_status."));
+  } finally {
+    _nodeAttestBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function attestDevice(sender, anchorHash, maxBlock) {
   if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) return null;
   try {
@@ -3730,6 +3821,7 @@ function signSplash(app) {
 }
 function showWalletUI() {
   try { renderDeviceStatus(); } catch (e) {}          // mining page: what this device proved (device attestation)
+  try { nodeAttestInit(); } catch (e) {}              // mining page: "Attest a node you run" (ops/node_attest)
   show("booting", false);
   wireAutosignToggle();
   show("onboard", false);

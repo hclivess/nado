@@ -10,15 +10,25 @@ The one thing a server cannot fake is genuine hardware's secure element. Four de
 to a web page through WebAuthn *attestation* — the device creates a non-exportable key in hardware and
 returns a statement, signed inside that hardware, that chains to a vendor attestation root:
 
-| class | statement format | hardware | pinned root(s) |
-|---|---|---|---|
-| iPhone / iPad | `apple` | Secure Enclave | Apple WebAuthn Root CA |
-| Android phone | `android-key` | TEE / StrongBox (locked bootloader) | Google Hardware Attestation roots, Key Attestation CA1 |
-| Windows PC | `tpm` | a physical TPM 2.0 (Windows Hello) | Microsoft TPM Root Certificate Authority 2014 |
-| Linux / any PC | `packed` | a FIDO2 security key with full attestation | that authenticator's own root from the FIDO metadata snapshot |
+| class | statement format | hardware | pinned root(s) | one identity per device? |
+|---|---|---|---|---|
+| Android phone | `android-key` | TEE / StrongBox (locked bootloader) | Google Hardware Attestation roots, Key Attestation CA1 | YES on remotely-provisioned devices (Android 12+): x5c[1] is a per-device attestation certificate (≈2-week validity, see below) |
+| Windows PC | `tpm` | a physical TPM 2.0 (Windows Hello) | Microsoft TPM Root Certificate Authority 2014 | YES: the AIK certificate is per (TPM, Windows account) |
+| Linux / any PC / iPhone | `packed` | a FIDO2 security key with full attestation (USB, NFC) | that authenticator's own root from the FIDO metadata snapshot | NO: FIDO privacy rules issue one batch certificate per ≥100k units |
+| iPhone / iPad / Mac | `apple` | Secure Enclave | Apple WebAuthn Root CA | the format is pinned but **passkeys return no attestation** (`fmt: none`, iOS 16+ / macOS 13+), so Apple devices cannot attest through a web page today — confirmed live 2026-09-07. An iPhone mines with a FIDO2 key (NFC/Lightning/USB-C); a native App Attest bridge is the only way to make the phone itself count |
 
 A cloud VM, a desktop browser without hardware, an emulator, a software authenticator, a virtual TPM or a
 rooted/unlocked phone cannot produce a valid chain.
+
+**What "one identity per device" can and cannot mean.** Vendors expose no device serial (privacy), so the only
+per-device handle is what the chain itself carries: on Android with remote key provisioning the attestation key
+certificate `x5c[1]` (subject `O=TEE, CN=<device id>`, issued by `Droid CA3`, ~13-day validity in the live
+sample) is unique to the device and reused for every credential it creates until it rotates; on Windows the AIK
+certificate is unique to (TPM, account). Apple gives nothing (and gives no attestation at all through passkeys);
+FIDO2 keys give a batch certificate shared by ≥100k units. So "no double attestation" is enforceable at the lease
+scale for Android-RKP and TPM — bind the device certificate hash to the sender for POSW_LEASE_EPOCHS — and NOT
+enforceable for FIDO2 keys or batch-attested (pre-RKP) Android, where the only limit is one physical touch per
+identity per lease. That policy line (which classes are accepted at all) is the operator's decision.
 
 ## What it proves, and what it does not
 
@@ -152,6 +162,30 @@ the lane split.
 Nothing is written to the account: from the gate every register tx is attested, so "present at epoch E"
 (a recert within the lease, from the recert history) already implies "attested", and the epoch weight
 derivation stays replayable from the recert index alone. The wallet shows the attestation from the tx.
+
+## Attesting a node (`ops/node_attest`, 2026-09-07)
+
+A headless node has no secure element and nobody to tap, so from gen 25 it never auto-registers; a node with no
+bond earned nothing. Its OPERATOR attests it instead, at the same price every miner pays: one tap per lease.
+
+Why the statement travels through a relay: WebAuthn runs only on an HTTPS page, a fresh node has no TLS, so the
+phone can neither open the node's wallet nor post to it (mixed content). The challenge binds only (chain id,
+sender, anchor block hash, max_block) — nothing node-specific — so the wallet on ANY HTTPS relay attests for the
+node's address and drops the statement there:
+
+1. Wallet, Mining page, *Attest a node you run*: paste the node's address; the wallet picks `max_block = tip +
+   margin`, fetches the anchor block, calls `attestDevice(nodeAddress, anchorHash, maxBlock)` (the same function
+   and challenge derivation as its own registration) and `POST /node_attest_drop {sender, max_block, device}`.
+2. Relay: shape-checks and keeps the drop in memory until `max_block` passes the tip (bounded, rate-limited),
+   forwards it ONE hop to its peers (`hop: 1` is never re-forwarded).
+3. Node (peer loop, every 20 s, only while it wants a lease — no lease, or `FIDELITY_MIN_GAP_EPOCHS` since the
+   last recert): `GET /node_attest_pickup?sender=<own address>` on its peers, then `construct_register_tx(keydict,
+   max_block, device=...)`, signs, merges through the normal mempool validation (kernel included) and gossips.
+   `GET /node_attest_status` shows the lease state and whether a drop is waiting.
+
+Nobody else can use a drop: the register tx must be signed by the sender's key, and the attestation is bound to
+that sender, anchor and max_block. A stranger dropping a valid statement for someone else's node only spends
+their own tap on that node's behalf. The node's own registrations land in the identity log with ip `self`.
 
 ## Phases
 

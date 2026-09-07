@@ -294,6 +294,19 @@
       <span class="spin" aria-hidden="true"></span><span id="regBannerMsg"></span>
     </div>
 
+    <!-- ATTEST A NODE (ops/node_attest, doc/device-attestation.md §"Attesting a node"): a headless node has no secure
+         element and no hand to tap, so its OPERATOR taps here for the node's address. The attestation is dropped on
+         this relay and the node picks it up from the network and signs its own registration. One tap per lease. -->
+    <details id="nodeAttestWrap" class="mt">
+      <summary class="small dim" style="cursor:pointer" data-i18n="node.title">Attest a node you run</summary>
+      <p class="small mt" data-i18n="node.blurb">A node cannot attest itself — it has no secure element and nobody to tap. Paste your node's address (shown on its /status page), then tap once: this device vouches for the node's open-lane identity, the node picks the attestation up from the network and registers itself. One tap per lease (36 h), like any miner.</p>
+      <input id="nodeAttestAddr" placeholder="node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
+      <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
+      <div class="row mt">
+        <button id="btnNodeAttest" class="accent" data-i18n="node.btn">Attest this node (one tap)</button>
+      </div>
+    </details>
+
     <div id="powWrap" class="mt hidden">
       <label id="powLabel" data-i18n="pow.label">Solving one-time registration proof-of-work…</label>
       <div class="progress indet"><span id="powBar"></span></div>

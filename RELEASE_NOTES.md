@@ -16,6 +16,15 @@ weight 1, then 2, 3 … 30. Gen 24 skipped fidelity 1 (probation) because identi
 identity is a device and a tap, so the line is unbroken. Open-lane draw weight is the plain 2..10 floor+bonus curve
 from the first lease. The bond unlock delay, the fidelity ramp, the lease and the lane split are unchanged.
 
+**Attest a node you run.** A node cannot attest itself, so its operator does: Mining page → *Attest a node you
+run* → paste the node's address → one tap. The statement travels through the relay (`/node_attest_drop`,
+forwarded one hop) and the node picks it up (`/node_attest_pickup`), signs its own register tx and merges it
+through the normal validation. One tap per lease, like any miner. `/node_attest_status` shows a node's lease.
+
+**Apple devices (correction).** iPhone, iPad and Mac passkeys return no attestation (`fmt: none`, iOS 16+ /
+macOS 13+), confirmed live on 2026-09-07: those devices cannot vouch through a web page. They mine with a FIDO2
+security key (NFC / USB-C); a native App Attest bridge is the only way to make the device itself count.
+
 **Identity log.** Enforcement retired, observation kept: every register tx a node receives at `/submit` leaves one
 node-local line in `<home>/identity_log.jsonl` (client IP, sender, entry/renewal, device class, AAGUID, leaf and root
 certificate hashes, mempool verdict — never consensus, never served, survives a generation purge).
