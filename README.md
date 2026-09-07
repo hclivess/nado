@@ -113,8 +113,8 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 - **Lightweight & reproducible.** Consensus hashing is over canonical JSON, so a browser client
   reproduces every address, transaction id, and verification byte-for-byte. State is a single
   memory-mapped key-value store; block bodies are compact zstd-compressed blobs.
-- **First-party clients.** A browser/mobile NADO Interface that is also a full wallet, a PySide6 desktop
-  wallet, and browsable explorer endpoints on every node.
+- **First-party clients.** A browser/mobile NADO Interface that is also a full wallet, and browsable
+  explorer endpoints on every node.
 
 ---
 
@@ -404,8 +404,6 @@ it never needlessly freezes coins). It is available in **all three clients**:
   The node bonds the configured share of its own block rewards each epoch — ideal for a headless miner.
 - **Browser interface:** the **Stake** tab has an "Auto-bond mining rewards" field; while the tab is
   mining it compounds that share of your rewards (persisted in the browser).
-- **Desktop wallet:** the **Mining** tab has an "Auto-bond mining rewards" control (persisted in
-  `~/.nado_wallet/wallet.json`).
 
 It is a **client/operator convenience and is never validated on-chain** — every auto-bond is just an
 ordinary signed `bond` transaction.
@@ -658,9 +656,6 @@ encoding against the live repo on boot.
   the *same* signed transaction the browser does and POSTs it to the node's existing `/submit_transaction` —
   no new signing endpoint, no new trust surface. Full reference: **[doc/cli.md](doc/cli.md)**.
 - **Browser / mobile NADO Interface (wallet)** — `static/interface.html` (see above).
-- **Desktop wallet** — `python3.10 pyside_wallet.py` (PySide6): overview, send, bond/unbond, register
-  & mine, expected-time-to-mine, an **auto-bond** control (compound a % of mined rewards into stake),
-  and a live selection-lane visualization. PySide6 is wallet-only; the node itself does not need it.
 - **Block explorer** — folded into the NADO Interface as an **Explore tab** (`static/interface.html` +
   `static/interface.js`): search by address / **alias** / block number / block hash / txid, browse recent
   blocks, and see live network + mining-lane stats — all reading the node's own public JSON API in the

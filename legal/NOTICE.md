@@ -21,7 +21,6 @@ when adding a dependency (`CONTRIBUTING.md`).
 | `lmdb` (py-lmdb, bundles liblmdb) | OpenLDAP Public License 2.8 | chain index key-value store |
 | `psutil` | BSD-3-Clause | process/system metrics |
 | `aiohttp` | Apache-2.0 AND MIT | async HTTP server/client |
-| `PySide6` (Qt for Python) | LGPL-3.0 / GPL-2.0 / GPL-3.0 (optional, desktop wallet only) | `pyside_wallet.py` GUI |
 | `pyflakes` | MIT (dev/test only) | static check in `tests/` |
 
 ## Rust dependencies (`native/`, `wasm/`)

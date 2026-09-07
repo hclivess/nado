@@ -2599,6 +2599,7 @@ function _fmtClock(secsFromNow) {
   catch (e) { return ""; }
 }
 function refreshLeasePanel(acc, ms) {
+  state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
   // STAKING POOLS: the pool panel lives on the stake card; refresh it whenever it is open (cheap: one /pools read)
   if ($("poolWrap") && $("poolWrap").open) refreshPools(acc).catch(() => {});
   else if ($("poolWrap") && $("poolWrap").classList.contains("hidden") && !refreshLeasePanel._poolChecked) {
@@ -3681,6 +3682,7 @@ function renderLanes(ms) {
   if (bcl) {
     const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
     if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
+    else if (state.poolTo) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
     else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. At most 1,000 NADO per device counts.", { n: (raw / 1e10).toFixed(2) });
     else if (cap && raw > cap) bcl.textContent = i18("bond.capped", "Savings stake counts up to 1,000 NADO per attested device: {n} NADO bonded, {c} NADO counting.", { n: (raw / 1e10).toFixed(2), c: (cap / 1e10).toFixed(0) });
     else bcl.textContent = i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });

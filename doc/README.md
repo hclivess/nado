@@ -109,7 +109,7 @@ in proving time and transport. Full analysis + the lighter fraud-proof middle op
 | **S4.1** | Bond/unbond transactions + `bonded` stake state | ✅ implemented & unit-tested |
 | **S4.2** | Split-neutral selection math + commit-reveal RANDAO beacon (`ops/mining_ops.py`) | ✅ implemented & unit-tested |
 | **S4.3 v1** | Bonded `select_producer` + epoch beacon wired into live production/verification; fail-closed authorship; testnet bonding | ✅ **implemented & testnet-validated** (3 nodes produce + converge via bonded mining) |
-| **S4b** | Browser light-miner reference client + PySide6 wallet | ✅ implemented (`static/miner.*`, `pyside_wallet.py`) |
+| **S4b** | Browser light-miner reference client | ✅ implemented (`static/interface.*`; the PySide6 desktop wallet was retired 2026-09-08) |
 | **#21** | Schemaless **LMDB** key-value index replaces the SQLite `index.db` (`ops/kv_ops.py`; `ops/sqlite_ops.py` deleted) | ✅ implemented & testnet-validated (see [storage-kv-migration.md](storage-kv-migration.md)) |
 | **#16/#17** | Objective stake-weighted heaviest-chain fork-choice + grind-proof `cumulative_weight` header + enforced finality floor (`FINALITY_DEPTH=30`, `FinalityViolation`) | ✅ implemented & testnet-validated |
 | **#18 (partial)** | Fail-loud epoch beacon (silent `GENESIS_BEACON` fallback removed); `/announce_peer` rate-limit | ✅ implemented |

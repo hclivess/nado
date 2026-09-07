@@ -42,7 +42,6 @@ In scope:
 - Shielded pool, messaging, aliases
 - Game contracts under `execnode/` (fund-lock, determinism, griefing, economic exploits)
 - The browser wallet/explorer/miner page served by every node
-- The desktop wallet (`pyside_wallet.py`)
 
 Out of scope:
 

@@ -1159,13 +1159,13 @@ async def pools(request):
         return _RL()
     def _work():
         import protocol as _p
-        from ops.account_ops import get_bonded_registry, get_open_registry, get_accounts_many
+        from ops.account_ops import get_bonded_registry, get_open_registry
         from ops.mining_ops import epoch_of
         from ops import kv_ops as _kv
         tip = int(memserver.latest_block["block_number"])
         reg = get_bonded_registry()
         open_reg = get_open_registry(epoch_of(tip + 1))
-        accs = get_accounts_many(list(reg))
+        accs = _kv.get_accounts_many(list(reg))
         out = []
         for addr, acc in accs.items():
             if not acc or "pool_open" not in acc:

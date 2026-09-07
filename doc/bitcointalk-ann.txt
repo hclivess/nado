@@ -109,7 +109,7 @@ Block production is [b]not[/b] a hash race. One hash over a public randomness be
 [li]Consensus: two-lane beacon draw (sequential-PoW open lane + bonded stake lane), FFG finality, RANDAO, slashing[/li]
 [li]Signatures: ML-DSA-44 (post-quantum)  •  Hashing: BLAKE2b over canonical JSON (browser-reproducible)[/li]
 [li]Emission: no premine, 0.1–0.5 NADO/block, fees burned, ~144 NADO/day base[/li]
-[li]Clients: browser/mobile light-miner (wallet + explorer + swaps, 16 languages), PySide6 desktop wallet[/li]
+[li]Clients: browser/mobile light-miner (wallet + explorer + swaps, 16 languages)[/li]
 [/list]
 
 [hr]
