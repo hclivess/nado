@@ -247,6 +247,100 @@ statement whose `max_block` is still ahead is wrapped in the wallet's own signed
 kept-tx path. The attesting device is the one bound (`devbind`), so it still holds one identity per lease; the wallet
 that receives the statement is the sender the kernel verified the challenge for.
 
+## Binding modes: leased and permanent (`DEVICE_BIND_PERMANENT_HEIGHT`, 2026-09-07)
+
+Operator decision (2026-09-07): a hardware wallet attests ONCE and stays bound; a phone or a TPM keeps renewing
+with a statement; the wallet shows which of the two it is before the tap; a permanently bound device can be moved
+to another account without the old account's key.
+
+### Why two modes
+
+The binding key is only as durable as the certificate behind it, and that differs per class:
+
+| class | binding key | the key changes when |
+|---|---|---|
+| `ledger` | sha256(factory device public key) | never — provisioned in the secure element at the factory |
+| `trezor` | sha256(per-device certificate) | never — issued at the factory |
+| `tpm` | sha256(AIK certificate) | a new Windows account is created, or the TPM is cleared |
+| `android-key` | sha256(remotely-provisioned attestation certificate) | the OS rotates it (≈ 2 weeks in the live sample, ≤ 90 days by rule), or a factory reset |
+
+A binding that outlives its key is worthless: after every rotation the same phone looks like a new device and
+could bind a fresh identity while the old binding still stands. That is why the leased classes must
+RE-ATTEST: a lease shorter than the fastest rotation means one device holds at most one identity at any moment,
+and the renewal statement is the proof that the same key is still the one bound. For a factory-fixed key the
+lease adds nothing — the device cannot become another device — so it binds once, for life.
+
+`DEVICE_BIND_PERMANENT_CLASSES = {ledger, trezor}`; every other bindable class is leased. Height-gated
+(`DEVICE_BIND_PERMANENT_HEIGHT`) on the live chain; becomes 1 at the next reroll.
+
+### Consensus state
+
+- `devbind` rows gain a third element: `[address, epoch, mode]`, `mode ∈ {"lease", "perm"}`. Rows written before
+  the gate are two elements and decode as `lease`. `epoch` is the epoch of the LAST STATEMENT that bound the
+  device — statement-free renewals never touch it (see rebinding).
+- The account doc of a permanently bound identity carries `devkey` (the device key string). It is the reverse
+  index a statement-free renewal needs (given the sender, which row must point back at it) and is consensus
+  state like every other account field: deterministic, in the root, snapshot-carried.
+- `devbind_revert` records grow to `[key, prev_address, prev_epoch, prev_mode, prev_sender_devkey]`; legacy
+  three-element records decode with `prev_mode = lease`, `prev_sender_devkey = None`. Rollback restores the row
+  (or deletes it) AND the sender's `devkey` (or deletes it) — the exact inverse, as always.
+
+### The register rule from the gate
+
+A `register` tx is one of two shapes:
+
+1. **With a statement** (`device` present) — verified by the kernel as before, then bound:
+   - leased class: the existing rule (a different sender is refused while `epoch_now < bound_epoch + POSW_LEASE_EPOCHS`).
+   - permanent class: the same cooldown rule decides whether the device may MOVE (below), and on success the
+     row is written with `mode = perm` and the sender's `devkey` is set. An identity that already has a live
+     permanent device (its `devkey` row points back at it) is refused a SECOND permanent device: one hardware
+     wallet per identity; a replaced or lost hardware wallet means a new account (or the old device rebinding).
+   - the in-block uniqueness key `("devbind", key)` is occupied as before.
+2. **Without a statement** (`device` absent) — accepted ONLY when the sender's account has `devkey` and
+   `devbind[devkey] == (sender, *, perm)`. This is the hardware identity's presence renewal: it records the
+   recert, moves the lease and earns fidelity exactly like a statement renewal, and writes NOTHING to `devbind`.
+   The wallet signs it with the account key alone — no cable, no tap; the mining loop sends it while the page
+   is open. Before the gate, or for any other sender, a statement-free register is invalid ("Missing device
+   attestation").
+
+### Rebinding a permanent device
+
+A rebind is simply shape 1 from a NEW sender with a statement from an already-bound permanent device. It needs
+no signature from the old account — a lost key, a sold Ledger and a wallet migration all look the same to the
+chain. The rule:
+
+- **Cooldown:** allowed only when `epoch_now >= bound_epoch + POSW_LEASE_EPOCHS`, i.e. at least one lease (36 h)
+  since the device's LAST STATEMENT. Because statement-free renewals do not refresh `bound_epoch`, an old owner
+  who keeps renewing cannot pin the device forever: the device holder always wins after one lease.
+- **Supersession:** the row flips to the new address in that block. The old identity loses the device: its
+  `devkey` no longer points at a row that points back, so its statement-free renewals are refused from the next
+  block, and its current lease runs out on its own (≤ 36 h; it earned that lease with a valid statement). It
+  can still renew with a DIFFERENT device (a phone), which is a different device vouching — the rule is per
+  device, never per account.
+- At any moment a permanent device vouches for exactly one identity; bouncing a device between two wallets earns
+  for one of them at a time, never both.
+
+### Wallet and node
+
+- `/get_account` returns `devbind: {mode, cls, live}` next to `devkey`, so the wallet knows before any prompt
+  whether this identity renews for free. The identity card shows the mode as its own line ("Bound for life to
+  this Ledger" / "Leased — renews every 36 h with a statement from this phone").
+- A wallet whose identity is live-permanent renews without opening any prompt (automatic and manual path alike).
+- Before submitting a hardware statement the wallet asks the relay (`POST /devbind_lookup {att}`) what the
+  device currently vouches for; if it is another account it says so and asks for an explicit confirmation
+  ("this Ledger vouches for another account — rebind it here? The other account stops mining"), or reports the
+  cooldown end when the device moved less than a lease ago.
+- A node attested by a hardware wallet (the drop path) becomes permanent too: the operator attests once; the
+  node's poller renews statement-free while its `devbind` row is live. `/node_attest_status` reports `bind_mode`.
+- The identity log records `bind: lease|perm|renew` per register so the audit tool can tell the three apart.
+
+### What this does NOT change
+
+Presence semantics (the 36 h lease, `FIDELITY_MIN_GAP_EPOCHS`, `dividend_weight = min(fidelity, 30)`), the
+open-lane draw, the one-register-per-epoch rule, the strict CBOR parse and the in-block uniqueness key. A
+permanent identity that stops renewing lapses like any other; the binding stays, so when it returns it renews
+without a statement.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

@@ -543,6 +543,20 @@ its sender in consensus state for one lease (36 h); the same device cannot regis
 binding lives. Device classes that carry nothing per-device are not accepted at all: what cannot be bound is not
 proof of anything.
 
+**Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
+factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour
+presence lease with a register transaction that carries no statement at all — the account key signs it, no cable,
+no prompt, the mining loop does it while the page is open. A phone or a Windows PC is **leased**: its attestation
+key rotates (Android about every two weeks, a TPM per Windows account), so a binding that outlived the key would
+let one phone bind a fresh identity per rotation; it re-attests on every renewal, which is the only correct form
+for a rotating key. The wallet shows the mode on the identity card ("Bound for life to a Ledger — renews without a
+prompt" / "Leased — re-attests every 36 h"). A hardware wallet can be **rebound to another account** without the
+old account's key (lost key, sold device, wallet migration): make a statement from the new account; it is accepted
+36 hours after the device's last statement, the binding flips in that block and the old account stops mining (it
+cannot renew without a device; its current lease runs out on its own). The wallet asks "this Ledger vouches for
+another account — rebind it here?" before the tap is spent. One hardware wallet per identity. A node attested with
+a hardware wallet renews itself the same way; the operator attests once.
+
 **Windows says "Windows Hello is not using a TPM" (authenticator 9ddd1817).** Windows created the Hello key inside
 virtualization-based security (VBS) instead of the TPM; a VBS key has no certificate chain. The BIOS TPM switch alone
 does not move it. Check `tpm.msc` (ready, 2.0) and `msinfo32` (VBS "Running" is the cause); on a standalone PC

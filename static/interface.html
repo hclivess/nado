@@ -292,6 +292,7 @@
       <button id="btnHwRemote" class="ghost" data-i18n="hw.remote">Attest from another device</button>
       <button id="btnHwNone" class="ghost" data-i18n="hw.none">Use this device</button>
     </div>
+    <div class="small" data-i18n="hw.modes">A Ledger or Trezor binds for life: attest once, and this identity renews without it from then on. A phone or a Windows PC re-attests every 36 h, because its attestation key rotates. A hardware wallet can later be rebound to another account (36 h after its last statement); the old account then stops mining.</div>
     <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
     <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->
     <div class="row mt hidden" id="regTapRow">
@@ -367,6 +368,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <span class="label" data-i18n="lease.label">Presence lease <span class="hint" data-i18n-title="PRESENCE LEASE — your PoSW recert keeps you present for about a day and renews automatically while the wallet is open. Each renewal made at least ~19 h after the previous one adds +1 fidelity. Renewing never reduces fidelity — an earlier renewal simply doesn't add the point yet. Renew by hand inside the window to move your expiry to a convenient time of day."
          title="PRESENCE LEASE — your PoSW recert keeps you present for about a day and renews automatically while the wallet is open. Fidelity rises by 1 per renewal, but only when the renewal is at least ~19 h after the previous one; renewing sooner keeps you present without earning the point (and delays the next one). Renew by hand inside the earning window to move your expiry to a convenient time of day.">ⓘ</span></span>
       <span class="value sm" id="leaseLeft">—</span>
+      <div class="small" id="bindModeLine" style="margin-top:2px"></div>
       <div class="small faint" id="leaseNote" style="margin-top:2px"></div>
       <div class="small faint" id="leaseWarn" style="margin-top:6px"></div>
       <button class="accent" id="btnRenewLease" data-i18n="lease.renew" style="display:block;margin:6px auto 0" disabled>Renew presence now</button>

@@ -998,6 +998,11 @@ async def account(request):
             if data:
                 from ops import kv_ops
                 data["reg_epoch"] = kv_ops.recert_latest(addr)   # latest PoSW recert epoch (presence lease)
+                # BINDING MODE (doc/device-attestation.md §"Binding modes"): the wallet reads `devbind.mode` to know whether
+                # this identity renews without a statement ("perm", live) or needs one every lease ("lease")
+                from ops.node_attest import bind_info as _bi
+                _b = _bi(addr, data)
+                data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "live": _b["bind_live"], "epoch": _b["bind_epoch"]}
                 if readable == "true":
                     data.update({"balance": to_readable_amount(data["balance"])})
                     data.update({"produced": to_readable_amount(data["produced"])})
@@ -1142,6 +1147,37 @@ async def device_attest_probe(request):
         logger.warning(f"device attest probe: fmt={summary.get('fmt')} aaguid={(summary.get('auth_data') or {}).get('aaguid')} "
                        f"x5c={summary.get('x5c_count')} root_pinned={summary['root_pinned']} sample={name}")
         return _resp({"ok": True, "summary": summary})
+    except Exception as e:
+        return _resp({"ok": False, "error": str(e)[:200]}, status=400)
+
+
+async def devbind_lookup(request):
+    """POST /devbind_lookup {att}: what the device behind a statement currently vouches for, BEFORE the wallet submits a
+    hardware registration (doc/device-attestation.md §"Binding modes" — rebinding a Ledger/Trezor to another account
+    is allowed after one lease, and the wallet must say "this device vouches for another account, rebind it here?"
+    before the tap is spent). Answers {key_cls, bound_to, bound_epoch, mode, movable_at_epoch, permanent_class}; no
+    verdict, no consensus. Rate-limited 20/min per IP."""
+    if _rate_limited(request, 20):
+        return _RL()
+    try:
+        body = await request.json()
+        att = str((body or {}).get("att") or "")
+        if not att or len(att) > 200_000:
+            raise ValueError("att missing or too large")
+        import protocol as _p
+        from ops import kv_ops as _kv
+        from ops.device_attest import device_binding_key as _dbk
+        def _work():
+            key = _dbk({"att": att}, _p.DEVICE_BIND_MAX_CERT_SECS, strict=True)
+            cls = key.split(":", 1)[0]
+            row = _kv.devbind_get(key)
+            out = {"ok": True, "key_cls": cls, "permanent_class": cls in _p.DEVICE_BIND_PERMANENT_CLASSES,
+                   "bound_to": None, "bound_epoch": -1, "mode": None, "movable_at_epoch": None}
+            if row:
+                out.update({"bound_to": row[0], "bound_epoch": int(row[1]), "mode": row[2],
+                            "movable_at_epoch": int(row[1]) + _p.POSW_LEASE_EPOCHS})
+            return out
+        return _resp(await asyncio.to_thread(_work))
     except Exception as e:
         return _resp({"ok": False, "error": str(e)[:200]}, status=400)
 
@@ -2518,6 +2554,7 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.post("/devbind_lookup", devbind_lookup),
         web.post("/node_attest_drop", node_attest_drop),
         web.get("/node_attest_pickup", node_attest_pickup),
         web.get("/node_attest_status", node_attest_status),

@@ -2070,24 +2070,31 @@ def hb_revert_pop(epoch: int, address: str):
 
 
 # --- ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key) ---------------
-# devbind: <device key str> -> msgpack([address, epoch]) — which identity a device certificate vouches for and the
-# recert epoch that bound it (the binding is live for POSW_LEASE_EPOCHS from that epoch). Consensus state.
-# devbind_revert: epoch|address -> msgpack([key, prev_address|None, prev_epoch]) — the EXACT inverse for rollback.
+# devbind: <device key str> -> msgpack([address, epoch]) (leased) or msgpack([address, epoch, "perm"]) (permanent, from
+# DEVICE_BIND_PERMANENT_HEIGHT) — which identity a device certificate vouches for and the epoch of the LAST STATEMENT that
+# bound it (a leased binding is live for POSW_LEASE_EPOCHS from that epoch; a permanent one for life, movable after it).
+# Consensus state. devbind_revert: epoch|address -> msgpack([key, prev_address|None, prev_epoch[, prev_mode, prev_devkey]])
+# — the EXACT inverse for rollback.
 
 def devbind_get(key: str):
-    """(address, epoch) bound to a device key, or None."""
+    """(address, epoch, mode) bound to a device key, or None. mode is "lease" or "perm" (doc/device-attestation.md
+    §"Binding modes"); rows written before DEVICE_BIND_PERMANENT_HEIGHT are two elements and decode as "lease"."""
     def _do(txn):
         raw = txn.get(key.encode(), db=_dbs()["devbind"])
         if raw is None:
             return None
-        a, e = _unpack(raw)
-        return str(a), int(e)
+        rec = _unpack(raw)
+        mode = str(rec[2]) if len(rec) > 2 else "lease"
+        return str(rec[0]), int(rec[1]), mode
     return _read(_do)
 
 
-def devbind_set(key: str, address: str, epoch: int):
+def devbind_set(key: str, address: str, epoch: int, mode: str = "lease"):
+    """mode "lease" writes the historical two-element row (byte-identical to pre-gate rows — replay of old blocks and
+    the state root depend on it); "perm" writes the three-element row."""
     def _do(txn):
-        txn.put(key.encode(), _pack([str(address), int(epoch)]), db=_dbs()["devbind"])
+        rec = [str(address), int(epoch)] + ([str(mode)] if mode != "lease" else [])
+        txn.put(key.encode(), _pack(rec), db=_dbs()["devbind"])
     _write(_do)
 
 
@@ -2097,25 +2104,34 @@ def devbind_del(key: str):
     _write(_do)
 
 
-def devbind_revert_put(epoch: int, address: str, key: str, prev):
-    """Journal what a register's binding OVERWROTE: prev = (address, epoch) or None. Always written on apply so
-    pop can distinguish 'no prior binding' (delete on revert) from 'no record' (pre-gate register)."""
+def devbind_revert_put(epoch: int, address: str, key: str, prev, prev_devkey=None, perm: bool = False):
+    """Journal what a register's binding OVERWROTE: prev = (address, epoch[, mode]) or None, plus the sender's previous
+    `devkey` account field (permanent bindings only). Always written on apply so pop can distinguish 'no prior binding'
+    (delete on revert) from 'no record' (pre-gate register). A leased binding writes the historical three-element record
+    (node-local, but keep the old shape anyway); a permanent one the five-element record."""
     def _do(txn):
         pa, pe = (prev[0], int(prev[1])) if prev else (None, -1)
-        txn.put(be8(int(epoch)) + address.encode(), _pack([str(key), pa, pe]), db=_dbs()["devbind_revert"])
+        pm = (prev[2] if prev and len(prev) > 2 else "lease")
+        rec = [str(key), pa, pe] + ([str(pm), prev_devkey] if perm else [])
+        txn.put(be8(int(epoch)) + address.encode(), _pack(rec), db=_dbs()["devbind_revert"])
     _write(_do)
 
 
 def devbind_revert_pop(epoch: int, address: str):
-    """Read + DELETE the binding journal for (epoch, address): (key, prev_address|None, prev_epoch) or None."""
+    """Read + DELETE the binding journal for (epoch, address): (key, prev_address|None, prev_epoch, prev_mode,
+    prev_devkey|None, perm) or None. Legacy three-element records come back as ("lease", None, False)."""
     def _do(txn):
         k = be8(int(epoch)) + address.encode()
         raw = txn.get(k, db=_dbs()["devbind_revert"])
         if raw is None:
             return None
         txn.delete(k, db=_dbs()["devbind_revert"])
-        key, pa, pe = _unpack(raw)
-        return str(key), (str(pa) if pa is not None else None), int(pe)
+        rec = _unpack(raw)
+        key, pa, pe = rec[0], rec[1], rec[2]
+        perm = len(rec) > 3
+        pm = str(rec[3]) if perm else "lease"
+        pdk = (str(rec[4]) if perm and rec[4] is not None else None)
+        return str(key), (str(pa) if pa is not None else None), int(pe), pm, pdk, perm
     return _write(_do)
 
 

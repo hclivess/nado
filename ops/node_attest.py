@@ -27,6 +27,7 @@ from protocol import EPOCH_LENGTH, FIDELITY_MIN_GAP_EPOCHS, POSW_TARGET_MARGIN
 MAX_DROPS = 2000                 # senders held at once (a relay serving many nodes)
 MAX_PER_SENDER = 4               # distinct statements kept per sender (a griefer cannot overwrite the real one)
 MAX_BYTES = 8 * 1024 * 1024      # total budget of the store — real statements are 1-8 KB; 2000 × 200 KB was a 400 MiB lever
+RENEW_TARGET_MARGIN = 30       # blocks ahead a statement-free renewal lands (the wallet's REG_TARGET_MARGIN)
 POLL_EVERY = 20.0                # s between a wanting node's peer polls
 _MAX_ATT, _MAX_CDJ, _MAX_RP = 16_000, 4_000, 253   # a TPM statement is ~5.4 KB base64, Android ~4 KB, Ledger/Trezor < 8 KB
 
@@ -135,7 +136,58 @@ def lease_state(address: str, tip: int) -> dict:
     renewable = last >= 0 and epoch - last >= FIDELITY_MIN_GAP_EPOCHS
     return {"address": address, "registered": registered, "last_recert_epoch": last, "epoch": epoch,
             "fidelity": int(acc.get("fidelity", 0) or 0), "renewable": renewable,
-            "wants": (not registered) or renewable}
+            "wants": (not registered) or renewable, **bind_info(address, acc)}
+
+
+def bind_info(address: str, acc: dict | None = None) -> dict:
+    """{bind_mode, bind_cls, bind_live, bind_epoch} for an identity (doc/device-attestation.md §"Binding modes"):
+    bind_mode "perm" when the account's `devkey` row still points back at it in permanent mode (it renews without a
+    statement), "lease" otherwise. Read-only, never raises."""
+    from ops import kv_ops
+    out = {"bind_mode": "lease", "bind_cls": None, "bind_live": False, "bind_epoch": -1}
+    try:
+        if acc is None:
+            from ops.account_ops import get_account
+            acc = get_account(address, create_on_error=False) or {}
+        dk = acc.get("devkey")
+        if isinstance(dk, str) and dk:
+            out["bind_cls"] = dk.split(":", 1)[0]
+            row = kv_ops.devbind_get(dk)
+            if row and row[0] == address and row[2] == "perm":
+                out.update({"bind_mode": "perm", "bind_live": True, "bind_epoch": int(row[1])})
+    except Exception:
+        pass
+    return out
+
+
+def renew_without_statement(memserver, tip: int, logger=None) -> dict:
+    """A node bound for life to a hardware wallet renews its presence lease with a register tx that carries NO
+    statement (accepted by validation only while its devbind row points back at it). Same merge + gossip path as
+    a dropped statement; the identity log records it as bind "renew"."""
+    from ops.transaction_ops import construct_register_tx
+    from protocol import DEVICE_BIND_PERMANENT_HEIGHT
+    target = int(tip) + RENEW_TARGET_MARGIN
+    if not DEVICE_BIND_PERMANENT_HEIGHT or target < DEVICE_BIND_PERMANENT_HEIGHT:
+        return {"result": False, "message": "permanent bindings are not live yet"}
+    tx = construct_register_tx(memserver.keydict, target)
+    result = memserver.merge_transaction(tx, user_origin=True)
+    ok = bool(isinstance(result, dict) and result.get("result"))
+    try:
+        from ops import identity_log
+        identity_log.record("self", tx, ok, None if ok else (result.get("message") if isinstance(result, dict) else result))
+    except Exception:
+        pass
+    if ok:
+        try:
+            memserver.enqueue_gossip(tx)
+        except Exception:
+            pass
+    if logger:
+        (logger.warning if ok else logger.error)(
+            f"node attest: {'renewed' if ok else 'renewal REJECTED for'} own hardware-bound identity "
+            f"{memserver.address[:12]}… without a statement (max_block {target})"
+            + ("" if ok else f": {result.get('message') if isinstance(result, dict) else result}"))
+    return result if isinstance(result, dict) else {"result": ok}
 
 
 def _own_register_pending(memserver) -> bool:
@@ -235,6 +287,14 @@ class NodeAttestPoller:
         self.last_state = st
         if not st["wants"] or _own_register_pending(self.memserver):
             return
+        # BOUND FOR LIFE (doc/device-attestation.md §"Binding modes"): the operator attested this node once with a
+        # hardware wallet; from then on the node renews its own lease with a statement-free register — no drop, no
+        # operator. One attempt per poll; a refusal (e.g. the device was rebound elsewhere) falls through to the drop
+        # path, which is how a fresh statement reaches it.
+        if st.get("bind_mode") == "perm" and st.get("bind_live"):
+            r = renew_without_statement(self.memserver, tip, self.logger)
+            if r.get("result"):
+                return
         # forget refusals whose statement can no longer land
         for k in [k for k in self.refused if int(k.split(":")[0]) <= tip]:
             self.refused.pop(k, None)

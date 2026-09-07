@@ -87,14 +87,23 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT): from the gate the register's device certificate is
         # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
         # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
-        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT
-        device_key = None
+        from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
+                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES)
+        device_key, permanent = None, False
         if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
-            from ops.device_attest import device_binding_key
-            device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                            strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)   # same parse as validation
+            # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register with NO
+            # statement is a hardware identity's statement-free presence renewal (validation admitted it only because
+            # devbind[devkey] points back at the sender) — it writes nothing to devbind. A statement from a permanent class
+            # binds for life. Same parse as validation, at the block's own height.
+            has_device = isinstance(transaction.get("device"), dict)
+            if has_device or block_height < DEVICE_BIND_PERMANENT_HEIGHT:
+                from ops.device_attest import device_binding_key
+                device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
+                                                strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)   # same parse as validation
+                permanent = (block_height >= DEVICE_BIND_PERMANENT_HEIGHT
+                             and device_key.split(":", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES)
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
-                       device_key=device_key)
+                       device_key=device_key, permanent=permanent)
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -673,7 +682,7 @@ def get_open_registry(current_epoch: int):
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
-def apply_register(address: str, epoch: int, logger, revert=False, device_key=None):
+def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
@@ -695,16 +704,33 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             kv_ops.account_set(address, "registered", 0)
         brec = kv_ops.devbind_revert_pop(epoch, address)
         if brec is not None:
-            key, prev_addr, prev_epoch = brec
+            key, prev_addr, prev_epoch, prev_mode, prev_devkey, was_perm = brec
             if prev_addr is None:
                 kv_ops.devbind_del(key)
             else:
-                kv_ops.devbind_set(key, prev_addr, prev_epoch)
+                kv_ops.devbind_set(key, prev_addr, prev_epoch, prev_mode)
+            if was_perm:
+                # the sender's `devkey` field is restored to what it was (or removed) — the exact inverse
+                if prev_devkey is None:
+                    kv_ops.account_del_field(address, "devkey")
+                else:
+                    kv_ops.account_set_field(address, "devkey", prev_devkey)
     else:
         if device_key:
+            # BINDING MODES: a permanent-class statement writes the "perm" row (a rebind from another sender supersedes the
+            # old row in this very write — the old identity's statement-free renewals fail from the next block because the
+            # row no longer points back at it) and stamps the sender's account with `devkey`, the reverse index a
+            # statement-free renewal is validated against. The journal carries the previous row AND the previous devkey.
             prev_bind = kv_ops.devbind_get(device_key)
-            kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind)
-            kv_ops.devbind_set(device_key, address, epoch)
+            if permanent:
+                acc0 = kv_ops.get_account(address) or {}
+                prev_devkey = acc0.get("devkey") if isinstance(acc0.get("devkey"), str) else None
+                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=True)
+                kv_ops.devbind_set(device_key, address, epoch, "perm")
+                kv_ops.account_set_field(address, "devkey", device_key)
+            else:
+                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind)
+                kv_ops.devbind_set(device_key, address, epoch)
         prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
         acc = kv_ops.get_account(address)
         cur_fid = int(acc.get("fidelity", 0)) if acc else 0

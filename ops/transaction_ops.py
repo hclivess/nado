@@ -775,7 +775,9 @@ def reserved_uniqueness_keys(tx) -> list:
     if tx.get("recipient") == "register":
         from protocol import DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
         try:
-            if DEVICE_BIND_STRICT_HEIGHT and int(tx.get("max_block", 0)) >= DEVICE_BIND_STRICT_HEIGHT:
+            # a statement-free renewal (DEVICE_BIND_PERMANENT_HEIGHT) binds nothing, so it occupies no device key
+            if (DEVICE_BIND_STRICT_HEIGHT and int(tx.get("max_block", 0)) >= DEVICE_BIND_STRICT_HEIGHT
+                    and isinstance(tx.get("device"), dict)):
                 from ops.device_attest import device_binding_key
                 keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
         except Exception:
@@ -1199,27 +1201,57 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
-        verify_register_device(transaction, anchor)
-        # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT, doc/device-attestation.md §"One device, one identity"):
-        # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
-        # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
-        # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
-        # apply_register writes, at the block's own height.
-        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT
-        if DEVICE_BIND_HEIGHT and block_height >= DEVICE_BIND_HEIGHT:
-            from ops.device_attest import device_binding_key
-            try:
-                # strict from DEVICE_BIND_STRICT_HEIGHT: duplicate CBOR keys are refused, so the chain the kernel verified
-                # IS the certificate that gets bound (IndexError/ValueError alike = malformed = invalid)
-                dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                          strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)
-            except (ValueError, IndexError) as e:
-                raise AssertionError(f"register: {e}")
-            bound = kv_ops.devbind_get(dkey)
-            epoch_now = block_height // EPOCH_LENGTH
-            if bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
-                raise AssertionError(f"register: this device already vouches for another identity "
-                                     f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
+        from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
+                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES)
+        epoch_now = block_height // EPOCH_LENGTH
+        # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register WITHOUT a
+        # statement is the statement-free presence renewal of an identity permanently bound to a hardware wallet — valid
+        # only while the sender's `devkey` row still points back at the sender in "perm" mode (a rebind elsewhere ends it
+        # from the next block). Before the gate, or for anyone else, it is the historical "Missing device attestation".
+        stmt_free = bool(DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
+                         and not isinstance(transaction.get("device"), dict))
+        if stmt_free:
+            acc_r = get_account(transaction["sender"], create_on_error=False) or {}
+            dk = acc_r.get("devkey")
+            bound = kv_ops.devbind_get(dk) if isinstance(dk, str) and dk else None
+            assert bound and bound[0] == transaction["sender"] and bound[2] == "perm", \
+                "Missing device attestation (a registered identity must be a real device; only an identity bound for life " \
+                "to a hardware wallet renews without one)"
+        else:
+            verify_register_device(transaction, anchor)
+            # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT, doc/device-attestation.md §"One device, one identity"):
+            # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
+            # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
+            # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
+            # apply_register writes, at the block's own height.
+            if DEVICE_BIND_HEIGHT and block_height >= DEVICE_BIND_HEIGHT:
+                from ops.device_attest import device_binding_key
+                try:
+                    # strict from DEVICE_BIND_STRICT_HEIGHT: duplicate CBOR keys are refused, so the chain the kernel verified
+                    # IS the certificate that gets bound (IndexError/ValueError alike = malformed = invalid)
+                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
+                                              strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)
+                except (ValueError, IndexError) as e:
+                    raise AssertionError(f"register: {e}")
+                bound = kv_ops.devbind_get(dkey)
+                # The cooldown is ONE rule for both modes: a device that made a statement for another sender less than a
+                # lease ago cannot vouch for this one. For a leased class that is the lease itself; for a permanent class it
+                # is the rebind cooldown — `bound[1]` is the epoch of the device's last STATEMENT (statement-free renewals
+                # never refresh it), so the device holder can always move it after one lease, whatever the old owner does.
+                if bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
+                    raise AssertionError(f"register: this device already vouches for another identity "
+                                         f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
+                if (DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
+                        and dkey.split(":", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES):
+                    # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
+                    # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
+                    acc_r = get_account(transaction["sender"], create_on_error=False) or {}
+                    dk_prev = acc_r.get("devkey")
+                    if isinstance(dk_prev, str) and dk_prev and dk_prev != dkey:
+                        pb = kv_ops.devbind_get(dk_prev)
+                        assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
+                            "register: this identity is already bound for life to another hardware wallet — use that device, " \
+                            "or bind this one to a new account"
     elif recipient == "msgkey":
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is

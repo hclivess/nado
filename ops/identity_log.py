@@ -73,6 +73,18 @@ def registration_kind(sender: str, max_block) -> str:
         return "unknown"
 
 
+def _bind_kind(device) -> str:
+    if not isinstance(device, dict):
+        return "renew"
+    try:
+        from ops.device_attest import cbor_decode, _b64d
+        from protocol import DEVICE_BIND_PERMANENT_CLASSES
+        fmt = (cbor_decode(_b64d(str(device.get("att", "")))) or {}).get("fmt")
+        return "perm" if fmt in DEVICE_BIND_PERMANENT_CLASSES else "lease"
+    except Exception:
+        return "lease"
+
+
 def record(ip: str, transaction: dict, accepted, message=None) -> dict | None:
     """Append one line for a register tx. Returns the record (for tests/logging) or None for non-register txs.
     `message` is the mempool's verdict text (why a rejected tx was rejected) — without it the log could say
@@ -93,6 +105,9 @@ def record(ip: str, transaction: dict, accepted, message=None) -> dict | None:
             "accepted": bool(accepted),
             "message": (str(message)[:200] if message and not accepted else None),
             "device": _device_summary(transaction.get("device")),
+            # "renew" = a statement-free renewal of a hardware-bound identity (DEVICE_BIND_PERMANENT_HEIGHT); "perm" = a
+            # statement from a permanent class (binds for life / rebinds); "lease" = every other statement
+            "bind": _bind_kind(transaction.get("device")),
         }
         line = json.dumps(rec, separators=(",", ":"), sort_keys=True) + "\n"
         with _LOCK:

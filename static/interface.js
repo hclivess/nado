@@ -562,6 +562,19 @@ async function miningHashDeps() {
 
 // Fetch the PoSW anchor (hash of block max_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
+// The identity's binding mode from the relay's /get_account (`devbind: {mode, cls, live, epoch}`): "perm" + live means a
+// hardware wallet vouches for it for life and renewals need no statement. Cached per poll (state.devbind) so the
+// Register gate and the lease panel agree with the tx builder; a relay without the field reads as leased.
+async function bindIsPermanent() {
+  try {
+    const acc = await getAccount(state.wallet.address);
+    state.devbind = (acc && acc.devbind) || null;
+  } catch (e) { /* keep the last answer */ }
+  return !!(state.devbind && state.devbind.mode === "perm" && state.devbind.live);
+}
+function bindDeviceName(cls) {
+  return cls === "ledger" ? "Ledger" : cls === "trezor" ? "Trezor" : cls === "tpm" ? "Windows PC" : cls === "android-key" ? "phone" : (cls || "device");
+}
 async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   // gen 25: the registration proof IS the device attestation (doc/device-attestation.md). The sequential-work
   // proof was retired at the betanet-7 reroll; `requiredT` and `onProgress` stay in the signature for callers.
@@ -571,6 +584,14 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   const anchorHash = b && b.block_hash;
   if (!anchorHash) throw new Error("registration anchor block unavailable");
   if (onProgress) { try { onProgress(1, 1); } catch (e) {} }
+  // BOUND FOR LIFE (doc/device-attestation.md §"Binding modes"): an identity whose devbind row is a live permanent binding
+  // (Ledger / Trezor) renews its presence lease with a register tx that carries NO statement — the account key signs, no
+  // cable, no prompt. The chain refuses it the moment the device is rebound elsewhere, and the next pass falls back to
+  // the normal Register gate (a fresh statement is then the only way).
+  if (await bindIsPermanent()) {
+    log("ok", i18("bind.renewNoTap", "Renewed without a prompt — this identity is bound for life to its hardware wallet."));
+    return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), null);
+  }
   const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
   if (!device) {
     // SAY THE REAL REASON. attestDevice() has just stored the verdict (fmt none under Windows Hello VBS, no chain,
@@ -749,8 +770,11 @@ async function nodeAttestRefresh() {
   const epoch = latest ? Math.floor(Number(latest.block_number) / 60) : null;
   const registered = acc && Number(acc.registered) === 1, regEp = acc ? Number(acc.reg_epoch) : -1;
   const since = (epoch != null && regEp >= 0) ? epoch - regEp : null;
+  const db = acc && acc.devbind;
   if (!registered) {
     el.textContent = i18("node.status.needsTap", "No open-lane lease — press the button to register the node.");
+  } else if (db && db.mode === "perm" && db.live) {
+    el.textContent = i18("node.status.perm", "Bound for life to a {d} (fidelity {f}) — it renews on its own, nothing to do.", { d: bindDeviceName(db.cls), f: Number(acc.fidelity || 0) });
   } else if (since != null && since >= 192) {
     el.textContent = i18("node.status.renewable", "Lease held (fidelity {f}) — renewable now.", { f: Number(acc.fidelity || 0) });
   } else {
@@ -815,6 +839,29 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       const hw = await import("./hwattest.js?v=" + HW_STAMP);   // the page stamp: a literal ?v=1 was cached by the CDN forever
       log("info", i18("hw.confirm", "Confirm on the {n} — it is vouching for this identity.", { n: state.hwDevice.name }));
       const device = await hw.attestHardware(state.hwDevice, chal);
+      // REBIND (doc/device-attestation.md §"Binding modes"): ask the relay what this device vouches for BEFORE the tap is
+      // spent. Another account + cooldown over → the user confirms the move (the other account stops mining); cooldown
+      // still running → say when; nothing bound or our own account → submit.
+      try {
+        const lr = await fetch(relayBase() + "/devbind_lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ att: device.att }) });
+        const lj = await lr.json().catch(() => null);
+        if (lj && lj.ok && lj.bound_to && lj.bound_to !== sender) {
+          const epochNow = state.latest != null ? Math.floor(state.latest / EPOCH_LENGTH) : null;
+          const epochSecs = EPOCH_LENGTH * (state.blockTime || 8);
+          if (epochNow != null && lj.movable_at_epoch != null && epochNow < lj.movable_at_epoch) {
+            const wait = (lj.movable_at_epoch - epochNow) * epochSecs;
+            const msg = i18("bind.rebindWait", "This {n} vouches for another account and moved less than 36 h ago — it can be rebound from epoch {e} (in about {t}).",
+              { n: state.hwDevice.name, e: lj.movable_at_epoch, t: humanizeSeconds(wait) });
+            setDeviceStatus({ ok: false, fmt: state.attestVia, reason: msg });
+            log("err", msg);
+            return null;
+          }
+          const ok = await uiConfirm({ title: i18("bind.rebindTitle", "Rebind this device?"),
+            body: i18("bind.rebindAsk", "This {n} vouches for another account ({a}). Rebind it to this account? The other account stops mining and cannot renew without a device.", { n: state.hwDevice.name, a: lj.bound_to.slice(0, 12) + "…" }),
+            confirmText: i18("bind.rebindOk", "Rebind here") });
+          if (!ok) { log("info", i18("bind.rebindDeclined", "Kept the existing binding — nothing was submitted.")); return null; }
+        }
+      } catch (e) { /* relay without the lookup: the chain's own verdict still applies at submit */ }
       setDeviceStatus({ ok: true, fmt: state.attestVia, reason: "ok" });
       log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
       return device;
@@ -2568,6 +2615,16 @@ function refreshLeasePanel(acc, ms) {
   const gap = epochNow - regEpoch;
   const earnsIn = Math.max(0, (regEpoch + FIDELITY_MIN_GAP_EPOCHS - epochNow) * epochSecs);
   $("leaseLeft").textContent = i18("lease.left", "expires in about {t} (≈ {c})", { t: humanizeSeconds(secsLeft), c: _fmtClock(secsLeft) });
+  // BINDING MODE, visible: "bound for life" (Ledger/Trezor — renews without a prompt) vs "leased" (phone/TPM — a statement
+  // every renewal). Read from the account's devbind field; a wallet talking to an older relay shows nothing.
+  const bm = $("bindModeLine");
+  if (bm) {
+    const db = acc && acc.devbind;
+    state.devbind = db || state.devbind;
+    if (db && db.mode === "perm" && db.live) bm.textContent = i18("bind.perm", "Bound for life to a {d} — renews without a prompt.", { d: bindDeviceName(db.cls) });
+    else if (db) bm.textContent = i18("bind.lease", "Leased — re-attests every 36 h with a statement from this device.");
+    else bm.textContent = "";
+  }
   const landing = !!_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch;
   let note, enabled;
   if (landing) {
@@ -2662,7 +2719,8 @@ async function maybeRegister() {
       }
     } catch (e) { /* relay blip: next tick */ }
   }
-  if (!state.tapArmed && !state.pendingRegisterTx) {   // a kept (already attested) tx needs no new tap
+  const permLive = await bindIsPermanent();            // bound for life: no prompt exists to arm, renew straight away
+  if (!state.tapArmed && !state.pendingRegisterTx && !permLive) {   // a kept (already attested) tx needs no new tap
     setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
     show("powWrap", false);
     show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
@@ -2749,9 +2807,12 @@ async function submitRegistration() {
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = "";
   const entryNote = "";
-  setRegBanner(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device.") + busyNote + entryNote + REASSURE);
+  const permNow = !!(state.devbind && state.devbind.mode === "perm" && state.devbind.live);
+  const attestingMsg = permNow ? i18("bind.renewing", "Renewing — bound for life to a {d}, no prompt needed.", { d: bindDeviceName(state.devbind.cls) })
+                               : i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device.");
+  setRegBanner(attestingMsg + busyNote + entryNote + REASSURE);
   // gen 25: no proof is computed, so no "about N seconds" estimate — the only wait is the device prompt.
-  showRegProgress(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device."), "");
+  showRegProgress(attestingMsg, "");
   let tx;
   const t0 = Date.now();
   try {

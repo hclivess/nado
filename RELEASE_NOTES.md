@@ -34,6 +34,19 @@ Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuinen
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
+**Binding modes: bound for life or leased** (`DEVICE_BIND_PERMANENT_HEIGHT` = 3900, doc/device-attestation.md
+§"Binding modes"). A binding is only as durable as the key behind it. Ledger and Trezor keys are factory-fixed, so
+from block 3900 a statement from one of them binds for LIFE: the `devbind` row is written in mode `perm`, the
+account carries `devkey`, and the identity renews its presence lease with a register tx that carries NO statement
+(valid while the row still points back at the sender). Android and TPM keys rotate, so those classes stay leased
+and re-attest every renewal. A permanent device can be REBOUND by a new sender — no old-key signature — once
+`POSW_LEASE_EPOCHS` have passed since the device's last statement (statement-free renewals never refresh that
+epoch, so the device holder always wins after one lease); the move supersedes the old binding in that block. One
+hardware wallet per identity. The wallet shows the mode on the lease panel, renews hardware-bound identities without
+a prompt, and asks before rebinding a device that vouches for another account (`POST /devbind_lookup`). A node
+attested with a hardware wallet renews itself statement-free (`/node_attest_status` carries `bind_mode`). The
+identity log records `bind: lease|perm|renew`.
+
 **Attest from another device.** A wallet on Linux, Mac or iPhone (nothing bindable of its own) registers with a
 statement made on an accepted device: press *Attest from another device* on the wallet, then on the phone / TPM PC /
 hardware wallet open Mining → *Attest another wallet or node*, paste the address and confirm. The wallet picks the

@@ -1534,6 +1534,18 @@ DEVICE_BIND_HEIGHT = 460
 DEVICE_BIND_STRICT_HEIGHT = 1700
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
+# BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable
+# as the key behind it: an Android attestation certificate rotates (~2 weeks), a TPM AIK is per Windows account, but a
+# Ledger's factory device key and a Trezor's device certificate NEVER change. So from DEVICE_BIND_PERMANENT_HEIGHT a
+# register from a class in DEVICE_BIND_PERMANENT_CLASSES binds for LIFE (devbind mode "perm", the sender's account gets
+# `devkey`) and that identity renews its presence lease WITHOUT a statement (a register tx with no `device`, accepted
+# only while devbind[devkey] points back at the sender). Leased classes keep re-attesting every renewal — a binding
+# that outlived its rotating key would let one phone bind a fresh identity per rotation. A permanent device may MOVE to
+# another sender (rebind, no old-key signature needed: lost key, sold device) once POSW_LEASE_EPOCHS have passed since
+# its last STATEMENT (statement-free renewals never refresh the binding epoch, so an old owner cannot pin it); the move
+# supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
+DEVICE_BIND_PERMANENT_HEIGHT = 3900
+DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)
