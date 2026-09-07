@@ -1,1 +1,4 @@
 target/
+# cargo writes Cargo.lock on every build; the tracked copy is Cargo.lock.pinned (ops/self_update._build_crates
+# copies it in). Tracking the file at THIS path bricked the fleet's fast-forward on 2026-09-07.
+Cargo.lock

@@ -702,10 +702,13 @@ def check_and_update(trigger: str) -> dict:
             _git("diff", "--quiet"); _git("diff", "--cached", "--quiet")
         except Exception:
             return _blocked("working tree has uncommitted changes — refusing to touch local edits")
+        # UNTRACKED FILES THE TARGET TRACKS BLOCK THE FAST-FORWARD (2026-09-07: a cargo-written Cargo.lock that a
+        # later commit started tracking bricked every peer's updater) — move them aside first, never delete.
+        moved_aside = _move_aside_untracked_collisions(remote)
         try:
             _git("merge", "--ff-only", "--quiet", f"origin/{_BRANCH}", timeout=60)
-        except Exception:
-            return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}")
+        except Exception as e:
+            return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}: {e}")
 
         native = _rebuild_native_if_changed(local, remote)
         restarting = _schedule_restart()
@@ -714,6 +717,8 @@ def check_and_update(trigger: str) -> dict:
                "note": None if restarting else "no systemd services found — restart the node manually"}
         if native:
             out["native"] = native                      # per-crate build outcome; "purged-stale" ⇒ fell back to pure-Python
+        if moved_aside:
+            out["moved_aside"] = moved_aside            # untracked files renamed to <path>.local-<ts> so the ff could land
         return out
     finally:
         _lock.release()
@@ -814,6 +819,18 @@ def _build_crates(crates):
         if not have_cargo:
             report[crate] = "no-cargo"
             continue
+        # REPRODUCIBLE DEPENDENCY SET WITHOUT TRACKING Cargo.lock AT THE PATH CARGO WRITES. A crate's lock is
+        # tracked as Cargo.lock.pinned and copied in before every build, so all nodes compile the SAME crate
+        # versions (a verifier that resolves a different x509/ECDSA release than its peers is a consensus
+        # risk). It is NOT tracked as Cargo.lock because cargo creates that file on any node that built the
+        # crate before the lock was committed, and an untracked file at a newly tracked path makes `git merge
+        # --ff-only` refuse — see _move_aside_untracked_collisions for the day that stalled the whole fleet.
+        pinned = os.path.join(path, "Cargo.lock.pinned")
+        if os.path.isfile(pinned):
+            try:
+                shutil.copyfile(pinned, os.path.join(path, "Cargo.lock"))
+            except OSError:
+                pass
         try:
             r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -857,6 +874,43 @@ def _purge_shared_libs(crate_path):
         except Exception:
             pass
     return removed
+
+
+def _move_aside_untracked_collisions(remote):
+    """Move aside every UNTRACKED file that the fast-forward to `remote` would have to write, so `git merge
+    --ff-only` cannot refuse with "untracked working tree files would be overwritten by merge".
+
+    THE 2026-09-07 FLEET STALL. Commit 070023a9 added native/attest with only Cargo.toml + src, so every node's
+    `cargo build --release` wrote an UNTRACKED native/attest/Cargo.lock. The very next commit (e42cfce9) started
+    TRACKING that path. From then on git refused the fast-forward on every peer, the old updater answered
+    "fast-forward failed" forever, and the whole fleet sat on 070023a9 while this box alone moved on — an
+    updater that cannot update itself is the one failure it must never have. The tip stopped tracking the
+    lock at that path (it lives at Cargo.lock.pinned, copied in by _build_crates), which unblocked the old
+    code; this helper is what stops the class from recurring: a build product, a stray download, an
+    operator's scratch file at a path the official repo later tracks.
+
+    Nothing is DELETED: each collision is renamed to `<path>.local-<unix time>` beside itself, and the list is
+    returned for the /update response so an operator can see what moved. Only files the target tree tracks are
+    touched — every other untracked file stays exactly where it is. Never raises; on any git error it returns
+    [] and the fast-forward is left to fail loudly as before."""
+    try:
+        tracked = set(_git("ls-tree", "-r", "--name-only", remote, timeout=30).splitlines())
+        untracked = _git("ls-files", "--others", "--exclude-standard", timeout=30).splitlines()
+    except Exception:
+        return []
+    moved = []
+    stamp = int(time.time())
+    for rel in untracked:
+        if rel not in tracked:
+            continue
+        src = os.path.join(_REPO_DIR, rel)
+        dst = f"{src}.local-{stamp}"
+        try:
+            os.replace(src, dst)
+            moved.append(rel)
+        except OSError:
+            pass
+    return moved
 
 
 def _rebuild_native_if_changed(old, new):
