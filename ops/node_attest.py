@@ -163,17 +163,27 @@ def register_from_drop(memserver, blob: dict, logger=None) -> dict:
 
 class NodeAttestPoller:
     """Peer-loop helper: when the node wants a lease, look for a drop (local store first, then peers) every
-    POLL_EVERY s and register from it. Cheap when nothing is wanted (one account read per poll)."""
+    POLL_EVERY s and register from it. Cheap when nothing is wanted (one account read per poll).
+
+    NEVER BLOCK THE CALLER. The first version polled up to 8 peers with 4 s timeouts INLINE on the peer loop; an
+    unregistered relay (this box, 2026-09-07 13:14) therefore spent 21-33 s per peer-loop pass on it, the pass that
+    also syncs blocks, and fell 100 blocks behind the fleet while wallets hit a stale relay. The peer poll now runs
+    on its own daemon thread (one in flight at a time, short timeouts, a few peers per round, round-robin), and tick()
+    returns immediately."""
 
     def __init__(self, memserver, logger, port: int):
         self.memserver, self.logger, self.port = memserver, logger, port
         self._last = 0.0
+        self._thread = None
+        self._rr = 0
         self.last_state: dict = {}
 
     def tick(self):
         now = time.time()
         if now - self._last < POLL_EVERY:
             return
+        if self._thread is not None and self._thread.is_alive():
+            return                                          # a poll is still running: never stack them
         self._last = now
         try:
             tip = int(self.memserver.latest_block["block_number"])
@@ -187,8 +197,23 @@ class NodeAttestPoller:
         if not st["wants"] or _own_register_pending(self.memserver):
             return
         blob = pickup(self.memserver.address, tip, consume=True)
-        if blob is None:
-            blob = poll_peers(self.memserver.address, self.memserver.peers, self.port)
-        if blob is None:
+        if blob is not None:
+            register_from_drop(self.memserver, blob, self.logger)
             return
-        register_from_drop(self.memserver, blob, self.logger)
+        peers = list(self.memserver.peers)
+        if not peers:
+            return
+        # a slice of 3 peers per round, rotating, so a dead peer costs at most one short timeout per minute
+        self._rr = (self._rr + 3) % max(1, len(peers))
+        batch = (peers + peers)[self._rr:self._rr + 3]
+        self._thread = threading.Thread(target=self._poll_bg, args=(batch,), daemon=True, name="node-attest-poll")
+        self._thread.start()
+
+    def _poll_bg(self, batch):
+        try:
+            blob = poll_peers(self.memserver.address, batch, self.port, timeout=1.5, limit=3)
+            if blob is not None:
+                register_from_drop(self.memserver, blob, self.logger)
+        except Exception as e:
+            if self.logger:
+                self.logger.debug(f"node attest poll: {e}")
