@@ -686,7 +686,7 @@ async def submit_transaction(request):
             # IDENTITY LOG (gen 25): the per-IP enforcement is gone, the OBSERVATION stays — every register tx
             # leaves one node-local line (ip, sender, entry/renewal, device class, AAGUID, certificate hashes) so
             # "are these identities really individual?" is answered from data: tools/identity_audit.py.
-            identity_log.record(ip, transaction, output.get("result"))
+            identity_log.record(ip, transaction, output.get("result"), output.get("message"))
             return output, (200 if output.get("result") else 403)
         except Exception as e:
             return f"Error: {e}", 403

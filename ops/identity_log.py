@@ -73,8 +73,10 @@ def registration_kind(sender: str, max_block) -> str:
         return "unknown"
 
 
-def record(ip: str, transaction: dict, accepted) -> dict | None:
+def record(ip: str, transaction: dict, accepted, message=None) -> dict | None:
     """Append one line for a register tx. Returns the record (for tests/logging) or None for non-register txs.
+    `message` is the mempool's verdict text (why a rejected tx was rejected) — without it the log could say
+    "accepted False" but not why, which is exactly what an operator needs when a device class fails en masse.
     Never raises: a logging failure must never turn into a 403 for the wallet."""
     try:
         # a register tx is identified by its RECIPIENT ("register"), like every identity tx (msgkey, ...) — there is
@@ -89,6 +91,7 @@ def record(ip: str, transaction: dict, accepted) -> dict | None:
             "kind": registration_kind(sender, transaction.get("max_block")),
             "max_block": transaction.get("max_block"),
             "accepted": bool(accepted),
+            "message": (str(message)[:200] if message and not accepted else None),
             "device": _device_summary(transaction.get("device")),
         }
         line = json.dumps(rec, separators=(",", ":"), sort_keys=True) + "\n"

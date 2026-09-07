@@ -538,6 +538,15 @@ its sender in consensus state for one lease (36 h); the same device cannot regis
 binding lives. Device classes that carry nothing per-device are not accepted at all: what cannot be bound is not
 proof of anything.
 
+**Windows says "Windows Hello is not using a TPM" (authenticator 9ddd1817).** Windows created the Hello key inside
+virtualization-based security (VBS) instead of the TPM; a VBS key has no certificate chain. The BIOS TPM switch alone
+does not move it. Check `tpm.msc` (ready, 2.0) and `msinfo32` (VBS "Running" is the cause); on a standalone PC
+disable VBS and Credential Guard from an elevated PowerShell (`LsaCfgFlags = 0` under
+`HKLM\SYSTEM\CurrentControlSet\Control\Lsa`, `EnableVirtualizationBasedSecurity = 0` under
+`…\Control\DeviceGuard`), reboot, confirm VBS "Not enabled", remove and re-create the Hello PIN while online (Windows
+fetches the TPM's AIK certificate then), and retry — the pre-flight should name 08987058. BitLocker is unrelated. The
+wallet's Mining page shows this guide, and the one for every other verdict, under the device line.
+
 **Running a node?** A node cannot attest itself (no secure element, nobody to tap). On the wallet's Mining page,
 *Attest a node you run*: paste the node's address, tap once, and the attestation reaches the node through the
 network — it signs its own registration. One tap per lease, like any miner.

@@ -287,6 +287,13 @@
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
          starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
     <div id="mineDevice" class="small mt" role="status"></div>
+    <!-- DEVICE GUIDE: when the device cannot attest, the specific reasoning and the exact steps for THAT verdict
+         (Windows Hello under VBS / Credential Guard, software key, passkey without attestation, unbindable class).
+         Filled by renderDeviceStatus() from deviceGuide(); hidden while the device is fine. -->
+    <details id="mineDeviceGuide" class="mt hidden">
+      <summary class="small dim" style="cursor:pointer" data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
+      <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
+    </details>
 
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->

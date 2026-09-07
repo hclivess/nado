@@ -597,6 +597,45 @@ async function createAttestedCredential(publicKey) {
   }
 }
 
+// GUIDE: the specific reasoning + exact steps for a verdict, shown under the Mining page's device line (2026-09-07,
+// user: "we must add specific reasoning and guide to the web wallet"). One-line hints (deviceHint) stay for logs.
+function deviceGuide(st) {
+  if (!st || st.ok) return "";
+  const ag = String(st.aaguid || "").replace(/-/g, "").toLowerCase();
+  const fmt = st.fmt;
+  const ua = navigator.userAgent || "";
+  const isWin = /Windows/i.test(ua), isAndroid = /Android/i.test(ua);
+  const isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isMac = /Macintosh/i.test(ua) && !isIos;
+  if (ag.startsWith("9ddd1817")) return i18("device.guide.vbs",
+    "What happened: Windows created your Windows Hello key inside virtualization-based security (VBS, the \"Windows Hello VBS\" authenticator 9ddd1817) instead of the TPM. A VBS key has no certificate chain, so the network cannot verify the hardware or bind the device to one identity. The BIOS TPM switch alone does not move the key — Windows decides where a Hello key lives when the PIN is created.\n\n" +
+    "Check first: run tpm.msc — it must say \"The TPM is ready for use\", version 2.0 (enable AMD fTPM / Intel PTT in the BIOS if not). Run msinfo32 — if \"Virtualization-based security\" says Running, that is why.\n\n" +
+    "Fix (standalone PC; Windows 11 Enterprise enables Credential Guard by default): in an elevated PowerShell run\n" +
+    "New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags -Value 0 -PropertyType DWord -Force\n" +
+    "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' -Name EnableVirtualizationBasedSecurity -Value 0\n" +
+    "Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' | Select LsaCfgFlags; Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' | Select EnableVirtualizationBasedSecurity\n" +
+    "(both must read 0), then reboot and confirm msinfo32 shows VBS \"Not enabled\". Remove any existing Hello PIN and create it again (Settings → Accounts → Sign-in options → PIN) while online — Windows fetches the TPM's AIK certificate from Microsoft at that moment. Then press Start here again; the pre-flight should name the Windows Hello TPM authenticator (08987058).\n\n" +
+    "Notes: BitLocker is unrelated. Memory integrity is not the cause. Turning VBS off lowers kernel/credential protection on that PC; it is reversible (set both values back to 1). A domain, Entra or MDM policy would re-enable it — then that PC cannot attest.");
+  if (ag.startsWith("6028b017")) return i18("device.guide.software",
+    "What happened: Windows Hello is running as a software key on this PC (authenticator 6028b017) — no TPM was available when the PIN was created, so there is no certificate chain to verify or bind.\n\n" +
+    "Fix: enable the TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), confirm tpm.msc says the TPM is ready, remove the Hello PIN and create it again while online, then press Start here again. If the pre-flight then reports 9ddd1817 instead, follow the VBS guide.");
+  if (fmt === "none" || !st.x5c) {
+    if (isWin) return i18("device.guide.winNone",
+      "What happened: the credential came without any attestation. On Windows that means no Windows Hello PIN is set, or Hello is not backed by the TPM.\n\nFix: Settings → Accounts → Sign-in options → set a PIN (on a PC with TPM 2.0 enabled), then press Start again. If the pre-flight then names 9ddd1817 or 6028b017, follow that guide.");
+    if (isAndroid) return i18("device.guide.androidNone",
+      "What happened: the credential came without hardware attestation. Android gives one only from Chrome on an unrooted phone with a locked bootloader, when the phone itself (not a password manager or a synced passkey) creates the key.\n\nFix: use Chrome, choose \"this device\" / screen lock when prompted (not Google Password Manager sync, not a third-party manager), make sure the bootloader is locked and the phone is not rooted, then press Start again. Phones from before Android 12 carry a shared batch certificate and cannot be bound: they are refused.");
+    if (isIos || isMac) return i18("device.guide.apple",
+      "What happened: Apple passkeys (iOS 16+, macOS 13+) carry no attestation at all, so an iPhone, iPad or Mac cannot vouch for itself through a web page.\n\nWhat works: a FIDO2 security key is not accepted either (batch certificate, cannot be bound), so today an Apple device cannot mine in the open lane. A native App Attest bridge is the only route and is not shipped yet. You can still hold, send and bond coins here.");
+    return i18("device.guide.none",
+      "What happened: the credential came without a hardware attestation chain, so the network cannot verify the device or bind it to one identity.\n\nWhat is accepted: an Android 12+ phone (locked bootloader, Chrome) or a Windows PC whose Windows Hello key lives in a TPM 2.0.");
+  }
+  if (st.reason === "unbindable" || fmt === "packed")
+    return i18("device.guide.unbindable",
+      "What happened: this authenticator proves it is genuine hardware but carries only a batch certificate shared by 100,000+ units (FIDO privacy rules). Without a per-device certificate the network cannot enforce \"one device, one identity\", so it is refused — that rule is the whole point of attestation.\n\nWhat is accepted: an Android 12+ phone (per-device attestation certificate) or a Windows PC with Windows Hello on a TPM 2.0 (per-device AIK certificate).");
+  if (/NotAllowed|cancel|abort/i.test(st.reason || ""))
+    return i18("device.guide.cancelled", "The prompt was cancelled or timed out before the device answered. Press Start again and confirm the prompt on the device within a minute.");
+  return "";
+}
+
 // HINTS: what to do next, from the verdict. AAGUIDs are the FIDO metadata's: Windows Hello TPM 08987058…, Windows Hello
 // VBS 9ddd1817… (no TPM in use), Windows Hello software 6028b017…; fmt "none" is a passkey without hardware attestation.
 function deviceHint(st) {
@@ -635,6 +674,7 @@ function setDeviceStatus(st) {
 function renderDeviceStatus() {
   const el = $("mineDevice"); if (!el) return;
   let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+  show("mineDeviceGuide", false);                    // shown again below only for a failed verdict
   if (!st) {
     el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
     el.className = "small mt faint"; return;
@@ -647,6 +687,9 @@ function renderDeviceStatus() {
     ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. A computer, VM or emulator will not be able to mine once the device rule is active; use a phone.")
     : i18("device.mineFailed", "Real device: attestation failed ({e}). Mining will require a genuine, un-rooted phone once the device rule is active.", { e: st.reason || "" });
   el.className = "small mt warn";
+  // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
+  const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
+  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); if (txt) g.open = true; }
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
@@ -2559,7 +2602,7 @@ async function maybeRegister() {
   // registration, an expired lease, a presence mismatch); firing navigator.credentials.create() without a user
   // gesture yields nothing on most platforms and produced the misleading "could not attest itself" line. Only a
   // Start/Renew press arms ONE prompt; otherwise say what is needed and wait for the press.
-  if (!state.tapArmed) {
+  if (!state.tapArmed && !state.pendingRegisterTx) {   // a kept (already attested) tx needs no new tap
     setRegBanner(i18("reg.tapNeeded", "Your identity needs a tap: press Start (or Renew) to attest this device — one tap per lease."), "warn", "tap");
     show("powWrap", false);
     return;
@@ -2620,6 +2663,17 @@ async function submitRegistration() {
   // gen 25: the registration proof is the device attestation (one tap) — no sequential work, no difficulty
   // lookup. `register` lands EXACTLY at max_block, so the margin is just propagation headroom.
   const diff = { reqT: 0, mult: 1, entryMult: 1, recent: 0 };
+  // A SIGNED, ATTESTED REGISTRATION IS KEPT UNTIL IT LANDS OR EXPIRES. If the relay dropped the submission (a
+  // restart, a body cap, a proxy hiccup), the tx built around the tap is resubmitted on the next pass — the user
+  // is never asked for a second tap for the same lease (2026-09-07: a TPM user got "reconnecting…" then "needs a
+  // tap" with the button stuck on "Registering…").
+  const pend = state.pendingRegisterTx;
+  if (pend && latest.block_number < pend.targetBlock) {
+    setStartBtnBusy(i18("mine.registering", "Registering…"));
+    setRegBanner(i18("reg.resubmitting", "Resubmitting the attested registration (no new tap needed)…") + REASSURE);
+    return await submitRegisterTx(pend.tx, pend.targetBlock);
+  }
+  state.pendingRegisterTx = null;
   const targetBlock = latest.block_number + REG_TARGET_MARGIN;
   const etaSec = 5;
   setStartBtnBusy(i18("mine.registering", "Registering…"));
@@ -2657,9 +2711,25 @@ async function submitRegistration() {
       }
     }
   } catch (e) { /* tip unreadable — just submit and let the relay answer */ }
+  return await submitRegisterTx(tx, targetBlock);
+}
+
+// Submit an already built + attested register tx and interpret the relay's answer. Split out of submitRegistration
+// so a KEPT tx (state.pendingRegisterTx, after a transient relay failure) is resubmitted through the same path.
+async function submitRegisterTx(tx, targetBlock) {
   setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
-  log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (max_block ${targetBlock}).`);
-  const res = await submitTransaction(tx);
+  log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (max_block ${targetBlock}) via ${relayBase()}.`);
+  let res;
+  try {
+    res = await submitTransaction(tx);
+  } catch (e) {
+    if (isTransient(e)) {
+      state.pendingRegisterTx = { tx, targetBlock };
+      log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect; no new tap needed.", { e: e.message }));
+    }
+    throw e;
+  }
+  state.pendingRegisterTx = null;
   const m = res.data && (res.data.message || JSON.stringify(res.data));
   if (!(res.data && res.data.result)) {
     // ALREADY REGISTERED this epoch is SUCCESS, not failure. The one-per-epoch guard rejects a duplicate
