@@ -827,8 +827,14 @@ def _build_crates(crates):
         # --ff-only` refuse — see _move_aside_untracked_collisions for the day that stalled the whole fleet.
         pinned = os.path.join(path, "Cargo.lock.pinned")
         if os.path.isfile(pinned):
+            # BYTES-EQUAL ⇒ DO NOT TOUCH. native_guard.is_stale is pure mtime and counts Cargo.lock as a source, so
+            # rewriting an identical lock on every /update would mark a healthy .so stale (it did, on this box,
+            # 2026-09-07: attest_kernel=False from a `cp` alone). copy2 keeps the pinned file's mtime when it does copy.
             try:
-                shutil.copyfile(pinned, os.path.join(path, "Cargo.lock"))
+                lock = os.path.join(path, "Cargo.lock")
+                same = os.path.isfile(lock) and open(lock, "rb").read() == open(pinned, "rb").read()
+                if not same:
+                    shutil.copy2(pinned, lock)
             except OSError:
                 pass
         try:
