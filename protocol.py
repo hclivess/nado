@@ -1533,7 +1533,7 @@ DEVICE_BIND_HEIGHT = 460
 # Height-gated for replayability; becomes 1 at the next reroll.
 DEVICE_BIND_STRICT_HEIGHT = 1700
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
-DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
+DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger", "apple-appattest"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable
 # as the key behind it: an Android attestation certificate rotates (~2 weeks), a TPM AIK is per Windows account, but a
 # Ledger's factory device key and a Trezor's device certificate NEVER change. So from DEVICE_BIND_PERMANENT_HEIGHT a
@@ -1545,7 +1545,7 @@ DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # 
 # its last STATEMENT (statement-free renewals never refresh the binding epoch, so an old owner cannot pin it); the move
 # supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
 DEVICE_BIND_PERMANENT_HEIGHT = 3900
-DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
+DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor", "apple-appattest"))   # an App Attest key lives in the Secure Enclave until the phone is erased
 # SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
 # The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is
 # what a farm cannot mint. From BOND_DEVICE_CAP_HEIGHT the bonded PRODUCER draw counts an identity only while it is
@@ -1565,7 +1565,9 @@ DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "ab6641178a36e179aa0c1cdddf9a16eb45fa20943e2b8cd7c7c05c26cf8b487a",  # Google Hardware Attestation Root (2036)
     "6d9db4ce6c5c0b293166d08986e05774a8776ceb525d9e4329520de12ba4bcc0",  # Google Key Attestation CA1 (2035)
     "870c7a35ceab3d59979f2c6a524042d404cb71518004350925fb2ced79a999da",  # Microsoft TPM Root Certificate Authority 2014 (2039) — Windows Hello hardware (TPM) authenticators
+    "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932",  # Apple App Attestation Root CA (2045) — the NADO app on iPhone/iPad/Mac (doc/apple-app-attest.md)
 ))
+DEVICE_ATTEST_APPLE_APP_ATTEST_ROOT = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
 # FIDO2 SECURITY KEYS (Linux and any computer): roots of every FIDO2 authenticator with full attestation in the
 # FIDO Alliance metadata (protocol_roots/fido_mds_roots.json, a SNAPSHOT curated at commit time — never fetched
 # at validation; refreshed only by a gated protocol commit). A `packed` statement must chain to one of these AND
@@ -1583,7 +1585,15 @@ DEVICE_ATTEST_FIDO_AAGUIDS = frozenset(DEVICE_ATTEST_FIDO_AAGUID_ROOTS)
 del _FIDO
 # accepted statement formats: apple (iPhone/iPad), android-key (Android, TEE/StrongBox), tpm (Windows Hello on a
 # physical TPM), packed (FIDO2 security keys). Rejected: none, packed self-attestation, android-safetynet, fido-u2f.
-DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed", "trezor", "ledger"))
+DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed", "trezor", "ledger", "apple-appattest", "apple-assertion"))
+# APPLE APP ATTEST (doc/apple-app-attest.md, apps/nado-attest-ios). Passkeys carry no attestation, so an Apple device
+# vouches through the NADO app: DCAppAttestService attests a Secure-Enclave key (`apple-appattest`, chain to the Apple
+# App Attestation Root CA), and that key later signs fresh challenges (`apple-assertion`: renewal with proof of presence,
+# or a rebind). Any developer's app chains to the SAME Apple root, so the statement's rpIdHash MUST be one of OUR App IDs
+# ("<TEAMID>.<bundle id>") — pinned here, never the tx's declared rp. EMPTY until the app is signed by a real team, and
+# DEVICE_ATTEST_APPLE_HEIGHT = 0 keeps both formats refused until a gated commit enables them (no live sample yet).
+DEVICE_ATTEST_APPLE_APP_IDS = ()
+DEVICE_ATTEST_APPLE_HEIGHT = 0
 # tpm: only the Windows Hello HARDWARE authenticator AAGUID (the VBS and software variants are not a TPM), and only
 # physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
 DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))

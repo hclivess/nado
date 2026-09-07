@@ -412,7 +412,23 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     assert anchor_block and anchor_block.get("block_hash") == anchor_hash, "attestation anchor block unavailable"
     now = int(anchor_block.get("block_timestamp") or 0)
     challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
-    verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
+    # APPLE APP ATTEST (doc/apple-app-attest.md): any developer's app chains to the same Apple root, so for the app
+    # formats the accepted rp ids are the protocol's PINNED App IDs only — never the tx's declared rp — and the formats
+    # are refused outright until DEVICE_ATTEST_APPLE_HEIGHT enables them (no live sample yet).
+    from protocol import DEVICE_ATTEST_APPLE_APP_IDS, DEVICE_ATTEST_APPLE_HEIGHT
+    from ops.device_attest import cbor_decode as _cbor
+    try:
+        fmt_pre = (_cbor(att) or {}).get("fmt")
+    except Exception:
+        fmt_pre = None
+    if fmt_pre in ("apple-appattest", "apple-assertion"):
+        assert DEVICE_ATTEST_APPLE_HEIGHT and int(transaction["max_block"]) >= DEVICE_ATTEST_APPLE_HEIGHT, \
+            "Apple App Attest statements are not enabled on this chain yet"
+        assert DEVICE_ATTEST_APPLE_APP_IDS, "Apple App Attest statements are not enabled on this chain yet (no App ID pinned)"
+        rp_list = list(DEVICE_ATTEST_APPLE_APP_IDS)
+    else:
+        rp_list = list(DEVICE_ATTEST_RP_IDS) + [rp]
+    verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=rp_list)
     assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
     fmt = verdict.get("fmt")
     assert fmt in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {fmt}"
@@ -448,6 +464,18 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
         import hashlib as _h
         assert root in {_h.sha256(bytes.fromhex(k)).hexdigest() for k in DEVICE_ATTEST_LEDGER_ISSUER_KEYS}, \
             "ledger attestation: device certificate is not signed by the pinned Ledger issuer key"
+    elif fmt == "apple-appattest":
+        from protocol import DEVICE_ATTEST_APPLE_APP_ATTEST_ROOT
+        assert root == DEVICE_ATTEST_APPLE_APP_ATTEST_ROOT, "app attest: chain does not end at the Apple App Attestation Root CA"
+    elif fmt == "apple-assertion":
+        # no chain: the key's genuineness was proven by its attestation, whose binding row must still exist
+        from ops.device_attest import device_binding_key as _dbk
+        from protocol import DEVICE_BIND_MAX_CERT_SECS as _mcs
+        try:
+            _k = _dbk(dev, _mcs, strict=True)
+        except (ValueError, IndexError) as e:
+            raise AssertionError(f"app attest assertion: {e}")
+        assert kv_ops.devbind_get(_k) is not None, "app attest assertion: this key never attested (no binding row)"
     else:
         assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "attestation chain does not end at a pinned vendor root"
     return verdict

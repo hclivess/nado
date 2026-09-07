@@ -8750,6 +8750,22 @@ function wireEvents() {
     log("info", i18("remote.on", "This wallet will be vouched for by another device. On that device open Mining → \"Attest another wallet or node\" and paste: {a}", { a: state.wallet ? state.wallet.address : "" }));
     if (!state.mining) startMining();
   };
+  // APPLE APP ATTEST (doc/apple-app-attest.md): the NADO app on the phone attests THIS address and drops the statement
+  // on the relay, exactly like "attest from another device" — the wallet only needs to be in remote mode and to hand
+  // the address to the app. The button stays hidden until the app is published (APPLE_APP_LIVE): a button for an app
+  // nobody can install would read as a promise (the Apple lesson of 2026-09-07).
+  const APPLE_APP_LIVE = false;
+  if ($("btnHwApple")) {
+    show("btnHwApple", APPLE_APP_LIVE);
+    $("btnHwApple").onclick = () => {
+      state.hwDevice = null; state.attestVia = "remote"; state.tapArmed = false;
+      try { localStorage.setItem("nado_attest_via", "remote"); } catch (e) {}
+      const addr = state.wallet ? state.wallet.address : "";
+      const link = "nadoattest://attest?addr=" + encodeURIComponent(addr) + "&relay=" + encodeURIComponent(relayBase());
+      log("info", i18("apple.on", "Open the NADO Attest app on your iPhone, iPad or Mac and attest this address: {a} — or open this link on the device: {l}", { a: addr, l: link }));
+      if (!state.mining) startMining();
+    };
+  }
   try { if (localStorage.getItem("nado_attest_via") === "remote") state.attestVia = "remote"; } catch (e) {}
   if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; state.tapArmed = false; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");

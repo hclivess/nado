@@ -4,6 +4,8 @@
 
 pub mod android_key;
 pub mod apple;
+pub mod apple_appattest;
+pub mod apple_assertion;
 pub mod ledger;
 pub mod packed;
 pub mod tpm;

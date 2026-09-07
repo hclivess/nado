@@ -80,7 +80,7 @@ def _bind_kind(device) -> str:
         from ops.device_attest import cbor_decode, _b64d
         from protocol import DEVICE_BIND_PERMANENT_CLASSES
         fmt = (cbor_decode(_b64d(str(device.get("att", "")))) or {}).get("fmt")
-        return "perm" if fmt in DEVICE_BIND_PERMANENT_CLASSES else "lease"
+        return "perm" if (fmt in DEVICE_BIND_PERMANENT_CLASSES or fmt == "apple-assertion") else "lease"
     except Exception:
         return "lease"
 

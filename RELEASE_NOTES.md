@@ -55,6 +55,13 @@ quorum and the duty committee are untouched. Liveness: with no attested bonded i
 whole registry. `/mining_status` mirrors it; the wallet says whether the stake counts. At the gate every unattested
 bonded node — the relay fleet included — stops producing bonded blocks until its operator attests it.
 
+**Apple App Attest bridge (built, disabled).** Kernel formats `apple-appattest` (Apple's attestation object,
+chain to the pinned Apple App Attestation Root CA, production aaguid, counter 0, credentialId = sha256(key)) and
+`apple-assertion` (a later signature by the same key; consensus requires its binding row); binding key
+sha256(public key), permanent class; the NADO Attest app source (`apps/nado-attest-ios`, SwiftUI + BLAKE2b +
+App Attest + relay drop) and the wallet's hidden handoff button. Refused on chain until `DEVICE_ATTEST_APPLE_APP_IDS`
+carries a signed team's App ID and `DEVICE_ATTEST_APPLE_HEIGHT` gates it in. No live sample yet: unverified.
+
 **Attest from another device.** A wallet on Linux, Mac or iPhone (nothing bindable of its own) registers with a
 statement made on an accepted device: press *Attest from another device* on the wallet, then on the phone / TPM PC /
 hardware wallet open Mining → *Attest another wallet or node*, paste the address and confirm. The wallet picks the

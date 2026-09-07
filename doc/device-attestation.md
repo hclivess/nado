@@ -368,6 +368,11 @@ stops being drawn for bonded slots until its operator attests it (Mining → *At
 or Trezor does it once for life, a phone or TPM every 36 h). With a hardware wallet: bond, attest once, and the node
 keeps producing on its own with up to 1,000 NADO counting.
 
+## Apple devices
+
+See doc/apple-app-attest.md: the App Attest bridge (`apple-appattest` / `apple-assertion`, the NADO app on
+iPhone/iPad/Mac) — built and tested on synthetic vectors, disabled on chain until a real team signs the app.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

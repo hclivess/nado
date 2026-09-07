@@ -9,6 +9,7 @@ use x509_parser::prelude::*;
 pub struct AuthData {
     pub rp_id_hash: Vec<u8>,
     pub flags: u8,
+    pub counter: u32,
     pub aaguid: Vec<u8>,
     pub cred_id: Vec<u8>,
     pub cred_pubkey_cose: Vec<u8>,
@@ -32,6 +33,7 @@ pub fn parse_auth_data(ad: &[u8]) -> Result<AuthData, &'static str> {
     Ok(AuthData {
         rp_id_hash: ad[..32].to_vec(),
         flags,
+        counter: u32::from_be_bytes([ad[33], ad[34], ad[35], ad[36]]),
         aaguid: ad[37..53].to_vec(),
         cred_id: ad[55..55 + n].to_vec(),
         cred_pubkey_cose: ad[55 + n..].to_vec(),

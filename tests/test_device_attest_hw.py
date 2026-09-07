@@ -29,7 +29,8 @@ def check(name, cond, detail=""):
 
 
 CHAL = hashlib.blake2b(b"nado-hw-challenge", digest_size=32).digest()
-NOW = 1_788_800_000
+import time as _time
+NOW = int(_time.time()) + 3600      # the synthetic chains are minted NOW by openssl; a fixed clock here was a time bomb (crossed 2026-09-07 19:00 UTC)
 
 
 def b64(b):
