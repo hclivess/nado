@@ -530,10 +530,10 @@ every node; roots are never fetched and change only by a protocol commit.
 |---|---|---|---|
 | Android phone (Android 12+, locked bootloader) | TEE / StrongBox | Google hardware-attestation roots | yes — the device's attestation certificate is bound to your identity for each lease |
 | Windows PC | a physical TPM 2.0 via Windows Hello | Microsoft TPM Root CA 2014 (virtual TPMs refused) | yes — the TPM's AIK certificate is bound |
-| FIDO2 security key | its batch certificate | vendor root from the FIDO metadata snapshot | **no** — batch certificates identify a model, not a unit, so keys are **refused** from block 1500 |
+| FIDO2 security key | its batch certificate | vendor root from the FIDO metadata snapshot | **no** — batch certificates identify a model, not a unit, so keys are **refused** from block 460 |
 | iPhone / iPad / Mac | — | — | Apple passkeys carry **no attestation** (iOS 16+, macOS 13+); the device cannot vouch through a web page. A native App Attest bridge (per-device keys) is the route; it needs an Apple developer account to ship. |
 
-**One device, one identity.** From block 1500 of betanet-7 a register transaction's device certificate is bound to
+**One device, one identity.** From block 460 of betanet-7 a register transaction's device certificate is bound to
 its sender in consensus state for one lease (36 h); the same device cannot register a second identity while that
 binding lives. Device classes that carry nothing per-device are not accepted at all: what cannot be bound is not
 proof of anything.

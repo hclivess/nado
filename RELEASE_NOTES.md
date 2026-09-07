@@ -16,7 +16,7 @@ weight 1, then 2, 3 … 30. Gen 24 skipped fidelity 1 (probation) because identi
 identity is a device and a tap, so the line is unbroken. Open-lane draw weight is the plain 2..10 floor+bonus curve
 from the first lease. The bond unlock delay, the fidelity ramp, the lease and the lane split are unchanged.
 
-**One device, one identity** (`DEVICE_BIND_HEIGHT` = 1500 on betanet-7). From that block a register tx's device
+**One device, one identity** (`DEVICE_BIND_HEIGHT` = 460 on betanet-7). From that block a register tx's device
 certificate — the Android remotely-provisioned attestation certificate, the Windows AIK certificate — is bound to
 its sender for one lease (36 h) in consensus state; the same certificate cannot register a second identity while
 the binding is live. Device classes without a per-device certificate (FIDO2 batch keys, Apple statements,

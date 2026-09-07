@@ -1518,7 +1518,7 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # keys, Apple statements, batch-attested pre-RKP Android) are refused from the gate: unbindable = unacceptable.
 # Gate hygiene: shipped on the live betanet-7 chain, so it is a HEIGHT ahead of the fleet's adoption (registrations
 # below it carry no binding and replay unchanged); becomes 1 at the next reroll.
-DEVICE_BIND_HEIGHT = 1500
+DEVICE_BIND_HEIGHT = 460
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm"))
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
