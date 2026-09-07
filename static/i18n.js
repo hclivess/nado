@@ -4660,6 +4660,26 @@
     "vi": {"device.refused": "Thiết bị này không thể đăng ký ({f}): ", "device.hint.unbindable": "Khóa bảo mật FIDO2 hoặc điện thoại chứng thực theo lô không có chứng chỉ riêng cho từng thiết bị, nên mạng không thể gắn nó với một danh tính và từ chối. Hãy dùng điện thoại Android 12+ hoặc PC Windows có TPM 2.0."}
   };
   for (const l in T70) Object.assign(T[l] = T[l] || {}, T70[l]);
+  // T71: the "tip passed the target" retry line without any proof-of-work talk.
+  const T71 = {
+    "en": {"log.regWindowPassed": "The device prompt took {s}s and the chain passed the target block — retrying with a fresh one."},
+    "cs": {"log.regWindowPassed": "Výzva na zařízení trvala {s} s a řetězec mezitím minul cílový blok — zkouším znovu s novým."},
+    "es": {"log.regWindowPassed": "El aviso del dispositivo tardó {s} s y la cadena pasó el bloque objetivo; reintentando con uno nuevo."},
+    "pt": {"log.regWindowPassed": "O aviso do dispositivo levou {s} s e a cadeia passou o bloco alvo — tentando de novo com um novo."},
+    "fr": {"log.regWindowPassed": "L'invite de l'appareil a pris {s} s et la chaîne a dépassé le bloc cible — nouvel essai avec un bloc frais."},
+    "de": {"log.regWindowPassed": "Die Geräteabfrage dauerte {s} s und die Chain hat den Zielblock passiert – neuer Versuch mit einem frischen Block."},
+    "it": {"log.regWindowPassed": "Il prompt del dispositivo ha richiesto {s} s e la catena ha superato il blocco obiettivo: riprovo con uno nuovo."},
+    "ru": {"log.regWindowPassed": "Запрос устройства занял {s} с, и цепочка прошла целевой блок — повторяю с новым."},
+    "zh": {"log.regWindowPassed": "设备提示用了 {s} 秒，链已越过目标区块——正在用新的区块重试。"},
+    "ja": {"log.regWindowPassed": "端末のプロンプトに {s} 秒かかり、チェーンが目標ブロックを過ぎました。新しいブロックで再試行します。"},
+    "ko": {"log.regWindowPassed": "기기 프롬프트에 {s}초가 걸려 체인이 목표 블록을 지났습니다. 새 블록으로 다시 시도합니다."},
+    "ar": {"log.regWindowPassed": "استغرقت مطالبة الجهاز {s} ث وتجاوزت السلسلة الكتلة المستهدفة — إعادة المحاولة بكتلة جديدة."},
+    "hi": {"log.regWindowPassed": "डिवाइस प्रॉम्प्ट में {s} सेकंड लगे और चेन लक्ष्य ब्लॉक से आगे निकल गई — नए ब्लॉक के साथ फिर कोशिश।"},
+    "tr": {"log.regWindowPassed": "Cihaz istemi {s} sn sürdü ve zincir hedef bloğu geçti — yeni bir blokla yeniden deneniyor."},
+    "id": {"log.regWindowPassed": "Permintaan perangkat memakan {s} dtk dan rantai melewati blok target — mencoba lagi dengan blok baru."},
+    "vi": {"log.regWindowPassed": "Lời nhắc trên thiết bị mất {s} giây và chuỗi đã vượt qua khối mục tiêu — thử lại với khối mới."}
+  };
+  for (const l in T71) Object.assign(T[l] = T[l] || {}, T71[l]);
 
 
 

@@ -61,6 +61,10 @@ const POSW_TARGET_MARGIN = 90;
 // work actually owed and this device's MEASURED hash rate, with 3x headroom for a slow/throttled tab, a
 // floor of 12 blocks so propagation always has time, and the protocol ceiling on top.
 // MUST NOT exceed POSW_TARGET_MARGIN: the anchor is max_block-POSW_ANCHOR_OFFSET and has to already exist.
+// gen 25: a registration's only wait is the device prompt (a Windows Hello PIN dialog can take a minute, a relay may
+// be mid-restart), so the target sits a fixed 30 blocks (~3.5 min) ahead — well inside POSW_TARGET_MARGIN (90), which
+// is what the nodes accept. The old 12-block minimum was a PoSW proving budget and tripped "tip passed the target".
+const REG_TARGET_MARGIN = 30;
 function poswTargetMarginFor(requiredT) {
   const secs = (Number(requiredT) || POSW_T) / Math.max(1, poswRate());
   const blocks = Math.ceil((secs * 3) / 6) + 12;          // 3x headroom + propagation floor
@@ -709,7 +713,7 @@ async function nodeAttestTap() {
   const btn = $("btnNodeAttest"); if (btn) btn.disabled = true;
   try {
     const latest = await fetch(relayBase() + "/get_latest_block", { cache: "no-store" }).then((x) => x.json());
-    const targetBlock = Number(latest.block_number) + poswTargetMarginFor(0);
+    const targetBlock = Number(latest.block_number) + REG_TARGET_MARGIN;
     const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
     const b = await fetch(relayBase() + "/get_block?number=" + anchorNum, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
     const anchorHash = b && b.block_hash;
@@ -2421,7 +2425,7 @@ async function broadcastLeaseRenewal(regEpoch) {
       // hashing — and paying a 9-minute landing window for it is pure latency, made worse by `register`
       // landing EXACTLY at max_block, so the whole margin is time the tx sits in the mempool.
       const _d = await registrationDifficulty(state.wallet.address);
-      const tb = latest.block_number + poswTargetMarginFor(_d.reqT);
+      const tb = latest.block_number + REG_TARGET_MARGIN;
       const tx = await computeRegisterTx(tb, null, _d.reqT);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) {
@@ -2608,7 +2612,7 @@ async function submitRegistration() {
   // gen 25: the registration proof is the device attestation (one tap) — no sequential work, no difficulty
   // lookup. `register` lands EXACTLY at max_block, so the margin is just propagation headroom.
   const diff = { reqT: 0, mult: 1, entryMult: 1, recent: 0 };
-  const targetBlock = latest.block_number + poswTargetMarginFor(0);
+  const targetBlock = latest.block_number + REG_TARGET_MARGIN;
   const etaSec = 5;
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = "";
@@ -2619,13 +2623,8 @@ async function submitRegistration() {
   let tx;
   const t0 = Date.now();
   try {
-    tx = await computeRegisterTx(targetBlock, (done, total) => {
-      const el = (Date.now() - t0) / 1000;
-      const rate = (done > 0 && el > 0) ? done / el : poswRate();
-      const remain = Math.max(0, Math.ceil((total - done) / rate));
-      $("powStats").textContent = i18("reg.progress", "{done} / {total} · {el}s · ~{remain}s left",
-        { done: done.toLocaleString(), total: total.toLocaleString(), el: el.toFixed(1), remain });
-    }, diff.reqT);
+    // gen 25: nothing is computed, so no "{done}/{total} · ~Ns left" — the only wait is the device prompt.
+    tx = await computeRegisterTx(targetBlock, null, diff.reqT);
   } finally {
     show("powWrap", false);
   }
@@ -2642,12 +2641,10 @@ async function submitRegistration() {
     if (now && typeof now.block_number === "number") {
       state.latest = now.block_number;
       if (now.block_number >= targetBlock) {
-        const rate = Math.round(diff.reqT / Math.max(0.001, proveMs / 1000));
-        log("err", i18("log.regTooSlow",
-          "Proof took {s}s but the registration window is only {w}s on this chain — this device hashes " +
-          "~{r}/s and this registration needed {t}. Retrying against a fresh block.",
-          { s: (proveMs / 1000).toFixed(0), w: POSW_TARGET_MARGIN * 6, r: rate.toLocaleString(),
-            t: diff.reqT.toLocaleString() }));
+        // gen 25: no hashing, no rate — the tap simply took longer than the window (or the relay's tip jumped).
+        log("warn", i18("log.regWindowPassed",
+          "The device prompt took {s}s and the chain passed the target block — retrying with a fresh one.",
+          { s: (proveMs / 1000).toFixed(0) }));
         return false;
       }
     }
