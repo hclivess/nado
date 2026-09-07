@@ -1290,7 +1290,7 @@ async function collectDividend() {
       log("ok", i18("div.collecting", "Dividend collection submitted — it lands in your balance automatically once the exec root is settled (a few minutes)."));
     }
     else log("err", i18("log.collectRejected", "Collect rejected: {m}", {m: (res.data && (res.data.message || ""))}));
-  } catch (e) { log("err", i18("log.collectFailed", "Collect failed: {m}", {m: e.message})); }
+  } catch (e) { log(isTransient(e) ? "warn" : "err", i18("log.collectFailed", "Collect failed: {m}", {m: e.message})); }
   finally { state._collecting = false; }
 }
 
@@ -2870,7 +2870,7 @@ async function startMining() {
   startPollLoop();
   acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
-  pollOnce().catch((e) => log("err", i18("log.miningLoopError", "Mining loop error: {m}", {m: e.message})));
+  pollOnce().catch((e) => { if (isTransient(e)) { setConn(false); return; } log("err", i18("log.miningLoopError", "Mining loop error: {m}", {m: e.message})); });
 }
 
 function stopMining() {
@@ -5038,7 +5038,11 @@ async function maybeAutoBond(acc, ms) {
       const m = res.data && (res.data.message || JSON.stringify(res.data));
       log("err", i18("log.autoBondRejected", "Auto-bond rejected: {m}", {m}));
     }
-  } catch (e) { log("err", i18("log.autoBondError", "Auto-bond error: {m}", {m: e.message})); }
+  } catch (e) {
+    // a relay bounce mid-tick is not an auto-bond failure: the next tick retries (2026-09-07 "failed to fetch")
+    if (isTransient(e)) { setConn(false); return; }
+    log("err", i18("log.autoBondError", "Auto-bond error: {m}", {m: e.message}));
+  }
 }
 
 /* ----------------------------------------------------------------------------------------------
