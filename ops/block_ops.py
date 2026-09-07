@@ -705,7 +705,9 @@ def _mining_status_lanes(epoch):
                 # and lane totals must say what the consensus draw does, not what the raw stake table holds.
                 from .mining_ops import bonded_producer_registry
                 bonded_reg = bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)
-                total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_reg.values())
+                from .mining_ops import open_lane_draw_registry
+                open_draw = open_lane_draw_registry(open_reg, epoch * EPOCH_LENGTH)
+                total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_draw.values())
                 total_bonded = sum(_bwt(i) for i in bonded_reg.values())
                 entry = (key, beacon, open_reg, bonded_reg, total_open, total_bonded)
                 _ms_lanes_cache[0] = entry
@@ -723,7 +725,9 @@ def mining_status(address, latest_block_number, block_time):
     next_block = latest_block_number + 1
     epoch = epoch_of(next_block)
     beacon, open_reg, bonded_reg, total_open, total_bonded, _bwt, open_shares = _mining_status_lanes(epoch)
-    my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in open_reg else 0
+    from .mining_ops import open_lane_draw_registry
+    _open_draw = open_lane_draw_registry(open_reg, next_block)
+    my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in _open_draw else 0
     my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
@@ -739,6 +743,8 @@ def mining_status(address, latest_block_number, block_time):
         "open_registry_size": len(open_reg), "total_open_weight": total_open,
         "bonded_registry_size": len(bonded_reg), "total_bonded_shares": total_bonded,
         "address": address, "registered_present": address in open_reg,
+        # FREE LANE = CAPITAL-FREE: attested but staked -> no open-lane weight, no dividend (the wallet says so)
+        "open_excluded_bonded": bool(address in open_reg and address not in _open_draw),
         "my_open_weight": my_open, "my_bonded_shares": my_bonded,
         # SAVINGS-LANE CAP: is the cap live for the next block, does this identity's stake count in the producer draw
         # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"

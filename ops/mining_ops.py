@@ -177,6 +177,16 @@ def bond_ramp_weight(base_shares: int, bond_since, epoch: int) -> int:
     return base_shares * tenure // BOND_RAMP_EPOCHS
 
 
+def open_lane_draw_registry(open_registry: dict, slot: int) -> dict:
+    """The registry the OPEN-lane draw runs over (protocol.OPEN_LANE_EXCLUDE_BONDED_HEIGHT): from the gate, attested
+    identities WITHOUT a bonded share — the free lane is capital-free, and one device is one identity, so a staker
+    cannot keep a second wallet in it without a second device. Below the gate: the registry unchanged. Never mutates."""
+    from protocol import OPEN_LANE_EXCLUDE_BONDED_HEIGHT
+    if not OPEN_LANE_EXCLUDE_BONDED_HEIGHT or slot < OPEN_LANE_EXCLUDE_BONDED_HEIGHT:
+        return open_registry
+    return {a: i for a, i in open_registry.items() if int(i.get("bonded", 0) or 0) < B_MIN}
+
+
 def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: int) -> dict:
     """The registry the bonded PRODUCER draw runs over (protocol.BOND_DEVICE_CAP_HEIGHT, doc/device-attestation.md
     §"Savings-lane cap"): from the gate, only ATTESTED identities (present in the open registry as of the same parent —
@@ -298,8 +308,11 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         if w is None and draw_registry:
             w = _weighted_draw(draw_registry, _bonded_shares, beacon, slot)
         return w
+    # FREE LANE = CAPITAL-FREE (OPEN_LANE_EXCLUDE_BONDED_HEIGHT): the open draw runs over attested identities WITHOUT a
+    # bonded share; the full `open_registry` stays the attested set for the bonded cap above.
+    open_draw = open_lane_draw_registry(open_registry, slot)
     if lane_of(slot, beacon) == "open":
-        winner = _weighted_draw(open_registry, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
+        winner = _weighted_draw(open_draw, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
         if winner is not None:
             return winner
         return _bonded_draw()                                     # one-directional open->bonded fallback
@@ -313,7 +326,7 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         # _open_weight is a FACTORY (closure over the epoch, since the probation-aware open_shares); passing
         # the factory itself made _weighted_draw compare a function with 0 and raise — the very halt this
         # branch exists to prevent, on a no-premine chain's first bonded slot or an all-withheld RANDAO epoch.
-        return _weighted_draw(open_registry, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
+        return _weighted_draw(open_draw, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
     return None                                                  # stake exists but draw failed -> skip (no leak)
 
 

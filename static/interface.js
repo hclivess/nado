@@ -3666,6 +3666,7 @@ function renderLanes(ms) {
   $("laneBondedShares").textContent = totBond;
 
   $("myShare").innerHTML =
+    (ms.open_excluded_bonded ? escapeHtml(i18("myshare.excludedBonded", "Your savings put this identity in the bonded lane: free-lane blocks go to device-only miners (unbond below 10 NADO to switch). The presence dividend is unaffected.")) + " " : "") +
     `${i18("myshare.weight", "Your open-lane weight:")} <b>${myOpen}</b> / ${totOpen} (${sharePct}% ${i18("myshare.ofFree", "of the free lane")}). ` +
     `${i18("myshare.openReg", "Open registry:")} ${openReg} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
     `${i18("myshare.bondReg", "Savings registry:")} ${bondReg}.`;

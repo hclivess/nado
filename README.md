@@ -549,6 +549,12 @@ It is not a passkey or a login. The wallet asks your phone or PC to create a thr
 
 Holding, sending and receiving NADO need no device. Attestation is only for mining rewards. If you would rather not attest from the device you mine on, "Attest from another device" lets any phone or PC you trust vouch for the wallet.
 
+**Free-lane blocks are for device-only miners (from block 6600 of betanet-7).** An identity holding one bonded share
+(10 NADO) or more is not drawn for open-lane slots; it produces in the bonded lane. Per device, not per key, so a
+staker cannot keep a second wallet in the free lane without a second device. The **presence dividend is unchanged**:
+every attested device is paid by fidelity, staked or not. The dividend ramp also flattens from the same epoch,
+`min(fidelity, 15)` instead of 30, so a first week is no longer almost nothing next to a thirty-day identity.
+
 **No device? Delegate to a pool (from block 6000 of betanet-7).** Savings produce blocks only on an attested device.
 A holder without one delegates their bonded stake to a pool run by someone with a device: the pool produces with own
 plus delegated stake, still capped at 1,000 NADO per device, and the chain splits every block it wins between the pool

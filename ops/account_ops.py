@@ -683,7 +683,9 @@ def get_open_registry(current_epoch: int):
                 # NEWER than the voided one counts (same rule as dividend_ops.present_at_epoch — one truth, two readers)
                 if kv_ops.recert_latest(address) <= kv_ops.devevict_voided(address, current_epoch):
                     continue
-                registry[address] = {"fidelity": account.get("fidelity", 0)}
+                # `bonded` rides along so the open-lane DRAW can exclude staked identities (OPEN_LANE_EXCLUDE_BONDED_HEIGHT)
+                # while the registry itself stays the ATTESTED set (bonded producer cap, statement-free renewals)
+                registry[address] = {"fidelity": account.get("fidelity", 0), "bonded": int(account.get("bonded", 0) or 0)}
         return registry
     if kv_ops.in_write_txn():
         return _compute()

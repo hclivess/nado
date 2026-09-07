@@ -407,6 +407,17 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
 - **Wallet**: the Stake card's "Staking pools" panel — my status, the picker (open, attested pools, cheapest first, room,
   member count), Delegate / Undelegate, and "Run a pool" with fee, name, min, max, open. `GET /pools` lists them.
 
+## Lanes per device, dividend per device (`OPEN_LANE_EXCLUDE_BONDED_HEIGHT`, 2026-09-08)
+
+Operator decisions: (1) "exclude >10 NADO miners from the free lane" — an attested identity with `bonded >= B_MIN` is
+not drawn for OPEN slots from the gate (`mining_ops.open_lane_draw_registry`); it produces in the bonded lane. Per
+device, so no second free-lane wallet without a second device. The attested set (`get_open_registry`) is unchanged and
+still gates the bonded producer cap and statement-free renewals; the registry entries carry `bonded` for the draw
+filter. (2) "the dividend remains clickable", "available for everyone" — the presence dividend's membership, accrual
+and claim are untouched: every attested device is weighted by fidelity. (3) "improve the gradient" —
+`dividend_weight = min(fidelity, 15)` from `DIVIDEND_WEIGHT_CAP_V2_EPOCH` (30 before), gated inside the one function
+both the live commit and the fraud-proof replay call.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

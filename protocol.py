@@ -1474,7 +1474,8 @@ def dividend_weight(fidelity, epoch: int) -> int:
     in the set is the grant). Gen 24 skipped fidelity 1 (probation) because identities were free to farm; gen 25
     identities are attested devices, so the line is unbroken. `epoch` is kept in the signature so the live path and
     the fraud-proof replay call the same function with the same arguments."""
-    return 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), FIDELITY_CAP)
+    cap = DIVIDEND_WEIGHT_CAP_V2 if (DIVIDEND_WEIGHT_CAP_V2_EPOCH and int(epoch) >= DIVIDEND_WEIGHT_CAP_V2_EPOCH) else FIDELITY_CAP
+    return 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), cap)
 
 
 def split_block_reward(reward: int):
@@ -1580,6 +1581,19 @@ POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delega
 POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
 POOL_MAX_MEMBERS = 100               # BOND_DEVICE_CAP / B_MIN: more members than that could never all count
 POOL_LABEL_MAX = 32
+# OPEN-LANE BLOCKS ARE FOR DEVICE-ONLY MINERS (operator decision 2026-09-08): from this height an identity with bonded
+# stake >= B_MIN (one share, 10 NADO) is not drawn for OPEN slots — it produces in the bonded lane. The rule is per
+# DEVICE, not per key (one device = one identity), so a whale cannot keep a second wallet in the free lane without a
+# second device: each device produces in one lane. The identity stays ATTESTED and KEEPS the presence dividend — the
+# dividend is the universal per-device reward for staying present, paid to every attested identity by fidelity (the
+# operator's choice: "available for everyone"). Read as-of-parent from the account's live `bonded`, like every draw input.
+OPEN_LANE_EXCLUDE_BONDED_HEIGHT = 6600
+OPEN_LANE_EXCLUDE_BONDED_EPOCH = OPEN_LANE_EXCLUDE_BONDED_HEIGHT // EPOCH_LENGTH   # the dividend-gradient epoch below
+# GENTLER DIVIDEND GRADIENT (same decision): min(fidelity, 15) instead of 30 from this epoch — a thirty-day identity
+# earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Epoch-gated inside
+# dividend_weight (the epoch is already in its signature for exactly this; the constant is read at call time).
+DIVIDEND_WEIGHT_CAP_V2 = 15
+DIVIDEND_WEIGHT_CAP_V2_EPOCH = OPEN_LANE_EXCLUDE_BONDED_EPOCH
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

@@ -34,6 +34,13 @@ Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuinen
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
+**Open-lane blocks for device-only miners** (`OPEN_LANE_EXCLUDE_BONDED_HEIGHT` = 6600): the open-lane draw skips
+attested identities with a bonded share (`mining_ops.open_lane_draw_registry`, read as-of-parent like every draw
+input); the attested set itself, the bonded producer cap and the presence dividend are unchanged — the dividend stays
+per attested device. **Gentler dividend gradient**: `dividend_weight` caps at 15 instead of 30 from epoch 110
+(`DIVIDEND_WEIGHT_CAP_V2`), epoch-gated inside the function the live path and the replay share. `/mining_status`
+carries `open_excluded_bonded`; the wallet says why a staker has no free-lane weight, 16 languages.
+
 **Staking pools** (`POOL_HEIGHT` = 6000). `pool` (terms: fee_bps, open, min, max, label), `delegate {to}` and
 `undelegate` — fee-exempt, one per sender per block. A pool produces with own + delegated stake under the same
 1,000 NADO per-device cap; delegators have no producer weight of their own; fork weight and the FFG quorum keep each
