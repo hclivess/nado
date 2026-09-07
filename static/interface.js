@@ -813,9 +813,12 @@ async function attestDevice(sender, anchorHash, maxBlock) {
         const ad = s.auth_data || {};
         const bindable = s.fmt === "android-key" || s.fmt === "tpm";
         const st = { ok: false, fmt: s.fmt || "none", aaguid: ad.aaguid, format_accepted: s.format_accepted, root_pinned: s.root_pinned, x5c: s.x5c_count };
+        // NO ROOT JUDGEMENT HERE. The probe only parses; a TPM chain ends at an intermediate (the pinned Microsoft
+        // root is never inside x5c), so "last cert pinned?" is false for EVERY valid Windows statement — this
+        // pre-flight refused a working TPM registration for 20 minutes on 2026-09-07. The kernel resolves the
+        // root at submit; the pre-flight only rules out what has no chain at all or no per-device certificate.
         if (!s.fmt || s.fmt === "none" || !s.x5c_count) st.reason = "none";
         else if (!bindable) st.reason = "unbindable";
-        else if (s.root_pinned === false) st.reason = "root";
         if (st.reason) {
           setDeviceStatus(st);
           log("err", i18("device.refused", "This device cannot register ({f}): ", { f: st.fmt }) + deviceHint(st));

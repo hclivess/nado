@@ -1129,7 +1129,11 @@ async def device_attest_probe(request):
         from ops import device_attest as _da
         import protocol as _p
         summary = await asyncio.to_thread(_da.parse_attestation, att, cdj)
-        summary["root_pinned"] = summary.get("root_sha256") in _p.DEVICE_ATTEST_ROOT_FINGERPRINTS
+        # "root_pinned" means: the LAST certificate in x5c is a pinned root. That is only meaningful for chains that
+        # carry their root; a TPM chain (AIK → vendor intermediate) is issued BY the pinned Microsoft root and never
+        # contains it, so the answer is unknown here (None) and only the kernel's chain walk at submit decides.
+        summary["root_pinned"] = (None if summary.get("fmt") == "tpm"
+                                  else summary.get("root_sha256") in _p.DEVICE_ATTEST_ROOT_FINGERPRINTS)
         summary["format_accepted"] = summary.get("fmt") in _p.DEVICE_ATTEST_FORMATS
         name = await asyncio.to_thread(_da.store_sample, summary, {"att": att, "cdj": cdj, "cid": str(body.get("cid") or "")}, _ip(request))
         logger.warning(f"device attest probe: fmt={summary.get('fmt')} aaguid={(summary.get('auth_data') or {}).get('aaguid')} "
