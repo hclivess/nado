@@ -145,7 +145,7 @@
     </div>
     <div class="row mt">
       <button id="btnConfirmSave" class="primary pulse-ready" disabled data-i18n="save.continue">Continue → store on this device</button>
-      <p class="small faint mt" data-i18n="save.deviceNote">Mining identities must prove they run on a real phone. Right after this step the wallet asks your device to attest itself (one tap); a computer, VM or emulator cannot, and will not be able to mine once the rule is active.</p>
+      <p class="small faint mt" data-i18n="save.deviceNote">Mining identities must prove they run on a real phone. Right after this step the wallet asks your device to attest itself; a computer, VM or emulator cannot, and will not be able to mine once the rule is active.</p>
     </div>
     <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so mining can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
   </div>
@@ -294,7 +294,7 @@
     <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
     <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->
     <div class="row mt hidden" id="regTapRow">
-      <button id="btnRegisterTap" class="accent" data-i18n="reg.registerBtn">Register this device (one tap)</button>
+      <button id="btnRegisterTap" class="accent" data-i18n="reg.registerBtn">Register this device</button>
     </div>
     <details class="mt">
       <summary class="small dim" style="cursor:pointer" data-i18n="hw.guide.title">How to attest with a Ledger or Trezor</summary>
@@ -302,13 +302,13 @@
 1. Close Ledger Live — it holds the device.
 2. Plug the Ledger in, enter the PIN, stay on the dashboard (no app open).
 3. Use Chrome, Edge or Brave on a computer, press "Attest with Ledger" and pick the device in the browser dialog.
-4. The Ledger asks "Allow unsafe manager?" — that is the tap: press both buttons to allow. The wallet registers by itself.
-One tap per lease (36 h); the Ledger only vouches, it never holds this wallet's key.</div>
+4. The Ledger asks "Allow unsafe manager?": press both buttons to allow. The wallet registers by itself.
+Renewed every 36 h; the Ledger only vouches, it never holds this wallet's key.</div>
       <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.trezor">Trezor Safe 3 / 5 / 7:
 1. Close Trezor Suite (and the Trezor Bridge) — they hold the device.
 2. Plug the Trezor in and unlock it.
 3. Use Chrome, Edge or Brave on a computer, press "Attest with Trezor Safe" and pick the device in the browser dialog.
-4. Confirm the device-authentication prompt on the Trezor's screen — that is the tap. The wallet registers by itself.
+4. Confirm the device-authentication prompt on the Trezor's screen. The wallet registers by itself.
 Trezor One and Model T have no secure element and cannot vouch.</div>
     </details>
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
@@ -330,14 +330,14 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 
     <!-- ATTEST A NODE (ops/node_attest, doc/device-attestation.md §"Attesting a node"): a headless node has no secure
          element and no hand to tap, so its OPERATOR taps here for the node's address. The attestation is dropped on
-         this relay and the node picks it up from the network and signs its own registration. One tap per lease. -->
+         this relay and the node picks it up from the network and signs its own registration. -->
     <details id="nodeAttestWrap" class="mt">
       <summary class="small dim" style="cursor:pointer" data-i18n="node.title">Attest a node you run</summary>
-      <p class="small mt" data-i18n="node.blurb">A node cannot attest itself — it has no secure element and nobody to tap. Paste your node's address (shown on its /status page), then tap once: this device vouches for the node's open-lane identity, the node picks the attestation up from the network and registers itself. One tap per lease (36 h), like any miner.</p>
+      <p class="small mt" data-i18n="node.blurb">A node cannot attest itself — it has no secure element and nobody to tap. Paste your node's address (shown on its /status page), then tap once: this device vouches for the node's open-lane identity, the node picks the attestation up from the network and registers itself. Renewed every 36 h, like any miner.</p>
       <input id="nodeAttestAddr" placeholder="node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
       <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
       <div class="row mt">
-        <button id="btnNodeAttest" class="accent" data-i18n="node.btn">Attest this node (one tap)</button>
+        <button id="btnNodeAttest" class="accent" data-i18n="node.btn">Attest this node</button>
       </div>
     </details>
 

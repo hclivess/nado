@@ -54,8 +54,16 @@ def weights_at_epoch(epoch: int) -> dict:
     re-derives."""
     # A 0 weight (no fidelity at all) means ABSENT from the set — the exec accrual floors listed weights to 1, so
     # listing is the grant. Gen 24 used this omission for probation; gen 25 has none, so only fidelity 0 is absent.
+    from protocol import DIVIDEND_ATTESTED_EPOCH
     out = {}
     for addr in present_at_epoch(epoch):
+        # DIVIDENDS REQUIRE ATTESTATION (protocol.DIVIDEND_ATTESTED_EPOCH): a genesis-seeded identity (only recert at
+        # epoch 0, never attested) produces blocks but takes no dividend from the gate on. Same recert history the
+        # present set is derived from, so every node and the fraud-proof replay agree.
+        if epoch >= DIVIDEND_ATTESTED_EPOCH:
+            recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
+            if not recs or recs[-1] <= 0:
+                continue
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
         if w > 0:
             out[addr] = w

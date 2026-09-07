@@ -710,6 +710,10 @@ function renderDeviceStatus() {
 // DROP the statement on the relay; the node polls its peers for a drop addressed to itself, builds and SIGNS its own
 // register tx. Nobody else can use the blob (the tx needs the node's key). One tap per lease, like every miner.
 const LS_NODE_ATTEST_ADDR = "nado_node_attest_addr";
+// The CDN caches /static/* by URL for a year. interface.js is loaded with a per-restart ?v= stamp; a module imported
+// with a LITERAL ?v=1 stayed the first version forever (2026-09-07: a broken hwattest.js kept being served after its
+// fix). Reuse this module's own stamp for every dynamic import.
+const HW_STAMP = (() => { try { return new URL(import.meta.url).searchParams.get("v") || String(Date.now()); } catch (e) { return String(Date.now()); } })();
 let _nodeAttestBound = false, _nodeAttestBusy = false;
 
 function nodeAttestInit() {
@@ -746,9 +750,9 @@ async function nodeAttestRefresh() {
   const registered = acc && Number(acc.registered) === 1, regEp = acc ? Number(acc.reg_epoch) : -1;
   const since = (epoch != null && regEp >= 0) ? epoch - regEp : null;
   if (!registered) {
-    el.textContent = i18("node.status.needsTap", "No open-lane lease — a tap here registers the node.");
+    el.textContent = i18("node.status.needsTap", "No open-lane lease — press the button to register the node.");
   } else if (since != null && since >= 192) {
-    el.textContent = i18("node.status.renewable", "Lease held (fidelity {f}) — a tap now renews it on time.", { f: Number(acc.fidelity || 0) });
+    el.textContent = i18("node.status.renewable", "Lease held (fidelity {f}) — renewable now.", { f: Number(acc.fidelity || 0) });
   } else {
     el.textContent = i18("node.status.held", "Lease held (fidelity {f}) — renewal earns from epoch {e}; nothing to do yet.",
                          { f: Number(acc.fidelity || 0), e: regEp >= 0 ? regEp + 192 : "?" });
@@ -808,7 +812,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
   // here, and the same {att, cdj, rp} envelope goes into the register tx. The kernel verifies and binds the device.
   if (state.hwDevice && (state.attestVia === "ledger" || state.attestVia === "trezor")) {
     try {
-      const hw = await import("./hwattest.js?v=1");
+      const hw = await import("./hwattest.js?v=" + HW_STAMP);   // the page stamp: a literal ?v=1 was cached by the CDN forever
       log("info", i18("hw.confirm", "Confirm on the {n} — it is vouching for this identity.", { n: state.hwDevice.name }));
       const device = await hw.attestHardware(state.hwDevice, chal);
       setDeviceStatus({ ok: true, fmt: state.attestVia, reason: "ok" });
@@ -2407,7 +2411,7 @@ function hideRegBannerSoon(ms = 6000) {
   setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
 }
 // gen 25: registration is NOT one-time any more — every lease (36 h) renews with one tap on the device, so say so.
-const REASSURE = ' <b>' + i18("reassure", "One tap per lease (36 h) — renewals ask for a tap again.") + '</b>';
+const REASSURE = "";   // no reassurance appendix: the banner text stands alone
 
 // Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
 function markMiningActive() {
@@ -2637,7 +2641,7 @@ async function maybeRegister() {
   // gesture yields nothing on most platforms and produced the misleading "could not attest itself" line. Only a
   // Start/Renew press arms ONE prompt; otherwise say what is needed and wait for the press.
   if (!state.tapArmed && !state.pendingRegisterTx) {   // a kept (already attested) tx needs no new tap
-    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button) — the device prompt opens only then, one tap per lease."), "warn", "tap");
+    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
     show("powWrap", false);
     show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
     setStartBtnMining();                         // the main button is Stop meanwhile, never a dead spinner (review 2026-09-07)
@@ -2708,7 +2712,7 @@ async function submitRegistration() {
   const pend = state.pendingRegisterTx;
   if (pend && latest.block_number < pend.targetBlock) {
     setStartBtnBusy(i18("mine.registering", "Registering…"));
-    setRegBanner(i18("reg.resubmitting", "Resubmitting the attested registration (no new tap needed)…") + REASSURE);
+    setRegBanner(i18("reg.resubmitting", "Resubmitting the attested registration…") + REASSURE);
     return await submitRegisterTx(pend.tx, pend.targetBlock);
   }
   if (pend) {
@@ -2723,9 +2727,9 @@ async function submitRegistration() {
   setStartBtnBusy(i18("mine.registering", "Registering…"));
   const busyNote = "";
   const entryNote = "";
-  setRegBanner(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device (one tap).") + busyNote + entryNote + REASSURE);
+  setRegBanner(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device.") + busyNote + entryNote + REASSURE);
   // gen 25: no proof is computed, so no "about N seconds" estimate — the only wait is the device prompt.
-  showRegProgress(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device (one tap)."), "");
+  showRegProgress(i18("reg.attesting", "Proving this is a real device — confirm the prompt on your device."), "");
   let tx;
   const t0 = Date.now();
   try {
@@ -2770,14 +2774,14 @@ async function submitRegisterTx(tx, targetBlock) {
   } catch (e) {
     if (isTransient(e)) {
       state.pendingRegisterTx = { tx, targetBlock };
-      log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect; no new tap needed.", { e: e.message }));
+      log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect.", { e: e.message }));
     }
     throw e;
   }
   // an HTTP 5xx / 429 / 0 from the relay or proxy is NOT a rejection of the tx (review 2026-09-07): keep it too
   if (!res.ok && (!res.status || res.status >= 500 || res.status === 429)) {
     state.pendingRegisterTx = { tx, targetBlock };
-    log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect; no new tap needed.", { e: "HTTP " + (res.status || 0) }));
+    log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect.", { e: "HTTP " + (res.status || 0) }));
     throw new RelayUnreachable("relay HTTP " + (res.status || 0));
   }
   state.pendingRegisterTx = null;
@@ -8630,7 +8634,7 @@ function wireEvents() {
   // itself happens later in attestDevice() over the kept handle. Choosing one arms the tap like Start does.
   const hwPick = async (kind) => {
     try {
-      const hw = await import("./hwattest.js?v=1");
+      const hw = await import("./hwattest.js?v=" + HW_STAMP);   // the page stamp: a literal ?v=1 was cached by the CDN forever
       state.hwDevice = await hw.connect(kind);
       state.attestVia = kind;
       try { localStorage.setItem("nado_attest_via", kind); } catch (e) {}

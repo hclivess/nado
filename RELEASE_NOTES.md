@@ -5,7 +5,7 @@ WebAuthn hardware attestation over a chain-chosen challenge, verified by every n
 kernel against roots pinned in protocol: iPhone/iPad (Apple), Android (TEE/StrongBox, locked bootloader), Windows
 PCs on a physical TPM (Windows Hello; virtual TPMs refused), and FIDO2 security keys (each bound to its own vendor
 root from the FIDO metadata snapshot). A VM, an emulator, a desktop without hardware, a software authenticator or a
-rooted phone cannot register. One human tap per identity per lease — non-automatable by design, no central service.
+rooted phone cannot register. No central service.
 
 Retired because a device proof makes them redundant: the sequential-work registration proof (PoSW) and its
 difficulty machinery, the per-IP entry budget and identity cap, probation (an attested identity earns from its
@@ -35,9 +35,9 @@ the per-device factory key (`ledger`) or per-device certificate chain to Trezor'
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
 **Attest a node you run.** A node cannot attest itself, so its operator does: Mining page → *Attest a node you
-run* → paste the node's address → one tap. The statement travels through the relay (`/node_attest_drop`,
+run* → paste the node's address → press the button. The statement travels through the relay (`/node_attest_drop`,
 forwarded one hop) and the node picks it up (`/node_attest_pickup`), signs its own register tx and merges it
-through the normal validation. One tap per lease, like any miner. `/node_attest_status` shows a node's lease.
+through the normal validation. Renews every 36 h, like any miner. `/node_attest_status` shows a node's lease.
 
 **Apple devices (correction).** iPhone, iPad and Mac passkeys return no attestation (`fmt: none`, iOS 16+ /
 macOS 13+), confirmed live on 2026-09-07: those devices cannot vouch through a web page. They mine with a FIDO2

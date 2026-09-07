@@ -66,11 +66,36 @@ def t_live_apply_and_replay_share_the_step():
     assert "dividend_weight(" in d.split("def weights_at_epoch")[1]
 
 
+def t_dividends_require_attestation():
+    """protocol.DIVIDEND_ATTESTED_EPOCH: a genesis-seeded identity (recert only at epoch 0) is PRESENT (it produces) but
+    takes no dividend from the gate on; an attested identity (recert >= 1) earns; below the gate the old set stands."""
+    import tempfile, os
+    os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-divatt-")
+    from ops import kv_ops
+    kv_ops.close_all(); kv_ops.init_env()
+    from ops.dividend_ops import weights_at_epoch, present_at_epoch
+    G = P.DIVIDEND_ATTESTED_EPOCH
+    assert G >= 1
+    seed, real = "5" * 46, "6" * 46
+    kv_ops.recert_put(seed, 0)                     # genesis_open.dat seed
+    kv_ops.recert_put(real, 1)                     # attested register at epoch 1
+    assert seed in present_at_epoch(G) and real in present_at_epoch(G), "both hold a lease (the seed still produces)"
+    w = weights_at_epoch(G)
+    assert seed not in w and w.get(real, 0) >= 1, w
+    if G > 1:
+        w0 = weights_at_epoch(G - 1)
+        assert seed in w0 and real in w0, "below the gate the seeded identity was in the set (replay unchanged)"
+    kv_ops.recert_put(seed, G)                     # the seed attests (a real register) -> earns like anyone
+    assert seed in weights_at_epoch(G + 1)
+    kv_ops.close_all()
+
+
 if __name__ == "__main__":
     check("no activation gate survives the reroll", t_no_gate_survives)
     check("bonded levy 40%; splits sum exactly", t_bonded_levy)
     check("dividend weight: linear min(fidelity, 30), 0 on probation, selection weight untouched", t_dividend_curve)
     check("fidelity step: spacing kept, lapse halves", t_fidelity_step)
     check("live apply and fraud-proof replay share protocol.fidelity_step", t_live_apply_and_replay_share_the_step)
+    check("dividends require attestation: genesis seeds produce but do not earn from DIVIDEND_ATTESTED_EPOCH", t_dividends_require_attestation)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

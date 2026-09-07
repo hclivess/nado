@@ -551,7 +551,7 @@ wallet's Mining page shows this guide, and the one for every other verdict, unde
 
 **Running a node?** A node cannot attest itself (no secure element, nobody to tap). On the wallet's Mining page,
 *Attest a node you run*: paste the node's address, tap once, and the attestation reaches the node through the
-network — it signs its own registration. One tap per lease, like any miner.
+network — it signs its own registration. Renews every 36 h, like any miner.
 
 What that buys: a server, a VM, a desktop browser without hardware, an emulator, a software
 authenticator, a virtual TPM or a rooted phone cannot produce the chain. Farming identities needs

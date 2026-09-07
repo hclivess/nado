@@ -604,6 +604,12 @@ POSW_ENTRY_COUNT_HEIGHT = 0             # retired at gen 25 (device attestation 
 # everyone leaving probation over the following hours instead of to whoever is first. Both accrual paths read
 # ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applies from epoch 0.
 DIV_CARRY_METER_EPOCH = 0               # gen 25: the carry is metered from epoch 0 (the gen-24 gate at 600 retired)
+# DIVIDENDS REQUIRE ATTESTATION (2026-09-07, operator: "dividends must require attestation"). The 12 genesis_open.dat
+# identities are seeded with a recert at epoch 0 so the open lane can PRODUCE from block 0 — they never attested, and
+# through the lease they were also PRESENT for the dividend. From this epoch an identity whose only recert is the genesis
+# seed (latest recert epoch == 0 as of the epoch) is excluded from the dividend weight set; a seed that renews with a real
+# attested register (epoch >= 1) earns like anyone else. Epoch-gated for replayability; becomes 0 at the next reroll.
+DIVIDEND_ATTESTED_EPOCH = 30
 DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 
