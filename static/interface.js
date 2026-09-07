@@ -5209,30 +5209,30 @@ async function refreshPools(acc) {
   // my status: delegating / running a pool / neither
   if (acc && acc.pool_to) {
     const p = (d.pools || []).find((x) => x.address === acc.pool_to);
-    mine.innerHTML = escapeHtml(i18("pool.mineDelegating", "Your savings ({n} NADO) are delegated to {p} — fee {f}, {a}.", {
+    mine.innerHTML = escapeHtml(i18("spool.mineDelegating", "Your savings ({n} NADO) are delegated to {p} — fee {f}, {a}.", {
       n: rawToNado(bonded), p: (p && p.label) ? p.label + " (" + acc.pool_to.slice(0, 10) + "…)" : acc.pool_to.slice(0, 12) + "…",
-      f: poolPct(p ? p.fee_bps : 0), a: p && p.attested ? i18("pool.attestedYes", "producing") : i18("pool.attestedNo", "NOT producing — its device lease lapsed") }));
+      f: poolPct(p ? p.fee_bps : 0), a: p && p.attested ? i18("spool.attestedYes", "producing") : i18("spool.attestedNo", "NOT producing — its device lease lapsed") }));
   } else if (acc && "pool_open" in acc) {
     const p = (d.pools || []).find((x) => x.address === me) || {};
-    mine.innerHTML = escapeHtml(i18("pool.mineRunning", "You run a pool: {n} NADO delegated by {m} delegator(s), fee {f}, room {r} NADO, {o}.", {
+    mine.innerHTML = escapeHtml(i18("spool.mineRunning", "You run a pool: {n} NADO delegated by {m} delegator(s), fee {f}, room {r} NADO, {o}.", {
       n: rawToNado(BigInt(p.pooled || 0)), m: p.members || 0, f: poolPct(acc.pool_fee_bps), r: rawToNado(BigInt(p.room || 0)),
-      o: Number(acc.pool_open) === 1 ? i18("pool.isOpen", "open") : i18("pool.isClosed", "closed") }));
+      o: Number(acc.pool_open) === 1 ? i18("spool.isOpen", "open") : i18("spool.isClosed", "closed") }));
     if ($("poolFee") && document.activeElement !== $("poolFee")) $("poolFee").value = (Number(acc.pool_fee_bps || 0) / 100).toString();
     if ($("poolLabel") && document.activeElement !== $("poolLabel")) $("poolLabel").value = acc.pool_label || "";
     if ($("poolMin") && document.activeElement !== $("poolMin")) $("poolMin").value = rawToNado(BigInt(acc.pool_min || 0));
     if ($("poolMax") && document.activeElement !== $("poolMax")) $("poolMax").value = rawToNado(BigInt(acc.pool_max || 0));
     if ($("poolOpen")) $("poolOpen").checked = Number(acc.pool_open) === 1;
   } else {
-    mine.textContent = bonded > 0n ? i18("pool.mineNone", "Your {n} NADO of savings are not delegated.", { n: rawToNado(bonded) })
-                                   : i18("pool.mineNoStake", "Bond some savings first, then delegate them here.");
+    mine.textContent = bonded > 0n ? i18("spool.mineNone", "Your {n} NADO of savings are not delegated.", { n: rawToNado(bonded) })
+                                   : i18("spool.mineNoStake", "Bond some savings first, then delegate them here.");
   }
   // the picker: open, attested pools with room, cheapest first
   const opts = (d.pools || []).filter((p) => p.open === 1 && p.address !== me && !p.delegating);
   sel.innerHTML = "";
-  if (!opts.length) { const o = document.createElement("option"); o.value = ""; o.textContent = i18("pool.none", "No open pools yet"); sel.appendChild(o); }
+  if (!opts.length) { const o = document.createElement("option"); o.value = ""; o.textContent = i18("spool.none", "No open pools yet"); sel.appendChild(o); }
   for (const p of opts) {
     const o = document.createElement("option"); o.value = p.address;
-    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("pool.feeShort", "fee")} ${poolPct(p.fee_bps)} · ${i18("pool.roomShort", "room")} ${rawToNado(BigInt(p.room || 0))} NADO · ${p.members} ${i18("pool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("pool.notAttestedShort", "not producing")}`;
+    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)} · ${i18("spool.roomShort", "room")} ${rawToNado(BigInt(p.room || 0))} NADO · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
     sel.appendChild(o);
   }
   if ($("btnUndelegate")) $("btnUndelegate").disabled = !(acc && acc.pool_to);
@@ -5245,23 +5245,23 @@ async function poolAction(kind) {
   try {
     if (kind === "pool") {
       const fee = Math.round(Number($("poolFee").value || 0) * 100);
-      if (!(fee >= 0 && fee <= 10000)) throw new Error(i18("pool.badFee", "Fee must be 0–100 %."));
+      if (!(fee >= 0 && fee <= 10000)) throw new Error(i18("spool.badFee", "Fee must be 0–100 %."));
       const mn = nadoToRaw($("poolMin").value || "10"), mx = nadoToRaw($("poolMax").value || "1000");
       data = { fee_bps: fee, open: $("poolOpen").checked ? 1 : 0, min: Number(mn), max: Number(mx), label: ($("poolLabel").value || "").slice(0, 32) };
     } else if (kind === "delegate") {
-      const to = $("poolSelect").value; if (!to) throw new Error(i18("pool.none", "No open pools yet"));
+      const to = $("poolSelect").value; if (!to) throw new Error(i18("spool.none", "No open pools yet"));
       data = { to };
     }
   } catch (e) { setMsg("poolMsg", e.message, "err"); return; }
   const p = kind === "delegate" ? ((_poolsCache && _poolsCache.pools) || []).find((x) => x.address === data.to) : null;
   const ok = await uiConfirm({
-    title: kind === "pool" ? i18("pool.save", "Save pool terms") : kind === "delegate" ? i18("pool.delegate", "Delegate my savings") : i18("pool.undelegate", "Undelegate"),
+    title: kind === "pool" ? i18("spool.save", "Save pool terms") : kind === "delegate" ? i18("spool.delegate", "Delegate my savings") : i18("spool.undelegate", "Undelegate"),
     rows: kind === "pool" ? [
-      { k: i18("pool.feeShort", "fee"), v: poolPct(data.fee_bps) }, { k: i18("pool.open", "Open to new delegators"), v: data.open ? i18("pool.isOpen", "open") : i18("pool.isClosed", "closed") },
-      { k: i18("pool.min", "Minimum delegation (NADO)"), v: rawToNado(BigInt(data.min)) + " NADO" }, { k: i18("pool.max", "Maximum total (NADO, up to 1,000)"), v: rawToNado(BigInt(data.max)) + " NADO" } ]
-    : kind === "delegate" ? [ { k: i18("pool.pick", "Delegate to a pool"), v: (p && p.label) || data.to.slice(0, 16) + "…" }, { k: i18("pool.feeShort", "fee"), v: poolPct(p ? p.fee_bps : 0) } ] : [],
-    note: kind === "delegate" ? i18("pool.delegateNote", "Your coins stay in your account. The pool produces with them and the chain pays your share in every block it wins. You can undelegate any time.")
-        : kind === "undelegate" ? i18("pool.undelegateNote", "Your savings stop producing through the pool from the next block.") : i18("pool.saveNote", "New terms apply from the next block; existing delegators keep their place."),
+      { k: i18("spool.feeShort", "fee"), v: poolPct(data.fee_bps) }, { k: i18("spool.open", "Open to new delegators"), v: data.open ? i18("spool.isOpen", "open") : i18("spool.isClosed", "closed") },
+      { k: i18("spool.min", "Minimum delegation (NADO)"), v: rawToNado(BigInt(data.min)) + " NADO" }, { k: i18("spool.max", "Maximum total (NADO, up to 1,000)"), v: rawToNado(BigInt(data.max)) + " NADO" } ]
+    : kind === "delegate" ? [ { k: i18("spool.pick", "Delegate to a pool"), v: (p && p.label) || data.to.slice(0, 16) + "…" }, { k: i18("spool.feeShort", "fee"), v: poolPct(p ? p.fee_bps : 0) } ] : [],
+    note: kind === "delegate" ? i18("spool.delegateNote", "Your coins stay in your account. The pool produces with them and the chain pays your share in every block it wins. You can undelegate any time.")
+        : kind === "undelegate" ? i18("spool.undelegateNote", "Your savings stop producing through the pool from the next block.") : i18("spool.saveNote", "New terms apply from the next block; existing delegators keep their place."),
   });
   if (!ok) { setMsg("poolMsg", i18("msg.cancelled", "Cancelled."), null); return; }
   if (btn) btn.disabled = true;

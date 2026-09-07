@@ -751,27 +751,27 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <!-- STAKING POOLS (protocol.POOL_HEIGHT): a holder without a device delegates bonded stake to an attested identity;
          the pool produces with own + delegated stake under the per-device cap and the chain splits every win. -->
     <details id="poolWrap" class="mt hidden">
-      <summary class="small dim" style="cursor:pointer" data-i18n="pool.title">Staking pools — delegate savings, or run a pool</summary>
-      <div class="small faint mt" data-i18n="pool.blurb">Savings produce blocks only on an attested device. If you have none, delegate your bonded stake to a pool: the pool's device produces with it, and every block it wins is split between the pool and its delegators in the same block, pro rata, minus the pool's fee. Your coins never leave your account; you can undelegate any time. Whoever runs an attested device can open a pool and set its terms below.</div>
-      <div id="poolMine" class="mt"></div>
-      <label class="mt"><span data-i18n="pool.pick">Delegate to a pool</span></label>
+      <summary class="small dim" style="cursor:pointer" data-i18n="spool.title">Staking pools — delegate savings, or run a pool</summary>
+      <div class="small faint mt" data-i18n="spool.blurb">Savings produce blocks only on an attested device. If you have none, delegate your bonded stake to a pool: the pool's device produces with it, and every block it wins is split between the pool and its delegators in the same block, pro rata, minus the pool's fee. Your coins never leave your account; you can undelegate any time. Whoever runs an attested device can open a pool and set its terms below.</div>
+      <div id="poolMine" class="small mt"></div>
+      <label class="mt"><span data-i18n="spool.pick">Delegate to a pool</span></label>
       <select id="poolSelect" class="mt" style="width:100%"></select>
       <div class="row mt">
-        <button id="btnDelegate" class="accent" data-i18n="pool.delegate">Delegate my savings</button>
-        <button id="btnUndelegate" class="ghost" data-i18n="pool.undelegate">Undelegate</button>
+        <button id="btnDelegate" class="accent" data-i18n="spool.delegate">Delegate my savings</button>
+        <button id="btnUndelegate" class="ghost" data-i18n="spool.undelegate">Undelegate</button>
       </div>
       <details id="poolRun" class="mt">
-        <summary class="small dim" style="cursor:pointer" data-i18n="pool.runTitle">Run a pool (needs an attested device)</summary>
+        <summary class="small dim" style="cursor:pointer" data-i18n="spool.runTitle">Run a pool (needs an attested device)</summary>
         <div class="row mt">
-          <label style="flex:1 1 140px"><span data-i18n="pool.fee">Fee (% of delegators' share)</span><input id="poolFee" type="number" min="0" max="100" step="0.1" placeholder="10" /></label>
-          <label style="flex:1 1 140px"><span data-i18n="pool.label">Pool name</span><input id="poolLabel" maxlength="32" placeholder="my pool" /></label>
+          <label style="flex:1 1 140px"><span data-i18n="spool.fee">Fee (% of delegators' share)</span><input id="poolFee" type="number" min="0" max="100" step="0.1" placeholder="10" /></label>
+          <label style="flex:1 1 140px"><span data-i18n="spool.label">Pool name</span><input id="poolLabel" maxlength="32" placeholder="my pool" /></label>
         </div>
         <div class="row mt">
-          <label style="flex:1 1 140px"><span data-i18n="pool.min">Minimum delegation (NADO)</span><input id="poolMin" inputmode="decimal" placeholder="10" /></label>
-          <label style="flex:1 1 140px"><span data-i18n="pool.max">Maximum total (NADO, up to 1,000)</span><input id="poolMax" inputmode="decimal" placeholder="1000" /></label>
+          <label style="flex:1 1 140px"><span data-i18n="spool.min">Minimum delegation (NADO)</span><input id="poolMin" inputmode="decimal" placeholder="10" /></label>
+          <label style="flex:1 1 140px"><span data-i18n="spool.max">Maximum total (NADO, up to 1,000)</span><input id="poolMax" inputmode="decimal" placeholder="1000" /></label>
         </div>
-        <label class="mt"><input id="poolOpen" type="checkbox" checked /> <span data-i18n="pool.open">Open to new delegators</span></label>
-        <button id="btnPoolSave" class="accent mt" style="width:100%" data-i18n="pool.save">Save pool terms</button>
+        <label class="mt"><input id="poolOpen" type="checkbox" checked /> <span data-i18n="spool.open">Open to new delegators</span></label>
+        <button id="btnPoolSave" class="accent mt" style="width:100%" data-i18n="spool.save">Save pool terms</button>
       </details>
       <div id="poolMsg" class="small mt faint"></div>
     </details>
