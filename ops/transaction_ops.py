@@ -1238,7 +1238,12 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # lease ago cannot vouch for this one. For a leased class that is the lease itself; for a permanent class it
                 # is the rebind cooldown — `bound[1]` is the epoch of the device's last STATEMENT (statement-free renewals
                 # never refresh it), so the device holder can always move it after one lease, whatever the old owner does.
-                if bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
+                from protocol import DEVICE_REBIND_INSTANT_HEIGHT
+                instant = bool(DEVICE_REBIND_INSTANT_HEIGHT and block_height >= DEVICE_REBIND_INSTANT_HEIGHT)
+                # INSTANT MOVES (DEVICE_REBIND_INSTANT_HEIGHT): the cooldown is gone — the move is legal in any block because
+                # apply EVICTS the identity the device leaves (its lease is voided at once), so one device backs one identity
+                # at every instant. Below the gate: the historical cooldown, unchanged.
+                if not instant and bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
                     raise AssertionError(f"register: this device already vouches for another identity "
                                          f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
                 if (DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT

@@ -1545,6 +1545,14 @@ DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # 
 # its last STATEMENT (statement-free renewals never refresh the binding epoch, so an old owner cannot pin it); the move
 # supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
 DEVICE_BIND_PERMANENT_HEIGHT = 3900
+# INSTANT MOVES (operator decision 2026-09-07 evening, doc/device-attestation.md §"Rebinding"): from this height a device
+# may move to another sender in ANY block — no cooldown — because the move EVICTS the identity it leaves in the same
+# block: an eviction row (devbind key "evict:<address>": [[evict_epoch, voided_recert_epoch], ...]) voids that identity's
+# current lease for the open registry AND for the epoch-weight reconstruction (present only with a recert NEWER than the
+# voided one), so at every instant exactly one identity is backed by the device and hopping earns nothing (each hop
+# kills the previous identity, the new one starts at fidelity 1). Whoever holds the device wins immediately. Before this
+# height the old rule (refuse a different sender for POSW_LEASE_EPOCHS after the last statement) replays unchanged.
+DEVICE_REBIND_INSTANT_HEIGHT = 5400
 DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
 # The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is

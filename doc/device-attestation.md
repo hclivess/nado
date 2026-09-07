@@ -303,22 +303,26 @@ A `register` tx is one of two shapes:
    is open. Before the gate, or for any other sender, a statement-free register is invalid ("Missing device
    attestation").
 
-### Rebinding a permanent device
+### Rebinding: instant, by eviction (`DEVICE_REBIND_INSTANT_HEIGHT`, 2026-09-07 evening)
 
-A rebind is simply shape 1 from a NEW sender with a statement from an already-bound permanent device. It needs
-no signature from the old account — a lost key, a sold Ledger and a wallet migration all look the same to the
-chain. The rule:
+A rebind is shape 1 from a NEW sender with a statement from an already-bound device. It needs no signature from the
+old account — a lost key, a sold Ledger and a wallet migration all look the same to the chain. From
+`DEVICE_REBIND_INSTANT_HEIGHT` it is legal in ANY block, because the move EVICTS the identity the device leaves:
 
-- **Cooldown:** allowed only when `epoch_now >= bound_epoch + POSW_LEASE_EPOCHS`, i.e. at least one lease (36 h)
-  since the device's LAST STATEMENT. Because statement-free renewals do not refresh `bound_epoch`, an old owner
-  who keeps renewing cannot pin the device forever: the device holder always wins after one lease.
-- **Supersession:** the row flips to the new address in that block. The old identity loses the device: its
-  `devkey` no longer points at a row that points back, so its statement-free renewals are refused from the next
-  block, and its current lease runs out on its own (≤ 36 h; it earned that lease with a valid statement). It
-  can still renew with a DIFFERENT device (a phone), which is a different device vouching — the rule is per
-  device, never per account.
-- At any moment a permanent device vouches for exactly one identity; bouncing a device between two wallets earns
-  for one of them at a time, never both.
+- apply writes an eviction row for the old address (`devbind` key `evict:<address>`, a list of
+  `[evict_epoch, voided_recert_epoch]`) naming the recert epoch it voids; the row is consensus state in the existing
+  `devbind` DB (no new DB, so pre-gate roots are untouched) and is journaled/restored on rollback like every write;
+- presence, in BOTH readers — `get_open_registry` (live) and `dividend_ops.present_at_epoch` (the epoch-weight
+  reconstruction a fraud proof replays) — requires a recert strictly newer than the newest voided one at or before the
+  epoch being computed. The evicted identity is out of the producer draw and out of the epoch's weights from the block
+  of the move, and back the moment it registers again (with any device).
+- so at every instant exactly one identity is backed by the device; hopping A→B→C earns nothing — each hop kills the
+  previous identity and the new one starts at fidelity 1. Whoever holds the device wins immediately: a borrowed Ledger
+  evicts its owner's wallet the moment it is rebound. The device is the identity.
+
+Before the gate the old rule stands and replays unchanged: a different sender was refused for `POSW_LEASE_EPOCHS`
+after the device's last statement (the "cooldown"), because without eviction a move left the old lease running.
+Leased classes (phone, TPM) get the same instant move: their old identity is evicted the same way.
 
 ### Wallet and node
 

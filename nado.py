@@ -1174,8 +1174,12 @@ async def devbind_lookup(request):
             out = {"ok": True, "key_cls": cls, "permanent_class": cls in _p.DEVICE_BIND_PERMANENT_CLASSES,
                    "bound_to": None, "bound_epoch": -1, "mode": None, "movable_at_epoch": None}
             if row:
+                tip = int(memserver.latest_block["block_number"])
+                instant = bool(_p.DEVICE_REBIND_INSTANT_HEIGHT and tip + 1 >= _p.DEVICE_REBIND_INSTANT_HEIGHT)
                 out.update({"bound_to": row[0], "bound_epoch": int(row[1]), "mode": row[2],
-                            "movable_at_epoch": int(row[1]) + _p.POSW_LEASE_EPOCHS})
+                            # instant moves: movable now (the other identity is evicted in the same block)
+                            "movable_at_epoch": (tip // _p.EPOCH_LENGTH) if instant else int(row[1]) + _p.POSW_LEASE_EPOCHS,
+                            "evicts": instant})
             return out
         return _resp(await asyncio.to_thread(_work))
     except Exception as e:

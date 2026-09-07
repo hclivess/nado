@@ -2104,7 +2104,40 @@ def devbind_del(key: str):
     _write(_do)
 
 
-def devbind_revert_put(epoch: int, address: str, key: str, prev, prev_devkey=None, perm: bool = False):
+# EVICTION ROWS (DEVICE_REBIND_INSTANT_HEIGHT) live in the devbind DB under "evict:<address>" — a msgpack list of
+# [evict_epoch, voided_recert_epoch] pairs, ascending. Consensus state (in the root, snapshot-carried) like every other
+# devbind row; no new DB, so the root of every pre-gate state is untouched. present(addr, E) requires a recert NEWER
+# than max(voided_recert_epoch over evictions with evict_epoch <= E): the identity a device left is out of the open
+# registry and out of the epoch weights from the block of the move, and back the moment it registers again.
+
+def devevict_get(address: str) -> list:
+    def _do(txn):
+        raw = txn.get(("evict:" + address).encode(), db=_dbs()["devbind"])
+        return [(int(a), int(b)) for a, b in _unpack(raw)] if raw is not None else []
+    return _read(_do)
+
+
+def devevict_set(address: str, pairs):
+    def _do(txn):
+        k = ("evict:" + address).encode()
+        if pairs:
+            txn.put(k, _pack([[int(a), int(b)] for a, b in pairs]), db=_dbs()["devbind"])
+        else:
+            txn.delete(k, db=_dbs()["devbind"])
+    _write(_do)
+
+
+def devevict_voided(address: str, upto_epoch: int) -> int:
+    """The newest recert epoch voided by an eviction at or before `upto_epoch` (-1 if never evicted) — the presence
+    floor: only a recert strictly newer than this counts. Deterministic for any past epoch."""
+    v = -1
+    for ev, voided in devevict_get(address):
+        if ev <= upto_epoch and voided > v:
+            v = voided
+    return v
+
+
+def devbind_revert_put(epoch: int, address: str, key: str, prev, prev_devkey=None, perm: bool = False, evicted=None, prev_evict=None):
     """Journal what a register's binding OVERWROTE: prev = (address, epoch[, mode]) or None, plus the sender's previous
     `devkey` account field (permanent bindings only). Always written on apply so pop can distinguish 'no prior binding'
     (delete on revert) from 'no record' (pre-gate register). A leased binding writes the historical three-element record
@@ -2112,14 +2145,18 @@ def devbind_revert_put(epoch: int, address: str, key: str, prev, prev_devkey=Non
     def _do(txn):
         pa, pe = (prev[0], int(prev[1])) if prev else (None, -1)
         pm = (prev[2] if prev and len(prev) > 2 else "lease")
-        rec = [str(key), pa, pe] + ([str(pm), prev_devkey] if perm else [])
+        if evicted is not None:
+            # instant-move record (8 fields): explicit perm flag + the evicted address and its previous eviction list
+            rec = [str(key), pa, pe, str(pm), prev_devkey, bool(perm), str(evicted), [[int(a), int(b)] for a, b in (prev_evict or [])]]
+        else:
+            rec = [str(key), pa, pe] + ([str(pm), prev_devkey] if perm else [])
         txn.put(be8(int(epoch)) + address.encode(), _pack(rec), db=_dbs()["devbind_revert"])
     _write(_do)
 
 
 def devbind_revert_pop(epoch: int, address: str):
     """Read + DELETE the binding journal for (epoch, address): (key, prev_address|None, prev_epoch, prev_mode,
-    prev_devkey|None, perm) or None. Legacy three-element records come back as ("lease", None, False)."""
+    prev_devkey|None, perm, evicted_address|None, prev_eviction_list|None) or None. Legacy records fill the tail."""
     def _do(txn):
         k = be8(int(epoch)) + address.encode()
         raw = txn.get(k, db=_dbs()["devbind_revert"])
@@ -2128,10 +2165,15 @@ def devbind_revert_pop(epoch: int, address: str):
         txn.delete(k, db=_dbs()["devbind_revert"])
         rec = _unpack(raw)
         key, pa, pe = rec[0], rec[1], rec[2]
-        perm = len(rec) > 3
-        pm = str(rec[3]) if perm else "lease"
-        pdk = (str(rec[4]) if perm and rec[4] is not None else None)
-        return str(key), (str(pa) if pa is not None else None), int(pe), pm, pdk, perm
+        if len(rec) >= 8:                      # instant-move record: explicit flags + eviction
+            pm, pdk, perm = str(rec[3]), (str(rec[4]) if rec[4] is not None else None), bool(rec[5])
+            evicted, prev_evict = str(rec[6]), [(int(a), int(b)) for a, b in (rec[7] or [])]
+        else:
+            perm = len(rec) > 3
+            pm = str(rec[3]) if perm else "lease"
+            pdk = (str(rec[4]) if perm and rec[4] is not None else None)
+            evicted, prev_evict = None, None
+        return str(key), (str(pa) if pa is not None else None), int(pe), pm, pdk, perm, evicted, prev_evict
     return _write(_do)
 
 

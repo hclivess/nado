@@ -289,6 +289,53 @@ def t_binding_modes():
         check(f"i18n: {k} in every language", n >= 16 and n % 16 == 0, n)
 
 
+def t_instant_rebind():
+    """INSTANT MOVES (protocol.DEVICE_REBIND_INSTANT_HEIGHT): a device may move in any block because the move EVICTS the
+    identity it leaves — an epoch-stamped eviction row voids that identity's current lease for the open registry and for
+    the epoch-weight reconstruction alike; it returns only with a newer register of its own. Revert restores the row."""
+    from ops import kv_ops
+    kv_ops.close_all(); kv_ops.init_env()
+    import protocol as P
+    from ops.account_ops import apply_register, get_open_registry
+    from ops import dividend_ops as D
+    from ops import transaction_ops as TO
+    import logging
+    lg = logging.getLogger("t")
+    a, b = "e" * 46, "f" * 46          # fresh addresses: the suite shares one DB and earlier tests recerted "a"/"b"
+    lkey = "ledger:" + "55" * 32
+    for addr in (a, b):
+        kv_ops.account_set(addr, "balance", 0)
+    check("the instant gate is at/after the permanent gate", P.DEVICE_REBIND_INSTANT_HEIGHT >= P.DEVICE_BIND_PERMANENT_HEIGHT)
+    apply_register(a, 100, lg, device_key=lkey, permanent=True)
+    check("a is present before any move", a in get_open_registry(100) and a in D.present_at_epoch(100))
+    apply_register(b, 105, lg, device_key=lkey, permanent=True, instant=True)      # the device moves a -> b in epoch 105
+    check("the row flips to b", kv_ops.devbind_get(lkey) == (b, 105, "perm"))
+    check("a carries an eviction row naming the recert it voids", kv_ops.devevict_get(a) == [(105, 100)], kv_ops.devevict_get(a))
+    check("a is OUT of the live open registry at once", a not in get_open_registry(105) and b in get_open_registry(105))
+    check("a is OUT of the epoch's reconstructed present set", a not in D.present_at_epoch(105) and b in D.present_at_epoch(105))
+    check("reconstruction as of BEFORE the move still shows a (epoch-stamped rows)", a in D.present_at_epoch(104))
+    check("weights_at_epoch(105) pays b, not a", a not in D.weights_at_epoch(105) and b in D.weights_at_epoch(105))
+    apply_register(a, 106, lg, device_key="android-key:" + "66" * 32)               # a comes back with another device
+    check("a newer register of its own restores a", a in get_open_registry(106) and a in D.present_at_epoch(106))
+    apply_register(a, 106, lg, revert=True)
+    apply_register(b, 105, lg, revert=True)
+    check("reverting the move restores the row and removes the eviction", kv_ops.devbind_get(lkey) == (a, 100, "perm") and kv_ops.devevict_get(a) == [])
+    check("... and a is present again in the live registry", a in get_open_registry(105))
+    # legacy (pre-gate) apply writes no eviction
+    apply_register(b, 500, lg, device_key=lkey, permanent=True)
+    check("below the gate a move writes no eviction row (historical replay unchanged)", kv_ops.devevict_get(a) == [])
+    apply_register(b, 500, lg, revert=True)
+    kv_ops.close_all()
+    src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
+    seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
+    check("rule: the cooldown applies only below DEVICE_REBIND_INSTANT_HEIGHT", 'if not instant and bound and bound[0] != transaction["sender"]' in seg)
+    acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
+    check("apply: an instant move evicts the previous holder and journals its eviction list",
+          "kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])" in acc and "kv_ops.devevict_set(evicted, prev_evict)" in acc)
+    check("registry + reconstruction share the eviction rule", "devevict_voided(address, current_epoch)" in acc and "devevict_voided(addr, epoch)" in open(os.path.join(ROOT, "ops", "dividend_ops.py")).read())
+    check("relay: /devbind_lookup reports movable now after the gate", '"evicts": instant' in open(os.path.join(ROOT, "nado.py")).read())
+
+
 def t_hygiene():
     from ops import kv_ops
     import protocol as P
@@ -301,11 +348,11 @@ def t_hygiene():
     check("apply derives the key from the tx bytes at the block height and passes it to apply_register",
           "device_binding_key(transaction.get(\"device\")" in acc and "device_key=device_key" in acc)
     check("apply_register journals the overwritten binding and restores it on revert",
-          "devbind_revert_put(epoch, address, device_key, prev_bind)" in acc and "devbind_revert_pop(epoch, address)" in acc)
+          "devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)" in acc and "devbind_revert_pop(epoch, address)" in acc)
 
 
 if __name__ == "__main__":
-    for name in ("t_binding_key", "t_apply_revert_symmetry", "t_rule", "t_strict_binding", "t_binding_modes", "t_hygiene"):
+    for name in ("t_binding_key", "t_apply_revert_symmetry", "t_rule", "t_strict_binding", "t_binding_modes", "t_instant_rebind", "t_hygiene"):
         try:
             globals()[name]()
         except Exception:

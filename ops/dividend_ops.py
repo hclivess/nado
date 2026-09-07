@@ -42,6 +42,11 @@ def present_at_epoch(epoch: int) -> set:
     for addr in kv_ops.recert_addresses_after(floor):           # a recert in some epoch > floor (may be > epoch)
         recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
         if recs and recs[-1] > floor:                           # a recert within (floor, epoch] -> lease valid at epoch
+            # EVICTED (DEVICE_REBIND_INSTANT_HEIGHT): a device move at or before `epoch` voided this lease — only a recert
+            # newer than the voided one counts. Eviction rows are epoch-stamped consensus state, so this reconstructs
+            # identically for any past epoch (the same rule get_open_registry applies live).
+            if recs[-1] <= kv_ops.devevict_voided(addr, epoch):
+                continue
             present.add(addr)
     return present
 

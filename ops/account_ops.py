@@ -88,8 +88,9 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
         # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
         from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
-                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES)
+                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES, DEVICE_REBIND_INSTANT_HEIGHT)
         device_key, permanent = None, False
+        instant = bool(DEVICE_REBIND_INSTANT_HEIGHT and block_height is not None and block_height >= DEVICE_REBIND_INSTANT_HEIGHT)
         if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
             # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register with NO
             # statement is a hardware identity's statement-free presence renewal (validation admitted it only because
@@ -103,7 +104,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                 permanent = (block_height >= DEVICE_BIND_PERMANENT_HEIGHT
                              and device_key.split(":", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES)
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
-                       device_key=device_key, permanent=permanent)
+                       device_key=device_key, permanent=permanent, instant=instant)
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -667,6 +668,10 @@ def get_open_registry(current_epoch: int):
         members = kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS)
         for address, account in kv_ops.get_accounts_many(members).items():
             if account and account.get("registered", 0) == 1:
+                # EVICTED (DEVICE_REBIND_INSTANT_HEIGHT): the device that vouched for this lease moved on; only a recert
+                # NEWER than the voided one counts (same rule as dividend_ops.present_at_epoch — one truth, two readers)
+                if kv_ops.recert_latest(address) <= kv_ops.devevict_voided(address, current_epoch):
+                    continue
                 registry[address] = {"fidelity": account.get("fidelity", 0)}
         return registry
     if kv_ops.in_write_txn():
@@ -682,7 +687,7 @@ def get_open_registry(current_epoch: int):
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
-def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False):
+def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, instant=False):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
@@ -704,7 +709,7 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             kv_ops.account_set(address, "registered", 0)
         brec = kv_ops.devbind_revert_pop(epoch, address)
         if brec is not None:
-            key, prev_addr, prev_epoch, prev_mode, prev_devkey, was_perm = brec
+            key, prev_addr, prev_epoch, prev_mode, prev_devkey, was_perm, evicted, prev_evict = brec
             if prev_addr is None:
                 kv_ops.devbind_del(key)
             else:
@@ -715,6 +720,8 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
                     kv_ops.account_del_field(address, "devkey")
                 else:
                     kv_ops.account_set_field(address, "devkey", prev_devkey)
+            if evicted is not None:
+                kv_ops.devevict_set(evicted, prev_evict)      # the evicted identity's eviction list, exactly as before
     else:
         if device_key:
             # BINDING MODES: a permanent-class statement writes the "perm" row (a rebind from another sender supersedes the
@@ -722,14 +729,22 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             # row no longer points back at it) and stamps the sender's account with `devkey`, the reverse index a
             # statement-free renewal is validated against. The journal carries the previous row AND the previous devkey.
             prev_bind = kv_ops.devbind_get(device_key)
+            # INSTANT MOVE (DEVICE_REBIND_INSTANT_HEIGHT): the device leaves another identity -> that identity is EVICTED in
+            # this block: its current lease is voided (an eviction row names the recert epoch it voids), so it drops out of
+            # the open registry and the epoch weights at once and comes back only with a NEWER register of its own.
+            evicted, prev_evict = None, None
+            if instant and prev_bind and prev_bind[0] != address:
+                evicted = prev_bind[0]
+                prev_evict = kv_ops.devevict_get(evicted)
+                kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])
+            acc0 = kv_ops.get_account(address) or {}
+            prev_devkey = acc0.get("devkey") if isinstance(acc0.get("devkey"), str) else None
             if permanent:
-                acc0 = kv_ops.get_account(address) or {}
-                prev_devkey = acc0.get("devkey") if isinstance(acc0.get("devkey"), str) else None
-                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=True)
+                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=True, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch, "perm")
                 kv_ops.account_set_field(address, "devkey", device_key)
             else:
-                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind)
+                kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch)
         prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
         acc = kv_ops.get_account(address)

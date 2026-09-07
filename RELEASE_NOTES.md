@@ -34,6 +34,13 @@ Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuinen
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
+**Instant device moves, by eviction** (`DEVICE_REBIND_INSTANT_HEIGHT` = 5400). A device may move to another sender in
+any block: the move writes an epoch-stamped eviction row for the identity it leaves (`devbind` key `evict:<address>`,
+naming the recert epoch it voids), and both presence readers — the live open registry and the epoch-weight
+reconstruction — count only a recert newer than the voided one. The evicted identity is out of the draw and the
+dividend from that block and back with its next register. The 36-hour cooldown that stood in for this is gone from
+the gate on. Whoever holds the device wins immediately.
+
 **Binding modes: bound for life or leased** (`DEVICE_BIND_PERMANENT_HEIGHT` = 3900, doc/device-attestation.md
 §"Binding modes"). A binding is only as durable as the key behind it. Ledger and Trezor keys are factory-fixed, so
 from block 3900 a statement from one of them binds for LIFE: the `devbind` row is written in mode `perm`, the
