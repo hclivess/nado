@@ -2640,6 +2640,28 @@ async function maybeRegister() {
   // registration, an expired lease, a presence mismatch); firing navigator.credentials.create() without a user
   // gesture yields nothing on most platforms and produced the misleading "could not attest itself" line. Only a
   // Start/Renew press arms ONE prompt; otherwise say what is needed and wait for the press.
+  // ATTEST FROM ANOTHER DEVICE (Linux, Mac, iPhone…): a phone / TPM PC / hardware wallet attests THIS address on its own
+  // wallet (the "Attest another wallet or node" card) and drops the statement on the relay; this wallet picks it up,
+  // wraps it in its own signed register tx and submits — no prompt here, the OTHER device is the one bound.
+  if (state.attestVia === "remote" && !state.pendingRegisterTx && !state.regSubmitted) {
+    try {
+      const r = await fetch(relayBase() + "/node_attest_pickup?sender=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
+      const d = await r.json();
+      const tipNow = Number(d.tip || state.latest || 0);
+      const cands = Array.isArray(d.drops) ? d.drops : (d.drop ? [d.drop] : []);
+      const fresh = cands.filter((b) => b && b.device && Number(b.max_block) > tipNow + 2).pop();
+      if (fresh) {
+        const tx = buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
+        state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
+        log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
+      } else {
+        setRegBanner(i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
+        show("powWrap", false); show("regTapRow", false);
+        setStartBtnMining();
+        return;
+      }
+    } catch (e) { /* relay blip: next tick */ }
+  }
   if (!state.tapArmed && !state.pendingRegisterTx) {   // a kept (already attested) tx needs no new tap
     setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
     show("powWrap", false);
@@ -8651,6 +8673,13 @@ function wireEvents() {
   };
   if ($("btnHwLedger")) $("btnHwLedger").onclick = () => hwPick("ledger");
   if ($("btnHwTrezor")) $("btnHwTrezor").onclick = () => hwPick("trezor");
+  if ($("btnHwRemote")) $("btnHwRemote").onclick = () => {
+    state.hwDevice = null; state.attestVia = "remote"; state.tapArmed = false;
+    try { localStorage.setItem("nado_attest_via", "remote"); } catch (e) {}
+    log("info", i18("remote.on", "This wallet will be vouched for by another device. On that device open Mining → \"Attest another wallet or node\" and paste: {a}", { a: state.wallet ? state.wallet.address : "" }));
+    if (!state.mining) startMining();
+  };
+  try { if (localStorage.getItem("nado_attest_via") === "remote") state.attestVia = "remote"; } catch (e) {}
   if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; state.tapArmed = false; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");

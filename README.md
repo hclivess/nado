@@ -549,6 +549,13 @@ disable VBS and Credential Guard from an elevated PowerShell (`LsaCfgFlags = 0` 
 fetches the TPM's AIK certificate then), and retry — the pre-flight should name 08987058. BitLocker is unrelated. The
 wallet's Mining page shows this guide, and the one for every other verdict, under the device line.
 
+**Linux, Mac, iPhone, or any wallet without a device of its own: attest from another device.** On the wallet that
+needs the lease press *Attest from another device*; on an accepted device (an Android phone, a Windows TPM PC, a
+Ledger or Trezor Safe) open Mining → *Attest another wallet or node*, paste that wallet's address and confirm.
+The statement travels through the relay, the first wallet picks it up, wraps it in its own signed registration and
+submits. The coins never leave the first wallet; the device that confirmed is the one bound, so it cannot vouch for
+a second identity while that lease lives. Renew every 36 h the same way.
+
 **Running a node?** A node cannot attest itself (no secure element, nobody to tap). On the wallet's Mining page,
 *Attest a node you run*: paste the node's address, tap once, and the attestation reaches the node through the
 network — it signs its own registration. Renews every 36 h, like any miner.

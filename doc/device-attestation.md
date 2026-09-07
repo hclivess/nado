@@ -239,7 +239,13 @@ node's address and drops the statement there:
 
 Nobody else can use a drop: the register tx must be signed by the sender's key, and the attestation is bound to
 that sender, anchor and max_block. A stranger dropping a valid statement for someone else's node only spends
-their own tap on that node's behalf. The node's own registrations land in the identity log with ip `self`.
+their own device's lease on that node's behalf. The node's own registrations land in the identity log with ip `self`.
+
+The same path serves ANY wallet without a bindable device of its own (Linux, Mac, iPhone): the wallet sets
+`attestVia = "remote"`, the poll loop reads `/node_attest_pickup?sender=<own address>` on its relay, and the first
+statement whose `max_block` is still ahead is wrapped in the wallet's own signed register tx and submitted through the
+kept-tx path. The attesting device is the one bound (`devbind`), so it still holds one identity per lease; the wallet
+that receives the statement is the sender the kernel verified the challenge for.
 
 ## Phases
 

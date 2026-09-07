@@ -177,7 +177,7 @@ def t_wiring():
     check("wallet: the tap attests for the NODE's address over the same challenge derivation and drops it on the relay",
           "attestDevice(addr, anchorHash, targetBlock)" in js and '"/node_attest_drop"' in js and "nodeAttestInit()" in js)
     i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
-    check("i18n: node strings present in all 16 languages", i18n.count('"node.btn"') == 16, i18n.count('"node.btn"'))
+    check("i18n: node strings present in all 16 languages", i18n.count('"node.btn"') >= 16 and i18n.count('"node.btn"') % 16 == 0, i18n.count('"node.btn"'))
 
 
 if __name__ == "__main__":

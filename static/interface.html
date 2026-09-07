@@ -289,6 +289,7 @@
     <div class="row mt" id="hwRow">
       <button id="btnHwLedger" class="ghost" data-i18n="hw.ledger">Attest with Ledger</button>
       <button id="btnHwTrezor" class="ghost" data-i18n="hw.trezor">Attest with Trezor Safe</button>
+      <button id="btnHwRemote" class="ghost" data-i18n="hw.remote">Attest from another device</button>
       <button id="btnHwNone" class="ghost" data-i18n="hw.none">Use this device</button>
     </div>
     <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
@@ -332,9 +333,9 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          element and no hand to tap, so its OPERATOR taps here for the node's address. The attestation is dropped on
          this relay and the node picks it up from the network and signs its own registration. -->
     <details id="nodeAttestWrap" class="mt">
-      <summary class="small dim" style="cursor:pointer" data-i18n="node.title">Attest a node you run</summary>
-      <p class="small mt" data-i18n="node.blurb">A node cannot attest itself — it has no secure element and nobody to tap. Paste your node's address (shown on its /status page), then tap once: this device vouches for the node's open-lane identity, the node picks the attestation up from the network and registers itself. Renewed every 36 h, like any miner.</p>
-      <input id="nodeAttestAddr" placeholder="node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
+      <summary class="small dim" style="cursor:pointer" data-i18n="node.title">Attest another wallet or node</summary>
+      <p class="small mt" data-i18n="node.blurb">Vouch for another wallet or a node from this device. Paste the address (a wallet's address, or a node's from its /status page), then press the button: this device attests that address, the statement travels through the network, and the other wallet or node registers itself with it. Renew every 36 h. This device is the one bound, so it cannot vouch for a second identity while that lease lives.</p>
+      <input id="nodeAttestAddr" placeholder="wallet or node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
       <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
       <div class="row mt">
         <button id="btnNodeAttest" class="accent" data-i18n="node.btn">Attest this node</button>

@@ -34,6 +34,11 @@ Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuinen
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
 the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
 
+**Attest from another device.** A wallet on Linux, Mac or iPhone (nothing bindable of its own) registers with a
+statement made on an accepted device: press *Attest from another device* on the wallet, then on the phone / TPM PC /
+hardware wallet open Mining → *Attest another wallet or node*, paste the address and confirm. The wallet picks the
+statement up from the relay and registers with it; the attesting device is the one bound.
+
 **Attest a node you run.** A node cannot attest itself, so its operator does: Mining page → *Attest a node you
 run* → paste the node's address → press the button. The statement travels through the relay (`/node_attest_drop`,
 forwarded one hop) and the node picks it up (`/node_attest_pickup`), signs its own register tx and merges it

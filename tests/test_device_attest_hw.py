@@ -167,6 +167,10 @@ def t_wallet_wiring():
     check("wallet: attestDevice routes to the hardware handle, connect happens in the click handler",
           'import("./hwattest.js' in ui and "state.hwDevice" in ui and 'hwPick("ledger")' in ui and 'hwPick("trezor")' in ui)
     check("wallet: Ledger / Trezor / this-device buttons under Start", 'id="btnHwLedger"' in html and 'id="btnHwTrezor"' in html and 'id="btnHwNone"' in html)
+    check("wallet: attest from ANOTHER device — the receiving wallet polls the relay's drop store for its own address and registers with the statement",
+          'id="btnHwRemote"' in html and 'attestVia === "remote"' in ui and '"/node_attest_pickup?sender=" + encodeURIComponent(state.wallet.address)' in ui
+          and "buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device)" in ui)
+    check("wallet: the card attests ANY address (wallet or node)", 'data-i18n="node.title">Attest another wallet or node' in html)
     i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
     check("i18n: hardware strings in all 16 languages", i18n.count('"hw.ledger"') == 16)
 
