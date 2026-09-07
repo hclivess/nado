@@ -4,8 +4,10 @@
 
 pub mod android_key;
 pub mod apple;
+pub mod ledger;
 pub mod packed;
 pub mod tpm;
+pub mod trezor;
 
 use crate::authdata::AuthData;
 use ciborium::value::Value;

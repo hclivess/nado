@@ -789,10 +789,28 @@ async function nodeAttestTap() {
 }
 
 async function attestDevice(sender, anchorHash, maxBlock) {
+  const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);
+  const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
+  // HARDWARE WALLET (Ledger over WebHID, Trezor Safe over WebUSB — static/hwattest.js): the user connected it with
+  // the button under Start (the connect needs the click), the vendor's own genuineness protocol signs OUR challenge
+  // here, and the same {att, cdj, rp} envelope goes into the register tx. The kernel verifies and binds the device.
+  if (state.hwDevice && (state.attestVia === "ledger" || state.attestVia === "trezor")) {
+    try {
+      const hw = await import("./hwattest.js?v=1");
+      log("info", i18("hw.confirm", "Confirm on the {n} — it is vouching for this identity.", { n: state.hwDevice.name }));
+      const device = await hw.attestHardware(state.hwDevice, chal);
+      setDeviceStatus({ ok: true, fmt: state.attestVia, reason: "ok" });
+      log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
+      return device;
+    } catch (e) {
+      const stF = { ok: false, fmt: state.attestVia, reason: (e && e.message) || String(e) };
+      setDeviceStatus(stF);
+      log("err", i18("hw.failed", "{n}: {e}", { n: state.hwDevice.name, e: stF.reason }));
+      return null;
+    }
+  }
   if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) return null;
   try {
-    const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);
-    const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
     const uid = new Uint8Array(16); crypto.getRandomValues(uid);
     const cred = await createAttestedCredential({
       challenge: chal, rp: { name: "NADO", id: location.hostname },
@@ -811,8 +829,8 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       const s = pj && pj.summary;
       if (s) {
         const ad = s.auth_data || {};
-        const bindable = s.fmt === "android-key" || s.fmt === "tpm";
-        const st = { ok: false, fmt: s.fmt || "none", aaguid: ad.aaguid, format_accepted: s.format_accepted, root_pinned: s.root_pinned, x5c: s.x5c_count };
+        const bindable = s.fmt === "android-key" || s.fmt === "tpm" || s.fmt === "trezor" || s.fmt === "ledger";
+        const st = { ok: false, fmt: s.fmt || "none", aaguid: ad.aaguid, format_accepted: s.format_accepted, root_pinned: s.root_pinned, x5c: s.x5c_count || (s.fmt === "ledger" ? 1 : 0) };
         // NO ROOT JUDGEMENT HERE. The probe only parses; a TPM chain ends at an intermediate (the pinned Microsoft
         // root is never inside x5c), so "last cert pinned?" is false for EVERY valid Windows statement — this
         // pre-flight refused a working TPM registration for 20 minutes on 2026-09-07. The kernel resolves the
@@ -8575,6 +8593,21 @@ function wireEvents() {
     startMining();
   };
   $("btnCancelPow").onclick = () => { stopMining(); };  // escape hatch while the main button is disabled
+  // HARDWARE WALLETS: the connect must run inside the click (WebHID/WebUSB need a user gesture); the attestation
+  // itself happens later in attestDevice() over the kept handle. Choosing one arms the tap like Start does.
+  const hwPick = async (kind) => {
+    try {
+      const hw = await import("./hwattest.js?v=1");
+      state.hwDevice = await hw.connect(kind);
+      state.attestVia = kind;
+      try { localStorage.setItem("nado_attest_via", kind); } catch (e) {}
+      log("ok", i18("hw.connected", "{n} connected — it will vouch for this identity at registration.", { n: state.hwDevice.name }));
+      if (state.mining) state.tapArmed = true; else startMining();
+    } catch (e) { log("err", i18("hw.failed", "{n}: {e}", { n: kind, e: (e && e.message) || String(e) })); }
+  };
+  if ($("btnHwLedger")) $("btnHwLedger").onclick = () => hwPick("ledger");
+  if ($("btnHwTrezor")) $("btnHwTrezor").onclick = () => hwPick("trezor");
+  if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");

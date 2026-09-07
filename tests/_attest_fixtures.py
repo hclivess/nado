@@ -60,6 +60,8 @@ def cbor_map(pairs):
 
 
 def cbor(v):
+    if isinstance(v, dict):
+        return cbor_map(list(v.items()))
     if isinstance(v, str):
         b = v.encode(); return (bytes([0x60 | len(b)]) if len(b) < 24 else bytes([0x78, len(b)])) + b
     if isinstance(v, bytes):

@@ -61,6 +61,39 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
         _ => return fail(out, "no fmt"),
     };
     out.fmt = fmt.clone();
+    // HARDWARE WALLETS (trezor / ledger): no WebAuthn authenticator data, no rp id — the statement is the vendor's
+    // own genuineness protocol carried in attStmt, bound to OUR challenge; clientData.type is "nado.hw".
+    if fmt == "trezor" || fmt == "ledger" {
+        let st = match cbor_get(&m, "attStmt") {
+            Some(Value::Map(s)) => s.clone(),
+            _ => return fail(out, "no attStmt"),
+        };
+        let cd: serde_json::Value = match serde_json::from_slice(cdj) {
+            Ok(v) => v,
+            Err(_) => return fail(out, "clientDataJSON is not JSON"),
+        };
+        if cd.get("type").and_then(|t| t.as_str()) != Some("nado.hw") {
+            return fail(out, "clientData.type is not nado.hw");
+        }
+        let chal_b64 = cd.get("challenge").and_then(|c| c.as_str()).unwrap_or("");
+        let chal = match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(chal_b64) {
+            Ok(c) => c,
+            Err(_) => return fail(out, "challenge is not base64url"),
+        };
+        if chal != challenge {
+            return fail(out, "challenge mismatch");
+        }
+        let res = match fmt.as_str() {
+            "trezor" => formats::trezor::verify(&st, challenge, roots, now, &mut out),
+            _ => formats::ledger::verify(&st, challenge, roots, &mut out),
+        };
+        if let Err(why) = res {
+            return fail(out, &why);
+        }
+        out.ok = true;
+        out.reason = "ok".into();
+        return out;
+    }
     let ad = match cbor_bytes(&m, "authData") {
         Some(b) => b,
         None => return fail(out, "no authData"),

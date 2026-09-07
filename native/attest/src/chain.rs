@@ -81,6 +81,22 @@ pub fn verify_with_cert(signer: &X509Certificate, msg: &[u8], sig: &[u8], hash: 
     false
 }
 
+/// ECDSA P-256 over a PREHASHED message with a bare SEC1 public key (65-byte uncompressed point) — the Trezor
+/// roots are keys, not certificates.
+pub fn verify_with_p256_key(key_sec1: &[u8], prehash: &[u8], sig_der: &[u8]) -> bool {
+    use ecdsa::signature::hazmat::PrehashVerifier;
+    match (P256Key::from_sec1_bytes(key_sec1), P256Sig::from_der(sig_der)) {
+        (Ok(k), Ok(s)) => k.verify_prehash(prehash, &s).is_ok(),
+        _ => false,
+    }
+}
+
+/// The roots blob carries three kinds of entries: DER certificates (first byte 0x30), `0x01 || SEC1` P-256 keys
+/// (Trezor roots) and `0x02 || SEC1` secp256k1 keys (Ledger issuer). Certificate walks must only see the first.
+pub fn cert_roots(roots: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    roots.iter().filter(|r| r.first() == Some(&0x30)).cloned().collect()
+}
+
 /// Walk x5c[0] (leaf) up to a pinned root. Every link's signature is checked; the chain ends when a
 /// certificate's DER SHA-256 is a pinned root, OR when the last certificate is signed by a pinned root
 /// (Apple omits the root). Records the root reached in `out.root_sha256`.
@@ -88,6 +104,8 @@ pub fn verify_chain(x5c: &[Vec<u8>], roots: &[Vec<u8>], now: i64, out: &mut Out)
     if x5c.is_empty() {
         return Err("empty x5c".into());
     }
+    let roots = cert_roots(roots);           // bare vendor KEYS ride in the same blob; they are not certificates
+    let roots = &roots[..];
     let root_fps: Vec<[u8; 32]> = roots.iter().map(|r| Sha256::digest(r).into()).collect();
     let parsed: Vec<X509Certificate> = x5c
         .iter()

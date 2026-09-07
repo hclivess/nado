@@ -94,6 +94,27 @@ def parse_auth_data(ad: bytes) -> dict:
     return out
 
 
+def _auth_data_or_none(ad):
+    try:
+        return parse_auth_data(ad) if isinstance(ad, (bytes, bytearray)) and len(ad) >= 37 else None
+    except Exception:
+        return None
+
+
+def ledger_device_pubkey(att: dict) -> bytes:
+    """The device public key of a `ledger` statement: cert0 = [hdrLen][hdr][pubLen][pub][sigLen][sig]."""
+    c0 = (att.get("attStmt") or {}).get("cert0")
+    if not isinstance(c0, (bytes, bytearray)):
+        raise ValueError("ledger statement has no cert0")
+    c0 = bytes(c0)
+    o = 1 + c0[0]
+    n = c0[o]
+    pub = c0[o + 1:o + 1 + n]
+    if len(pub) != 65 or pub[0] != 0x04:
+        raise ValueError("ledger cert0 public key is not an uncompressed secp256k1 point")
+    return pub
+
+
 def parse_attestation(att_b64: str, cdj_b64: str) -> dict:
     """Summary of an attestationObject + clientDataJSON pair: format, chain shape, authenticator data,
     client data. Pure parsing — NOTHING here is a verdict."""
@@ -117,7 +138,7 @@ def parse_attestation(att_b64: str, cdj_b64: str) -> dict:
         "leaf_sha256": hashlib.sha256(x5c[0]).hexdigest() if x5c and isinstance(x5c[0], (bytes, bytearray)) else None,
         "root_sha256": hashlib.sha256(x5c[-1]).hexdigest() if x5c and isinstance(x5c[-1], (bytes, bytearray)) else None,
         "sig_len": len(st.get("sig") or b""),
-        "auth_data": parse_auth_data(ad) if isinstance(ad, (bytes, bytearray)) else None,
+        "auth_data": _auth_data_or_none(ad),      # hardware-wallet statements carry no authenticator data
         "client_data": {k: cd.get(k) for k in ("type", "challenge", "origin", "crossOrigin") if k in cd},
         "cdj_sha256": hashlib.sha256(cdj_raw).hexdigest(),
     }
@@ -215,6 +236,14 @@ def device_binding_key(device: dict, max_cert_secs: int) -> str:
         if not x5c:
             raise ValueError("tpm statement has no AIK certificate")
         return "tpm:" + hashlib.sha256(x5c[0]).hexdigest()
+    if fmt == "trezor":
+        # the device certificate (CN "<model> <serial>", per-device key from the secure element)
+        if not x5c:
+            raise ValueError("trezor statement has no device certificate")
+        return "trezor:" + hashlib.sha256(x5c[0]).hexdigest()
+    if fmt == "ledger":
+        # the factory-certified device public key — permanent for the life of the device
+        return "ledger:" + hashlib.sha256(ledger_device_pubkey(att)).hexdigest()
     raise ValueError(f"device class '{fmt}' carries no per-device certificate and cannot be bound to one identity "
                      "(accepted: Android with remote key provisioning, Windows Hello on a physical TPM)")
 

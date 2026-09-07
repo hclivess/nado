@@ -22,6 +22,11 @@ its sender for one lease (36 h) in consensus state; the same certificate cannot 
 the binding is live. Device classes without a per-device certificate (FIDO2 batch keys, Apple statements,
 batch-attested pre-Android-12 phones) are refused from that block: what cannot be bound is not accepted.
 
+**Hardware wallets vouch.** A Ledger (WebHID) or a Trezor Safe (WebUSB) can attest the wallet's identity from
+Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuineness protocol, the kernel verifies
+the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and
+the device is bound like a phone or TPM. Their FIDO2 mode stays refused (batch certificates). Buttons under Start.
+
 **Attest a node you run.** A node cannot attest itself, so its operator does: Mining page → *Attest a node you
 run* → paste the node's address → one tap. The statement travels through the relay (`/node_attest_drop`,
 forwarded one hop) and the node picks it up (`/node_attest_pickup`), signs its own register tx and merges it

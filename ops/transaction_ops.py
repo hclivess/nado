@@ -434,6 +434,20 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
         roots_for = DEVICE_ATTEST_FIDO_AAGUID_ROOTS.get(aaguid)
         assert roots_for, "packed attestation: AAGUID is not a FIDO2 authenticator with full attestation"
         assert root in roots_for, "packed attestation: chain does not end at this authenticator's own root"
+    elif fmt == "trezor":
+        # the kernel reports the model (T2B1/T3B1/T3T1/T3W1) from the device certificate's CN and the sha256 of the
+        # bare root KEY that signed the CA certificate; that key must be one of THAT model's pinned roots
+        from protocol import DEVICE_ATTEST_TREZOR_ROOTS
+        import hashlib as _h
+        keys = DEVICE_ATTEST_TREZOR_ROOTS.get(aaguid)
+        assert keys, f"trezor attestation: model {aaguid} is not accepted"
+        assert root in {_h.sha256(bytes.fromhex(k)).hexdigest() for k in keys}, \
+            "trezor attestation: CA certificate is not signed by this model's pinned Trezor root"
+    elif fmt == "ledger":
+        from protocol import DEVICE_ATTEST_LEDGER_ISSUER_KEYS
+        import hashlib as _h
+        assert root in {_h.sha256(bytes.fromhex(k)).hexdigest() for k in DEVICE_ATTEST_LEDGER_ISSUER_KEYS}, \
+            "ledger attestation: device certificate is not signed by the pinned Ledger issuer key"
     else:
         assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "attestation chain does not end at a pinned vendor root"
     return verdict

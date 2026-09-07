@@ -63,6 +63,15 @@ def pinned_roots_der():
             der = base64.b64decode(r["der_b64"])
             if hashlib.sha256(der).hexdigest() in P.DEVICE_ATTEST_FIDO_ROOT_FINGERPRINTS:
                 out.append(der)
+    # HARDWARE-WALLET VENDOR KEYS ride in the same blob as tagged bare keys — the kernel's certificate walks skip
+    # them (chain::cert_roots) and the trezor/ledger formats read only their own tag:
+    #   0x01 || SEC1(65)  Trezor device-authentication ROOT public keys (P-256, one or two per model)
+    #   0x02 || SEC1(65)  Ledger ISSUER public key (secp256k1) that certifies every device key at the factory
+    for keys in getattr(P, "DEVICE_ATTEST_TREZOR_ROOTS", {}).values():
+        for k in keys:
+            out.append(b"\x01" + bytes.fromhex(k))
+    for k in getattr(P, "DEVICE_ATTEST_LEDGER_ISSUER_KEYS", ()):
+        out.append(b"\x02" + bytes.fromhex(k))
     return out
 
 

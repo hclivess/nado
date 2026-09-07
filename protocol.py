@@ -1520,7 +1520,7 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # below it carry no binding and replay unchanged); becomes 1 at the next reroll.
 DEVICE_BIND_HEIGHT = 460
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
-DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm"))
+DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)
@@ -1546,7 +1546,7 @@ DEVICE_ATTEST_FIDO_AAGUIDS = frozenset(DEVICE_ATTEST_FIDO_AAGUID_ROOTS)
 del _FIDO
 # accepted statement formats: apple (iPhone/iPad), android-key (Android, TEE/StrongBox), tpm (Windows Hello on a
 # physical TPM), packed (FIDO2 security keys). Rejected: none, packed self-attestation, android-safetynet, fido-u2f.
-DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed"))
+DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed", "trezor", "ledger"))
 # tpm: only the Windows Hello HARDWARE authenticator AAGUID (the VBS and software variants are not a TPM), and only
 # physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
 DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))
@@ -1568,4 +1568,24 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # Relying-party ids whose hash may appear in authenticator data: the public wallet hosts. A wallet served from a
 # node's own ip:port attests against that host, so nodes also accept their configured host at validation
 # (transaction_ops adds it); consensus checks only the SET below plus the tx's declared rp id.
+# HARDWARE WALLETS (2026-09-07, doc/device-attestation.md §Hardware). Both vendors give a PER-DEVICE key certified at
+# the factory, i.e. exactly what one-device-one-identity binds — unlike their FIDO2 mode (batch certificates).
+#   Trezor Safe 3 / 5 / 7: `AuthenticateDevice` — the secure element signs our challenge; its X.509 chain ends at a
+#   bare P-256 ROOT KEY per model (trezorlib.authentication.ROOT_PUBLIC_KEYS, production keys only; the Safe 7 has a
+#   backup root). Trezor One / Model T have no secure element and no per-device certificate: not accepted.
+#   Keys are SEC1 uncompressed points (hex); the model is read from the device certificate's CN by the kernel.
+DEVICE_ATTEST_TREZOR_ROOTS = {
+    "T2B1": ("04ca97480ac0d7b1e6efafe518cd433cec2bf8ab9822d76eafd34363b55d63e60380bff20acc75cde03cffcb50ab6f8ce70c878e37ebc58ff7cca0a83b16b15fa5",),   # Safe 3
+    "T3B1": ("045b5c3fdd01f3602092834209b86df0ca86a9faf25cac35c73bf6237d66eb21eafcec3706f1ccd5eb4cc7f2fa1751213eccb1c78389afba89a5788ff31ee46a5d",),   # Safe 3 (rev.)
+    "T3T1": ("041854b27fb1d9f65abb66828e78c9dc0ca301e66081ab0c6a4d104f9df1cd0ad5a7c75f77a8c092f55cf825d2abaf734f934c9394d5e75f75a5a06a5ee9be93ae",),   # Safe 5
+    "T3W1": ("040dde0d3e0d4da593fac6fd02a461d0e7eef238aca55c7c50b4e9ec37f3873303b6429ef1c9b78b4411a7dcbbc5dde5225979c1c2da3b073e82b1ed3f5f9825bb",       # Safe 7
+             "04c6a673af4ec44b10441b1d78676e15173ad0e36df9f7f2fa1cd819955f20fe32917b60da5fed3b3aa54a9ab8b3ed27d198b3768cad26eef5935cd87af0af065e"),      # Safe 7 backup root
+}
+#   Ledger (Nano S / S Plus / X, Stax, Flex): every device holds a secp256k1 key whose public key Ledger's ISSUER
+#   signed at the factory ("Issuer certificate", ledgerblue.checkGenuine DEFAULT_ISSUER_KEY). The secure-channel
+#   handshake makes the device sign an ephemeral key together with our nonce — the user confirms the "unsafe
+#   manager" ON THE DEVICE, which is the tap. Binding key: the device public key.
+DEVICE_ATTEST_LEDGER_ISSUER_KEYS = (
+    "0490f5c9d15a0134bb019d2afd0bf297149738459706e7ac5be4abc350a1f818057224fce12ec9a65de18ec34d6e8c24db927835ea1692b14c32e9836a75dad609",
+)
 DEVICE_ATTEST_RP_IDS = ("get.nadochain.com", "nadochain.com")

@@ -530,6 +530,8 @@ every node; roots are never fetched and change only by a protocol commit.
 |---|---|---|---|
 | Android phone (Android 12+, locked bootloader) | TEE / StrongBox | Google hardware-attestation roots | yes — the device's attestation certificate is bound to your identity for each lease |
 | Windows PC | a physical TPM 2.0 via Windows Hello | Microsoft TPM Root CA 2014 (virtual TPMs refused) | yes — the TPM's AIK certificate is bound |
+| Ledger (Nano S / S Plus / X, Stax, Flex), Chrome/Edge/Brave on a computer | the device's factory-certified secp256k1 key, via Ledger's own genuineness handshake (WebHID) | Ledger issuer key | yes — the device key is bound |
+| Trezor Safe 3 / 5 / 7, Chrome/Edge/Brave on a computer | the secure element's per-device certificate, via `AuthenticateDevice` (WebUSB) | Trezor root key per model | yes — the device certificate is bound (Trezor One / Model T have no secure element: refused) |
 | FIDO2 security key | its batch certificate | vendor root from the FIDO metadata snapshot | **no** — batch certificates identify a model, not a unit, so keys are **refused** from block 460 |
 | iPhone / iPad / Mac | — | — | Apple passkeys carry **no attestation** (iOS 16+, macOS 13+); the device cannot vouch through a web page. A native App Attest bridge (per-device keys) is the route; it needs an Apple developer account to ship. |
 

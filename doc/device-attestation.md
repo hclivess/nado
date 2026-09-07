@@ -184,6 +184,32 @@ What this bounds: one Android device (per ~2-week certificate rotation, which is
 Windows account on one TPM holds ONE open-lane identity at a time. Tests: tests/test_device_binding.py (real
 Android chain binds on x5c[1]; batch/packed/apple refused; apply/revert symmetry; the rule's arithmetic).
 
+## Hardware wallets: `trezor` and `ledger` (2026-09-07)
+
+A hardware wallet's FIDO2 mode is refused (batch certificate), but both vendors also expose a PER-DEVICE key
+certified at the factory through their own genuineness protocol — exactly what one-device-one-identity binds. The
+wallet speaks those protocols directly from the browser (`static/hwattest.js`, Chrome / Edge / Brave on a
+computer) and packs the result into the same `{att, cdj, rp}` envelope: a CBOR attestationObject with `fmt`
+`trezor` or `ledger`, `clientDataJSON.type = "nado.hw"`, the usual anchor-bound challenge. The hardware wallet
+vouches for the wallet address; it never holds the NADO key.
+
+| | Trezor Safe 3 / 5 / 7 | Ledger Nano S / S Plus / X, Stax, Flex |
+|---|---|---|
+| transport | WebUSB, protocol v1 (`?##` framing) | WebHID, channel 0x0101 / tag 0x05 |
+| protocol | `AuthenticateDevice{challenge}` → `AuthenticityProof` (trezorlib.authentication) | secure-channel genuineness handshake (ledgerblue.checkGenuine): E0 04 / 50 / 51 / 52 |
+| what is signed | `compact_size(19) ‖ "AuthenticateDevice:" ‖ compact_size(32) ‖ challenge`, ECDSA P-256/SHA-256 by the secure element's per-device key | cert0: issuer over `0x02 ‖ header ‖ devicePub`; cert1: device key over `0x12 ‖ deviceNonce ‖ hostNonce ‖ ephemeralPub`, secp256k1/SHA-256, with `hostNonce = challenge[0..8]` |
+| chain / root | X.509 device cert (CN `<model> <serial>`, serialNumber) → Trezor CA → signed by a bare P-256 ROOT KEY per model, pinned in `DEVICE_ATTEST_TREZOR_ROOTS` | device key certified by Ledger's ISSUER key, pinned in `DEVICE_ATTEST_LEDGER_ISSUER_KEYS` |
+| the tap | the device asks for confirmation on screen | the device asks to allow the "unsafe manager" (our self-signed host certificate) |
+| binding key | `trezor:sha256(device certificate)` | `ledger:sha256(device public key)` |
+| refused | Trezor One / Model T (no secure element: no chain, kernel refuses the CN) | firmware without secure channel v2 |
+
+Kernel: `formats/trezor.rs`, `formats/ledger.rs`; the vendor keys travel in the roots blob as tagged entries
+(`0x01‖SEC1` P-256, `0x02‖SEC1` secp256k1) and certificate walks skip them. Consensus (`verify_register_device`):
+a `trezor` root must be one of the pinned keys of the model the certificate names; a `ledger` root must be the
+pinned issuer. Tests: tests/test_device_attest_hw.py (synthetic devices with negatives for every check). The
+first REAL statements from a Nano S and a Safe are captured through the wallet pre-flight (`/device_attest_probe`)
+and become vectors before either is called supported.
+
 ## Attesting a node (`ops/node_attest`, 2026-09-07)
 
 A headless node has no secure element and nobody to tap, so from gen 25 it never auto-registers; a node with no
