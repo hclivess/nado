@@ -16,6 +16,12 @@ weight 1, then 2, 3 … 30. Gen 24 skipped fidelity 1 (probation) because identi
 identity is a device and a tap, so the line is unbroken. Open-lane draw weight is the plain 2..10 floor+bonus curve
 from the first lease. The bond unlock delay, the fidelity ramp, the lease and the lane split are unchanged.
 
+**Identity log.** Enforcement retired, observation kept: every register tx a node receives at `/submit` leaves one
+node-local line in `<home>/identity_log.jsonl` (client IP, sender, entry/renewal, device class, AAGUID, leaf and root
+certificate hashes, mempool verdict — never consensus, never served, survives a generation purge).
+`tools/identity_audit.py` groups them by IP, by device certificate and by device class, so "are these identities
+really individual?" is answered from data.
+
 **Updater.** The fleet could not fast-forward past 070023a9: cargo had written an untracked
 `native/attest/Cargo.lock` on every node and the next commit tracked that path. Crate locks now live at
 `Cargo.lock.pinned` (copied in before every build, one dependency set fleet-wide) and the updater moves any

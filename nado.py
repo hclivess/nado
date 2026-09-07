@@ -29,6 +29,7 @@ import versioner
 import time
 from config import get_protocol, get_config, get_timestamp_seconds, hostport, migrate_config, get_public_relay_url, get_port
 from ops import self_update
+from ops import identity_log            # gen 25: every register tx seen at /submit leaves a node-local line
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
@@ -682,6 +683,10 @@ async def submit_transaction(request):
             output = memserver.merge_transaction(transaction, user_origin=True)
             if should_gossip(output):       # newly accepted -> fan out to peers, minus the sender
                 memserver.enqueue_gossip(transaction, exclude_ip=ip)
+            # IDENTITY LOG (gen 25): the per-IP enforcement is gone, the OBSERVATION stays — every register tx
+            # leaves one node-local line (ip, sender, entry/renewal, device class, AAGUID, certificate hashes) so
+            # "are these identities really individual?" is answered from data: tools/identity_audit.py.
+            identity_log.record(ip, transaction, output.get("result"))
             return output, (200 if output.get("result") else 403)
         except Exception as e:
             return f"Error: {e}", 403

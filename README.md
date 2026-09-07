@@ -540,9 +540,16 @@ phone number or central service: the vendor roots are public constants checked b
 
 In the wallet it is not hidden: the setup step attests the device right after the key is stored, the
 **Mining** page shows *Real device: attested ✓* (or exactly why not), and Settings has *Verify this
-device*. The rule activates with the next reroll (`DEVICE_ATTEST_HEIGHT`, currently 0 = capture only);
-that reroll also retires the sequential-work proof, the per-IP budgets and probation, which a device
-proof makes redundant. Design and verifier details: `doc/device-attestation.md`.
+device*. The rule is live since betanet-7 (gen 25, `DEVICE_ATTEST_HEIGHT` = 1): that reroll retired the
+sequential-work proof, the per-IP budgets and probation, which a device proof makes redundant, and the
+dividend weight is one clean line — `min(fidelity, 30)`, the first lease pays weight 1. Design and
+verifier details: `doc/device-attestation.md`.
+
+Enforcement by IP is gone, observation is not: every register tx a node receives leaves one line in
+`<home>/identity_log.jsonl` (client IP, sender, entry/renewal, device class, AAGUID, certificate hashes;
+node-local, never consensus, never served). `python3 tools/identity_audit.py` groups the last lease's
+identities by IP, by device certificate and by device class, so an operator can check that the
+identities are really individual instead of assuming it.
 
 ## Mine from a phone
 
