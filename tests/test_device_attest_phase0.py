@@ -47,7 +47,7 @@ def main():
     for f in files:
         der = subprocess.run(["openssl", "x509", "-in", os.path.join(d, f), "-outform", "DER"], capture_output=True).stdout
         assert hashlib.sha256(der).hexdigest() in P.DEVICE_ATTEST_ROOT_FINGERPRINTS, f
-    assert P.DEVICE_ATTEST_HEIGHT == 0, "phase 0: nothing gated on yet"
+    assert P.DEVICE_ATTEST_HEIGHT == 1, "gen 25: the rule is live from block 1 (0 was the capture-only phase)"
     assert P.DEVICE_ATTEST_FORMATS == frozenset(("apple", "android-key", "tpm", "packed"))
     print("ALL OK")
 

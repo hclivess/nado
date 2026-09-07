@@ -80,9 +80,11 @@ def main():
         P.DEVICE_ATTEST_FIDO_AAGUID_ROOTS.pop("cc" * 16, None)
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
-    assert "if DEVICE_ATTEST_HEIGHT and block_height >= DEVICE_ATTEST_HEIGHT:" in seg and "verify_register_device(transaction, anchor)" in seg
+    # gen 25: the register branch calls the rule UNCONDITIONALLY (no height gate survives the reroll — every register
+    # tx from block 1 must attest), and the gate constant reads 1 for the wallet/status paths that ask.
+    assert "verify_register_device(transaction, anchor)" in seg and "if DEVICE_ATTEST_HEIGHT and" not in seg
     assert "native/attest" in open(os.path.join(ROOT, "ops", "self_update.py")).read(), "fleet updater must build the crate"
-    assert P.DEVICE_ATTEST_HEIGHT == 0
+    assert P.DEVICE_ATTEST_HEIGHT == 1
     print("ALL OK")
 
 
