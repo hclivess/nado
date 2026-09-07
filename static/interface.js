@@ -2475,6 +2475,7 @@ function markMiningActive() {
   state.starting = false;
   setStartBtnMining();
   $("mineState").textContent = i18("mine.mining", "Mining");
+  setRegBanner("");                     // a registration banner never sits next to "Mining"
 }
 
 // Registration could not be confirmed (relay rejected it, or the relay was unreachable). Stop the
@@ -2958,7 +2959,14 @@ async function pollOnce() {
     // "absent" forever (the local heuristic never triggers a retry). Fall back to the heuristic only when the
     // node's status isn't available yet, so a relay hiccup doesn't cause spurious re-registration.
     const msKnown = state.lastMs && typeof state.lastMs.registered_present === "boolean";
-    const present = msKnown ? state.lastMs.registered_present : leaseValid;
+    if (!msKnown) {
+      // NEVER announce "Mining" on the local guess alone. The local lease arithmetic cannot see an eviction (a device
+      // that moved on), a refused statement or a relay that dropped the lease — the node's registered_present is the
+      // only truth, and until it has answered the honest state is "starting" (2026-09-08: an evicted wallet showed
+      // "Mining" next to "Your identity needs a registration").
+      return;
+    }
+    const present = state.lastMs.registered_present;
     if (!acc || acc.registered !== 1 || !leaseValid || !present) {
       await maybeRegister();          // first registration, an expired lease, OR a node-vs-local presence mismatch
       return;                         // wait for the recert to land
@@ -3092,7 +3100,7 @@ async function startMining() {
   setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
-  log("ok", i18("log.miningStarted", "Mining started — auto-registering / renewing your PoSW lease."));
+  log("ok", i18("log.miningStarted", "Mining loop started — the relay confirms your registration first; blocks are mined only after that."));
   startPollLoop();
   acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
