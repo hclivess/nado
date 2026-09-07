@@ -7,7 +7,7 @@ struct ContentView: View {
     @State var log: [String] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 Section("Wallet or node to vouch for") {
                     TextField("address (46 hex characters)", text: $address)
@@ -27,6 +27,7 @@ struct ContentView: View {
             }
             .navigationTitle("NADO Attest")
         }
+        .navigationViewStyle(.stack)
         .onOpenURL { url in
             // nadoattest://attest?addr=<46 hex>&relay=<url>
             let c = URLComponents(url: url, resolvingAgainstBaseURL: false)

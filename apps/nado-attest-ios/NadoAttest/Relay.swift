@@ -36,7 +36,9 @@ struct Relay {
     }
 
     func blockHash(number: Int) async throws -> String {
-        var req = URLRequest(url: base.appendingPathComponent("get_block").appending(queryItems: [URLQueryItem(name: "number", value: String(number)), URLQueryItem(name: "hash_only", value: "1")]))
+        var comps = URLComponents(url: base.appendingPathComponent("get_block"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "number", value: String(number)), URLQueryItem(name: "hash_only", value: "1")]
+        var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 15
         let (data, _) = try await URLSession.shared.data(for: req)
         guard let d = try JSONSerialization.jsonObject(with: data) as? [String: Any], let h = d["block_hash"] as? String, h.count == 64 else {
