@@ -45,8 +45,8 @@ carries `open_excluded_bonded`; the wallet says why a staker has no free-lane we
 `undelegate` — fee-exempt, one per sender per block. A pool produces with own + delegated stake under the same
 1,000 NADO per-device cap; delegators have no producer weight of their own; fork weight and the FFG quorum keep each
 account's own stake. Every bonded block a pool wins is split at apply — delegators pro rata minus the fee, the pool the
-rest — and journaled per height for exact rollback. `GET /pools`; the wallet's Stake card gains the pool panel in 16
-languages. Sybil surface unchanged: one real attested device per 1,000 NADO of producing weight, now rentable.
+rest — and journaled per height for exact rollback. `pool {close: 1}` shuts a pool and releases its delegators in one block. `GET /pools`; the wallet's Savings card
+gains the pool panel in 16 languages. Sybil surface unchanged: one real attested device per 1,000 NADO of producing weight, now rentable.
 
 **Instant device moves, by eviction** (`DEVICE_REBIND_INSTANT_HEIGHT` = 5400). A device may move to another sender in
 any block: the move writes an epoch-stamped eviction row for the identity it leaves (`devbind` key `evict:<address>`,

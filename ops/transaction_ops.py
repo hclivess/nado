@@ -1266,7 +1266,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert acc, f"{recipient}: sender has no account"
         data = transaction.get("data") or {}
         assert isinstance(data, dict), f"{recipient}: data must be an object"
-        if recipient == "pool":
+        if recipient == "pool" and data.get("close") == 1:
+            # CLOSE: the pool's terms are removed and every delegator is released (their pool_to cleared) in this block
+            assert "pool_open" in acc, "pool: nothing to close — this account runs no pool"
+            assert set(data.keys()) == {"close"}, "pool: close carries no other field"
+        elif recipient == "pool":
             assert int(acc.get("bonded", 0)) >= B_MIN, "pool: the sender must hold at least one bonded share"
             assert not acc.get("pool_to"), "pool: a delegator cannot run a pool (undelegate first)"
             fee_bps, opn, mn, mx = data.get("fee_bps"), data.get("open"), data.get("min"), data.get("max")

@@ -393,6 +393,8 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
   `{fee_bps 0..10000, open 0|1, min >= B_MIN, max <= BOND_DEVICE_CAP, label <= 32 ASCII}`; `delegate {to}` — the sender's
   stake produces through `to` (must be an open pool with bonded stake, not itself delegating, with room under `max`
   and fewer than 100 members; the sender must hold >= `min`); `undelegate`. A delegator cannot run a pool.
+- **Closing**: `pool {close: 1}` removes the terms and releases every delegator (their `pool_to` cleared) in that block,
+  journaled and reverted exactly; the operator's own stake keeps producing alone. Terms change with another `pool` tx.
 - **State**: schemaless account fields — the pool's `pool_fee_bps/pool_open/pool_min/pool_max/pool_label/pool_members`
   (sorted list), the delegator's `pool_to`. Consensus (in the root); every change journals its exact previous values
   by txid in the node-local `pool_revert` DB and rollback restores them.

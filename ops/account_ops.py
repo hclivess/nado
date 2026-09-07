@@ -794,6 +794,25 @@ def apply_pool_tx(transaction, revert=False):
     sender, txid = transaction["sender"], transaction["txid"]
     data = transaction.get("data") or {}
     r = transaction["recipient"]
+    if r == "pool" and data.get("close") == 1:
+        # CLOSE THE POOL: terms and member list removed, every delegator's pool_to cleared — all journaled for revert
+        if revert:
+            prev = kv_ops.pool_revert_pop("cls:" + txid)
+            if prev is not None:
+                fields, members = prev
+                for f, v in zip(POOL_FIELDS + ("pool_members",), fields):
+                    _set_or_del(sender, f, v)
+                for m in members:
+                    kv_ops.account_set_field(m, "pool_to", sender)
+            return
+        acc = kv_ops.get_account(sender) or {}
+        members = sorted(m for m in (acc.get("pool_members") or []) if (kv_ops.get_account(m) or {}).get("pool_to") == sender)
+        kv_ops.pool_revert_put("cls:" + txid, [[acc.get(f) for f in POOL_FIELDS + ("pool_members",)], members])
+        for f in POOL_FIELDS + ("pool_members",):
+            kv_ops.account_del_field(sender, f)
+        for m in members:
+            kv_ops.account_del_field(m, "pool_to")
+        return
     if r == "pool":
         if revert:
             prev = kv_ops.pool_revert_pop("cfg:" + txid)

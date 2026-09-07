@@ -73,6 +73,12 @@ def main():
     check("undelegate clears pool_to and the member list", "pool_to" not in get_account(d1) and get_account(pool).get("pool_members") == [d2])
     apply_pool_tx({"sender": d1, "recipient": "undelegate", "txid": "t4", "data": {}}, revert=True)
     check("reverting undelegate restores both", get_account(d1).get("pool_to") == pool and get_account(pool).get("pool_members") == sorted([d1, d2]))
+    # close: terms gone, every delegator released, revert restores all three accounts
+    tx_close = {"sender": pool, "recipient": "pool", "txid": "t5", "data": {"close": 1}}
+    apply_pool_tx(tx_close)
+    check("close removes the terms and releases the delegators", "pool_open" not in get_account(pool) and "pool_members" not in get_account(pool) and "pool_to" not in get_account(d1) and "pool_to" not in get_account(d2))
+    apply_pool_tx(tx_close, revert=True)
+    check("reverting close restores terms, members and both delegations", get_account(pool).get("pool_fee_bps") == 1000 and get_account(pool).get("pool_members") == sorted([d1, d2]) and get_account(d1).get("pool_to") == pool and get_account(d2).get("pool_to") == pool)
     apply_pool_tx(tx_d2, revert=True); apply_pool_tx(tx_d1, revert=True)
     check("reverting the delegations restores a memberless pool and no pool_to", get_account(pool).get("pool_members") == [] and "pool_to" not in get_account(d1))
     apply_pool_tx(tx_cfg, revert=True)
@@ -82,7 +88,7 @@ def main():
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     check("validation: gated, fee-exempt, terms bounds, open pool, min, room, full, self-delegation refused",
           all(x in src for x in ('"staking pools are not enabled yet"', "pool: fee_bps must be 0..10000", "delegate: that address is not an open pool",
-                                  "delegate: the pool has no room for that stake", "delegate: the pool is full", "undelegate: the sender is not delegating",
+                                  "delegate: the pool has no room for that stake", "delegate: the pool is full", "undelegate: the sender is not delegating", "pool: nothing to close",
                                   '"pool", "delegate", "undelegate"):\n            return (r, tx["sender"])')))
     check("relay: /pools endpoint", '"/pools"' in open(os.path.join(ROOT, "nado.py")).read())
     check("pool_revert is node-local", "pool_revert" in kv_ops._LOCAL_DBS and "pool_revert" not in kv_ops.SNAPSHOT_DBS)
