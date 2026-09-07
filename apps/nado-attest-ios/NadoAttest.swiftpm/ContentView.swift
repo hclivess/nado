@@ -1,4 +1,5 @@
 import SwiftUI
+import DeviceCheck
 
 struct ContentView: View {
     @State var address: String = ""
@@ -15,6 +16,9 @@ struct ContentView: View {
                     TextField("relay", text: $relay).autocorrectionDisabled().textInputAutocapitalization(.never)
                 }
                 Section {
+                    Button(busy ? "Working…" : "Test this device (no address needed)") {
+                        Task { await selfTest() }
+                    }.disabled(busy)
                     Button(busy ? "Attesting…" : (AttestService.hasKey ? "Attest with this device's key" : "Attest — create this device's key")) {
                         Task { await attest() }
                     }.disabled(busy || !valid(address))
@@ -28,6 +32,11 @@ struct ContentView: View {
             .navigationTitle("NADO Attest")
         }
         .navigationViewStyle(.stack)
+        .onAppear {
+            log.append("App Attest supported on this device: \(DCAppAttestService.shared.isSupported)")
+            log.append("App ID as seen by this build: \(Config.appId)")
+            log.append("device key already created: \(AttestService.hasKey)")
+        }
         .onOpenURL { url in
             // nadoattest://attest?addr=<46 hex>&relay=<url>
             let c = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -38,7 +47,31 @@ struct ContentView: View {
 
     func valid(_ a: String) -> Bool { a.count == 46 && a.allSatisfy { $0.isHexDigit } }
 
-    func attest() async {
+    /// The one-tap experiment: attest a throwaway address so the relay parses and KEEPS the statement. Answers, in the
+    /// log, whether App Attest works in this build at all.
+    @MainActor func selfTest() async {
+        busy = true; defer { busy = false }
+        let probeAddress = String(repeating: "0", count: 46)
+        do {
+            let r = try await Relay(relay)
+            let tip = try await r.tip()
+            let target = tip + Config.targetMargin
+            let anchor = try await r.blockHash(number: max(0, target - Config.anchorOffset))
+            log.append("relay ok: tip \(tip)")
+            let (att, cdj, first) = try await AttestService.statement(sender: probeAddress, maxBlock: target, anchorHash: anchor)
+            log.append(first ? "App Attest WORKED: this device attested a new key (\(att.count) bytes)" : "App Attest WORKED: assertion by the existing key (\(att.count) bytes)")
+            let pr = try await r.probe(att: att, cdj: cdj)
+            if let sm = pr["summary"] as? [String: Any] {
+                log.append("relay parsed it: fmt \(sm["fmt"] ?? "?"), \(sm["x5c_count"] ?? 0) certificate(s) — sample kept on the relay")
+            } else {
+                log.append("relay answer: \(pr)")
+            }
+        } catch {
+            log.append("error: \(error)")
+        }
+    }
+
+    @MainActor func attest() async {
         busy = true; defer { busy = false }
         do {
             let r = try await Relay(relay)
