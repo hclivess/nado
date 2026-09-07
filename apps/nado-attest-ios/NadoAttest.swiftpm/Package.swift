@@ -1,11 +1,11 @@
-// swift-tools-version: 5.5
+// swift-tools-version: 5.9
 import PackageDescription
 import AppleProductTypes
 
 let package = Package(
     name: "NadoAttest",
     platforms: [
-        .iOS("15.2")
+        .iOS("17.0")
     ],
     products: [
         .iOSApplication(
@@ -25,13 +25,18 @@ let package = Package(
                 .landscapeRight,
                 .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
-            ]
+            ],
+            appCategory: .utilities
         )
     ],
     targets: [
         .executableTarget(
             name: "AppModule",
-            path: "."
+            path: ".",
+            swiftSettings: [
+                .enableUpcomingFeature("BareSlashRegexLiterals")
+            ]
         )
-    ]
+    ],
+    swiftLanguageVersions: [.v5]
 )

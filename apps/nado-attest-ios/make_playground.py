@@ -17,14 +17,14 @@ for f in sorted(os.listdir(SRC)):
         dst = "MyApp.swift" if f == "NadoAttestApp.swift" else f
         body = open(os.path.join(SRC, f)).read().replace("struct NadoAttestApp: App", "struct MyApp: App")
         open(os.path.join(OUT, dst), "w").write(body)
-open(os.path.join(OUT, "Package.swift"), "w").write('''// swift-tools-version: 5.5
+open(os.path.join(OUT, "Package.swift"), "w").write('''// swift-tools-version: 5.9
 import PackageDescription
 import AppleProductTypes
 
 let package = Package(
     name: "NadoAttest",
     platforms: [
-        .iOS("15.2")
+        .iOS("17.0")
     ],
     products: [
         .iOSApplication(
@@ -44,15 +44,20 @@ let package = Package(
                 .landscapeRight,
                 .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
-            ]
+            ],
+            appCategory: .utilities
         )
     ],
     targets: [
         .executableTarget(
             name: "AppModule",
-            path: "."
+            path: ".",
+            swiftSettings: [
+                .enableUpcomingFeature("BareSlashRegexLiterals")
+            ]
         )
-    ]
+    ],
+    swiftLanguageVersions: [.v5]
 )
 ''')
 print("generated", OUT, sorted(os.listdir(OUT)))
