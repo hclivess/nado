@@ -186,3 +186,5 @@ treasury_history.json
 fork_diffs.jsonl
 static/market/prices.json
 static/market/prices.json.tmp
+# gen 25 identity log (ops/identity_log): node-local observation, lives in <home> == this directory
+identity_log.jsonl
