@@ -126,6 +126,44 @@ def t_binding_and_rules(att, cdj, point, a_att):
     check("app Config mirrors the chain id and anchor offset", f'chainId = "{P.CHAIN_ID}"' in cfg and f"anchorOffset = {P.POSW_ANCHOR_OFFSET}" in cfg)
 
 
+def t_real_ipad_vector():
+    """THE FIRST REAL APPLE STATEMENT (iPad, iPadOS 26.6.1, Swift Playgrounds build, 2026-09-07): chain to the PINNED Apple
+    App Attestation Root CA, nonce in the leaf, credentialId = sha256(key), production aaguid, counter 0, 164-byte authData
+    (87 + a 77-byte COSE key, no extensions). The rpIdHash is checked by the kernel against the pinned App ID once one is
+    pinned; here every other field is verified independently of it."""
+    import subprocess
+    v = json.load(open(os.path.join(ROOT, "tests", "vectors", "device_attest_apple_appattest_ipad_2026-09-07.json")))
+    raw = v.get("raw") or v
+    att = base64.b64decode(raw["att"]); cdj = base64.b64decode(raw["cdj"])
+    from ops.device_attest import cbor_decode, cert_spki_point
+    import protocol as P
+    a = cbor_decode(att, strict=True); ad = bytes(a["authData"]); x5c = [bytes(c) for c in a["attStmt"]["x5c"]]
+    check("real: fmt apple-appattest with a 2-certificate chain and a receipt", a["fmt"] == "apple-appattest" and len(x5c) == 2 and len(a["attStmt"].get("receipt") or b"") > 1000)
+    check("real: authData is 164 bytes = 87 + 77-byte COSE key, no trailing extensions", len(ad) == 164)
+    check("real: production aaguid, counter 0, AT flag only", ad[37:53] == AAGUID_PROD and ad[33:37] == b"\0\0\0\0" and ad[32] == 0x40)
+    point = cert_spki_point(x5c[0]); n = int.from_bytes(ad[53:55], "big")
+    check("real: credentialId == sha256(leaf key point)", ad[55:55 + n] == hashlib.sha256(point).digest())
+    d = tempfile.mkdtemp()
+    for i, c in enumerate(x5c):
+        open(f"{d}/c{i}.der", "wb").write(c)
+        subprocess.run(["openssl", "x509", "-inform", "DER", "-in", f"{d}/c{i}.der", "-out", f"{d}/c{i}.pem"], check=True, capture_output=True)
+    r = subprocess.run(["openssl", "verify", "-CAfile", os.path.join(ROOT, "protocol_roots", "apple_app_attest_root_ca.pem"), "-untrusted", f"{d}/c1.pem", f"{d}/c0.pem"], capture_output=True, text=True)
+    check("real: chain verifies to the pinned Apple App Attestation Root CA (openssl)", r.returncode == 0 and ": OK" in r.stdout, r.stdout + r.stderr)
+    nonce = hashlib.sha256(ad + hashlib.sha256(cdj).digest()).digest()
+    asn = subprocess.run(["openssl", "asn1parse", "-inform", "DER", "-in", f"{d}/c0.der"], capture_output=True, text=True).stdout.replace("\n", "").upper()
+    check("real: nonce = sha256(authData || sha256(clientDataJSON)) is in the leaf's 1.2.840.113635.100.8.2 extension", nonce.hex().upper() in asn)
+    from ops.device_attest import device_binding_key
+    check("real: binding key is apple-appattest:sha256(point)", device_binding_key({"att": raw["att"]}, P.DEVICE_BIND_MAX_CERT_SECS, strict=True) == "apple-appattest:" + hashlib.sha256(point).hexdigest())
+    cd = json.loads(cdj)
+    check("real: clientData type nado.app", cd.get("type") == "nado.app")
+    from ops import attest_native as AN
+    r = AN.verify(att, cdj, base64.urlsafe_b64decode(cd["challenge"] + "=" * (-len(cd["challenge"]) % 4)), 1788804290, rp_ids=list(P.DEVICE_ATTEST_APPLE_APP_IDS))
+    if P.DEVICE_ATTEST_APPLE_APP_IDS:
+        check("real: the kernel accepts it under the pinned App ID", r["ok"], r)
+    else:
+        check("real: with no App ID pinned the kernel refuses on rpIdHash and nothing else", (not r["ok"]) and "rp" in r["reason"], r)
+
+
 def t_blake2b_port():
     """Line-by-line Python port of apps/nado-attest-ios/NadoAttest/Blake2b.swift, checked against hashlib — the app's
     challenge must be byte-exact with the chain's."""
@@ -184,6 +222,7 @@ if __name__ == "__main__":
         att, cdj, point, a_att = t_kernel()
         t_binding_and_rules(att, cdj, point, a_att)
         t_blake2b_port()
+        t_real_ipad_vector()
     except Exception:
         import traceback; traceback.print_exc(); _fails.append("exception")
     print("ALL PASS" if not _fails else f"{len(_fails)} FAILURE(S): {_fails}")
