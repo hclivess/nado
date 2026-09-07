@@ -25,11 +25,14 @@ import time
 from protocol import EPOCH_LENGTH, FIDELITY_MIN_GAP_EPOCHS, POSW_TARGET_MARGIN
 
 MAX_DROPS = 2000                 # senders held at once (a relay serving many nodes)
+MAX_PER_SENDER = 4               # distinct statements kept per sender (a griefer cannot overwrite the real one)
+MAX_BYTES = 8 * 1024 * 1024      # total budget of the store — real statements are 1-8 KB; 2000 × 200 KB was a 400 MiB lever
 POLL_EVERY = 20.0                # s between a wanting node's peer polls
-_MAX_ATT, _MAX_CDJ, _MAX_RP = 200_000, 8_000, 253
+_MAX_ATT, _MAX_CDJ, _MAX_RP = 16_000, 4_000, 253   # a TPM statement is ~5.4 KB base64, Android ~4 KB, Ledger/Trezor < 8 KB
 
 _lock = threading.Lock()
-_drops: dict = {}                # sender -> {"device": {att,cdj,rp}, "max_block": int, "at": float}
+_drops: dict = {}                # sender -> [ {"device": {att,cdj,rp}, "max_block": int, "at": float, "h": sha256(att)} ... ]
+_bytes = [0]
 
 
 def _valid_device(device) -> bool:
@@ -54,34 +57,61 @@ def drop(sender: str, max_block, device, tip: int) -> dict:
         return {"ok": False, "reason": f"max_block {mb} not within ({tip}, {tip + POSW_TARGET_MARGIN + 30}]"}
     if not _valid_device(device):
         return {"ok": False, "reason": "device statement malformed or too large"}
+    import hashlib
+    h = hashlib.sha256(device["att"].encode()).hexdigest()
+    size = len(device["att"]) + len(device["cdj"]) + len(device["rp"])
     with _lock:
         _prune(int(tip))
-        if sender not in _drops and len(_drops) >= MAX_DROPS:
-            return {"ok": False, "reason": "drop store full"}
-        _drops[sender] = {"device": {"att": device["att"], "cdj": device["cdj"], "rp": device["rp"]},
-                          "max_block": mb, "at": time.time()}
+        lst = _drops.get(sender)
+        if lst is None:
+            if len(_drops) >= MAX_DROPS:
+                return {"ok": False, "reason": "drop store full"}
+            lst = _drops[sender] = []
+        if any(b["h"] == h for b in lst):
+            return {"ok": True, "dup": True}                       # the same statement again (a forward echo)
+        if len(lst) >= MAX_PER_SENDER:
+            return {"ok": False, "reason": "too many pending statements for this sender"}
+        if _bytes[0] + size > MAX_BYTES:
+            return {"ok": False, "reason": "drop store byte budget exhausted"}
+        lst.append({"device": {"att": device["att"], "cdj": device["cdj"], "rp": device["rp"]},
+                    "max_block": mb, "at": time.time(), "h": h, "size": size})
+        _bytes[0] += size
     return {"ok": True}
 
 
 def _prune(tip: int):
-    dead = [s for s, b in _drops.items() if b["max_block"] <= tip]
-    for s in dead:
-        _drops.pop(s, None)
+    for s in list(_drops):
+        keep = [b for b in _drops[s] if b["max_block"] > tip]
+        _bytes[0] -= sum(b["size"] for b in _drops[s] if b["max_block"] <= tip)
+        if keep:
+            _drops[s] = keep
+        else:
+            _drops.pop(s, None)
+    if _bytes[0] < 0:
+        _bytes[0] = 0
 
 
 def pickup(sender: str, tip: int, consume: bool = False):
-    """The drop for `sender`, or None. `consume` removes it (the node that owns the key takes it once)."""
+    """The NEWEST drop for `sender`, or None (compat). `consume` removes every drop of the sender."""
+    lst = pickup_all(sender, tip, consume)
+    return lst[-1] if lst else None
+
+
+def pickup_all(sender: str, tip: int, consume: bool = False):
+    """Every live drop for `sender` (oldest first). `consume` removes them (the node that owns the key takes them)."""
     with _lock:
         _prune(int(tip))
-        b = _drops.get(sender)
-        if b and consume:
+        lst = _drops.get(sender) or []
+        out = [dict(b) for b in lst]
+        if lst and consume:
+            _bytes[0] -= sum(b["size"] for b in lst)
             _drops.pop(sender, None)
-        return dict(b) if b else None
+        return out
 
 
 def count() -> int:
     with _lock:
-        return len(_drops)
+        return sum(len(v) for v in _drops.values())
 
 
 # --- the node's side ------------------------------------------------------------------------------------------
@@ -118,19 +148,27 @@ def _own_register_pending(memserver) -> bool:
         return False
 
 
-def poll_peers(address: str, peers, port: int, timeout: float = 4.0, limit: int = 8):
-    """Ask up to `limit` peers for a drop addressed to `address`; first hit wins. Plain urllib on the peer-loop
-    thread (never the core loop — a blocking probe there stalls block application)."""
+def poll_peers(address: str, peers, port: int, timeout: float = 4.0, limit: int = 8, skip=None):
+    """Ask up to `limit` peers for drops addressed to `address`; the first peer holding one the node has not already
+    refused (`skip`: set of "max_block:sha256(att)") wins. Plain urllib — call it from a helper thread, never from
+    the peer loop itself (a blocking probe there starved block sync on 2026-09-07)."""
+    import hashlib
     import json
     import urllib.request as _rq
     from config import hostport
+    skip = skip or set()
     for peer in list(peers)[:limit]:
         try:
             with _rq.urlopen(f"http://{hostport(peer, port)}/node_attest_pickup?sender={address}", timeout=timeout) as r:
                 d = json.loads(r.read().decode())
-            b = d.get("drop") if isinstance(d, dict) else None
-            if b and _valid_device(b.get("device")) and b.get("max_block"):
-                return {"device": b["device"], "max_block": int(b["max_block"]), "from": peer}
+            cands = d.get("drops") if isinstance(d, dict) and isinstance(d.get("drops"), list) else ([d.get("drop")] if isinstance(d, dict) else [])
+            for b in reversed(cands):
+                if not (isinstance(b, dict) and _valid_device(b.get("device")) and b.get("max_block")):
+                    continue
+                key = f"{int(b['max_block'])}:{hashlib.sha256(str(b['device']['att']).encode()).hexdigest()}"
+                if key in skip:
+                    continue
+                return {"device": b["device"], "max_block": int(b["max_block"]), "from": peer, "key": key}
         except Exception:
             continue
     return None
@@ -177,6 +215,7 @@ class NodeAttestPoller:
         self._thread = None
         self._rr = 0
         self.last_state: dict = {}
+        self.refused: dict = {}      # "max_block:sha256(att)" -> refused-at tip — never rebuild a statement the mempool refused
 
     def tick(self):
         now = time.time()
@@ -196,10 +235,18 @@ class NodeAttestPoller:
         self.last_state = st
         if not st["wants"] or _own_register_pending(self.memserver):
             return
-        blob = pickup(self.memserver.address, tip, consume=True)
-        if blob is not None:
-            register_from_drop(self.memserver, blob, self.logger)
-            return
+        # forget refusals whose statement can no longer land
+        for k in [k for k in self.refused if int(k.split(":")[0]) <= tip]:
+            self.refused.pop(k, None)
+        import hashlib
+        for blob in pickup_all(self.memserver.address, tip, consume=True):
+            key = f"{blob['max_block']}:{hashlib.sha256(str(blob['device']['att']).encode()).hexdigest()}"
+            if key in self.refused:
+                continue
+            r = register_from_drop(self.memserver, blob, self.logger)
+            if r.get("result"):
+                return
+            self.refused[key] = tip
         peers = list(self.memserver.peers)
         if not peers:
             return
@@ -211,9 +258,11 @@ class NodeAttestPoller:
 
     def _poll_bg(self, batch):
         try:
-            blob = poll_peers(self.memserver.address, batch, self.port, timeout=1.5, limit=3)
+            blob = poll_peers(self.memserver.address, batch, self.port, timeout=1.5, limit=3, skip=set(self.refused))
             if blob is not None:
-                register_from_drop(self.memserver, blob, self.logger)
+                r = register_from_drop(self.memserver, blob, self.logger)
+                if not r.get("result"):
+                    self.refused[blob["key"]] = int(self.memserver.latest_block["block_number"])
         except Exception as e:
             if self.logger:
                 self.logger.debug(f"node attest poll: {e}")

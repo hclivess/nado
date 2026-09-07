@@ -141,6 +141,49 @@ def t_rule():
     kv_ops.close_all()
 
 
+def t_strict_binding():
+    """Review 2026-09-07: (1) duplicate CBOR keys — kernel keeps the FIRST, the old Python parser the LAST — let one
+    statement verify as chain A and bind as chain B; strict parsing refuses duplicates. (2) N senders could bind one
+    device inside a block (rule reads parent state); register txs now occupy ("devbind", key) in the block."""
+    from ops.device_attest import device_binding_key, cbor_decode
+    from ops import transaction_ops as TO
+    import protocol as P
+    v = json.load(open(os.path.join(ROOT, "tests", "vectors", "device_attest_android_key.json")))
+    raw = base64.b64decode(v["att"])
+    # forge: the same attestationObject with a SECOND `attStmt` (garbage chain) appended as a duplicate key
+    # by wrapping: map of 4 entries {fmt, attStmt(real), authData, attStmt(garbage)}
+    real = cbor_decode(raw)
+    leaf, other = _cert(3650, "/CN=A"), _cert(14, "/O=TEE/CN=B")
+    root = _cert(3650, "/CN=root")
+    garbage_stmt = {"x5c": [leaf, other, root], "sig": b"\x00"}
+    # encode with a duplicate key using the fixture encoder (dict order preserved; duplicates via a list of pairs)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _attest_fixtures import cbor, cbor_map
+    forged = cbor_map([("fmt", "android-key"), ("attStmt", real["attStmt"]), ("authData", real["authData"]), ("attStmt", garbage_stmt)])
+    dev = {"att": base64.b64encode(forged).decode()}
+    lax = device_binding_key(dev, P.DEVICE_BIND_MAX_CERT_SECS, strict=False)
+    real_key = device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS)
+    check("lax parse (pre-gate) binds the LAST duplicate — a different device key than the kernel verified", lax != real_key, (lax, real_key))
+    try:
+        device_binding_key(dev, P.DEVICE_BIND_MAX_CERT_SECS, strict=True); check("strict parse refuses duplicate keys", False)
+    except ValueError as e:
+        check("strict parse refuses duplicate keys", "duplicate" in str(e), e)
+    check("strict parse of a clean statement gives the same key as before", device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS, strict=True) == real_key)
+    check("gate: DEVICE_BIND_STRICT_HEIGHT is a height at/after the bind gate", P.DEVICE_BIND_STRICT_HEIGHT >= P.DEVICE_BIND_HEIGHT)
+    tx_at = {"recipient": "register", "sender": "a" * 46, "max_block": P.DEVICE_BIND_STRICT_HEIGHT, "device": {"att": v["att"]}}
+    tx_before = {**tx_at, "max_block": P.DEVICE_BIND_STRICT_HEIGHT - 1}
+    keys_at, keys_before = TO.reserved_uniqueness_keys(tx_at), TO.reserved_uniqueness_keys(tx_before)
+    check("in-block uniqueness: a register at/after the gate occupies ('devbind', key)", ("devbind", real_key) in keys_at and ("register", "a" * 46) in keys_at, keys_at)
+    check("below the gate only the per-sender key (historical block validity unchanged)", keys_before == [("register", "a" * 46)], keys_before)
+    tx_b = {**tx_at, "sender": "b" * 46}
+    try:
+        TO.assert_unique_reserved([tx_at, tx_b]); check("two senders, one device, one block -> refused", False)
+    except ValueError as e:
+        check("two senders, one device, one block -> refused", "devbind" in str(e), e)
+    src = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
+    check("apply parses with the same strictness as validation", "strict=block_height >= DEVICE_BIND_STRICT_HEIGHT" in src)
+
+
 def t_hygiene():
     from ops import kv_ops
     import protocol as P
@@ -157,7 +200,7 @@ def t_hygiene():
 
 
 if __name__ == "__main__":
-    for name in ("t_binding_key", "t_apply_revert_symmetry", "t_rule", "t_hygiene"):
+    for name in ("t_binding_key", "t_apply_revert_symmetry", "t_rule", "t_strict_binding", "t_hygiene"):
         try:
             globals()[name]()
         except Exception:

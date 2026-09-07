@@ -87,11 +87,12 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT): from the gate the register's device certificate is
         # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
         # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
-        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT
         device_key = None
         if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
             from ops.device_attest import device_binding_key
-            device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS)
+            device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
+                                            strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)   # same parse as validation
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
                        device_key=device_key)
         return

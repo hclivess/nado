@@ -705,9 +705,20 @@ def check_and_update(trigger: str) -> dict:
         # UNTRACKED FILES THE TARGET TRACKS BLOCK THE FAST-FORWARD (2026-09-07: a cargo-written Cargo.lock that a
         # later commit started tracking bricked every peer's updater) — move them aside first, never delete.
         moved_aside = _move_aside_untracked_collisions(remote)
+        if moved_aside:
+            _log().warning(f"update: moved aside untracked files the target tracks: {moved_aside}")
         try:
             _git("merge", "--ff-only", "--quiet", f"origin/{_BRANCH}", timeout=60)
         except Exception as e:
+            # the ff failed for another reason: put the moved files back so nothing changed on this box
+            for rel in moved_aside:
+                for name in sorted(os.listdir(os.path.dirname(os.path.join(_REPO_DIR, rel)) or _REPO_DIR)):
+                    if name.startswith(os.path.basename(rel) + ".local-"):
+                        try:
+                            os.replace(os.path.join(os.path.dirname(os.path.join(_REPO_DIR, rel)), name), os.path.join(_REPO_DIR, rel))
+                        except OSError:
+                            pass
+                        break
             return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}: {e}")
 
         native = _rebuild_native_if_changed(local, remote)
@@ -834,7 +845,7 @@ def _build_crates(crates):
                 lock = os.path.join(path, "Cargo.lock")
                 same = os.path.isfile(lock) and open(lock, "rb").read() == open(pinned, "rb").read()
                 if not same:
-                    shutil.copy2(pinned, lock)
+                    shutil.copyfile(pinned, lock)       # fresh mtime: the lock DID change, the build below makes the .so newer
             except OSError:
                 pass
         try:
@@ -962,7 +973,7 @@ def _rebuild_native_if_changed(old, new):
         path = os.path.join(_REPO_DIR, crate)
         if not os.path.isdir(path):
             continue
-        touched = changed is None or re.search(rf"^{re.escape(crate)}/.*\.(rs|toml|lock)$", changed, re.M)
+        touched = changed is None or re.search(rf"^{re.escape(crate)}/.*\.(rs|toml|lock|pinned)$", changed, re.M)   # .pinned: a lock-only change must rebuild too
         # MISSING IS NOT THE SAME AS UNCHANGED. "sources unchanged → its .so is still valid" only holds if a
         # .so was ever built here. A box that has NEVER built a crate has unchanged sources forever, so this
         # loop skipped it on every update and the library never appeared.

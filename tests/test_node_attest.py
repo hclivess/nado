@@ -46,6 +46,24 @@ def t_drop_store():
     check("the drop dies when its max_block passes the tip", NA.pickup(a, 150) is None)
     NA.drop(a, 160, DEV, 100)
     check("consume removes it once", NA.pickup(a, 100, consume=True) is not None and NA.pickup(a, 100) is None)
+    # review 2026-09-07: several statements per sender (a griefer cannot overwrite the real one), a byte budget,
+    # and a refused statement is never rebuilt (poll_peers skips keys the node already refused)
+    NA._drops.clear()
+    d2 = {**DEV, "att": "QUJE"}
+    check("a second, different statement for the same sender is kept alongside (not overwritten)",
+          NA.drop(a, 150, DEV, 100)["ok"] and NA.drop(a, 150, d2, 100)["ok"] and len(NA.pickup_all(a, 100)) == 2)
+    check("the same statement again is a no-op dup", NA.drop(a, 150, DEV, 100).get("dup") is True and len(NA.pickup_all(a, 100)) == 2)
+    for i in range(NA.MAX_PER_SENDER):
+        NA.drop(a, 150, {**DEV, "att": "QUJ" + chr(70 + i)}, 100)
+    check("per-sender cap holds", len(NA.pickup_all(a, 100)) == NA.MAX_PER_SENDER and not NA.drop(a, 150, {**DEV, "att": "WkpY"}, 100)["ok"])
+    savedB = NA.MAX_BYTES
+    NA.MAX_BYTES = 70
+    try:
+        NA._drops.clear(); NA._bytes[0] = 0
+        check("byte budget refuses beyond the cap", NA.drop(a, 150, DEV, 100)["ok"] and not NA.drop(b, 150, {**DEV, "att": "QUJDQUJDQUJDQUJDQUJD"}, 100)["ok"])
+    finally:
+        NA.MAX_BYTES = savedB
+        NA._drops.clear(); NA._bytes[0] = 0
     saved = NA.MAX_DROPS
     NA.MAX_DROPS = 2
     try:
@@ -137,6 +155,7 @@ def t_poll_peers():
         got = NA.poll_peers(a, ["127.0.0.1", "127.0.0.1"], port)
         check("a drop on a peer is found and carries its origin", got and got["max_block"] == 180 and got["device"] == DEV and got["from"] == "127.0.0.1", got)
         check("no drop for another sender", NA.poll_peers("f" * 46, ["127.0.0.1"], port) is None)
+        check("a statement the node already refused is skipped (never rebuilt/re-verified every 20 s)", NA.poll_peers(a, ["127.0.0.1"], port, skip={got["key"]}) is None)
         check("an unreachable peer is skipped, not fatal", NA.poll_peers(a, ["127.0.0.1"], 1) is None)
     finally:
         srv.shutdown()

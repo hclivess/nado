@@ -686,7 +686,10 @@ async def submit_transaction(request):
             # IDENTITY LOG (gen 25): the per-IP enforcement is gone, the OBSERVATION stays — every register tx
             # leaves one node-local line (ip, sender, entry/renewal, device class, AAGUID, certificate hashes) so
             # "are these identities really individual?" is answered from data: tools/identity_audit.py.
-            identity_log.record(ip, transaction, output.get("result"), output.get("message"))
+            # only USER ingress: a peer re-pushing the same tx (push gossip lands here too, answered "Already
+            # present") would log every relay as "N senders behind one IP" — the farm signature the log exists for
+            if ip not in memserver.peers and output.get("message") != "Already present":
+                identity_log.record(ip, transaction, output.get("result"), output.get("message"))
             return output, (200 if output.get("result") else 403)
         except Exception as e:
             return f"Error: {e}", 403
@@ -1148,8 +1151,8 @@ async def node_attest_drop(request):
     for a NODE's address (ops/node_attest — the phone cannot reach a TLS-less node, so the statement travels
     through any relay). Kept in memory until max_block passes; forwarded ONE hop to this relay's peers so the
     node finds it wherever it polls. Shape-checked only — the kernel verdict happens in the node's own merge.
-    Rate-limited 10/min per IP like the probe."""
-    if _rate_limited(request, 10):
+    Rate-limited 10/min per IP like the probe — except linked peers, whose one-hop forwards carry every wallet's drop."""
+    if _ip(request) not in memserver.peers and _rate_limited(request, 10):
         return _RL()
     try:
         body = await request.json()
@@ -1197,8 +1200,8 @@ async def node_attest_pickup(request):
         tip = int(memserver.latest_block["block_number"])
     except Exception:
         tip = 0
-    b = _na.pickup(str(sender), tip) if sender else None
-    return _resp({"drop": b, "tip": tip})
+    drops = _na.pickup_all(str(sender), tip) if sender else []
+    return _resp({"drop": (drops[-1] if drops else None), "drops": drops, "tip": tip})
 
 
 async def node_attest_status(request):

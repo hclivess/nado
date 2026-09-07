@@ -603,6 +603,12 @@ function deviceGuide(st) {
   if (!st || st.ok) return "";
   const ag = String(st.aaguid || "").replace(/-/g, "").toLowerCase();
   const fmt = st.fmt;
+  // order matters (review 2026-09-07): a hardware wallet's own error, an unsupported browser and a cancelled prompt
+  // are not "no attestation" cases and must not fall into the Windows/Android/Apple guides below
+  if (fmt === "ledger") return (st.reason || "") + "\n\n" + i18("hw.guide.ledger", "");
+  if (fmt === "trezor") return (st.reason || "") + "\n\n" + i18("hw.guide.trezor", "");
+  if (st.reason === "unsupported") return i18("device.guide.none", "What happened: the credential came without a hardware attestation chain, so the network cannot verify the device or bind it to one identity.\n\nWhat is accepted: an Android 12+ phone (locked bootloader, Chrome) or a Windows PC whose Windows Hello key lives in a TPM 2.0.");
+  if (/NotAllowedError|AbortError|cancel|abort/i.test(st.reason || "")) return i18("device.guide.cancelled", "The prompt was cancelled or timed out before the device answered. Press Start again and confirm the prompt on the device within a minute.");
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua), isAndroid = /Android/i.test(ua);
   const isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isMac = /Macintosh/i.test(ua) && !isIos;
@@ -641,6 +647,7 @@ function deviceGuide(st) {
 function deviceHint(st) {
   const ag = String((st && st.aaguid) || "").replace(/-/g, "").toLowerCase();
   const fmt = st && st.fmt;
+  if (st && !st.ok && (fmt === "ledger" || fmt === "trezor")) return st.reason || "";   // the device's own words (review 2026-09-07)
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua), isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isAndroid = /Android/i.test(ua), isLinux = /Linux/i.test(ua) && !isAndroid, isMac = /Macintosh/i.test(ua) && !isIos;
   if (st && st.ok) return "";
@@ -772,14 +779,18 @@ async function nodeAttestTap() {
     // watch the account until the lease appears (a fresh recert epoch), for up to ~3 minutes
     const before = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
     const beforeEp = before ? Number(before.reg_epoch) : -1;
-    for (let i = 0; i < 36; i++) {
+    // a register lands EXACTLY at its target block: watch until the chain is ~10 blocks past it (not a fixed 3 min,
+    // which expired seconds before the lease appeared — review 2026-09-07)
+    for (let i = 0; i < 120; i++) {
       await new Promise((res) => setTimeout(res, 5000));
+      const tipNow = await fetch(relayBase() + "/get_latest_block", { cache: "no-store" }).then((x) => x.json()).then((j) => Number(j.block_number)).catch(() => 0);
       const acc = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
       if (acc && Number(acc.registered) === 1 && Number(acc.reg_epoch) !== beforeEp) {
         log("ok", i18("node.log.registered", "Node {a} is registered — fidelity {f}.", { a: addr.slice(0, 12) + "…", f: Number(acc.fidelity || 0) }));
         await nodeAttestRefresh().catch(() => {});
         return;
       }
+      if (tipNow >= targetBlock + 10) break;     // the landing block is well past: the node did not register
     }
     log("warn", i18("node.log.timeout", "No lease seen yet — the node may be offline, on another chain, or not polling; check its /node_attest_status."));
   } finally {
@@ -791,6 +802,7 @@ async function nodeAttestTap() {
 async function attestDevice(sender, anchorHash, maxBlock) {
   const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);
   const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
+  state.tapArmed = false;                        // the one armed prompt is being spent now
   // HARDWARE WALLET (Ledger over WebHID, Trezor Safe over WebUSB — static/hwattest.js): the user connected it with
   // the button under Start (the connect needs the click), the vendor's own genuineness protocol signs OUR challenge
   // here, and the same {att, cdj, rp} envelope goes into the register tx. The kernel verifies and binds the device.
@@ -848,7 +860,8 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
     return { att, cdj, rp: location.hostname };
   } catch (e) {
-    const stF = { ok: false, reason: (e && e.message) || String(e) };
+    // keep the error NAME: Chrome's NotAllowedError message never says "cancel"; the hints/guides match on the name
+    const stF = { ok: false, reason: (e && e.name ? e.name + ": " : "") + ((e && e.message) || String(e)) };
     setDeviceStatus(stF);
     log("warn", i18("device.attestSkipped", "Device attestation unavailable: {e}", { e: stF.reason }) + " " + deviceHint(stF));
     return null;
@@ -2627,10 +2640,12 @@ async function maybeRegister() {
     setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button) — the device prompt opens only then, one tap per lease."), "warn", "tap");
     show("powWrap", false);
     show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
+    setStartBtnMining();                         // the main button is Stop meanwhile, never a dead spinner (review 2026-09-07)
     return;
   }
   show("regTapRow", false);
-  state.tapArmed = false;
+  // tapArmed is consumed inside attestDevice(), when a prompt actually opens — not here (a transient error before the
+  // prompt used to eat the tap and leave "Registering…" with a "press Register" banner)
   state.registering = true;
   let accepted = false, failed = null;
   try {
@@ -2696,6 +2711,12 @@ async function submitRegistration() {
     setRegBanner(i18("reg.resubmitting", "Resubmitting the attested registration (no new tap needed)…") + REASSURE);
     return await submitRegisterTx(pend.tx, pend.targetBlock);
   }
+  if (pend) {
+    // the kept tx can no longer land: drop it and go back through the Register gate — never straight into a
+    // new device prompt from the poll loop (review 2026-09-07)
+    state.pendingRegisterTx = null;
+    if (!state.tapArmed) { setStartBtnMining(); show("regTapRow", true); return false; }
+  }
   state.pendingRegisterTx = null;
   const targetBlock = latest.block_number + REG_TARGET_MARGIN;
   const etaSec = 5;
@@ -2742,6 +2763,7 @@ async function submitRegistration() {
 async function submitRegisterTx(tx, targetBlock) {
   setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
   log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (max_block ${targetBlock}) via ${relayBase()}.`);
+  if (!state.mining) return false;                // Stop was pressed while the device prompt was open: do not submit
   let res;
   try {
     res = await submitTransaction(tx);
@@ -2751,6 +2773,12 @@ async function submitRegisterTx(tx, targetBlock) {
       log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect; no new tap needed.", { e: e.message }));
     }
     throw e;
+  }
+  // an HTTP 5xx / 429 / 0 from the relay or proxy is NOT a rejection of the tx (review 2026-09-07): keep it too
+  if (!res.ok && (!res.status || res.status >= 500 || res.status === 429)) {
+    state.pendingRegisterTx = { tx, targetBlock };
+    log("warn", i18("reg.submitKept", "The relay did not take the submission ({e}) — the attested registration is kept and resubmitted on reconnect; no new tap needed.", { e: "HTTP " + (res.status || 0) }));
+    throw new RelayUnreachable("relay HTTP " + (res.status || 0));
   }
   state.pendingRegisterTx = null;
   const m = res.data && (res.data.message || JSON.stringify(res.data));
@@ -2969,6 +2997,8 @@ async function startMining() {
 
 function stopMining() {
   state.mining = false;
+  state.tapArmed = false;
+  show("regTapRow", false);
   try { localStorage.removeItem(LS_MINING); } catch (e) {}   // explicit stop -> don't auto-resume on refresh
   clearTimeout(_failRecheckTimer);                           // an explicit stop must not self-heal back to mining
   state.starting = false;
@@ -8576,7 +8606,7 @@ function wireEvents() {
       const d = await r.json();
       if (!d.ok) { say(i18("device.probeFailed", "The relay could not parse the attestation: {e}", { e: d.error || r.status }), "err"); return; }
       const s = d.summary || {}; const ad = s.auth_data || {};
-      const good = s.format_accepted && s.root_pinned;
+      const good = s.format_accepted && s.root_pinned !== false;   // None = root not in x5c (tpm/trezor/ledger): the kernel decides
       const stObj = { ok: good, fmt: s.fmt, aaguid: ad.aaguid || "", format_accepted: !!s.format_accepted, root_pinned: !!s.root_pinned, reason: good ? "ok" : (s.root_pinned ? "format" : "root") };
       const hint = deviceHint(stObj);
       say((good ? i18("device.ok", "Real device attested") : i18("device.weak", "Attestation present but not a pinned vendor root"))
@@ -8605,7 +8635,8 @@ function wireEvents() {
       state.attestVia = kind;
       try { localStorage.setItem("nado_attest_via", kind); } catch (e) {}
       log("ok", i18("hw.connected", "{n} connected — it will vouch for this identity at registration.", { n: state.hwDevice.name }));
-      if (state.mining) state.tapArmed = true; else startMining();
+      state.tapArmed = true;                     // the hardware button IS the register click (no gesture needed later)
+      if (!state.mining) startMining();
     } catch (e) { log("err", i18("hw.failed", "{n}: {e}", { n: kind, e: (e && e.message) || String(e) })); }
   };
   // REGISTER: the one click that opens the device prompt (Windows Hello / Android). Start alone never does.
@@ -8616,7 +8647,7 @@ function wireEvents() {
   };
   if ($("btnHwLedger")) $("btnHwLedger").onclick = () => hwPick("ledger");
   if ($("btnHwTrezor")) $("btnHwTrezor").onclick = () => hwPick("trezor");
-  if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
+  if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; state.tapArmed = false; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");

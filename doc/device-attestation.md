@@ -179,6 +179,13 @@ give that — on a genuine, unrooted Android `adb input tap` automates the tap. 
   vouches for another identity until epoch N". The same sender renews freely; after the lease the device may move.
 - Gate hygiene: `DEVICE_BIND_HEIGHT` is a height ahead of the fleet's adoption on the live betanet-7 chain
   (registrations below it carry no binding and replay unchanged); it becomes 1 at the next reroll.
+- `DEVICE_BIND_STRICT_HEIGHT` (review 2026-09-07, two confirmed holes): the kernel's CBOR keeps the FIRST of
+  duplicate map keys and the consensus Python parser kept the LAST, so one statement could verify as chain A and
+  bind as chain B — from this height the consensus parser refuses duplicate keys (`cbor_decode(strict=True)`, used
+  identically by validation and apply). And because the binding is checked against parent state, N senders could
+  bind one device inside one block — from this height a register tx also occupies the in-block uniqueness key
+  `("devbind", key)` (`reserved_uniqueness_keys`, consumed by assembly and verification alike; the gate is the tx's
+  `max_block`, which is the landing height of a register). Both become 1 at the next reroll.
 
 What this bounds: one Android device (per ~2-week certificate rotation, which is far longer than a lease) or one
 Windows account on one TPM holds ONE open-lane identity at a time. Tests: tests/test_device_binding.py (real

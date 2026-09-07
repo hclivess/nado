@@ -19,8 +19,10 @@ def _b64d(s):
     return base64.b64decode(s + "=" * (-len(s) % 4))
 
 
-def cbor_decode(data: bytes):
-    """Decode ONE CBOR item (subset, see module doc). Raises ValueError on anything else."""
+def cbor_decode(data: bytes, strict: bool = False):
+    """Decode ONE CBOR item (subset, see module doc). Raises ValueError on anything else. `strict` refuses DUPLICATE map
+    keys: the kernel (ciborium) keeps the FIRST duplicate and this decoder kept the LAST, so one statement could verify as
+    chain A and bind as chain B (review 2026-09-07). Consensus paths pass strict from DEVICE_BIND_STRICT_HEIGHT."""
     pos = [0]
 
     def take(n):
@@ -60,6 +62,8 @@ def cbor_decode(data: bytes):
             out = {}
             for _ in range(arg(ai)):
                 k = item()
+                if strict and k in out:
+                    raise ValueError("cbor: duplicate map key")
                 out[k] = item()
             return out
         if mt == 7:
@@ -207,7 +211,7 @@ def cert_validity(der: bytes) -> tuple:
     return nb, na
 
 
-def device_binding_key(device: dict, max_cert_secs: int) -> str:
+def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -> str:
     """The ONE-IDENTITY-PER-DEVICE handle of an attestation (doc/device-attestation.md §"One device, one identity"):
       android-key : "android-key:" + sha256(x5c[1]) — the device's remotely-provisioned attestation-key certificate
                     (subject O=TEE, CN=<device id>, issued by a Droid CA), reused for every credential the device
@@ -218,7 +222,7 @@ def device_binding_key(device: dict, max_cert_secs: int) -> str:
                     that identifies the device, so "no double attestation" cannot be enforced for them.
     Raises ValueError with the reason (the validation turns it into the tx's rejection message). Pure parsing over
     bytes the native kernel has already verified; deterministic by construction (consensus input)."""
-    att = cbor_decode(_b64d(str(device.get("att", ""))))
+    att = cbor_decode(_b64d(str(device.get("att", ""))), strict=strict)
     if not isinstance(att, dict):
         raise ValueError("attestationObject is not a map")
     fmt = att.get("fmt")

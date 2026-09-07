@@ -22,6 +22,13 @@ its sender for one lease (36 h) in consensus state; the same certificate cannot 
 the binding is live. Device classes without a per-device certificate (FIDO2 batch keys, Apple statements,
 batch-attested pre-Android-12 phones) are refused from that block: what cannot be bound is not accepted.
 
+**Strict binding** (`DEVICE_BIND_STRICT_HEIGHT` = 1700). A same-day review found two holes in the binding: duplicate
+CBOR keys let a statement verify as one chain and bind as another, and the parent-state check let several senders bind
+one device inside a single block. From block 1700 the consensus parser refuses duplicate keys and a register
+transaction occupies a per-device uniqueness key in its block. Also from the review: the node-attestation drop store
+is bounded (8 MiB, 16 KB per statement, four per sender, refused statements are never rebuilt), the identity log skips
+peer re-pushes, the mempool file is written synchronously at shutdown, and the Ledger path signs DER correctly.
+
 **Hardware wallets vouch.** A Ledger (WebHID) or a Trezor Safe (WebUSB) can attest the wallet's identity from
 Chrome, Edge or Brave on a computer: the wallet speaks the vendor's own genuineness protocol, the kernel verifies
 the per-device factory key (`ledger`) or per-device certificate chain to Trezor's pinned root key (`trezor`), and

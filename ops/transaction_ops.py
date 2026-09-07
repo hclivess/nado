@@ -768,6 +768,18 @@ def reserved_uniqueness_keys(tx) -> list:
     if base is None:
         return []
     keys = [base]
+    # ONE DEVICE PER BLOCK (DEVICE_BIND_STRICT_HEIGHT): the devbind rule reads PARENT state, so without this key N
+    # senders could bind one device inside a single block. `register` lands exactly at max_block, so max_block is the
+    # block height — a deterministic gate with no height argument. A malformed statement yields no key here; validation
+    # rejects it anyway.
+    if tx.get("recipient") == "register":
+        from protocol import DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        try:
+            if DEVICE_BIND_STRICT_HEIGHT and int(tx.get("max_block", 0)) >= DEVICE_BIND_STRICT_HEIGHT:
+                from ops.device_attest import device_binding_key
+                keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
+        except Exception:
+            pass
     if tx.get("recipient") == "duty":
         d = tx.get("data") or {}
         if isinstance(d.get("attest"), dict):
@@ -1193,12 +1205,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
         # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
         # apply_register writes, at the block's own height.
-        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        from protocol import DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT
         if DEVICE_BIND_HEIGHT and block_height >= DEVICE_BIND_HEIGHT:
             from ops.device_attest import device_binding_key
             try:
-                dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS)
-            except ValueError as e:
+                # strict from DEVICE_BIND_STRICT_HEIGHT: duplicate CBOR keys are refused, so the chain the kernel verified
+                # IS the certificate that gets bound (IndexError/ValueError alike = malformed = invalid)
+                dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
+                                          strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)
+            except (ValueError, IndexError) as e:
                 raise AssertionError(f"register: {e}")
             bound = kv_ops.devbind_get(dkey)
             epoch_now = block_height // EPOCH_LENGTH

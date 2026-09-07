@@ -1519,6 +1519,13 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # Gate hygiene: shipped on the live betanet-7 chain, so it is a HEIGHT ahead of the fleet's adoption (registrations
 # below it carry no binding and replay unchanged); becomes 1 at the next reroll.
 DEVICE_BIND_HEIGHT = 460
+# STRICT BINDING (review 2026-09-07, two confirmed holes): (1) a statement with DUPLICATE CBOR map keys made the kernel
+# verify one chain (first key) while the Python parser hashed another (last key) for the binding — N identities per
+# device; from this height the consensus parser refuses duplicate keys, so both sides see one map. (2) The binding was
+# checked against PARENT state, so N senders could bind the same device inside ONE block; from this height a register tx
+# also occupies the in-block uniqueness key ("devbind", key) — one device per block, in assembly and verification alike.
+# Height-gated for replayability; becomes 1 at the next reroll.
+DEVICE_BIND_STRICT_HEIGHT = 1700
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((

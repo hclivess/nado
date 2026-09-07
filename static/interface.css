@@ -633,3 +633,8 @@ html[data-theme="alarm"] {
 
 /* settings: one card, clearly sectioned — a reader finds "Network" or "Backup" by scanning, not by reading */
 .settings-sect { margin: 24px 0 8px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-faint); }
+
+/* hardware-wallet + Register buttons (Mining page): wrap to full-width rows on a phone instead of squeezing three labels */
+#hwRow > button { flex: 1 1 160px; padding: 8px 12px; white-space: normal; }
+#regTapRow > button { flex: 1 1 100%; }
+@media (max-width: 480px) { #hwRow > button { flex-basis: 100%; } }

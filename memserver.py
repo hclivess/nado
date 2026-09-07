@@ -588,7 +588,9 @@ class MemServer:
                 return len(txs)
             w = getattr(self, "_pool_writer", None)
             if w is not None and w.is_alive():
-                return len(txs)                    # a write is in flight; the next tick re-checks the signature
+                if not force:
+                    return len(txs)                # a write is in flight; the next tick re-checks the signature
+                w.join(timeout=30)                 # shutdown: let it finish, then write the final state synchronously
             self._pool_sig = sig
 
             def _write(txs=txs, sig=sig):

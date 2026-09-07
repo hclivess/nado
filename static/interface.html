@@ -286,10 +286,10 @@
     <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
     <!-- HARDWARE WALLETS (static/hwattest.js): a Ledger (WebHID) or Trezor Safe (WebUSB) vouches for this identity
          instead of the phone/TPM — per-device factory certificates, bindable. Chrome/Edge/Brave on a computer. -->
-    <div class="row mt" id="hwRow" style="gap:8px;flex-wrap:wrap">
-      <button id="btnHwLedger" class="ghost" style="width:auto;padding:6px 12px" data-i18n="hw.ledger">Attest with Ledger</button>
-      <button id="btnHwTrezor" class="ghost" style="width:auto;padding:6px 12px" data-i18n="hw.trezor">Attest with Trezor Safe</button>
-      <button id="btnHwNone" class="ghost" style="width:auto;padding:6px 12px" data-i18n="hw.none">Use this device</button>
+    <div class="row mt" id="hwRow">
+      <button id="btnHwLedger" class="ghost" data-i18n="hw.ledger">Attest with Ledger</button>
+      <button id="btnHwTrezor" class="ghost" data-i18n="hw.trezor">Attest with Trezor Safe</button>
+      <button id="btnHwNone" class="ghost" data-i18n="hw.none">Use this device</button>
     </div>
     <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
     <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->

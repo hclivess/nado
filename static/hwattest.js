@@ -94,7 +94,12 @@ async function ledgerExchange(dev, apdu, timeoutMs = 120000) {
     }
     dev.addEventListener("inputreport", onRep);
   });
-  for (const p of packets) await dev.sendReport(0, p);
+  try {
+    for (const p of packets) await dev.sendReport(0, p);
+  } catch (e) {
+    done.catch(() => {});                                 // the listener/timer are released by the timeout path
+    throw new Error("Ledger transfer failed (unplugged, or another tab / Ledger Live holds it): " + (e && e.message || e));
+  }
   const r = await done;
   const sw = (r[r.length - 2] << 8) | r[r.length - 1];
   if (sw !== 0x9000) {
@@ -109,10 +114,19 @@ function apdu(cla, ins, p1, p2, data = new Uint8Array(0)) {
   return cat(Uint8Array.of(cla, ins, p1, p2, data.length), data);
 }
 
+function derInt(u8) {                                    // DER INTEGER: strip leading zeros, keep a 0x00 pad if the high bit is set
+  let i = 0; while (i < u8.length - 1 && u8[i] === 0) i++;
+  const body = u8.subarray(i);
+  const pad = body[0] & 0x80 ? [0] : [];
+  return cat(Uint8Array.of(0x02, body.length + pad.length), Uint8Array.from(pad), body);
+}
 async function ecdsaDer(priv, msg) {
   const h = await sha256(msg);
   const sig = await secp.signAsync(h, priv);           // RFC 6979, low-S; the device verifies sha256(msg)
-  return sig.toDERRawBytes();
+  // the vendored noble v2 Signature has no toDERRawBytes (review 2026-09-07): build SEQUENCE{INTEGER r, INTEGER s}
+  const c = sig.toCompactRawBytes();
+  const r = derInt(c.subarray(0, 32)), s = derInt(c.subarray(32, 64));
+  return cat(Uint8Array.of(0x30, r.length + s.length), r, s);
 }
 
 // The genuineness handshake of ledgerblue.deployed.getDeployedSecretV2, with hostNonce = challenge[0..8].
@@ -184,8 +198,11 @@ async function trezorSend(dev, type, body) {
     await dev.transferOut(1, p);
   }
 }
+function withTimeout(p, ms, what) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + " — no answer from the device (confirm on it, or reconnect)")), ms))]);
+}
 async function trezorRecv(dev) {
-  let r = await dev.transferIn(1, 64);
+  let r = await withTimeout(dev.transferIn(1, 64), 120000, "Trezor");
   let d = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
   if (d[0] !== 0x3f || d[1] !== 0x23 || d[2] !== 0x23) throw new Error("Trezor: bad frame header");
   const type = (d[3] << 8) | d[4];
