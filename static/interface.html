@@ -750,8 +750,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 
     <!-- STAKING POOLS (protocol.POOL_HEIGHT): a holder without a device delegates bonded stake to an attested identity;
          the pool produces with own + delegated stake under the per-device cap and the chain splits every win. -->
-    <details id="poolWrap" class="mt hidden">
-      <summary class="small dim" style="cursor:pointer" data-i18n="spool.title">Staking pools — delegate savings, or run a pool</summary>
+    <div id="poolWrap" class="mt hidden">
+      <h3 style="margin:18px 0 6px" data-i18n="spool.title">Staking pools — delegate savings, or run a pool</h3>
       <div class="small faint mt" data-i18n="spool.blurb">Savings produce blocks only on an attested device. If you have none, delegate your bonded stake to a pool: the pool's device produces with it, and every block it wins is split between the pool and its delegators in the same block, pro rata, minus the pool's fee. Your coins never leave your account; you can undelegate any time. Whoever runs an attested device can open a pool and set its terms below.</div>
       <div id="poolMine" class="small mt"></div>
       <label class="mt"><span data-i18n="spool.pick">Delegate to a pool</span></label>
@@ -760,8 +760,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
         <button id="btnDelegate" class="accent" data-i18n="spool.delegate">Delegate my savings</button>
         <button id="btnUndelegate" class="ghost" data-i18n="spool.undelegate">Undelegate</button>
       </div>
-      <details id="poolRun" class="mt">
-        <summary class="small dim" style="cursor:pointer" data-i18n="spool.runTitle">Run a pool (needs an attested device)</summary>
+      <div id="poolRun" class="mt">
+        <h3 style="margin:18px 0 6px;font-size:1em" data-i18n="spool.runTitle">Run a pool (needs an attested device)</h3>
         <div class="row mt">
           <label style="flex:1 1 140px"><span data-i18n="spool.fee">Fee (% of delegators' share)</span><input id="poolFee" type="number" min="0" max="100" step="0.1" placeholder="10" /></label>
           <label style="flex:1 1 140px"><span data-i18n="spool.label">Pool name</span><input id="poolLabel" maxlength="32" placeholder="my pool" /></label>
@@ -772,9 +772,9 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
         </div>
         <label class="mt"><input id="poolOpen" type="checkbox" checked /> <span data-i18n="spool.open">Open to new delegators</span></label>
         <button id="btnPoolSave" class="accent mt" style="width:100%" data-i18n="spool.save">Save pool terms</button>
-      </details>
+      </div>
       <div id="poolMsg" class="small mt faint"></div>
-    </details>
+    </div>
 
     <!-- PENDING UNBOND. Leaving savings is two steps: `unbond` records the request (coins stay bonded and
          slashable), and a matured `withdraw` actually moves them. Nothing used to show the request, so an

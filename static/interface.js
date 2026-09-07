@@ -2610,11 +2610,11 @@ function _fmtClock(secsFromNow) {
 }
 function refreshLeasePanel(acc, ms) {
   state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
-  // STAKING POOLS: the pool panel lives on the stake card; refresh it whenever it is open (cheap: one /pools read)
-  if ($("poolWrap") && $("poolWrap").open) refreshPools(acc).catch(() => {});
-  else if ($("poolWrap") && $("poolWrap").classList.contains("hidden") && !refreshLeasePanel._poolChecked) {
-    refreshLeasePanel._poolChecked = true;      // once: reveal the panel if the chain has pools enabled
-    fetchPools().then((d) => { if (d && d.active) show("poolWrap", true); }).catch(() => {});
+  // STAKING POOLS: the panel is always on the Savings card (operator: "pretty important"); /pools is rate-limited
+  // 20/min per IP, so refresh it at most every 30 s per dashboard cycle
+  if ($("poolWrap") && (!refreshLeasePanel._poolAt || Date.now() - refreshLeasePanel._poolAt > 30000)) {
+    refreshLeasePanel._poolAt = Date.now();
+    refreshPools(acc).catch(() => {});
   }
   const wrap = $("leaseWrap"), btn = $("btnRenewLease");
   if (!wrap || !btn) return;
@@ -5212,7 +5212,7 @@ async function refreshPools(acc) {
   const wrap = $("poolWrap"); if (!wrap) return;
   let d = null;
   try { d = await fetchPools(); } catch (e) { show("poolWrap", false); return; }
-  if (!d || !d.active) { show("poolWrap", false); return; }
+  if (!d || !d.active) { show("poolWrap", false); return; }   // hidden only while the chain has no pools yet
   show("poolWrap", true);
   const mine = $("poolMine"), sel = $("poolSelect");
   const me = state.wallet ? state.wallet.address : "";
@@ -8867,7 +8867,6 @@ function wireEvents() {
   if ($("btnPoolSave")) $("btnPoolSave").onclick = () => poolAction("pool");
   if ($("btnDelegate")) $("btnDelegate").onclick = () => poolAction("delegate");
   if ($("btnUndelegate")) $("btnUndelegate").onclick = () => poolAction("undelegate");
-  if ($("poolWrap")) $("poolWrap").addEventListener("toggle", () => { if ($("poolWrap").open) getAccount(state.wallet && state.wallet.address).then(refreshPools).catch(() => {}); });
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
