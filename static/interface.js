@@ -599,14 +599,14 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     // Windows PC with a TPM" on a Windows PC (2026-09-07). The banner gets the specific hint whenever one exists.
     let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
     const hint = (st && !st.ok) ? deviceHint(st) : "";
-    throw new Error(hint || i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
+    throw new Error(hint || i18("device.required", "This device could not attest itself. Mining needs an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or a statement from another device (Attest from another device)."));
   }
   return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
 }
 
 // Ask the PLATFORM authenticator first (phone secure element, Windows Hello TPM, Touch ID) so a device that has one
 // gets its own prompt instead of a chooser; if the platform refuses (no Windows Hello set up, no secure element),
-// fall back to any authenticator, which is how a FIDO2 security key is offered on Linux (2026-09-07).
+// fall back to any authenticator (a security key still answers, but the network refuses its batch certificate — the hint says so).
 async function createAttestedCredential(publicKey) {
   try {
     return await navigator.credentials.create({ publicKey: { ...publicKey,
@@ -651,13 +651,13 @@ function deviceGuide(st) {
     if (isAndroid) return i18("device.guide.androidNone",
       "What happened: the credential came without hardware attestation. Android gives one only from Chrome on an unrooted phone with a locked bootloader, when the phone itself (not a password manager or a synced passkey) creates the key.\n\nFix: use Chrome, choose \"this device\" / screen lock when prompted (not Google Password Manager sync, not a third-party manager), make sure the bootloader is locked and the phone is not rooted, then press Start again. Phones from before Android 12 carry a shared batch certificate and cannot be bound: they are refused.");
     if (isIos || isMac) return i18("device.guide.apple",
-      "What happened: Apple passkeys (iOS 16+, macOS 13+) carry no attestation at all, so an iPhone, iPad or Mac cannot vouch for itself through a web page.\n\nWhat works: a FIDO2 security key is not accepted either (batch certificate, cannot be bound), so today an Apple device cannot mine in the open lane. A native App Attest bridge is the only route and is not shipped yet. You can still hold, send and bond coins here.");
+      "What happened: Apple passkeys (iOS 16+, macOS 13+) carry no attestation, so an iPhone, iPad or Mac cannot vouch for itself through a web page.\n\nWhat works: on a Mac, a Ledger or Trezor in Chrome, Edge or Brave. On an iPhone or iPad, the NADO Attest app. Or press Attest from another device and confirm on another device's wallet.");
     return i18("device.guide.none",
       "What happened: the credential came without a hardware attestation chain, so the network cannot verify the device or bind it to one identity.\n\nWhat is accepted: an Android 12+ phone (locked bootloader, Chrome) or a Windows PC whose Windows Hello key lives in a TPM 2.0.");
   }
   if (st.reason === "unbindable" || fmt === "packed")
     return i18("device.guide.unbindable",
-      "What happened: this authenticator proves it is genuine hardware but carries only a batch certificate shared by 100,000+ units (FIDO privacy rules). Without a per-device certificate the network cannot enforce \"one device, one identity\", so it is refused — that rule is the whole point of attestation.\n\nWhat is accepted: an Android 12+ phone (per-device attestation certificate) or a Windows PC with Windows Hello on a TPM 2.0 (per-device AIK certificate).");
+      "What happened: this authenticator proves it is genuine hardware but carries only a batch certificate shared by 100,000+ units. Without a per-device certificate the network cannot enforce one device, one identity, so it is refused.\n\nWhat works: an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad \u2014 or Attest from another device.");
   if (/NotAllowed|cancel|abort/i.test(st.reason || ""))
     return i18("device.guide.cancelled", "The prompt was cancelled or timed out before the device answered. Press Start again and confirm the prompt on the device within a minute.");
   return "";
@@ -672,25 +672,25 @@ function deviceHint(st) {
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua), isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isAndroid = /Android/i.test(ua), isLinux = /Linux/i.test(ua) && !isAndroid, isMac = /Macintosh/i.test(ua) && !isIos;
   if (st && st.ok) return "";
-  if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or plug in a FIDO2 security key.");
-  if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set up a PIN with a TPM 2.0 available (tpm.msc), or use a FIDO2 security key.");
-  if (st && st.reason === "unbindable") return i18("device.hint.unbindable", "A FIDO2 security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android 12+ phone or a Windows PC with a TPM 2.0.");
+  if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or use a Ledger, a Trezor, or Attest from another device.");
+  if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set the PIN up with a TPM 2.0 available (tpm.msc), or use a Ledger, a Trezor, or Attest from another device.");
+  if (st && st.reason === "unbindable") return i18("device.hint.unbindable", "A security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.");
   if (st && st.reason === "unsupported") {
-    if (isLinux) return i18("device.hint.linux", "Linux has no built-in attesting authenticator: plug in a FIDO2 security key (YubiKey, SoloKey, Titan…) and retry.");
+    if (isLinux) return i18("device.hint.linux", "Linux has no attesting hardware of its own: connect a Ledger or Trezor (Chrome, Edge or Brave), or use Attest from another device.");
     if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
-    return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+    return i18("device.hint.generic", "Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.");
   }
   if (fmt === "none") {
     if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
     if (isAndroid) return i18("device.hint.androidNone", "This credential came without hardware attestation. Use Chrome on an unrooted phone with a locked bootloader, choose the phone itself (not a synced passkey), and retry.");
-    if (isIos) return i18("device.hint.iosNone", "This credential came without hardware attestation. On iPhone choose the device itself when prompted; if only a synced passkey is offered, use a FIDO2 security key.");
-    if (isMac) return i18("device.hint.mac", "A Mac's Touch ID passkey carries no attestation chain: plug in a FIDO2 security key.");
-    return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+    if (isIos) return i18("device.hint.iosNone", "An iPhone or iPad passkey carries no attestation. Use the NADO Attest app on this device, or Attest from another device.");
+    if (isMac) return i18("device.hint.mac", "A Mac's Touch ID passkey carries no attestation: connect a Ledger or Trezor (Chrome, Edge or Brave), or use Attest from another device.");
+    return i18("device.hint.generic", "Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.");
   }
-  if (fmt && !st.format_accepted) return i18("device.hint.format", "Attestation format {f} is not accepted: use a phone, a TPM PC or a FIDO2 security key.", { f: fmt });
-  if (st && st.root_pinned === false) return i18("device.hint.root", "The maker's root certificate is not in the pinned set. A security key must be a FIDO2 model with full attestation; phones and TPM PCs are accepted as-is.");
+  if (fmt && !st.format_accepted) return i18("device.hint.format", "Attestation format {f} is not accepted: use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.", { f: fmt });
+  if (st && st.root_pinned === false) return i18("device.hint.root", "The maker's root certificate is not in the pinned set. Accepted: an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad. Security keys are not.");
   if (st && /NotAllowed|cancel|abort/i.test(st.reason || "")) return i18("device.hint.cancelled", "The prompt was cancelled. Retry and confirm on the device.");
-  return i18("device.hint.generic", "Use a phone, a Windows PC with a TPM, or a FIDO2 security key.");
+  return i18("device.hint.generic", "Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.");
 }
 
 // What this device last proved (persisted so the mining page can say it before the first registration).
@@ -712,8 +712,8 @@ function renderDeviceStatus() {
     el.className = "small mt ok"; return;
   }
   el.textContent = st.reason === "unsupported"
-    ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. A computer, VM or emulator will not be able to mine once the device rule is active; use a phone.")
-    : i18("device.mineFailed", "Real device: attestation failed ({e}). Mining will require a genuine, un-rooted phone once the device rule is active.", { e: st.reason || "" });
+    ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.")
+    : i18("device.mineFailed", "Real device: attestation failed ({e}). Mining needs an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or Attest from another device.", { e: st.reason || "" });
   el.className = "small mt warn";
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
@@ -798,7 +798,7 @@ async function nodeAttestTap() {
     if (!anchorHash) throw new Error("registration anchor block unavailable");
     log("info", i18("node.log.attesting", "Attesting node {a}… — approve the prompt on this device.", { a: addr.slice(0, 12) + "…" }));
     const device = await attestDevice(addr, anchorHash, targetBlock);
-    if (!device) throw new Error(i18("device.required", "This device could not attest itself. Mining needs a real phone, a Windows PC with a TPM, or a FIDO2 security key."));
+    if (!device) throw new Error(i18("device.required", "This device could not attest itself. Mining needs an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor, or the NADO app on iPhone/iPad — or a statement from another device (Attest from another device)."));
     const r = await fetch(relayBase() + "/node_attest_drop", { method: "POST", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ sender: addr, max_block: targetBlock, device }) });
     const d = await r.json().catch(() => ({}));
