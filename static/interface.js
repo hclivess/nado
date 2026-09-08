@@ -2431,6 +2431,20 @@ function setStartBtnWaitingReg() {
   b.textContent = i18("btn.stopWait", "Stop");
   if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
 }
+// REGISTRATION GATE: nothing is mined until a registration lands, so the loop does not run and the main button is the
+// idle "Start mining" — only the Register button (and the banner saying why) stay. Pressing Register starts the loop
+// (that press is the one that opens the device prompt). No "Stop" while nothing runs (2026-09-08).
+function haltForRegister() {
+  state.mining = false;
+  state.starting = false;
+  state.registering = false;
+  stopPollLoop();
+  releaseWakeLock();
+  show("powWrap", false);
+  setStartBtnIdle();
+  if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
+  show("regTapRow", true);
+}
 function setStartBtnIdle(label) {
   const b = $("btnMine");
   b.disabled = false;
@@ -2733,6 +2747,7 @@ async function maybeRegister() {
         setRegBanner(i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
         show("powWrap", false); show("regTapRow", false);
         setStartBtnWaitingReg();
+        if ($("mineState")) $("mineState").textContent = i18("mine.waitingOther", "Not mining — waiting for another device to vouch");
         return;
       }
     } catch (e) { /* relay blip: next tick */ }
@@ -2741,8 +2756,7 @@ async function maybeRegister() {
   if (!state.tapArmed && !state.pendingRegisterTx && !permLive) {   // a kept (already attested) tx needs no new tap
     setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
     show("powWrap", false);
-    show("regTapRow", true);                     // the explicit Register button — the ONLY thing that opens a prompt
-    setStartBtnWaitingReg();                     // the main button is Stop meanwhile, never a dead spinner (review 2026-09-07) — and never "Stop mining" while nothing mines
+    haltForRegister();                           // the loop stops; the Register button is the only thing that opens a prompt
     return;
   }
   show("regTapRow", false);
@@ -2817,7 +2831,7 @@ async function submitRegistration() {
     // the kept tx can no longer land: drop it and go back through the Register gate — never straight into a
     // new device prompt from the poll loop (review 2026-09-07)
     state.pendingRegisterTx = null;
-    if (!state.tapArmed) { setStartBtnWaitingReg(); show("regTapRow", true); return false; }
+    if (!state.tapArmed) { haltForRegister(); return false; }
   }
   state.pendingRegisterTx = null;
   const targetBlock = latest.block_number + REG_TARGET_MARGIN;
