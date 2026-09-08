@@ -579,10 +579,13 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   // gen 25: the registration proof IS the device attestation (doc/device-attestation.md). The sequential-work
   // proof was retired at the betanet-7 reroll; `requiredT` and `onProgress` stay in the signature for callers.
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
-  const r = await fetch(relayBase() + "/get_block?number=" + anchorNum, { cache: "no-store" });
-  const b = await r.json().catch(() => null);
+  // A slow link (Cloudflare adds 1-4 s, a mobile carrier more) must not cost the user a device tap: the anchor read
+  // gets rpcJSON's retry and a 25 s budget instead of a bare fetch (a Nigerian Android user got "relay unavailable"
+  // five times in a row on 2026-09-08 while the relay was fine and his phone attested perfectly each time).
+  let b = null;
+  try { b = (await rpcJSON("/get_block?number=" + anchorNum, { timeout: 25000 })).data; } catch (e) { b = null; }
   const anchorHash = b && b.block_hash;
-  if (!anchorHash) throw new Error("registration anchor block unavailable");
+  if (!anchorHash) throw new RelayUnreachable("registration anchor block unavailable");
   if (onProgress) { try { onProgress(1, 1); } catch (e) {} }
   // BOUND FOR LIFE (doc/device-attestation.md §"Binding modes"): an identity whose devbind row is a live permanent binding
   // (Ledger / Trezor) renews its presence lease with a register tx that carries NO statement — the account key signs, no
@@ -2834,10 +2837,16 @@ function showRegProgress(label, stats) {
 // acceptance. Does NOT wait for on-chain confirmation (the poll loop owns that). Returns true if the
 // tx was accepted into the mempool, false if the relay rejected it.
 async function submitRegistration() {
-  // need latest block for max_block
-  const latest = await getLatestBlock();
+  // need latest block for max_block — and if the relay is slow right now, the tip the poll loop read a moment ago is
+  // good enough for a target REG_TARGET_MARGIN blocks out (a stale target only costs a "window passed" retry, never a tap)
+  let latest = await getLatestBlock();
+  if ((!latest || typeof latest.block_number !== "number") && typeof state.latest === "number" && state.latest > 0
+      && state.latestAt && Date.now() - state.latestAt < 90000) {
+    latest = { block_number: state.latest };
+    log("warn", i18("reg.tipFallback", "The relay is slow — using the last known tip ({n}) for this registration.", { n: state.latest }));
+  }
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
-  state.latest = latest.block_number;
+  state.latest = latest.block_number; state.latestAt = Date.now();
   // gen 25: the registration proof is the device attestation (one tap) — no sequential work, no difficulty
   // lookup. `register` lands EXACTLY at max_block, so the margin is just propagation headroom.
   const diff = { reqT: 0, mult: 1, entryMult: 1, recent: 0 };
@@ -2888,7 +2897,7 @@ async function submitRegistration() {
   try {
     const now = await getLatestBlock();
     if (now && typeof now.block_number === "number") {
-      state.latest = now.block_number;
+      state.latest = now.block_number; state.latestAt = Date.now();
       if (now.block_number >= targetBlock) {
         // gen 25: no hashing, no rate — the tap simply took longer than the window (or the relay's tip jumped).
         log("warn", i18("log.regWindowPassed",
@@ -2970,7 +2979,7 @@ async function pollOnce() {
   try {
     const latest = await getLatestBlock();
     if (latest && typeof latest.block_number === "number") {
-      state.latest = latest.block_number;
+      state.latest = latest.block_number; state.latestAt = Date.now();
       setConn(true, latest.block_number);
       outboxTick(latest.block_number).catch(() => {});
     } else {
@@ -4506,7 +4515,7 @@ async function nextTargetBlock() {
   // quickly. (Flexibly-landing txs use nextFlexTarget for a wide expiry window instead.)
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
-  state.latest = latest.block_number;
+  state.latest = latest.block_number; state.latestAt = Date.now();
   return latest.block_number + 8;
 }
 
@@ -4516,7 +4525,7 @@ async function nextFlexTarget() {
   // does not expire (and re-gossip-flood "Target block too low") before a producer includes it.
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
-  state.latest = latest.block_number;
+  state.latest = latest.block_number; state.latestAt = Date.now();
   return latest.block_number + TX_TARGET_MARGIN;
 }
 
