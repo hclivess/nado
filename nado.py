@@ -1169,7 +1169,7 @@ async def pools(request):
         # YIELD STATS (operator 2026-09-08: "show some stats so people know where it is best to delegate"): each pool's
         # producing weight in the next slot's draw and the lane total, plus what a bonded block pays its producer and how
         # many bonded slots a day has — the wallet turns that into "≈ X NADO/day per 100 NADO" after the pool's fee.
-        from .block_ops import _mining_status_lanes as _lanes, get_block_reward as _gbr
+        from ops.block_ops import _mining_status_lanes as _lanes, get_block_reward as _gbr
         try:
             _, _, _breg, _, _tot_w, _bwt, _ = _lanes(epoch_of(tip + 1))
         except Exception:
