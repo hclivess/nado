@@ -3594,6 +3594,10 @@ async function refreshDashboard() {
   const addr = state.wallet.address;
   const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
   state.lastMs = ms;   // cache the authoritative mining status (pollOnce reads registered_present from it)
+  // The device line is drawn from localStorage at boot, BEFORE the relay has answered; it was never redrawn once the
+  // chain's view arrived, so a wallet whose Ledger had moved to a node kept reading "attested ✓ (ledger)" for the whole
+  // session (operator, 2026-09-08). Redraw on every dashboard cycle: the chain, not the last tap, decides.
+  try { renderDeviceStatus(); } catch (e) {}
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
   refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
 
