@@ -244,13 +244,12 @@ no root churn). The code stays in git if a reason ever returns.
 > that goes dark is **leaked from the finality quorum** (its vote lapses, its bond untouched) and a live
 > attesting majority can always finalize.
 
-> **Bonded mining is passive — no work beyond keeping the device lease.** Once you hold enough to bond (`B_MIN =
-> 10 NADO`), the bonded lane is **staking**: there is nothing to compute and no node to run — the beacon draws
-> you in proportion to your (curved) stake, and because winners are credited **by address**, a relay builds your
-> winning block even while you're offline. The one upkeep is the device lease: a phone or TPM re-attests every
-> 36 h from the open wallet, a Ledger or Trezor attests once for life and the lease renews itself — and since
-> block 16150 savings need no device at all. With **auto-bond** on, rewards compound straight back
-> into stake, so it grows hands-free. Two honest caveats: (1) a *freshly* bonded stake ramps to full
+> **Bonded mining is passive — nothing to run, nothing to renew.** Once you hold enough to bond (`B_MIN =
+> 10 NADO`), the bonded lane is **staking**: there is nothing to compute, no node to run and, since block 16150, no
+> device to attest — the beacon draws you in proportion to your (curved) stake, and because winners are credited
+> **by address**, a relay builds your winning block even while you're offline. A device is still what earns the free
+> lane and the presence dividend, and a staker who attests one gets that on top. With **auto-bond** on, rewards
+> compound straight back into stake, so it grows hands-free. Two honest caveats: (1) a *freshly* bonded stake ramps to full
 > selection weight over `BOND_RAMP_EPOCHS` (~30 epochs) — an automatic anti-sudden-whale delay, no action
 > needed — after which it earns at full rate; (2) your share is **competitive** (proportional to your slice
 > of *total* bonded stake), and this lane is **rich-get-richer by design** (stake = yield, as in any
