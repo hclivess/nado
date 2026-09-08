@@ -1608,6 +1608,13 @@ POOL_HEIGHT = 6000
 # undelegate transactions are refused. Account fields (pool_to, pool_*) stay in state untouched — no sweep, no root
 # churn — and are simply dead. REROLL: keyed on the generation — at the next reroll this is 1 (pools never live).
 POOL_RETIRE_HEIGHT = 16900 if CHAIN_GENERATION == 25 else 1
+# THE KNEE IS GONE (operator decision 2026-09-09: "just remove the knee now... no gating"). With free keys every per-wallet
+# curve is undone by splitting at the knee — it shaped nobody's weight (no identity was above 1,000 NADO) and only taxed
+# the uninformed while inviting wallet sprawl. From this height the savings-lane producer weight is plain stake. The
+# height is NOW (no waiting window): nobody was above the knee, so nodes updating minutes apart draw identically; the
+# constant exists only so blocks 11800-16900, drawn with the curve while pools sat above the knee, still replay.
+# REROLL: keyed on the generation — plain stake from genesis at the next reroll.
+BOND_CURVE_RETIRE_HEIGHT = 19400 if CHAIN_GENERATION == 25 else 1
 POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delegators' portion (its own choice, visible)
 POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
 POOL_MAX_MEMBERS = 1000              # pools are no longer bounded by the device cap (BOND_WEIGHT_CURVE_HEIGHT); sanity bound

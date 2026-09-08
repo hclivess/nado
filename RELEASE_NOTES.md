@@ -1,5 +1,9 @@
 # betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
+**2026-09-09 — the knee is gone (from block 19400; plain stake from genesis at the next reroll).** Savings-lane weight
+is stake, one for one. With free keys a per-wallet curve is undone by splitting at the knee; it shaped nobody's weight
+and only invited wallet sprawl. Nothing to do for anyone; one wallet is enough.
+
 **2026-09-08 night — staking pools retired (gated at block 16900; never enabled at the next reroll).** With the bonded
 lane device-free, a pool could pay a delegator at most what solo staking pays, minus a fee (nadochain.com's delegators
 were at 51 % of solo, ninja pool's at 79 %). From the gate every bonded identity produces alone, delegations are

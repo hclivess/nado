@@ -92,6 +92,12 @@ def main():
     check("an unattested identity counts on the curve (not zero)", all(pro[k]["bonded"] > 0 for k in unatt), unatt)
     check("with no open registry at all the draw is the same set (the fallback is moot)", set(M.bonded_producer_registry(reg, {}, og)) == set(pro))
     check("the wallet mirror carries bond_attest_required", '"bond_attest_required"' in open(os.path.join(ROOT, "ops", "block_ops.py")).read())
+    # 5. BOND_CURVE_RETIRE_HEIGHT (2026-09-09): plain stake — the raw registry, same object, no curve, no cap, no filter
+    rg = P.BOND_CURVE_RETIRE_HEIGHT
+    check("curve-retire gate is at/after the pool-retire gate", rg >= P.POOL_RETIRE_HEIGHT)
+    check("the slot before it still applies the curve", M.bonded_producer_registry(big, {}, rg - 1)[a]["bonded"] < 50_000 * N)
+    check("from it: the raw registry, weight = stake", M.bonded_producer_registry(big, {}, rg) is big)
+    check("the wallet mirror carries bond_plain", '"bond_plain"' in open(os.path.join(ROOT, "ops", "block_ops.py")).read())
     w0 = M.select_producer_two_lane({}, reg, beacon, next(s for s in range(gate, gate + 600) if M.lane_of(s, beacon) == "bonded"))
     check("... and a bonded slot still produces", w0 in reg, w0)
     # 5. fork weight untouched

@@ -213,8 +213,12 @@ def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: i
     LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
     set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
     entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT
     if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
+        return bonded_registry
+    # PLAIN STAKE from BOND_CURVE_RETIRE_HEIGHT (protocol.py): no device filter, no pools, no cap, no curve — the raw
+    # registry, weight = stake. Everything below this line is history (blocks 4200-19399) kept for replay.
+    if BOND_CURVE_RETIRE_HEIGHT and slot >= BOND_CURVE_RETIRE_HEIGHT:
         return bonded_registry
     # POOLS LIVE ONLY BETWEEN POOL_HEIGHT AND POOL_RETIRE_HEIGHT (protocol.py): outside that window pool_to / pooled are
     # ignored and every bonded identity is drawn on its own stake. INVARIANT: this is the one place the draw reads

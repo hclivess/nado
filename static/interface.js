@@ -2828,7 +2828,7 @@ function renderDelegationLine(acc, ms) {
   }
   if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
     badge("ok", i18("ovw.producing", "Producing"));
-    el.textContent = i18("ovw.producingDetail", "weight {e} · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
+    el.textContent = i18("ovw.producingDetail", "{e} NADO counting · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
     return;
   }
   badge("no", i18("ovw.idle", "Idle"));

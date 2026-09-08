@@ -434,6 +434,18 @@ the free lane and the dividend, which this decision does not touch.
 - **Pools** stay as a feature; above the knee a pool pays each coin at most what solo pays.
 - **Tests**: `tests/test_bond_device_cap.py` pins the slot before the gate (attested-only) and the slot at it.
 
+## The knee removed (`BOND_CURVE_RETIRE_HEIGHT` = 19400, 2026-09-09)
+
+Operator decision: "just remove the knee now... no gating." With free keys every per-wallet curve is undone by splitting
+at the knee (marginal weight falls below 1 exactly there, a fresh wallet's first coin counts 1), so the curve shaped
+nobody's weight — no identity was above 1,000 NADO — and only taxed the uninformed while inviting wallet sprawl. A
+taper from 10 NADO would make 10-NADO wallets the optimal size and grow the registry with every serious holder's
+script. From the gate `bonded_producer_registry` returns the raw registry: weight = stake. The height is *now* rather
+than a window because nobody was above the knee, so nodes updating minutes apart draw identically; the constant exists
+only so blocks 11800-16900, drawn with the curve while pools sat above the knee, still replay. Keyed on the
+generation: plain stake from genesis at the next reroll. `/mining_status`: `bond_plain` True, `bond_knee` 0,
+`bond_cap_active` False. Tests: `tests/test_bond_device_cap.py` §5.
+
 ## Apple devices
 
 Not an accepted class (decision 2026-09-07). Passkeys carry no attestation. Apple's App Attest bridge was built,

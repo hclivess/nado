@@ -738,7 +738,9 @@ def mining_status(address, latest_block_number, block_time):
     _pools_off = bool(_PR_H and next_block >= _PR_H)          # retired: delegation ignored, every identity solo
     _cand_total = sum(int(i.get("bonded", 0)) + (0 if _pools_off else int(i.get("pooled", 0))) for a, i in _raw_reg.items()
                       if (a in open_reg or not _attest_req) and (_pools_off or not i.get("pool_to")))
-    _my_knee = _bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC)
+    from protocol import BOND_CURVE_RETIRE_HEIGHT as _BCR_H
+    _plain = bool(_BCR_H and next_block >= _BCR_H)              # the knee is gone: weight = stake
+    _my_knee = 0 if _plain else (_bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC))
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
     expected_wins_per_block = 0.0
@@ -758,7 +760,7 @@ def mining_status(address, latest_block_number, block_time):
         "my_open_weight": my_open, "my_bonded_shares": my_bonded,
         # SAVINGS-LANE CAP: is the cap live for the next block, does this identity's stake count in the producer draw
         # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"
-        "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H),
+        "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H) and not _plain,   # False from BOND_CURVE_RETIRE_HEIGHT
         "bond_attest_required": _attest_req,      # False from BOND_ATTEST_OPTIONAL_HEIGHT: savings produce without a device
         "pools_retired": _pools_off,              # True from POOL_RETIRE_HEIGHT: pool_to is dead state, the wallet says so
         "bonded_producing": address in bonded_reg,
@@ -766,7 +768,8 @@ def mining_status(address, latest_block_number, block_time):
         "bond_device_cap": int(_BDC),
         # THE CURVE: this identity's producing weight (own + delegated stake through the knee/tail) and its knee
         "my_bonded_effective": int(bonded_reg[address]["bonded"]) if address in bonded_reg else 0,
-        "bond_knee": _my_knee,
+        "bond_knee": _my_knee,                    # 0 once the knee is gone
+        "bond_plain": _plain,
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
         "bonded_producer_cut": int(__import__("protocol").split_bonded_block_reward(int(get_block_reward()))[0]),

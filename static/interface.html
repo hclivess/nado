@@ -391,7 +391,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
-    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight follows the knee curve: one-for-one up to at least 1,000 NADO, flattening above it. 0 = off.">
+    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">
       <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards</label>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
@@ -724,7 +724,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="hint-banner mt" style="display:block">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <label style="margin:0" data-i18n="stake.apyLabel">Savings APY
-          <span class="hint" data-i18n-title="tip.apy" title="Estimated from the reward of recent blocks: the savings lane mints 70 % of blocks and a savings block pays its producer 50 % of the reward (40 % feeds the presence dividend, 10 % the treasury), shared across the lane\'s producing weight in shares of 10 NADO. Your own weight follows the knee curve. An estimate, not a promise.">ⓘ</span>
+          <span class="hint" data-i18n-title="tip.apy" title="Estimated from the reward of recent blocks: the savings lane mints 70 % of blocks and a savings block pays its producer 50 % of the reward (40 % feeds the presence dividend, 10 % the treasury), shared across all bonded stake. Your weight is your stake. An estimate, not a promise.">ⓘ</span>
         </label>
         <button id="btnApy" class="ghost" style="width:auto;padding:6px 12px" data-i18n="stake.apyBtn">Estimate</button>
       </div>
@@ -747,7 +747,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          (no cap: bonded weight is linear in stake). Applies in THIS browser while the tab is mining. -->
     <div class="hint-banner mt" style="display:block">
       <label style="margin:0" data-i18n="stake.autobond">Auto-bond mining rewards
-        <span class="hint" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight follows the knee curve: one-for-one up to at least 1,000 NADO, flattening above it. 0 = off.">ⓘ</span>
+        <span class="hint" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">ⓘ</span>
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
         <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:96px" />
@@ -768,7 +768,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          the pool produces with own + delegated stake under the per-device cap and the chain splits every win. -->
     <div id="poolWrap" class="mt hidden">
       <h3 style="margin:18px 0 6px" data-i18n="spool.title">Staking pools — delegate savings, or run a pool</h3>
-      <div class="small faint mt" data-i18n="spool.blurb">Savings produce blocks on their own, weighted by the knee curve. A pool bundles several holders' stake under one identity and splits every block it wins pro rata, minus the pool's fee; the picker shows what each pool pays per 100 NADO so you can compare with going solo. Coins never leave your account; undelegate any time.</div>
+      <div class="small faint mt" data-i18n="spool.blurb">Savings produce blocks on their own: weight is stake, one for one, no device and nothing to renew. Coins never leave your account and unbond after a timelock.</div>
       <div id="poolMine" class="small mt"></div>
       <label class="mt"><span data-i18n="spool.pick">Delegate to a pool</span></label>
       <select id="poolSelect" class="mt" style="width:100%"></select>

@@ -194,26 +194,22 @@ present**. Mine to **one address** — a second address needs a second real devi
 ### The BONDED lane (optional stake)
 
 A `bond` transaction moves spendable balance into a non-spendable `bonded` column; an `unbond`/`withdraw`
-pair moves it back out after a timelock (see below). Bonded **producer** weight is stake on a curve
-(`mining_ops.bond_weight`, from block 11800 of betanet-7), and **needs no device** (from block 16150 of betanet-7;
-between blocks 4200 and 16150 the lane was attested-only — see below for why that was dropped):
+pair moves it back out after a timelock (see below). Bonded **producer** weight is **stake, one for one** (from block
+19400 of betanet-7; plain stake from genesis at the next reroll), with **no device**, no lease and nothing to renew:
 
-- **No device, no lease, nothing to renew.** Every bonded identity that is not delegating is in the producer draw
-  (`bonded_producer_registry`). A device is still what earns the free lane and the presence dividend, and a staker who
-  also attests one keeps earning that dividend on top. Finality and fork weight are linear stake as before
-  (`total_bonded_shares`), so neither ever depended on devices.
-- **The curve.** Stake counts one-for-one up to a **knee** = max(1,000 NADO, 5 % of the *other* producing
-  identities' stake) — an identity's own stake never lifts its own knee — then flattens: weight = K·(1.5 − 0.5·K/stake),
-  continuous with slope 1 at the knee, saturating at **1.5 K**. `/mining_status` reports `my_bonded_effective` and
-  `bond_knee`.
-- **What the curve is and is not.** Below the knee it is plain stake weight and split-neutral. Above it, a holder
-  regains linear weight by splitting across keys, and keys are free — so the curve shapes variance, not
-  concentration. That is by design: **capital is the Sybil resistance of a bonded lane**. Read the numbers before
-  arguing for a per-identity cap here: on the live lane (46 keys, 6,385 NADO) the attested-only rule idled 13 keys and
-  1,231 NADO (19 % of stake), cost honest device owners ~40 % of their share against plain stake weight, and stopped
-  only a whale with **one** phone — 10,000 NADO on three phones took 62-72 % of the lane, the same 61 % plain
-  proof of stake gives. Every per-device rule is linear in devices and phones are cheap next to 10,000 NADO. The
-  device rule was kept where it actually discriminates: the free lane and the dividend.
+- **Weight = stake.** Every bonded identity that is not delegating is in the producer draw with its bonded amount
+  (`bonded_producer_registry` returns the raw registry). Finality and fork weight are the same linear stake
+  (`total_bonded_shares`). A device is still what earns the free lane and the presence dividend, and a staker who
+  attests one keeps earning that on top.
+- **What was tried and removed, with the numbers.** Blocks 4200-16150 required a device for the bonded draw: on the
+  live lane (46 keys, 6,385 NADO) that idled 19 % of stake, cost honest device owners ~40 % of their share against
+  plain stake weight, and stopped only a whale with **one** phone (10,000 NADO on three phones took 62-72 %, plain
+  proof of stake 61 %). Blocks 11800-19400 shaped weight with a knee curve (one-for-one to 1,000 NADO, flattening
+  above): with free keys any per-wallet curve is undone by splitting at the knee, so it shaped nobody's weight and
+  only invited wallet sprawl. Both stay in the code for replay; both are gated on the generation and vanish at a
+  reroll. **Capital is the Sybil resistance of a bonded lane.** What limits concentration on NADO is the share of
+  emission capital cannot reach: 30 % of blocks and ~49 % of all emission go to attested devices, one per identity.
+- **Which wallet, how many?** One is enough; nothing is gained by splitting and nothing is lost by not splitting.
 
 #### Staking pools — retired (live from block 6000 to block 16900 of betanet-7)
 
@@ -614,13 +610,11 @@ wins immediately. The wallet asks "this Ledger vouches for
 another account — rebind it here?" before the tap is spent. One hardware wallet per identity. A node attested with
 a hardware wallet renews itself the same way; the operator attests once.
 
-**Savings stake counts on a curve, device or not (curve from block 11800, device optional from block 16150 of betanet-7).**
-A bonded identity's producing weight is its stake up to a knee, at least 1,000 NADO and 5 % of the other producing
-identities' stake when that is more, then flattens toward one and a half knees. Between blocks 4200 and 16150 only
-attested identities were drawn; the numbers on the live lane (idle stake, the cost to device owners, and a three-phone
-whale beating the rule) are in the *bonded lane* section above and in `protocol.py`. Unattested stake always voted for
-finality and counted as fork weight; now it produces too. Nothing about the device rule on the free lane or the
-dividend changed: an attested staker earns both.
+**Savings stake is weight, device or not (device optional from block 16150, the knee curve removed at block 19400
+of betanet-7).** A bonded identity's producing weight is its stake. Between blocks 4200 and 16150 only attested
+identities were drawn and between 11800 and 19400 a knee curve shaped weight; the numbers that retired both are in
+the *bonded lane* section above and in `protocol.py`. Nothing about the device rule on the free lane or the dividend
+changed: an attested staker earns both.
 
 **iPhone, iPad, Mac.** Apple devices are not an accepted device class (decision 2026-09-07). Apple passkeys carry
 no attestation, and Apple's App Attest — built, tested against a real iPad and then withdrawn — carries no per-device
@@ -833,7 +827,7 @@ code.
   types never collide — revert-symmetric on rollback, and the coins are **destroyed** (the deterrent is
   the loss, not a bounty). Validation requires the offender still hold the penalty so the dock never
   floors. **This punishes equivocation, not Sybil-ness** — Sybil resistance is a separate mechanism
-  (open lane capped at `OPEN_BPS = 30%` + one real device per identity; bonded lane stake-weighted on a curve, device optional).
+  (open lane capped at `OPEN_BPS = 30%` + one real device per identity; bonded lane plain stake, device optional).
 - **FFG stake-attested finality (enforced)** — bonded validators emit one `attest` transaction per epoch
   for that epoch's checkpoint (its first block). A checkpoint **justifies** when attesting bonded shares
   *strictly* exceed >2/3 (`FFG_NUM/FFG_DEN = 2/3`) of the **active** quorum, and **finalizes** on
