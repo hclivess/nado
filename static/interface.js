@@ -802,11 +802,58 @@ function nodeAttestInit() {
       nodeAttestRefresh().catch(() => {});
     });
     btn.addEventListener("click", () => { nodeAttestTap().catch((e) => log("err", String(e && e.message || e))); });
-    $("nodeAttestWrap").addEventListener("toggle", () => { if ($("nodeAttestWrap").open) nodeAttestRefresh().catch(() => {}); });
+    $("nodeAttestWrap").addEventListener("toggle", () => { if ($("nodeAttestWrap").open) { nodeAttestRefresh().catch(() => {}); renderVouched().catch(() => {}); } });
   }
   if ($("nodeAttestWrap").open) nodeAttestRefresh().catch(() => {});
+  renderVouched().catch(() => {});                 // the badge counts the ones due even while the panel is collapsed
 }
 
+// THE VOUCHED LIST: addresses this device attested (node-local), each with its lease state. Refreshed when the panel
+// opens and once a minute from the dashboard; the summary badge says how many are due so the reminder survives collapse.
+const LS_VOUCHED = "nado_vouched";
+function vouchedList() { try { const l = JSON.parse(localStorage.getItem(LS_VOUCHED) || "[]"); return Array.isArray(l) ? l.filter((a) => /^[0-9a-f]{46}$/.test(a)) : []; } catch (e) { return []; } }
+function vouchedAdd(addr) { const l = vouchedList(); if (!l.includes(addr)) { l.push(addr); try { localStorage.setItem(LS_VOUCHED, JSON.stringify(l)); } catch (e) {} } }
+function vouchedRemove(addr) { try { localStorage.setItem(LS_VOUCHED, JSON.stringify(vouchedList().filter((a) => a !== addr))); } catch (e) {} renderVouched().catch(() => {}); }
+async function renderVouched() {
+  const box = $("nodeAttestList"), badge = $("nodeAttestDue"); if (!box) return;
+  const list = vouchedList();
+  if (!list.length) { show("nodeAttestList", false); if (badge) show("nodeAttestDue", false); return; }
+  let epoch = null, secsPerEpoch = EPOCH_LENGTH * (state.blockTime || 6.8);
+  try { const l = await fetch(relayBase() + "/get_latest_block", { cache: "no-store" }).then((x) => x.json()); epoch = Math.floor(Number(l.block_number) / EPOCH_LENGTH); } catch (e) {}
+  const rows = await Promise.all(list.map(async (a) => {
+    try {
+      const [acc, ms] = await Promise.all([
+        fetch(relayBase() + "/get_account?address=" + a, { cache: "no-store" }).then((x) => x.json()),
+        fetch(relayBase() + "/mining_status?address=" + a, { cache: "no-store" }).then((x) => x.json()).catch(() => null)]);
+      return [a, acc, ms];
+    } catch (e) { return [a, null, null]; }
+  }));
+  let due = 0; box.innerHTML = "";
+  for (const [a, acc, ms] of rows) {
+    // PRESENCE, not the account flag: an evicted identity keeps registered=1 (its device moved on) — the chain says absent
+    const present = !(ms && typeof ms.registered_present === "boolean") || ms.registered_present;
+    const reg = acc && Number(acc.registered) === 1 && present ? Number(acc.reg_epoch) : -1;
+    const db = acc && acc.devbind;
+    let state_, cls = "";
+    if (db && db.mode === "perm" && db.live) state_ = i18("node.item.perm", "bound for life to a {d} — renews on its own", { d: bindDeviceName(db.cls) });
+    else if (reg < 0 || epoch == null || epoch - reg >= POSW_LEASE_EPOCHS) { state_ = i18("node.item.expired", "no live lease — attest again"); cls = "warn"; due++; }
+    else {
+      const left = (reg + POSW_LEASE_EPOCHS - epoch) * secsPerEpoch, since = epoch - reg;
+      if (since >= FIDELITY_MIN_GAP_EPOCHS) { state_ = i18("node.item.renewable", "renewable now — lease ends in {t} (≈ {c})", { t: humanizeSeconds(left), c: _fmtClock(left) }); cls = "warn"; due++; }
+      else state_ = i18("node.item.held", "lease held — renewal earns from ≈ {c}; ends in {t}", { c: _fmtClock((reg + FIDELITY_MIN_GAP_EPOCHS - epoch) * secsPerEpoch), t: humanizeSeconds(left) });
+    }
+    const row = document.createElement("div"); row.className = "opt"; row.style.cursor = "default";
+    row.innerHTML = `<b class="mono" style="font-size:12px">${escapeHtml(a.slice(0, 14))}… <span class="small faint">${escapeHtml(i18("node.item.fid", "fidelity {f}", { f: Number((acc && acc.fidelity) || 0) }))}</span></b>` +
+      `<small class="${cls}">${escapeHtml(state_)}</small>` +
+      `<div class="row" style="margin-top:6px;gap:6px"><button class="accent small" data-again="${a}" style="padding:6px 10px">${escapeHtml(i18("node.item.again", "Attest again"))}</button>` +
+      `<button class="ghost small" data-remove="${a}" style="padding:6px 10px;flex:0 0 auto">${escapeHtml(i18("node.item.remove", "Forget"))}</button></div>`;
+    box.appendChild(row);
+  }
+  box.querySelectorAll("[data-again]").forEach((b) => b.onclick = () => { $("nodeAttestAddr").value = b.dataset.again; nodeAttestTap().catch((e) => log("err", String(e && e.message || e))); });
+  box.querySelectorAll("[data-remove]").forEach((b) => b.onclick = () => vouchedRemove(b.dataset.remove));
+  show("nodeAttestList", true);
+  if (badge) { badge.textContent = i18("node.due", "{n} due", { n: due }); show("nodeAttestDue", due > 0); }
+}
 function nodeAttestAddr() {
   const v = ($("nodeAttestAddr") && $("nodeAttestAddr").value || "").trim().toLowerCase();
   return /^[0-9a-f]{46}$/.test(v) ? v : "";
@@ -869,6 +916,7 @@ async function nodeAttestTap() {
       const acc = await fetch(relayBase() + "/get_account?address=" + addr, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
       if (acc && Number(acc.registered) === 1 && Number(acc.reg_epoch) !== beforeEp) {
         log("ok", i18("node.log.registered", "Node {a} is registered — fidelity {f}.", { a: addr.slice(0, 12) + "…", f: Number(acc.fidelity || 0) }));
+        vouchedAdd(addr); renderVouched().catch(() => {});
         await nodeAttestRefresh().catch(() => {});
         return;
       }
@@ -2814,6 +2862,7 @@ function refreshLeasePanel(acc, ms) {
     const db = acc && acc.devbind;
     state.devbind = db || state.devbind;
     if (db && db.mode === "perm" && db.live) bm.textContent = i18("bind.perm", "Bound for life to a {d} — renews without a prompt.", { d: bindDeviceName(db.cls) });
+    else if (state.attestVia === "remote") bm.textContent = i18("bind.remote", "Vouched for by another device — that device must attest this address again before the lease ends.");
     else if (db) bm.textContent = i18("bind.lease", "Leased — re-attests every 36 h with a statement from this device.");
     else bm.textContent = "";
   }
@@ -2821,6 +2870,9 @@ function refreshLeasePanel(acc, ms) {
   let note, enabled;
   if (landing) {
     note = i18("lease.landing", "Renewal submitted — waiting for it to land on chain…");
+    enabled = false;
+  } else if (gap >= FIDELITY_MIN_GAP_EPOCHS && state.attestVia === "remote") {
+    note = i18("lease.remoteRenew", "Renewal earns now: on the other device open Mining → \"Attest another wallet or node\" (it lists this address) and press Attest again. Nothing to press here.");
     enabled = false;
   } else if (gap >= FIDELITY_MIN_GAP_EPOCHS) {
     note = i18("lease.canRenew", "Renewing now earns +1 fidelity and moves your expiry to about {c} tomorrow.",
@@ -3741,6 +3793,7 @@ async function refreshDashboard() {
   // chain's view arrived, so a wallet whose Ledger had moved to a node kept reading "attested ✓ (ledger)" for the whole
   // session (operator, 2026-09-08). Redraw on every dashboard cycle: the chain, not the last tap, decides.
   try { renderDeviceStatus(); } catch (e) {}
+  if (!refreshDashboard._vouchedAt || Date.now() - refreshDashboard._vouchedAt > 60000) { refreshDashboard._vouchedAt = Date.now(); renderVouched().catch(() => {}); }
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
   refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
 

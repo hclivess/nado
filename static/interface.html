@@ -347,7 +347,10 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          element and no hand to tap, so its OPERATOR taps here for the node's address. The attestation is dropped on
          this relay and the node picks it up from the network and signs its own registration. -->
     <details id="nodeAttestWrap" class="mt disc">
-      <summary data-i18n="node.title">Attest another wallet or node</summary>
+      <summary><span data-i18n="node.title">Attest another wallet or node</span><span id="nodeAttestDue" class="badge warn hidden" style="margin-left:8px;font-size:11px"></span></summary>
+      <!-- WHO THIS DEVICE VOUCHES FOR (operator 2026-09-08: "expiration and renewal are not obvious"): every address this
+           device attested, with its lease state and an "Attest again" button; the summary badge counts the ones due. -->
+      <div id="nodeAttestList" class="optlist mt hidden"></div>
       <p class="small mt" data-i18n="node.blurb">Vouch for another wallet or a node from this device. Paste the address (a wallet's address, or a node's from its /status page), then press the button: this device attests that address, the statement travels through the network, and the other wallet or node registers itself with it. Renew every 36 h. This device is the one bound, so it cannot vouch for a second identity while that lease lives.</p>
       <input id="nodeAttestAddr" placeholder="wallet or node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
       <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
