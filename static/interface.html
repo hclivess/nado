@@ -1212,7 +1212,12 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <span class="small faint" data-i18n="settings.betCapSub">A middle ground if you leave the switch above off: bets/spins that escrow up to this much sign without a tap; bigger stakes always ask.</span>
     </div>
     <div class="settings-sect" data-i18n="settings.sectNet">Network</div>
-    <label data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
+    <!-- RELAY DROPDOWN (operator 2026-09-08: "there should be a relay dropdown"): the relays this chain advertises
+         (/relays, TLS-reachable from this page), each with its measured round trip; picking one pins it, "Automatic"
+         lets the wallet fail over on its own. The URL field below stays for a relay that is not advertised. -->
+    <label data-i18n="settings.relaySel">Relay</label>
+    <select id="relaySel" style="width:100%"></select>
+    <label class="mt" data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
     <div class="row">
       <input id="relayUrl" class="grow" placeholder="https://node.example:9173" />
       <button id="btnSaveRelay" class="accent" style="flex:0 0 auto" data-i18n="btn.save">Save</button>
@@ -1273,12 +1278,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       </div>
     </div>
 
-    <div id="deviceWrap" class="mt">
-      <div class="label" data-i18n="device.title">Real device</div>
-      <p class="small faint hidden" data-i18n="device.intro">Mining identities must prove they run on real hardware: your device's secure element signs a challenge and every node verifies the maker's certificate chain against pinned roots. Accepted: an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor. One device, one identity.</p>
-      <div id="deviceStatus" class="small mt" style="white-space:pre-line"></div>
-      <button id="btnDeviceVerify" class="accent mt" style="width:100%" data-i18n="device.verify">Verify this device</button>
-    </div>
+    <!-- The "Real device" block that lived here (status + Verify this device) duplicated the Mining page's device line and
+         its guide; removed 2026-09-08 (operator: "why is this under settings? duplication?"). -->
     <div class="settings-sect" data-i18n="settings.sectAdv">Advanced</div>
     <div class="row mt">
       <button id="btnSelfTest" class="ghost" data-i18n="btn.selftest">Run self-test</button>

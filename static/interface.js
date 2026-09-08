@@ -1096,6 +1096,47 @@ function relayUsable(url) {
   try { new URL(url); } catch (e) { return false; }
   return true;
 }
+// Pin a relay (or "" = the page's own origin, automatic failover). Shared by the Save button, the dropdown and the
+// unlock screen's field: the typed/picked relay is home; any failover is forgotten; the chain is re-adopted from it.
+function applyRelay(v) {
+  v = (v || "").trim();
+  state.relay = v || null;
+  try { if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY); } catch (e) {}
+  relayPool.auto = null; relayPool.fails = 0; renderRelayTag(); renderRelaySelect();
+  log("info", i18("log.relaySet", "Relay set to {u}", { u: relayBase() }));
+  netAdopted = false; refreshNetIdentity().catch(() => {});
+  refreshRelayPool(true).then(() => renderRelaySelect()).catch(() => {});
+  pollOnce().catch(() => {});
+}
+// The dropdown: "Automatic (home)" + every advertised relay usable from this page, with its last measured round trip.
+function renderRelaySelect() {
+  const sel = $("relaySel"); if (!sel) return;
+  const origin = location.origin.replace(/\/+$/, "");
+  const pinned = (state.relay || "").replace(/\/+$/, "");
+  const opts = [{ url: "", label: i18("relay.optAuto", "Automatic — {h}", { h: relayHost(origin) }) }];
+  const seen = new Set([origin]);
+  for (const c of relayPool.list || []) {
+    if (!c || !c.url || seen.has(c.url)) continue; seen.add(c.url);
+    const ms = relayPool.probe && relayPool.probe.get(c.url);
+    opts.push({ url: c.url, label: relayHost(c.url) + (typeof ms === "number" ? ` · ${ms} ms` : (ms === "down" ? " · " + i18("relay.optDown", "no answer") : "")) });
+  }
+  if (pinned && !seen.has(pinned)) opts.push({ url: pinned, label: relayHost(pinned) });
+  sel.innerHTML = "";
+  for (const o of opts) { const e = document.createElement("option"); e.value = o.url; e.textContent = o.label; sel.appendChild(e); }
+  sel.value = pinned && seen.has(pinned) ? pinned : (pinned || "");
+}
+// Measure each advertised relay once (4 s budget, in parallel) so the dropdown can show "· 340 ms".
+async function probeRelayList() {
+  await refreshRelayPool(true).catch(() => {});
+  relayPool.probe = relayPool.probe || new Map();
+  await Promise.all((relayPool.list || []).map(async (c) => {
+    const t0 = Date.now();
+    try { await fetchWithTimeout(c.url + "/status", { method: "GET", cache: "no-store" }, 4000); relayPool.probe.set(c.url, Date.now() - t0); }
+    catch (e) { relayPool.probe.set(c.url, "down"); }
+  }));
+  renderRelaySelect();
+}
+try { window.__nadoRelay = { pool: relayPool, render: renderRelaySelect, probe: probeRelayList }; } catch (e) {}   // console access for support
 function renderRelayTag() {
   const el = $("relayTag"); if (!el) return;
   const auto = !!relayPool.auto;
@@ -1143,6 +1184,7 @@ async function refreshRelayPool(force = false) {
   }
   relayPool.list = list;
   try { localStorage.setItem(LS_RELAY_POOL, JSON.stringify(list)); } catch (e) {}
+  renderRelaySelect();                       // the dropdown follows the list (the first render at boot saw an empty one)
 }
 async function probeRelay(url) {
   const t0 = Date.now();
@@ -9121,16 +9163,13 @@ function wireEvents() {
   $("btnSharePay").onclick = () => sharePayLink();
   if ($("btnShareMiner")) $("btnShareMiner").onclick = () => shareMiner();
 
-  $("btnSaveRelay").onclick = () => {
-    const v = $("relayUrl").value.trim();
-    state.relay = v || null;
-    if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
-    relayPool.auto = null; relayPool.fails = 0; renderRelayTag();   // the typed relay is home; forget any failover
-    log("info", i18("log.relaySet", "Relay set to {u}", {u: relayBase()}));
-    netAdopted = false; refreshNetIdentity().catch(() => {});      // re-adopt the chain from the new relay
-    refreshRelayPool(true).catch(() => {});
-    pollOnce().catch(() => {});
-  };
+  $("btnSaveRelay").onclick = () => applyRelay($("relayUrl").value.trim());
+  if ($("relaySel")) $("relaySel").onchange = () => { applyRelay($("relaySel").value); if ($("relayUrl")) $("relayUrl").value = $("relaySel").value; };
+  renderRelaySelect();
+  // measure the relays when the user is about to choose (focus / tap on the dropdown), at most once a minute
+  if ($("relaySel")) $("relaySel").addEventListener("focus", () => {
+    if (!relayPool.probedAt || Date.now() - relayPool.probedAt > 60000) { relayPool.probedAt = Date.now(); probeRelayList().catch(() => {}); }
+  });
 
   $("btnSelfTest").onclick = () => { try { runSelfTest(); show("selftestCard", true); } catch (e) { log("err", "Self-test error: " + e.message); } };
 
