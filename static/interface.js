@@ -2680,9 +2680,14 @@ function refreshLeasePanel(acc, ms) {
   const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
   const epochNow = (ms && typeof ms.epoch === "number") ? ms.epoch
     : (state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null);
-  const registered = !!(acc && acc.registered === 1);
+  // THE CHAIN'S PRESENCE, not the account flag: the flag stays 1 after an eviction (the device moved to another identity),
+  // and a wallet in exactly that state offered a live "Renew" button while "Present: absent" (operator, 2026-09-08).
+  // There is no lease to renew — the panel hides and the one Start button registers afresh.
+  const msKnown = ms && typeof ms.registered_present === "boolean";
+  const registered = !!(acc && acc.registered === 1) && (!msKnown || ms.registered_present);
   if (!registered || regEpoch < 0 || epochNow == null || (epochNow - regEpoch) >= POSW_LEASE_EPOCHS) {
     show("leaseWrap", false);
+    btn.style.display = "none"; btn.disabled = true;   // Renew lives beside Start now, outside the panel
     return;
   }
   const epochSecs = EPOCH_LENGTH * ((ms && ms.block_time) || state.blockTime || 8);
