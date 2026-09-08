@@ -2806,15 +2806,16 @@ function renderDelegationLine(acc, ms) {
   const cut = Number((ms && ms.bonded_producer_cut) || 0) / 1e10;
   const perDayOf = (secs, share, feeBps) => (86400 / Number(secs)) * cut * share * (1 - Number(feeBps || 0) / 10000);
   const fmt = (x) => x >= 1 ? x.toFixed(2) : x.toFixed(4);
+  const badge = (cls, txt) => { val.innerHTML = `<span class="badge ${cls}">${escapeHtml(txt)}</span>`; };
   if (acc.pool_to && ms && ms.pools_retired) {
-    val.textContent = i18("ovw.producing", "Producing");
+    badge("ok", i18("ovw.producing", "Producing"));
     el.textContent = i18("ovw.poolsRetired", "pools retired — your savings produce on their own");
     return;
   }
   if (acc.pool_to) {
     const name = (ms && ms.pool_label) || acc.pool_to.slice(0, 10) + "…";
     const fee = poolPct(ms && ms.pool_fee_bps);
-    val.textContent = name;                                   // terse (operator 2026-09-08): the pool's name is the value
+    badge("idle", name);                                      // terse (operator 2026-09-08): the pool's name is the value
     if (!ms || !ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
       el.textContent = i18("ovw.delegatedIdle", "delegated · pool idle");
       return;
@@ -2824,11 +2825,11 @@ function renderDelegationLine(acc, ms) {
     return;
   }
   if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
-    val.textContent = i18("ovw.producing", "Producing");
+    badge("ok", i18("ovw.producing", "Producing"));
     el.textContent = i18("ovw.producingDetail", "weight {e} · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
     return;
   }
-  val.textContent = i18("ovw.idle", "Idle");
+  badge("no", i18("ovw.idle", "Idle"));
   el.textContent = (ms && ms.bond_attest_required === false) ? i18("ovw.idleSoon", "enters the draw on its own") : i18("ovw.idleDetail", "attest this device or delegate");
 }
 function refreshLeasePanel(acc, ms) {
