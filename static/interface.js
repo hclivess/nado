@@ -1201,8 +1201,11 @@ function relayNoteSuccess(ms) {
     relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
   }
 }
+const LS_RELAY_AUTO = "nado_relay_auto";           // "0" = never switch relays automatically (operator 2026-09-08)
+function relayAutoAllowed() { try { return localStorage.getItem(LS_RELAY_AUTO) !== "0"; } catch (e) { return true; } }
 function relayNoteFailure() {
   relayPool.fails++;
+  if (!relayAutoAllowed()) return;               // the user chose: stay on the home relay, show "offline" instead
   if (relayPool.fails >= RELAY_FAIL_THRESHOLD && !relayPool.switching) {
     relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
   }
@@ -1291,6 +1294,15 @@ async function rotateRelay() {
 // Once per poll tick: keep the list fresh, and drift back home when we are away and home is back.
 async function relayMaintain() {
   await refreshRelayPool();
+  // WHILE AWAY FROM HOME, RE-CHECK THE CHAIN every 5 min: the adoption-time finalized-hash check is repeated, so a relay
+  // that forks after being adopted is dropped too (operator 2026-09-08: "it completely switches ... NOT SECURE").
+  if (relayPool.auto && Date.now() - (relayPool.recheckedAt || relayPool.switchedAt) > 300000) {
+    relayPool.recheckedAt = Date.now();
+    try {
+      const st = await probeRelay(relayPool.auto);
+      if (!(await relayAgreesWithHome(relayPool.auto, st.latest_block_height))) { relayPool.bad.set(relayPool.auto, Date.now()); adoptRelay(null, null); }
+    } catch (e) { /* unreachable: the failure counter handles it */ }
+  }
   if (relayPool.auto && Date.now() - relayPool.switchedAt > RELAY_HOME_RETRY_MS && !relayPool.switching) {
     relayPool.switchedAt = Date.now();
     // home must be acceptable AND fast: a slow-but-alive home is exactly what we left (RELAY_HOME_FAST_MS)
@@ -2749,22 +2761,22 @@ function renderDelegationLine(acc, ms) {
   if (acc.pool_to) {
     const name = (ms && ms.pool_label) || acc.pool_to.slice(0, 10) + "…";
     const fee = poolPct(ms && ms.pool_fee_bps);
-    val.textContent = i18("ovw.delegatedTo", "Delegated to {p}", { p: name });
+    val.textContent = name;                                   // terse (operator 2026-09-08): the pool's name is the value
     if (!ms || !ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
-      el.textContent = i18("ovw.delegatedIdle", "Delegated to {p} (fee {f}) — the pool is not producing right now.", { p: name, f: fee });
+      el.textContent = i18("ovw.delegatedIdle", "delegated · pool idle");
       return;
     }
     const share = Number(ms.pool_share || 0);
-    el.textContent = i18("ovw.delegatedDetail", "fee {f} · your share {s} % · ≈ {x} NADO/day", { f: fee, s: (share * 100).toFixed(1), x: fmt(perDayOf(ms.pool_expected_seconds_between_wins, share, ms.pool_fee_bps)) });
+    el.textContent = i18("ovw.delegatedDetail", "{s} % · fee {f} · ≈{x}/day", { f: fee, s: (share * 100).toFixed(1), x: fmt(perDayOf(ms.pool_expected_seconds_between_wins, share, ms.pool_fee_bps)) });
     return;
   }
   if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
-    val.textContent = i18("ovw.producing", "Producing on this device");
-    el.textContent = i18("ovw.producingDetail", "{e} of {r} NADO counting · ≈ {x} NADO/day", { e: nadoShort(ms.my_bonded_effective), r: nadoShort(ms.my_bonded_raw), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
+    val.textContent = i18("ovw.producing", "Producing");
+    el.textContent = i18("ovw.producingDetail", "weight {e} · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
     return;
   }
-  val.textContent = i18("ovw.idle", "Not producing");
-  el.textContent = i18("ovw.idleDetail", "Savings produce only on an attested device — register this one, or delegate to a pool on the Savings tab.");
+  val.textContent = i18("ovw.idle", "Idle");
+  el.textContent = i18("ovw.idleDetail", "attest this device or delegate");
 }
 function refreshLeasePanel(acc, ms) {
   state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
@@ -3737,9 +3749,10 @@ async function refreshDashboard() {
     const freeRaw = BigInt(acc.balance ?? 0);          // /get_account: balance == free/spendable
     const bondedRaw = BigInt(acc.bonded ?? 0);         //              bonded  == locked stake
     const bal = rawToNado(freeRaw), bonded = rawToNado(bondedRaw);
-    $("walBalance").textContent = bal + " NADO";
-    $("walBonded").textContent = bonded + " NADO";
-    $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
+    // two decimals on the cards (operator 2026-09-08: "leave out a few decimals to reduce space"); the exact figure is the tooltip
+    $("walBalance").textContent = nadoShort(freeRaw) + " NADO"; $("walBalance").title = bal + " NADO";
+    $("walBonded").textContent = nadoShort(bondedRaw) + " NADO"; $("walBonded").title = bonded + " NADO";
+    $("walTotal").textContent = nadoShort(freeRaw + bondedRaw) + " NADO"; $("walTotal").title = rawToNado(freeRaw + bondedRaw) + " NADO";
     renderDelegationLine(acc, ms);                     // "Delegated to … ≈ X NADO/day" right under the Bonded figure
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
@@ -9222,6 +9235,15 @@ function wireEvents() {
 
   $("btnSaveRelay").onclick = () => applyRelay($("relayUrl").value.trim());
   if ($("relaySel")) $("relaySel").onchange = () => { applyRelay($("relaySel").value); if ($("relayUrl")) $("relayUrl").value = $("relaySel").value; };
+  if ($("relayAuto")) {
+    $("relayAuto").checked = relayAutoAllowed();
+    $("relayAuto").onchange = () => {
+      try { localStorage.setItem(LS_RELAY_AUTO, $("relayAuto").checked ? "1" : "0"); } catch (e) {}
+      if (!$("relayAuto").checked && relayPool.auto) adoptRelay(null, null);   // back home now; no more silent moves
+      log("info", $("relayAuto").checked ? i18("log.relayAutoOn", "Automatic relay failover is on (a failover relay must match your home relay's finalized chain).")
+                                         : i18("log.relayAutoOff", "Automatic relay failover is off — this wallet talks only to its home relay."));
+    };
+  }
   renderRelaySelect();
   // measure the relays when the user is about to choose (focus / tap on the dropdown), at most once a minute
   if ($("relaySel")) $("relaySel").addEventListener("focus", () => {
