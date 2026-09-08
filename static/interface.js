@@ -3960,13 +3960,13 @@ function renderLanes(ms) {
   if (bcl) {
     const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
     if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
-    else if (state.poolTo && !ms.pools_retired) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
-    else if (!ms.bonded_producing && ms.bond_attest_required === false) bcl.textContent = i18("bond.rampOnly", "Your savings stake ({n} NADO) enters the draw on its own — no device needed.", { n: (raw / 1e10).toFixed(2) });
-    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: (raw / 1e10).toFixed(2) });
-    else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: (raw / 1e10).toFixed(2), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });
+    else if (state.poolTo && !ms.pools_retired) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)), p: state.poolTo.slice(0, 12) + "…" });
+    else if (!ms.bonded_producing && ms.bond_attest_required === false) bcl.textContent = i18("bond.rampOnly", "Your savings stake ({n} NADO) enters the draw on its own — no device needed.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
+    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
+    else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });
     else bcl.textContent = ms.bond_attest_required === false
-      ? i18("bond.countingFree", "Savings stake counting in full ({n} NADO) — no device needed for savings.", { n: (raw / 1e10).toFixed(2) })
-      : i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });
+      ? i18("bond.countingFree", "Savings stake counting in full ({n} NADO) — no device needed for savings.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) })
+      : i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
   }
 }
 
