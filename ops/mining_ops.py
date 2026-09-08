@@ -187,6 +187,23 @@ def open_lane_draw_registry(open_registry: dict, slot: int) -> dict:
     return {a: i for a, i in open_registry.items() if int(i.get("bonded", 0) or 0) < B_MIN}
 
 
+def bond_weight(stake: int, knee: int) -> int:
+    """Producing weight of one attested device (protocol.BOND_WEIGHT_CURVE_HEIGHT): the stake itself up to `knee`, then
+    knee·(m − (m−1)·knee/stake) with m = BOND_TAIL_BPS/10000 — continuous at the knee with slope 1, saturating at m·knee.
+    Integer arithmetic only (consensus)."""
+    from protocol import BOND_TAIL_BPS
+    stake, knee = int(stake), int(knee)
+    if stake <= knee or knee <= 0:
+        return max(0, stake)
+    return (knee * BOND_TAIL_BPS - (BOND_TAIL_BPS - 10_000) * knee * knee // stake) // 10_000
+
+
+def bond_knee(stake: int, others_total: int) -> int:
+    """This device's knee: max(BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS of the OTHER attested devices' stake)."""
+    from protocol import BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS
+    return max(int(BOND_DEVICE_CAP), int(others_total) * BOND_KNEE_OTHERS_BPS // 10_000)
+
+
 def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: int) -> dict:
     """The registry the bonded PRODUCER draw runs over (protocol.BOND_DEVICE_CAP_HEIGHT, doc/device-attestation.md
     §"Savings-lane cap"): from the gate, only ATTESTED identities (present in the open registry as of the same parent —
@@ -194,20 +211,25 @@ def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: i
     LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
     set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
     entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT
     if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
         return bonded_registry
     pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT)
-    out = {}
+    curve = bool(BOND_WEIGHT_CURVE_HEIGHT and slot >= BOND_WEIGHT_CURVE_HEIGHT)
+    # the attested candidates and their producing stake (own + delegated); delegators produce through their pool
+    stakes = {}
     for address, info in bonded_registry.items():
         if pools and info.get("pool_to"):
             continue                                   # a delegator's stake produces through its pool, never on its own
         if address in open_registry:
-            capped = dict(info)
-            # POOLS: the pool's weight is its own stake plus what was delegated to it, under the same per-device cap
-            stake = int(info.get("bonded", 0)) + (int(info.get("pooled", 0)) if pools else 0)
-            capped["bonded"] = min(stake, BOND_DEVICE_CAP)
-            out[address] = capped
+            stakes[address] = int(info.get("bonded", 0)) + (int(info.get("pooled", 0)) if pools else 0)
+    total = sum(stakes.values())
+    out = {}
+    for address, stake in stakes.items():
+        capped = dict(bonded_registry[address])
+        # THE CURVE (BOND_WEIGHT_CURVE_HEIGHT): knee from the OTHER devices' stake, bounded tail above it; before it the cliff
+        capped["bonded"] = bond_weight(stake, bond_knee(stake, total - stake)) if curve else min(stake, BOND_DEVICE_CAP)
+        out[address] = capped
     return out if out else bonded_registry
 
 

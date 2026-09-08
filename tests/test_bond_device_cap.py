@@ -38,11 +38,26 @@ def main():
     check("the gate is a height at/after the permanent-binding gate", gate >= P.DEVICE_BIND_PERMANENT_HEIGHT)
     # 1. below the gate
     check("below the gate: the raw registry, same object", M.bonded_producer_registry(reg, open_reg, gate - 1) is reg)
-    # 2. from the gate
+    # 2. from the gate (before the curve: the cliff)
     pr = M.bonded_producer_registry(reg, open_reg, gate)
     check("from the gate: only attested identities", set(pr) == {a, b}, set(pr))
-    check("stake above the cap counts as the cap", pr[a]["bonded"] == P.BOND_DEVICE_CAP)
+    check("stake above the cap counts as the cap (pre-curve blocks replay the cliff)", pr[a]["bonded"] == P.BOND_DEVICE_CAP)
     check("stake below the cap counts in full", pr[b]["bonded"] == 50 * N)
+    # 2b. THE CURVE (BOND_WEIGHT_CURVE_HEIGHT): knee = max(1,000, 5 % of the others), tail saturating at 1.5 x knee
+    cg = P.BOND_WEIGHT_CURVE_HEIGHT
+    check("curve gate is at/after the cap gate", cg >= gate)
+    check("bond_weight: identity up to the knee", M.bond_weight(700 * N, 1000 * N) == 700 * N)
+    check("bond_weight: continuous at the knee", M.bond_weight(1000 * N, 1000 * N) == 1000 * N)
+    check("bond_weight: 2,000 on a 1,000 knee counts 1,250 (K(1.5-0.5K/s))", M.bond_weight(2000 * N, 1000 * N) == 1250 * N)
+    check("bond_weight: saturates below 1.5 x knee", M.bond_weight(10**9 * N, 1000 * N) < 1500 * N and M.bond_weight(10**9 * N, 1000 * N) > 1499 * N)
+    check("bond_knee: floored at 1,000 NADO for a small lane", M.bond_knee(2000 * N, 50 * N) == 1000 * N)
+    check("bond_knee: 5 % of the OTHERS' stake once that exceeds the floor; own stake never lifts it", M.bond_knee(50_000 * N, 40_000 * N) == 2000 * N and M.bond_knee(50_000 * N, 4_000 * N) == 1000 * N)
+    prc = M.bonded_producer_registry(reg, open_reg, cg)
+    check("curve draw: a's 2,000 on a 1,000 knee (others: 50) counts 1,250", prc[a]["bonded"] == 1250 * N, prc.get(a))
+    check("curve draw: b unchanged below the knee", prc[b]["bonded"] == 50 * N)
+    big = {a: {"bonded": 50_000 * N, "fidelity": None, "bond_since": None}, b: {"bonded": 40_000 * N, "fidelity": None, "bond_since": None}, c: {"bonded": 5000 * N, "fidelity": None, "bond_since": None}}
+    prb = M.bonded_producer_registry(big, {a: {}, b: {}, c: {}}, cg)
+    check("curve draw in a big lane: knees come from the others, whale bounded to < 1.5 x its knee", prb[a]["bonded"] == M.bond_weight(50_000 * N, M.bond_knee(50_000 * N, 45_000 * N)) and prb[a]["bonded"] < 3375 * N)
     check("the input registry is never mutated", reg[a]["bonded"] == 2000 * N and c in reg)
     # 3. the draw never picks unattested stake, at bonded slots, with and without the ramp
     beacon = "ab" * 32
@@ -82,7 +97,7 @@ def main():
           and "_weighted_draw(bonded_registry, bonded_weight" not in seg)
     bo = open(os.path.join(ROOT, "ops", "block_ops.py")).read()
     check("the display mirrors the draw", "bonded_reg = bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)" in bo)
-    check("mining_status carries the cap fields", all(k in bo for k in ('"bond_cap_active"', '"bonded_producing"', '"my_bonded_raw"', '"bond_device_cap"')))
+    check("mining_status carries the cap + curve fields", all(k in bo for k in ('"bond_cap_active"', '"bonded_producing"', '"my_bonded_raw"', '"bond_device_cap"', '"my_bonded_effective"', '"bond_knee"')))
     js = open(os.path.join(ROOT, "static", "interface.js")).read()
     check("the wallet says whether the stake counts", 'i18("bond.needsAttest"' in js and 'i18("bond.capped"' in js and 'id="bondCapLine"' in open(os.path.join(ROOT, "static", "interface.html")).read())
     i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()

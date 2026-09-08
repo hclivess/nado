@@ -578,7 +578,7 @@ wins immediately. The wallet asks "this Ledger vouches for
 another account — rebind it here?" before the tap is spent. One hardware wallet per identity. A node attested with
 a hardware wallet renews itself the same way; the operator attests once.
 
-**Savings stake counts only while attested, at most 1,000 NADO per device (from block 4200 of betanet-7).** The
+**Savings stake counts only while attested, on a curve (from block 11800 of betanet-7; a hard 1,000 NADO cap from block 4200 before that).** A device's producing weight is its stake up to a knee, at least 1,000 NADO and 5 % of the other attested devices' stake when that is more, then flattens toward one and a half knees: every extra coin still counts, just less, and no single device can ever count for more than 1.5 knees. Chosen by simulation against a single whale, a split whale, a phone farm and a large lane (`doc/device-attestation.md`). The
 bonded (savings) lane draws its block producers only from identities that hold a live device lease, and counts at
 most 1,000 NADO of each one's stake. Unattested stake still votes for finality and still counts as fork weight, but
 it produces no bonded blocks — so a whale needs one real device per 1,000 NADO, and splitting keys buys nothing. A

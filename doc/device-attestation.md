@@ -362,6 +362,17 @@ one identity per device. So from `BOND_DEVICE_CAP_HEIGHT` the bonded PRODUCER dr
 - LIVENESS: if no attested bonded identity exists at all, the draw falls back to the whole registry, uncapped —
   the same rule as the tenure ramp's fallback. The cap protects an attested set; it must never stall a bonded slot.
 
+**The curve (`BOND_WEIGHT_CURVE_HEIGHT`, 2026-09-08, chosen by simulation).** The cliff `min(stake, 1,000)` became a knee
+and a bounded tail: knee = max(1,000 NADO, 5 % of the OTHER attested devices' stake) — a device's own stake never lifts
+its own knee — and above it weight = K·(1.5 − 0.5·K/stake), continuous with slope 1 at the knee, saturating at 1.5·K.
+Simulated with the chain's own draw over the live lane plus a single 50,000 NADO device, the same split over 20
+devices, a 40-phone farm and a 100-device lane: caps relative to the lane's TOTAL let a whale lift its own cap (53 % of
+blocks), median-relative caps handed the farm 60 %, the hybrid holds the single whale at ~24 %, keeps the farm at its
+stake share, moves the honest lane by ~2 points, and at scale holds the biggest device to ~7 % of blocks while 85 % of
+stake still counts. Pools are no longer bounded by 1,000: a pool's `max` is its operator's choice (up to
+`POOL_MAX_TOTAL`), its weight is the curve of own + delegated stake, so a full pool pays each delegator less per coin
+and capital spreads to emptier pools by itself. `/mining_status` reports `my_bonded_effective` and `bond_knee`.
+
 What it does NOT touch: `total_bonded_shares` (fork-choice weight), the FFG/settlement quorum and the duty committee
 stay uncapped and attestation-free — finality never depends on how many devices exist. The tenure ramp applies on top
 of the capped shares. `/mining_status` mirrors the draw (`bond_cap_active`, `bonded_producing`, `my_bonded_raw`,

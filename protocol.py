@@ -1567,6 +1567,18 @@ DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # device count. Height-gated on the live chain; becomes 1 at the next reroll.
 BOND_DEVICE_CAP_HEIGHT = 4200
 BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per attested device (100 shares at B_MIN)
+# THE CURVE (operator decision 2026-09-08 after simulation, doc/device-attestation.md §"Savings-lane cap"): from this
+# height the cliff `min(stake, 1,000)` becomes a KNEE and a bounded TAIL. Knee = max(BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS
+# of everyone ELSE's stake in the attested producer set) — a device's own stake never lifts its own knee (a 50,000 NADO
+# device under "5 % of the lane" took 53 % of blocks in simulation; under "5 % of the others" 24 %). Above the knee
+# weight = K·(1.5 − 0.5·K/stake): continuous, same slope at the knee, saturating at 1.5·K, so no coin ever counts for
+# nothing and no device ever counts for more than 1.5 knees. Simulated over the live lane and four stress cases
+# (single whale, split whale, 40-phone farm, 100-device lane): farms stay at their stake share (median-relative caps
+# handed them 60 %), the single whale is bounded, the honest lane is barely moved, and X = 5 % only bites once the lane
+# exceeds ~10,000 NADO, where it holds the biggest device to ~7 % of blocks. Fork weight and the FFG quorum stay linear.
+BOND_WEIGHT_CURVE_HEIGHT = 11800
+BOND_KNEE_OTHERS_BPS = 500           # knee = 5 % of the other attested devices' stake, floored at BOND_DEVICE_CAP
+BOND_TAIL_BPS = 15000                # the tail saturates at 1.5 x knee
 # STAKING POOLS (operator decision 2026-09-07 night, doc/device-attestation.md §"Pools"): a holder without a device
 # points their bonded stake at an ATTESTED identity (`delegate` tx, data {"to"}); the pool produces with own + delegated
 # stake, capped at BOND_DEVICE_CAP like any device, and every block it wins is split at apply: the delegators' pro-rata
@@ -1579,7 +1591,8 @@ BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per at
 POOL_HEIGHT = 6000
 POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delegators' portion (its own choice, visible)
 POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
-POOL_MAX_MEMBERS = 100               # BOND_DEVICE_CAP / B_MIN: more members than that could never all count
+POOL_MAX_MEMBERS = 1000              # pools are no longer bounded by the device cap (BOND_WEIGHT_CURVE_HEIGHT); sanity bound
+POOL_MAX_TOTAL = 100_000_000 * DENOMINATION   # a pool's `max` may be anything up to this (effectively unlimited)
 POOL_LABEL_MAX = 32
 # OPEN-LANE BLOCKS ARE FOR DEVICE-ONLY MINERS (operator decision 2026-09-08): from this height an identity with bonded
 # stake >= B_MIN (one share, 10 NADO) is not drawn for OPEN slots — it produces in the bonded lane. The rule is per

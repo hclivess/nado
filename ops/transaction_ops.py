@@ -1259,7 +1259,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                             "or bind this one to a new account"
     elif recipient in ("pool", "delegate", "undelegate"):
         # STAKING POOLS (protocol.POOL_HEIGHT, doc/device-attestation.md §"Pools"): fee-exempt, zero-amount, sender-scoped.
-        from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, BOND_DEVICE_CAP
+        from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, POOL_MAX_TOTAL
         assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"
         assert transaction["amount"] == 0 and transaction["fee"] == 0, f"{recipient} tx is fee-exempt and carries no amount"
         acc = get_account(transaction["sender"], create_on_error=False)
@@ -1277,7 +1277,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             assert isinstance(fee_bps, int) and 0 <= fee_bps <= POOL_MAX_FEE_BPS, "pool: fee_bps must be 0..10000"
             assert opn in (0, 1), "pool: open must be 0 or 1"
             assert isinstance(mn, int) and mn >= POOL_MIN_DELEGATION, "pool: min must be at least one bonded share"
-            assert isinstance(mx, int) and mn <= mx <= BOND_DEVICE_CAP, "pool: max must be between min and the per-device cap"
+            assert isinstance(mx, int) and mn <= mx <= POOL_MAX_TOTAL, "pool: max must be at least min (the pool's weight follows the curve, not a cap)"
             label = data.get("label", "")
             assert isinstance(label, str) and len(label) <= POOL_LABEL_MAX and all(32 <= ord(c) < 127 for c in label), \
                 "pool: label is up to 32 printable ASCII characters"

@@ -68,7 +68,13 @@ a prompt, and asks before rebinding a device that vouches for another account (`
 attested with a hardware wallet renews itself statement-free (`/node_attest_status` carries `bind_mode`). The
 identity log records `bind: lease|perm|renew`.
 
-**Savings-lane cap per attested device** (`BOND_DEVICE_CAP_HEIGHT` = 4200, `BOND_DEVICE_CAP` = 1,000 NADO,
+**The curve replaces the cliff** (`BOND_WEIGHT_CURVE_HEIGHT` = 11800): a device's producing weight is its stake up to a
+knee = max(1,000 NADO, 5 % of the other attested devices' stake), then K·(1.5 − 0.5·K/stake), saturating at 1.5·K —
+no coin counts for nothing, no device counts for more than 1.5 knees, a device cannot lift its own knee. Chosen by
+simulating the live lane and four stress cases with the chain's own draw (doc/device-attestation.md). Pool maximums
+are freed (`POOL_MAX_TOTAL`, 1,000 members); a pool's weight follows the curve of own + delegated stake.
+
+ (`BOND_DEVICE_CAP_HEIGHT` = 4200, `BOND_DEVICE_CAP` = 1,000 NADO,
 doc/device-attestation.md §"Savings-lane cap"). The bonded producer draw runs over `bonded_producer_registry`: only
 identities with a live open-lane lease (a device statement), each counting at most 1,000 NADO of stake; unattested
 stake weighs zero in the draw (a per-key cap was void, a per-device cap is not). Fork-choice weight, the FFG/settlement

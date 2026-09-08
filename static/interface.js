@@ -710,6 +710,19 @@ function renderDeviceStatus() {
     el.className = "small mt faint"; return;
   }
   if (st.ok) {
+    // THE CHAIN, NOT THE LAST TAP, decides what this line says (2026-09-08: a wallet whose Ledger had moved to a node and
+    // whose stake was delegated still read "attested ✓ (ledger)"). If the relay has answered and this identity is not
+    // present, the device that vouched for it no longer does — say that and point at Register.
+    const ms = state.lastMs, db = state.devbind;
+    const msKnown = ms && typeof ms.registered_present === "boolean";
+    if (msKnown && !ms.registered_present) {
+      el.textContent = i18("device.mineStale", "Real device: the {f} that vouched for this identity no longer does — it moved to another identity or the lease lapsed. Press Register to attest again.", { f: st.fmt || "device" });
+      el.className = "small mt warn"; return;
+    }
+    if (db && db.mode === "perm" && db.live) {
+      el.textContent = i18("device.mineOkPerm", "Real device: attested ✓ ({f}) — bound to this identity for life; renewals need no prompt.", { f: db.cls || st.fmt || "" });
+      el.className = "small mt ok"; return;
+    }
     el.textContent = i18("device.mineOk", "Real device: attested ✓ ({f}) — this phone's secure element vouched for this identity.", { f: st.fmt || "" });
     el.className = "small mt ok"; return;
   }
@@ -3725,8 +3738,8 @@ function renderLanes(ms) {
     const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
     if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
     else if (state.poolTo) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
-    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. At most 1,000 NADO per device counts.", { n: (raw / 1e10).toFixed(2) });
-    else if (cap && raw > cap) bcl.textContent = i18("bond.capped", "Savings stake counts up to 1,000 NADO per attested device: {n} NADO bonded, {c} NADO counting.", { n: (raw / 1e10).toFixed(2), c: (cap / 1e10).toFixed(0) });
+    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: (raw / 1e10).toFixed(2) });
+    else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: (raw / 1e10).toFixed(2), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });
     else bcl.textContent = i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });
   }
 }
@@ -5292,7 +5305,7 @@ async function poolAction(kind) {
     } else if (kind === "pool") {
       const fee = Math.round(Number($("poolFee").value || 0) * 100);
       if (!(fee >= 0 && fee <= 10000)) throw new Error(i18("spool.badFee", "Fee must be 0–100 %."));
-      const mn = nadoToRaw($("poolMin").value || "10"), mx = nadoToRaw($("poolMax").value || "1000");
+      const mn = nadoToRaw($("poolMin").value || "10"), mx = nadoToRaw($("poolMax").value || "1000000");
       data = { fee_bps: fee, open: $("poolOpen").checked ? 1 : 0, min: Number(mn), max: Number(mx), label: ($("poolLabel").value || "").slice(0, 32) };
     } else if (kind === "delegate") {
       const to = $("poolSelect").value; if (!to) throw new Error(i18("spool.none", "No open pools yet"));

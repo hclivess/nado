@@ -729,6 +729,12 @@ def mining_status(address, latest_block_number, block_time):
     _open_draw = open_lane_draw_registry(open_reg, next_block)
     my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in _open_draw else 0
     my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
+    from .mining_ops import bond_knee as _bond_knee
+    from protocol import BOND_WEIGHT_CURVE_HEIGHT as _BWC_H
+    _raw_reg = get_bonded_registry()
+    _my_raw_stake = int(_raw_reg.get(address, {}).get("bonded", 0)) + int(_raw_reg.get(address, {}).get("pooled", 0))
+    _cand_total = sum(int(i.get("bonded", 0)) + int(i.get("pooled", 0)) for a, i in _raw_reg.items() if a in open_reg and not i.get("pool_to"))
+    _my_knee = _bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC)
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
     expected_wins_per_block = 0.0
@@ -752,6 +758,9 @@ def mining_status(address, latest_block_number, block_time):
         "bonded_producing": address in bonded_reg,
         "my_bonded_raw": int((get_account(address, create_on_error=False) or {}).get("bonded", 0) or 0) if address else 0,
         "bond_device_cap": int(_BDC),
+        # THE CURVE: this identity's producing weight (own + delegated stake through the knee/tail) and its knee
+        "my_bonded_effective": int(bonded_reg[address]["bonded"]) if address in bonded_reg else 0,
+        "bond_knee": _my_knee,
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
     }

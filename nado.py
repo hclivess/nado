@@ -1175,11 +1175,12 @@ async def pools(request):
             mx = int(acc.get("pool_max", 0) or 0)
             out.append({"address": addr, "label": str(acc.get("pool_label", ""))[:32], "fee_bps": int(acc.get("pool_fee_bps", 0) or 0),
                         "open": int(acc.get("pool_open", 0) or 0), "min": int(acc.get("pool_min", 0) or 0), "max": mx,
-                        "own": own, "pooled": pooled, "room": max(0, min(mx, _p.BOND_DEVICE_CAP) - pooled),
+                        "own": own, "pooled": pooled, "room": max(0, mx - pooled),
                         "members": len(acc.get("pool_members") or []), "attested": addr in open_reg, "delegating": bool(e.get("pool_to"))})
         out.sort(key=lambda x: (-x["attested"], x["fee_bps"], -x["room"]))
         return {"tip": tip, "active": bool(_p.POOL_HEIGHT and tip + 1 >= _p.POOL_HEIGHT), "pool_height": _p.POOL_HEIGHT,
-                "cap": _p.BOND_DEVICE_CAP, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out}
+                "cap": _p.BOND_DEVICE_CAP, "knee_floor": _p.BOND_DEVICE_CAP, "knee_others_bps": _p.BOND_KNEE_OTHERS_BPS,
+                "tail_bps": _p.BOND_TAIL_BPS, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out}
     try:
         return _resp(await asyncio.to_thread(_work))
     except Exception as e:

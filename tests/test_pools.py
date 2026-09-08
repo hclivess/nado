@@ -40,8 +40,9 @@ def main():
     reg = get_bonded_registry()
     check("registry: pooled stake on the pool, pool_to on the delegators", reg[pool]["pooled"] == 1000 * N and reg[d1]["pool_to"] == pool and reg[solo]["pooled"] == 0)
     open_reg = {pool: {"fidelity": 1}, d1: {"fidelity": 1}, solo: {"fidelity": 1}}
-    pr = M.bonded_producer_registry(reg, open_reg, P.POOL_HEIGHT)
-    check("producer draw: the pool weighs own+pooled capped at the device cap", pr[pool]["bonded"] == P.BOND_DEVICE_CAP, pr.get(pool))
+    pr = M.bonded_producer_registry(reg, open_reg, max(P.POOL_HEIGHT, P.BOND_WEIGHT_CURVE_HEIGHT))
+    exp = M.bond_weight(1200 * N, M.bond_knee(1200 * N, 50 * N))       # own 200 + pooled 1000 on a 1,000 knee (others: solo's 50)
+    check("producer draw: the pool weighs the curve of own+pooled (1,200 on a 1,000 knee = 1,083)", pr[pool]["bonded"] == exp and 1083 * N <= exp <= 1084 * N, (pr.get(pool), exp))
     check("producer draw: a delegator has no weight of its own, even if attested", d1 not in pr and d2 not in pr)
     check("producer draw: a solo attested staker is unchanged", pr[solo]["bonded"] == 50 * N)
     check("fork weight ignores pooling (each account's own bonded, 10 NADO per share)", M.total_bonded_shares(reg) == (20 + 30 + 70 + 5))
@@ -88,7 +89,7 @@ def main():
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     check("validation: gated, fee-exempt, terms bounds, open pool, min, room, full, self-delegation refused",
           all(x in src for x in ('"staking pools are not enabled yet"', "pool: fee_bps must be 0..10000", "delegate: that address is not an open pool",
-                                  "delegate: the pool has no room for that stake", "delegate: the pool is full", "undelegate: the sender is not delegating", "pool: nothing to close",
+                                  "delegate: the pool has no room for that stake", "delegate: the pool is full", "the pool's weight follows the curve, not a cap", "undelegate: the sender is not delegating", "pool: nothing to close",
                                   '"pool", "delegate", "undelegate"):\n            return (r, tx["sender"])')))
     check("relay: /pools endpoint", '"/pools"' in open(os.path.join(ROOT, "nado.py")).read())
     check("pool_revert is node-local", "pool_revert" in kv_ops._LOCAL_DBS and "pool_revert" not in kv_ops.SNAPSHOT_DBS)
