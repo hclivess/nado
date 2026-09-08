@@ -443,7 +443,15 @@ device would rest on app code, and a jailbroken checkm8-class iPhone would farm 
 ever carried one; everything was removed from the tree (git history: `apps/nado-attest-ios`, `doc/apple-app-attest.md`).
 Apple users mine via a hardware wallet on a Mac, or attest from another device.
 
-## Staking pools (`POOL_HEIGHT`, 2026-09-07 night)
+## Staking pools (`POOL_HEIGHT`, 2026-09-07 night) — RETIRED at `POOL_RETIRE_HEIGHT` = 16900 (2026-09-08 night)
+
+> Operator decision: "retire delegation, we can revive it if we ever need to, we have git." With the bonded lane
+> device-free, a pool paid a delegator at most solo yield minus a fee (nadochain.com's delegators at 51 % of solo, ninja
+> pool's at 79 %). From the gate `bonded_producer_registry` ignores `pool_to`/`pooled` (everyone solo, no action needed),
+> `_pool_split` returns the whole producer cut, and the three pool transactions are refused. Account fields stay as dead
+> state. Gate keyed on the generation: never live at the next reroll. Tests: `tests/test_pool_retire.py`. The section
+> below is kept as the record of the feature.
+
 
 Operator decision after the Mac complaints ("no way to continue mining"): capital without a device may RENT a device.
 A holder points their bonded stake at an attested identity; the pool produces with own + delegated stake under the

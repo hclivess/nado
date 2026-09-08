@@ -1599,6 +1599,15 @@ BOND_ATTEST_OPTIONAL_HEIGHT = 16150 if CHAIN_GENERATION == 25 else 1
 # weight still sits on one real attested device with the same cap; what changes is that capital may rent that device.
 # Height-gated; becomes 1 at the next reroll.
 POOL_HEIGHT = 6000
+# STAKING POOLS RETIRED (operator decision 2026-09-08 night: "retire delegation, we can revive it if we ever need to, we
+# have git"). Pools existed for the weeks the bonded lane was attested-only; with the lane device-free
+# (BOND_ATTEST_OPTIONAL_HEIGHT) a pool could pay a delegator at most what solo staking pays, minus a fee — the live
+# numbers: nadochain.com's delegators at 51 % of solo (2,572 staked curved to 1,306), ninja pool's at 79 %. From this
+# height: delegations are IGNORED in the producer draw (every bonded identity produces alone, former delegators
+# included, nothing to do), `reward_ops._pool_split` is off (the whole cut is the producer's), and the pool / delegate /
+# undelegate transactions are refused. Account fields (pool_to, pool_*) stay in state untouched — no sweep, no root
+# churn — and are simply dead. REROLL: keyed on the generation — at the next reroll this is 1 (pools never live).
+POOL_RETIRE_HEIGHT = 16900 if CHAIN_GENERATION == 25 else 1
 POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delegators' portion (its own choice, visible)
 POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
 POOL_MAX_MEMBERS = 1000              # pools are no longer bounded by the device cap (BOND_WEIGHT_CURVE_HEIGHT); sanity bound

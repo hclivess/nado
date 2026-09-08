@@ -215,29 +215,15 @@ between blocks 4200 and 16150 the lane was attested-only — see below for why t
   proof of stake gives. Every per-device rule is linear in devices and phones are cheap next to 10,000 NADO. The
   device rule was kept where it actually discriminates: the free lane and the dividend.
 
-#### Staking pools (from block 6000 of betanet-7)
+#### Staking pools — retired (live from block 6000 to block 16900 of betanet-7)
 
-A holder may point their bonded stake at another identity with a fee-exempt `delegate {to}` transaction; the pool
-produces with own + delegated stake under the same curve, and when it wins a bonded block the chain **splits the
-reward in that same block**, pro rata by stake, minus the pool's fee (`reward_ops._pool_split`, journaled and
-reverted integer-for-integer). Coins never leave the delegator's account, `undelegate` is instant, and a delegator has
-no producer weight of its own (it still votes for finality with its own stake and still earns the presence dividend
-if it holds a device). Pools were built when the lane was attested-only (a holder without a device rented one). Since
-block 16150 savings produce on their own, and because the curve flattens above the knee a pool pays each coin **at
-most** what solo staking pays — the wallet shows the solo figure next to every pool's "≈ per 100 NADO" line so the
-comparison is one glance.
-
-- **Running a pool**: any identity with bonded stake and a device sends `pool {fee_bps 0..10000, open 0|1, min ≥
-  10 NADO, max ≤ 100 M NADO, label ≤ 32 ASCII}`; another `pool` tx changes the terms, `pool {close: 1}` releases every
-  delegator in that block. Up to 1,000 members per pool. A delegator cannot run a pool; a pool cannot delegate.
-- **Why pools change nothing for security**: a pool is one identity on the same curve as everyone else; a full pool
-  pays each delegator less per coin, so capital spreads by itself. What a pool changes is who operates the identity and
-  who takes a fee — not the lane's weight.
-- **Wallet**: the Stake card's *Staking pools* panel — your status and solo yield, the picker (open pools, best net
-  yield first: "≈ X/day per 100 NADO", room, members), Delegate / Undelegate, *Run a pool* with fee, name, minimum,
-  maximum, open, and *Close pool*.
-  `GET /pools` lists every pool with its terms, own and pooled stake and room. The relay fleet runs the zero-fee
-  pool **nadochain.com**.
+Pools existed for the weeks the bonded lane required a device: a holder without one delegated to an identity that had
+one. Once the lane went device-free, a pool could pay a delegator at most what solo staking pays, minus a fee — on the
+live lane nadochain.com's delegators were at 51 % of solo (2,572 NADO staked, curved to 1,306) and ninja pool's at
+79 %. So from block 16900 (`POOL_RETIRE_HEIGHT`, never live at the next reroll) delegations are ignored in the draw and
+every bonded identity produces alone, former delegators included, with nothing to do; the in-block split is off and the
+`pool` / `delegate` / `undelegate` transactions are refused. The account fields stay in state as dead data (no sweep,
+no root churn). The code stays in git if a reason ever returns.
 
 > **Bonded lane + FFG finality — now active.** At the **10-NADO** entry the bonded registry is
 > **populated** and blocks began producing on the bonded lane the moment `B_MIN` dropped. At the old
@@ -262,8 +248,8 @@ comparison is one glance.
 > 10 NADO`), the bonded lane is **staking**: there is nothing to compute and no node to run — the beacon draws
 > you in proportion to your (curved) stake, and because winners are credited **by address**, a relay builds your
 > winning block even while you're offline. The one upkeep is the device lease: a phone or TPM re-attests every
-> 36 h from the open wallet, a Ledger or Trezor attests once for life and the lease renews itself. No device?
-> Delegate to a pool (above). With **auto-bond** on, rewards compound straight back
+> 36 h from the open wallet, a Ledger or Trezor attests once for life and the lease renews itself — and since
+> block 16150 savings need no device at all. With **auto-bond** on, rewards compound straight back
 > into stake, so it grows hands-free. Two honest caveats: (1) a *freshly* bonded stake ramps to full
 > selection weight over `BOND_RAMP_EPOCHS` (~30 epochs) — an automatic anti-sudden-whale delay, no action
 > needed — after which it earns at full rate; (2) your share is **competitive** (proportional to your slice
@@ -612,11 +598,7 @@ every attested device is paid by fidelity, staked or not. The dividend ramp also
 
 **Savings need no device (from block 16150 of betanet-7).** Bonded stake produces on its own, weighted by the knee
 curve, with nothing to attest or renew. Between blocks 4200 and 16150 the lane was attested-only and holders without a
-device delegated to a pool; pools remain (from block 6000) as an option: the pool produces with own plus delegated
-stake on the same curve, and the chain splits every block it wins between the pool and its delegators in that same
-block, pro rata, minus the pool's fee. Your coins never leave your account and you can
-undelegate any time. Anyone with bonded stake opens a pool from the Stake card and sets its fee, name, minimum,
-maximum and whether it is open. Full details: *Staking pools* above.
+device delegated to a pool; pools were retired at block 16900 once they could only pay less than solo staking.
 
 **Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
 factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour

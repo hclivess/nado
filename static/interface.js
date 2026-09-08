@@ -2806,6 +2806,11 @@ function renderDelegationLine(acc, ms) {
   const cut = Number((ms && ms.bonded_producer_cut) || 0) / 1e10;
   const perDayOf = (secs, share, feeBps) => (86400 / Number(secs)) * cut * share * (1 - Number(feeBps || 0) / 10000);
   const fmt = (x) => x >= 1 ? x.toFixed(2) : x.toFixed(4);
+  if (acc.pool_to && ms && ms.pools_retired) {
+    val.textContent = i18("ovw.producing", "Producing");
+    el.textContent = i18("ovw.poolsRetired", "pools retired — your savings produce on their own");
+    return;
+  }
   if (acc.pool_to) {
     const name = (ms && ms.pool_label) || acc.pool_to.slice(0, 10) + "…";
     const fee = poolPct(ms && ms.pool_fee_bps);
@@ -3951,7 +3956,7 @@ function renderLanes(ms) {
   if (bcl) {
     const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
     if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
-    else if (state.poolTo) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
+    else if (state.poolTo && !ms.pools_retired) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
     else if (!ms.bonded_producing && ms.bond_attest_required === false) bcl.textContent = i18("bond.rampOnly", "Your savings stake ({n} NADO) enters the draw on its own — no device needed.", { n: (raw / 1e10).toFixed(2) });
     else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: (raw / 1e10).toFixed(2) });
     else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: (raw / 1e10).toFixed(2), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });

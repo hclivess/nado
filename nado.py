@@ -1189,7 +1189,8 @@ async def pools(request):
                         "members": len(acc.get("pool_members") or []), "attested": addr in open_reg, "delegating": bool(e.get("pool_to")),
                         "weight": int(_bwt(_breg[addr])) if addr in _breg else 0})
         out.sort(key=lambda x: (-x["attested"], x["fee_bps"], -x["room"]))
-        return {"tip": tip, "active": bool(_p.POOL_HEIGHT and tip + 1 >= _p.POOL_HEIGHT), "pool_height": _p.POOL_HEIGHT,
+        _retired = bool(_p.POOL_RETIRE_HEIGHT and tip + 1 >= _p.POOL_RETIRE_HEIGHT)
+        return {"tip": tip, "active": bool(_p.POOL_HEIGHT and tip + 1 >= _p.POOL_HEIGHT) and not _retired, "retired": _retired, "pool_height": _p.POOL_HEIGHT,
                 "cap": _p.BOND_DEVICE_CAP, "knee_floor": _p.BOND_DEVICE_CAP, "knee_others_bps": _p.BOND_KNEE_OTHERS_BPS,
                 "tail_bps": _p.BOND_TAIL_BPS, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out,
                 "total_weight": int(_tot_w), "bonded_producer_cut": _cut, "bonded_slots_per_day": _slots_day}

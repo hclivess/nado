@@ -213,10 +213,13 @@ def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: i
     LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
     set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
     entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT
     if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
         return bonded_registry
-    pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT)
+    # POOLS LIVE ONLY BETWEEN POOL_HEIGHT AND POOL_RETIRE_HEIGHT (protocol.py): outside that window pool_to / pooled are
+    # ignored and every bonded identity is drawn on its own stake. INVARIANT: this is the one place the draw reads
+    # delegation; the reward split and the wallet mirror follow the same two constants.
+    pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT and not (POOL_RETIRE_HEIGHT and slot >= POOL_RETIRE_HEIGHT))
     curve = bool(BOND_WEIGHT_CURVE_HEIGHT and slot >= BOND_WEIGHT_CURVE_HEIGHT)
     # ATTESTATION REQUIRED ONLY BEFORE BOND_ATTEST_OPTIONAL_HEIGHT (protocol.py: the device bought nothing against a
     # whale with three phones and idled a fifth of the stake). From that height every non-delegating bonded identity is

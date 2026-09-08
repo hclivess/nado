@@ -1,5 +1,11 @@
 # betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
+**2026-09-08 night — staking pools retired (gated at block 16900; never enabled at the next reroll).** With the bonded
+lane device-free, a pool could pay a delegator at most what solo staking pays, minus a fee (nadochain.com's delegators
+were at 51 % of solo, ninja pool's at 79 %). From the gate every bonded identity produces alone, delegations are
+ignored, the in-block split is off and the three pool transactions are refused; nothing to do for former delegators.
+The code stays in git.
+
 **2026-09-08 evening — the bonded lane needs no device (gated at block 16150; from genesis at the next reroll).**
 Savings produce on their own on the knee/tail curve; nothing to attest, nothing to renew. Delegation stays optional
 (the wallet shows the solo yield next to every pool). The device rule stays where it discriminates: the free lane and

@@ -733,10 +733,11 @@ def mining_status(address, latest_block_number, block_time):
     from protocol import BOND_WEIGHT_CURVE_HEIGHT as _BWC_H
     _raw_reg = get_bonded_registry()
     _my_raw_stake = int(_raw_reg.get(address, {}).get("bonded", 0)) + int(_raw_reg.get(address, {}).get("pooled", 0))
-    from protocol import BOND_ATTEST_OPTIONAL_HEIGHT as _BAO_H
+    from protocol import BOND_ATTEST_OPTIONAL_HEIGHT as _BAO_H, POOL_RETIRE_HEIGHT as _PR_H
     _attest_req = not (_BAO_H and next_block >= _BAO_H)      # mirrors bonded_producer_registry's gate
-    _cand_total = sum(int(i.get("bonded", 0)) + int(i.get("pooled", 0)) for a, i in _raw_reg.items()
-                      if (a in open_reg or not _attest_req) and not i.get("pool_to"))
+    _pools_off = bool(_PR_H and next_block >= _PR_H)          # retired: delegation ignored, every identity solo
+    _cand_total = sum(int(i.get("bonded", 0)) + (0 if _pools_off else int(i.get("pooled", 0))) for a, i in _raw_reg.items()
+                      if (a in open_reg or not _attest_req) and (_pools_off or not i.get("pool_to")))
     _my_knee = _bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC)
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
@@ -759,6 +760,7 @@ def mining_status(address, latest_block_number, block_time):
         # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"
         "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H),
         "bond_attest_required": _attest_req,      # False from BOND_ATTEST_OPTIONAL_HEIGHT: savings produce without a device
+        "pools_retired": _pools_off,              # True from POOL_RETIRE_HEIGHT: pool_to is dead state, the wallet says so
         "bonded_producing": address in bonded_reg,
         "my_bonded_raw": int((get_account(address, create_on_error=False) or {}).get("bonded", 0) or 0) if address else 0,
         "bond_device_cap": int(_BDC),
@@ -771,7 +773,7 @@ def mining_status(address, latest_block_number, block_time):
         # DELEGATION (operator 2026-09-08: "nowhere on the wallet main page does it say delegated or what the expected
         # delegation earnings are"): when this account's stake produces through a pool, the pool's own expectation and
         # this account's slice of it — display only, never consensus. The wallet turns it into "≈ X NADO/day".
-        **_delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, _raw_reg),
+        **({} if _pools_off else _delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, _raw_reg)),
     }
 
 

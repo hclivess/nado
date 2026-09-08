@@ -64,7 +64,7 @@ def _pool_split(block, creator, producer_cut, logger, revert):
     rounding dust). The split is computed from the in-txn registry (the same bytes on every node at this point) and
     journaled per height (kv pool_revert "rw:<h>") so rollback subtracts the identical integers. Below the gate, or for
     a pool with nothing delegated, the whole cut is the creator's (the historical path, byte-identical)."""
-    from protocol import POOL_HEIGHT, BPS_DENOM
+    from protocol import POOL_HEIGHT, BPS_DENOM, POOL_RETIRE_HEIGHT
     h = int(block["block_number"])
     if revert:
         rec = kv_ops.pool_revert_pop(f"rw:{h}")
@@ -74,7 +74,7 @@ def _pool_split(block, creator, producer_cut, logger, revert):
         for addr, amt in payouts:
             change_balance(address=str(addr), amount=int(amt), revert=True, logger=logger)
         return creator_share
-    if not POOL_HEIGHT or h < POOL_HEIGHT:
+    if not POOL_HEIGHT or h < POOL_HEIGHT or (POOL_RETIRE_HEIGHT and h >= POOL_RETIRE_HEIGHT):   # retired: no split, ever
         return producer_cut
     from ops.account_ops import get_bonded_registry, get_account
     reg = get_bonded_registry()

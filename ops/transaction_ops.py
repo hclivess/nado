@@ -1259,8 +1259,9 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                             "or bind this one to a new account"
     elif recipient in ("pool", "delegate", "undelegate"):
         # STAKING POOLS (protocol.POOL_HEIGHT, doc/device-attestation.md §"Pools"): fee-exempt, zero-amount, sender-scoped.
-        from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, POOL_MAX_TOTAL
+        from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, POOL_MAX_TOTAL, POOL_RETIRE_HEIGHT
         assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"
+        assert not (POOL_RETIRE_HEIGHT and block_height >= POOL_RETIRE_HEIGHT), "staking pools are retired — every bonded identity produces on its own"
         assert transaction["amount"] == 0 and transaction["fee"] == 0, f"{recipient} tx is fee-exempt and carries no amount"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc, f"{recipient}: sender has no account"
