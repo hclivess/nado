@@ -3629,6 +3629,12 @@ async function refreshDashboard() {
     $("sendAvail").textContent = "0 NADO";
     $("stkAvail").textContent = "0 NADO";
     $("stkBonded").textContent = "0 NADO";
+    // A wallet with no chain account yet still gets the pool list (read-only): the picker sat empty for a brand-new
+    // wallet because refreshLeasePanel — the only caller of refreshPools — runs on the account branch (2026-09-08).
+    if ($("poolWrap") && (!refreshLeasePanel._poolAt || Date.now() - refreshLeasePanel._poolAt > 30000)) {
+      refreshLeasePanel._poolAt = Date.now();
+      refreshPools(null).catch(() => {});
+    }
   }
 
   // pending (mempool / pre-block) money — in flight either way, shown but clearly NOT usable yet.
@@ -5256,6 +5262,9 @@ async function fetchPools() {
   return d;
 }
 function poolPct(bps) { return (Number(bps || 0) / 100).toFixed(1).replace(/\.0$/, "") + " %"; }
+// Room / pooled figures are read-only summaries: two decimals, not the ten of the raw unit (a picker line read
+// "room 99046.1618097931 NADO" on 2026-09-08). Inputs the user edits (min/max) keep rawToNado's exact value.
+function nadoShort(raw) { const t = rawToNado(BigInt(raw || 0)); const i = t.indexOf("."); return i < 0 ? t : t.slice(0, i + 3).replace(/\.?0+$/, ""); }
 async function refreshPools(acc) {
   const wrap = $("poolWrap"); if (!wrap) return;
   let d = null;
@@ -5274,7 +5283,7 @@ async function refreshPools(acc) {
   } else if (acc && "pool_open" in acc) {
     const p = (d.pools || []).find((x) => x.address === me) || {};
     mine.innerHTML = escapeHtml(i18("spool.mineRunning", "You run a pool: {n} NADO delegated by {m} delegator(s), fee {f}, room {r} NADO, {o}.", {
-      n: rawToNado(BigInt(p.pooled || 0)), m: p.members || 0, f: poolPct(acc.pool_fee_bps), r: rawToNado(BigInt(p.room || 0)),
+      n: nadoShort(p.pooled), m: p.members || 0, f: poolPct(acc.pool_fee_bps), r: nadoShort(p.room),
       o: Number(acc.pool_open) === 1 ? i18("spool.isOpen", "open") : i18("spool.isClosed", "closed") }));
     if ($("poolFee") && document.activeElement !== $("poolFee")) $("poolFee").value = (Number(acc.pool_fee_bps || 0) / 100).toString();
     if ($("poolLabel") && document.activeElement !== $("poolLabel")) $("poolLabel").value = acc.pool_label || "";
@@ -5293,7 +5302,7 @@ async function refreshPools(acc) {
   if (!opts.length) { const o = document.createElement("option"); o.value = ""; o.textContent = i18("spool.none", "No open pools yet"); sel.appendChild(o); }
   for (const p of opts) {
     const o = document.createElement("option"); o.value = p.address;
-    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)} · ${i18("spool.roomShort", "room")} ${rawToNado(BigInt(p.room || 0))} NADO · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
+    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)} · ${i18("spool.roomShort", "room")} ${nadoShort(p.room)} NADO · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
     sel.appendChild(o);
   }
   if ($("btnUndelegate")) $("btnUndelegate").disabled = !(acc && acc.pool_to);
