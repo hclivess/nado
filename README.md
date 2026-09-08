@@ -1059,6 +1059,10 @@ shape is unchanged (49 chars).
 
 ## Learn more
 
+- [doc/scaling-open-lane.md](doc/scaling-open-lane.md) — where the open lane's ceiling is (~3-4 million leased devices
+  on registration bytes, ~10⁵ on the per-block draw) and the three gated optimisations that lift it to tens of millions:
+  statement-free renewals + 7-day leases, certificate-chain deduplication, an O(log N) prefix-sum draw.
+
 - **Whitepaper** — [`doc/whitepaper.md`](doc/whitepaper.md): the authoritative, accuracy-reviewed
   overview of the mechanism, with a full constants table and an explicit implemented-vs-planned split.
 - **Roadmap** — [`ROADMAP.md`](ROADMAP.md): where the app layer goes next. An honest gap analysis
