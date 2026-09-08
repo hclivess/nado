@@ -733,7 +733,10 @@ def mining_status(address, latest_block_number, block_time):
     from protocol import BOND_WEIGHT_CURVE_HEIGHT as _BWC_H
     _raw_reg = get_bonded_registry()
     _my_raw_stake = int(_raw_reg.get(address, {}).get("bonded", 0)) + int(_raw_reg.get(address, {}).get("pooled", 0))
-    _cand_total = sum(int(i.get("bonded", 0)) + int(i.get("pooled", 0)) for a, i in _raw_reg.items() if a in open_reg and not i.get("pool_to"))
+    from protocol import BOND_ATTEST_OPTIONAL_HEIGHT as _BAO_H
+    _attest_req = not (_BAO_H and next_block >= _BAO_H)      # mirrors bonded_producer_registry's gate
+    _cand_total = sum(int(i.get("bonded", 0)) + int(i.get("pooled", 0)) for a, i in _raw_reg.items()
+                      if (a in open_reg or not _attest_req) and not i.get("pool_to"))
     _my_knee = _bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC)
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
@@ -755,6 +758,7 @@ def mining_status(address, latest_block_number, block_time):
         # SAVINGS-LANE CAP: is the cap live for the next block, does this identity's stake count in the producer draw
         # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"
         "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H),
+        "bond_attest_required": _attest_req,      # False from BOND_ATTEST_OPTIONAL_HEIGHT: savings produce without a device
         "bonded_producing": address in bonded_reg,
         "my_bonded_raw": int((get_account(address, create_on_error=False) or {}).get("bonded", 0) or 0) if address else 0,
         "bond_device_cap": int(_BDC),

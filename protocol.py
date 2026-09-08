@@ -1577,8 +1577,18 @@ BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per at
 # handed them 60 %), the single whale is bounded, the honest lane is barely moved, and X = 5 % only bites once the lane
 # exceeds ~10,000 NADO, where it holds the biggest device to ~7 % of blocks. Fork weight and the FFG quorum stay linear.
 BOND_WEIGHT_CURVE_HEIGHT = 11800
-BOND_KNEE_OTHERS_BPS = 500           # knee = 5 % of the other attested devices' stake, floored at BOND_DEVICE_CAP
+BOND_KNEE_OTHERS_BPS = 500           # knee = 5 % of the other producing identities' stake, floored at BOND_DEVICE_CAP
 BOND_TAIL_BPS = 15000                # the tail saturates at 1.5 x knee
+# BONDED LANE WITHOUT A DEVICE (operator decision 2026-09-08 evening, "lets drop the requirement for the bonded lane, we
+# have the knee rule"). Numbers on the live lane (46 keys, 6,385 NADO, producing weight 3,887): the attestation
+# requirement idled 13 keys / 1,231 NADO (19 % of stake), cost honest device owners ~40 % of their share relative to
+# plain stake weight, and against a whale it only ever stopped a holder with ONE phone — 10,000 NADO on three phones
+# already took 62-72 % of the lane, the same as the 61 % plain proof of stake gives. Capital is the Sybil resistance
+# of a bonded lane; the device does its work on the free lane and the dividend, which this does not touch. From this
+# height `bonded_producer_registry` no longer requires a live device lease: every non-delegating bonded identity is in
+# the draw on the knee/tail curve. Renewals, leases and the dividend are untouched; delegators still ride their pool.
+# REROLL: keyed on the current generation — at the next reroll this is 1 (live from genesis) with no edit needed.
+BOND_ATTEST_OPTIONAL_HEIGHT = 16150 if CHAIN_GENERATION == 25 else 1
 # STAKING POOLS (operator decision 2026-09-07 night, doc/device-attestation.md §"Pools"): a holder without a device
 # points their bonded stake at an ATTESTED identity (`delegate` tx, data {"to"}); the pool produces with own + delegated
 # stake, capped at BOND_DEVICE_CAP like any device, and every block it wins is split at apply: the delegators' pro-rata

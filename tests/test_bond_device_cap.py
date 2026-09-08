@@ -82,6 +82,16 @@ def main():
     check("below the gate the unattested whale still wins (historical replay)", c in before, before)
     # 4. liveness
     check("no attested bonded identity -> whole registry, uncapped", M.bonded_producer_registry(reg, {}, gate) is reg)
+    # 4. BOND_ATTEST_OPTIONAL_HEIGHT (2026-09-08): the device lease is no longer required for the bonded producer draw
+    og = P.BOND_ATTEST_OPTIONAL_HEIGHT
+    check("optional-attestation gate is at/after the curve gate", og >= cg)
+    check("the slot before the gate still requires a lease", set(M.bonded_producer_registry(reg, open_reg, og - 1)) == {a, b})
+    pro = M.bonded_producer_registry(reg, open_reg, og)
+    check("from the gate: every non-delegating bonded identity is drawn, lease or not", set(pro) == set(k for k, v in reg.items() if not v.get("pool_to")), set(pro))
+    unatt = [k for k in reg if k not in open_reg and not reg[k].get("pool_to")]
+    check("an unattested identity counts on the curve (not zero)", all(pro[k]["bonded"] > 0 for k in unatt), unatt)
+    check("with no open registry at all the draw is the same set (the fallback is moot)", set(M.bonded_producer_registry(reg, {}, og)) == set(pro))
+    check("the wallet mirror carries bond_attest_required", '"bond_attest_required"' in open(os.path.join(ROOT, "ops", "block_ops.py")).read())
     w0 = M.select_producer_two_lane({}, reg, beacon, next(s for s in range(gate, gate + 600) if M.lane_of(s, beacon) == "bonded"))
     check("... and a bonded slot still produces", w0 in reg, w0)
     # 5. fork weight untouched

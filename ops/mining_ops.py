@@ -207,21 +207,27 @@ def bond_knee(stake: int, others_total: int) -> int:
 def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: int) -> dict:
     """The registry the bonded PRODUCER draw runs over (protocol.BOND_DEVICE_CAP_HEIGHT, doc/device-attestation.md
     §"Savings-lane cap"): from the gate, only ATTESTED identities (present in the open registry as of the same parent —
-    a live device lease) with their stake capped at BOND_DEVICE_CAP per device. Unattested stake weighs zero here.
+    a live device lease) with their stake capped at BOND_DEVICE_CAP per device; unattested stake weighs zero there.
+    From BOND_ATTEST_OPTIONAL_HEIGHT the lease is no longer required — every non-delegating bonded identity is drawn
+    on the curve (operator decision 2026-09-08, protocol.py).
     LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
     set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
     entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT
+    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT
     if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
         return bonded_registry
     pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT)
     curve = bool(BOND_WEIGHT_CURVE_HEIGHT and slot >= BOND_WEIGHT_CURVE_HEIGHT)
-    # the attested candidates and their producing stake (own + delegated); delegators produce through their pool
+    # ATTESTATION REQUIRED ONLY BEFORE BOND_ATTEST_OPTIONAL_HEIGHT (protocol.py: the device bought nothing against a
+    # whale with three phones and idled a fifth of the stake). From that height every non-delegating bonded identity is
+    # a candidate; the knee/tail curve is the only shaping. INVARIANT: the gate lives HERE, in the one function the
+    # draw, the wallet's /mining_status and the tests all call — never re-filter by open_registry at a call site.
+    attested_only = not (BOND_ATTEST_OPTIONAL_HEIGHT and slot >= BOND_ATTEST_OPTIONAL_HEIGHT)
     stakes = {}
     for address, info in bonded_registry.items():
         if pools and info.get("pool_to"):
             continue                                   # a delegator's stake produces through its pool, never on its own
-        if address in open_registry:
+        if (not attested_only) or address in open_registry:
             stakes[address] = int(info.get("bonded", 0)) + (int(info.get("pooled", 0)) if pools else 0)
     total = sum(stakes.values())
     out = {}

@@ -2776,7 +2776,7 @@ function renderDelegationLine(acc, ms) {
     return;
   }
   val.textContent = i18("ovw.idle", "Idle");
-  el.textContent = i18("ovw.idleDetail", "attest this device or delegate");
+  el.textContent = (ms && ms.bond_attest_required === false) ? i18("ovw.idleSoon", "enters the draw on its own") : i18("ovw.idleDetail", "attest this device or delegate");
 }
 function refreshLeasePanel(acc, ms) {
   state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
@@ -3899,9 +3899,12 @@ function renderLanes(ms) {
     const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
     if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
     else if (state.poolTo) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: (raw / 1e10).toFixed(2), p: state.poolTo.slice(0, 12) + "…" });
+    else if (!ms.bonded_producing && ms.bond_attest_required === false) bcl.textContent = i18("bond.rampOnly", "Your savings stake ({n} NADO) enters the draw on its own — no device needed.", { n: (raw / 1e10).toFixed(2) });
     else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: (raw / 1e10).toFixed(2) });
     else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: (raw / 1e10).toFixed(2), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });
-    else bcl.textContent = i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });
+    else bcl.textContent = ms.bond_attest_required === false
+      ? i18("bond.countingFree", "Savings stake counting in full ({n} NADO) — no device needed for savings.", { n: (raw / 1e10).toFixed(2) })
+      : i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: (raw / 1e10).toFixed(2) });
   }
 }
 
@@ -5444,8 +5447,12 @@ async function refreshPools(acc) {
     show("btnPoolClose", true);
   } else {
     show("btnPoolClose", false);
-    mine.textContent = bonded > 0n ? i18("spool.mineNone", "Your {n} NADO of savings are not delegated.", { n: rawToNado(bonded) })
-                                   : i18("spool.mineNoStake", "Bond some savings first, then delegate them here.");
+    const solo = (d.total_weight && d.bonded_slots_per_day && bonded > 0n)
+      ? " " + i18("spool.solo", "On their own they earn ≈{x}/day per 100 NADO — a pool only helps if its line beats that.",
+          { x: (Number(d.bonded_slots_per_day) * (Number(d.bonded_producer_cut || 0) / 1e10) * (100e10 / Number(d.total_weight))).toFixed(3) }) : "";
+    mine.textContent = bonded > 0n
+      ? i18("spool.mineNone", "Your {n} NADO of savings are not delegated.", { n: nadoShort(bonded) }) + solo
+      : i18("spool.mineNoStake", "Bond some savings first, then delegate them here.");
   }
   // the picker: open, attested pools with room, cheapest first
   const opts = (d.pools || []).filter((p) => p.open === 1 && p.address !== me && !p.delegating);
