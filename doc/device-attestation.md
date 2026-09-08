@@ -30,6 +30,16 @@ scale for Android-RKP and TPM — bind the device certificate hash to the sender
 enforceable for FIDO2 keys or batch-attested (pre-RKP) Android, where the only limit is one physical touch per
 identity per lease. That policy line (which classes are accepted at all) is the operator's decision.
 
+## Why identity at all (operator's argument, 2026-09-08)
+
+Identity management is the only useful weapon against miner centralisation. Every per-identity rule — work proof,
+waiting time, per-address cap, per-IP budget, probation — is linear in identities, so it binds an honest miner and
+a farm equally *per identity*, and a farm makes identities for free. It has been the holy grail of every project that
+paid people rather than capital (NANO, Idena, Nyzo, NADO's own IP mining), and each was gamed by identity farming:
+NADO's free lane lost ~42 % of emission to ~1,000 farmed identities. Only what a farm cannot copy discriminates:
+capital, and a real identity. NADO's identity is a physical secure element bound to one wallet at a time. Without a
+real identity, identity farming is what opens the attack vector; with one, the attack costs a device per identity.
+
 ## What it proves, and what it does not
 
 - PROVES: this registration was created on a genuine iOS or Android device (model class visible), by a
@@ -401,9 +411,10 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
 1,000 NADO, only now it may be someone else's, for a fee, and that trade-off was accepted knowingly.
 
 - **Transactions** (fee-exempt, zero amount, one per sender per block): `pool` — the sender's terms
-  `{fee_bps 0..10000, open 0|1, min >= B_MIN, max <= BOND_DEVICE_CAP, label <= 32 ASCII}`; `delegate {to}` — the sender's
-  stake produces through `to` (must be an open pool with bonded stake, not itself delegating, with room under `max`
-  and fewer than 100 members; the sender must hold >= `min`); `undelegate`. A delegator cannot run a pool.
+  `{fee_bps 0..10000, open 0|1, min >= B_MIN, max <= POOL_MAX_TOTAL (100 M NADO; the cap of 1,000 went with the curve
+  at BOND_WEIGHT_CURVE_HEIGHT), label <= 32 ASCII}`; `delegate {to}` — the sender's stake produces through `to` (must be
+  an open pool with bonded stake, not itself delegating, with room under `max` and fewer than `POOL_MAX_MEMBERS` = 1,000
+  members; the sender must hold >= `min`); `undelegate`. A delegator cannot run a pool.
 - **Closing**: `pool {close: 1}` removes the terms and releases every delegator (their `pool_to` cleared) in that block,
   journaled and reverted exactly; the operator's own stake keeps producing alone. Terms change with another `pool` tx.
 - **State**: schemaless account fields — the pool's `pool_fee_bps/pool_open/pool_min/pool_max/pool_label/pool_members`
@@ -412,7 +423,7 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
 - **Registry**: `bonded_pool_map` reads `bonded` and `pool_to` from the account bytes in one pass; each entry carries
   `pooled` (stake delegated into it). `total_bonded_shares` (fork weight, FFG) keeps reading each account's OWN
   `bonded` — pooling moves producer weight only. `bonded_producer_registry`: a delegator has no weight of its own; a
-  pool weighs `min(own + pooled, BOND_DEVICE_CAP)`, attested only, as before.
+  pool weighs `bond_weight(own + pooled, knee)` (the cliff `min(·, BOND_DEVICE_CAP)` before the curve gate), attested only.
 - **Reward**: when a pool wins a bonded block, `reward_ops._pool_split` pays the delegators
   `producer_cut * pooled // total` minus the pool's fee, pro rata by stake in sorted-address order (deterministic
   rounding), IN THAT BLOCK; the pool keeps its own share + fee + dust. The split is journaled per height and reverted

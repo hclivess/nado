@@ -76,10 +76,11 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   bonded-quorum-settled state root. Many people getting a little, continuously: what an open, populace-scale
   chain should actually feel like. (Design + mechanism: [doc/presence-dividend.md](doc/presence-dividend.md).)
 
-- **Mine from your pocket — and *forever* if you keep it open.** Presence is a **PoSW lease**: one ~1 s
-  proof buys ~a day of eligibility, so a **locked, asleep phone keeps mining** on its own — no relay, no
+- **Mine from your pocket — and *forever* if you keep it open.** Presence is a **device lease**: one tap on a
+  real device buys 36 h of eligibility, so a **locked, asleep phone keeps mining** on its own — no relay, no
   per-epoch traffic — and the wallet shows the exact "mining while locked" countdown. Leave the page
-  **open and mining never stops**: it auto-renews the proof just before it lapses, auto-bonds your rewards
+  **open and mining never stops**: it renews the lease just before it lapses (a Ledger or Trezor renews
+  without a prompt), auto-bonds your rewards
   if you want, and auto-resumes across a browser refresh — so direct mining runs **indefinitely with zero
   babysitting**. Open the link once and walk away.
 
@@ -100,10 +101,11 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   balance is **burned each period**. Emission holders would get anyway is forced into the ecosystem by
   their own vote, or destroyed — never hoarded (`doc/treasury.md`). Even the **maintainer's reward** is a
   votable, revocable quorum grant (guideline ~1% of treasury inflow) — **not** a hard-coded founder cut.
-- **Consensus anti-Sybil registration.** Registration is a non-parallelizable **sequential PoSW** whose
-  difficulty **scales with recent registration volume** (enforced in validation off the finalized anchor
-  epoch), so an identity flood gets progressively more expensive while a normal network stays at 1×
-  (`doc/registration-difficulty.md`).
+- **Consensus anti-Sybil registration (PoSEA).** A registration carries a hardware attestation from a real
+  device — an Android phone, a Windows TPM, a Ledger or a Trezor Safe — verified by **every node** against
+  vendor roots pinned in the protocol, and the device's certificate is bound to that identity: one device,
+  one identity. Identity farming needs genuine hardware and a human tap per identity per lease
+  (`doc/device-attestation.md`).
 - **Two-lane "diligence" mining.** A free **OPEN lane** anyone can win with no coins (capped at ~30%
   of blocks, a *population-independent* Sybil ceiling) plus a **BONDED lane** won with refundable,
   whale-capped stake. Bonding is **optional** and only boosts the bonded lane — never required.
@@ -159,51 +161,77 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
 
 ### The OPEN lane (free)
 
-1. **Register** by computing a **sequential Proof-of-Work (PoSW)** — a *non-parallelizable* hash chain
-   (`POSW_T` steps, ~1 s in-browser, fee-exempt, **post-quantum**: it assumes only blake2b — no trusted
-   setup, no elliptic curve, nothing Shor-breakable). Unlike the old parallelizable hashcash, a GPU/ASIC
-   can't mint identities in bulk, and the proof is **validated by every node in consensus**
-   (`validate_transaction`, the block-validation path) — not just the relay you connect to, so a bogus
-   registration is rejected network-wide. Registration is a **renewable presence lease**
-   (`POSW_LEASE_EPOCHS`, ≈ 1 day): to stay in the open lane you renew with a *fresh* PoSW, turning
-   "pay once, farm forever" into "pay continuously per identity." The structural ~30 % lane cap is still
-   the *hard* Sybil bound; the PoSW lease prices identity creation **and upkeep** in real sequential time
-   on top. The recert is the **single presence signal — there is no separate heartbeat.** You're eligible
-   iff you have a recert within `POSW_LEASE_EPOCHS`, so **AFK mining is trivial: one ~1 s PoSW buys a full
-   lease of eligibility, locked phone or not** — no relay, no pre-signed heartbeats, no per-epoch traffic.
-   The miner auto-renews at ~80 % of the lease; kept open, it mines *forever*.
+1. **Register** with a **device statement** (PoSEA — see below): the wallet asks the device's secure hardware
+   for an attestation over a chain-chosen challenge, wraps it in a fee-exempt `register` transaction, and every
+   node verifies the vendor certificate chain in consensus (`validate_transaction`, the block-validation path)
+   — not just the relay you connect to, so a bogus registration is rejected network-wide. Registration is a
+   **renewable presence lease** (`POSW_LEASE_EPOCHS` = 360 epochs, 36 h): a phone or a TPM re-attests on every
+   renewal; a Ledger or Trezor is bound for life and renews with a statement-free `register` signed by the
+   account key. The device certificate is **bound to the identity** for the lease, so the same device cannot
+   hold a second identity meanwhile. The structural ~30 % lane cap (`OPEN_BPS`) is still the *hard* Sybil
+   bound; the device rule prices identity creation in real hardware on top. The renewal is the **single
+   presence signal — there is no separate heartbeat.** You're eligible iff your lease is live, so **AFK mining
+   is trivial: one tap buys a full lease of eligibility, locked phone or not** — no relay, no pre-signed
+   heartbeats, no per-epoch traffic. The miner auto-renews at ~80 % of the lease; kept open, it mines *forever*.
 
 > **Why no separate per-epoch heartbeat?** An earlier design had one. But once the lease covers the whole
-> ~1-day AFK window (and can be pre-signed), a per-epoch heartbeat is co-terminal with the lease and carries
-> no information the recert doesn't — redundant. Collapsing to one signal is strictly simpler: the recert
-> **prices the identity *and* marks presence**. The ~30 % lane cap stays the hard Sybil bound regardless.
+> 36-hour AFK window, a per-epoch heartbeat is co-terminal with the lease and carries no information the
+> renewal doesn't — redundant. Collapsing to one signal is strictly simpler: the renewal **binds the device
+> *and* marks presence**. The ~30 % lane cap stays the hard Sybil bound regardless.
 
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 2`) every present
 identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 8` over `FIDELITY_CAP = 30` **consecutive
-recerts** (overall range 2..10). Fidelity is **continuity over recerts** (`apply_register`,
-revert-symmetric): a continuous recert adds a step, a lapse halves the streak — so a rotated/churned
+renewals** (overall range 2..10). Fidelity is **continuity over renewals** (`apply_register`,
+revert-symmetric): a continuous renewal adds a step, a lapse halves the streak — so a rotated/churned
 identity can't keep a ramp it stopped paying for. The single most effective thing you can do is **stay
-present**. Mine to **one address** — splitting across addresses gains nothing, and onboarding many
-addresses from one machine is throttled (below).
+present**. Mine to **one address** — a second address needs a second real device.
 
-> **Progressive IP-diversity onboarding cap.** Registering (onboarding) new OPEN-lane addresses is
-> rate-limited per source IP *by subnet proximity*: a new address's "crowding cost" is full for a
-> same-exact-IP peer and halves for each broader shared prefix (same /24 = ½, /16 = ¼, /8 = ⅛),
-> unrelated networks cost nothing (IPv4 /32·/24·/16·/8; IPv6 /128·/64·/48·/32). So a datacenter /24
-> gets one bounded shared budget while distinct networks aren't penalised — stopping "one box scripts
-> 10 000 miners" at the entry point. This is **relay admission control, not consensus** (an IP can't be
-> a consensus input without forking); the *hard* Sybil bound is still the structural ~30 % lane cap.
-> Budget is `max_registrations_per_ip` (default 64/hr, `NADO_MAX_REG_PER_IP`, `0` = off).
+> **Free-lane blocks are for device-only miners (from block 6600 of betanet-7).** An identity holding one
+> bonded share (10 NADO) or more is not drawn for OPEN slots — it produces in the BONDED lane instead. The rule
+> is per device, so a staker cannot keep a second wallet in the free lane without a second device. The
+> **presence dividend is unchanged**: every attested device is paid by fidelity, staked or not.
 
 ### The BONDED lane (optional stake)
 
 A `bond` transaction moves spendable balance into a non-spendable `bonded` column; an `unbond`/`withdraw`
-pair moves it back out after a timelock (see below). Bonded selection weight is
-`bonded // B_MIN` — linear in stake, no per-identity cap (removed 2026-08-25):
+pair moves it back out after a timelock (see below). Bonded **producer** weight is per attested device, on a curve
+(`mining_ops.bond_weight`, from block 11800 of betanet-7; a hard 1,000 NADO cap per device from block 4200 before that):
 
-- **Split-neutral** — weight depends only on total bonded capital, so sharding across many addresses
-  gains nothing.
-- **No per-identity cap** — weight is linear in stake. The old `BOND_CAP` (1,000 NADO) was per key, so a second key restored linear weight; it bound only honest single-key miners and was removed 2026-08-25.
+- **Attested only.** A bonded identity is drawn for producer slots only while it holds a live device lease
+  (`bonded_producer_registry`). Unattested stake weighs **zero** in the draw — anything softer is dodged by splitting
+  keys. It still votes for finality and still counts as fork weight (`total_bonded_shares` stays linear and
+  attestation-free, so finality never depends on how many devices exist). If no bonded identity is attested at all,
+  the draw falls back to plain stake weight so a bonded slot never stalls.
+- **The curve.** Stake counts one-for-one up to a **knee** = max(1,000 NADO, 5 % of the *other* attested devices'
+  stake) — a device's own stake never lifts its own knee — then flattens: weight = K·(1.5 − 0.5·K/stake), continuous
+  with slope 1 at the knee, saturating at **1.5 K**. Every extra coin still counts, just less, and no single device can
+  ever count for more than one and a half knees. Chosen by simulation (single whale, split whale, 40-phone farm,
+  100-device lane, 10,000-device lane): a 500,000 NADO whale on a 10,000-device lane wins ~6 % of bonded blocks (12 %
+  uncapped), a 3,000-phone farm gets its stake share and nothing more, and 94 % of all stake still counts.
+- **Split-neutral below the knee, one device per knee above it.** Sharding capital across keys gains nothing;
+  sharding it across *devices* is the only way to more weight — and a device is the one thing a farm cannot mint.
+  The old per-KEY cap (removed 2026-08-25) never bound a whale because a second key restored linear weight; a cap
+  per **device** is different in kind. `/mining_status` reports `my_bonded_effective` and `bond_knee`.
+
+#### Staking pools (from block 6000 of betanet-7)
+
+Capital without a device may **rent** one. A holder points their bonded stake at an attested identity with a
+fee-exempt `delegate {to}` transaction; the pool produces with own + delegated stake under the same curve, and when it
+wins a bonded block the chain **splits the reward in that same block**, pro rata by stake, minus the pool's fee
+(`reward_ops._pool_split`, journaled and reverted integer-for-integer). Coins never leave the delegator's account,
+`undelegate` is instant, and a delegator has no producer weight of its own (it still votes for finality with its own
+stake and still earns the presence dividend if it holds a device).
+
+- **Running a pool**: any identity with bonded stake and a device sends `pool {fee_bps 0..10000, open 0|1, min ≥
+  10 NADO, max ≤ 100 M NADO, label ≤ 32 ASCII}`; another `pool` tx changes the terms, `pool {close: 1}` releases every
+  delegator in that block. Up to 1,000 members per pool. A delegator cannot run a pool; a pool cannot delegate.
+- **Why pools do not reopen the Sybil hole**: every unit of producing weight still sits on one real attested device,
+  on the same curve. A full pool pays each delegator less per coin, so capital spreads to emptier pools by itself. What
+  a pool changes is *who owns the capital* on a device — not how many devices the network sees.
+- **Wallet**: the Stake card's *Staking pools* panel — your status, the picker (open attested pools, cheapest first,
+  room, members), Delegate / Undelegate, *Run a pool* with fee, name, minimum, maximum, open, and *Close pool*.
+  `GET /pools` lists every pool with its terms, own and pooled stake and room. The relay fleet runs the zero-fee
+  pool **nadochain.com**.
 
 > **Bonded lane + FFG finality — now active.** At the **10-NADO** entry the bonded registry is
 > **populated** and blocks began producing on the bonded lane the moment `B_MIN` dropped. At the old
@@ -224,11 +252,12 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 > that goes dark is **leaked from the finality quorum** (its vote lapses, its bond untouched) and a live
 > attesting majority can always finalize.
 
-> **Bonded mining is passive — no work, no need to be online.** Once you hold enough to bond (`B_MIN =
-> 10 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
-> **no PoW/PoSW to compute, no periodic recert, and no requirement to keep the app or a node open** — the
-> beacon draws you in proportion to your stake, and because winners are credited **by address**, a relay
-> builds your winning block even while you're offline. With **auto-bond** on, rewards compound straight back
+> **Bonded mining is passive — no work beyond keeping the device lease.** Once you hold enough to bond (`B_MIN =
+> 10 NADO`), the bonded lane is **staking**: there is nothing to compute and no node to run — the beacon draws
+> you in proportion to your (curved) stake, and because winners are credited **by address**, a relay builds your
+> winning block even while you're offline. The one upkeep is the device lease: a phone or TPM re-attests every
+> 36 h from the open wallet, a Ledger or Trezor attests once for life and the lease renews itself. No device?
+> Delegate to a pool (above). With **auto-bond** on, rewards compound straight back
 > into stake, so it grows hands-free. Two honest caveats: (1) a *freshly* bonded stake ramps to full
 > selection weight over `BOND_RAMP_EPOCHS` (~30 epochs) — an automatic anti-sudden-whale delay, no action
 > needed — after which it earns at full rate; (2) your share is **competitive** (proportional to your slice
@@ -396,8 +425,8 @@ their weight in the bonded lane without any manual `bond` transactions. It is **
 bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
 `0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
 only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
-**never stops** (no per-identity cap since 2026-08-25 — every bonded coin is weight, so
-it never needlessly freezes coins). It is available in **all three clients**:
+**never stops** (every bonded coin still adds weight — one-for-one below the device's knee, flattening above
+it — so it never needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.json`, or the
   `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
@@ -483,9 +512,10 @@ disrupting consensus):
   > dividend but never collects it** — the accrual just grows. Either install with `--exec`, or open the
   > same address in the browser wallet, which claims for you. Nothing is lost by collecting late: the
   > accrual is on-chain state, not something the node holds.
-- **Auto-register the open lane** — **opt-in** (`auto_register` / `NADO_AUTO_REGISTER=1`): keeps the PoSW
-  presence lease alive (registers when absent, renews inside the lease tail), so a server can mine the free
-  lane 24/7 unattended. Off by default so a headless node never silently joins — and Sybil-loads — the open
+- **Auto-register the open lane** — **opt-in** (`auto_register` / `NADO_AUTO_REGISTER=1`): keeps the
+  presence lease alive (renews inside the lease tail), so a server can mine 24/7 unattended. A node cannot
+  attest itself: bind it to a Ledger or Trezor once from the wallet's Mining page (*Attest a node you run*)
+  and it renews statement-free from then on; a phone or TPM has to re-attest it every 36 h. Off by default so a headless node never silently joins — and Sybil-loads — the open
   lane. Full reference: **[doc/cli.md](doc/cli.md)**.
 
 ### Local multi-node testnet
@@ -541,6 +571,24 @@ its sender in consensus state for one lease (36 h); the same device cannot regis
 binding lives. Device classes that carry nothing per-device are not accepted at all: what cannot be bound is not
 proof of anything.
 
+### Identity management is the only weapon against miner centralisation
+
+Every mining rule that is written *per identity* — a work proof, a waiting time, a per-address cap, a per-IP budget,
+a probation period — is linear in the number of identities, so it costs an honest miner exactly as much as it costs a
+farm *per identity*, and a farm has as many identities as it wants. The attack vector is not stake and not hashpower;
+it is **identity farming**, and it opens the moment an identity is something a script can mint. This has been the
+holy grail of every project that tried to pay people rather than capital: NANO's representative spam, Idena's
+validation ceremonies, Nyzo's cycle, NADO's own IP-based mining — each was gamed by whoever could manufacture
+identities fastest, and each answered with more per-identity rules that the next farm dodged the same way. On
+NADO the free lane lost ~42 % of its emission to about a thousand farmed identities before this rule.
+
+The only things that discriminate are the ones a farm cannot copy: **capital** (which the bonded lane weighs) and a
+**real identity**. NADO's identity is a physical secure element — the chip in an Android phone, a TPM, a Ledger, a
+Trezor — that vouches for the wallet with a certificate its maker signed, bound to one identity at a time. That is
+what lets every other rule be simple: the free lane is one device, one vote; the bonded lane is one device, one
+knee; pools rent devices instead of pretending to be many. Without a real identity, identity farming is what opens
+the centralisation attack; with one, the attack costs a device per identity and a hand on each device every lease.
+
 ### Why a device at all, and what the network sees
 
 Before this rule the free mining lane was farmed: about a thousand fake identities, run by two or three people on rented servers, took roughly 40 % of all emission. Every rule that was per identity — proof of work, waiting times, per-address limits — was dodged by making more identities. The one thing a server farm cannot fake is a real device's secure chip, so a mining identity is now one real device.
@@ -557,11 +605,11 @@ every attested device is paid by fidelity, staked or not. The dividend ramp also
 
 **No device? Delegate to a pool (from block 6000 of betanet-7).** Savings produce blocks only on an attested device.
 A holder without one delegates their bonded stake to a pool run by someone with a device: the pool produces with own
-plus delegated stake, still capped at 1,000 NADO per device, and the chain splits every block it wins between the pool
+plus delegated stake on the same per-device curve, and the chain splits every block it wins between the pool
 and its delegators in that same block, pro rata, minus the pool's fee. Your coins never leave your account and you can
 undelegate any time. Anyone with an attested device opens a pool from the Stake card and sets its fee, name, minimum,
 maximum and whether it is open. The Sybil bound is unchanged: every unit of producing weight still sits on one real
-device with the same cap; what a pool changes is who owns the capital on it.
+device on the same curve; what a pool changes is who owns the capital on it. Full details: *Staking pools* above.
 
 **Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
 factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour
@@ -579,12 +627,11 @@ another account — rebind it here?" before the tap is spent. One hardware walle
 a hardware wallet renews itself the same way; the operator attests once.
 
 **Savings stake counts only while attested, on a curve (from block 11800 of betanet-7; a hard 1,000 NADO cap from block 4200 before that).** A device's producing weight is its stake up to a knee, at least 1,000 NADO and 5 % of the other attested devices' stake when that is more, then flattens toward one and a half knees: every extra coin still counts, just less, and no single device can ever count for more than 1.5 knees. Chosen by simulation against a single whale, a split whale, a phone farm and a large lane (`doc/device-attestation.md`). The
-bonded (savings) lane draws its block producers only from identities that hold a live device lease, and counts at
-most 1,000 NADO of each one's stake. Unattested stake still votes for finality and still counts as fork weight, but
-it produces no bonded blocks — so a whale needs one real device per 1,000 NADO, and splitting keys buys nothing. A
-node you run: bond, then attest it from the Mining page. With a Ledger or Trezor that is one tap for life; the node
-renews itself and keeps producing with up to 1,000 NADO counting. If no bonded identity is attested at all, the lane
-falls back to plain stake weight so the chain never stalls.
+bonded (savings) lane draws its block producers only from identities that hold a live device lease. Unattested stake
+still votes for finality and still counts as fork weight, but it produces no bonded blocks — so a whale needs one
+real device per knee of full weight, and splitting keys buys nothing. A node you run: bond, then attest it from the
+Mining page. With a Ledger or Trezor that is one tap for life; the node renews itself and keeps producing. If no
+bonded identity is attested at all, the lane falls back to plain stake weight so the chain never stalls.
 
 **iPhone, iPad, Mac.** Apple devices are not an accepted device class (decision 2026-09-07). Apple passkeys carry
 no attestation, and Apple's App Attest — built, tested against a real iPad and then withdrawn — carries no per-device
@@ -622,7 +669,7 @@ In the wallet it is not hidden: the setup step attests the device right after th
 **Mining** page shows *Real device: attested ✓* (or exactly why not), and Settings has *Verify this
 device*. The rule is live since betanet-7 (gen 25, `DEVICE_ATTEST_HEIGHT` = 1): that reroll retired the
 sequential-work proof, the per-IP budgets and probation, which a device proof makes redundant, and the
-dividend weight is one clean line — `min(fidelity, 30)`, the first lease pays weight 1. Design and
+dividend weight is one clean line — `min(fidelity, 15)` (30 before epoch 110), the first lease pays weight 1. Design and
 verifier details: `doc/device-attestation.md`.
 
 Enforcement by IP is gone, observation is not: every register tx a node receives leaves one line in
@@ -640,9 +687,9 @@ http://<node-ip>:9173/static/interface.html
 ```
 
 The NADO Interface (`static/interface.html` + `static/interface.js`) is also a **full wallet**: it generates or
-imports a key, computes the sequential registration **PoSW** in pure JS (byte-identical to the node's
-verifier), registers/renews its PoSW lease against the node (no heartbeats), and **keeps winning blocks even while the
-phone is locked** — presence is a ~1-day PoSW lease (no per-epoch traffic), and a relay assembles the
+imports a key, asks the device's secure hardware for its **attestation** (WebAuthn, WebHID for Ledger, WebUSB for
+Trezor), registers/renews its device lease against the node (no heartbeats), and **keeps winning blocks even while the
+phone is locked** — presence is a 36-hour lease (no per-epoch traffic), and a relay assembles the
 crediting block. It can send/receive with QR payment links and `#pay` deep links,
 bond/unbond, browse the chain, and runs in **16 languages** (browser-locale default) — all from a phone. It also shows
 **how busy each lane is right now** — live **OPEN** and **BONDED** participant counts (from
@@ -657,7 +704,8 @@ encoding against the live repo on boot.
 ## Clients
 
 - **Command line (`scripts/nado_cli.py`)** — every interface operation from the terminal, signed by your local
-  `keys.dat`: `info`, `send`, `register` (computes the sequential PoSW), `bond`/`unbond`, `alias`,
+  `keys.dat`: `info`, `send`, `register` (a node cannot attest itself — bind it from the wallet's Mining page
+  instead; the CLI path only renews a hardware-bound lease), `bond`/`unbond`, `alias`,
   `propose`/`vote`/`execute` (treasury governance), `collect` (presence dividend), `bridge-deposit`. It builds
   the *same* signed transaction the browser does and POSTs it to the node's existing `/submit_transaction` —
   no new signing endpoint, no new trust surface. Full reference: **[doc/cli.md](doc/cli.md)**.
@@ -781,7 +829,7 @@ code.
   types never collide — revert-symmetric on rollback, and the coins are **destroyed** (the deterrent is
   the loss, not a bounty). Validation requires the offender still hold the penalty so the dock never
   floors. **This punishes equivocation, not Sybil-ness** — Sybil resistance is a separate mechanism
-  (open lane capped at `OPEN_BPS = 30%` + PoSW cost; bonded lane split-neutral with 10-NADO-locked shares).
+  (open lane capped at `OPEN_BPS = 30%` + one real device per identity; bonded lane attested per device, on a curve).
 - **FFG stake-attested finality (enforced)** — bonded validators emit one `attest` transaction per epoch
   for that epoch's checkpoint (its first block). A checkpoint **justifies** when attesting bonded shares
   *strictly* exceed >2/3 (`FFG_NUM/FFG_DEN = 2/3`) of the **active** quorum, and **finalizes** on
@@ -866,9 +914,10 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
   of bonded stake via the same `slash` path as block-authorship double-signing. On-chain double-voting is
   still blocked by the per-epoch `UNIQUE(validator, epoch)` marker; cross-fork double-voting is now
   punished rather than merely prevented.
-- **There is no bonded per-identity cap (removed 2026-08-25)** — the old `MAX_SHARES` was per key; sharding capital above it
-  across addresses recovers full proportional weight. The bonded lane is **capital-proportional by
-  design**; the cap only limits single-address variance, not aggregate stake.
+- **The bonded producer curve is per device, not per key** — the old per-key `MAX_SHARES` (removed 2026-08-25)
+  was recovered by sharding across addresses. Since block 11800 of betanet-7 weight is `bond_weight(stake, knee)` per
+  *attested device*; sharding across addresses on one device gains nothing, and more weight needs more real devices.
+  Fork weight and the finality quorum stay capital-proportional and attestation-free.
 - **Registration / fee-exempt state growth** — `register` writes an account doc; **idle-account GC is implemented**
   (`ops/gc_ops.py`): long-lapsed empty docs and ancient recert rows are swept deterministically
   in-block at epoch boundaries (revert-safe, snapshot-root-identical on every node). Also bounded by the lane cap, per-IP rate limit, mempool cap, and the
