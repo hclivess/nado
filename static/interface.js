@@ -845,7 +845,7 @@ async function renderVouched() {
     const row = document.createElement("div"); row.className = "opt"; row.style.cursor = "default";
     row.innerHTML = `<b class="mono" style="font-size:12px">${escapeHtml(a.slice(0, 14))}… <span class="small faint">${escapeHtml(i18("node.item.fid", "fidelity {f}", { f: Number((acc && acc.fidelity) || 0) }))}</span></b>` +
       `<small class="${cls}">${escapeHtml(state_)}</small>` +
-      `<div class="row" style="margin-top:6px;gap:6px"><button class="accent small" data-again="${a}" style="padding:6px 10px">${escapeHtml(i18("node.item.again", "Attest again"))}</button>` +
+      `<div class="row" style="margin-top:6px;gap:6px"><button class="ghost small" data-again="${a}" style="padding:6px 10px;border-color:var(--accent)">${escapeHtml(i18("node.item.again", "Attest again"))}</button>` +
       `<button class="ghost small" data-remove="${a}" style="padding:6px 10px;flex:0 0 auto">${escapeHtml(i18("node.item.remove", "Forget"))}</button></div>`;
     box.appendChild(row);
   }
