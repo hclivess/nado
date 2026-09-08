@@ -5508,7 +5508,9 @@ async function refreshPools(acc) {
     show("btnPoolClose", false);
     const solo = (d.total_weight && d.bonded_slots_per_day && bonded > 0n)
       ? " " + i18("spool.solo", "On their own they earn ≈{x}/day per 100 NADO — a pool only helps if its line beats that.",
-          { x: (Number(d.bonded_slots_per_day) * (Number(d.bonded_producer_cut || 0) / 1e10) * (100e10 / Number(d.total_weight))).toFixed(3) }) : "";
+          // total_weight is in SHARES (B_MIN = min_delegation raw each); 100 NADO = 100e10 / min_delegation shares (2026-09-08: a Czech
+          // wallet read "≈143238330170.778/den" because this divided raw by shares)
+          { x: (Number(d.bonded_slots_per_day) * (Number(d.bonded_producer_cut || 0) / 1e10) * ((100e10 / Number(d.min_delegation || 1e11)) / Number(d.total_weight))).toFixed(3) }) : "";
     mine.textContent = bonded > 0n
       ? i18("spool.mineNone", "Your {n} NADO of savings are not delegated.", { n: nadoShort(bonded) }) + solo
       : i18("spool.mineNoStake", "Bond some savings first, then delegate them here.");
