@@ -3013,10 +3013,18 @@ async function maybeRegister() {
     // A rejection/error is often STALE: a re-register gets refused as a duplicate precisely because
     // the earlier tx just landed (or presence is already established). Ask the chain before scaring
     // the user — if we're in fact registered, keep the loop alive and let pollOnce confirm quietly.
+    // PRESENCE, not the account flag: registered stays 1 after an eviction, and a Mac whose attestation had just failed
+    // was left "mining" with a Stop button because of it (operator 2026-09-09: "there is no mining going on without
+    // the attestation").
     try {
-      const acc2 = await getAccount(state.wallet.address);
-      if (acc2 && acc2.registered === 1) { show("powWrap", false); return; }
+      const ms2 = await getMiningStatus(state.wallet.address);
+      if (ms2 && ms2.registered_present === true) { show("powWrap", false); return; }
     } catch (e) { /* fall through to the real failure path */ }
+    // THE DEVICE ITSELF FAILED (no attestation chain, unsupported browser, prompt refused): retrying would only re-prompt.
+    // Stop the loop, put the one button back to Start, and let the status say what is true (savings mine on chain if
+    // bonded; nothing else does).
+    let devFailed = false; try { const st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); devFailed = !!(st && st.ok === false); } catch (e) {}
+    if (devFailed) { haltForRegister(); setStartBtnIdle(); return; }
     failStart(failed || "the relay rejected the registration"); // genuine failure → retry, no spam
   }
 }
