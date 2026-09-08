@@ -126,19 +126,6 @@
     nav a{margin-left:0}
   }
 
-  /* emission chart (inline SVG, validated palette: open aqua / savings yellow / dividend blue / treasury orange) */
-  .em-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin-bottom:10px}
-  .em-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-  .em-row{display:grid;grid-template-columns:190px 1fr;gap:12px;align-items:center;margin:8px 0}
-  .em-lbl{font-size:13px;color:var(--muted)}
-  .em-bar{width:100%;height:34px;display:block}
-  .em-bar rect{cursor:default}
-  .em-bar text{font:600 12px var(--sans);fill:#04110a;pointer-events:none}
-  .em-tip{position:fixed;z-index:9;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--txt);pointer-events:none}
-  .em-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-  .em-table td,.em-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
-  .em-table th{color:var(--muted);font-weight:500}
-  @media (max-width:560px){.em-row{grid-template-columns:1fr;gap:4px}}
 </style>
 </head>
 <body>
@@ -152,7 +139,6 @@
       <a href="/production">Production</a>
       <a href="#features" data-i18n="nav.features">Features</a>
       <a href="#build">Build</a>
-      <a href="#emission" data-i18n="nav.emission">Emission</a>
       <a href="#treasury" data-i18n="nav.treasury">Treasury</a>
       <a href="/emission">Emission</a>
       <a href="/apps" data-i18n="nav.apps">Apps</a>
@@ -230,22 +216,6 @@
     <p style="margin:18px 0 0"><a class="btn ghost" href="https://github.com/hclivess/nado#the-bonded-lane-optional-stake" data-i18n="pools.more">Staking logic in the README →</a></p>
   </section>
 
-  <section id="emission">
-    <h2 data-i18n="em.h2">Where every NADO comes from, and where it goes</h2>
-    <p class="sub" data-i18n="em.sub">Every block mints a small reward — 0.02 NADO right now, set by the bond-elastic schedule — and every coin in existence came from one.
-      Two lanes share the blocks, each block is split three ways, and the biggest slice of all is the presence dividend paid to attested devices.</p>
-    <div class="card" style="text-align:left;margin:14px 0 0">
-      <div class="em-legend" id="emLegend"></div>
-      <div class="em-row"><div class="em-lbl" data-i18n="em.blocks">Blocks per epoch (60)</div><svg class="em-bar" id="emBlocks" viewBox="0 0 600 34" role="img"></svg></div>
-      <div class="em-row"><div class="em-lbl" data-i18n="em.openBlock">An open-lane block pays</div><svg class="em-bar" id="emOpen" viewBox="0 0 600 34" role="img"></svg></div>
-      <div class="em-row"><div class="em-lbl" data-i18n="em.savingsBlock">A savings-lane block pays</div><svg class="em-bar" id="emSav" viewBox="0 0 600 34" role="img"></svg></div>
-      <div class="em-row"><div class="em-lbl" data-i18n="em.total">All emission ends up as</div><svg class="em-bar" id="emTotal" viewBox="0 0 600 34" role="img"></svg></div>
-      <div class="em-tip" id="emTip" hidden></div>
-      <details style="margin-top:12px"><summary class="small" style="cursor:pointer;color:var(--muted)" data-i18n="em.tableTitle">Same numbers as a table</summary>
-        <table class="em-table" id="emTable"></table></details>
-      <p class="small" style="color:var(--muted);margin:14px 0 0" data-i18n="em.note">Open lane: one attested device, one vote, 30 % of blocks; its producer takes 20 % of the block and 70 % goes to the dividend pool. Savings lane: stake on a curve, no device, 70 % of blocks; its producer takes 50 % and 40 % goes to the dividend pool. The dividend pool — about half of all emission — is paid to every attested device by fidelity, staked or not. The treasury keeps 10 % of every block and is spent by vote.</p>
-    </div>
-  </section>
 
   <section id="production">
     <h2>Every node builds every block</h2>
@@ -415,42 +385,5 @@
 })();
 </script>
 
-<script>
-(function(){
-  var C={open:"#199e70",savings:"#c98500",producer:null,dividend:"#3987e5",treasury:"#d95926"};
-  var t=function(k,d){try{var L=(window.__NADO_I18N__||{})[document.documentElement.lang||"en"]||{};return L[k]||d;}catch(e){return d;}};
-  var names=function(){return {open:t("em.open","Open lane"),savings:t("em.savings","Savings lane"),openProd:t("em.openProd","Open producer"),savProd:t("em.savProd","Savings producer"),dividend:t("em.dividend","Dividend pool"),treasury:t("em.treasury","Treasury")};};
-  var rows=function(n){return [
-    ["emBlocks",[[n.open,30,C.open],[n.savings,70,C.savings]],t("em.unitBlocks","% of blocks")],
-    ["emOpen",[[n.openProd,20,C.open],[n.dividend,70,C.dividend],[n.treasury,10,C.treasury]],t("em.unitBlock","% of the block")],
-    ["emSav",[[n.savProd,50,C.savings],[n.dividend,40,C.dividend],[n.treasury,10,C.treasury]],t("em.unitBlock","% of the block")],
-    ["emTotal",[[n.savProd,35,C.savings],[n.dividend,49,C.dividend],[n.openProd,6,C.open],[n.treasury,10,C.treasury]],t("em.unitTotal","% of all emission")]];};
-  var tip=document.getElementById("emTip");
-  function draw(){
-    var n=names(), R=rows(n), H=34, gap=2, ns="http://www.w3.org/2000/svg";
-    document.getElementById("emLegend").innerHTML=[[n.open,C.open],[n.savings,C.savings],[n.dividend,C.dividend],[n.treasury,C.treasury]].map(function(x){return '<span><i style="background:'+x[1]+'"></i>'+x[0]+'</span>';}).join("");
-    var tbl='<tr><th>'+t("em.tblRow","Row")+'</th><th>'+t("em.tblPart","Part")+'</th><th>%</th></tr>';
-    R.forEach(function(r){
-      var svg=document.getElementById(r[0]); if(!svg) return; svg.innerHTML=""; var x=0;
-      var W=Math.max(200, svg.clientWidth||600); svg.setAttribute("viewBox","0 0 "+W+" "+H);   // 1:1 so labels never squeeze
-      var lbl=svg.parentNode.querySelector(".em-lbl").textContent;
-      r[1].forEach(function(seg,i){
-        var w=W*seg[1]/100-(i<r[1].length-1?gap:0);
-        var rc=document.createElementNS(ns,"rect"); rc.setAttribute("x",x); rc.setAttribute("y",4); rc.setAttribute("width",Math.max(0,w)); rc.setAttribute("height",H-8); rc.setAttribute("rx",4); rc.setAttribute("fill",seg[2]);
-        rc.addEventListener("mousemove",function(e){tip.hidden=false;tip.textContent=seg[0]+" · "+seg[1]+" "+r[2];tip.style.left=(e.clientX+12)+"px";tip.style.top=(e.clientY+12)+"px";});
-        rc.addEventListener("mouseleave",function(){tip.hidden=true;});
-        svg.appendChild(rc);
-        if(w>=36){var tx=document.createElementNS(ns,"text"); tx.setAttribute("x",x+8); tx.setAttribute("y",22); tx.textContent=seg[1]+"%"; svg.appendChild(tx);}
-        tbl+='<tr><td>'+lbl+'</td><td>'+seg[0]+'</td><td>'+seg[1]+'</td></tr>';
-        x+=W*seg[1]/100;
-      });
-    });
-    document.getElementById("emTable").innerHTML=tbl;
-  }
-  draw(); window.addEventListener("nado-lang", draw); document.addEventListener("DOMContentLoaded", draw);
-  var rt; window.addEventListener("resize", function(){ clearTimeout(rt); rt=setTimeout(draw,150); });
-  new MutationObserver(function(){draw();}).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
-})();
-</script>
 </body>
 </html>
