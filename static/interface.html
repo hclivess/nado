@@ -1222,8 +1222,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <input id="relayUrl" class="grow" placeholder="https://node.example:9173" />
       <button id="btnSaveRelay" class="accent" style="flex:0 0 auto" data-i18n="btn.save">Save</button>
     </div>
-    <p class="small faint mt" data-i18n-html="settings.relayNote">Defaults to this page's origin. A custom relay must be same-origin or
-      send CORS headers, or your browser will block reads.</p>
+    <p class="small faint mt" data-i18n-html="settings.relayNote">Defaults to this page's origin. Your key never leaves this page: a relay only receives signed transactions. A relay can still answer wrongly, so the wallet checks a pinned or failover relay against your home relay (finalized block hash, alias addresses) and every payment confirm shows the exact address. Load the wallet only from get.nadochain.com or a node you run.</p>
     <div class="settings-sect" data-i18n="settings.sectBackup">Backup</div>
     <div class="row mt">
       <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">Download key file (JSON)</button>

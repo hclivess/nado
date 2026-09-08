@@ -363,8 +363,43 @@ async function resolveAlias(name) {
     name = (name || "").trim().toLowerCase();   // registry names are all-lowercase
     const r = await fetch(relayBase() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" });
     const d = await r.json();
-    return d && d.owner ? d.owner : null;
+    const owner = d && d.owner ? d.owner : null;
+    // A LYING RELAY CANNOT REDIRECT A PAYMENT (operator 2026-09-08: "make sure people cant host malicious relays"). Keys
+    // never leave this page, so the one thing a hostile relay can do is answer wrongly — and an alias → address answer
+    // is the only relay answer a user signs against. Away from home (failover or a pinned relay), the home relay must
+    // agree; on disagreement the alias is treated as unresolved and the reason is logged.
+    if (owner && relayBase() !== homeRelay()) {
+      try {
+        const r2 = await fetchWithTimeout(homeRelay() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" }, 8000);
+        const d2 = await r2.json();
+        if (d2 && d2.owner && d2.owner !== owner) {
+          log("err", i18("log.aliasDisagree", "Relay {a} resolves \"{n}\" to a different address than your home relay — refusing. Switch relays before paying an alias.", { a: relayHost(relayBase()), n: name }));
+          return null;
+        }
+      } catch (e) { /* home unreachable: the active relay's answer stands, and the confirm dialog shows the address */ }
+    }
+    return owner;
   } catch { return null; }
+}
+// SAME CHAIN, NOT JUST SAME CHAIN ID: before the wallet adopts a relay it did not load its code from, the relay's
+// finalized block (60 below the lower of the two tips) must hash the same as the home relay's. A relay that serves a
+// forged chain is refused; an unreachable home passes (there is nothing to compare, and the confirm dialogs still show
+// every address and amount the user signs).
+async function relayAgreesWithHome(url, candTip) {
+  const home = homeRelay();
+  if (!url || url === home) return true;
+  try {
+    const hs = await fetchWithTimeout(home + "/status", { cache: "no-store" }, 6000).then((r) => r.json());
+    const n = Math.min(Number(hs.latest_block_height) || 0, Number(candTip) || 0) - 60;
+    if (n <= 0) return true;
+    const [a, b] = await Promise.all([url, home].map((base) =>
+      fetchWithTimeout(base + "/get_block?number=" + n + "&hash_only=1", { cache: "no-store" }, 6000).then((r) => r.json()).then((d) => d && d.block_hash).catch(() => null)));
+    if (a && b && a !== b) {
+      log("err", i18("log.relayForked", "Relay {a} is on a different chain than your home relay (block {n} differs) — not using it.", { a: relayHost(url), n }));
+      return false;
+    }
+  } catch (e) { /* no comparison possible */ }
+  return true;
 }
 // Live validation of the Send "to" field: a valid address, OR a registered alias (resolved
 // against the node, so the ✗ clears once the alias exists). Guards against stale async results.
@@ -1098,8 +1133,16 @@ function relayUsable(url) {
 }
 // Pin a relay (or "" = the page's own origin, automatic failover). Shared by the Save button, the dropdown and the
 // unlock screen's field: the typed/picked relay is home; any failover is forgotten; the chain is re-adopted from it.
-function applyRelay(v) {
+async function applyRelay(v) {
   v = (v || "").trim();
+  // a pinned relay is checked against the page's own origin (the code you are running came from there) before it is used
+  if (v && v.replace(/\/+$/, "") !== location.origin.replace(/\/+$/, "") && relayUsable(v)) {
+    let tip = 0; try { tip = Number((await probeRelay(v.replace(/\/+$/, ""))).latest_block_height) || 0; } catch (e) { tip = 0; }
+    const prevHome = state.relay; state.relay = null;          // compare against the page origin, not the previous pin
+    const ok = await relayAgreesWithHome(v.replace(/\/+$/, ""), tip);
+    state.relay = prevHome;
+    if (!ok) { renderRelaySelect(); return; }
+  }
   state.relay = v || null;
   try { if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY); } catch (e) {}
   relayPool.auto = null; relayPool.fails = 0; renderRelayTag(); renderRelaySelect();
@@ -1239,6 +1282,7 @@ async function rotateRelay() {
     let st;
     try { st = await probeRelay(c.url); } catch (e) { relayPool.bad.set(c.url, Date.now()); continue; }
     if (!relayAcceptable(st)) { relayPool.bad.set(c.url, Date.now()); continue; }
+    if (!c.home && !(await relayAgreesWithHome(c.url, st.latest_block_height))) { relayPool.bad.set(c.url, Date.now()); continue; }
     adoptRelay(c.home ? null : c.url, st);
     return true;
   }

@@ -725,6 +725,21 @@ NADO's security rests on the two-lane selection design plus anti-DoS/anti-Sybil 
 between **implemented** and **planned** below is the difference between testnet-safe and mainnet-safe —
 read it before running anything of value.
 
+### Can a relay steal your keys? No — and what one *can* do
+
+The web wallet signs every transaction **in the browser**; the relay receives signed bytes and nothing else. No key,
+seed phrase or password is ever sent to a relay, and the wallet loads its code only from the page's own origin
+(`get.nadochain.com` or the node you opened it from) — never from the relay it talks to. So switching relays, the
+automatic failover, or a hostile node in the peer list cannot take your coins. **The one way to lose keys is to load
+the wallet page itself from an untrusted site**: use `get.nadochain.com` or your own node, and bookmark it.
+
+What a hostile relay *can* do is **answer wrongly**: a fake balance, a stale tip, or an alias that resolves to its own
+address. The wallet treats every relay other than the one it was loaded from as untrusted: a failover or pinned
+relay must hash the same **finalized block** (60 below the tip) as the home relay before it is used; an alias →
+address answer from such a relay must **agree with the home relay** or the send is refused; and every payment
+confirm shows the **exact address** being signed. Transactions carry the chain id and a target block, so a relay
+cannot replay them elsewhere. Settings → Network lists the advertised relays with their measured latency.
+
 ### Security audit (all exploitable findings fixed)
 
 A deep adversarial audit was run across **six surfaces** (fork-choice/51%/rollback/finality;
