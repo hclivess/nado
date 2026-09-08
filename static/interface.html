@@ -227,7 +227,8 @@
         <div class="label" data-i18n="lbl.free">Free</div><div class="value sm" id="walBalance">—</div>
         <div class="pend hidden" id="walBalancePend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div></div>
       <div class="stat" data-i18n-title="tip.bonded" title="BONDED — coins locked as bonded stake. Bonded stake increases your odds in the bonded mining lane; it unlocks BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
-        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div>
+        <div class="small faint" id="walDelegLine" style="margin-top:4px;line-height:1.35"></div></div>
       <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked).">
         <div class="label" data-i18n="lbl.total">Total</div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
@@ -283,13 +284,14 @@
   <!-- MINING -->
   <div id="mining" class="card hidden" data-tab="wallet">
     <h2 data-i18n="mining.title">Mining</h2>
-    <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
+    <!-- ONE BUTTON (operator, 2026-09-08): Start mining registers the device itself when a lease is needed — the press arms
+         the one device prompt. Renew sits beside it, shown only inside the fidelity-earning window. -->
+    <div class="row" style="align-items:stretch">
+      <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
+      <button id="btnRenewLease" class="accent" data-i18n="lease.renew" style="display:none;flex:0 0 auto;padding:0 18px" disabled>Renew</button>
+    </div>
     <!-- HARDWARE WALLETS (static/hwattest.js): a Ledger (WebHID) or Trezor Safe (WebUSB) vouches for this identity
          instead of the phone/TPM — per-device factory certificates, bindable. Chrome/Edge/Brave on a computer. -->
-    <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->
-    <div class="row mt hidden" id="regTapRow">
-      <button id="btnRegisterTap" class="accent" data-i18n="reg.registerBtn">Register this device</button>
-    </div>
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
          starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
     <div id="mineDevice" class="small mt" role="status"></div>
@@ -377,7 +379,6 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <div class="small" id="bindModeLine" style="margin-top:4px"></div>
       <div class="small faint" id="leaseNote" style="margin-top:2px"></div>
       <div class="small faint" id="leaseWarn" style="margin-top:2px"></div>
-      <button class="accent mt" id="btnRenewLease" data-i18n="lease.renew" style="display:none;width:100%" disabled>Renew presence now</button>
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->

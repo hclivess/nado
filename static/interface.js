@@ -1707,7 +1707,7 @@ async function _submitTransactionRaw(tx) {
  * UI helpers
  * -------------------------------------------------------------------------------------------- */
 const $ = (id) => document.getElementById(id);
-const show = (id, on = true) => $(id).classList.toggle("hidden", !on);
+const show = (id, on = true) => { const el = $(id); if (el) el.classList.toggle("hidden", !on); };
 
 function log(kind, msg) {
   const el = $("log");
@@ -2467,9 +2467,9 @@ function haltForRegister() {
   stopPollLoop();
   releaseWakeLock();
   show("powWrap", false);
-  setStartBtnIdle();
+  // the ONE button says what the next press does (it arms the prompt and starts)
+  setStartBtnIdle(i18("btn.registerStart", "Register & start mining"));
   if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
-  show("regTapRow", true);
 }
 function setStartBtnIdle(label) {
   const b = $("btnMine");
@@ -2649,6 +2649,24 @@ function _fmtClock(secsFromNow) {
   try { return new Date(Date.now() + secsFromNow * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
   catch (e) { return ""; }
 }
+// DELEGATION ON THE OVERVIEW (operator 2026-09-08): a delegator saw "Saved 54 NADO" and nothing about where it works or
+// what it earns. From /mining_status: the pool's expected time between its bonded wins, this account's pro-rata slice
+// and the producer cut of a bonded block -> ≈ NADO/day after the pool's fee. Estimate only, never a promise.
+function renderDelegationLine(acc, ms) {
+  const el = $("walDelegLine"); if (!el) return;
+  if (!acc || !acc.pool_to || !ms || !ms.pool_to) { el.textContent = ""; return; }
+  const name = ms.pool_label || acc.pool_to.slice(0, 10) + "…";
+  const fee = poolPct(ms.pool_fee_bps);
+  if (!ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
+    el.textContent = i18("ovw.delegatedIdle", "Delegated to {p} (fee {f}) — the pool is not producing right now.", { p: name, f: fee });
+    return;
+  }
+  const perDayBlocks = 86400 / Number(ms.pool_expected_seconds_between_wins);
+  const cut = Number(ms.bonded_producer_cut || 0) / 1e10;
+  const perDay = perDayBlocks * cut * Number(ms.pool_share || 0) * (1 - Number(ms.pool_fee_bps || 0) / 10000);
+  el.textContent = i18("ovw.delegated", "Delegated to {p} (fee {f}) · your share {s} % · ≈ {x} NADO/day", {
+    p: name, f: fee, s: (Number(ms.pool_share || 0) * 100).toFixed(1), x: perDay >= 1 ? perDay.toFixed(2) : perDay.toFixed(4) });
+}
 function refreshLeasePanel(acc, ms) {
   state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
   // STAKING POOLS: the panel is always on the Savings card (operator: "pretty important"); /pools is rate-limited
@@ -2772,7 +2790,7 @@ async function maybeRegister() {
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
       } else {
         setRegBanner(i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
-        show("powWrap", false); show("regTapRow", false);
+        show("powWrap", false);
         setStartBtnWaitingReg();
         if ($("mineState")) $("mineState").textContent = i18("mine.waitingOther", "Not mining — waiting for another device to vouch");
         return;
@@ -2781,12 +2799,12 @@ async function maybeRegister() {
   }
   const permLive = await bindIsPermanent();            // bound for life: no prompt exists to arm, renew straight away
   if (!state.tapArmed && !state.pendingRegisterTx && !permLive) {   // a kept (already attested) tx needs no new tap
-    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Register (or a hardware-wallet button)."), "warn", "tap");
+    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Start mining and confirm the device prompt."), "warn", "tap");
     show("powWrap", false);
     haltForRegister();                           // the loop stops; the Register button is the only thing that opens a prompt
     return;
   }
-  show("regTapRow", false);
+ 
   // tapArmed is consumed inside attestDevice(), when a prompt actually opens — not here (a transient error before the
   // prompt used to eat the tap and leave "Registering…" with a "press Register" banner)
   state.registering = true;
@@ -3157,7 +3175,7 @@ async function startMining() {
 function stopMining() {
   state.mining = false;
   state.tapArmed = false;
-  show("regTapRow", false);
+ 
   try { localStorage.removeItem(LS_MINING); } catch (e) {}   // explicit stop -> don't auto-resume on refresh
   clearTimeout(_failRecheckTimer);                           // an explicit stop must not self-heal back to mining
   state.starting = false;
@@ -3618,6 +3636,7 @@ async function refreshDashboard() {
     $("walBalance").textContent = bal + " NADO";
     $("walBonded").textContent = bonded + " NADO";
     $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
+    renderDelegationLine(acc, ms);                     // "Delegated to … ≈ X NADO/day" right under the Bonded figure
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     // REGISTERED follows the chain's PRESENCE, not the account flag: the flag stays 1 after an eviction (the device moved
@@ -8909,6 +8928,9 @@ function wireEvents() {
   $("btnMine").onclick = () => {
     if (state.starting) return;            // a start/registration is in flight → ignore extra clicks
     if (state.mining) { stopMining(); return; }  // active mining → Stop (never re-triggers registration)
+    // ONE BUTTON (operator, 2026-09-08: "start mining and register this device should be handled automatically as
+    // needed in ONE BUTTON"): the press arms the one device prompt; the loop spends it only if a lease is needed.
+    state.tapArmed = true;
     startMining();
   };
   $("btnCancelPow").onclick = () => { stopMining(); };  // escape hatch while the main button is disabled
@@ -8926,11 +8948,6 @@ function wireEvents() {
     } catch (e) { log("err", i18("hw.failed", "{n}: {e}", { n: kind, e: (e && e.message) || String(e) })); }
   };
   // REGISTER: the one click that opens the device prompt (Windows Hello / Android). Start alone never does.
-  if ($("btnRegisterTap")) $("btnRegisterTap").onclick = () => {
-    state.tapArmed = true;
-    show("regTapRow", false);
-    if (!state.mining) startMining(); else maybeRegister().catch((e) => log("err", String(e && e.message || e)));
-  };
   if ($("btnHwLedger")) $("btnHwLedger").onclick = () => hwPick("ledger");
   if ($("btnHwTrezor")) $("btnHwTrezor").onclick = () => hwPick("trezor");
   if ($("btnHwRemote")) $("btnHwRemote").onclick = () => {

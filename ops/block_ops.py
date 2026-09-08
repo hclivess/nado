@@ -763,7 +763,36 @@ def mining_status(address, latest_block_number, block_time):
         "bond_knee": _my_knee,
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
+        # DELEGATION (operator 2026-09-08: "nowhere on the wallet main page does it say delegated or what the expected
+        # delegation earnings are"): when this account's stake produces through a pool, the pool's own expectation and
+        # this account's slice of it — display only, never consensus. The wallet turns it into "≈ X NADO/day".
+        **_delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, _raw_reg),
     }
+
+
+def _delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, raw_reg):
+    """{pool_to, pool_label, pool_fee_bps, pool_share, pool_producing, pool_expected_seconds_between_wins,
+    bonded_producer_cut} for a delegator; {} otherwise. pool_share = my stake / (pool's own + pooled) — the pro-rata
+    slice reward_ops._pool_split pays before the fee; bonded_producer_cut = what a bonded block pays its producer."""
+    try:
+        acc = get_account(address, create_on_error=False) if address else None
+        to = (acc or {}).get("pool_to")
+        if not to:
+            return {}
+        pool = get_account(to, create_on_error=False) or {}
+        own = int(raw_reg.get(to, {}).get("bonded", 0)); pooled = int(raw_reg.get(to, {}).get("pooled", 0))
+        mine = int((acc or {}).get("bonded", 0) or 0)
+        share = (mine / (own + pooled)) if (own + pooled) > 0 else 0.0
+        pw = _bwt(bonded_reg[to]) if to in bonded_reg else 0
+        exp_blocks = (total_bonded / (bonded_frac * pw)) if (pw and total_bonded) else None
+        from protocol import split_bonded_block_reward
+        producer_cut = split_bonded_block_reward(int(get_block_reward()))[0]
+        return {"pool_to": to, "pool_label": str(pool.get("pool_label") or ""), "pool_fee_bps": int(pool.get("pool_fee_bps", 0) or 0),
+                "pool_share": share, "pool_producing": to in bonded_reg,
+                "pool_expected_seconds_between_wins": (exp_blocks * block_time) if exp_blocks else None,
+                "bonded_producer_cut": int(producer_cut)}
+    except Exception:
+        return {}
 
 
 def block_already_indexed(block_hash):
