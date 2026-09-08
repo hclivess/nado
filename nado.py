@@ -1166,6 +1166,16 @@ async def pools(request):
         reg = get_bonded_registry()
         open_reg = get_open_registry(epoch_of(tip + 1))
         accs = _kv.get_accounts_many(list(reg))
+        # YIELD STATS (operator 2026-09-08: "show some stats so people know where it is best to delegate"): each pool's
+        # producing weight in the next slot's draw and the lane total, plus what a bonded block pays its producer and how
+        # many bonded slots a day has — the wallet turns that into "≈ X NADO/day per 100 NADO" after the pool's fee.
+        from .block_ops import _mining_status_lanes as _lanes, get_block_reward as _gbr
+        try:
+            _, _, _breg, _, _tot_w, _bwt, _ = _lanes(epoch_of(tip + 1))
+        except Exception:
+            _breg, _tot_w, _bwt = {}, 0, (lambda i: 0)
+        _cut = int(_p.split_bonded_block_reward(int(_gbr()))[0])
+        _slots_day = 86400.0 / 6.8 * (_p.EPOCH_LENGTH - _p.K_OPEN) / _p.EPOCH_LENGTH
         out = []
         for addr, acc in accs.items():
             if not acc or "pool_open" not in acc:
@@ -1176,11 +1186,13 @@ async def pools(request):
             out.append({"address": addr, "label": str(acc.get("pool_label", ""))[:32], "fee_bps": int(acc.get("pool_fee_bps", 0) or 0),
                         "open": int(acc.get("pool_open", 0) or 0), "min": int(acc.get("pool_min", 0) or 0), "max": mx,
                         "own": own, "pooled": pooled, "room": max(0, mx - pooled),
-                        "members": len(acc.get("pool_members") or []), "attested": addr in open_reg, "delegating": bool(e.get("pool_to"))})
+                        "members": len(acc.get("pool_members") or []), "attested": addr in open_reg, "delegating": bool(e.get("pool_to")),
+                        "weight": int(_bwt(_breg[addr])) if addr in _breg else 0})
         out.sort(key=lambda x: (-x["attested"], x["fee_bps"], -x["room"]))
         return {"tip": tip, "active": bool(_p.POOL_HEIGHT and tip + 1 >= _p.POOL_HEIGHT), "pool_height": _p.POOL_HEIGHT,
                 "cap": _p.BOND_DEVICE_CAP, "knee_floor": _p.BOND_DEVICE_CAP, "knee_others_bps": _p.BOND_KNEE_OTHERS_BPS,
-                "tail_bps": _p.BOND_TAIL_BPS, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out}
+                "tail_bps": _p.BOND_TAIL_BPS, "min_delegation": _p.POOL_MIN_DELEGATION, "pools": out,
+                "total_weight": int(_tot_w), "bonded_producer_cut": _cut, "bonded_slots_per_day": _slots_day}
     try:
         return _resp(await asyncio.to_thread(_work))
     except Exception as e:

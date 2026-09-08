@@ -5449,11 +5449,20 @@ async function refreshPools(acc) {
   }
   // the picker: open, attested pools with room, cheapest first
   const opts = (d.pools || []).filter((p) => p.open === 1 && p.address !== me && !p.delegating);
+  // ≈ NADO/day per 100 NADO delegated, after the fee: the pool's share of bonded slots × producer cut, spread over its stake
+  const yieldOf = (p) => {
+    const tot = Number(d.total_weight || 0), w = Number(p.weight || 0), st = Number(p.own || 0) + Number(p.pooled || 0);
+    if (!tot || !w || !st) return null;
+    return Number(d.bonded_slots_per_day || 0) * (w / tot) * (Number(d.bonded_producer_cut || 0) / 1e10) * (1 - Number(p.fee_bps || 0) / 10000) / (st / 1e10) * 100;
+  };
+  opts.forEach((p) => { p._y = yieldOf(p); });
+  opts.sort((a, b) => (b._y || 0) - (a._y || 0));           // best net yield first (the relay's order is fee-first)
   sel.innerHTML = "";
   if (!opts.length) { const o = document.createElement("option"); o.value = ""; o.textContent = i18("spool.none", "No open pools yet"); sel.appendChild(o); }
   for (const p of opts) {
     const o = document.createElement("option"); o.value = p.address;
-    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)} · ${i18("spool.roomShort", "room")} ${nadoShort(p.room)} NADO · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
+    const y = p._y != null ? " · " + i18("spool.yieldShort", "≈{x}/day per 100", { x: p._y >= 1 ? p._y.toFixed(2) : p._y.toFixed(3) }) : "";
+    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)}${y} · ${i18("spool.roomShort", "room")} ${nadoShort(p.room)} · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
     sel.appendChild(o);
   }
   if ($("btnUndelegate")) $("btnUndelegate").disabled = !(acc && acc.pool_to);
