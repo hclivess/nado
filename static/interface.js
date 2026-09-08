@@ -674,6 +674,8 @@ function deviceHint(st) {
   if (st && st.ok) return "";
   if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or use a Ledger, a Trezor, or Attest from another device.");
   if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set the PIN up with a TPM 2.0 available (tpm.msc), or use a Ledger, a Trezor, or Attest from another device.");
+  if (st && st.reason === "expired") return i18("device.hint.expired", "This phone's attestation certificate has expired. On Android 12+ with Google Play services it refreshes by itself when online — reboot, wait a few minutes and retry. An older phone with a factory certificate cannot be bound: use another device.");
+  if (st && st.reason === "batch") return i18("device.hint.batch", "This phone carries a batch attestation certificate shared by many units (no remote key provisioning), so the network cannot bind it to one identity. Use an Android 12+ phone with Google Play services, a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.");
   if (st && st.reason === "unbindable") return i18("device.hint.unbindable", "A security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.");
   if (st && st.reason === "unsupported") {
     if (isLinux) return i18("device.hint.linux", "Linux has no attesting hardware of its own: connect a Ledger or Trezor (Chrome, Edge or Brave), or use Attest from another device.");
@@ -900,6 +902,13 @@ async function attestDevice(sender, anchorHash, maxBlock) {
         // root at submit; the pre-flight only rules out what has no chain at all or no per-device certificate.
         if (!s.fmt || s.fmt === "none" || !s.x5c_count) st.reason = "none";
         else if (!bindable) st.reason = "unbindable";
+        else if (s.fmt === "android-key" && Array.isArray(s.x5c_validity) && s.x5c_validity[1] && s.x5c_validity[1][1]) {
+          // the per-device certificate x5c[1]: expired -> the phone cannot attest until Android refreshes it (or never, on
+          // a factory-batch keybox); valid > 90 days -> a batch certificate shared by many units, refused as unbindable
+          const nb = Number(s.x5c_validity[1][0] || 0), na = Number(s.x5c_validity[1][1] || 0), nowS = Date.now() / 1000;
+          if (na < nowS) st.reason = "expired";
+          else if (na - nb > 90 * 86400) st.reason = "batch";
+        }
         if (st.reason) {
           setDeviceStatus(st);
           log("err", i18("device.refused", "This device cannot register ({f}): ", { f: st.fmt }) + deviceHint(st));

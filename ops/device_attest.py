@@ -139,6 +139,9 @@ def parse_attestation(att_b64: str, cdj_b64: str) -> dict:
         "alg": st.get("alg"),
         "x5c_count": len(x5c),
         "x5c_lengths": [len(c) for c in x5c if isinstance(c, (bytes, bytearray))],
+        # per-certificate validity (unix seconds) so the wallet's pre-flight can say "expired" or "batch certificate"
+        # BEFORE a submit that the kernel would refuse with a bare "x5c[1] outside validity" (2026-09-08)
+        "x5c_validity": [list(_validity_or_none(c)) for c in x5c if isinstance(c, (bytes, bytearray))],
         "leaf_sha256": hashlib.sha256(x5c[0]).hexdigest() if x5c and isinstance(x5c[0], (bytes, bytearray)) else None,
         "root_sha256": hashlib.sha256(x5c[-1]).hexdigest() if x5c and isinstance(x5c[-1], (bytes, bytearray)) else None,
         "sig_len": len(st.get("sig") or b""),
@@ -171,6 +174,13 @@ def _der_time(tag: int, body: bytes) -> int:
     else:
         raise ValueError("not a DER time")
     return calendar.timegm((year, int(rest[0:2]), int(rest[2:4]), int(rest[4:6]), int(rest[6:8]), int(rest[8:10]) if len(rest) >= 10 and rest[8:10].isdigit() else 0))
+
+
+def _validity_or_none(der) -> tuple:
+    try:
+        return cert_validity(bytes(der))
+    except Exception:
+        return (None, None)
 
 
 def cert_validity(der: bytes) -> tuple:
