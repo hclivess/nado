@@ -1927,9 +1927,9 @@ function nadoToRaw(amountStr) {
 }
 
 // Estimate the bonded ("savings") lane APY from recent on-chain performance, plus the presence dividend.
-// Reward model (protocol.py): a bonded block pays the producer 70% (dividend 20%, treasury 10%); an open block
+// Reward model (protocol.py): a bonded block pays the producer 50% (dividend 40%, treasury 10%); an open block
 // pays the producer 20% (dividend 70%, treasury 10%). The bonded lane mints (epoch_length - k_open)/epoch_length
-// of blocks (~80%). Bonded rewards are shared across all bonded shares (B_MIN = 10 NADO each), so the APY on
+// of blocks (70%). Bonded rewards are shared across the lane's producing weight (curved shares of B_MIN = 10 NADO), so the APY on
 // staked capital ≈ (annual bonded producer reward ÷ total bonded shares) ÷ B_MIN. The dividend is paid to
 // PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
 const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
@@ -1976,7 +1976,9 @@ async function estimateSavingsApy() {
 
     let head;
     if (effTotal > 0) {
-      const perShareYearRaw = (avgReward * bondedBlocksYear * 0.70) / effTotal;   // raw/yr per bonded share
+      // producer keeps what is left after the dividend slice and the treasury: 50 % (was hard-coded 0.70 until 2026-09-08)
+      const producerFrac = (10000 - TREASURY_BPS - BONDED_DIVIDEND_BPS) / 10000;
+      const perShareYearRaw = (avgReward * bondedBlocksYear * producerFrac) / effTotal;   // raw/yr per bonded share
       const apy = (perShareYearRaw / Number(B_MIN_RAW)) * 100;
       const shown = apy >= 1000 ? Math.round(apy).toLocaleString() : apy.toFixed(1);
       head = `<b class="ok">${shown}% ${i18("apy.savings", "APY on bonded stake")}</b>`
