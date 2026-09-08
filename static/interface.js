@@ -767,6 +767,8 @@ function renderDeviceStatus() {
   el.textContent = st.reason === "unsupported"
     ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.")
     : i18("device.mineFailed", "Real device: attestation failed ({e}). Mining needs an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.", { e: st.reason || "" });
+  if (state.lastMs && state.lastMs.bonded_producing)
+    el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — this only affects the free lane and the dividend.");
   el.className = "small mt warn";
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
@@ -2603,7 +2605,9 @@ function setStartBtnWaitingReg() {
   b.disabled = false;
   b.classList.remove("primary"); b.classList.add("danger");
   b.textContent = i18("btn.stopWait", "Stop");
-  if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
+  if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
+    ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
+    : i18("mine.notMiningReg", "Not mining — registration needed");
 }
 // REGISTRATION GATE: nothing is mined until a registration lands, so the loop does not run and the main button is the
 // idle "Start mining" — only the Register button (and the banner saying why) stay. Pressing Register starts the loop
@@ -2617,7 +2621,9 @@ function haltForRegister() {
   show("powWrap", false);
   // the ONE button says what the next press does (it arms the prompt and starts)
   setStartBtnIdle(i18("btn.registerStart", "Register & start mining"));
-  if ($("mineState")) $("mineState").textContent = i18("mine.notMiningReg", "Not mining — registration needed");
+  if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
+    ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
+    : i18("mine.notMiningReg", "Not mining — registration needed");
 }
 function setStartBtnIdle(label) {
   const b = $("btnMine");
@@ -2975,7 +2981,9 @@ async function maybeRegister() {
   }
   const permLive = await bindIsPermanent();            // bound for life: no prompt exists to arm, renew straight away
   if (!state.tapArmed && !state.pendingRegisterTx && !permLive) {   // a kept (already attested) tx needs no new tap
-    setRegBanner(i18("reg.tapNeeded2", "Your identity needs a registration: press Start mining and confirm the device prompt."), "warn", "tap");
+    setRegBanner((state.lastMs && state.lastMs.bonded_producing)
+      ? i18("reg.tapNeededSavings", "Your savings are mining already. To add the free lane and the dividend, register a real device: press Start mining and confirm the prompt.")
+      : i18("reg.tapNeeded2", "Your identity needs a registration: press Start mining and confirm the device prompt."), "warn", "tap");
     show("powWrap", false);
     haltForRegister();                           // the loop stops; the Register button is the only thing that opens a prompt
     return;
