@@ -2739,19 +2739,32 @@ function _fmtClock(secsFromNow) {
 // what it earns. From /mining_status: the pool's expected time between its bonded wins, this account's pro-rata slice
 // and the producer cut of a bonded block -> ≈ NADO/day after the pool's fee. Estimate only, never a promise.
 function renderDelegationLine(acc, ms) {
-  const el = $("walDelegLine"); if (!el) return;
-  if (!acc || !acc.pool_to || !ms || !ms.pool_to) { el.textContent = ""; return; }
-  const name = ms.pool_label || acc.pool_to.slice(0, 10) + "…";
-  const fee = poolPct(ms.pool_fee_bps);
-  if (!ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
-    el.textContent = i18("ovw.delegatedIdle", "Delegated to {p} (fee {f}) — the pool is not producing right now.", { p: name, f: fee });
+  const wrap = $("walDelegStat"), val = $("walDelegValue"), el = $("walDelegLine"); if (!wrap || !val || !el) return;
+  const bonded = BigInt((acc && acc.bonded) || 0);
+  if (!acc || bonded <= 0n) { show("walDelegStat", false); return; }
+  show("walDelegStat", true);
+  const cut = Number((ms && ms.bonded_producer_cut) || 0) / 1e10;
+  const perDayOf = (secs, share, feeBps) => (86400 / Number(secs)) * cut * share * (1 - Number(feeBps || 0) / 10000);
+  const fmt = (x) => x >= 1 ? x.toFixed(2) : x.toFixed(4);
+  if (acc.pool_to) {
+    const name = (ms && ms.pool_label) || acc.pool_to.slice(0, 10) + "…";
+    const fee = poolPct(ms && ms.pool_fee_bps);
+    val.textContent = i18("ovw.delegatedTo", "Delegated to {p}", { p: name });
+    if (!ms || !ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
+      el.textContent = i18("ovw.delegatedIdle", "Delegated to {p} (fee {f}) — the pool is not producing right now.", { p: name, f: fee });
+      return;
+    }
+    const share = Number(ms.pool_share || 0);
+    el.textContent = i18("ovw.delegatedDetail", "fee {f} · your share {s} % · ≈ {x} NADO/day", { f: fee, s: (share * 100).toFixed(1), x: fmt(perDayOf(ms.pool_expected_seconds_between_wins, share, ms.pool_fee_bps)) });
     return;
   }
-  const perDayBlocks = 86400 / Number(ms.pool_expected_seconds_between_wins);
-  const cut = Number(ms.bonded_producer_cut || 0) / 1e10;
-  const perDay = perDayBlocks * cut * Number(ms.pool_share || 0) * (1 - Number(ms.pool_fee_bps || 0) / 10000);
-  el.textContent = i18("ovw.delegated", "Delegated to {p} (fee {f}) · your share {s} % · ≈ {x} NADO/day", {
-    p: name, f: fee, s: (Number(ms.pool_share || 0) * 100).toFixed(1), x: perDay >= 1 ? perDay.toFixed(2) : perDay.toFixed(4) });
+  if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
+    val.textContent = i18("ovw.producing", "Producing on this device");
+    el.textContent = i18("ovw.producingDetail", "{e} of {r} NADO counting · ≈ {x} NADO/day", { e: nadoShort(ms.my_bonded_effective), r: nadoShort(ms.my_bonded_raw), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
+    return;
+  }
+  val.textContent = i18("ovw.idle", "Not producing");
+  el.textContent = i18("ovw.idleDetail", "Savings produce only on an attested device — register this one, or delegate to a pool on the Savings tab.");
 }
 function refreshLeasePanel(acc, ms) {
   state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line

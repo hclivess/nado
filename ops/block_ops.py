@@ -763,6 +763,7 @@ def mining_status(address, latest_block_number, block_time):
         "bond_knee": _my_knee,
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
+        "bonded_producer_cut": int(__import__("protocol").split_bonded_block_reward(int(get_block_reward()))[0]),
         # DELEGATION (operator 2026-09-08: "nowhere on the wallet main page does it say delegated or what the expected
         # delegation earnings are"): when this account's stake produces through a pool, the pool's own expectation and
         # this account's slice of it — display only, never consensus. The wallet turns it into "≈ X NADO/day".

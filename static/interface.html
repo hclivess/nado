@@ -227,8 +227,7 @@
         <div class="label" data-i18n="lbl.free">Free</div><div class="value sm" id="walBalance">—</div>
         <div class="pend hidden" id="walBalancePend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div></div>
       <div class="stat" data-i18n-title="tip.bonded" title="BONDED — coins locked as bonded stake. Bonded stake increases your odds in the bonded mining lane; it unlocks BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
-        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div>
-        <div class="small faint" id="walDelegLine" style="margin-top:4px;line-height:1.35"></div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div></div>
       <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked).">
         <div class="label" data-i18n="lbl.total">Total</div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
@@ -244,6 +243,13 @@
         <div class="label" data-i18n="lbl.present">Present</div><div class="value sm" id="walPresent">—</div></div>
       <div class="stat" data-i18n-title="tip.fidelity" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
         <div class="label" data-i18n="lbl.fidelity">Fidelity</div><div class="value sm" id="walFidelity">—</div><div class="small faint" id="walProbation"></div></div>
+      <!-- SAVINGS AT WORK (operator 2026-09-08): delegation is its own cartouche — it does not replace Registered / Present
+           (a delegator still holds a device lease and earns the dividend), so it gets a full-width row of its own. Hidden
+           while nothing is bonded. Three states: delegated to a pool / producing on this device / bonded but idle. -->
+      <div class="stat hidden" id="walDelegStat" style="grid-column:1 / -1">
+        <div class="label" data-i18n="lbl.savingsWork">Savings at work</div>
+        <div class="value sm" id="walDelegValue" style="font-family:inherit;font-size:15px;line-height:1.35">—</div>
+        <div class="small faint" id="walDelegLine" style="margin-top:4px;line-height:1.35"></div></div>
     </div>
 
 
