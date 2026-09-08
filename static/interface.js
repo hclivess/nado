@@ -732,7 +732,8 @@ function renderDeviceStatus() {
   el.className = "small mt warn";
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
-  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); if (txt) g.open = true; }
+  // Collapsed by default (2026-09-08 UX pass): the status line says it failed, the summary says help is one tap away.
+  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); }
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
@@ -2695,6 +2696,7 @@ function refreshLeasePanel(acc, ms) {
   }
   $("leaseNote").textContent = note;
   btn.disabled = !enabled;
+  btn.style.display = enabled ? "" : "none";     // a disabled full-width accent button is noise; the note says when
   show("leaseWrap", true);
 }
 async function renewLeaseManually() {
@@ -9319,8 +9321,13 @@ async function initNetTag() {
   renderRelayTag();
   // Lease truth, in plain words, next to the countdown (Discord 2026-08-31: people saved seed phrases expecting
   // hundreds of addresses to "mine forever"): the wallet renews ONLY while this tab is open.
-  if ($("leaseWarn")) $("leaseWarn").textContent = i18("lease.warn",
-    "Mining stays eligible until the lease expires. Reopen and unlock this wallet before then — it renews only while it is open and unlocked (a phone may suspend a background tab); a saved seed phrase does not renew itself.");
+  // One short visible line; the full wording moves into the ⓘ tooltip of the lease label (2026-09-08 UX pass).
+  if ($("leaseWarn")) {
+    $("leaseWarn").textContent = i18("lease.short", "Renews only while this wallet is open and unlocked.");
+    const full = i18("lease.warn",
+      "Mining stays eligible until the lease expires. Reopen and unlock this wallet before then — it renews only while it is open and unlocked (a phone may suspend a background tab); a saved seed phrase does not renew itself.");
+    const h = document.querySelector('#leaseWrap .hint'); if (h) h.title = (h.title || "") + "\n\n" + full;
+  }
   await refreshNetIdentity();
   if (!netAdopted) netIdentityRetryLoop();      // detached: boot must not wait on a relay that is down
   else refreshRelayPool(true).catch(() => {});

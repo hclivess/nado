@@ -286,18 +286,33 @@
     <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
     <!-- HARDWARE WALLETS (static/hwattest.js): a Ledger (WebHID) or Trezor Safe (WebUSB) vouches for this identity
          instead of the phone/TPM — per-device factory certificates, bindable. Chrome/Edge/Brave on a computer. -->
-    <div class="row mt" id="hwRow">
-      <button id="btnHwLedger" class="ghost" data-i18n="hw.ledger">Attest with Ledger</button>
-      <button id="btnHwTrezor" class="ghost" data-i18n="hw.trezor">Attest with Trezor Safe</button>
-      <button id="btnHwRemote" class="ghost" data-i18n="hw.remote">Attest from another device</button>
-      <button id="btnHwNone" class="ghost" data-i18n="hw.none">Use this device</button>
-    </div>
-    <div class="small" data-i18n="hw.modes">A Ledger or Trezor binds for life: attest once, and this identity renews without it from then on. A phone or a Windows PC re-attests every 36 h, because its attestation key rotates. A hardware wallet can later be rebound to another account; the old account then stops mining.</div>
-    <div class="small faint" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</div>
     <!-- REGISTER: shown when the identity needs a lease; the only button that opens the device prompt. -->
     <div class="row mt hidden" id="regTapRow">
       <button id="btnRegisterTap" class="accent" data-i18n="reg.registerBtn">Register this device</button>
     </div>
+    <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
+         starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
+    <div id="mineDevice" class="small mt" role="status"></div>
+    <!-- DEVICE GUIDE: when the device cannot attest, the specific reasoning and the exact steps for THAT verdict
+         (Windows Hello under VBS / Credential Guard, software key, passkey without attestation, unbindable class).
+         Filled by renderDeviceStatus() from deviceGuide(); hidden while the device is fine. -->
+    <details id="mineDeviceGuide" class="mt hidden disc">
+      <summary data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
+      <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
+    </details>
+
+    <!-- HOW TO ATTEST (2026-09-08 UX pass, progressive disclosure): one primary action above; the four ways to attest sit
+         behind ONE disclosure as a list with a one-line caption each — no wall of equal buttons and paragraphs.
+         Ledger (WebHID) / Trezor Safe (WebUSB) via static/hwattest.js: per-device factory certificates, bindable. -->
+    <details id="hwWrap" class="mt disc">
+      <summary data-i18n="hw.other">Attest another way</summary>
+      <div class="optlist">
+        <button id="btnHwNone" class="opt"><b data-i18n="hw.none">This device</b><small data-i18n="hw.cap.none">Android 12+ phone or Windows PC with a TPM · re-attests every 36 h</small></button>
+        <button id="btnHwLedger" class="opt"><b data-i18n="hw.ledger">Ledger</b><small data-i18n="hw.cap.ledger">Once, for life · Chrome, Edge or Brave on a computer</small></button>
+        <button id="btnHwTrezor" class="opt"><b data-i18n="hw.trezor">Trezor Safe</b><small data-i18n="hw.cap.trezor">Safe 3 / 5 / 7 · once, for life · on a computer</small></button>
+        <button id="btnHwRemote" class="opt"><b data-i18n="hw.remote">Another device</b><small data-i18n="hw.cap.remote">A phone or PC you trust vouches for this wallet</small></button>
+      </div>
+      <p class="small faint mt" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</p>
     <details class="mt">
       <summary class="small dim" style="cursor:pointer" data-i18n="hw.guide.title">How to attest with a Ledger or Trezor</summary>
       <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.ledger">Ledger (Nano S / S Plus / X, Stax, Flex):
@@ -313,17 +328,7 @@ Renewed every 36 h; the Ledger only vouches, it never holds this wallet's key.</
 4. Confirm the device-authentication prompt on the Trezor's screen. The wallet registers by itself.
 Trezor One and Model T have no secure element and cannot vouch.</div>
     </details>
-    <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
-         starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
-    <div id="mineDevice" class="small mt" role="status"></div>
-    <!-- DEVICE GUIDE: when the device cannot attest, the specific reasoning and the exact steps for THAT verdict
-         (Windows Hello under VBS / Credential Guard, software key, passkey without attestation, unbindable class).
-         Filled by renderDeviceStatus() from deviceGuide(); hidden while the device is fine. -->
-    <details id="mineDeviceGuide" class="mt hidden">
-      <summary class="small dim" style="cursor:pointer" data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
-      <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
     </details>
-
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->
     <div id="regBanner" class="hint-banner mt hidden" role="status" aria-live="polite">
@@ -333,8 +338,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <!-- ATTEST A NODE (ops/node_attest, doc/device-attestation.md §"Attesting a node"): a headless node has no secure
          element and no hand to tap, so its OPERATOR taps here for the node's address. The attestation is dropped on
          this relay and the node picks it up from the network and signs its own registration. -->
-    <details id="nodeAttestWrap" class="mt">
-      <summary class="small dim" style="cursor:pointer" data-i18n="node.title">Attest another wallet or node</summary>
+    <details id="nodeAttestWrap" class="mt disc">
+      <summary data-i18n="node.title">Attest another wallet or node</summary>
       <p class="small mt" data-i18n="node.blurb">Vouch for another wallet or a node from this device. Paste the address (a wallet's address, or a node's from its /status page), then press the button: this device attests that address, the statement travels through the network, and the other wallet or node registers itself with it. Renew every 36 h. This device is the one bound, so it cannot vouch for a second identity while that lease lives.</p>
       <input id="nodeAttestAddr" placeholder="wallet or node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
       <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
@@ -364,14 +369,15 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          expiry ~5 h earlier every day until it lands in the middle of someone's night — one missed
          renewal there resets the fidelity streak. Renewing by hand inside the window pins the expiry to a
          time of day the user chooses. Hidden until a lease exists. Lives under Mining, next to the lease-related stats. -->
-    <div id="leaseWrap" class="mt hidden" style="text-align:center">
-      <span class="label" data-i18n="lease.label">Presence lease <span class="hint" data-i18n-title="tip.lease"
-         title="PRESENCE LEASE — the device attestation keeps this identity present for 36 h and renews automatically while the wallet is open. Fidelity rises by 1 per renewal made at least ~19 h after the last, up to 15 days of weight.">ⓘ</span></span>
-      <span class="value sm" id="leaseLeft">—</span>
-      <div class="small" id="bindModeLine" style="margin-top:2px"></div>
+    <div id="leaseWrap" class="mt hidden compact">
+      <div class="lrow">
+        <span class="label" style="margin:0" data-i18n="lease.label">Presence lease <span class="hint" data-i18n-title="tip.lease" title="PRESENCE LEASE — the device attestation keeps this identity present for 36 h and renews automatically while the wallet is open. Fidelity rises by 1 per renewal made at least ~19 h after the last, up to 15 days of weight.">ⓘ</span></span>
+        <span class="value sm" id="leaseLeft" style="font-size:14px">—</span>
+      </div>
+      <div class="small" id="bindModeLine" style="margin-top:4px"></div>
       <div class="small faint" id="leaseNote" style="margin-top:2px"></div>
-      <div class="small faint" id="leaseWarn" style="margin-top:6px"></div>
-      <button class="accent" id="btnRenewLease" data-i18n="lease.renew" style="display:block;margin:6px auto 0" disabled>Renew presence now</button>
+      <div class="small faint" id="leaseWarn" style="margin-top:2px"></div>
+      <button class="accent mt" id="btnRenewLease" data-i18n="lease.renew" style="display:none;width:100%" disabled>Renew presence now</button>
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
@@ -1268,7 +1274,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 
     <div id="deviceWrap" class="mt">
       <div class="label" data-i18n="device.title">Real device</div>
-      <p class="small faint" data-i18n="device.intro">Mining identities must prove they run on real hardware: your device's secure element signs a challenge and every node verifies the maker's certificate chain against pinned roots. Accepted: an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor. One device, one identity.</p>
+      <p class="small faint hidden" data-i18n="device.intro">Mining identities must prove they run on real hardware: your device's secure element signs a challenge and every node verifies the maker's certificate chain against pinned roots. Accepted: an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor. One device, one identity.</p>
       <div id="deviceStatus" class="small mt" style="white-space:pre-line"></div>
       <button id="btnDeviceVerify" class="accent mt" style="width:100%" data-i18n="device.verify">Verify this device</button>
     </div>
