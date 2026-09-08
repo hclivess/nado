@@ -3277,7 +3277,6 @@ async function releaseWakeLock() {
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !state.mining) return;
-    acquireWakeLock();
     startPollLoop();
     pollOnce().catch(() => {});
   });
@@ -3343,7 +3342,9 @@ async function startMining() {
   $("mineState").textContent = i18("mine.starting", "Starting…");
   log("ok", i18("log.miningStarted", "Mining loop started — the relay confirms your registration first; blocks are mined only after that."));
   startPollLoop();
-  acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
+  // No screen wake lock (2026-09-08): nothing in this page hashes any more — the presence lease lives on chain, savings
+  // need no page at all, and a renewal only needs the wallet open at that moment. Holding the screen on drained phones
+  // for nothing and the log line claimed mining depended on it.
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
   pollOnce().catch((e) => { if (isTransient(e)) { setConn(false); return; } log("err", i18("log.miningLoopError", "Mining loop error: {m}", {m: e.message})); });
 }
