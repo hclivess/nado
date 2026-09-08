@@ -355,7 +355,10 @@ open-lane draw, the one-register-per-epoch rule, the strict CBOR parse and the i
 permanent identity that stops renewing lapses like any other; the binding stays, so when it returns it renews
 without a statement.
 
-## Savings-lane cap per attested device (`BOND_DEVICE_CAP_HEIGHT`, 2026-09-07)
+## Savings-lane cap per attested device (`BOND_DEVICE_CAP_HEIGHT`, 2026-09-07) — attested-only until block 16150
+
+> Superseded in part on 2026-09-08 evening: from `BOND_ATTEST_OPTIONAL_HEIGHT` the device lease is no longer required
+> for the bonded draw (next section). The curve stays.
 
 Operator decision: "cap the PoS acceleration at 1,000 NADO per attested device; if savings-lane nodes are online, one
 attestation should be enough for them (has to be a unique device)."
@@ -392,6 +395,44 @@ Consequence at the gate on betanet-7: every bonded identity without an open-lane
 stops being drawn for bonded slots until its operator attests it (Mining → *Attest another wallet or node*; a Ledger
 or Trezor does it once for life, a phone or TPM every 36 h). With a hardware wallet: bond, attest once, and the node
 keeps producing on its own with up to 1,000 NADO counting.
+
+## Bonded lane without a device (`BOND_ATTEST_OPTIONAL_HEIGHT` = 16150, 2026-09-08 evening)
+
+Operator decision after users asked to reconsider the requirement: "lets drop the requirement for the bonded lane, we
+have the knee rule. gate it close, make sure it is autodeployed on reroll." The numbers that decided it, on the live
+lane at block 15,669 (46 bonded keys, 6,385 NADO, producing weight 3,887 after the curve):
+
+| | keys | NADO |
+|---|---|---|
+| producing on an attested device | 15 | 2,097 own |
+| delegated to a pool | 18 | 3,057 |
+| idle (no device, not delegated) | 13 | 1,231 (19 %) |
+
+Dropping the requirement: a solo device owner 11.6 % → 7.0 % of bonded blocks, a delegator 4.6 % → 5.5 % (pooled
+stake stops being curved), an idle key 0 → 5.8 %. Against one holder joining the lane (share of bonded blocks):
+
+| stake | attested-only, 1 device | 5 devices | 20 devices | no requirement |
+|---|---|---|---|---|
+| 10,000 | 27 % | 62 % | 72 % | 61 % |
+| 50,000 | 22 % | 75 % | 91 % | 89 % |
+| 500,000 | 22 % | 97 % | 99 % | 99 % |
+
+Two to three devices reached 50 % at any stake above 10,000 NADO — the requirement stopped a one-phone whale and
+nothing else, because every per-device rule is linear in devices and the "5 % of the others" knee let a whale's own
+second device lift the first one's knee. Capital is the Sybil resistance of a bonded lane; the device does its work on
+the free lane and the dividend, which this decision does not touch.
+
+- **Rule**: from the gate `bonded_producer_registry` no longer filters by the open registry; every non-delegating
+  bonded identity is a candidate on the knee/tail curve (`bond_knee` now reads "the other producing identities").
+  Delegators still ride their pool. The liveness fallback is moot. Leases, statement-free renewals, evictions, the
+  open-lane exclusion for stakers and the dividend are untouched — an attested staker earns both.
+- **Gate**: `BOND_ATTEST_OPTIONAL_HEIGHT = 16150 if CHAIN_GENERATION == 25 else 1` — keyed on the generation, so the
+  next reroll ships it from genesis with no edit. Blocks before the gate replay the attested-only draw.
+- **Wallet**: `/mining_status.bond_attest_required` (False from the gate); the Mining page's savings line says "no
+  device needed", the Overview's Savings cartouche and the pool panel likewise; the pool panel shows the solo yield
+  next to each pool's "≈ per 100 NADO" so delegating is a visible comparison, not a requirement.
+- **Pools** stay as a feature; above the knee a pool pays each coin at most what solo pays.
+- **Tests**: `tests/test_bond_device_cap.py` pins the slot before the gate (attested-only) and the slot at it.
 
 ## Apple devices
 

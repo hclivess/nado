@@ -194,42 +194,48 @@ present**. Mine to **one address** — a second address needs a second real devi
 ### The BONDED lane (optional stake)
 
 A `bond` transaction moves spendable balance into a non-spendable `bonded` column; an `unbond`/`withdraw`
-pair moves it back out after a timelock (see below). Bonded **producer** weight is per attested device, on a curve
-(`mining_ops.bond_weight`, from block 11800 of betanet-7; a hard 1,000 NADO cap per device from block 4200 before that):
+pair moves it back out after a timelock (see below). Bonded **producer** weight is stake on a curve
+(`mining_ops.bond_weight`, from block 11800 of betanet-7), and **needs no device** (from block 16150 of betanet-7;
+between blocks 4200 and 16150 the lane was attested-only — see below for why that was dropped):
 
-- **Attested only.** A bonded identity is drawn for producer slots only while it holds a live device lease
-  (`bonded_producer_registry`). Unattested stake weighs **zero** in the draw — anything softer is dodged by splitting
-  keys. It still votes for finality and still counts as fork weight (`total_bonded_shares` stays linear and
-  attestation-free, so finality never depends on how many devices exist). If no bonded identity is attested at all,
-  the draw falls back to plain stake weight so a bonded slot never stalls.
-- **The curve.** Stake counts one-for-one up to a **knee** = max(1,000 NADO, 5 % of the *other* attested devices'
-  stake) — a device's own stake never lifts its own knee — then flattens: weight = K·(1.5 − 0.5·K/stake), continuous
-  with slope 1 at the knee, saturating at **1.5 K**. Every extra coin still counts, just less, and no single device can
-  ever count for more than one and a half knees. Chosen by simulation (single whale, split whale, 40-phone farm,
-  100-device lane, 10,000-device lane): a 500,000 NADO whale on a 10,000-device lane wins ~6 % of bonded blocks (12 %
-  uncapped), a 3,000-phone farm gets its stake share and nothing more, and 94 % of all stake still counts.
-- **Split-neutral below the knee, one device per knee above it.** Sharding capital across keys gains nothing;
-  sharding it across *devices* is the only way to more weight — and a device is the one thing a farm cannot mint.
-  The old per-KEY cap (removed 2026-08-25) never bound a whale because a second key restored linear weight; a cap
-  per **device** is different in kind. `/mining_status` reports `my_bonded_effective` and `bond_knee`.
+- **No device, no lease, nothing to renew.** Every bonded identity that is not delegating is in the producer draw
+  (`bonded_producer_registry`). A device is still what earns the free lane and the presence dividend, and a staker who
+  also attests one keeps earning that dividend on top. Finality and fork weight are linear stake as before
+  (`total_bonded_shares`), so neither ever depended on devices.
+- **The curve.** Stake counts one-for-one up to a **knee** = max(1,000 NADO, 5 % of the *other* producing
+  identities' stake) — an identity's own stake never lifts its own knee — then flattens: weight = K·(1.5 − 0.5·K/stake),
+  continuous with slope 1 at the knee, saturating at **1.5 K**. `/mining_status` reports `my_bonded_effective` and
+  `bond_knee`.
+- **What the curve is and is not.** Below the knee it is plain stake weight and split-neutral. Above it, a holder
+  regains linear weight by splitting across keys, and keys are free — so the curve shapes variance, not
+  concentration. That is by design: **capital is the Sybil resistance of a bonded lane**. Read the numbers before
+  arguing for a per-identity cap here: on the live lane (46 keys, 6,385 NADO) the attested-only rule idled 13 keys and
+  1,231 NADO (19 % of stake), cost honest device owners ~40 % of their share against plain stake weight, and stopped
+  only a whale with **one** phone — 10,000 NADO on three phones took 62-72 % of the lane, the same 61 % plain
+  proof of stake gives. Every per-device rule is linear in devices and phones are cheap next to 10,000 NADO. The
+  device rule was kept where it actually discriminates: the free lane and the dividend.
 
 #### Staking pools (from block 6000 of betanet-7)
 
-Capital without a device may **rent** one. A holder points their bonded stake at an attested identity with a
-fee-exempt `delegate {to}` transaction; the pool produces with own + delegated stake under the same curve, and when it
-wins a bonded block the chain **splits the reward in that same block**, pro rata by stake, minus the pool's fee
-(`reward_ops._pool_split`, journaled and reverted integer-for-integer). Coins never leave the delegator's account,
-`undelegate` is instant, and a delegator has no producer weight of its own (it still votes for finality with its own
-stake and still earns the presence dividend if it holds a device).
+A holder may point their bonded stake at another identity with a fee-exempt `delegate {to}` transaction; the pool
+produces with own + delegated stake under the same curve, and when it wins a bonded block the chain **splits the
+reward in that same block**, pro rata by stake, minus the pool's fee (`reward_ops._pool_split`, journaled and
+reverted integer-for-integer). Coins never leave the delegator's account, `undelegate` is instant, and a delegator has
+no producer weight of its own (it still votes for finality with its own stake and still earns the presence dividend
+if it holds a device). Pools were built when the lane was attested-only (a holder without a device rented one). Since
+block 16150 savings produce on their own, and because the curve flattens above the knee a pool pays each coin **at
+most** what solo staking pays — the wallet shows the solo figure next to every pool's "≈ per 100 NADO" line so the
+comparison is one glance.
 
 - **Running a pool**: any identity with bonded stake and a device sends `pool {fee_bps 0..10000, open 0|1, min ≥
   10 NADO, max ≤ 100 M NADO, label ≤ 32 ASCII}`; another `pool` tx changes the terms, `pool {close: 1}` releases every
   delegator in that block. Up to 1,000 members per pool. A delegator cannot run a pool; a pool cannot delegate.
-- **Why pools do not reopen the Sybil hole**: every unit of producing weight still sits on one real attested device,
-  on the same curve. A full pool pays each delegator less per coin, so capital spreads to emptier pools by itself. What
-  a pool changes is *who owns the capital* on a device — not how many devices the network sees.
-- **Wallet**: the Stake card's *Staking pools* panel — your status, the picker (open attested pools, cheapest first,
-  room, members), Delegate / Undelegate, *Run a pool* with fee, name, minimum, maximum, open, and *Close pool*.
+- **Why pools change nothing for security**: a pool is one identity on the same curve as everyone else; a full pool
+  pays each delegator less per coin, so capital spreads by itself. What a pool changes is who operates the identity and
+  who takes a fee — not the lane's weight.
+- **Wallet**: the Stake card's *Staking pools* panel — your status and solo yield, the picker (open pools, best net
+  yield first: "≈ X/day per 100 NADO", room, members), Delegate / Undelegate, *Run a pool* with fee, name, minimum,
+  maximum, open, and *Close pool*.
   `GET /pools` lists every pool with its terms, own and pooled stake and room. The relay fleet runs the zero-fee
   pool **nadochain.com**.
 
@@ -585,8 +591,9 @@ NADO the free lane lost ~42 % of its emission to about a thousand farmed identit
 The only things that discriminate are the ones a farm cannot copy: **capital** (which the bonded lane weighs) and a
 **real identity**. NADO's identity is a physical secure element — the chip in an Android phone, a TPM, a Ledger, a
 Trezor — that vouches for the wallet with a certificate its maker signed, bound to one identity at a time. That is
-what lets every other rule be simple: the free lane is one device, one vote; the bonded lane is one device, one
-knee; pools rent devices instead of pretending to be many. Without a real identity, identity farming is what opens
+what lets every other rule be simple: the free lane is one device, one vote, and the dividend is one device, one
+fidelity. The bonded lane is the exception on purpose — there, capital is the identity, and the numbers showed a
+device rule adds nothing a three-phone whale cannot dodge (see *The BONDED lane*). Without a real identity, identity farming is what opens
 the centralisation attack; with one, the attack costs a device per identity and a hand on each device every lease.
 
 ### Why a device at all, and what the network sees
@@ -603,13 +610,13 @@ staker cannot keep a second wallet in the free lane without a second device. The
 every attested device is paid by fidelity, staked or not. The dividend ramp also flattens from the same epoch,
 `min(fidelity, 15)` instead of 30, so a first week is no longer almost nothing next to a thirty-day identity.
 
-**No device? Delegate to a pool (from block 6000 of betanet-7).** Savings produce blocks only on an attested device.
-A holder without one delegates their bonded stake to a pool run by someone with a device: the pool produces with own
-plus delegated stake on the same per-device curve, and the chain splits every block it wins between the pool
-and its delegators in that same block, pro rata, minus the pool's fee. Your coins never leave your account and you can
-undelegate any time. Anyone with an attested device opens a pool from the Stake card and sets its fee, name, minimum,
-maximum and whether it is open. The Sybil bound is unchanged: every unit of producing weight still sits on one real
-device on the same curve; what a pool changes is who owns the capital on it. Full details: *Staking pools* above.
+**Savings need no device (from block 16150 of betanet-7).** Bonded stake produces on its own, weighted by the knee
+curve, with nothing to attest or renew. Between blocks 4200 and 16150 the lane was attested-only and holders without a
+device delegated to a pool; pools remain (from block 6000) as an option: the pool produces with own plus delegated
+stake on the same curve, and the chain splits every block it wins between the pool and its delegators in that same
+block, pro rata, minus the pool's fee. Your coins never leave your account and you can
+undelegate any time. Anyone with bonded stake opens a pool from the Stake card and sets its fee, name, minimum,
+maximum and whether it is open. Full details: *Staking pools* above.
 
 **Bound for life or leased — two binding modes (from block 3900 of betanet-7).** A Ledger or Trezor carries a
 factory-fixed device key, so it attests **once**: the binding never expires, and the identity renews its 36-hour
@@ -626,12 +633,13 @@ wins immediately. The wallet asks "this Ledger vouches for
 another account — rebind it here?" before the tap is spent. One hardware wallet per identity. A node attested with
 a hardware wallet renews itself the same way; the operator attests once.
 
-**Savings stake counts only while attested, on a curve (from block 11800 of betanet-7; a hard 1,000 NADO cap from block 4200 before that).** A device's producing weight is its stake up to a knee, at least 1,000 NADO and 5 % of the other attested devices' stake when that is more, then flattens toward one and a half knees: every extra coin still counts, just less, and no single device can ever count for more than 1.5 knees. Chosen by simulation against a single whale, a split whale, a phone farm and a large lane (`doc/device-attestation.md`). The
-bonded (savings) lane draws its block producers only from identities that hold a live device lease. Unattested stake
-still votes for finality and still counts as fork weight, but it produces no bonded blocks — so a whale needs one
-real device per knee of full weight, and splitting keys buys nothing. A node you run: bond, then attest it from the
-Mining page. With a Ledger or Trezor that is one tap for life; the node renews itself and keeps producing. If no
-bonded identity is attested at all, the lane falls back to plain stake weight so the chain never stalls.
+**Savings stake counts on a curve, device or not (curve from block 11800, device optional from block 16150 of betanet-7).**
+A bonded identity's producing weight is its stake up to a knee, at least 1,000 NADO and 5 % of the other producing
+identities' stake when that is more, then flattens toward one and a half knees. Between blocks 4200 and 16150 only
+attested identities were drawn; the numbers on the live lane (idle stake, the cost to device owners, and a three-phone
+whale beating the rule) are in the *bonded lane* section above and in `protocol.py`. Unattested stake always voted for
+finality and counted as fork weight; now it produces too. Nothing about the device rule on the free lane or the
+dividend changed: an attested staker earns both.
 
 **iPhone, iPad, Mac.** Apple devices are not an accepted device class (decision 2026-09-07). Apple passkeys carry
 no attestation, and Apple's App Attest — built, tested against a real iPad and then withdrawn — carries no per-device
@@ -844,7 +852,7 @@ code.
   types never collide — revert-symmetric on rollback, and the coins are **destroyed** (the deterrent is
   the loss, not a bounty). Validation requires the offender still hold the penalty so the dock never
   floors. **This punishes equivocation, not Sybil-ness** — Sybil resistance is a separate mechanism
-  (open lane capped at `OPEN_BPS = 30%` + one real device per identity; bonded lane attested per device, on a curve).
+  (open lane capped at `OPEN_BPS = 30%` + one real device per identity; bonded lane stake-weighted on a curve, device optional).
 - **FFG stake-attested finality (enforced)** — bonded validators emit one `attest` transaction per epoch
   for that epoch's checkpoint (its first block). A checkpoint **justifies** when attesting bonded shares
   *strictly* exceed >2/3 (`FFG_NUM/FFG_DEN = 2/3`) of the **active** quorum, and **finalizes** on

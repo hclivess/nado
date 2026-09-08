@@ -1,5 +1,12 @@
 # betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
+**2026-09-08 evening — the bonded lane needs no device (gated at block 16150; from genesis at the next reroll).**
+Savings produce on their own on the knee/tail curve; nothing to attest, nothing to renew. Delegation stays optional
+(the wallet shows the solo yield next to every pool). The device rule stays where it discriminates: the free lane and
+the presence dividend, which an attested staker keeps earning on top. Why: on the live lane the attested-only rule
+idled 19 % of stake, cost device owners ~40 % against plain stake weight, and stopped only a one-phone whale — three
+phones beat it at any stake above 10,000 NADO. Details: `doc/device-attestation.md` §"Bonded lane without a device".
+
 Every open-lane identity is attested hardware. A `register` transaction (entry or renewal, every 36 h) carries a
 WebAuthn hardware attestation over a chain-chosen challenge, verified by every node with the native `native/attest`
 kernel against roots pinned in protocol: iPhone/iPad (Apple), Android (TEE/StrongBox, locked bootloader), Windows
