@@ -3605,7 +3605,11 @@ async function refreshDashboard() {
     $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
-    $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
+    // REGISTERED follows the chain's PRESENCE, not the account flag: the flag stays 1 after an eviction (the device moved
+    // on) or a lapsed lease, and a wallet in exactly that state read "Registered: yes" (2026-09-08).
+    const _msK = state.lastMs && typeof state.lastMs.registered_present === "boolean";
+    $("walReg").innerHTML = (acc.registered === 1 && (!_msK || state.lastMs.registered_present)) ? `<span class="badge ok">${i18("badge.yes","yes")}</span>`
+      : (acc.registered === 1 ? `<span class="badge no">${i18("badge.lapsed","no — lease gone")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`);
     $("walFidelity").textContent = acc.fidelity ?? 0;
     // Probation was RETIRED at gen 25 (real-device reroll): an attested identity earns the dividend from its first
     // lease at weight 1, one clean line to 30 — so the "probation" line under the fidelity number stays empty.
