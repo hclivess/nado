@@ -1,0 +1,134 @@
+[center][img height=300]https://talkimg.com/images/2026/07/03/ULcA2j.jpg[/img][/center]
+
+[color=red]Deflationary. Harder than BTC. No premine. No dev fund. PoSEA identity + hash lottery + FFG quorum finality. Post-quantum, zk-STARK, exec node, HTLC, 1-click mining, zstd, shares for all. Python/Rust/JS, 30/70.[/color]
+
+[size=18pt][b]Update, betanet-7 (gen 25): PoSEA. Every mining identity is now a real device.[/b][/size]
+
+The free mining lane was being farmed. About a thousand fake identities, run by two or three people on rented servers, were taking roughly [b]42% of all emission[/b]. Every rule we had was written per identity, so every rule cost an honest miner exactly what it cost the farm, and the farm simply made more identities.
+
+That is the oldest unsolved problem in "pay people, not capital" mining. NANO's representative spam, Idena's ceremonies, Nyzo's cycle, and NADO's own IP-based mining all died the same way, and all answered with more per-identity rules that the next farm dodged the same way.
+
+So the answer is not another rule. It is [b]PoSEA, Proof of Secure Element Attestation[/b] (pronounced "posee"): a mining identity is a physical secure element, and one device holds one identity at a time.
+
+[url=https://github.com/hclivess/nado]GitHub[/url]  •  [url=https://github.com/hclivess/nado/blob/main/doc/device-attestation.md]PoSEA spec[/url]  •  [url=https://get.nadochain.com]Open the wallet[/url]
+
+[hr]
+
+[b][size=15pt]Where PoSEA sits, and what it did not replace[/size][/b]
+
+PoSEA is the identity layer. It did not replace the lottery and it did not touch finality. Three layers, and it is worth keeping them straight because they answer three different questions.
+
+[list]
+[li][b]PoSEA answers "who may hold a mining identity".[/b] One real secure element, one identity, re-proved every lease. This is the Sybil layer and it is the part that changed.[/li]
+[li][b]The hash lottery answers "who produces this block".[/b] Unchanged. A deterministic, beacon-keyed weighted draw over the eligible set, one hash per slot. There is no race and nothing to grind, so faster hardware buys nothing. PoSEA decides who is [i]in[/i] the draw; the lottery still runs it.[/li]
+[li][b]The bonded quorum answers "when is this irreversible".[/b] Unchanged. Fast subjective confirmation at the depth floor (about 12 blocks), with FFG, Casper-style stake-attested epoch checkpoints, as the objective accountable long-range layer on top. Equivocation is slashable via a portable proof, for block authorship and for conflicting FFG attestations alike.[/li]
+[/list]
+
+One deliberate boundary: [b]fidelity and attestation are never consensus weight for finality[/b]. They set open-lane draw weight and the presence dividend, and nothing else. Bonded selection shares, fork-choice weight and the FFG quorum are all untouched by them. Presence earns you rewards; it never buys you a say in what is final.
+
+[hr]
+
+[b][size=15pt]What PoSEA actually does[/size][/b]
+
+When your wallet registers, and on every lease renewal, your device's secure hardware creates a throwaway hardware-bound key and returns a WebAuthn attestation: a statement signed [i]inside[/i] that hardware, whose certificate chain ends at a vendor root [b]pinned in the protocol[/b].
+
+Every node verifies the whole chain offline with a native kernel ([tt]native/attest[/tt]): every signature, the validity window at the anchor block's time, and the vendor extensions. Identically on every node.
+
+[list]
+[li][b]No central service.[/b] Roots are pinned in protocol and change only by a commit. No node ever contacts Google or Microsoft.[/li]
+[li][b]Nothing personal leaves the device.[/b] No serial number, no account, no name. The key is used once and never again, and nothing is stored alongside your wallet key.[/li]
+[li][b]It is not a login or a passkey.[/b] The chain picks a challenge, the hardware signs it, the certificate proves the hardware is genuine.[/li]
+[/list]
+
+What cannot register: a VM, an emulator, a desktop with no secure hardware, a software authenticator, or a rooted phone.
+
+[b]One device, one identity.[/b] From block 460 a register transaction's device certificate is bound to its sender in consensus state for the length of one lease. The same device cannot register a second identity while that binding is live. Device classes that carry nothing per-device are refused outright: what cannot be bound is not proof of anything.
+
+[b]Holding, sending and receiving NADO need no device at all.[/b] Attestation gates mining rewards, nothing else. And if you would rather not attest from the device you mine on, "Attest from another device" lets any phone or PC you trust vouch for the wallet.
+
+[hr]
+
+[b][size=15pt]What you mine on[/size][/b]
+
+[table]
+[tr][td][b]Device[/b]      [/td][td][b]What attests[/b]      [/td][td][b]Pinned root[/b][/td][/tr]
+[tr][td]Android 12+, locked bootloader      [/td][td]TEE / StrongBox      [/td][td]Google hardware-attestation roots[/td][/tr]
+[tr][td]Windows PC      [/td][td]physical TPM 2.0 via Windows Hello      [/td][td]Microsoft TPM Root CA 2014 (virtual TPMs refused)[/td][/tr]
+[/table]
+
+Open [url=https://get.nadochain.com]get.nadochain.com[/url] in Chrome, Edge or Brave, create a wallet, press [b]Start mining[/b], approve the prompt. That is the whole process. No app store, no signup, no email.
+
+[hr]
+
+[b][size=15pt]What this retired[/size][/b]
+
+A device proof makes a pile of machinery redundant, and all of it is gone:
+
+[list]
+[li]The sequential-work registration proof (PoSW) and its whole difficulty machinery.[/li]
+[li]The per-IP entry budget and the per-IP identity cap.[/li]
+[li]Probation. An attested identity now earns from its very first lease.[/li]
+[li]The node's open-lane auto-register. Nodes earn in the bonded lane.[/li]
+[/list]
+
+[b]The dividend curve is clean again.[/b] [tt]dividend_weight = min(fidelity, cap)[/tt] over every level, so the first lease pays weight 1, then 2, 3, and up. Gen 24 skipped fidelity 1 because identities were free to farm; an attested identity is a device and a tap, so the line is unbroken. The ramp also flattens: the cap is [b]15[/b] rather than 30 from epoch 110, so a first week is no longer almost nothing next to a thirty-day identity.
+
+[hr]
+
+[b][size=15pt]The two lanes, as they stand today[/size][/b]
+
+[table]
+[tr][td]      [/td][td][b]Open lane[/b]      [/td][td][b]Bonded lane[/b][/td][/tr]
+[tr][td][b]Cost to enter[/b]      [/td][td]free, no coins      [/td][td]10 NADO per selection share[/td][/tr]
+[tr][td][b]Share of block slots[/b]      [/td][td]30% (18 of 60 per epoch)      [/td][td]70%[/td][/tr]
+[tr][td][b]Device required[/b]      [/td][td]yes, attested hardware      [/td][td]no[/td][/tr]
+[tr][td][b]What decides weight[/b]      [/td][td]presence and continuity, capital-free      [/td][td]stake, one for one[/td][/tr]
+[tr][td][b]Risk[/b]      [/td][td]none      [/td][td]slashable; 24 h unlock delay[/td][/tr]
+[/table]
+
+[b]Free-lane blocks are for device-only miners (from block 6600).[/b] An identity holding one bonded share or more is no longer drawn for open-lane slots; it produces in the bonded lane instead. This is per device, not per key, so a staker cannot park a second wallet in the free lane without a second device.
+
+[b]The presence dividend is unchanged and it is the part most people underrate.[/b] Every attested device is paid by fidelity whether it is staked or not, and most of every open-lane block streams into that pool rather than to the winner. For a small miner the dividend is usually the larger of the two effects: you are paid for being present in blocks you did not win.
+
+[b]Savings need no device (from block 16150).[/b] Bonded stake produces on its own with nothing to attest and nothing to renew. The device rule stays exactly where it discriminates: the free lane and the dividend. On the live lane an attested-only bonded rule idled 19% of stake and cost device owners about 40% against plain stake weight, while stopping only a one-phone whale. Three phones beat it at any stake above 10,000 NADO, so it was cost with no benefit.
+
+[b]Staking pools are retired (gated at block 16900).[/b] With the bonded lane device-free, a pool could pay a delegator at most what solo staking pays, minus a fee. Measured on the live chain: nadochain.com's delegators were at 51% of solo, ninja pool's at 79%. Every bonded identity now produces alone. Former delegators need do nothing.
+
+[hr]
+
+[b][size=15pt]The presence lease[/size][/b]
+
+Registration is a lease, not a flag. You are eligible in the open lane if your most recent recert is within [tt]POSW_LEASE_EPOCHS[/tt].
+
+[code]epoch  = 60 blocks x 6 s = 6 minutes
+lease  = 360 epochs      = 36 hours[/code]
+
+A phone or a Windows PC is [b]leased[/b]: its attestation key rotates (Android roughly every two weeks, a TPM per Windows account), so it re-attests on every renewal. That is the only correct handling for a rotating key, because a binding that outlived the key would let one phone bind a fresh identity per rotation. The wallet shows the mode on the identity card.
+
+The miner auto-renews before the lease runs out, so once it is running it keeps itself alive. There is no separate heartbeat: the renewal is the presence signal. One tap buys a day and a half of eligibility whether the phone is locked or not.
+
+[b]Continuity is what builds weight.[/b] Open-lane draw weight runs [tt]OPEN_BASE_FLOOR + min(fidelity, 30) * 8 // 30[/tt], a range of 2 to 10. Each continuous recert adds one; a lapse resets the ramp. Going from a fresh identity to maximum takes roughly a month of unbroken presence, and that 5x is the entire reward for staying present. It is why a rotated or churned identity never catches a device that simply stays up.
+
+[hr]
+
+[b][size=15pt]Why a device is the honest tradeoff[/size][/b]
+
+Worth stating plainly rather than waiting to be asked.
+
+Anchoring identity in hardware puts vendor attestation roots in the trust path, and it excludes rooted and unlocked devices, which are disproportionately owned by exactly the people most likely to care about a chain like this.
+
+Every Sybil mechanism trusts something. Proof of Work trusts that nobody controls a majority of hash power, which looks shakier every year. Proof of Stake trusts that concentrated holders will not collude. PoSEA trusts pinned vendor roots, verified offline, with no service to call and no party who can revoke you. Pick knowingly.
+
+What it buys is the thing no per-identity rule ever bought: the free lane is one device, one vote, and identity farming costs a device per identity plus a hand on each device every lease. The bonded lane is the deliberate exception, because there capital is already the identity.
+
+[hr]
+
+[b][size=15pt]Honest status[/size][/b]
+
+Betanet is [b]pre-mainnet[/b], and it is not a sandbox. Balances persist across upgrades and carry forward to mainnet. Consensus is still hardening, so a genesis reroll remains possible, and if it happens [b]balances are carried across[/b] and it will be announced openly. This release was itself a reroll and balances came with it.
+
+Fair launch, unchanged: no premine, no dev fund, no allocation. [tt]TREASURY_GENESIS = 0[/tt]. Every coin comes from the open lane and the base subsidy. The 10% per-block treasury cut is a governance-voted pool spent only by on-chain vote, not a founder's wallet.
+
+Bonded stake carries slashing risk. Nothing here is investment advice, there is no market, and no price is implied.
+
+[center][b]Open the link. Mine from your pocket. One device, one identity.[/b][/center]
