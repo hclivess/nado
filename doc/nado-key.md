@@ -1,9 +1,11 @@
 # NADO Key — a NADO-issued attestation device
 
-Status: **NOT BUILDING IT** (operator decision, 2026-09-10). Feasibility proved, no hardware ordered, no consensus
-code written. Kept because the reasoning is reusable and the conclusion could change.
+Status: **open — nothing ordered, no consensus code written.** Feasibility proved (see below).
+Recommendation of this document: **don't build it.** That is a recommendation, not a decision; the decision is the
+operator's and has not been made. What IS settled as of 2026-09-10 is narrower: the batch-order route through a
+manufacturer's factory provisioning is out on cost.
 
-Two reasons, in order of weight. First, we are already the pluralist design — six attestation roots, none of which we
+The recommendation rests on two reasons, in order of weight. First, we are already the pluralist design — six attestation roots, none of which we
 control — and a NADO Key would add the only root with a financial interest in over-issuing. Second, the routes to
 usable hardware both cost money we do not have: a PUF-class device means a batch order with a manufacturer's factory
 doing the provisioning (their paid Enterprise tier), and the only thing we could provision ourselves is an RP2040 with
