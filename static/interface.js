@@ -2602,6 +2602,10 @@ function setStartBtnMining() {
 // (an unregistered PC read "Stop mining" while mining nothing — 2026-09-08).
 function setStartBtnWaitingReg() {
   const b = $("btnMine");
+  // SETTLED, CLICKABLE STATE: nothing is in flight any more, so `starting` must be cleared — the click handler
+  // ignores presses while it is set, which left this enabled "Stop" button dead (operator 2026-09-09:
+  // "clicking zastavit does nothing").
+  state.starting = false;
   b.disabled = false;
   b.classList.remove("primary"); b.classList.add("danger");
   b.textContent = i18("btn.stopWait", "Stop");
@@ -2971,10 +2975,13 @@ async function maybeRegister() {
         state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
       } else {
-        setRegBanner(i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
+        setRegBanner(i18("remote.switchBack", "To go back to attesting on this device instead, open \"Attest another way\" below and pick \"This device\". ") +
+          i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
         show("powWrap", false);
         setStartBtnWaitingReg();
-        if ($("mineState")) $("mineState").textContent = i18("mine.waitingOther", "Not mining — waiting for another device to vouch");
+        if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
+          ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
+          : i18("mine.waitingOther", "Not mining — waiting for another device to vouch");
         return;
       }
     } catch (e) { /* relay blip: next tick */ }
@@ -9139,7 +9146,7 @@ function wireEvents() {
   if (_devBtn) _devBtn.onclick = window.verifyDevicePreview;
 
   $("btnMine").onclick = () => {
-    if (state.starting) return;            // a start/registration is in flight → ignore extra clicks
+    if (state.starting && $("btnMine").disabled) return;   // in flight (disabled spinner) → ignore; an ENABLED button always acts
     if (state.mining) { stopMining(); return; }  // active mining → Stop (never re-triggers registration)
     // ONE BUTTON (operator, 2026-09-08: "start mining and register this device should be handled automatically as
     // needed in ONE BUTTON"): the press arms the one device prompt; the loop spends it only if a lease is needed.
