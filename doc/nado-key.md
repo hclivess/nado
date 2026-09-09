@@ -82,6 +82,38 @@ An offline root, an HSM at the provisioning line, and per-unit key generation *o
 manufacturing bar. If we cannot meet that bar, we should not issue: a device class we sign badly is worse than one we
 never shipped, because it is indistinguishable on chain from the honest one.
 
+## What you would actually buy
+
+**To prove it end to end: one Raspberry Pi Pico, about $4.**
+
+`pico-fido` (github.com/polhenarejos/pico-fido) is open-source FIDO2 firmware for the RP2040 / RP2350. It is the
+only readily available stack that lets the operator issue the attestation certificate: edit `attestation-cert.conf`,
+the build generates the certificate into `src/cert.c`, and `cert-master-key.pem` is the root. The AAGUID is set in
+firmware. Flash it, plug it in, and it emits a `packed` statement signed by our own certificate — the same bytes the
+spike faked. Total spend to find out whether this works against the live chain: one board and an afternoon.
+
+RP2040/RP2350 has **no secure element**: the device key lives in flash and comes out with physical access. Demo only.
+
+**To ship units: an OEM order, not a shopping cart.**
+
+No vendor sells a stick with a customer's attestation certificate off the shelf. Token2 ships its RP2350 key with
+attestation disabled precisely because it cannot hand over the attestation private key; provisioning a certificate is
+a manufacturing act. The realistic route is an OEM conversation with a maker of open-source keys with a secure
+element (Nitrokey 3 uses an NXP SE050, Common Criteria EAL 6+) to flash our certificate per unit. Their terms are not
+public — that is a call to make, not a number to look up.
+
+**What we do NOT need:** FIDO Alliance certification or MDS listing. Ordinary vendors must publish their roots to the
+MDS or attestation fails everywhere; we pin our own root in `protocol.py`. No membership, no certification, no fee.
+
+**The expensive part is not the board.** Every unit needs its OWN leaf certificate. One firmware image flashed onto a
+hundred sticks gives a hundred sticks one leaf, the chain collapses them to a single identity, and the product is
+worthless. Per-unit key generation on the device plus per-unit signing from an offline root IS the provisioning line,
+and it is where the cost and the trust both sit.
+
+**The alternative that costs nothing.** A Trezor Safe 3 is around EUR 79, is already a permanent bind class, and
+covers the same Apple and Linux users a NADO Key would. The only argument for our own device is beating that price at
+volume. If a NADO Key lands anywhere near EUR 79, it should not be built.
+
 ## Open questions before hardware money is spent
 
 - Unit cost at a realistic run, against the ~4.8 NADO/day a permit currently earns — the device must not be a
