@@ -645,7 +645,26 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
 // Ask the PLATFORM authenticator first (phone secure element, Windows Hello TPM, Touch ID) so a device that has one
 // gets its own prompt instead of a chooser; if the platform refuses (no Windows Hello set up, no secure element),
 // fall back to any authenticator (a security key still answers, but the network refuses its batch certificate — the hint says so).
+// PLATFORMS THAT CANNOT ATTEST, DECIDED BEFORE ANY PROMPT (operator 2026-09-09: "the Mac ceremony"). Apple's platform
+// authenticator returns a passkey with fmt "none" — no chain, refused by every node — and a browser with no platform
+// authenticator would only offer a cross-device QR that cannot attest either. Both are STATIC verdicts: the ceremony
+// can only waste the user's time and then fail. "" = go ahead and prompt.
+async function platformAttestVerdict() {
+  const ua = navigator.userAgent || "";
+  const isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  if (isIos || /Macintosh|Mac OS X/i.test(ua)) return "apple";
+  try {
+    if (window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable
+        && !(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())) return "unsupported";
+  } catch (e) { /* the probe itself failing is not a verdict — let the prompt decide */ }
+  return "";
+}
+
 async function createAttestedCredential(publicKey) {
+  // THE ONE CHOKE POINT: registration, renewal and the setup-time "verify this device" all come through here, so the
+  // refusal lives here too — a guard in only one caller left the setup path still opening a Touch ID prompt on a Mac.
+  const verdict = await platformAttestVerdict();
+  if (verdict) { const e = new Error(verdict); e.nadoVerdict = verdict; throw e; }
   try {
     return await navigator.credentials.create({ publicKey: { ...publicKey,
       authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" } } });
@@ -763,6 +782,17 @@ function renderDeviceStatus() {
     }
     el.textContent = i18("device.mineOk", "Real device: attested ✓ ({f}) — this phone's secure element vouched for this identity.", { f: st.fmt || "" });
     el.className = "small mt ok"; return;
+  }
+  if (st.reason === "apple" || st.reason === "unsupported") {
+    el.textContent = st.reason === "apple"
+      ? i18("device.mineApple", "An iPhone, iPad or Mac cannot vouch for itself — Apple passkeys carry no attestation, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, or Attest from another device.")
+      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows PC with a TPM, or Attest from another device.");
+    el.className = "small mt warn";
+    if (state.lastMs && state.lastMs.bonded_producing)
+      el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — this only affects the free lane and the dividend.");
+    const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
+    if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
+    return;
   }
   el.textContent = st.reason === "unsupported"
     ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.")
@@ -977,6 +1007,21 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     }
   }
   if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) return null;
+  // NEVER OPEN A CEREMONY THAT CANNOT SUCCEED (operator 2026-09-09: "the Mac ceremony"). A macOS / iOS / iPadOS
+  // platform authenticator returns a passkey with fmt "none" — no attestation chain, refused by every node — so the
+  // Touch ID / device-password prompt can only ever waste the user's time and then fail. Apple is a STATIC verdict:
+  // decide it here, before navigator.credentials.create(), never from the failure afterwards. A Ledger or Trezor
+  // (handled above, attestVia ledger|trezor) or "Attest from another device" are the paths that do work on a Mac,
+  // and deviceGuide() already carries that text. Same for a browser with no platform authenticator at all: the
+  // prompt would be a cross-device QR dance that cannot produce an attestation either.
+  const _verdict = await platformAttestVerdict();     // same helper the prompt itself gates on — never diverge
+  if (_verdict) {
+    setDeviceStatus({ ok: false, fmt: "none", x5c: 0, reason: _verdict });
+    log("err", _verdict === "apple"
+      ? i18("device.mineApple", "An iPhone, iPad or Mac cannot vouch for itself — Apple passkeys carry no attestation, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, or Attest from another device.")
+      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows PC with a TPM, or Attest from another device."));
+    return null;
+  }
   try {
     const uid = new Uint8Array(16); crypto.getRandomValues(uid);
     const cred = await createAttestedCredential({
