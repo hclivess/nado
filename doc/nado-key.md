@@ -298,6 +298,14 @@ hundred sticks gives a hundred sticks one leaf, the chain collapses them to a si
 worthless. Per-unit key generation on the device plus per-unit signing from an offline root IS the provisioning line,
 and it is where the cost and the trust both sit.
 
+**Do NOT buy an LPC55S69-EVK.** Checked 2026-09-10 because it looks like the obvious way to get the PUF chip. It is
+an evaluation board for chip bring-up — 222 g, four USB ports, microSD, Pmod, mikroBUS, two 3.5 mm jacks — not a
+dongle, and `pico-fido` cannot run on it: the build targets the Pico SDK (RP2040/RP2350) or ESP32 and has no NXP/LPC
+support at all, so every step of the provisioning section above is RP2040-specific. FIDO2 on an LPC55S69 means a
+different codebase entirely (Trussed / nitrokey-3-firmware, Rust). At TME it was 1246.70 CZK (~EUR 50), zero in stock,
+19 weeks manufacturer lead. To get that chip in a usable form, buy a finished Nitrokey 3 instead — and note that
+provisioning our own certificate on it is their paid Enterprise feature, not a fork.
+
 **The alternative that costs nothing.** A Trezor Safe 3 is around EUR 79, is already a permanent bind class, and
 covers the same Apple and Linux users a NADO Key would. The only argument for our own device is beating that price at
 volume. If a NADO Key lands anywhere near EUR 79, it should not be built.
