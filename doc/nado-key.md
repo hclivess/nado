@@ -186,6 +186,21 @@ Per unit at the bench:
 Steps 3-6 are a script. Note that step 2 is the good part: we never generate or hold anyone's device key, we only
 sign a certificate over a public key the device made for itself.
 
+Two things this procedure is NOT. **The certificate needs no secure storage** — it is public. What must never leave
+the device is the private key, and the device generates that itself (step 2), so the certificate's requirement is
+integrity, not secrecy: load another unit's NADO certificate onto your device and your key will not match the public
+key inside it, so the signature fails at our kernel. It self-defends. And **`CTAP_CONFIG_EA_UPLOAD` is not portable** —
+that 64-bit magic constant is a command pico-fido invented, not standard CTAP. Standard CTAP 2.1 `authenticatorConfig`
+offers only small-integer subcommands (`enableEnterpriseAttestation`, `toggleAlwaysUv`, `setMinPINLength`) and NONE of
+them uploads a certificate; the standard assumes the factory did it. So this exact procedure works on pico-fido and
+nowhere else: a Nitrokey 3 runs Trussed (Rust) and ships signed with secure boot, so we can neither call such a command
+nor flash a build that adds one. That is why "custom attestation / per-organization identity" is on their paid
+Enterprise list — it buys factory provisioning, not an upload.
+
+Note also what putting our certificate on someone else's hardware does and does not buy: it outsources MANUFACTURING,
+never TRUST. We remain the sole witness for that device class, the one root with a financial interest in over-issuing,
+and the issuance log and lane cap remain mandatory.
+
 ### Firmware changes we would have to make
 
 Three, in our own fork (the community edition is AGPLv3, so the fork gets published — fine for us):
