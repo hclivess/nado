@@ -220,6 +220,53 @@ node beyond the horizon must accept the commitment rather than re-verify the sta
 Optional→Mandatory rollout, not a config flag. But it needs no new crypto, and it addresses the leak that actually
 exists rather than the one that sounds impressive.
 
+## Running the spike: a NADO-issued device on a Raspberry Pi Pico
+
+The affordable experiment end to end. Buys nothing but a board (~120 CZK) and proves the design; the result is a demo,
+not a product, because an RP2040 has no secure element and its key is extractable. Steps 1-2 are done and live in the
+session scratchpad (`nadokey/`), NOT in this repo — nothing here adds a NADO device class to consensus.
+
+**Hardware:** a Raspberry Pi Pico or Pico 2 and the matching USB cable. No headers, no soldering. A Raspberry Pi 2/3/4
+CANNOT substitute: those are Linux computers whose USB ports are host-only (no gadget mode), so they cannot present
+themselves as a USB authenticator at all, and pico-fido is RP2040 firmware that does not run on Linux.
+
+1. **Generate the root CA** — P-256, self-signed, `C=CZ, O=NADO, CN=NADO Device Root CA`, `CA:TRUE`, 10 years.
+   DONE: 414-byte DER, pin `sha256 = d8b4ab9d0a8d5a38cbf99b981dee9559ba76b097524eba70266d4abb37dde021`. For the spike
+   the key sits on disk at 0600; a product would keep it offline on an HSM and never on the bench machine.
+2. **Patch pico-fido** — DONE, 76 added lines (`nadokey/pico-fido-nado.patch`):
+   - `src/fido/cbor.c` — AAGUID `34ea156ea087811184774489bb9bbc80` (first 16 bytes of SHA256("NADO Key")).
+   - `src/fido/known_apps.c` — an entry for `sha256("get.nadochain.com")` =
+     `a269cda1…ac23a6` with `use_self_attestation = pfalse`, so an ordinary `attestation: "direct"` gets the full
+     statement. The table is a NULL-terminated array searched linearly, so position does not matter.
+   - `src/fido/cbor_make_credential.c` — emit the PROVISIONED certificate whenever `EF_EE_DEV_EA` has data rather than
+     only under `enterpriseAttestation == 2`, and append the root so `x5c` has two elements. An unprovisioned unit
+     still behaves exactly as upstream.
+   - `src/fido/nado_root.h` — the root DER embedded as a byte array (public data; the private key never ships).
+3. **Build** — needs `pico-sdk` and the ARM toolchain: `cmake .. -DPICO_BOARD=pico && make` → `pico_fido.uf2`.
+4. **Flash** — hold BOOTSEL while plugging in, an `RPI-RP2` USB volume appears, copy the `.uf2` onto it. It reboots and
+   the LED blinks. That is the entire flashing step.
+5. **Set a device PIN** (`fido2-token -S`, or Chrome's security-key settings). Required: the certificate upload is
+   PIN-authenticated.
+6. **Read the device's own public key** — one throwaway registration against a local page. Nothing is provisioned yet,
+   so `x5c[0]` comes back as the device's SELF-SIGNED certificate; take the public key from it. That key was generated
+   on the Pico and never leaves it.
+7. **Sign the NADO leaf** over that public key: `OU=Authenticator Attestation`, `CN=NADO Key 000001`, AAGUID extension
+   `1.3.6.1.4.1.45724.1.1.4`, `CA:FALSE`, X.509 v3.
+8. **Upload it** with `CTAP_CONFIG_EA_UPLOAD` (`0x0002a674c29a8dcf`) via `authenticatorConfig`, PIN-authenticated —
+   see "Provisioning" above. Needs a small `python-fido2` script; that is the one piece of tooling that does not exist.
+9. **A loopback testnet only** — the three Python changes from "Change surface", gated, on a throwaway chain. Never
+   against betanet-7.
+10. **The test that matters** — register, confirm the tx validates and a `nado:` handle lands in `devbind`. Then
+    register a SECOND address from the same stick and confirm it is refused. Step 10's second half is the whole point;
+    without it the spike has proved nothing that matters.
+
+Not in scope for this device: **a hardware wallet.** It has no screen, and a wallet's security value is showing you
+what you are about to sign on a display the host cannot forge — without one it is a signing oracle. An attestation
+token needs no screen precisely because it makes no decisions; it only answers "a distinct device is present". Keeping
+the two apart is also why "What it is" says this device holds no coins: combine them and theft of the stick escalates
+from losing an identity to losing funds. Ledger and Trezor already fill that niche properly, with screens, and both are
+already accepted attestation classes.
+
 ## Related documents
 
 - `doc/device-attestation.md` — the live design: classes, binding modes, "one device, one identity".
