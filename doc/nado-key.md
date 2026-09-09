@@ -10,9 +10,8 @@ doing the provisioning (their paid Enterprise tier), and the only thing we could
 no secure element, which is a demo and not a product. Meanwhile a Trezor Safe 3 already covers the users this was meant
 to reach, with someone else as the witness.
 
-**What to do instead:** a ZK nullifier over the attestations we already accept — prove "I am a distinct member of an
-attested set" and emit a nullifier enforcing one-identity-per-device without revealing WHICH device. It keeps all six
-roots, adds no authority, costs only time, and we already run STARKs. See the last paragraph of "Prior art" below.
+**What to do instead:** see "The privacy gap, and what is actually buildable" below. Short version: the ZK nullifier
+that would be the ideal answer is NOT currently buildable here, and the cheap win is detached attestation evidence.
 
 **To revive this:** the deciding numbers are unit cost against the ~4.8 NADO/day a permit earns, and whether we can
 meet the manufacturing bar in "What we owe the network". Everything needed to restart is in this file.
@@ -78,6 +77,13 @@ the same key to two units, the chain cannot tell. See "what we owe" below.
    both the AAGUID and the root are ours; every other `packed` statement keeps today's refusal verbatim.
 
 Leased, not permanent: `DEVICE_BIND_PERMANENT_CLASSES` stays `{ledger, trezor}` until the device has a field history.
+
+Every constant above obeys the gate rule in `doc/reroll.md`: written `<height> if CHAIN_GENERATION == <gen> else <1 live
+from genesis | 0 never>`, never a bare height, with `tests/test_gate_reroll_transfer.py` pinning both halves. A bare
+`NADO_KEY_HEIGHT` would leave a fresh chain running the old rules for thousands of blocks.
+
+Note who this would and would not help: the **savings lane needs no device at all**, so the excluded users in "Why it is
+worth considering" are excluded only from the open lane and the dividend, never from staking.
 
 ## Copying a certificate does NOT create an identity — it takes one
 
@@ -171,11 +177,53 @@ which is precisely what the issuance log and the lane cap exist to contain, and 
 Worth noting where the best-funded attempt landed: World ID's orb is a custom device with per-device attestation keys
 and the foundation is the CA — the same design, arrived at independently.
 
-**The reachable improvement is not removing the issuer, it is hiding it.** Today the chain stores sha256(leaf) in the
-clear, a stable public handle per device. A ZK nullifier scheme would let a device prove "I am a distinct member of an
-attested set" and emit a nullifier enforcing one-identity-per-device WITHOUT revealing which device. It keeps all six
-roots, needs no new authority, adds no centralization, and we already run STARKs. That is a better use of the same
-effort than a dongle.
+**The reachable improvement is not removing the issuer, it is hiding it** — see the next section for what that costs.
+
+## The privacy gap, and what is actually buildable
+
+The real exposure is bigger than the binding handle. A register tx carries the whole statement (`device: {att, cdj,
+rp}`), so the certificate itself — vendor, model, and whatever the leaf's CN names, often a serial — is in the block
+body, linked to an address. Non-archive nodes prune bodies after `history_retention_blocks`, but **archive nodes keep
+the canonical chain permanently by hard requirement**. So that linkage is forever.
+
+### The ideal fix is not currently buildable
+
+A ZK nullifier would let a device prove "I hold a certificate chaining to one of the six pinned roots" and emit
+`nullifier = H(device key, domain)` enforcing one-identity-per-device without revealing which device. Right shape,
+wrong cost — and the earlier claim in this file that it "costs only time" was wrong:
+
+- It needs **in-circuit SHA-256 and in-circuit P-256 ECDSA** to verify an X.509 chain inside the proof. Neither exists
+  in the tree. The only in-circuit hash is the Poseidon-style width-12 sponge (`execnode/stark/alghash2.py`), which
+  legally cannot substitute: it hashes different bytes, so it would not verify a real vendor certificate.
+- That is the same obstacle that gates the ML-DSA verify AIR, where the missing in-circuit Keccak/SHAKE is recorded as
+  THE cost driver (`doc/zk-signature-aggregation.md`). This is not a smaller job than that one; it is a sibling of it.
+- The enrollment shortcut (reveal once, then prove Merkle membership with our own hash) does not rescue it. The
+  recurring secret would have to live where Poseidon can be computed — the wallet, not the authenticator — which makes
+  it a keyfile again and reintroduces exactly the remote-harvesting problem this document rejects for certificate files.
+
+So: correct direction, blocked on the single largest unbuilt piece of the proving stack. Do not start it as a privacy
+project; it becomes reachable only as a by-product of building the in-circuit hash the signature-aggregation work needs.
+
+### The cheap fix that IS buildable: detached attestation evidence
+
+Consensus needs the binding handle, the device class, and the verdict. It does not need the certificate preserved
+forever. Carrying the statement as **detached evidence** — verified at admission, committed by hash in the block core,
+not retained in the body past the reorg and slashing horizon — removes the permanent vendor/serial-to-address linkage
+without any new cryptography.
+
+That pattern is already designed in this repo for signatures (`doc/zk-signature-aggregation-02.md`, "detached
+evidence": the block core carries commitments, the witnesses travel in a separate envelope, and the block hash is
+identical either way). The same machinery applies here. It is still a consensus change with a real design — a syncing
+node beyond the horizon must accept the commitment rather than re-verify the statement — so it needs the same
+Optional→Mandatory rollout, not a config flag. But it needs no new crypto, and it addresses the leak that actually
+exists rather than the one that sounds impressive.
+
+## Related documents
+
+- `doc/device-attestation.md` — the live design: classes, binding modes, "one device, one identity".
+- `doc/scaling-open-lane.md` — the ceilings a new device class would run into.
+- `doc/reroll.md` — the gate ledger and the runbook every gate below must obey.
+- `doc/zk-signature-aggregation.md` / `-02.md` — the in-circuit hash gap, and the detached-evidence pattern.
 
 ## Provisioning: how a certificate actually reaches a device
 
