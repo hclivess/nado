@@ -492,7 +492,19 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
 - **Wallet**: the Stake card's "Staking pools" panel — my status, the picker (open, attested pools, cheapest first, room,
   member count), Delegate / Undelegate, and "Run a pool" with fee, name, min, max, open. `GET /pools` lists them.
 
-## Lanes per device, dividend per device (`OPEN_LANE_EXCLUDE_BONDED_HEIGHT`, 2026-09-08)
+## Lanes per device, dividend per device (`OPEN_LANE_EXCLUDE_BONDED_HEIGHT`, 2026-09-08) — exclusion RETIRED at 29900
+
+> Operator decision 2026-09-09 ("ok let stakers back in"): `OPEN_LANE_EXCLUDE_RETIRE_HEIGHT` = 29900 (no exclusion at
+> all at the next reroll). The rule was per ACCOUNT and free keys void it — a staker keeps the device wallet under the
+> threshold and parks the surplus in a second, device-less account; raising the threshold only changes how much surplus
+> moves. It also punished saving: an attested device with no stake earned ~1.38 NADO/day from the open lane, and its
+> **first** 10 NADO bonded cut that to ~0.14 (break-even ~100 NADO). The dilution it protected against (the open
+> draw's total weight roughly doubling, 22 → 46 at the time) arrives anyway once splitting is understood, so the rule
+> only taxed the users who did not think of it. From the gate the open draw is the whole attested set again: one
+> device, one slot, capital-free 2..10 by fidelity, `devbind` still one identity per device, `OPEN_BPS` untouched.
+> `OPEN_LANE_EXCLUDE_BONDED_EPOCH` keeps its separate meaning (the fidelity gradient). Tests: the retirement pins in
+> `tests/test_open_lane_exclusion.py`. The section below is the record of the original rule.
+
 
 Operator decisions: (1) "exclude >10 NADO miners from the free lane" — an attested identity with `bonded >= B_MIN` is
 not drawn for OPEN slots from the gate (`mining_ops.open_lane_draw_registry`); it produces in the bonded lane. Per

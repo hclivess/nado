@@ -1,5 +1,10 @@
 # betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
+**2026-09-09 — stakers are back in the free lane (from block 29900; no exclusion at all at the next reroll).** One
+device is one open-lane slot, staked or not. The exclusion was per account, which free keys void (park the surplus in
+a second wallet), and it cut a saver's open-lane income tenfold at the tenth NADO. Open weight stays capital-free and
+one identity per device; the dividend never depended on stake.
+
 **2026-09-09 — the knee is gone (from block 19400; plain stake from genesis at the next reroll).** Savings-lane weight
 is stake, one for one. With free keys a per-wallet curve is undone by splitting at the knee; it shaped nobody's weight
 and only invited wallet sprawl. Nothing to do for anyone; one wallet is enough.

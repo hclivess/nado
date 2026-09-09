@@ -186,10 +186,14 @@ revert-symmetric): a continuous renewal adds a step, a lapse halves the streak �
 identity can't keep a ramp it stopped paying for. The single most effective thing you can do is **stay
 present**. Mine to **one address** — a second address needs a second real device.
 
-> **Free-lane blocks are for device-only miners (from block 6600 of betanet-7).** An identity holding one
-> bonded share (10 NADO) or more is not drawn for OPEN slots — it produces in the BONDED lane instead. The rule
-> is per device, so a staker cannot keep a second wallet in the free lane without a second device. The
-> **presence dividend is unchanged**: every attested device is paid by fidelity, staked or not.
+> **One device, one open-lane slot — staked or not (from block 29900 of betanet-7).** Between blocks 6600 and 29900
+> an identity holding a bonded share (10 NADO+) was kept out of the OPEN draw to reserve the free lane for the
+> capital-less. That rule was per ACCOUNT, and free keys void it: a staker simply keeps the device wallet under the
+> threshold and parks the surplus in a second, device-less account, which the chain cannot tell from two people.
+> Measured before it was retired, it also punished saving — an attested device with no stake earned ~1.38 NADO/day
+> from the open lane and bonding its **first** 10 NADO cut that to ~0.14, needing ~100 NADO just to break even. So
+> it taxed whoever did not think to split. Open weight stays capital-free (2..10 by fidelity) and `devbind` still
+> allows one identity per device, so a whale with a phone gets exactly what anyone else with a phone gets.
 
 ### The BONDED lane (optional stake)
 
@@ -572,7 +576,7 @@ NADO the free lane lost ~42 % of its emission to about a thousand farmed identit
 The only things that discriminate are the ones a farm cannot copy: **capital** (which the bonded lane weighs) and a
 **real identity**. NADO's identity is a physical secure element — the chip in an Android phone, a TPM, a Ledger, a
 Trezor — that vouches for the wallet with a certificate its maker signed, bound to one identity at a time. That is
-what lets every other rule be simple: the free lane is one device, one vote, and the dividend is one device, one
+what lets every other rule be simple: the free lane is one device, one vote (staked or not), and the dividend is one device, one
 fidelity. The bonded lane is the exception on purpose — there, capital is the identity, and the numbers showed a
 device rule adds nothing a three-phone whale cannot dodge (see *The BONDED lane*). Without a real identity, identity farming is what opens
 the centralisation attack; with one, the attack costs a device per identity and a hand on each device every lease.
@@ -585,11 +589,12 @@ It is not a passkey or a login. The wallet asks your phone or PC to create a thr
 
 Holding, sending and receiving NADO need no device. Attestation is only for mining rewards. If you would rather not attest from the device you mine on, "Attest from another device" lets any phone or PC you trust vouch for the wallet.
 
-**Free-lane blocks are for device-only miners (from block 6600 of betanet-7).** An identity holding one bonded share
-(10 NADO) or more is not drawn for open-lane slots; it produces in the bonded lane. Per device, not per key, so a
-staker cannot keep a second wallet in the free lane without a second device. The **presence dividend is unchanged**:
-every attested device is paid by fidelity, staked or not. The dividend ramp also flattens from the same epoch,
-`min(fidelity, 15)` instead of 30, so a first week is no longer almost nothing next to a thirty-day identity.
+**One device, one open-lane slot, staked or not (from block 29900 of betanet-7).** Between blocks 6600 and 29900 a
+bonded share (10 NADO+) kept an identity out of the open draw; the rule was per account, free keys void it (park the
+surplus in a second wallet), and it cut a saver's income tenfold at the tenth NADO, so it was retired — see *The OPEN
+lane* above. The **presence dividend never depended on stake**: every attested device is paid by fidelity, staked or
+not. The dividend ramp flattens from epoch 110, `min(fidelity, 15)` instead of 30, so a first week is no longer
+almost nothing next to a thirty-day identity.
 
 **Savings need no device (from block 16150 of betanet-7).** Bonded stake produces on its own, weighted by the knee
 curve, with nothing to attest or renew. Between blocks 4200 and 16150 the lane was attested-only and holders without a
