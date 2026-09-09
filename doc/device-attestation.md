@@ -515,6 +515,14 @@ and claim are untouched: every attested device is weighted by fidelity. (3) "imp
 `dividend_weight = min(fidelity, 15)` from `DIVIDEND_WEIGHT_CAP_V2_EPOCH` (30 before), gated inside the one function
 both the live commit and the fraud-proof replay call.
 
+## Gates and the next reroll
+
+Every gate in this document is written `<live height> if CHAIN_GENERATION == 25 else <1|0>` (protocol.py, "GATE
+LEDGER"), so a reroll carries them without an edit: the device rules land at block 1, and the retired ones
+(`BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`, `OPEN_LANE_EXCLUDE_BONDED_HEIGHT`) land at 0 —
+never on, their code deleted in the follow-up cleanup. Procedure and the full ledger: [doc/reroll.md](reroll.md);
+pinned by `tests/test_gate_reroll_transfer.py`.
+
 ## Phases
 
 0. (this commit) Design; wallet "Verify device" capture; relay `/device_attest_probe` that parses the

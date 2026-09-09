@@ -609,7 +609,7 @@ DIV_CARRY_METER_EPOCH = 0               # gen 25: the carry is metered from epoc
 # through the lease they were also PRESENT for the dividend. From this epoch an identity whose only recert is the genesis
 # seed (latest recert epoch == 0 as of the epoch) is excluded from the dividend weight set; a seed that renews with a real
 # attested register (epoch >= 1) earns like anyone else. Epoch-gated for replayability; becomes 0 at the next reroll.
-DIVIDEND_ATTESTED_EPOCH = 30
+DIVIDEND_ATTESTED_EPOCH = 30 if CHAIN_GENERATION == 25 else 0        # reroll: required from epoch 0
 DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 
@@ -1515,6 +1515,25 @@ def split_open_block_reward(reward: int):
 # chain ends at one of these PINNED vendor roots (protocol_roots/*.pem, DER bytes verified by the native attest
 # kernel). Roots are consensus constants: never fetched, never learned from a peer, changed only by a gated
 # protocol commit. Fingerprints are SHA-256 over the DER certificate.
+# ---------------------------------------------------------------------------------------------------------------
+# GATE LEDGER (2026-09-09). EVERY gen-25 consensus gate is written `<live height> if CHAIN_GENERATION == 25 else <x>`,
+# so a reroll needs no edit: bump CHAIN_GENERATION and each rule lands where a fresh chain wants it. `x = 1` means the
+# rule is live from block 1 (or epoch 0); `x = 0` means the feature never turns on and its code path is dead weight to
+# be DELETED in the cleanup pass. tests/test_gate_reroll_transfer.py pins both halves of every line below.
+#
+#   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
+#                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
+#                                    BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT,
+#                                    OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+#   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
+#                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
+#   from epoch 0 (x = 0 = always)    DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
+#
+# CLEANUP AT THE REROLL: with the four "never" gates at 0 the savings lane is plain stake with no device, no pools and
+# no exclusion — so `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`,
+# `open_lane_draw_registry` to `return open_registry`, `reward_ops._pool_split` and the pool transactions go, and the
+# knee/cap helpers (`bond_weight`, `bond_knee`) lose their last caller. Delete them together with the gates.
+# ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
 # ONE DEVICE, ONE IDENTITY (2026-09-07, the point of attestation — "using one device to attest 100,000 wallets must be
@@ -1525,14 +1544,14 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # keys, Apple statements, batch-attested pre-RKP Android) are refused from the gate: unbindable = unacceptable.
 # Gate hygiene: shipped on the live betanet-7 chain, so it is a HEIGHT ahead of the fleet's adoption (registrations
 # below it carry no binding and replay unchanged); becomes 1 at the next reroll.
-DEVICE_BIND_HEIGHT = 460
+DEVICE_BIND_HEIGHT = 460 if CHAIN_GENERATION == 25 else 1              # reroll: one device one identity from block 1
 # STRICT BINDING (review 2026-09-07, two confirmed holes): (1) a statement with DUPLICATE CBOR map keys made the kernel
 # verify one chain (first key) while the Python parser hashed another (last key) for the binding — N identities per
 # device; from this height the consensus parser refuses duplicate keys, so both sides see one map. (2) The binding was
 # checked against PARENT state, so N senders could bind the same device inside ONE block; from this height a register tx
 # also occupies the in-block uniqueness key ("devbind", key) — one device per block, in assembly and verification alike.
 # Height-gated for replayability; becomes 1 at the next reroll.
-DEVICE_BIND_STRICT_HEIGHT = 1700
+DEVICE_BIND_STRICT_HEIGHT = 1700 if CHAIN_GENERATION == 25 else 1   # reroll: strict parse from block 1
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable
@@ -1545,7 +1564,7 @@ DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # 
 # another sender (rebind, no old-key signature needed: lost key, sold device) once POSW_LEASE_EPOCHS have passed since
 # its last STATEMENT (statement-free renewals never refresh the binding epoch, so an old owner cannot pin it); the move
 # supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
-DEVICE_BIND_PERMANENT_HEIGHT = 3900
+DEVICE_BIND_PERMANENT_HEIGHT = 3900 if CHAIN_GENERATION == 25 else 1   # reroll: bind-for-life from block 1
 # INSTANT MOVES (operator decision 2026-09-07 evening, doc/device-attestation.md §"Rebinding"): from this height a device
 # may move to another sender in ANY block — no cooldown — because the move EVICTS the identity it leaves in the same
 # block: an eviction row (devbind key "evict:<address>": [[evict_epoch, voided_recert_epoch], ...]) voids that identity's
@@ -1553,7 +1572,7 @@ DEVICE_BIND_PERMANENT_HEIGHT = 3900
 # voided one), so at every instant exactly one identity is backed by the device and hopping earns nothing (each hop
 # kills the previous identity, the new one starts at fidelity 1). Whoever holds the device wins immediately. Before this
 # height the old rule (refuse a different sender for POSW_LEASE_EPOCHS after the last statement) replays unchanged.
-DEVICE_REBIND_INSTANT_HEIGHT = 5400
+DEVICE_REBIND_INSTANT_HEIGHT = 5400 if CHAIN_GENERATION == 25 else 1   # reroll: instant moves from block 1
 DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
 # The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is
@@ -1565,7 +1584,7 @@ DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # attested set and must never stall the chain. Producer selection and reward ONLY: fork-choice weight
 # (total_bonded_shares) and the FFG/settlement quorum stay uncapped and attestation-free, so finality never depends on
 # device count. Height-gated on the live chain; becomes 1 at the next reroll.
-BOND_DEVICE_CAP_HEIGHT = 4200
+BOND_DEVICE_CAP_HEIGHT = 4200 if CHAIN_GENERATION == 25 else 0        # reroll: 0 = never (the cap/curve is retired)
 BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per attested device (100 shares at B_MIN)
 # THE CURVE (operator decision 2026-09-08 after simulation, doc/device-attestation.md §"Savings-lane cap"): from this
 # height the cliff `min(stake, 1,000)` becomes a KNEE and a bounded TAIL. Knee = max(BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS
@@ -1576,7 +1595,7 @@ BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per at
 # (single whale, split whale, 40-phone farm, 100-device lane): farms stay at their stake share (median-relative caps
 # handed them 60 %), the single whale is bounded, the honest lane is barely moved, and X = 5 % only bites once the lane
 # exceeds ~10,000 NADO, where it holds the biggest device to ~7 % of blocks. Fork weight and the FFG quorum stay linear.
-BOND_WEIGHT_CURVE_HEIGHT = 11800
+BOND_WEIGHT_CURVE_HEIGHT = 11800 if CHAIN_GENERATION == 25 else 0     # reroll: 0 = never (weight is plain stake)
 BOND_KNEE_OTHERS_BPS = 500           # knee = 5 % of the other producing identities' stake, floored at BOND_DEVICE_CAP
 BOND_TAIL_BPS = 15000                # the tail saturates at 1.5 x knee
 # BONDED LANE WITHOUT A DEVICE (operator decision 2026-09-08 evening, "lets drop the requirement for the bonded lane, we
@@ -1598,7 +1617,7 @@ BOND_ATTEST_OPTIONAL_HEIGHT = 16150 if CHAIN_GENERATION == 25 else 1
 # (fee_bps, open, min, max, label) and leaves them with `undelegate`. Sybil surface unchanged: every unit of producing
 # weight still sits on one real attested device with the same cap; what changes is that capital may rent that device.
 # Height-gated; becomes 1 at the next reroll.
-POOL_HEIGHT = 6000
+POOL_HEIGHT = 6000 if CHAIN_GENERATION == 25 else 0                    # reroll: 0 = pools never enabled
 # STAKING POOLS RETIRED (operator decision 2026-09-08 night: "retire delegation, we can revive it if we ever need to, we
 # have git"). Pools existed for the weeks the bonded lane was attested-only; with the lane device-free
 # (BOND_ATTEST_OPTIONAL_HEIGHT) a pool could pay a delegator at most what solo staking pays, minus a fee — the live
@@ -1626,7 +1645,7 @@ POOL_LABEL_MAX = 32
 # second device: each device produces in one lane. The identity stays ATTESTED and KEEPS the presence dividend — the
 # dividend is the universal per-device reward for staying present, paid to every attested identity by fidelity (the
 # operator's choice: "available for everyone"). Read as-of-parent from the account's live `bonded`, like every draw input.
-OPEN_LANE_EXCLUDE_BONDED_HEIGHT = 6600
+OPEN_LANE_EXCLUDE_BONDED_HEIGHT = 6600 if CHAIN_GENERATION == 25 else 0   # reroll: 0 = stakers always in the free lane
 # STAKERS ARE BACK IN THE FREE LANE (operator decision 2026-09-09: "ok let stakers back in"). The exclusion was a
 # PER-ACCOUNT rule, and per-account rules are void while keys are free: a staker keeps the device wallet under the
 # threshold and parks the surplus in a second, device-less account, which the chain cannot tell apart from two people.
@@ -1644,7 +1663,8 @@ OPEN_LANE_EXCLUDE_BONDED_EPOCH = OPEN_LANE_EXCLUDE_BONDED_HEIGHT // EPOCH_LENGTH
 # earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Epoch-gated inside
 # dividend_weight (the epoch is already in its signature for exactly this; the constant is read at call time).
 DIVIDEND_WEIGHT_CAP_V2 = 15
-DIVIDEND_WEIGHT_CAP_V2_EPOCH = OPEN_LANE_EXCLUDE_BONDED_EPOCH
+DIVIDEND_WEIGHT_CAP_V2_EPOCH = 110 if CHAIN_GENERATION == 25 else 0   # was OPEN_LANE_EXCLUDE_BONDED_EPOCH (6600 // 60 = 110): decoupled 2026-09-09 so a
+#   retired gate cannot drag the gradient with it; reroll: the flat 15 from epoch 0
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)

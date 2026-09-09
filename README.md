@@ -1064,6 +1064,10 @@ shape is unchanged (49 chars).
 
 ## Learn more
 
+- [doc/reroll.md](doc/reroll.md) — restarting the chain from a fresh genesis: the runbook, the failure modes that have
+  actually happened (snapshot re-infection, the height-vs-wallclock bound), and the **gate ledger** — every consensus
+  gate is written `<height> if CHAIN_GENERATION == <gen> else <1|0>`, so a reroll needs no gate edits and the cleanup
+  is mechanical (`tests/test_gate_reroll_transfer.py` pins it).
 - [doc/scaling-open-lane.md](doc/scaling-open-lane.md) — where the open lane's ceiling is (~3-4 million leased devices
   on registration bytes, ~10⁵ on the per-block draw) and the three gated optimisations that lift it to tens of millions:
   statement-free renewals + 7-day leases, certificate-chain deduplication, an O(log N) prefix-sum draw.
