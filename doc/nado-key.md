@@ -254,6 +254,31 @@ What the comparison is genuinely worth:
 it in UX so demanding it caps growth. It is already cited in the README's identity-management argument for exactly
 that reason — it is the honest example of what removing the issuer actually costs.
 
+## Why a stock FIDO2 key cannot be the answer (checked, not assumed)
+
+"Just add Nitrokey 3 support" is the obvious idea and it does not work, for a structural reason worth writing down.
+
+A Nitrokey 3 ALREADY ATTESTS TODAY: `Nitrokey 3 AM` (aaguid 2cd2f727f6ca44da8f485c2e5da000a2) is in our pinned
+`protocol_roots/fido_mds_roots.json` snapshot, along with two Solo AAGUIDs. Nothing needs adding for attestation.
+
+What it cannot do is BIND, and that is not our choice. FIDO's privacy rules require the attestation certificate be
+shared across at least 100k units, exactly so a key cannot be tracked between websites — so its leaf names a MODEL,
+never a unit. `device_binding_key()` therefore refuses `packed`, correctly.
+
+Adding `packed` to `DEVICE_BIND_CLASSES` would not create unlimited identities; it would cause the INVERSE failure.
+Every Nitrokey 3 on earth hashes to ONE binding handle: the first Nitrokey holder on the network takes the single
+identity, every other one is refused, and under `DEVICE_REBIND_INSTANT_HEIGHT` they evict each other in perpetuity.
+
+**A PUF does not fix this.** The LPC55S69's SRAM PUF makes the device key unextractable; it says nothing about whether
+the certificate over that key is unique. A Nitrokey 3's key genuinely IS one-per-unit — the uniqueness exists in the
+silicon, it is simply NOT WITNESSED. Someone has to sign a statement naming that specific unit, and no FIDO2 vendor
+will, by design. A witness is a CA. That is the whole reason this document exists.
+
+So the four classes that bind today are precisely the ones whose per-device certificate is witnessed by somebody who
+is not us — Android with remote key provisioning, a physical Windows TPM, Ledger, Trezor. That IS the "without our own
+CA" answer, and it is already shipped. A Nitrokey 3 adds nothing over a Trezor Safe 3 unless we sign the certificates,
+at which point we are the CA and every cost in this document applies again.
+
 ## What we owe the network if we do this
 
 NADO would be the first attestation vendor that also holds the coin. Two guardrails are non-negotiable and ship in the
