@@ -343,8 +343,13 @@ an evaluation board for chip bring-up — 222 g, four USB ports, microSD, Pmod, 
 dongle, and `pico-fido` cannot run on it: the build targets the Pico SDK (RP2040/RP2350) or ESP32 and has no NXP/LPC
 support at all, so every step of the provisioning section above is RP2040-specific. FIDO2 on an LPC55S69 means a
 different codebase entirely (Trussed / nitrokey-3-firmware, Rust). At TME it was 1246.70 CZK (~EUR 50), zero in stock,
-19 weeks manufacturer lead. To get that chip in a usable form, buy a finished Nitrokey 3 instead — and note that
-provisioning our own certificate on it is their paid Enterprise feature, not a fork.
+19 weeks manufacturer lead.
+
+**And do not buy a Nitrokey 3 to experiment with either.** It is the right chip in the right form factor, but there is
+no experiment it enables: it already attests to our chain (it is in the MDS snapshot), it structurally cannot bind, and
+we cannot put our own certificate on it — no standard CTAP command uploads one and its firmware is signed with secure
+boot. It is a SUPPLIER, not a purchase: relevant only after a commercial agreement in which their factory does the
+provisioning, at which point the order is a batch. Nothing about it is testable by buying a single unit.
 
 **The alternative that costs nothing.** A Trezor Safe 3 is around EUR 79, is already a permanent bind class, and
 covers the same Apple and Linux users a NADO Key would. The only argument for our own device is beating that price at
