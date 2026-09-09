@@ -66,6 +66,34 @@ the same key to two units, the chain cannot tell. See "what we owe" below.
 
 Leased, not permanent: `DEVICE_BIND_PERMANENT_CLASSES` stays `{ledger, trezor}` until the device has a field history.
 
+## Copying a certificate does NOT create an identity — it takes one
+
+Worth stating plainly because it corrects the obvious intuition. Copies of one certificate all hash to the same
+binding handle (`sha256(leaf DER)`), so the second registration is refused, in a later block or the same one
+(`DEVICE_BIND_STRICT_HEIGHT`). A cloned certificate is never a second identity.
+
+**So hardware does not lower the identity ceiling.** The ceiling is the number of certificates we sign — the same
+whether the key lives in a secure element, in a Pico's flash, or in a file. Anyone reasoning that silicon caps the
+supply has it backwards: issuance discipline caps the supply, and silicon is irrelevant to it.
+
+What a copy DOES buy, since `DEVICE_REBIND_INSTANT_HEIGHT` (live from block 5400): the copier registers a fresh
+address, presents the certificate, and the legitimate holder is EVICTED in that block — lease voided, out of the open
+registry and the epoch weights at once (`ops/account_ops.py`, `instant and prev_bind[0] != address`). The victim can
+re-register and evict the thief straight back, and the thief can re-register again. Neither can hold it; the thief can
+automate it and the owner cannot, and `fidelity_step`'s anti-farm spacing means the owner's rapid recerts renew the
+lease but earn no fidelity. A copied certificate is a hostage, not a duplicate.
+
+That splits the security argument in two, and only one half is about hardware:
+
+- **The network** is protected by the issuance log and the lane-share cap below. Identical for files, Picos and secure
+  elements. Hardware contributes nothing.
+- **The holder** is protected by unextractability, and that is the ONLY thing the silicon buys. Malware sweeps keyfiles
+  off disk at scale; it cannot sweep a secure element. At ~4.8 NADO/day per permit, a keyfile format is worth writing
+  malware for.
+
+So the question is not "is a certificate file cryptographically sufficient" — it is. The question is whether we are
+willing to sell an identity that malware can take from its owner.
+
 ## What we owe the network if we do this
 
 NADO would be the first attestation vendor that also holds the coin. Two guardrails are non-negotiable and ship in the
