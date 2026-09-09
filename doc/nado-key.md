@@ -260,12 +260,35 @@ themselves as a USB authenticator at all, and pico-fido is RP2040 firmware that 
     register a SECOND address from the same stick and confirm it is refused. Step 10's second half is the whole point;
     without it the spike has proved nothing that matters.
 
-Not in scope for this device: **a hardware wallet.** It has no screen, and a wallet's security value is showing you
-what you are about to sign on a display the host cannot forge — without one it is a signing oracle. An attestation
-token needs no screen precisely because it makes no decisions; it only answers "a distinct device is present". Keeping
-the two apart is also why "What it is" says this device holds no coins: combine them and theft of the stick escalates
-from losing an identity to losing funds. Ledger and Trezor already fill that niche properly, with screens, and both are
-already accepted attestation classes.
+### A hardware wallet is a DIFFERENT project (and not a dead one)
+
+Out of scope here, but the reason is not the one first written in this file. The claim that "Ledger and Trezor already
+fill that niche" was **wrong**: they are ATTESTATION devices for NADO — they prove a distinct device exists to open the
+open lane — and neither holds NADO or signs a NADO transaction. There is no hardware wallet for NADO at all.
+
+Which changes the comparison, because the real baseline is a key in a BROWSER. A secure element defends against
+physical theft; a browser keyfile's weakness is REMOTE theft, and that is the realistic attack — the same
+mass-harvesting objection this document raises against certificate files. So a Pico with a screen would be a large
+improvement on what NADO users have today, even though it is worse than a Trezor holding Bitcoin.
+
+Effort is also lower than first estimated: `native/mldsa44` is a thin wrapper over the RustCrypto `ml-dsa` crate, so a
+signer is a cross-compile for `thumbv8m.main-none-eabi` (Pico 2 / RP2350, 520 KB SRAM is comfortable) rather than an
+implementation of Dilithium.
+
+What stays true: the security-critical part is the TRANSACTION RENDERER, not the crypto — the device must independently
+decode a NADO tx and display the true amount and recipient, and if what it renders ever differs from what it signs the
+screen is decoration. Seed backup and recovery is a product problem that loses funds. And we would be taking custody
+with no audit, moving the blast radius from "an identity worth ~4.8 NADO/day" to "someone's balance".
+
+Different threat model, different failure mode: it needs its own document and its own decision, not a step in this one.
+The attestation token itself still needs no screen, because it makes no decisions — it only answers "a distinct device
+is present", which is why "What it is" gives it no coins.
+
+**One screen idea that DOES belong here** (optional step 11): the token signs its registration challenge blind, so a
+hostile relay page could have a user attest their device to an address they do not control. WebAuthn hands the
+authenticator `user.name`, so the wallet can set it to the NADO address and the device can display
+`get.nadochain.com / nado1abc…` and wait for a button press. Real defence against a stolen binding, ~60 CZK, no key
+custody and no funds at risk.
 
 ## Related documents
 
