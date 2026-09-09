@@ -30,6 +30,17 @@ def main():
         if M.lane_of(slot, beacon) == "open":
             wins.add(M.select_producer_two_lane(reg, {}, beacon, slot))
     check("open slots from the gate never go to the staked identity", wins <= {"a" * 46, "c" * 46} and wins, wins)
+    # RETIREMENT (OPEN_LANE_EXCLUDE_RETIRE_HEIGHT, 2026-09-09): stakers are drawn again — one device, one slot
+    R = P.OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+    check("retire gate is keyed on the generation", "if CHAIN_GENERATION == 25 else 1" in open(os.path.join(ROOT, "protocol.py")).read().split("OPEN_LANE_EXCLUDE_RETIRE_HEIGHT =")[1].split("\n")[0])
+    check("retire gate sits after the exclusion gate", R > G)
+    check("the slot before it still excludes the staker", set(M.open_lane_draw_registry(reg, R - 1)) == {"a" * 46, "c" * 46})
+    check("from the retire gate the draw is the whole attested set, same object", M.open_lane_draw_registry(reg, R) is reg)
+    wins2 = set()
+    for slot in range(R, R + 400):
+        if M.lane_of(slot, beacon) == "open":
+            wins2.add(M.select_producer_two_lane(reg, {}, beacon, slot))
+    check("open slots after the gate DO reach the staked identity", "b" * 46 in wins2, wins2)
     bonded_reg = {"b" * 46: {"bonded": 500 * P.DENOMINATION, "fidelity": None, "bond_since": None, "pool_to": None, "pooled": 0}}
     pr = M.bonded_producer_registry(bonded_reg, reg, max(G, P.POOL_HEIGHT))
     check("the staked identity is still ATTESTED for the bonded producer cap", "b" * 46 in pr)
@@ -50,7 +61,7 @@ def main():
     check("mining_status reports open_excluded_bonded and totals over the draw registry", '"open_excluded_bonded"' in bo and "open_lane_draw_registry(open_reg" in bo)
     js = open(os.path.join(ROOT, "static", "interface.js")).read(); i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
     n = i18n.count('"myshare.excludedBonded":')
-    check("wallet says why the free lane is closed to a staker, in every language", "open_excluded_bonded" in js and n >= 16 and n % 16 == 0, n)
+    check("wallet still carries the (now historical) staker line, in every language", "open_excluded_bonded" in js and n >= 16 and n % 16 == 0, n)
 
 if __name__ == "__main__":
     try: main()

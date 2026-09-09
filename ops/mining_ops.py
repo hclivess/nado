@@ -178,10 +178,17 @@ def bond_ramp_weight(base_shares: int, bond_since, epoch: int) -> int:
 
 
 def open_lane_draw_registry(open_registry: dict, slot: int) -> dict:
-    """The registry the OPEN-lane draw runs over (protocol.OPEN_LANE_EXCLUDE_BONDED_HEIGHT): from the gate, attested
-    identities WITHOUT a bonded share — the free lane is capital-free, and one device is one identity, so a staker
-    cannot keep a second wallet in it without a second device. Below the gate: the registry unchanged. Never mutates."""
-    from protocol import OPEN_LANE_EXCLUDE_BONDED_HEIGHT
+    """The registry the OPEN-lane draw runs over. Between OPEN_LANE_EXCLUDE_BONDED_HEIGHT and
+    OPEN_LANE_EXCLUDE_RETIRE_HEIGHT it was attested identities WITHOUT a bonded share; outside that window it is the
+    registry unchanged (one device, one slot, staked or not — see protocol.py for why the exclusion was retired).
+    Never mutates its argument."""
+    from protocol import OPEN_LANE_EXCLUDE_BONDED_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+    # RETIRED (OPEN_LANE_EXCLUDE_RETIRE_HEIGHT, protocol.py): stakers are drawn again — the exclusion was per-account
+    # and free keys void it (park the surplus in a second wallet). One device is one open slot, staked or not.
+    # INVARIANT: this is the ONE place the open draw filters; /mining_status mirrors it through the same function, so
+    # `open_excluded_bonded` follows automatically and must never be recomputed at a call site.
+    if OPEN_LANE_EXCLUDE_RETIRE_HEIGHT and slot >= OPEN_LANE_EXCLUDE_RETIRE_HEIGHT:
+        return open_registry
     if not OPEN_LANE_EXCLUDE_BONDED_HEIGHT or slot < OPEN_LANE_EXCLUDE_BONDED_HEIGHT:
         return open_registry
     return {a: i for a, i in open_registry.items() if int(i.get("bonded", 0) or 0) < B_MIN}

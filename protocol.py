@@ -1627,6 +1627,18 @@ POOL_LABEL_MAX = 32
 # dividend is the universal per-device reward for staying present, paid to every attested identity by fidelity (the
 # operator's choice: "available for everyone"). Read as-of-parent from the account's live `bonded`, like every draw input.
 OPEN_LANE_EXCLUDE_BONDED_HEIGHT = 6600
+# STAKERS ARE BACK IN THE FREE LANE (operator decision 2026-09-09: "ok let stakers back in"). The exclusion was a
+# PER-ACCOUNT rule, and per-account rules are void while keys are free: a staker keeps the device wallet under the
+# threshold and parks the surplus in a second, device-less account, which the chain cannot tell apart from two people.
+# Measured on the live lane before the change: an attested device with no stake earned ~1.38 NADO/day from the open
+# lane, and bonding its FIRST 10 NADO cut that to ~0.14 — a tenfold pay cut for saving, needing ~100 NADO just to
+# break even. So the rule taxed the users who did not think to split, and the dilution it protected against arrives
+# anyway once splitting is understood. From this height the open draw is every attested identity again: one device,
+# one slot, capital-free, `devbind` still one identity per device, OPEN_BPS unchanged. Only the DRAW changes — the
+# dividend was never gated on stake, and OPEN_LANE_EXCLUDE_BONDED_EPOCH keeps its separate meaning below
+# (the fidelity gradient), so it stays as it is.
+# REROLL: keyed on the generation — no exclusion at all from genesis at the next reroll.
+OPEN_LANE_EXCLUDE_RETIRE_HEIGHT = 29900 if CHAIN_GENERATION == 25 else 1
 OPEN_LANE_EXCLUDE_BONDED_EPOCH = OPEN_LANE_EXCLUDE_BONDED_HEIGHT // EPOCH_LENGTH   # the dividend-gradient epoch below
 # GENTLER DIVIDEND GRADIENT (same decision): min(fidelity, 15) instead of 30 from this epoch — a thirty-day identity
 # earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Epoch-gated inside
