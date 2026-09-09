@@ -164,6 +164,96 @@ attested set" and emit a nullifier enforcing one-identity-per-device WITHOUT rev
 roots, needs no new authority, adds no centralization, and we already run STARKs. That is a better use of the same
 effort than a dongle.
 
+## Provisioning: how a certificate actually reaches a device
+
+The certificate is NOT in the firmware image. It is uploaded to the device over USB after flashing, which means one
+firmware image for the whole run and a per-unit certificate — no per-unit build. Verified by reading the pico-fido
+source, not from documentation (the README does not cover attestation at all).
+
+Per unit at the bench:
+
+1. Flash `pico_fido.uf2` once — hold BOOTSEL while plugging in, drop the file on the USB volume that appears. The
+   same image on every unit.
+2. On first boot the device generates its OWN key from its own entropy and self-signs a placeholder certificate
+   (`src/fido/fido.c:427-453`). The private key never leaves the chip.
+3. Read that public key back out of the self-signed certificate over CTAP.
+4. Our offline root signs a NADO leaf over it: `OU=Authenticator Attestation`, `CN=NADO Key <serial>`, AAGUID
+   extension `1.3.6.1.4.1.45724.1.1.4`. The root key lives on an HSM and never touches the bench machine.
+5. Push the DER back with the vendor config command `CTAP_CONFIG_EA_UPLOAD` (`0x0002a674c29a8dcf`,
+   `src/fido/cbor_config.c:230`). It lands in `EF_EE_DEV_EA`, the End-Entity Enterprise Attestation Certificate.
+6. Append serial + leaf fingerprint to the public issuance log.
+
+Steps 3-6 are a script. Note that step 2 is the good part: we never generate or hold anyone's device key, we only
+sign a certificate over a public key the device made for itself.
+
+### Firmware changes we would have to make
+
+Three, in our own fork (the community edition is AGPLv3, so the fork gets published — fine for us):
+
+- `src/fido/cbor.c:35` — the AAGUID is a compile-time constant, currently the first 16 bytes of SHA256("Pico FIDO2").
+  Ours replaces it.
+- `src/fido/cbor_make_credential.c:787` — the uploaded certificate is emitted ONLY when `enterpriseAttestation == 2`,
+  and Chrome gates `attestation: "enterprise"` behind enterprise policy, so a public website cannot request it. The
+  usable path is the known-app table (`src/fido/known_apps.c`, `use_self_attestation = pfalse` keyed on the RP-ID
+  hash) — but that path currently emits the device's SELF-SIGNED certificate. One-line change to select
+  `EF_EE_DEV_EA` there too.
+- Same block: `x5c` is encoded as a ONE-element array, leaf only. Our validation reads the root as
+  `sha256(x5c[-1])`, so with a single certificate the "root" is the leaf and nothing pins. Emit leaf + NADO root.
+
+### Three things that will bite
+
+- **A factory reset destroys the identity permanently.** `src/fido/cbor_reset.c` clears `EF_KEY_DEV` AND
+  `EF_EE_DEV_EA`. The device key is gone, so the same certificate can never be reissued: the binding handle is dead
+  and the user's identity with it. This needs a loud warning in the wallet, not a footnote.
+- **The upload is PIN-protected** (`pinUvAuthParam` required), so provisioning sets a PIN. Changing the PIN later is
+  safe; only a reset kills the certificate.
+- **No secure element on RP2040/RP2350.** Flash is readable; a thief holding the stick extracts the key, and under
+  `DEVICE_REBIND_INSTANT_HEIGHT` that is an instant takeover of the identity.
+
+Licensing: the primitive we need is in the AGPL source, so a prototype costs nothing. But the project explicitly sells
+"custom attestation / per-organization identity ... anti-cloning / unique device identity for OEM and fleet use" as a
+paid Enterprise component, so a production fleet is a commercial conversation, not just a fork.
+
+## Neighbours: Worldcoin, Idena, and what we are not
+
+Worth writing down because "isn't this just Worldcoin" is the first question anyone will ask.
+
+**We count devices. They count humans.** That single difference produces almost every other one:
+
+| | World ID | NADO |
+|---|---|---|
+| unit of scarcity | one human | one attested device |
+| how uniqueness is established | iris biometric, deduped against a global database | certificate hash compared on chain |
+| personal data collected | biometric template | none |
+| who holds the device | the project and its operators (visit an orb) | the user |
+| roots of trust | one, the foundation | six, none of which we control |
+| what it is sold as | personhood, to third-party apps | nothing — it allocates our own emission |
+| privacy of a proof | unlinkable, ZK nullifier (Semaphore) | a plaintext device hash on chain |
+
+So they are not a competitor in any market sense: nobody chooses between us, and one human may legitimately hold
+several NADO identities by owning several attested devices. **NADO is not proof-of-personhood and should never claim
+to be.** If a marketing line ever implies it, that line is wrong.
+
+What the comparison is genuinely worth:
+
+- **As precedent.** The best-funded attempt at this problem independently concluded that a self-issued hardware root
+  with per-device keys is the reachable design. That is reassuring about the shape of a NADO Key.
+- **As a warning about biometrics, which we dodge entirely.** Spain's AEPD ordered collection stopped in March 2024
+  and deletion in December 2024; Bavaria's regulator ordered outright deletion and a GDPR rebuild in December 2024;
+  Kenya suspended operations in 2023 and a High Court order in May 2025 forced deletion of all Kenyan data. Every one
+  of those actions is about biometric personal data. We collect none — a certificate hash is not personal data — so
+  we get most of the Sybil benefit with essentially none of that regulatory surface. This is a real and underrated
+  advantage of counting devices instead of people, and it argues for never drifting toward biometrics.
+- **As a warning about a single root.** Their sustained criticism is that one foundation is the sole issuer. Our six
+  independent roots are defensible in a way that cannot be; a NADO Key erodes that margin and nothing else about the
+  project does.
+- **As a hint about the privacy gap.** They already do the ZK nullifier we do not. On that specific axis their design
+  is better than ours today, and it is the improvement worth copying.
+
+**Idena** is the nearer neighbour philosophically: synchronized human ceremonies, genuinely authority-free, paying for
+it in UX so demanding it caps growth. It is already cited in the README's identity-management argument for exactly
+that reason — it is the honest example of what removing the issuer actually costs.
+
 ## What we owe the network if we do this
 
 NADO would be the first attestation vendor that also holds the coin. Two guardrails are non-negotiable and ship in the
