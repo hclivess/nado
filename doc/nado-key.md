@@ -94,6 +94,76 @@ That splits the security argument in two, and only one half is about hardware:
 So the question is not "is a certificate file cryptographically sufficient" — it is. The question is whether we are
 willing to sell an identity that malware can take from its owner.
 
+## What the hash actually counts
+
+Uniqueness IS enforced mathematically: the chain hashes the device certificate and refuses a second identity for the
+same handle, provably, with no trust involved. What the math does not check is the CORRESPONDENCE — the hash counts
+**certificates**, and counts **devices** only under an assumption nobody verifies. Two ways that comes apart, both
+invisible to hashing, which is doing its job perfectly in each:
+
+- **One certificate, two devices** — the line flashes the same key into two units. Chain sees one identity, two exist.
+- **One certificate, zero devices** — a leaf signed over a keypair in a file on a server, no stick ever built. Chain
+  sees a perfectly distinct hash.
+
+Proof of work is the real counterexample to "physics cannot be verified by math": energy burned is a physical fact
+checkable by arithmetic alone, with no authority anywhere. A certificate is not that. Work leaves **evidence**; a chip
+leaves **testimony** — an unforgeable, exactly-countable signed statement that a distinct device exists. Cryptography
+makes the statement tamper-proof and the counting exact; it cannot make the statement true.
+
+So there is no protocol fix here and we should stop looking for one. Everything that improves the situation happens at
+issuance or at manufacturing — the public issuance log, and the chip.
+
+## Why the chip choice is not just about price
+
+A **PUF** (physically unclonable function) derives the key from transistor variation during fabrication. It is not
+stored on the die and does not exist while the device is unpowered. Nobody chooses it, the factory included, so the
+factory cannot clone a unit even if it wanted to. That shrinks the testimony from "I put a distinct key in each unit"
+to "I enrolled N chips" — and the issuance log can audit exactly that number.
+
+| tier | uniqueness comes from | factory can clone | key extractable |
+|---|---|---|---|
+| certificate file | our signature | yes | trivially, remotely at scale |
+| Pico (RP2040/RP2350) | on-board RNG written to flash | yes | yes, with the stick in hand |
+| LPC55S69 (SRAM PUF) | fabrication variation | **no** | no |
+
+The RP2040 has no PUF, which is the honest reason it is a prototype and not a product. The LPC55S69 (the class of part
+in open-source keys such as the Nitrokey 3 line, optionally alongside an SE050) does. That is the argument for spending
+more than four dollars, and it is a better one than unit economics.
+
+## Prior art: does anything reach past a central issuer?
+
+Asked because the decentralized-identity literature reads as though it does. It largely answers a different question.
+
+- **DIDs / verifiable credentials / EAS / web-of-trust** decentralize *whose word you take* — the verifier picks the
+  attestors instead of inheriting a root store. Genuine progress, and irrelevant to us: all of them are free to mint.
+  Anyone can create a million DIDs or write a million attestations. They inherit scarcity from whichever issuer was
+  trusted; the problem moves rather than dissolving.
+- **ZK identity** changes what is REVEALED, not who attests — a proof of "I hold a valid passport" still verifies a
+  passport authority's signature inside the circuit. A privacy technology, often mismarketed as a decentralization one.
+- **TLSNotary / zkTLS** is the cleverest of them and still roots in the target site's TLS certificate, i.e. a CA. It
+  reuses an authority rather than removing one.
+- **PGP web of trust** is the cautionary case: trust is not transitive, revocation was never solved, and it placed no
+  bound on identity count at all.
+
+Authority-free Sybil resistance has three known shapes: burn something scarce (work or stake — NADO already uses stake
+for the savings lane), a synchronized human ceremony (Idena; genuinely authority-free, paid for in brutal UX), or
+pluralism — many independent attestors, so no one of them can inflate supply.
+
+**We are already the pluralist design**: Apple, Google, Microsoft, Trezor, Ledger and the FIDO MDS snapshot, six roots,
+none of which we control. That frames the strongest argument against this whole project. A NADO Key does not remove
+pluralism — every existing option stays — but it adds **the one root with a financial interest in over-issuing**. Every
+other root we pin belongs to a company that gains nothing from printing NADO identities. We would be the exception,
+which is precisely what the issuance log and the lane cap exist to contain, and why neither is optional.
+
+Worth noting where the best-funded attempt landed: World ID's orb is a custom device with per-device attestation keys
+and the foundation is the CA — the same design, arrived at independently.
+
+**The reachable improvement is not removing the issuer, it is hiding it.** Today the chain stores sha256(leaf) in the
+clear, a stable public handle per device. A ZK nullifier scheme would let a device prove "I am a distinct member of an
+attested set" and emit a nullifier enforcing one-identity-per-device WITHOUT revealing which device. It keeps all six
+roots, needs no new authority, adds no centralization, and we already run STARKs. That is a better use of the same
+effort than a dongle.
+
 ## What we owe the network if we do this
 
 NADO would be the first attestation vendor that also holds the coin. Two guardrails are non-negotiable and ship in the
