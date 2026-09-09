@@ -8,7 +8,7 @@ The free mining lane was being farmed. About a thousand fake identities, run by 
 
 That is the oldest unsolved problem in "pay people, not capital" mining. NANO's representative spam, Idena's ceremonies, Nyzo's cycle, and NADO's own IP-based mining all died the same way, and all answered with more per-identity rules that the next farm dodged the same way.
 
-So the answer is not another rule. It is [b]PoSEA, Proof of Secure Element Attestation[/b] (pronounced "posee"): a mining identity is a physical secure element, and one device holds one identity at a time.
+So the answer is not another rule. It is [b]PoSEA, Proof of Secure Element Attestation[/b]: a mining identity is a physical secure element, and one device holds one identity at a time.
 
 [url=https://github.com/hclivess/nado]GitHub[/url]  •  [url=https://github.com/hclivess/nado/blob/main/doc/device-attestation.md]PoSEA spec[/url]  •  [url=https://get.nadochain.com]Open the wallet[/url]
 
@@ -86,7 +86,7 @@ A device proof makes a pile of machinery redundant, and all of it is gone:
 [tr][td][b]Risk[/b]      [/td][td]none      [/td][td]slashable; 24 h unlock delay[/td][/tr]
 [/table]
 
-[b]Free-lane blocks are for device-only miners (from block 6600).[/b] An identity holding one bonded share or more is no longer drawn for open-lane slots; it produces in the bonded lane instead. This is per device, not per key, so a staker cannot park a second wallet in the free lane without a second device.
+[b]One device, one open-lane slot, staked or not (from block 29900).[/b] Between blocks 6600 and 29900 a bonded share kept an identity out of the open draw, to reserve the free lane for the capital-less. That rule was per account, and free keys void it: a staker simply keeps the device wallet under the threshold and parks the surplus in a second, device-less account. It also punished saving — an attested device with no stake earned about 1.38 NADO/day from the open lane, and bonding its first 10 NADO cut that to 0.14. So it was retired. Open weight stays capital-free (2 to 10 by fidelity) and one device still holds one identity, so a whale with a phone gets exactly what anyone else with a phone gets.
 
 [b]The presence dividend is unchanged and it is the part most people underrate.[/b] Every attested device is paid by fidelity whether it is staked or not, and most of every open-lane block streams into that pool rather than to the winner. For a small miner the dividend is usually the larger of the two effects: you are paid for being present in blocks you did not win.
 

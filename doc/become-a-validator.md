@@ -9,8 +9,9 @@
 > - The presence lease is **36 h** (`POSW_LEASE_EPOCHS = 360`), not 24 h.
 > - There is **no per-identity bond cap**. `BOND_CAP` and `MAX_SHARES` were removed 2026-08-25 and the
 >   knee curve was removed 2026-09-09; bonded weight is linear in stake.
-> - **Bonding now removes you from the open lane** (block 6600). One bonded share and you are drawn in
->   the bonded lane only. The presence dividend still pays every attested device either way.
+> - **Bonding no longer removes you from the open lane** (the block-6600 exclusion was retired at block
+>   29900). One device is one open-lane slot, staked or not; the presence dividend pays every attested
+>   device either way, and an attested staker earns from both lanes plus the dividend.
 > - The dividend fidelity ramp caps at **15**, not 30, from epoch 110.
 > - The bonded lane needs **no device** (block 16150). Staking pools are retired (block 16900).
 
