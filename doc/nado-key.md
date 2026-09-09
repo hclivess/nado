@@ -260,6 +260,18 @@ themselves as a USB authenticator at all, and pico-fido is RP2040 firmware that 
     register a SECOND address from the same stick and confirm it is refused. Step 10's second half is the whole point;
     without it the spike has proved nothing that matters.
 
+### The cheapest real fix: a EUR 2 secure element for the attestation key
+
+The "no secure element, so the key is extractable" objection above is fixable for about two euros, and this was missed
+in the tier table. WebAuthn `packed` signs with ES256 — P-256 ECDSA — so a Microchip ATECC608B (or any ECC secure
+element) can hold the ATTESTATION key such that it never leaves the chip. It attaches to a Pico over I2C with four
+wires, no board redesign, and it is a category error to reach for a different MCU instead: an STM32 is a
+microcontroller, not a secure element.
+
+This does NOT extend to a NADO spending key — no mainstream secure element implements ML-DSA — see
+`doc/nado-hardware-wallet.md`. But for a device whose only job is a P-256 signature, it closes the gap the RP2040 leaves
+open, and it makes the Pico tier meaningfully better than "demo only".
+
 ### A hardware wallet is a DIFFERENT project (and not a dead one)
 
 Out of scope here, but the reason is not the one first written in this file. The claim that "Ledger and Trezor already

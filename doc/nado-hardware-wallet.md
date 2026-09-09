@@ -84,6 +84,37 @@ For the combined device, all orderable, roughly 300 CZK (~EUR 12) total:
 Buttons are not strictly required to *start*: `pico-fido` takes user presence from a button and on a bare board that is
 BOOTSEL, so attestation works with nothing attached. They become necessary the moment the device signs value.
 
+## Secure elements: what one can and cannot hold
+
+Checked 2026-09-10, because "add a secure element" sounds like it should close the extractable-key hole and only half
+does.
+
+First, a category error worth avoiding: **an STM32 is not a secure element.** It is a microcontroller family, the same
+category as the RP2350. Some variants carry TrustZone and secure boot, which is not a certified tamper-resistant chip.
+Changing MCU buys nothing. A secure element is a SEPARATE chip, and it attaches to a Pico 2 over I2C with four wires,
+sharing the bus with the display — no board redesign.
+
+Then the part that matters: **the mainstream secure elements cannot hold a NADO key.** Microchip ATECC608B (~EUR 2),
+Infineon OPTIGA Trust M and NXP SE05x (the Nitrokey part) are ECC/RSA only. None implements ML-DSA. So:
+
+- **For the attestation token** (`doc/nado-key.md`), a secure element works properly. WebAuthn `packed` signs with
+  ES256, which is exactly P-256 ECDSA, so a ~EUR 2 ATECC608B can hold the attestation key such that it never leaves the
+  chip. That removes most of the "RP2040 flash is dumpable" objection for two euros, and is the cheapest real
+  improvement available anywhere in these two documents.
+- **For the spending key**, the best available is **key wrapping**: the secure element holds an AES secret, flash holds
+  the ML-DSA private key encrypted, and plaintext exists only in RAM for the duration of a signature. Dumping flash
+  yields ciphertext. Better than nothing, weaker than a key that never leaves the chip.
+
+Accepting the weaker property is defensible here, because the threat this device exists to defeat is REMOTE key theft,
+and that is already defeated completely by the key not living on the PC. The secure element would be defending against
+physical possession, which is the rarer attack.
+
+**PQ silicon is arriving and is too early to build on.** SEALSQ's QS7001 claims to be the first secure chip embedding
+ML-KEM and ML-DSA in hardware, explicitly aimed at cryptocurrency wallets, with a QVault TPM variant announced for
+H1 2026; STMicroelectronics has announced a secure chip with ML-KEM/ML-DSA hardware acceleration, certification targeted
+July 2026. Neither has an open toolchain or unrestricted small-volume availability. Worth re-checking before any board
+is committed — "no secure element does ML-DSA" is true today and has a shelf life.
+
 ## Staged plan
 
 1. Attestation only, no screen — that is `doc/nado-key.md`'s spike. Proves the device path end to end.
