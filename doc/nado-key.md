@@ -1,8 +1,21 @@
 # NADO Key — a NADO-issued attestation device
 
-Status: **design, feasibility proved, no hardware ordered, no consensus code written.**
-Decision owner: operator. This file records what a NADO-issued device would be, what it costs us in trust, and the
-exact change surface — so the decision is made on numbers, not on enthusiasm.
+Status: **NOT BUILDING IT** (operator decision, 2026-09-10). Feasibility proved, no hardware ordered, no consensus
+code written. Kept because the reasoning is reusable and the conclusion could change.
+
+Two reasons, in order of weight. First, we are already the pluralist design — six attestation roots, none of which we
+control — and a NADO Key would add the only root with a financial interest in over-issuing. Second, the routes to
+usable hardware both cost money we do not have: a PUF-class device means a batch order with a manufacturer's factory
+doing the provisioning (their paid Enterprise tier), and the only thing we could provision ourselves is an RP2040 with
+no secure element, which is a demo and not a product. Meanwhile a Trezor Safe 3 already covers the users this was meant
+to reach, with someone else as the witness.
+
+**What to do instead:** a ZK nullifier over the attestations we already accept — prove "I am a distinct member of an
+attested set" and emit a nullifier enforcing one-identity-per-device without revealing WHICH device. It keeps all six
+roots, adds no authority, costs only time, and we already run STARKs. See the last paragraph of "Prior art" below.
+
+**To revive this:** the deciding numbers are unit cost against the ~4.8 NADO/day a permit earns, and whether we can
+meet the manufacturing bar in "What we owe the network". Everything needed to restart is in this file.
 
 ## What it is
 
