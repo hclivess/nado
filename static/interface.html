@@ -316,20 +316,20 @@
       <summary data-i18n="hw.other">Attest another way</summary>
       <div class="optlist">
         <button id="btnHwNone" class="opt"><b data-i18n="hw.none">This device</b><small data-i18n="hw.cap.none">Android 12+ phone or Windows PC with a TPM · re-attests every 36 h</small></button>
-        <button id="btnHwLedger" class="opt"><b data-i18n="hw.ledger">Ledger</b><small data-i18n="hw.cap.ledger">Once, for life · Chrome, Edge or Brave on a computer</small></button>
-        <button id="btnHwTrezor" class="opt"><b data-i18n="hw.trezor">Trezor Safe</b><small data-i18n="hw.cap.trezor">Safe 3 / 5 / 7 · once, for life · on a computer</small></button>
+        <button id="btnHwLedger" class="opt"><b data-i18n="hw.ledger">Ledger</b><small data-i18n="hw.cap.ledger">Nano S, Nano S Plus, Nano X, Stax, Flex — once, for life · Chrome, Edge or Brave on a computer</small></button>
+        <button id="btnHwTrezor" class="opt"><b data-i18n="hw.trezor">Trezor Safe</b><small data-i18n="hw.cap.trezor">Safe 3, Safe 5, Safe 7 — once, for life · One and Model T have no secure element</small></button>
         <button id="btnHwRemote" class="opt"><b data-i18n="hw.remote">Another device</b><small data-i18n="hw.cap.remote">A phone or PC you trust vouches for this wallet</small></button>
       </div>
       <p class="small faint mt" data-i18n="hw.note">A Ledger or Trezor Safe can vouch for this wallet instead of a phone or TPM (Chrome, Edge or Brave on a computer; close Ledger Live / Trezor Suite first). The wallet's coins stay here — the hardware only proves it is one real device.</p>
     <details class="mt">
       <summary class="small dim" style="cursor:pointer" data-i18n="hw.guide.title">How to attest with a Ledger or Trezor</summary>
-      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.ledger">Ledger (Nano S / S Plus / X, Stax, Flex):
+      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.ledger">Ledger Nano S, Nano S Plus, Nano X, Stax, Flex:
 1. Close Ledger Live — it holds the device.
 2. Plug the Ledger in, enter the PIN, stay on the dashboard (no app open).
 3. Use Chrome, Edge or Brave on a computer, press "Attest with Ledger" and pick the device in the browser dialog.
 4. The Ledger asks "Allow unsafe manager?": press both buttons to allow. The wallet registers by itself.
 Renewed every 36 h; the Ledger only vouches, it never holds this wallet's key.</div>
-      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.trezor">Trezor Safe 3 / 5 / 7:
+      <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.trezor">Trezor Safe 3 (T2B1, T3B1), Safe 5 (T3T1), Safe 7 (T3W1):
 1. Close Trezor Suite (and the Trezor Bridge) — they hold the device.
 2. Plug the Trezor in and unlock it.
 3. Use Chrome, Edge or Brave on a computer, press "Attest with Trezor Safe" and pick the device in the browser dialog.
