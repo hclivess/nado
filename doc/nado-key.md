@@ -268,6 +268,14 @@ element) can hold the ATTESTATION key such that it never leaves the chip. It att
 wires, no board redesign, and it is a category error to reach for a different MCU instead: an STM32 is a
 microcontroller, not a secure element.
 
+Practical detail, since the parts cost understates the work: buy a **breakout** (Adafruit or SparkFun, ~EUR 7-10) rather
+than the bare SOIC-8, and the **blank / TrustCustom** variant rather than `-TNGTLS`, which ships locked with Microchip's
+own certificates. `GenKey` creates the P-256 keypair INSIDE the chip and the private half is never readable by anything,
+including our own firmware — exactly the property RP2040 flash lacks. Two warnings: pico-fido has **no ATECC driver**, so
+the attestation signature currently goes through mbedtls with a key read from flash, and routing it through the element
+means porting Microchip's CryptoAuthLib and rewiring that path — days of firmware work, not the three-line patch above.
+And the config and data zones **lock permanently**, so a provisioning mistake bricks the chip; buy three.
+
 This does NOT extend to a NADO spending key — no mainstream secure element implements ML-DSA — see
 `doc/nado-hardware-wallet.md`. But for a device whose only job is a P-256 signature, it closes the gap the RP2040 leaves
 open, and it makes the Pico tier meaningfully better than "demo only".

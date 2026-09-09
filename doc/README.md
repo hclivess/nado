@@ -61,6 +61,9 @@ with a live-vs-capability-vs-research status for each and the measured numbers b
 | [quantum-resistance-and-vms.md](quantum-resistance-and-vms.md) | Why quantum resistance lives in the **proof system**, not the VM — a category confusion worth clearing up |
 | [provable-practice.md](provable-practice.md) | Provable practice runs — leaderboards nobody can forge |
 | [obfuscation-diamond-io.md](obfuscation-diamond-io.md) | Program obfuscation (**research goal**; nothing implemented, scheduled or promised) |
+| [device-attestation.md](device-attestation.md) | **The live attestation design** — device classes, binding modes, "one device, one identity", and which classes bind permanently |
+| [nado-key.md](nado-key.md) | **Design, not built** — a NADO-issued WebAuthn attestation device: the kernel needs no change, binding must read the per-device certificate rather than the credential, what the hash actually counts, the runnable Pi Pico spike, and why the recommendation is not to build it |
+| [nado-hardware-wallet.md](nado-hardware-wallet.md) | **Design, not built** — a hardware wallet for NADO (none exists; the baseline is a key in a browser). The signer is a cross-compile; the real risk is a second byte-exact `create_txid` encoder on a microcontroller, because a device that signs a hash it was handed makes its screen decoration |
 
 ## Settlement model — a bonded quorum today, a validity proof by design
 
