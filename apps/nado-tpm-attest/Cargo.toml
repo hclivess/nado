@@ -6,6 +6,10 @@ edition = "2021"
 # NO DEPENDENCIES ON PURPOSE: this is cross-compiled for Windows from the Linux fleet host
 # (cargo build --release --target x86_64-pc-windows-gnu) and must build offline.
 
+[lib]
+name = "nado_tpm_attest"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nado-tpm-attest"
 path = "src/main.rs"
