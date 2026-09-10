@@ -7,7 +7,9 @@
 #[cfg(windows)]
 mod imp;
 #[cfg(windows)]
-mod tpm;
+mod tbs;
+#[cfg(unix)]
+mod devtpm;
 #[cfg(windows)]
 mod win;
 

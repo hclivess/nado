@@ -3,4 +3,5 @@
 //! are exactly where a silent mistake would produce a statement the chain rejects for reasons that look like
 //! a hardware problem, so they get tested where testing is cheap.
 pub mod sha;
+pub mod tpm;
 pub mod webauthn;

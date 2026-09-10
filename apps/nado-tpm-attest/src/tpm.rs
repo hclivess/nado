@@ -1,4 +1,4 @@
-//! Raw TPM 2.0 over Windows TBS — the documented path.
+//! TPM 2.0 commands — the documented path, and deliberately platform-independent.
 //!
 //! WHY RAW, AFTER ALL THE NCRYPT WORK. `NCryptCreateClaim` mints a FRESH signing key per call: measured on a
 //! real chip, the RSASSA pubArea inside the claim is not the AIK we hold, its modulus differs on every call,
@@ -15,9 +15,19 @@
 //! (structures) and Part 3 (commands). Command codes below are taken from tpm2-tss's tss2_tpm2_types.h rather
 //! than from memory — TPM2_CC_MakeCredential is 0x168, which is exactly the kind of value that is easy to
 //! misremember and impossible to debug afterwards.
+//!
+//! THE COMMAND BYTES ARE THE SAME EVERYWHERE. A TPM speaks TCG Part 3 whether it is reached through Windows'
+//! TBS or through /dev/tpmrm0 on Linux, so only the transport differs — that is the `Tpm` trait below, and it
+//! is the whole of the platform-specific surface. Keeping the commands here rather than inside the Windows
+//! transport is what makes Linux support a new file instead of a second implementation, and it lets the exact
+//! command framing be unit-tested on a host with no TPM at all.
 #![allow(dead_code)]
 
-use std::ffi::c_void;
+/// A way to hand a command to a chip and get its response. Implemented by the TBS transport on Windows and by
+/// the character device on Linux; nothing else in this module knows which it is talking to.
+pub trait Tpm {
+    fn transmit(&self, cmd: &[u8]) -> Result<Vec<u8>, u32>;
+}
 
 // TPM2_CC_* — verified against tpm2-tss/include/tss2/tss2_tpm2_types.h
 pub const CC_CREATE_PRIMARY: u32 = 0x0000_0131;
@@ -128,58 +138,9 @@ impl<'a> Rsp<'a> {
     pub fn rest(&self) -> &'a [u8] { &self.body[self.pos.min(self.body.len())..] }
 }
 
-// --- TBS transport -------------------------------------------------------------------------------------
-// Loaded dynamically: a static import of tbs.dll makes Windows refuse to start the process at all when the
-// DLL is absent, which presents as a crash with no output whatsoever.
-
-pub type TbsiContextCreate = unsafe extern "system" fn(*const u32, *mut *mut c_void) -> u32;
-pub type TbsipSubmitCommand = unsafe extern "system" fn(*mut c_void, u32, u32, *const u8, u32, *mut u8, *mut u32) -> u32;
-pub type TbsipContextClose = unsafe extern "system" fn(*mut c_void) -> u32;
-
-pub const TBS_COMMAND_LOCALITY_ZERO: u32 = 0;
-pub const TBS_COMMAND_PRIORITY_NORMAL: u32 = 200;
-
-pub struct Tbs {
-    ctx: *mut c_void,
-    submit: TbsipSubmitCommand,
-    close: TbsipContextClose,
-}
-
-impl Tbs {
-    /// Open a raw TPM 2.0 context. `flags` is a bitfield — bit 2 is includeTpm20; passing 1 (requestRaw
-    /// alone, no version) is answered with TPM_NOT_FOUND on a perfectly healthy chip.
-    pub unsafe fn open(load: impl Fn(&[u8]) -> *mut c_void) -> Result<Tbs, u32> {
-        let lib = load(b"tbs.dll\0");
-        if lib.is_null() { return Err(0xFFFF_FFFF); }
-        Err(0) // wired by the caller, which owns GetProcAddress
-    }
-
-    pub unsafe fn from_parts(ctx: *mut c_void, submit: TbsipSubmitCommand, close: TbsipContextClose) -> Tbs {
-        Tbs { ctx, submit, close }
-    }
-
-    pub fn transmit(&self, cmd: &[u8]) -> Result<Vec<u8>, u32> {
-        let mut out = vec![0u8; 4096];
-        let mut n = out.len() as u32;
-        let rc = unsafe {
-            (self.submit)(self.ctx, TBS_COMMAND_LOCALITY_ZERO, TBS_COMMAND_PRIORITY_NORMAL,
-                          cmd.as_ptr(), cmd.len() as u32, out.as_mut_ptr(), &mut n)
-        };
-        if rc != 0 { return Err(rc); }
-        out.truncate(n as usize);
-        Ok(out)
-    }
-}
-
-impl Drop for Tbs {
-    fn drop(&mut self) {
-        unsafe { (self.close)(self.ctx) };
-    }
-}
-
 /// TPM2_ReadPublic — the public area, name and qualified name of a loaded object. This is how we learn a key's
 /// Name for the credential binding without trusting anything the host tells us.
-pub fn read_public(t: &Tbs, handle: u32) -> Result<(Vec<u8>, Vec<u8>), u32> {
+pub fn read_public(t: &dyn Tpm, handle: u32) -> Result<(Vec<u8>, Vec<u8>), u32> {
     let mut c = Cmd::new(ST_NO_SESSIONS, CC_READ_PUBLIC);
     c.u32(handle);
     let r = t.transmit(&c.finish())?;
@@ -193,7 +154,7 @@ pub fn read_public(t: &Tbs, handle: u32) -> Result<(Vec<u8>, Vec<u8>), u32> {
 /// TPM2_Certify — the whole point. `qualifying_data` lands in certInfo.extraData, which is where the verifier
 /// looks for hash(authData || clientDataHash), and the signature is made by `sign_handle`, which is the key
 /// whose certificate we put in x5c. Both facts are ours to choose here, and neither was on the NCrypt path.
-pub fn certify(t: &Tbs, object: u32, sign_handle: u32, qualifying_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), u32> {
+pub fn certify(t: &dyn Tpm, object: u32, sign_handle: u32, qualifying_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>), u32> {
     let mut c = Cmd::new(ST_SESSIONS, CC_CERTIFY);
     c.u32(object).u32(sign_handle);
     // two authorizations: one per handle, both empty-password
@@ -279,7 +240,7 @@ pub fn aik_template() -> Vec<u8> {
 }
 
 /// TPM2_CreatePrimary. Returns (handle, pubArea, name).
-pub fn create_primary(t: &Tbs, hierarchy: u32, template: &[u8]) -> Result<(u32, Vec<u8>, Vec<u8>), u32> {
+pub fn create_primary(t: &dyn Tpm, hierarchy: u32, template: &[u8]) -> Result<(u32, Vec<u8>, Vec<u8>), u32> {
     let mut c = Cmd::new(ST_SESSIONS, CC_CREATE_PRIMARY);
     c.u32(hierarchy);
     c.pw_auth();
@@ -305,7 +266,7 @@ pub fn create_primary(t: &Tbs, hierarchy: u32, template: &[u8]) -> Result<(u32, 
 }
 
 /// TPM2_StartAuthSession for a policy session (SHA-256, no salt, no bind). Returns the session handle.
-pub fn start_policy_session(t: &Tbs) -> Result<u32, u32> {
+pub fn start_policy_session(t: &dyn Tpm) -> Result<u32, u32> {
     let mut c = Cmd::new(ST_NO_SESSIONS, CC_START_AUTH_SESSION);
     c.u32(RH_NULL).u32(RH_NULL);
     c.tpm2b(&[0u8; 16]);                            // nonceCaller: at least the hash size/2, 16 is safe
@@ -322,7 +283,7 @@ pub fn start_policy_session(t: &Tbs) -> Result<u32, u32> {
 /// TPM2_PolicySecret against the endorsement hierarchy — what satisfies the EK's authPolicy. With empty
 /// endorsement auth this needs no password, but the session is still mandatory: the EK is adminWithPolicy, so
 /// a plain password authorization is refused however empty the hierarchy auth happens to be.
-pub fn policy_secret_endorsement(t: &Tbs, session: u32) -> Result<(), u32> {
+pub fn policy_secret_endorsement(t: &dyn Tpm, session: u32) -> Result<(), u32> {
     let mut c = Cmd::new(ST_SESSIONS, CC_POLICY_SECRET);
     c.u32(RH_ENDORSEMENT).u32(session);
     c.pw_auth();
@@ -342,7 +303,7 @@ pub fn policy_secret_endorsement(t: &Tbs, session: u32) -> Result<(), u32> {
 ///
 /// Two authorizations: the AIK by password (empty), and the EK by the policy session that PolicySecret has
 /// already satisfied.
-pub fn activate_credential(t: &Tbs, activate: u32, key: u32, session: u32,
+pub fn activate_credential(t: &dyn Tpm, activate: u32, key: u32, session: u32,
                            credential_blob: &[u8], secret: &[u8]) -> Result<Vec<u8>, u32> {
     let mut c = Cmd::new(ST_SESSIONS, CC_ACTIVATE_CREDENTIAL);
     c.u32(activate).u32(key);
@@ -373,7 +334,7 @@ pub fn activate_credential(t: &Tbs, activate: u32, key: u32, session: u32,
 
 /// TPM2_FlushContext — transient handles are a scarce resource; leaking them wedges the chip for other
 /// software until reboot.
-pub fn flush(t: &Tbs, handle: u32) -> Result<(), u32> {
+pub fn flush(t: &dyn Tpm, handle: u32) -> Result<(), u32> {
     let mut c = Cmd::new(ST_NO_SESSIONS, CC_FLUSH_CONTEXT);
     c.u32(handle);
     let r = t.transmit(&c.finish())?;
