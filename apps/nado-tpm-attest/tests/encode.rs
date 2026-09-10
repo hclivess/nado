@@ -52,6 +52,16 @@ fn command_framing_matches_the_spec() {
     assert_eq!(ek.len(), 4 + 4 + 34 + 14 + 258, "EK template length");
     assert_eq!(ek.len(), 314);
 
+    // THE SAME DIGESTS ARE PINNED IN tests/test_tpm_linux.py. There are two clients — this one for the
+    // sideloaded executables, and a Python one inside the node — and they MUST derive the same keys. A
+    // primary is derived from its template, so a byte of drift between them yields a different key on the
+    // same chip, and the vendor's endorsement certificate would then belong to a key that client cannot use.
+    let d = |b: &[u8]| nado_tpm_attest::sha::sha256_hex(b);
+    assert_eq!(d(&ek_template()), "32503929a1287eedaa3e89d932f9b51a6f92abd0fa57721ffa6fc041e04f7498",
+               "EK template drifted from the Python node client");
+    assert_eq!(d(&aik_template()), "6cb5284d3e55fbf1ba82e683294e1c319320bc7e6897a60b90f1497d09d55033",
+               "AIK template drifted from the Python node client");
+
     // Our AIK is restricted+sign and declares RSASSA/SHA-256, which is what makes the statement COSE -257.
     let aik = aik_template();
     assert_eq!(u32::from_be_bytes([aik[4], aik[5], aik[6], aik[7]]), 0x0005_0472, "restricted signing key");
