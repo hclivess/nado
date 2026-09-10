@@ -1736,14 +1736,25 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # chip, neither of which its owner ever asserted.
 #
 # WHICH ROOTS ARE PINNED IS THE SYBIL DIAL, and it only reverses in the widening direction. A discrete TPM
-# module is ~£15, so pinning Infineon/Nuvoton/ST prices an identity at the cost of a chip; a CPU-vendor fTPM
-# implies a whole machine, so pinning only AMD and Intel prices it an order of magnitude higher. Start narrow.
-#
-# EMPTY MEANS OFF. With no roots pinned the enrolment path verifies nothing and therefore accepts nothing,
-# which is the correct state until the consensus rule that consumes it is gated and live.
+# module is ~£15, so pinning Infineon/Nuvoton/ST would price an identity at the cost of a chip; a CPU-vendor
+# fTPM implies a whole machine. AMD's is verified against a real endorsement certificate from an affected
+# machine (EK -> CN=PRG-RN -> CN=AMDTPM). Add Intel and the rest as each is verified the same way — against a
+# real certificate walked to a self-signed root, never from a vendor's download page alone.
 DEVICE_ATTEST_EK_ROOTS = frozenset((
-    # "67bd2472a546751caca5f358a78f80727531671338960a9bcfdfbe6a34d0c6a1",  # AMD fTPM (CN=AMDTPM, 2039)
+    # Each verified before pinning: fetched from the vendor's own PKI, confirmed self-signed with CA:TRUE, and
+    # checked to be the root a REAL endorsement certificate walks to where one was available to walk.
+    "67bd2472a546751caca5f358a78f80727531671338960a9bcfdfbe6a34d0c6a1",  # AMD fTPM — CN=AMDTPM (2039)
+    "beb40bb7507b33967226aa80e084749fbb6593893c642e818d682e9a8d07fc24",  # Intel PTT — OnDie CA Root (2049)
+    "4aebe77a51ed29959a7f9f5e07a24a558dee8167f3985d724995a541c258dfda",  # Nuvoton TPM Root CA 2110 (2035)
+    "cd8185ff8995ed09811970090a8c36fafab34ef87f47fa51fdb9ecf95c9c2e04",  # Nuvoton TPM Root CA 2111 (2037)
+    "899e35474c9807eb4c7f2f7a12da0028fb250cd02154d0009fca7d9c66574f3b",  # Infineon OPTIGA RSA Root (2043)
+    "cfeb02fecd55ad7a73c6e1d11985d4c47dee248ab63dcb66091a2489660443c3",  # Infineon OPTIGA ECC Root (2043)
+    # STMicroelectronics is NOT pinned yet. The certificate published as "STM TPM EK Root CA" is cross-signed
+    # by GlobalSign and is therefore an intermediate, not a root — pinning it would be a decision to trust
+    # GlobalSign's Trusted Computing CA, which is a different assertion from "ST made this chip". Add ST when
+    # its self-signed root is in hand.
 ))
+
 # Relying-party ids whose hash may appear in authenticator data: the public wallet hosts. A wallet served from a
 # node's own ip:port attests against that host, so nodes also accept their configured host at validation
 # (transaction_ops adds it); consensus checks only the SET below plus the tx's declared rp id.

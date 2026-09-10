@@ -1246,6 +1246,11 @@ async def devbind_lookup(request):
 # NOTHING IS SIGNED. The reveal is what makes the result checkable by everyone afterwards - MakeCredential's
 # blob is deterministic in (seed, name, secret), so any node can replay the challenge from public data. There
 # is no CA key here to steal, rotate or guard, which is the entire point of the construction.
+#
+# These endpoints are LIVE. They enrol chips against the pinned vendor endorsement roots. Nothing downstream
+# consumes the result yet - the consensus rule is not written - so an enrolment today proves a chip and confers
+# no standing, which is the honest state to be in while the rule is built rather than a disabled switch that
+# hides whether any of it works.
 _tpm_enrol = {}                       # nonce -> (issued_at, ek_identity, aik_name, secret, seed, blob)
 _TPM_ENROL_TTL = 300                  # seconds; an unanswered challenge is worthless and must not accumulate
 

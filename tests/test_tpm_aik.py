@@ -129,6 +129,51 @@ def main():
     except ValueError:
         check("refuses a NULL signing scheme", True)
 
+    # A PINNED FINGERPRINT WITH NO FILE, OR A FILE WITH NO FINGERPRINT, SILENTLY LOADS NOTHING. The loader
+    # filters files by the pinned set, so either kind of drift removes a vendor from trust without any error —
+    # every chip from that maker would simply stop enrolling, and the reason would not appear anywhere.
+    import protocol as P
+    from ops import attest_native
+    loaded = attest_native._ek_roots_blob()
+    check("every pinned endorsement root has its certificate on disk",
+          len(loaded) == len(P.DEVICE_ATTEST_EK_ROOTS),
+          f"{len(loaded)} loaded vs {len(P.DEVICE_ATTEST_EK_ROOTS)} pinned")
+
+    ekdir = os.path.join(ROOT, "protocol_roots", "ek")
+    import base64 as _b64
+    on_disk = {}
+    for name in sorted(os.listdir(ekdir)):
+        if not name.endswith(".pem"):
+            continue
+        pem = open(os.path.join(ekdir, name)).read()
+        der = _b64.b64decode("".join(l.strip() for l in pem.splitlines() if l and not l.startswith("-----")))
+        on_disk[hashlib.sha256(der).hexdigest()] = name
+    unpinned = {n for fp, n in on_disk.items() if fp not in P.DEVICE_ATTEST_EK_ROOTS}
+    check("no endorsement certificate sits in the directory unpinned", not unpinned, sorted(unpinned))
+
+    # These are TRUST ANCHORS: a root that is not self-signed is an intermediate, and pinning one silently
+    # extends trust to whoever signed it. ST's published "root" is cross-signed by GlobalSign, which is why it
+    # is not in the set.
+    # openssl, NOT python cryptography: three of these six vendor roots are not strictly DER and the strict
+    # parser refuses them outright — Intel's has ExtraData in signature_alg, both Nuvoton roots have an
+    # InvalidSetOrder in their multi-valued RDN. Half the TPM ecosystem ships certificates a strict parser
+    # will not read, which is exactly why endorsement parsing lives in the kernel behind x509-parser.
+    import subprocess
+    not_self_signed, unreadable = [], []
+    for fp, name in on_disk.items():
+        f = os.path.join(ekdir, name)
+        def field(which):
+            r = subprocess.run(["openssl", "x509", "-in", f, "-noout", f"-{which}"],
+                               capture_output=True, text=True)
+            return r.stdout.split("=", 1)[1].strip() if r.returncode == 0 and "=" in r.stdout else None
+        sub, iss = field("subject"), field("issuer")
+        if sub is None or iss is None:
+            unreadable.append(name)
+        elif sub != iss:
+            not_self_signed.append(name)
+    check("every pinned endorsement root is readable", not unreadable, sorted(unreadable))
+    check("every pinned endorsement root is self-signed", not not_self_signed, sorted(not_self_signed))
+
     print("\n" + ("ALL OK" if not _fails else f"{len(_fails)} FAILURES"))
     return 1 if _fails else 0
 
