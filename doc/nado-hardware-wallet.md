@@ -72,13 +72,14 @@ If combined, the recovery story must cover both: a lost device means a lost bala
 
 ## Parts
 
-For the combined device, all orderable, roughly 300 CZK (~EUR 12) total:
+For the combined device, all orderable, roughly 500 CZK (~EUR 20) total:
 
 | part | why | approx |
 |---|---|---|
 | Raspberry Pi **Pico 2** (RP2350) | Cortex-M33 for the ML-DSA cross-compile, 520 KB SRAM, secure-boot support. NOT the original Pico: RP2040 is Cortex-M0+ with no secure boot | ~150 CZK |
 | SSD1306 0.96" I2C OLED | the confirmation display, 4 wires | ~60 CZK |
 | 2x tactile switch | confirm and reject as DISTINCT actions; one button forces short/long-press, which is a bad idea for money | ~5 CZK |
+| **Microchip ATECC608B** breakout (Adafruit/SparkFun), blank / TrustCustom variant — NOT `-TNGTLS`, which ships locked with Microchip's own certificates | holds the P-256 **attestation** key so it never leaves the chip (`GenKey` generates it inside; the private half is unreadable even by our firmware). Cannot hold the ML-DSA spending key — see below — but a combined device needs it for the attestation half. Config and data zones lock PERMANENTLY, so buy three | ~200 CZK for 3 |
 | breadboard + jumpers | avoids soldering while prototyping | ~80 CZK |
 
 Buttons are not strictly required to *start*: `pico-fido` takes user presence from a button and on a bare board that is
