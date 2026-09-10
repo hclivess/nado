@@ -140,12 +140,37 @@ genuinely software-only cannot produce this at all — Windows returns fmt `none
 refuses anyway. Binding is unaffected: `device_binding_key` hashes the AIK certificate (one per physical TPM
 per Windows account) whatever AAGUID the credential carries.
 
+### A password manager, not the device, answers the ceremony
+
+`fmt: "none"` does not always mean the device failed to attest — often nothing on the device was asked. Chrome on
+Windows routes a `authenticatorAttachment: "platform"` request to **Google Password Manager**, which syncs its
+passkeys and attests nothing. Every sample we hold from a passkey manager is `none`, without exception:
+
+| AAGUID | provider | samples | with attestation |
+|---|---|---|---|
+| `ea9b8d66…` | Google Password Manager | 38 | 0 |
+| `fbfc3007…` | Apple Passwords | 53 | 0 |
+| `d3452668…` | Microsoft Password Manager | 24 | 0 |
+| `d548826e…` | Bitwarden | 10 | 0 |
+
+WebAuthn gives a site **no** way to say "not the password manager": `residentKey: "discouraged"` does not stop a
+manager that only makes discoverable credentials, and `hints: ["client-device"]` only biases away from hybrid and
+roaming keys. So the wallet cannot prevent this — it detects it (`PASSKEY_MANAGERS` in interface.js) and tells the
+owner to use Edge, or to pick "Save another way" → Windows Hello in Chrome's own dialog. Getting this wrong is
+expensive: the owner is otherwise sent to the AIK guide below and runs `certreq` forever on a TPM that was never
+asked. Route on the AAGUID — all three Windows Hello ids mean the AIK guide, anything else means the manager guide.
+
 **A Windows PC that answers with fmt `none` almost never has a BIOS or VBS problem** — it has no AIK
 certificate. Windows fetches one from Microsoft's AIK CA silently when the Hello PIN is created, so a PC that
 was offline, proxied or on a filtered network at that moment answers without attestation forever. The fix is
 `certreq -enrollaik -config ""` in a Command Prompt (look for `EnrollStatus(1): Enrolled` / `EnrollDone`),
 then removing and re-creating the Hello PIN while online. The wallet's `device.guide.winAik` says exactly
 this; VBS is step 4, not step 1.
+
+If `certreq` returns **404**, that is Microsoft's AIK CA saying it has no authority for this TPM — usually because
+the chip carries no manufacturer endorsement certificate (`Get-TpmEndorsementKeyInfo -Hash Sha256` shows an empty
+`ManufacturerCertificates`). That PC cannot attest through Windows Hello however healthy `tpm.msc` looks, and the
+answer is a hardware wallet or "attest from another device", not clearing the TPM.
 
 Pure Rust (`ciborium`, `x509-parser`, `p256`, `p384`, `rsa`, `sha1`/`sha2`), no network, deterministic,
 bound through ctypes (`ops/attest_native.py`, no Python fallback). Tests: openssl-built chains for all

@@ -665,15 +665,34 @@ async function createAttestedCredential(publicKey) {
   // refusal lives here too — a guard in only one caller left the setup path still opening a Touch ID prompt on a Mac.
   const verdict = await platformAttestVerdict();
   if (verdict) { const e = new Error(verdict); e.nadoVerdict = verdict; throw e; }
-  try {
-    return await navigator.credentials.create({ publicKey: { ...publicKey,
-      authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" } } });
-  } catch (e) {
-    if (e && e.name === "AbortError") throw e;
-    return await navigator.credentials.create({ publicKey: { ...publicKey,
-      authenticatorSelection: { residentKey: "discouraged", userVerification: "preferred" } } });
-  }
+  // `hints: ["client-device"]` (WebAuthn L3) asks the browser for THIS machine's built-in authenticator — Windows
+  // Hello, the phone's secure element — rather than a phone over hybrid or a roaming key. Advisory and ignored by
+  // browsers that predate it, and it agrees with authenticatorAttachment "platform", so it can only ever narrow.
+  // It does NOT stop a desktop password manager from claiming the ceremony (see passkeyManagerName): nothing in
+  // WebAuthn lets a site say "not the password manager", which is why the refusal below has to explain itself.
+  return await navigator.credentials.create({ publicKey: { ...publicKey, hints: ["client-device"],
+    authenticatorSelection: { authenticatorAttachment: "platform", residentKey: "discouraged", userVerification: "preferred" } } });
+  // NO CROSS-PLATFORM RETRY (2026-09-10). This used to fall back to a create() with NO authenticatorAttachment when
+  // the platform attempt threw — the full browser chooser. Every credential that chooser can produce is refused by
+  // the network: a FIDO2 security key attests `packed` (a batch certificate, unbindable), a phone over hybrid and a
+  // password manager attest nothing at all (fmt "none"). So it could only ever cost the user a second prompt and
+  // then fail — the very thing platformAttestVerdict() exists to prevent for Apple. A hardware wallet has its own
+  // path (attestVia ledger|trezor) and "Attest from another device" covers the phone.
 }
+
+// The well-known passkey MANAGERS, by AAGUID (verified against the passkey-authenticator-aaguids registry,
+// 2026-09-10). None of them attests hardware — every sample we hold from all four is fmt "none", 125 of them — so a
+// credential from one can never register, and the owner has to be told WHICH thing took the ceremony. All three
+// Windows Hello AAGUIDs (08987058, 9ddd1817, 6028b017) are listed there under the single name "Windows Hello",
+// which is the ecosystem agreeing with the consensus rule: the flavour split is not a real distinction.
+const PASSKEY_MANAGERS = {
+  "ea9b8d66": "Google Password Manager", "fbfc3007": "Apple Passwords",
+  "d3452668": "Microsoft Password Manager", "d548826e": "Bitwarden",
+};
+function isWindowsHelloAaguid(ag) {
+  return ag.startsWith("08987058") || ag.startsWith("9ddd1817") || ag.startsWith("6028b017");
+}
+function passkeyManagerName(ag) { return PASSKEY_MANAGERS[String(ag || "").slice(0, 8)] || ""; }
 
 // GUIDE: the specific reasoning + exact steps for a verdict, shown under the Mining page's device line (2026-09-07,
 // user: "we must add specific reasoning and guide to the web wallet"). One-line hints (deviceHint) stay for logs.
@@ -698,6 +717,18 @@ function deviceGuide(st) {
     "What happened: your TPM did vouch for this key — the statement carries a certificate chain to Microsoft's TPM root — but the network still refused it: {r}\n\n" +
     "If it says \"not the Windows Hello hardware authenticator\", the node has not updated to the rule that judges the TPM proof instead of the authenticator label; wait for the network to update and press Start again. Anything else (an expired certificate, a virtual TPM) is in the reason above.",
     { r: st.reason || "—" });
+  // WHICH AUTHENTICATOR ANSWERED DECIDES WHICH GUIDE IS RIGHT (2026-09-10, second pass). A Windows PC with no chain
+  // is NOT automatically an AIK problem: if a password manager claimed the ceremony, Windows Hello and the TPM were
+  // never involved at all, and the AIK guide below sends the owner to run certreq over and over while Chrome keeps
+  // handing the credential to Google Password Manager. Split on the AAGUID — Windows Hello (any flavour) means the
+  // AIK guide, a known manager or any other id means this one.
+  if (isWin && (fmt === "none" || !st.x5c) && ag && !isWindowsHelloAaguid(ag)) return i18("device.guide.pwManager",
+    "What happened: the passkey was created by {m}, not by Windows Hello — so your TPM was never asked and the credential carries no hardware attestation. A password manager syncs its passkeys between devices, which is exactly what the network cannot accept: it has to see one machine's own chip vouch for the key. Your TPM is probably fine; nothing here is a TPM problem.\n\n" +
+    "Fix A (easiest): open this wallet in Microsoft Edge and press Start there. Edge uses Windows Hello for passkeys by default.\n\n" +
+    "Fix B (stay in Chrome): press Start, and when Chrome offers to save the passkey, do NOT accept the default. Look for \"Save another way\", \"Other options\" or the settings icon in that dialog and choose the entry that mentions Windows Hello (it may read \"Windows Hello or external security key\"). Confirm with your PIN or fingerprint.\n\n" +
+    "If Chrome keeps going straight to the manager, delete this site's saved passkey from it first ({m}), then try again — Chrome re-offers whichever provider already holds a passkey for the site.\n\n" +
+    "Note: this is not something the page can decide for you. WebAuthn gives a website no way to say \"not the password manager\", so the choice has to be made in the browser's own dialog.",
+    { m: passkeyManagerName(ag) || i18("device.pwManagerGeneric", "a password manager") });
   // WINDOWS + NO CHAIN: THE AIK CERTIFICATE FIRST, VBS LAST (2026-09-10, measured). 146 of the stored Windows samples
   // came back fmt "none" — 86 of them under the HARDWARE AAGUID 08987058, i.e. Hello was on the TPM and Windows still
   // had nothing to attest with. Windows can only produce a `tpm` statement once Microsoft's AIK CA has issued a
@@ -711,7 +742,10 @@ function deviceGuide(st) {
     "1. Check the TPM: run tpm.msc. It must say \"The TPM is ready for use\", specification version 2.0. If not, enable AMD fTPM / Intel PTT in the BIOS first.\n\n" +
     "2. Fetch the certificate. Open Command Prompt and run exactly:\n" +
     "certreq -enrollaik -config \"\"\n" +
-    "Success looks like \"PkiStatus(0): SCEPDispositionSuccess\", \"EnrollStatus(1): Enrolled\" and \"EnrollDone\". If it fails here, the PC cannot reach Microsoft's AIK service — try another network (a phone hotspot), then run it again.\n\n" +
+    "Success looks like \"PkiStatus(0): SCEPDispositionSuccess\", \"EnrollStatus(1): Enrolled\" and \"EnrollDone\".\n\n" +
+    "If it returns 404 (not found), stop here — that is Microsoft answering \"I have no certificate authority for this TPM\", which almost always means the chip carries no manufacturer endorsement certificate. Check it in an elevated PowerShell:\n" +
+    "Get-TpmEndorsementKeyInfo -Hash Sha256\n" +
+    "If ManufacturerCertificates is empty, this PC cannot attest through Windows Hello at all, however healthy tpm.msc looks. A firmware/BIOS update sometimes provisions the missing certificate; otherwise use a Ledger or Trezor, or press Attest from another device and confirm on a phone. (Do NOT clear the TPM to chase this — it destroys BitLocker recovery material and rarely helps.) If instead it times out or cannot resolve the host, the PC simply cannot reach Microsoft's AIK service: try another network, such as a phone hotspot, and run it again.\n\n" +
     "3. Re-create the Hello PIN while online: Settings → Accounts → Sign-in options → PIN → Remove, then set it again. Press Start here afterwards.\n\n" +
     "4. Only if it still comes back with no attestation: Windows may be putting the Hello key in virtualization-based security. Run msinfo32 — if \"Virtualization-based security\" says Running, that is the remaining cause. In an elevated PowerShell:\n" +
     "New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags -Value 0 -PropertyType DWord -Force\n" +
@@ -762,6 +796,9 @@ function deviceHint(st) {
   // the TPM, whichever Hello flavour the AAGUID names — telling that owner "not using a TPM" sent a real user chasing
   // Credential Guard for two evenings while the node's AAGUID rule was what refused them.
   if (fmt === "tpm") return i18("device.hint.tpmRefused", "The TPM did vouch for this key; the network refused the statement for another reason ({r}). If it names the \"hardware authenticator\", the relay has not updated yet — retry shortly.", { r: (st && st.reason) || "—" });
+  if (isWin && (fmt === "none" || (st && !st.x5c)) && ag && !isWindowsHelloAaguid(ag))
+    return i18("device.hint.pwManager", "{m} created this passkey, not Windows Hello — a synced passkey carries no hardware attestation, so your TPM was never asked. Open the wallet in Microsoft Edge, or in Chrome's save dialog pick \"Save another way\" \u2192 Windows Hello. Steps below.",
+               { m: passkeyManagerName(ag) || i18("device.pwManagerGeneric", "A password manager") });
   if (isWin && (fmt === "none" || (st && !st.x5c))) return i18("device.hint.winAik", "Windows answered without attestation: this PC's TPM has no identity certificate from Microsoft yet. In Command Prompt run  certreq -enrollaik -config \"\"  then remove and re-create the Windows Hello PIN while online, and retry. See the steps below.");
   if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or use a Ledger, a Trezor, or Attest from another device.");
   if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set the PIN up with a TPM 2.0 available (tpm.msc), or use a Ledger, a Trezor, or Attest from another device.");
