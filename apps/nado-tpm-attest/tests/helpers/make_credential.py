@@ -40,9 +40,12 @@ def rsa_public_from_pub_area(pa: bytes):
 def main():
     ek_pub = bytes.fromhex(sys.argv[1])
     aik_name = bytes.fromhex(sys.argv[2])
-    secret = os.urandom(32)
-    blob, enc = make_credential(rsa_public_from_pub_area(ek_pub), aik_name, secret)
-    print(secret.hex(), blob.hex(), enc.hex())
+    # An EXPLICIT seed, because the whole CA-free construction rests on the credentialBlob being reproducible
+    # from (seed, name, secret) by anyone, later, with no key involved.
+    secret, seed = os.urandom(32), os.urandom(32)
+    ek = rsa_public_from_pub_area(ek_pub)
+    blob, enc = make_credential(ek, aik_name, secret, seed=seed)
+    print(secret.hex(), blob.hex(), enc.hex(), seed.hex())
 
 
 if __name__ == "__main__":

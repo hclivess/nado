@@ -18,7 +18,7 @@ THE PROTOCOL (TPM 2.0 part 1 §24, "Credential Protection"). It is necessarily I
 implementation choice: the verifier must know a secret the client does not.
 
     1. client  -> us     : EK certificate (+ its chain), and the AIK's public area
-    2. us       [BUILT] : verify the EK chain to a PINNED VENDOR ROOT; derive the AIK's Name from its pubArea;
+    2. us       [BUILT] : verify_ek_chain() to a PINNED VENDOR ROOT to a PINNED VENDOR ROOT; derive the AIK's Name from its pubArea;
                           choose a random secret; make_credential() seals it to the EK, bound to that Name
     3. us      -> client : credentialBlob + encrypted seed
     4. client           : TPM2_ActivateCredential — the TPM returns the secret ONLY if the EK and the AIK are
@@ -204,3 +204,141 @@ def validate_aik_pub_area(pub_area: bytes) -> str:
     if scheme == 0x0010:
         raise ValueError("attestation key must declare a signing scheme, not TPM_ALG_NULL")
     return f"RSA-{be16(o + 4)} restricted signing key, scheme 0x{scheme:04x}"
+
+
+def verify_ek_chain(ek_cert_der: bytes, intermediates: list, roots: list, now=None) -> dict:
+    """Verify an endorsement certificate to a PINNED VENDOR ROOT. Raises ValueError with the reason.
+
+    THIS IS THE WHOLE BASIS FOR TRUSTING THE HARDWARE. Everything else in this module proves "the attestation
+    key is in the same chip as this endorsement key" — which is worth exactly nothing unless that endorsement
+    key is one a silicon vendor certified. AMD and Intel are the parties asserting the chip is genuine; we
+    verify their signature instead of auditing their factories. Skip this and the whole design degrades to
+    "some TPM somewhere said yes", which any software TPM can also say.
+
+    `intermediates` come from the client, which is fine — they are only a hint about how to reach a root, and
+    every link is checked. `roots` are ours and are the only trust input. A chain that ends anywhere else is
+    refused however well-formed it is.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
+    from cryptography.hazmat.primitives import hashes
+
+    cert = x509.load_der_x509_certificate(ek_cert_der)
+
+    # It must actually be an endorsement certificate, not some other certificate from the same vendor.
+    try:
+        eku = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+        if x509.ObjectIdentifier("2.23.133.8.1") not in eku:
+            raise ValueError("certificate is not marked tcg-kp-EKCertificate")
+    except x509.ExtensionNotFound:
+        raise ValueError("certificate has no extended key usage")
+
+    bc = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+    if bc.ca:
+        raise ValueError("an endorsement certificate must not be a CA")
+
+    # The EK is a DECRYPTION key by definition. One that claims signing capability is not an EK, and treating
+    # it as one would undermine the reason the handshake has to be a challenge at all.
+    ku = cert.extensions.get_extension_for_class(x509.KeyUsage).value
+    if not ku.key_encipherment or ku.digital_signature:
+        raise ValueError("endorsement key must be encipherment-only")
+
+    # The TPM manufacturer lives in the SAN as a directoryName. Microsoft's own id is the Hyper-V virtual TPM.
+    manufacturer = ""
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        for name in san.get_values_for_type(x509.DirectoryName):
+            for attr in name:
+                if attr.oid.dotted_string == "2.23.133.2.1":
+                    manufacturer = str(attr.value).replace("id:", "").upper()
+    except x509.ExtensionNotFound:
+        pass
+    if not manufacturer:
+        raise ValueError("endorsement certificate names no TPM manufacturer")
+
+    import datetime
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+
+    # Walk to a pinned root, checking every signature. The client's intermediates are only a routing hint.
+    pool = {c.subject.rfc4514_string(): c for c in
+            [x509.load_der_x509_certificate(d) if isinstance(d, (bytes, bytearray)) else d for d in intermediates]}
+    trusted = {c.subject.rfc4514_string(): c for c in
+               [x509.load_der_x509_certificate(d) if isinstance(d, (bytes, bytearray)) else d for d in roots]}
+
+    node, chain = cert, []
+    for _ in range(8):
+        if not (node.not_valid_before_utc <= now <= node.not_valid_after_utc):
+            raise ValueError(f"certificate outside validity: {node.subject.rfc4514_string()}")
+        issuer_name = node.issuer.rfc4514_string()
+        issuer = trusted.get(issuer_name) or pool.get(issuer_name)
+        if issuer is None:
+            raise ValueError(f"chain does not reach a pinned vendor root (stuck at issuer {issuer_name})")
+        _verify_signed_by(node, issuer)
+        chain.append(issuer_name)
+        if issuer_name in trusted:
+            return {"manufacturer": manufacturer, "root": issuer_name, "chain": chain,
+                    "ek_identity": ek_identity(ek_cert_der)}
+        node = issuer
+    raise ValueError("endorsement chain is too long")
+
+
+def _verify_signed_by(cert, issuer):
+    """One link. A failure here is a forged or corrupt chain, never a policy question."""
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
+    pub = issuer.public_key()
+    try:
+        if isinstance(pub, rsa.RSAPublicKey):
+            pub.verify(cert.signature, cert.tbs_certificate_bytes,
+                       padding.PKCS1v15(), cert.signature_hash_algorithm)
+        elif isinstance(pub, ec.EllipticCurvePublicKey):
+            pub.verify(cert.signature, cert.tbs_certificate_bytes,
+                       ec.ECDSA(cert.signature_hash_algorithm))
+        else:
+            raise ValueError(f"unsupported issuer key type {type(pub).__name__}")
+    except Exception as e:
+        raise ValueError(f"signature does not verify against {issuer.subject.rfc4514_string()}: {e}")
+
+
+# --- CA-FREE ENROLMENT: commit-reveal instead of a signing key ------------------------------------------
+#
+# A signed AIK certificate is one way to turn the interactive proof into something consensus can check later.
+# It is not the only way, and it is the expensive one: a long-lived key that can assert any endorsement
+# identity is a key that can mint identities, so it has to be guarded like a mint forever.
+#
+# The cheaper construction uses what this chain already runs for RANDAO. MakeCredential's credentialBlob is
+# DETERMINISTIC in (seed, name, secret) — only the OAEP-wrapped seed is randomised, and no verifier needs that
+# half. So a challenge can be REPLAYED by everyone afterwards:
+#
+#     1. challenger seals secret S under seed R:  blob = make_credential(EKpub, name, S, seed=R)
+#     2. client activates in its TPM, recovers S, and publishes H(S)          <- commitment
+#     3. challenger reveals (S, R)
+#     4. every node recomputes the blob from (S, R) and checks the commitment
+#
+# The client can only learn S by holding the chip, and must commit BEFORE the reveal, so it cannot read the
+# answer off the chain. Nothing is signed and no key persists: there is nothing to steal, rotate or guard.
+#
+# The residual attack is a challenger privately leaking S so a client can commit without a TPM. That is why
+# there must be SEVERAL independent challengers and the client must recover every one of their secrets:
+# forgery then needs all of them to collude, which is a property consensus can see rather than a key someone
+# promises to protect.
+
+
+def credential_commitment(secret: bytes) -> str:
+    """What the client publishes before any reveal. Binding it to the secret alone is deliberate: the client
+    must prove it learned S, and S is exactly what only the chip could produce."""
+    return hashlib.sha256(secret).hexdigest()
+
+
+def verify_credential_reveal(ek_public, name: bytes, secret: bytes, seed: bytes,
+                             published_blob: bytes, commitment: str) -> bool:
+    """Replay a challenge that someone else issued. Every node can run this, offline, forever.
+
+    Returns True only if the revealed (secret, seed) genuinely produce the blob that was published, AND the
+    client's earlier commitment is to that secret. Either half alone proves nothing: a blob without a
+    commitment says the challenger sealed something, and a commitment without the blob says the client knew
+    something.
+    """
+    if not hmac.compare_digest(credential_commitment(secret), commitment):
+        return False
+    replayed, _ = make_credential(ek_public, name, secret, seed=seed)
+    return hmac.compare_digest(replayed, published_blob)

@@ -93,6 +93,7 @@ fn end_to_end_against_a_real_tpm() {
     let secret_hex = fields.next().expect("challenger printed no secret");
     let blob = hexdec(fields.next().expect("no credential blob"));
     let enc_secret = hexdec(fields.next().expect("no encrypted secret"));
+    let seed = fields.next().expect("no seed").to_string();
     println!("challenge credentialBlob {} B  encryptedSecret {} B", blob.len(), enc_secret.len());
 
     // 4. The EK is adminWithPolicy, so a password authorization is refused however empty the hierarchy auth
@@ -106,8 +107,19 @@ fn end_to_end_against_a_real_tpm() {
     assert_eq!(hex(&recovered), secret_hex, "the TPM recovered exactly the secret our challenger sealed");
     println!("activate  recovered the sealed secret — EK and AIK proven to share a chip");
 
-    // 6. And the statement itself: certInfo signed by the key whose certificate would go in x5c, over a
-    //    challenge we chose. This is what the NCrypt path could never give us.
+    // 6. THE CA-FREE PART: the client commits to what its chip recovered, the challenger reveals (secret,
+    //    seed), and any node replays the challenge from public data. Nothing signed, no key to guard.
+    let commitment = hex(&sha256(&recovered));
+    let v = std::process::Command::new("python3")
+        .arg("tests/helpers/verify_reveal.py")
+        .args([hex(&ek_pub), hex(&aik_name), secret_hex.to_string(), seed, hex(&blob), commitment])
+        .output()
+        .expect("could not run the verifier");
+    let verdict = String::from_utf8_lossy(&v.stdout);
+    println!("replay    an independent node re-derived the challenge: {}", verdict.trim());
+    assert!(verdict.contains("VERIFIED"), "reveal did not verify: {}{}", verdict, String::from_utf8_lossy(&v.stderr));
+
+    // 7. And the statement itself: certInfo signed by the key we chose, over a challenge we chose.
     let challenge = sha256(b"nado end-to-end challenge");
     let (cert_info, sig) = certify(&t, aik, aik, &challenge).expect("Certify failed");
     println!("certify   certInfo {} B  sig {} B", cert_info.len(), sig.len());
