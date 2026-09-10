@@ -27,6 +27,8 @@ CC_FLUSH_CONTEXT = 0x00000165
 CC_READ_PUBLIC = 0x00000173
 CC_START_AUTH_SESSION = 0x00000176
 CC_GET_CAPABILITY = 0x0000017A
+CC_NV_READ = 0x0000014E
+CC_NV_READ_PUBLIC = 0x00000169
 
 ST_NO_SESSIONS = 0x8001
 ST_SESSIONS = 0x8002
@@ -34,6 +36,20 @@ ST_SESSIONS = 0x8002
 RH_NULL = 0x40000007
 RS_PW = 0x40000009
 RH_ENDORSEMENT = 0x4000000B
+RH_OWNER = 0x40000001
+
+# THE ENDORSEMENT CERTIFICATE LIVES IN THE CHIP'S OWN NV. The vendor's signature over the endorsement key is
+# what the whole vendor-endorsed path rests on, and on a Linux box there is no service to fetch it from —
+# TCG reserves these indices for it (EK Credential Profile §2.2.1.4), and a machine with a firmware TPM has
+# the RSA one populated at manufacture. A machine holding no certificate here cannot use this path at all,
+# which is the correct outcome and not a case to work around: without the vendor's signature the design
+# degrades to "some TPM somewhere said yes", which a software TPM says just as convincingly.
+NV_EK_CERT_RSA = 0x01C00002
+NV_EK_CERT_ECC = 0x01C0000A
+
+# TPM_PT_NV_BUFFER_MAX is 512 on some parts and 1024 on others. Reading in 512-byte chunks is correct on
+# both, and an EK certificate is ~1-2 KiB, so the extra round trip costs nothing worth optimising.
+NV_CHUNK = 512
 
 ALG_RSA = 0x0001
 ALG_SHA256 = 0x000B
@@ -203,6 +219,51 @@ class LinuxTpm:
         n = struct.unpack(">I", r[5:9])[0]
         return [struct.unpack(">I", r[9 + 4 * i:13 + 4 * i])[0] for i in range(min(n, 32))]
 
+    def nv_read_public(self, index):
+        """TPMS_NV_PUBLIC for an NV index as (attributes, data size), or None when it is not defined. The
+        SIZE is why this exists: NV_Read must be told how much to read, and asking past the end is an error
+        rather than a short read."""
+        try:
+            r = self._call(ST_NO_SESSIONS, CC_NV_READ_PUBLIC, struct.pack(">I", int(index)),
+                           None, b"", "NV_ReadPublic")
+        except TpmError:
+            return None
+        pub, _ = _take2b(r, 0)
+        attrs = struct.unpack(">I", pub[6:10])[0]
+        o = 10 + 2 + struct.unpack(">H", pub[10:12])[0]          # skip authPolicy
+        return attrs, struct.unpack(">H", pub[o:o + 2])[0]
+
+    def nv_read(self, index, size, auth_handle=None):
+        """Read `size` bytes from an NV index, in chunks the chip will accept.
+
+        AUTHORISED AS THE OWNER by default, which is what the endorsement certificate indices expect and
+        what `tpm2_nvread -C o` does. On a machine whose owner hierarchy carries a password this raises
+        rather than returning a truncated certificate — a half-read certificate would fail chain
+        verification later with a message pointing at the wrong thing entirely."""
+        auth = RH_OWNER if auth_handle is None else auth_handle
+        out = b""
+        while len(out) < size:
+            n = min(NV_CHUNK, size - len(out))
+            r = self._call(ST_SESSIONS, CC_NV_READ, struct.pack(">II", auth, int(index)),
+                           self._pw_auth(), struct.pack(">HH", n, len(out)), "NV_Read")
+            chunk, _ = _take2b(r, 4)                              # skip parameterSize
+            if not chunk:
+                raise TpmError(0, "NV_Read returned nothing")
+            out += chunk
+        return out
+
+    def ek_certificate(self):
+        """The chip's endorsement certificate (DER), or None if it holds none. RSA first: that is the index
+        populated on the firmware TPMs this path exists for."""
+        for index in (NV_EK_CERT_RSA, NV_EK_CERT_ECC):
+            nv = self.nv_read_public(index)
+            if nv and nv[1]:
+                try:
+                    return self.nv_read(index, nv[1])
+                except TpmError:
+                    continue
+        return None
+
     def flush_all_transient(self):
         """A crashed run leaves its primaries loaded and a TPM has only a handful of object slots, so the next
         attempt dies with TPM_RC_OBJECT_MEMORY for reasons unrelated to what it is doing."""
@@ -215,3 +276,4 @@ class LinuxTpm:
 def _take2b(buf, off):
     n = struct.unpack(">H", buf[off:off + 2])[0]
     return buf[off + 2:off + 2 + n], off + 2 + n
+
