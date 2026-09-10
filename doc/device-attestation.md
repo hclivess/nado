@@ -116,12 +116,36 @@ CA constraints on every non-leaf. The root reached is reported as `root_sha256`.
   CA, EKU tcg-kp-AIKCertificate (2.23.133.8.3), SAN directoryName with tcg-at-tpmManufacturer
   (2.23.133.2.1), returned as `tpm_manufacturer`.
 
-Consensus constraints on top of the verdict (`transaction_ops.verify_register_device`): `tpm` only for the
-Windows Hello HARDWARE authenticator AAGUID (08987058-cadc-4b81-b6e1-30de50dcbe96 — the VBS and software
-variants are not a TPM), only chains ending at Microsoft's TPM root, and only physical TPM manufacturers
-(`DEVICE_ATTEST_TPM_MANUFACTURERS`; Microsoft's own id 4D534654 is the Hyper-V/Azure virtual TPM and is
-refused); `packed` only for an AAGUID in the metadata snapshot AND a chain ending at that AAGUID's own root;
-`apple`/`android-key` a chain ending at a pinned vendor root.
+Consensus constraints on top of the verdict (`transaction_ops.verify_register_device`): `tpm` only for chains
+ending at Microsoft's TPM root and only physical TPM manufacturers (`DEVICE_ATTEST_TPM_MANUFACTURERS`;
+Microsoft's own id 4D534654 is the Hyper-V/Azure virtual TPM and is refused); `packed` only for an AAGUID in
+the metadata snapshot AND a chain ending at that AAGUID's own root; `apple`/`android-key` a chain ending at a
+pinned vendor root.
+
+### Windows: the TPM proof decides, not the AAGUID
+
+Below `DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT` a `tpm` statement ALSO had to carry the Windows Hello *hardware*
+authenticator AAGUID 08987058-cadc-4b81-b6e1-30de50dcbe96, on the belief that the other two Windows Hello
+AAGUIDs (9ddd1817… "VBS", 6028b017… "software") mean the key is not in a TPM. **That belief is false.** The
+AAGUID names the Hello *flavour*; it says nothing about where the private key lives. `index/device_attest`
+holds four statements from one Intel-PTT PC under AAGUID 9ddd1817 that the kernel verifies end to end —
+chain to Microsoft TPM Root CA 2014, manufacturer 494E5443 (INTC), a `TPM_ST_ATTEST_CERTIFY` over the
+credential's own pubArea — and every one was refused with "not the Windows Hello hardware authenticator"
+while the wallet told the owner to disable Credential Guard.
+
+What actually proves hardware is the certify: `TPM2_Certify` only signs the *name* of an object loaded in
+that TPM, the kernel checks `attested.name == name(pubArea)` and `pubArea ==` the credential key, and the AIK
+that signed it was issued by Microsoft's AIK CA only after a real endorsement key. A Hello key that is
+genuinely software-only cannot produce this at all — Windows returns fmt `none`, which the format check
+refuses anyway. Binding is unaffected: `device_binding_key` hashes the AIK certificate (one per physical TPM
+per Windows account) whatever AAGUID the credential carries.
+
+**A Windows PC that answers with fmt `none` almost never has a BIOS or VBS problem** — it has no AIK
+certificate. Windows fetches one from Microsoft's AIK CA silently when the Hello PIN is created, so a PC that
+was offline, proxied or on a filtered network at that moment answers without attestation forever. The fix is
+`certreq -enrollaik -config ""` in a Command Prompt (look for `EnrollStatus(1): Enrolled` / `EnrollDone`),
+then removing and re-creating the Hello PIN while online. The wallet's `device.guide.winAik` says exactly
+this; VBS is step 4, not step 1.
 
 Pure Rust (`ciborium`, `x509-parser`, `p256`, `p384`, `rsa`, `sha1`/`sha2`), no network, deterministic,
 bound through ctypes (`ops/attest_native.py`, no Python fallback). Tests: openssl-built chains for all

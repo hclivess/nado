@@ -1523,8 +1523,8 @@ def split_open_block_reward(reward: int):
 #
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
-#                                    BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT,
-#                                    OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+#                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
+#                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -1696,9 +1696,23 @@ DEVICE_ATTEST_FORMATS = frozenset(("apple", "android-key", "tpm", "packed", "tre
 # (one shared CA for every iPhone), so one-key-per-device would rest on app code, and a jailbroken checkm8-class iPhone
 # farms identities the chain cannot see. No block ever carried one. Apple users mine through a hardware wallet on a Mac
 # or "attest from another device". History: git log -- apps/nado-attest-ios doc/apple-app-attest.md.
-# tpm: only the Windows Hello HARDWARE authenticator AAGUID (the VBS and software variants are not a TPM), and only
-# physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
-DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))
+# tpm: only physical TPM manufacturers — Microsoft's own id (4D534654 "MSFT") is the Hyper-V/Azure VIRTUAL TPM, rejected.
+DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))   # Windows Hello Hardware Authenticator
+# THE TPM PROOF DECIDES, NOT THE AAGUID (2026-09-10, measured — see the regression note in
+# transaction_ops.verify_register_device and doc/device-attestation.md §"Windows"). The rule used to ALSO require the
+# AAGUID above, on the belief that the other two Windows Hello AAGUIDs (9ddd1817… "VBS", 6028b017… "software") mean the
+# key is not in a TPM. That belief is false and it cost a real user two evenings: index/device_attest holds four
+# statements from one Intel-PTT PC with AAGUID 9ddd1817 that the kernel verifies END TO END — chain to Microsoft TPM
+# Root CA 2014, manufacturer 494E5443 (INTC), and a TPM_ST_ATTEST_CERTIFY over the credential's own pubArea — and every
+# one was refused with "not the Windows Hello hardware authenticator". The AAGUID is a label Windows picks for the
+# authenticator FLAVOUR; it says nothing about where the private key lives. What proves hardware is the certify:
+# TPM2_Certify only signs the name of an object LOADED IN THAT TPM, the kernel checks attested.name == name(pubArea)
+# and pubArea == the credential key, and the AIK that signed it was issued by Microsoft's AIK CA only after a real
+# endorsement key. A Hello key that is genuinely software-only cannot produce this at all — Windows returns fmt "none"
+# and the format check refuses it one line above. So from this height the tpm rule is exactly: pinned Microsoft root +
+# physical manufacturer + the kernel's certify proof. Binding is unaffected (device_binding_key hashes the AIK
+# certificate — one per physical TPM per Windows account — whatever AAGUID the credential carries).
+DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT = 41200 if CHAIN_GENERATION == 25 else 1   # reroll: the proof decides from block 1
 DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
     "49465800",  # IFX  Infineon
     "53544D20",  # STM  STMicroelectronics

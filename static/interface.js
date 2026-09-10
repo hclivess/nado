@@ -690,6 +690,35 @@ function deviceGuide(st) {
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua), isAndroid = /Android/i.test(ua);
   const isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isMac = /Macintosh/i.test(ua) && !isIos;
+  // A REAL `tpm` STATEMENT OUTRANKS ITS AAGUID (2026-09-10). The two branches below key on the AAGUID alone, and an
+  // Intel-PTT PC that produced a fully valid TPM statement under the "VBS" AAGUID 9ddd1817 was shown the Credential
+  // Guard guide anyway — for two evenings, while the real refusal came from the node's (now widened) AAGUID rule.
+  // fmt "tpm" means the TPM certified the credential key: never tell that owner their key is software or VBS.
+  if (fmt === "tpm") return i18("device.guide.tpmRefused",
+    "What happened: your TPM did vouch for this key — the statement carries a certificate chain to Microsoft's TPM root — but the network still refused it: {r}\n\n" +
+    "If it says \"not the Windows Hello hardware authenticator\", the node has not updated to the rule that judges the TPM proof instead of the authenticator label; wait for the network to update and press Start again. Anything else (an expired certificate, a virtual TPM) is in the reason above.",
+    { r: st.reason || "—" });
+  // WINDOWS + NO CHAIN: THE AIK CERTIFICATE FIRST, VBS LAST (2026-09-10, measured). 146 of the stored Windows samples
+  // came back fmt "none" — 86 of them under the HARDWARE AAGUID 08987058, i.e. Hello was on the TPM and Windows still
+  // had nothing to attest with. Windows can only produce a `tpm` statement once Microsoft's AIK CA has issued a
+  // certificate for that TPM; it fetches one silently when the PIN is created, so a PC that was offline, proxied or
+  // firewalled at that moment returns "none" forever and no amount of BIOS or Credential Guard fiddling changes it.
+  // `certreq -enrollaik` is the one command that forces the fetch, and it is what actually fixed the case that opened
+  // this note. It therefore has to be step 2, ABOVE the AAGUID branches — which used to swallow every 9ddd1817 PC into
+  // the "disable Credential Guard" guide (a real security downgrade) before this line existed.
+  if (isWin && (fmt === "none" || !st.x5c)) return i18("device.guide.winAik",
+    "What happened: Windows Hello answered, but the credential came with NO attestation ({a}), so there is nothing for the network to verify. On Windows that almost always means one thing: Microsoft has never issued this PC's TPM its identity certificate (the AIK). Windows fetches it silently the moment you create a Hello PIN, so a PC that was offline, behind a proxy or on a filtered network at that moment keeps answering without attestation forever.\n\n" +
+    "1. Check the TPM: run tpm.msc. It must say \"The TPM is ready for use\", specification version 2.0. If not, enable AMD fTPM / Intel PTT in the BIOS first.\n\n" +
+    "2. Fetch the certificate. Open Command Prompt and run exactly:\n" +
+    "certreq -enrollaik -config \"\"\n" +
+    "Success looks like \"PkiStatus(0): SCEPDispositionSuccess\", \"EnrollStatus(1): Enrolled\" and \"EnrollDone\". If it fails here, the PC cannot reach Microsoft's AIK service — try another network (a phone hotspot), then run it again.\n\n" +
+    "3. Re-create the Hello PIN while online: Settings → Accounts → Sign-in options → PIN → Remove, then set it again. Press Start here afterwards.\n\n" +
+    "4. Only if it still comes back with no attestation: Windows may be putting the Hello key in virtualization-based security. Run msinfo32 — if \"Virtualization-based security\" says Running, that is the remaining cause. In an elevated PowerShell:\n" +
+    "New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags -Value 0 -PropertyType DWord -Force\n" +
+    "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' -Name EnableVirtualizationBasedSecurity -Value 0\n" +
+    "then reboot, confirm msinfo32 shows VBS \"Not enabled\", and redo step 3. This lowers kernel/credential protection on that PC and is reversible (set both back to 1); a domain, Entra or MDM policy will simply re-enable it.\n\n" +
+    "Notes: BitLocker is unrelated, and memory integrity is not the cause. Which Windows Hello authenticator answered does NOT decide this — the network judges the TPM's own proof, not the authenticator's label.",
+    { a: ag ? ag.slice(0, 8) : "no authenticator id" });
   if (ag.startsWith("9ddd1817")) return i18("device.guide.vbs",
     "What happened: Windows created your Windows Hello key inside virtualization-based security (VBS, the \"Windows Hello VBS\" authenticator 9ddd1817) instead of the TPM. A VBS key has no certificate chain, so the network cannot verify the hardware or bind the device to one identity. The BIOS TPM switch alone does not move the key — Windows decides where a Hello key lives when the PIN is created.\n\n" +
     "Check first: run tpm.msc — it must say \"The TPM is ready for use\", version 2.0 (enable AMD fTPM / Intel PTT in the BIOS if not). Run msinfo32 — if \"Virtualization-based security\" says Running, that is why.\n\n" +
@@ -703,8 +732,7 @@ function deviceGuide(st) {
     "What happened: Windows Hello is running as a software key on this PC (authenticator 6028b017) — no TPM was available when the PIN was created, so there is no certificate chain to verify or bind.\n\n" +
     "Fix: enable the TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), confirm tpm.msc says the TPM is ready, remove the Hello PIN and create it again while online, then press Start here again. If the pre-flight then reports 9ddd1817 instead, follow the VBS guide.");
   if (fmt === "none" || !st.x5c) {
-    if (isWin) return i18("device.guide.winNone",
-      "What happened: the credential came without any attestation. On Windows that means no Windows Hello PIN is set, or Hello is not backed by the TPM.\n\nFix: Settings → Accounts → Sign-in options → set a PIN (on a PC with TPM 2.0 enabled), then press Start again. If the pre-flight then names 9ddd1817 or 6028b017, follow that guide.");
+    // Windows is handled above by device.guide.winAik — it needs the AIK-certificate steps, not "set a PIN".
     if (isAndroid) return i18("device.guide.androidNone",
       "What happened: the credential came without hardware attestation. Android gives one only from Chrome on an unrooted phone with a locked bootloader, when the phone itself (not a password manager or a synced passkey) creates the key.\n\nFix: use Chrome, choose \"this device\" / screen lock when prompted (not Google Password Manager sync, not a third-party manager), make sure the bootloader is locked and the phone is not rooted, then press Start again. Phones from before Android 12 carry a shared batch certificate and cannot be bound: they are refused.");
     if (isIos || isMac) return i18("device.guide.apple",
@@ -720,8 +748,9 @@ function deviceGuide(st) {
   return "";
 }
 
-// HINTS: what to do next, from the verdict. AAGUIDs are the FIDO metadata's: Windows Hello TPM 08987058…, Windows Hello
-// VBS 9ddd1817… (no TPM in use), Windows Hello software 6028b017…; fmt "none" is a passkey without hardware attestation.
+// HINTS: what to do next, from the verdict. AAGUIDs are the FIDO metadata's: Windows Hello 08987058…, "VBS" 9ddd1817…,
+// "software" 6028b017…; fmt "none" is a passkey without hardware attestation. The AAGUID names the Hello FLAVOUR only —
+// it does NOT say where the key lives (a 9ddd1817 PC produced valid TPM statements), so `fmt` is checked first below.
 function deviceHint(st) {
   const ag = String((st && st.aaguid) || "").replace(/-/g, "").toLowerCase();
   const fmt = st && st.fmt;
@@ -729,6 +758,11 @@ function deviceHint(st) {
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua), isIos = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1), isAndroid = /Android/i.test(ua), isLinux = /Linux/i.test(ua) && !isAndroid, isMac = /Macintosh/i.test(ua) && !isIos;
   if (st && st.ok) return "";
+  // fmt BEFORE aaguid, both here and in deviceGuide (2026-09-10): a statement that IS a `tpm` statement was certified by
+  // the TPM, whichever Hello flavour the AAGUID names — telling that owner "not using a TPM" sent a real user chasing
+  // Credential Guard for two evenings while the node's AAGUID rule was what refused them.
+  if (fmt === "tpm") return i18("device.hint.tpmRefused", "The TPM did vouch for this key; the network refused the statement for another reason ({r}). If it names the \"hardware authenticator\", the relay has not updated yet — retry shortly.", { r: (st && st.reason) || "—" });
+  if (isWin && (fmt === "none" || (st && !st.x5c))) return i18("device.hint.winAik", "Windows answered without attestation: this PC's TPM has no identity certificate from Microsoft yet. In Command Prompt run  certreq -enrollaik -config \"\"  then remove and re-create the Windows Hello PIN while online, and retry. See the steps below.");
   if (ag.startsWith("9ddd1817")) return i18("device.hint.vbs", "Windows Hello is not using a TPM on this PC. Enable TPM 2.0 in the BIOS (AMD fTPM or Intel PTT), set the Windows Hello PIN again, then retry — or use a Ledger, a Trezor, or Attest from another device.");
   if (ag.startsWith("6028b017")) return i18("device.hint.winSoftware", "Windows Hello is running as a software key here. Set the PIN up with a TPM 2.0 available (tpm.msc), or use a Ledger, a Trezor, or Attest from another device.");
   if (st && st.reason === "expired") return i18("device.hint.expired", "This phone's attestation certificate has expired. On Android 12+ with Google Play services it refreshes by itself when online — reboot, wait a few minutes and retry. An older phone with a factory certificate cannot be bound: use another device.");
@@ -1035,6 +1069,10 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     // Hello under VBS or a software key, an Apple passkey), no certificate chain, an unpinned root, or a class the
     // network cannot bind to one identity (FIDO2 batch key) is refused by every node anyway — a user saw the raw
     // "attStmt has no x5c" instead of the reason. Say WHY here, with the device hint, and do not submit.
+    // KEEP WHAT THE PROBE SAW even when it passes: submitRegisterTx() turns a NODE-side refusal back into a failed
+    // verdict, and deviceGuide()/deviceHint() can only give real steps if they still know the format and AAGUID
+    // (2026-09-10 — "attested ✓ (attested)" on screen while the log carried the chain's actual reason).
+    let seen = null;
     try {
       const pr = await fetch(relayBase() + "/device_attest_probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ att, cdj }) });
       const pj = await pr.json().catch(() => null);
@@ -1043,6 +1081,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
         const ad = s.auth_data || {};
         const bindable = s.fmt === "android-key" || s.fmt === "tpm" || s.fmt === "trezor" || s.fmt === "ledger";
         const st = { ok: false, fmt: s.fmt || "none", aaguid: ad.aaguid, format_accepted: s.format_accepted, root_pinned: s.root_pinned, x5c: s.x5c_count || (s.fmt === "ledger" ? 1 : 0) };
+        seen = { fmt: st.fmt, aaguid: st.aaguid, x5c: st.x5c };
         // NO ROOT JUDGEMENT HERE. The probe only parses; a TPM chain ends at an intermediate (the pinned Microsoft
         // root is never inside x5c), so "last cert pinned?" is false for EVERY valid Windows statement — this
         // pre-flight refused a working TPM registration for 20 minutes on 2026-09-07. The kernel resolves the
@@ -1063,7 +1102,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
         }
       }
     } catch (e) { /* relay without the probe: the node's own verdict still applies at submit */ }
-    setDeviceStatus({ ok: true, fmt: "attested", reason: "ok" });
+    setDeviceStatus({ ...(seen || {}), ok: true, fmt: (seen && seen.fmt) || "attested", reason: "ok" });
     log("ok", i18("device.attestedForReg", "Real device attested for this registration."));
     return { att, cdj, rp: location.hostname };
   } catch (e) {
@@ -3207,6 +3246,14 @@ async function submitRegisterTx(tx, targetBlock) {
     }
     // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
     log("err", i18("log.regRejected", "Register rejected by relay: {m}", {m}));
+    // THE DEVICE LINE MUST NOT KEEP SAYING "attested ✓" AFTER THE CHAIN REFUSED THE STATEMENT (2026-09-10). attestDevice()
+    // sets ok:true as soon as the pre-flight parses, so a statement the NODE rejects (its rule set is the one that
+    // decides, and it is stricter than the probe) left the Mining page claiming success while the log said otherwise —
+    // and deviceGuide() never ran, so the owner got no steps at all. Carry the relay's own reason into the verdict.
+    if (/attestation|device|aaguid|tpm|authenticator/i.test(m || "")) {
+      let prev = null; try { prev = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+      setDeviceStatus({ ...(prev || {}), ok: false, reason: String(m || "").slice(0, 300) });
+    }
     if (/empty account/i.test(m || "")) {
       log("err", "This relay only accepts transactions from accounts that already exist on chain. " +
         "A brand-new address may need the relay operator to seed/allow it (node-side behavior).");

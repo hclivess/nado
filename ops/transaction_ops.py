@@ -418,15 +418,29 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     assert fmt in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {fmt}"
     # PER-DEVICE-CLASS CONSTRAINTS (doc/device-attestation.md — none of these may be spoofable):
     #   apple / android-key: the vendor root reached is the whole proof (chain verified by the kernel).
-    #   tpm: only the Windows Hello HARDWARE authenticator AAGUID, the chain must end at Microsoft's TPM root, and
-    #        the AIK certificate's TPM manufacturer must be a physical maker (Microsoft's own id is a virtual TPM).
+    #   tpm: the chain must end at Microsoft's TPM root and the AIK certificate's TPM manufacturer must be a physical
+    #        maker (Microsoft's own id is a virtual TPM). Below DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT it ALSO had to
+    #        carry the Windows Hello hardware AAGUID — see the regression note below.
     #   packed: the AAGUID must be a FIDO2 authenticator with full attestation in the pinned metadata snapshot AND
     #        the chain must end at one of THAT authenticator's own roots.
     from protocol import (DEVICE_ATTEST_TPM_AAGUIDS, DEVICE_ATTEST_TPM_MANUFACTURERS, DEVICE_ATTEST_FIDO_AAGUID_ROOTS,
-                          DEVICE_ATTEST_ROOT_FINGERPRINTS)
+                          DEVICE_ATTEST_ROOT_FINGERPRINTS, DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT)
     aaguid, root = str(verdict.get("aaguid") or ""), str(verdict.get("root_sha256") or "")
     if fmt == "tpm":
-        assert aaguid in DEVICE_ATTEST_TPM_AAGUIDS, "tpm attestation: not the Windows Hello hardware authenticator"
+        # NEVER JUDGE A TPM STATEMENT BY ITS AAGUID AGAIN (2026-09-10). The AAGUID names the Windows Hello FLAVOUR
+        # (hardware / "VBS" / "software"), not where the key lives: a real Intel-PTT PC produced four statements under
+        # the "VBS" AAGUID 9ddd1817 that the kernel verified end to end — Microsoft TPM root, manufacturer INTC, a
+        # TPM_ST_ATTEST_CERTIFY over the credential's own pubArea — and this line threw every one of them away, while
+        # the wallet told the owner to disable Credential Guard. A key that is genuinely NOT in a TPM cannot produce a
+        # certify at all: Windows returns fmt "none" and the format assert above already refuses it. The three asserts
+        # that remain ARE the proof (pinned Microsoft root + physical manufacturer + the kernel's certify check), and
+        # the binding is the AIK certificate either way (one per physical TPM per Windows account), so widening this
+        # cannot buy an attacker an extra identity. Height-gated because it is a consensus rule: `register` lands
+        # EXACTLY at max_block (block_ops._lands_flexibly), so max_block IS this tx's landing height — the same input
+        # the assembly-path gate at DEVICE_BIND_STRICT_HEIGHT reads — and old blocks replay under the old rule.
+        if not (DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT
+                and int(transaction.get("max_block") or 0) >= DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT):
+            assert aaguid in DEVICE_ATTEST_TPM_AAGUIDS, "tpm attestation: not the Windows Hello hardware authenticator"
         assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "tpm attestation: chain does not end at the pinned Microsoft TPM root"
         assert str(verdict.get("tpm_manufacturer") or "").upper() in DEVICE_ATTEST_TPM_MANUFACTURERS, \
             f"tpm attestation: TPM manufacturer {verdict.get('tpm_manufacturer')} is not a physical TPM maker"
