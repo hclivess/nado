@@ -146,3 +146,28 @@ pub fn tbs_tpm_present() -> bool {
         true
     }
 }
+
+// --- NCryptCreateClaim parameter list: binding OUR challenge into certInfo.extraData -------------------
+//
+// A claim made with no parameters comes back with extraData EMPTY (measured on a real machine, 2026-09-10),
+// which makes the proof unusable for us: native/attest requires certInfo.extraData == hash(authData ||
+// clientDataHash), and that equality is exactly what binds a statement to one wallet and one landing block.
+// The nonce goes in through pParameterList. Two buffer-type constants are plausible for it, so the probe
+// tries both and reports which one lands — measured, not guessed.
+pub const NCRYPTBUFFER_VERSION: u32 = 0;
+pub const NCRYPTBUFFER_CLAIM_IDBINDING_NONCE: u32 = 20;
+pub const NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE: u32 = 21;
+
+#[repr(C)]
+pub struct NCryptBuffer {
+    pub cbBuffer: u32,
+    pub BufferType: u32,
+    pub pvBuffer: *mut c_void,
+}
+
+#[repr(C)]
+pub struct NCryptBufferDesc {
+    pub ulVersion: u32,
+    pub cBuffers: u32,
+    pub pBuffers: *mut NCryptBuffer,
+}

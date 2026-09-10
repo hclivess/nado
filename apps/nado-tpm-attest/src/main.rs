@@ -117,11 +117,64 @@ unsafe fn count_aik_certs() -> usize {
     found
 }
 
+
+/// Microsoft's claim blob, decoded (measured on a real machine 2026-09-10 — the layout is not documented):
+///   KAST header 28 bytes: "KAST", version, claimType, cbHeader=28, _, cbBody, _
+///   KADS body:            "KADS", version, cbHeader=24, cbCertifyInfo, cbSignature, cbKeyBlob
+///   then certifyInfo (a TPMS_ATTEST), signature, key blob — back to back.
+/// Returns (certInfo, signature, keyBlob).
+fn split_claim(b: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
+    let u32le = |o: usize| -> usize {
+        u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as usize
+    };
+    if b.len() < 52 || &b[0..4] != b"KAST" || &b[28..32] != b"KADS" { return None; }
+    let (ci, sg, kb) = (u32le(40), u32le(44), u32le(48));
+    let o = 52;
+    if o + ci + sg + kb > b.len() { return None; }
+    Some((&b[o..o + ci], &b[o + ci..o + ci + sg], &b[o + ci + sg..o + ci + sg + kb]))
+}
+
+/// extraData out of a TPMS_ATTEST: magic(4) type(2) qualifiedSigner(2+n) extraData(2+n) ...
+fn attest_extra_data(ci: &[u8]) -> Option<&[u8]> {
+    if ci.len() < 10 || ci[0..4] != [0xff, 0x54, 0x43, 0x47] { return None; }
+    let qs = u16::from_be_bytes([ci[8], ci[9]]) as usize;
+    let o = 10 + qs;
+    if ci.len() < o + 2 { return None; }
+    let n = u16::from_be_bytes([ci[o], ci[o + 1]]) as usize;
+    ci.get(o + 2..o + 2 + n)
+}
+
+/// Ask the chip to certify `key` with `aik`, optionally binding `nonce` through the parameter list.
+unsafe fn make_claim(key: NCRYPT_HANDLE, aik: NCRYPT_HANDLE, nonce: Option<(&[u8], u32)>) -> Result<Vec<u8>, u32> {
+    let mut buf;
+    let mut desc;
+    let plist: *const std::ffi::c_void = match nonce {
+        None => std::ptr::null(),
+        Some((n, kind)) => {
+            buf = NCryptBuffer { cbBuffer: n.len() as u32, BufferType: kind,
+                                 pvBuffer: n.as_ptr() as *mut std::ffi::c_void };
+            desc = NCryptBufferDesc { ulVersion: NCRYPTBUFFER_VERSION, cBuffers: 1, pBuffers: &mut buf };
+            &mut desc as *mut NCryptBufferDesc as *const std::ffi::c_void
+        }
+    };
+    let mut n = 0u32;
+    let rc = NCryptCreateClaim(key, aik, NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT, plist,
+                               std::ptr::null_mut(), 0, &mut n, 0);
+    if rc != 0 { return Err(rc as u32); }
+    let mut out = vec![0u8; n as usize];
+    let mut got = 0u32;
+    let rc = NCryptCreateClaim(key, aik, NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT, plist,
+                               out.as_mut_ptr(), n, &mut got, 0);
+    if rc != 0 { return Err(rc as u32); }
+    out.truncate(got as usize);
+    Ok(out)
+}
+
 fn main() {
     // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
     // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
     // instead of a window that vanishes.
-    println!("nado-tpm-attest 0.3 starting...");
+    println!("nado-tpm-attest 0.4 starting...");
     std::panic::set_hook(Box::new(|info| {
         println!();
         println!("  SOMETHING WENT WRONG: {info}");
@@ -206,25 +259,36 @@ fn main() {
     if have_key { said_ok(""); } else { said_bad("the chip would not create a key"); }
 
     step(6, total, "Chip signing a proof for that key");
+    // THE WHOLE POINT OF THIS ROUND: a claim with no parameter list comes back with extraData EMPTY, and
+    // native/attest requires certInfo.extraData == hash(authData || clientDataHash). So bind a nonce. The
+    // buffer-type constant for it is the one thing not settled, so try each and let the chip decide.
+    let probe_nonce: [u8; 32] = *b"NADO-nonce-probe-0123456789abcde";
     let mut proof: Option<Vec<u8>> = None;
+    let mut winner: Option<u32> = None;
     if have_aik && have_key {
-        let mut n = 0u32;
-        let rc = unsafe {
-            NCryptCreateClaim(key, aik, NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT, std::ptr::null(),
-                              std::ptr::null_mut(), 0, &mut n, 0)
-        };
-        if rc == 0 && n > 0 {
-            let mut blob = vec![0u8; n as usize];
-            let mut got = 0u32;
-            if unsafe {
-                NCryptCreateClaim(key, aik, NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT, std::ptr::null(),
-                                  blob.as_mut_ptr(), n, &mut got, 0)
-            } == 0 {
-                blob.truncate(got as usize);
-                said_ok(&format!("{} bytes", blob.len()));
-                proof = Some(blob);
-            } else { said_bad("the chip refused to sign"); }
-        } else { said_bad(&format!("the chip refused to sign (0x{:08x})", rc as u32)); }
+        match unsafe { make_claim(key, aik, None) } {
+            Ok(b) => { said_ok(&format!("{} bytes", b.len())); proof = Some(b); }
+            Err(rc) => said_bad(&format!("the chip refused to sign (0x{rc:08x})")),
+        }
+        for (kind, label) in [(NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE, "KEYATTESTATION_NONCE(21)"),
+                              (NCRYPTBUFFER_CLAIM_IDBINDING_NONCE, "IDBINDING_NONCE(20)")] {
+            print!("        {:.<40}", format!("nonce via {label}"));
+            let _ = std::io::stdout().flush();
+            match unsafe { make_claim(key, aik, Some((&probe_nonce, kind))) } {
+                Err(rc) => println!(" {}  0x{rc:08x}", bad("no")),
+                Ok(b) => {
+                    let ed = split_claim(&b).and_then(|(ci, _, _)| attest_extra_data(ci)).map(|e| e.to_vec());
+                    match ed {
+                        Some(e) if e == probe_nonce => {
+                            println!(" {}  extraData carries our nonce", ok("YES"));
+                            winner = Some(kind); proof = Some(b);
+                        }
+                        Some(e) if !e.is_empty() => println!(" {}  extraData {} bytes: {}", warn("partial"), e.len(), hex(&e[..e.len().min(16)])),
+                        _ => println!(" {}  accepted but extraData still empty", warn("no")),
+                    }
+                }
+            }
+        }
     } else {
         said_warn("needs both an identity certificate and a key");
     }
@@ -237,21 +301,21 @@ fn main() {
         println!();
         println!("  ----- begin -----");
         println!("  len={}", blob.len());
-        for (i, ch) in blob.chunks(32).take(8).enumerate() {
-            println!("  {:04x} {}", i * 32, hex(ch));
+        match split_claim(blob) {
+            Some((ci, sg, kb)) => {
+                println!("  certInfo={} sig={} keyblob={}", ci.len(), sg.len(), kb.len());
+                println!("  certInfo.hex={}", hex(&ci[..ci.len().min(64)]));
+                match attest_extra_data(ci) {
+                    Some(e) if !e.is_empty() => println!("  extraData={} {}", e.len(), hex(e)),
+                    _ => println!("  extraData=0  (NOT BOUND — this proof cannot be used yet)"),
+                }
+                println!("  keyblob.hex={}", hex(&kb[..kb.len().min(48)]));
+            }
+            None => println!("  claim did not parse as KAST/KADS"),
         }
-        let hits: Vec<usize> = blob.windows(4).enumerate()
-            .filter(|(_, wd)| *wd == TPM_GENERATED).map(|(i, _)| i).collect();
-        for off in &hits {
-            let t = if blob.len() > off + 5 { u16::from_be_bytes([blob[off + 4], blob[off + 5]]) } else { 0 };
-            println!("  attest@{off} type=0x{t:04x}");
-        }
-        if hits.is_empty() { println!("  attest@none"); }
-        if let Some(pa) = unsafe { get_prop(key, NCRYPT_PCP_TPM12_IDBINDING_PROPERTY) } {
-            println!("  idbinding={} {}", pa.len(), hex(&pa[..pa.len().min(32)]));
-        }
+        println!("  nonce_buffer_type={}", winner.map(|k| k.to_string()).unwrap_or_else(|| "none worked".into()));
         if let Some(pb) = unsafe { export_pub(key, BCRYPT_RSAPUBLIC_BLOB) } {
-            println!("  pub={}", pb.len());
+            println!("  pub={} {}", pb.len(), hex(&pb[..pb.len().min(24)]));
         }
         println!("  ----- end -----");
     } else if !enrolled {
