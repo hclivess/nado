@@ -124,6 +124,18 @@ pub fn create_txid(tx: &Map<String, Value>) -> String {
     blake2b_hex(&canonical_bytes(&Value::Object(body)), 32)
 }
 
+/// ADDRESS_PREFIX + the first ADDRESS_BODY hex chars of the public key + a 4-hex checksum.
+///
+/// THE CHECKSUM IS BLAKE2B WITH AN OUTPUT LENGTH OF 2 BYTES — not the first two bytes of a 32-byte
+/// digest. blake2b keys its output length into the IV, so those are different values, and slicing a
+/// long hash yields a checksum that rejects every valid address. And the input is the CANONICAL
+/// encoding of the body string, quotes included, because that is what the node hashes.
+pub fn make_address(public_key: &str) -> String {
+    let body: String = public_key.chars().take(42).collect();
+    let checksum = blake2b_hex(&canonical_bytes(&Value::String(body.clone())), 2);
+    format!("{body}{checksum}")
+}
+
 pub struct Keys {
     pub seed: [u8; 32],
     pub address: String,
@@ -142,11 +154,8 @@ impl Keys {
         s.copy_from_slice(&seed);
         let b = B32::try_from(&s[..]).map_err(|_| "seed")?;
         let sk = SigningKey::<MlDsa44>::from_seed(&b);
-        Ok(Keys {
-            seed: s,
-            address: String::new(),
-            public_key: hex(sk.verifying_key().encode().as_slice()),
-        })
+        let public_key = hex(sk.verifying_key().encode().as_slice());
+        Ok(Keys { seed: s, address: make_address(&public_key), public_key })
     }
 
     /// Sign the RAW txid bytes, FIPS 204 internal mode, hedged. Not byte-reproducible by design.
@@ -196,6 +205,7 @@ pub fn selftest() -> Result<(), String> {
     let out = serde_json::json!({
         "txid": txid,
         "public_key": keys.public_key,
+        "address": keys.address,
         "signature": sig,
         "canonical": canonical,
     });

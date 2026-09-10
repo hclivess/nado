@@ -17,6 +17,8 @@ use serde_json::{json, Map, Value};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+pub const DEFAULT_RELAY: &str = "38.242.201.206:9173";
+
 const POLL: Duration = Duration::from_secs(10);
 const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 
@@ -117,13 +119,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
-fn read_keys(path: &str) -> Result<(String, String), String> {
+/// Accept EITHER a keyfile path or a bare private key. A wallet user has a private key; they do not
+/// necessarily have a file, and telling them to construct one is a step where this stops being usable.
+fn read_keys(arg: &str) -> Result<(String, String), String> {
+    let bare = arg.trim();
+    if bare.len() == 64 && bare.chars().all(|c| c.is_ascii_hexdigit()) {
+        let keys = crate::tx::Keys::from_seed_hex(&bare.to_ascii_lowercase())?;
+        return Ok((bare.to_ascii_lowercase(), keys.address));
+    }
+    let path = bare.trim_matches('"');
     let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
     let seed = v.get("private_key").and_then(|x| x.as_str())
         .ok_or("keyfile has no private_key")?.to_string();
-    let address = v.get("address").and_then(|x| x.as_str())
-        .ok_or("keyfile has no address")?.to_string();
+    // The address is DERIVED, so a keyfile that lacks it (or carries a stale one from an address
+    // format change) still works rather than failing with a confusing mismatch later.
+    let address = v.get("address").and_then(|x| x.as_str()).map(String::from)
+        .unwrap_or_else(|| crate::tx::make_address(""));
+    let derived = crate::tx::Keys::from_seed_hex(&seed)?.address;
+    if address != derived {
+        return Ok((seed, derived));
+    }
     Ok((seed, address))
 }
 
@@ -252,4 +268,59 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Keep a double-clicked window open long enough to be read. Without this the process exits, the
+/// console host closes, and whatever it printed — including the reason it failed — is gone.
+pub fn pause() {
+    use std::io::{BufRead, Write};
+    print!("\n  Press Enter to close this window.");
+    std::io::stdout().flush().ok();
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line).ok();
+}
+
+fn ask(prompt: &str, default: &str) -> String {
+    use std::io::{BufRead, Write};
+    if default.is_empty() {
+        print!("  {prompt}: ");
+    } else {
+        print!("  {prompt} [{default}]: ");
+    }
+    std::io::stdout().flush().ok();
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line).ok();
+    let line = line.trim().to_string();
+    if line.is_empty() { default.to_string() } else { line }
+}
+
+/// What happens when someone double-clicks the exe, which is how this is actually run.
+pub fn run_interactive() -> Result<(), String> {
+    println!();
+    println!("  NADO — enrol this PC's security chip");
+    println!();
+    println!("  Your PC has a TPM whose maker (AMD, Intel, Infineon, Nuvoton) signed a certificate");
+    println!("  saying it is genuine. This proves to the chain that a key lives inside that chip, so");
+    println!("  your identity is anchored to real hardware instead of to a password.");
+    println!();
+    println!("  It does NOT use Microsoft's attestation service, which is the part that fails on a");
+    println!("  quarter of otherwise healthy machines. Nothing here asks Microsoft anything.");
+    println!();
+    println!("  This takes a few minutes: the chain has to carry four messages, each one in a later");
+    println!("  block than the one before it. That ordering is what makes the proof a proof.");
+    println!();
+
+    let relay = ask("Relay", DEFAULT_RELAY);
+    println!();
+    println!("  Now your identity. Either the path to a keys.dat file, or paste the private key");
+    println!("  itself (64 hex characters) — the address is derived from it, nothing is uploaded.");
+    let ident = ask("Keyfile or private key", "");
+    if ident.is_empty() {
+        return Err("no identity given".into());
+    }
+    println!();
+    run(&[
+        "--relay".to_string(), relay,
+        "--keys".to_string(), ident,
+    ])
 }

@@ -1,22 +1,15 @@
-//! nado-tpm-attest — the client half of vendor-endorsed TPM attestation.
+//! nado-tpm-attest — enrol this machine's TPM so it can vouch for a NADO identity.
 //!
-//!   nado-tpm-attest enrol --relay <host[:port]> --keys <keys.dat>
-//!       Enrol this machine's TPM and register the identity. Runs the four-message exchange of
-//!       doc/tpm-attestation-without-a-ca.md against a relay, one step at a time, waiting for each
-//!       message to land before sending the next — the ORDER is what makes the exchange a proof, so
-//!       the client cannot hurry it.
+//! DOUBLE-CLICKING RUNS THE ENROLMENT. That is the whole point of the binary, so it must be what
+//! happens when someone runs it the way people actually run an exe: no terminal, no arguments. An
+//! earlier version defaulted to the old diagnostic, which meant the new binary printed the old
+//! binary's output and looked, correctly, like the wrong file had been shipped.
 //!
-//!   nado-tpm-attest selftest-tx
-//!       Read a transaction vector on stdin, print the txid and a signature. Exists so the Python
-//!       node can check that this binary's encoding and signing agree with the chain's, which is the
-//!       one thing that would otherwise fail silently and look like a network problem.
-//!
-//!   nado-tpm-attest            (Windows only)
-//!       The original Windows Hello diagnostic.
+//!   (no arguments)                     enrol, asking for what it needs
+//!   enrol --relay <host> --keys <file> enrol without prompts, for scripts and scheduled tasks
+//!   diagnose                           the older Windows Hello device check (Windows only)
+//!   selftest-tx                        encoding self-check, used by the test suite
 
-// EVERYTHING SHARED LIVES IN THE LIB. When the binary re-declared `mod tpm` alongside the library's,
-// the two copies of the `Tpm` trait were distinct types and a transport implementing one did not
-// satisfy the other — a confusing error for a mistake that is purely structural.
 #[cfg(windows)]
 mod imp;
 
@@ -24,41 +17,50 @@ use nado_tpm_attest::{enrol, tx};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("enrol") => {
-            if let Err(e) = enrol::run(&args[1..]) {
-                eprintln!("\n  FAILED: {e}\n");
-                std::process::exit(1);
-            }
+    let result = match args.first().map(String::as_str) {
+        Some("enrol") => enrol::run(&args[1..]),
+        Some("diagnose") => {
+            diagnose();
+            Ok(())
         }
-        Some("selftest-tx") => {
-            if let Err(e) = tx::selftest() {
-                eprintln!("selftest-tx: {e}");
-                std::process::exit(1);
-            }
+        Some("selftest-tx") => tx::selftest(),
+        Some("--help") | Some("-h") | Some("help") => {
+            print_help();
+            Ok(())
         }
-        Some("--help") | Some("-h") | Some("help") => print_help(),
-        _ => default_command(),
+        Some(other) => Err(format!("unknown command {other:?}. Run with --help.")),
+        None => enrol::run_interactive(),
+    };
+    if let Err(e) = result {
+        eprintln!("\n  FAILED: {e}\n");
+        // A double-clicked window vanishes on exit and takes the error with it, which is exactly how
+        // a first run reports nothing at all to the person who needed to read it.
+        if args.is_empty() {
+            enrol::pause();
+        }
+        std::process::exit(1);
+    }
+    if args.is_empty() {
+        enrol::pause();
     }
 }
 
 fn print_help() {
-    println!("nado-tpm-attest");
+    println!("nado-tpm-attest — enrol this machine's TPM");
     println!();
-    println!("  enrol --relay <host[:port]> --keys <path-to-keys.dat>");
-    println!("        Enrol this machine's TPM and register the identity.");
-    println!();
-    println!("  selftest-tx");
-    println!("        Read a transaction vector on stdin; print txid + signature (used by the tests).");
+    println!("  (no arguments)                        enrol, asking for what it needs");
+    println!("  enrol --relay <host[:port]> --keys <keys.dat>");
+    println!("                                        enrol without prompts");
+    println!("  diagnose                              the older Windows device check");
+    println!("  selftest-tx                           encoding self-check (tests)");
 }
 
 #[cfg(windows)]
-fn default_command() {
+fn diagnose() {
     imp::main();
 }
 
 #[cfg(not(windows))]
-fn default_command() {
-    eprintln!("Nothing to do. Run `nado-tpm-attest enrol --relay <host> --keys <keys.dat>`,");
-    eprintln!("or `nado-tpm-attest --help`.");
+fn diagnose() {
+    eprintln!("The device check is Windows-only; on Linux the enrolment talks to /dev/tpmrm0 directly.");
 }
