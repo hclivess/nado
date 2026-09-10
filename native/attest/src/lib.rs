@@ -11,6 +11,7 @@
 
 mod authdata;
 mod chain;
+mod ek;
 mod formats;
 mod tpm;
 
@@ -194,4 +195,47 @@ pub extern "C" fn nado_attest_verify(
     let n = js.len().min(out_cap);
     unsafe { std::ptr::copy_nonoverlapping(js.as_ptr(), out, n) };
     n as i64
+}
+
+/// C ABI for endorsement-certificate verification — the vendor's word that a chip is genuine, which is the
+/// whole basis of the CA-free attestation path (doc/tpm-attestation-without-a-ca.md). Separate entry point
+/// from nado_attest_verify because it answers a different question: not "is this statement valid" but "is this
+/// endorsement key one a silicon vendor certified".
+///
+/// `chain` and `roots` are both concatenations of (u32 big-endian length || DER) entries.
+#[no_mangle]
+pub extern "C" fn nado_ek_verify(
+    chain: *const u8, chain_len: usize, roots: *const u8, roots_len: usize, now_unix: i64,
+    out: *mut u8, out_cap: usize,
+) -> i64 {
+    if out.is_null() {
+        return -1;
+    }
+    let unpack = |p: *const u8, n: usize| -> Vec<Vec<u8>> {
+        let raw = if p.is_null() { &[][..] } else { unsafe { std::slice::from_raw_parts(p, n) } };
+        let mut v = Vec::new();
+        let mut i = 0usize;
+        while i + 4 <= raw.len() {
+            let l = u32::from_be_bytes([raw[i], raw[i + 1], raw[i + 2], raw[i + 3]]) as usize;
+            i += 4;
+            if i + l > raw.len() { break; }
+            v.push(raw[i..i + l].to_vec());
+            i += l;
+        }
+        v
+    };
+    let js = match ek::verify_ek(&unpack(chain, chain_len), &unpack(roots, roots_len), now_unix) {
+        Ok(e) => serde_json::json!({"ok": true, "ek_identity": e.identity,
+                                    "manufacturer": e.manufacturer, "root_sha256": e.root_sha256}),
+        Err(why) => serde_json::json!({"ok": false, "reason": why}),
+    };
+    let js = serde_json::to_vec(&js).unwrap_or_else(|_| b"{\"ok\":false,\"reason\":\"serialize\"}".to_vec());
+    let n = js.len().min(out_cap);
+    unsafe { std::ptr::copy_nonoverlapping(js.as_ptr(), out, n) };
+    n as i64
+}
+
+/// Test-only view of ek::verify_ek so integration tests can exercise it without the C ABI.
+pub fn ek_verify_for_test(chain: &[Vec<u8>], roots: &[Vec<u8>], now: i64) -> Result<(String, String, String), String> {
+    ek::verify_ek(chain, roots, now).map(|e| (e.identity, e.manufacturer, e.root_sha256))
 }

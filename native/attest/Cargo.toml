@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 
 [lib]
 name = "nado_attest"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ciborium = "0.2"
