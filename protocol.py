@@ -1756,6 +1756,21 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # height once the enrolment transactions exist and a chip has completed the flow on real silicon.
 DEVICE_ATTEST_EK_HEIGHT = 0 if CHAIN_GENERATION == 25 else 1   # reroll: vendor-endorsed attestation from block 1
 
+# HOW MANY INDEPENDENT CHALLENGERS ONE ENROLMENT NEEDS. The residual attack on a CA-free enrolment is a
+# challenger that privately hands its secret to a client with no chip. With k challengers drawn from the
+# bonded registry by the epoch beacon — never chosen by the client — forging needs ALL k to collude, and the
+# client must recover every one of their secrets. k is a straight trade: raise it and forgery gets harder
+# while a single offline validator can stall an honest enrolment for one draw. 3 is the smallest k where no
+# single validator can mint identities on its own; the retry costs the client a new attestation key and a
+# later block, which is cheap, whereas a wrong k here is a Sybil hole.
+DEVICE_ATTEST_EK_CHALLENGERS = 3
+
+# An enrolment that stops halfway is abandoned, not remembered forever: a client that never commits, or a
+# challenger that never reveals, leaves a row that would otherwise sit in consensus state for the life of the
+# chain. Past this many blocks from its publication an incomplete enrolment is dead and its row is collected;
+# a PROVEN one is not on this clock (what it proved does not decay — the register lease does).
+DEVICE_ATTEST_EK_ENROL_BLOCKS = 720
+
 DEVICE_ATTEST_EK_ROOTS = frozenset((
     # Each verified before pinning: fetched from the vendor's own PKI, confirmed self-signed with CA:TRUE, and
     # checked to be the root a REAL endorsement certificate walks to where one was available to walk.
