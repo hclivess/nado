@@ -70,12 +70,7 @@ unsafe fn export_pub(h: NCRYPT_HANDLE, blob: &str) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-fn tpm_present() -> bool {
-    let params = [2u32, 1u32];
-    let mut ctx: *mut std::ffi::c_void = std::ptr::null_mut();
-    let rc = unsafe { Tbsi_Context_Create(params.as_ptr(), &mut ctx) };
-    if rc == 0 { unsafe { Tbsip_Context_Close(ctx) }; true } else { false }
-}
+fn tpm_present() -> bool { tbs_tpm_present() }
 
 /// Run the AIK enrolment ourselves. This is Microsoft's own documented line (their EnrollAik.ps1):
 /// a NAMED, persistent key we can open again afterwards — unlike a bare `certreq -enrollaik`, which makes an
@@ -123,6 +118,19 @@ unsafe fn count_aik_certs() -> usize {
 }
 
 fn main() {
+    // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
+    // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
+    // instead of a window that vanishes.
+    println!("nado-tpm-attest 0.3 starting...");
+    std::panic::set_hook(Box::new(|info| {
+        println!();
+        println!("  SOMETHING WENT WRONG: {info}");
+        println!("  Please send this text back.");
+        println!();
+        println!("  Press Enter to close this window.");
+        let mut s = String::new();
+        let _ = std::io::stdin().read_line(&mut s);
+    }));
     unsafe { COLOUR = enable_colour() };
     println!();
     println!("  {}", head("NADO — device check for Windows"));
@@ -185,8 +193,9 @@ fn main() {
     let kn = w(KEY_NAME);
     let alg = w(BCRYPT_RSA_ALGORITHM);
     let mut have_key = unsafe {
+        // the AIK is a MACHINE key; the key being attested is a USER key — same split as Microsoft's sample
         NCryptCreatePersistedKey(prov, &mut key, alg.as_ptr(), kn.as_ptr(), 0,
-                                 NCRYPT_OVERWRITE_KEY_FLAG | NCRYPT_MACHINE_KEY_FLAG) == 0
+                                 NCRYPT_OVERWRITE_KEY_FLAG) == 0
     };
     if have_key {
         let len: u32 = 2048;

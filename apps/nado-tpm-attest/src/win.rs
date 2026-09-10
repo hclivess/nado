@@ -12,7 +12,7 @@ pub type NCRYPT_HANDLE = usize;
 // ncrypt.h
 pub const NCRYPT_MACHINE_KEY_FLAG: u32 = 0x0000_0020;
 pub const NCRYPT_SILENT_FLAG: u32 = 0x0000_0040;
-pub const NCRYPT_OVERWRITE_KEY_FLAG: u32 = 0x0000_1000;
+pub const NCRYPT_OVERWRITE_KEY_FLAG: u32 = 0x0000_0080;   // ncrypt.h — 0x1000 was wrong and read as NTE_BAD_FLAGS
 /// NCryptCreateClaim: bind the SUBJECT key to the AUTHORITY (the AIK) — this is TPM key attestation,
 /// i.e. a TPM2_Certify of the subject's public area signed by the AIK.
 pub const NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT: u32 = 0x0000_0002;
@@ -45,12 +45,12 @@ extern "system" {
     pub fn NCryptDeleteKey(hKey: NCRYPT_HANDLE, dwFlags: u32) -> SECURITY_STATUS;
 }
 
-// TPM Base Services — used only to prove a TPM is reachable at all.
-#[link(name = "tbs")]
-extern "system" {
-    pub fn Tbsi_Context_Create(pContextParams: *const u32, phContext: *mut *mut c_void) -> u32;
-    pub fn Tbsip_Context_Close(hContext: *mut c_void) -> u32;
-}
+// TPM Base Services. LOADED DYNAMICALLY ON PURPOSE (2026-09-10): a static import of tbs.dll means Windows
+// refuses to start the process at all when the DLL is missing — the loader fails before main(), so the user
+// sees a crash with no output whatsoever. That is exactly the failure reported on first run. Nothing else we
+// call is optional, but the TPM probe is, so it must never be able to prevent the program from running.
+pub type TbsiContextCreate = unsafe extern "system" fn(*const u32, *mut *mut c_void) -> u32;
+pub type TbsipContextClose = unsafe extern "system" fn(*mut c_void) -> u32;
 
 // crypt32 — locating the AIK certificate that certreq installed.
 pub const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 2 << 16;
@@ -90,6 +90,8 @@ pub const TOKEN_QUERY: u32 = 0x0008;
 
 #[link(name = "kernel32")]
 extern "system" {
+    pub fn LoadLibraryA(lpLibFileName: *const u8) -> *mut c_void;
+    pub fn GetProcAddress(hModule: *mut c_void, lpProcName: *const u8) -> *mut c_void;
     pub fn GetStdHandle(nStdHandle: u32) -> *mut c_void;
     pub fn GetConsoleMode(hConsoleHandle: *mut c_void, lpMode: *mut u32) -> i32;
     pub fn SetConsoleMode(hConsoleHandle: *mut c_void, dwMode: u32) -> i32;
@@ -123,5 +125,24 @@ pub fn is_elevated() -> bool {
         // TokenElevation = 20
         let ok = GetTokenInformation(tok, 20, &mut elevated as *mut u32 as *mut c_void, 4, &mut len) != 0;
         ok && elevated != 0
+    }
+}
+
+/// True when a TPM answers through TBS. Never panics, never prevents startup: tbs.dll is resolved at run time
+/// and a missing DLL or missing export simply reads as "no TPM".
+pub fn tbs_tpm_present() -> bool {
+    unsafe {
+        let h = LoadLibraryA(b"tbs.dll\0".as_ptr());
+        if h.is_null() { return false; }
+        let create = GetProcAddress(h, b"Tbsi_Context_Create\0".as_ptr());
+        let close = GetProcAddress(h, b"Tbsip_Context_Close\0".as_ptr());
+        if create.is_null() || close.is_null() { return false; }
+        let create: TbsiContextCreate = std::mem::transmute(create);
+        let close: TbsipContextClose = std::mem::transmute(close);
+        let params = [2u32, 1u32 << 2];   // version 2, includeTpm20 — NOT 1 (that is requestRaw alone)
+        let mut ctx: *mut c_void = std::ptr::null_mut();
+        if create(params.as_ptr(), &mut ctx) != 0 { return false; }
+        close(ctx);
+        true
     }
 }

@@ -11,7 +11,6 @@ name = "nado-tpm-attest"
 path = "src/main.rs"
 
 [profile.release]
-opt-level = "z"
-lto = true
-panic = "abort"
-strip = true
+# Deliberately plain: lto + panic="abort" + strip turn a first-run fault into a silent vanish, which is
+# precisely what was reported. Keep panics unwinding so the hook in main() can print them.
+opt-level = "s"
