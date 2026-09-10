@@ -123,6 +123,40 @@ unsafe fn count_aik_certs() -> usize {
 ///   KADS body:            "KADS", version, cbHeader=24, cbCertifyInfo, cbSignature, cbKeyBlob
 ///   then certifyInfo (a TPMS_ATTEST), signature, key blob — back to back.
 /// Returns (certInfo, signature, keyBlob).
+
+/// Offsets of every TPMS_ATTEST ("\xffTCG") in a blob, whatever wraps them.
+fn find_attests(b: &[u8]) -> Vec<usize> {
+    b.windows(4).enumerate().filter(|(_, w)| *w == TPM_GENERATED).map(|(i, _)| i).collect()
+}
+
+/// (type, qualifiedSigner len, extraData) of the TPMS_ATTEST at `off`.
+fn attest_at(b: &[u8], off: usize) -> Option<(u16, usize, Vec<u8>)> {
+    let a = b.get(off..)?;
+    if a.len() < 10 { return None; }
+    let ty = u16::from_be_bytes([a[4], a[5]]);
+    let qs = u16::from_be_bytes([a[6], a[7]]) as usize;
+    let o = 8 + qs;
+    let n = u16::from_be_bytes([*a.get(o)?, *a.get(o + 1)?]) as usize;
+    Some((ty, qs, a.get(o + 2..o + 2 + n)?.to_vec()))
+}
+
+/// Any extraData in the blob that equals the nonce we asked for.
+fn blob_binds(b: &[u8], nonce: &[u8]) -> bool {
+    find_attests(b).into_iter().filter_map(|o| attest_at(b, o)).any(|(_, _, ed)| ed == nonce)
+}
+
+/// Every 4-byte ASCII tag in the blob, so an unknown container names itself.
+fn tags(b: &[u8]) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    for (i, w) in b.windows(4).enumerate() {
+        if w.iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+            out.push((i, String::from_utf8_lossy(w).to_string()));
+        }
+    }
+    out.truncate(12);
+    out
+}
+
 fn split_claim(b: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
     let u32le = |o: usize| -> usize {
         u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as usize
@@ -174,7 +208,7 @@ fn main() {
     // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
     // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
     // instead of a window that vanishes.
-    println!("nado-tpm-attest 0.5 starting...");
+    println!("nado-tpm-attest 0.6 starting...");
     std::panic::set_hook(Box::new(|info| {
         println!();
         println!("  SOMETHING WENT WRONG: {info}");
@@ -285,14 +319,15 @@ fn main() {
             match unsafe { make_claim(key, aik, Some((&probe_nonce, kind))) } {
                 Err(rc) => println!(" {}  0x{rc:08x}", bad("no")),
                 Ok(b) => {
-                    let ed = split_claim(&b).and_then(|(ci, _, _)| attest_extra_data(ci)).map(|e| e.to_vec());
-                    match ed {
-                        Some(e) if e == probe_nonce => {
-                            println!(" {}  extraData carries our nonce", ok("YES"));
-                            winner = Some(kind); proof = Some(b);
-                        }
-                        Some(e) if !e.is_empty() => println!(" {}  extraData {} bytes: {}", warn("partial"), e.len(), hex(&e[..e.len().min(16)])),
-                        _ => println!(" {}  accepted but extraData still empty", warn("no")),
+                    if blob_binds(&b, &probe_nonce) {
+                        println!(" {}  extraData carries our nonce ({} bytes)", ok("YES"), b.len());
+                        winner = Some(kind); proof = Some(b);
+                    } else {
+                        let found: Vec<String> = find_attests(&b).into_iter()
+                            .filter_map(|o| attest_at(&b, o).map(|(t, _, e)| format!("@{o} type=0x{t:04x} extra={}", e.len())))
+                            .collect();
+                        println!(" {}  {} bytes; attests: {}", warn("no"), b.len(),
+                                 if found.is_empty() { "none".into() } else { found.join(", ") });
                     }
                 }
             }
@@ -309,6 +344,13 @@ fn main() {
         println!();
         println!("  ----- begin -----");
         println!("  len={}", blob.len());
+        println!("  head={}", hex(&blob[..blob.len().min(160)]));
+        println!("  tags={:?}", tags(blob));
+        for o in find_attests(blob) {
+            if let Some((t, qs, ed)) = attest_at(blob, o) {
+                println!("  attest@{o} type=0x{t:04x} qs={qs} extra={} {}", ed.len(), hex(&ed));
+            }
+        }
         match split_claim(blob) {
             Some((ci, sg, kb)) => {
                 println!("  certInfo={} sig={} keyblob={}", ci.len(), sg.len(), kb.len());
@@ -345,6 +387,8 @@ fn main() {
     println!("  {}", head("endorsement key (for the Microsoft-free path)"));
     for (prop, label) in [(NCRYPT_PCP_EKCERT_PROPERTY, "PCP_EKCERT"),
                           (NCRYPT_PCP_RSA_EKCERT_PROPERTY, "PCP_RSA_EKCERT"),
+                          ("PCP_EKNVCERT", "PCP_EKNVCERT"),
+                          ("PCP_RSA_EKNVCERT", "PCP_RSA_EKNVCERT"),
                           (NCRYPT_PCP_EKPUB_PROPERTY, "PCP_EKPUB")] {
         match unsafe { get_prop(prov, prop) } {
             Some(v) => println!("  {label}={} {}", v.len(), hex(&v[..v.len().min(24)])),
