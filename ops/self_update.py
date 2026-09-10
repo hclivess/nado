@@ -50,6 +50,43 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 _RESTART_FLAG = "/run/nado/restart-request"
 _RESTART_BRIDGE = "/etc/systemd/system/nado-restart.path"
 
+# PATHS NO RUNNING PROCESS EXECUTES OR SERVES. A fast-forward touching ONLY these does not need a restart:
+# bouncing a healthy validator to install a new paragraph is a self-inflicted outage, and it is not theoretical —
+# ten documentation commits pushed one at a time on 2026-09-10 restarted nado AND nado-exec ten times, and every
+# restart showed wallet users "the exec node returned no data (HTTP 502)" until it came back. Same reasoning as
+# the native-library digest check in check_and_update: restart when the bytes that RUN changed, not whenever git
+# moved.
+#
+# DELIBERATELY TINY, AND THE DEFAULT IS TO RESTART. Anything not listed here — including static/, which the node
+# stamps and serves, and website/ — still restarts. A path wrongly called inert leaves the fleet running OLD code,
+# which is far worse than a needless bounce, so this list only grows with evidence that nothing loads the path.
+_INERT_PREFIXES = ("doc/",)
+_INERT_FILES = ("README.md", "LICENSE", "CHANGELOG.md")
+
+
+def _only_inert(paths) -> bool:
+    """True when EVERY changed path is documentation. Empty input is False: no information means restart."""
+    paths = [p for p in paths if p]
+    if not paths:
+        return False
+    return all(p.startswith(_INERT_PREFIXES) or p in _INERT_FILES for p in paths)
+
+
+def _restart_needed(local: str, remote: str) -> bool:
+    """Does the code that RUNS differ between these two commits? Any doubt — an unreadable diff, no paths at
+    all — answers True, because a MISSED restart is the dangerous direction."""
+    try:
+        changed = _git("diff", "--name-only", f"{local}..{remote}", timeout=30).splitlines()
+    except Exception as e:
+        _log().warning(f"update: could not diff {local[:12]}..{remote[:12]} ({e}) — restarting to be safe")
+        return True
+    if _only_inert(changed):
+        _log().info(f"update: {len(changed)} documentation-only path(s) — no restart "
+                    f"({', '.join(changed[:5])}{'...' if len(changed) > 5 else ''})")
+        return False
+    return True
+
+
 def _log():
     """Module logger. check_and_update() is reached from the HTTP handler, the timer and the peer-hint
     cascade, none of which pass one in — and a disk failure that is only visible in a returned dict is
@@ -722,10 +759,17 @@ def check_and_update(trigger: str) -> dict:
             return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}: {e}")
 
         native = _rebuild_native_if_changed(local, remote)
-        restarting = _schedule_restart()
+        # A documentation-only fast-forward leaves every running byte identical, so it does not restart. The
+        # native rebuild is consulted FIRST and independently: if a crate was rebuilt then code changed whatever
+        # the diff of tracked files said, so that path keeps its restart.
+        if native or _restart_needed(local, remote):
+            restarting = _schedule_restart()
+            note = None if restarting else "no systemd services found — restart the node manually"
+        else:
+            restarting = []
+            note = "documentation-only update — nothing that runs changed, so no restart"
         out = {"status": "updated", "from": local[:12], "to": remote[:12], "trigger": trigger,
-               "restarting": restarting,
-               "note": None if restarting else "no systemd services found — restart the node manually"}
+               "restarting": restarting, "note": note}
         if native:
             out["native"] = native                      # per-crate build outcome; "purged-stale" ⇒ fell back to pure-Python
         if moved_aside:
