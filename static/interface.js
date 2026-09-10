@@ -738,6 +738,7 @@ function deviceGuide(st) {
   // this note. It therefore has to be step 2, ABOVE the AAGUID branches — which used to swallow every 9ddd1817 PC into
   // the "disable Credential Guard" guide (a real security downgrade) before this line existed.
   if (isWin && (fmt === "none" || !st.x5c)) return i18("device.guide.winAik",
+    "Fastest path if you just want to mine now: press \"Attest from another device\" and confirm on your Android phone or another PC \u2014 that vouches for THIS wallet and takes a minute. The steps below are for fixing this PC itself.\n\n" +
     "What happened: Windows Hello answered, but the credential came with NO attestation ({a}), so there is nothing for the network to verify. On Windows that almost always means one thing: Microsoft has never issued this PC's TPM its identity certificate (the AIK). Windows fetches it silently the moment you create a Hello PIN, so a PC that was offline, behind a proxy or on a filtered network at that moment keeps answering without attestation forever.\n\n" +
     "1. Check the TPM: run tpm.msc. It must say \"The TPM is ready for use\", specification version 2.0. If not, enable AMD fTPM / Intel PTT in the BIOS first.\n\n" +
     "2. Fetch the certificate. Open Command Prompt and run exactly:\n" +
