@@ -1,5 +1,20 @@
 # How to become a NADO validator
 
+> **Correction pass, 2026-09-09.** This document predates **betanet-7 (gen 25)**, the PoSEA reroll.
+> The tables and lease figures below are corrected; the prose sections on registration still describe
+> the retired sequential-work proof (PoSW) and need a full rewrite. What changed:
+>
+> - Open-lane entry is **PoSEA**, a WebAuthn hardware attestation, not a sequential hash proof. PoSW,
+>   the per-IP entry budget, the identity cap and probation are all retired. See `doc/device-attestation.md`.
+> - The presence lease is **36 h** (`POSW_LEASE_EPOCHS = 360`), not 24 h.
+> - There is **no per-identity bond cap**. `BOND_CAP` and `MAX_SHARES` were removed 2026-08-25 and the
+>   knee curve was removed 2026-09-09; bonded weight is linear in stake.
+> - **Bonding no longer removes you from the open lane** (the block-6600 exclusion was retired at block
+>   29900). One device is one open-lane slot, staked or not; the presence dividend pays every attested
+>   device either way, and an attested staker earns from both lanes plus the dividend.
+> - The dividend fidelity ramp caps at **15**, not 30, from epoch 110.
+> - The bonded lane needs **no device** (block 16150). Staking pools are retired (block 16900).
+
 There is no application, no whitelist, no minimum hardware tier and no permission to ask. **Every node
 produces blocks.** The only question is which lane you produce in — and one of them costs nothing.
 
@@ -14,8 +29,9 @@ disagree, the code is right and this document is a bug.
 |---|---|---|
 | **Cost to enter** | free — no coins | 10 NADO per selection share |
 | **Share of block slots** | 30% | 70% |
-| **What decides your weight** | presence + continuity (capital-free) | bonded capital, capped; new stake ramps over ~3 h by bond age |
-| **Cap** | — | 1000 NADO (100 shares) per address |
+| **What decides your weight** | presence + continuity (capital-free) | stake, one for one |
+| **Cap** | — | none (`BOND_CAP`/`MAX_SHARES` removed 2026-08-25; the knee removed 2026-09-09) |
+| **Device required** | yes, attested hardware (PoSEA) | no (device-free from block 16150) |
 | **Risk** | none | stake is slashable; 24 h unbond timelock |
 | **How to start** | open the wallet, press *Start mining* | bond coins you have already earned |
 
@@ -138,7 +154,7 @@ automatically, once per epoch.
 epoch. You are eligible in the open lane **iff your most recent recert is within `POSW_LEASE_EPOCHS`**.
 
     epoch          = 60 blocks x 6 s = 6 minutes
-    lease          = 240 epochs      = 24 hours
+    lease          = 360 epochs      = 36 hours
 
 Nothing expires you actively — eligibility is simply "was your last recert within the last 240 epochs?"
 
