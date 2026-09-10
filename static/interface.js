@@ -1087,7 +1087,17 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     const cred = await createAttestedCredential({
       challenge: chal, rp: { name: "NADO", id: location.hostname },
       user: { id: uid, name: sender, displayName: "NADO identity" },
-      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      // RS256 FIRST ON WINDOWS (2026-09-10, measured over 202 Windows Hello samples). Windows Hello attests an
+      // RSA credential key essentially always and an ECC one hardly ever: RSA 17 of 17 carried a `tpm` statement
+      // (100%, five distinct machines), ECC 23 of 185 (12%) — and a PC that only ever produced ECC keys returned
+      // fmt "none" 35 times in a row with a healthy TPM and a working AIK enrolment. The authenticator picks the
+      // FIRST algorithm it supports from this list, so asking for ES256 first was choosing the branch that
+      // usually fails. The kernel verifies both (formats/tpm.rs cose_matches_pub_area handles ALG_RSA and
+      // ALG_ECC; the 17 RSA samples verify end to end), so this costs nothing but a slower TPM keygen.
+      // WINDOWS ONLY: Android StrongBox and Apple prefer ES256 and attest it reliably — do not reorder there.
+      pubKeyCredParams: /Windows/i.test(navigator.userAgent || "")
+        ? [{ type: "public-key", alg: -257 }, { type: "public-key", alg: -7 }]
+        : [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
       attestation: "direct", timeout: 120000 });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
     const att = b64(cred.response.attestationObject), cdj = b64(cred.response.clientDataJSON);
