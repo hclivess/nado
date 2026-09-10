@@ -22,6 +22,33 @@ pub const DEFAULT_RELAY: &str = "38.242.201.206:9173";
 const POLL: Duration = Duration::from_secs(10);
 const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 
+/// Enrol with an identity this machine resolves for itself. No prompting and nothing pasted: the
+/// enrolment proves a CHIP, not an owner, so it needs no secret from a person — and a program that
+/// asks a user to paste a private key teaches a habit that is otherwise the definition of a scam.
+pub fn run_auto(relay_arg: &str) -> Result<(), String> {
+    let relay = Relay::parse(relay_arg)?;
+    // The signing identity and the identity being VOUCHED FOR are different things, and separating
+    // them is what removes every prompt. Enrolment messages are signed by a key this machine owns;
+    // the chip's certify then names whichever address the wallet asked for.
+    let (seed, own_address, path) = load_or_create_identity()?;
+    let keys = crate::tx::Keys::from_seed_hex(&seed)?;
+    let target = address_from_filename();
+    let vouch_for = target.clone().unwrap_or_else(|| own_address.clone());
+    if target.is_some() {
+        println!("  vouching for {vouch_for}");
+        println!("               (from this file's name — your wallet put it there)");
+    } else {
+        println!("  identity   {vouch_for}");
+        println!("             key stored in {}", path.display());
+    }
+    println!("  relay      {}:{}", relay.host, relay.port);
+    let out = enrol_with(&relay, &keys, &own_address, &vouch_for);
+    if out.is_ok() && target.is_none() {
+        println!("  Import {} into your wallet to use this identity.", path.display());
+    }
+    out
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut relay_arg = String::new();
     let mut keys_path = String::new();
@@ -36,19 +63,30 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 keys_path = args.get(i + 1).cloned().unwrap_or_default();
                 i += 2;
             }
+            "--auto" => {
+                i += 1;
+            }
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if relay_arg.is_empty() || keys_path.is_empty() {
-        return Err("usage: nado-tpm-attest enrol --relay <host[:port]> --keys <keys.dat>".into());
+    if keys_path.is_empty() {
+        return run_auto(if relay_arg.is_empty() { DEFAULT_RELAY } else { &relay_arg });
+    }
+    if relay_arg.is_empty() {
+        relay_arg = DEFAULT_RELAY.to_string();
     }
     let relay = Relay::parse(&relay_arg)?;
     let (seed, address) = read_keys(&keys_path)?;
     let keys = tx::Keys::from_seed_hex(&seed)?;
-
     println!("  identity   {address}");
     println!("  relay      {}:{}", relay.host, relay.port);
+    enrol_with(&relay, &keys, &address, &address)
+}
 
+/// `signer` sends the enrolment messages; `vouch_for` is the identity the chip's certify names. They
+/// are the same account when a node enrols itself, and different when a wallet user runs the helper.
+fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> Result<(), String> {
+    let relay = relay;
     let mut chip = chip::open()?;
     let chain = chip.ek_chain()?;
     if chain.is_empty() {
@@ -64,7 +102,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!("  chip       endorsement chain: {} certificate(s), {} bytes; attestation key ready",
              chain.len(), chain.iter().map(|c| c.len()).sum::<usize>());
 
-    let id = enrol_id(&relay, &chain, &aik_pub)?;
+    let id = enrol_id(relay, &chain, &aik_pub)?;
     println!("  enrolment  {id}");
 
     let started = Instant::now();
@@ -74,12 +112,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         Re-run to start a fresh enrolment."
                 .into());
         }
-        let rec = fetch(&relay, &id)?;
+        let rec = fetch(relay, &id)?;
         match rec {
             None => {
                 println!("  -> publishing this chip's endorsement chain");
                 let data = json!({"ek": hexed(&chain), "pub": tx::hex(&aik_pub)});
-                submit(&relay, &keys, &address, "tpm_enrol", data)?;
+                submit(relay, keys, signer, "tpm_enrol", data)?;
             }
             Some(rec) => {
                 let state = rec.get("state").and_then(|v| v.as_str()).unwrap_or("");
@@ -97,7 +135,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             println!("  -> opening every challenge inside the chip");
                             let secret = activate_all(&mut chip, &blobs)?;
                             let commit = crate::sha::sha256_hex(&secret);
-                            submit(&relay, &keys, &address, "tpm_commit",
+                            submit(relay, keys, signer, "tpm_commit",
                                    json!({"id": id, "commit": commit}))?;
                         }
                     }
@@ -107,7 +145,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     }
                     "proven" => {
                         println!("  -> proven. Registering with a fresh certify.");
-                        register(&relay, &keys, &address, &id, &rec, &mut chip)?;
+                        register(relay, keys, signer, vouch_for, &id, &rec, &mut chip)?;
                         println!("\n  DONE: this machine's TPM is enrolled and the identity is registered.\n");
                         return Ok(());
                     }
@@ -186,7 +224,7 @@ fn activate_all(chip: &mut Chip, blobs: &[Value]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn register(relay: &Relay, keys: &tx::Keys, address: &str, id: &str,
+fn register(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str, id: &str,
             rec: &Map<String, Value>, chip: &mut Chip) -> Result<(), String> {
     let ek = rec.get("ek").and_then(|x| x.as_str()).ok_or("record has no endorsement identity")?;
     let text = relay.get("/get_latest_block")?;
@@ -197,7 +235,7 @@ fn register(relay: &Relay, keys: &tx::Keys, address: &str, id: &str,
     // The challenge is what makes this registration fresh rather than a replay: it binds this sender,
     // this anchor block and this landing height. The relay computes it so the client never has to
     // reproduce the chain's hash of them.
-    let body = json!({"sender": address, "max_block": max_block}).to_string();
+    let body = json!({"sender": vouch_for, "max_block": max_block}).to_string();
     let ch_text = relay.post_json("/register_challenge", &body)?;
     let ch: Value = serde_json::from_str(&ch_text).map_err(|e| format!("bad relay reply: {e}"))?;
     let challenge = tx::unhex(ch.get("challenge").and_then(|x| x.as_str())
@@ -209,8 +247,15 @@ fn register(relay: &Relay, keys: &tx::Keys, address: &str, id: &str,
         "certinfo": tx::hex(&cert_info),
         "sig": tx::hex(&sig),
     });
+    // ONLY THE OWNER OF AN ADDRESS CAN REGISTER IT, and that is the correct limit rather than an
+    // obstacle: a registration is signed by its sender, so naming someone else's address here produces
+    // a transaction nobody can sign. When the helper is vouching for a wallet's address it therefore
+    // hands the finished proof back for the wallet to submit, and only self-registers its own identity.
+    if vouch_for != signer {
+        return hand_back(relay, vouch_for, id, &device, max_block);
+    }
     let mut t = Map::new();
-    t.insert("sender".into(), json!(address));
+    t.insert("sender".into(), json!(signer));
     t.insert("recipient".into(), json!("register"));
     t.insert("amount".into(), json!(0));
     t.insert("data".into(), json!(""));
@@ -256,6 +301,20 @@ fn submit_built(relay: &Relay, keys: &tx::Keys, mut t: Map<String, Value>,
     }
 }
 
+/// Leave the finished device proof where the wallet will find it. The wallet signs the registration,
+/// because only it can — see the comment at the call site.
+fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
+             max_block: i64) -> Result<(), String> {
+    let body = json!({"address": address, "id": id, "device": device, "max_block": max_block})
+        .to_string();
+    relay.post_json("/tpm_proof_drop", &body)?;
+    println!();
+    println!("  This PC's chip has vouched for {address}.");
+    println!("  Open your wallet and confirm the registration — it must sign that itself, because a");
+    println!("  registration is signed by the identity it registers. The proof is waiting for it.");
+    Ok(())
+}
+
 fn chain_id(relay: &Relay) -> Result<String, String> {
     let text = relay.get("/status")?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
@@ -280,47 +339,138 @@ pub fn pause() {
     std::io::stdin().lock().read_line(&mut line).ok();
 }
 
-fn ask(prompt: &str, default: &str) -> String {
-    use std::io::{BufRead, Write};
-    if default.is_empty() {
-        print!("  {prompt}: ");
-    } else {
-        print!("  {prompt} [{default}]: ");
-    }
-    std::io::stdout().flush().ok();
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line).ok();
-    let line = line.trim().to_string();
-    if line.is_empty() { default.to_string() } else { line }
+/// The address baked into this binary's own filename by /download_enrol.
+///
+/// A DOWNLOADED BINARY CANNOT BE TOLD ANYTHING AT LAUNCH — it has no arguments, because a person
+/// double-clicks it — but it can read its own name, and a browser saves the name the server sent. So
+/// the wallet, which already knows the address, hands it over through the one channel that survives
+/// the round trip, and the user pastes nothing.
+///
+/// Renaming the file changes which identity this vouches for, which is fine: the address is not a
+/// credential. Whoever owns it still has to sign the registration.
+fn address_from_filename() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let stem = exe.file_stem()?.to_str()?;
+    let rest = stem.strip_prefix("nado-tpm-enrol-")?;
+    let addr = rest.trim_end_matches("-linux");
+    let ok = (12..=64).contains(&addr.len()) && addr.chars().all(|c| c.is_ascii_hexdigit());
+    if ok { Some(addr.to_ascii_lowercase()) } else { None }
 }
 
-/// What happens when someone double-clicks the exe, which is how this is actually run.
+/// Where an identity file lives, in the order worth trying.
+///
+/// NEXT TO THE EXE FIRST. Someone who downloads this and runs it has no NADO directory and no reason
+/// to make one; the identity belongs with the thing that created it. A node's own keyfile is checked
+/// second so that running this on a machine that already has an identity enrols THAT one rather than
+/// silently minting a second.
+fn identity_paths() -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join("nado-identity.json"));
+        }
+    }
+    if let Some(home) = home_dir() {
+        out.push(home.join("nado").join("private").join("keys.dat"));
+    }
+    out
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(std::path::PathBuf::from)
+    }
+}
+
+/// Find an identity, or make one. NO PROMPTING, EVER: this asks a person for nothing, least of all a
+/// private key — a program that asks a user to paste their key teaches a habit that is otherwise the
+/// definition of a scam, and there is no reason to, because the key never needs to leave this machine
+/// and this machine can make its own.
+fn load_or_create_identity() -> Result<(String, String, std::path::PathBuf), String> {
+    for path in identity_paths() {
+        if !path.exists() {
+            continue;
+        }
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let v: Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(seed) = v.get("private_key").and_then(|x| x.as_str()) {
+            let keys = crate::tx::Keys::from_seed_hex(seed)?;
+            return Ok((seed.to_string(), keys.address, path));
+        }
+    }
+    // Nothing found: mint one. An attested identity starts from zero by design — the open lane exists
+    // so that a participant with no capital can produce blocks from ordinary hardware.
+    let mut seed = [0u8; 32];
+    crate::rand_bytes(&mut seed);
+    let seed_hex = crate::tx::hex(&seed);
+    let keys = crate::tx::Keys::from_seed_hex(&seed_hex)?;
+    let path = identity_paths()
+        .into_iter()
+        .next()
+        .ok_or("cannot determine where to store the identity")?;
+    let doc = json!({
+        "private_key": seed_hex,
+        "public_key": keys.public_key,
+        "address": keys.address,
+    });
+    write_private(&path, &serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?)?;
+    println!("  identity   created {}", path.display());
+    Ok((seed_hex, keys.address, path))
+}
+
+/// Write a file only the owner can read. THE FILE IS THE IDENTITY — the 32-byte seed alone can spend
+/// and can sign as this machine — so a default-permissions write on a shared box hands it away.
+fn write_private(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true).create_new(true).mode(0o600)
+            .open(path)
+            .map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+        f.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows inherits the parent directory's ACL; a per-user folder is already owner-only, and
+        // this deliberately refuses to overwrite an existing identity.
+        std::fs::OpenOptions::new()
+            .write(true).create_new(true)
+            .open(path)
+            .map_err(|e| format!("cannot create {}: {e}", path.display()))
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(contents.as_bytes()).map_err(|e| e.to_string())
+            })?;
+    }
+    Ok(())
+}
+
+/// What happens when someone double-clicks the exe: everything, with no questions.
 pub fn run_interactive() -> Result<(), String> {
     println!();
-    println!("  NADO — enrol this PC's security chip");
+    println!("  NADO — enrolling this PC's security chip");
     println!();
     println!("  Your PC has a TPM whose maker (AMD, Intel, Infineon, Nuvoton) signed a certificate");
-    println!("  saying it is genuine. This proves to the chain that a key lives inside that chip, so");
-    println!("  your identity is anchored to real hardware instead of to a password.");
+    println!("  saying it is genuine. This proves a key lives inside that chip, so an identity is");
+    println!("  anchored to real hardware. It does not ask Microsoft anything — that service is the");
+    println!("  part that fails on a quarter of otherwise healthy machines.");
     println!();
-    println!("  It does NOT use Microsoft's attestation service, which is the part that fails on a");
-    println!("  quarter of otherwise healthy machines. Nothing here asks Microsoft anything.");
+    println!("  Nothing is asked of you and nothing leaves this PC except the proof itself.");
+    println!("  It takes a few minutes: the chain carries four messages, each in a later block than");
+    println!("  the one before it, and that ordering is what makes the proof a proof.");
     println!();
-    println!("  This takes a few minutes: the chain has to carry four messages, each one in a later");
-    println!("  block than the one before it. That ordering is what makes the proof a proof.");
-    println!();
-
-    let relay = ask("Relay", DEFAULT_RELAY);
-    println!();
-    println!("  Now your identity. Either the path to a keys.dat file, or paste the private key");
-    println!("  itself (64 hex characters) — the address is derived from it, nothing is uploaded.");
-    let ident = ask("Keyfile or private key", "");
-    if ident.is_empty() {
-        return Err("no identity given".into());
-    }
-    println!();
-    run(&[
-        "--relay".to_string(), relay,
-        "--keys".to_string(), ident,
-    ])
+    run_auto(DEFAULT_RELAY)
 }

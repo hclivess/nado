@@ -1295,6 +1295,83 @@ def _tpm_enrol_gc():
         _tpm_enrol.pop(k, None)
 
 
+# Finished device proofs waiting for the wallet that can sign for them: address -> (dropped_at, payload).
+# IN MEMORY AND SHORT-LIVED ON PURPOSE. A proof is only usable until its max_block passes, and it is not
+# a secret — it is a signature by a chip over a public challenge, useless to anyone who cannot sign as
+# the address it names.
+_TPM_PROOFS = {}
+_TPM_PROOF_TTL = 1800
+
+
+async def tpm_proof_drop(request):
+    """POST {address, id, device, max_block} — the enrolment helper leaves a finished device proof for
+    the wallet that owns `address`.
+
+    THE WALLET HAS TO SIGN THE REGISTRATION ITSELF, because a registration is signed by the identity it
+    registers; the helper cannot do it and should not be able to. So the helper does the half that
+    needs the chip and stops there."""
+    try:
+        body = await request.json()
+        addr = str(body.get("address") or "")
+        if not (12 <= len(addr) <= 64 and all(c in "0123456789abcdef" for c in addr)):
+            return _resp({"ok": False, "reason": "malformed address"}, status=400)
+        dev = body.get("device")
+        if not isinstance(dev, dict) or not dev.get("certinfo") or not dev.get("sig"):
+            return _resp({"ok": False, "reason": "no device proof"}, status=400)
+        now = time.time()
+        for k in [k for k, v in _TPM_PROOFS.items() if now - v[0] > _TPM_PROOF_TTL]:
+            _TPM_PROOFS.pop(k, None)
+        _TPM_PROOFS[addr] = (now, {"id": str(body.get("id") or ""), "device": dev,
+                                   "max_block": int(body.get("max_block") or 0)})
+        return _resp({"ok": True})
+    except Exception as e:
+        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
+
+
+async def tpm_proof_pickup(request):
+    """GET /tpm_proof_pickup?address=<addr> — what the helper left, or {"found": false}. The wallet
+    polls this while the helper runs and offers the registration the moment a proof appears."""
+    addr = str(request.query.get("address", ""))
+    entry = _TPM_PROOFS.get(addr)
+    if not entry:
+        return _resp({"found": False})
+    if time.time() - entry[0] > _TPM_PROOF_TTL:
+        _TPM_PROOFS.pop(addr, None)
+        return _resp({"found": False})
+    return _resp({"found": True, **entry[1]})
+
+
+async def download_enrol(request):
+    """GET /download_enrol?address=<addr>&os=win|linux — the enrolment helper, with the caller's address
+    BAKED INTO THE FILENAME.
+
+    A downloaded binary cannot be told anything at launch: it has no arguments, because a person
+    double-clicks it. But it can read its own filename, and a browser saves the name the server sends.
+    So the wallet — which already knows the address — hands it over through the one channel that
+    survives the round trip, and the user pastes nothing.
+
+    THE ADDRESS IS NOT A SECRET AND NOT A CREDENTIAL. It only tells the helper which identity the chip
+    should vouch for; the registration that follows is still signed by whoever owns that address, which
+    is why naming someone else's address here achieves nothing."""
+    addr = str(request.query.get("address", "")).strip()
+    want = "linux" if str(request.query.get("os", "win")).lower().startswith("lin") else "win"
+    name = "nado-tpm-enrol.exe" if want == "win" else "nado-tpm-enrol-linux"
+    path = os.path.join(_STATIC_DIR, name)
+    if not os.path.isfile(path):
+        return _resp({"error": "the enrolment helper is not published on this node"}, status=404)
+    if addr:
+        if not (12 <= len(addr) <= 64 and all(c in "0123456789abcdef" for c in addr)):
+            return _resp({"error": "malformed address"}, status=400)
+        stem = f"nado-tpm-enrol-{addr}"
+    else:
+        stem = "nado-tpm-enrol"
+    filename = stem + (".exe" if want == "win" else "")
+    return web.FileResponse(path, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-cache",
+    })
+
+
 async def tpm_enrol_id(request):
     """POST {"ek": [<hex DER>...], "pub": <hex>} -> {"id": <32 hex>}.
 
@@ -2812,6 +2889,9 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.get("/download_enrol", download_enrol),
+        web.post("/tpm_proof_drop", tpm_proof_drop),
+        web.get("/tpm_proof_pickup", tpm_proof_pickup),
         web.get("/tpm_enrolment", tpm_enrolment),
         web.post("/tpm_enrol_id", tpm_enrol_id),
         web.post("/register_challenge", register_challenge),
