@@ -307,6 +307,15 @@
     <details id="mineDeviceGuide" class="mt hidden disc">
       <summary data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
       <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
+      <!-- WINDOWS HELPER (2026-09-10). Windows Hello refuses to attest on many PCs and no browser-side change
+           fixes it (doc/windows-tpm-attester.md), so the wallet offers the small tool that talks to the chip
+           directly. Shown by renderDeviceStatus() ONLY on Windows and ONLY after a failed verdict — never as
+           a download nobody needs. It is a plain link, not script: the user downloads and runs it himself. -->
+      <div id="mineWinTool" class="mt hidden">
+        <a id="mineWinToolLink" class="btn" href="/static/nado-tpm-attest.exe" download>
+          <span data-i18n="wintool.btn">Download the Windows device check</span></a>
+        <div class="small faint mt" data-i18n="wintool.note">Right-click it and choose “Run as administrator”. It only checks your PC's security chip and shows the result — it sends nothing.</div>
+      </div>
     </details>
 
     <!-- HOW TO ATTEST (2026-09-08 UX pass, progressive disclosure): one primary action above; the four ways to attest sit

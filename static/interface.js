@@ -694,6 +694,14 @@ function isWindowsHelloAaguid(ag) {
 }
 function passkeyManagerName(ag) { return PASSKEY_MANAGERS[String(ag || "").slice(0, 8)] || ""; }
 
+// THE WINDOWS HELPER IS OFFERED, NEVER PUSHED (2026-09-10). Windows Hello refuses to attest on many PCs and no
+// browser-side change fixes it (doc/windows-tpm-attester.md), so the guide carries a download for the tool that
+// talks to the chip directly. Only on Windows, and only once this device has actually failed — a user whose
+// phone or hardware wallet works must never be shown an .exe.
+function showWinTool(st) {
+  const isWin = /Windows/i.test(navigator.userAgent || "");
+  show("mineWinTool", !!(isWin && st && !st.ok));
+}
 // GUIDE: the specific reasoning + exact steps for a verdict, shown under the Mining page's device line (2026-09-07,
 // user: "we must add specific reasoning and guide to the web wallet"). One-line hints (deviceHint) stay for logs.
 function deviceGuide(st) {
@@ -822,6 +830,7 @@ function renderDeviceStatus() {
   const el = $("mineDevice"); if (!el) return;
   let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
   show("mineDeviceGuide", false);                    // shown again below only for a failed verdict
+  show("mineWinTool", false);                        // ditto: the .exe is offered only after a real failure
   if (!st) {
     el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
     el.className = "small mt faint"; return;
@@ -852,6 +861,7 @@ function renderDeviceStatus() {
       el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
     const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
     if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
+    showWinTool(st);
     return;
   }
   el.textContent = st.reason === "unsupported"
@@ -864,6 +874,7 @@ function renderDeviceStatus() {
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
   // Collapsed by default (2026-09-08 UX pass): the status line says it failed, the summary says help is one tap away.
   if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); }
+  showWinTool(st);
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
