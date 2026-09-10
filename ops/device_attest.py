@@ -230,8 +230,21 @@ def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -
       tpm         : "tpm:" + sha256(x5c[0]) — the AIK certificate, one per (physical TPM, Windows account).
       packed / apple / anything else: REFUSED — a FIDO2 batch certificate or an Apple statement carries nothing
                     that identifies the device, so "no double attestation" cannot be enforced for them.
+      ek          : "ek:" + the endorsement identity (doc/tpm-attestation-without-a-ca.md) — a VENDOR-ENDORSED
+                    TPM register, which carries a certify rather than a WebAuthn statement. The handle is the
+                    ENDORSEMENT key, one per chip by manufacture and impossible to re-mint: a chip that enrols
+                    ten attestation keys still holds one identity, and regenerating the endorsement seed to
+                    fake a new chip invalidates the vendor certificate that made it admissible.
     Raises ValueError with the reason (the validation turns it into the tx's rejection message). Pure parsing over
     bytes the native kernel has already verified; deterministic by construction (consensus input)."""
+    # The endorsement identity rides in the transaction, so this stays a PURE function of the tx bytes like
+    # every other class: apply and revert derive the same key with no database read, and validation is what
+    # checks the declared identity against the enrolment record.
+    if isinstance(device, dict) and isinstance(device.get("id"), str) and "att" not in device:
+        ek = device.get("ek")
+        if not (isinstance(ek, str) and len(ek) == 64 and all(c in "0123456789abcdef" for c in ek)):
+            raise ValueError("vendor-endorsed register carries no endorsement identity")
+        return "ek:" + ek
     att = cbor_decode(_b64d(str(device.get("att", ""))), strict=strict)
     if not isinstance(att, dict):
         raise ValueError("attestationObject is not a map")

@@ -1752,9 +1752,17 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # message would let a client pick the secret and the seed itself, compute the blob with no chip involved, and
 # have consensus verify its own fabrication. The ordering IS the proof.
 #
-# Not yet enabled: 0 means the rule never fires, and the register path does not consult it. It becomes a real
-# height once the enrolment transactions exist and a chip has completed the flow on real silicon.
-DEVICE_ATTEST_EK_HEIGHT = 0 if CHAIN_GENERATION == 25 else 1   # reroll: vendor-endorsed attestation from block 1
+# LIVE FROM 45300 (2026-09-10). From this height the four enrolment transactions are accepted and a `register`
+# may prove its device with {"ek", "id", "certinfo", "sig"} — a fresh TPM2_Certify under an enrolled key over
+# that block's own challenge — instead of a WebAuthn statement. The height is ~28 minutes past the block it
+# was committed at, which is margin for the /update wave rather than a guess: a validation rule that arrives
+# on some nodes before others splits the fleet, and the cost of gating late is nothing.
+#
+# The binding handle is "ek:<endorsement identity>" (ops/device_attest.device_binding_key), so this class
+# enters the SAME one-device-one-identity table as every other. One chip is one identity however many
+# attestation keys it enrols, and the endorsement key cannot be re-minted without invalidating the vendor
+# certificate that made the chip admissible in the first place.
+DEVICE_ATTEST_EK_HEIGHT = 45300 if CHAIN_GENERATION == 25 else 1   # reroll: vendor-endorsed attestation from block 1
 
 # HOW MANY INDEPENDENT CHALLENGERS ONE ENROLMENT NEEDS. The residual attack on a CA-free enrolment is a
 # challenger that privately hands its secret to a client with no chip. With k challengers drawn from the

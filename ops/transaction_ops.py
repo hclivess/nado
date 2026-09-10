@@ -429,6 +429,59 @@ def register_device_challenge(sender: str, anchor_hash: str, max_block: int) -> 
     return bytes.fromhex(blake2b_hash([CHAIN_ID, sender, anchor_hash, int(max_block)]))
 
 
+def is_ek_device(dev) -> bool:
+    """True when a register's `device` is a VENDOR-ENDORSED TPM proof rather than a WebAuthn statement.
+    Keyed on the presence of an enrolment id, which no WebAuthn statement carries — the two shapes share no
+    field, so a statement can never be read as the other kind by accident."""
+    return isinstance(dev, dict) and isinstance(dev.get("id"), str) and "att" not in dev
+
+
+def verify_register_device_ek(transaction: dict, anchor_hash: str) -> dict:
+    """Consensus check of a VENDOR-ENDORSED TPM register (doc/tpm-attestation-without-a-ca.md).
+
+        device = {"ek": <64-hex endorsement identity>, "id": <32-hex enrolment id>,
+                  "certinfo": <hex TPMS_ATTEST>, "sig": <hex signature>}
+
+    WHAT MAKES THIS A REGISTRATION AND NOT A REPLAY. The enrolment proved, once, that an attestation key
+    lives inside a chip a silicon vendor certified. It says nothing about WHEN, and a proof from last year is
+    not evidence the machine still exists. So the register carries a FRESH TPM2_Certify under that key whose
+    extraData is this block's own challenge — bound to this sender, this anchor and this landing height, so
+    it can be replayed for no other identity and no other lease.
+
+    THE SENDER NEED NOT BE THE ACCOUNT THAT OPENED THE ENROLMENT, and that is deliberate rather than an
+    oversight. Whoever can make the chip sign this block's challenge holds the chip; an enrolment is public
+    data and grants its opener nothing. What stops one chip becoming many identities is that the binding key
+    below is the ENDORSEMENT identity, which is one per chip by manufacture — so a machine that enrols ten
+    attestation keys, or whose owner changes, still holds exactly one identity at a time.
+    """
+    from protocol import DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS
+    from ops import tpm_aik
+    dev = transaction.get("device") or {}
+    height = int(transaction.get("max_block") or 0)      # `register` lands EXACTLY at max_block
+    assert DEVICE_ATTEST_EK_HEIGHT and height >= DEVICE_ATTEST_EK_HEIGHT, \
+        "vendor-endorsed TPM attestation is not enabled yet"
+    eid = dev.get("id")
+    assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
+    rec = kv_ops.tpm_enrol_get(eid)
+    assert rec, "no such enrolment"
+    assert rec.get("state") == "proven", "this enrolment has not completed its challenges"
+    # The endorsement identity rides in the tx so the BINDING KEY is a pure function of the transaction's own
+    # bytes, exactly like every other device class: apply and revert then derive the same key with no DB read,
+    # and a record that changed underneath could never move a binding.
+    assert dev.get("ek") == rec["ek"], "the declared endorsement identity is not this enrolment's"
+    assert len(rec["challengers"]) == DEVICE_ATTEST_EK_CHALLENGERS, \
+        "this enrolment was proved against the wrong number of challengers"
+    cert_info = _hex_bytes(dev.get("certinfo"), 2048, "certInfo")
+    sig = _hex_bytes(dev.get("sig"), 1024, "certify signature")
+    challenge = register_device_challenge(transaction["sender"], anchor_hash, height)
+    try:
+        detail = tpm_aik.verify_certify(bytes.fromhex(rec["pub"]), cert_info, sig, challenge)
+    except ValueError as e:
+        raise AssertionError(f"vendor-endorsed attestation rejected: {e}")
+    return {"ok": True, "fmt": "ek", "ek": rec["ek"], "enrol": eid, "detail": detail,
+            "root_sha256": "", "aaguid": ""}
+
+
 def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     """Consensus check of transaction["device"] = {"att": b64, "cdj": b64, "rp": str}. Deterministic: the
     certificate validity clock is the ANCHOR block's timestamp (never wall time), the roots are the pinned
@@ -440,6 +493,8 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     from ops import attest_native
     dev = transaction.get("device")
     assert isinstance(dev, dict), "Missing device attestation (a registered identity must be a real phone)"
+    if is_ek_device(dev):                       # vendor-endorsed TPM: a certify, not a WebAuthn statement
+        return verify_register_device_ek(transaction, anchor_hash)
     try:
         att = _b64.b64decode(str(dev.get("att", "")), validate=True)
         cdj = _b64.b64decode(str(dev.get("cdj", "")), validate=True)
