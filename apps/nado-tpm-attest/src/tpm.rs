@@ -119,6 +119,11 @@ impl<'a> Rsp<'a> {
         Some(Rsp { tag, code, body: &b[10..size], pos: 0 })
     }
     pub fn ok(&self) -> bool { self.code == 0 }
+    pub fn u8(&mut self) -> Option<u8> {
+        let v = *self.body.get(self.pos)?;
+        self.pos += 1;
+        Some(v)
+    }
     pub fn u16(&mut self) -> Option<u16> {
         let v = u16::from_be_bytes([*self.body.get(self.pos)?, *self.body.get(self.pos + 1)?]);
         self.pos += 2;
@@ -341,4 +346,34 @@ pub fn flush(t: &dyn Tpm, handle: u32) -> Result<(), u32> {
     let r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
     if !r.ok() { return Err(r.code); }
     Ok(())
+}
+
+/// Transient object handles currently loaded. TPM_CAP_HANDLES over the 0x80000000 range.
+pub fn transient_handles(t: &dyn Tpm) -> Result<Vec<u32>, u32> {
+    let mut c = Cmd::new(ST_NO_SESSIONS, CC_GET_CAPABILITY);
+    c.u32(1).u32(0x8000_0000).u32(32);          // TPM_CAP_HANDLES, first transient, up to 32
+    let r = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    // TPMS_CAPABILITY_DATA: moreData is ONE byte (TPMI_YES_NO), then the capability word, then TPML_HANDLE's
+    // count. Reading moreData as two bytes misaligns everything after it and the handle list comes back empty
+    // — which looks exactly like "nothing to flush" rather than like a parse bug.
+    let _more = r.u8();
+    let _capability = r.u32();
+    let mut out = Vec::new();
+    if let Some(n) = r.u32() {
+        for _ in 0..n.min(32) {
+            match r.u32() { Some(h) => out.push(h), None => break }
+        }
+    }
+    Ok(out)
+}
+
+/// Flush every loaded transient object. A crashed or failed run leaves its primaries behind, and a TPM has
+/// only a handful of object slots — the next run then dies with TPM_RC_OBJECT_MEMORY (0x902) for reasons that
+/// have nothing to do with what it is testing. Production must flush on every exit path; this is the broom for
+/// when something did not.
+pub fn flush_all_transient(t: &dyn Tpm) -> usize {
+    let handles = transient_handles(t).unwrap_or_default();
+    handles.iter().filter(|h| flush(t, **h).is_ok()).count()
 }

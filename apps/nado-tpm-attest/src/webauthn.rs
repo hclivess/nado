@@ -58,10 +58,17 @@ pub fn rsa_from_pub_area(pa: &[u8]) -> Option<(Vec<u8>, u32, &[u8])> {
     } else { pa };
     let be16 = |o: usize| -> Option<u16> { Some(u16::from_be_bytes([*body.get(o)?, *body.get(o + 1)?])) };
     if be16(0)? != 0x0001 { return None; }                 // TPM_ALG_RSA
-    let policy = be16(6)? as usize;
-    let mut o = 8 + policy;
-    o += 2;                                                 // symmetric (TPM_ALG_NULL, no details)
-    o += 2;                                                 // scheme    (TPM_ALG_NULL, no details)
+    // authPolicy's 16-bit size lives at offset 8, after type(2) nameAlg(2) objectAttributes(4).
+    let policy = be16(8)? as usize;
+    let mut o = 10 + policy;
+    // TPMT_SYM_DEF_OBJECT and TPMT_RSA_SCHEME each carry details ONLY when they are not TPM_ALG_NULL. An EK
+    // is AES-128-CFB and so does carry them; a credential key is NULL and does not. Walk, do not assume.
+    let sym = be16(o)?;
+    o += 2;
+    if sym != 0x0010 { o += 4; }                            // keyBits + mode
+    let scheme = be16(o)?;
+    o += 2;
+    if scheme != 0x0010 { o += 2; }                         // hashAlg
     o += 2;                                                 // keyBits
     let exp = u32::from_be_bytes([*body.get(o)?, *body.get(o + 1)?, *body.get(o + 2)?, *body.get(o + 3)?]);
     o += 4;
