@@ -56,6 +56,7 @@ from ops.transaction_ops import (construct_duty_tx,
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
+from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS
 
 # How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
 SEED_PROBE_MEMO_S = 30
@@ -564,6 +565,9 @@ class CoreClient(threading.Thread):
                 self.maybe_auto_collect()
                 self.maybe_auto_register()
                 self.maybe_auto_vote()
+                # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT): answer the enrolments
+                # this node was DRAWN to challenge. Without this every enrolment expires unanswered.
+                self.maybe_tpm_challenge()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
                 # ARCHIVE REFILL: advance earliest_block as the background canonical-chain fill (after a
@@ -2817,6 +2821,131 @@ class CoreClient(threading.Thread):
         # out) so a genuinely fresh occurrence of the same id logs again.
         self._excluded_logged &= {tx.get("txid") for tx in pool}
         return selected
+
+    def _tpm_tx_pending(self, recipient, enrol_id):
+        """True if our own message for this enrolment is already waiting in the pool. Without it the
+        per-block pass mints a fresh duplicate (new nonce -> new txid) until the first copy is mined; the
+        stragglers then fail validation inside later candidates and poison block production — the same
+        failure _reserved_tx_pending exists to prevent, in a path that runs once per enrolment per block."""
+        for tx in self.memserver.transaction_pool.copy():
+            if (tx.get("recipient") == recipient and tx.get("sender") == self.memserver.address
+                    and isinstance(tx.get("data"), dict) and tx["data"].get("id") == enrol_id):
+                return True
+        return False
+
+    def _tpm_secrets_path(self):
+        return f"{get_home()}/private/tpm_challenges.json"
+
+    def _tpm_secrets_load(self):
+        try:
+            with open(self._tpm_secrets_path()) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _tpm_secrets_save(self, store):
+        """Atomic replace. THE WRITE HAPPENS BEFORE THE CHALLENGE IS BROADCAST, never after: a challenger
+        that publishes a blob and then loses its (secret, seed) can never reveal, and the enrolment it was
+        drawn for is dead until it expires — the prover's chip did nothing wrong and has to start over with
+        a new attestation key. Update waves restart the whole fleet routinely, so this is the ordinary case
+        rather than a crash-only one (see memserver.randao_secrets for the same lesson)."""
+        path = self._tpm_secrets_path()
+        with open(path + ".tmp", "w") as f:
+            json.dump(store, f)
+        os.replace(path + ".tmp", path)
+
+    def maybe_tpm_challenge(self):
+        """CHALLENGE THE ENROLMENTS THIS NODE WAS DRAWN FOR (doc/tpm-attestation-without-a-ca.md).
+
+        A machine proves it holds a vendor-certified TPM by opening a credential this node seals to its
+        endorsement key. We are one of DEVICE_ATTEST_EK_CHALLENGERS drawn for that enrolment — drawn, never
+        chosen by the prover, because a prover that picks its own challengers picks parties that will leak
+        the secret to it. Forgery needs ALL of us to collude.
+
+        WITHOUT THIS LOOP THE WHOLE PATH IS DEAD. The consensus rule accepts a completed enrolment, but an
+        enrolment only completes if the drawn challengers answer it; an unanswered one sits until
+        DEVICE_ATTEST_EK_ENROL_BLOCKS passes and expires. Every bonded node runs this, which is what makes
+        the challenger set something the network supplies rather than a service someone operates.
+
+        ORDERING IS ENFORCED BY CONSENSUS, NOT BY US: apply_challenge/apply_reveal refuse anything that does
+        not land strictly after the message it answers, so a badly-timed broadcast is rejected rather than
+        silently weakening the proof. What we must get right locally is never revealing before the prover's
+        commitment is ON CHAIN — which is why the reveal branch keys on the record's own state.
+
+        Best-effort; never raises."""
+        try:
+            from protocol import DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS
+            tip = self.memserver.latest_block["block_number"]
+            if not (DEVICE_ATTEST_EK_HEIGHT and tip >= DEVICE_ATTEST_EK_HEIGHT):
+                return
+            me = self.memserver.address
+            if me not in get_bonded_registry():
+                return                      # only bonded identities are drawable as challengers
+            live = kv_ops.tpm_enrols_live()
+            if not live:
+                # No enrolment is in progress, so every secret we are still holding belongs to one that
+                # finished or expired. This is the only moment that fact is knowable for free.
+                self.maybe_tpm_prune_secrets()
+                return
+            from ops.tpm_aik import make_credential
+            from ops.transaction_ops import construct_tpm_tx
+            store = self._tpm_secrets_load()
+            min_block = tip + TX_INCLUSION_DELAY
+            for eid, rec in live:
+                if me not in (rec.get("challengers") or []):
+                    continue
+                max_block = int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1
+                if min_block > max_block:
+                    continue                # this enrolment expires before anything we send could land
+                mine = store.get(eid)
+                if rec["state"] == "open":
+                    if any(b[0] == me for b in (rec.get("blobs") or [])):
+                        continue            # our challenge is already on chain
+                    if self._tpm_tx_pending("tpm_challenge", eid):
+                        continue
+                    if mine is None:
+                        secret, seed = _secrets.token_bytes(32), _secrets.token_bytes(32)
+                        store[eid] = mine = {"secret": secret.hex(), "seed": seed.hex()}
+                        self._tpm_secrets_save(store)      # BEFORE the broadcast, see _tpm_secrets_save
+                    blob, enc = make_credential(bytes.fromhex(rec["ekpub"]),
+                                                bytes.fromhex(rec["name"]),
+                                                bytes.fromhex(mine["secret"]),
+                                                seed=bytes.fromhex(mine["seed"]))
+                    data = {"id": eid, "blob": blob.hex(), "enc": enc.hex()}
+                    tx = construct_tpm_tx(self.memserver.keydict, "tpm_challenge", data,
+                                          max_block, min_block=min_block)
+                elif rec["state"] == "commit":
+                    if any(r[0] == me for r in (rec.get("reveals") or [])):
+                        continue            # already revealed
+                    if mine is None:
+                        continue            # we never challenged this one, or lost the secret
+                    if self._tpm_tx_pending("tpm_reveal", eid):
+                        continue
+                    data = {"id": eid, "secret": mine["secret"], "seed": mine["seed"]}
+                    tx = construct_tpm_tx(self.memserver.keydict, "tpm_reveal", data,
+                                          max_block, min_block=min_block)
+                else:
+                    continue
+                result = self.memserver.merge_transaction(tx, user_origin=True)
+                if result and result.get("result"):
+                    self.logger.info(f"TPM enrolment {eid[:12]}…: sent {tx['recipient']}")
+                return                      # ONE message per pass: an enrolment advances one step per block
+        except Exception as e:
+            self.logger.error(f"TPM challenge duty failed: {e}")
+
+    def maybe_tpm_prune_secrets(self):
+        """Forget the secrets of enrolments that are finished or gone. A challenger's secret is worthless
+        once revealed, but keeping every one forever turns a small private file into an unbounded one."""
+        try:
+            store = self._tpm_secrets_load()
+            if not store:
+                return
+            keep = {eid: v for eid, v in store.items()
+                    if (kv_ops.tpm_enrol_get(eid) or {}).get("state") in ("open", "commit")}
+            if len(keep) != len(store):
+                self._tpm_secrets_save(keep)
+        except Exception as e:
+            self.logger.warning(f"could not prune TPM challenge secrets: {e}")
 
     def _reserved_tx_pending(self, recipient, target_epoch):
         """True if our own reserved tx for this epoch is already waiting in the pool. Without this

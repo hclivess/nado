@@ -2278,6 +2278,25 @@ def tpm_enrol_revert_pop(height: int, enrol_id: str):
     return _write(_do)
 
 
+def tpm_enrols_live(limit: int = 64):
+    """(id, record) for every enrolment still in progress — the challenger loop's work list. A PROVEN
+    record is skipped: it needs nothing from anyone, and the loop must not keep re-reading it forever.
+    Bounded, because this runs once per block on every node."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["devbind"]) as cur:
+            if cur.set_range(b"tpm:"):
+                for k, v in cur:
+                    if not k.startswith(b"tpm:") or len(out) >= limit:
+                        break
+                    rec = _unpack(v)
+                    if rec[0] != "proven":
+                        out.append((k[4:].decode(),
+                                    {f: rec[i] for i, f in enumerate(_TPM_ENROL_FIELDS)}))
+        return out
+    return _read(_do)
+
+
 def tpm_enrols_expired(before_height: int, limit: int = 64):
     """Ids of INCOMPLETE enrolments published before `before_height` — the collection list. A proven record is
     never returned: what it proved does not decay, and deleting it would let one chip re-enrol for a second

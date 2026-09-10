@@ -191,6 +191,29 @@ def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None,
     return tx
 
 
+def construct_tpm_tx(keydict, recipient, data, max_block, min_block=0):
+    """Build a SIGNED enrolment message (doc/tpm-attestation-without-a-ca.md): `tpm_enrol`,
+    `tpm_challenge`, `tpm_commit` or `tpm_reveal`. Fee-exempt, zero-amount, `data` carried in the signed
+    body like every other proof-bearing tx.
+
+    THE WINDOW MATTERS MORE HERE THAN ANYWHERE ELSE. Every message must land STRICTLY after the one it
+    answers, and a flexible window is what makes that reachable: an exact landing height is one block that
+    the tx must reach every producer in time for, and missing it kills an enrolment that then has to start
+    over with a new attestation key. min_block gives the message a full inclusion delay to propagate;
+    max_block is the deadline.
+    """
+    assert recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"), recipient
+    tx = {"sender": keydict["address"], "recipient": recipient, "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0,
+          "public_key": keydict["public_key"]}
+    if min_block and int(min_block) > 0:
+        tx["min_block"] = int(min_block)
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_slash_tx(keydict, proof, max_block):
     """Build the SIGNED fee-exempt slash tx from an equivocation proof (block-authorship or FFG
     attestation double-vote). Anyone may report — the unforgeable proof is the anti-spam — and the
