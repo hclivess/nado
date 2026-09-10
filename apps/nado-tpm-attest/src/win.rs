@@ -81,3 +81,47 @@ pub const CERT_NAME_ISSUER_FLAG: u32 = 0x1;
 pub fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
+
+// --- console + elevation, so the tool is usable by someone who is not a systems engineer ---------------
+
+pub const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+pub const TOKEN_QUERY: u32 = 0x0008;
+
+#[link(name = "kernel32")]
+extern "system" {
+    pub fn GetStdHandle(nStdHandle: u32) -> *mut c_void;
+    pub fn GetConsoleMode(hConsoleHandle: *mut c_void, lpMode: *mut u32) -> i32;
+    pub fn SetConsoleMode(hConsoleHandle: *mut c_void, dwMode: u32) -> i32;
+    pub fn GetCurrentProcess() -> *mut c_void;
+}
+
+#[link(name = "advapi32")]
+extern "system" {
+    pub fn OpenProcessToken(ProcessHandle: *mut c_void, DesiredAccess: u32, TokenHandle: *mut *mut c_void) -> i32;
+    pub fn GetTokenInformation(TokenHandle: *mut c_void, TokenInformationClass: u32, TokenInformation: *mut c_void,
+                               TokenInformationLength: u32, ReturnLength: *mut u32) -> i32;
+}
+
+/// Turn on ANSI colour support (Windows 10+). Harmless if it fails — the text just prints uncoloured.
+pub fn enable_colour() -> bool {
+    unsafe {
+        let h = GetStdHandle(STD_OUTPUT_HANDLE);
+        let mut mode = 0u32;
+        if GetConsoleMode(h, &mut mode) == 0 { return false; }
+        SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
+    }
+}
+
+/// True when this process is running elevated ("Run as administrator").
+pub fn is_elevated() -> bool {
+    unsafe {
+        let mut tok: *mut c_void = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok) == 0 { return false; }
+        let mut elevated = 0u32;
+        let mut len = 0u32;
+        // TokenElevation = 20
+        let ok = GetTokenInformation(tok, 20, &mut elevated as *mut u32 as *mut c_void, 4, &mut len) != 0;
+        ok && elevated != 0
+    }
+}
