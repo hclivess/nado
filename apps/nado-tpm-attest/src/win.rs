@@ -15,7 +15,11 @@ pub const NCRYPT_SILENT_FLAG: u32 = 0x0000_0040;
 pub const NCRYPT_OVERWRITE_KEY_FLAG: u32 = 0x0000_0080;   // ncrypt.h — 0x1000 was wrong and read as NTE_BAD_FLAGS
 /// NCryptCreateClaim: bind the SUBJECT key to the AUTHORITY (the AIK) — this is TPM key attestation,
 /// i.e. a TPM2_Certify of the subject's public area signed by the AIK.
-pub const NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT: u32 = 0x0000_0002;
+pub const NCRYPT_CLAIM_AUTHORITY_ONLY: u32 = 0x0000_0001;
+pub const NCRYPT_CLAIM_SUBJECT_ONLY: u32 = 0x0000_0002;
+/// 0x03. It was 0x02 here, which is SUBJECT_ONLY — every claim we made omitted the authority (AIK) half.
+/// Read out of the Windows SDK ncrypt.h, not guessed.
+pub const NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT: u32 = 0x0000_0003;
 pub const NCRYPT_CLAIM_PLATFORM: u32 = 0x0001_0000;
 
 pub const MS_PLATFORM_KEY_STORAGE_PROVIDER: &str = "Microsoft Platform Crypto Provider";
@@ -26,7 +30,11 @@ pub const NCRYPT_LENGTH_PROPERTY: &str = "Length";
 /// a WebAuthn `tpm` attestation statement carries.
 pub const NCRYPT_PCP_TPM12_IDBINDING_PROPERTY: &str = "PCP_TPM12_IDBINDING";
 pub const NCRYPT_PCP_PLATFORMHANDLE_PROPERTY: &str = "PCP_PLATFORMHANDLE";
-pub const NCRYPT_PCP_KEYUSAGEPOLICY_PROPERTY: &str = "PCP_KEYUSAGEPOLICY";
+pub const NCRYPT_PCP_KEYUSAGEPOLICY_PROPERTY: &str = "PCP_KEY_USAGE_POLICY";
+/// The endorsement key certificate, straight from the provider — phase 2's anchor, no PowerShell needed.
+pub const NCRYPT_PCP_EKCERT_PROPERTY: &str = "PCP_EKCERT";
+pub const NCRYPT_PCP_RSA_EKCERT_PROPERTY: &str = "PCP_RSA_EKCERT";
+pub const NCRYPT_PCP_EKPUB_PROPERTY: &str = "PCP_EKPUB";
 pub const NCRYPT_ALGORITHM_PROPERTY: &str = "Algorithm Name";
 pub const BCRYPT_RSAPUBLIC_BLOB: &str = "RSAPUBLICBLOB";
 pub const BCRYPT_ECCPUBLIC_BLOB: &str = "ECCPUBLICBLOB";
@@ -155,8 +163,10 @@ pub fn tbs_tpm_present() -> bool {
 // The nonce goes in through pParameterList. Two buffer-type constants are plausible for it, so the probe
 // tries both and reports which one lands — measured, not guessed.
 pub const NCRYPTBUFFER_VERSION: u32 = 0;
-pub const NCRYPTBUFFER_CLAIM_IDBINDING_NONCE: u32 = 20;
-pub const NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE: u32 = 21;
+/// SDK ncrypt.h. 20/21 were guessed and are actually SSL_CLIENT_RANDOM / SSL_SERVER_RANDOM, which is exactly
+/// why the chip answered NTE_INVALID_PARAMETER (0x80090027) to both.
+pub const NCRYPTBUFFER_CLAIM_IDBINDING_NONCE: u32 = 48;
+pub const NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE: u32 = 49;
 
 #[repr(C)]
 pub struct NCryptBuffer {

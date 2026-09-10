@@ -174,7 +174,7 @@ fn main() {
     // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
     // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
     // instead of a window that vanishes.
-    println!("nado-tpm-attest 0.4 starting...");
+    println!("nado-tpm-attest 0.5 starting...");
     std::panic::set_hook(Box::new(|info| {
         println!();
         println!("  SOMETHING WENT WRONG: {info}");
@@ -263,6 +263,14 @@ fn main() {
     // native/attest requires certInfo.extraData == hash(authData || clientDataHash). So bind a nonce. The
     // buffer-type constant for it is the one thing not settled, so try each and let the chip decide.
     let probe_nonce: [u8; 32] = *b"NADO-nonce-probe-0123456789abcde";
+    // The PCP key blob carries the credential key's TPM2B_PUBLIC — the `pubArea` a WebAuthn tpm statement
+    // needs. Layout measured from a real claim: "PCPM", cbHeader=56, pcpType, flags, cbPublic, cbPrivate, ...
+    fn pcp_public(kb: &[u8]) -> Option<&[u8]> {
+        if kb.len() < 24 || &kb[0..4] != b"PCPM" { return None; }
+        let u = |o: usize| u32::from_le_bytes([kb[o], kb[o+1], kb[o+2], kb[o+3]]) as usize;
+        let (hdr, pubn) = (u(4), u(16));
+        kb.get(hdr..hdr + pubn)
+    }
     let mut proof: Option<Vec<u8>> = None;
     let mut winner: Option<u32> = None;
     if have_aik && have_key {
@@ -270,8 +278,8 @@ fn main() {
             Ok(b) => { said_ok(&format!("{} bytes", b.len())); proof = Some(b); }
             Err(rc) => said_bad(&format!("the chip refused to sign (0x{rc:08x})")),
         }
-        for (kind, label) in [(NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE, "KEYATTESTATION_NONCE(21)"),
-                              (NCRYPTBUFFER_CLAIM_IDBINDING_NONCE, "IDBINDING_NONCE(20)")] {
+        for (kind, label) in [(NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE, "KEYATTESTATION_NONCE(49)"),
+                              (NCRYPTBUFFER_CLAIM_IDBINDING_NONCE, "IDBINDING_NONCE(48)")] {
             print!("        {:.<40}", format!("nonce via {label}"));
             let _ = std::io::stdout().flush();
             match unsafe { make_claim(key, aik, Some((&probe_nonce, kind))) } {
@@ -309,7 +317,10 @@ fn main() {
                     Some(e) if !e.is_empty() => println!("  extraData={} {}", e.len(), hex(e)),
                     _ => println!("  extraData=0  (NOT BOUND — this proof cannot be used yet)"),
                 }
-                println!("  keyblob.hex={}", hex(&kb[..kb.len().min(48)]));
+                match pcp_public(kb) {
+                    Some(pa) => println!("  pubArea={} {}", pa.len(), hex(&pa[..pa.len().min(24)])),
+                    None => println!("  pubArea=?  keyblob.hex={}", hex(&kb[..kb.len().min(48)])),
+                }
             }
             None => println!("  claim did not parse as KAST/KADS"),
         }
@@ -325,6 +336,20 @@ fn main() {
         println!("  {}", dim("or a Ledger / Trezor. We are building a way around this — it is not your fault."));
     } else {
         println!("  {}", warn("Inconclusive — send this output back."));
+    }
+
+    // PHASE 2 GROUNDWORK: the endorsement key certificate straight from the provider. It is the per-device,
+    // vendor-signed anchor an AMD/Intel chip carries even when Microsoft refuses to certify an AIK for it,
+    // so reading it here means the eventual EK -> AIK handshake needs no PowerShell and no user typing.
+    println!();
+    println!("  {}", head("endorsement key (for the Microsoft-free path)"));
+    for (prop, label) in [(NCRYPT_PCP_EKCERT_PROPERTY, "PCP_EKCERT"),
+                          (NCRYPT_PCP_RSA_EKCERT_PROPERTY, "PCP_RSA_EKCERT"),
+                          (NCRYPT_PCP_EKPUB_PROPERTY, "PCP_EKPUB")] {
+        match unsafe { get_prop(prov, prop) } {
+            Some(v) => println!("  {label}={} {}", v.len(), hex(&v[..v.len().min(24)])),
+            None => println!("  {label}=none"),
+        }
     }
 
     if have_key { unsafe { NCryptDeleteKey(key, 0) }; }
