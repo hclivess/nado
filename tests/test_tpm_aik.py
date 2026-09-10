@@ -94,6 +94,41 @@ def main():
               == "67bd2472a546751caca5f358a78f80727531671338960a9bcfdfbe6a34d0c6a1",
               hashlib.sha256(der).hexdigest())
 
+    # WE ARE ABOUT TO VOUCH FOR WHATEVER PUBLIC AREA THE CLIENT SENDS. Certifying an unrestricted signing key
+    # would let that chip afterwards sign anything the host asked for, including a forged TPMS_ATTEST for a key
+    # that never lived in the TPM — so every one of these refusals is load-bearing.
+    from ops.tpm_aik import validate_aik_pub_area
+    import struct
+
+    def pub(attrs, scheme=0x0014, alg=0x0001, name_alg=0x000B):
+        b = struct.pack(">HHI", alg, name_alg, attrs) + b"\x00\x00"      # no authPolicy
+        b += struct.pack(">H", 0x0010)                                    # symmetric NULL
+        b += struct.pack(">H", scheme) + (b"" if scheme == 0x0010 else struct.pack(">H", 0x000B))
+        b += struct.pack(">H", 2048) + struct.pack(">I", 0) + b"\x00\x00"
+        return b
+
+    good = 0x0005_0472
+    check("a genuine restricted signing key is accepted", "restricted" in validate_aik_pub_area(pub(good)))
+    for name, attrs in (("unrestricted", good & ~0x0001_0000),
+                        ("not a signing key", good & ~0x0004_0000),
+                        ("duplicable (no fixedTPM)", good & ~0x0000_0002),
+                        ("importable (no sensitiveDataOrigin)", good & ~0x0000_0020)):
+        try:
+            validate_aik_pub_area(pub(attrs))
+            check(f"refuses a key that is {name}", False, "it was accepted")
+        except ValueError:
+            check(f"refuses a key that is {name}", True)
+    try:
+        validate_aik_pub_area(pub(good | 0x0002_0000))
+        check("refuses a key that can also decrypt", False, "it was accepted")
+    except ValueError:
+        check("refuses a key that can also decrypt", True)
+    try:
+        validate_aik_pub_area(pub(good, scheme=0x0010))
+        check("refuses a NULL signing scheme", False, "it was accepted")
+    except ValueError:
+        check("refuses a NULL signing scheme", True)
+
     print("\n" + ("ALL OK" if not _fails else f"{len(_fails)} FAILURES"))
     return 1 if _fails else 0
 

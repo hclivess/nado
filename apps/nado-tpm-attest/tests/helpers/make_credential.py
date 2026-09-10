@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The issuer side, called by the swtpm end-to-end test: seal a random secret to an endorsement key, bound to
+"""The challenge side, called by the swtpm end-to-end test: seal a random secret to an endorsement key, bound to
 an attestation key's Name. Prints `secret credentialBlob encryptedSecret`, all hex.
 
 This is the real ops/tpm_aik implementation — the point of the test is that a TPM accepts what IT produces, so
-nothing here may reimplement any of it.
+nothing here may reimplement any of it. No certificate is issued by this or by anything it calls.
 """
 import os
 import sys

@@ -1,5 +1,10 @@
-"""TPM 2.0 credential protection — issuing our own AIK certificates, so a chip Microsoft will not certify still
-attests (doc/windows-tpm-attester.md).
+"""TPM 2.0 credential protection — the CHALLENGE half of issuing our own AIK certificates, so that a chip
+Microsoft will not certify can still attest (doc/windows-tpm-attester.md).
+
+WHAT THIS MODULE DOES AND DOES NOT DO. It seals a secret to an endorsement key, bound to an attestation key's
+Name, and a chip returns that secret only if both keys live inside it. That is the PROOF. It issues nothing:
+there is no CA key here, no X.509, no certificate. Step 6 below is described because it is where this leads,
+not because it exists. Do not read "issuer" in this file as a component that has been built.
 
 WHY THIS EXISTS. 26.8% of all device-attestation attempts on this chain are a Windows PC whose TPM is healthy
 and whose Windows Hello refuses to produce a statement, overwhelmingly because Microsoft's AIK service has no
@@ -12,14 +17,14 @@ hardware evidence exists and is verifiable without Microsoft. What is missing is
 THE PROTOCOL (TPM 2.0 part 1 §24, "Credential Protection"). It is necessarily INTERACTIVE, and that is not an
 implementation choice: the verifier must know a secret the client does not.
 
-    1. client  -> issuer : EK certificate (+ its chain), and the AIK's public area
-    2. issuer           : verify the EK chain to a PINNED VENDOR ROOT; derive the AIK's Name from its pubArea;
+    1. client  -> us     : EK certificate (+ its chain), and the AIK's public area
+    2. us       [BUILT] : verify the EK chain to a PINNED VENDOR ROOT; derive the AIK's Name from its pubArea;
                           choose a random secret; make_credential() seals it to the EK, bound to that Name
-    3. issuer  -> client : credentialBlob + encrypted seed
+    3. us      -> client : credentialBlob + encrypted seed
     4. client           : TPM2_ActivateCredential — the TPM returns the secret ONLY if the EK and the AIK are
                           objects in the same chip
-    5. client  -> issuer : the recovered secret
-    6. issuer           : issue an AIK certificate carrying the EK's identity
+    5. client  -> us     : the recovered secret
+    6. us    [NOT BUILT] : issue an AIK certificate carrying the EK's identity
 
 Deriving the secret from chain data instead, to avoid the round trip, does not work and must not be attempted:
 anything every node can recompute, the client can recompute too, so the "proof" would prove nothing.
@@ -140,3 +145,62 @@ def ek_identity(ek_cert_der: bytes) -> str:
     spki = cert.public_key().public_bytes(serialization.Encoding.DER,
                                           serialization.PublicFormat.SubjectPublicKeyInfo)
     return hashlib.sha256(spki).hexdigest()
+
+
+# TPMA_OBJECT bits (TCG part 2 §8.3) — the attributes that decide what a key is allowed to do.
+_FIXED_TPM = 0x0000_0002            # cannot be duplicated to another chip
+_FIXED_PARENT = 0x0000_0010
+_SENSITIVE_DATA_ORIGIN = 0x0000_0020  # the TPM made the private key, it was not imported
+_RESTRICTED = 0x0001_0000
+_DECRYPT = 0x0002_0000
+_SIGN = 0x0004_0000
+
+
+def validate_aik_pub_area(pub_area: bytes) -> str:
+    """Refuse to certify anything but a genuine attestation key. Raises ValueError with the reason.
+
+    THIS IS A SECURITY CHECK, NOT A SANITY CHECK. The client hands us this public area and we are about to
+    vouch for it. Certify an UNRESTRICTED signing key and that chip can afterwards sign anything the host asks
+    it to — including a forged TPMS_ATTEST claiming to certify a key that never existed inside the TPM. The
+    identity count stays capped either way, because the binding is on the endorsement key, but the guarantee
+    that "this credential key lives in hardware" would be worth nothing. A restricted key signs only structures
+    the TPM itself generated, which is precisely what makes TPM2_Certify evidence rather than a signature.
+
+    Likewise sensitiveDataOrigin: without it the private half could have been generated outside and imported,
+    and fixedTPM/fixedParent: without them it could be duplicated to another chip, so one enrolment would
+    licence every machine the key is copied to.
+    """
+    be16 = lambda o: int.from_bytes(pub_area[o:o + 2], "big")
+    if len(pub_area) < 12:
+        raise ValueError("public area is too short to be a TPMT_PUBLIC")
+    if be16(0) != 0x0001:
+        raise ValueError(f"attestation key must be RSA, got algorithm 0x{be16(0):04x}")
+    if be16(2) != TPM_ALG_SHA256:
+        raise ValueError(f"attestation key nameAlg must be SHA-256, got 0x{be16(2):04x}")
+
+    attrs = int.from_bytes(pub_area[4:8], "big")
+    required = {
+        "restricted": _RESTRICTED,
+        "sign": _SIGN,
+        "fixedTPM": _FIXED_TPM,
+        "fixedParent": _FIXED_PARENT,
+        "sensitiveDataOrigin": _SENSITIVE_DATA_ORIGIN,
+    }
+    missing = [n for n, bit in required.items() if not attrs & bit]
+    if missing:
+        raise ValueError(f"attestation key is missing required attributes: {', '.join(missing)}")
+    if attrs & _DECRYPT:
+        raise ValueError("attestation key must not be a decryption key")
+
+    # The scheme must be a real signing scheme: a NULL scheme lets the caller choose one per signature, which
+    # reopens exactly the freedom `restricted` is there to remove.
+    policy = be16(8)
+    o = 10 + policy
+    sym = be16(o)
+    o += 2
+    if sym != 0x0010:
+        o += 4
+    scheme = be16(o)
+    if scheme == 0x0010:
+        raise ValueError("attestation key must declare a signing scheme, not TPM_ALG_NULL")
+    return f"RSA-{be16(o + 4)} restricted signing key, scheme 0x{scheme:04x}"

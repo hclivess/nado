@@ -1,4 +1,4 @@
-//! End-to-end against a real TPM 2.0 implementation (swtpm), driving OUR command bytes and OUR issuer.
+//! End-to-end against a real TPM 2.0 implementation (swtpm), driving OUR command bytes and OUR challenge.
 //!
 //! Everything else in this crate's tests checks construction in isolation. This is the only test that asks a
 //! TPM whether it accepts what we build: the TCG L-1 endorsement template, a restricted RSASSA/SHA-256
@@ -79,20 +79,21 @@ fn end_to_end_against_a_real_tpm() {
     expect.extend_from_slice(&sha256(&aik_pub));
     assert_eq!(aik_name, expect, "the AIK's Name is nameAlg || sha256(pubArea)");
 
-    // 3. Hand the EK's public area and the AIK's Name to OUR issuer and let it seal a secret.
+    // 3. Hand the EK's public area and the AIK's Name to our challenger and let it seal a secret.
+    //    Nothing is issued here: no certificate exists anywhere in this path yet.
     let out = std::process::Command::new("python3")
         .arg("tests/helpers/make_credential.py")
         .arg(hex(&ek_pub))
         .arg(hex(&aik_name))
         .output()
-        .expect("could not run the issuer");
-    assert!(out.status.success(), "issuer failed: {}", String::from_utf8_lossy(&out.stderr));
+        .expect("could not run the challenger");
+    assert!(out.status.success(), "challenger failed: {}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8_lossy(&out.stdout);
     let mut fields = text.split_whitespace();
-    let secret_hex = fields.next().expect("issuer printed no secret");
+    let secret_hex = fields.next().expect("challenger printed no secret");
     let blob = hexdec(fields.next().expect("no credential blob"));
     let enc_secret = hexdec(fields.next().expect("no encrypted secret"));
-    println!("issuer    credentialBlob {} B  encryptedSecret {} B", blob.len(), enc_secret.len());
+    println!("challenge credentialBlob {} B  encryptedSecret {} B", blob.len(), enc_secret.len());
 
     // 4. The EK is adminWithPolicy, so a password authorization is refused however empty the hierarchy auth
     //    is. A policy session satisfied by PolicySecret(TPM_RH_ENDORSEMENT) is mandatory.
@@ -102,7 +103,7 @@ fn end_to_end_against_a_real_tpm() {
     // 5. The proof: the chip returns the secret only because the EK and the AIK live in the same TPM.
     let recovered = activate_credential(&t, aik, ek, session, &blob, &enc_secret)
         .expect("ActivateCredential failed");
-    assert_eq!(hex(&recovered), secret_hex, "the TPM recovered exactly the secret our issuer sealed");
+    assert_eq!(hex(&recovered), secret_hex, "the TPM recovered exactly the secret our challenger sealed");
     println!("activate  recovered the sealed secret — EK and AIK proven to share a chip");
 
     // 6. And the statement itself: certInfo signed by the key whose certificate would go in x5c, over a
