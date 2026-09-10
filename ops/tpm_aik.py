@@ -1,40 +1,41 @@
-"""TPM 2.0 credential protection — the CHALLENGE half of issuing our own AIK certificates, so that a chip
-Microsoft will not certify can still attest (doc/windows-tpm-attester.md).
+"""TPM 2.0 credential protection — how a chip Microsoft will not certify attests anyway, with NO certificate
+authority anywhere in the design (doc/tpm-attestation-without-a-ca.md).
 
 WHAT THIS MODULE DOES AND DOES NOT DO. It seals a secret to an endorsement key, bound to an attestation key's
 Name, and a chip returns that secret only if both keys live inside it. That is the PROOF. It issues nothing:
-there is no CA key here, no X.509, no certificate. Step 6 below is described because it is where this leads,
-not because it exists. Do not read "issuer" in this file as a component that has been built.
+there is no CA key here, no X.509, no certificate, and deliberately so — a long-lived key able to assert any
+endorsement identity is a key able to mint identities, guarded forever. What replaces it is commit-reveal,
+below, and consensus ordering (ops/tpm_enrol).
 
 WHY THIS EXISTS. 26.8% of all device-attestation attempts on this chain are a Windows PC whose TPM is healthy
 and whose Windows Hello refuses to produce a statement, overwhelmingly because Microsoft's AIK service has no
 certificate authority registered for that chip's KeyId and answers 404. Microsoft has confirmed that as
-service-side with no client-side fix. Those machines carry a perfectly good, vendor-signed ENDORSEMENT KEY
-certificate — AMD's chains to CN=AMDTPM, Intel's chain through the CSME EICAs kept in the TPM's own NV — so the
-hardware evidence exists and is verifiable without Microsoft. What is missing is the one signature that says
-"this attestation key lives in that certified chip". This module is how we produce it ourselves.
+service-side with no client-side fix. On Linux there has never been a path at all. Those machines carry a
+perfectly good, vendor-signed ENDORSEMENT KEY certificate — AMD's chains to CN=AMDTPM, Intel's through the
+CSME EICAs kept in the TPM's own NV — so the hardware evidence exists and is verifiable without Microsoft.
+What is missing is the one statement that says "this attestation key lives in that certified chip".
 
 THE PROTOCOL (TPM 2.0 part 1 §24, "Credential Protection"). It is necessarily INTERACTIVE, and that is not an
 implementation choice: the verifier must know a secret the client does not.
 
-    1. client  -> us     : EK certificate (+ its chain), and the AIK's public area
-    2. us       [BUILT] : verify_ek_chain() to a PINNED VENDOR ROOT to a PINNED VENDOR ROOT; derive the AIK's Name from its pubArea;
-                          choose a random secret; make_credential() seals it to the EK, bound to that Name
-    3. us      -> client : credentialBlob + encrypted seed
-    4. client           : TPM2_ActivateCredential — the TPM returns the secret ONLY if the EK and the AIK are
-                          objects in the same chip
-    5. client  -> us     : the recovered secret
-    6. us    [NOT BUILT] : issue an AIK certificate carrying the EK's identity
+    1. client -> chain    : EK certificate (+ its chain), and the AIK's public area
+    2. challenger         : the kernel verifies the chain to a PINNED VENDOR ROOT; the AIK's Name comes from
+                            its pubArea; a random secret is sealed to the EK bound to that Name
+    3. challenger -> chain: credentialBlob + the wrapped seed
+    4. client             : TPM2_ActivateCredential — the TPM returns the secret ONLY if the EK and the AIK
+                            are objects in the same chip
+    5. client -> chain    : a COMMITMENT to what it recovered
+    6. challenger -> chain: the secret and the seed, so every node replays step 2 and checks both halves
 
 Deriving the secret from chain data instead, to avoid the round trip, does not work and must not be attempted:
 anything every node can recompute, the client can recompute too, so the "proof" would prove nothing.
 
-WHAT BINDS AN IDENTITY IS THE EK, NEVER THE AIK WE ISSUE. A chip can hold unlimited AIKs, so hashing an AIK
-certificate we minted would let one machine mint one identity per enrolment. `ek_identity()` is the handle, it
-is derived from the endorsement key itself, and the issued certificate carries it so consensus can bind on it
-without trusting the issuer's bookkeeping.
+WHAT BINDS AN IDENTITY IS THE EK, NEVER AN ATTESTATION KEY. A chip can hold unlimited AIKs, so binding to one
+would let one machine claim an identity per enrolment. The handle is the endorsement key's own
+SubjectPublicKeyInfo digest, which native/attest/src/ek.rs returns from the certificate it verified.
 
-Relay-side only: nothing here runs inside consensus. Consensus sees the finished certificate.
+This runs INSIDE consensus (ops/tpm_enrol, ops/transaction_ops), which is why it has no dependencies: the
+node's runtime has no crypto library, and every primitive below is written out for that reason.
 """
 import hashlib
 import hmac
