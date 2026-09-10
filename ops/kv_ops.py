@@ -2212,6 +2212,91 @@ def devbind_revert_pop(epoch: int, address: str):
     return _write(_do)
 
 
+
+# --- VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT; ops/tpm_enrol) ------------------------
+# Rows live in the devbind DB under "tpm:<enrol id>", the same trick the eviction rows use: consensus state, in
+# the state root and carried by snapshots like every other devbind row, with NO NEW SUB-DB — so the root of
+# every state written before the gate fires is untouched, and a node that syncs across the gate needs no
+# schema migration.
+#
+# THE RECORD IS PACKED POSITIONALLY, NEVER AS A DICT. msgpack preserves insertion order, so two nodes that
+# happen to build the same record with their keys in a different order write different bytes for identical
+# state — a root split that would only surface once a real enrolment landed. The field order below IS the
+# wire format: append to it, never reorder it.
+_TPM_ENROL_FIELDS = ("state", "ek", "ekpub", "name", "pub", "owner", "h", "challengers", "blobs",
+                     "commit", "hc", "reveals", "hp")
+
+
+def _tpm_enrol_key(enrol_id: str) -> bytes:
+    return ("tpm:" + str(enrol_id)).encode()
+
+
+def tpm_enrol_get(enrol_id: str):
+    """The enrolment record for `enrol_id`, or None. Shape: ops/tpm_enrol.new_record."""
+    def _do(txn):
+        raw = txn.get(_tpm_enrol_key(enrol_id), db=_dbs()["devbind"])
+        if raw is None:
+            return None
+        rec = _unpack(raw)
+        return {k: rec[i] for i, k in enumerate(_TPM_ENROL_FIELDS)}
+    return _read(_do)
+
+
+def tpm_enrol_set(enrol_id: str, rec: dict):
+    def _do(txn):
+        txn.put(_tpm_enrol_key(enrol_id), _pack([rec[k] for k in _TPM_ENROL_FIELDS]),
+                db=_dbs()["devbind"])
+    _write(_do)
+
+
+def tpm_enrol_del(enrol_id: str):
+    def _do(txn):
+        txn.delete(_tpm_enrol_key(enrol_id), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def tpm_enrol_revert_put(height: int, enrol_id: str, prev):
+    """Journal what an enrolment message OVERWROTE: the whole previous record, or None when the message
+    CREATED the row. Always written on apply, so pop can tell "there was no row" (delete on revert) from
+    "no journal" (a block from before the gate) — the distinction devbind_revert_put learned the hard way."""
+    def _do(txn):
+        rec = [prev[k] for k in _TPM_ENROL_FIELDS] if prev else None
+        txn.put(be8(int(height)) + _tpm_enrol_key(enrol_id), _pack(rec), db=_dbs()["devbind_revert"])
+    _write(_do)
+
+
+def tpm_enrol_revert_pop(height: int, enrol_id: str):
+    """Read + DELETE the journal for (height, enrol_id): (found, previous record or None)."""
+    def _do(txn):
+        k = be8(int(height)) + _tpm_enrol_key(enrol_id)
+        raw = txn.get(k, db=_dbs()["devbind_revert"])
+        if raw is None:
+            return False, None
+        txn.delete(k, db=_dbs()["devbind_revert"])
+        rec = _unpack(raw)
+        return True, ({k2: rec[i] for i, k2 in enumerate(_TPM_ENROL_FIELDS)} if rec is not None else None)
+    return _write(_do)
+
+
+def tpm_enrols_expired(before_height: int, limit: int = 64):
+    """Ids of INCOMPLETE enrolments published before `before_height` — the collection list. A proven record is
+    never returned: what it proved does not decay, and deleting it would let one chip re-enrol for a second
+    identity. Bounded per call so a boundary sweep cannot become unbounded work in a block."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["devbind"]) as cur:
+            if cur.set_range(b"tpm:"):
+                for k, v in cur:
+                    if not k.startswith(b"tpm:") or len(out) >= limit:
+                        break
+                    rec = _unpack(v)
+                    if rec[0] != "proven" and int(rec[6]) < int(before_height):   # rec[6] is "h" — keep in step with _TPM_ENROL_FIELDS
+                        out.append(k[4:].decode())
+        return out
+    return _read(_do)
+
+
+
 def msgkey_revert_put(txid: str, prev_value):
     """MSGKEY (revert record): store the EXACT inverse of a msgkey update — the sender's PREVIOUS kem_pub
     (hex str) or None if it had none — keyed by txid, plain KV. Rollback reads this to restore kem_pub

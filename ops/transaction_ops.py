@@ -381,6 +381,46 @@ def construct_withdraw_tx(keydict, amount, release_block, max_block):
     return tx
 
 
+def _is_hex_str(s) -> bool:
+    return isinstance(s, str) and len(s) % 2 == 0 and all(c in "0123456789abcdef" for c in s)
+
+
+def _hex_bytes(v, cap: int, what: str) -> bytes:
+    """A hex field from a transaction, size-capped. Lowercase-only and even-length so ONE encoding of a value
+    exists: the txid commits `data` verbatim, so accepting "AB" and "ab" would make two distinct transactions
+    carry the identical proof."""
+    assert _is_hex_str(v) and 0 < len(v) <= cap * 2, f"{what} must be at most {cap} bytes of lowercase hex"
+    return bytes.fromhex(v)
+
+
+def _hex_list(v, max_items: int, cap: int, what: str) -> list:
+    assert isinstance(v, list) and 0 < len(v) <= max_items, f"{what} must be 1..{max_items} entries"
+    return [_hex_bytes(x, cap, what) for x in v]
+
+
+def _anchor_time(transaction: dict, block_height: int) -> int:
+    """The clock a certificate's validity is judged against: the ANCHOR BLOCK's timestamp, never wall time.
+    Wall time makes validity node-local, and a certificate expiring mid-block would then be valid on one node
+    and expired on the next — a fork with no attacker involved."""
+    from protocol import POSW_ANCHOR_OFFSET
+    b = get_block_number(max(0, int(block_height) - POSW_ANCHOR_OFFSET))
+    assert b, "enrolment anchor block unavailable"
+    return int(b.get("block_timestamp") or 0)
+
+
+def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
+    """The challengers drawn for an enrolment opened at `block_height`. Derived from committed parent state
+    (the bonded registry and that epoch's beacon), so every node — including one replaying this block years
+    later — draws the identical set."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
+    from ops.account_ops import get_bonded_registry
+    from ops.block_ops import epoch_beacon
+    from ops import tpm_enrol as _te
+    epoch = int(block_height) // EPOCH_LENGTH
+    return _te.challenger_set(enrol_id_hex, get_bonded_registry(), epoch_beacon(epoch),
+                              DEVICE_ATTEST_EK_CHALLENGERS)
+
+
 def register_device_challenge(sender: str, anchor_hash: str, max_block: int) -> bytes:
     """The 32-byte challenge a device must attest over: bound to the chain, the identity, the anchor block
     (fresh, unpredictable) and the landing block — an attestation can never be replayed for another identity
@@ -1271,6 +1311,65 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
                             "register: this identity is already bound for life to another hardware wallet — use that device, " \
                             "or bind this one to a new account"
+    elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
+        # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md).
+        # Four fee-exempt, zero-amount messages that prove an attestation key lives inside a chip whose
+        # ENDORSEMENT key a silicon vendor certified — the path for the 26.8 % of attempts Windows Hello
+        # refuses, and the only path a headless Linux node has ever had.
+        #
+        # NOTHING HERE CONFERS STANDING. A completed enrolment records that one attestation key is inside one
+        # certified chip. It is `register` that consumes it, with a FRESH TPM2_Certify over that block's own
+        # challenge, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation keys in one
+        # chip yields one identity, not ten. Anyone may spend blocks on enrolments that buy them nothing.
+        from protocol import (DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS,
+                              DEVICE_ATTEST_EK_ENROL_BLOCKS)
+        from ops import tpm_enrol as _te
+        assert DEVICE_ATTEST_EK_HEIGHT and block_height >= DEVICE_ATTEST_EK_HEIGHT, \
+            "vendor-endorsed TPM enrolment is not enabled yet"
+        assert transaction["amount"] == 0 and transaction["fee"] == 0, \
+            f"{recipient} tx is fee-exempt and carries no amount"
+        data = transaction.get("data") or {}
+        assert isinstance(data, dict), f"{recipient} data must be an object"
+        sender = transaction["sender"]
+        if recipient == "tpm_enrol":
+            # STEP 1. The chip's endorsement chain and the public area of the key it will vouch for. The
+            # chain is verified by the native kernel against the PINNED vendor roots — real vendor
+            # certificates are not strictly DER and no Python parser in the node's runtime reads them.
+            from protocol import DEVICE_ATTEST_EK_ROOTS
+            from ops import attest_native
+            chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
+            pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
+            ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height))
+            assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
+            assert ek.get("root_sha256") in DEVICE_ATTEST_EK_ROOTS, \
+                "endorsement certificate does not chain to a pinned silicon-vendor root"
+            _te.validate_publication(str(ek["identity"]), pub)
+            eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
+            assert kv_ops.tpm_enrol_get(eid) is None, \
+                "this chip has already published this attestation key — use a new key or the existing enrolment"
+            # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
+            # bonded registry must not thereby cut the number of parties it takes to collude.
+            drawn = _tpm_challengers(eid, block_height)
+            assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
+                "not enough independent challengers are bonded to open an enrolment"
+        else:
+            eid = data.get("id")
+            assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
+            rec = kv_ops.tpm_enrol_get(eid)
+            assert rec, "no such enrolment"
+            assert block_height < int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS, \
+                "this enrolment has expired — open a new one"
+            # Each branch below is a DRY RUN of the exact state transition apply will perform, on the record
+            # as it stands at this block. The state machine raises AssertionError on every rule it enforces,
+            # which is what validation wants, and apply re-runs it rather than trusting this.
+            if recipient == "tpm_challenge":
+                _te.apply_challenge(rec, sender, _hex_bytes(data.get("blob"), 1024, "credential blob"),
+                                    _hex_bytes(data.get("enc"), 1024, "wrapped seed"), block_height)
+            elif recipient == "tpm_commit":
+                _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)
+            else:
+                _te.apply_reveal(rec, sender, _hex_bytes(data.get("secret"), 64, "secret"),
+                                 _hex_bytes(data.get("seed"), 64, "seed"), block_height)
     elif recipient in ("pool", "delegate", "undelegate"):
         # STAKING POOLS (protocol.POOL_HEIGHT, doc/device-attestation.md §"Pools"): fee-exempt, zero-amount, sender-scoped.
         from protocol import POOL_HEIGHT, POOL_MAX_FEE_BPS, POOL_MIN_DELEGATION, POOL_MAX_MEMBERS, POOL_LABEL_MAX, POOL_MAX_TOTAL, POOL_RETIRE_HEIGHT

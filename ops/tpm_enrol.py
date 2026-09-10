@@ -93,9 +93,14 @@ def challenger_set(enrol_id_hex: str, bonded_registry: dict, beacon: str, k: int
     return picked
 
 
-def new_record(ek_identity: str, aik_name_hex: str, aik_pub: bytes, owner: str, height: int,
-               challengers: list) -> dict:
-    return {"state": STATE_OPEN, "ek": str(ek_identity), "name": str(aik_name_hex),
+def new_record(ek_identity: str, ek_spki: bytes, aik_name_hex: str, aik_pub: bytes, owner: str,
+               height: int, challengers: list) -> dict:
+    """The endorsement PUBLIC KEY is stored, not just its digest: every node has to re-derive the credential
+    blob from the revealed (secret, seed) at step 4, and MakeCredential needs the key itself. Keeping it in
+    the record also means the reveal check never re-parses a certificate — the kernel read it once, when the
+    vendor signature was verified, and consensus reads the same bytes forever after."""
+    return {"state": STATE_OPEN, "ek": str(ek_identity), "ekpub": ek_spki.hex(),
+            "name": str(aik_name_hex),
             "pub": aik_pub.hex(), "owner": str(owner), "h": int(height),
             "challengers": sorted(str(a) for a in challengers),
             "blobs": [], "commit": "", "hc": -1, "reveals": [], "hp": -1}
@@ -138,8 +143,7 @@ def apply_commit(rec: dict, sender: str, commitment: str, height: int) -> dict:
     return rec
 
 
-def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, ek_spki_der: bytes,
-                 height: int) -> dict:
+def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, height: int) -> dict:
     """Step 4. A challenger opens its own challenge and every node re-derives the blob from (S, R). This is
     where the challenger is held to what it published: it cannot reveal a different secret than the one it
     sealed, because MakeCredential is deterministic in (seed, name, secret) and the blob is already on
@@ -152,7 +156,7 @@ def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, ek_spki
     assert challenger not in _pairs(rec, "reveals"), "this challenger already revealed"
     published = bytes.fromhex(blobs[challenger][0])
     name = bytes.fromhex(rec["name"])
-    derived, _ = make_credential(ek_spki_der, name, secret, seed=seed)
+    derived, _ = make_credential(bytes.fromhex(rec["ekpub"]), name, secret, seed=seed)
     assert derived == published, "the revealed secret and seed do not reproduce the published challenge"
     rec = dict(rec)
     rec["reveals"] = sorted(rec["reveals"] + [[challenger, secret.hex(), seed.hex(), int(height)]])

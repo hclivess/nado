@@ -416,3 +416,125 @@ def verify_enrolment(ek_spki_der: bytes, aik_pub_area: bytes, secret: bytes, see
     if not verify_credential_reveal(ek_spki_der, name, secret, seed, published_blob, commitment):
         raise ValueError("the revealed secret and seed do not reproduce the published credential")
     return detail
+
+
+# --- WHAT AN ENROLLED KEY SIGNS: TPM2_Certify --------------------------------------------------------------
+#
+# An enrolment proves an attestation key is inside a certified chip. It says nothing about WHEN, and a proof
+# from last year is not evidence that the machine still exists. So every register presents a FRESH certify:
+# the enrolled key signs a TPMS_ATTEST whose extraData is that block's own challenge.
+#
+# This works only because the key is `restricted`. Such a key signs nothing but structures the TPM itself
+# generated, so a signature over a TPMS_ATTEST cannot be the host handing the chip a message it composed. An
+# unrestricted key would make the same signature meaningless — which is why validate_aik_pub_area refuses to
+# enrol one, and why that check is the load-bearing one in the whole design.
+
+TPM_GENERATED = 0xFF544347          # "\xffTCG" — present only in structures the TPM built itself
+ST_ATTEST_CERTIFY = 0x8017
+_SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def pub_area_rsa(pub_area: bytes, require_scheme: bool = True) -> tuple:
+    """(modulus, exponent) of the RSA key a TPMT_PUBLIC describes. A zero exponent means 65537 — the TPM
+    encodes the default as 0, and reading it literally yields a key that verifies nothing.
+
+    require_scheme is False for an ENDORSEMENT key, which is a decryption key and correctly declares
+    TPM_ALG_NULL. For a signing key a NULL scheme is a refusal, not a shrug: it would let the caller pick a
+    scheme per signature, which is the freedom `restricted` exists to remove.
+    """
+    be16 = lambda o: int.from_bytes(pub_area[o:o + 2], "big")
+    o = 10 + be16(8)                                  # skip authPolicy
+    sym = be16(o)
+    o += 2 if sym == 0x0010 else 6                    # TPMT_SYM_DEF_OBJECT: NULL, or alg+keyBits+mode
+    if be16(o) == 0x0010:
+        if require_scheme:
+            raise ValueError("attestation key declares no signing scheme")
+        o += 2                                        # TPMT_RSA_SCHEME: NULL carries no hashAlg
+    else:
+        o += 4                                        # scheme + hashAlg
+    o += 2                                            # keyBits
+    exponent = int.from_bytes(pub_area[o:o + 4], "big") or 65537   # 0 IS the encoding of 65537
+    o += 4
+    n = int.from_bytes(pub_area[o + 2:o + 2 + be16(o)], "big")
+    if n == 0:
+        raise ValueError("attestation key has no modulus")
+    return n, exponent
+
+
+def verify_rsassa_sha256(n: int, e: int, message: bytes, signature: bytes) -> bool:
+    """RSASSA-PKCS1-v1_5 over SHA-256, by hand. The node's runtime has no crypto library — that absence is
+    what this whole module is written around — and this is twenty lines of integer arithmetic.
+
+    The comparison is over the WHOLE re-encoded block, not a search for the digest inside it. Accepting a
+    digest found anywhere in the padding is the classic Bleichenbacher'06 forgery, which is trivial against
+    exponent 3 and has been shipped by real libraries more than once.
+    """
+    k = (n.bit_length() + 7) // 8
+    if len(signature) != k or k < 11 + len(_SHA256_DIGEST_INFO) + 32:
+        return False
+    m = pow(int.from_bytes(signature, "big"), e, n)
+    em = m.to_bytes(k, "big")
+    expect = (b"\x00\x01" + b"\xff" * (k - 3 - len(_SHA256_DIGEST_INFO) - 32) + b"\x00"
+              + _SHA256_DIGEST_INFO + hashlib.sha256(message).digest())
+    return hmac.compare_digest(em, expect)
+
+
+def verify_certify(pub_area: bytes, cert_info: bytes, signature: bytes, qualifying: bytes) -> str:
+    """The chip is here, now, holding this key. Raises ValueError with the reason.
+
+    Checks, and why each one is load-bearing:
+      TPM_GENERATED       the structure came from a TPM rather than from the host's imagination;
+      TPM_ST_ATTEST_CERTIFY  it is a certification of a key, not a quote or a time attestation whose fields
+                          sit at different offsets and would let a different structure be read as this one;
+      extraData           it answers OUR challenge — the one bound to this sender, this anchor and this
+                          landing block — so no earlier certify from this machine can be replayed;
+      attested name       the key certified is the enrolled key itself, not some other object in the chip
+                          that we know nothing about and never validated the attributes of;
+      signature           it was made by the enrolled key.
+    """
+    if len(cert_info) < 21:
+        raise ValueError("certInfo is too short to be a TPMS_ATTEST")
+    if int.from_bytes(cert_info[0:4], "big") != TPM_GENERATED:
+        raise ValueError("certInfo does not carry the TPM_GENERATED magic")
+    if int.from_bytes(cert_info[4:6], "big") != ST_ATTEST_CERTIFY:
+        raise ValueError("certInfo is not a TPM_ST_ATTEST_CERTIFY")
+    o = 6
+    signer_len = int.from_bytes(cert_info[o:o + 2], "big")
+    o += 2 + signer_len                                    # qualifiedSigner
+    extra_len = int.from_bytes(cert_info[o:o + 2], "big")
+    extra = cert_info[o + 2:o + 2 + extra_len]
+    o += 2 + extra_len
+    if not hmac.compare_digest(extra, qualifying):
+        raise ValueError("certInfo does not answer this block's challenge")
+    o += 17 + 8                                            # clockInfo + firmwareVersion
+    name_len = int.from_bytes(cert_info[o:o + 2], "big")
+    certified = cert_info[o + 2:o + 2 + name_len]
+    if not hmac.compare_digest(certified, aik_name(pub_area)):
+        raise ValueError("the certified object is not the enrolled attestation key")
+    n, e = pub_area_rsa(pub_area)
+    if not verify_rsassa_sha256(n, e, cert_info, signature):
+        raise ValueError("certInfo signature does not verify under the enrolled attestation key")
+    return f"certify by RSA-{n.bit_length()} enrolled key"
+
+
+def _der(tag: int, body: bytes) -> bytes:
+    if len(body) < 0x80:
+        return bytes([tag, len(body)]) + body
+    n = len(body).to_bytes((len(body).bit_length() + 7) // 8, "big")
+    return bytes([tag, 0x80 | len(n)]) + n + body
+
+
+def _der_int(v: int) -> bytes:
+    b = v.to_bytes((v.bit_length() + 8) // 8, "big")        # the extra byte keeps it positive
+    return _der(0x02, b)
+
+
+def pub_area_spki(pub_area: bytes) -> bytes:
+    """A TPMT_PUBLIC's RSA key as a SubjectPublicKeyInfo. make_credential takes SPKI because that is the form
+    the kernel returns from an endorsement CERTIFICATE; when the key comes straight out of a chip instead
+    there is no certificate to lift it from, so it is assembled here. Thirty lines of DER rather than a
+    dependency the node's runtime does not have."""
+    n, e = pub_area_rsa(pub_area, require_scheme=False)
+    rsa_pub = _der(0x30, _der_int(n) + _der_int(e))
+    alg = _der(0x30, _der(0x06, bytes.fromhex("2a864886f70d010101")) + _der(0x05, b""))
+    return _der(0x30, alg + _der(0x03, b"\x00" + rsa_pub))

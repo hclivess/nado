@@ -116,6 +116,16 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                      logger=logger, revert=revert)
         return
 
+    # --- VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
+    #     the four-message proof that an attestation key lives inside a vendor-certified chip. Fee-exempt, no
+    #     coin movement, one consensus row per enrolment. Revert-symmetric: apply journals the WHOLE previous
+    #     record (or None when it created the row), so a rollback restores the exact prior state — the state
+    #     machine is not invertible step by step, and re-deriving "what it was before" would be a second
+    #     implementation of the rules with its own bugs.
+    if recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
+        apply_tpm_enrol_tx(transaction, block_height, revert=revert)
+        return
+
     # --- STAKING POOLS (protocol.POOL_HEIGHT): pool terms, delegate, undelegate — schemaless account fields, journaled ---
     if recipient in ("pool", "delegate", "undelegate"):
         apply_pool_tx(transaction, revert=revert)
@@ -853,6 +863,65 @@ def apply_pool_tx(transaction, revert=False):
         kv_ops.account_set_field(sender, "pool_to", new_to)
     else:
         kv_ops.account_del_field(sender, "pool_to")
+
+
+def apply_tpm_enrol_tx(transaction, block_height, revert=False):
+    """Apply / revert one of the four enrolment messages (ops/tpm_enrol).
+
+    APPLY RE-RUNS THE STATE MACHINE rather than trusting validation. Validation ran the same transition as a
+    dry run against the record as it stood then; between then and now another transaction in this very block
+    may have changed it (two challengers landing together is the ordinary case). Only the transition applied
+    HERE, against the record as it actually is, decides the state — the same discipline every other
+    order-sensitive apply follows.
+    """
+    from ops import kv_ops, tpm_enrol as _te
+    from protocol import CHAIN_ID
+    recipient, sender = transaction["recipient"], transaction["sender"]
+    data = transaction.get("data") or {}
+    h = int(block_height)
+
+    if recipient == "tpm_enrol":
+        from ops import attest_native
+        chain = [bytes.fromhex(x) for x in data["ek"]]
+        pub = bytes.fromhex(data["pub"])
+        ek = attest_native.verify_ek(chain, _tpm_anchor_time(h))
+        eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
+    else:
+        eid = str(data["id"])
+
+    if revert:
+        found, prev = kv_ops.tpm_enrol_revert_pop(h, eid)
+        if not found:
+            return                      # a block from before the gate: nothing was written, nothing to undo
+        if prev is None:
+            kv_ops.tpm_enrol_del(eid)   # this message CREATED the row
+        else:
+            kv_ops.tpm_enrol_set(eid, prev)
+        return
+
+    prev = kv_ops.tpm_enrol_get(eid)
+    kv_ops.tpm_enrol_revert_put(h, eid, prev)
+    if recipient == "tpm_enrol":
+        rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
+                             _te.aik_name_hex(pub), pub, sender, h,
+                             _tpm_challengers_for(eid, h))
+    elif recipient == "tpm_challenge":
+        rec = _te.apply_challenge(prev, sender, bytes.fromhex(data["blob"]), bytes.fromhex(data["enc"]), h)
+    elif recipient == "tpm_commit":
+        rec = _te.apply_commit(prev, sender, str(data["commit"]), h)
+    else:
+        rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h)
+    kv_ops.tpm_enrol_set(eid, rec)
+
+
+def _tpm_anchor_time(block_height):
+    from ops.transaction_ops import _anchor_time
+    return _anchor_time({}, block_height)
+
+
+def _tpm_challengers_for(enrol_id_hex, block_height):
+    from ops.transaction_ops import _tpm_challengers
+    return _tpm_challengers(enrol_id_hex, block_height)
 
 
 def apply_msgkey(address, kem_pub, txid, logger, revert=False):

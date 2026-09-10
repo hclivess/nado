@@ -84,7 +84,7 @@ def main():
              for c in picked}
 
     def fresh():
-        return E.new_record(ek_id, name_hex, pub, "owner1", 100, picked)
+        return E.new_record(ek_id, ek_spki, name_hex, pub, "owner1", 100, picked)
 
     rec = fresh()
     for i, c in enumerate(picked):
@@ -92,7 +92,7 @@ def main():
     commitment = credential_commitment(b"".join(secrets[c] for c in sorted(picked)))
     rec = E.apply_commit(rec, "owner1", commitment, 110)
     for i, c in enumerate(picked):
-        rec = E.apply_reveal(rec, c, secrets[c], seeds[c], ek_spki, 111 + i)
+        rec = E.apply_reveal(rec, c, secrets[c], seeds[c], 111 + i)
     check("an honest enrolment reaches proven", rec["state"] == E.STATE_PROVEN, rec["state"])
     check("the proven key names the chip and the attestation key",
           E.proven_key(rec) == f"{ek_id}:{name_hex}")
@@ -122,16 +122,16 @@ def main():
     # the block can pick its commitment after seeing the secret.
     c0 = picked[0]
     refuses("a reveal in the commitment's own block",
-            lambda: E.apply_reveal(r3, c0, secrets[c0], seeds[c0], ek_spki, 110))
+            lambda: E.apply_reveal(r3, c0, secrets[c0], seeds[c0], 110))
     refuses("a challenger revealing a secret it did not seal",
-            lambda: E.apply_reveal(r3, c0, os.urandom(32), seeds[c0], ek_spki, 111))
+            lambda: E.apply_reveal(r3, c0, os.urandom(32), seeds[c0], 111))
     refuses("a challenger revealing a different seed",
-            lambda: E.apply_reveal(r3, c0, secrets[c0], os.urandom(32), ek_spki, 111))
+            lambda: E.apply_reveal(r3, c0, secrets[c0], os.urandom(32), 111))
     refuses("a reveal from a challenger with nothing sealed",
-            lambda: E.apply_reveal(r3, "outsider", secrets[c0], seeds[c0], ek_spki, 111))
-    r4 = E.apply_reveal(r3, c0, secrets[c0], seeds[c0], ek_spki, 111)
+            lambda: E.apply_reveal(r3, "outsider", secrets[c0], seeds[c0], 111))
+    r4 = E.apply_reveal(r3, c0, secrets[c0], seeds[c0], 111)
     refuses("a second reveal from the same challenger",
-            lambda: E.apply_reveal(r4, c0, secrets[c0], seeds[c0], ek_spki, 112))
+            lambda: E.apply_reveal(r4, c0, secrets[c0], seeds[c0], 112))
     check("one reveal short is not proven", r4["state"] == E.STATE_COMMITTED)
     try:
         E.proven_key(r4)
@@ -149,10 +149,10 @@ def main():
         rb = E.apply_challenge(rb, c, blobs[c][0], blobs[c][1], 101 + i)
     rb = E.apply_commit(rb, "owner1", bad, 110)
     for c in picked[:-1]:
-        rb = E.apply_reveal(rb, c, secrets[c], seeds[c], ek_spki, 111)
+        rb = E.apply_reveal(rb, c, secrets[c], seeds[c], 111)
     last = picked[-1]
     refuses("a client that only opened some of its challenges",
-            lambda: E.apply_reveal(rb, last, secrets[last], seeds[last], ek_spki, 112))
+            lambda: E.apply_reveal(rb, last, secrets[last], seeds[last], 112))
 
     # AND A CHIP-FREE FABRICATION MUST BE UNREACHABLE THROUGH THIS INTERFACE. The client can compute a
     # perfectly valid blob for its own secret — the state machine refuses it because the client is not one of
