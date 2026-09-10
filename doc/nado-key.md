@@ -507,6 +507,12 @@ adapter. Use either a ready **breakout module** (Adafruit #4314, SparkFun's Cryp
 the older ATECC608**A**, functionally identical for `GenKey` + P-256 `Sign`) for zero soldering, or
 **`ATECC608B-SSHDA`**, the same TrustCustom config in hand-solderable **SOIC-8**, with a ~20 CZK SOIC-8 to DIP-8 adapter.
 
+A Qwiic / STEMMA QT breakout is fine — that connector is plain I2C (3.3 V, GND, SDA, SCL) and such boards normally
+carry 0.1" pads as well. **Check the lock state before wiring anything**: the config and data zones lock PERMANENTLY, and
+a board that ships already locked can never take our slot configuration. Read the config zone's lock bytes over I2C —
+`0x55` unlocked, `0x00` locked. Adafruit's #4314 is documented as configurable; generic clones are unknown, so buy two or
+three and check on arrival. `608A` versus `608B` does not matter for `GenKey` + P-256 `Sign`.
+
 Related trap on the prototyping board: a "prototypová univerzální deska / perfboard (2,54 mm, SMD/THT)" is bare copper
 pads and must be soldered. Male jumper wires need a SOLDERLESS breadboard (the plastic one with spring contacts). Buy
 both if you want a prototype now and a permanent build later.

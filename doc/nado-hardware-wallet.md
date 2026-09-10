@@ -83,6 +83,7 @@ a custom PCB. Roughly **525 CZK (~EUR 21)**.
 | 2x **tactile switch** | any 6 mm through-hole part | confirm and reject as DISTINCT actions. One button forces short/long-press, a bad idea for money | ~5 CZK |
 | **breadboard + jumper wires** | 400-point board, male-male jumpers | no soldering while prototyping | ~80 CZK |
 | **micro-USB cable** | micro-USB B — the Pico 2 did NOT move to USB-C | power, flashing, and the CTAP/HID link to the browser | ~30 CZK |
+| **Qwiic / STEMMA QT to male-jumper cable** | JST SH 4-pin to 4 male pins | only if the ATECC breakout uses a Qwiic/STEMMA QT connector: the Pico has no such socket, and this avoids soldering headers to the board's 0.1" pads | ~60 CZK |
 
 **ATECC608B package trap.** The order code has two independent parts and only one of them is the variant. `…DA…`
 is what you want — TrustCustom, blank and customer-configurable, as opposed to `-TNGTLS`. But the package code decides
@@ -91,6 +92,12 @@ realistically a stencil, which fits neither a breadboard nor a 2.54 mm perfboard
 adapter. Use either a ready **breakout module** (Adafruit #4314, SparkFun's Cryptographic Co-processor — that one carries
 the older ATECC608**A**, functionally identical for `GenKey` + P-256 `Sign`) for zero soldering, or
 **`ATECC608B-SSHDA`**, the same TrustCustom config in hand-solderable **SOIC-8**, with a ~20 CZK SOIC-8 to DIP-8 adapter.
+
+A Qwiic / STEMMA QT breakout is fine — that connector is plain I2C (3.3 V, GND, SDA, SCL) and such boards normally
+carry 0.1" pads as well. **Check the lock state before wiring anything**: the config and data zones lock PERMANENTLY, and
+a board that ships already locked can never take our slot configuration. Read the config zone's lock bytes over I2C —
+`0x55` unlocked, `0x00` locked. Adafruit's #4314 is documented as configurable; generic clones are unknown, so buy two or
+three and check on arrival. `608A` versus `608B` does not matter for `GenKey` + P-256 `Sign`.
 
 Related trap on the prototyping board: a "prototypová univerzální deska / perfboard (2,54 mm, SMD/THT)" is bare copper
 pads and must be soldered. Male jumper wires need a SOLDERLESS breadboard (the plastic one with spring contacts). Buy
