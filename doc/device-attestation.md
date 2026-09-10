@@ -167,10 +167,19 @@ was offline, proxied or on a filtered network at that moment answers without att
 then removing and re-creating the Hello PIN while online. The wallet's `device.guide.winAik` says exactly
 this; VBS is step 4, not step 1.
 
-If `certreq` returns **404**, that is Microsoft's AIK CA saying it has no authority for this TPM — usually because
-the chip carries no manufacturer endorsement certificate (`Get-TpmEndorsementKeyInfo -Hash Sha256` shows an empty
-`ManufacturerCertificates`). That PC cannot attest through Windows Hello however healthy `tpm.msc` looks, and the
-answer is a hardware wallet or "attest from another device", not clearing the TPM.
+If `certreq` returns **404**, that is Microsoft's AIK CA saying it has no authority for this TPM. Read
+`Get-TpmEndorsementKeyInfo -Hash Sha256` before concluding anything:
+
+- `ManufacturerCertificates` **empty** — the chip never got an endorsement certificate; that PC cannot attest.
+- `ManufacturerCertificates` **present** and still 404 — the case actually observed (2026-09-10): an Intel PTT on
+  Alder Lake with a factory EK certificate (`TPMManufacturer=id:494E5443`, `TPMModel=ADL`, issuer
+  `CN=CSME ADL PTT 01SVN`, valid 2021→2050) and **`AdditionalCertificates : {}`** — the issuing chain above the
+  EK certificate is not on the machine. Microsoft names its AIK CAs after the *Intel issuing CA's* key id (the
+  working machine in the same household enrolled through `INTC-KeyId-ea950d98…`, i.e.
+  `CN=www.intel.com, OU=ODCA 2 CSME P_ADL 00002983 Issuing CA`), so without that chain there is no CA to enrol
+  against. The OEM's BIOS + Intel ME/CSME firmware package is what re-provisions it.
+
+Never clear the TPM to chase either case: it destroys BitLocker recovery material and restores no chain.
 
 Pure Rust (`ciborium`, `x509-parser`, `p256`, `p384`, `rsa`, `sha1`/`sha2`), no network, deterministic,
 bound through ctypes (`ops/attest_native.py`, no Python fallback). Tests: openssl-built chains for all
