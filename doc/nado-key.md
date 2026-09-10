@@ -491,6 +491,18 @@ hundred sticks gives a hundred sticks one leaf, the chain collapses them to a si
 worthless. Per-unit key generation on the device plus per-unit signing from an offline root IS the provisioning line,
 and it is where the cost and the trust both sit.
 
+**Parts list for the token alone** (the combined attestation + wallet build is in `doc/nado-hardware-wallet.md`):
+
+| part | exact variant matters | approx |
+|---|---|---|
+| Raspberry Pi **Pico** or **Pico 2 H** | the `H` has headers pre-soldered; a bare Pico is fine for attestation only | ~120-150 CZK |
+| **Microchip ATECC608B** breakout | **blank / TrustCustom**, NOT `-TNGTLS`. Buy three — the zones lock permanently | ~200 CZK for 3 |
+| micro-USB cable | micro-USB B on both Pico and Pico 2 | ~30 CZK |
+
+The ATECC608B is optional for a first spike (attestation works on a bare board, with BOOTSEL as the user-presence
+button) and is what turns the result from "demo with an extractable key" into a device whose key never leaves the chip.
+No display and no buttons are needed: an attestation token makes no decisions.
+
 **Do NOT buy an LPC55S69-EVK.** Checked 2026-09-10 because it looks like the obvious way to get the PUF chip. It is
 an evaluation board for chip bring-up — 222 g, four USB ports, microSD, Pmod, mikroBUS, two 3.5 mm jacks — not a
 dongle, and `pico-fido` cannot run on it: the build targets the Pico SDK (RP2040/RP2350) or ESP32 and has no NXP/LPC

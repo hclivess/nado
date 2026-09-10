@@ -72,18 +72,31 @@ If combined, the recovery story must cover both: a lost device means a lost bala
 
 ## Parts
 
-For the combined device, all orderable, roughly 500 CZK (~EUR 20) total:
+The complete bill of materials for the combined attestation + wallet device. Everything is off the shelf; nothing needs
+a custom PCB. Roughly **525 CZK (~EUR 21)**.
 
-| part | why | approx |
-|---|---|---|
-| Raspberry Pi **Pico 2** (RP2350) | Cortex-M33 for the ML-DSA cross-compile, 520 KB SRAM, secure-boot support. NOT the original Pico: RP2040 is Cortex-M0+ with no secure boot | ~150 CZK |
-| SSD1306 0.96" I2C OLED | the confirmation display, 4 wires | ~60 CZK |
-| 2x tactile switch | confirm and reject as DISTINCT actions; one button forces short/long-press, which is a bad idea for money | ~5 CZK |
-| **Microchip ATECC608B** breakout (Adafruit/SparkFun), blank / TrustCustom variant — NOT `-TNGTLS`, which ships locked with Microchip's own certificates | holds the P-256 **attestation** key so it never leaves the chip (`GenKey` generates it inside; the private half is unreadable even by our firmware). Cannot hold the ML-DSA spending key — see below — but a combined device needs it for the attestation half. Config and data zones lock PERMANENTLY, so buy three | ~200 CZK for 3 |
-| breadboard + jumpers | avoids soldering while prototyping | ~80 CZK |
+| part | exact variant matters | why | approx |
+|---|---|---|---|
+| Raspberry Pi **Pico 2 H** (RP2350) | the **H** — headers pre-soldered. Without it you are soldering 40 pins. NOT the original Pico: RP2040 is Cortex-M0+ with no secure boot | Cortex-M33 is what makes the ML-DSA cross-compile (`thumbv8m.main-none-eabi`) sane; 520 KB SRAM; RP2350 supports secure boot | ~150 CZK |
+| **SSD1306** 0.96" 128x64 OLED | the **4-pin I2C** module, not the 7-pin SPI one | the confirmation display. I2C address `0x3C` | ~60 CZK |
+| **Microchip ATECC608B** breakout (Adafruit / SparkFun) | **blank / TrustCustom**, NOT `-TNGTLS` (ships locked with Microchip's own certificates). Buy **three**: the config and data zones lock PERMANENTLY, so a provisioning mistake bricks one | holds the P-256 **attestation** key: `GenKey` generates the pair inside the chip and the private half is unreadable even by our firmware. Cannot hold the ML-DSA spending key — see below. I2C address `0x60` | ~200 CZK for 3 |
+| 2x **tactile switch** | any 6 mm through-hole part | confirm and reject as DISTINCT actions. One button forces short/long-press, a bad idea for money | ~5 CZK |
+| **breadboard + jumper wires** | 400-point board, male-male jumpers | no soldering while prototyping | ~80 CZK |
+| **micro-USB cable** | micro-USB B — the Pico 2 did NOT move to USB-C | power, flashing, and the CTAP/HID link to the browser | ~30 CZK |
 
-Buttons are not strictly required to *start*: `pico-fido` takes user presence from a button and on a bare board that is
-BOOTSEL, so attestation works with nothing attached. They become necessary the moment the device signs value.
+**Wiring is trivial because both I2C devices share one bus.** The OLED (`0x3C`) and the ATECC608B (`0x60`) sit on the
+same SDA/SCL pair, so the whole build is **two GPIO pins** plus power and the two buttons. No level shifters, no pull-up
+resistors beyond what the breakout boards already carry, no bus conflict.
+
+**Bring-up order**, so a failure tells you which part broke:
+
+1. Patched firmware on a bare Pico, nothing attached — attestation works, using BOOTSEL as the user-presence button.
+2. Add the OLED. Display only; still no key custody.
+3. Add the ATECC608B and move the attestation key into it.
+4. Only then the buttons and the signing path.
+
+Buttons are not required to *start*: `pico-fido` takes user presence from a button and on a bare board that is BOOTSEL.
+They become necessary the moment the device signs value.
 
 ## Secure elements: what one can and cannot hold
 
