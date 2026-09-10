@@ -36,6 +36,51 @@ The current build is a **probe**: it reports what the machine can do and dumps t
 because the claim blob layout is the one piece Microsoft does not publicly specify and must not be guessed.
 It submits nothing.
 
+## The claim blob, decoded (measured 2026-09-10 — none of this is documented by Microsoft)
+
+`NCryptCreateClaim(subject, authority, NCRYPT_CLAIM_AUTHORITY_AND_SUBJECT = 0x03, params, ...)` returns:
+
+```
+KAST header, 28 bytes
+  0x00 "KAST"   0x04 version=1   0x08 field8=2   0x0c cbHeader=28
+  0x10 cbSection1   0x14 cbSection2   0x18 cbSection3      (28 + the three = total length)
+
+  section 1  a TPMS_ATTEST of type 0x801a  TPM_ST_ATTEST_CREATION
+  section 2  "KADS": header 24 bytes, then cbCertifyInfo @+12, cbSignature @+16, cbKeyBlob @+20,
+             followed by certInfo || signature || keyBlob back to back.
+             certInfo is the TPMS_ATTEST of type 0x8017  TPM_ST_ATTEST_CERTIFY  <- what WebAuthn wants
+  section 3  (unused by us)
+
+  keyBlob is a PCP blob: "PCPM", cbHeader=56, cbPublic @+16, cbPrivate @+20, cbPolicyDigestList @+32.
+             The credential key's TPM2B_PUBLIC — the `pubArea` — starts at cbHeader.
+```
+
+Worked example, a real 2853-byte claim: sections 834 / 1221 / 770 (28+834+1221+770 = 2853); KADS at 862;
+certInfo at 886, 173 bytes; signature at 1059, 256 bytes; keyBlob at 1315, 768 bytes; and 24+173+256+768 = 1221.
+
+**The nonce constant is the whole game.** A claim made with no parameter list has `extraData` EMPTY, and
+`native/attest` requires `certInfo.extraData == hash(authData || clientDataHash)` — the anti-replay binding that
+ties a statement to one wallet and one landing block. Pass the challenge through `pParameterList` as:
+
+| buffer type | value | where the nonce lands |
+|---|---|---|
+| `NCRYPTBUFFER_CLAIM_KEYATTESTATION_NONCE` | **49** | the **0x8017 CERTIFY** attest — **this is the one** |
+| `NCRYPTBUFFER_CLAIM_IDBINDING_NONCE` | 48 | the 0x801a CREATION attest — binds nothing we verify |
+
+Values that cost a round trip each by being guessed rather than read out of the SDK header: 20/21 are
+`SSL_CLIENT_RANDOM`/`SSL_SERVER_RANDOM` (answer: `NTE_INVALID_PARAMETER`), and `AUTHORITY_AND_SUBJECT` is 0x03,
+not 0x02 — 0x02 is `SUBJECT_ONLY`, which silently produces a claim with no authority half at all.
+
+So the client flow is: build `authData` and `clientDataJSON`, compute `sha256(authData || sha256(cdj))`, pass
+those 32 bytes as buffer type 49, then lift `certInfo`, `sig` and `pubArea` straight out of the blob.
+
+**Still open:** `x5c`. The AIK certificate exists only where Microsoft will certify the chip, which is precisely
+the machine class this tool was written for. On a 404 machine the chip signs a perfectly good certify with an
+AIK that has no certificate — hence phase 2. Every `PCP_EK*CERT` property answers 8 bytes (a pointer) on both a
+provider and a key handle, while `PCP_EKPUB` returns a real 283-byte RSA1 blob, so the endorsement certificate
+needs a different route: `TPM2_NV_Read` of the TCG index over TBS. Both keys' TPM handles are readable via
+`PCP_PLATFORMHANDLE` (measured: 0x80fffffd and 0x80fffff2), so a raw-TPM path is open if it is ever needed.
+
 ## Threat model — a patched binary must buy nothing
 
 **The security does not live in this program.** It is a courier. Every step it performs is checked by
