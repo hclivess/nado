@@ -208,7 +208,7 @@ fn main() {
     // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
     // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
     // instead of a window that vanishes.
-    println!("nado-tpm-attest 0.6 starting...");
+    println!("nado-tpm-attest 0.7 starting...");
     std::panic::set_hook(Box::new(|info| {
         println!();
         println!("  SOMETHING WENT WRONG: {info}");
@@ -319,15 +319,22 @@ fn main() {
             match unsafe { make_claim(key, aik, Some((&probe_nonce, kind))) } {
                 Err(rc) => println!(" {}  0x{rc:08x}", bad("no")),
                 Ok(b) => {
-                    if blob_binds(&b, &probe_nonce) {
-                        println!(" {}  extraData carries our nonce ({} bytes)", ok("YES"), b.len());
+                    let table: Vec<String> = find_attests(&b).into_iter()
+                        .filter_map(|o| attest_at(&b, o).map(|(t, _, e)| {
+                            let mine = if e == probe_nonce { "<-NONCE" } else { "" };
+                            format!("@{o}/0x{t:04x}/extra{}{}", e.len(), mine)
+                        })).collect();
+                    let certify_bound = find_attests(&b).into_iter()
+                        .filter_map(|o| attest_at(&b, o))
+                        .any(|(t, _, e)| t == 0x8017 && e == probe_nonce);
+                    if certify_bound {
+                        println!(" {}  nonce is in the CERTIFY attest ({} bytes)", ok("YES"), b.len());
                         winner = Some(kind); proof = Some(b);
+                    } else if blob_binds(&b, &probe_nonce) {
+                        println!(" {}  nonce present but NOT in 0x8017 [{}]", warn("wrong attest"), table.join(" "));
+                        if proof.is_none() { proof = Some(b); }
                     } else {
-                        let found: Vec<String> = find_attests(&b).into_iter()
-                            .filter_map(|o| attest_at(&b, o).map(|(t, _, e)| format!("@{o} type=0x{t:04x} extra={}", e.len())))
-                            .collect();
-                        println!(" {}  {} bytes; attests: {}", warn("no"), b.len(),
-                                 if found.is_empty() { "none".into() } else { found.join(", ") });
+                        println!(" {}  {} bytes [{}]", warn("no"), b.len(), table.join(" "));
                     }
                 }
             }
@@ -384,16 +391,30 @@ fn main() {
     // vendor-signed anchor an AMD/Intel chip carries even when Microsoft refuses to certify an AIK for it,
     // so reading it here means the eventual EK -> AIK handshake needs no PowerShell and no user typing.
     println!();
+    println!("  {}", head("raw-TPM fallback groundwork"));
+    for (h, label) in [(key, "credential key"), (aik, "AIK")] {
+        match unsafe { get_prop(h, NCRYPT_PCP_PLATFORMHANDLE_PROPERTY) } {
+            Some(v) if v.len() == 4 => println!("  {label} TPM handle = 0x{:08x}",
+                                                u32::from_le_bytes([v[0], v[1], v[2], v[3]])),
+            Some(v) => println!("  {label} PCP_PLATFORMHANDLE = {} {}", v.len(), hex(&v)),
+            None => println!("  {label} PCP_PLATFORMHANDLE = none"),
+        }
+    }
+
+    println!();
     println!("  {}", head("endorsement key (for the Microsoft-free path)"));
     for (prop, label) in [(NCRYPT_PCP_EKCERT_PROPERTY, "PCP_EKCERT"),
                           (NCRYPT_PCP_RSA_EKCERT_PROPERTY, "PCP_RSA_EKCERT"),
                           ("PCP_EKNVCERT", "PCP_EKNVCERT"),
                           ("PCP_RSA_EKNVCERT", "PCP_RSA_EKNVCERT"),
                           (NCRYPT_PCP_EKPUB_PROPERTY, "PCP_EKPUB")] {
-        match unsafe { get_prop(prov, prop) } {
-            Some(v) => println!("  {label}={} {}", v.len(), hex(&v[..v.len().min(24)])),
-            None => println!("  {label}=none"),
-        }
+        let on_prov = unsafe { get_prop(prov, prop) };
+        let on_key = if have_aik { unsafe { get_prop(aik, prop) } } else { None };
+        let show = |w: &str, v: &Option<Vec<u8>>| match v {
+            Some(v) => format!("{w}{} {}", v.len(), hex(&v[..v.len().min(20)])),
+            None => format!("{w}none"),
+        };
+        println!("  {label}: prov={} aik={}", show("", &on_prov), show("", &on_key));
     }
 
     if have_key { unsafe { NCryptDeleteKey(key, 0) }; }
