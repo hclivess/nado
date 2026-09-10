@@ -13,7 +13,7 @@
 //!
 //! Cross-built from Linux: cargo build --release --target x86_64-pc-windows-gnu
 
-use super::win::*;
+use nado_tpm_attest::win::*;
 use nado_tpm_attest::sha::{sha256, sha256_hex};
 use nado_tpm_attest::webauthn::*;
 use std::io::Write;

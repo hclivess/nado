@@ -4,7 +4,7 @@
 //! when the DLL is absent, which presents to the user as a crash with no output whatsoever.
 #![allow(dead_code)]
 
-use nado_tpm_attest::tpm::Tpm;
+use crate::tpm::Tpm;
 use std::ffi::c_void;
 
 

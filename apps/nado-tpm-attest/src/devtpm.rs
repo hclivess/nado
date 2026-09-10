@@ -11,7 +11,7 @@
 //! manager is absent (older kernels), and then FlushContext discipline is not optional.
 #![allow(dead_code)]
 
-use nado_tpm_attest::tpm::Tpm;
+use crate::tpm::Tpm;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;

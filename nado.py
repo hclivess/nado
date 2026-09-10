@@ -1295,6 +1295,79 @@ def _tpm_enrol_gc():
         _tpm_enrol.pop(k, None)
 
 
+async def tpm_enrol_id(request):
+    """POST {"ek": [<hex DER>...], "pub": <hex>} -> {"id": <32 hex>}.
+
+    The enrolment id is DERIVED from public content, so the client could compute it itself — it asks
+    instead so there is ONE implementation of that derivation rather than two that must be kept in
+    step. This verifies nothing and grants nothing: it is a hash of values the caller already holds.
+    """
+    from ops import tpm_enrol as _te
+    from protocol import CHAIN_ID as _cid
+    from ops import attest_native as _an
+    try:
+        body = await request.json()
+        chain = [bytes.fromhex(x) for x in (body.get("ek") or [])]
+        pub = bytes.fromhex(str(body.get("pub") or ""))
+        if not chain or not pub:
+            return _resp({"error": "need ek chain and pub"}, status=400)
+        now = int((memserver.latest_block or {}).get("block_timestamp") or time.time())
+        ek = _an.verify_ek(chain, now)
+        if not ek.get("ok"):
+            return _resp({"error": f"endorsement certificate rejected: {ek.get('reason')}"}, status=400)
+        return _resp({"id": _te.enrol_id(_cid, str(ek["identity"]), _te.aik_name_hex(pub)),
+                      "ek": ek["identity"], "manufacturer": ek.get("manufacturer")})
+    except Exception as e:
+        return _resp({"error": str(e)[:200]}, status=400)
+
+
+async def register_challenge(request):
+    """POST {"sender": <address>, "max_block": <int>} -> {"challenge": <64 hex>, "anchor": <hash>}.
+
+    The 32 bytes a device must attest over. Derived from the chain, the sender, the anchor block and
+    the landing height, so an attestation can never be replayed for another identity or another lease.
+    Served so a client does not have to reproduce the chain's hash of those four things; the value is
+    public and computing it grants nothing, since producing an attestation OVER it still needs the chip.
+    """
+    from ops.transaction_ops import register_device_challenge
+    from ops.block_ops import get_block_hash_by_number
+    from protocol import POSW_ANCHOR_OFFSET as _off
+    try:
+        body = await request.json()
+        sender = str(body.get("sender") or "")
+        max_block = int(body.get("max_block") or 0)
+        if not sender or max_block <= 0:
+            return _resp({"error": "need sender and max_block"}, status=400)
+        anchor = get_block_hash_by_number(max(0, max_block - _off))
+        if not anchor:
+            return _resp({"error": "anchor block unavailable on this node"}, status=503)
+        return _resp({"challenge": register_device_challenge(sender, anchor, max_block).hex(),
+                      "anchor": anchor})
+    except Exception as e:
+        return _resp({"error": str(e)[:200]}, status=400)
+
+
+async def tpm_enrolment(request):
+    """GET /tpm_enrolment?id=<32 hex> — the on-chain enrolment record, or {"found": false}.
+
+    The client half of doc/tpm-attestation-without-a-ca.md needs exactly this: a machine that published
+    an enrolment has to see when its drawn challengers have answered (so it can activate them in its
+    chip) and when the reveals have landed (so it can register). It derives the id itself from its own
+    chip, so nothing here is a lookup by identity — a caller can only read a record it can already name.
+
+    PUBLIC AND READ-ONLY. Every field is consensus state that any node can serve; the secrets in it were
+    published by their own challengers, and the whole point of the construction is that a verifier
+    re-derives the proof from public values."""
+    from ops import kv_ops as _kv
+    eid = str(request.query.get("id", ""))
+    if len(eid) != 32 or any(c not in "0123456789abcdef" for c in eid):
+        return _resp({"found": False, "error": "malformed enrolment id"}, status=400)
+    rec = _kv.tpm_enrol_get(eid)
+    if not rec:
+        return _resp({"found": False})
+    return _resp({"found": True, "id": eid, **rec})
+
+
 async def tpm_enrol_challenge(request):
     """POST {ek_chain: [b64 DER, ...], aik_pub: b64} -> {nonce, credential_blob, encrypted_secret}.
 
@@ -2739,6 +2812,9 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.get("/tpm_enrolment", tpm_enrolment),
+        web.post("/tpm_enrol_id", tpm_enrol_id),
+        web.post("/register_challenge", register_challenge),
         web.post("/tpm_enrol_challenge", tpm_enrol_challenge),
         web.post("/tpm_enrol_reveal", tpm_enrol_reveal),
         web.get("/pools", pools),

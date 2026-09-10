@@ -3,8 +3,16 @@ name = "nado-tpm-attest"
 version = "0.1.0"
 edition = "2021"
 
-# NO DEPENDENCIES ON PURPOSE: this is cross-compiled for Windows from the Linux fleet host
-# (cargo build --release --target x86_64-pc-windows-gnu) and must build offline.
+# Cross-compiled for Windows from the Linux fleet host
+# (cargo build --release --target x86_64-pc-windows-gnu).
+#
+# THREE DEPENDENCIES, ALL PURE RUST, chosen so the Windows cross-build needs no C toolchain and no
+# vendored OpenSSL. HTTP is hand-rolled over std::net (the relay speaks plain http on 9173), which is
+# why there is no ureq/reqwest here: pulling in TLS is what turns this cross-build into a project.
+#
+# ml-dsa is the SAME crate native/mldsa44 uses, and it must stay that way — the client signs
+# transactions this chain has to accept, so the signer and the verifier need to be the same
+# implementation of FIPS 204 internal mode.
 
 [lib]
 name = "nado_tpm_attest"
@@ -13,6 +21,11 @@ path = "src/lib.rs"
 [[bin]]
 name = "nado-tpm-attest"
 path = "src/main.rs"
+
+[dependencies]
+ml-dsa = "0.1"
+blake2 = "0.10"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 # Deliberately plain: lto + panic="abort" + strip turn a first-run fault into a silent vanish, which is

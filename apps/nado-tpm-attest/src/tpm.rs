@@ -377,3 +377,74 @@ pub fn flush_all_transient(t: &dyn Tpm) -> usize {
     let handles = transient_handles(t).unwrap_or_default();
     handles.iter().filter(|h| flush(t, **h).is_ok()).count()
 }
+
+// --- THE ENDORSEMENT CERTIFICATE, OUT OF THE CHIP'S OWN NV -------------------------------------------
+//
+// The vendor's signature over the endorsement key is what the whole vendor-endorsed path rests on, and
+// there is no service to fetch it from — the chip carries it, at the indices TCG reserves (EK Credential
+// Profile 2.2.1.4).
+//
+// THE CHUNKING IS THE PART THAT MATTERS. TPM_PT_NV_BUFFER_MAX is 512 on some parts and 1024 on others,
+// and real endorsement certificates are 1-2 KiB, so a reader that issues one NV_Read gets a TRUNCATED
+// certificate and no error at all — which then fails chain verification later, pointing at the wrong
+// thing entirely.
+
+pub const NV_EK_CERT_RSA: u32 = 0x01C0_0002;
+pub const NV_EK_CERT_ECC: u32 = 0x01C0_000A;
+const CC_NV_READ: u32 = 0x0000_014E;
+const CC_NV_READ_PUBLIC: u32 = 0x0000_0169;
+const NV_CHUNK: u16 = 512;
+
+/// The declared data size of an NV index, or None when it is not defined.
+pub fn nv_size(t: &dyn Tpm, index: u32) -> Option<u16> {
+    let mut c = Cmd::new(ST_NO_SESSIONS, CC_NV_READ_PUBLIC);
+    c.u32(index);
+    let raw = t.transmit(&c.finish()).ok()?;
+    let mut r = Rsp::parse(&raw)?;
+    if !r.ok() {
+        return None;
+    }
+    let pub_area = r.tpm2b()?;
+    // TPMS_NV_PUBLIC: nvIndex(4) nameAlg(2) attributes(4) authPolicy(TPM2B) dataSize(2)
+    let policy_len = u16::from_be_bytes([*pub_area.get(10)?, *pub_area.get(11)?]) as usize;
+    let o = 12 + policy_len;
+    Some(u16::from_be_bytes([*pub_area.get(o)?, *pub_area.get(o + 1)?]))
+}
+
+/// Read `size` bytes from an NV index, in chunks the chip will accept. Authorised as the OWNER, which
+/// is what the endorsement certificate indices expect and what `tpm2_nvread -C o` does.
+pub fn nv_read(t: &dyn Tpm, index: u32, size: u16) -> Result<Vec<u8>, u32> {
+    let mut out: Vec<u8> = Vec::with_capacity(size as usize);
+    while out.len() < size as usize {
+        let want = NV_CHUNK.min(size - out.len() as u16);
+        let mut c = Cmd::new(ST_SESSIONS, CC_NV_READ);
+        c.u32(RH_OWNER).u32(index).pw_auth().u16(want).u16(out.len() as u16);
+        let raw = t.transmit(&c.finish())?;
+        let mut r = Rsp::parse(&raw).ok_or(1u32)?;
+        if !r.ok() {
+            return Err(r.code);
+        }
+        r.u32();                                  // parameterSize
+        let chunk = r.tpm2b().ok_or(1u32)?;
+        if chunk.is_empty() {
+            return Err(1);
+        }
+        out.extend_from_slice(chunk);
+    }
+    Ok(out)
+}
+
+/// The chip's endorsement certificate (DER), or None if it holds none. RSA first: that is the index
+/// populated on the firmware TPMs this path exists for.
+pub fn ek_certificate(t: &dyn Tpm) -> Option<Vec<u8>> {
+    for index in [NV_EK_CERT_RSA, NV_EK_CERT_ECC] {
+        if let Some(size) = nv_size(t, index) {
+            if size > 0 {
+                if let Ok(bytes) = nv_read(t, index, size) {
+                    return Some(bytes);
+                }
+            }
+        }
+    }
+    None
+}

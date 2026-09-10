@@ -59,6 +59,9 @@ extern "system" {
 // call is optional, but the TPM probe is, so it must never be able to prevent the program from running.
 pub type TbsiContextCreate = unsafe extern "system" fn(*const u32, *mut *mut c_void) -> u32;
 pub type TbsipContextClose = unsafe extern "system" fn(*mut c_void) -> u32;
+/// Tbsip_Submit_Command(ctx, locality, priority, cmd, cmdLen, rsp, *rspLen)
+pub type TbsipSubmitCommand = unsafe extern "system" fn(
+    *mut c_void, u32, u32, *const u8, u32, *mut u8, *mut u32) -> u32;
 
 // crypt32 — locating the AIK certificate that certreq installed.
 pub const CERT_SYSTEM_STORE_LOCAL_MACHINE: u32 = 2 << 16;
@@ -180,4 +183,40 @@ pub struct NCryptBufferDesc {
     pub ulVersion: u32,
     pub cBuffers: u32,
     pub pBuffers: *mut NCryptBuffer,
+}
+
+/// Open a TBS context and hand back a usable transport.
+///
+/// WIRED HERE, NOT IN tbs.rs, because this is the module that owns LoadLibrary/GetProcAddress. tbs.rs
+/// stays free of Windows symbol resolution so it can be read as "what the transport does" rather than
+/// "how Windows finds it".
+///
+/// tbs.dll is resolved at RUN time on purpose: a static import makes Windows refuse to start the
+/// process at all when the DLL is absent, which presents to the user as a crash with no output.
+#[cfg(windows)]
+pub fn open_tbs() -> Result<crate::tbs::Tbs, u32> {
+    unsafe {
+        let h = LoadLibraryA(b"tbs.dll\0".as_ptr());
+        if h.is_null() {
+            return Err(0xFFFF_FFFF);
+        }
+        let create = GetProcAddress(h, b"Tbsi_Context_Create\0".as_ptr());
+        let submit = GetProcAddress(h, b"Tbsip_Submit_Command\0".as_ptr());
+        let close = GetProcAddress(h, b"Tbsip_Context_Close\0".as_ptr());
+        if create.is_null() || submit.is_null() || close.is_null() {
+            return Err(0xFFFF_FFFE);
+        }
+        let create: TbsiContextCreate = std::mem::transmute(create);
+        let submit: TbsipSubmitCommand = std::mem::transmute(submit);
+        let close: TbsipContextClose = std::mem::transmute(close);
+        // version 2, includeTpm20 — NOT 1, which is requestRaw alone and yields a context that
+        // refuses every TPM 2.0 command with an error that looks like a missing chip.
+        let params = [2u32, 1u32 << 2];
+        let mut ctx: *mut c_void = std::ptr::null_mut();
+        let rc = create(params.as_ptr(), &mut ctx);
+        if rc != 0 {
+            return Err(rc);
+        }
+        Ok(crate::tbs::Tbs::from_parts(ctx, submit, close))
+    }
 }
