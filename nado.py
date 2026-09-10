@@ -327,6 +327,36 @@ async def relays(request):
 _ATTEST_KERNEL_OK = [None]
 
 
+_TPM_STATE = [None]
+
+
+def _tpm_state() -> str:
+    """What this machine can do on the vendor-endorsed path (doc/tpm-attestation-without-a-ca.md):
+    "none" (no TPM device), "uncertified" (a chip holding no endorsement certificate — a virtual TPM,
+    typically), or "ready".
+
+    ADVERTISED SO THE ANSWER IS VISIBLE FROM OUTSIDE, for the same reason `attest_kernel` is. The
+    question "which of our nodes can attest themselves" was otherwise answerable only by logging into
+    each box, and the honest answer on a rented-server fleet is usually "none of them": a VPS exposes no
+    TPM, or exposes a virtual one whose endorsement key no silicon vendor ever signed. That is not a
+    defect to fix — a virtual TPM's attestation is worth nothing, because whoever runs the hypervisor can
+    mint as many as they like — but it should be a fact anyone can read off /status rather than a
+    surprise. Probed ONCE: a TPM does not appear at runtime, and NV reads are not free.
+    """
+    if _TPM_STATE[0] is not None:
+        return _TPM_STATE[0]
+    try:
+        from ops.tpm_linux import LinuxTpm
+        if not LinuxTpm.present():
+            _TPM_STATE[0] = "none"
+        else:
+            with LinuxTpm() as t:
+                _TPM_STATE[0] = "ready" if t.ek_certificate() else "uncertified"
+    except Exception:
+        _TPM_STATE[0] = "none"
+    return _TPM_STATE[0]
+
+
 def _attest_kernel_ok() -> bool:
     """Whether ops.attest_native can load the native verifier (memoised; re-checked after a failure so a
     rebuild shows up without a restart)."""
@@ -441,6 +471,10 @@ async def status(request):
             # DEVICE ATTESTATION kernel (native/attest): False here is a node that cannot validate register txs
             # once DEVICE_ATTEST_HEIGHT is active — audit the fleet on this field BEFORE the reroll.
             "attest_kernel": _attest_kernel_ok(),
+            # CAN THIS MACHINE ATTEST ITSELF? "none" / "uncertified" / "ready" — see _tpm_state. On a
+            # rented-server fleet this reads "none" almost everywhere, which is the expected answer and
+            # not a fault: self-enrolment is for physical machines, and a VPS has no vendor-certified chip.
+            "tpm": _tpm_state(),
             # WHY it cannot update, and WHY a forked node is not healing itself — both visible from OUTSIDE.
             # `capable` is a bare boolean covering only LOCAL defects, and /log is authenticated, so a remote
             # operator had no way to tell which precondition was vetoing. That guessing is what stretched the
