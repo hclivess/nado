@@ -1728,6 +1728,22 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
     "42524342",  # BRCM Broadcom
     "47004F00",  # GOOG Google (Titan)
 ))
+# VENDOR ENDORSEMENT ROOTS (doc/tpm-attestation-without-a-ca.md). A TPM that Microsoft will not certify still
+# carries a vendor-signed ENDORSEMENT certificate, and that signature is the entire basis for trusting the
+# hardware without auditing anyone's factory. These are pinned SEPARATELY from DEVICE_ATTEST_ROOT_FINGERPRINTS
+# above: those say "this vendor signed this attestation statement", these say "this vendor made this chip".
+# Conflating the two would let an endorsement root validate a statement or an attestation root vouch for a
+# chip, neither of which its owner ever asserted.
+#
+# WHICH ROOTS ARE PINNED IS THE SYBIL DIAL, and it only reverses in the widening direction. A discrete TPM
+# module is ~£15, so pinning Infineon/Nuvoton/ST prices an identity at the cost of a chip; a CPU-vendor fTPM
+# implies a whole machine, so pinning only AMD and Intel prices it an order of magnitude higher. Start narrow.
+#
+# EMPTY MEANS OFF. With no roots pinned the enrolment path verifies nothing and therefore accepts nothing,
+# which is the correct state until the consensus rule that consumes it is gated and live.
+DEVICE_ATTEST_EK_ROOTS = frozenset((
+    # "67bd2472a546751caca5f358a78f80727531671338960a9bcfdfbe6a34d0c6a1",  # AMD fTPM (CN=AMDTPM, 2039)
+))
 # Relying-party ids whose hash may appear in authenticator data: the public wallet hosts. A wallet served from a
 # node's own ip:port attests against that host, so nodes also accept their configured host at validation
 # (transaction_ops adds it); consensus checks only the SET below plus the tx's declared rp id.

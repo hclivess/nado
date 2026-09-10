@@ -98,3 +98,52 @@ def verify(att: bytes, cdj: bytes, challenge: bytes, now_unix: int, roots=None, 
     if n < 0:
         raise AttestKernelUnavailable("kernel returned an error")
     return json.loads(out.raw[:n].decode("utf-8"))
+
+
+def _ek_roots_blob():
+    """Pinned VENDOR endorsement roots (protocol_roots/ek/*.pem), filtered by protocol.DEVICE_ATTEST_EK_ROOTS.
+    Separate from the WebAuthn root set on purpose: these answer "did a silicon vendor certify this chip",
+    which is a different question from "did a vendor sign this attestation statement", and conflating the two
+    would let an endorsement root validate a statement or vice versa."""
+    import protocol as P
+    pinned = frozenset(getattr(P, "DEVICE_ATTEST_EK_ROOTS", ()))
+    out = []
+    d = os.path.join(_REPO, "protocol_roots", "ek")
+    if not pinned or not os.path.isdir(d):
+        return out
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".pem"):
+            continue
+        pem = open(os.path.join(d, name)).read()
+        der = base64.b64decode("".join(l.strip() for l in pem.splitlines() if l and not l.startswith("-----")))
+        if hashlib.sha256(der).hexdigest() in pinned:
+            out.append(der)
+    return out
+
+
+def verify_ek(chain, now_unix: int, roots=None) -> dict:
+    """Verify an endorsement certificate chain to a pinned vendor root. See native/attest/src/ek.rs — this is
+    in the kernel because real vendor certificates are not strictly DER and python cannot read them."""
+    lib = _load()
+    lib.nado_ek_verify.restype = ctypes.c_int64
+    lib.nado_ek_verify.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                                   ctypes.c_int64, ctypes.c_char_p, ctypes.c_size_t]
+    blob = _pack_roots([bytes(c) for c in chain])
+    rblob = _pack_roots(_ek_roots_blob() if roots is None else roots)
+    out = ctypes.create_string_buffer(4096)
+    n = lib.nado_ek_verify(blob, len(blob), rblob, len(rblob), int(now_unix), out, len(out))
+    if n < 0:
+        raise AttestKernelUnavailable("kernel returned an error")
+    return json.loads(out.raw[:n].decode("utf-8"))
+
+
+def ek_public_der(ek_cert_der: bytes) -> bytes:
+    """The endorsement key's SubjectPublicKeyInfo, lifted with the kernel's lenient parser."""
+    lib = _load()
+    lib.nado_ek_public.restype = ctypes.c_int64
+    lib.nado_ek_public.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
+    out = ctypes.create_string_buffer(2048)
+    n = lib.nado_ek_public(ek_cert_der, len(ek_cert_der), out, len(out))
+    if n <= 0:
+        raise ValueError("could not read the endorsement public key")
+    return out.raw[:n]

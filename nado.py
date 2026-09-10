@@ -2,6 +2,8 @@ import asyncio
 import functools
 import hashlib
 import json
+import base64
+import hmac
 import os
 import queue
 import re
@@ -1233,6 +1235,106 @@ async def devbind_lookup(request):
         return _resp(await asyncio.to_thread(_work))
     except Exception as e:
         return _resp({"ok": False, "error": str(e)[:200]}, status=400)
+
+
+# --- TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md) ------------------------------------------------
+#
+# A chip whose vendor certified it, but whom Microsoft will not issue an AIK certificate, proves itself here
+# instead: we seal a secret to its endorsement key bound to its attestation key's Name, and only a TPM holding
+# both can give it back. 26.8% of this chain's attestation attempts are machines in exactly that position.
+#
+# NOTHING IS SIGNED. The reveal is what makes the result checkable by everyone afterwards - MakeCredential's
+# blob is deterministic in (seed, name, secret), so any node can replay the challenge from public data. There
+# is no CA key here to steal, rotate or guard, which is the entire point of the construction.
+_tpm_enrol = {}                       # nonce -> (issued_at, ek_identity, aik_name, secret, seed, blob)
+_TPM_ENROL_TTL = 300                  # seconds; an unanswered challenge is worthless and must not accumulate
+
+
+def _tpm_enrol_gc():
+    now = time.time()
+    for k in [k for k, v in _tpm_enrol.items() if now - v[0] > _TPM_ENROL_TTL]:
+        _tpm_enrol.pop(k, None)
+
+
+async def tpm_enrol_challenge(request):
+    """POST {ek_chain: [b64 DER, ...], aik_pub: b64} -> {nonce, credential_blob, encrypted_secret}.
+
+    The endorsement chain is verified to a PINNED VENDOR ROOT by the native kernel, because real vendor
+    certificates are not strictly DER and python cannot read them. The attestation key's public area is
+    refused unless it is restricted and signing - certify an unrestricted key and that chip can afterwards
+    sign anything its host asks, including a forged TPMS_ATTEST for a key that never lived in the TPM.
+    """
+    if _rate_limited(request, 10):
+        return _RL()
+    try:
+        body = await request.json()
+        chain = [base64.b64decode(c, validate=True) for c in (body.get("ek_chain") or [])]
+        aik_pub = base64.b64decode(str(body.get("aik_pub") or ""), validate=True)
+        if not chain or not aik_pub:
+            raise ValueError("ek_chain and aik_pub are required")
+        if sum(len(c) for c in chain) > 32_000 or len(aik_pub) > 2_000:
+            raise ValueError("enrolment payload out of bounds")
+
+        from ops import attest_native, tpm_aik
+        from protocol import DEVICE_ATTEST_TPM_MANUFACTURERS
+        ek = attest_native.verify_ek(chain, int(time.time()))
+        if not ek.get("ok"):
+            return _resp({"ok": False, "reason": ek.get("reason")}, status=400)
+        if str(ek.get("manufacturer", "")).upper() not in DEVICE_ATTEST_TPM_MANUFACTURERS:
+            return _resp({"ok": False, "reason": f"TPM manufacturer {ek.get('manufacturer')} is not a physical maker"},
+                         status=400)
+        detail = tpm_aik.validate_aik_pub_area(aik_pub)
+
+        name = tpm_aik.aik_name(aik_pub)
+        secret, seed = os.urandom(32), os.urandom(32)
+        blob, enc = tpm_aik.make_credential(_tpm_ek_public(chain[0]), name, secret, seed=seed)
+        nonce = os.urandom(16).hex()
+        _tpm_enrol_gc()
+        _tpm_enrol[nonce] = (time.time(), ek["ek_identity"], name, secret, seed, blob)
+        return _resp({"ok": True, "nonce": nonce, "key": detail,
+                      "credential_blob": base64.b64encode(blob).decode(),
+                      "encrypted_secret": base64.b64encode(enc).decode()})
+    except Exception as e:
+        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
+
+
+def _tpm_ek_public(ek_der: bytes):
+    """The endorsement public key, read with a lenient parser. python cryptography refuses real AMD
+    certificates outright (EncodedDefault: AMD encodes critical:FALSE where DER requires it omitted), so the
+    key is lifted out via the kernel's own view rather than by re-parsing the certificate here."""
+    from cryptography.hazmat.primitives.serialization import load_der_public_key
+    from ops import attest_native
+    return load_der_public_key(attest_native.ek_public_der(ek_der))
+
+
+async def tpm_enrol_reveal(request):
+    """POST {nonce, secret: b64} -> the challenger's reveal, which is what makes this checkable without a CA.
+
+    The client can only produce `secret` by holding the chip. We answer with (secret, seed) so that any node,
+    later and offline, can recompute the credential blob and confirm the enrolment for itself.
+    """
+    if _rate_limited(request, 10):
+        return _RL()
+    try:
+        body = await request.json()
+        _tpm_enrol_gc()
+        rec = _tpm_enrol.pop(str(body.get("nonce") or ""), None)
+        if not rec:
+            return _resp({"ok": False, "reason": "unknown or expired challenge"}, status=400)
+        _at, ek_identity, name, secret, seed, blob = rec
+        got = base64.b64decode(str(body.get("secret") or ""), validate=True)
+        # Constant-time: this is the comparison the whole proof reduces to.
+        if not hmac.compare_digest(got, secret):
+            return _resp({"ok": False, "reason": "the chip did not return the sealed secret"}, status=400)
+        from ops import tpm_aik
+        return _resp({"ok": True, "ek_identity": ek_identity,
+                      "aik_name": base64.b64encode(name).decode(),
+                      "secret": base64.b64encode(secret).decode(),
+                      "seed": base64.b64encode(seed).decode(),
+                      "credential_blob": base64.b64encode(blob).decode(),
+                      "commitment": tpm_aik.credential_commitment(secret)})
+    except Exception as e:
+        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
 
 
 async def node_attest_drop(request):
@@ -2607,6 +2709,8 @@ async def make_app(port):
         web.get("/get_account_mempool", account_mempool),
         web.get("/wallet_view", wallet_view),
         web.post("/device_attest_probe", device_attest_probe),
+        web.post("/tpm_enrol_challenge", tpm_enrol_challenge),
+        web.post("/tpm_enrol_reveal", tpm_enrol_reveal),
         web.get("/pools", pools),
         web.post("/devbind_lookup", devbind_lookup),
         web.post("/node_attest_drop", node_attest_drop),

@@ -239,3 +239,22 @@ pub extern "C" fn nado_ek_verify(
 pub fn ek_verify_for_test(chain: &[Vec<u8>], roots: &[Vec<u8>], now: i64) -> Result<(String, String, String), String> {
     ek::verify_ek(chain, roots, now).map(|e| (e.identity, e.manufacturer, e.root_sha256))
 }
+
+/// The endorsement key's SubjectPublicKeyInfo, in DER. The relay needs it to seal a credential and cannot
+/// parse the certificate itself — real vendor certificates are not strictly DER.
+#[no_mangle]
+pub extern "C" fn nado_ek_public(cert: *const u8, cert_len: usize, out: *mut u8, out_cap: usize) -> i64 {
+    if cert.is_null() || out.is_null() {
+        return -1;
+    }
+    let der = unsafe { std::slice::from_raw_parts(cert, cert_len) };
+    let spki = match X509Certificate::from_der(der) {
+        Ok((_, c)) => c.public_key().raw.to_vec(),
+        Err(_) => return -1,
+    };
+    if spki.len() > out_cap {
+        return -1;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(spki.as_ptr(), out, spki.len()) };
+    spki.len() as i64
+}
