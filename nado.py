@@ -1292,7 +1292,7 @@ async def tpm_enrol_challenge(request):
 
         name = tpm_aik.aik_name(aik_pub)
         secret, seed = os.urandom(32), os.urandom(32)
-        blob, enc = tpm_aik.make_credential(_tpm_ek_public(chain[0]), name, secret, seed=seed)
+        blob, enc = tpm_aik.make_credential(attest_native.ek_public_der(chain[0]), name, secret, seed=seed)
         nonce = os.urandom(16).hex()
         _tpm_enrol_gc()
         _tpm_enrol[nonce] = (time.time(), ek["ek_identity"], name, secret, seed, blob)
@@ -1301,15 +1301,6 @@ async def tpm_enrol_challenge(request):
                       "encrypted_secret": base64.b64encode(enc).decode()})
     except Exception as e:
         return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
-
-
-def _tpm_ek_public(ek_der: bytes):
-    """The endorsement public key, read with a lenient parser. python cryptography refuses real AMD
-    certificates outright (EncodedDefault: AMD encodes critical:FALSE where DER requires it omitted), so the
-    key is lifted out via the kernel's own view rather than by re-parsing the certificate here."""
-    from cryptography.hazmat.primitives.serialization import load_der_public_key
-    from ops import attest_native
-    return load_der_public_key(attest_native.ek_public_der(ek_der))
 
 
 async def tpm_enrol_reveal(request):

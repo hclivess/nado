@@ -79,49 +79,43 @@ def aik_name(pub_area: bytes, name_alg: int = TPM_ALG_SHA256) -> bytes:
     return name_alg.to_bytes(2, "big") + hashlib.sha256(pub_area).digest()
 
 
-def make_credential(ek_public_numbers, name: bytes, secret: bytes, seed: bytes = None) -> tuple:
-    """TPM2_MakeCredential, issuer side: seal `secret` so that only a TPM holding BOTH the endorsement key and
-    the object named `name` can recover it.
+def make_credential(ek_spki_der: bytes, name: bytes, secret: bytes, seed: bytes = None) -> tuple:
+    """TPM2_MakeCredential: seal `secret` so that only a TPM holding BOTH the endorsement key and the object
+    named `name` can recover it.
+
+    Takes the endorsement key's SubjectPublicKeyInfo, which is what the kernel hands back — deliberately NOT a
+    parsed certificate object, because real vendor certificates are not strictly DER and the node's runtime has
+    no certificate library at all.
 
     Returns (credential_blob, encrypted_seed), each already TPM2B-wrapped, which is the form
     TPM2_ActivateCredential expects.
     """
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
     if seed is None:
         seed = os.urandom(32)                      # size of the EK's nameAlg digest
 
     # The seed travels to the chip under the EK, with the spec's IDENTITY label.
-    pub = ek_public_numbers.public_key() if hasattr(ek_public_numbers, "public_key") else ek_public_numbers
-    enc_seed = pub.encrypt(seed, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                                              algorithm=hashes.SHA256(), label=_LABEL_IDENTITY))
+    n, e = rsa_public_numbers_from_spki(ek_spki_der)
+    enc_seed = rsa_oaep_encrypt(n, e, seed, _LABEL_IDENTITY)
 
     # Symmetric protection of the credential, keyed from the seed and BOUND TO THE NAME: a credential made for
-    # one AIK cannot be activated by another, which is the property the whole handshake rests on.
+    # one attestation key cannot be activated by another, which is the property the handshake rests on.
     sym_key = kdfa(hashlib.sha256, seed, _LABEL_STORAGE, name, b"", 128)
-    enc = Cipher(algorithms.AES(sym_key), modes.CFB(b"\x00" * 16)).encryptor()
-    enc_identity = enc.update(tpm2b(secret)) + enc.finalize()
+    enc_identity = aes_cfb_encrypt(sym_key, b"\x00" * 16, tpm2b(secret))
 
     hmac_key = kdfa(hashlib.sha256, seed, _LABEL_INTEGRITY, b"", b"", 256)
     outer_hmac = hmac.new(hmac_key, enc_identity + name, hashlib.sha256).digest()
 
-    credential_blob = tpm2b(tpm2b(outer_hmac) + enc_identity)
-    return credential_blob, tpm2b(enc_seed)
+    return tpm2b(tpm2b(outer_hmac) + enc_identity), tpm2b(enc_seed)
 
 
-def activate_credential(ek_private, credential_blob: bytes, encrypted_seed: bytes, name: bytes) -> bytes:
-    """The chip's side of the handshake, in software. NOT used in production — a real client does this inside
-    the TPM, which is the entire point. It exists so make_credential() can be tested end to end here, because
-    a KDFa or CFB layout error is otherwise invisible until it fails on a user's machine for no stated reason.
+def activate_credential(ek_decrypt, credential_blob: bytes, encrypted_seed: bytes, name: bytes) -> bytes:
+    """The chip's side, in software. NOT used in production — a real client does this inside the TPM, which is
+    the entire point. It exists so make_credential() can be tested end to end, because a KDFa or CFB layout
+    error is otherwise invisible until it fails on a stranger's machine for no stated reason.
+
+    `ek_decrypt` is a callable taking the ciphertext and returning the seed.
     """
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import padding
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-
-    seed = ek_private.decrypt(encrypted_seed[2:], padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                                                              algorithm=hashes.SHA256(), label=_LABEL_IDENTITY))
+    seed = ek_decrypt(encrypted_seed[2:])
     body = credential_blob[2:]
     hmac_len = int.from_bytes(body[:2], "big")
     outer_hmac, enc_identity = body[2:2 + hmac_len], body[2 + hmac_len:]
@@ -131,20 +125,15 @@ def activate_credential(ek_private, credential_blob: bytes, encrypted_seed: byte
         raise ValueError("credential integrity check failed")
 
     sym_key = kdfa(hashlib.sha256, seed, _LABEL_STORAGE, name, b"", 128)
-    dec = Cipher(algorithms.AES(sym_key), modes.CFB(b"\x00" * 16)).decryptor()
-    plain = dec.update(enc_identity) + dec.finalize()
+    plain = aes_cfb_decrypt(sym_key, b"\x00" * 16, enc_identity)
     return plain[2:2 + int.from_bytes(plain[:2], "big")]
 
 
-def ek_identity(ek_cert_der: bytes) -> str:
-    """THE ONE-DEVICE-ONE-IDENTITY HANDLE. Derived from the endorsement key, which is burned into the chip and
-    cannot be re-minted — unlike an AIK, of which a TPM can hold unlimited numbers. Consensus binds on this."""
-    from cryptography import x509
-    from cryptography.hazmat.primitives import serialization
-    cert = x509.load_der_x509_certificate(ek_cert_der)
-    spki = cert.public_key().public_bytes(serialization.Encoding.DER,
-                                          serialization.PublicFormat.SubjectPublicKeyInfo)
-    return hashlib.sha256(spki).hexdigest()
+# ek_identity() and verify_ek_chain() were here and are gone on purpose. Both needed a certificate parser,
+# and the node's runtime has none — worse, real vendor certificates are not strictly DER, so the obvious
+# library refuses half the roots we pin. native/attest/src/ek.rs does the chain walk and returns the
+# endorsement identity, and nado.py calls it through attest_native.verify_ek(). One implementation, in the
+# place that must be deterministic anyway.
 
 
 # TPMA_OBJECT bits (TCG part 2 §8.3) — the attributes that decide what a key is allowed to do.
@@ -206,99 +195,6 @@ def validate_aik_pub_area(pub_area: bytes) -> str:
     return f"RSA-{be16(o + 4)} restricted signing key, scheme 0x{scheme:04x}"
 
 
-def verify_ek_chain(ek_cert_der: bytes, intermediates: list, roots: list, now=None) -> dict:
-    """Verify an endorsement certificate to a PINNED VENDOR ROOT. Raises ValueError with the reason.
-
-    THIS IS THE WHOLE BASIS FOR TRUSTING THE HARDWARE. Everything else in this module proves "the attestation
-    key is in the same chip as this endorsement key" — which is worth exactly nothing unless that endorsement
-    key is one a silicon vendor certified. AMD and Intel are the parties asserting the chip is genuine; we
-    verify their signature instead of auditing their factories. Skip this and the whole design degrades to
-    "some TPM somewhere said yes", which any software TPM can also say.
-
-    `intermediates` come from the client, which is fine — they are only a hint about how to reach a root, and
-    every link is checked. `roots` are ours and are the only trust input. A chain that ends anywhere else is
-    refused however well-formed it is.
-    """
-    from cryptography import x509
-    from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
-    from cryptography.hazmat.primitives import hashes
-
-    cert = x509.load_der_x509_certificate(ek_cert_der)
-
-    # It must actually be an endorsement certificate, not some other certificate from the same vendor.
-    try:
-        eku = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
-        if x509.ObjectIdentifier("2.23.133.8.1") not in eku:
-            raise ValueError("certificate is not marked tcg-kp-EKCertificate")
-    except x509.ExtensionNotFound:
-        raise ValueError("certificate has no extended key usage")
-
-    bc = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
-    if bc.ca:
-        raise ValueError("an endorsement certificate must not be a CA")
-
-    # The EK is a DECRYPTION key by definition. One that claims signing capability is not an EK, and treating
-    # it as one would undermine the reason the handshake has to be a challenge at all.
-    ku = cert.extensions.get_extension_for_class(x509.KeyUsage).value
-    if not ku.key_encipherment or ku.digital_signature:
-        raise ValueError("endorsement key must be encipherment-only")
-
-    # The TPM manufacturer lives in the SAN as a directoryName. Microsoft's own id is the Hyper-V virtual TPM.
-    manufacturer = ""
-    try:
-        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
-        for name in san.get_values_for_type(x509.DirectoryName):
-            for attr in name:
-                if attr.oid.dotted_string == "2.23.133.2.1":
-                    manufacturer = str(attr.value).replace("id:", "").upper()
-    except x509.ExtensionNotFound:
-        pass
-    if not manufacturer:
-        raise ValueError("endorsement certificate names no TPM manufacturer")
-
-    import datetime
-    now = now or datetime.datetime.now(datetime.timezone.utc)
-
-    # Walk to a pinned root, checking every signature. The client's intermediates are only a routing hint.
-    pool = {c.subject.rfc4514_string(): c for c in
-            [x509.load_der_x509_certificate(d) if isinstance(d, (bytes, bytearray)) else d for d in intermediates]}
-    trusted = {c.subject.rfc4514_string(): c for c in
-               [x509.load_der_x509_certificate(d) if isinstance(d, (bytes, bytearray)) else d for d in roots]}
-
-    node, chain = cert, []
-    for _ in range(8):
-        if not (node.not_valid_before_utc <= now <= node.not_valid_after_utc):
-            raise ValueError(f"certificate outside validity: {node.subject.rfc4514_string()}")
-        issuer_name = node.issuer.rfc4514_string()
-        issuer = trusted.get(issuer_name) or pool.get(issuer_name)
-        if issuer is None:
-            raise ValueError(f"chain does not reach a pinned vendor root (stuck at issuer {issuer_name})")
-        _verify_signed_by(node, issuer)
-        chain.append(issuer_name)
-        if issuer_name in trusted:
-            return {"manufacturer": manufacturer, "root": issuer_name, "chain": chain,
-                    "ek_identity": ek_identity(ek_cert_der)}
-        node = issuer
-    raise ValueError("endorsement chain is too long")
-
-
-def _verify_signed_by(cert, issuer):
-    """One link. A failure here is a forged or corrupt chain, never a policy question."""
-    from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
-    pub = issuer.public_key()
-    try:
-        if isinstance(pub, rsa.RSAPublicKey):
-            pub.verify(cert.signature, cert.tbs_certificate_bytes,
-                       padding.PKCS1v15(), cert.signature_hash_algorithm)
-        elif isinstance(pub, ec.EllipticCurvePublicKey):
-            pub.verify(cert.signature, cert.tbs_certificate_bytes,
-                       ec.ECDSA(cert.signature_hash_algorithm))
-        else:
-            raise ValueError(f"unsupported issuer key type {type(pub).__name__}")
-    except Exception as e:
-        raise ValueError(f"signature does not verify against {issuer.subject.rfc4514_string()}: {e}")
-
-
 # --- CA-FREE ENROLMENT: commit-reveal instead of a signing key ------------------------------------------
 #
 # A signed AIK certificate is one way to turn the interactive proof into something consensus can check later.
@@ -329,7 +225,7 @@ def credential_commitment(secret: bytes) -> str:
     return hashlib.sha256(secret).hexdigest()
 
 
-def verify_credential_reveal(ek_public, name: bytes, secret: bytes, seed: bytes,
+def verify_credential_reveal(ek_spki_der: bytes, name: bytes, secret: bytes, seed: bytes,
                              published_blob: bytes, commitment: str) -> bool:
     """Replay a challenge that someone else issued. Every node can run this, offline, forever.
 
@@ -340,5 +236,164 @@ def verify_credential_reveal(ek_public, name: bytes, secret: bytes, seed: bytes,
     """
     if not hmac.compare_digest(credential_commitment(secret), commitment):
         return False
-    replayed, _ = make_credential(ek_public, name, secret, seed=seed)
+    replayed, _ = make_credential(ek_spki_der, name, secret, seed=seed)
     return hmac.compare_digest(replayed, published_blob)
+
+
+# --- dependency-free primitives ------------------------------------------------------------------------
+#
+# The node's venv has no `cryptography`, and adding a dependency to every machine in the fleet to run an
+# enrolment is the wrong trade — the rest of this codebase keeps its crypto either in the Rust kernel or in
+# the standard library. AES-128-CFB and RSA-OAEP are both fully specified and small, so they live here and are
+# tested BOTH against `cryptography` as an oracle (where it happens to be installed) and end to end against a
+# real TPM, which is the only judge that matters.
+
+_SBOX = None
+
+
+def _aes_tables():
+    """AES S-box and round constants, generated rather than pasted: a mistyped byte in a 256-entry table is
+    invisible to review and produces ciphertext that is wrong only for some inputs."""
+    global _SBOX
+    if _SBOX is not None:
+        return _SBOX
+    p = q = 1
+    sbox = [0] * 256
+    while True:
+        p = p ^ ((p << 1) & 0xFF) ^ (0x1B if p & 0x80 else 0)
+        q ^= q << 1
+        q ^= q << 2
+        q ^= q << 4
+        q &= 0xFF
+        if q & 0x80:
+            q ^= 0x09
+        x = q ^ ((q << 1) | (q >> 7)) ^ ((q << 2) | (q >> 6)) ^ ((q << 3) | (q >> 5)) ^ ((q << 4) | (q >> 4))
+        sbox[p] = (x ^ 0x63) & 0xFF
+        if p == 1:
+            break
+    sbox[0] = 0x63
+    _SBOX = sbox
+    return sbox
+
+
+def _xtime(a):
+    a <<= 1
+    return (a ^ 0x1B) & 0xFF if a & 0x100 else a
+
+
+def _aes128_expand(key: bytes):
+    s = _aes_tables()
+    w = [list(key[i * 4:i * 4 + 4]) for i in range(4)]
+    rcon = 1
+    for i in range(4, 44):
+        t = list(w[i - 1])
+        if i % 4 == 0:
+            t = t[1:] + t[:1]
+            t = [s[b] for b in t]
+            t[0] ^= rcon
+            rcon = _xtime(rcon)
+        w.append([w[i - 4][j] ^ t[j] for j in range(4)])
+    return w
+
+
+def _aes128_encrypt_block(w, block: bytes) -> bytes:
+    s = _aes_tables()
+    st = [list(block[i::4]) for i in range(4)]          # column-major state
+    st = [[block[r + 4 * c] for c in range(4)] for r in range(4)]
+
+    def add_round_key(st, rnd):
+        for c in range(4):
+            for r in range(4):
+                st[r][c] ^= w[rnd * 4 + c][r]
+
+    add_round_key(st, 0)
+    for rnd in range(1, 11):
+        for r in range(4):
+            for c in range(4):
+                st[r][c] = s[st[r][c]]
+        for r in range(1, 4):
+            st[r] = st[r][r:] + st[r][:r]
+        if rnd != 10:
+            for c in range(4):
+                a = [st[r][c] for r in range(4)]
+                st[0][c] = _xtime(a[0]) ^ (_xtime(a[1]) ^ a[1]) ^ a[2] ^ a[3]
+                st[1][c] = a[0] ^ _xtime(a[1]) ^ (_xtime(a[2]) ^ a[2]) ^ a[3]
+                st[2][c] = a[0] ^ a[1] ^ _xtime(a[2]) ^ (_xtime(a[3]) ^ a[3])
+                st[3][c] = (_xtime(a[0]) ^ a[0]) ^ a[1] ^ a[2] ^ _xtime(a[3])
+        add_round_key(st, rnd)
+    return bytes(st[r][c] for c in range(4) for r in range(4))
+
+
+def aes_cfb_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
+    """AES-CFB128. The TPM uses full-block feedback with a zero IV for credential protection."""
+    w = _aes128_expand(key)
+    out = bytearray()
+    prev = iv
+    for i in range(0, len(data), 16):
+        ks = _aes128_encrypt_block(w, prev)
+        chunk = data[i:i + 16]
+        c = bytes(a ^ b for a, b in zip(chunk, ks))
+        out += c
+        prev = c + ks[len(c):]                          # a short final block still feeds a full block
+    return bytes(out)
+
+
+def aes_cfb_decrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
+    w = _aes128_expand(key)
+    out = bytearray()
+    prev = iv
+    for i in range(0, len(data), 16):
+        ks = _aes128_encrypt_block(w, prev)
+        chunk = data[i:i + 16]
+        out += bytes(a ^ b for a, b in zip(chunk, ks))
+        prev = chunk + ks[len(chunk):]
+    return bytes(out)
+
+
+def _mgf1(seed: bytes, length: int, hash_alg=hashlib.sha256) -> bytes:
+    out = b""
+    i = 0
+    while len(out) < length:
+        out += hash_alg(seed + i.to_bytes(4, "big")).digest()
+        i += 1
+    return out[:length]
+
+
+def rsa_oaep_encrypt(n: int, e: int, message: bytes, label: bytes, rand=None) -> bytes:
+    """RSA-OAEP with SHA-256, per RFC 8017 §7.1.1. `label` arrives already NUL-terminated for TPM use."""
+    k = (n.bit_length() + 7) // 8
+    h_len = 32
+    l_hash = hashlib.sha256(label).digest()
+    ps = b"\x00" * (k - len(message) - 2 * h_len - 2)
+    db = l_hash + ps + b"\x01" + message
+    seed = rand if rand is not None else os.urandom(h_len)
+    db_mask = _mgf1(seed, k - h_len - 1)
+    masked_db = bytes(a ^ b for a, b in zip(db, db_mask))
+    seed_mask = _mgf1(masked_db, h_len)
+    masked_seed = bytes(a ^ b for a, b in zip(seed, seed_mask))
+    em = b"\x00" + masked_seed + masked_db
+    c = pow(int.from_bytes(em, "big"), e, n)
+    return c.to_bytes(k, "big")
+
+
+def rsa_public_numbers_from_spki(spki_der: bytes):
+    """(n, e) out of a SubjectPublicKeyInfo, by a minimal DER walk. Real vendor certificates are not strictly
+    DER, so this deliberately does not go through a strict parser."""
+    def tlv(b, i):
+        tag = b[i]
+        ln = b[i + 1]
+        if ln < 0x80:
+            return tag, i + 2, ln
+        k = ln & 0x7F
+        return tag, i + 2 + k, int.from_bytes(b[i + 2:i + 2 + k], "big")
+    _t, h, _n = tlv(spki_der, 0)                       # SEQUENCE
+    t, h2, n2 = tlv(spki_der, h)                       # AlgorithmIdentifier
+    i = h + n2 + (h2 - h)
+    t, h3, n3 = tlv(spki_der, i)                       # BIT STRING
+    inner = spki_der[h3 + 1:h3 + n3]                   # skip the unused-bits byte
+    _t, ih, _n = tlv(inner, 0)
+    t, nh, nn = tlv(inner, ih)
+    n = int.from_bytes(inner[nh:nh + nn], "big")
+    t, eh, en = tlv(inner, nh + nn)
+    e = int.from_bytes(inner[eh:eh + en], "big")
+    return n, e

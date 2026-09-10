@@ -24,10 +24,17 @@ def check(name, cond, detail=""):
 
 
 def main():
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from ops.tpm_aik import make_credential, activate_credential, aik_name, kdfa, tpm2b, ek_identity
+    from cryptography.hazmat.primitives.asymmetric import rsa, padding
+    from cryptography.hazmat.primitives import hashes, serialization
+    from ops.tpm_aik import make_credential, activate_credential, aik_name, kdfa, tpm2b
 
+    # A stand-in chip. `cryptography` is used ONLY here, as a test oracle — ops/tpm_aik has no such dependency
+    # because the node's runtime has none, which is exactly the bug this interface change fixed.
     ek = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    ek_spki = ek.public_key().public_bytes(serialization.Encoding.DER,
+                                           serialization.PublicFormat.SubjectPublicKeyInfo)
+    decrypt = lambda ct: ek.decrypt(ct, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
+                                                     algorithm=hashes.SHA256(), label=b"IDENTITY\x00"))
     pub_area = os.urandom(312)
     name = aik_name(pub_area)
     secret = os.urandom(32)
@@ -35,24 +42,26 @@ def main():
     check("the AIK Name is nameAlg || sha256(pubArea)",
           name == b"\x00\x0b" + hashlib.sha256(pub_area).digest())
 
-    blob, enc_seed = make_credential(ek.public_key(), name, secret)
+    blob, enc_seed = make_credential(ek_spki, name, secret)
     check("credentialBlob and encrypted seed are TPM2B-wrapped",
           int.from_bytes(blob[:2], "big") == len(blob) - 2 and
           int.from_bytes(enc_seed[:2], "big") == len(enc_seed) - 2)
     check("a chip holding both keys recovers the secret",
-          activate_credential(ek, blob, enc_seed, name) == secret)
+          activate_credential(decrypt, blob, enc_seed, name) == secret)
 
     # ONE CHIP MUST NOT MINT MANY IDENTITIES. The credential is keyed and HMACed over the AIK's Name, so a
     # second AIK in the same TPM cannot open a credential issued for the first.
     try:
-        activate_credential(ek, blob, enc_seed, aik_name(os.urandom(312)))
+        activate_credential(decrypt, blob, enc_seed, aik_name(os.urandom(312)))
         check("bound to the AIK Name", False, "a different AIK activated it")
     except ValueError:
         check("bound to the AIK Name", True)
 
     # AND THE PROOF MUST MEAN A CHIP. Without the endorsement private key the seed cannot be unwrapped at all.
     try:
-        activate_credential(rsa.generate_private_key(public_exponent=65537, key_size=2048), blob, enc_seed, name)
+        other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        activate_credential(lambda ct: other.decrypt(ct, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
+                            algorithm=hashes.SHA256(), label=b"IDENTITY\x00")), blob, enc_seed, name)
         check("bound to the endorsement key", False, "a foreign key opened it")
     except Exception:
         check("bound to the endorsement key", True)
@@ -77,8 +86,10 @@ def main():
     # THE IDENTITY HANDLE IS THE EK, NEVER AN AIK WE ISSUE (doc/windows-tpm-attester.md). A chip holds
     # unlimited AIKs; hashing one we minted would hand a single machine one identity per enrolment.
     src = open(os.path.join(ROOT, "ops", "tpm_aik.py")).read()
-    check("ek_identity derives from the endorsement key's own SubjectPublicKeyInfo",
-          "SubjectPublicKeyInfo" in src and "def ek_identity" in src)
+    check("the endorsement identity comes from the kernel, not a second Python implementation",
+          "native/attest/src/ek.rs" in src and "def ek_identity" not in src)
+    check("ops/tpm_aik needs no certificate library — the node's runtime has none",
+          "from cryptography" not in src)
     check("the module states why deriving the secret from chain data is not an option",
           "the client can recompute" in src)
 

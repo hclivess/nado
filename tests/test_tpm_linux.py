@@ -93,8 +93,10 @@ def main():
         def close(self):
             self.s.close()
 
-    def ek_public(pa):
-        from cryptography.hazmat.primitives.asymmetric import rsa
+    def ek_spki(pa):
+        """The EK's TPMT_PUBLIC re-encoded as a SubjectPublicKeyInfo — the form ops/tpm_aik takes, and what the
+        kernel returns from a real endorsement certificate. Hand-rolled because the code under test has no
+        certificate library: the node's runtime has none, which is the whole reason for that interface."""
         be16 = lambda o: int.from_bytes(pa[o:o + 2], "big")
         o = 10 + be16(8)
         sym = be16(o); o += 2
@@ -106,7 +108,21 @@ def main():
         o += 2
         e = int.from_bytes(pa[o:o + 4], "big") or 65537
         o += 4
-        return rsa.RSAPublicNumbers(e, int.from_bytes(pa[o + 2:o + 2 + be16(o)], "big")).public_key()
+        modulus = pa[o + 2:o + 2 + be16(o)]
+
+        def der(tag, body):
+            if len(body) < 0x80:
+                return bytes([tag, len(body)]) + body
+            n = (len(body).bit_length() + 7) // 8
+            return bytes([tag, 0x80 | n]) + len(body).to_bytes(n, "big") + body
+
+        def integer(v):
+            v = v.lstrip(b"\x00") or b"\x00"
+            return der(0x02, (b"\x00" + v) if v[0] & 0x80 else v)
+
+        rsa_pub = der(0x30, integer(modulus) + integer(e.to_bytes(4, "big")))
+        alg = der(0x30, der(0x06, bytes.fromhex("2a864886f70d010101")) + der(0x05, b""))
+        return der(0x30, alg + der(0x03, b"\x00" + rsa_pub))
 
     t = Sim(s)
     t.flush_all_transient()          # a crashed run leaves primaries loaded; TPMs have few object slots
@@ -116,7 +132,7 @@ def main():
     check("the AIK's Name is nameAlg || sha256(pubArea)", aik_nm == aik_name(aik_pub))
 
     secret, seed = os.urandom(32), os.urandom(32)
-    blob, enc = make_credential(ek_public(ek_pub), aik_nm, secret, seed=seed)
+    blob, enc = make_credential(ek_spki(ek_pub), aik_nm, secret, seed=seed)
 
     # The EK is adminWithPolicy: a password authorization is refused however empty the hierarchy auth is.
     sess = t.start_policy_session()
@@ -125,7 +141,7 @@ def main():
     check("the chip returns the sealed secret — EK and AIK share silicon", got == secret)
 
     check("any node can replay the challenge from public data, with no CA",
-          verify_credential_reveal(ek_public(ek_pub), aik_nm, secret, seed, blob,
+          verify_credential_reveal(ek_spki(ek_pub), aik_nm, secret, seed, blob,
                                    credential_commitment(got)))
 
     chal = hashlib.sha256(b"node self-attestation").digest()

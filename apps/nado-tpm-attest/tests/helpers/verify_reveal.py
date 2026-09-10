@@ -13,14 +13,14 @@ import sys
 _here = os.path.abspath(__file__)
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(_here), "..", "..", "..", "..")))
 from ops.tpm_aik import credential_commitment, verify_credential_reveal  # noqa: E402
-from make_credential import rsa_public_from_pub_area  # noqa: E402
+from make_credential import spki_from_pub_area  # noqa: E402
 
 
 def main():
     ek_pub, name, secret, seed, blob, commitment = (
         bytes.fromhex(sys.argv[1]), bytes.fromhex(sys.argv[2]), bytes.fromhex(sys.argv[3]),
         bytes.fromhex(sys.argv[4]), bytes.fromhex(sys.argv[5]), sys.argv[6])
-    ek = rsa_public_from_pub_area(ek_pub)
+    ek = spki_from_pub_area(ek_pub)
     ok = verify_credential_reveal(ek, name, secret, seed, blob, commitment)
     # A tampered reveal must fail, not merely differ: check one explicitly so a green run means something.
     tampered = verify_credential_reveal(ek, name, bytes(32), seed, blob, commitment)
