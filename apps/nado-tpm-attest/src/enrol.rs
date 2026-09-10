@@ -48,16 +48,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!("  relay      {}:{}", relay.host, relay.port);
 
     let mut chip = chip::open()?;
-    let cert = chip
-        .ek_certificate()?
-        .ok_or("this TPM holds no endorsement certificate, so no vendor vouches for it")?;
+    let chain = chip.ek_chain()?;
+    if chain.is_empty() {
+        return Err("this TPM holds no endorsement certificate, so no silicon vendor vouches for it. \
+                    Without that signature the proof would only say \"some TPM somewhere\", which a \
+                    software TPM says just as convincingly."
+            .into());
+    }
     // The endorsement PUBLIC key is not sent: it is inside the certificate, and the node lifts it from
     // there with the lenient parser it has to use for that certificate anyway. Deriving it here would
     // cost an RSA primary — seconds on a real firmware TPM — to produce a value nobody reads.
     let aik_pub = chip.aik_public()?;
-    println!("  chip       endorsement certificate {} bytes, attestation key ready", cert.len());
+    println!("  chip       endorsement chain: {} certificate(s), {} bytes; attestation key ready",
+             chain.len(), chain.iter().map(|c| c.len()).sum::<usize>());
 
-    let id = enrol_id(&relay, &cert, &aik_pub)?;
+    let id = enrol_id(&relay, &chain, &aik_pub)?;
     println!("  enrolment  {id}");
 
     let started = Instant::now();
@@ -71,7 +76,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match rec {
             None => {
                 println!("  -> publishing this chip's endorsement chain");
-                let data = json!({"ek": [tx::hex(&cert)], "pub": tx::hex(&aik_pub)});
+                let data = json!({"ek": hexed(&chain), "pub": tx::hex(&aik_pub)});
                 submit(&relay, &keys, &address, "tpm_enrol", data)?;
             }
             Some(rec) => {
@@ -124,8 +129,12 @@ fn read_keys(path: &str) -> Result<(String, String), String> {
 
 /// The enrolment id is DERIVED from public content, so the relay computes it the same way we do. We
 /// ask it rather than reimplementing the chain's hash here: one fewer encoding to keep in step.
-fn enrol_id(relay: &Relay, cert: &[u8], aik_pub: &[u8]) -> Result<String, String> {
-    let body = json!({"ek": [tx::hex(cert)], "pub": tx::hex(aik_pub)}).to_string();
+fn hexed(chain: &[Vec<u8>]) -> Vec<String> {
+    chain.iter().map(|c| tx::hex(c)).collect()
+}
+
+fn enrol_id(relay: &Relay, chain: &[Vec<u8>], aik_pub: &[u8]) -> Result<String, String> {
+    let body = json!({"ek": hexed(chain), "pub": tx::hex(aik_pub)}).to_string();
     let text = relay.post_json("/tpm_enrol_id", &body)?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
     v.get("id").and_then(|x| x.as_str()).map(String::from)

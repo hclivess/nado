@@ -434,17 +434,40 @@ pub fn nv_read(t: &dyn Tpm, index: u32, size: u16) -> Result<Vec<u8>, u32> {
     Ok(out)
 }
 
-/// The chip's endorsement certificate (DER), or None if it holds none. RSA first: that is the index
-/// populated on the firmware TPMs this path exists for.
-pub fn ek_certificate(t: &dyn Tpm) -> Option<Vec<u8>> {
+/// Indices where vendors keep the ISSUING certificates above the leaf. AMD's endorsement key does not
+/// chain straight to its root — it goes through an intermediate — so a client that sends only the leaf
+/// hands the verifier a chain it cannot complete, and the machine is refused for a reason that has
+/// nothing to do with its hardware.
+const NV_EK_CHAIN: [u32; 4] = [0x01C0_0100, 0x01C0_0101, 0x01C0_0102, 0x01C0_0103];
+
+/// The chip's endorsement certificate chain (DER), leaf first, or an empty vec if it holds none.
+///
+/// Intermediates are a ROUTING HINT and nothing more: the verifier checks every link and trusts only
+/// pinned roots, so sending whatever the chip happens to store costs nothing and rescues the common
+/// case. RSA leaf first — that is the index populated on the firmware TPMs this path exists for.
+pub fn ek_chain(t: &dyn Tpm) -> Vec<Vec<u8>> {
+    let mut chain = Vec::new();
     for index in [NV_EK_CERT_RSA, NV_EK_CERT_ECC] {
         if let Some(size) = nv_size(t, index) {
             if size > 0 {
                 if let Ok(bytes) = nv_read(t, index, size) {
-                    return Some(bytes);
+                    chain.push(bytes);
+                    break;
                 }
             }
         }
     }
-    None
+    if chain.is_empty() {
+        return chain;
+    }
+    for index in NV_EK_CHAIN {
+        if let Some(size) = nv_size(t, index) {
+            if size > 0 {
+                if let Ok(bytes) = nv_read(t, index, size) {
+                    chain.push(bytes);
+                }
+            }
+        }
+    }
+    chain
 }

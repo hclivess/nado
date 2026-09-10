@@ -37,8 +37,8 @@ pub fn open() -> Result<Chip, String> {
 }
 
 impl Chip {
-    pub fn ek_certificate(&mut self) -> Result<Option<Vec<u8>>, String> {
-        Ok(tpm::ek_certificate(self.t.as_ref()))
+    pub fn ek_chain(&mut self) -> Result<Vec<Vec<u8>>, String> {
+        Ok(tpm::ek_chain(self.t.as_ref()))
     }
 
     pub fn ek_public(&mut self) -> Result<Vec<u8>, String> {
