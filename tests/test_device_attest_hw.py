@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -172,8 +173,42 @@ def t_wallet_wiring():
           'id="btnHwRemote"' in html and 'attestVia === "remote"' in ui and '"/node_attest_pickup?sender=" + encodeURIComponent(state.wallet.address)' in ui
           and "buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device)" in ui)
     check("wallet: the card attests ANY address (wallet or node)", 'data-i18n="node.title">Attest another wallet or node' in html)
-    i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
-    check("i18n: hardware strings in all 16 languages", i18n.count('"hw.ledger"') == 16)
+    # COUNT THE LANGUAGES, NOT THE OCCURRENCES (2026-09-10). This used to be `i18n.count('"hw.ledger"') == 16`, which
+    # says "the literal appears 16 times" — not "16 languages define it". i18n.js is LAYERED: a later table overrides an
+    # earlier one for the same key, so a legitimate redefinition (T93 replaced T74's verb-phrase buttons with the
+    # picker's bare device names) doubled the count to 32 and this check failed for a reason that was not a bug. Ask the
+    # real question instead: does every one of the 16 languages define each hardware-picker string?
+    i18n = open(os.path.join(ROOT, "static", "i18n.js"), encoding="utf-8").read()
+    langs = ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi")
+    defined = {l: set() for l in langs}
+    for m in re.finditer(r'"?([a-z]{2})"?:\s*\{', i18n):
+        lang = m.group(1)
+        if lang not in defined:
+            continue
+        i, n, depth = m.end() - 1, len(i18n), 0
+        while i < n:                       # brace-match this language's object, stepping over string literals
+            c = i18n[i]
+            if c == '"':
+                i += 1
+                while i < n and i18n[i] != '"':
+                    i += 2 if i18n[i] == "\\" else 1
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        obj = i18n[m.end() - 1:i + 1]
+        defined[lang] |= set(re.findall(r'"((?:[^"\\]|\\.)*)"\s*:', obj))   # a key is a string followed by ':'
+    want = {"hw.ledger", "hw.trezor", "hw.none", "hw.remote", "hw.other",
+            "hw.cap.ledger", "hw.cap.trezor", "hw.cap.none", "hw.cap.remote"}
+    gaps = {l: sorted(want - defined[l]) for l in langs if want - defined[l]}
+    check("i18n: every hardware-picker string is defined in all 16 languages", not gaps, gaps)
+    # and no key is defined twice by the SAME language in the same table pass — a duplicate is dead weight whose only
+    # effect is to make counts like the old one above lie (48 such entries were deleted from T74 the same day).
+    dupes = [k for k in want if i18n.count('"%s"' % k) != len(langs)]
+    check("i18n: no hardware-picker string is defined twice for one language", not dupes, dupes)
 
 
 if __name__ == "__main__":
