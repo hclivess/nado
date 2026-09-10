@@ -84,6 +84,18 @@ a custom PCB. Roughly **525 CZK (~EUR 21)**.
 | **breadboard + jumper wires** | 400-point board, male-male jumpers | no soldering while prototyping | ~80 CZK |
 | **micro-USB cable** | micro-USB B — the Pico 2 did NOT move to USB-C | power, flashing, and the CTAP/HID link to the browser | ~30 CZK |
 
+**ATECC608B package trap.** The order code has two independent parts and only one of them is the variant. `…DA…`
+is what you want — TrustCustom, blank and customer-configurable, as opposed to `-TNGTLS`. But the package code decides
+whether you can physically use it: `ATECC608B-MAHDA-S` is **UDFN-8**, a 2 x 3 mm leadless part needing hot air and
+realistically a stencil, which fits neither a breadboard nor a 2.54 mm perfboard, and unlike SOIC has no cheap DIP
+adapter. Use either a ready **breakout module** (Adafruit #4314, SparkFun's Cryptographic Co-processor — that one carries
+the older ATECC608**A**, functionally identical for `GenKey` + P-256 `Sign`) for zero soldering, or
+**`ATECC608B-SSHDA`**, the same TrustCustom config in hand-solderable **SOIC-8**, with a ~20 CZK SOIC-8 to DIP-8 adapter.
+
+Related trap on the prototyping board: a "prototypová univerzální deska / perfboard (2,54 mm, SMD/THT)" is bare copper
+pads and must be soldered. Male jumper wires need a SOLDERLESS breadboard (the plastic one with spring contacts). Buy
+both if you want a prototype now and a permanent build later.
+
 **Wiring is trivial because both I2C devices share one bus.** The OLED (`0x3C`) and the ATECC608B (`0x60`) sit on the
 same SDA/SCL pair, so the whole build is **two GPIO pins** plus power and the two buttons. No level shifters, no pull-up
 resistors beyond what the breakout boards already carry, no bus conflict.
