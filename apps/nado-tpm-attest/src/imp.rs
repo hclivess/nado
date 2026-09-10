@@ -93,6 +93,13 @@ fn enrol_aik() -> (bool, String) {
                         This is a fault on Microsoft's side, not your PC — nothing here can fix it.\n         \
                         Your chip is fine; it just cannot get a Microsoft identity certificate.".into());
     }
+    // NTE_EXISTS (0x8009000f) means the named AIK container survives from an earlier run, so certreq's
+    // CX509PrivateKey::Create throws before it ever reaches the enrolment service. That is NOT a failure and
+    // must not be reported as one: on a machine whose real problem is a 404, a second run would otherwise
+    // blame a stale container and hide the actual cause. Found by a session running on the target machine.
+    if text.contains("0x8009000f") || text.to_uppercase().contains("NTE_EXISTS") {
+        return (true, "reused the identity key from an earlier run".into());
+    }
     let first = text.lines().find(|l| l.to_lowercase().contains("error") || l.contains("0x"))
                     .unwrap_or("no recognisable result").trim().to_string();
     (false, format!("certreq did not report success: {first}"))
@@ -348,7 +355,7 @@ pub fn main() {
     // SAY SOMETHING BEFORE TOUCHING ANYTHING (2026-09-10: first run "just crashes, no log"). This line proves
     // the binary started, and the panic hook below turns any later fault into a readable message plus a pause
     // instead of a window that vanishes.
-    println!("nado-tpm-attest 0.8 starting...");
+    println!("nado-tpm-attest 0.9 starting...");
     // BRIDGE MODE when given a challenge; otherwise the read-only check.
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(hexchal) = args.first() {
@@ -419,7 +426,11 @@ pub fn main() {
     step(4, total, "Identity certificate (asking Microsoft)");
     let _ = std::io::stdout().flush();
     let (enrolled, why) = enrol_aik();
-    if enrolled { said_ok("issued"); } else { said_bad(&why); }
+    if enrolled {
+        said_ok(if why.is_empty() { "issued" } else { &why });
+    } else {
+        said_bad(&why);
+    }
 
     let mut aik: NCRYPT_HANDLE = 0;
     let an = w(AIK_NAME);
