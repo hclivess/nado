@@ -568,6 +568,8 @@ class CoreClient(threading.Thread):
                 # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT): answer the enrolments
                 # this node was DRAWN to challenge. Without this every enrolment expires unanswered.
                 self.maybe_tpm_challenge()
+                # ...and enrol THIS machine's own chip, so a headless node attests itself and mines.
+                self.maybe_tpm_self_enrol()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
                 # ARCHIVE REFILL: advance earliest_block as the background canonical-chain fill (after a
@@ -2822,14 +2824,23 @@ class CoreClient(threading.Thread):
         self._excluded_logged &= {tx.get("txid") for tx in pool}
         return selected
 
-    def _tpm_tx_pending(self, recipient, enrol_id):
-        """True if our own message for this enrolment is already waiting in the pool. Without it the
-        per-block pass mints a fresh duplicate (new nonce -> new txid) until the first copy is mined; the
-        stragglers then fail validation inside later candidates and poison block production — the same
-        failure _reserved_tx_pending exists to prevent, in a path that runs once per enrolment per block."""
+    def _tpm_tx_pending(self, recipient, enrol_id=None):
+        """True if our own message of this kind is already waiting in the pool. Without it the per-block
+        pass mints a fresh duplicate (new nonce -> new txid) until the first copy is mined; the stragglers
+        then fail validation inside later candidates and poison block production — the same failure
+        _reserved_tx_pending exists to prevent, in a path that runs once per enrolment per block.
+
+        enrol_id is None for `tpm_enrol`, and that is not laziness. An enrolment's id is DERIVED from its
+        content (chain id, endorsement identity, key name) and is therefore not carried in the message, so
+        there is no field to match on. Matching on recipient and sender alone is exact anyway: a node
+        derives one endorsement identity and one attestation key from fixed templates, so it can only ever
+        have one enrolment of its own in flight."""
         for tx in self.memserver.transaction_pool.copy():
-            if (tx.get("recipient") == recipient and tx.get("sender") == self.memserver.address
-                    and isinstance(tx.get("data"), dict) and tx["data"].get("id") == enrol_id):
+            if tx.get("recipient") != recipient or tx.get("sender") != self.memserver.address:
+                continue
+            if enrol_id is None:
+                return True
+            if isinstance(tx.get("data"), dict) and tx["data"].get("id") == enrol_id:
                 return True
         return False
 
@@ -2853,6 +2864,241 @@ class CoreClient(threading.Thread):
         with open(path + ".tmp", "w") as f:
             json.dump(store, f)
         os.replace(path + ".tmp", path)
+
+    # Cached chip identity: (ek_identity, ek_chain, aik_pub). Deriving an RSA-2048 primary takes SECONDS
+    # on a real firmware TPM, and the self-enrolment check runs once per block — recomputing it every time
+    # would spend more wall clock inside the chip than the node spends producing. Both primaries are
+    # DERIVED from fixed templates, so the values never change for a given machine and a restart simply
+    # pays for one recomputation.
+    _tpm_identity_cache = None
+
+    def _tpm_open(self):
+        """This machine's TPM, or None if it has none. The node has exactly ONE place that decides both
+        questions, so there is exactly one thing for a test to substitute — tests/test_tpm_self_enrol.py
+        drives a simulator through this and every other line of the self-enrolment path runs unchanged.
+
+        Presence lives here rather than at the call sites because a check that consults the filesystem
+        while the open goes through a hook is a seam that tests pass and production fails, or the
+        reverse."""
+        from ops.tpm_linux import LinuxTpm
+        return LinuxTpm() if LinuxTpm.present() else None
+
+    def _tpm_identity(self):
+        """(endorsement identity, endorsement chain, attestation public area) for THIS machine, or None.
+
+        None means this node cannot use the vendor-endorsed path, and the reasons are all legitimate: no
+        TPM device, no endorsement certificate in NV, or a certificate that does not chain to a pinned
+        silicon-vendor root. A machine whose chip no vendor vouched for MUST NOT enrol — without the
+        vendor signature the whole design degrades to "some TPM somewhere said yes", which a software TPM
+        says just as convincingly.
+        """
+        if self._tpm_identity_cache is not None:
+            return self._tpm_identity_cache or None
+        from ops.tpm_linux import ek_template, aik_template, RH_ENDORSEMENT
+        from ops import attest_native
+        from protocol import DEVICE_ATTEST_EK_ROOTS
+        tpm = handles = None
+        try:
+            tpm = self._tpm_open()
+            if tpm is None:
+                self._tpm_identity_cache = False        # no TPM: the overwhelmingly common case
+                return None
+            cert = tpm.ek_certificate()
+            if not cert:
+                self.logger.info("TPM present but holds no endorsement certificate — "
+                                 "the vendor-endorsed path needs one and this node will not enrol")
+                self._tpm_identity_cache = False
+                return None
+            # Client-supplied intermediates are only a routing hint (every link is verified and only
+            # pinned roots are trust input), so offering whatever the chip also stores costs nothing and
+            # rescues the common case where the leaf does not chain straight to the root.
+            chain = [cert]
+            for extra in (0x01C00100, 0x01C00101, 0x01C00102):
+                nv = tpm.nv_read_public(extra)
+                if nv and nv[1]:
+                    try:
+                        chain.append(tpm.nv_read(extra, nv[1]))
+                    except Exception:
+                        pass
+            now = int(self.memserver.latest_block.get("block_timestamp") or time.time())
+            verdict = attest_native.verify_ek(chain, now)
+            if not (verdict.get("ok") and verdict.get("root_sha256") in DEVICE_ATTEST_EK_ROOTS):
+                self.logger.warning(
+                    f"endorsement certificate does not chain to a pinned vendor root "
+                    f"({verdict.get('reason') or verdict.get('root_sha256')}) — this node will not enrol")
+                self._tpm_identity_cache = False
+                return None
+            handles = []
+            _h, _pub, _ = tpm.create_primary(RH_ENDORSEMENT, ek_template())
+            handles.append(_h)
+            aik_h, aik_pub, _ = tpm.create_primary(RH_ENDORSEMENT, aik_template())
+            handles.append(aik_h)
+            self._tpm_identity_cache = (str(verdict["identity"]), chain, aik_pub)
+            self.logger.info(f"TPM ready: endorsement identity {verdict['identity'][:16]}… "
+                             f"({verdict.get('manufacturer')})")
+            return self._tpm_identity_cache
+        except Exception as e:
+            self.logger.warning(f"could not read this machine's TPM identity: {e}")
+            self._tpm_identity_cache = False
+            return None
+        finally:
+            if tpm is not None:
+                for h in (handles or []):
+                    tpm.flush(h)
+                tpm.close()
+
+    def maybe_tpm_self_enrol(self):
+        """ENROL THIS MACHINE'S OWN CHIP, AND KEEP ITS REGISTRATION ALIVE
+        (doc/tpm-attestation-without-a-ca.md).
+
+        A node with a vendor-certified TPM attests ITSELF: no operator, no browser, no human tap. That is
+        the point of the whole path — a headless Linux machine has never had a way to attest, and the
+        WebAuthn ceremony it would otherwise need cannot be automated by design.
+
+        One step per block, driven entirely by chain state and the chip. Nothing is persisted locally,
+        because both primaries are DERIVED from fixed templates: the same machine recomputes the same
+        endorsement identity and the same attestation key after any restart, so its enrolment id is
+        recoverable from public data alone.
+
+            no record          -> publish the endorsement chain and the attestation public area
+            open, all answered -> activate every challenge in the chip, publish the commitment
+            proven             -> register with a fresh certify, and renew before the lease lapses
+
+        Best-effort; never raises."""
+        try:
+            from protocol import (DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS, CHAIN_ID,
+                                  POSW_LEASE_EPOCHS, POSW_ANCHOR_OFFSET)
+            from ops import tpm_enrol as _te, tpm_aik
+            from ops.transaction_ops import (construct_tpm_tx, construct_register_tx,
+                                             register_device_challenge)
+            tip = self.memserver.latest_block["block_number"]
+            if not (DEVICE_ATTEST_EK_HEIGHT and tip >= DEVICE_ATTEST_EK_HEIGHT):
+                return
+            ident = self._tpm_identity()
+            if not ident:
+                return
+            ek_id, chain, aik_pub = ident
+            me = self.memserver.address
+            eid = _te.enrol_id(CHAIN_ID, ek_id, _te.aik_name_hex(aik_pub))
+            rec = kv_ops.tpm_enrol_get(eid)
+            min_block = tip + TX_INCLUSION_DELAY
+
+            if rec is None:
+                if self._tpm_tx_pending("tpm_enrol"):
+                    return
+                data = {"ek": [c.hex() for c in chain], "pub": aik_pub.hex()}
+                tx = construct_tpm_tx(self.memserver.keydict, "tpm_enrol", data,
+                                      min_block + 4, min_block=min_block)
+                if self.memserver.merge_transaction(tx, user_origin=True).get("result"):
+                    self.logger.info(f"TPM self-enrolment {eid[:12]}…: published our endorsement chain")
+                return
+
+            if rec["state"] == "open":
+                blobs = {b[0]: b for b in (rec.get("blobs") or [])}
+                if set(blobs) != set(rec["challengers"]):
+                    return                      # still waiting for the drawn challengers
+                if self._tpm_tx_pending("tpm_commit", eid):
+                    return
+                secrets = self._tpm_activate_all(rec, blobs)
+                if secrets is None:
+                    return
+                data = {"id": eid, "commit": tpm_aik.credential_commitment(secrets)}
+                tx = construct_tpm_tx(self.memserver.keydict, "tpm_commit", data,
+                                      int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1,
+                                      min_block=min_block)
+                if self.memserver.merge_transaction(tx, user_origin=True).get("result"):
+                    self.logger.info(f"TPM self-enrolment {eid[:12]}…: our chip opened every challenge")
+                return
+
+            if rec["state"] != "proven":
+                return                          # committed; the challengers reveal next
+
+            # PROVEN: register, and renew one epoch before the lease lapses rather than after. A lapsed
+            # lease drops this identity out of the registry until the next register lands, and the
+            # renewal costs one fee-exempt transaction.
+            epoch_now = tip // EPOCH_LENGTH
+            last = kv_ops.recert_latest(me)
+            if last >= 0 and epoch_now < last + POSW_LEASE_EPOCHS - 1:
+                return
+            if last >= epoch_now:
+                return                          # one register per epoch
+            for t in self.memserver.transaction_pool.copy():
+                if t.get("recipient") == "register" and t.get("sender") == me:
+                    return
+            max_block = min_block + 4
+            anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
+            if not anchor:
+                return
+            challenge = register_device_challenge(me, anchor, max_block)
+            certified = self._tpm_certify(challenge)
+            if certified is None:
+                return
+            cert_info, sig = certified
+            device = {"ek": ek_id, "id": eid, "certinfo": cert_info.hex(), "sig": sig.hex()}
+            tx = construct_register_tx(self.memserver.keydict, max_block, device=device)
+            if self.memserver.merge_transaction(tx, user_origin=True).get("result"):
+                self.logger.info(f"TPM registration: certified by our own chip for epoch {epoch_now}")
+        except Exception as e:
+            self.logger.error(f"TPM self-enrolment failed: {e}")
+
+    def _tpm_activate_all(self, rec, blobs):
+        """Open every drawn challenger's credential inside the chip and return the concatenated secrets in
+        challenger order, or None if any of them will not open.
+
+        THE CONCATENATION ORDER IS CONSENSUS, not a local choice: apply_reveal checks the commitment
+        against the secrets sorted by challenger, so committing to any other order fails at the last
+        reveal and wastes the whole enrolment."""
+        from ops.tpm_linux import ek_template, aik_template, RH_ENDORSEMENT
+        tpm = handles = None
+        try:
+            tpm = self._tpm_open()
+            if tpm is None:
+                return None
+            handles = []
+            ek_h, _p, _ = tpm.create_primary(RH_ENDORSEMENT, ek_template())
+            handles.append(ek_h)
+            aik_h, _p2, _ = tpm.create_primary(RH_ENDORSEMENT, aik_template())
+            handles.append(aik_h)
+            out = b""
+            for challenger in sorted(blobs):
+                blob = bytes.fromhex(blobs[challenger][1])
+                enc = bytes.fromhex(blobs[challenger][2])
+                sess = tpm.start_policy_session()
+                try:
+                    tpm.policy_secret_endorsement(sess)
+                    out += tpm.activate_credential(aik_h, ek_h, sess, blob, enc)
+                finally:
+                    tpm.flush(sess)
+            return out
+        except Exception as e:
+            self.logger.warning(f"the chip could not open a challenge: {e}")
+            return None
+        finally:
+            if tpm is not None:
+                for h in (handles or []):
+                    tpm.flush(h)
+                tpm.close()
+
+    def _tpm_certify(self, challenge):
+        """A fresh TPM2_Certify over this block's challenge, under the enrolled attestation key."""
+        from ops.tpm_linux import aik_template, RH_ENDORSEMENT
+        tpm = handles = None
+        try:
+            tpm = self._tpm_open()
+            if tpm is None:
+                return None
+            handles = []
+            aik_h, _p, _ = tpm.create_primary(RH_ENDORSEMENT, aik_template())
+            handles.append(aik_h)
+            return tpm.certify(aik_h, aik_h, challenge)
+        except Exception as e:
+            self.logger.warning(f"the chip could not certify: {e}")
+            return None
+        finally:
+            if tpm is not None:
+                for h in (handles or []):
+                    tpm.flush(h)
+                tpm.close()
 
     def maybe_tpm_challenge(self):
         """CHALLENGE THE ENROLMENTS THIS NODE WAS DRAWN FOR (doc/tpm-attestation-without-a-ca.md).
