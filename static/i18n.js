@@ -5085,26 +5085,6 @@
     "vi": {"device.mineFailed": "Thiết bị thật: chứng thực thất bại ({e}). Làn miễn phí và cổ tức cần điện thoại Android (12+), PC Windows có TPM, Ledger hoặc Trezor — hoặc “Chứng thực từ thiết bị khác”. Đào bằng tiền tiết kiệm thì hoàn toàn không cần thiết bị: khóa NADO và bạn vẫn tạo được khối.", "device.required": "Thiết bị này không tự chứng thực được. Làn miễn phí và cổ tức cần điện thoại Android (12+), PC Windows có TPM, Ledger hoặc Trezor — hoặc một bản khai từ thiết bị khác. Đào bằng tiền tiết kiệm thì hoàn toàn không cần thiết bị: khóa NADO và bạn vẫn tạo được khối.", "device.savingsNote": "Tiền tiết kiệm của bạn đã tự đào rồi — thiết bị chỉ thêm làn miễn phí và cổ tức."}
   };
   for (const l in T116) Object.assign(T[l] = T[l] || {}, T116[l]);
-  // T117: the Windows helper download, offered in the device guide after a failed verdict on Windows only.
-  const T117 = {
-    "en": {"wintool.btn": "Download the Windows device check", "wintool.note": "Right-click it and choose “Run as administrator”. It only checks your PC's security chip and shows the result — it sends nothing."},
-    "cs": {"wintool.btn": "Stáhnout kontrolu zařízení pro Windows", "wintool.note": "Klikněte na něj pravým tlačítkem a zvolte „Spustit jako správce“. Jen zkontroluje bezpečnostní čip vašeho PC a ukáže výsledek — nic neodesílá."},
-    "es": {"wintool.btn": "Descargar la comprobación de dispositivo para Windows", "wintool.note": "Haz clic derecho y elige «Ejecutar como administrador». Solo comprueba el chip de seguridad de tu PC y muestra el resultado: no envía nada."},
-    "pt": {"wintool.btn": "Baixar a verificação de dispositivo para Windows", "wintool.note": "Clique com o botão direito e escolha “Executar como administrador”. Ele apenas verifica o chip de segurança do seu PC e mostra o resultado — não envia nada."},
-    "fr": {"wintool.btn": "Télécharger la vérification d'appareil pour Windows", "wintool.note": "Faites un clic droit et choisissez « Exécuter en tant qu'administrateur ». Il vérifie seulement la puce de sécurité de votre PC et affiche le résultat — il n'envoie rien."},
-    "de": {"wintool.btn": "Windows-Gerätecheck herunterladen", "wintool.note": "Rechtsklick und „Als Administrator ausführen“ wählen. Es prüft nur den Sicherheitschip Ihres PCs und zeigt das Ergebnis — es sendet nichts."},
-    "it": {"wintool.btn": "Scarica il controllo dispositivo per Windows", "wintool.note": "Fai clic destro e scegli «Esegui come amministratore». Controlla solo il chip di sicurezza del tuo PC e mostra il risultato: non invia nulla."},
-    "ru": {"wintool.btn": "Скачать проверку устройства для Windows", "wintool.note": "Щёлкните правой кнопкой и выберите «Запуск от имени администратора». Она только проверяет чип безопасности вашего ПК и показывает результат — ничего не отправляет."},
-    "zh": {"wintool.btn": "下载 Windows 设备检查工具", "wintool.note": "右键点击并选择“以管理员身份运行”。它只检查这台电脑的安全芯片并显示结果——不会发送任何内容。"},
-    "ja": {"wintool.btn": "Windows デバイスチェックをダウンロード", "wintool.note": "右クリックして「管理者として実行」を選んでください。PC のセキュリティチップを調べて結果を表示するだけで、何も送信しません。"},
-    "ko": {"wintool.btn": "Windows 기기 점검 도구 다운로드", "wintool.note": "마우스 오른쪽 버튼을 클릭하고 “관리자 권한으로 실행”을 선택하세요. PC의 보안 칩을 확인해 결과만 보여주며, 아무것도 전송하지 않습니다."},
-    "ar": {"wintool.btn": "تنزيل فحص الجهاز لنظام Windows", "wintool.note": "انقر عليه بزر الفأرة الأيمن واختر «تشغيل كمسؤول». إنه يفحص شريحة الأمان في حاسوبك ويعرض النتيجة فقط — ولا يرسل أي شيء."},
-    "hi": {"wintool.btn": "Windows डिवाइस जाँच डाउनलोड करें", "wintool.note": "उस पर राइट-क्लिक करें और “व्यवस्थापक के रूप में चलाएँ” चुनें। यह केवल आपके PC की सुरक्षा चिप जाँचता है और परिणाम दिखाता है — कुछ भी नहीं भेजता।"},
-    "tr": {"wintool.btn": "Windows cihaz denetimini indir", "wintool.note": "Sağ tıklayıp “Yönetici olarak çalıştır”ı seçin. Yalnızca bilgisayarınızın güvenlik yongasını denetler ve sonucu gösterir — hiçbir şey göndermez."},
-    "id": {"wintool.btn": "Unduh pemeriksaan perangkat Windows", "wintool.note": "Klik kanan lalu pilih “Run as administrator”. Ia hanya memeriksa cip keamanan PC Anda dan menampilkan hasilnya — tidak mengirim apa pun."},
-    "vi": {"wintool.btn": "Tải công cụ kiểm tra thiết bị cho Windows", "wintool.note": "Nhấp chuột phải và chọn “Run as administrator”. Nó chỉ kiểm tra chip bảo mật của máy và hiện kết quả — không gửi đi bất cứ thứ gì."}
-  };
-  for (const l in T117) Object.assign(T[l] = T[l] || {}, T117[l]);
 
 
 
