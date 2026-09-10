@@ -221,3 +221,163 @@ pub fn certify(t: &Tbs, object: u32, sign_handle: u32, qualifying_data: &[u8]) -
     let sig = r.tpm2b().ok_or(0xFFFF_FFFEu32)?.to_vec();
     Ok((cert_info, sig))
 }
+
+// --- object templates ----------------------------------------------------------------------------------
+//
+// objectAttributes bits (TCG Part 2 §8.3): fixedTPM 0x2, fixedParent 0x10, sensitiveDataOrigin 0x20,
+// userWithAuth 0x40, adminWithPolicy 0x80, noDA 0x400, restricted 0x10000, decrypt 0x20000, sign 0x40000.
+
+/// The TCG EK Credential Profile L-1 template (RSA 2048). Its attributes and authPolicy are fixed by that
+/// profile, not chosen by us: reproduce them byte for byte or the primary derives to a DIFFERENT key than the
+/// one the vendor certified, and the endorsement certificate then belongs to a key we do not hold.
+pub const EK_ATTRS: u32 = 0x0003_00B2; // fixedTPM|fixedParent|sensitiveDataOrigin|adminWithPolicy|restricted|decrypt
+
+/// The well-known EK authPolicy: PolicySecret(TPM_RH_ENDORSEMENT) under SHA-256. Because the EK is
+/// adminWithPolicy, using it at all requires a policy session that satisfies exactly this.
+pub const EK_POLICY_SHA256: [u8; 32] = [
+    0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc, 0x8d, 0x46, 0xa5, 0xd7, 0x24,
+    0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52, 0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa];
+
+/// A restricted RSA-2048 signing key — an attestation key. Restricted is what makes TPM2_Certify meaningful:
+/// such a key will only ever sign TPM-generated structures, so a signature from it cannot be an arbitrary
+/// message the host chose. noDA matches what Windows uses for its own AIKs.
+pub const AIK_ATTRS: u32 = 0x0005_0472; // fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|restricted|sign
+
+pub fn ek_template() -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend_from_slice(&ALG_RSA.to_be_bytes());
+    t.extend_from_slice(&ALG_SHA256.to_be_bytes());
+    t.extend_from_slice(&EK_ATTRS.to_be_bytes());
+    t.extend_from_slice(&(EK_POLICY_SHA256.len() as u16).to_be_bytes());
+    t.extend_from_slice(&EK_POLICY_SHA256);
+    // parameters: symmetric AES-128-CFB, scheme NULL, keyBits 2048, exponent default
+    t.extend_from_slice(&0x0006u16.to_be_bytes());  // TPM_ALG_AES
+    t.extend_from_slice(&128u16.to_be_bytes());
+    t.extend_from_slice(&0x0043u16.to_be_bytes());  // TPM_ALG_CFB
+    t.extend_from_slice(&ALG_NULL.to_be_bytes());
+    t.extend_from_slice(&2048u16.to_be_bytes());
+    t.extend_from_slice(&0u32.to_be_bytes());
+    // unique: the profile's 256 zero bytes
+    t.extend_from_slice(&256u16.to_be_bytes());
+    t.extend_from_slice(&[0u8; 256]);
+    t
+}
+
+pub fn aik_template() -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend_from_slice(&ALG_RSA.to_be_bytes());
+    t.extend_from_slice(&ALG_SHA256.to_be_bytes());
+    t.extend_from_slice(&AIK_ATTRS.to_be_bytes());
+    t.extend_from_slice(&0u16.to_be_bytes());       // authPolicy: none
+    t.extend_from_slice(&ALG_NULL.to_be_bytes());   // symmetric: none (a signing key)
+    t.extend_from_slice(&ALG_RSASSA.to_be_bytes()); // scheme RSASSA...
+    t.extend_from_slice(&ALG_SHA256.to_be_bytes()); // ...over SHA-256, so certInfo is COSE -257, not RS1
+    t.extend_from_slice(&2048u16.to_be_bytes());
+    t.extend_from_slice(&0u32.to_be_bytes());
+    t.extend_from_slice(&0u16.to_be_bytes());       // unique: empty
+    t
+}
+
+/// TPM2_CreatePrimary. Returns (handle, pubArea, name).
+pub fn create_primary(t: &Tbs, hierarchy: u32, template: &[u8]) -> Result<(u32, Vec<u8>, Vec<u8>), u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_CREATE_PRIMARY);
+    c.u32(hierarchy);
+    c.pw_auth();
+    // inSensitive: TPM2B_SENSITIVE_CREATE { userAuth: empty, data: empty }
+    c.u16(4).u16(0).u16(0);
+    c.tpm2b(template);                              // inPublic
+    c.u16(0);                                       // outsideInfo
+    c.u32(0);                                       // creationPCR: no selections
+    let r = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    let handle = r.u32().ok_or(0xFFFF_FFFEu32)?;
+    let _param_size = r.u32();
+    let pub_area = r.tpm2b().ok_or(0xFFFF_FFFEu32)?.to_vec();
+    // creationData, creationHash, then the ticket, then the name
+    let _creation_data = r.tpm2b().ok_or(0xFFFF_FFFEu32)?;
+    let _creation_hash = r.tpm2b().ok_or(0xFFFF_FFFEu32)?;
+    let _tk_tag = r.u16().ok_or(0xFFFF_FFFEu32)?;
+    let _tk_hierarchy = r.u32().ok_or(0xFFFF_FFFEu32)?;
+    let _tk_digest = r.tpm2b().ok_or(0xFFFF_FFFEu32)?;
+    let name = r.tpm2b().ok_or(0xFFFF_FFFEu32)?.to_vec();
+    Ok((handle, pub_area, name))
+}
+
+/// TPM2_StartAuthSession for a policy session (SHA-256, no salt, no bind). Returns the session handle.
+pub fn start_policy_session(t: &Tbs) -> Result<u32, u32> {
+    let mut c = Cmd::new(ST_NO_SESSIONS, CC_START_AUTH_SESSION);
+    c.u32(RH_NULL).u32(RH_NULL);
+    c.tpm2b(&[0u8; 16]);                            // nonceCaller: at least the hash size/2, 16 is safe
+    c.u16(0);                                       // encryptedSalt: none
+    c.raw(&[0x01]);                                 // sessionType: TPM_SE_POLICY
+    c.u16(ALG_NULL);                                // symmetric: none
+    c.u16(ALG_SHA256);                              // authHash
+    let r = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    r.u32().ok_or(0xFFFF_FFFEu32)
+}
+
+/// TPM2_PolicySecret against the endorsement hierarchy — what satisfies the EK's authPolicy. With empty
+/// endorsement auth this needs no password, but the session is still mandatory: the EK is adminWithPolicy, so
+/// a plain password authorization is refused however empty the hierarchy auth happens to be.
+pub fn policy_secret_endorsement(t: &Tbs, session: u32) -> Result<(), u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_POLICY_SECRET);
+    c.u32(RH_ENDORSEMENT).u32(session);
+    c.pw_auth();
+    c.u16(0);                                       // nonceTPM
+    c.u16(0);                                       // cpHashA
+    c.u16(0);                                       // policyRef
+    c.u32(0);                                       // expiration
+    let r = t.transmit(&c.finish())?;
+    let r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    Ok(())
+}
+
+/// TPM2_ActivateCredential — the proof. The chip returns the sealed secret ONLY if `activate` (our AIK) and
+/// `key` (the endorsement key) are objects in the SAME TPM, which is precisely the statement the issuer needs
+/// signed and the reason the handshake cannot be made non-interactive.
+///
+/// Two authorizations: the AIK by password (empty), and the EK by the policy session that PolicySecret has
+/// already satisfied.
+pub fn activate_credential(t: &Tbs, activate: u32, key: u32, session: u32,
+                           credential_blob: &[u8], secret: &[u8]) -> Result<Vec<u8>, u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_ACTIVATE_CREDENTIAL);
+    c.u32(activate).u32(key);
+    let area = {
+        let mut a = Vec::new();
+        // activateHandle: empty password
+        a.extend_from_slice(&RS_PW.to_be_bytes());
+        a.extend_from_slice(&0u16.to_be_bytes());
+        a.push(0);
+        a.extend_from_slice(&0u16.to_be_bytes());
+        // keyHandle: the policy session, continueSession so it survives for a retry
+        a.extend_from_slice(&session.to_be_bytes());
+        a.extend_from_slice(&0u16.to_be_bytes());
+        a.push(0x01);
+        a.extend_from_slice(&0u16.to_be_bytes());
+        a
+    };
+    c.u32(area.len() as u32).raw(&area);
+    // Both arrive already TPM2B-wrapped from the issuer, so they are written raw rather than re-wrapped.
+    c.raw(credential_blob);
+    c.raw(secret);
+    let r = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    let _param_size = r.u32();
+    Ok(r.tpm2b().ok_or(0xFFFF_FFFEu32)?.to_vec())
+}
+
+/// TPM2_FlushContext — transient handles are a scarce resource; leaking them wedges the chip for other
+/// software until reboot.
+pub fn flush(t: &Tbs, handle: u32) -> Result<(), u32> {
+    let mut c = Cmd::new(ST_NO_SESSIONS, CC_FLUSH_CONTEXT);
+    c.u32(handle);
+    let r = t.transmit(&c.finish())?;
+    let r = Rsp::parse(&r).ok_or(0xFFFF_FFFEu32)?;
+    if !r.ok() { return Err(r.code); }
+    Ok(())
+}
