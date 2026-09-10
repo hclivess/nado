@@ -397,3 +397,22 @@ def rsa_public_numbers_from_spki(spki_der: bytes):
     t, eh, en = tlv(inner, nh + nn)
     e = int.from_bytes(inner[eh:eh + en], "big")
     return n, e
+
+
+def verify_enrolment(ek_spki_der: bytes, aik_pub_area: bytes, secret: bytes, seed: bytes,
+                     published_blob: bytes, commitment: str) -> str:
+    """The whole enrolment, checked from public data. Returns a short description; raises ValueError with the
+    reason. Every node runs this, offline, forever — there is nothing to sign and no key to hold.
+
+    WHAT THIS FUNCTION CANNOT CHECK, and what therefore must be enforced by the transaction ordering around it:
+    that the client committed to `secret` BEFORE the challenger revealed `(secret, seed)`. Given all five
+    values at once, a client with no chip at all can pick a secret and a seed, compute the blob itself, and
+    hand over a self-consistent fabrication that passes every line below. The ordering IS the proof; this only
+    checks the arithmetic. A caller that collapses the three messages into one has removed the security and
+    kept the ceremony.
+    """
+    detail = validate_aik_pub_area(aik_pub_area)          # restricted, signing, non-duplicable, TPM-originated
+    name = aik_name(aik_pub_area)
+    if not verify_credential_reveal(ek_spki_der, name, secret, seed, published_blob, commitment):
+        raise ValueError("the revealed secret and seed do not reproduce the published credential")
+    return detail

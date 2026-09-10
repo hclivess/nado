@@ -1522,6 +1522,7 @@ def split_open_block_reward(reward: int):
 # be DELETED in the cleanup pass. tests/test_gate_reroll_transfer.py pins both halves of every line below.
 #
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
+#                                    DEVICE_ATTEST_EK_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
@@ -1740,6 +1741,21 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # fTPM implies a whole machine. AMD's is verified against a real endorsement certificate from an affected
 # machine (EK -> CN=PRG-RN -> CN=AMDTPM). Add Intel and the rest as each is verified the same way — against a
 # real certificate walked to a self-signed root, never from a vendor's download page alone.
+# VENDOR-ENDORSED TPM ATTESTATION (doc/tpm-attestation-without-a-ca.md). From this height a register tx may
+# prove its device through the chip's VENDOR endorsement certificate instead of through Microsoft, which is
+# what makes the 26.8% of attempts that Windows Hello refuses attestable at all — and what lets a Linux node
+# attest itself, where no path has ever existed.
+#
+# THE ENROLMENT IS THREE MESSAGES AND CANNOT BE FEWER. A challenger seals a secret to the chip and publishes
+# the blob; the client activates it in the TPM and commits to what it recovered; the challenger then reveals
+# (secret, seed) so every node can recompute the blob and check the commitment. Collapsing this into one
+# message would let a client pick the secret and the seed itself, compute the blob with no chip involved, and
+# have consensus verify its own fabrication. The ordering IS the proof.
+#
+# Not yet enabled: 0 means the rule never fires, and the register path does not consult it. It becomes a real
+# height once the enrolment transactions exist and a chip has completed the flow on real silicon.
+DEVICE_ATTEST_EK_HEIGHT = 0 if CHAIN_GENERATION == 25 else 1   # reroll: vendor-endorsed attestation from block 1
+
 DEVICE_ATTEST_EK_ROOTS = frozenset((
     # Each verified before pinning: fetched from the vendor's own PKI, confirmed self-signed with CA:TRUE, and
     # checked to be the root a REAL endorsement certificate walks to where one was available to walk.

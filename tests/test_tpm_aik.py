@@ -185,6 +185,44 @@ def main():
     check("every pinned endorsement root is readable", not unreadable, sorted(unreadable))
     check("every pinned endorsement root is self-signed", not not_self_signed, sorted(not_self_signed))
 
+    # THE ENROLMENT AS CONSENSUS WILL SEE IT.
+    from ops.tpm_aik import verify_enrolment, credential_commitment
+
+    def pub_ok(attrs=0x00050472):
+        import struct as _s
+        b = _s.pack(">HHI", 0x0001, 0x000B, attrs) + b"\x00\x00" + _s.pack(">H", 0x0010)
+        b += _s.pack(">HH", 0x0014, 0x000B) + _s.pack(">H", 2048) + _s.pack(">I", 0) + b"\x00\x00"
+        return b
+
+    aik_pub = pub_ok()
+    sec, sd = os.urandom(32), os.urandom(32)
+    blob2, _ = make_credential(ek_spki, aik_name(aik_pub), sec, seed=sd)
+    com = credential_commitment(sec)
+    check("a genuine enrolment verifies", "restricted" in
+          verify_enrolment(ek_spki, aik_pub, sec, sd, blob2, com))
+    for label, args in (
+            ("a tampered secret", (ek_spki, aik_pub, os.urandom(32), sd, blob2, com)),
+            ("a tampered seed", (ek_spki, aik_pub, sec, os.urandom(32), blob2, com)),
+            ("a commitment to something else", (ek_spki, aik_pub, sec, sd, blob2, credential_commitment(b"x"))),
+            ("a blob issued for a different key", (ek_spki, pub_ok(), sec, sd,
+                                                   make_credential(ek_spki, aik_name(pub_ok(0x00050472)), sec,
+                                                                   seed=os.urandom(32))[0], com))):
+        try:
+            verify_enrolment(*args)
+            check(f"refuses {label}", False, "it was accepted")
+        except ValueError:
+            check(f"refuses {label}", True)
+    try:
+        verify_enrolment(ek_spki, pub_ok(0x00050472 & ~0x00010000), sec, sd, blob2, com)
+        check("refuses an unrestricted attestation key", False, "it was accepted")
+    except ValueError:
+        check("refuses an unrestricted attestation key", True)
+
+    # The function must SAY that ordering is what makes it a proof, because nothing in its arithmetic does.
+    src2 = open(os.path.join(ROOT, "ops", "tpm_aik.py")).read()
+    check("verify_enrolment states that the transaction ordering carries the security",
+          "The ordering IS the proof" in src2)
+
     print("\n" + ("ALL OK" if not _fails else f"{len(_fails)} FAILURES"))
     return 1 if _fails else 0
 
