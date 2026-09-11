@@ -2231,6 +2231,23 @@ def _tpm_enrol_key(enrol_id: str) -> bytes:
     return ("tpm:" + str(enrol_id)).encode()
 
 
+def _is_enrol_record(rec) -> bool:
+    """Distinguish an enrolment row from a WebAuthn device binding that shares its prefix.
+
+    THE PREFIX COLLIDES AND CANNOT BE CHANGED. device_attest.device_binding_key returns
+    "tpm:" + sha256(AIK certificate) for the Windows Hello class, and those rows have lived in this DB
+    since long before enrolments existed. Enrolment rows were then added at "tpm:" + enrol id, so a scan
+    of the prefix returns both — and unpacking a 2-element binding into 13 fields raised IndexError
+    inside the challenger duty on every node, every block, silently, for as long as any enrolment
+    existed. The first real enrolment on this chain sat unanswered because of it.
+
+    Renaming the prefix would be the obvious fix and is the WRONG one: these rows are in the state root,
+    so a node replaying the chain would write them under a different key than the nodes that applied
+    those blocks live, and the two would disagree on the root. Telling them apart by SHAPE changes no
+    stored byte. A binding is 2 or 3 elements; an enrolment is exactly as many as _TPM_ENROL_FIELDS."""
+    return isinstance(rec, (list, tuple)) and len(rec) == len(_TPM_ENROL_FIELDS)
+
+
 def tpm_enrol_get(enrol_id: str):
     """The enrolment record for `enrol_id`, or None. Shape: ops/tpm_enrol.new_record."""
     def _do(txn):
@@ -2238,6 +2255,8 @@ def tpm_enrol_get(enrol_id: str):
         if raw is None:
             return None
         rec = _unpack(raw)
+        if not _is_enrol_record(rec):
+            return None                      # a device binding that happens to share the prefix
         return {k: rec[i] for i, k in enumerate(_TPM_ENROL_FIELDS)}
     return _read(_do)
 
@@ -2316,6 +2335,8 @@ def tpm_enrols_live(limit: int = 64):
                     if not k.startswith(b"tpm:") or len(out) >= limit:
                         break
                     rec = _unpack(v)
+                    if not _is_enrol_record(rec):
+                        continue             # a device binding sharing the "tpm:" prefix
                     if rec[0] != "proven":
                         out.append((k[4:].decode(),
                                     {f: rec[i] for i, f in enumerate(_TPM_ENROL_FIELDS)}))
@@ -2335,6 +2356,8 @@ def tpm_enrols_expired(before_height: int, limit: int = 64):
                     if not k.startswith(b"tpm:") or len(out) >= limit:
                         break
                     rec = _unpack(v)
+                    if not _is_enrol_record(rec):
+                        continue             # a device binding sharing the "tpm:" prefix
                     if rec[0] != "proven" and int(rec[6]) < int(before_height):   # rec[6] is "h" — keep in step with _TPM_ENROL_FIELDS
                         out.append(k[4:].decode())
         return out
