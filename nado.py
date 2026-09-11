@@ -1428,7 +1428,18 @@ async def tpm_enrol_id(request):
         now = int((memserver.latest_block or {}).get("block_timestamp") or time.time())
         ek = _an.verify_ek(chain, now)
         if not ek.get("ok"):
-            return _resp({"error": f"endorsement certificate rejected: {ek.get('reason')}"}, status=400)
+            # LOG THE REFUSAL WITH ENOUGH TO DIAGNOSE IT WITHOUT THE OWNER'S CONSOLE. This returned a 400
+            # and recorded nothing, so the only trace of a refused machine was a line on a screen in
+            # someone else's house — "relay returned 400", with the reason in a part of the message that
+            # did not get quoted. The root REACHED is the diagnostic that matters: a chip whose chain
+            # completes to an unpinned vendor is a pinning decision, while one that fails to complete is
+            # a broken or truncated AIA walk, and those need opposite fixes.
+            logger.warning(
+                "tpm_enrol_id refused an endorsement chain: reason=%s root_reached=%s chain_len=%d "
+                "leaf_bytes=%d" % (ek.get("reason"), ek.get("root_sha256") or "(none)", len(chain),
+                                   len(chain[0]) if chain else 0))
+            return _resp({"error": f"endorsement certificate rejected: {ek.get('reason')}",
+                          "root_reached": ek.get("root_sha256") or ""}, status=400)
         identity = ek.get("identity") or ek.get("ek_identity")
         if not identity:
             return _resp({"error": "the kernel accepted the chain but reported no endorsement identity",
