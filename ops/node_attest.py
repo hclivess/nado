@@ -36,11 +36,35 @@ _drops: dict = {}                # sender -> [ {"device": {att,cdj,rp}, "max_blo
 _bytes = [0]
 
 
-def _valid_device(device) -> bool:
+def _is_ek_shape(device) -> bool:
+    """The vendor-endorsed TPM statement (doc/tpm-attestation-without-a-ca.md): a certify under an
+    attestation key an on-chain enrolment already proved, NOT a WebAuthn blob. It reaches this store by the
+    same road and for the same reason — the machine that holds the chip cannot sign for the identity it is
+    vouching for, so the finished proof waits here for that wallet to collect."""
     return (isinstance(device, dict)
+            and isinstance(device.get("ek"), str) and 0 < len(device["ek"]) <= 128
+            and isinstance(device.get("id"), str) and 0 < len(device["id"]) <= 64
+            and isinstance(device.get("certinfo"), str) and 0 < len(device["certinfo"]) <= 4096
+            and isinstance(device.get("sig"), str) and 0 < len(device["sig"]) <= 2048)
+
+
+def _valid_device(device) -> bool:
+    return _is_ek_shape(device) or (isinstance(device, dict)
             and isinstance(device.get("att"), str) and 0 < len(device["att"]) <= _MAX_ATT
             and isinstance(device.get("cdj"), str) and 0 < len(device["cdj"]) <= _MAX_CDJ
             and isinstance(device.get("rp"), str) and 0 < len(device["rp"]) <= _MAX_RP)
+
+
+def _identity_and_size(device):
+    """(dedupe key, byte size) for either shape. Keyed on the STATEMENT's own bytes so a forwarded echo of
+    the same drop is recognised as a duplicate rather than stored twice."""
+    import hashlib
+    if _is_ek_shape(device):
+        blob = "|".join((device["ek"], device["id"], device["certinfo"], device["sig"]))
+    else:
+        blob = device["att"]
+        return hashlib.sha256(blob.encode()).hexdigest(), len(device["att"]) + len(device["cdj"]) + len(device["rp"])
+    return hashlib.sha256(blob.encode()).hexdigest(), len(blob)
 
 
 def drop(sender: str, max_block, device, tip: int) -> dict:
@@ -58,9 +82,7 @@ def drop(sender: str, max_block, device, tip: int) -> dict:
         return {"ok": False, "reason": f"max_block {mb} not within ({tip}, {tip + POSW_TARGET_MARGIN + 30}]"}
     if not _valid_device(device):
         return {"ok": False, "reason": "device statement malformed or too large"}
-    import hashlib
-    h = hashlib.sha256(device["att"].encode()).hexdigest()
-    size = len(device["att"]) + len(device["cdj"]) + len(device["rp"])
+    h, size = _identity_and_size(device)
     with _lock:
         _prune(int(tip))
         lst = _drops.get(sender)

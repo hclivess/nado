@@ -343,7 +343,22 @@ fn register(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str, id: &
     let text = relay.get("/get_latest_block")?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
     let tip = v.get("block_number").and_then(|x| x.as_i64()).ok_or("relay gave no tip")?;
-    let max_block = tip + 12;
+    // HOW LONG THE FINISHED PROOF STAYS USABLE, and it depends on WHO submits it. A `register` lands at
+    // EXACTLY max_block, and the certify is bound to that height, so max_block is the proof's entire
+    // shelf life.
+    //
+    //   self-submit: this program sends the transaction itself, seconds from now. A short window is right.
+    //   HAND-BACK  : the proof goes to a wallet for a PERSON to confirm. tip + 12 gave them about eighty
+    //                seconds, which is not a confirmation window, it is a race. The first proof this
+    //                program ever produced on real silicon expired unsubmitted for exactly that reason:
+    //                max_block 57017 against a tip of 57034 by the time anyone looked at it.
+    //
+    // The ceiling is the RELAY DROP STORE's, not the mempool's: ops/node_attest.drop refuses anything past
+    // tip + POSW_TARGET_MARGIN + 30 = tip + 120, because that store was built for the wallet's old proving
+    // budget. 110 sits inside it and buys about twelve minutes. If it does lapse, re-running this program
+    // is cheap: the enrolment is already PROVEN on chain, so it skips the whole four-message ceremony and
+    // only produces a fresh certify.
+    let max_block = if vouch_for != signer { tip + 110 } else { tip + 12 };
 
     // The challenge is what makes this registration fresh rather than a replay: it binds this sender,
     // this anchor block and this landing height. The relay computes it so the client never has to

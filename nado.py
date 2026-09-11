@@ -1327,6 +1327,18 @@ async def tpm_proof_drop(request):
             _TPM_PROOFS.pop(k, None)
         _TPM_PROOFS[addr] = (now, {"id": str(body.get("id") or ""), "device": dev,
                                    "max_block": int(body.get("max_block") or 0)})
+        # AND INTO THE STORE THE WALLET ACTUALLY POLLS. This endpoint had its own private dict and its own
+        # pickup, and nothing in the wallet read either — so the first proof ever produced on real silicon
+        # sat here until its max_block passed, with no button anywhere that could collect it. The wallet
+        # has polled /node_attest_pickup for "attest from another device" all along, and this is the same
+        # situation by a different road: a machine that holds the hardware cannot sign for the identity it
+        # vouches for, so the finished proof waits for that wallet to collect it. One store, one pickup.
+        try:
+            from ops import node_attest as _na
+            _na.drop(addr, int(body.get("max_block") or 0), dev,
+                     int(memserver.latest_block["block_number"]))
+        except Exception:
+            pass          # the private store above still serves /tpm_proof_pickup; never fail the drop
         return _resp({"ok": True})
     except Exception as e:
         return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
