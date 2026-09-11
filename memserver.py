@@ -62,6 +62,7 @@ class MemServer:
         self.pool_gen = 0                 # bumped on EVERY pool mutation (see transaction_pool property)
         self._txid_set_cache = None        # (pool_gen, {txid}) — O(1) duplicate checks between mutations
         self.transaction_pool = []
+        self.tpm_duty = "idle"   # last outcome of the challenger duty; surfaced by /status
         # GOSSIP REJECT CACHE {txid: retry_after_ts}: bodies fetched during set reconciliation that
         # merge_transaction REFUSED (expired target, cross-fork max_block, invalid). Without it a
         # divergent peer's pool hash never matches ours, so the SAME rejected bodies were re-fetched

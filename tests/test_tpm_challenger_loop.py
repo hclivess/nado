@@ -188,6 +188,9 @@ def main():
     core_loop.get_bonded_registry = lambda: {}
     mem.submitted.clear()
     mem.transaction_pool.clear()
+    # ISOLATE IT: the loop sends ONE message per pass over all live enrolments, so an earlier record
+    # still awaiting our reveal would answer first and this case would test the wrong thing.
+    kv_ops.tpm_enrol_del(eid)
     rec_open = E.new_record(ek_id, ek_spki, name_hex, aik_pub, "prover", tip - 10, sorted([me] + others))
     kv_ops.tpm_enrol_set("b" * 32, rec_open)
     core.maybe_tpm_challenge()
@@ -195,6 +198,7 @@ def main():
           and mem.submitted[0]["recipient"] == "tpm_challenge",
           [t["recipient"] for t in mem.submitted])
     kv_ops.tpm_enrol_del("b" * 32)
+    kv_ops.tpm_enrol_set(eid, rec)
     mem.submitted.clear()
     mem.transaction_pool.clear()
 

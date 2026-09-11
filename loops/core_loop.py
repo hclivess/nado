@@ -3132,6 +3132,12 @@ class CoreClient(threading.Thread):
             # The first real enrolment on this chain sat with zero challenges for 107 blocks because of
             # it: the draw named three producers and the loop asked a different question.
             live = kv_ops.tpm_enrols_live()
+            # WHAT THIS DUTY LAST DID, READABLE FROM OUTSIDE. A duty that catches its own exceptions so it
+            # cannot stop block production is a duty that fails invisibly, and the only place the reason
+            # lands is a log file on a machine somebody else operates. The first real enrolment on this
+            # chain sat unanswered while three nodes were, as far as anyone could tell from the network,
+            # simply choosing not to answer.
+            self.memserver.tpm_duty = f"live={len(live)}"
             if not live:
                 # No enrolment is in progress, so every secret we are still holding belongs to one that
                 # finished or expired. This is the only moment that fact is knowable for free.
@@ -3141,6 +3147,8 @@ class CoreClient(threading.Thread):
             from ops.transaction_ops import construct_tpm_tx
             store = self._tpm_secrets_load()
             min_block = tip + TX_INCLUSION_DELAY
+            mine_count = sum(1 for _e, r in live if me in (r.get("challengers") or []))
+            self.memserver.tpm_duty = f"live={len(live)} drawn_for={mine_count}"
             for eid, rec in live:
                 if me not in (rec.get("challengers") or []):
                     continue
@@ -3177,11 +3185,21 @@ class CoreClient(threading.Thread):
                 else:
                     continue
                 result = self.memserver.merge_transaction(tx, user_origin=True)
-                if result and result.get("result"):
+                ok = bool(result and result.get("result"))
+                self.memserver.tpm_duty = (f"sent {tx['recipient']} for {eid[:8]}" if ok
+                                           else f"REFUSED {tx['recipient']}: "
+                                                f"{(result or {}).get('message')}")
+                if ok:
                     self.logger.info(f"TPM enrolment {eid[:12]}…: sent {tx['recipient']}")
+                else:
+                    self.logger.warning(f"TPM enrolment {eid[:12]}…: {tx['recipient']} refused: "
+                                        f"{(result or {}).get('message')}")
                 return                      # ONE message per pass: an enrolment advances one step per block
         except Exception as e:
-            self.logger.error(f"TPM challenge duty failed: {e}")
+            import traceback
+            self.memserver.tpm_duty = f"FAILED {type(e).__name__}: {str(e)[:120]}"
+            self.logger.error(f"TPM challenge duty failed: {type(e).__name__}: {e}\n"
+                              + traceback.format_exc())
 
     def maybe_tpm_prune_secrets(self):
         """Forget the secrets of enrolments that are finished or gone. A challenger's secret is worthless

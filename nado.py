@@ -475,6 +475,10 @@ async def status(request):
             # rented-server fleet this reads "none" almost everywhere, which is the expected answer and
             # not a fault: self-enrolment is for physical machines, and a VPS has no vendor-certified chip.
             "tpm": _tpm_state(),
+            # What the challenger duty last did. It swallows its own exceptions so a failure cannot stop
+            # block production, which also means the reason never leaves that machine's log — and the
+            # machines that matter are operated by other people.
+            "tpm_duty": getattr(memserver, "tpm_duty", None),
             # WHY it cannot update, and WHY a forked node is not healing itself — both visible from OUTSIDE.
             # `capable` is a bare boolean covering only LOCAL defects, and /log is authenticated, so a remote
             # operator had no way to tell which precondition was vetoing. That guessing is what stretched the
