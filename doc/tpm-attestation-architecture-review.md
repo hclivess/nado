@@ -47,84 +47,78 @@ The measured cost: a user watching `1/3 challengers have answered` for 34 minute
 nodes were alive, healthy, producing blocks, and running a binary from before a fix. Nothing was wrong
 with the chip, the chain, the prover, or those two operators.
 
-## The alternative: prove it with the chip alone
+## The alternative I proposed, and why it is worthless
 
-The commit–reveal exists because **an endorsement key cannot sign**, so possession must be shown by
-decryption, which is interactive. That is true — but it is not the only way to bind an attestation key
-to an endorsement key.
+**RETRACTED 2026-09-11, same day. The proposal below is trivially forgeable. It is kept here in full
+because the mistake is more instructive than the proposal was, and because someone will think of it
+again.**
 
-An EK is `restricted | decrypt | adminWithPolicy`: it is a **storage parent**. So create the attestation
-key *as a child of the EK*, and have it certify its own creation:
+The idea was to avoid the interactive step by creating the attestation key as a *child* of the
+endorsement key and having it certify its own creation:
 
 ```
-TPM2_CreatePrimary(endorsement, EK template)          -> the vendor-certified key
-TPM2_Create(parent = EK, AIK template)                -> outPublic, outPrivate, creationData, ticket
-TPM2_Load(EK, outPrivate, outPublic)                  -> the AIK
-TPM2_CertifyCreation(sign = AIK, object = AIK,
-                     qualifyingData, creationHash, ticket)
+TPM2_CreatePrimary(endorsement, EK template)   -> the vendor-certified key
+TPM2_Create(parent = EK, AIK template)         -> outPublic, outPrivate, creationData, ticket
+TPM2_Load(EK, outPrivate, outPublic)
+TPM2_CertifyCreation(sign = AIK, object = AIK, qualifyingData, creationHash, ticket)
 ```
 
-`TPMS_CREATION_DATA` carries `parentName`, and `parentName` is `nameAlg ‖ H(EK pubArea)` — derivable by
-any verifier from the public key in the vendor's certificate plus the fixed TCG template. The creation
-ticket proves the TPM itself produced that creation data. The AIK is `restricted`, so it signs only
-structures the TPM generated.
+`TPMS_CREATION_DATA` carries `parentName`, which any verifier derives from the vendor certificate plus
+the fixed TCG template. Every one of those commands works — verified against a real TPM 2.0 in
+`tests/test_tpm_certify_creation.py`, nine checks, all passing. The commands are not the problem.
 
-A verifier then checks, **offline, from one message**:
+The problem is the verification. A verifier would check: TPM_GENERATED magic, ATTEST_CREATION type,
+creationHash matches creationData, `parentName` equals the certified endorsement key's name, signature
+verifies under the child's public area, child is `restricted` and `sign`.
 
-1. the EK chain reaches a pinned silicon-vendor root;
-2. the AIK public area is `restricted`, `sign`, `fixedTPM`, `fixedParent`, `sensitiveDataOrigin`;
-3. `creationData.parentName` equals the EK name derived from that certificate;
-4. `creationHash` matches the creation data;
-5. the `TPM_ST_ATTEST_CREATION` signature verifies under the AIK.
+**All six pass on a message produced with no TPM at all.** `tests/test_certify_creation_is_forgeable.py`
+constructs one: generate an RSA key in software, write a `creationData` naming the victim's endorsement
+key — the certificate is public, so the name is public — write a `TPMS_ATTEST` by hand, and sign it with
+the software key. Every field the verifier inspects is a field the forger authored.
 
-If all five hold, that attestation key was created inside a TPM holding that vendor-certified
-endorsement key, and cannot be moved out of it.
+### Why it fails, stated so it is not re-proposed
 
-## What that removes
+Follow the signatures, not the fields:
 
-| removed | defects it caused |
-|---|---|
-| the challenger draw | 10 |
-| *k*-of-*k* liveness dependency | 10, 11 |
-| four-message ordering | 4 |
-| the expiry window | 12 |
-| supersede and the one-per-chip bound | 12 |
-| the challenger duty loop | 9, 11 |
+- the vendor's signature covers the **endorsement key's public key**, and nothing else;
+- the creation attestation is signed by the **child**, which is the key whose provenance is in question;
+- `parentName` is a claim *inside* a blob signed by the claimant.
 
-Enrolment becomes **one transaction, verified offline like any certificate**. Registration is unchanged:
-a fresh `TPM2_Certify` over that block's own challenge, which is what supplies freshness and already
-works on real silicon.
+There is no signature path from the vendor to the signing key. The WebAuthn `tpm` path works precisely
+because there is one: `x5c[0]` is an AIK **certificate**, so a CA's signature reaches the signing key and
+the message closes. Ours had no such certificate — that absence is the entire reason this work exists.
 
-## What it costs, honestly
+### The constraint, which is not an implementation detail
 
-- **The AIK stops being a derived primary.** A child key's private blob must be stored by the client
-  and re-loaded, so the client keeps a small file. Today's AIK is recomputed from a template and needs
-  no state. This is a real regression in operational simplicity, and it is worth it.
-- **The EK's policy must be satisfied to use it as a parent** — `PolicySecret` against the endorsement
-  hierarchy, the same session `ActivateCredential` needs. That path has still never run on real silicon,
-  so this does not dodge the one genuinely untested step; it reuses it.
-- **`TPM2_CertifyCreation` is unverified here.** Every claim above is from the TCG specification, not
-  from a chip. It must be run against the AMD fTPM before any of this is believed. If a firmware TPM
-  refuses the EK as a parent, the whole alternative collapses and the commit–reveal stays.
-- **It does not help a chip with no endorsement certificate.** That is orthogonal and unchanged.
+An endorsement key is a restricted **decryption** key. No signature by it can exist, ever. So the only
+operation that demonstrates possession of it is decrypting something the prover could not predict, and
+"could not predict" requires a party other than the prover to have chosen it. That is interactive by
+construction.
 
-## What to keep regardless
+The original design note said this in its second paragraph and listed "derive the challenge from public
+data" among the shortcuts that do not work. This proposal was the same shortcut wearing a TPM command as
+a disguise: it replaced *predicting a secret* with *asserting a parent*, and an assertion signed by the
+asserter is not evidence.
 
-The commit–reveal is a genuinely good construction and the paper should keep it: it removes a
-certificate authority using nothing but the determinism of a TPM command and an agreed ordering. What
-today showed is that it is the *wrong tool for a user-facing enrolment*, because it converts a local
-hardware fact into a distributed-systems problem. It remains the right tool where no better binding
-exists — and the reason a better one exists here is narrow: the EK happens to be usable as a parent.
+## What actually follows from the day
 
-## The process lesson, which is separate
+The four-message exchange is not accidental complexity. It is the cost of the one thing that cannot be
+avoided, and the defects listed above are not evidence against it — they are evidence that the
+*surrounding machinery* was under-engineered, which is a different claim and a fixable one.
 
-Two defects (1 and 3) passed their tests because the tests **stubbed the thing that changed**. A stub is
-written from the caller's side and can only confirm that the caller agrees with itself. Both were caught
-in production, on a user's machine, by a person watching output.
+What is worth taking from the experience:
 
-Three more (4, 11, 12) were invisible from the server because the challenger duty catches its own
-exceptions so a failure cannot stop block production — which also means the reason never leaves that
-machine. The `tpm_duty` field added partway through found the next one in seconds.
+- **Seven of thirteen defects were liveness, and every one had a local fix.** Landing windows, draw
+  eligibility, retry on stall, superseding a dead record. None required changing the protocol.
+- **A stalled draw now costs three minutes, not an hour**, because a new attestation key is a new
+  enrolment id and therefore a fresh draw. That is the real answer to the latency complaint, and it
+  needed no security change at all.
+- **Any duty that swallows its own exceptions must publish its last outcome.** `tpm_duty` found the next
+  defect in seconds after three had each cost a debugging cycle.
+- **A stub can only confirm that the caller agrees with itself.** Two defects passed their tests because
+  the tests stubbed the thing that changed.
 
-**Any duty that swallows its own failures must publish its last outcome.** That is cheap, and it is the
-single highest-value change made today.
+And one about judgement: an architecture proposal that removes the only expensive part of a protocol
+should be assumed wrong until someone has tried to forge it. I wrote the document and a passing
+hardware test before attempting the forgery, which took twenty lines and worked on the first try.
+

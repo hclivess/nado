@@ -1,10 +1,13 @@
 """AN ATTESTATION KEY CREATED AS A CHILD OF THE ENDORSEMENT KEY, CERTIFYING ITS OWN CREATION.
 
-This is the experiment that decides doc/tpm-attestation-architecture-review.md. If the endorsement key
-can parent an attestation key, and that key can certify its own creation, then enrolment is ONE
-offline-verifiable message and the entire four-message exchange — the challenger draw, the ordering,
-the expiry, the supersede, the wedge — is unnecessary machinery around a fact the chip can state by
-itself.
+WHAT THIS PROVES AND WHAT IT DOES NOT. It proves the TPM commands work: an endorsement key can parent
+an attestation key, and that key can certify its own creation. It was written to support an
+architecture that would replace the four-message exchange with a single offline-verifiable message.
+
+THAT ARCHITECTURE IS FORGEABLE AND WAS RETRACTED THE SAME DAY — see
+tests/test_certify_creation_is_forgeable.py, which builds a message passing every one of those checks
+with no TPM at all. The commands below are genuine; the verification built on them was not. This test
+is kept because the command sequence is correct and may be useful, not because the design was.
 
 The binding works because TPMS_CREATION_DATA carries `parentName`, the endorsement key's name is
 nameAlg || H(pubArea) and its public area is derivable by any verifier from the vendor certificate plus
