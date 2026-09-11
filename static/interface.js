@@ -696,6 +696,20 @@ function passkeyManagerName(ag) { return PASSKEY_MANAGERS[String(ag || "").slice
 
 // GUIDE: the specific reasoning + exact steps for a verdict, shown under the Mining page's device line (2026-09-07,
 // user: "we must add specific reasoning and guide to the web wallet"). One-line hints (deviceHint) stay for logs.
+// THE ENROLMENT HELPER, OFFERED WHEREVER THE DIAGNOSIS IS. Returns the download block for THIS wallet's
+// address, or "" when there is no address yet. The address rides in the filename the server sends, so the
+// owner pastes nothing; the checksums are published beside it so verification does not depend on someone
+// quoting a hash in a chat.
+function tpmHelperLinks() {
+  if (!state.wallet || !state.wallet.address) return "";
+  const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
+  return '<b>' + escapeHtml(i18("tpm.dlTitle", "This PC's security chip can vouch for you instead")) + '</b><br>'
+    + escapeHtml(i18("remote.tpmOffer", "Or use this PC's security chip: if Windows Hello will not attest here, the enrolment helper proves the TPM directly and leaves the proof for this wallet to confirm.")) + '<br>'
+    + '<a href="' + escapeHtml(base) + '" rel="noopener">' + escapeHtml(i18("remote.dlWin", "Download for Windows")) + '</a>'
+    + ' · <a href="' + escapeHtml(base + "&os=linux") + '" rel="noopener">' + escapeHtml(i18("remote.dlLinux", "Download for Linux")) + '</a>'
+    + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>';
+}
+
 function deviceGuide(st) {
   if (!st || st.ok) return "";
   const ag = String(st.aaguid || "").replace(/-/g, "").toLowerCase();
@@ -851,7 +865,8 @@ function renderDeviceStatus() {
     if (state.lastMs && state.lastMs.bonded_producing)
       el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
     const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
-    if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
+    if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t);
+                     const dl = $("mineTpmDl"); if (dl) dl.innerHTML = t ? tpmHelperLinks() : ""; }
     return;
   }
   el.textContent = st.reason === "unsupported"
@@ -863,7 +878,8 @@ function renderDeviceStatus() {
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
   // Collapsed by default (2026-09-08 UX pass): the status line says it failed, the summary says help is one tap away.
-  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); }
+  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt);
+                 const dl2 = $("mineTpmDl"); if (dl2) dl2.innerHTML = txt ? tpmHelperLinks() : ""; }
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the

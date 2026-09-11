@@ -307,6 +307,11 @@
     <details id="mineDeviceGuide" class="mt hidden disc">
       <summary data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
       <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
+      <!-- THE WAY OUT, NEXT TO THE DIAGNOSIS. A PC whose Windows Hello cannot attest has no WebAuthn route
+           at all; the enrolment helper is the only one. It lived behind a query string, then behind a mode
+           the owner had to select first, so it reached nobody who had not been told about it by hand.
+           Filled by renderDeviceStatus() whenever this guide is shown. -->
+      <div id="mineTpmDl" class="small mt"></div>
     </details>
 
     <!-- HOW TO ATTEST (2026-09-08 UX pass, progressive disclosure): one primary action above; the four ways to attest sit
