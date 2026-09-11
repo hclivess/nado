@@ -220,3 +220,140 @@ pub fn open_tbs() -> Result<crate::tbs::Tbs, u32> {
         Ok(crate::tbs::Tbs::from_parts(ctx, submit, close))
     }
 }
+
+// --- THE ENDORSEMENT CERTIFICATE, WHERE WINDOWS ACTUALLY KEEPS IT ------------------------------------
+//
+// An AMD firmware TPM commonly does NOT hold its endorsement certificate in TPM NV, and NCrypt's
+// PCP_EKCERT properties return nothing on those machines (measured: 8 bytes for all four, on a chip
+// whose certificate demonstrably exists). Windows retrieves it once and caches it here, which is where
+// Get-TpmEndorsementKeyInfo reads from and why PowerShell can show an AMD certificate that every other
+// interface claims is absent.
+//
+//   HKLM\SYSTEM\CurrentControlSet\Services\TPM\WMI\Endorsement\EKCertStore
+//
+// Values under that key are raw DER, one certificate each. We take all of them: the leaf and whatever
+// issuing certificates Windows cached alongside it are exactly the chain the verifier needs, and it
+// checks every link itself, so offering extras costs nothing.
+
+#[link(name = "advapi32")]
+extern "system" {
+    fn RegOpenKeyExW(key: usize, sub: *const u16, opts: u32, sam: u32, out: *mut usize) -> i32;
+    fn RegEnumKeyExW(key: usize, index: u32, name: *mut u16, name_len: *mut u32, reserved: *mut u32,
+                     class: *mut u16, class_len: *mut u32, last_write: *mut u64) -> i32;
+    fn RegQueryValueExW(key: usize, name: *const u16, reserved: *mut u32, ty: *mut u32,
+                        data: *mut u8, data_len: *mut u32) -> i32;
+    fn RegCloseKey(key: usize) -> i32;
+}
+
+const HKEY_LOCAL_MACHINE: usize = 0x8000_0002;
+const KEY_READ: u32 = 0x2_0019;
+const ERROR_SUCCESS: i32 = 0;
+
+/// CERT_CERT_PROP_ID — the record inside a serialized certificate that holds the DER itself.
+const CERT_CERT_PROP_ID: u32 = 32;
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// Pull the DER certificate out of a Windows *serialized* certificate blob.
+///
+/// THE REGISTRY VALUE IS NOT A CERTIFICATE. It is a sequence of property records
+/// {propId u32, encodingType u32, length u32, data[length]}, and the certificate is the record with
+/// propId 32. Handing the whole blob to an X.509 parser fails in a way that reads as "this machine
+/// has a corrupt certificate" rather than "this is a different structure".
+fn der_from_serialized(blob: &[u8]) -> Option<Vec<u8>> {
+    let mut o = 0usize;
+    while o + 12 <= blob.len() {
+        let prop = u32::from_le_bytes(blob[o..o + 4].try_into().ok()?);
+        let len = u32::from_le_bytes(blob[o + 8..o + 12].try_into().ok()?) as usize;
+        o += 12;
+        if o + len > blob.len() {
+            break;
+        }
+        if prop == CERT_CERT_PROP_ID && len > 64 && blob[o] == 0x30 {
+            return Some(blob[o..o + len].to_vec());
+        }
+        o += len;
+    }
+    // Fall back to finding the certificate by shape: a blob whose records we could not walk still
+    // contains the DER, and refusing the machine over a parse detail would be the wrong outcome.
+    let mut i = 0usize;
+    while i + 4 < blob.len() {
+        if blob[i] == 0x30 && blob[i + 1] == 0x82 {
+            let n = u16::from_be_bytes([blob[i + 2], blob[i + 3]]) as usize + 4;
+            if n > 256 && i + n <= blob.len() {
+                return Some(blob[i..i + n].to_vec());
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+unsafe fn read_blob_value(key: usize) -> Option<Vec<u8>> {
+    let name = wide("Blob");
+    let mut len: u32 = 0;
+    if RegQueryValueExW(key, name.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(),
+                        std::ptr::null_mut(), &mut len) != ERROR_SUCCESS || len == 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; len as usize];
+    let mut n = len;
+    if RegQueryValueExW(key, name.as_ptr(), std::ptr::null_mut(), std::ptr::null_mut(),
+                        buf.as_mut_ptr(), &mut n) != ERROR_SUCCESS {
+        return None;
+    }
+    buf.truncate(n as usize);
+    Some(buf)
+}
+
+/// Every certificate Windows has cached for this chip's endorsement key, DER.
+///
+/// Layout, confirmed on a real machine: the certificates live one level below the store, each under
+/// its own thumbprint subkey, in a `Blob` value.
+///
+///   ...\Endorsement\EKCertStore\Certificates\<thumbprint>\Blob
+///
+/// WHERE THE CERTIFICATE CAME FROM DOES NOT MATTER, and a registry value is writable by anyone with
+/// administrator rights, so treat it as attacker-supplied. It changes nothing: the chain is verified
+/// to a pinned vendor root, and even a genuine certificate belonging to someone else's chip is
+/// useless, because the challengers seal their credentials to THAT certificate's public key and only
+/// the chip holding the matching private key can open them. The certificate is a public document;
+/// the proof is the activation.
+pub fn ek_certificates_from_registry() -> Vec<Vec<u8>> {
+    let path = wide(
+        "SYSTEM\\CurrentControlSet\\Services\\TPM\\WMI\\Endorsement\\EKCertStore\\Certificates",
+    );
+    let mut out = Vec::new();
+    unsafe {
+        let mut store: usize = 0;
+        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut store) != ERROR_SUCCESS {
+            return out;
+        }
+        for index in 0..64u32 {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            if RegEnumKeyExW(store, index, name.as_mut_ptr(), &mut name_len, std::ptr::null_mut(),
+                             std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
+                != ERROR_SUCCESS
+            {
+                break;
+            }
+            let sub: Vec<u16> = name[..name_len as usize].iter().copied()
+                .chain(std::iter::once(0)).collect();
+            let mut child: usize = 0;
+            if RegOpenKeyExW(store, sub.as_ptr(), 0, KEY_READ, &mut child) != ERROR_SUCCESS {
+                continue;
+            }
+            if let Some(blob) = read_blob_value(child) {
+                if let Some(der) = der_from_serialized(&blob) {
+                    out.push(der);
+                }
+            }
+            RegCloseKey(child);
+        }
+        RegCloseKey(store);
+    }
+    out
+}

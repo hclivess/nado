@@ -37,8 +37,25 @@ pub fn open() -> Result<Chip, String> {
 }
 
 impl Chip {
+    /// The endorsement chain: from the chip's own NV first, and on Windows from the certificate store
+    /// Windows caches into when the chip does not carry one.
+    ///
+    /// AN AMD FIRMWARE TPM COMMONLY HAS NOTHING IN NV. Measured on a real machine: all four NCrypt
+    /// EK-certificate properties returned empty and both NV indices were unpopulated, on a chip whose
+    /// certificate PowerShell displays without difficulty — because Windows fetched it once and kept
+    /// it. Reading only NV would refuse those machines for a reason that has nothing to do with their
+    /// hardware, which is the whole failure mode this path exists to fix.
     pub fn ek_chain(&mut self) -> Result<Vec<Vec<u8>>, String> {
-        Ok(tpm::ek_chain(self.t.as_ref()))
+        let mut chain = tpm::ek_chain(self.t.as_ref());
+        #[cfg(windows)]
+        if chain.is_empty() {
+            chain = crate::win::ek_certificates_from_registry();
+            if !chain.is_empty() {
+                println!("  chip       endorsement certificate came from the Windows certificate store");
+                println!("             (this chip holds none in its own NV — normal for an AMD fTPM)");
+            }
+        }
+        Ok(chain)
     }
 
     pub fn ek_public(&mut self) -> Result<Vec<u8>, String> {
