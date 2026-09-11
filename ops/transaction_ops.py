@@ -1484,7 +1484,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             if _existing:
                 assert _existing.get("state") != "proven", \
                     "this chip has already proved this attestation key — use the existing enrolment"
-                assert block_height >= int(_existing["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS, \
+                assert block_height >= int(_existing["h"]) + _te.enrol_window(_existing["h"]), \
                     "this attestation key already has an enrolment in progress"
             # ONE OPEN ENROLMENT PER CHIP. An endorsement certificate is PUBLIC — anyone who has seen a
             # machine's certificate can copy it — so without this bound a single stolen certificate could
@@ -1496,7 +1496,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             if _open:
                 _prev = kv_ops.tpm_enrol_get(str(_open))
                 assert not (_prev and _prev.get("state") != "proven"
-                            and block_height < int(_prev["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS), \
+                            and block_height < int(_prev["h"]) + _te.enrol_window(_prev["h"])), \
                     "this chip already has an enrolment in progress — finish it or wait for it to expire"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
             # bonded registry must not thereby cut the number of parties it takes to collude.
@@ -1508,7 +1508,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
             rec = kv_ops.tpm_enrol_get(eid)
             assert rec, "no such enrolment"
-            assert block_height < int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS, \
+            assert block_height < int(rec["h"]) + _te.enrol_window(rec["h"]), \
                 "this enrolment has expired — open a new one"
             # Each branch below is a DRY RUN of the exact state transition apply will perform, on the record
             # as it stands at this block. The state machine raises AssertionError on every rule it enforces,

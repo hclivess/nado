@@ -56,7 +56,8 @@ from ops.transaction_ops import (construct_duty_tx,
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
-from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS, TX_LANDING_WINDOW
+from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS, TX_LANDING_WINDOW  # noqa: F401 (docs reference)
+from ops.tpm_enrol import enrol_window as _te_window
 
 # How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
 SEED_PROBE_MEMO_S = 30
@@ -2872,6 +2873,11 @@ class CoreClient(threading.Thread):
     # pays for one recomputation.
     _tpm_identity_cache = None
 
+    @staticmethod
+    def _te_window_impl(created_height):
+        from ops.tpm_enrol import enrol_window
+        return enrol_window(created_height)
+
     def _tpm_open(self):
         """This machine's TPM, or None if it has none. The node has exactly ONE place that decides both
         questions, so there is exactly one thing for a test to substitute — tests/test_tpm_self_enrol.py
@@ -3003,8 +3009,13 @@ class CoreClient(threading.Thread):
                 if secrets is None:
                     return
                 data = {"id": eid, "commit": tpm_aik.credential_commitment(secrets)}
+                # SAME CLAMP AS THE CHALLENGER PATH. The enrolment deadline can be hundreds of blocks
+                # past the tip and the mempool refuses anything beyond tip + TX_LANDING_WINDOW, so an
+                # unclamped commitment is rejected with "Target block too high" — stalling the node's
+                # own enrolment at exactly the step after it has already done the hard part.
+                _expiry = int(rec["h"]) + _te_window(rec["h"]) - 1
                 tx = construct_tpm_tx(self.memserver.keydict, "tpm_commit", data,
-                                      int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1,
+                                      min(_expiry, tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN),
                                       min_block=min_block)
                 if self.memserver.merge_transaction(tx, user_origin=True).get("result"):
                     self.logger.info(f"TPM self-enrolment {eid[:12]}…: our chip opened every challenge")
@@ -3158,7 +3169,7 @@ class CoreClient(threading.Thread):
                 # challenger's answer was rejected with "Target block too high" and the enrolment sat at
                 # 0/3 looking exactly like nobody had been drawn. Clamp to the window, keeping a margin
                 # so the tx does not expire while it waits for inclusion.
-                expiry = int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1
+                expiry = int(rec["h"]) + _te_window(rec["h"]) - 1
                 max_block = min(expiry, tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
                 if min_block > max_block:
                     continue                # this enrolment expires before anything we send could land

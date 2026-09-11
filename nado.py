@@ -1459,9 +1459,9 @@ async def tpm_enrolment(request):
     # carry a second copy of the rule. An expired, unproven record is dead weight: its challenger set was
     # drawn under whatever rule applied then, and a client that keeps waiting on it waits forever. The
     # client re-publishes instead, which supersedes it with a fresh draw.
-    from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS as _W
+    from ops.tpm_enrol import enrol_window as _win
     tip = int((memserver.latest_block or {}).get("block_number") or 0)
-    expires_at = int(rec.get("h") or 0) + _W
+    expires_at = int(rec.get("h") or 0) + _win(int(rec.get("h") or 0))
     expired = rec.get("state") != "proven" and tip >= expires_at
     return _resp({"found": True, "id": eid, "expires_at": expires_at, "expired": expired,
                   "tip": tip, **rec})

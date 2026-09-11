@@ -1522,7 +1522,7 @@ def split_open_block_reward(reward: int):
 # be DELETED in the cleanup pass. tests/test_gate_reroll_transfer.py pins both halves of every line below.
 #
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
-#                                    DEVICE_ATTEST_EK_HEIGHT,
+#                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
@@ -1806,6 +1806,23 @@ DEVICE_ATTEST_EK_PRODUCER_WINDOW = 240
 # chain. Past this many blocks from its publication an incomplete enrolment is dead and its row is collected;
 # a PROVEN one is not on this clock (what it proved does not decay — the register lease does).
 DEVICE_ATTEST_EK_ENROL_BLOCKS = 720
+
+# A STALLED ENROLMENT SHOULD RETRY SOON, NOT IN AN HOUR AND A HALF. The window above is how long an
+# incomplete enrolment stays alive, and it is also how long a prover waits before it may try again with a
+# FRESH DRAW — which is the only thing that rescues an enrolment whose drawn challengers cannot answer.
+#
+# Measured on the live chain: of 12 eligible duty senders, 7 were reachable and running current code, so
+# a draw of 3 has roughly a 1-in-6 chance of picking three that all answer. At 720 blocks that is one
+# attempt every 80 minutes and several hours to expect a success; at 180 it is one every 20 minutes. The
+# failure it recovers from is real and was observed: two drawn challengers were alive, producing blocks
+# and landing duties, and silently refused on every attempt because they were running a build from before
+# the max_block clamp. Nothing on their side was broken and nothing on the prover's side could fix it.
+#
+# KEYED ON THE RECORD'S CREATION HEIGHT, not on the height it is evaluated at, so a record's expiry never
+# moves under it: an enrolment opened before the gate keeps the window it was opened with, and every node
+# — including one replaying years later — computes the same deadline for the same record.
+DEVICE_ATTEST_EK_ENROL_SHORT = 180
+DEVICE_ATTEST_EK_SHORT_HEIGHT = 56184 if CHAIN_GENERATION == 25 else 1
 
 DEVICE_ATTEST_EK_ROOTS = frozenset((
     # Each verified before pinning: fetched from the vendor's own PKI, confirmed self-signed with CA:TRUE, and
