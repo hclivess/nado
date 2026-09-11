@@ -23,6 +23,15 @@ pub const BUILD: &str = env!("NADO_BUILD");
 pub const DEFAULT_RELAY: &str = "38.242.201.206:9173";
 
 const POLL: Duration = Duration::from_secs(10);
+
+/// How long to wait for a submitted message to be included before sending another.
+///
+/// A MESSAGE TAKES BLOCKS TO LAND, AND THE CLIENT MUST NOT KEEP SENDING WHILE IT WAITS. Publishing on
+/// every poll produced a pool full of duplicates twice: once when the transaction could never be
+/// included at all, and again when it could — each duplicate of an enrolment supersedes the last and
+/// re-draws its challengers, so a client racing itself would reset the very set it is waiting on. The
+/// chain refuses the duplicates, but only after they have cost a round trip each.
+const AWAIT_INCLUSION: Duration = Duration::from_secs(90);
 const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 
 /// Enrol with an identity this machine resolves for itself. No prompting and nothing pasted: the
@@ -107,6 +116,8 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
     println!("  enrolment  {id}");
 
     let started = Instant::now();
+    // What we last sent and when, so a message in flight is waited for rather than sent again.
+    let mut in_flight: Option<(&'static str, Instant)> = None;
     loop {
         if started.elapsed() > GIVE_UP {
             return Err("gave up waiting: the drawn challengers did not answer in time. \
@@ -126,11 +137,22 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
             }
             other => other,
         };
+        if let Some((what, at)) = in_flight {
+            if at.elapsed() < AWAIT_INCLUSION {
+                println!("  .. waiting for {what} to be included ({}s)", at.elapsed().as_secs());
+                sleep(POLL);
+                continue;
+            }
+            println!("  .. {what} did not land within {}s; sending again",
+                     AWAIT_INCLUSION.as_secs());
+            in_flight = None;
+        }
         match rec {
             None => {
                 println!("  -> publishing this chip's endorsement chain");
                 let data = json!({"ek": hexed(&chain), "pub": tx::hex(&aik_pub)});
                 submit(relay, keys, signer, "tpm_enrol", data)?;
+                in_flight = Some(("the enrolment", Instant::now()));
             }
             Some(rec) => {
                 let state = rec.get("state").and_then(|v| v.as_str()).unwrap_or("");
@@ -150,6 +172,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                             let commit = crate::sha::sha256_hex(&secret);
                             submit(relay, keys, signer, "tpm_commit",
                                    json!({"id": id, "commit": commit}))?;
+                            in_flight = Some(("the commitment", Instant::now()));
                         }
                     }
                     "commit" => {
@@ -310,6 +333,10 @@ fn submit_built(relay: &Relay, keys: &tx::Keys, mut t: Map<String, Value>,
     if reply.contains("\"result\": true") || reply.contains("\"result\":true") {
         Ok(())
     } else {
+        // PRINT THE REFUSAL, DO NOT ONLY RETURN IT. Two separate bugs presented to a remote tester as a
+        // silent line repeating with an empty stderr, because the loop's error path was reached on a
+        // later iteration or not at all. The relay always says why; the client should always show it.
+        println!("  !! the relay refused it: {}", reply.trim());
         Err(format!("the relay refused the transaction: {}", reply.trim()))
     }
 }
