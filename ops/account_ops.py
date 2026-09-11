@@ -884,7 +884,7 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         from ops import attest_native
         chain = [bytes.fromhex(x) for x in data["ek"]]
         pub = bytes.fromhex(data["pub"])
-        ek = attest_native.verify_ek(chain, _tpm_anchor_time(h))
+        ek = attest_native.verify_ek(chain, _tpm_anchor_time(h), height=h)
         eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
     else:
         eid = str(data["id"])

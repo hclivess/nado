@@ -1464,7 +1464,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             from ops import attest_native
             chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
             pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
-            ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height))
+            ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height),
+                                                        height=block_height)
             assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
             assert ek.get("root_sha256") in DEVICE_ATTEST_EK_ROOTS, \
                 "endorsement certificate does not chain to a pinned silicon-vendor root"

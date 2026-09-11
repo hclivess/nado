@@ -100,13 +100,19 @@ def verify(att: bytes, cdj: bytes, challenge: bytes, now_unix: int, roots=None, 
     return json.loads(out.raw[:n].decode("utf-8"))
 
 
-def _ek_roots_blob():
+def _ek_roots_blob(height=None):
     """Pinned VENDOR endorsement roots (protocol_roots/ek/*.pem), filtered by protocol.DEVICE_ATTEST_EK_ROOTS.
     Separate from the WebAuthn root set on purpose: these answer "did a silicon vendor certify this chip",
     which is a different question from "did a vendor sign this attestation statement", and conflating the two
     would let an endorsement root validate a statement or vice versa."""
     import protocol as P
-    pinned = frozenset(getattr(P, "DEVICE_ATTEST_EK_ROOTS", ()))
+    # THE ROOT SET IS A FUNCTION OF HEIGHT, because adding a vendor root is a consensus change: a node
+    # that has it accepts an enrolment a node that lacks it rejects. `height=None` means "every root we
+    # currently pin" and is for ADVISORY callers only (the wallet pre-flight, the self-enrol probe) —
+    # never for validation, which must ask what was in force at the block it is judging.
+    pinned = (P.ek_roots_at(height) if height is not None and hasattr(P, "ek_roots_at")
+              else frozenset(getattr(P, "DEVICE_ATTEST_EK_ROOTS", ()))
+              | frozenset(getattr(P, "DEVICE_ATTEST_EK_ROOTS_V2", ())))
     out = []
     d = os.path.join(_REPO, "protocol_roots", "ek")
     if not pinned or not os.path.isdir(d):
@@ -121,7 +127,7 @@ def _ek_roots_blob():
     return out
 
 
-def verify_ek(chain, now_unix: int, roots=None) -> dict:
+def verify_ek(chain, now_unix: int, roots=None, height=None) -> dict:
     """Verify an endorsement certificate chain to a pinned vendor root. See native/attest/src/ek.rs — this is
     in the kernel because real vendor certificates are not strictly DER and python cannot read them."""
     lib = _load()
@@ -129,7 +135,7 @@ def verify_ek(chain, now_unix: int, roots=None) -> dict:
     lib.nado_ek_verify.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
                                    ctypes.c_int64, ctypes.c_char_p, ctypes.c_size_t]
     blob = _pack_roots([bytes(c) for c in chain])
-    rblob = _pack_roots(_ek_roots_blob() if roots is None else roots)
+    rblob = _pack_roots(_ek_roots_blob(height) if roots is None else roots)
     out = ctypes.create_string_buffer(4096)
     n = lib.nado_ek_verify(blob, len(blob), rblob, len(rblob), int(now_unix), out, len(out))
     if n < 0:

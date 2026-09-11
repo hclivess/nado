@@ -1523,6 +1523,7 @@ def split_open_block_reward(reward: int):
 #
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
 #                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
+#                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
@@ -1823,6 +1824,32 @@ DEVICE_ATTEST_EK_ENROL_BLOCKS = 720
 # — including one replaying years later — computes the same deadline for the same record.
 DEVICE_ATTEST_EK_ENROL_SHORT = 180
 DEVICE_ATTEST_EK_SHORT_HEIGHT = 56184 if CHAIN_GENERATION == 25 else 1
+
+# ROOTS ADDED AFTER THE FIRST SET, GATED. Adding a vendor root is a CONSENSUS change: a node that has it
+# accepts an enrolment a node that does not will reject, and the two then disagree about whether a block is
+# valid. So a new root turns on at a height the whole fleet is past, exactly like any other rule change,
+# rather than the moment it lands in the tree.
+#
+# Intel ships TWO endorsement families and we pinned only one. "OnDie CA Root Cert Signing" (beb40bb7…,
+# below) covers newer SoCs; "TPM EK root cert signing" is the one a great many Intel PTT machines actually
+# chain to, and without it those PCs are refused with "endorsement certificate rejected" — which is what a
+# real owner hit. Verified before pinning to the same standard as the rest: fetched from Intel's own PKI at
+# trustedservices.intel.com AND upgrades.intel.com, byte-identical from both hosts, self-signed (subject ==
+# issuer, verifies against itself), CA:TRUE pathlen:1, ECDSA P-256, valid 2014-01-15 to 2049-12-31.
+DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
+    "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
+))
+DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT = 58200 if CHAIN_GENERATION == 25 else 1
+
+
+def ek_roots_at(height) -> frozenset:
+    """The endorsement roots in force at `height`. A PURE FUNCTION OF HEIGHT so every node — including one
+    replaying this block years from now — trusts exactly the set that was in force when it was written."""
+    base = DEVICE_ATTEST_EK_ROOTS
+    if DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT and int(height or 0) >= DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT:
+        return base | DEVICE_ATTEST_EK_ROOTS_V2
+    return base
+
 
 DEVICE_ATTEST_EK_ROOTS = frozenset((
     # Each verified before pinning: fetched from the vendor's own PKI, confirmed self-signed with CA:TRUE, and
