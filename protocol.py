@@ -1523,7 +1523,7 @@ def split_open_block_reward(reward: int):
 #
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
 #                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
-#                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT,
+#                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, DEVICE_ATTEST_EK_PROVEN_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
@@ -1836,6 +1836,28 @@ DEVICE_ATTEST_EK_SHORT_HEIGHT = 56184 if CHAIN_GENERATION == 25 else 1
 # real owner hit. Verified before pinning to the same standard as the rest: fetched from Intel's own PKI at
 # trustedservices.intel.com AND upgrades.intel.com, byte-identical from both hosts, self-signed (subject ==
 # issuer, verifies against itself), CA:TRUE pathlen:1, ECDSA P-256, valid 2014-01-15 to 2049-12-31.
+# ONLY A NODE THAT HAS ACTED AS A CHALLENGER IS ELIGIBLE TO BE DRAWN AS ONE.
+#
+# The draw used recent FFG duty senders, on the reasoning that landing a duty proves a bonded validator
+# running the core loop. It does not. A WALLET that mines — bonded, registered, attested by its own TPM —
+# lands exactly the same duty transactions and is indistinguishable on chain from a node, while running no
+# daemon and therefore no challenger loop. The owner's own mining wallet was drawn as a challenger for a
+# stranger's enrolment and could never answer: one slot of three dead on arrival, every time.
+#
+# The only signal that distinguishes them is having DONE the job: a tpm_challenge, tpm_commit or
+# tpm_reveal on chain. That is self-selecting, needs no allowlist, and costs an operator nothing to earn.
+#
+# THE WINDOW IS LONG ON PURPOSE. A challenger only acts when drawn, so a short lookback forgets nodes that
+# are perfectly willing and simply have not been picked lately — measured: four nodes answered within one
+# evening but only one fell inside a 1,500-block window.
+DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
+
+# AND A FALLBACK, OR A FRESH CHAIN DEADLOCKS. Eligibility earned by acting, where acting requires being
+# drawn, excludes everyone at genesis and after any long quiet period. When fewer than
+# DEVICE_ATTEST_EK_CHALLENGERS proven challengers exist, the draw falls back to the duty senders it used
+# before — worse, but live, and it self-heals the moment k nodes have answered once.
+DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
 ))

@@ -477,6 +477,45 @@ def _recent_producers(block_height: int) -> dict:
     return weights
 
 
+_tpm_proven_cache = [None]
+
+
+def _proven_challengers(block_height: int) -> dict:
+    """{address: duty transactions landed} restricted to addresses that have ACTED as a challenger.
+
+    A tpm_challenge, tpm_commit or tpm_reveal on chain is the only thing that distinguishes a node
+    running the challenger loop from a WALLET that mines. A mining wallet bonds, registers, attests with
+    its own TPM and lands the same FFG duties — on chain it is indistinguishable from a node — but it
+    runs no daemon, so drawing it wastes a slot that can never be filled. Measured on this chain: the
+    owner's own mining wallet drawn for a stranger's enrolment, one of three slots dead on arrival.
+
+    QUANTISED TO THE EPOCH so the scan is cached rather than repeated per block: the window ends at the
+    start of `block_height`'s epoch, which every node computes identically from committed blocks, and a
+    node replaying this in a year derives the same set."""
+    from protocol import DEVICE_ATTEST_EK_PROVEN_WINDOW as _W, EPOCH_LENGTH
+    hi = (int(block_height) // EPOCH_LENGTH) * EPOCH_LENGTH
+    lo = max(1, hi - _W)
+    entry = _tpm_proven_cache[0]
+    if entry is not None and entry[0] == (lo, hi):
+        return dict(entry[1])
+    acted, duties = set(), {}
+    for h in range(lo, hi):
+        block = get_block_number(h)
+        if not block:
+            continue
+        for t in (block.get("block_transactions") or []):
+            r, who = t.get("recipient"), t.get("sender")
+            if not who:
+                continue
+            if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
+                acted.add(who)
+            elif r in _DUTY_RECIPIENTS:
+                duties[who] = duties.get(who, 0) + 1
+    out = {a: max(1, duties.get(a, 0)) for a in acted}
+    _tpm_proven_cache[0] = ((lo, hi), dict(out))
+    return out
+
+
 def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
     """The challengers drawn for an enrolment opened at `block_height`: identities that landed an FFG DUTY
     transaction in the recent window, weighted by how many, keyed on that epoch's beacon.
@@ -486,8 +525,18 @@ def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
     from ops.block_ops import epoch_beacon
     from ops import tpm_enrol as _te
+    from protocol import DEVICE_ATTEST_EK_PROVEN_HEIGHT
     epoch = int(block_height) // EPOCH_LENGTH
-    return _te.challenger_set(enrol_id_hex, _recent_producers(block_height), epoch_beacon(epoch),
+    # PROVEN CHALLENGERS FIRST, duty senders only as a fallback. Eligibility earned by acting, where
+    # acting requires being drawn, would exclude everyone on a fresh chain and after any long quiet
+    # period — so when fewer than k have proven themselves the old pool still runs the draw. Worse, but
+    # live, and it self-heals the moment k nodes have answered once.
+    weights = _recent_producers(block_height)
+    if DEVICE_ATTEST_EK_PROVEN_HEIGHT and int(block_height) >= DEVICE_ATTEST_EK_PROVEN_HEIGHT:
+        proven = _proven_challengers(block_height)
+        if len(proven) >= DEVICE_ATTEST_EK_CHALLENGERS:
+            weights = proven
+    return _te.challenger_set(enrol_id_hex, weights, epoch_beacon(epoch),
                               DEVICE_ATTEST_EK_CHALLENGERS)
 
 
