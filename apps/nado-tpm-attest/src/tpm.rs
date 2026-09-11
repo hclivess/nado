@@ -484,19 +484,60 @@ pub fn ek_chain(t: &dyn Tpm) -> Vec<Vec<u8>> {
             }
         }
     }
-    if chain.is_empty() {
-        return chain;
-    }
+    // READ THE CHAIN RANGE EVEN WITH NO LEAF IN NV. This returned early when the endorsement CERTIFICATE
+    // was not in NV, which is the normal case on the machines that need the chain most: an Intel CSME
+    // part keeps its leaf in an operating-system store while the ROM / Kernel / PTT intermediates sit in
+    // the NV chain range, so bailing out here threw away the only copy of the intermediates in existence.
+    // A machine was refused holding a genuine Intel-signed leaf whose issuer was sitting in its own chip.
+    chain.extend(ek_chain_extra(t));
+    chain
+}
+
+/// The certificates in the EK CERTIFICATE CHAIN NV range (TCG EK Credential Profile §2.2.1.5.2,
+/// "Handle Values for EK Certificate Chains"), flattened.
+///
+/// EACH INDEX MAY HOLD SEVERAL CERTIFICATES, concatenated with nothing between them: Intel's ODCA stores
+/// the ROM, Kernel and PTT intermediates this way. Pushing the blob whole gives the verifier one object
+/// that is not a certificate, so it must be split on the DER structure itself.
+pub fn ek_chain_extra(t: &dyn Tpm) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
     for index in NV_EK_CHAIN {
         if let Some(size) = nv_size(t, index) {
             if size > 0 {
                 if let Ok(bytes) = nv_read(t, index, size) {
-                    chain.push(bytes);
+                    out.extend(split_der_certs(&bytes));
                 }
             }
         }
     }
-    chain
+    out
+}
+
+/// Split concatenated DER certificates. Each is SEQUENCE (0x30) with a long-form length, so the length
+/// says where the next one starts; anything that does not parse ends the walk rather than being guessed at.
+pub fn split_der_certs(buf: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut o = 0usize;
+    while o + 4 <= buf.len() {
+        if buf[o] != 0x30 || buf[o + 1] & 0x80 == 0 {
+            break;
+        }
+        let n = (buf[o + 1] & 0x7f) as usize;
+        if n == 0 || n > 4 || o + 2 + n > buf.len() {
+            break;
+        }
+        let mut len = 0usize;
+        for i in 0..n {
+            len = (len << 8) | buf[o + 2 + i] as usize;
+        }
+        let end = o + 2 + n + len;
+        if len == 0 || end > buf.len() {
+            break;
+        }
+        out.push(buf[o..end].to_vec());
+        o = end;
+    }
+    out
 }
 
 

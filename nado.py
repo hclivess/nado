@@ -1473,6 +1473,35 @@ _AIA_MAX_BYTES = 64_000
 _AIA_TIMEOUT = 6
 
 
+def _split_der_certs(buf: bytes):
+    """Split concatenated DER certificates. One "certificate" a caller hands over is frequently several.
+
+    THIS IS THE WHOLE OF A BUG THAT LOOKED LIKE MISSING HARDWARE. Intel's ODCA stores the ROM, Kernel and
+    PTT intermediates in the TPM's EK certificate chain NV range CONCATENATED, with nothing between them.
+    Every layer treated the blob as one certificate: the verifier saw a leaf and an object whose subject
+    was the first of the three, decided the second was not the leaf's issuer, and refused a genuine
+    Intel-signed chip whose actual issuer was inside the same blob. Eighteen guesses at vendor URLs went
+    looking for a certificate the machine had already sent us.
+
+    Splitting here rather than only in the client fixes it for callers we will never update. Each
+    certificate is SEQUENCE with a long-form length, so the length says where the next one starts; the
+    walk stops at anything that does not parse rather than guessing."""
+    out, o = [], 0
+    while o + 4 <= len(buf):
+        if buf[o] != 0x30 or not (buf[o + 1] & 0x80):
+            break
+        n = buf[o + 1] & 0x7F
+        if n == 0 or n > 4 or o + 2 + n > len(buf):
+            break
+        ln = int.from_bytes(buf[o + 2:o + 2 + n], "big")
+        end = o + 2 + n + ln
+        if ln == 0 or end > len(buf):
+            break
+        out.append(buf[o:end])
+        o = end
+    return out or [buf]
+
+
 def _aia_urls(der: bytes):
     """Every http/https URL a certificate points at, read by the DER length rather than by scanning to a
     delimiter — the bytes after a URL are frequently printable, and a scan appends them and 404s."""
@@ -1572,7 +1601,10 @@ async def tpm_enrol_id(request):
     from ops import attest_native as _an
     try:
         body = await request.json()
-        chain = [bytes.fromhex(x) for x in (body.get("ek") or [])]
+        # SPLIT EVERY ELEMENT: a caller may hand over one "certificate" that is several concatenated.
+        chain = []
+        for x in (body.get("ek") or []):
+            chain.extend(_split_der_certs(bytes.fromhex(x)))
         pub = bytes.fromhex(str(body.get("pub") or ""))
         if not chain or not pub:
             return _resp({"error": "need ek chain and pub"}, status=400)

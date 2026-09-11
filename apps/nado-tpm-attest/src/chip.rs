@@ -116,6 +116,9 @@ impl Chip {
                      from_file.len());
             return Ok(from_file);
         }
+        // FINDING THE LEAF AND FINDING THE LINKS ARE TWO SEPARATE QUESTIONS, and conflating them is what
+        // hid an entire class of machine. A chip may hold no endorsement certificate while holding the
+        // intermediates that certificate needs, and vice versa, so ask for both independently.
         let mut chain = tpm::ek_chain(self.t.as_ref());
         #[cfg(windows)]
         if chain.is_empty() {
@@ -124,6 +127,15 @@ impl Chip {
                 println!("  chip       endorsement certificate came from the Windows certificate store");
                 println!("             (this chip holds none in its own NV — normal for an AMD fTPM)");
             }
+        }
+        // The EK certificate CHAIN NV range, always — an Intel CSME part keeps its leaf in an
+        // operating-system store while the ROM / Kernel / PTT intermediates sit in the chip, and those
+        // intermediates exist in no other place on earth: the vendor does not publish them and no
+        // certificate points down at them.
+        let nv_links = tpm::ek_chain_extra(self.t.as_ref());
+        if !nv_links.is_empty() {
+            println!("  chip       {} intermediate(s) read from the chip's EK certificate chain",
+                     nv_links.len());
         }
         // A STORE HOLDS A SET OF CERTIFICATES, NOT A PATH. This completed the chain only when exactly ONE
         // certificate was found, on the assumption that more than one already meant a chain. It does not:
@@ -143,6 +155,11 @@ impl Chip {
         // gather from everywhere the machine might hold one, then link a path through the pool, and fall
         // back to fetching an issuer only where the pool cannot supply it.
         let mut pool: Vec<Vec<u8>> = chain.clone();
+        for der in nv_links {
+            if !pool.iter().any(|c| *c == der) {
+                pool.push(der);
+            }
+        }
         #[cfg(windows)]
         {
             let sys = crate::win::certificates_from_system_stores();
