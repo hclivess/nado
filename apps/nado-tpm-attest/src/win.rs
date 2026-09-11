@@ -357,3 +357,50 @@ pub fn ek_certificates_from_registry() -> Vec<Vec<u8>> {
     }
     out
 }
+
+pub const CERT_SYSTEM_STORE_CURRENT_USER: u32 = 1 << 16;
+
+/// EVERY CERTIFICATE THIS MACHINE HOLDS, as a POOL to fill gaps with — not as a chain.
+///
+/// A platform stores the pieces of an endorsement chain wherever it likes, and the pieces are not all in
+/// the same place. An Intel CSME machine kept its endorsement leaf in the TPM's EKCertStore while the
+/// certificate that ISSUED that leaf was not there at all, and no certificate in the chain points down to
+/// it, so no amount of following authority-information-access finds it. Whichever store the platform did
+/// put it in, this finds it.
+///
+/// The caller uses the result to LINK a path, never to extend one blindly: an unrelated certificate that
+/// happens to sit in the same store is not part of anyone's chain, and shipping the machine's whole trust
+/// store as though it were one would be both enormous and wrong.
+pub fn certificates_from_system_stores() -> Vec<Vec<u8>> {
+    const NAMES: [&str; 6] = ["CA", "ROOT", "MY", "TrustedPeople", "AuthRoot", "TrustedPublisher"];
+    const MAX: usize = 4000;
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    unsafe {
+        for scope in [CERT_SYSTEM_STORE_LOCAL_MACHINE, CERT_SYSTEM_STORE_CURRENT_USER] {
+            for name in NAMES {
+                let w = wide(name);
+                let store = CertOpenStore(CERT_STORE_PROV_SYSTEM_W, X509_ASN_ENCODING, 0,
+                                          scope, w.as_ptr() as *const c_void);
+                if store.is_null() {
+                    continue;
+                }
+                let mut ctx: *const CERT_CONTEXT = std::ptr::null();
+                loop {
+                    ctx = CertEnumCertificatesInStore(store, ctx);
+                    if ctx.is_null() || out.len() >= MAX {
+                        break;
+                    }
+                    let len = (*ctx).cbCertEncoded as usize;
+                    if len > 64 && !(*ctx).pbCertEncoded.is_null() {
+                        let der = std::slice::from_raw_parts((*ctx).pbCertEncoded, len).to_vec();
+                        if !out.contains(&der) {
+                            out.push(der);
+                        }
+                    }
+                }
+                CertCloseStore(store, 0);
+            }
+        }
+    }
+    out
+}

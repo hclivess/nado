@@ -136,27 +136,29 @@ impl Chip {
         // AIA. Walking from the top matters — an Intel OnDie leaf carries no AIA extension at all, and a
         // walk that starts at the leaf gives up immediately while the certificate above it points the
         // rest of the way.
-        // EXPAND FROM EVERY CERTIFICATE WE HOLD, not only from the leaf or only from the top. An Intel
-        // OnDie leaf carries no AIA extension at all, so a walk anchored on the leaf fetches nothing,
-        // while the certificate above it in the same store points the whole rest of the way. We do not
-        // know in advance which of the certificates a machine hands us is the one with the pointers, so
-        // we ask all of them and let order_chain assemble whatever links up.
-        let held = chain.clone();
-        for cert in &held {
-            let extra = fetch_issuers(cert, true);
-            for der in extra {
-                if !chain.iter().any(|c| *c == der) {
-                    chain.push(der);
+        // BUILD A PATH OUT OF A POOL. A platform scatters the pieces of an endorsement chain across
+        // wherever it chose to put them, and the pieces are not all in one place: an Intel CSME machine
+        // kept its leaf in the TPM's EKCertStore while the certificate that ISSUED that leaf was in
+        // neither that store nor anywhere the chain points at, since no certificate points DOWNWARD. So
+        // gather from everywhere the machine might hold one, then link a path through the pool, and fall
+        // back to fetching an issuer only where the pool cannot supply it.
+        let mut pool: Vec<Vec<u8>> = chain.clone();
+        #[cfg(windows)]
+        {
+            let sys = crate::win::certificates_from_system_stores();
+            if !sys.is_empty() {
+                println!("  chip       {} certificate(s) available from this machine's stores to link with",
+                         sys.len());
+                for der in sys {
+                    if !pool.iter().any(|c| *c == der) {
+                        pool.push(der);
+                    }
                 }
             }
         }
-        if chain.len() > held.len() {
-            println!("  chip       fetched {} issuing certificate(s) from the vendor",
-                     chain.len() - held.len());
-        }
-        chain = order_chain(chain);
-        println!("  chip       endorsement chain is {} certificate(s)", chain.len());
-        Ok(chain)
+        let path = build_path(&chain, &mut pool);
+        println!("  chip       endorsement chain is {} certificate(s)", path.len());
+        Ok(path)
     }
 
     pub fn ek_public(&mut self) -> Result<Vec<u8>, String> {
@@ -354,6 +356,62 @@ pub fn check_creation() -> Result<(), String> {
 /// URLs are found by scanning for "http://" rather than by decoding the AIA extension, which keeps an
 /// X.509 parser out of a program that does not otherwise need one. CRL and OCSP endpoints get tried
 /// too and simply do not return certificates, so they filter themselves out.
+/// The path from the leaf upward: each certificate issued by the next, taking links from `pool` where the
+/// machine already has them and fetching an issuer only where it does not.
+///
+/// SHIP THE PATH, NOT THE POOL. A machine's trust store holds thousands of certificates that are nothing
+/// to do with this chip; handing all of them to a verifier would be enormous and wrong. The pool exists
+/// to supply MISSING LINKS, and only the certificates that actually link are sent.
+fn build_path(primary: &[Vec<u8>], pool: &mut Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    if primary.is_empty() {
+        return Vec::new();
+    }
+    // The leaf is the certificate in `primary` that issued nothing else in `primary` — no name parsing,
+    // no assumption about the order a store happened to return things in.
+    let subj: Vec<Vec<u8>> = primary.iter().map(|c| subject_der(c)).collect();
+    let leaf_idx = (0..primary.len())
+        .find(|&i| !subj[i].is_empty()
+              && !primary.iter().enumerate().any(|(j, c)| j != i && issuer_der(c) == subj[i]))
+        .unwrap_or(0);
+
+    let mut path: Vec<Vec<u8>> = vec![primary[leaf_idx].clone()];
+    for _ in 0..10 {
+        let cur = path.last().unwrap().clone();
+        let (cs, ci) = (subject_der(&cur), issuer_der(&cur));
+        if ci.is_empty() || ci == cs {
+            break;                                          // self-signed: the top
+        }
+        // already in the pool?
+        if let Some(next) = pool.iter().find(|c| subject_der(c) == ci && **c != cur).cloned() {
+            path.push(next);
+            continue;
+        }
+        // not held anywhere: ask the network, from this certificate AND from everything we hold, because
+        // the pointer to the next link is not always on the certificate that needs it.
+        let mut found: Option<Vec<u8>> = None;
+        let mut sources = vec![cur.clone()];
+        sources.extend(path.iter().cloned());
+        for src in sources {
+            for der in fetch_issuers(&src, true) {
+                if !pool.iter().any(|c| *c == der) {
+                    pool.push(der.clone());
+                }
+                if subject_der(&der) == ci {
+                    found = Some(der);
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        match found {
+            Some(der) => path.push(der),
+            None => break,                                  // the link genuinely does not exist anywhere
+        }
+    }
+    path
+}
+
 /// Order a bag of certificates into a path: the leaf first, then each certificate that ISSUED the one
 /// before it. Anything we cannot place is appended, because a verifier that can use it should still get
 /// it and one we cannot place is not evidence of a bad chip.
