@@ -14,6 +14,65 @@ use crate::tpm::{self, Tpm};
 
 const RH_ENDORSEMENT: u32 = 0x4000_000B;
 
+/// Certificates placed next to the program: ek.cer, ek1.cer, ek2.cer ... in that order, leaf first.
+/// DER or PEM; a PEM file is converted, because "export it with PowerShell" produces one as often as
+/// the other and a user should not have to know which they got.
+fn ek_chain_from_files() -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let dir = match std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+        Some(d) => d,
+        None => return out,
+    };
+    for name in ["ek.cer", "ek1.cer", "ek2.cer", "ek3.cer", "ek.der", "ek.pem"] {
+        let path = dir.join(name);
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Some(der) = as_der(&bytes) {
+                out.push(der);
+            }
+        }
+    }
+    out
+}
+
+/// DER as-is, or the first certificate out of a PEM.
+fn as_der(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.first() == Some(&0x30) {
+        return Some(bytes.to_vec());
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let body: String = text
+        .lines()
+        .skip_while(|l| !l.contains("BEGIN CERTIFICATE"))
+        .skip(1)
+        .take_while(|l| !l.contains("END CERTIFICATE"))
+        .collect::<Vec<_>>()
+        .join("");
+    if body.is_empty() {
+        return None;
+    }
+    b64_decode(body.trim())
+}
+
+fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    let mut out = Vec::new();
+    for c in s.bytes() {
+        if c == b'=' || c.is_ascii_whitespace() {
+            continue;
+        }
+        let v = T.iter().position(|&t| t == c)? as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
 pub struct Chip {
     t: Box<dyn Tpm>,
 }
@@ -46,6 +105,17 @@ impl Chip {
     /// it. Reading only NV would refuse those machines for a reason that has nothing to do with their
     /// hardware, which is the whole failure mode this path exists to fix.
     pub fn ek_chain(&mut self) -> Result<Vec<Vec<u8>>, String> {
+        // A CERTIFICATE PUT BESIDE THE EXE WINS, because it is the escape hatch that needs no new code
+        // when a machine keeps its certificate somewhere nobody predicted. Vendors deliver these four
+        // different ways already; supplying the file directly is always available and always works, and
+        // it is not a weakening — the certificate is public, it is verified to a pinned vendor root,
+        // and a certificate belonging to some other chip cannot open credentials sealed to it.
+        let from_file = ek_chain_from_files();
+        if !from_file.is_empty() {
+            println!("  chip       endorsement chain supplied beside the program ({} file(s))",
+                     from_file.len());
+            return Ok(from_file);
+        }
         let mut chain = tpm::ek_chain(self.t.as_ref());
         #[cfg(windows)]
         if chain.is_empty() {
