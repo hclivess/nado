@@ -3125,8 +3125,12 @@ class CoreClient(threading.Thread):
             if not (DEVICE_ATTEST_EK_HEIGHT and tip >= DEVICE_ATTEST_EK_HEIGHT):
                 return
             me = self.memserver.address
-            if me not in get_bonded_registry():
-                return                      # only bonded identities are drawable as challengers
+            # NO ELIGIBILITY TEST HERE. The draw decides who may answer, and the only membership question
+            # is whether THIS enrolment drew us — which is checked per record below. There used to be a
+            # bonded-registry gate, left over from when the draw was stake-weighted, and it silently
+            # skipped every enrolment on a node that had been drawn as a PRODUCER without being bonded.
+            # The first real enrolment on this chain sat with zero challenges for 107 blocks because of
+            # it: the draw named three producers and the loop asked a different question.
             live = kv_ops.tpm_enrols_live()
             if not live:
                 # No enrolment is in progress, so every secret we are still holding belongs to one that

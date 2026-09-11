@@ -182,11 +182,21 @@ def main():
     core3.maybe_tpm_challenge()
     check("a node that was not drawn sends nothing", mem3.submitted == [])
 
-    # --- an unbonded node is not drawable at all -----------------------------------------------------
+    # AN UNBONDED NODE THAT WAS DRAWN MUST STILL ANSWER. The draw moved to recent block producers, and a
+    # producer need not be bonded; a leftover bonded-registry gate here meant the first real enrolment on
+    # the chain sat with zero challenges for 107 blocks while three drawn producers ignored it.
     core_loop.get_bonded_registry = lambda: {}
     mem.submitted.clear()
+    mem.transaction_pool.clear()
+    rec_open = E.new_record(ek_id, ek_spki, name_hex, aik_pub, "prover", tip - 10, sorted([me] + others))
+    kv_ops.tpm_enrol_set("b" * 32, rec_open)
     core.maybe_tpm_challenge()
-    check("an unbonded node sends nothing", mem.submitted == [])
+    check("a DRAWN but unbonded node still answers", len(mem.submitted) == 1
+          and mem.submitted[0]["recipient"] == "tpm_challenge",
+          [t["recipient"] for t in mem.submitted])
+    kv_ops.tpm_enrol_del("b" * 32)
+    mem.submitted.clear()
+    mem.transaction_pool.clear()
 
     # --- proven enrolments stop costing anything, and their secrets are forgotten --------------------
     core_loop.get_bonded_registry = lambda: {me: {"bonded": 10 ** 12}}
