@@ -1409,6 +1409,54 @@ async def download_enrol(request):
     })
 
 
+# REFUSED ENDORSEMENT CHAINS ARE KEPT, because the chain is the only way to learn which vendor root we are
+# missing. A refusal used to end at a 400: the owner saw "endorsement certificate rejected" and the one
+# artefact that could have fixed it — the chain itself, which the relay was already holding — was dropped on
+# the floor. Pinning a vendor needs the real certificates (the issuer names say who to ask, and the top of
+# the chain is the root to go and verify), so they are written down here and pinned later, deliberately,
+# after the usual checks. A new Intel laptop was refused tonight for a root Intel publishes openly.
+#
+# NOT CONSENSUS, purely operational: a directory of files this node writes for its operator. It grants
+# nothing, and nothing reads it back into validation — pinning a root stays a gated protocol commit.
+_REFUSED_EK_MAX = 200
+
+
+def _keep_refused_ek(chain, verdict):
+    """Write a refused endorsement chain to $HOME/nado/refused_ek/<leaf sha256>/ for later inspection."""
+    try:
+        import hashlib as _h
+        from ops.data_ops import get_home as _home
+        if not chain:
+            return
+        base = os.path.join(_home(), "refused_ek")
+        os.makedirs(base, exist_ok=True)
+        # BOUNDED: anyone can post a chain, so this must not become an unbounded write primitive. Once the
+        # directory is full we stop rather than evict — the EARLIEST refusals are the ones worth keeping,
+        # and a flood must not push them out.
+        try:
+            if len(os.listdir(base)) >= _REFUSED_EK_MAX:
+                return
+        except OSError:
+            return
+        leaf = _h.sha256(chain[0]).hexdigest()
+        d = os.path.join(base, leaf)
+        if os.path.isdir(d):
+            return                                    # same chip again: keep the first copy, write nothing
+        os.makedirs(d, exist_ok=True)
+        for i, der in enumerate(chain):
+            with open(os.path.join(d, f"{i}.der"), "wb") as f:
+                f.write(bytes(der))
+        meta = {"reason": verdict.get("reason"), "root_reached": verdict.get("root_sha256") or "",
+                "chain_len": len(chain), "sha256": [_h.sha256(bytes(c)).hexdigest() for c in chain],
+                "at": int(time.time())}
+        with open(os.path.join(d, "verdict.json"), "w") as f:
+            json.dump(meta, f, indent=1, sort_keys=True)
+        logger.warning(f"kept the refused endorsement chain at {d} — inspect it with "
+                       f"`openssl x509 -inform DER -in {d}/0.der -noout -issuer`")
+    except Exception as e:
+        logger.error(f"could not keep a refused endorsement chain: {type(e).__name__}: {e}")
+
+
 async def tpm_enrol_id(request):
     """POST {"ek": [<hex DER>...], "pub": <hex>} -> {"id": <32 hex>}.
 
@@ -1438,6 +1486,7 @@ async def tpm_enrol_id(request):
                 "tpm_enrol_id refused an endorsement chain: reason=%s root_reached=%s chain_len=%d "
                 "leaf_bytes=%d" % (ek.get("reason"), ek.get("root_sha256") or "(none)", len(chain),
                                    len(chain[0]) if chain else 0))
+            _keep_refused_ek(chain, ek)
             return _resp({"error": f"endorsement certificate rejected: {ek.get('reason')}",
                           "root_reached": ek.get("root_sha256") or ""}, status=400)
         identity = ek.get("identity") or ek.get("ek_identity")
