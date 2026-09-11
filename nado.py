@@ -1502,6 +1502,77 @@ def _split_der_certs(buf: bytes):
     return out or [buf]
 
 
+def _tbs_name(der: bytes, which: int) -> bytes:
+    """The raw DER of a certificate's issuer (which=0) or subject (which=1) Name, by walking the
+    structure rather than decoding it. Compared as BYTES so no string normalisation can make two
+    different names look equal."""
+    def hdr(b, o):
+        if o + 1 >= len(b):
+            return None
+        f = b[o + 1]
+        if f < 0x80:
+            return (o + 2, f)
+        n = f & 0x7F
+        if n == 0 or n > 4 or o + 2 + n > len(b):
+            return None
+        return (o + 2 + n, int.from_bytes(b[o + 2:o + 2 + n], "big"))
+    h = hdr(der, 0)
+    if not h:
+        return b""
+    h2 = hdr(der, h[0])
+    if not h2:
+        return b""
+    o, seen = h2[0], 0
+    if o < len(der) and der[o] == 0xA0:                       # optional explicit version
+        v = hdr(der, o)
+        if not v:
+            return b""
+        o = v[0] + v[1]
+    while o < len(der):
+        v = hdr(der, o)
+        if not v:
+            return b""
+        end = v[0] + v[1]
+        if end > len(der):
+            return b""
+        if der[o] == 0x30:
+            seen += 1
+            if (which == 0 and seen == 2) or (which == 1 and seen == 4):
+                return der[o:end]
+        o = end
+    return b""
+
+
+def _order_chain(certs):
+    """Order a bag of certificates into a path: leaf first, then whatever issued the one before it.
+
+    A SET IS NOT A PATH. Splitting a concatenated blob yields the right certificates in whatever order the
+    platform stored them — Intel's NV range holds ROM, then Kernel, then the PTT certificate that actually
+    issued the leaf — so verification still fails on "x5c[0] does not verify against its issuer" unless
+    they are put in order. The leaf is the certificate that issued nothing else in the bag, which needs no
+    name parsing and no assumption about storage order. Anything that cannot be placed is appended rather
+    than dropped: a certificate we cannot position is not evidence of a bad chip."""
+    certs = [bytes(c) for c in certs]
+    if len(certs) < 2:
+        return certs
+    subj = [_tbs_name(c, 1) for c in certs]
+    issu = [_tbs_name(c, 0) for c in certs]
+    leaf = next((i for i in range(len(certs))
+                 if subj[i] and not any(j != i and issu[j] == subj[i] for j in range(len(certs)))), 0)
+    used, out, cur = [False] * len(certs), [], leaf
+    while True:
+        used[cur] = True
+        out.append(certs[cur])
+        if not issu[cur] or issu[cur] == subj[cur]:
+            break
+        nxt = next((j for j in range(len(certs)) if not used[j] and subj[j] and subj[j] == issu[cur]), None)
+        if nxt is None:
+            break
+        cur = nxt
+    out.extend(c for i, c in enumerate(certs) if not used[i])
+    return out
+
+
 def _aia_urls(der: bytes):
     """Every http/https URL a certificate points at, read by the DER length rather than by scanning to a
     delimiter — the bytes after a URL are frequently printable, and a scan appends them and 404s."""
@@ -1544,6 +1615,14 @@ def _fetch_der(url: str):
             url = "http://" + url[len("https://"):]
         if not url.startswith("http://"):
             return None
+        # A CRL IS ALSO A DER SEQUENCE. Certificates and revocation lists sit in the same extension and
+        # begin with the same two bytes, so "looks like DER" accepts a CRL and splices it into the chain
+        # as though it were the issuer — which then fails to verify and hides the fact that the real
+        # issuer was fetched successfully alongside it. Skip the obvious ones by path, and confirm what
+        # comes back actually parses as a certificate before using it.
+        low = url.lower()
+        if low.endswith(".crl") or "/crls/" in low:
+            return None
         # SSRF GUARD: this URL comes from a caller-supplied certificate, so it must never be a way to make
         # this node probe its own network. Only public hosts, and only what parses as a certificate.
         host = url[len("http://"):].split("/", 1)[0].split(":", 1)[0]
@@ -1557,7 +1636,7 @@ def _fetch_der(url: str):
             return None
         with _u.urlopen(url, timeout=_AIA_TIMEOUT) as r:
             b = r.read(_AIA_MAX_BYTES + 1)
-        if 256 < len(b) <= _AIA_MAX_BYTES and b[0] == 0x30 and b[1] == 0x82:
+        if 256 < len(b) <= _AIA_MAX_BYTES and b[0] == 0x30 and b[1] == 0x82 and _tbs_name(b, 1):
             return b
     except Exception:
         return None
@@ -1605,6 +1684,7 @@ async def tpm_enrol_id(request):
         chain = []
         for x in (body.get("ek") or []):
             chain.extend(_split_der_certs(bytes.fromhex(x)))
+        chain = _order_chain(chain)
         pub = bytes.fromhex(str(body.get("pub") or ""))
         if not chain or not pub:
             return _resp({"error": "need ek chain and pub"}, status=400)
@@ -1615,6 +1695,7 @@ async def tpm_enrol_id(request):
             # the caller already sent; an Intel laptop was refused for nothing but a missing intermediate
             # its own platform does not store and its client could not fetch.
             completed, n = await asyncio.to_thread(_complete_ek_chain, chain)
+            completed = _order_chain(completed)
             if n and len(completed) > len(chain):
                 ek2 = _an.verify_ek(completed, now)
                 if ek2.get("ok"):
