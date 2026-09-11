@@ -125,17 +125,37 @@ impl Chip {
                 println!("             (this chip holds none in its own NV — normal for an AMD fTPM)");
             }
         }
-        if chain.len() == 1 {
-            // A LEAF ON ITS OWN IS AN INCOMPLETE CHAIN. AMD's endorsement certificate reaches its root
-            // through an intermediate that is on neither the chip nor the machine, so without this the
-            // verifier is handed a path it cannot close and the machine is refused for a reason that has
-            // nothing to do with its hardware.
-            let extra = fetch_issuers(&chain[0], true);
-            if !extra.is_empty() {
-                println!("  chip       fetched {} issuing certificate(s) from the vendor", extra.len());
-                chain.extend(extra);
+        // A STORE HOLDS A SET OF CERTIFICATES, NOT A PATH. This completed the chain only when exactly ONE
+        // certificate was found, on the assumption that more than one already meant a chain. It does not:
+        // a Windows EKCertStore with two entries handed over a leaf and a certificate that was not its
+        // issuer, in that order, and the verifier refused it with "x5c[0] signature does not verify
+        // against its issuer" — a true statement about a bag someone had called a chain. The machine was
+        // an Alder Lake PTT whose root we already pinned, so nothing about the hardware was wrong.
+        //
+        // So: order whatever we hold into a real path from the leaf up, then extend it from the TOP by
+        // AIA. Walking from the top matters — an Intel OnDie leaf carries no AIA extension at all, and a
+        // walk that starts at the leaf gives up immediately while the certificate above it points the
+        // rest of the way.
+        // EXPAND FROM EVERY CERTIFICATE WE HOLD, not only from the leaf or only from the top. An Intel
+        // OnDie leaf carries no AIA extension at all, so a walk anchored on the leaf fetches nothing,
+        // while the certificate above it in the same store points the whole rest of the way. We do not
+        // know in advance which of the certificates a machine hands us is the one with the pointers, so
+        // we ask all of them and let order_chain assemble whatever links up.
+        let held = chain.clone();
+        for cert in &held {
+            let extra = fetch_issuers(cert, true);
+            for der in extra {
+                if !chain.iter().any(|c| *c == der) {
+                    chain.push(der);
+                }
             }
         }
+        if chain.len() > held.len() {
+            println!("  chip       fetched {} issuing certificate(s) from the vendor",
+                     chain.len() - held.len());
+        }
+        chain = order_chain(chain);
+        println!("  chip       endorsement chain is {} certificate(s)", chain.len());
         Ok(chain)
     }
 
@@ -334,29 +354,124 @@ pub fn check_creation() -> Result<(), String> {
 /// URLs are found by scanning for "http://" rather than by decoding the AIA extension, which keeps an
 /// X.509 parser out of a program that does not otherwise need one. CRL and OCSP endpoints get tried
 /// too and simply do not return certificates, so they filter themselves out.
+/// Order a bag of certificates into a path: the leaf first, then each certificate that ISSUED the one
+/// before it. Anything we cannot place is appended, because a verifier that can use it should still get
+/// it and one we cannot place is not evidence of a bad chip.
+///
+/// The leaf is the certificate no other certificate in the bag is issued BY — a definition that needs no
+/// name parsing and no assumption about store ordering, which is what made the previous version wrong.
+fn order_chain(certs: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    if certs.len() < 2 {
+        return certs;
+    }
+    let subj: Vec<Vec<u8>> = certs.iter().map(|c| subject_der(c)).collect();
+    let issu: Vec<Vec<u8>> = certs.iter().map(|c| issuer_der(c)).collect();
+    // a leaf issues nothing else in the bag
+    let leaf = (0..certs.len())
+        .find(|&i| !subj[i].is_empty() && !issu.iter().enumerate().any(|(j, is)| j != i && *is == subj[i]))
+        .unwrap_or(0);
+    let mut used = vec![false; certs.len()];
+    let mut out = Vec::with_capacity(certs.len());
+    let mut cur = leaf;
+    loop {
+        used[cur] = true;
+        out.push(certs[cur].clone());
+        if issu[cur].is_empty() || issu[cur] == subj[cur] {
+            break;                                    // self-signed: the top of the path
+        }
+        match (0..certs.len()).find(|&j| !used[j] && !subj[j].is_empty() && subj[j] == issu[cur]) {
+            Some(next) => cur = next,
+            None => break,                            // the issuer is not in the bag; AIA continues from here
+        }
+    }
+    for (i, c) in certs.into_iter().enumerate() {
+        if !used[i] {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The raw DER of a certificate's subject / issuer Name, compared as bytes so no name-string parsing or
+/// normalisation can make two different names look equal.
+fn issuer_der(der: &[u8]) -> Vec<u8> { tbs_name(der, 0) }
+fn subject_der(der: &[u8]) -> Vec<u8> { tbs_name(der, 1) }
+
+/// Pull issuer (which = 0) or subject (which = 1) out of a certificate's TBS, by walking the DER rather
+/// than by decoding it: TBSCertificate is [version] serial, sigAlg, issuer, validity, subject, ...
+fn tbs_name(der: &[u8], which: usize) -> Vec<u8> {
+    fn hdr(b: &[u8], o: usize) -> Option<(usize, usize)> {
+        if o + 1 >= b.len() { return None; }
+        let first = b[o + 1] as usize;
+        if first < 0x80 { return Some((o + 2, first)); }
+        let n = first & 0x7f;
+        if n == 0 || n > 4 || o + 2 + n > b.len() { return None; }
+        let mut len = 0usize;
+        for i in 0..n { len = (len << 8) | b[o + 2 + i] as usize; }
+        Some((o + 2 + n, len))
+    }
+    let (cert_body, _) = match hdr(der, 0) { Some(v) => v, None => return Vec::new() };
+    let (tbs_body, _) = match hdr(der, cert_body) { Some(v) => v, None => return Vec::new() };
+    let mut o = tbs_body;
+    if o < der.len() && der[o] == 0xA0 {                       // optional explicit version
+        let (b, l) = match hdr(der, o) { Some(v) => v, None => return Vec::new() };
+        o = b + l;
+    }
+    let mut seen = 0usize;
+    while o < der.len() {
+        let (b, l) = match hdr(der, o) { Some(v) => v, None => return Vec::new() };
+        let end = b + l;
+        if end > der.len() { return Vec::new(); }
+        // serial (INTEGER), sigAlg (SEQUENCE), issuer (SEQUENCE), validity (SEQUENCE), subject (SEQUENCE)
+        if der[o] == 0x30 {
+            seen += 1;
+            if (which == 0 && seen == 2) || (which == 1 && seen == 4) {
+                return der[o..end].to_vec();
+            }
+        }
+        o = end;
+    }
+    Vec::new()
+}
+
 fn fetch_issuers(leaf: &[u8], relay_hint: bool) -> Vec<Vec<u8>> {
     let _ = relay_hint;
+    // TAKE EVERY CERTIFICATE OFFERED, NOT THE FIRST ONE THAT ANSWERS. This walked a single path and
+    // stopped at the first URL that returned anything, which assumes a certificate has exactly one
+    // issuer worth fetching and that the first URL is the useful one. Neither holds: a certificate may
+    // publish several access locations, a vendor may serve a cross-signed alternative at one of them,
+    // and the path that closes to a pinned root may be the one we skipped. Collecting everything costs
+    // a few HTTP requests once per enrolment and lets order_chain pick the path that actually links up.
+    //
+    // Breadth-first over what we have already fetched, bounded in BOTH directions — a certificate that
+    // points at itself, or a pair that point at each other, otherwise walks forever.
+    const MAX_FETCHES: usize = 16;
+    const MAX_DEPTH: usize = 6;
     let mut out: Vec<Vec<u8>> = Vec::new();
-    let mut current = leaf.to_vec();
-    for _ in 0..4 {
-        let mut got: Option<Vec<u8>> = None;
-        for url in urls_in(&current) {
-            if let Some(der) = http_get_der(&url) {
-                // Do not walk into a certificate we already hold, and stop at a self-signed root.
-                if out.iter().any(|c| *c == der) || der == leaf {
-                    continue;
+    let mut frontier: Vec<Vec<u8>> = vec![leaf.to_vec()];
+    let mut fetches = 0usize;
+    for _depth in 0..MAX_DEPTH {
+        let mut next: Vec<Vec<u8>> = Vec::new();
+        for cert in &frontier {
+            for url in urls_in(cert) {
+                if fetches >= MAX_FETCHES {
+                    break;
                 }
-                got = Some(der);
-                break;
+                fetches += 1;
+                if let Some(der) = http_get_der(&url) {
+                    // already held, or the leaf itself coming back: nothing new to expand
+                    if der == leaf || out.iter().any(|c| *c == der) {
+                        continue;
+                    }
+                    out.push(der.clone());
+                    next.push(der);
+                }
             }
         }
-        match got {
-            Some(der) => {
-                current = der.clone();
-                out.push(der);
-            }
-            None => break,
+        if next.is_empty() || fetches >= MAX_FETCHES {
+            break;
         }
+        frontier = next;
     }
     out
 }
