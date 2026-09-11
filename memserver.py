@@ -940,10 +940,24 @@ class MemServer:
         # refuses any enrolment whose endorsement chain does not verify to a pinned silicon-vendor root,
         # and allows only ONE open enrolment per chip at a time (ops/transaction_ops), so the ceiling is
         # the number of genuine vendor-signed certificates an attacker holds, once per expiry window.
-        # The other three enrolment messages are NOT here: tpm_challenge and tpm_reveal come from drawn
-        # challengers, who are established producers by construction, and tpm_commit comes from the
-        # account that opened the enrolment, which by then exists.
-        elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol") \
+        # ALL FOUR ENROLMENT MESSAGES ARE HERE, and the three that were missing cost a completed proof.
+        # An earlier version listed only tpm_enrol, reasoning that tpm_challenge and tpm_reveal come from
+        # drawn challengers who are established producers, and that tpm_commit "comes from the account
+        # that opened the enrolment, which by then exists". That last clause is simply false: opening an
+        # enrolment writes no account, and the opener is a throwaway identity by design — the helper
+        # signs with a key it generates beside itself precisely so nobody pastes a wallet key. So the
+        # first chip to ever open its credentials on real silicon got "Empty account" at the COMMIT, one
+        # recipient further along than the bug this bypass was added to fix.
+        #
+        # Bypassing costs nothing in spam terms because the account check is the WEAKEST gate any of
+        # these messages pass. validate_transaction refuses a challenge or reveal whose sender is not a
+        # drawn challenger for a live record, refuses a commit that is not the state transition the
+        # record is waiting for, and refuses an enrolment whose endorsement chain does not verify to a
+        # pinned silicon-vendor root. An attacker with no account gains the right to have those rules
+        # reject it. Requiring capital before a participant may finish proving it owns hardware inverts
+        # the point of a lane that exists for participants who have none.
+        elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
+                                                  "tpm_challenge", "tpm_commit", "tpm_reveal") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}
