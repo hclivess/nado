@@ -3092,8 +3092,20 @@ async function maybeRegister() {
         state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
       } else {
+        // OFFER THE TPM HELPER RIGHT HERE. A PC whose Windows Hello cannot attest (no AIK certificate —
+        // Microsoft's CA returns 404 for that chip, or the PIN was created offline) has no WebAuthn route
+        // at all, and the only way through is the enrolment helper. It used to be reachable solely by
+        // knowing a query string, which meant it reached exactly the people who had already been told it
+        // by hand. The address is baked into the filename the download sends, so nothing is pasted.
+        const _dlBase = relayBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
+        const _help = '<div class="mt">'
+          + escapeHtml(i18("remote.tpmOffer", "Or use this PC's security chip: if Windows Hello will not attest here, the enrolment helper proves the TPM directly and leaves the proof for this wallet to confirm.")) + ' '
+          + '<a href="' + escapeHtml(_dlBase) + '" rel="noopener">' + escapeHtml(i18("remote.dlWin", "Download for Windows")) + '</a>'
+          + ' · <a href="' + escapeHtml(_dlBase + "&os=linux") + '" rel="noopener">' + escapeHtml(i18("remote.dlLinux", "Download for Linux")) + '</a>'
+          + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>'
+          + '</div>';
         setRegBanner(i18("remote.switchBack", "To go back to attesting on this device instead, open \"Attest another way\" below and pick \"This device\". ") +
-          i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }), "warn", "remote");
+          i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }) + _help, "warn", "remote");
         show("powWrap", false);
         setStartBtnWaitingReg();
         if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)

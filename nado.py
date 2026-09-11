@@ -1604,7 +1604,12 @@ async def node_attest_pickup(request):
     if _rate_limited(request, 60):
         return _RL()
     from ops import node_attest as _na
-    sender = _q(request, "sender", "")
+    # ACCEPT `address=` AS WELL AS `sender=`. Every other endpoint on this node takes address=
+    # (/get_account, /tpm_proof_pickup, /download_enrol), and this one silently returned an empty list
+    # for it rather than complaining — which cost a debugging cycle on the night the first real proof
+    # was produced. An empty result that means "wrong parameter name" is indistinguishable from one that
+    # means "nothing waiting", so accept both spellings instead of making callers guess.
+    sender = _q(request, "sender", "") or _q(request, "address", "")
     try:
         tip = int(memserver.latest_block["block_number"])
     except Exception:
