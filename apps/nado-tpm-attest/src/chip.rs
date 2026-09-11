@@ -74,7 +74,7 @@ fn b64_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 pub struct Chip {
-    t: Box<dyn Tpm>,
+    pub(crate) t: Box<dyn Tpm>,
 }
 
 pub fn open() -> Result<Chip, String> {
@@ -240,6 +240,80 @@ pub fn selftest_chain(path: &str) -> Result<(), String> {
     println!();
     println!("  Send the sha256 values above; the last one must be a pinned vendor root.");
     Ok(())
+}
+
+/// HARDWARE CAPABILITY PROBE: can this chip use its endorsement key as a storage parent, create a key
+/// under it, and have that key certify its own creation?
+///
+/// THIS IS NOT A PROOF AND MUST NOT BE PRESENTED AS ONE. An architecture built on these commands was
+/// proposed and retracted the same day — it is forgeable in software, because nothing vendor-signed
+/// reaches the key doing the signing (tests/test_certify_creation_is_forgeable.py builds a message that
+/// passes every check with no TPM at all). What this answers is narrower and still worth knowing: a
+/// constrained firmware TPM may refuse the endorsement key as a parent entirely, and nobody has asked
+/// one. Touches no keys you own and publishes nothing.
+pub fn check_creation() -> Result<(), String> {
+    let mut c = open()?;
+    let t = c.t.as_ref();
+    println!();
+    println!("  Probing whether this chip will parent a key under its endorsement key.");
+    println!("  This proves a CAPABILITY, not a design — the architecture built on it was retracted");
+    println!("  as forgeable. Nothing is published and no key of yours is touched.");
+    println!();
+
+    let (ek, ek_pub, ek_name) = tpm::create_primary(t, RH_ENDORSEMENT, &tpm::ek_template())
+        .map_err(|e| format!("endorsement key (0x{e:08x})"))?;
+    println!("  [1/5] endorsement key derives ............ OK  {} byte public area", ek_pub.len());
+    let derived = {
+        let mut v = vec![0x00u8, 0x0bu8];
+        v.extend_from_slice(&crate::sha::sha256(&ek_pub));
+        v
+    };
+    println!("  [2/5] its name is derivable .............. {}",
+             if derived == ek_name { "OK  a verifier can recompute it" } else { "MISMATCH" });
+
+    let session = match tpm::start_policy_session(t) {
+        Ok(s) => s,
+        Err(e) => { tpm::flush(t, ek).ok(); return Err(format!("policy session (0x{e:08x})")); }
+    };
+    let out = (|| -> Result<(), String> {
+        tpm::policy_secret_endorsement(t, session)
+            .map_err(|e| format!("PolicySecret (0x{e:08x})"))?;
+        let (priv_, pub_, cdata, chash, ticket) =
+            tpm::create_under(t, ek, session, &tpm::aik_template())
+                .map_err(|e| format!("[3/5] TPM2_Create under the endorsement key FAILED (0x{e:08x})                                       — this chip will not parent a key there"))?;
+        println!("  [3/5] TPM2_Create under the EK ........... OK  priv {} pub {}", priv_.len(), pub_.len());
+
+        let session2 = tpm::start_policy_session(t).map_err(|e| format!("second session (0x{e:08x})"))?;
+        tpm::policy_secret_endorsement(t, session2)
+            .map_err(|e| format!("PolicySecret (0x{e:08x})"))?;
+        let child = tpm::load_under(t, ek, session2, &priv_, &pub_)
+            .map_err(|e| format!("[4/5] TPM2_Load FAILED (0x{e:08x})"));
+        tpm::flush(t, session2).ok();
+        let child = child?;
+        println!("  [4/5] the child loads .................... OK  handle 0x{child:08x}");
+
+        let mut qual = [0u8; 32];
+        crate::rand_bytes(&mut qual);
+        let r = tpm::certify_creation(t, child, child, &qual, &chash, &ticket)
+            .map_err(|e| format!("[5/5] TPM2_CertifyCreation FAILED (0x{e:08x})"));
+        tpm::flush(t, child).ok();
+        let (info, sig) = r?;
+        println!("  [5/5] TPM2_CertifyCreation ............... OK  attest {} sig {}", info.len(), sig.len());
+        let magic = u32::from_be_bytes([info[0], info[1], info[2], info[3]]);
+        let typ = u16::from_be_bytes([info[4], info[5]]);
+        println!("        TPM_GENERATED 0x{magic:08x}, type 0x{typ:04x} (want 0xff544347 / 0x801a)");
+        println!("        creationData {} bytes; parent named inside it", cdata.len());
+        Ok(())
+    })();
+    tpm::flush(t, session).ok();
+    tpm::flush(t, ek).ok();
+    println!();
+    match &out {
+        Ok(()) => println!("  RESULT: this chip CAN parent a key under its endorsement key."),
+        Err(e) => println!("  RESULT: {e}"),
+    }
+    println!("  Either way the four-message enrolment stays — see the retraction note.");
+    out
 }
 
 /// Follow a certificate's Authority Information Access pointers and collect the issuers above it.

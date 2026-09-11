@@ -24,6 +24,7 @@ fn main() {
             Ok(())
         }
         Some("selftest-tx") => tx::selftest(),
+        Some("check-creation") => nado_tpm_attest::chip::check_creation(),
         Some("check-cert") => match args.get(1) {
             Some(p) => nado_tpm_attest::chip::selftest_chain(p),
             None => Err("usage: nado-tpm-attest check-cert <certificate file>".into()),
@@ -57,6 +58,7 @@ fn print_help() {
     println!("                                        enrol without prompts");
     println!("  diagnose                              the older Windows device check");
     println!("  check-cert <file>                     assemble a chain from a certificate, no TPM");
+    println!("  check-creation                        probe: will this chip parent a key under its EK?");
     println!("  selftest-tx                           encoding self-check (tests)");
 }
 

@@ -498,3 +498,87 @@ pub fn ek_chain(t: &dyn Tpm) -> Vec<Vec<u8>> {
     }
     chain
 }
+
+
+// --- CREATING A KEY UNDER THE ENDORSEMENT KEY (a hardware capability probe, NOT a proof) -------------
+//
+// WHAT THIS IS FOR, AND WHAT IT IS NOT. An architecture that replaced the four-message exchange with a
+// single self-certifying message was proposed and RETRACTED the same day: it is forgeable in software,
+// because nothing vendor-signed reaches the key doing the signing (see
+// tests/test_certify_creation_is_forgeable.py). These commands are still worth running on real silicon
+// as a capability question — can a firmware TPM use its endorsement key as a storage parent at all —
+// but a passing result proves a chip can do something, not that a design is sound.
+
+pub const CC_CERTIFY_CREATION: u32 = 0x0000_014A;
+
+/// TPM2_Create under `parent` using a policy session. Returns (outPrivate, outPublic, creationData,
+/// creationHash, creationTicket).
+pub fn create_under(t: &dyn Tpm, parent: u32, session: u32, template: &[u8])
+        -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>), u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_CREATE);
+    c.u32(parent);
+    c.u32(9 + 4).u32(session).u16(0).raw(&[1]).u16(0);   // policy session, continueSession
+    c.tpm2b(&[&tpm2b_of(&[])[..], &tpm2b_of(&[])[..]].concat());
+    c.tpm2b(template);
+    c.tpm2b(&[]);
+    c.u32(0);
+    let raw = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&raw).ok_or(1u32)?;
+    if !r.ok() {
+        return Err(r.code);
+    }
+    r.u32();
+    let priv_ = r.tpm2b().ok_or(1u32)?.to_vec();
+    let pub_ = r.tpm2b().ok_or(1u32)?.to_vec();
+    let cdata = r.tpm2b().ok_or(1u32)?.to_vec();
+    let chash = r.tpm2b().ok_or(1u32)?.to_vec();
+    let tag = r.u16().ok_or(1u32)?;
+    let hier = r.u32().ok_or(1u32)?;
+    let tkd = r.tpm2b().ok_or(1u32)?.to_vec();
+    let mut ticket = Vec::new();
+    ticket.extend_from_slice(&tag.to_be_bytes());
+    ticket.extend_from_slice(&hier.to_be_bytes());
+    ticket.extend_from_slice(&tpm2b_of(&tkd));
+    Ok((priv_, pub_, cdata, chash, ticket))
+}
+
+pub fn load_under(t: &dyn Tpm, parent: u32, session: u32, priv_: &[u8], pub_: &[u8]) -> Result<u32, u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_LOAD);
+    c.u32(parent);
+    c.u32(9 + 4).u32(session).u16(0).raw(&[1]).u16(0);
+    c.tpm2b(priv_).tpm2b(pub_);
+    let raw = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&raw).ok_or(1u32)?;
+    if !r.ok() {
+        return Err(r.code);
+    }
+    r.u32().ok_or(1u32)
+}
+
+/// TPM2_CertifyCreation. NOTE: the second handle takes NO authorization — supplying two sessions
+/// returns 0x0a8b, which reads as a session-2 handle error and sends you looking in the wrong place.
+pub fn certify_creation(t: &dyn Tpm, sign: u32, object: u32, qualifying: &[u8], creation_hash: &[u8],
+                        ticket: &[u8]) -> Result<(Vec<u8>, Vec<u8>), u32> {
+    let mut c = Cmd::new(ST_SESSIONS, CC_CERTIFY_CREATION);
+    c.u32(sign).u32(object).pw_auth();
+    c.tpm2b(qualifying).tpm2b(creation_hash);
+    c.u16(ALG_RSASSA).u16(ALG_SHA256);
+    c.raw(ticket);
+    let raw = t.transmit(&c.finish())?;
+    let mut r = Rsp::parse(&raw).ok_or(1u32)?;
+    if !r.ok() {
+        return Err(r.code);
+    }
+    r.u32();
+    let info = r.tpm2b().ok_or(1u32)?.to_vec();
+    r.u16();
+    r.u16();
+    let sig = r.tpm2b().ok_or(1u32)?.to_vec();
+    Ok((info, sig))
+}
+
+fn tpm2b_of(b: &[u8]) -> Vec<u8> {
+    let mut v = (b.len() as u16).to_be_bytes().to_vec();
+    v.extend_from_slice(b);
+    v
+}
