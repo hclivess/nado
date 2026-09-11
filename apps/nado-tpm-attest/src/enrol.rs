@@ -144,7 +144,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
     // are keyed on it and a future reroll may need more than one.
     let attempt: u32 = 0;
     let aik_pub = chip.aik_public_for(attempt)?;
-    let id = enrol_id(relay, &chain, &aik_pub)?;
+    let (id, chain) = enrol_id(relay, &chain, &aik_pub)?;
     println!("  enrolment  {id}");
     let mut stalled_polls: u32 = 0;
 
@@ -311,12 +311,35 @@ fn hexed(chain: &[Vec<u8>]) -> Vec<String> {
     chain.iter().map(|c| tx::hex(c)).collect()
 }
 
-fn enrol_id(relay: &Relay, chain: &[Vec<u8>], aik_pub: &[u8]) -> Result<String, String> {
+/// The enrolment id, AND the chain the relay actually verified.
+///
+/// TAKE THE RELAY'S CHAIN BACK. The relay finishes the AIA walk when this machine could not — a platform
+/// that stores only a leaf, or a network that blocks the vendor's PKI, otherwise presents a short path and
+/// is refused for something that is not about its hardware. If we then published OUR copy, consensus would
+/// refuse the enrolment for the very reason the relay just repaired. The returned chain is not trusted
+/// blindly: every node re-verifies it offline to a pinned root, so the worst a lying relay achieves is an
+/// enrolment nobody accepts.
+fn enrol_id(relay: &Relay, chain: &[Vec<u8>], aik_pub: &[u8]) -> Result<(String, Vec<Vec<u8>>), String> {
     let body = json!({"ek": hexed(chain), "pub": tx::hex(aik_pub)}).to_string();
     let text = relay.post_json("/tpm_enrol_id", &body)?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
-    v.get("id").and_then(|x| x.as_str()).map(String::from)
-        .ok_or_else(|| format!("relay could not derive the enrolment id: {text}"))
+    let id = v.get("id").and_then(|x| x.as_str()).map(String::from)
+        .ok_or_else(|| format!("relay could not derive the enrolment id: {text}"))?;
+    let mut verified: Vec<Vec<u8>> = Vec::new();
+    if let Some(arr) = v.get("chain").and_then(|x| x.as_array()) {
+        for h in arr {
+            if let Some(hs) = h.as_str() {
+                if let Ok(der) = tx::unhex(hs) {
+                    verified.push(der);
+                }
+            }
+        }
+    }
+    if verified.len() > chain.len() {
+        println!("  chip       the relay completed the chain to {} certificate(s)", verified.len());
+    }
+    let out = if verified.is_empty() { chain.to_vec() } else { verified };
+    Ok((id, out))
 }
 
 fn fetch(relay: &Relay, id: &str) -> Result<Option<Map<String, Value>>, String> {

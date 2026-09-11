@@ -1457,6 +1457,109 @@ def _keep_refused_ek(chain, verdict):
         logger.error(f"could not keep a refused endorsement chain: {type(e).__name__}: {e}")
 
 
+# COMPLETING A CHAIN THE CALLER COULD NOT. A machine hands over what its platform holds, which is often a
+# leaf and little else: the endorsement certificate's issuers live on the vendor's PKI and are reachable
+# only by following the authority-information-access extension of each certificate in turn. A client
+# behind a filtered network, or one that simply does not speak the scheme the vendor chose, then presents
+# an incomplete path and is refused for something that has nothing to do with its hardware.
+#
+# The relay has the network the client may lack, and the URLs are printed inside the certificates, so it
+# finishes the walk and hands the completed chain back. The client puts THAT into its transaction, so
+# consensus still verifies a complete chain entirely offline — this adds no network read to validation,
+# which would be a determinism break (see CLAUDE.md). It also cannot widen what is accepted: the
+# completed chain must still reach a PINNED root, and fetching an unknown root does not pin it.
+_AIA_MAX_FETCH = 12
+_AIA_MAX_BYTES = 64_000
+_AIA_TIMEOUT = 6
+
+
+def _aia_urls(der: bytes):
+    """Every http/https URL a certificate points at, read by the DER length rather than by scanning to a
+    delimiter — the bytes after a URL are frequently printable, and a scan appends them and 404s."""
+    out, i = [], 0
+    for scheme in (b"https://", b"http://"):
+        i = 0
+        while True:
+            j = der.find(scheme, i)
+            if j < 0:
+                break
+            i = j + 1
+            url = None
+            if j >= 2 and der[j - 2] == 0x86:                      # GeneralName uniformResourceIdentifier
+                ln = der[j - 1]
+                if len(scheme) <= ln <= len(der) - j:
+                    try:
+                        url = der[j:j + ln].decode("ascii")
+                    except Exception:
+                        url = None
+            if url is None:
+                k = j
+                while k < len(der) and 0x21 <= der[k] <= 0x7E and der[k] not in b',()<>"':
+                    k += 1
+                try:
+                    url = der[j:k].decode("ascii").rstrip(".,;")
+                except Exception:
+                    url = None
+            if url and url not in out:
+                out.append(url)
+    return out
+
+
+def _fetch_der(url: str):
+    """One certificate over plain HTTP. TLS buys nothing here: the object is verified by signature to a
+    pinned root, so a substituted response fails exactly as a corrupt one does, and the certificate is
+    public by construction. Refuses anything that is not a plausible DER certificate."""
+    import urllib.request as _u
+    try:
+        if url.startswith("https://"):
+            url = "http://" + url[len("https://"):]
+        if not url.startswith("http://"):
+            return None
+        # SSRF GUARD: this URL comes from a caller-supplied certificate, so it must never be a way to make
+        # this node probe its own network. Only public hosts, and only what parses as a certificate.
+        host = url[len("http://"):].split("/", 1)[0].split(":", 1)[0]
+        import ipaddress, socket
+        try:
+            for fam, _t, _p, _c, sa in socket.getaddrinfo(host, 80, proto=socket.IPPROTO_TCP):
+                ip = ipaddress.ip_address(sa[0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    return None
+        except Exception:
+            return None
+        with _u.urlopen(url, timeout=_AIA_TIMEOUT) as r:
+            b = r.read(_AIA_MAX_BYTES + 1)
+        if 256 < len(b) <= _AIA_MAX_BYTES and b[0] == 0x30 and b[1] == 0x82:
+            return b
+    except Exception:
+        return None
+    return None
+
+
+def _complete_ek_chain(chain):
+    """`chain` plus every issuer reachable from it. Breadth-first over everything already fetched, because
+    a certificate may publish several locations and the one that closes to a pinned root may not be the
+    first that answers. Bounded in both directions: a certificate that points at itself walks forever."""
+    out = [bytes(c) for c in chain]
+    seen = {bytes(c) for c in out}
+    frontier, fetched = list(out), 0
+    for _depth in range(6):
+        nxt = []
+        for cert in frontier:
+            for url in _aia_urls(cert):
+                if fetched >= _AIA_MAX_FETCH:
+                    break
+                fetched += 1
+                der = _fetch_der(url)
+                if der and der not in seen:
+                    seen.add(der)
+                    out.append(der)
+                    nxt.append(der)
+        if not nxt or fetched >= _AIA_MAX_FETCH:
+            break
+        frontier = nxt
+    return out, fetched
+
+
 async def tpm_enrol_id(request):
     """POST {"ek": [<hex DER>...], "pub": <hex>} -> {"id": <32 hex>}.
 
@@ -1476,6 +1579,17 @@ async def tpm_enrol_id(request):
         now = int((memserver.latest_block or {}).get("block_timestamp") or time.time())
         ek = _an.verify_ek(chain, now)
         if not ek.get("ok"):
+            # BEFORE REFUSING, FINISH THE WALK THE CLIENT COULD NOT. The URLs are inside the certificates
+            # the caller already sent; an Intel laptop was refused for nothing but a missing intermediate
+            # its own platform does not store and its client could not fetch.
+            completed, n = await asyncio.to_thread(_complete_ek_chain, chain)
+            if n and len(completed) > len(chain):
+                ek2 = _an.verify_ek(completed, now)
+                if ek2.get("ok"):
+                    logger.info("completed a partial endorsement chain from %d to %d certificate(s) "
+                                "by following AIA" % (len(chain), len(completed)))
+                    chain, ek = completed, ek2
+        if not ek.get("ok"):
             # LOG THE REFUSAL WITH ENOUGH TO DIAGNOSE IT WITHOUT THE OWNER'S CONSOLE. This returned a 400
             # and recorded nothing, so the only trace of a refused machine was a line on a screen in
             # someone else's house — "relay returned 400", with the reason in a part of the message that
@@ -1493,8 +1607,14 @@ async def tpm_enrol_id(request):
         if not identity:
             return _resp({"error": "the kernel accepted the chain but reported no endorsement identity",
                           "verdict_fields": sorted(ek)}, status=500)
+        # HAND BACK THE CHAIN WE VERIFIED, not just the id. If we completed it above, the caller's own
+        # copy is still short and the enrolment transaction it builds from that copy would be refused by
+        # consensus for exactly the reason we just fixed. Returning the verified chain lets the client put
+        # the complete one on chain, which keeps validation a purely offline check of a self-contained
+        # proof. A client that already had a complete chain gets back what it sent.
         return _resp({"id": _te.enrol_id(_cid, str(identity), _te.aik_name_hex(pub)),
-                      "ek": identity, "manufacturer": ek.get("manufacturer")})
+                      "ek": identity, "manufacturer": ek.get("manufacturer"),
+                      "chain": [bytes(c).hex() for c in chain]})
     except KeyError as e:
         # A BARE KeyError REPR IS A FOUR-CHARACTER ERROR MESSAGE. str(KeyError('identity')) is
         # "'identity'", which tells a caller nothing about which payload was missing it, and cost a
