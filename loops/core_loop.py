@@ -3212,7 +3212,18 @@ class CoreClient(threading.Thread):
                 else:
                     self.logger.warning(f"TPM enrolment {eid[:12]}…: {tx['recipient']} refused: "
                                         f"{(result or {}).get('message')}")
-                return                      # ONE message per pass: an enrolment advances one step per block
+                # ONE MESSAGE PER ENROLMENT PER PASS — not one message per pass in total. This was a bare
+                # `return`, which meant a node drawn for two live enrolments advanced only the FIRST one
+                # each block and starved the other: measured on the live chain, two challengers answered
+                # at +9 blocks while the third took +91, because that node was busy walking the other
+                # enrolment. The record then ran out of window with its last reveal still in flight, at
+                # +164 of 180, after the chip had already opened all three credentials.
+                #
+                # Continuing is safe because the pacing that matters is PER RECORD: consensus refuses any
+                # message that does not land strictly after the one it answers, so a record still advances
+                # at most one step per block. Two different records share no ordering constraint, and
+                # sending both in one pass costs one transaction each.
+                continue                    # one step for THIS enrolment; the next one gets its step too
         except Exception as e:
             import traceback
             self.memserver.tpm_duty = f"FAILED {type(e).__name__}: {str(e)[:120]}"
