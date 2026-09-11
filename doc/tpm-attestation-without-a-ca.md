@@ -147,3 +147,44 @@ openssl accepts it. Real vendor certificates are not strictly DER, so EK parsing
 | `apps/nado-tpm-attest/src/devtpm.rs` | Linux transport (`/dev/tpmrm0`) |
 | `protocol_roots/ek/` | vendor endorsement roots |
 | `tests/test_tpm_aik.py`, `apps/nado-tpm-attest/tests/` | including the swtpm end-to-end |
+
+## Why every EK enrolment stalled at 1/3 (2026-09-11)
+
+Every EK enrolment attempted on mainnet stalled at 1/3 answered challengers. The chip, the client, the
+four-message protocol and the challenger loop were all correct: a drawn challenger on current code
+sealed a credential to real AMD silicon within minutes of the landing-window clamp shipping.
+
+**A first diagnosis of this was wrong and is recorded here so it is not repeated.** Measuring which
+duty senders answered `/status` on port 9173 showed 4 of 14 reachable, and that was read as "the other
+ten are phone wallets with no HTTP surface". Both halves were false:
+
+- A challenger answers by **publishing a transaction**, not by serving HTTP. Unreachable on :9173 says
+  nothing about whether an address can answer a challenge. Reachability was never the property.
+- All 14 duty senders carry a bond (12.7 to 400 NADO, `registered: 1`). The comment on
+  `_recent_producers` was right: a browser wallet cannot produce a `duty` transaction, so the candidate
+  set contains no phones at all. Our own node simply knows only 5 peers, and peer reachability was
+  mistaken for network composition.
+
+The candidate pool is therefore sound. What differs between the 14 is **code version**: the two
+challengers drawn for the stalled record land duty transactions every window but have never posted a
+`tpm_challenge`, while every node confirmed on the current commit answers when drawn. That makes the
+observed failure a rollout state, not a defect in the draw.
+
+The real design weakness the episode exposes is narrower: **the draw has no tolerance for a drawn
+candidate that does not answer.** All `DEVICE_ATTEST_EK_CHALLENGERS` must respond or the enrolment
+expires, so any node on older code that gets drawn kills that attempt outright. Over-drawing (select
+n > k and accept the first k answers) would remove the dependency on fleet uniformity, but it weakens
+the security argument in a way that must be quantified before it is proposed: forgery currently
+requires every drawn challenger to collude, whereas under over-draw it requires only k of n, and an
+attacker's nodes answer instantly while honest ones lag. That trade is not yet analysed and nothing
+should ship on it.
+
+Two facts worth keeping regardless:
+
+- **AK rotation and the per-chip bound contradict each other.** Rotating the attestation key to escape a
+  stalled draw mints a new `enrol_id`, which the one-open-enrolment-per-chip bound refuses while a live
+  record stands (HTTP 403, "this chip already has an enrolment in progress"). Retry cadence is the
+  enrolment window (~180 blocks), not `STALL_POLLS`.
+- **Measure the property, not a proxy for it.** The draw's evolution (bonded stake, then block
+  producers, then duty senders) was each scored by address coverage; the first diagnosis above scored
+  HTTP reachability. Neither is "can this node answer a challenge".
