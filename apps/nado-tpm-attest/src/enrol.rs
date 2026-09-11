@@ -453,8 +453,25 @@ fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
     relay.post_json("/tpm_proof_drop", &body)?;
     println!();
     println!("  This PC's chip has vouched for {address}.");
-    println!("  Open your wallet and confirm the registration — it must sign that itself, because a");
-    println!("  registration is signed by the identity it registers. The proof is waiting for it.");
+    // SAY WHETHER THERE IS ANYTHING TO CONFIRM. A wallet only collects a proof when it actually needs to
+    // register — first registration, an expired lease, or a presence mismatch. An address that is ALREADY
+    // registered and present has nothing to do, so telling its owner to "open your wallet and confirm"
+    // sends them looking for a control that will never appear, which is exactly what happened to the first
+    // owner to complete this flow: they registered successfully, ran the helper again, and were told to
+    // confirm something the wallet had no reason to show.
+    let live = relay.get(&format!("/mining_status?address={address}"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("registered_present").and_then(|x| x.as_bool()))
+        .unwrap_or(false);
+    if live {
+        println!("  That address is ALREADY registered with a device and mining, so there is nothing to");
+        println!("  confirm right now. The proof has been left on the relay anyway: your wallet will pick");
+        println!("  it up by itself if the registration ever lapses and needs renewing.");
+    } else {
+        println!("  Open your wallet and confirm the registration — it must sign that itself, because a");
+        println!("  registration is signed by the identity it registers. The proof is waiting for it.");
+    }
     Ok(())
 }
 
