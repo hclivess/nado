@@ -37,12 +37,10 @@ pub fn run_auto(relay_arg: &str) -> Result<(), String> {
     let keys = crate::tx::Keys::from_seed_hex(&seed)?;
     let target = address_from_filename();
     let vouch_for = target.clone().unwrap_or_else(|| own_address.clone());
+    let _ = &path;
     if target.is_some() {
         println!("  vouching for {vouch_for}");
         println!("               (from this file's name — your wallet put it there)");
-    } else {
-        println!("  identity   {vouch_for}");
-        println!("             key stored in {}", path.display());
     }
     println!("  relay      {}:{}", relay.host, relay.port);
     let out = enrol_with(&relay, &keys, &own_address, &vouch_for);
@@ -360,12 +358,15 @@ fn address_from_filename() -> Option<String> {
     if ok { Some(addr.to_ascii_lowercase()) } else { None }
 }
 
-/// Where an identity file lives, in the order worth trying.
+/// The identity file: beside the program, and ONLY beside the program.
 ///
-/// NEXT TO THE EXE FIRST. Someone who downloads this and runs it has no NADO directory and no reason
-/// to make one; the identity belongs with the thing that created it. A node's own keyfile is checked
-/// second so that running this on a machine that already has an identity enrols THAT one rather than
-/// silently minting a second.
+/// IT USED TO FALL BACK TO THE NODE'S OWN KEYFILE, and that was a bad idea that a test on a machine
+/// running a node exposed immediately: it silently signed as the production node's address. A program
+/// someone downloads and double-clicks must not reach into `~/nado/private/keys.dat` and use an
+/// operator's live signing key because it happens to be on the same disk. The blast radius of a
+/// downloaded helper should be the folder it was downloaded into.
+///
+/// A node operator who genuinely wants to enrol an existing identity passes `--keys` and says so.
 fn identity_paths() -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
@@ -373,21 +374,7 @@ fn identity_paths() -> Vec<std::path::PathBuf> {
             out.push(dir.join("nado-identity.json"));
         }
     }
-    if let Some(home) = home_dir() {
-        out.push(home.join("nado").join("private").join("keys.dat"));
-    }
     out
-}
-
-fn home_dir() -> Option<std::path::PathBuf> {
-    #[cfg(windows)]
-    {
-        std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
-    }
-    #[cfg(not(windows))]
-    {
-        std::env::var_os("HOME").map(std::path::PathBuf::from)
-    }
 }
 
 /// Find an identity, or make one. NO PROMPTING, EVER: this asks a person for nothing, least of all a
@@ -409,6 +396,7 @@ fn load_or_create_identity() -> Result<(String, String, std::path::PathBuf), Str
         };
         if let Some(seed) = v.get("private_key").and_then(|x| x.as_str()) {
             let keys = crate::tx::Keys::from_seed_hex(seed)?;
+            println!("  signing as {} (from {})", keys.address, path.display());
             return Ok((seed.to_string(), keys.address, path));
         }
     }
@@ -427,8 +415,15 @@ fn load_or_create_identity() -> Result<(String, String, std::path::PathBuf), Str
         "public_key": keys.public_key,
         "address": keys.address,
     });
-    write_private(&path, &serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?)?;
-    println!("  identity   created {}", path.display());
+    // A KEY THAT CANNOT BE SAVED MUST BE A HARD FAILURE, not a shrug. An ephemeral signing key changes
+    // the account between runs, and the exchange requires the commitment to come from the same account
+    // that opened the enrolment — so a silently unwritten identity breaks message 3 and looks like a
+    // consensus rule rejecting a legitimate prover.
+    write_private(&path, &serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("{e}. The enrolment needs a signing key it can keep: without one the \
+                              account changes between runs and the exchange cannot complete. Copy the \
+                              program somewhere writable and run it there."))?;
+    println!("  signing as {} (new, saved to {})", keys.address, path.display());
     Ok((seed_hex, keys.address, path))
 }
 
