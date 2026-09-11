@@ -56,7 +56,7 @@ from ops.transaction_ops import (construct_duty_tx,
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
-from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS
+from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS, TX_LANDING_WINDOW
 
 # How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
 SEED_PROBE_MEMO_S = 30
@@ -3152,7 +3152,14 @@ class CoreClient(threading.Thread):
             for eid, rec in live:
                 if me not in (rec.get("challengers") or []):
                     continue
-                max_block = int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1
+                # THE DEADLINE IS THE ENROLMENT'S, THE WINDOW IS THE MEMPOOL'S, AND max_block MUST RESPECT
+                # BOTH. Setting it to the enrolment's expiry alone put it up to 719 blocks ahead of the
+                # tip, and the mempool refuses anything beyond tip + TX_LANDING_WINDOW — so every drawn
+                # challenger's answer was rejected with "Target block too high" and the enrolment sat at
+                # 0/3 looking exactly like nobody had been drawn. Clamp to the window, keeping a margin
+                # so the tx does not expire while it waits for inclusion.
+                expiry = int(rec["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS - 1
+                max_block = min(expiry, tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
                 if min_block > max_block:
                     continue                # this enrolment expires before anything we send could land
                 mine = store.get(eid)

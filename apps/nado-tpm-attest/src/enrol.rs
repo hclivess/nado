@@ -124,7 +124,18 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                         Re-run to start a fresh enrolment."
                 .into());
         }
-        let rec = fetch(relay, &id)?;
+        // A SLOW ANSWER MUST NOT END AN EIGHT-MINUTE RUN. One read timeout killed a run at poll 38 while
+        // the relay was demonstrably up and serving — a busy node can simply take longer than the socket
+        // timeout on one request, and the enrolment is a multi-minute exchange by design. Transient
+        // network failures are retried; only a protocol answer ends the loop.
+        let rec = match fetch(relay, &id) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("  .. relay did not answer ({e}); retrying");
+                sleep(POLL);
+                continue;
+            }
+        };
         // A DEAD RECORD IS NOT A RECORD. An expired, unproven enrolment has a challenger set drawn under
         // whatever rule applied when it opened, and waiting on it waits forever — the two that never
         // answered are not coming back. Re-publishing supersedes it with a fresh draw. Without this a
