@@ -1336,7 +1336,15 @@ async def tpm_proof_drop(request):
         try:
             from ops import node_attest as _na
             _mb = int(body.get("max_block") or 0)
-            _na.drop(addr, _mb, dev, int(memserver.latest_block["block_number"]))
+            _mirror = _na.drop(addr, _mb, dev, int(memserver.latest_block["block_number"]))
+            # A REFUSED MIRROR IS NOT A SUCCESSFUL DROP. drop() REPORTS failure, it does not raise, so the
+            # except below never saw it and this endpoint answered {"ok": true} while the wallet-facing
+            # store stayed empty — the same silent-success that hid the KeyError, one layer up. Two test
+            # drops were reported as landed and stored nowhere before this line existed.
+            if not _mirror.get("ok"):
+                logger.error(f"tpm_proof_drop: mirror refused for {addr[:12]}: {_mirror.get('reason')}")
+                return _resp({"ok": False, "reason": f"proof not accepted: {_mirror.get('reason')}"},
+                             status=400)
             # AND FAN IT OUT, because a wallet does not stay on one relay. This called node_attest.drop()
             # in-process, which stores locally and skips the one-hop forward that /node_attest_drop does
             # for exactly this reason — so the proof existed on precisely ONE node. A wallet load-balances
