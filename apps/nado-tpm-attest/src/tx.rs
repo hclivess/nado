@@ -212,3 +212,9 @@ pub fn selftest() -> Result<(), String> {
     println!("{}", out);
     Ok(())
 }
+
+
+/// sha256, for identifying a certificate. Named so it is not mistaken for the chain's blake2b hashing.
+pub fn blake2b_free_sha256(data: &[u8]) -> String {
+    hex(&crate::sha::sha256(data))
+}

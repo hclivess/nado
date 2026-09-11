@@ -24,6 +24,10 @@ fn main() {
             Ok(())
         }
         Some("selftest-tx") => tx::selftest(),
+        Some("check-cert") => match args.get(1) {
+            Some(p) => nado_tpm_attest::chip::selftest_chain(p),
+            None => Err("usage: nado-tpm-attest check-cert <certificate file>".into()),
+        },
         Some("--help") | Some("-h") | Some("help") => {
             print_help();
             Ok(())
@@ -52,6 +56,7 @@ fn print_help() {
     println!("  enrol --relay <host[:port]> --keys <keys.dat>");
     println!("                                        enrol without prompts");
     println!("  diagnose                              the older Windows device check");
+    println!("  check-cert <file>                     assemble a chain from a certificate, no TPM");
     println!("  selftest-tx                           encoding self-check (tests)");
 }
 

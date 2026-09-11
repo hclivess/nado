@@ -125,6 +125,17 @@ impl Chip {
                 println!("             (this chip holds none in its own NV — normal for an AMD fTPM)");
             }
         }
+        if chain.len() == 1 {
+            // A LEAF ON ITS OWN IS AN INCOMPLETE CHAIN. AMD's endorsement certificate reaches its root
+            // through an intermediate that is on neither the chip nor the machine, so without this the
+            // verifier is handed a path it cannot close and the machine is refused for a reason that has
+            // nothing to do with its hardware.
+            let extra = fetch_issuers(&chain[0], true);
+            if !extra.is_empty() {
+                println!("  chip       fetched {} issuing certificate(s) from the vendor", extra.len());
+                chain.extend(extra);
+            }
+        }
         Ok(chain)
     }
 
@@ -185,5 +196,143 @@ impl Chip {
             .map_err(|e| format!("Certify (0x{e:08x})"));
         tpm::flush(t, aik).ok();
         out
+    }
+}
+
+/// Assemble and report a chain from a certificate on disk, touching no TPM.
+///
+/// A SAFE THING TO RUN. It reads one file, fetches the issuers its own AIA extension points at, and
+/// prints what it found. No chip, no keys, no transactions — so it can be used to answer "will my
+/// certificate verify" separately from "does the enrolment work", which are the two questions that
+/// otherwise fail together and look like one problem.
+pub fn selftest_chain(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let leaf = as_der(&bytes).ok_or("that file is neither DER nor PEM")?;
+    println!("  leaf        {} bytes, sha256 {}", leaf.len(), crate::tx::blake2b_free_sha256(&leaf));
+    let issuers = fetch_issuers(&leaf, false);
+    if issuers.is_empty() {
+        println!("  issuers     none fetched — the chain is just the leaf");
+        for u in urls_in(&leaf) {
+            println!("              (leaf points at {u})");
+        }
+    }
+    for (i, c) in issuers.iter().enumerate() {
+        println!("  issuer {}    {} bytes, sha256 {}", i + 1, c.len(),
+                 crate::tx::blake2b_free_sha256(c));
+    }
+    println!();
+    println!("  Send the sha256 values above; the last one must be a pinned vendor root.");
+    Ok(())
+}
+
+/// Follow a certificate's Authority Information Access pointers and collect the issuers above it.
+///
+/// WHY THE CLIENT DOES THIS AND THE VERIFIER NEVER COULD. An AMD firmware TPM's endorsement leaf does
+/// not chain straight to CN=AMDTPM — it goes through an intermediate that lives on neither the chip nor
+/// the machine. Windows fetches it over AIA at validation time and caches it somewhere the registry
+/// does not expose. So the leaf alone is an incomplete chain, and a verifier cannot go and get the rest
+/// itself: a consensus rule that made a network call would give different answers on different nodes,
+/// and on the same node at different times.
+///
+/// Fetching it HERE is safe precisely because it changes nothing about trust. Intermediates are a
+/// routing hint; every link is verified and only the pinned root is trust input, so a hostile or
+/// broken response produces a chain that fails verification rather than one that wrongly passes. The
+/// transport is plain HTTP for the same reason — there is nothing here worth encrypting and nothing
+/// worth authenticating, because the answer is checked against a root we already hold.
+///
+/// URLs are found by scanning for "http://" rather than by decoding the AIA extension, which keeps an
+/// X.509 parser out of a program that does not otherwise need one. CRL and OCSP endpoints get tried
+/// too and simply do not return certificates, so they filter themselves out.
+fn fetch_issuers(leaf: &[u8], relay_hint: bool) -> Vec<Vec<u8>> {
+    let _ = relay_hint;
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let mut current = leaf.to_vec();
+    for _ in 0..4 {
+        let mut got: Option<Vec<u8>> = None;
+        for url in urls_in(&current) {
+            if let Some(der) = http_get_der(&url) {
+                // Do not walk into a certificate we already hold, and stop at a self-signed root.
+                if out.iter().any(|c| *c == der) || der == leaf {
+                    continue;
+                }
+                got = Some(der);
+                break;
+            }
+        }
+        match got {
+            Some(der) => {
+                current = der.clone();
+                out.push(der);
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+/// The http:// URLs a certificate points at.
+///
+/// AN AIA URL IS A LENGTH-PREFIXED IA5String, tag 0x86, and reading it as "graphic characters until
+/// something that looks like a delimiter" walks straight off the end: the DER length and tag bytes that
+/// follow are frequently printable, so the URL comes back with rubbish appended and the fetch 404s for
+/// a reason invisible in the output. Take the declared length instead, and keep the scan only as a
+/// fallback for a certificate whose encoding surprises us.
+fn urls_in(der: &[u8]) -> Vec<String> {
+    let needle = b"http://";
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i + needle.len() < der.len() {
+        if &der[i..i + needle.len()] != needle {
+            i += 1;
+            continue;
+        }
+        let mut url: Option<String> = None;
+        // 0x86 <len> "http://..."  — the GeneralName form AIA and CRL distribution points use.
+        if i >= 2 && der[i - 2] == 0x86 {
+            let len = der[i - 1] as usize;
+            if len >= needle.len() && i + len <= der.len() {
+                if let Ok(s) = std::str::from_utf8(&der[i..i + len]) {
+                    url = Some(s.to_string());
+                }
+            }
+        }
+        if url.is_none() {
+            let mut j = i;
+            while j < der.len()
+                && der[j].is_ascii_graphic()
+                && !matches!(der[j], b',' | b'(' | b')' | b'<' | b'>' | b'"')
+            {
+                j += 1;
+            }
+            if let Ok(s) = std::str::from_utf8(&der[i..j]) {
+                url = Some(s.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()).to_string());
+            }
+        }
+        if let Some(u) = url {
+            let n = u.len();
+            if n > 12 && !out.contains(&u) {
+                out.push(u);
+            }
+            i += n.max(1);
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+fn http_get_der(url: &str) -> Option<Vec<u8>> {
+    let rest = url.strip_prefix("http://")?;
+    let (hostport, path) = match rest.find('/') {
+        Some(k) => (&rest[..k], &rest[k..]),
+        None => (rest, "/"),
+    };
+    let relay = crate::http::Relay::parse_with_default(hostport, 80).ok()?;
+    let bytes = relay.get_bytes(path).ok()?;
+    // A certificate, not a CRL or an OCSP response: DER SEQUENCE with a long-form length, sane size.
+    if bytes.len() > 256 && bytes[0] == 0x30 && bytes[1] == 0x82 {
+        Some(bytes)
+    } else {
+        None
     }
 }
