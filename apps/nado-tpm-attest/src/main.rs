@@ -55,6 +55,7 @@ fn print_help() {
     println!();
     println!("  (no arguments)                        enrol, asking for what it needs");
     println!("  enrol --relay <host[:port]> --keys <keys.dat>");
+    println!("  enrol --vouch <address>          enrol on behalf of that wallet address");
     println!("                                        enrol without prompts");
     println!("  diagnose                              the older Windows device check");
     println!("  check-cert <file>                     assemble a chain from a certificate, no TPM");

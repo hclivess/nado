@@ -41,20 +41,29 @@ const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 /// Enrol with an identity this machine resolves for itself. No prompting and nothing pasted: the
 /// enrolment proves a CHIP, not an owner, so it needs no secret from a person — and a program that
 /// asks a user to paste a private key teaches a habit that is otherwise the definition of a scam.
-pub fn run_auto(relay_arg: &str) -> Result<(), String> {
+pub fn run_auto(relay_arg: &str, vouch_override: Option<String>) -> Result<(), String> {
     let relay = Relay::parse(relay_arg)?;
     // The signing identity and the identity being VOUCHED FOR are different things, and separating
     // them is what removes every prompt. Enrolment messages are signed by a key this machine owns;
     // the chip's certify then names whichever address the wallet asked for.
     let (seed, own_address, path) = load_or_create_identity()?;
     let keys = crate::tx::Keys::from_seed_hex(&seed)?;
-    let target = address_from_filename();
-    let vouch_for = target.clone().unwrap_or_else(|| own_address.clone());
+    // SAY WHOSE IDENTITY THIS BINDS, ALWAYS, INCLUDING THE FALLBACK. An earlier build printed this
+    // line only when an address had been found, so when a rename dropped the address out of the
+    // filename the program said nothing at all and proceeded to enrol its own throwaway identity.
+    // Silence read as "fine". The whole value of an enrolment is WHICH identity gains the weight, so
+    // the fallback is the case that most needs announcing, not the one to stay quiet about.
+    let (vouch_for, source) = match (vouch_override, address_from_filename()) {
+        (Some(a), _) => (a, "from --vouch on the command line"),
+        (None, Some(a)) => (a, "from this file's name — your wallet put it there"),
+        (None, None) => (own_address.clone(), "NO ADDRESS GIVEN — this enrols the throwaway identity \
+                                               beside this program, which has no stake and no weight. \
+                                               Download the file from your wallet, or pass --vouch."),
+    };
+    let target = if vouch_for == own_address { None } else { Some(vouch_for.clone()) };
     let _ = &path;
-    if target.is_some() {
-        println!("  vouching for {vouch_for}");
-        println!("               (from this file's name — your wallet put it there)");
-    }
+    println!("  vouching for {vouch_for}");
+    println!("               ({source})");
     println!("  relay      {}:{}", relay.host, relay.port);
     let out = enrol_with(&relay, &keys, &own_address, &vouch_for);
     if out.is_ok() && target.is_none() {
@@ -66,6 +75,7 @@ pub fn run_auto(relay_arg: &str) -> Result<(), String> {
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut relay_arg = String::new();
     let mut keys_path = String::new();
+    let mut vouch_arg = String::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -77,6 +87,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 keys_path = args.get(i + 1).cloned().unwrap_or_default();
                 i += 2;
             }
+            // AN EXPLICIT ADDRESS TO VOUCH FOR. The filename is the channel a double-clicked download
+            // uses, but it is fragile in exactly one way that bit us: rename the artifact and the
+            // address silently disappears. Anyone invoking this by hand gets a flag that cannot be
+            // lost by a rename.
+            "--vouch" => {
+                vouch_arg = args.get(i + 1).cloned().unwrap_or_default();
+                i += 2;
+            }
             "--auto" => {
                 i += 1;
             }
@@ -84,7 +102,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
     if keys_path.is_empty() {
-        return run_auto(if relay_arg.is_empty() { DEFAULT_RELAY } else { &relay_arg });
+        return run_auto(if relay_arg.is_empty() { DEFAULT_RELAY } else { &relay_arg },
+                        if vouch_arg.is_empty() { None } else { Some(vouch_arg) });
     }
     if relay_arg.is_empty() {
         relay_arg = DEFAULT_RELAY.to_string();
@@ -571,5 +590,5 @@ pub fn run_interactive() -> Result<(), String> {
     println!("  It takes a few minutes: the chain carries four messages, each in a later block than");
     println!("  the one before it, and that ordering is what makes the proof a proof.");
     println!();
-    run_auto(DEFAULT_RELAY)
+    run_auto(DEFAULT_RELAY, None)
 }
