@@ -96,7 +96,14 @@ def drop(sender: str, max_block, device, tip: int) -> dict:
             return {"ok": False, "reason": "too many pending statements for this sender"}
         if _bytes[0] + size > MAX_BYTES:
             return {"ok": False, "reason": "drop store byte budget exhausted"}
-        lst.append({"device": {"att": device["att"], "cdj": device["cdj"], "rp": device["rp"]},
+        # COPY THE STATEMENT BY ITS OWN SHAPE. This rebuilt the dict as {att, cdj, rp} unconditionally,
+        # so a vendor-endorsed {ek, id, certinfo, sig} passed the validator two lines up and then died on
+        # KeyError: 'att' here — and the caller wrapped the drop in a bare except, so the first TPM proof
+        # produced on real silicon vanished with no error anywhere. Whitelist per shape rather than
+        # storing the caller's dict wholesale, so an oversized or unexpected extra field cannot ride in.
+        kept = ({k: device[k] for k in ("ek", "id", "certinfo", "sig")} if _is_ek_shape(device)
+                else {k: device[k] for k in ("att", "cdj", "rp")})
+        lst.append({"device": kept,
                     "max_block": mb, "at": time.time(), "h": h, "size": size})
         _bytes[0] += size
     return {"ok": True}

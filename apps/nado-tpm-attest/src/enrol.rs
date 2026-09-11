@@ -259,7 +259,18 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                     "proven" => {
                         println!("  -> proven. Registering with a fresh certify.");
                         register(relay, keys, signer, vouch_for, &id, &rec, &mut chip, attempt)?;
-                        println!("\n  DONE: this machine's TPM is enrolled and the identity is registered.\n");
+                        // SAY WHICH OF THE TWO THINGS ACTUALLY HAPPENED. This printed "the identity is
+                        // registered" unconditionally — including directly after telling the owner to go
+                        // and confirm the registration themselves, which is the opposite claim. A person
+                        // read DONE and went looking for a registration that by construction could not
+                        // have happened yet, because only the wallet holding the address can sign it.
+                        if vouch_for == signer {
+                            println!("\n  DONE: this chip is enrolled and the registration is submitted.\n");
+                        } else {
+                            println!("\n  The chip's part is DONE. The registration is NOT submitted yet —");
+                            println!("  it is waiting for the wallet that owns {vouch_for}");
+                            println!("  to confirm it, because only that wallet can sign it.\n");
+                        }
                         return Ok(());
                     }
                     other => return Err(format!("unexpected enrolment state {other:?}")),

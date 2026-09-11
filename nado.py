@@ -1337,8 +1337,12 @@ async def tpm_proof_drop(request):
             from ops import node_attest as _na
             _na.drop(addr, int(body.get("max_block") or 0), dev,
                      int(memserver.latest_block["block_number"]))
-        except Exception:
-            pass          # the private store above still serves /tpm_proof_pickup; never fail the drop
+        except Exception as _e:
+            # NEVER FAIL THE DROP over the mirror — but never swallow it silently either. A bare `pass`
+            # here hid a KeyError in node_attest.drop that left the wallet-facing store empty while this
+            # endpoint reported success, and the only way anyone found out was a person looking for a
+            # button that was never going to appear.
+            logger.error(f"tpm_proof_drop: mirror into node_attest failed: {type(_e).__name__}: {_e}")
         return _resp({"ok": True})
     except Exception as e:
         return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
