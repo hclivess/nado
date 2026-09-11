@@ -229,6 +229,33 @@ pub fn ek_template() -> Vec<u8> {
     t
 }
 
+/// The attestation key template for a given ATTEMPT.
+///
+/// THE ATTEMPT NUMBER IS THE RETRY MECHANISM, and it costs nothing. An enrolment id is derived from
+/// (chain, endorsement identity, attestation key name), so a different key is a different enrolment
+/// with a freshly drawn challenger set — available immediately, with no waiting for the previous
+/// record to expire and no consensus rule involved. A primary is derived from its whole template, so
+/// varying `unique` yields a different key while leaving every attribute the security argument rests
+/// on exactly as it was.
+///
+/// This matters because the thing that stalls an enrolment is not the chip and not the chain: it is a
+/// drawn challenger that cannot answer. Waiting out an expiry to get a new draw made that cost over an
+/// hour. Deriving a new key costs one TPM2_CreatePrimary.
+pub fn aik_template_for(attempt: u32) -> Vec<u8> {
+    let mut t = aik_template();
+    // Replace the empty `unique` with the attempt number, so attempt 0 is byte-identical to the
+    // original template and every later attempt derives a distinct key.
+    if attempt > 0 {
+        let n = t.len();
+        t.truncate(n - 2);                       // drop the empty TPM2B unique
+        let mut u = vec![0u8; 256];
+        u[..4].copy_from_slice(&attempt.to_be_bytes());
+        t.extend_from_slice(&(u.len() as u16).to_be_bytes());
+        t.extend_from_slice(&u);
+    }
+    t
+}
+
 pub fn aik_template() -> Vec<u8> {
     let mut t = Vec::new();
     t.extend_from_slice(&ALG_RSA.to_be_bytes());

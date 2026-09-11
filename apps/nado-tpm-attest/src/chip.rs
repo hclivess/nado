@@ -147,7 +147,14 @@ impl Chip {
     }
 
     pub fn aik_public(&mut self) -> Result<Vec<u8>, String> {
-        let (h, pubarea, _) = tpm::create_primary(self.t.as_ref(), RH_ENDORSEMENT, &tpm::aik_template())
+        self.aik_public_for(0)
+    }
+
+    /// The attestation key for one ATTEMPT — see tpm::aik_template_for. A stalled enrolment is escaped
+    /// by deriving the next one, which yields a fresh challenger draw immediately.
+    pub fn aik_public_for(&mut self, attempt: u32) -> Result<Vec<u8>, String> {
+        let (h, pubarea, _) = tpm::create_primary(self.t.as_ref(), RH_ENDORSEMENT,
+                                                  &tpm::aik_template_for(attempt))
             .map_err(|e| format!("could not derive the attestation key (0x{e:08x})"))?;
         tpm::flush(self.t.as_ref(), h).ok();
         Ok(pubarea)
@@ -156,10 +163,15 @@ impl Chip {
     /// Open one challenger's credential. The chip returns the secret ONLY because both the endorsement
     /// key and the attestation key are objects inside it — that is the entire proof.
     pub fn activate_credential(&mut self, blob: &[u8], enc_seed: &[u8]) -> Result<Vec<u8>, String> {
+        self.activate_credential_for(0, blob, enc_seed)
+    }
+
+    pub fn activate_credential_for(&mut self, attempt: u32, blob: &[u8], enc_seed: &[u8])
+            -> Result<Vec<u8>, String> {
         let t = self.t.as_ref();
         let (ek, _, _) = tpm::create_primary(t, RH_ENDORSEMENT, &tpm::ek_template())
             .map_err(|e| format!("endorsement key (0x{e:08x})"))?;
-        let (aik, _, _) = match tpm::create_primary(t, RH_ENDORSEMENT, &tpm::aik_template()) {
+        let (aik, _, _) = match tpm::create_primary(t, RH_ENDORSEMENT, &tpm::aik_template_for(attempt)) {
             Ok(v) => v,
             Err(e) => {
                 tpm::flush(t, ek).ok();
@@ -189,8 +201,13 @@ impl Chip {
 
     /// A fresh certify over this registration's challenge, under the enrolled attestation key.
     pub fn certify(&mut self, challenge: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
+        self.certify_for(0, challenge)
+    }
+
+    pub fn certify_for(&mut self, attempt: u32, challenge: &[u8])
+            -> Result<(Vec<u8>, Vec<u8>), String> {
         let t = self.t.as_ref();
-        let (aik, _, _) = tpm::create_primary(t, RH_ENDORSEMENT, &tpm::aik_template())
+        let (aik, _, _) = tpm::create_primary(t, RH_ENDORSEMENT, &tpm::aik_template_for(attempt))
             .map_err(|e| format!("attestation key (0x{e:08x})"))?;
         let out = tpm::certify(t, aik, aik, challenge)
             .map_err(|e| format!("Certify (0x{e:08x})"));

@@ -32,6 +32,12 @@ const POLL: Duration = Duration::from_secs(10);
 /// re-draws its challengers, so a client racing itself would reset the very set it is waiting on. The
 /// chain refuses the duplicates, but only after they have cost a round trip each.
 const AWAIT_INCLUSION: Duration = Duration::from_secs(90);
+
+/// Polls to wait for a drawn set before giving up on it and deriving a new attestation key. At the
+/// 10-second poll that is three minutes — long enough for a healthy set to answer (each message needs a
+/// block, and the inclusion delay is several), short enough that an unanswerable draw costs minutes
+/// instead of the hour an expiry takes.
+const STALL_POLLS: u32 = 18;
 const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 
 /// Enrol with an identity this machine resolves for itself. No prompting and nothing pasted: the
@@ -108,12 +114,18 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
     // The endorsement PUBLIC key is not sent: it is inside the certificate, and the node lifts it from
     // there with the lenient parser it has to use for that certificate anyway. Deriving it here would
     // cost an RSA primary — seconds on a real firmware TPM — to produce a value nobody reads.
-    let aik_pub = chip.aik_public()?;
-    println!("  chip       endorsement chain: {} certificate(s), {} bytes; attestation key ready",
+    println!("  chip       endorsement chain: {} certificate(s), {} bytes",
              chain.len(), chain.iter().map(|c| c.len()).sum::<usize>());
 
-    let id = enrol_id(relay, &chain, &aik_pub)?;
+    // ATTEMPT NUMBER = ATTESTATION KEY = ENROLMENT ID = CHALLENGER DRAW. All four move together, which
+    // is what makes a stalled enrolment escapable in seconds rather than in the hour an expiry takes.
+    // The thing that stalls one is a drawn challenger that cannot answer; nothing the chip or the chain
+    // did is wrong, and nothing about waiting improves it. A new key gets a new draw.
+    let mut attempt: u32 = 0;
+    let mut aik_pub = chip.aik_public_for(attempt)?;
+    let mut id = enrol_id(relay, &chain, &aik_pub)?;
     println!("  enrolment  {id}");
+    let mut stalled_polls: u32 = 0;
 
     let started = Instant::now();
     // What we last sent and when, so a message in flight is waited for rather than sent again.
@@ -148,6 +160,32 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
             }
             other => other,
         };
+
+        // A DRAW THAT IS NOT ANSWERING IS NOT WORTH WAITING FOR. If the challengers have not completed
+        // within STALL_POLLS, move to the next attestation key: that is a different enrolment id, so the
+        // chain draws a fresh set of challengers immediately. Costs one TPM2_CreatePrimary and a block.
+        if let Some(ref r) = rec {
+            let got = r.get("blobs").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            let want = r.get("challengers").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            let waiting = r.get("state").and_then(|v| v.as_str()) == Some("open") && got < want;
+            if waiting {
+                stalled_polls += 1;
+                if stalled_polls >= STALL_POLLS {
+                    attempt += 1;
+                    println!("  .. {got}/{want} after {}s — these challengers are not answering.",
+                             stalled_polls * POLL.as_secs() as u32);
+                    println!("  -> attempt {attempt}: new attestation key, new challengers");
+                    aik_pub = chip.aik_public_for(attempt)?;
+                    id = enrol_id(relay, &chain, &aik_pub)?;
+                    println!("  enrolment  {id}");
+                    stalled_polls = 0;
+                    in_flight = None;
+                    continue;
+                }
+            } else {
+                stalled_polls = 0;
+            }
+        }
         if let Some((what, at)) = in_flight {
             if at.elapsed() < AWAIT_INCLUSION {
                 println!("  .. waiting for {what} to be included ({}s)", at.elapsed().as_secs());
@@ -179,7 +217,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                             println!("  .. {}/{} challengers have answered", blobs.len(), drawn);
                         } else {
                             println!("  -> opening every challenge inside the chip");
-                            let secret = activate_all(&mut chip, &blobs)?;
+                            let secret = activate_all(&mut chip, attempt, &blobs)?;
                             let commit = crate::sha::sha256_hex(&secret);
                             submit(relay, keys, signer, "tpm_commit",
                                    json!({"id": id, "commit": commit}))?;
@@ -192,7 +230,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                     }
                     "proven" => {
                         println!("  -> proven. Registering with a fresh certify.");
-                        register(relay, keys, signer, vouch_for, &id, &rec, &mut chip)?;
+                        register(relay, keys, signer, vouch_for, &id, &rec, &mut chip, attempt)?;
                         println!("\n  DONE: this machine's TPM is enrolled and the identity is registered.\n");
                         return Ok(());
                     }
@@ -251,7 +289,7 @@ fn fetch(relay: &Relay, id: &str) -> Result<Option<Map<String, Value>>, String> 
     Ok(v.as_object().cloned())
 }
 
-fn activate_all(chip: &mut Chip, blobs: &[Value]) -> Result<Vec<u8>, String> {
+fn activate_all(chip: &mut Chip, attempt: u32, blobs: &[Value]) -> Result<Vec<u8>, String> {
     // THE CONCATENATION ORDER IS CONSENSUS, not a local choice: the commitment is checked against the
     // secrets sorted by challenger, so any other order fails at the very last reveal — after every
     // other check has passed, which is the most confusing possible place to fail.
@@ -266,13 +304,13 @@ fn activate_all(chip: &mut Chip, blobs: &[Value]) -> Result<Vec<u8>, String> {
     rows.sort_by(|x, y| x.0.cmp(&y.0));
     let mut out = Vec::new();
     for (_who, blob, enc) in rows {
-        out.extend_from_slice(&chip.activate_credential(&blob, &enc)?);
+        out.extend_from_slice(&chip.activate_credential_for(attempt, &blob, &enc)?);
     }
     Ok(out)
 }
 
 fn register(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str, id: &str,
-            rec: &Map<String, Value>, chip: &mut Chip) -> Result<(), String> {
+            rec: &Map<String, Value>, chip: &mut Chip, attempt: u32) -> Result<(), String> {
     let ek = rec.get("ek").and_then(|x| x.as_str()).ok_or("record has no endorsement identity")?;
     let text = relay.get("/get_latest_block")?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
@@ -288,7 +326,7 @@ fn register(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str, id: &
     let challenge = tx::unhex(ch.get("challenge").and_then(|x| x.as_str())
         .ok_or_else(|| format!("relay gave no challenge: {ch_text}"))?)?;
 
-    let (cert_info, sig) = chip.certify(&challenge)?;
+    let (cert_info, sig) = chip.certify_for(attempt, &challenge)?;
     let device = json!({
         "ek": ek, "id": id,
         "certinfo": tx::hex(&cert_info),
