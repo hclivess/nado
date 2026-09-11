@@ -31,6 +31,14 @@ certified chip*.
 
 ## Why the obvious shortcuts do not work
 
+**"Create the attestation key as a child of the endorsement key and have it certify its own creation."**
+Tried and retracted 2026-09-11, in a single day, for two independent reasons. It is forgeable: nothing
+vendor-signed reaches the key doing the signing, so `parentName` is a claim inside a blob signed by the
+claimant, and a software RSA key passes every check with no TPM at all
+(`tests/test_certify_creation_is_forgeable.py`). And the hardware refuses it: an AMD firmware TPM
+answers `TPM2_Create` under the endorsement key with `TPM_RC_HANDLE`, rejecting the parent handle before
+authorisation is even evaluated. See `doc/tpm-attestation-architecture-review.md`.
+
 **"Just send the EK certificate."** It is public data — anyone who has seen a machine's certificate can copy
 it. And the endorsement key **cannot sign**: `Key Usage: critical, Key Encipherment`, no `digitalSignature`.
 TCG defines it as a restricted decryption key. A WebAuthn `tpm` statement requires `certInfo` to be signed by

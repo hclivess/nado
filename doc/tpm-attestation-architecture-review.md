@@ -88,6 +88,29 @@ There is no signature path from the vendor to the signing key. The WebAuthn `tpm
 because there is one: `x5c[0]` is an AIK **certificate**, so a CA's signature reaches the signing key and
 the message closes. Ours had no such certificate — that absence is the entire reason this work exists.
 
+### And the hardware refuses it anyway
+
+Measured on the AMD firmware TPM the same day, through the `check-creation` probe:
+
+```
+[1/5] endorsement key derives ............ OK  314 byte public area
+[2/5] its name is derivable .............. OK  a verifier can recompute it
+RESULT: [3/5] TPM2_Create under the endorsement key FAILED (0x0000008b)
+```
+
+`0x8b` is format-one, error `0x0b` = `TPM_RC_HANDLE`, with no handle number — the chip rejecting the
+endorsement key as a parent handle outright, before any policy or authorisation is evaluated. So the
+proposal was dead twice over: forgeable in principle, and unsupported by the only silicon we have.
+
+That second fact is worth keeping on its own. **An AMD fTPM will not act as a storage parent from its
+endorsement key.** Anything that assumes otherwise — on this vendor at least — is designing against
+hardware that does not exist.
+
+It also tells us nothing about `PolicySecret`. The refusal happened at handle validation, before the
+endorsement hierarchy authorisation was ever reached, and steps 1 and 2 are a ReadPublic and a local
+hash. `ActivateCredential` against the `adminWithPolicy` endorsement key is exactly as untested after
+this probe as before it.
+
 ### The constraint, which is not an implementation detail
 
 An endorsement key is a restricted **decryption** key. No signature by it can exist, ever. So the only
