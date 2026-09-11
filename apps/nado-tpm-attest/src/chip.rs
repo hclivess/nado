@@ -484,14 +484,20 @@ fn fetch_issuers(leaf: &[u8], relay_hint: bool) -> Vec<Vec<u8>> {
 /// a reason invisible in the output. Take the declared length instead, and keep the scan only as a
 /// fallback for a certificate whose encoding surprises us.
 fn urls_in(der: &[u8]) -> Vec<String> {
-    let needle = b"http://";
     let mut out: Vec<String> = Vec::new();
     let mut i = 0usize;
-    while i + needle.len() < der.len() {
-        if &der[i..i + needle.len()] != needle {
+    while i < der.len() {
+        // BOTH SCHEMES. This looked for the literal "http://" only, so every https AIA was invisible:
+        // AMD publishes over plain http and worked, Intel publishes over https and could never have its
+        // chain completed at all. An Alder Lake machine was refused for that and for nothing else.
+        let needle: &[u8] = if der[i..].starts_with(b"https://") {
+            b"https://"
+        } else if der[i..].starts_with(b"http://") {
+            b"http://"
+        } else {
             i += 1;
             continue;
-        }
+        };
         let mut url: Option<String> = None;
         // 0x86 <len> "http://..."  — the GeneralName form AIA and CRL distribution points use.
         if i >= 2 && der[i - 2] == 0x86 {
@@ -528,7 +534,15 @@ fn urls_in(der: &[u8]) -> Vec<String> {
 }
 
 fn http_get_der(url: &str) -> Option<Vec<u8>> {
-    let rest = url.strip_prefix("http://")?;
+    // AN AIA FETCH NEEDS NO TLS, and refusing to make one without TLS is what broke Intel machines. The
+    // object retrieved is a CERTIFICATE: it is verified by signature up to a root pinned in this binary,
+    // so a tampered or substituted response fails verification exactly as a corrupt one does, and a
+    // confidential channel protects nothing — the certificate is public by construction. RFC 5280 names
+    // HTTP for this. Verified byte-for-byte: Intel serves the identical DER on port 80 and 443.
+    //
+    // This also keeps the client free of a TLS stack, which for a program people download and run is a
+    // smaller thing to audit, not a corner cut.
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
     let (hostport, path) = match rest.find('/') {
         Some(k) => (&rest[..k], &rest[k..]),
         None => (rest, "/"),
