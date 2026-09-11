@@ -478,7 +478,10 @@ pub fn ek_chain(t: &dyn Tpm) -> Vec<Vec<u8>> {
         if let Some(size) = nv_size(t, index) {
             if size > 0 {
                 if let Ok(bytes) = nv_read(t, index, size) {
-                    chain.push(bytes);
+                    // Split here too: an NV index is a byte range, and nothing stops a platform putting
+                    // the leaf and its issuers in one. Treating the range as a single certificate is the
+                    // same mistake that hid an Intel machine's intermediates inside its own chip.
+                    chain.extend(split_der_certs(&bytes));
                     break;
                 }
             }

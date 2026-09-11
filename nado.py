@@ -1684,7 +1684,22 @@ async def tpm_enrol_id(request):
         chain = []
         for x in (body.get("ek") or []):
             chain.extend(_split_der_certs(bytes.fromhex(x)))
-        chain = _order_chain(chain)
+        # DROP WHAT IS NOT A CERTIFICATE. A caller hands over what its platform gave it, and platforms
+        # store revocation lists beside certificates — both are DER SEQUENCEs, so one arriving in the
+        # bag would otherwise reach the parser and fail the whole chain for a machine that supplied
+        # everything correctly. Judged by structure (a certificate has a subject Name where a CRL does
+        # not), never by where it came from.
+        chain = [c for c in chain if _tbs_name(c, 1)]
+        # DEDUPLICATE. A store can hand back the same certificate twice, and a duplicate is not harmless:
+        # the path walk can step into the copy instead of the issuer, and the leaf test ("issued nothing
+        # else here") is confused by a second copy of the leaf. Order-preserving so the result stays a
+        # pure function of the input.
+        _seen, _uniq = set(), []
+        for c in chain:
+            if c not in _seen:
+                _seen.add(c)
+                _uniq.append(c)
+        chain = _order_chain(_uniq)
         pub = bytes.fromhex(str(body.get("pub") or ""))
         if not chain or not pub:
             return _resp({"error": "need ek chain and pub"}, status=400)

@@ -122,7 +122,13 @@ impl Chip {
         let mut chain = tpm::ek_chain(self.t.as_ref());
         #[cfg(windows)]
         if chain.is_empty() {
-            chain = crate::win::ek_certificates_from_registry();
+            // Each store entry may itself be several certificates concatenated — that is how an Intel
+            // CSME part delivers its ROM / Kernel / PTT intermediates — so split at the source rather
+            // than handing a verifier one object that is not a certificate.
+            chain = crate::win::ek_certificates_from_registry()
+                .iter()
+                .flat_map(|b| tpm::split_der_certs(b))
+                .collect();
             if !chain.is_empty() {
                 println!("  chip       endorsement certificate came from the Windows certificate store");
                 println!("             (this chip holds none in its own NV — normal for an AMD fTPM)");
@@ -173,7 +179,21 @@ impl Chip {
                 }
             }
         }
-        let path = build_path(&chain, &mut pool);
+        let mut path = build_path(&chain, &mut pool);
+        // SEND EVERY PIECE WE WERE GIVEN, even the ones we could not place. Dropping an unplaceable
+        // certificate is how this machine stayed broken after the split landed: its client shipped the
+        // linked path only, which was the bare leaf, so the intermediates its own chip was holding never
+        // reached the verifier and the relay had nothing to split or order.
+        //
+        // The verifier re-splits, re-orders and completes whatever arrives, so material it cannot use
+        // costs a few hundred bytes and material it CAN use is the difference between a machine that
+        // attests and one that does not. This is only what the chip and its endorsement store handed
+        // over — never the machine's whole trust store, which is thousands of unrelated certificates.
+        for der in &chain {
+            if !path.iter().any(|c| c == der) {
+                path.push(der.clone());
+            }
+        }
         println!("  chip       endorsement chain is {} certificate(s)", path.len());
         Ok(path)
     }
