@@ -932,7 +932,17 @@ class MemServer:
         # address has no on-chain account YET (registration is what creates it), so they must bypass
         # the empty-account anti-spam gate. (register is PoW-gated and heartbeat requires registered=1
         # in validate_transaction, so this opens no spam hole.) Spending txs still need a funded account.
-        elif transaction.get("recipient") not in ("register", "heartbeat") \
+        # tpm_enrol joins the onboarding bypass for the same reason register did: a machine attesting its
+        # chip for the first time has no on-chain account yet, and requiring one would mean an identity
+        # must be funded before it can prove it owns hardware — which inverts the point of a lane that
+        # exists so a participant with no capital can take part. It opens no spam hole: validation
+        # refuses any enrolment whose endorsement chain does not verify to a pinned silicon-vendor root,
+        # and allows only ONE open enrolment per chip at a time (ops/transaction_ops), so the ceiling is
+        # the number of genuine vendor-signed certificates an attacker holds, once per expiry window.
+        # The other three enrolment messages are NOT here: tpm_challenge and tpm_reveal come from drawn
+        # challengers, who are established producers by construction, and tpm_commit comes from the
+        # account that opened the enrolment, which by then exists.
+        elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}

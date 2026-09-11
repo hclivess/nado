@@ -2255,6 +2255,32 @@ def tpm_enrol_del(enrol_id: str):
     _write(_do)
 
 
+def tpm_enrol_open_for_ek(ek_identity: str):
+    """The id of the enrolment currently OPEN for this chip, or None.
+
+    ONE AT A TIME, PER CHIP. This is what lets tpm_enrol into the empty-account bypass without opening a
+    spam hole: an endorsement certificate is public, so anyone can copy one, but they cannot use it to
+    open a second enrolment while the first is alive. An attacker's ceiling becomes the number of genuine
+    vendor-signed certificates they hold, once per expiry window, rather than unbounded.
+
+    A marker row rather than a scan: the scan is bounded and would silently stop bounding once there were
+    more live enrolments than its limit."""
+    def _do(txn):
+        raw = txn.get(("tpmek:" + str(ek_identity)).encode(), db=_dbs()["devbind"])
+        return _unpack(raw) if raw is not None else None
+    return _read(_do)
+
+
+def tpm_enrol_open_set(ek_identity: str, enrol_id):
+    def _do(txn):
+        k = ("tpmek:" + str(ek_identity)).encode()
+        if enrol_id:
+            txn.put(k, _pack(str(enrol_id)), db=_dbs()["devbind"])
+        else:
+            txn.delete(k, db=_dbs()["devbind"])
+    _write(_do)
+
+
 def tpm_enrol_revert_put(height: int, enrol_id: str, prev):
     """Journal what an enrolment message OVERWROTE: the whole previous record, or None when the message
     CREATED the row. Always written on apply, so pop can tell "there was no row" (delete on revert) from

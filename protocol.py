@@ -1773,6 +1773,23 @@ DEVICE_ATTEST_EK_HEIGHT = 45300 if CHAIN_GENERATION == 25 else 1   # reroll: ven
 # later block, which is cheap, whereas a wrong k here is a Sybil hole.
 DEVICE_ATTEST_EK_CHALLENGERS = 3
 
+# WHO IS ELIGIBLE TO BE DRAWN: an identity that PRODUCED A BLOCK in the last this-many blocks.
+#
+# The first version drew from bonded stake, and that was wrong in a way worth recording. Bonded stake
+# measures capital, not liveness, and a challenger has to actually be running to answer. Measured on the
+# live chain: 22% of bonded stake sat behind addresses with a live node, so the chance that all three
+# drawn challengers could answer was about 1%. Every enrolment would have stalled until it expired, and
+# the failure would have looked like a bug in the chip or the client.
+#
+# Recent block production is the right signal because it is evidence of the thing we actually need. It is
+# recorded in the block headers, so every verifier derives the same set from committed state and a replay
+# years later derives it again. It proves the node was alive minutes ago. And it cannot be manufactured
+# cheaply: producing a block means winning the two-lane draw, which already requires bonded stake or an
+# attested identity, so an adversary who could flood this set could already do worse things.
+#
+# 120 blocks is ~13 minutes and yielded 45 distinct producers with the largest holding 9% of the window.
+DEVICE_ATTEST_EK_PRODUCER_WINDOW = 120
+
 # An enrolment that stops halfway is abandoned, not remembered forever: a client that never commits, or a
 # challenger that never reveals, leaves a row that would otherwise sit in consensus state for the life of the
 # chain. Past this many blocks from its publication an incomplete enrolment is dead and its row is collected;

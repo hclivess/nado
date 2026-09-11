@@ -431,16 +431,50 @@ def _anchor_time(transaction: dict, block_height: int) -> int:
     return int(b.get("block_timestamp") or 0)
 
 
+# Recent-producer weights, memoised on the window they cover. The window only moves when the tip does, and
+# an enrolment message is validated by every node, so recomputing a 120-block scan per validation would be
+# paid over and over for an answer that cannot have changed.
+_tpm_producer_cache = [None]
+
+
+def _recent_producers(block_height: int) -> dict:
+    """{address: blocks produced} over the window ending just before `block_height`.
+
+    EVIDENCE OF LIVENESS, WHICH IS THE WHOLE POINT. A challenger that cannot answer is worse than no
+    challenger: the enrolment waits for it and then expires. Block production is the cheapest consensus
+    -visible proof that a node was running minutes ago, and it is already recorded in the headers, so this
+    reads committed state and nothing else — a node replaying this block in a year derives the same set.
+    """
+    from protocol import DEVICE_ATTEST_EK_PRODUCER_WINDOW as _W
+    hi = int(block_height)
+    lo = max(1, hi - _W)
+    entry = _tpm_producer_cache[0]
+    if entry is not None and entry[0] == (lo, hi):
+        return dict(entry[1])
+    weights = {}
+    for h in range(lo, hi):
+        block = get_block_number(h)
+        if not block:
+            continue
+        who = block.get("block_creator")
+        if who:
+            weights[who] = weights.get(who, 0) + 1
+    _tpm_producer_cache[0] = ((lo, hi), dict(weights))
+    return weights
+
+
 def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
-    """The challengers drawn for an enrolment opened at `block_height`. Derived from committed parent state
-    (the bonded registry and that epoch's beacon), so every node — including one replaying this block years
-    later — draws the identical set."""
+    """The challengers drawn for an enrolment opened at `block_height`: identities that PRODUCED a block in
+    the recent window, weighted by how many, keyed on that epoch's beacon.
+
+    NOT BONDED STAKE. That was the first version and it does not measure the property we need — on the live
+    chain only 22% of bonded stake sat behind a running node, so all three drawn challengers could answer
+    about 1% of the time and every enrolment would have stalled until it expired."""
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
-    from ops.account_ops import get_bonded_registry
     from ops.block_ops import epoch_beacon
     from ops import tpm_enrol as _te
     epoch = int(block_height) // EPOCH_LENGTH
-    return _te.challenger_set(enrol_id_hex, get_bonded_registry(), epoch_beacon(epoch),
+    return _te.challenger_set(enrol_id_hex, _recent_producers(block_height), epoch_beacon(epoch),
                               DEVICE_ATTEST_EK_CHALLENGERS)
 
 
@@ -1425,6 +1459,18 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
             assert kv_ops.tpm_enrol_get(eid) is None, \
                 "this chip has already published this attestation key — use a new key or the existing enrolment"
+            # ONE OPEN ENROLMENT PER CHIP. An endorsement certificate is PUBLIC — anyone who has seen a
+            # machine's certificate can copy it — so without this bound a single stolen certificate could
+            # open unlimited enrolments by varying the attestation key, and tpm_enrol is in the
+            # empty-account bypass. With it, an attacker's ceiling is the number of genuine vendor-signed
+            # certificates they hold, once per expiry window. Copying a certificate still proves nothing:
+            # the challengers seal to its public key and only the real chip can open them.
+            _open = kv_ops.tpm_enrol_open_for_ek(str(ek["identity"]))
+            if _open:
+                _prev = kv_ops.tpm_enrol_get(str(_open))
+                assert not (_prev and _prev.get("state") != "proven"
+                            and block_height < int(_prev["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS), \
+                    "this chip already has an enrolment in progress — finish it or wait for it to expire"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
             # bonded registry must not thereby cut the number of parties it takes to collude.
             drawn = _tpm_challengers(eid, block_height)

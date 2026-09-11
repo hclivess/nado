@@ -12,6 +12,13 @@ FEE_EXEMPT_RECIPIENTS = frozenset({
     # empty-account onboarding bypass, so the sender must already have an on-chain account (registered / holds
     # coins) — that gate replaces register's PoSW as the anti-spam bound, so it is safe from the cull too.
     "msgkey",
+    # The four enrolment messages (doc/tpm-attestation-without-a-ca.md) are fee-exempt and zero-value.
+    # Each is bounded: tpm_enrol needs a vendor-signed endorsement chain and only one may be open per
+    # chip, tpm_challenge/tpm_reveal are accepted only from the challengers consensus DREW for that
+    # enrolment, and tpm_commit only from the identity that opened it. Culling them for a fee-bearing
+    # flood would strand an enrolment mid-exchange, and an enrolment that loses one message has to start
+    # over with a new attestation key.
+    "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal",
 })
 
 

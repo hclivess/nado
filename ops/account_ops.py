@@ -895,6 +895,11 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
             return                      # a block from before the gate: nothing was written, nothing to undo
         if prev is None:
             kv_ops.tpm_enrol_del(eid)   # this message CREATED the row
+            if recipient == "tpm_enrol":
+                # The marker was claimed by this very message, so undoing it releases the chip. Journalled
+                # implicitly: a created row means there was no open enrolment before, which is exactly the
+                # condition validation asserted.
+                kv_ops.tpm_enrol_open_set(str(ek["identity"]), None)
         else:
             kv_ops.tpm_enrol_set(eid, prev)
         return
@@ -912,6 +917,8 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
     else:
         rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h)
     kv_ops.tpm_enrol_set(eid, rec)
+    if recipient == "tpm_enrol":
+        kv_ops.tpm_enrol_open_set(str(ek["identity"]), eid)   # this chip's slot is taken until it expires
 
 
 def _tpm_anchor_time(block_height):
