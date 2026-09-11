@@ -1392,10 +1392,19 @@ async def tpm_enrol_id(request):
         ek = _an.verify_ek(chain, now)
         if not ek.get("ok"):
             return _resp({"error": f"endorsement certificate rejected: {ek.get('reason')}"}, status=400)
-        return _resp({"id": _te.enrol_id(_cid, str(ek["identity"]), _te.aik_name_hex(pub)),
-                      "ek": ek["identity"], "manufacturer": ek.get("manufacturer")})
+        identity = ek.get("identity") or ek.get("ek_identity")
+        if not identity:
+            return _resp({"error": "the kernel accepted the chain but reported no endorsement identity",
+                          "verdict_fields": sorted(ek)}, status=500)
+        return _resp({"id": _te.enrol_id(_cid, str(identity), _te.aik_name_hex(pub)),
+                      "ek": identity, "manufacturer": ek.get("manufacturer")})
+    except KeyError as e:
+        # A BARE KeyError REPR IS A FOUR-CHARACTER ERROR MESSAGE. str(KeyError('identity')) is
+        # "'identity'", which tells a caller nothing about which payload was missing it, and cost a
+        # round trip with a remote tester to identify. Name the field and say where it was expected.
+        return _resp({"error": f"missing field {e} in the request payload"}, status=400)
     except Exception as e:
-        return _resp({"error": str(e)[:200]}, status=400)
+        return _resp({"error": f"{type(e).__name__}: {str(e)[:200]}"}, status=400)
 
 
 async def register_challenge(request):

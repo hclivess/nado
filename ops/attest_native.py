@@ -134,7 +134,15 @@ def verify_ek(chain, now_unix: int, roots=None) -> dict:
     n = lib.nado_ek_verify(blob, len(blob), rblob, len(rblob), int(now_unix), out, len(out))
     if n < 0:
         raise AttestKernelUnavailable("kernel returned an error")
-    return json.loads(out.raw[:n].decode("utf-8"))
+    verdict = json.loads(out.raw[:n].decode("utf-8"))
+    # ONE NAME FOR THE ENDORSEMENT IDENTITY, FIXED HERE. The kernel emits `ek_identity`; every caller
+    # wants `identity`, and four of them read `identity` off the raw verdict and raised KeyError on the
+    # first real certificate — a failure that never appeared in any test, because the tests stubbed this
+    # function and the stubs used the caller's spelling rather than the kernel's. A boundary that two
+    # sides name differently needs the translation to live at the boundary, not in each caller.
+    if "ek_identity" in verdict and "identity" not in verdict:
+        verdict["identity"] = verdict["ek_identity"]
+    return verdict
 
 
 def ek_public_der(ek_cert_der: bytes) -> bytes:
