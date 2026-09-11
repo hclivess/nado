@@ -33,11 +33,9 @@ const POLL: Duration = Duration::from_secs(10);
 /// chain refuses the duplicates, but only after they have cost a round trip each.
 const AWAIT_INCLUSION: Duration = Duration::from_secs(90);
 
-/// Polls to wait for a drawn set before giving up on it and deriving a new attestation key. At the
-/// 10-second poll that is three minutes — long enough for a healthy set to answer (each message needs a
-/// block, and the inclusion delay is several), short enough that an unanswerable draw costs minutes
-/// instead of the hour an expiry takes.
-const STALL_POLLS: u32 = 18;
+/// HOW OFTEN TO SAY SOMETHING WHILE WAITING ON A DRAW. There is deliberately no "give up and rotate the
+/// attestation key" path any more; see the waiting branch below for why rotating cannot work.
+const REPORT_EVERY: u32 = 18;
 const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 
 /// Enrol with an identity this machine resolves for itself. No prompting and nothing pasted: the
@@ -117,13 +115,17 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
     println!("  chip       endorsement chain: {} certificate(s), {} bytes",
              chain.len(), chain.iter().map(|c| c.len()).sum::<usize>());
 
-    // ATTEMPT NUMBER = ATTESTATION KEY = ENROLMENT ID = CHALLENGER DRAW. All four move together, which
-    // is what makes a stalled enrolment escapable in seconds rather than in the hour an expiry takes.
-    // The thing that stalls one is a drawn challenger that cannot answer; nothing the chip or the chain
-    // did is wrong, and nothing about waiting improves it. A new key gets a new draw.
-    let mut attempt: u32 = 0;
-    let mut aik_pub = chip.aik_public_for(attempt)?;
-    let mut id = enrol_id(relay, &chain, &aik_pub)?;
+    // ONE ATTESTATION KEY PER CHIP, FIXED FOR THE LIFE OF THE PROCESS. The attempt number still selects
+    // the key (and so the enrolment id, and so the draw), but it never advances: the chain bounds a chip
+    // to one open enrolment, so deriving a second key while a record is live produces an enrolment the
+    // relay must refuse — HTTP 403, "this chip already has an enrolment in progress". An earlier build
+    // advanced it to escape a slow draw and threw away a two-thirds-answered set doing so. A fresh draw
+    // comes from superseding an EXPIRED record instead, which re-publishes at a new height and is drawn
+    // against the duty senders and beacon as of THAT height. Kept as a parameter because the chip helpers
+    // are keyed on it and a future reroll may need more than one.
+    let attempt: u32 = 0;
+    let aik_pub = chip.aik_public_for(attempt)?;
+    let id = enrol_id(relay, &chain, &aik_pub)?;
     println!("  enrolment  {id}");
     let mut stalled_polls: u32 = 0;
 
@@ -161,26 +163,33 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
             other => other,
         };
 
-        // A DRAW THAT IS NOT ANSWERING IS NOT WORTH WAITING FOR. If the challengers have not completed
-        // within STALL_POLLS, move to the next attestation key: that is a different enrolment id, so the
-        // chain draws a fresh set of challengers immediately. Costs one TPM2_CreatePrimary and a block.
+        // WAIT OUT A SLOW DRAW; NEVER ROTATE THE ATTESTATION KEY TO ESCAPE ONE. An earlier build gave up
+        // after 18 polls and derived the next attestation key, on the theory that a new enrolment id
+        // draws a fresh challenger set. That can never work, and it actively destroys good draws:
+        //
+        //   * a new attestation key means a new enrolment id, which is a NEW enrolment — and the chain
+        //     bounds this chip to one open enrolment at a time. While the current record is live the
+        //     relay refuses it outright: HTTP 403, "this chip already has an enrolment in progress".
+        //     The rotation therefore cannot succeed by construction, and it cost a real draw that was
+        //     two-thirds answered before anyone noticed.
+        //   * it was never needed anyway. Superseding an EXPIRED record (the branch above) re-publishes
+        //     at a new height, and the challenger set is drawn from the duty senders and beacon AS OF
+        //     THAT HEIGHT — so the supersede already yields a completely different set without touching
+        //     the attestation key. Observed on mainnet: one supersede replaced the whole drawn set.
+        //
+        // So the only legal escape from an unanswered draw is the enrolment window elapsing, and the
+        // expired branch above then supersedes it. Until then the right thing is to say so and wait:
+        // the challengers answer ON CHAIN, not to this process, so waiting costs nothing but patience.
         if let Some(ref r) = rec {
             let got = r.get("blobs").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
             let want = r.get("challengers").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
             let waiting = r.get("state").and_then(|v| v.as_str()) == Some("open") && got < want;
             if waiting {
                 stalled_polls += 1;
-                if stalled_polls >= STALL_POLLS {
-                    attempt += 1;
-                    println!("  .. {got}/{want} after {}s — these challengers are not answering.",
+                if stalled_polls % REPORT_EVERY == 0 {
+                    println!("  .. still {got}/{want} after {}s. Waiting for the enrolment window to \
+                              elapse; it then re-publishes with a freshly drawn set.",
                              stalled_polls * POLL.as_secs() as u32);
-                    println!("  -> attempt {attempt}: new attestation key, new challengers");
-                    aik_pub = chip.aik_public_for(attempt)?;
-                    id = enrol_id(relay, &chain, &aik_pub)?;
-                    println!("  enrolment  {id}");
-                    stalled_polls = 0;
-                    in_flight = None;
-                    continue;
                 }
             } else {
                 stalled_polls = 0;
