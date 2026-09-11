@@ -8,7 +8,7 @@ Everything below is a rule that was learned by breaking something. Each one name
 
 ---
 
-## The five rules that matter most
+## The six rules that matter most
 
 ### 1. End-to-end before touching a live loop
 
@@ -72,6 +72,44 @@ python3 tests/test_no_undefined_names.py
 It catches the class of bug that unit tests miss and production finds: a name used but never imported,
 in a path that only executes under load. Run it on the tree you are about to commit, not on an earlier
 one — then `curl` the node after the restart and count tracebacks.
+
+### 6. Walk the whole user workflow, as the user, before calling anything done
+
+A feature is not finished when its pieces pass. It is finished when a person who knows nothing about
+the implementation can complete the journey end to end. Before reporting a user-facing feature as
+working, walk it yourself, in order, as they would:
+
+1. **Can they find it?** Not "does the endpoint exist" — is there a path to it from where the user
+   already is, without being told a URL or a query string by someone who read the source?
+2. **Does every hop actually carry the data?** Follow the value across each boundary — client to
+   relay, store to poller, poller to transaction — and *read it back out the far side*. A write that
+   returns `ok` proves nothing about what the next component can see.
+3. **Simulate the user's run.** Fetch the real artifact from the real public URL, run the real
+   binary, read what it prints. Do not test the copy in `target/`, and do not trust that a rebuild was
+   copied to where it is served.
+4. **Does what it says match what happened?** Every success line must be true of the state that
+   actually exists.
+
+*Why:* in one evening, a completed TPM enrolment — a four-message ceremony proven on real silicon —
+could not be used by its owner, and each blocker passed its own tests:
+
+- the finished proof was dropped into a store **no wallet read**; the drop returned `ok` and the
+  wallet polled a different one, so nothing failed anywhere and there was simply no button;
+- the store then rebuilt every statement as a WebAuthn one, so a TPM proof died on `KeyError: 'att'`
+  *after* passing validation — inside a bare `except: pass` that made the endpoint report success;
+- the helper printed **"DONE: the identity is registered"** immediately after telling the owner the
+  registration was not submitted. The owner believed the first line and went looking;
+- the download URL handed out all evening was on a port Cloudflare does not forward, so no user could
+  ever have fetched it — while 443 had served it correctly the whole time;
+- and the binary at the served path was never re-copied after a rebuild, so the fix that was "in this
+  build" was absent from the artifact anyone would download.
+
+None of these are consensus bugs and no test suite was going to catch one. They were all the same
+failure: a claim about another component that nothing checked, and a workflow nobody walked.
+
+**Never report a workflow as working on the strength of its parts.** If you cannot drive the UI
+yourself, say exactly that, name which hops you verified by measurement and which you did not, and do
+not let "the code is correct" stand in for "the user can do it".
 
 ---
 
