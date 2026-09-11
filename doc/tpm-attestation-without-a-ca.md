@@ -148,6 +148,71 @@ openssl accepts it. Real vendor certificates are not strictly DER, so EK parsing
 | `protocol_roots/ek/` | vendor endorsement roots |
 | `tests/test_tpm_aik.py`, `apps/nado-tpm-attest/tests/` | including the swtpm end-to-end |
 
+## The challenger draw is resampleable, and that is the weak point (2026-09-11)
+
+"Forgery needs all the drawn challengers to collude" is only half the property. The other half is **being
+drawn**, and an attacker can retry that.
+
+An unproven record can be superseded once its window elapses (`transaction_ops.py:1487`), and a supersede
+re-publishes at a new height, so the challenger set is redrawn against the duty senders and beacon as of
+THAT height. There is no cap on how many times. An attacker who controls some bonded nodes therefore does
+not need to be lucky once — they resample every 180 blocks, about 20 minutes, until a draw seats only
+their own nodes, and then forge.
+
+Simulated against the live weights (13 candidates, duty-tx counts, weighted draw without replacement,
+k = 3), with the attacker running extra nodes at the median participant's weight:
+
+| attacker nodes | share of draw weight | P(forge) per window | expected time to forge |
+|---|---|---|---|
+| 3 | 25.5 % | 0.53 % | ~64 h |
+| 4 | 31.4 % | 1.54 % | ~22 h |
+| 5 | 36.4 % | 2.91 % | ~12 h |
+| 7 | 44.4 % | 6.59 % | ~5 h |
+
+The bond is not burned, so this is a rental cost rather than a loss. Each success mints one identity per
+endorsement certificate held — and endorsement certificates are public and copyable, which the
+one-open-enrolment-per-chip bound limits but does not prevent, so a harvested set of certificates becomes a
+slow identity faucet at roughly one per grind.
+
+**The tension is that resampling is also the liveness fix.** Superseding an expired record is exactly how a
+chip escapes a draw containing nodes on old code — the thing that blocked every enrolment on 2026-09-11.
+Removing the redraw restores grinding resistance and reintroduces the wedge. Any fix has to buy one without
+selling the other. Candidates, none analysed and none shipped:
+
+- keep the FIRST draw for an enrol_id across supersedes, and re-draw only the slots that did not answer;
+- make each supersede cost an escalating fee, so grinding pays super-linearly while one honest retry is cheap;
+- raise k, or draw from a set that grows with the network (the table above is dominated by n = 13);
+- require the set to be fixed at a height the publisher cannot choose.
+
+The numbers shrink fast as the candidate set grows: the same attacker share against a few hundred bonded
+nodes is a different problem. This is a small-network weakness, which is precisely when it is cheapest to
+exploit and least likely to be noticed.
+
+## The two proof shapes are not symmetric
+
+There is ONE consensus entry point for granting an attested identity — `verify_register_device`, called
+unconditionally at `transaction_ops.py:1400` from the `register` branch of `validate_transaction`, which
+runs in mempool admission AND in `validate_transactions_in_block`. Everything funnels through it, including
+`ops/node_attest.py`.
+
+Inside, `is_ek_device` dispatches into two shapes that differ in WHEN the vendor chain is proved:
+
+- **WebAuthn family** (android-key, tpm, packed, apple, trezor, ledger): the full certificate chain is
+  re-walked to a pinned root on every node at every register. The proof is self-contained in the
+  transaction.
+- **CA-free EK**: the EK cannot sign, so the vendor chain is verified during enrolment
+  (`transaction_ops.py:1467`, and again in the apply path at `account_ops.py:887`) and the verdict is
+  CERTIFIED INTO CONSENSUS STATE as the enrolment record. Register then asserts `state == "proven"` and
+  checks a fresh `TPM2_Certify` against the stored `rec["pub"]`.
+
+So the EK path is only as strong as the rules that wrote the record — which is why the draw weakness above
+is load-bearing in a way it is not for the phone path.
+
+Three call sites verify chains ADVISORILY and grant nothing: `nado.py:1396`, `nado.py:1491`,
+`loops/core_loop.py:2930`. `nado.py:1491` uses `int(time.time())` where consensus uses the anchor block's
+timestamp — deliberate for a pre-flight check, but it means an advisory verdict can disagree with consensus
+near a certificate's expiry, which reads to a user as "the wallet said yes and the chain said no".
+
 ## Why every EK enrolment stalled at 1/3 (2026-09-11)
 
 Every EK enrolment attempted on mainnet stalled at 1/3 answered challengers. The chip, the client, the
