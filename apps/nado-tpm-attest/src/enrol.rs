@@ -17,6 +17,9 @@ use serde_json::{json, Map, Value};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+/// Identifies the binary in its own output — see run_interactive.
+pub const BUILD: &str = env!("NADO_BUILD");
+
 pub const DEFAULT_RELAY: &str = "38.242.201.206:9173";
 
 const POLL: Duration = Duration::from_secs(10);
@@ -462,6 +465,10 @@ fn write_private(path: &std::path::Path, contents: &str) -> Result<(), String> {
 pub fn run_interactive() -> Result<(), String> {
     println!();
     println!("  NADO — enrolling this PC's security chip");
+    // SELF-IDENTIFYING OUTPUT. Three builds of this program were in circulation on one test machine at
+    // once, and a pasted transcript could not be attributed to any of them. A report that does not say
+    // which binary produced it costs a round trip to find out.
+    println!("  build {}", BUILD);
     println!();
     println!("  Your PC has a TPM whose maker (AMD, Intel, Infineon, Nuvoton) signed a certificate");
     println!("  saying it is genuine. This proves a key lives inside that chip, so an identity is");

@@ -61,7 +61,10 @@ def main():
     refuses("an unrestricted signing key", lambda: E.validate_publication(ek_id, aik_pub_area_unrestricted()))
 
     # --- the challenger draw ------------------------------------------------------------------------------
-    reg = {f"addr{i:02d}": {"bonded": (i + 1) * 10_000_000_000} for i in range(12)}
+    # WEIGHTS ARE PLAIN INTEGERS. They were registry entries until the draw moved to recent block
+    # producers; the signature changed and the body did not, and every enrolment then died with
+    # "'int' object is not subscriptable" in production. The shape is pinned here now.
+    reg = {f"addr{i:02d}": (i + 1) for i in range(12)}
     picked = E.challenger_set(eid, reg, "beacon-a", 3)
     check("the draw yields exactly k challengers", len(picked) == 3, picked)
     check("the challengers are distinct", len(set(picked)) == 3, picked)
@@ -74,8 +77,16 @@ def main():
           or E.challenger_set("e" * 32, reg, "beacon-a", 3) != picked)
     check("an empty registry draws nobody, rather than a weaker set",
           E.challenger_set(eid, {}, "beacon-a", 3) == [])
-    check("a registry too small to seat k returns what it has, so the caller can refuse",
-          len(E.challenger_set(eid, {"solo": {"bonded": 10 ** 12}}, "beacon-a", 3)) == 1)
+    check("a set too small to seat k returns what it has, so the caller can refuse",
+          len(E.challenger_set(eid, {"solo": 10}, "beacon-a", 3)) == 1)
+    check("a zero weight is never seated", "nobody" not in
+          E.challenger_set(eid, dict(reg, nobody=0), "beacon-a", 3))
+    # THE BUG THAT REACHED PRODUCTION: a wrong-shaped weight must be a clean rejection, because
+    # validate_transaction promises AssertionError and an escaping TypeError in block verification is
+    # the difference between a rejected block and a fork.
+    refuses("a registry entry where an integer belongs",
+            lambda: E.challenger_set(eid, {"a": {"bonded": 5}}, "beacon-a", 3))
+    refuses("a string weight", lambda: E.challenger_set(eid, {"a": "5"}, "beacon-a", 3))
 
     # --- the honest flow ----------------------------------------------------------------------------------
     secrets = {c: os.urandom(32) for c in picked}

@@ -50,7 +50,7 @@ def enrol_id(chain_id: str, ek_identity: str, aik_name_hex: str) -> str:
     return blake2b_hash([str(chain_id), str(ek_identity), str(aik_name_hex)])[:32]
 
 
-def challenger_set(enrol_id_hex: str, bonded_registry: dict, beacon: str, k: int) -> list:
+def challenger_set(enrol_id_hex: str, weights: dict, beacon: str, k: int) -> list:
     """The `k` challengers for one enrolment: a stake-weighted draw WITHOUT replacement, keyed on the
     beacon and the enrolment id — mining_ops.duty_committee's discipline, and deterministic from committed
     parent state for exactly the same reason.
@@ -63,18 +63,29 @@ def challenger_set(enrol_id_hex: str, bonded_registry: dict, beacon: str, k: int
     caller must refuse an enrolment whose set is short: a smaller set is a weaker proof, and an attacker
     who can shrink the registry must not thereby weaken what it takes to forge.
     """
-    from ops.mining_ops import selection_shares
     cumulative, total = [], 0
-    for address in sorted(bonded_registry):
-        w = selection_shares(bonded_registry[address]["bonded"])
+    for address in sorted(weights):
+        # WEIGHTS ARE PLAIN INTEGERS, not registry entries. This took the value of `bonded_registry[a]["bonded"]`
+        # until the draw moved to recent block producers, and the signature change without the body change
+        # meant every enrolment died with "'int' object is not subscriptable" — a TypeError escaping a
+        # function whose contract is to raise AssertionError, which in block verification is the difference
+        # between a rejected block and a fork.
+        raw = weights[address]
+        # A SHAPE ERROR MUST BE A REJECTION, NOT A TypeError. validate_transaction's contract is to raise
+        # AssertionError on the first violation, and it runs in block verification as well as the mempool —
+        # an unexpected exception type there is the difference between a cleanly rejected block and nodes
+        # disagreeing on block validity. This assert is what the previous signature/body mismatch needed.
+        assert isinstance(raw, int) and not isinstance(raw, bool), \
+            f"challenger weight for {address} must be an integer, got {type(raw).__name__}"
+        w = int(raw)
         if w > 0:
             total += w
             cumulative.append((total, address))
     if total == 0:
         return []
     picked, seen = [], set()
-    # Bounded attempts: a heavily concentrated registry re-draws the same whale repeatedly, and this must
-    # terminate identically on every node rather than loop until it happens to succeed.
+    # Bounded attempts: a heavily concentrated weight distribution re-draws the same large holder over and
+    # over, and this must terminate identically on every node rather than loop until it happens to succeed.
     for i in range(k * 16):
         if len(picked) >= k:
             break
