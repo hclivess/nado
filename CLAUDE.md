@@ -8,7 +8,7 @@ Everything below is a rule that was learned by breaking something. Each one name
 
 ---
 
-## The six rules that matter most
+## The seven rules that matter most
 
 ### 1. End-to-end before touching a live loop
 
@@ -110,6 +110,30 @@ failure: a claim about another component that nothing checked, and a workflow no
 **Never report a workflow as working on the strength of its parts.** If you cannot drive the UI
 yourself, say exactly that, name which hops you verified by measurement and which you did not, and do
 not let "the code is correct" stand in for "the user can do it".
+
+### 7. The wallet speaks 16 languages, and every one of them is your job
+
+`static/i18n.js` carries **16 language tables** — en, cs, es, pt, fr, de, it, ru, zh, ja, ko, ar, hi,
+tr, id, vi — and a user-facing string added in English only is a half-finished string. Every
+`i18("key", "English default")` you introduce needs its key in **all sixteen** tables, not just `en`:
+the English default is a fallback for a missing translation, not a substitute for one.
+
+```bash
+node tests/i18n_coverage.mjs        # every referenced key defined in every language
+```
+
+Run it before committing anything that touches the wallet. It reports exactly which keys are missing
+and from where, and it is the only thing standing between a new feature and fifteen locales silently
+falling back to English.
+
+*Why:* four strings added to the wallet's attestation card in one evening — `remote.tpmOffer`,
+`remote.dlWin`, `remote.dlLinux`, `remote.dlHash` — shipped English-only and were caught only because
+the user asked about translations afterwards. The feature "worked" in every test. It just spoke the
+wrong language to fifteen sixteenths of the people it was built for.
+
+Note `ar` is right-to-left: check that any string you add still reads correctly when the layout flips,
+and keep interpolations (`{a}`, `{n}`) intact in every table — a dropped placeholder is a broken
+sentence, not a cosmetic issue.
 
 ---
 
