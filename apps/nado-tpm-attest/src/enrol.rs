@@ -114,6 +114,18 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                 .into());
         }
         let rec = fetch(relay, &id)?;
+        // A DEAD RECORD IS NOT A RECORD. An expired, unproven enrolment has a challenger set drawn under
+        // whatever rule applied when it opened, and waiting on it waits forever — the two that never
+        // answered are not coming back. Re-publishing supersedes it with a fresh draw. Without this a
+        // chip could never escape one bad attempt, because the enrolment id is derived and identical
+        // every time.
+        let rec = match rec {
+            Some(ref r) if r.get("expired").and_then(|v| v.as_bool()) == Some(true) => {
+                println!("  .. the previous attempt expired; starting a fresh one");
+                None
+            }
+            other => other,
+        };
         match rec {
             None => {
                 println!("  -> publishing this chip's endorsement chain");

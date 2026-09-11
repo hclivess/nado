@@ -1470,8 +1470,22 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 "endorsement certificate does not chain to a pinned silicon-vendor root"
             _te.validate_publication(str(ek["identity"]), pub)
             eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
-            assert kv_ops.tpm_enrol_get(eid) is None, \
-                "this chip has already published this attestation key — use a new key or the existing enrolment"
+            # AN EXPIRED ATTEMPT MUST BE RETRYABLE, and making it so is not optional: the enrolment id is
+            # DERIVED from (chain id, endorsement identity, attestation key name) with no nonce, so the
+            # same chip with the same key template derives the same id forever. That is what makes a
+            # proven enrolment stable and resumable, and it is also what made a FAILED one permanent —
+            # refusing every duplicate meant a chip whose first attempt stalled could never open another,
+            # because every future attempt derived the same id and hit the same dead record. Observed on
+            # real hardware: an enrolment drew three challengers under an older rule, one answered, it
+            # expired, and the chip could not try again under the corrected rule because no new draw could
+            # ever happen. An expired, unproven record is therefore SUPERSEDED — apply overwrites it with
+            # a fresh draw, and journals the old one so a rollback restores it exactly.
+            _existing = kv_ops.tpm_enrol_get(eid)
+            if _existing:
+                assert _existing.get("state") != "proven", \
+                    "this chip has already proved this attestation key — use the existing enrolment"
+                assert block_height >= int(_existing["h"]) + DEVICE_ATTEST_EK_ENROL_BLOCKS, \
+                    "this attestation key already has an enrolment in progress"
             # ONE OPEN ENROLMENT PER CHIP. An endorsement certificate is PUBLIC — anyone who has seen a
             # machine's certificate can copy it — so without this bound a single stolen certificate could
             # open unlimited enrolments by varying the attestation key, and tpm_enrol is in the
