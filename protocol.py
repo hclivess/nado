@@ -1787,8 +1787,19 @@ DEVICE_ATTEST_EK_CHALLENGERS = 3
 # cheaply: producing a block means winning the two-lane draw, which already requires bonded stake or an
 # attested identity, so an adversary who could flood this set could already do worse things.
 #
-# 120 blocks is ~13 minutes and yielded 45 distinct producers with the largest holding 9% of the window.
-DEVICE_ATTEST_EK_PRODUCER_WINDOW = 120
+# WHICH EVIDENCE, THOUGH — and the first answer was still wrong. Block production was the second attempt
+# after bonded stake, and it is a better signal but not the right one: an open-lane miner produces blocks
+# from a browser wallet and runs no duty loop at all. Measured over 240 blocks on the live chain: 53
+# distinct producers of which 7 ran the software, so the chance all three drawn challengers could answer
+# was 0.2% — worse than the stake-weighted draw it replaced.
+#
+# The signal that actually means "this node runs the loop that answers challenges" is having landed an
+# FFG duty transaction: attest, commit or reveal. Those require being a bonded validator running the core
+# loop, which is the SAME loop that carries the challenger duty, so the evidence and the requirement are
+# the same thing rather than a proxy for it. Over the same 240 blocks: 11 distinct duty senders of which
+# 7 ran the software — 26%, and it approaches certainty as the fleet updates, because a duty sender is a
+# full node by construction. A browser wallet can never produce one.
+DEVICE_ATTEST_EK_PRODUCER_WINDOW = 240
 
 # An enrolment that stops halfway is abandoned, not remembered forever: a client that never commits, or a
 # challenger that never reveals, leaves a row that would otherwise sit in consensus state for the life of the

@@ -437,13 +437,25 @@ def _anchor_time(transaction: dict, block_height: int) -> int:
 _tpm_producer_cache = [None]
 
 
-def _recent_producers(block_height: int) -> dict:
-    """{address: blocks produced} over the window ending just before `block_height`.
+# The duty transactions that prove a node runs the core loop. `duty` is the merged modern form; the
+# three legacy singles are still accepted by consensus, so a node emitting either kind counts.
+_DUTY_RECIPIENTS = ("duty", "attest", "commit", "reveal")
 
-    EVIDENCE OF LIVENESS, WHICH IS THE WHOLE POINT. A challenger that cannot answer is worse than no
-    challenger: the enrolment waits for it and then expires. Block production is the cheapest consensus
-    -visible proof that a node was running minutes ago, and it is already recorded in the headers, so this
-    reads committed state and nothing else — a node replaying this block in a year derives the same set.
+
+def _recent_producers(block_height: int) -> dict:
+    """{address: duty transactions landed} over the window ending just before `block_height`.
+
+    THE SIGNAL HAS TO MEAN "THIS NODE RUNS THE LOOP THAT ANSWERS CHALLENGES", and two earlier answers did
+    not. Bonded stake measures capital: 22% of it sat behind a running node. Block production measures
+    winning a draw: an open-lane miner produces from a browser wallet and runs no duty loop, so of 53
+    producers measured over 240 blocks only 7 ran the software and the chance all three drawn challengers
+    could answer was 0.2%.
+
+    An FFG duty transaction — attest, commit or reveal — requires being a bonded validator running the
+    core loop, and the challenger duty lives in that same loop. So this is not a proxy for the property
+    we need; it is the property. A browser wallet cannot produce one.
+
+    Reads committed blocks and nothing else, so a node replaying this in a year derives the same set.
     """
     from protocol import DEVICE_ATTEST_EK_PRODUCER_WINDOW as _W
     hi = int(block_height)
@@ -456,20 +468,21 @@ def _recent_producers(block_height: int) -> dict:
         block = get_block_number(h)
         if not block:
             continue
-        who = block.get("block_creator")
-        if who:
-            weights[who] = weights.get(who, 0) + 1
+        for t in (block.get("block_transactions") or []):
+            if t.get("recipient") in _DUTY_RECIPIENTS:
+                who = t.get("sender")
+                if who:
+                    weights[who] = weights.get(who, 0) + 1
     _tpm_producer_cache[0] = ((lo, hi), dict(weights))
     return weights
 
 
 def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
-    """The challengers drawn for an enrolment opened at `block_height`: identities that PRODUCED a block in
-    the recent window, weighted by how many, keyed on that epoch's beacon.
+    """The challengers drawn for an enrolment opened at `block_height`: identities that landed an FFG DUTY
+    transaction in the recent window, weighted by how many, keyed on that epoch's beacon.
 
-    NOT BONDED STAKE. That was the first version and it does not measure the property we need — on the live
-    chain only 22% of bonded stake sat behind a running node, so all three drawn challengers could answer
-    about 1% of the time and every enrolment would have stalled until it expired."""
+    Two earlier versions drew from bonded stake and then from block producers, and both measured something
+    adjacent to the property that matters. See _recent_producers for the measurements."""
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
     from ops.block_ops import epoch_beacon
     from ops import tpm_enrol as _te
