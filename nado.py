@@ -1335,8 +1335,17 @@ async def tpm_proof_drop(request):
         # vouches for, so the finished proof waits for that wallet to collect it. One store, one pickup.
         try:
             from ops import node_attest as _na
-            _na.drop(addr, int(body.get("max_block") or 0), dev,
-                     int(memserver.latest_block["block_number"]))
+            _mb = int(body.get("max_block") or 0)
+            _na.drop(addr, _mb, dev, int(memserver.latest_block["block_number"]))
+            # AND FAN IT OUT, because a wallet does not stay on one relay. This called node_attest.drop()
+            # in-process, which stores locally and skips the one-hop forward that /node_attest_drop does
+            # for exactly this reason — so the proof existed on precisely ONE node. A wallet load-balances
+            # across the relay pool and fails over on its own mid-session (observed: get.nadochain.com ->
+            # psychz.nadochain.com), so a proof reachable from one relay is a proof most users cannot
+            # collect. Same one-hop rule as the wallet path: forwarded drops carry hop=1 and are never
+            # forwarded again.
+            asyncio.get_event_loop().create_task(_forward_drop(
+                {"sender": addr, "max_block": _mb, "device": dev, "hop": 1}))
         except Exception as _e:
             # NEVER FAIL THE DROP over the mirror — but never swallow it silently either. A bare `pass`
             # here hid a KeyError in node_attest.drop that left the wallet-facing store empty while this

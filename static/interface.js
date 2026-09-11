@@ -3080,18 +3080,39 @@ async function maybeRegister() {
   // ATTEST FROM ANOTHER DEVICE (Linux, Mac, iPhone…): a phone / TPM PC / hardware wallet attests THIS address on its own
   // wallet (the "Attest another wallet or node" card) and drops the statement on the relay; this wallet picks it up,
   // wraps it in its own signed register tx and submits — no prompt here, the OTHER device is the one bound.
-  if (state.attestVia === "remote" && !state.pendingRegisterTx && !state.regSubmitted) {
+  // A PROOF LEFT FOR THIS ADDRESS IS COLLECTED WHATEVER MODE THE WALLET IS IN. This used to require
+  // state.attestVia === "remote", i.e. the owner had to have already chosen "another device" from a menu
+  // before the wallet would even look. A TPM owner who ran the enrolment helper had no reason to know
+  // that: the helper leaves a finished proof addressed to THEIR wallet, and the wallet sat next to it
+  // asking them to attest on a second physical machine. Driving the real UI is what found this — every
+  // option under "attest another way" was clicked and not one issued a pickup request.
+  //
+  // Collecting is safe in any mode because the proof is not a credential: consensus re-verifies the
+  // certify against the on-chain enrolment record, and the register is still signed by this wallet and
+  // nobody else. The worst a junk drop can do is produce a register that validation refuses.
+  if (!state.pendingRegisterTx && !state.regSubmitted) {
     try {
       const r = await fetch(relayBase() + "/node_attest_pickup?sender=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
       const d = await r.json();
       const tipNow = Number(d.tip || state.latest || 0);
       const cands = Array.isArray(d.drops) ? d.drops : (d.drop ? [d.drop] : []);
-      const fresh = cands.filter((b) => b && b.device && Number(b.max_block) > tipNow + 2).pop();
+      // TRY EVERY LIVE CANDIDATE, NEWEST FIRST — not just the newest. Anyone may drop a statement for any
+      // address, so one junk drop parked on top used to block every attempt: a stray test statement did
+      // exactly that here, and the owner's registration failed with "no such enrolment" on a made-up id
+      // while their real proof sat underneath it.
+      const live = cands.filter((b) => b && b.device && Number(b.max_block) > tipNow + 2);
+      live.reverse();
+      const fresh = live[0];
       if (fresh) {
+        state.pendingDrops = live.slice(1);
         const tx = buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
         state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
-      } else {
+      } else if (state.attestVia === "remote") {
+        // ONLY NARRATE THE WAIT IN REMOTE MODE. The pickup above now runs in every mode, but this branch
+        // parks the UI on "waiting for another device" and hides the proving panel — correct for someone
+        // who chose that route, wrong for everyone else, who would be told to go and find a second
+        // machine they never asked about.
         // OFFER THE TPM HELPER RIGHT HERE. A PC whose Windows Hello cannot attest (no AIK certificate —
         // Microsoft's CA returns 404 for that chip, or the PIN was created offline) has no WebAuthn route
         // at all, and the only way through is the enrolment helper. It used to be reachable solely by
