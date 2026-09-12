@@ -2846,9 +2846,10 @@ function clearRegBanner(tag) {
   _regBannerTag = null;
   show("regBanner", false);
 }
-function hideRegBannerSoon(ms = 6000) {
-  setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
-}
+// REMOVED (2026-09-12): hideRegBannerSoon retracted the confirmation after six seconds. A banner that
+// deletes itself on a timer is telling the user their success was provisional; it was also the reason
+// people reported the mining confirmation "disappearing". Banners are retracted by the condition that
+// contradicts them — clearRegBanner(tag) — and by nothing else.
 // gen 25: registration is NOT one-time any more — every lease (36 h) renews with one tap on the device, so say so.
 const REASSURE = "";   // no reassurance appendix: the banner text stands alone
 
@@ -3463,7 +3464,16 @@ async function pollOnce() {
     // eligible: quietly renew the lease (a fresh ~1 s PoSW) once ~80% spent, so the identity never lapses.
     maybeRenewLease(acc).catch(() => {});
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
-    if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
+    // NOTHING IS IN PROGRESS ONCE WE ARE PRESENT. The progress widget was hidden only when
+    // state.regSubmitted happened to be set, so every route that reaches this point another way — a
+    // proof collected from another device or the TPM helper, a registration that landed while the tab
+    // was in the background, a reload mid-flight — left the indeterminate bar spinning above an empty
+    // panel for as long as the page stayed open. Hiding it is unconditional now: we are registered,
+    // present, and the relay has just said so.
+    show("powWrap", false);
+    const justLanded = !!(state.regSubmitted || state.pendingRegisterTx);
+    if (state.regSubmitted) { state.regSubmitted = null; log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
+    if (state.pendingRegisterTx) state.pendingRegisterTx = null;
     markMiningActive();                       // flip the button to the working Stop/Mining toggle
     // We are registered, present and the relay just answered — so any problem banner is now describing a
     // condition that has healed. Retract it. Only `wasStarting` used to touch the banner here, which is
@@ -3473,9 +3483,13 @@ async function pollOnce() {
     // the problem recurs the next poll puts it straight back.
     clearRegBanner("unreachable");
     clearRegBanner("failed");
-    if (wasStarting) {
-      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now."), "ok");
-      hideRegBannerSoon();
+    if (wasStarting || justLanded) {
+      // AND IT STAYS. This was shown only when `wasStarting` was still true and then retracted after six
+      // seconds, so the one piece of good news in the whole flow either never appeared — a registration
+      // confirmed a poll later, or collected from another device, lands here with wasStarting already
+      // false — or appeared and vanished while the user was looking at the device prompt. Success is not
+      // a transient condition; it is retracted when something contradicts it, like every other banner.
+      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now."), "ok", "confirmed");
     }
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
@@ -3610,6 +3624,9 @@ function stopMining() {
   stopPollLoop();
   releaseWakeLock();                                   // let the screen sleep again once mining stops
   show("powWrap", false);
+  // "Registered ✓ — mining now" must not outlive the mining. It persists while true, so stopping is one
+  // of the things that makes it untrue.
+  clearRegBanner("confirmed");
   show("regBanner", false);
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
