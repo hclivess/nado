@@ -93,8 +93,12 @@ button, .btn {
 button:active { transform: translateY(1px); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 /* brand-teal CTAs (match nadochain.com): dark text on a teal gradient, subtle lift on hover */
-button.primary, button.accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: var(--bg); font-weight: 800; box-shadow: 0 6px 20px rgba(var(--accent-rgb),.30); }
-button.primary:hover:not(:disabled), button.accent:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(var(--accent-rgb),.42); }
+/* `.btn` exists so a LINK can be a button, but the primary style was scoped to `button.primary`, so any
+   link marked primary rendered as a plain grey control — which is what happened to the one action on the
+   mining card that a stuck owner needs. */
+button.primary, button.accent, a.btn.primary, a.btn.accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: var(--bg); font-weight: 800; box-shadow: 0 6px 20px rgba(var(--accent-rgb),.30); }
+button.primary:hover:not(:disabled), button.accent:hover:not(:disabled),
+a.btn.primary:hover, a.btn.accent:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(var(--accent-rgb),.42); }
 button.ghost { background: transparent; }
 button.ghost:hover:not(:disabled) { border-color: var(--accent); }
 button.danger { color: var(--danger); border-color: #4a2326; background: #1c1416; }

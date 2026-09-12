@@ -707,15 +707,15 @@ function passkeyManagerName(ag) { return PASSKEY_MANAGERS[String(ag || "").slice
 // platform must cost a glance rather than a dead end.
 function renderMineFix(st) {
   const el = $("mineFix");
-  if (!el) return;
+  if (!el) return false;
   const w = state.wallet;
-  if (!w || !w.address || (st && st.ok)) { show("mineFix", false); el.innerHTML = ""; return; }
+  if (!w || !w.address || (st && st.ok)) { show("mineFix", false); el.innerHTML = ""; return false; }
   const ua = navigator.userAgent || "";
   const isWin = /Windows/i.test(ua);
   const isLinux = /Linux/i.test(ua) && !/Android/i.test(ua);
   // A phone or a Mac cannot run the helper at all — offering it there would be the same mistake in a
   // different direction, so those keep the existing guidance and this card stays hidden.
-  if (!isWin && !isLinux) { show("mineFix", false); el.innerHTML = ""; return; }
+  if (!isWin && !isLinux) { show("mineFix", false); el.innerHTML = ""; return false; }
   const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(w.address);
   const primary = isWin ? base : base + "&os=linux";
   const otherHref = isWin ? base + "&os=linux" : base;
@@ -735,6 +735,7 @@ function renderMineFix(st) {
     + escapeHtml(i18("remote.dlHash", "checksums")) + '</a></div>'
     + '</div>';
   show("mineFix", true);
+  return true;
 }
 
 function tpmHelperLinks() {
@@ -914,7 +915,9 @@ function renderDeviceStatus() {
       el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
     const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
     if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
-    renderMineFix(st);
+    // ONE SENTENCE WHEN THERE IS A BUTTON. The long enumeration of every accepted device is guidance for
+    // someone with no way forward; it is noise directly above a control that IS the way forward.
+    if (renderMineFix(st)) el.textContent = i18("device.mineFixable", "This device cannot vouch for itself yet.");
     return;
   }
   el.textContent = st.reason === "unsupported"
@@ -927,7 +930,7 @@ function renderDeviceStatus() {
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
   // Collapsed by default (2026-09-08 UX pass): the status line says it failed, the summary says help is one tap away.
   if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); }
-  renderMineFix(st);
+  if (renderMineFix(st)) el.textContent = i18("device.mineFixable", "This device cannot vouch for itself yet.");
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the
