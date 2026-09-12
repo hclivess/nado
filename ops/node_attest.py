@@ -173,7 +173,7 @@ def bind_info(address: str, acc: dict | None = None) -> dict:
     bind_mode "perm" when the account's `devkey` row still points back at it in permanent mode (it renews without a
     statement), "lease" otherwise. Read-only, never raises."""
     from ops import kv_ops
-    out = {"bind_mode": "lease", "bind_cls": None, "bind_live": False, "bind_epoch": -1}
+    out = {"bind_mode": "lease", "bind_cls": None, "bind_handle": None, "bind_live": False, "bind_epoch": -1}
     try:
         if acc is None:
             from ops.account_ops import get_account
@@ -181,6 +181,10 @@ def bind_info(address: str, acc: dict | None = None) -> dict:
         dk = acc.get("devkey")
         if isinstance(dk, str) and dk:
             out["bind_cls"] = dk.split(":", 1)[0]
+            # The HANDLE, not just the class. A reader shown "attested" with no identifier cannot check
+            # anything; this is the exact value consensus binds on, so it can be compared against the
+            # chain. Read-only and derived — it adds nothing to state.
+            out["bind_handle"] = dk
             row = kv_ops.devbind_get(dk)
             if row and row[0] == address and row[2] == "perm":
                 out.update({"bind_mode": "perm", "bind_live": True, "bind_epoch": int(row[1])})

@@ -1,7 +1,7 @@
 import threading
 
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import DEVICE_BIND_DEVKEY_ALL_EPOCH, B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -769,6 +769,19 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             else:
                 kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch)
+                # STAMP THE HANDLE FOR LEASED CLASSES TOO (DEVICE_BIND_DEVKEY_ALL_EPOCH). `devkey` is the
+                # reverse index — account -> the device that vouches for it — and it was written only for
+                # PERMANENT classes, because only they needed it to validate a statement-free renewal. So
+                # for a TPM, an endorsement key or an Android phone the chain knew the binding and no
+                # reader could find it: node_attest.bind_info derives bind_cls from this field, so
+                # /get_account answered cls: null and every consumer had to guess or scan blocks
+                # backwards to recover a fact consensus already held.
+                #
+                # Writing it for every class makes that an O(1) read of committed state instead. The
+                # revert path needs no change: devbind_revert_put already journals prev_devkey on this
+                # branch and the rollback restores or deletes it exactly.
+                if DEVICE_BIND_DEVKEY_ALL_EPOCH is not None and epoch >= DEVICE_BIND_DEVKEY_ALL_EPOCH:
+                    kv_ops.account_set_field(address, "devkey", device_key)
         prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
         acc = kv_ops.get_account(address)
         cur_fid = int(acc.get("fidelity", 0)) if acc else 0

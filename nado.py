@@ -1042,7 +1042,8 @@ async def account(request):
                 # this identity renews without a statement ("perm", live) or needs one every lease ("lease")
                 from ops.node_attest import bind_info as _bi
                 _b = _bi(addr, data)
-                data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "live": _b["bind_live"], "epoch": _b["bind_epoch"]}
+                data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "handle": _b.get("bind_handle"),
+                                   "live": _b["bind_live"], "epoch": _b["bind_epoch"]}
                 if readable == "true":
                     data.update({"balance": to_readable_amount(data["balance"])})
                     data.update({"produced": to_readable_amount(data["produced"])})

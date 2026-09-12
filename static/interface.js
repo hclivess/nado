@@ -875,6 +875,16 @@ function deviceHint(st) {
 // A wallet with no entry of its own now reads as unknown rather than inheriting its neighbour's: the
 // chain is asked, and renderDeviceStatus already prefers what the relay says over anything stored here.
 const LS_DEVICE_STATUS_BASE = "nado_device_status";
+/// What vouches for an identity, from the CHAIN — the only place that actually knows.
+///
+/// Not from localStorage. A wallet opened in a fresh browser has no local record, and a local copy of a
+/// fact the chain already holds is a second source that can disagree with the first — which it did:
+/// one browser-wide key captioned a TPM-bound identity with the class of whatever was attested last.
+/// The register transaction carries its device statement, so the relay derives the class and the handle
+/// consensus binds by (ops/device_attest.device_binding_key) and answers from committed blocks.
+///
+/// Cached per address for the session because it cannot change without a new registration, and that
+/// changes the recert epoch the relay keys its own cache on.
 /// What a device statement says about ITSELF: its class, and the handle consensus binds it by.
 ///
 /// The relay cannot tell us this for a leased class — `devkey` is stamped on the account only for
@@ -2924,24 +2934,29 @@ const REASSURE = "";   // no reassurance appendix: the banner text stands alone
 // classes at a glance; the handle beneath is the value consensus binds on
 // (ops/device_attest.device_binding_key), so a reader can check it against the chain instead of taking
 // "attested ✓" on trust. Hidden only when there is genuinely nothing to say.
+const DEVICE_ICON = { ek: "\u{1F5A5}\uFE0F", tpm: "\u{1F5A5}\uFE0F", "android-key": "\u{1F4F1}",
+                      ledger: "\u{1F510}", trezor: "\u{1F511}", packed: "\u{1F511}" };
+function deviceClassName(cls) {
+  return { ek: i18("dev.cls.ek", "TPM chip"), tpm: i18("dev.cls.tpm", "Windows Hello"),
+           "android-key": i18("dev.cls.android", "Android phone"),
+           ledger: "Ledger", trezor: "Trezor", packed: i18("dev.cls.webauthn", "Security key") }[cls] || "";
+}
+
+/// NO PLACEHOLDER. The cartouche names the hardware and shows the handle it is bound by, or it is not
+/// there at all. "Attested device" with a tick and no identifier tells a reader nothing they can check,
+/// and it is indistinguishable from the wallet simply not knowing — which is what it actually meant.
 function renderDeviceCartouche() {
   const box = $("statDevice");
   if (!box) return;
-  let st = null;
-  try { st = readDeviceStatus(); } catch (e) {}
-  const present = state.lastMs && state.lastMs.registered_present === true;
-  if (!present && !(st && st.ok)) { box.hidden = true; return; }
-  const cls = (st && st.fmt) || (state.devbind && state.devbind.cls) || "";
-  const ICON = { ek: "\u{1F5A5}", tpm: "\u{1F5A5}", "android-key": "\u{1F4F1}", ledger: "\u{1F510}",
-                 trezor: "\u{1F511}", webauthn: "\u{1F510}", device: "\u2713" };
-  const NAME = { ek: i18("dev.cls.ek", "TPM chip"), tpm: i18("dev.cls.tpm", "Windows Hello"),
-                 "android-key": i18("dev.cls.android", "Android phone"),
-                 ledger: "Ledger", trezor: "Trezor", webauthn: i18("dev.cls.webauthn", "Security key") };
-  $("mineDevIcon").textContent = ICON[cls] || "\u2713";
-  $("mineDevCls").textContent = NAME[cls] || i18("dev.cls.unknown", "Attested device");
-  const bid = st && typeof st.bindId === "string" ? st.bindId : "";
-  $("mineDevId").textContent = bid ? bid.slice(0, bid.startsWith("ek:") ? 19 : 16) + "\u2026" : "";
-  if (bid) $("mineDevId").title = bid;
+  // state.devbind is the account's own binding, refreshed by the poll loop from /get_account — the same
+  // response the rest of this page already reads. One source, and it is the chain.
+  const bind = state.devbind;
+  if (!bind || !bind.cls || !DEVICE_ICON[bind.cls]) { box.hidden = true; return; }
+  $("mineDevIcon").textContent = DEVICE_ICON[bind.cls];
+  $("mineDevCls").textContent = deviceClassName(bind.cls);
+  const h = bind.handle || "";
+  $("mineDevId").textContent = h ? h.slice(0, h.indexOf(":") + 9) + "\u2026" : "";
+  $("mineDevId").title = h;
   box.hidden = false;
 }
 
@@ -3281,8 +3296,7 @@ async function maybeRegister() {
         // name. It does have the device here, at the moment it builds the registration, which is the one
         // place the two are known together. The handle is the same value consensus binds on
         // (ops/device_attest.device_binding_key): "ek:" + the endorsement identity for a chip enrolment.
-        writeDeviceStatus({ ...(readDeviceStatus() || {}), ok: true, reason: "ok",
-                            ...deviceIdentity(fresh.device) });
+        writeDeviceStatus({ ...(readDeviceStatus() || {}), ok: true, reason: "ok" });
         const tx = buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
         state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));

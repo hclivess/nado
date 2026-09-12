@@ -1530,7 +1530,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
-#   from epoch 0 (x = 0 = always)    DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
+#   from epoch 0 (x = 0 = always)    DEVICE_BIND_DEVKEY_ALL_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
 #
 # CLEANUP AT THE REROLL: with the four "never" gates at 0 the savings lane is plain stake with no device, no pools and
 # no exclusion — so `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`,
@@ -1871,6 +1871,18 @@ DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 DEVICE_ATTEST_EK_READY_WINDOW = 2000        # ~3.8 h: a node re-announces long before this lapses
 DEVICE_ATTEST_EK_READY_EVERY = 400          # how often a running node re-announces (~45 min)
 DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+
+# THE REVERSE INDEX, FOR EVERY CLASS. `devkey` on an account names the device that vouches for it, and it
+# was written only for PERMANENT classes because only they needed it — a statement-free renewal is
+# validated against it. For a TPM, an endorsement key or an Android phone the chain held the binding and
+# no reader could find it: node_attest.bind_info derives bind_cls from this field, so /get_account
+# answered cls: null and a consumer had to guess, or scan blocks backwards to recover a fact consensus
+# already had. Writing it for every class makes that an O(1) read of committed state.
+#
+# KEYED ON THE RECERT EPOCH, because apply_register works in epochs; an account registered before this
+# carries no devkey until its next registration, which is correct — the field describes the binding that
+# register established, and back-filling one would be inventing state no block wrote.
+DEVICE_BIND_DEVKEY_ALL_EPOCH = 1110 if CHAIN_GENERATION == 25 else 0
 
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
