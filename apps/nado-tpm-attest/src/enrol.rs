@@ -10,6 +10,7 @@
 //! for it to land, waits for the drawn challengers to answer, and only then continues. A client that
 //! sent everything at once would be describing a proof rather than producing one.
 
+use crate::colour::{bad, dim, head, id, ok, progress, warn};
 use crate::http::Relay;
 use crate::chip::{self, Chip};
 use crate::tx;
@@ -20,7 +21,31 @@ use std::time::{Duration, Instant};
 /// Identifies the binary in its own output — see run_interactive.
 pub const BUILD: &str = env!("NADO_BUILD");
 
-pub const DEFAULT_RELAY: &str = "38.242.201.206:9173";
+/// Relays to try, in order, when none was given.
+///
+/// PORT 80 FIRST, because the node's own port is the thing most likely to be blocked. A home or office
+/// network that filters outbound traffic, and a host firewall deciding what an unsigned download may do,
+/// both let 80 through and both stop 9173 — a real machine failed here with nothing but "connection
+/// attempt failed", on a network where the relay was up and answering everyone else. The hostname is
+/// served over plain HTTP by the same relay, so this needs no TLS in a program people download and run.
+///
+/// The numeric address stays as the fallback: it needs no DNS, which is the other thing that breaks.
+pub const DEFAULT_RELAYS: [&str; 2] = ["get.nadochain.com:80", "38.242.201.206:9173"];
+pub const DEFAULT_RELAY: &str = DEFAULT_RELAYS[0];
+
+/// The first relay that answers, so a blocked port or a dead host costs seconds rather than the run.
+fn pick_relay() -> String {
+    for cand in DEFAULT_RELAYS {
+        if let Ok(r) = Relay::parse(cand) {
+            if r.get("/status").is_ok() {
+                return cand.to_string();
+            }
+            println!("  {} {}", crate::colour::warn(".."),
+                     crate::colour::dim(&format!("{cand} did not answer; trying the next relay")));
+        }
+    }
+    DEFAULT_RELAYS[DEFAULT_RELAYS.len() - 1].to_string()
+}
 
 const POLL: Duration = Duration::from_secs(10);
 
@@ -42,6 +67,7 @@ const GIVE_UP: Duration = Duration::from_secs(60 * 90);
 /// enrolment proves a CHIP, not an owner, so it needs no secret from a person — and a program that
 /// asks a user to paste a private key teaches a habit that is otherwise the definition of a scam.
 pub fn run_auto(relay_arg: &str, vouch_override: Option<String>) -> Result<(), String> {
+    crate::colour::enable();
     let relay = Relay::parse(relay_arg)?;
     // The signing identity and the identity being VOUCHED FOR are different things, and separating
     // them is what removes every prompt. Enrolment messages are signed by a key this machine owns;
@@ -62,9 +88,9 @@ pub fn run_auto(relay_arg: &str, vouch_override: Option<String>) -> Result<(), S
     };
     let target = if vouch_for == own_address { None } else { Some(vouch_for.clone()) };
     let _ = &path;
-    println!("  vouching for {vouch_for}");
+    println!("  vouching for {}", id(&vouch_for));
     println!("               ({source})");
-    println!("  relay      {}:{}", relay.host, relay.port);
+    println!("  relay      {}", dim(&format!("{}:{}", relay.host, relay.port)));
     let out = enrol_with(&relay, &keys, &own_address, &vouch_for);
     if out.is_ok() && target.is_none() {
         println!("  Import {} into your wallet to use this identity.", path.display());
@@ -73,6 +99,7 @@ pub fn run_auto(relay_arg: &str, vouch_override: Option<String>) -> Result<(), S
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    crate::colour::enable();
     let mut relay_arg = String::new();
     let mut keys_path = String::new();
     let mut vouch_arg = String::new();
@@ -102,11 +129,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
     if keys_path.is_empty() {
-        return run_auto(if relay_arg.is_empty() { DEFAULT_RELAY } else { &relay_arg },
+        let picked = if relay_arg.is_empty() { pick_relay() } else { relay_arg.clone() };
+        return run_auto(&picked,
                         if vouch_arg.is_empty() { None } else { Some(vouch_arg) });
     }
     if relay_arg.is_empty() {
-        relay_arg = DEFAULT_RELAY.to_string();
+        relay_arg = pick_relay();
     }
     let relay = Relay::parse(&relay_arg)?;
     let (seed, address) = read_keys(&keys_path)?;
@@ -145,7 +173,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
     let attempt: u32 = 0;
     let aik_pub = chip.aik_public_for(attempt)?;
     let (id, chain) = enrol_id(relay, &chain, &aik_pub)?;
-    println!("  enrolment  {id}");
+    println!("  enrolment  {}", crate::colour::id(&id));
     let mut stalled_polls: u32 = 0;
 
     let started = Instant::now();
@@ -176,7 +204,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
         // every time.
         let rec = match rec {
             Some(ref r) if r.get("expired").and_then(|v| v.as_bool()) == Some(true) => {
-                println!("  .. the previous attempt expired; starting a fresh one");
+                println!("  {}", warn(".. the previous attempt expired; starting a fresh one"));
                 None
             }
             other => other,
@@ -244,7 +272,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                         if blobs.len() < drawn {
                             println!("  .. {}/{} challengers have answered", blobs.len(), drawn);
                         } else {
-                            println!("  -> opening every challenge inside the chip");
+                            println!("  {} opening every challenge inside the chip", head("->"));
                             let secret = activate_all(&mut chip, attempt, &blobs)?;
                             let commit = crate::sha::sha256_hex(&secret);
                             submit(relay, keys, signer, "tpm_commit",
@@ -257,7 +285,7 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                         println!("  .. committed; {n} challenger(s) have revealed");
                     }
                     "proven" => {
-                        println!("  -> proven. Registering with a fresh certify.");
+                        println!("  {} Registering with a fresh certify.", head("-> proven."));
                         register(relay, keys, signer, vouch_for, &id, &rec, &mut chip, attempt)?;
                         // SAY WHICH OF THE TWO THINGS ACTUALLY HAPPENED. This printed "the identity is
                         // registered" unconditionally — including directly after telling the owner to go
@@ -475,7 +503,7 @@ fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
         .to_string();
     relay.post_json("/tpm_proof_drop", &body)?;
     println!();
-    println!("  This PC's chip has vouched for {address}.");
+    println!("  {} {}", ok("This PC's chip has vouched for"), crate::colour::id(address));
     // SAY WHETHER THERE IS ANYTHING TO CONFIRM. A wallet only collects a proof when it actually needs to
     // register — first registration, an expired lease, or a presence mismatch. An address that is ALREADY
     // registered and present has nothing to do, so telling its owner to "open your wallet and confirm"
@@ -656,5 +684,5 @@ pub fn run_interactive() -> Result<(), String> {
     println!("  It takes a few minutes: the chain carries four messages, each in a later block than");
     println!("  the one before it, and that ordering is what makes the proof a proof.");
     println!();
-    run_auto(DEFAULT_RELAY, None)
+    run_auto(&pick_relay(), None)
 }
