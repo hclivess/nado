@@ -3354,7 +3354,11 @@ async def make_app(port):
         # and a host already running a web server has it taken. Both are ordinary, so they are logged at
         # info and the node carries on — a node that refuses to start because port 80 was busy would be a
         # far worse failure than one that is simply not reachable on it.
-        _relay_port = int(get_config().get("relay_port") or 0)
+        # DEFAULT IN THE CODE, NOT ONLY IN THE TEMPLATE. get_config() returns the file verbatim and does
+        # NOT merge new defaults, so a key added to config.py reaches only nodes installed after it — and
+        # every node already running would have skipped this silently. `or 0` made "absent" mean
+        # "disabled", which is the opposite of what a new default is for. An explicit 0 still disables it.
+        _relay_port = int(get_config().get("relay_port", 80) or 0)
         if _relay_port and _relay_port != port:
             try:
                 await web.TCPSite(runner, host="0.0.0.0", port=_relay_port).start()
