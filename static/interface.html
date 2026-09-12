@@ -223,13 +223,17 @@
     <div class="addr-box"><span class="a" id="walAddr"></span>
       <button class="copy" data-i18n="btn.copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
-      <div class="stat" data-i18n-title="tip.free" title="FREE — your spendable balance: coins you can send or bond right now.">
-        <div class="label" data-i18n="lbl.free">Free</div><div class="value sm" id="walBalance">—</div>
+      <!-- ONE BALANCE CARTOUCHE. Free, Bonded and Total were three boxes for one number and its two parts —
+           the total is the sum of the other two, so three cartouches said the same thing three times and
+           made the row hard to scan. The total leads because it answers "how much do I have"; the split
+           sits under it because that is the detail, not the headline. Every id is unchanged, so the code
+           that writes these values did not have to move. -->
+      <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked). Free coins can be sent or bonded right now; bonded coins produce blocks in the savings lane on their own and unlock 1440 blocks after you request an unbond.">
+        <div class="label" data-i18n="lbl.balance">Balance</div>
+        <div class="value sm" id="walTotal">—</div>
+        <div class="small faint"><span id="walBalance">—</span> <span data-i18n="lbl.free">free</span>
+          · <span id="walBonded">—</span> <span data-i18n="lbl.bonded">bonded</span></div>
         <div class="pend hidden" id="walBalancePend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div></div>
-      <div class="stat" data-i18n-title="tip.bonded" title="BONDED — coins locked as savings stake. They produce blocks in the savings lane on their own, weight = stake, no device needed; they unlock BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
-        <div class="label" data-i18n="lbl.bonded">Bonded</div><div class="value sm" id="walBonded">—</div></div>
-      <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked).">
-        <div class="label" data-i18n="lbl.total">Total</div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
         <div class="label" data-i18n="lbl.playable">🪙 Playable</div><div class="value sm" id="walExec">—</div>
         <div class="pend hidden" id="walExecPend" data-i18n-title="tip.pendExec" title="Still confirming — this buy-in / cash-out is being sealed into a block. It is NOT playable yet; your token balance updates automatically (usually well under a minute). Nothing is lost."></div>
@@ -237,12 +241,16 @@
              GAME pages (nadodapp.wireWallet's ⬇ Cash out slider). A player who checked their wallet saw a
              balance they had no way to act on — the same shape as the pending-unbond gap fixed above. -->
         <button class="accent" id="btnExecCashOut" data-i18n="exec.cashOut" style="display:block;margin:6px auto 0">Cash out</button></div>
-      <div class="stat" data-i18n-title="tip.registered" title="REGISTERED — this identity holds a live device lease on chain: a real device attested it and the lease has not lapsed. Renewed automatically while the wallet is open; a device that moves to another identity ends it.">
-        <div class="label" data-i18n="lbl.registered">Registered</div><div class="value sm" id="walReg">—</div></div>
-      <div class="stat" data-i18n-title="tip.present" title="PRESENT — the relay confirms this identity is in the current epoch\'s open registry, so it can win open-lane blocks and earns the presence dividend. Savings produce in the savings lane at the same time; one device is one open-lane slot, staked or not.">
-        <div class="label" data-i18n="lbl.present">Present</div><div class="value sm" id="walPresent">—</div></div>
-      <div class="stat" data-i18n-title="tip.fidelity" title="FIDELITY — rises by 1 for each lease renewal made at least ~19 h after the last, up to 15 days of dividend weight (30 for the open-lane bonus). A lapsed lease halves it. Needs an attested device.">
-        <div class="label" data-i18n="lbl.fidelity">Fidelity</div><div class="value sm" id="walFidelity">—</div><div class="small faint" id="walProbation"></div></div>
+      <!-- ONE IDENTITY CARTOUCHE. Registered, Present and Fidelity are three readings of one thing: whether
+           this identity currently holds a live device lease, and how long it has held one. Presence is the
+           headline because it is what decides whether the open lane pays; the other two qualify it. Ids
+           unchanged. -->
+      <div class="stat" data-i18n-title="tip.present" title="PRESENT — the relay confirms this identity is in the current epoch\'s open registry, so it can win open-lane blocks and earns the presence dividend. REGISTERED means a real device attested it and the lease has not lapsed. FIDELITY rises by 1 per renewal made at least ~19 h after the last, up to 15 days of dividend weight; a lapsed lease halves it.">
+        <div class="label" data-i18n="lbl.identity">Identity</div>
+        <div class="value sm" id="walPresent">—</div>
+        <div class="small faint"><span data-i18n="lbl.registered">Registered</span> <span id="walReg">—</span>
+          · <span data-i18n="lbl.fidelity">Fidelity</span> <span id="walFidelity">—</span></div>
+        <div class="small faint" id="walProbation"></div></div>
       <!-- SAVINGS AT WORK (operator 2026-09-08): delegation is its own cartouche — it does not replace Registered / Present
            (a delegator still holds a device lease and earns the dividend), so it gets a full-width row of its own. Hidden
            while nothing is bonded. Three states: delegated to a pool / producing on this device / bonded but idle. -->
@@ -261,15 +269,6 @@
     <div id="coinPileWrap" class="mt hidden" style="text-align:center">
       <svg id="coinPile" viewBox="0 0 240 150" width="100%" style="max-width:280px;height:auto" aria-hidden="true"></svg>
       <div id="coinPileCap" class="small faint" style="margin-top:2px">—</div>
-    </div>
-
-    <!-- PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
-         off-L1 while you mine; collect it to your balance on demand. Hidden until there's something to collect. -->
-    <div id="divWrap" class="mt hidden" style="text-align:center">
-      <span class="label" data-i18n="div.label">Dividend accrued <span class="hint" data-i18n-title="tip.dividend"
-         title="PRESENCE DIVIDEND — about half of all emission: every open-lane block puts 70 % of its reward into the pool and every savings-lane block 40 %. It is paid to ATTESTED DEVICES only, weighted by fidelity, staked or not — no device, no dividend. Your share accrues while your lease is live; \'Collect\' claims what has settled.">ⓘ</span></span>
-      <span class="value sm" id="divAccrued">—</span>
-      <button class="accent" id="btnCollectDiv" data-i18n="div.collect" style="display:block;margin:6px auto 0" disabled>Collect dividend</button>
     </div>
 
     <details class="mt">
@@ -376,16 +375,18 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     </div>
 
     <div class="stat-grid mt">
-      <div class="stat"><div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
+      <div class="stat" data-i18n-title="tip.status" title="STATUS — what this wallet is doing right now. Mining means the identity is in the current epoch's registry and is drawn for blocks; the dot pulses for as long as that is true. Registering means a device statement is on its way to a block. Idle means nothing is running here.">
+        <div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
       <!-- WHAT VOUCHES FOR THIS IDENTITY, beside the other cartouches rather than only in a sentence
            further down. The icon distinguishes the device classes at a glance and the handle underneath
            is what consensus binds on, so it can be checked against the chain instead of trusted. -->
-      <div class="stat" id="statDevice" hidden>
+      <div class="stat" id="statDevice" hidden data-i18n-title="tip.device" title="DEVICE — the hardware that vouches for this identity, and the handle the chain binds it by. One device holds one identity at a time: the handle is derived from the device's own certificate (a chip's endorsement key, a phone's attestation certificate, a hardware wallet's factory certificate), so it cannot be re-minted by reinstalling anything. Hover the handle to see it in full.">
         <div class="label" data-i18n="mine.device">Device</div>
         <div class="value sm"><span id="mineDevIcon" aria-hidden="true"></span> <span id="mineDevCls"></span></div>
         <div class="small faint" id="mineDevId" style="word-break:break-all"></div>
       </div>
-      <div class="stat"><div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
+      <div class="stat" data-i18n-title="tip.epoch" title="CURRENT EPOCH — the chain's 60-block accounting period. Registry membership, dividend weight and fidelity are all counted per epoch, so a lease renewed inside one epoch counts once.">
+        <div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
         <div class="label" data-i18n="mine.eta">Expected time to mine</div><div class="value sm" id="mineEta">—</div></div>
       <div class="stat" data-i18n-title="tip.locked" title="MINING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps mining until it lapses (36 h). Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
@@ -413,6 +414,19 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
     </div>
+    <!-- THE DIVIDEND LIVES WITH MINING, because that is what earns it. It sat in the wallet card, above
+         the private-key disclosure and below the balances, hidden until something had accrued — so the
+         one control that turns it into spendable coins was in a different section from every number
+         describing it, and invisible until the moment it mattered.
+         PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
+         off-L1 while you mine; collect it to your balance on demand. Hidden until there's something to collect. -->
+    <div id="divWrap" class="mt hidden" style="text-align:center">
+      <span class="label" data-i18n="div.label">Dividend accrued <span class="hint" data-i18n-title="tip.dividend"
+         title="PRESENCE DIVIDEND — about half of all emission: every open-lane block puts 70 % of its reward into the pool and every savings-lane block 40 %. It is paid to ATTESTED DEVICES only, weighted by fidelity, staked or not — no device, no dividend. Your share accrues while your lease is live; \'Collect\' claims what has settled.">ⓘ</span></span>
+      <span class="value sm" id="divAccrued">—</span>
+      <button class="accent" id="btnCollectDiv" data-i18n="div.collect" style="display:block;margin:6px auto 0" disabled>Collect dividend</button>
+    </div>
+
     <!-- REWARDS, IN THE SAME CARD AS THE THING THAT EARNS THEM. This was a third headed card on the
            wallet tab — "Peněženka", "Těžba" and "Mining rewards" all describing one activity, each with
            its own cartouches, which is what made the page confusing to read. It keeps its id and its
