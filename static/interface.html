@@ -413,6 +413,28 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
     </div>
+    <!-- REWARDS, IN THE SAME CARD AS THE THING THAT EARNS THEM. This was a third headed card on the
+           wallet tab — "Peněženka", "Těžba" and "Mining rewards" all describing one activity, each with
+           its own cartouches, which is what made the page confusing to read. It keeps its id and its
+           hidden-toggle so _applyMineVisibility and the tab switcher still own when it appears; it has
+           simply stopped pretending to be a separate subject. -->
+    <div id="mineCard" class="mt hidden">
+        <h3 data-i18n="mine.title" style="margin:18px 0 8px">Mining rewards
+          <span class="pill"><span id="mineRange" class="badge idle" data-i18n="mine.range">last 7 days</span></span></h3>
+      <div class="mine-head">
+        <div class="mine-total"><span id="mineTotal">—</span> <small>NADO</small></div>
+        <div class="mine-legend">
+          <span class="lg"><i class="sw open"></i><span data-i18n="lanes.open">OPEN lane</span> <b id="mineOpen">—</b></span>
+          <span class="lg"><i class="sw bonded"></i><span data-i18n="lanes.bonded">BONDED lane</span> <b id="mineBonded">—</b></span>
+          <span class="lg" id="bondCapLine" style="flex-basis:100%"></span>
+          <span class="lg" data-i18n-title="tip.mineDiv" title="Presence dividend — your fidelity-weighted share of the dividend pool, paid to attested devices, counted on the day the claim landed on-chain."><i class="sw div"></i><span data-i18n="mine.dividend">Dividend</span> <b id="mineDiv">—</b></span>
+        </div>
+      </div>
+      <div id="mineChart" class="mine-chart"></div>
+      <div id="mineNote" class="mine-note"></div>
+    <!-- shown only when the chain credits more than this node can still break down by day -->
+      <div id="mineMissing" class="mine-note warn hidden"></div>
+    </div>
   </div>
 
   <!-- LANE SPLIT -->
@@ -450,24 +472,6 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
        context is read first and the chart then shows what those lanes actually paid. Hidden
        entirely for a wallet with no mining presence and nothing mined, so it never becomes dead furniture
        for someone who only holds coins. -->
-  <div id="mineCard" class="card hidden" data-tab="wallet">
-    <h2 data-i18n="mine.title">Mining rewards
-      <span class="pill"><span id="mineRange" class="badge idle" data-i18n="mine.range">last 7 days</span></span></h2>
-    <div class="mine-head">
-      <div class="mine-total"><span id="mineTotal">—</span> <small>NADO</small></div>
-      <div class="mine-legend">
-        <span class="lg"><i class="sw open"></i><span data-i18n="lanes.open">OPEN lane</span> <b id="mineOpen">—</b></span>
-        <span class="lg"><i class="sw bonded"></i><span data-i18n="lanes.bonded">BONDED lane</span> <b id="mineBonded">—</b></span>
-        <span class="lg" id="bondCapLine" style="flex-basis:100%"></span>
-        <span class="lg" data-i18n-title="tip.mineDiv" title="Presence dividend — your fidelity-weighted share of the dividend pool, paid to attested devices, counted on the day the claim landed on-chain."><i class="sw div"></i><span data-i18n="mine.dividend">Dividend</span> <b id="mineDiv">—</b></span>
-      </div>
-    </div>
-    <div id="mineChart" class="mine-chart"></div>
-    <div id="mineNote" class="mine-note"></div>
-    <!-- shown only when the chain credits more than this node can still break down by day -->
-    <div id="mineMissing" class="mine-note warn hidden"></div>
-  </div>
-
   <!-- SEND -->
   <div id="sendCard" class="card hidden" data-tab="send">
     <h2 data-i18n="send.title">Send</h2>
