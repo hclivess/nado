@@ -80,8 +80,32 @@ pub struct Chip {
 pub fn open() -> Result<Chip, String> {
     #[cfg(windows)]
     {
-        let t = crate::win::open_tbs()
-            .map_err(|e| format!("cannot reach the TPM through TBS (0x{e:08x})"))?;
+        let t = crate::win::open_tbs().map_err(|e| {
+            // SAY WHICH OF THE TWO THINGS IS WRONG. A hex code sends the owner to their firmware
+            // settings; a 1.2 chip is not a settings problem and never becomes a 2.0 chip.
+            if crate::win::tbs_is_tpm12() {
+                "this PC's TPM is version 1.2, and this needs TPM 2.0.\n\
+                 \n\
+                 The proof is built from TPM2_MakeCredential, TPM2_ActivateCredential and TPM2_Certify,\n\
+                 which do not exist in the 1.2 command set — 1.2 has a different identity protocol and\n\
+                 SHA-1 only. The chip is genuine; it is the wrong generation.\n\
+                 \n\
+                 Worth checking, in this order:\n\
+                 1. Whether your processor offers a firmware TPM: Intel PTT or AMD fTPM in the BIOS/UEFI.\n\
+                    Enabling it gives a 2.0 chip whatever the discrete module is. Many machines have both.\n\
+                 2. Whether your PC maker publishes a 1.2 -> 2.0 firmware update for this exact model.\n\
+                    Dell, HP and Lenovo all do for several 2013-2017 ranges.\n\
+                    WARNING: converting the chip CLEARS it. Suspend BitLocker and save its recovery key\n\
+                    first, or the disk becomes unreadable.\n\
+                 \n\
+                 If neither applies, this PC cannot attest. An Android 12+ phone, a Ledger or a Trezor\n\
+                 Safe can vouch for the same wallet instead."
+                    .to_string()
+            } else {
+                format!("cannot reach the TPM through TBS (0x{e:08x}). Check that a TPM is enabled in \
+                         the BIOS/UEFI (Intel PTT or AMD fTPM) and that tpm.msc reports it ready.")
+            }
+        })?;
         return Ok(Chip { t: Box::new(t) });
     }
     #[cfg(not(windows))]

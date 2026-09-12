@@ -194,6 +194,37 @@ pub struct NCryptBufferDesc {
 /// tbs.dll is resolved at RUN time on purpose: a static import makes Windows refuse to start the
 /// process at all when the DLL is absent, which presents to the user as a crash with no output.
 #[cfg(windows)]
+/// True when the machine answers a TPM **1.2** context but not a 2.0 one.
+///
+/// WHY ASK. Tbsi_Context_Create for TPM 2.0 fails on a 1.2 machine with an error that reads like a
+/// missing or broken chip, so the owner is told to check their firmware for something that is working
+/// exactly as designed. The chip is real; it is the wrong generation, and no amount of BIOS fiddling
+/// changes a 1.2 part into a 2.0 one. Asking the other question distinguishes "no TPM" from "a TPM this
+/// program cannot use", which are completely different pieces of news.
+pub fn tbs_is_tpm12() -> bool {
+    unsafe {
+        let h = LoadLibraryA(b"tbs.dll\0".as_ptr());
+        if h.is_null() {
+            return false;
+        }
+        let create = GetProcAddress(h, b"Tbsi_Context_Create\0".as_ptr());
+        let close = GetProcAddress(h, b"Tbsip_Context_Close\0".as_ptr());
+        if create.is_null() || close.is_null() {
+            return false;
+        }
+        let create: TbsiContextCreate = std::mem::transmute(create);
+        let close: TbsipContextClose = std::mem::transmute(close);
+        // version 2, includeTpm12 (bit 1) — the counterpart of the includeTpm20 (bit 2) request below.
+        let params = [2u32, 1u32 << 1];
+        let mut ctx: *mut c_void = std::ptr::null_mut();
+        if create(params.as_ptr(), &mut ctx) != 0 {
+            return false;
+        }
+        close(ctx);
+        true
+    }
+}
+
 pub fn open_tbs() -> Result<crate::tbs::Tbs, u32> {
     unsafe {
         let h = LoadLibraryA(b"tbs.dll\0".as_ptr());
