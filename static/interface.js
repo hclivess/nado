@@ -2853,9 +2853,16 @@ function setRegBanner(html, kind, tag) {
   const el = $("regBanner");
   if (!el) return;
   el.className = "hint-banner mt" + (kind ? " " + kind : "");
-  $("regBannerMsg").innerHTML = html;
-  _regBannerTag = tag || null;
-  show("regBanner", true);
+  $("regBannerMsg").innerHTML = html || "";
+  _regBannerTag = html ? (tag || null) : null;
+  // EMPTY TEXT MEANS HIDE IT. This showed the banner unconditionally, and markMiningActive() clears the
+  // banner by calling setRegBanner("") — so the panel stayed visible with no message in it while the
+  // spinner element beside the text kept turning. That is the permanent circle over an empty section:
+  // not the progress widget at all, a second one, found by driving the live DOM rather than reading the
+  // code. A banner with nothing to say is not a banner.
+  show("regBanner", !!html);
+  const sp = $("regBannerSpin");
+  if (sp) sp.hidden = !html;          // never a circle without a sentence beside it
 }
 // Retract a problem banner IF it is still the one showing. Passing the tag matters: by the time this
 // runs the banner may have been replaced by live narration, and hiding that would erase real progress.

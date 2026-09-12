@@ -345,7 +345,11 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->
     <div id="regBanner" class="hint-banner mt hidden" role="status" aria-live="polite">
-      <span class="spin" aria-hidden="true"></span><span id="regBannerMsg"></span>
+      <!-- The spinner is a SIBLING of the message and is always in the DOM, so a banner shown with no text
+           renders as a turning circle in a blank panel — which is precisely what users reported. It is
+           given an id so setRegBanner can hide it with the message rather than leaving it spinning over
+           nothing if any path ever shows this panel empty again. -->
+      <span class="spin" id="regBannerSpin" aria-hidden="true"></span><span id="regBannerMsg"></span>
     </div>
 
     <!-- ATTEST A NODE (ops/node_attest, doc/device-attestation.md §"Attesting a node"): a headless node has no secure
