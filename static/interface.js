@@ -840,6 +840,16 @@ function renderDeviceStatus() {
     el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
     el.className = "small mt faint"; return;
   }
+  // THE CHAIN OVERRULES A STORED FAILURE, exactly as it overrules a stored success below. A failed
+  // verdict is a memory of one attempt on one device; it is not a fact about this identity. Someone whose
+  // Windows Hello cannot attest — the case this whole TPM path exists for — fails here, then enrols
+  // through the chip or from another device and succeeds, and was still told "attestation failed" by a
+  // line reading a localStorage entry from before. If the relay says this identity is attested and
+  // present, it is, whatever the last prompt on this machine did.
+  if (!st.ok && state.lastMs && state.lastMs.registered_present === true) {
+    st = { ...st, ok: true, reason: "ok", fmt: st.fmt && st.fmt !== "none" ? st.fmt : "device" };
+    try { localStorage.setItem(LS_DEVICE_STATUS, JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+  }
   if (st.ok) {
     // THE CHAIN, NOT THE LAST TAP, decides what this line says (2026-09-08: a wallet whose Ledger had moved to a node and
     // whose stake was delegated still read "attested ✓ (ledger)"). If the relay has answered and this identity is not
