@@ -635,7 +635,7 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     // SAY THE REAL REASON. attestDevice() has just stored the verdict (fmt none under Windows Hello VBS, no chain,
     // unbindable class, cancelled…); the generic sentence below buried it and a Windows user was told to "use a
     // Windows PC with a TPM" on a Windows PC (2026-09-07). The banner gets the specific hint whenever one exists.
-    let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+    let st = null; try { st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
     const hint = (st && !st.ok) ? deviceHint(st) : "";
     throw new Error(hint || i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings mining needs no device at all: bond NADO and you produce blocks without one."));
   }
@@ -865,16 +865,37 @@ function deviceHint(st) {
 }
 
 // What this device last proved (persisted so the mining page can say it before the first registration).
-const LS_DEVICE_STATUS = "nado_device_status";
+// PER IDENTITY, NOT PER BROWSER. This was one key for the whole browser, so the verdict of the last
+// attestation on this machine was shown for whatever wallet happened to be open. Someone who attested a
+// Trezor for one address and then switched to an address attested by its own TPM was told
+// "attested ✓ (trezor)" about an identity the Trezor had never touched — a wrong statement about which
+// hardware vouches for what, which is the one thing this line exists to say, and it reads as though a
+// second device had taken over the identity.
+//
+// A wallet with no entry of its own now reads as unknown rather than inheriting its neighbour's: the
+// chain is asked, and renderDeviceStatus already prefers what the relay says over anything stored here.
+const LS_DEVICE_STATUS_BASE = "nado_device_status";
+function deviceStatusKey() {
+  const a = state.wallet && state.wallet.address;
+  return a ? LS_DEVICE_STATUS_BASE + ":" + a : LS_DEVICE_STATUS_BASE;
+}
 function setDeviceStatus(st) {
-  try { localStorage.setItem(LS_DEVICE_STATUS, JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+  try { localStorage.setItem(deviceStatusKey(), JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
   renderDeviceStatus();
 }
 function renderDeviceStatus() {
   const el = $("mineDevice"); if (!el) return;
-  let st = null; try { st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+  let st = null; try { st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
   show("mineDeviceGuide", false);                    // shown again below only for a failed verdict
   if (!st) {
+    // NO LOCAL MEMORY IS NOT "NOT ATTESTED". This wallet may have been attested from another browser,
+    // another machine, or by the enrolment helper — and it is exactly what an existing user sees the
+    // first time the status is read per-identity instead of per-browser. The relay knows; ask it before
+    // telling someone who is mining that they are not verified.
+    if (state.lastMs && state.lastMs.registered_present === true) {
+      el.textContent = i18("device.mineOkChain", "Real device: attested ✓ — the relay confirms a device vouches for this identity.");
+      el.className = "small mt ok"; return;
+    }
     el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
     el.className = "small mt faint"; return;
   }
@@ -886,7 +907,7 @@ function renderDeviceStatus() {
   // present, it is, whatever the last prompt on this machine did.
   if (!st.ok && state.lastMs && state.lastMs.registered_present === true) {
     st = { ...st, ok: true, reason: "ok", fmt: st.fmt && st.fmt !== "none" ? st.fmt : "device" };
-    try { localStorage.setItem(LS_DEVICE_STATUS, JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+    try { localStorage.setItem(deviceStatusKey(), JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
   }
   if (st.ok) { renderMineFix(st); }
   if (st.ok) {
@@ -3248,7 +3269,7 @@ async function maybeRegister() {
     // THE DEVICE ITSELF FAILED (no attestation chain, unsupported browser, prompt refused): retrying would only re-prompt.
     // Stop the loop, put the one button back to Start, and let the status say what is true (savings mine on chain if
     // bonded; nothing else does).
-    let devFailed = false; try { const st = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); devFailed = !!(st && st.ok === false); } catch (e) {}
+    let devFailed = false; try { const st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); devFailed = !!(st && st.ok === false); } catch (e) {}
     if (devFailed) { haltForRegister(); setStartBtnIdle(); return; }
     failStart(failed || "the relay rejected the registration"); // genuine failure → retry, no spam
   }
@@ -3407,7 +3428,7 @@ async function submitRegisterTx(tx, targetBlock) {
     // decides, and it is stricter than the probe) left the Mining page claiming success while the log said otherwise —
     // and deviceGuide() never ran, so the owner got no steps at all. Carry the relay's own reason into the verdict.
     if (/attestation|device|aaguid|tpm|authenticator/i.test(m || "")) {
-      let prev = null; try { prev = JSON.parse(localStorage.getItem(LS_DEVICE_STATUS) || "null"); } catch (e) {}
+      let prev = null; try { prev = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
       setDeviceStatus({ ...(prev || {}), ok: false, reason: String(m || "").slice(0, 300) });
     }
     if (/empty account/i.test(m || "")) {
