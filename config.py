@@ -284,6 +284,11 @@ def create_config(ip: str, config_path: str = None):
         # pool within DEVICE_ATTEST_EK_READY_WINDOW, and answers nothing. Costs a zero-amount message
         # roughly every 45 minutes.
         "challenger": True,
+        # SECOND LISTENER (non-consensus): the node also answers on this port, so a prover whose network
+        # filters 9173 can still reach it. 80 is what such networks leave open; set 0 to disable, or
+        # another port if something else owns 80 on this host. Binding it needs CAP_NET_BIND_SERVICE
+        # (the installer grants it) and failure is never fatal — the node simply is not reachable there.
+        "relay_port": 80,
         # BOOT-TIME SELF-HEAL (non-consensus, ops/self_update.ensure_updatable): a node diagnosed as
         # un-updatable (no git checkout, no systemd unit, ...) repairs itself by running the LOCAL
         # scripts/install.sh once per boot. Set False to only diagnose and log — never run the installer.

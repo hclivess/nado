@@ -555,8 +555,14 @@ harden_unit() {
   cat <<HARDEOF
 # hardening (service-account mode)
 NoNewPrivileges=true
-CapabilityBoundingSet=
-AmbientCapabilities=
+# EXACTLY ONE CAPABILITY, AND ONLY FOR THE PORT. The node also answers on 80 (config "relay_port": 80,
+# set 0 to disable) because a prover on a filtered home or office network reaches 80 and not 9173, and an
+# enrolment needs a relay it can actually talk to. Binding a port below 1024 is the only privilege that
+# requires — the service still runs as $SERVICE_USER and gains nothing else. Both lines are needed:
+# an ambient capability must also be in the bounding set, and the empty sets this replaced would have
+# dropped it again.
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=$ph
@@ -754,7 +760,10 @@ fi
 # one), idempotent on re-runs, and a failure only prints — the install itself never dies here.
 # Router/NAT port-forwarding cannot be automated from inside the box; that stays a printed reminder.
 if [ $OPEN_FIREWALL -eq 1 ] && [ "$(id -u)" -eq 0 ]; then
-  NADO_PORTS="9173"; [ $WITH_EXEC -eq 1 ] && NADO_PORTS="9173 9273"
+  # 80 as well as 9173: a prover on a filtered home or office network reaches 80 and not 9173, and an
+  # enrolment needs a relay it can actually talk to. Opening it costs nothing on a node that cannot bind
+  # it — the node logs that and carries on — and makes every node usable as a relay by default.
+  NADO_PORTS="9173 80"; [ $WITH_EXEC -eq 1 ] && NADO_PORTS="9173 9273 80"
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "^Status: active"; then
     for _p in $NADO_PORTS; do
       ufw allow "$_p/tcp" comment "NADO node" >/dev/null 2>&1 \
@@ -783,6 +792,8 @@ elif [ $OPEN_FIREWALL -eq 1 ]; then
 fi
 
 echo "==> The node serves its API + web miner on http://<this-host>:9173  (forward port 9173 for rewards)."
+echo "    It also answers on port 80 where it can bind it, so TPM provers behind networks that filter"
+echo "    9173 can still enrol through this node. Set \"relay_port\": 0 in config.json to turn that off."
 if [ $WITH_EXEC -eq 1 ]; then
   echo "==> The shielded pool (deposits / withdrawals / shielded transfers + on-device prover) runs on :9273."
   echo "    Forward port 9273 too so browsers can reach your shielded-pool node (the Shield tab talks to it)."

@@ -30,21 +30,67 @@ pub const BUILD: &str = env!("NADO_BUILD");
 /// served over plain HTTP by the same relay, so this needs no TLS in a program people download and run.
 ///
 /// The numeric address stays as the fallback: it needs no DNS, which is the other thing that breaks.
-pub const DEFAULT_RELAYS: [&str; 2] = ["get.nadochain.com:80", "38.242.201.206:9173"];
+pub const DEFAULT_RELAYS: [&str; 6] = [
+    "get.nadochain.com:80",       // port 80: the one a filtered network lets through
+    "38.242.201.206:9173",
+    "185.100.232.131:9173",
+    "89.143.197.28:9173",
+    "208.87.242.141:9173",
+    "173.242.56.148:9173",
+];
 pub const DEFAULT_RELAY: &str = DEFAULT_RELAYS[0];
+
+/// The first relay that answers, then everything that relay knows about.
+///
+/// ONE RELAY IS A SINGLE POINT OF FAILURE for something that takes twenty minutes. The enrolment is
+/// entirely on chain — any node can serve it — so there is no reason to bind a run to the host that
+/// happened to be compiled in. The list below is a STARTING POINT, not the network: whichever of them
+/// answers is asked for its peers, so the client ends up choosing among every relay that node can see,
+/// and a host that goes down mid-enrolment is not the end of the attempt.
+fn relay_candidates() -> Vec<String> {
+    let mut out: Vec<String> = DEFAULT_RELAYS.iter().map(|s| s.to_string()).collect();
+    for cand in DEFAULT_RELAYS {
+        let r = match Relay::parse(cand) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let text = match r.get("/peers") {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if let Ok(Value::Array(peers)) = serde_json::from_str::<Value>(&text) {
+            for p in peers {
+                if let Some(ip) = p.as_str() {
+                    // IPv6 needs brackets before a port can be appended, and a client on an IPv4-only
+                    // network cannot use one anyway — skip rather than build an address that hangs.
+                    if ip.contains(':') {
+                        continue;
+                    }
+                    let hp = format!("{ip}:9173");
+                    if !out.contains(&hp) {
+                        out.push(hp);
+                    }
+                }
+            }
+        }
+        break;                                  // one relay's view is enough to learn the rest
+    }
+    out
+}
 
 /// The first relay that answers, so a blocked port or a dead host costs seconds rather than the run.
 fn pick_relay() -> String {
-    for cand in DEFAULT_RELAYS {
+    let cands = relay_candidates();
+    for cand in &cands {
         if let Ok(r) = Relay::parse(cand) {
             if r.get("/status").is_ok() {
-                return cand.to_string();
+                return cand.clone();
             }
             println!("  {} {}", crate::colour::warn(".."),
                      crate::colour::dim(&format!("{cand} did not answer; trying the next relay")));
         }
     }
-    DEFAULT_RELAYS[DEFAULT_RELAYS.len() - 1].to_string()
+    DEFAULT_RELAYS[0].to_string()
 }
 
 const POLL: Duration = Duration::from_secs(10);

@@ -3345,6 +3345,23 @@ async def make_app(port):
         # on the v4 socket instead of ::ffff:1.2.3.4 — so client_ip_from / rate-limiting see real v4 keys.
         # The v6 listener is best-effort: a host with no IPv6 just skips it (v4 keeps working).
         await web.TCPSite(runner, host="0.0.0.0", port=port).start()
+        # ALSO SERVE ON PORT 80, because the node's own port is the one that gets blocked. A prover on a
+        # filtered home or office network — or behind a host firewall deciding what an unsigned download
+        # may do — reaches 80 and not 9173, and an enrolment needs a relay it can actually talk to. The
+        # same application, the same handlers; only the port differs.
+        #
+        # BEST EFFORT AND NEVER FATAL: an unprivileged node cannot bind 80 without CAP_NET_BIND_SERVICE,
+        # and a host already running a web server has it taken. Both are ordinary, so they are logged at
+        # info and the node carries on — a node that refuses to start because port 80 was busy would be a
+        # far worse failure than one that is simply not reachable on it.
+        _relay_port = int(get_config().get("relay_port") or 0)
+        if _relay_port and _relay_port != port:
+            try:
+                await web.TCPSite(runner, host="0.0.0.0", port=_relay_port).start()
+                logger.info(f"Also listening on 0.0.0.0:{_relay_port} (reachable where {port} is filtered)")
+            except Exception as e:
+                logger.info(f"Not listening on {_relay_port} ({type(e).__name__}) — "
+                            f"provers on networks that filter {port} will use another relay")
         try:
             s6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
             s6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
