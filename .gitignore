@@ -153,7 +153,14 @@ dmypy.json
 .pyre/
 
 # Claude Code session/worktree dir (never commit)
-.claude/
+.claude/*
+# ...except the skills, which are repo procedures rather than local settings: how to ship a consensus
+# change, deploy and verify it, publish the client binary, and change the wallet. They encode what went
+# wrong here before, so they belong with the code and not in one machine's home directory.
+#
+# NOTE THE GLOB: `.claude/` excludes the DIRECTORY, and git never descends into an excluded directory, so
+# a later negation inside it can never match. Excluding the contents instead is what makes `!` work.
+!.claude/skills/
 
 # Rust build artifacts (the native Goldilocks lib is built by install.sh; wasm is embedded in JS)
 wasm/*/target/
