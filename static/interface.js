@@ -2806,7 +2806,7 @@ function haltForRegister() {
   state.registering = false;
   stopPollLoop();
   releaseWakeLock();
-  show("powWrap", false);
+  clearRegProgress();
   // the ONE button says what the next press does (it arms the prompt and starts)
   setStartBtnIdle(i18("btn.registerStart", "Register & start mining"));
   if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
@@ -2876,7 +2876,7 @@ function failStart(reason) {
   state.registering = false;
   if (state.powJob) state.powJob.cancelled = true;
   stopPollLoop();
-  show("powWrap", false);
+  clearRegProgress();
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
   setRegBanner(i18("reg.retry", "Registration didn't confirm — tap Start to retry.") +
@@ -3195,7 +3195,7 @@ async function maybeRegister() {
           + '</div>';
         setRegBanner(i18("remote.switchBack", "To go back to attesting on this device instead, open \"Attest another way\" below and pick \"This device\". ") +
           i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }) + _help, "warn", "remote");
-        show("powWrap", false);
+        clearRegProgress();
         setStartBtnWaitingReg();
         if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
           ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
@@ -3209,7 +3209,7 @@ async function maybeRegister() {
     setRegBanner((state.lastMs && state.lastMs.bonded_producing)
       ? i18("reg.tapNeededSavings", "Your savings are mining already. To add the free lane and the dividend, register a real device: press Start mining and confirm the prompt.")
       : i18("reg.tapNeeded2", "Your identity needs a registration: press Start mining and confirm the device prompt."), "warn", "tap");
-    show("powWrap", false);
+    clearRegProgress();
     haltForRegister();                           // the loop stops; the Register button is the only thing that opens a prompt
     return;
   }
@@ -3243,7 +3243,7 @@ async function maybeRegister() {
     // the attestation").
     try {
       const ms2 = await getMiningStatus(state.wallet.address);
-      if (ms2 && ms2.registered_present === true) { show("powWrap", false); return; }
+      if (ms2 && ms2.registered_present === true) { clearRegProgress(); return; }
     } catch (e) { /* fall through to the real failure path */ }
     // THE DEVICE ITSELF FAILED (no attestation chain, unsupported browser, prompt refused): retrying would only re-prompt.
     // Stop the loop, put the one button back to Start, and let the status say what is true (savings mine on chain if
@@ -3258,15 +3258,37 @@ async function maybeRegister() {
 // indeterminate bar) for the WHOLE pending period — PoW, submit, and the wait for on-chain inclusion —
 // so the user always sees that something is happening, not just a tiny "Registering…" stat. The Cancel
 // button only aborts the PoW, so hide it once PoW is done (the user stops the wait via "Stop mining").
-function showRegProgress(label, stats) {
+// THE PROGRESS WIDGET IS ONE PIECE OF STATE, RENDERED ONCE — not a visibility flag toggled from nine
+// places. It was shown by three call sites and hidden by six, each re-evaluated on a ~1 s poll, with its
+// label and stats written separately from the show/hide. Any disagreement between those decisions is
+// visible as exactly what was reported: an empty panel with a turning circle, a section that vanishes
+// and comes back, content that appears and then does not.
+//
+// Now: `state.regProgress` is either null or {label, stats}, one function renders it, and the widget is
+// NEVER visible without a label. An empty spinner is not a state this can reach.
+function setRegProgress(label, stats) {
+  if (!label) { state.regProgress = null; }
+  else { state.regProgress = { label, stats: stats == null ? (state.regProgress && state.regProgress.stats) || "" : stats }; }
+  renderRegProgress();
+}
+
+function clearRegProgress() { setRegProgress(null); }
+
+function renderRegProgress() {
+  const p = state.regProgress;
+  const el = $("powWrap");
+  if (!el) return;
+  if (!p || !p.label) { show("powWrap", false); return; }
+  $("powLabel").textContent = p.label;
+  $("powStats").textContent = p.stats || "";
   show("powWrap", true);
-  $("powLabel").textContent = label;
-  if (stats != null) $("powStats").textContent = stats;
-  // The main Start/Mine button stays DISABLED during registration, so keep this Cancel button visible
-  // the whole time as the escape hatch (it calls stopMining — aborting PoW and the on-chain wait).
   if ($("btnCancelPow")) show("btnCancelPow", true);
   if (state.mining) $("mineState").textContent = i18("mine.registering", "Registering…");
 }
+
+// Kept as the name the flows already call. The Cancel button and the "Registering…" status live in
+// renderRegProgress now, so they cannot be set while the widget itself is hidden.
+function showRegProgress(label, stats) { setRegProgress(label, stats); }
 
 // Solve the one-time registration PoW and broadcast the register tx. Records state.regSubmitted on
 // acceptance. Does NOT wait for on-chain confirmation (the poll loop owns that). Returns true if the
@@ -3319,7 +3341,7 @@ async function submitRegistration() {
     // gen 25: nothing is computed, so no "{done}/{total} · ~Ns left" — the only wait is the device prompt.
     tx = await computeRegisterTx(targetBlock, null, diff.reqT);
   } finally {
-    show("powWrap", false);
+    clearRegProgress();
   }
   const proveMs = Date.now() - t0;                    // gen 25: the "proof" is the tap; attestDevice() already logged it
   // DID THE PROOF OUTLIVE ITS OWN WINDOW? `register` is EXACT-LANDING at max_block, and max_block is
@@ -3434,6 +3456,14 @@ async function pollOnce() {
   try { await refreshDashboard(); } catch (e) { /* non-fatal */ }
 
   if (state.mining) {
+    // NOTHING IN FLIGHT MEANS NOTHING ON SCREEN. Every path that raises the progress widget can die
+    // without lowering it — an exception, a relay blip, a cancelled tap, a reload — and the widget then
+    // outlives the work it described. This is the invariant that makes the panel self-healing rather
+    // than something that has to be cleared correctly from nine places: if no registration is actually
+    // pending, the widget is not shown, whatever anyone forgot.
+    if (state.regProgress && !state.registering && !state.regSubmitted && !state.pendingRegisterTx) {
+      clearRegProgress();
+    }
     // Presence IS the PoSW lease — there is no separate heartbeat. Registration/renewal is fully AUTOMATIC
     // + self-healing: if we're not eligible (no recert, or the lease has lapsed), (re)register in the
     // background and wait. One ~1 s PoSW = a full lease of eligibility, locked phone or not. One click.
@@ -3470,7 +3500,7 @@ async function pollOnce() {
     // was in the background, a reload mid-flight — left the indeterminate bar spinning above an empty
     // panel for as long as the page stayed open. Hiding it is unconditional now: we are registered,
     // present, and the relay has just said so.
-    show("powWrap", false);
+    clearRegProgress();
     const justLanded = !!(state.regSubmitted || state.pendingRegisterTx);
     if (state.regSubmitted) { state.regSubmitted = null; log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
     if (state.pendingRegisterTx) state.pendingRegisterTx = null;
@@ -3623,7 +3653,7 @@ function stopMining() {
   state.autoBondBaseline = null; state.autoBondPending = null;   // re-arm auto-bond baseline for the next start
   stopPollLoop();
   releaseWakeLock();                                   // let the screen sleep again once mining stops
-  show("powWrap", false);
+  clearRegProgress();
   // "Registered ✓ — mining now" must not outlive the mining. It persists while true, so stopping is one
   // of the things that makes it untrue.
   clearRegBanner("confirmed");
