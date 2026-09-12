@@ -377,6 +377,14 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 
     <div class="stat-grid mt">
       <div class="stat"><div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
+      <!-- WHAT VOUCHES FOR THIS IDENTITY, beside the other cartouches rather than only in a sentence
+           further down. The icon distinguishes the device classes at a glance and the handle underneath
+           is what consensus binds on, so it can be checked against the chain instead of trusted. -->
+      <div class="stat" id="statDevice" hidden>
+        <div class="label" data-i18n="mine.device">Device</div>
+        <div class="value sm"><span id="mineDevIcon" aria-hidden="true"></span> <span id="mineDevCls"></span></div>
+        <div class="small faint" id="mineDevId" style="word-break:break-all"></div>
+      </div>
       <div class="stat"><div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
         <div class="label" data-i18n="mine.eta">Expected time to mine</div><div class="value sm" id="mineEta">—</div></div>

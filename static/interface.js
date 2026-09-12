@@ -635,7 +635,7 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     // SAY THE REAL REASON. attestDevice() has just stored the verdict (fmt none under Windows Hello VBS, no chain,
     // unbindable class, cancelled…); the generic sentence below buried it and a Windows user was told to "use a
     // Windows PC with a TPM" on a Windows PC (2026-09-07). The banner gets the specific hint whenever one exists.
-    let st = null; try { st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
+    let st = null; try { st = readDeviceStatus(); } catch (e) {}
     const hint = (st && !st.ok) ? deviceHint(st) : "";
     throw new Error(hint || i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings mining needs no device at all: bond NADO and you produce blocks without one."));
   }
@@ -875,17 +875,45 @@ function deviceHint(st) {
 // A wallet with no entry of its own now reads as unknown rather than inheriting its neighbour's: the
 // chain is asked, and renderDeviceStatus already prefers what the relay says over anything stored here.
 const LS_DEVICE_STATUS_BASE = "nado_device_status";
+/// What a device statement says about ITSELF: its class, and the handle consensus binds it by.
+///
+/// The relay cannot tell us this for a leased class — `devkey` is stamped on the account only for
+/// PERMANENT classes (Ledger, Trezor), so a TPM, an endorsement key or an Android phone leaves
+/// /get_account reporting cls: null. The wallet knows it here, at the moment it builds the
+/// registration, which is the one place the statement and the identity are in hand together.
+///
+/// The handle is the same value consensus binds on — see ops/device_attest.device_binding_key — so what
+/// is shown to a reader is checkable against the chain rather than something to take on trust.
+function deviceIdentity(device) {
+  const d = device || {};
+  if (d.ek) return { fmt: "ek", bindId: "ek:" + String(d.ek) };
+  if (d.rp) return { fmt: "webauthn", bindId: "" };
+  return { fmt: "device", bindId: "" };
+}
+
+/// The stored verdict for THIS identity, or null. One reader and one writer, because six inline
+/// JSON.parse calls is how the shape drifts and how a failure gets swallowed in a bare catch.
+function readDeviceStatus() {
+  try { return readDeviceStatus(); }
+  catch (e) { return null; }          // absent or unreadable storage is "unknown", never an error path
+}
+function writeDeviceStatus(st) {
+  try { localStorage.setItem(deviceStatusKey(), JSON.stringify({ ...st, at: Date.now() })); }
+  catch (e) { /* private mode / quota: the chain is still the authority, so this is not fatal */ }
+}
+
 function deviceStatusKey() {
   const a = state.wallet && state.wallet.address;
   return a ? LS_DEVICE_STATUS_BASE + ":" + a : LS_DEVICE_STATUS_BASE;
 }
 function setDeviceStatus(st) {
-  try { localStorage.setItem(deviceStatusKey(), JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+  try { writeDeviceStatus(st); } catch (e) {}
   renderDeviceStatus();
 }
 function renderDeviceStatus() {
   const el = $("mineDevice"); if (!el) return;
-  let st = null; try { st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
+  renderDeviceCartouche();
+  let st = null; try { st = readDeviceStatus(); } catch (e) {}
   show("mineDeviceGuide", false);                    // shown again below only for a failed verdict
   if (!st) {
     // NO LOCAL MEMORY IS NOT "NOT ATTESTED". This wallet may have been attested from another browser,
@@ -907,7 +935,7 @@ function renderDeviceStatus() {
   // present, it is, whatever the last prompt on this machine did.
   if (!st.ok && state.lastMs && state.lastMs.registered_present === true) {
     st = { ...st, ok: true, reason: "ok", fmt: st.fmt && st.fmt !== "none" ? st.fmt : "device" };
-    try { localStorage.setItem(deviceStatusKey(), JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
+    try { writeDeviceStatus(st); } catch (e) {}
   }
   if (st.ok) { renderMineFix(st); }
   if (st.ok) {
@@ -924,7 +952,15 @@ function renderDeviceStatus() {
       el.textContent = i18("device.mineOkPerm", "Real device: attested ✓ ({f}) — bound to this identity for life; renewals need no prompt.", { f: db.cls || st.fmt || "" });
       el.className = "small mt ok"; return;
     }
-    el.textContent = i18("device.mineOk", "Real device: attested ✓ ({f}) — this phone's secure element vouched for this identity.", { f: st.fmt || "" });
+    // NAME THE HANDLE, SHORTENED, AND KEEP THE WHOLE THING AVAILABLE. "attested ✓" with nothing beside it
+    // is unverifiable by the person reading it — and when the stored verdict was wrong (it was, for a
+    // while: one localStorage key served every address in the browser) there was no way to notice. The
+    // handle shown is what consensus binds on, so it can be checked against the chain rather than trusted.
+    const _bid = typeof st.bindId === "string" && st.bindId ? st.bindId : "";
+    const _short = _bid ? _bid.slice(0, _bid.startsWith("ek:") ? 15 : 12) + "…" : "";
+    el.textContent = i18("device.mineOk", "Real device: attested ✓ ({f}) — this phone's secure element vouched for this identity.", { f: st.fmt || "" })
+      + (_short ? "  " + i18("device.bindId", "Device {id}", { id: _short }) : "");
+    if (_bid) el.title = _bid;                  // the full handle, for anyone who wants to check it
     el.className = "small mt ok"; return;
   }
   if (st.reason === "apple" || st.reason === "unsupported") {
@@ -2463,6 +2499,7 @@ function lockWallet() {
 // stays present on-chain (the PoSW lease), and unlock/refresh auto-resumes renewal from the intent flag.
 function pauseMining() {
   state.mining = false; state.starting = false;
+  renderMiningIndicator();
   if (state.powJob) state.powJob.cancelled = true;
   state.registering = false;
   stopPollLoop();
@@ -2823,6 +2860,7 @@ function setStartBtnWaitingReg() {
 // (that press is the one that opens the device prompt). No "Stop" while nothing runs (2026-09-08).
 function haltForRegister() {
   state.mining = false;
+  renderMiningIndicator();
   state.starting = false;
   state.registering = false;
   stopPollLoop();
@@ -2882,10 +2920,45 @@ function clearRegBanner(tag) {
 const REASSURE = "";   // no reassurance appendix: the banner text stands alone
 
 // Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
+// WHAT VOUCHES FOR THIS IDENTITY, as a fixed cartouche beside Status and Epoch. An icon distinguishes the
+// classes at a glance; the handle beneath is the value consensus binds on
+// (ops/device_attest.device_binding_key), so a reader can check it against the chain instead of taking
+// "attested ✓" on trust. Hidden only when there is genuinely nothing to say.
+function renderDeviceCartouche() {
+  const box = $("statDevice");
+  if (!box) return;
+  let st = null;
+  try { st = readDeviceStatus(); } catch (e) {}
+  const present = state.lastMs && state.lastMs.registered_present === true;
+  if (!present && !(st && st.ok)) { box.hidden = true; return; }
+  const cls = (st && st.fmt) || (state.devbind && state.devbind.cls) || "";
+  const ICON = { ek: "\u{1F5A5}", tpm: "\u{1F5A5}", "android-key": "\u{1F4F1}", ledger: "\u{1F510}",
+                 trezor: "\u{1F511}", webauthn: "\u{1F510}", device: "\u2713" };
+  const NAME = { ek: i18("dev.cls.ek", "TPM chip"), tpm: i18("dev.cls.tpm", "Windows Hello"),
+                 "android-key": i18("dev.cls.android", "Android phone"),
+                 ledger: "Ledger", trezor: "Trezor", webauthn: i18("dev.cls.webauthn", "Security key") };
+  $("mineDevIcon").textContent = ICON[cls] || "\u2713";
+  $("mineDevCls").textContent = NAME[cls] || i18("dev.cls.unknown", "Attested device");
+  const bid = st && typeof st.bindId === "string" ? st.bindId : "";
+  $("mineDevId").textContent = bid ? bid.slice(0, bid.startsWith("ek:") ? 19 : 16) + "\u2026" : "";
+  if (bid) $("mineDevId").title = bid;
+  box.hidden = false;
+}
+
+// THE INDICATOR IS DERIVED FROM STATE, in one place, so it cannot be left on by a path that forgot to
+// turn it off — the failure every other widget on this card has had. Called wherever state.mining moves.
+function renderMiningIndicator() {
+  const el = $("mineState");
+  if (el) el.classList.toggle("mining-now", !!state.mining);
+}
+
 function markMiningActive() {
   state.starting = false;
   setStartBtnMining();
   $("mineState").textContent = i18("mine.mining", "Mining");
+  state.mining = true;
+  renderMiningIndicator();
+  renderDeviceCartouche();
   setRegBanner("");                     // a registration banner never sits next to "Mining"
 }
 
@@ -2900,6 +2973,7 @@ function markMiningActive() {
 let _failRecheckTimer = null;
 function failStart(reason) {
   state.mining = false;
+  renderMiningIndicator();
   state.starting = false;
   state.registering = false;
   if (state.powJob) state.powJob.cancelled = true;
@@ -3201,6 +3275,14 @@ async function maybeRegister() {
       const fresh = live[0];
       if (fresh) {
         state.pendingDrops = live.slice(1);
+        // RECORD WHAT VOUCHED, AND ITS HANDLE. The relay cannot tell us: `devkey` is stamped on the
+        // account only for PERMANENT classes (Ledger, Trezor), so a leased class — a TPM, an endorsement
+        // key, an Android phone — leaves /get_account reporting cls: null, and the wallet had nothing to
+        // name. It does have the device here, at the moment it builds the registration, which is the one
+        // place the two are known together. The handle is the same value consensus binds on
+        // (ops/device_attest.device_binding_key): "ek:" + the endorsement identity for a chip enrolment.
+        writeDeviceStatus({ ...(readDeviceStatus() || {}), ok: true, reason: "ok",
+                            ...deviceIdentity(fresh.device) });
         const tx = buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
         state.pendingRegisterTx = { tx, targetBlock: Number(fresh.max_block) };
         log("ok", i18("remote.got", "A statement from another device arrived — submitting the registration."));
@@ -3276,7 +3358,7 @@ async function maybeRegister() {
     // THE DEVICE ITSELF FAILED (no attestation chain, unsupported browser, prompt refused): retrying would only re-prompt.
     // Stop the loop, put the one button back to Start, and let the status say what is true (savings mine on chain if
     // bonded; nothing else does).
-    let devFailed = false; try { const st = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); devFailed = !!(st && st.ok === false); } catch (e) {}
+    let devFailed = false; try { const st = readDeviceStatus(); devFailed = !!(st && st.ok === false); } catch (e) {}
     if (devFailed) { haltForRegister(); setStartBtnIdle(); return; }
     failStart(failed || "the relay rejected the registration"); // genuine failure → retry, no spam
   }
@@ -3435,7 +3517,7 @@ async function submitRegisterTx(tx, targetBlock) {
     // decides, and it is stricter than the probe) left the Mining page claiming success while the log said otherwise —
     // and deviceGuide() never ran, so the owner got no steps at all. Carry the relay's own reason into the verdict.
     if (/attestation|device|aaguid|tpm|authenticator/i.test(m || "")) {
-      let prev = null; try { prev = JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); } catch (e) {}
+      let prev = null; try { prev = readDeviceStatus(); } catch (e) {}
       setDeviceStatus({ ...(prev || {}), ok: false, reason: String(m || "").slice(0, 300) });
     }
     if (/empty account/i.test(m || "")) {
@@ -3541,14 +3623,12 @@ async function pollOnce() {
     // the problem recurs the next poll puts it straight back.
     clearRegBanner("unreachable");
     clearRegBanner("failed");
-    if (wasStarting || justLanded) {
-      // AND IT STAYS. This was shown only when `wasStarting` was still true and then retracted after six
-      // seconds, so the one piece of good news in the whole flow either never appeared — a registration
-      // confirmed a poll later, or collected from another device, lands here with wasStarting already
-      // false — or appeared and vanished while the user was looking at the device prompt. Success is not
-      // a transient condition; it is retracted when something contradicts it, like every other banner.
-      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now."), "ok", "confirmed");
-    }
+    // NO BANNER FOR THIS. The Status cartouche already says Mining, permanently, with a pulse for as long
+    // as it is true — so announcing the same fact a second time in a floating panel meant one story told
+    // in two places, and the panel then had to be taken away again. A box that appears and disappears is
+    // worse than no box: it teaches the reader that what it says is provisional. State that is true
+    // continuously belongs in a fixed element, not in something that arrives and leaves.
+    if (wasStarting || justLanded) log("ok", i18("reg.confirmed", "Registered ✓ — mining now."));
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
@@ -3671,6 +3751,7 @@ async function startMining() {
 
 function stopMining() {
   state.mining = false;
+  renderMiningIndicator();
   state.tapArmed = false;
  
   try { localStorage.removeItem(LS_MINING); } catch (e) {}   // explicit stop -> don't auto-resume on refresh
