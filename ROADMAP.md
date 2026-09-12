@@ -393,6 +393,46 @@ None of the above generates a cent if a person cannot get NADO. Today: mine it, 
   PQ signer is the real work). Package a reference adapter so a listing is an afternoon, not a quarter.
 - Fiat is out of scope; the realistic path is BTC/ETH ↔ NADO atomic swaps plus one listing.
 
+### Track A2 — Harden the challenger draw against resampling — **OPEN, security**
+
+PoSEA's CA-free TPM enrolment (`doc/tpm-attestation-without-a-ca.md`) rests on "forgery requires every
+drawn challenger to collude". That is only half the property. The other half is **being drawn**, and an
+adversary can retry that.
+
+An unanswered enrolment must be abandonable or a prover whose challengers are unreachable is excluded
+permanently through no fault of its own — which is not hypothetical, it is what blocked every enrolment
+on 2026-09-11 when the drawn set was running older code. Abandoning means republishing, republishing at
+a new height redraws, and nothing caps the attempts. Expected time to forgery is about `W / p^k`, not
+infinity.
+
+Simulated against the live weight distribution (13 candidates, `k = 3`, weighted, without replacement):
+
+| adversary share of draw weight | P(forge) per window | expected time at W = 180 blocks |
+|---|---|---|
+| 25.5 % | 0.53 % | ~64 h |
+| 36.4 % | 2.91 % | ~12 h |
+| 44.4 % | 6.59 % | ~5 h |
+
+The bond is **rented, not burned**, so this is a cost of capital for the duration. Each success mints one
+identity per endorsement certificate held, and endorsement certificates are public and copyable.
+
+Directions, none analysed and none chosen — every one of them trades against the liveness requirement
+that created the problem:
+
+- keep the FIRST draw for an enrolment id across supersedes and re-draw only the slots that did not
+  answer (needs a way to tell a silent challenger from a slow one);
+- charge an **escalating fee per republication**, so grinding pays super-linearly while one honest retry
+  stays cheap (prices a remedy that exists for blameless provers);
+- raise `k`, or grow the candidate pool — the only direction with no trade, but both are properties of
+  deployment size rather than of the construction. The table above is dominated by `n = 13`.
+
+Mitigated in part since: the draw now prefers nodes that have volunteered (`tpm_ready`) or have actually
+acted as challengers, so an adversary must run announcing infrastructure rather than merely look like a
+validator. That changes `p`; it does not remove the attack.
+
+**This is a small-network weakness, which is exactly when it is cheapest to exploit and least likely to
+be noticed.** It does not touch the phone path, which re-verifies a self-contained chain every time.
+
 ### Track B — Throughput and cost
 `BLOB_MAX_BYTES = 512 KB`, `MAX_BLOB_BYTES_PER_BLOCK = 1 MB`, 6s blocks. A trading chain's load
 profile is many tiny calls, not few large ones — the opposite of the game contracts that set these
