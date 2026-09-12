@@ -182,6 +182,72 @@ yourself"*.
 
 ---
 
+## How a block gets made, and how a tip goes wrong
+
+There is no proposer. **Every node assembles every block**, so a block is a pure function of (parent,
+height, mempool) and two nodes at the same tip build the identical block or they have different
+mempools. That single design choice explains every failure mode below: a split is never "who won the
+election", it is always "who saw which transaction".
+
+### The pieces, in the order they run
+
+| piece | where | what it decides |
+|---|---|---|
+| `CoreClient._mode()` | `loops/core_loop.py` | WHEN to mint: `init` / `building` / `produce`. Pure local pacing — `block_time` is **not** consensus, verify only checks `timestamp <= now`. |
+| `memserver.reconcile_next_block_set()` | `memserver.py` | Right before assembly, asks peers what THEY would include on THIS tip (`/next_block_txids`), fetches missing bodies, merges through normal admission. The mesh converges on the UNION instead of racing on the difference. |
+| `memserver.get_upcoming_block_hash()` | `memserver.py` | The determinism signal: `blake2b(parent, next_height, mature tx subset)`. Two nodes match here **iff** they will build the same next block. Never None — an empty block still hashes, so "no eligible txs" is a comparable answer rather than a null. |
+| `ConsensusClient` | `loops/consensus_loop.py` | Fork choice across peers, by cumulative weight. Benches tips that cannot be fetched (12 s doubling to 600 s) and peers that repeatedly fail (to 2 h) — that bench is also how a node can go blind to a real chain. |
+| `fork_resolution.resolve()` | `ops/fork_resolution.py` | The verdict: `BEHIND` / `SYNCED` / `REORG` / `DEAD_FORK` / `UNKNOWN`, from a binary-searched common ancestor over direct peer probes. |
+| `_maybe_escape_dead_fork()` | `loops/core_loop.py` | Last resort: purge chain data and resync. Destructive, so it is gated on unanimity and weight and probes at the HARD floor only. |
+
+### Two floors, and only one of them is crossable
+
+- **depth floor** (`finality_depth`, 45) — ordinary reorg protection. Crossable.
+- **`hard_finality`** — the un-crossable one. Rollback refuses to go below it, ever.
+
+`classify(ancestor, tip, finalized)` is the whole decision and it is pure arithmetic:
+`ancestor >= tip` → BEHIND (forward sync, **never** a rollback); `ancestor >= hard_finality` → REORG
+(roll back and re-sync); otherwise → DEAD_FORK (only a purge gets out). `ancestor is None` → UNKNOWN,
+and **every caller must treat UNKNOWN as "change nothing"**.
+
+### Reading a divergence, in the order that actually discriminates
+
+Do this before touching code — most "forks" are not forks:
+
+1. **Same height, different hash?** If no, it is lag, not a fork.
+   ```bash
+   # per node: /status -> latest_block_height, latest_block_hash
+   ```
+2. **Are the laggards moving?** Sample twice, ~75 s apart. Advancing-but-behind is propagation.
+   A tip that does not move at all is the real signal, and so is a tip that goes **backwards**.
+3. **Where do they actually diverge?** Binary-search `/get_block?number=` between the two nodes.
+   A fork one block deep and a fork below the floor need opposite responses.
+4. **Is the fork point above `hard_finality`?** Above → rollback is legal and the node should be
+   recovering itself. Below → it cannot, by design, and only a purge moves it.
+5. **Only then** read `/status`: `recovery`, `recovery_fail`, `last_block_reject`, `dead_fork_probe`,
+   `last_fork_diff`. These are *persistent* fields precisely because a failure frame used to live ~3 s
+   before the next phase overwrote it.
+
+`last_block_reject` is usually the system **working**: a refused block whose content did not hash to
+its claimed hash is a competing block correctly discarded. Check whether the fleet actually holds a
+different block at that height before treating it as an incident — measured 2026-09-12, every node held
+the same 66084 and the rejection was stale.
+
+### What this has cost before
+
+- **A node alone on a fork mines FASTEST** — unopposed, every slot. "Still moving" is not health, and
+  reading it as health let a node mine 600+ blocks on a dead branch invisible to every recovery route.
+- **Probing yourself** vetoes your own recovery: a node whose IP is in the seed list answered its own
+  fork question with its own hash, counted it as agreement, and could never self-heal.
+- **Donor selection keys off the heaviest advertised tip**, which flip-flops between both sides of a
+  live split — a same-fork donor re-inflates the fork you just rolled back. The verdict is the
+  decision; a donor only matters once you are at the ancestor.
+- **The treadmill**: requiring the exact heaviest advertised tip to exit emergency never terminates on
+  a chain that keeps producing. 7 h 20 m measured, applying blocks the whole time, with no FFG votes
+  and no production while trapped.
+
+---
+
 ## Repository shape
 
 | path | what it is |
