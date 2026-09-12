@@ -8,7 +8,7 @@ Everything below is a rule that was learned by breaking something. Each one name
 
 ---
 
-## The seven rules that matter most
+## The ten rules that matter most
 
 ### 1. End-to-end before touching a live loop
 
@@ -135,6 +135,51 @@ Note `ar` is right-to-left: check that any string you add still reads correctly 
 and keep interpolations (`{a}`, `{n}`) intact in every table — a dropped placeholder is a broken
 sentence, not a cosmetic issue.
 
+### 8. Never touch the user's keys
+
+A private key is never read, never written, never asked for, never logged, never sent anywhere, and
+never made a step the user performs. Not "encrypted first", not "only locally", not "just for testing".
+
+This is a standing rule the operator has had to give more than once, and every time it was because
+something in a design implied a key would be handled. The enrolment helper is the shape to copy: it
+signs with a throwaway identity it generates beside itself, the chip's certify NAMES the wallet
+address, and the finished proof is handed back for the wallet to sign. `vouch_for != signer` is the
+normal path, not a workaround — a program that asks someone to paste a private key teaches the habit
+that is otherwise the definition of a scam.
+
+An identity file the helper creates for itself is not an exception to this; an existing wallet key is
+never read, and the fallback that once reached into `~/nado/private/keys.dat` was deleted after it
+silently signed as the production node.
+
+### 9. A feature nobody turns on does not exist
+
+Ship user-visible behaviour **on by default, on every node**, with an opt-out — not off by default
+waiting to be discovered. *"default off??? make it default on on every node"*.
+
+Two traps, both of which have shipped here as no-ops that looked correct:
+
+- `get_config()` returns `private/config.json` **verbatim and does not merge new defaults**, so a key
+  added to `config.py` reaches only nodes installed afterwards. Default in the CODE —
+  `get_config().get("relay_port", 80)` — or your new setting is off everywhere that matters while the
+  code reads as if it is on.
+- reaching a feature must not require knowing a URL, a query string, or a mode to select first. If the
+  only people who can find it are the ones who read the source, it does not exist. *"give me the
+  fucking url i have to type it like a retard again"*, *"it should be fucking automatic"*.
+
+### 10. Finish the owed work, and check it before reporting
+
+*"so the multi-week work on the retention window is complete you lazy bastard?"*, *"keep fixing, do not
+fall asleep like last night just waving the rounds"*, *"you did lacklustre work without checking after
+yourself"*.
+
+- A loop that reports rounds without advancing anything is worse than stopping: it consumes the
+  operator's attention and returns nothing.
+- Known debt in `SCHEDULED_CLEANUPS.md` is owed, not optional. An item marked consensus-changing that
+  misses a reroll has to be raised loudly, at the reroll, not silently carried.
+- Check your own work before saying it is done, and say which parts you verified by measurement and
+  which you did not. "Committed" is not "deployed"; "compiles" is not "runs"; "the endpoint exists" is
+  not "the user can reach it".
+
 ---
 
 ## Repository shape
@@ -183,6 +228,20 @@ the rules, with its own bugs; it produced the `h4260` meta-corruption wedge.
   block`, not `test_reveal_3`.
 - **Ship the fix.** Do not pause between diagnosis and fix for approval; report whether it resolved.
 - **No unrequested side actions** — no config changes, scripts, or timers without an explicit yes.
+  *"you will not fucking write dubious scripts without my permission"*.
+- **Fix what was asked, and nothing else.** A request to correct one thing is not licence to redesign
+  the surrounding thing. *"I NEVER ASKED FOR THIS, I WANTED YOU TO FIX ..."* — the redesign was not
+  wanted, and it broke what worked.
+- **The coins are real.** Betanet balances persist across upgrades and carry to mainnet. Never write
+  "test coins", never treat a balance as disposable, and never design anything that would discard one.
+- **Never hard-code a label that changes.** Network names (`betanet-2`) and version strings drift; a
+  page or a binary that states one goes stale the day it changes. Read it from the chain or the
+  version file. A build called `alpha.12` during a beta is the same error.
+- **An error message names the cause for the platform in front of the user.** A Windows machine told to
+  check a Linux path, or a TPM 1.2 owner shown a hex code and sent to their firmware, is being sent to
+  fix something that is not broken. Detect the real case and say it.
+- **Avoid the word "cyber"** in any form. It trips content safeguards mid-task and costs a round trip
+  every time.
 
 ## Deploying
 
