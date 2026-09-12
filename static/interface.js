@@ -700,6 +700,43 @@ function passkeyManagerName(ag) { return PASSKEY_MANAGERS[String(ag || "").slice
 // address, or "" when there is no address yet. The address rides in the filename the server sends, so the
 // owner pastes nothing; the checksums are published beside it so verification does not depend on someone
 // quoting a hash in a chat.
+// ONE ACTION, NAMED FOR WHAT IT DOES, FOR THE PLATFORM IN FRONT OF US. A card that offers every option
+// at once is a card that decides nothing: the owner of a Windows PC does not need to be told that Ledger
+// and Trezor also exist before being shown the thing that will work on the machine they are holding.
+// The other platform stays reachable, one line down and in small type, because being wrong about the
+// platform must cost a glance rather than a dead end.
+function renderMineFix(st) {
+  const el = $("mineFix");
+  if (!el) return;
+  const w = state.wallet;
+  if (!w || !w.address || (st && st.ok)) { show("mineFix", false); el.innerHTML = ""; return; }
+  const ua = navigator.userAgent || "";
+  const isWin = /Windows/i.test(ua);
+  const isLinux = /Linux/i.test(ua) && !/Android/i.test(ua);
+  // A phone or a Mac cannot run the helper at all — offering it there would be the same mistake in a
+  // different direction, so those keep the existing guidance and this card stays hidden.
+  if (!isWin && !isLinux) { show("mineFix", false); el.innerHTML = ""; return; }
+  const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(w.address);
+  const primary = isWin ? base : base + "&os=linux";
+  const otherHref = isWin ? base + "&os=linux" : base;
+  const primaryLabel = isWin ? i18("fix.win", "Download for Windows") : i18("fix.linux", "Download for Linux");
+  const otherLabel = isWin ? i18("fix.otherLinux", "Linux version") : i18("fix.otherWin", "Windows version");
+  el.innerHTML =
+    '<div class="card" style="text-align:left">'
+    + '<b>' + escapeHtml(i18("fix.h", "Use this computer's security chip instead")) + '</b>'
+    + '<div class="small faint" style="margin:4px 0 10px">'
+    + escapeHtml(i18("fix.p", "Windows Hello cannot vouch for this PC, but its TPM still can. The helper proves the chip and leaves the proof here for you to confirm — nothing to paste, and your key never leaves this browser."))
+    + '</div>'
+    + '<a class="btn primary" style="display:inline-block;text-decoration:none" href="' + escapeHtml(primary) + '" rel="noopener">'
+    + escapeHtml(primaryLabel) + '</a>'
+    + '<div class="small faint" style="margin-top:8px">'
+    + '<a href="' + escapeHtml(otherHref) + '" rel="noopener">' + escapeHtml(otherLabel) + '</a>'
+    + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">'
+    + escapeHtml(i18("remote.dlHash", "checksums")) + '</a></div>'
+    + '</div>';
+  show("mineFix", true);
+}
+
 function tpmHelperLinks() {
   if (!state.wallet || !state.wallet.address) return "";
   const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
@@ -850,6 +887,7 @@ function renderDeviceStatus() {
     st = { ...st, ok: true, reason: "ok", fmt: st.fmt && st.fmt !== "none" ? st.fmt : "device" };
     try { localStorage.setItem(LS_DEVICE_STATUS, JSON.stringify({ ...st, at: Date.now() })); } catch (e) {}
   }
+  if (st.ok) { renderMineFix(st); }
   if (st.ok) {
     // THE CHAIN, NOT THE LAST TAP, decides what this line says (2026-09-08: a wallet whose Ledger had moved to a node and
     // whose stake was delegated still read "attested ✓ (ledger)"). If the relay has answered and this identity is not
@@ -875,8 +913,8 @@ function renderDeviceStatus() {
     if (state.lastMs && state.lastMs.bonded_producing)
       el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
     const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
-    if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t);
-                     const dl = $("mineTpmDl"); if (dl) dl.innerHTML = t ? tpmHelperLinks() : ""; }
+    if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
+    renderMineFix(st);
     return;
   }
   el.textContent = st.reason === "unsupported"
@@ -888,8 +926,8 @@ function renderDeviceStatus() {
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
   // Collapsed by default (2026-09-08 UX pass): the status line says it failed, the summary says help is one tap away.
-  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt);
-                 const dl2 = $("mineTpmDl"); if (dl2) dl2.innerHTML = txt ? tpmHelperLinks() : ""; }
+  if (g && gb) { const txt = deviceGuide(st); gb.textContent = txt; show("mineDeviceGuide", !!txt); }
+  renderMineFix(st);
 }
 
 // DEVICE ATTESTATION (doc/device-attestation.md). The phone's secure element attests a credential over the

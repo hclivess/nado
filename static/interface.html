@@ -301,17 +301,17 @@
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining
          starts. Updated by attestDevice() during registration and by the "Verify this device" preview. -->
     <div id="mineDevice" class="small mt" role="status"></div>
+    <!-- THE WAY OUT, AS A BUTTON, ABOVE THE EXPLANATION. The download that fixes a Windows PC used to sit
+         inside the "why this device cannot register" disclosure, four paragraphs down, as a text link —
+         so the one action that helps was the hardest thing on the card to find. An owner should not have
+         to read a diagnosis to reach the remedy. Filled by renderDeviceStatus() for failed verdicts. -->
+    <div id="mineFix" class="mt hidden"></div>
     <!-- DEVICE GUIDE: when the device cannot attest, the specific reasoning and the exact steps for THAT verdict
          (Windows Hello under VBS / Credential Guard, software key, passkey without attestation, unbindable class).
          Filled by renderDeviceStatus() from deviceGuide(); hidden while the device is fine. -->
     <details id="mineDeviceGuide" class="mt hidden disc">
       <summary data-i18n="device.guide.title">Why this device cannot register, and what to do</summary>
       <div id="mineDeviceGuideBody" class="small mt" style="white-space:pre-line"></div>
-      <!-- THE WAY OUT, NEXT TO THE DIAGNOSIS. A PC whose Windows Hello cannot attest has no WebAuthn route
-           at all; the enrolment helper is the only one. It lived behind a query string, then behind a mode
-           the owner had to select first, so it reached nobody who had not been told about it by hand.
-           Filled by renderDeviceStatus() whenever this guide is shown. -->
-      <div id="mineTpmDl" class="small mt"></div>
     </details>
 
     <!-- HOW TO ATTEST (2026-09-08 UX pass, progressive disclosure): one primary action above; the four ways to attest sit
