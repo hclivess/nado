@@ -571,6 +571,8 @@ class CoreClient(threading.Thread):
                 self.maybe_tpm_challenge()
                 # ...and enrol THIS machine's own chip, so a headless node attests itself and mines.
                 self.maybe_tpm_self_enrol()
+                # ...and tell the chain this node is willing to be drawn as a challenger.
+                self.maybe_tpm_ready()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
                 # ARCHIVE REFILL: advance earliest_block as the background canonical-chain fill (after a
@@ -3110,6 +3112,44 @@ class CoreClient(threading.Thread):
                 for h in (handles or []):
                     tpm.flush(h)
                 tpm.close()
+
+    def maybe_tpm_ready(self):
+        """ANNOUNCE THAT THIS NODE WILL ANSWER CHALLENGES (protocol.DEVICE_ATTEST_EK_READY_HEIGHT).
+
+        The draw has to choose challengers from somewhere, and every on-chain signal it used before was a
+        proxy for the wrong thing: bonded stake measures capital, block production measures winning a
+        draw, and an FFG duty measures being a bonded participant — which a WALLET that mines is, while
+        running no daemon and no challenger loop. A mining wallet was drawn for a stranger's enrolment
+        and could never answer.
+
+        So a node says so itself. One zero-amount message, re-sent while it keeps running, and the draw
+        prefers addresses that have volunteered. Opt out with `"challenger": false` in config.json: the
+        node stops announcing and drops out of the pool when the window lapses."""
+        from protocol import (DEVICE_ATTEST_EK_READY_HEIGHT, DEVICE_ATTEST_EK_READY_EVERY,
+                              TX_LANDING_WINDOW, RESERVED_TX_MARGIN)
+        from ops.transaction_ops import construct_tpm_tx
+        try:
+            if not self.memserver.config.get("challenger", True):
+                return
+            tip = int((self.memserver.latest_block or {}).get("block_number") or 0)
+            if not (DEVICE_ATTEST_EK_READY_HEIGHT and tip >= DEVICE_ATTEST_EK_READY_HEIGHT):
+                return
+            if tip - getattr(self, "_tpm_ready_at", -10 ** 9) < DEVICE_ATTEST_EK_READY_EVERY:
+                return
+            if self._tpm_tx_pending("tpm_ready", ""):
+                return
+            tx = construct_tpm_tx(self.memserver.keydict, "tpm_ready", "",
+                                  tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
+            result = self.memserver.merge_transaction(tx, user_origin=True)
+            if result and result.get("result"):
+                # Only mark it sent when it was ACCEPTED, or a refusal silences this node for the whole
+                # interval and it quietly drops out of the pool it thinks it is in.
+                self._tpm_ready_at = tip
+                self.logger.info("announced this node as a TPM enrolment challenger")
+            else:
+                self.logger.warning(f"challenger announcement refused: {(result or {}).get('message')}")
+        except Exception as e:
+            self.logger.error(f"challenger announcement failed: {type(e).__name__}: {e}")
 
     def maybe_tpm_challenge(self):
         """CHALLENGE THE ENROLMENTS THIS NODE WAS DRAWN FOR (doc/tpm-attestation-without-a-ca.md).

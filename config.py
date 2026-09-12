@@ -276,6 +276,14 @@ def create_config(ip: str, config_path: str = None):
         # to update manually — that also DISABLES the /update and /update_peer endpoints (403), so an
         # opted-out node can neither be update-triggered remotely nor used as a proxy to trigger others.
         "auto_update": True,
+        # CHALLENGER DUTY (doc/tpm-attestation-without-a-ca.md): this node answers the TPM enrolments it
+        # is drawn to challenge, and announces on chain that it is willing so the draw can prefer nodes
+        # that volunteer over addresses that merely look like validators. ON by default because the
+        # construction has no challengers unless nodes supply them, and an enrolment whose drawn set
+        # cannot answer simply expires. Set False to opt out: the node stops announcing, drops out of the
+        # pool within DEVICE_ATTEST_EK_READY_WINDOW, and answers nothing. Costs a zero-amount message
+        # roughly every 45 minutes.
+        "challenger": True,
         # BOOT-TIME SELF-HEAL (non-consensus, ops/self_update.ensure_updatable): a node diagnosed as
         # un-updatable (no git checkout, no systemd unit, ...) repairs itself by running the LOCAL
         # scripts/install.sh once per boot. Set False to only diagnose and log — never run the installer.

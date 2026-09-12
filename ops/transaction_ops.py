@@ -202,7 +202,7 @@ def construct_tpm_tx(keydict, recipient, data, max_block, min_block=0):
     over with a new attestation key. min_block gives the message a full inclusion delay to propagate;
     max_block is the deadline.
     """
-    assert recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"), recipient
+    assert recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready"), recipient
     tx = {"sender": keydict["address"], "recipient": recipient, "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0,
@@ -492,7 +492,8 @@ def _proven_challengers(block_height: int) -> dict:
     QUANTISED TO THE EPOCH so the scan is cached rather than repeated per block: the window ends at the
     start of `block_height`'s epoch, which every node computes identically from committed blocks, and a
     node replaying this in a year derives the same set."""
-    from protocol import DEVICE_ATTEST_EK_PROVEN_WINDOW as _W, EPOCH_LENGTH
+    from protocol import (DEVICE_ATTEST_EK_PROVEN_WINDOW as _W, DEVICE_ATTEST_EK_READY_WINDOW as _R,
+                          EPOCH_LENGTH)
     hi = (int(block_height) // EPOCH_LENGTH) * EPOCH_LENGTH
     lo = max(1, hi - _W)
     entry = _tpm_proven_cache[0]
@@ -508,6 +509,15 @@ def _proven_challengers(block_height: int) -> dict:
             if not who:
                 continue
             if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
+                # ACTED. Having answered a challenge proves the loop was running, and it counts for the
+                # full window because a challenger only acts when it is drawn — a node willing for hours
+                # may simply not have been picked.
+                acted.add(who)
+            elif r == "tpm_ready" and h >= hi - _R:
+                # SAID IT WILL. An announcement is a claim about RIGHT NOW, so it expires faster than
+                # evidence of having acted: a node that stopped running must drop out of the pool
+                # without anyone having to notice. Without it, a node that has never been drawn could
+                # never become eligible at all.
                 acted.add(who)
             elif r in _DUTY_RECIPIENTS:
                 duties[who] = duties.get(who, 0) + 1
@@ -1485,6 +1495,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
                             "register: this identity is already bound for life to another hardware wallet — use that device, " \
                             "or bind this one to a new account"
+    elif recipient == "tpm_ready":
+        # VOLUNTEERING TO BE DRAWN. Carries nothing and proves nothing: it is an operator declaring that
+        # this node runs the challenger loop, so the draw can prefer addresses that have said so over
+        # addresses that merely look like validators on chain. Zero amount, no data, and the signature
+        # (checked for every transaction) is the whole of what makes it the sender's own statement.
+        from protocol import DEVICE_ATTEST_EK_READY_HEIGHT
+        assert DEVICE_ATTEST_EK_READY_HEIGHT and block_height >= DEVICE_ATTEST_EK_READY_HEIGHT, \
+            "challenger announcements are not enabled yet"
+        assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
+        assert not transaction.get("data"), "tpm_ready carries no data"
+
     elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
         # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md).
         # Four fee-exempt, zero-amount messages that prove an attestation key lives inside a chip whose

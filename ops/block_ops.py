@@ -184,7 +184,7 @@ def _lands_flexibly(transaction):
     # What would NOT be safe is an exact-landing message whose timing bound was computed from max_block
     # and then applied at a different height; there is no such rule here.
     return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth",
-                  "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal") or is_address(r))
+                  "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready") or is_address(r))
 
 
 def check_target_match(transaction_list, block_number, logger):

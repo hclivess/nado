@@ -957,7 +957,7 @@ class MemServer:
         # reject it. Requiring capital before a participant may finish proving it owns hardware inverts
         # the point of a lane that exists for participants who have none.
         elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
-                                                  "tpm_challenge", "tpm_commit", "tpm_reveal") \
+                                                  "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}

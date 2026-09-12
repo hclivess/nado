@@ -186,7 +186,7 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"})
+RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -1524,6 +1524,7 @@ def split_open_block_reward(reward: int):
 #   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
 #                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
 #                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, DEVICE_ATTEST_EK_PROVEN_HEIGHT,
+#                                    DEVICE_ATTEST_EK_READY_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
@@ -1857,6 +1858,19 @@ DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
 # DEVICE_ATTEST_EK_CHALLENGERS proven challengers exist, the draw falls back to the duty senders it used
 # before — worse, but live, and it self-heals the moment k nodes have answered once.
 DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+
+# NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
+# node that has not been drawn lately looks identical to one that has stopped running the loop, and a
+# mining wallet looks identical to a validator. `tpm_ready` is an operator saying so — one zero-amount
+# message, re-sent while the node keeps running, and eligibility is simply having said it recently.
+#
+# It is a CLAIM, not a capability: saying it and then not answering only wastes the slot the volunteer
+# asked for, which is why nothing is staked on it and anyone may send one. What keeps it honest is that a
+# drawn challenger that does not answer costs itself nothing and the network one enrolment window — the
+# same exposure as before, now with a signal that is at least about the right question.
+DEVICE_ATTEST_EK_READY_WINDOW = 2000        # ~3.8 h: a node re-announces long before this lapses
+DEVICE_ATTEST_EK_READY_EVERY = 400          # how often a running node re-announces (~45 min)
+DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
