@@ -503,7 +503,22 @@ def _proven_challengers(block_height: int) -> dict:
     for h in range(lo, hi):
         block = get_block_number(h)
         if not block:
-            continue
+            # A BLOCK WE CANNOT READ IS NOT AN EMPTY BLOCK (2026-09-13). This skipped it and carried on,
+            # so the answer depended on which blocks happened to be on THIS node's disk — and the answer
+            # picks the challengers, which enter the state root. Two nodes with gaps in this window
+            # computed a smaller pool, drew different challengers, wrote a different state root, and
+            # forked the chain away from nine nodes with complete history; the gap-ridden pair then raced
+            # ahead unopposed while the correct majority sat frozen.
+            #
+            # THE THIRD OUTCOME, not a rejection. ProofUnavailable is this exact category and says so in
+            # its own docstring: "rejecting it would fork the fleet along the axis of who happened to have
+            # the data." A plain error would be worse than the bug — on OWN assembly the caller DROPS the
+            # offending transaction and keeps building, so a gap-ridden node would quietly omit the
+            # enrolment and diverge a second way. Deferring makes the node stall and backfill, which every
+            # node applies identically, so a gap costs liveness on that node and never safety on the chain.
+            raise ProofUnavailable(
+                f"challenger draw needs block {h} of the window [{lo},{hi}) and this node does not have "
+                f"it — cannot evaluate the enrolment rule without it (sync the gap, do not guess)")
         for t in (block.get("block_transactions") or []):
             r, who = t.get("recipient"), t.get("sender")
             if not who:

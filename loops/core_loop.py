@@ -1978,6 +1978,11 @@ class CoreClient(threading.Thread):
                     self.logger.error(f"Branch adoption: our L1 state is CORRUPT at agreed parent "
                                       f"{int(anc)} ({rej.get('error', '')[:120]})")
                     self._reapply_local_branch(old_tip)
+                    # A BRANCH WE CANNOT APPLY DOES NOT GET TO PIN US. Same reasoning as the sync leg: the
+                    # message is identical whether our state is wrong or theirs, and leaving the advertiser
+                    # unbenched is what let two gap-ridden nodes freeze nine correct ones. Bounded and
+                    # auto-clearing, so being wrong about it costs one retry, not a stall.
+                    self._reject_heaviest_tip()
                     # TRY THE REPAIR THAT NEEDS NOBODY, FIRST (2026-09-13). This escalated straight to the
                     # re-anchor ladder, which requires a peer advertising a strictly-heavier chain WITH a
                     # snapshot above our finality floor. When the divergence is recent that donor does not
@@ -2671,6 +2676,20 @@ class CoreClient(threading.Thread):
                         # 5,100 blocks behind, oscillating build-refuse-rollback while this node is
                         # get.nadochain.com, the wallet's default relay.
                         if not self.memserver.terminate and self._state_diverged_reject():
+                            # BENCH THE TIP *AND* HEAL. The refusal cannot tell "my state is wrong" from
+                            # "their state is wrong" — it is the same sentence either way. Routing it away
+                            # from the bench, as the first version of this did, removed the only escape the
+                            # honest side had: a majority holding the CORRECT state stopped producing,
+                            # because a forked minority kept advertising a heavier tip that majority could
+                            # never adopt. Measured live 2026-09-13: nine nodes frozen at 77902 while two
+                            # nodes with GAPS in their own block store raced to 77970 on a state root
+                            # derived from blocks they do not have.
+                            #
+                            # Benching is bounded and auto-clearing, so it is correct in both directions.
+                            # If OUR state is wrong, the heal or the re-anchor repairs it and the bench
+                            # expires on its own. If THEIRS is, we resume producing and weight settles it.
+                            # A chain we cannot apply must never hold our own production hostage.
+                            self._reject_heaviest_tip()
                             if self._heal_state_divergence():
                                 return True          # pass ends; the next one re-applies cleanly
                             # THE CHEAP REPAIR IS SPENT — escalate, never freeze. Returning here regardless
