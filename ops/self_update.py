@@ -436,9 +436,13 @@ def updatability(probe_remote=True) -> dict:
                                 if ln.strip()})
                 checks["dirty_files"] = dirty
                 if dirty:
+                    # A WARNING, NOT A BLOCK: since 2026-09-13 the updater moves a local edit aside (as
+                    # `<file>.local-<time>`, never deleted) when the incoming commit changes that file, and
+                    # leaves the rest alone — so edits no longer stop an update. They are still named here,
+                    # because an unattended node should not be carrying any, and the name says what to look for.
                     shown = ", ".join(dirty[:6]) + (f" (+{len(dirty) - 6} more)" if len(dirty) > 6 else "")
-                    blocking.append(f"working tree has local edits, so the fast-forward is refused: {shown} "
-                                    f"— commit them, or `git checkout -- <file>` / `git stash` to discard")
+                    warnings.append(f"local edits to tracked files: {shown} — an update moves one aside as "
+                                    f"<file>.local-<time> only if it changes that file; commit or discard them")
             except Exception:
                 checks["dirty_files"] = None
 
@@ -756,13 +760,14 @@ def check_and_update(trigger: str) -> dict:
             _git("merge-base", "--is-ancestor", local, remote)
         except Exception:
             return _blocked(f"local HEAD {local[:12]} diverged from origin/{_BRANCH} (local commits) — update manually")
-        try:
-            _git("diff", "--quiet"); _git("diff", "--cached", "--quiet")
-        except Exception:
-            return _blocked("working tree has uncommitted changes — refusing to touch local edits")
-        # UNTRACKED FILES THE TARGET TRACKS BLOCK THE FAST-FORWARD (2026-09-07: a cargo-written Cargo.lock that a
-        # later commit started tracking bricked every peer's updater) — move them aside first, never delete.
-        moved_aside = _move_aside_untracked_collisions(remote)
+        # LOCAL EDITS NO LONGER BLOCK THE FLEET (2026-09-13). This refused ANY dirty tracked file, and on an
+        # unattended node that refusal is permanent — psychz answered every wave with it for a day, most
+        # likely over a Cargo.lock its own rebuild had rewritten. An edit the incoming commit would change is
+        # moved aside as `<file>.local-<time>` (never deleted, named in the reply); an edit the commit does
+        # not touch is left alone, because git fast-forwards over those. See _move_aside_dirty_conflicts.
+        # UNTRACKED FILES THE TARGET TRACKS block the fast-forward the same way (2026-09-07: a cargo-written
+        # Cargo.lock that a later commit started tracking) — same remedy, same helper convention.
+        moved_aside = _move_aside_dirty_conflicts(remote) + _move_aside_untracked_collisions(remote)
         if moved_aside:
             _log().warning(f"update: moved aside untracked files the target tracks: {moved_aside}")
         try:
@@ -917,6 +922,14 @@ def _build_crates(crates):
             r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             report[crate] = "built" if r.returncode == 0 else "build-failed"
+            # A REBUILD MUST NOT DIRTY THE TREE (2026-09-13). Only native/attest carries a Cargo.lock.pinned;
+            # the other crates track Cargo.lock at the path cargo writes, and cargo may rewrite it (a newer
+            # cargo bumps the lockfile format, a registry refresh re-resolves). A dirty tracked lock then
+            # made the node refuse ITS OWN next update, forever — the fleet's wave bricking the fleet. Put
+            # HEAD's copy back the moment the build is done; the .so is already built from it.
+            if _restore_tracked_lock(path):
+                _log().warning(f"update: cargo rewrote the tracked Cargo.lock in {crate}; restored HEAD's copy "
+                               f"so this node keeps taking updates")
             if r.returncode == 0:
                 # CARGO'S EXIT 0 CERTIFIES THE ARTIFACT MATCHES TODAY'S SOURCES — but it does NOT promise
                 # to rewrite the .so: when only mtimes moved (git checkout stamps pulled files with pull
@@ -980,19 +993,73 @@ def _move_aside_untracked_collisions(remote):
         untracked = _git("ls-files", "--others", "--exclude-standard", timeout=30).splitlines()
     except Exception:
         return []
-    moved = []
-    stamp = int(time.time())
-    for rel in untracked:
-        if rel not in tracked:
-            continue
+    return _move_aside([rel for rel in untracked if rel in tracked])
+
+
+def _move_aside(rels):
+    """Rename each repo-relative path to `<path>.local-<unix time>` beside itself. Never deletes; returns
+    the list actually moved. One convention for every kind of file the updater has to get out of the way."""
+    moved, stamp = [], int(time.time())
+    for rel in rels:
         src = os.path.join(_REPO_DIR, rel)
-        dst = f"{src}.local-{stamp}"
         try:
-            os.replace(src, dst)
+            os.replace(src, f"{src}.local-{stamp}")
             moved.append(rel)
         except OSError:
             pass
     return moved
+
+
+def _move_aside_dirty_conflicts(remote):
+    """Local edits to TRACKED files that the fast-forward to `remote` would change: move each aside, restore
+    HEAD's copy so git sees a clean path, and return the list. Edits to files the update does not touch are
+    left exactly as they are — git fast-forwards over those without complaint.
+
+    THE psychz WEEK (2026-09-13). check_and_update refused ANY dirty tracked file — "working tree has
+    uncommitted changes — refusing to touch local edits" — and on an unattended fleet node that refusal is
+    permanent: nobody is there to commit. psychz sat 15 commits behind for a day answering every wave with
+    it, missed the fix for the fork it was on, and was the last node still producing a dead branch. Worse,
+    the edit was almost certainly the fleet's OWN doing: _build_crates runs cargo in crates whose Cargo.lock
+    is tracked, cargo rewrites the lock, and from then on the node's own update path refuses the node its
+    updates. "it is crucial for the updates to be automatic."
+
+    So the rule is now the same one _move_aside_untracked_collisions already applies: nothing is deleted,
+    the edit survives as `<file>.local-<time>` beside itself, the reply and /status name it, and the update
+    lands. A node that refuses its own updates is the one failure the updater must never have. Local
+    COMMITS still block (they are deliberate, and the is-ancestor check above catches them). Never raises;
+    on any git error returns [] and the fast-forward fails loudly as before."""
+    try:
+        incoming = set(_git("diff", "--name-only", "HEAD", remote, timeout=30).splitlines())
+        dirty = set((_git("diff", "--name-only", timeout=30) + "\n"
+                     + _git("diff", "--cached", "--name-only", timeout=30)).splitlines())
+    except Exception:
+        return []
+    conflicts = sorted(p for p in (dirty & incoming) if p)
+    moved = _move_aside(conflicts)
+    for rel in moved:
+        try:
+            _git("checkout", "HEAD", "--", rel, timeout=30)      # index AND worktree back to HEAD's copy
+        except Exception:
+            pass
+    return moved
+
+
+def _restore_tracked_lock(path):
+    """If cargo just rewrote a Cargo.lock that git TRACKS, put HEAD's copy back. Returns True if it did.
+
+    A rebuild must never dirty the tree: a dirty tracked file used to block every later /update on that
+    node, permanently, with the fleet's own update wave as the cause (see _move_aside_dirty_conflicts).
+    Crates with a Cargo.lock.pinned copy it in before the build and are unaffected; this is for the crates
+    that track Cargo.lock at the path cargo writes."""
+    rel = os.path.relpath(os.path.join(path, "Cargo.lock"), _REPO_DIR)
+    try:
+        _git("ls-files", "--error-unmatch", rel, timeout=15)          # raises when untracked
+        if _git("diff", "--name-only", "--", rel, timeout=15).strip():
+            _git("checkout", "HEAD", "--", rel, timeout=15)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _rebuild_native_if_changed(old, new):

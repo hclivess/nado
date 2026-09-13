@@ -349,6 +349,25 @@ the rules, with its own bugs; it produced the `h4260` meta-corruption wedge.
 
 ## Deploying
 
+**Updates are automatic, and staying automatic is a hard requirement.** Every node fast-forwards itself
+from `origin/main` on `/update`. A node that answers anything other than `updated` / `up_to_date` is a bug
+in the updater to fix in code — never a node to fix by hand. *"it is crucial for the updates to be
+automatic"*. Three ways this was broken in one week, each of which the updater now survives:
+
+- **Never amend or force-push a pushed commit.** A commit pushed at 08:48:00 was amended and force-pushed
+  at 08:48:28; eleven nodes had already pulled the first hash, `self_update` is fast-forward-only by design,
+  and every node refused every update for 13 commits while `/status` still said `update_available`. The
+  consensus gate that shipped in that window fired on one node and forked it. Fix a pushed commit with a
+  new commit; re-attach an orphan with `git merge -s ours --no-ff <orphan>` so nodes fast-forward again.
+- **Never hand-edit a tracked file on a fleet node, and never let a build do it.** A dirty tracked file
+  used to refuse every later update, permanently. The updater now moves an edit aside as
+  `<file>.local-<time>` only when the incoming commit changes that file (never deleted, named in the reply
+  and under `update_warnings`), and `_build_crates` restores a tracked `Cargo.lock` that cargo rewrote.
+- **Untracked files at a path the tip tracks** are moved aside the same way (the 2026-09-07 stall).
+
+After every push, prove the wave landed: `status_pool` uniform on the new `running_commit`. For any node
+that is not, read its `/status` — `update_blocking` and `update_warnings` now name the exact condition.
+
 ```bash
 git push origin main          # THIS RESTARTS PRODUCTION
 curl -s localhost:9173/update # kick the fleet wave; peers cascade within seconds
