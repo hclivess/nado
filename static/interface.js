@@ -3092,6 +3092,10 @@ function failStart(reason) {
 // what makes mining a SINGLE click: registration, on-chain confirmation and heartbeats are all handled
 // in the background without the user ever clicking "Start mining" a second time.
 let _renewingLease = false;
+// How long an automatic renewal waits after a FAILED attempt before trying again. Only the automatic
+// path backs off — pressing Renew is a deliberate act and is never rate-limited by this.
+const RENEW_RETRY_MS = 5 * 60 * 1000;
+let _renewFailedAt = 0;
 // A renewal ALREADY BROADCAST and not yet landed: {targetBlock, atEpoch}. Without this the renewal is
 // re-broadcast on every poll for as long as the tx is in flight, because the only "have I renewed?"
 // signal is acc.reg_epoch — which is ON-CHAIN state and cannot move until the tx is mined. `register`
@@ -3115,7 +3119,16 @@ async function maybeRenewLease(acc) {
     _renewSubmitted = null;
   }
   if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
-  await broadcastLeaseRenewal(regEpoch);
+  // BACK OFF AFTER A FAILURE, OR THIS RETRIES ON EVERY TICK. _renewSubmitted is set only when the relay
+  // ACCEPTS the transaction, so an attempt that throws before that — a cancelled device prompt, a
+  // ceremony this hardware cannot answer, a relay that will not serve the anchor — left every guard clear
+  // and the next poll started again immediately. The owner saw "Presence lease expiring — renewing…"
+  // repeat every few seconds for as long as the wallet was open, with a device prompt behind each one.
+  // The lease has hours of headroom at this point (renewal begins at 80% of it), so waiting minutes
+  // between attempts costs nothing and is the difference between a retry and a spin.
+  if (_renewFailedAt && Date.now() - _renewFailedAt < RENEW_RETRY_MS) return;
+  const ok = await broadcastLeaseRenewal(regEpoch);
+  _renewFailedAt = ok ? 0 : Date.now();
 }
 
 // The renewal itself — shared by the automatic path above and the manual button below. Returns true once a
@@ -3254,6 +3267,22 @@ function refreshLeasePanel(acc, ms) {
     else if (db) bm.textContent = i18("bind.lease", "Leased — re-attests every 36 h with a statement from this device.");
     else bm.textContent = "";
   }
+  // THE HELPER, WHEREVER RENEWAL IS. A LEASED binding re-attests on every renewal, and for a chip that
+  // statement comes from the enrolment helper — but its download rendered only from renderMineFix(),
+  // which hides itself as soon as the device verdict is ok. So the owner who needs it most, every 36 h,
+  // could not reach it at all: no card, no URL, nothing to type. Renewal and the means of renewal now
+  // live in the same place. Permanent bindings renew with no prompt and are deliberately not offered it.
+  const lh = $("leaseHelper");
+  if (lh) {
+    const ua = navigator.userAgent || "";
+    const canRunHelper = /Windows/i.test(ua) || (/Linux/i.test(ua) && !/Android/i.test(ua));
+    // Read the binding from the ACCOUNT, not from state.devbind: that mirror is assigned inside the
+    // bindModeLine block above, so it is only current when that element happens to exist. A DOM node's
+    // presence must not decide whether a download link appears.
+    const db2 = (acc && acc.devbind) || state.devbind;
+    const perm = !!(db2 && db2.mode === "perm" && db2.live);
+    lh.innerHTML = (canRunHelper && !perm && state.wallet && state.wallet.address) ? tpmHelperLinks() : "";
+  }
   const landing = !!_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch;
   let note, enabled;
   if (landing) {
@@ -3291,7 +3320,11 @@ async function renewLeaseManually() {
       return;
     }
     if (_renewSubmitted && regEpoch <= _renewSubmitted.atEpoch && state.latest != null && state.latest <= _renewSubmitted.targetBlock) return;
-    await broadcastLeaseRenewal(regEpoch);
+    // A failed press also quiets the AUTOMATIC path: whatever stopped it here (a cancelled prompt,
+    // hardware that cannot answer) will stop it again a few seconds later, and the owner should not be
+    // handed the same failing ceremony on a timer because they tried once by hand. The button itself
+    // stays live — a deliberate press is never rate-limited.
+    _renewFailedAt = (await broadcastLeaseRenewal(regEpoch)) ? 0 : Date.now();
     refreshDashboard().catch(() => {});
   } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message })); }
   finally { refreshDashboard().catch(() => {}); }

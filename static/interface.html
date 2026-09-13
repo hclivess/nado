@@ -406,6 +406,12 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <div class="small" id="bindModeLine" style="margin-top:4px"></div>
       <div class="small faint" id="leaseNote" style="margin-top:2px"></div>
       <div class="small faint" id="leaseWarn" style="margin-top:2px"></div>
+      <!-- THE HELPER BELONGS WHERE RENEWAL IS OFFERED. Its download links used to render ONLY from
+           renderMineFix(), which hides itself the moment the device verdict is ok — so an owner whose chip
+           was enrolled by the helper, and who therefore needs it again at every renewal, had no path back
+           to it and no URL to type. "WHEN THERE IS AN OPTION TO RENEW BEFORE EXPIRY LINKS SHOULD BE
+           AVAILABLE." Filled by refreshLeasePanel() for LEASED bindings on a platform that can run it. -->
+      <div class="small" id="leaseHelper" style="margin-top:8px"></div>
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
