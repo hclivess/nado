@@ -2154,6 +2154,44 @@ _wealth_body = {"height": -1, "body": None}      # encoded JSON of _wealth_cache
 WEALTH_RANKS_MAX = 4096       # /wealth_stats `ranks` entries: complete below (~57 KB at the cap), sampled above
 
 
+import threading as _threading                 # nado.py has no module-level threading import; scoped here
+
+_device_stats_cache = {"height": -1, "data": None}
+_device_stats_lock = _threading.Lock()
+
+
+async def device_stats(request):
+    """GET /device_stats: what the network's collectors run on — device bindings by class, with how many
+    are LIVE (still vouching for a present collector) and how many the chain has ever recorded.
+
+    "/stats should display types of mining devices and their representation" (operator 2026-09-13). The
+    account rows cannot answer this — the account->device reverse index is stamped only for permanent
+    classes — so it is read from the devbind table itself, whose keys carry the class consensus binds on.
+    One cursor walk plus the open registry, in a worker thread, cached per height and single-flighted so a
+    burst of Stats tabs costs one scan. Rate-limited like the other stats reads."""
+    if _rate_limited(request, 30):
+        return _RL()
+
+    def _work():
+        from ops import kv_ops
+        from ops.account_ops import get_open_registry
+        from ops.mining_ops import epoch_of
+        from ops.node_attest import device_histogram
+        h = int(memserver.latest_block["block_number"])
+        if _device_stats_cache["height"] == h and _device_stats_cache["data"] is not None:
+            return _device_stats_cache["data"]
+        with _device_stats_lock:
+            if _device_stats_cache["height"] == h and _device_stats_cache["data"] is not None:
+                return _device_stats_cache["data"]
+            epoch = epoch_of(h + 1)
+            present = set(get_open_registry(epoch))
+            data = device_histogram(kv_ops.devbind_rows(), epoch, present)
+            data.update({"height": h, "epoch": epoch, "present_total": len(present)})
+            _device_stats_cache.update(height=h, data=data)
+            return data
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_wealth_stats(request):
     """GET /wealth_stats: log-normal fit of the wealth distribution — {count, richest, log_mean,
     log_std, block_number} over non-zero accounts (balance+bonded). The client converts its own
@@ -3311,6 +3349,7 @@ async def make_app(port):
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
         web.get("/wealth_stats", get_wealth_stats),
+        web.get("/device_stats", device_stats),
         web.get("/treasury_status", get_treasury_status),
         web.get("/posw_difficulty", get_posw_difficulty),
         web.get("/get_rich_list", get_rich_list),

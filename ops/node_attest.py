@@ -193,6 +193,32 @@ def bind_info(address: str, acc: dict | None = None) -> dict:
     return out
 
 
+def device_histogram(rows, epoch_now: int, present) -> dict:
+    """Device population by class, from devbind rows: {cls: {"total": n, "live": n}} plus totals.
+
+    "/stats should display types of mining devices and their representation" (operator 2026-09-13).
+
+    `rows` are (device_key, address, epoch, mode) as devbind_rows() returns them; `present` is the set of
+    addresses in the open registry right now. A binding is LIVE when it still vouches for a present
+    collector: a permanent one (Ledger/Trezor) for as long as its account is present, a leased one only
+    while the lease from its last statement has not run out (POSW_LEASE_EPOCHS) AND the account is
+    present. "total" counts every binding the chain has ever recorded under that class, live or not, so the
+    two numbers together say both what the network runs on today and what it has seen. Pure — no reads,
+    no clock — so it can be tested with a list."""
+    from protocol import POSW_LEASE_EPOCHS
+    out = {}
+    present = set(present or ())
+    for key, address, epoch, mode in rows:
+        cls = key.split(":", 1)[0] if ":" in key else "unknown"
+        slot = out.setdefault(cls, {"total": 0, "live": 0})
+        slot["total"] += 1
+        if address in present and (mode == "perm" or int(epoch_now) - int(epoch) <= POSW_LEASE_EPOCHS):
+            slot["live"] += 1
+    return {"classes": out,
+            "live_total": sum(v["live"] for v in out.values()),
+            "bound_total": sum(v["total"] for v in out.values())}
+
+
 def renew_without_statement(memserver, tip: int, logger=None) -> dict:
     """A node bound for life to a hardware wallet renews its presence lease with a register tx that carries NO
     statement (accepted by validation only while its devbind row points back at it). Same merge + gossip path as

@@ -913,6 +913,12 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <div class="small faint" id="holdersSub">—</div></div>
     <div class="mt"><div class="label" data-i18n="stats.lanes">Lane participation</div>
       <svg id="chartLanes" viewBox="0 0 320 70" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <!-- DEVICES (operator 2026-09-13: "/stats should display types of mining devices and their representation").
+         What the network's collectors run on, by class, from /device_stats: live bindings only in the donut,
+         the all-time count in the caption. Filled by renderStats(). -->
+    <div class="mt"><div class="label" data-i18n="stats.devices">Devices — what collectors run on</div>
+      <svg id="chartDevices" viewBox="0 0 320 132" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg>
+      <div class="small faint" id="devicesSub">—</div></div>
     <div class="mt"><div class="label" data-i18n="stats.rewardSplit">Reward distribution — where each block's reward flows</div>
       <svg id="chartRewardSplit" viewBox="0 0 320 132" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="mt"><div class="label" data-i18n="stats.supplySplit">Supply distribution</div>

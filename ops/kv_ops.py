@@ -2124,6 +2124,25 @@ def devbind_get(key: str):
     return _read(_do)
 
 
+def devbind_rows():
+    """Every device binding: [(device_key, address, epoch, mode), ...]. One cursor walk of the devbind sub-DB.
+
+    The reverse index (account -> devkey) is stamped only for permanent classes, so the only place the
+    fleet's DEVICE POPULATION can be read is this table, keyed by the device handle consensus binds on
+    ("ek:<identity>", "android-key:<cert>", "ledger:<serial>", ...). Read-only; feeds /device_stats."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["devbind"]) as cur:
+            for k, raw in cur.iternext(keys=True, values=True):
+                try:
+                    rec = _unpack(raw)
+                    out.append((k.decode(), str(rec[0]), int(rec[1]), str(rec[2]) if len(rec) > 2 else "lease"))
+                except Exception:
+                    continue                                   # a row we cannot decode is not a device
+        return out
+    return _read(_do)
+
+
 def devbind_set(key: str, address: str, epoch: int, mode: str = "lease"):
     """mode "lease" writes the historical two-element row (byte-identical to pre-gate rows — replay of old blocks and
     the state root depend on it); "perm" writes the three-element row."""

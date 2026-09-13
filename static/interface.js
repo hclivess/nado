@@ -7760,6 +7760,25 @@ async function renderStats() {
   let ms = state.lastMs;
   try { ms = await getMiningStatus(state.wallet.address); } catch {}
   if (ms) laneBar("chartLanes", ms.open_registry_size || 0, ms.bonded_registry_size || 0);
+  // DEVICES — what the collectors run on (operator 2026-09-13). Live bindings only in the donut: a device
+  // whose lease ran out or whose account left the registry is not "representation", it is history — the
+  // caption carries the all-time count so both are visible. Classes are the handles consensus binds on.
+  try {
+    const dv = await (await fetch(relayBase() + "/device_stats", { cache: "no-store" })).json();
+    const LABEL = { "android-key": ["dev.cls.android", "Android phone"], ek: ["dev.cls.ek", "TPM chip"],
+                    tpm: ["dev.cls.tpm", "Windows Hello"], webauthn: ["dev.cls.webauthn", "Security key"],
+                    ledger: ["dev.cls.ledger", "Ledger"], trezor: ["dev.cls.trezor", "Trezor"] };
+    const COLOR = [_CACC, _CGRN, _CGOLD, _CPUR, "#5865F2", "#e0a458"];
+    const classes = Object.entries((dv && dv.classes) || {}).sort((a, b) => b[1].live - a[1].live);
+    const slices = classes.map(([cls, v], i) => {
+      const l = LABEL[cls] || ["dev.cls.unknown", cls];
+      return { label: i18(l[0], l[1]), value: v.live, color: COLOR[i % COLOR.length] };
+    });
+    pieChart("chartDevices", slices);
+    const sub = $("devicesSub");
+    if (sub) sub.textContent = i18("stats.devicesSub", "{n} live devices vouching for collectors · {t} bound on chain in total",
+      { n: (dv && dv.live_total) || 0, t: (dv && dv.bound_total) || 0 });
+  } catch (e) { pieChart("chartDevices", []); }
 
   // REWARD DISTRIBUTION by pipeline (structural consensus split): open lane is ~20% of blocks (treasury 10 /
   // tip 20 / dividend 70), bonded ~80% (producer 70 / dividend 20 / treasury 10) -> effective network split.
