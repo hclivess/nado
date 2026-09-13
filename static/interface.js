@@ -1502,6 +1502,33 @@ function relayNoteSuccess(ms) {
     relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
   }
 }
+// STALE IS ALSO DOWN (2026-09-13). The pool rotated on hard failures and on slowness, and a relay that is
+// simply NOT MOVING is neither: it answers every call instantly, with well-formed JSON, about a chain state
+// from hours ago. relayAcceptable() already refuses to fail over ONTO such a node — the same tolerance was
+// never applied to the relay we are already using, so the one case it was written for was the one it missed.
+// Measured live: get.nadochain.com, the wallet's default relay, wedged at block 69284 for 11 hours while the
+// fleet passed 74500. Every wallet on it kept polling happily, 5,200 blocks behind, and none rotated.
+//
+// MEDIAN, NOT MAX, of the candidates' heights. `best` for adoption is a max because adopting the most
+// current node is right; for "am I stale" a max lets ONE peer claiming an absurd height declare every honest
+// relay stale and send the wallet rotating forever. The median says "most of the network is past me", which
+// is the actual question, and a single liar cannot move it.
+const RELAY_STALE_BLOCKS = 120;              // ~14 min of blocks: far beyond propagation, far short of a wedge
+function relayMedianHeight() {
+  const hs = relayPool.list.map((c) => Number(c.height) || 0).filter((h) => h > 0).sort((a, b) => a - b);
+  return hs.length ? hs[Math.floor(hs.length / 2)] : 0;
+}
+function relayNoteHeight(h) {
+  h = Number(h);
+  if (!Number.isFinite(h) || h <= 0) return;
+  if (!relayAutoAllowed() || relayPool.switching || !relayPool.list.length) return;
+  const med = relayMedianHeight();
+  if (!med || h >= med - RELAY_STALE_BLOCKS) return;
+  log("warn", i18("log.relayStale",
+      "Relay {a} is {n} blocks behind the rest of the network — looking for a current node.",
+      { a: relayHost(relayBase()), n: med - h }));
+  relayPool.switching = rotateRelay().catch(() => false).finally(() => { relayPool.switching = null; });
+}
 const LS_RELAY_AUTO = "nado_relay_auto";           // "0" = never switch relays automatically (operator 2026-09-08)
 function relayAutoAllowed() { try { return localStorage.getItem(LS_RELAY_AUTO) !== "0"; } catch (e) { return true; } }
 function relayNoteFailure() {
@@ -3570,6 +3597,8 @@ async function pollOnce() {
     if (latest && typeof latest.block_number === "number") {
       state.latest = latest.block_number; state.latestAt = Date.now();
       setConn(true, latest.block_number);
+      // A relay that answers but does not ADVANCE is still down for our purposes — see relayNoteHeight.
+      relayNoteHeight(latest.block_number);
       outboxTick(latest.block_number).catch(() => {});
     } else {
       setConn(false);                 // null = relay momentarily unreachable (getLatestBlock ate the blip)
