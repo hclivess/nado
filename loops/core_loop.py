@@ -61,6 +61,12 @@ from ops.tpm_enrol import enrol_window as _te_window
 
 # How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
 SEED_PROBE_MEMO_S = 30
+# How many of our own tip blocks _heal_state_divergence may revert at one height before handing the
+# problem to the re-anchor ladder. LOCAL pacing, not consensus — it decides how long we try a cheap
+# repair, never whether a block is valid. Small on purpose: one block is the overwhelmingly common case
+# (the divergence entered applying our tip), and a deeper corruption wants the state replaced wholesale,
+# not walked down to the finality floor one rollback at a time while calling that a repair.
+STATE_HEAL_MAX_DEPTH = 3
 
 # CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
 # height is more than this many blocks above ours, the floor waits instead of probing peers per block.
@@ -2640,6 +2646,19 @@ class CoreClient(threading.Thread):
                     if self.memserver.terminate:
                         break
                     if not self.produce_block(block=block, remote=True, remote_peer=peer):
+                        # OUR STATE, NOT THEIR BLOCK (2026-09-13). Sort the two refusals before blaming
+                        # anyone: "our state diverged from the producer" means we agree on every block
+                        # HASH and disagree about the state those blocks commit to — which no donor
+                        # caused and no donor can fix. Striking peers for it is self-harm: the node works
+                        # through every honest peer in turn, benches them all, and never escalates,
+                        # because a BEHIND verdict never reaches the one handler that understands this
+                        # error (_adopt_branch, on the REORG leg). That is a permanent wedge reachable
+                        # from a completely healthy fleet — measured here for 11 hours at block 69285,
+                        # 5,100 blocks behind, oscillating build-refuse-rollback while this node is
+                        # get.nadochain.com, the wallet's default relay.
+                        if not self.memserver.terminate and self._state_diverged_reject():
+                            self._heal_state_divergence()
+                            return True              # pass ends; the next one re-applies cleanly
                         # INVALID/FORGED sync block (verify failed): the advertised heavier tip is
                         # not backed by a valid chain — exclude it, or this loop re-enters forever
                         # on the same bad advertisement (Sybil-stall). Auto-cleared, so a transient
@@ -2666,6 +2685,86 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Failed to get blocks after {from_hash} from {peer}: {e}")
             self._reject_heaviest_tip()
             return True
+
+    def _state_diverged_reject(self) -> bool:
+        """Did the last refusal say OUR committed state is wrong, rather than their block?
+
+        state_root is inside the block-hash preimage, so agreeing on a block hash IS agreeing on the state
+        it commits. A node refusing block N for a state-root mismatch therefore agrees with the producer
+        about every block through N-1 and disagrees about what APPLYING them produced — the h4260
+        rollback-asymmetry class. No peer can serve a fix for that, so it must never read as a bad donor."""
+        rej = getattr(self.memserver, "last_block_reject", None) or {}
+        return "our state diverged from the producer" in str(rej.get("error", ""))
+
+    def _heal_state_divergence(self) -> bool:
+        """Undo the block whose APPLICATION diverged, so the ordinary sync path can re-apply it.
+
+        The refused block is N, and N's state_root is the state after N-1 — which is OUR TIP. So the
+        divergence entered while applying our own tip, and reverting exactly that block is the whole
+        remedy: rollback_one_block restores from the JOURNAL (the exact inverse, never a re-derivation —
+        re-deriving is a second implementation of the rules and is what produced the h4260 wedge), the
+        next pass re-applies the same body through the one canonical apply path, and a node whose code has
+        since been corrected computes the right root the second time.
+
+        Bounded on purpose. If the corruption is DEEPER than the heal window the answer is not to keep
+        rolling — it is the re-anchor ladder, which replaces the state wholesale from a quorum snapshot.
+        Rolling indefinitely would walk the node down to its own finality floor one block at a time and
+        call that a repair. Returns True when a block was reverted."""
+        height = int(self.memserver.latest_block["block_number"])
+        # Count attempts AT A HEIGHT, not globally: healing one block is a success, and the counter must
+        # not carry a stale total into the next incident. Re-diverging at a NEW height is a fresh attempt.
+        tracker = getattr(self, "_state_heal", None)
+        if not tracker or tracker[0] != height:
+            tracker = (height, 0)
+        if tracker[1] >= STATE_HEAL_MAX_DEPTH:
+            self._rec_fail("state divergence deeper than the heal window — escalating to re-anchor",
+                           height=height, tried=tracker[1])
+            self.logger.error(f"State divergence at {height} survived {tracker[1]} rollback(s) — the "
+                              f"corruption is deeper than one block; leaving it to the re-anchor ladder")
+            # KEEP THE TRACKER. Clearing it here reset the counter, so the very next pass started again
+            # from zero and the "bound" became a 3-block burst repeated forever — the node would walk
+            # itself down to the finality floor while every log line claimed it was escalating. The
+            # tracker is keyed on HEIGHT, so a re-anchor (which moves the tip) resets it on its own; that
+            # is the only thing that should.
+            self._state_heal = (height, tracker[1])
+            return False
+        # REVERT SYMMETRY: a rollback re-mines the block's transactions, it never drops them (the rule
+        # _rollback_one_for_reorg follows). A user's tx must survive our repair. Captured BEFORE the revert.
+        reverted_txs = self.memserver.latest_block.get("block_transactions", []) or []
+        try:
+            self.memserver.latest_block = rollback_one_block(
+                logger=self.logger, block=self.memserver.latest_block, depth=tracker[1] + 1)
+        except FinalityViolation as e:
+            # The poisoned application is at/below the immutable prefix. Rollback cannot reach it, by
+            # design. Say so and stop — WITHOUT benching anyone: the chain we need is real and must stay
+            # visible, or every recovery route keyed on knowing it exists is disarmed (see the long note
+            # in _rollback_one_for_reorg's FinalityViolation arm for the night that cost).
+            self._rec_fail("state divergence below the hard floor — rollback refused", height=height)
+            self.logger.error(f"State divergence at {height} is at/below hard finality: {e}")
+            # Mark the window SPENT, not empty: rollback can never succeed here, so retrying it every
+            # pass is wasted work that also keeps the escalation from ever firing.
+            self._state_heal = (height, STATE_HEAL_MAX_DEPTH)
+            return False
+        except MissingParentError as e:
+            self._rec_fail("state divergence with no local parent — resync required", height=height)
+            self.logger.error(f"State divergence at {height}, no parent on disk: {e}")
+            self._state_heal = (height, STATE_HEAL_MAX_DEPTH)
+            return False
+        # Blind reinsertion is safe and is what the reorg leg does: remove_outdated_transactions drops
+        # any whose target block has passed, validate_transaction drops any now-invalid, merge_transaction
+        # dedups so live copies are not doubled.
+        for _tx in reverted_txs:
+            try:
+                self.memserver.merge_transaction(_tx, user_origin=True)
+            except Exception:
+                pass
+        self._state_heal = (height, tracker[1] + 1)
+        self._rec_fail("our state diverged at the agreed parent — reverted it to re-apply",
+                       height=height, attempt=tracker[1] + 1)
+        self.logger.warning(f"State divergence at {height}: reverted our own tip so it can be re-applied "
+                            f"(attempt {tracker[1] + 1}/{STATE_HEAL_MAX_DEPTH}) — NOT striking the donor, "
+                            f"this failure is ours")
+        return True
 
     def _rollback_one_for_reorg(self, ancestor=None, budget=None) -> bool:
         """REORG leg of emergency sync: the MEASURED verdict says our chain diverged (see emergency_mode

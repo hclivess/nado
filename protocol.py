@@ -1882,7 +1882,14 @@ DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 # KEYED ON THE RECERT EPOCH, because apply_register works in epochs; an account registered before this
 # carries no devkey until its next registration, which is correct — the field describes the binding that
 # register established, and back-filling one would be inventing state no block wrote.
-DEVICE_BIND_DEVKEY_ALL_EPOCH = 1110 if CHAIN_GENERATION == 25 else 0
+# DISABLED ON GEN 25 (2026-09-13). Gated at epoch 1110 = block 66600, which the chain had already
+# passed, and the fleet could not adopt the code: every node still ran 5930e5ad, a commit orphaned by a
+# force-push, and self_update correctly refuses a non-fast-forward. So exactly one node carried the rule.
+# At block 69284 an Android (leased-class) registration landed, this node alone stamped `devkey`, its L1
+# state root diverged from the producer's, and it wedged for 11 hours — the relay, 5,000 blocks behind.
+# The rule itself is sound; the HEIGHT was the bug (rule 3: gate at the fleet's adoption block). It stays
+# off until the fleet is verified uniform, then gets a height measured from that fact rather than guessed.
+DEVICE_BIND_DEVKEY_ALL_EPOCH = None if CHAIN_GENERATION == 25 else 0
 
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
