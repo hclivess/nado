@@ -97,7 +97,13 @@ def main():
           "free_inodes" in r["checks"] or not os.statvfs(su._REPO_DIR).f_files)
     check("available memory is measured (an OOM-killed child reports the same string)",
           "mem_available_mb" in r["checks"])
-    check("...and a healthy host trips none of them", not r["blocking"])
+    # A HEALTHY HOST is about disk, inodes and memory — not about whether the developer running this test
+    # has uncommitted edits. updatability() now names local edits as blocking (it has to: they refuse the
+    # fast-forward, and psychz sat 15 commits behind for a day with /status claiming blocking=[]), so on a
+    # working tree with changes exactly ONE entry is attributable to that, and it is not a host problem.
+    dirty = bool(r["checks"].get("dirty_files"))
+    check("...and a healthy host trips none of them (beyond the one line naming its own local edits)",
+          len(r["blocking"]) == (1 if dirty else 0))
 
     # ---- thresholds are ordered and sane --------------------------------------------------------------
     check("warn threshold is above the blocking one", su._DISK_WARN_MB > su._DISK_BLOCKING_MB)

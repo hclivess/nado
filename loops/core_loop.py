@@ -67,6 +67,10 @@ SEED_PROBE_MEMO_S = 30
 # (the divergence entered applying our tip), and a deeper corruption wants the state replaced wholesale,
 # not walked down to the finality floor one rollback at a time while calling that a repair.
 STATE_HEAL_MAX_DEPTH = 3
+# How often a node that CANNOT evaluate the rules at its tip re-asks whether it can now. LOCAL pacing:
+# the positive answer is memoised for the epoch, this only bounds how long a finished refill waits to lift
+# the production gate. A minute is nothing against the minutes a fill takes and the hours a split costs.
+RULES_EVAL_RECHECK_S = 60
 
 # CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
 # height is more than this many blocks above ours, the floor waits instead of probing peers per block.
@@ -749,6 +753,7 @@ class CoreClient(threading.Thread):
                         and self.memserver.pool_warmed
                         and not _on_minority
                         and not _isolated
+                        and self._rules_evaluable_at_tip()
                         and not getattr(self.memserver, "purge_breaker", False)):
                     # PRE-ASSEMBLY TX-SET RECONCILE (leaderless assembly touch-up, doc/leaderless-assembly.md):
                     # before building, hold the union of what our same-tip peers would build — see
@@ -4132,6 +4137,122 @@ class CoreClient(threading.Thread):
 
         self._deep_fill_thread = threading.Thread(target=_run, name="archive-refill", daemon=True)
         self._deep_fill_thread.start()
+
+    def _rules_evaluable_at_tip(self) -> bool:
+        """Can this node evaluate every consensus rule at its NEXT block? If not, it must not build one.
+
+        THE SPLIT OF 2026-09-13. The challenger draw scans DEVICE_ATTEST_EK_PROVEN_WINDOW blocks, and two
+        rolling nodes re-anchored from a snapshot were left with a hole inside that window — the restore
+        path skips deep bodies on rolling nodes ("below retention, not fetched"), and retention was never the
+        problem. They kept producing. When an enrolment landed they drew from the blocks they had, wrote a
+        state root nine complete nodes could not reproduce, and then raced ahead unopposed because a minority
+        alone on a fork mines every slot — while the correct majority sat frozen behind their heavier tip.
+
+        A node that cannot evaluate the rule at its tip has no way to know its next block is valid, so it
+        does not produce one. Production stops, weight stops accruing on the bad branch, the majority
+        overtakes, and the ordinary heavier-donor reorg brings the node back — no operator, no purge. The
+        same check starts the repair (_fill_window_gaps), so the condition clears itself.
+
+        Cheap: a positive answer is memoised for the epoch (the draw caches its own scan on success); a
+        negative one is re-asked every RULES_EVAL_RECHECK_S so a finished fill lifts the gate promptly."""
+        from ops.transaction_ops import _proven_challengers, proven_window
+        from protocol import DEVICE_ATTEST_EK_PROVEN_HEIGHT, EPOCH_LENGTH
+        next_h = int(self.memserver.latest_block["block_number"]) + 1
+        if not DEVICE_ATTEST_EK_PROVEN_HEIGHT or next_h < DEVICE_ATTEST_EK_PROVEN_HEIGHT:
+            return True
+        epoch = next_h // EPOCH_LENGTH
+        now = time.monotonic()
+        memo = getattr(self, "_rules_eval_memo", None)            # (epoch, ok, checked_at)
+        if memo and memo[0] == epoch and (memo[1] or now - memo[2] < RULES_EVAL_RECHECK_S):
+            return memo[1]
+        try:
+            _proven_challengers(next_h)
+            ok = True
+        except ProofUnavailable as e:
+            ok = False
+            lo, hi = proven_window(next_h)
+            self._rec_fail("cannot evaluate the challenger draw at the tip — not producing until the "
+                           "window is filled", height=next_h, window=[lo, hi], missing=str(e)[:160])
+            if not (memo and memo[0] == epoch):                    # say it once per window, not per pass
+                self.logger.error(f"Not producing: {e}")
+            self._fill_window_gaps(lo, hi)
+        self._rules_eval_memo = (epoch, ok, now)
+        return ok
+
+    def _fill_window_gaps(self, lo: int, hi: int):
+        """Start filling every missing body in [lo, hi) from peers, in the background, once at a time."""
+        t = getattr(self, "_window_fill_thread", None)
+        if t is not None and t.is_alive():
+            return
+        self._window_fill_progress = {"lo": lo, "hi": hi, "fetched": 0, "gaps": 0, "done": False}
+
+        def _run():
+            try:
+                res = self._fill_window_gaps_now(lo, hi)
+                self._window_fill_progress.update(res, done=True)
+                self.logger.warning(f"Window refill [{lo},{hi}): {res['fetched']} bodies fetched across "
+                                    f"{res['gaps']} gap(s), {res['unfilled']} still missing")
+            finally:
+                self._rules_eval_memo = None                       # re-ask the gate on the next pass
+        self._window_fill_thread = threading.Thread(target=_run, name="window-refill", daemon=True)
+        self._window_fill_thread.start()
+
+    def _fill_window_gaps_now(self, lo: int, hi: int) -> dict:
+        """Fill the holes in [lo, hi) by walking parent_hash DOWN from the first block above each hole.
+
+        Why by parent hash and not by number: a hole is exactly where the number->hash index may name
+        nothing, but the block just above it always names its parent. Each fetched body names the next.
+        That is the deep-fill's own technique, applied to a hole in the middle instead of below the floor.
+
+        Synchronous and returns counts, so the launcher above can thread it and a test can call it
+        directly. Every body is fetched by HASH and checked against it before it is saved, so a donor
+        cannot hand us a different block than the one our chain names."""
+        from ops.block_ops import get_block_number as _gbn
+        from ops.peer_ops import seed_peers
+        _me = own_ips() | {getattr(self.memserver, "ip", None), get_config().get("ip")} - {None}
+        donors = [p for p in dict.fromkeys(list(seed_peers()) + list(self.memserver.peers)) if p not in _me]
+        gaps, run_start = [], None
+        for h in range(lo, hi):
+            present = bool(_gbn(h))
+            if not present and run_start is None:
+                run_start = h
+            elif present and run_start is not None:
+                gaps.append((run_start, h - 1)); run_start = None
+        if run_start is not None:
+            gaps.append((run_start, hi - 1))
+        fetched = unfilled = 0
+        for a, b in reversed(gaps):                                   # highest first: the anchor is above
+            above = _gbn(b + 1)
+            if not above or not above.get("parent_hash"):
+                self.logger.warning(f"Window refill: nothing above the hole {a}..{b} to walk down from")
+                unfilled += b - a + 1
+                continue
+            cur_hash = above["parent_hash"]
+            for h in range(b, a - 1, -1):
+                body = get_block(cur_hash) or None
+                if not body:
+                    for src in donors:
+                        try:
+                            nb = asyncio.run(snapshot_ops.fetch_block(src, self.memserver.port, cur_hash))
+                        except Exception:
+                            nb = None
+                        if nb and nb.get("block_hash") == cur_hash:
+                            body = nb
+                            break
+                    if not body:
+                        self.logger.warning(f"Window refill: no peer served block {h} ({cur_hash[:12]}); "
+                                            f"hole {a}..{h} stays until a later pass")
+                        unfilled += h - a + 1
+                        break
+                    save_block(body, logger=self.logger)
+                    fetched += 1
+                    self._window_fill_progress["fetched"] = fetched
+                kv_ops.block_index_put_many([(h, cur_hash)])
+                cur_hash = body.get("parent_hash")
+                if not cur_hash:
+                    break
+                time.sleep(0.01)
+        return {"fetched": fetched, "gaps": len(gaps), "unfilled": unfilled}
 
     def _maybe_refill_archive(self):
         """ARCHIVE SELF-REPAIR, without waiting for a re-anchor. If this is an archive node and its history

@@ -480,6 +480,17 @@ def _recent_producers(block_height: int) -> dict:
 _tpm_proven_cache = [None]
 
 
+def proven_window(block_height: int) -> tuple:
+    """[lo, hi) of blocks the challenger draw for `block_height` reads — quantised to the epoch.
+
+    ONE DEFINITION. The production gate (core_loop._rules_evaluable_at_tip) has to name the same window
+    the draw scans, so it can fill exactly the blocks the draw will need; two hand-mirrored copies of this
+    arithmetic would be a fork waiting for someone to edit one of them."""
+    from protocol import DEVICE_ATTEST_EK_PROVEN_WINDOW as _W, EPOCH_LENGTH
+    hi = (int(block_height) // EPOCH_LENGTH) * EPOCH_LENGTH
+    return max(1, hi - _W), hi
+
+
 def _proven_challengers(block_height: int) -> dict:
     """{address: duty transactions landed} restricted to addresses that have ACTED as a challenger.
 
@@ -492,10 +503,8 @@ def _proven_challengers(block_height: int) -> dict:
     QUANTISED TO THE EPOCH so the scan is cached rather than repeated per block: the window ends at the
     start of `block_height`'s epoch, which every node computes identically from committed blocks, and a
     node replaying this in a year derives the same set."""
-    from protocol import (DEVICE_ATTEST_EK_PROVEN_WINDOW as _W, DEVICE_ATTEST_EK_READY_WINDOW as _R,
-                          EPOCH_LENGTH)
-    hi = (int(block_height) // EPOCH_LENGTH) * EPOCH_LENGTH
-    lo = max(1, hi - _W)
+    from protocol import DEVICE_ATTEST_EK_READY_WINDOW as _R
+    lo, hi = proven_window(block_height)
     entry = _tpm_proven_cache[0]
     if entry is not None and entry[0] == (lo, hi):
         return dict(entry[1])

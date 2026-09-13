@@ -420,6 +420,27 @@ def updatability(probe_remote=True) -> dict:
             except Exception:
                 checks["origin"] = None
                 blocking.append("no 'origin' remote")
+            # LOCAL EDITS BLOCK THE FAST-FORWARD, AND THIS DID NOT SAY SO (2026-09-13). check_and_update
+            # refuses a dirty tree — correctly — but the refusal lived only in /update's reply, while
+            # /status kept advertising capable=true, blocking=[] for that same node. psychz sat on a
+            # commit 15 behind, answering every wave with "working tree has uncommitted changes", and
+            # nothing an operator could read from outside named the files or even the condition. It was
+            # the one node still producing on a dead branch, for exactly that reason. Name the files.
+            try:
+                # THE SAME TWO QUESTIONS check_and_update ASKS (`diff --quiet`, `diff --cached --quiet`),
+                # answered with names. Not `status --porcelain`: _git() strips its stdout, so the first
+                # line loses its leading status space and a fixed slice ate a character of the path —
+                # it reported "oops/core_loop.py". --name-only has no prefix to slice.
+                dirty = sorted({ln.strip() for ln in (_git("diff", "--name-only") + "\n"
+                                                      + _git("diff", "--cached", "--name-only")).splitlines()
+                                if ln.strip()})
+                checks["dirty_files"] = dirty
+                if dirty:
+                    shown = ", ".join(dirty[:6]) + (f" (+{len(dirty) - 6} more)" if len(dirty) > 6 else "")
+                    blocking.append(f"working tree has local edits, so the fast-forward is refused: {shown} "
+                                    f"— commit them, or `git checkout -- <file>` / `git stash` to discard")
+            except Exception:
+                checks["dirty_files"] = None
 
     # FREE DISK. This is the failure that actually stranded four nodes on betanet-3, and NOTHING here
     # detected it: they answered /status with capable=true, blocking=[], remote_reachable=true while every
