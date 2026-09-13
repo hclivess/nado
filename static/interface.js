@@ -675,7 +675,7 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     // Windows PC with a TPM" on a Windows PC (2026-09-07). The banner gets the specific hint whenever one exists.
     let st = null; try { st = readDeviceStatus(); } catch (e) {}
     const hint = (st && !st.ok) ? deviceHint(st) : "";
-    throw new Error(hint || i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings mining needs no device at all: bond NADO and you produce blocks without one."));
+    throw new Error(hint || i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings collecting needs no device at all: bond NADO and you produce blocks without one."));
   }
   return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
 }
@@ -828,7 +828,7 @@ function deviceGuide(st) {
   // this note. It therefore has to be step 2, ABOVE the AAGUID branches — which used to swallow every 9ddd1817 PC into
   // the "disable Credential Guard" guide (a real security downgrade) before this line existed.
   if (isWin && (fmt === "none" || !st.x5c)) return i18("device.guide.winAik",
-    "Fastest path if you just want to mine now: press \"Attest from another device\" and confirm on your Android phone or another PC — that vouches for THIS wallet and takes a minute. The steps below are for fixing this PC itself.\n\nWhat happened: Windows Hello answered, but the credential came with NO attestation ({a}), so there is nothing for the network to verify. On Windows that almost always means one thing: Microsoft has never issued this PC's TPM its identity certificate (the AIK). Windows fetches it silently the moment you create a Hello PIN, so a PC that was offline, behind a proxy or on a filtered network at that moment keeps answering without attestation forever.\n\n1. Check the TPM: run tpm.msc. It must say \"The TPM is ready for use\", specification version 2.0. If not, enable AMD fTPM / Intel PTT in the BIOS first.\n\n2. Fetch the certificate. Open Command Prompt and run exactly:\ncertreq -enrollaik -config \"\"\nSuccess looks like \"PkiStatus(0): SCEPDispositionSuccess\", \"EnrollStatus(1): Enrolled\" and \"EnrollDone\".\n\nImportant: this is a TEST. certreq enrols a \"TestAIK\" in the Local System context, so \"EnrollDone\" proves Microsoft's service answers for this TPM — it does NOT hand Windows Hello a certificate, because Hello runs in your user's context. Read the result, don't expect it to fix anything: 404 means Microsoft has no authority for this chip; success means the chip is fine and the problem is on the Windows Hello side.\n\nIf it returns 404, Microsoft has no certificate authority for this TPM's endorsement key. Check what the chip actually holds, in an elevated PowerShell:\nGet-TpmEndorsementKeyInfo -Hash Sha256\nIf ManufacturerCertificates is EMPTY, the chip never got an endorsement certificate and this PC cannot attest through Windows Hello at all. If a certificate IS listed and certreq still returns 404, the chip is fine and the gap is on Microsoft's side: their AIK service has no certificate authority registered for this TPM's KeyId — it literally answers \"The authority ... does not exist\". Microsoft has confirmed this as a service-side issue and states that KeyIds cannot be registered by end users and that there is no supported way to change their AIK trust database. Nothing you do on the PC fixes it: not a BIOS update, and certainly not clearing the TPM (that only destroys BitLocker recovery material). Use Attest from another device, a Ledger or a Trezor; report it to your PC's maker and via Feedback Hub if you want it fixed upstream. If certreq instead times out or cannot resolve the host, the PC simply cannot reach Microsoft's AIK service: try another network, such as a phone hotspot.\n\n3. Come back here and press Start. If certreq printed \"EnrollDone\", Windows now holds the certificate and nothing else is needed — you do NOT have to touch the Hello PIN. Re-creating the PIN only makes Windows retry the same enrolment certreq just did, and on an account with no password Windows will not let you remove the PIN at all.\n\n4. Only if it still comes back with no attestation: Windows may be putting the Hello key in virtualization-based security. Run msinfo32 — if \"Virtualization-based security\" says Running, that is the remaining cause. In an elevated PowerShell:\n" +
+    "Fastest path if you just want to collect now: press \"Attest from another device\" and confirm on your Android phone or another PC — that vouches for THIS wallet and takes a minute. The steps below are for fixing this PC itself.\n\nWhat happened: Windows Hello answered, but the credential came with NO attestation ({a}), so there is nothing for the network to verify. On Windows that almost always means one thing: Microsoft has never issued this PC's TPM its identity certificate (the AIK). Windows fetches it silently the moment you create a Hello PIN, so a PC that was offline, behind a proxy or on a filtered network at that moment keeps answering without attestation forever.\n\n1. Check the TPM: run tpm.msc. It must say \"The TPM is ready for use\", specification version 2.0. If not, enable AMD fTPM / Intel PTT in the BIOS first.\n\n2. Fetch the certificate. Open Command Prompt and run exactly:\ncertreq -enrollaik -config \"\"\nSuccess looks like \"PkiStatus(0): SCEPDispositionSuccess\", \"EnrollStatus(1): Enrolled\" and \"EnrollDone\".\n\nImportant: this is a TEST. certreq enrols a \"TestAIK\" in the Local System context, so \"EnrollDone\" proves Microsoft's service answers for this TPM — it does NOT hand Windows Hello a certificate, because Hello runs in your user's context. Read the result, don't expect it to fix anything: 404 means Microsoft has no authority for this chip; success means the chip is fine and the problem is on the Windows Hello side.\n\nIf it returns 404, Microsoft has no certificate authority for this TPM's endorsement key. Check what the chip actually holds, in an elevated PowerShell:\nGet-TpmEndorsementKeyInfo -Hash Sha256\nIf ManufacturerCertificates is EMPTY, the chip never got an endorsement certificate and this PC cannot attest through Windows Hello at all. If a certificate IS listed and certreq still returns 404, the chip is fine and the gap is on Microsoft's side: their AIK service has no certificate authority registered for this TPM's KeyId — it literally answers \"The authority ... does not exist\". Microsoft has confirmed this as a service-side issue and states that KeyIds cannot be registered by end users and that there is no supported way to change their AIK trust database. Nothing you do on the PC fixes it: not a BIOS update, and certainly not clearing the TPM (that only destroys BitLocker recovery material). Use Attest from another device, a Ledger or a Trezor; report it to your PC's maker and via Feedback Hub if you want it fixed upstream. If certreq instead times out or cannot resolve the host, the PC simply cannot reach Microsoft's AIK service: try another network, such as a phone hotspot.\n\n3. Come back here and press Start. If certreq printed \"EnrollDone\", Windows now holds the certificate and nothing else is needed — you do NOT have to touch the Hello PIN. Re-creating the PIN only makes Windows retry the same enrolment certreq just did, and on an account with no password Windows will not let you remove the PIN at all.\n\n4. Only if it still comes back with no attestation: Windows may be putting the Hello key in virtualization-based security. Run msinfo32 — if \"Virtualization-based security\" says Running, that is the remaining cause. In an elevated PowerShell:\n" +
     "New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags -Value 0 -PropertyType DWord -Force\nSet-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' -Name EnableVirtualizationBasedSecurity -Value 0\n" +
     "then reboot, confirm msinfo32 shows VBS \"Not enabled\", and press Start again. This lowers kernel/credential protection on that PC and is reversible (set both back to 1); a domain, Entra or MDM policy will simply re-enable it.\n\nNotes: BitLocker is unrelated, and memory integrity is not the cause. Which Windows Hello authenticator answered does NOT decide this — the network judges the TPM's own proof, not the authenticator's label.",
     { a: ag ? ag.slice(0, 8) : "no authenticator id" });
@@ -972,7 +972,7 @@ function renderDeviceStatus() {
       el.textContent = i18("device.mineOkChain", "Real device: attested ✓ — the relay confirms a device vouches for this identity.");
       el.className = "small mt ok"; return;
     }
-    el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start mining.");
+    el.textContent = i18("device.mineUnknown", "Real device: not verified yet — the wallet attests your phone when you start collecting.");
     el.className = "small mt faint"; return;
   }
   // THE CHAIN OVERRULES A STORED FAILURE, exactly as it overrules a stored success below. A failed
@@ -1017,7 +1017,7 @@ function renderDeviceStatus() {
       : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows PC with a TPM, or Attest from another device.");
     el.className = "small mt warn";
     if (state.lastMs && state.lastMs.bonded_producing)
-      el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
+      el.textContent += " " + i18("device.savingsNote", "Your savings are already collecting on their own — a device only adds the free lane and the dividend.");
     const gA = $("mineDeviceGuide"), gbA = $("mineDeviceGuideBody");
     if (gA && gbA) { const t = deviceGuide(st); gbA.textContent = t; show("mineDeviceGuide", !!t); }
     // ONE SENTENCE WHEN THERE IS A BUTTON. The long enumeration of every accepted device is guidance for
@@ -1027,9 +1027,9 @@ function renderDeviceStatus() {
   }
   el.textContent = st.reason === "unsupported"
     ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.")
-    : i18("device.mineFailed", "Real device: attestation failed ({e}). The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device. Savings mining needs no device at all: bond NADO and you produce blocks without one.", { e: st.reason || "" });
+    : i18("device.mineFailed", "Real device: attestation failed ({e}). The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device. Savings collecting needs no device at all: bond NADO and you produce blocks without one.", { e: st.reason || "" });
   if (state.lastMs && state.lastMs.bonded_producing)
-    el.textContent += " " + i18("device.savingsNote", "Your savings are already mining on their own — a device only adds the free lane and the dividend.");
+    el.textContent += " " + i18("device.savingsNote", "Your savings are already collecting on their own — a device only adds the free lane and the dividend.");
   el.className = "small mt warn";
   // the specific reasoning + steps for this verdict, right under the line (deviceGuide)
   const g = $("mineDeviceGuide"), gb = $("mineDeviceGuideBody");
@@ -1163,7 +1163,7 @@ async function nodeAttestTap() {
     if (!anchorHash) throw new Error("registration anchor block unavailable");
     log("info", i18("node.log.attesting", "Attesting node {a}… — approve the prompt on this device.", { a: addr.slice(0, 12) + "…" }));
     const device = await attestDevice(addr, anchorHash, targetBlock);
-    if (!device) throw new Error(i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings mining needs no device at all: bond NADO and you produce blocks without one."));
+    if (!device) throw new Error(i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings collecting needs no device at all: bond NADO and you produce blocks without one."));
     const r = await fetch(relayBase() + "/node_attest_drop", { method: "POST", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ sender: addr, max_block: targetBlock, device }) });
     const d = await r.json().catch(() => ({}));
@@ -1223,7 +1223,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
             return null;
           }
           const ok = await uiConfirm({ title: i18("bind.rebindTitle", "Rebind this device?"),
-            body: i18("bind.rebindAsk", "This {n} vouches for another account ({a}). Rebind it to this account? The other account stops mining and cannot renew without a device.", { n: state.hwDevice.name, a: lj.bound_to.slice(0, 12) + "…" }),
+            body: i18("bind.rebindAsk", "This {n} vouches for another account ({a}). Rebind it to this account? The other account stops collecting and cannot renew without a device.", { n: state.hwDevice.name, a: lj.bound_to.slice(0, 12) + "…" }),
             confirmText: i18("bind.rebindOk", "Rebind here") });
           if (!ok) { log("info", i18("bind.rebindDeclined", "Kept the existing binding — nothing was submitted.")); return null; }
         }
@@ -2310,7 +2310,7 @@ async function estimateSavingsApy() {
     const divNado = rawToNado(BigInt(Math.max(0, Math.round(annualDivRaw / openMiners))));
     box.innerHTML = head
       + `<span class="faint"> · ${i18("apy.from", "from the last {n} blocks", { n: rewards.length })}</span>`
-      + `<div class="faint mt">${i18("apy.divNote", "+ presence dividend ≈ {a} NADO/yr per present open-lane miner (a capital-free bonus if you also mine the open lane).", { a: divNado })}</div>`;
+      + `<div class="faint mt">${i18("apy.divNote", "+ presence dividend ≈ {a} NADO/yr per present open-lane collector (a capital-free bonus if you also collect from the open lane).", { a: divNado })}</div>`;
   } catch (e) {
     box.innerHTML = `<span class="warn">${i18("apy.err", "Couldn't estimate APY:")} ${escapeHtml(e.message)}</span>`;
   }
@@ -2557,7 +2557,7 @@ async function refreshUnlockLease() {
       const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
       const secsLeft = Math.max(0, (regEpoch + POSW_LEASE_EPOCHS - ms.epoch) * epochSecs);
       box.innerHTML = "⛏ " + escapeHtml(i18("unlock.mining",
-        "Still mining while locked — about {t} of presence left. Reopen before it runs out to auto-renew.",
+        "Still collecting while locked — about {t} of presence left. Reopen before it runs out to auto-renew.",
         { t: humanizeSeconds(secsLeft) }));
       show("unlockLease", true);
     } else {
@@ -2916,7 +2916,7 @@ function setStartBtnMining() {
   const b = $("btnMine");
   b.disabled = false;
   b.classList.remove("primary"); b.classList.add("danger");
-  b.textContent = i18("btn.stopMine", "Stop mining");
+  b.textContent = i18("btn.stopMine", "Stop collecting");
 }
 // The loop is running but NOTHING is being mined yet (waiting for the Register press, for another device's statement,
 // or for a kept registration to land): the button must still stop the loop, but it must not claim mining is happening
@@ -2931,8 +2931,8 @@ function setStartBtnWaitingReg() {
   b.classList.remove("primary"); b.classList.add("danger");
   b.textContent = i18("btn.stopWait", "Stop");
   if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
-    ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
-    : i18("mine.notMiningReg", "Not mining — registration needed");
+    ? i18("mine.savingsOnly", "Savings collecting — a device is needed only for the free lane and the dividend")
+    : i18("mine.notMiningReg", "Not collecting — registration needed");
 }
 // REGISTRATION GATE: nothing is mined until a registration lands, so the loop does not run and the main button is the
 // idle "Start mining" — only the Register button (and the banner saying why) stay. Pressing Register starts the loop
@@ -2946,16 +2946,16 @@ function haltForRegister() {
   releaseWakeLock();
   clearRegProgress();
   // the ONE button says what the next press does (it arms the prompt and starts)
-  setStartBtnIdle(i18("btn.registerStart", "Register & start mining"));
+  setStartBtnIdle(i18("btn.registerStart", "Register & start collecting"));
   if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
-    ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
-    : i18("mine.notMiningReg", "Not mining — registration needed");
+    ? i18("mine.savingsOnly", "Savings collecting — a device is needed only for the free lane and the dividend")
+    : i18("mine.notMiningReg", "Not collecting — registration needed");
 }
 function setStartBtnIdle(label) {
   const b = $("btnMine");
   b.disabled = false;
   b.classList.remove("danger"); b.classList.add("primary");
-  b.textContent = label || i18("btn.startMining", "Start mining");
+  b.textContent = label || i18("btn.startMining", "Start collecting");
 }
 // Update the staged status banner. `html` is built only from our own constant strings plus
 // escapeHtml()'d dynamic values, so innerHTML is safe here. kind: "ok" | "warn" | undefined (info).
@@ -3039,7 +3039,7 @@ function renderMiningIndicator() {
 function markMiningActive() {
   state.starting = false;
   setStartBtnMining();
-  $("mineState").textContent = i18("mine.mining", "Mining");
+  $("mineState").textContent = i18("mine.mining", "Collecting");
   state.mining = true;
   renderMiningIndicator();
   renderDeviceCartouche();
@@ -3078,7 +3078,7 @@ function failStart(reason) {
       const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
       if (acc && acc.registered === 1 && epochNow != null && regEpoch >= 0
           && (epochNow - regEpoch) < POSW_LEASE_EPOCHS) {
-        log("ok", i18("log.regHealed", "Registration confirmed on chain after all ✓ — resuming mining automatically."));
+        log("ok", i18("log.regHealed", "Registration confirmed on chain after all ✓ — resuming collecting automatically."));
         state.mining = true;
         startPollLoop();
         pollOnce();                                       // confirms, flips the button, starts heartbeats
@@ -3293,7 +3293,7 @@ function refreshLeasePanel(acc, ms) {
     note = i18("lease.landing", "Renewal submitted — waiting for it to land on chain…");
     enabled = false;
   } else if (gap >= FIDELITY_MIN_GAP_EPOCHS && state.attestVia === "remote") {
-    note = i18("lease.remoteRenew", "Renewal earns now: on the other device open Mining → \"Attest another wallet or node\" (it lists this address) and press Attest again. Nothing to press here.");
+    note = i18("lease.remoteRenew", "Renewal earns now: on the other device open Collecting → \"Attest another wallet or node\" (it lists this address) and press Attest again. Nothing to press here.");
     enabled = false;
   } else if (gap >= FIDELITY_MIN_GAP_EPOCHS) {
     note = i18("lease.canRenew", "Renewing now earns +1 fidelity and moves your expiry to about {c} tomorrow.",
@@ -3423,12 +3423,12 @@ async function maybeRegister() {
           + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>'
           + '</div>';
         setRegBanner(i18("remote.switchBack", "To go back to attesting on this device instead, open \"Attest another way\" below and pick \"This device\". ") +
-          i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Mining → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }) + _help, "warn", "remote");
+          i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Collecting → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }) + _help, "warn", "remote");
         clearRegProgress();
         setStartBtnWaitingReg();
         if ($("mineState")) $("mineState").textContent = (state.lastMs && state.lastMs.bonded_producing)
-          ? i18("mine.savingsOnly", "Savings mining — a device is needed only for the free lane and the dividend")
-          : i18("mine.waitingOther", "Not mining — waiting for another device to vouch");
+          ? i18("mine.savingsOnly", "Savings collecting — a device is needed only for the free lane and the dividend")
+          : i18("mine.waitingOther", "Not collecting — waiting for another device to vouch");
         return;
       }
     } catch (e) { /* relay blip: next tick */ }
@@ -3436,8 +3436,8 @@ async function maybeRegister() {
   const permLive = await bindIsPermanent();            // bound for life: no prompt exists to arm, renew straight away
   if (!state.tapArmed && !state.pendingRegisterTx && !permLive) {   // a kept (already attested) tx needs no new tap
     setRegBanner((state.lastMs && state.lastMs.bonded_producing)
-      ? i18("reg.tapNeededSavings", "Your savings are mining already. To add the free lane and the dividend, register a real device: press Start mining and confirm the prompt.")
-      : i18("reg.tapNeeded2", "Your identity needs a registration: press Start mining and confirm the device prompt."), "warn", "tap");
+      ? i18("reg.tapNeededSavings", "Your savings are collecting already. To add the free lane and the dividend, register a real device: press Start collecting and confirm the prompt.")
+      : i18("reg.tapNeeded2", "Your identity needs a registration: press Start collecting and confirm the device prompt."), "warn", "tap");
     clearRegProgress();
     haltForRegister();                           // the loop stops; the Register button is the only thing that opens a prompt
     return;
@@ -3626,7 +3626,7 @@ async function submitRegisterTx(tx, targetBlock) {
     // ALREADY active (e.g. the node auto-registered this address, or a prior start this epoch). Proceed to
     // mine instead of aborting; re-registering only renews the lease, which isn't needed again this epoch.
     if (/already recerted|one register per epoch|already registered/i.test(m || "")) {
-      log("ok", i18("log.alreadyRegistered", "Already registered this epoch — presence lease active, mining."));
+      log("ok", i18("log.alreadyRegistered", "Already registered this epoch — presence lease active, collecting."));
       return true;
     }
     // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
@@ -3650,7 +3650,7 @@ async function submitRegisterTx(tx, targetBlock) {
   // Registration only takes effect once the tx is INCORPORATED into a block. We DON'T block here —
   // the poll loop watches for it and starts heartbeating automatically. No second click needed. Keep
   // the in-progress widget visible (the poll loop refreshes its "blocks remaining" each tick).
-  log("info", i18("log.regWaiting", "Waiting for the registration to be included in a block — mining will start automatically then."));
+  log("info", i18("log.regWaiting", "Waiting for the registration to be included in a block — collecting will start automatically then."));
   showRegProgress(i18("reg.submitted", "Registration submitted — waiting for it to be included in a block…"),
     `target block ${targetBlock}`);
   setRegBanner(i18("reg.waiting", "Waiting for on-chain confirmation — this can take a few blocks") + " (" +
@@ -3749,7 +3749,7 @@ async function pollOnce() {
     // in two places, and the panel then had to be taken away again. A box that appears and disappears is
     // worse than no box: it teaches the reader that what it says is provisional. State that is true
     // continuously belongs in a fixed element, not in something that arrives and leaves.
-    if (wasStarting || justLanded) log("ok", i18("reg.confirmed", "Registered ✓ — mining now."));
+    if (wasStarting || justLanded) log("ok", i18("reg.confirmed", "Registered ✓ — collecting now."));
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
@@ -3784,7 +3784,7 @@ async function acquireWakeLock() {
     state.wakeLock = await navigator.wakeLock.request("screen");
     // the browser auto-releases the lock whenever the page is hidden; drop our handle so we re-request
     state.wakeLock.addEventListener("release", () => { state.wakeLock = null; });
-    log("info", i18("log.wakeLock", "Screen kept awake so mining continues while the phone is idle."));
+    log("info", i18("log.wakeLock", "Screen kept awake so collecting continues while the phone is idle."));
   } catch (e) { /* unsupported / denied — mining still runs while the tab is foregrounded */ }
 }
 async function releaseWakeLock() {
@@ -3861,13 +3861,13 @@ async function startMining() {
   setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
-  log("ok", i18("log.miningStarted", "Mining loop started — the relay confirms your registration first; blocks are mined only after that."));
+  log("ok", i18("log.miningStarted", "Collecting loop started — the relay confirms your registration first; blocks are collected only after that."));
   startPollLoop();
   // No screen wake lock (2026-09-08): nothing in this page hashes any more — the presence lease lives on chain, savings
   // need no page at all, and a renewal only needs the wallet open at that moment. Holding the screen on drained phones
   // for nothing and the log line claimed mining depended on it.
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
-  pollOnce().catch((e) => { if (isTransient(e)) { setConn(false); return; } log("err", i18("log.miningLoopError", "Mining loop error: {m}", {m: e.message})); });
+  pollOnce().catch((e) => { if (isTransient(e)) { setConn(false); return; } log("err", i18("log.miningLoopError", "Collecting loop error: {m}", {m: e.message})); });
 }
 
 function stopMining() {
@@ -3890,7 +3890,7 @@ function stopMining() {
   show("regBanner", false);
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
-  log("info", i18("log.miningStopped", "Mining stopped."));
+  log("info", i18("log.miningStopped", "Collecting stopped."));
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -3969,7 +3969,7 @@ function renderCoinPile(totalRaw, stats) {
     // nothing to draw yet — collapse the SVG so an empty/new wallet doesn't reserve the pile's height,
     // leaving just the one-line hint.
     svg.style.display = "none";
-    cap.textContent = i18("pile.none", "No coins yet — start mining to grow your pile.");
+    cap.textContent = i18("pile.none", "No coins yet — start collecting to grow your pile.");
     return;
   }
   svg.style.display = "";
@@ -4185,7 +4185,7 @@ function drawMiningChart(d) {
   const yOf = (v) => padT + plotH - (v / top) * plotH;
   const todayIdx = rows.length - 1;
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${i18("mine.aria", "Mined rewards per day over the past week")}">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${i18("mine.aria", "Collected rewards per day over the past week")}">`;
   for (let g = 0; g <= 2; g++) {                       // baseline + two dashed gridlines, with y labels
     const v = (top / 2) * g, y = yOf(v);
     svg += `<line class="grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"`
@@ -4255,7 +4255,7 @@ function drawMiningChart(d) {
     note.textContent = i18("mine.none", "No blocks won in the past week. Rewards appear here the day you produce one.");
   } else {
     note.className = "mine-note";
-    note.textContent = i18("mine.src", "Per UTC day, replayed from blocks: both mining lanes, plus presence dividend on the day it was collected.")
+    note.textContent = i18("mine.src", "Per UTC day, replayed from blocks: both collecting lanes, plus presence dividend on the day it was collected.")
       + (d.covered_from > 0 ? " " + i18("mine.from", "History covers blocks from #{h}.").replace("{h}", d.covered_from) : "");
   }
   // A day the chart cannot SEE must never read as a day you earned nothing. The per-day breakdown is
@@ -4268,7 +4268,7 @@ function drawMiningChart(d) {
     miss.classList.toggle("hidden", !show);
     if (show) {
       miss.textContent = i18("mine.unattributed",
-        "Plus {a} NADO mined earlier that this node can no longer break down by day — its block history was replaced when the node re-synced from a snapshot. The chain still credits it: {t} NADO mined in total.",
+        "Plus {a} NADO collected earlier that this node can no longer break down by day — its block history was replaced when the node re-synced from a snapshot. The chain still credits it: {t} NADO collected in total.",
         { a: _mineAmt(gap), t: _mineAmt(d.produced_total) });
     }
   }
@@ -4468,9 +4468,9 @@ function renderLanes(ms) {
   $("laneBondedShares").textContent = totBond;
 
   $("myShare").innerHTML =
-    (ms.open_excluded_bonded ? escapeHtml(i18("myshare.excludedBonded", "Your savings put this identity in the bonded lane: free-lane blocks go to device-only miners (unbond below 10 NADO to switch). The presence dividend is unaffected.")) + " " : "") +
+    (ms.open_excluded_bonded ? escapeHtml(i18("myshare.excludedBonded", "Your savings put this identity in the bonded lane: free-lane blocks go to device-only collectors (unbond below 10 NADO to switch). The presence dividend is unaffected.")) + " " : "") +
     `${i18("myshare.weight", "Your open-lane weight:")} <b>${myOpen}</b> / ${totOpen} (${sharePct}% ${i18("myshare.ofFree", "of the free lane")}). ` +
-    `${i18("myshare.openReg", "Open registry:")} ${openReg} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
+    `${i18("myshare.openReg", "Open registry:")} ${openReg} ${i18("lane.miners", "collectors")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
     `${i18("myshare.bondReg", "Savings registry:")} ${bondReg}.`;
 
   // Dynamic "(you)" marker: you're in the FREE lane iff you have open-lane weight (registered + present),
@@ -6142,8 +6142,8 @@ function setAutoBondPct(pct) {
   try { localStorage.setItem(LS_AUTOBOND, String(pct)); } catch (e) {}
   const note = $("autoBondNote");
   if (note) note.textContent = pct
-    ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of new mining rewards each epoch.")}`
-    : i18("autobond.off", "Off — mining rewards stay in your spendable balance.");
+    ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of new collecting rewards each epoch.")}`
+    : i18("autobond.off", "Off — collecting rewards stay in your spendable balance.");
   // keep BOTH controls (Stake tab + mining card) in sync, without clobbering the one being typed into
   for (const id of ["autoBondPct", "autoBondPctMine"]) {
     const el = $(id);
@@ -6210,7 +6210,7 @@ async function maybeAutoBond(acc, ms) {
       // wait for THIS to land before the next, and remember what it consumed so a timeout can undo it
       state.autoBondPending = { target: bonded + toBond, epoch, consumed };
       state.autoBondBaseline += consumed;
-      log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} newly mined) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
+      log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} newly collected) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
       refreshDashboard().catch(() => {});
     } else {
       const m = res.data && (res.data.message || JSON.stringify(res.data));
@@ -6511,7 +6511,7 @@ async function shareZpayLink() {
 
 // Share the MINER itself (the site URL) — the growth loop: whoever opens it can mine + share it again.
 async function shareMiner() {
-  sdkShare(shareUrl(), i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), $("btnShareMiner"));
+  sdkShare(shareUrl(), i18("share.msg", "Collect NADO in your browser — no install, no signup. Open and go:"), $("btnShareMiner"));
 }
 
 /* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */
@@ -6808,7 +6808,7 @@ async function exLoadOverview() {
       ["OPEN lane", `${num(ms.open_registry_size)} miners · ${num(ms.k_open)}/${num(ms.epoch_length)} slots`],
       ["BONDED lane", `${num(ms.bonded_registry_size)} miners · ${num(ms.total_bonded_shares)} shares`],
     ]);
-  } catch { $("exMining").innerHTML = `<div class="faint small">${i18("ex.miningUnavail", "mining status unavailable")}</div>`; }
+  } catch { $("exMining").innerHTML = `<div class="faint small">${i18("ex.miningUnavail", "collecting status unavailable")}</div>`; }
 }
 async function exLoadRecent() {
   try {
@@ -6895,7 +6895,7 @@ function exLanes(a) {
   const open = !!a.registered, saved = BigInt(a.bonded ?? 0) >= B_MIN_RAW;
   if (open && saved) return i18("ex.regBoth", "yes — OPEN + SAVINGS lane");
   if (saved) return i18("ex.regBonded", "savings lane only (bonded, not registered)");
-  if (open) return i18("ex.regYes", "yes (OPEN-lane miner)");
+  if (open) return i18("ex.regYes", "yes (OPEN-lane collector)");
   return i18("badge.no", "no");
 }
 // Reserved names whose coins are HELD SOMEWHERE ELSE: {name: [holder, exec-ledger key]}. The explorer
@@ -7788,7 +7788,7 @@ async function renderStats() {
   } catch {}
   const addStat = (label, val, tipText) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; if (tipText) d.title = tipText; headFrag.appendChild(d); };
   addStat(i18("stats.tip", "Height"), tip != null ? tip : "—");
-  if (ms) { addStat(i18("stats.present", "Present miners"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings miners"), ms.bonded_registry_size ?? "—"); }
+  if (ms) { addStat(i18("stats.present", "Present collectors"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings collectors"), ms.bonded_registry_size ?? "—"); }
   try { const pool = await (await fetch(relayBase() + "/get_account?address=dividend", { cache: "no-store" })).json(); addStat(i18("stats.pool", "Dividend pool"), rawToNado(BigInt(pool.balance || 0)) + " NADO"); } catch {}
   // LIVE consensus gauges (/daily_stats .now — relay-local): null until the quorum forms
   try {
@@ -9702,7 +9702,7 @@ function wireEvents() {
   if ($("btnHwRemote")) $("btnHwRemote").onclick = () => {
     state.hwDevice = null; state.attestVia = "remote"; state.tapArmed = false;
     try { localStorage.setItem("nado_attest_via", "remote"); } catch (e) {}
-    log("info", i18("remote.on", "This wallet will be vouched for by another device. On that device open Mining → \"Attest another wallet or node\" and paste: {a}", { a: state.wallet ? state.wallet.address : "" }));
+    log("info", i18("remote.on", "This wallet will be vouched for by another device. On that device open Collecting → \"Attest another wallet or node\" and paste: {a}", { a: state.wallet ? state.wallet.address : "" }));
     if (!state.mining) startMining();
   };
   try { if (localStorage.getItem("nado_attest_via") === "remote") state.attestVia = "remote"; } catch (e) {}
@@ -10018,7 +10018,7 @@ async function boot() {
     // one-per-(address,epoch) and won't re-register an already-registered (lease-valid) identity. NEVER in the
     // hidden signer service — that would spin up a duplicate miner in an invisible iframe.
     if (!BGSVC && localStorage.getItem(LS_MINING) === "1") {
-      log("info", i18("log.resuming", "Resuming mining after refresh (no re-click needed)…"));
+      log("info", i18("log.resuming", "Resuming collecting after refresh (no re-click needed)…"));
       startMining();
       resumedMining = true;
     }
@@ -10126,7 +10126,7 @@ async function initNetTag() {
   if ($("leaseWarn")) {
     $("leaseWarn").textContent = i18("lease.short", "Renews only while this wallet is open and unlocked.");
     const full = i18("lease.warn",
-      "Mining stays eligible until the lease expires. Reopen and unlock this wallet before then — it renews only while it is open and unlocked (a phone may suspend a background tab); a saved seed phrase does not renew itself.");
+      "Collecting stays eligible until the lease expires. Reopen and unlock this wallet before then — it renews only while it is open and unlocked (a phone may suspend a background tab); a saved seed phrase does not renew itself.");
     const h = document.querySelector('#leaseWrap .hint'); if (h) h.title = (h.title || "") + "\n\n" + full;
   }
   await refreshNetIdentity();

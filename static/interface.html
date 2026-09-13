@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
 <meta name="color-scheme" content="dark" />
-<title>NADO Interface — wallet, miner & explorer in your browser</title>
+<title>NADO Interface — wallet, collector & explorer in your browser</title>
 <meta name="description" content="Your NADO wallet, miner, block explorer and shielded pool in one page — no install, no signup. Mine from your phone, send post-quantum transactions and fully private zk-STARK transfers." />
 <meta name="robots" content="index, follow" />
 <link rel="canonical" href="https://get.nadochain.com/" />
@@ -99,13 +99,13 @@
     <h2 data-i18n="boot.title">Startup error</h2>
     <div class="warnbox danger" id="bootErrorMsg"></div>
     <p class="small dim" data-i18n-html="boot.msg">This page loads its crypto (blake2b + ML-DSA-44 post-quantum signatures) from a public CDN over the
-      network. If you are offline or the CDN is blocked, mining cannot run.</p>
+      network. If you are offline or the CDN is blocked, collecting cannot run.</p>
   </div>
 
   <!-- ONBOARDING -->
   <div id="onboard" class="card hidden">
     <h2 data-i18n="onboard.title">Get started</h2>
-    <p class="small dim" data-i18n-html="onboard.intro">Generate a brand-new mining identity (an ML-DSA-44 post-quantum keypair) or import an
+    <p class="small dim" data-i18n-html="onboard.intro">Generate a brand-new collecting identity (an ML-DSA-44 post-quantum keypair) or import an
       existing private key. Everything happens locally in your browser — your private key never
       leaves this device.</p>
     <div class="row mt">
@@ -126,7 +126,7 @@
   <!-- NEW KEY SAVE PROMPT -->
   <div id="savePrompt" class="card hidden">
     <h2 data-i18n="save.title">⚠ Save your private key</h2>
-    <div class="warnbox danger" data-i18n-html="save.warn">This key controls your mining rewards. Back up <b>either</b> the 24-word recovery phrase <b>or</b> the raw private key below — save it somewhere safe. Anyone who has it controls your coins, and if you lose both there is no way to recover.</div>
+    <div class="warnbox danger" data-i18n-html="save.warn">This key controls your collecting rewards. Back up <b>either</b> the 24-word recovery phrase <b>or</b> the raw private key below — save it somewhere safe. Anyone who has it controls your coins, and if you lose both there is no way to recover.</div>
     <label class="mt" data-i18n="save.mnemonic">🧠 Recovery phrase (24 words) — the easy backup</label>
     <div class="addr-box"><span class="a mono" id="newMnemonic" style="line-height:1.7"></span>
       <button class="copy" data-copy="newMnemonic" data-i18n="btn.copy">Copy</button></div>
@@ -148,9 +148,9 @@
     </div>
     <div class="row mt">
       <button id="btnConfirmSave" class="primary pulse-ready" disabled data-i18n="save.continue">Continue → store on this device</button>
-      <p class="small faint mt" data-i18n="save.deviceNote">Mining identities must prove they run on a real phone. Right after this step the wallet asks your device to attest itself; a computer, VM or emulator cannot, and will not be able to mine once the rule is active.</p>
+      <p class="small faint mt" data-i18n="save.deviceNote">Collecting identities must prove they run on a real phone. Right after this step the wallet asks your device to attest itself; a computer, VM or emulator cannot, and will not be able to collect once the rule is active.</p>
     </div>
-    <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so mining can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
+    <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so collecting can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
   </div>
 
   <!-- UNLOCK (shown when an encrypted wallet is locked) -->
@@ -291,11 +291,11 @@
 
   <!-- MINING -->
   <div id="mining" class="card hidden" data-tab="wallet">
-    <h2 data-i18n="mining.title">Mining</h2>
+    <h2 data-i18n="mining.title">Collecting</h2>
     <!-- ONE BUTTON (operator, 2026-09-08): Start mining registers the device itself when a lease is needed — the press arms
          the one device prompt. Renew sits beside it, shown only inside the fidelity-earning window. -->
     <div class="row" style="align-items:stretch">
-      <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
+      <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start collecting</button>
       <button id="btnRenewLease" class="accent" data-i18n="lease.renew" style="display:none;flex:0 0 auto;padding:0 18px" disabled>Renew</button>
     </div>
     <!-- NO CEREMONY, BUT NOT NO BACKUP (operator 2026-09-13: "just generate a wallet by default and show them
@@ -384,7 +384,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     </div>
 
     <div class="stat-grid mt">
-      <div class="stat" data-i18n-title="tip.status" title="STATUS — what this wallet is doing right now. Mining means the identity is in the current epoch's registry and is drawn for blocks; the dot pulses for as long as that is true. Registering means a device statement is on its way to a block. Idle means nothing is running here.">
+      <div class="stat" data-i18n-title="tip.status" title="STATUS — what this wallet is doing right now. Collecting means the identity is in the current epoch's registry and is drawn for blocks; the dot pulses for as long as that is true. Registering means a device statement is on its way to a block. Idle means nothing is running here.">
         <div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
       <!-- WHAT VOUCHES FOR THIS IDENTITY, beside the other cartouches rather than only in a sentence
            further down. The icon distinguishes the device classes at a glance and the handle underneath
@@ -396,10 +396,10 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       </div>
       <div class="stat" data-i18n-title="tip.epoch" title="CURRENT EPOCH — the chain's 60-block accounting period. Registry membership, dividend weight and fidelity are all counted per epoch, so a lease renewed inside one epoch counts once.">
         <div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
-      <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
-        <div class="label" data-i18n="mine.eta">Expected time to mine</div><div class="value sm" id="mineEta">—</div></div>
-      <div class="stat" data-i18n-title="tip.locked" title="MINING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps mining until it lapses (36 h). Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
-        <div class="label" data-i18n="mine.locked">Mining while locked</div><div class="value sm" id="mineLocked">—</div></div>
+      <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO COLLECT — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
+        <div class="label" data-i18n="mine.eta">Expected time to collect</div><div class="value sm" id="mineEta">—</div></div>
+      <div class="stat" data-i18n-title="tip.locked" title="COLLECTING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps collecting until it lapses (36 h). Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
+        <div class="label" data-i18n="mine.locked">Collecting while locked</div><div class="value sm" id="mineLocked">—</div></div>
     </div>
 
     <!-- PRESENCE LEASE: when it lapses, and a MANUAL renew for the fidelity-earning window. The automatic
@@ -424,8 +424,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     </div>
 
     <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
-    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">
-      <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards</label>
+    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while collecting, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">
+      <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond collecting rewards</label>
       <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
       <span class="small faint">%</span>
     </div>
@@ -448,7 +448,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
            hidden-toggle so _applyMineVisibility and the tab switcher still own when it appears; it has
            simply stopped pretending to be a separate subject. -->
     <div id="mineCard" class="mt hidden">
-        <h3 data-i18n="mine.title" style="margin:18px 0 8px">Mining rewards
+        <h3 data-i18n="mine.title" style="margin:18px 0 8px">Collecting rewards
           <span class="pill"><span id="mineRange" class="badge idle" data-i18n="mine.range">last 7 days</span></span></h3>
       <div class="mine-head">
         <div class="mine-total"><span id="mineTotal">—</span> <small>NADO</small></div>
@@ -471,13 +471,13 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <h2 data-i18n="lanes.title">Selection lanes</h2>
     <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
     <div class="stat-grid">
-      <div class="stat" data-i18n-title="tip.openLane" title="Registered, present miners competing for the ~30% free lane">
+      <div class="stat" data-i18n-title="tip.openLane" title="Registered, present collectors competing for the ~30% free lane">
         <div class="label" data-i18n="lanes.open">Open lane</div>
-        <div class="value sm"><span id="laneOpenCount">—</span> <span data-i18n="lane.miners">miners</span></div></div>
+        <div class="value sm"><span id="laneOpenCount">—</span> <span data-i18n="lane.miners">collectors</span></div></div>
       <div class="stat" data-i18n-title="tip.bondedLane" title="Bonded-stake validators competing for the ~70% stake lane">
         <div class="label" data-i18n="lanes.bonded">Bonded lane</div>
         <div class="value sm"><span id="laneBondedCount">—</span> <span data-i18n="lane.validators">validators</span></div></div>
-      <div class="stat" data-i18n-title="tip.openWeight" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
+      <div class="stat" data-i18n-title="tip.openWeight" title="Total open-lane selection weight across all present collectors. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
         <div class="label" data-i18n="lanes.openWeight">Open weight</div>
         <div class="value sm" id="laneOpenWeight">—</div></div>
       <div class="stat" data-i18n-title="tip.bondedShares" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (10 NADO / B_MIN per share).">
@@ -555,7 +555,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <!-- SHARE THE MINER: a QR of the site URL so anyone who scans opens the miner and starts mining. -->
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
     <h2 data-i18n="share.title">📣 Share NADO</h2>
-    <p class="small dim" data-i18n="share.intro">Anyone who scans this opens the miner and can start mining in one tap — no install, no signup. This is how NADO spreads: share the link.</p>
+    <p class="small dim" data-i18n="share.intro">Anyone who scans this opens the collector and can start collecting in one tap — no install, no signup. This is how NADO spreads: share the link.</p>
     <div class="qr-wrap">
       <canvas id="shareQR" class="qr hidden" width="260" height="260"></canvas>
       <div id="shareQRNote" class="small faint hidden" data-i18n="share.qrNote">QR generator unavailable — copy the link below.</div>
@@ -784,7 +784,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="warnbox mt" data-i18n-html="stake.warn">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
 
     <label class="mt" data-i18n="stake.bondAmount">Bond amount (NADO) — move spendable → bonded
-      <span class="hint" data-i18n-title="tip.bondAmt" title="Locks spendable balance as bonded stake to mine the bonded lane. 10 NADO buys one bonded selection share.">ⓘ</span>
+      <span class="hint" data-i18n-title="tip.bondAmt" title="Locks spendable balance as bonded stake to collect the bonded lane. 10 NADO buys one bonded selection share.">ⓘ</span>
     </label>
     <input id="bondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
     <div class="small faint mt" data-i18n="send.fee">Network fee: <span id="bondFeeInfo" class="mono">—</span>
@@ -796,14 +796,14 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          node's unattended auto-bond (core_loop.maybe_auto_bond): once per epoch, dust-floored, stops at
          (no cap: bonded weight is linear in stake). Applies in THIS browser while the tab is mining. -->
     <div class="hint-banner mt" style="display:block">
-      <label style="margin:0" data-i18n="stake.autobond">Auto-bond mining rewards
-        <span class="hint" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while mining, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">ⓘ</span>
+      <label style="margin:0" data-i18n="stake.autobond">Auto-bond collecting rewards
+        <span class="hint" data-i18n-title="tip.autobond" title="Automatically bond this percentage of the block rewards you earn while collecting, compounding your savings-lane weight hands-free. Weight is stake, one for one. 0 = off.">ⓘ</span>
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
         <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:96px" />
         <span class="faint" data-i18n="stake.autobondSuffix">% of new rewards → bonded</span>
       </div>
-      <div id="autoBondNote" class="small faint mt">On — bonding 80% of new mining rewards each epoch (auto-compounding the bonded lane). Set 0 to keep rewards spendable.</div>
+      <div id="autoBondNote" class="small faint mt">On — bonding 80% of new collecting rewards each epoch (auto-compounding the bonded lane). Set 0 to keep rewards spendable.</div>
     </div>
 
     <label class="mt" data-i18n="stake.unbondAmount">Unbond amount (NADO) — move bonded → spendable
@@ -894,7 +894,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="mt"><div class="label" data-i18n="stats.feesDay">Fees burned per day (NADO, last 30 days)</div>
       <svg id="chartFeesDay" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg>
       <div class="small faint" id="feesDaySub">—</div></div>
-    <div class="mt"><div class="label" data-i18n="stats.minersDay">Mining participation per day — present miners at daily peak</div>
+    <div class="mt"><div class="label" data-i18n="stats.minersDay">Collecting participation per day — present collectors at daily peak</div>
       <svg id="chartMinersDay" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg>
       <div class="small faint" id="minersDaySub">—</div></div>
     <div class="mt"><div class="label" data-i18n="stats.peersDay">Network size per day — peers this relay knew at daily peak</div>
@@ -969,7 +969,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
   <!-- SETTLEMENT (L2 settlement-layer status, read-only) -->
   <div id="settlementCard" class="card hidden" data-tab="settlement">
     <h2>⚖️ Settlement (L2)</h2>
-    <div class="faint small">NADO settles a separate execution layer: bonded miners attest the L2 state root to L1, and it becomes canonical once 2/3 of bonded stake agrees. This shows the settled root, this node's execution tip, and your role as a miner.</div>
+    <div class="faint small">NADO settles a separate execution layer: bonded collectors attest the L2 state root to L1, and it becomes canonical once 2/3 of bonded stake agrees. This shows the settled root, this node's execution tip, and your role as a collector.</div>
     <div class="mt"><div class="label">L1 settled root</div><div id="settleL1Root" class="mono">—</div></div>
     <div class="mt"><div class="label">Settled at block</div><div id="settleL1Cursor">—</div></div>
     <div class="mt"><div class="label">Execution tip (this node)</div><div id="settleExecCursor">—</div></div>
@@ -1183,7 +1183,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
   <div id="exOverviewCard" class="card hidden" data-tab="explore">
     <div class="ex-grid2">
       <div><h2 data-i18n="explore.network">Network</h2><div id="exNetwork"><div class="faint small">loading…</div></div></div>
-      <div><h2 data-i18n="explore.mining">Mining</h2><div id="exMining"><div class="faint small">loading…</div></div></div>
+      <div><h2 data-i18n="explore.mining">Collecting</h2><div id="exMining"><div class="faint small">loading…</div></div></div>
     </div>
   </div>
   <div id="exRecentCard" class="card hidden" data-tab="explore">
@@ -1276,7 +1276,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          lets the wallet fail over on its own. The URL field below stays for a relay that is not advertised. -->
     <label data-i18n="settings.relaySel">Relay</label>
     <select id="relaySel" style="width:100%"></select>
-    <label class="mt" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="relayAuto" checked /> <span data-i18n="settings.relayAuto">Switch relay automatically if mine stops answering</span></label>
+    <label class="mt" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="relayAuto" checked /> <span data-i18n="settings.relayAuto">Switch relay automatically if collect stops answering</span></label>
     <p class="small faint" data-i18n="settings.relayAutoNote">Only the backend changes — this page, its code and your key never move. A failover relay is used only if its finalized chain matches your home relay, re-checked every 5 minutes, and alias payments are cross-checked. Off: the wallet shows offline instead.</p>
     <label class="mt" data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
     <div class="row">
@@ -1363,7 +1363,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
   </div>
 
   <footer data-i18n-html="footer">
-    NADO light-miner · the chain stays on full nodes; this page only generates keys, registers, and renews
+    NADO light collector · the chain stays on full nodes; this page only generates keys, registers, and renews
     your presence lease. Your reward lands on your address because a relay builds the block crediting it.
   </footer>
 </div>
