@@ -603,7 +603,35 @@ fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
              max_block: i64) -> Result<(), String> {
     let body = json!({"address": address, "id": id, "device": device, "max_block": max_block})
         .to_string();
-    relay.post_json("/tpm_proof_drop", &body)?;
+    // LEAVE IT ON EVERY RELAY, NOT JUST OURS. The drop store is a per-node IN-MEMORY dict — never
+    // persisted, never gossiped (ops/node_attest.py) — and the wallet looks for the proof on whichever
+    // relay IT is using. Those are not the same host: this helper now picks the most CURRENT relay while
+    // a browser defaults to get.nadochain.com and rotates on its own when that one stalls. So a proof
+    // dropped on one node was invisible to a wallet on another, and the owner pressed Renew against a
+    // relay that had never heard of their chip. Reported within the hour of shipping the relay choice.
+    //
+    // Broadcasting is cheap and safe: a statement is 1-8 KB, the store is bounded and expiring, and a drop
+    // is not a credential — consensus re-verifies the certify and the register is still signed by the
+    // wallet alone. One relay accepting is enough; we only fail if none did.
+    let mut accepted = 0usize;
+    let mut tried = 0usize;
+    for cand in relay_candidates() {
+        let r = match Relay::parse(&cand) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        tried += 1;
+        if r.post_json("/tpm_proof_drop", &body).is_ok() {
+            accepted += 1;
+        }
+    }
+    if accepted == 0 {
+        // Fall back to the relay this run used, so the error names a real failure rather than a silence.
+        relay.post_json("/tpm_proof_drop", &body)?;
+        accepted = 1;
+    }
+    println!("  {} {}", ok(".."),
+             dim(&format!("proof left on {accepted} of {tried} relays, so any wallet can find it")));
     println!();
     println!("  {} {}", ok("This PC's chip has vouched for"), crate::colour::id(address));
     // SAY WHETHER THERE IS ANYTHING TO CONFIRM. A wallet only collects a proof when it actually needs to

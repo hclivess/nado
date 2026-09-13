@@ -610,6 +610,32 @@ async function bindIsPermanent() {
 function bindDeviceName(cls) {
   return cls === "ledger" ? "Ledger" : cls === "trezor" ? "Trezor" : cls === "tpm" ? "Windows PC" : cls === "android-key" ? "phone" : (cls || "device");
 }
+/// The freshest usable proof the enrolment helper left for THIS address on the current relay, or null.
+///
+/// ONE READER, TWO CALLERS. The registration flow polled for a dropped proof; the lease RENEWAL flow did
+/// not, so an owner whose chip was enrolled by the helper pressed "Renew" and got a Windows Hello prompt —
+/// a ceremony that chip cannot answer, that cannot be dismissed, and that was never going to succeed. The
+/// proof they had just produced was sitting on the relay unread. Both paths now ask the same question here.
+///
+/// A drop is not a credential: consensus re-verifies the certify against the on-chain enrolment record and
+/// the register is still signed by this wallet alone, so collecting one is safe in any mode. The worst a
+/// junk drop can do is build a register that validation refuses — which is why every LIVE candidate is
+/// returned newest-first rather than only the newest (a stray drop parked on top used to block the real
+/// one underneath it).
+async function helperDrops(tipHint) {
+  try {
+    const r = await fetch(relayBase() + "/node_attest_pickup?sender=" + encodeURIComponent(state.wallet.address),
+                          { cache: "no-store" });
+    const d = await r.json();
+    const tipNow = Number(d.tip || tipHint || state.latest || 0);
+    const cands = Array.isArray(d.drops) ? d.drops : (d.drop ? [d.drop] : []);
+    // A drop is usable only while its max_block is still ahead of the tip: `register` lands EXACTLY at
+    // max_block, so one that has passed can never be included and must not be built on.
+    const live = cands.filter((b) => b && b.device && Number(b.max_block) > tipNow + 2);
+    live.reverse();
+    return live;
+  } catch (e) { return []; }
+}
 async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   // gen 25: the registration proof IS the device attestation (doc/device-attestation.md). The sequential-work
   // proof was retired at the betanet-7 reroll; `requiredT` and `onProgress` stay in the signature for callers.
@@ -629,6 +655,18 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   if (await bindIsPermanent()) {
     log("ok", i18("bind.renewNoTap", "Renewed without a prompt — this identity is bound for life to its hardware wallet."));
     return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), null);
+  }
+  // THE HELPER'S PROOF COUNTS FOR A RENEWAL, NOT ONLY A FIRST REGISTRATION. A chip enrolled by the
+  // enrolment helper is a LEASED binding, so it is not covered by the permanent branch above and used to
+  // fall straight through to WebAuthn — summoning a Windows Hello prompt that the chip cannot answer, on
+  // a machine whose owner had just produced a perfectly good proof with the helper. Ask for it first.
+  const drops = await helperDrops(targetBlock);
+  if (drops.length) {
+    const fresh = drops[0];
+    state.pendingDrops = drops.slice(1);
+    log("ok", i18("bind.renewFromHelper",
+        "Renewing with the proof from the enrolment helper — no prompt needed."));
+    return buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
   }
   const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
   if (!device) {
