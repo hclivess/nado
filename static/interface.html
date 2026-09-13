@@ -80,6 +80,9 @@
 </svg>
   <div>
     <h1 data-i18n="app.title">NADO Interface</h1>
+    <!-- THE WAY BACK TO THE PROJECT. The wallet had no link to its own website; a newcomer who arrived here
+         from a share had nowhere to read what NADO is. A domain is not translated. -->
+    <a class="site-link faint small" href="https://nadochain.com" target="_blank" rel="noopener">nadochain.com ↗</a>
   </div>
   <div class="conn">
     <div><span id="netTag" class="net-tag mono">…</span><span id="connDot" class="dot"></span><span id="connText" data-i18n="conn.connecting">connecting…</span></div>
@@ -271,7 +274,7 @@
       <div id="coinPileCap" class="small faint" style="margin-top:2px">—</div>
     </div>
 
-    <details class="mt">
+    <details class="mt" id="walReveal">
       <summary class="small dim" style="cursor:pointer" data-i18n="wallet.reveal">Reveal / export private key</summary>
       <div class="warnbox danger mt" data-i18n="wallet.neverShare">Never share this. Anyone with it owns your rewards.</div>
       <label class="small mt" data-i18n="wallet.mnemonic">Recovery phrase (24 words)</label>
@@ -295,6 +298,12 @@
       <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
       <button id="btnRenewLease" class="accent" data-i18n="lease.renew" style="display:none;flex:0 0 auto;padding:0 18px" disabled>Renew</button>
     </div>
+    <!-- NO CEREMONY, BUT NOT NO BACKUP (operator 2026-09-13: "just generate a wallet by default and show them
+         the landing page with the start mining button"). A first visit now creates the wallet silently and
+         lands here. The coins are real, so the one thing the old save screen protected against — losing the
+         key — survives as this single line: a reminder, not a gate, gone the moment the owner opens the backup
+         or downloads the key file. Filled by renderAutoWalletNote(). -->
+    <div id="autoWalletNote" class="hint-banner mt hidden" role="status"></div>
     <!-- HARDWARE WALLETS (static/hwattest.js): a Ledger (WebHID) or Trezor Safe (WebUSB) vouches for this identity
          instead of the phone/TPM — per-device factory certificates, bindable. Chrome/Edge/Brave on a computer. -->
     <!-- REAL DEVICE (doc/device-attestation.md): what this device proved to the network, right where mining

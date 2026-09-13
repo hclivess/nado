@@ -680,3 +680,7 @@ button.opt:hover:not(:disabled) { border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   #mineState.mining-now::before { animation: none; }
 }
+
+/* THE WAY BACK TO THE PROJECT (2026-09-13): a small link under the title, on every screen. */
+header.app .site-link { display:block; margin-top:2px; text-decoration:none; }
+header.app .site-link:hover { text-decoration:underline; }

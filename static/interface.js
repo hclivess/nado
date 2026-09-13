@@ -2320,6 +2320,10 @@ async function estimateSavingsApy() {
  * Wallet persistence
  * -------------------------------------------------------------------------------------------- */
 const LS_WALLET = "nado_miner_wallet";
+// A wallet the page created on first visit, without the save ceremony (boot()). The landing note stays
+// until the owner has SEEN a backup — opened Reveal / export or downloaded the key file — never on a timer.
+const LS_AUTO_WALLET = "nado_auto_wallet";
+const LS_BACKUP_DONE = "nado_backup_seen";
 const LS_RELAY = "nado_miner_relay";
 const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
 const LS_THEME = "nado_theme";              // persisted accent theme id ("" / "teal" = the default)
@@ -4896,6 +4900,32 @@ function signSplash(app) {
     document.body.appendChild(d);
   } catch (e) {}
 }
+// The owner has SEEN a backup: they opened Reveal / export, or downloaded the key file. That, and only
+// that, retires the first-visit note — never a timer, never a dismiss button that hides the one fact a
+// newcomer must hear once (the coins are real and the key is the only way back to them).
+function markBackupSeen() {
+  try { localStorage.setItem(LS_BACKUP_DONE, "1"); } catch (e) {}
+  show("autoWalletNote", false);
+}
+function renderAutoWalletNote() {
+  const el = $("autoWalletNote");
+  if (!el) return;
+  let auto = false, seen = false;
+  try { auto = localStorage.getItem(LS_AUTO_WALLET) === "1"; seen = localStorage.getItem(LS_BACKUP_DONE) === "1"; } catch (e) {}
+  if (!auto || seen) { show("autoWalletNote", false); return; }
+  el.innerHTML = escapeHtml(i18("onboard.autoNote",
+      "This wallet was created for you on this device. Back up its recovery phrase before it earns anything you would miss."))
+    + ' <a href="#" id="autoWalletBackup">' + escapeHtml(i18("onboard.autoNoteLink", "Show backup")) + '</a>';
+  const a = $("autoWalletBackup");
+  if (a) a.onclick = (e) => {
+    e.preventDefault();
+    const d = $("walReveal");
+    if (d) { d.open = true; d.scrollIntoView({ block: "start", behavior: "smooth" }); }
+    markBackupSeen();
+  };
+  show("autoWalletNote", true);
+}
+
 function showWalletUI() {
   try { renderDeviceStatus(); } catch (e) {}          // mining page: what this device proved (device attestation)
   try { nodeAttestInit(); } catch (e) {}              // mining page: "Attest a node you run" (ops/node_attest)
@@ -4905,6 +4935,7 @@ function showWalletUI() {
   show("savePrompt", false);
   show("unlockCard", false);
   show("tabbar", true);
+  renderAutoWalletNote();
   hdSync();                                          // anchor the HD layer to the loaded wallet (Main on a fresh load)
   authSync().then(() => { renderAccountBar(); renderAuth(); if (state.wallet) { $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address); $("recvAddr").textContent = state.wallet.address; } }).catch(() => {});
   renderAccountBar();
@@ -9728,7 +9759,7 @@ function wireEvents() {
   });
 
   // --- full-wallet wiring ---
-  $("btnDlKey").onclick = () => downloadKeyFile().catch(() => {});
+  $("btnDlKey").onclick = () => { markBackupSeen(); downloadKeyFile().catch(() => {}); };
   $("btnDlKeySave").onclick = () => {
     downloadKeyFile().catch(() => {});
     // key saved -> hand the onboarding pulse from Download to the "I have saved it" toggle
@@ -9991,6 +10022,22 @@ async function boot() {
       startMining();
       resumedMining = true;
     }
+  } else if (!BGSVC) {
+    // NO PRIVATE-KEY CEREMONY FOR A NEWCOMER (operator 2026-09-13): "just generate a wallet by default and
+    // show them the landing page with the 'start mining' button". A first visit used to land on a
+    // Generate/Import choice, then a save screen — phrase, raw key, download, an acknowledgement toggle,
+    // Continue — before anything worked. Now the wallet exists the moment the page does, and the first
+    // thing a person sees is Start mining. Everything the old screen offered is still one disclosure
+    // away (Wallet -> Reveal / export), Import is still reachable from Settings and the lock screen, and
+    // the key never leaves this browser — nothing about custody changed, only the order of the doors.
+    // The hidden signer service creates nothing: an iframe must never mint an identity of its own.
+    const fresh = newKeypair();
+    state.wallet = fresh;
+    persistWallet(fresh);
+    try { localStorage.setItem(LS_AUTO_WALLET, "1"); } catch (e) {}
+    showWalletUI();
+    log("info", i18("log.walletAuto", "A new wallet was created for you on this device: {a}", { a: fresh.address }));
+    refreshDashboard().catch(() => {});
   } else {
     enterOnboarding();
   }
