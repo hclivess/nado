@@ -78,19 +78,64 @@ fn relay_candidates() -> Vec<String> {
     out
 }
 
-/// The first relay that answers, so a blocked port or a dead host costs seconds rather than the run.
+/// How far a relay may trail the best height seen and still be used. An enrolment spans many blocks,
+/// so a few blocks of propagation lag is normal and irrelevant; hundreds mean the node is not
+/// participating in the chain this enrolment has to land on.
+const RELAY_STALE_BLOCKS: i64 = 120;
+
+/// Height a relay reports, or None when it does not answer or does not say.
+fn relay_height(r: &Relay) -> Option<i64> {
+    let text = r.get("/status").ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    v.get("latest_block_height").and_then(|x| x.as_i64())
+}
+
+/// The most CURRENT relay that answers — not merely the first one that does.
+///
+/// ANSWERING IS NOT THE SAME AS PARTICIPATING (2026-09-13). This took the first relay to answer
+/// `/status`, and a wedged node answers that instantly, correctly-shaped, forever. On the day this was
+/// written get.nadochain.com — DEFAULT_RELAYS[0], the first thing every run tries — sat 5,200 blocks
+/// behind the chain for eleven hours while answering every request in milliseconds. Every enrolment
+/// started that day picked it, and the enrolment is a four-message exchange in which each message must
+/// LAND before the next is sent: against a relay whose mempool never produces, the run cannot progress
+/// and cannot say why.
+///
+/// So probe the candidates, read what height each is actually at, and take the highest. Relays that
+/// trail it by more than RELAY_STALE_BLOCKS are named and skipped rather than silently preferred.
 fn pick_relay() -> String {
     let cands = relay_candidates();
+    let mut best: Option<(String, i64)> = None;
+    let mut seen: Vec<(String, i64)> = Vec::new();
     for cand in &cands {
-        if let Ok(r) = Relay::parse(cand) {
-            if r.get("/status").is_ok() {
-                return cand.clone();
+        let r = match Relay::parse(cand) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        match relay_height(&r) {
+            Some(h) => {
+                seen.push((cand.clone(), h));
+                if best.as_ref().map_or(true, |(_, bh)| h > *bh) {
+                    best = Some((cand.clone(), h));
+                }
             }
-            println!("  {} {}", crate::colour::warn(".."),
-                     crate::colour::dim(&format!("{cand} did not answer; trying the next relay")));
+            None => println!("  {} {}", warn(".."),
+                             dim(&format!("{cand} did not answer; trying the next relay"))),
         }
     }
-    DEFAULT_RELAYS[0].to_string()
+    let (chosen, top) = match best {
+        Some(b) => b,
+        // Nothing answered at all. Keep the compiled-in default so the caller's own error path reports
+        // the real failure (no network / everything blocked) rather than this function inventing one.
+        None => return DEFAULT_RELAYS[0].to_string(),
+    };
+    for (cand, h) in &seen {
+        if top - *h > RELAY_STALE_BLOCKS {
+            println!("  {} {}", warn(".."),
+                     dim(&format!("{cand} is {} blocks behind the chain — skipping it", top - h)));
+        }
+    }
+    println!("  {} {}", ok(".."), dim(&format!("using {chosen} at block {top}")));
+    chosen
 }
 
 const POLL: Duration = Duration::from_secs(10);
@@ -103,6 +148,11 @@ const POLL: Duration = Duration::from_secs(10);
 /// re-draws its challengers, so a client racing itself would reset the very set it is waiting on. The
 /// chain refuses the duplicates, but only after they have cost a round trip each.
 const AWAIT_INCLUSION: Duration = Duration::from_secs(90);
+
+/// How long to watch for an auto-signing wallet to collect a handed-back proof before telling the owner
+/// to do it by hand. Long enough for a couple of blocks plus the wallet's own poll interval, short
+/// enough that someone whose wallet is closed is not left staring at a spinner.
+const WALLET_PICKUP_WAIT: Duration = Duration::from_secs(60);
 
 /// HOW OFTEN TO SAY SOMETHING WHILE WAITING ON A DRAW. There is deliberately no "give up and rotate the
 /// attestation key" path any more; see the waiting branch below for why rotating cannot work.
@@ -531,6 +581,12 @@ fn submit_built(relay: &Relay, keys: &tx::Keys, mut t: Map<String, Value>,
     let body = serde_json::to_string(&Value::Object(t)).map_err(|e| e.to_string())?;
     let reply = relay.post_json("/submit_transaction", &body)?;
     if reply.contains("\"result\": true") || reply.contains("\"result\":true") {
+        // ACCEPTED IS NOT LANDED. `result: true` means one relay put it in its MEMPOOL — it says nothing
+        // about whether any block ever carried it. A relay that is not producing (wedged, or far behind)
+        // accepts happily and the transaction simply evaporates at max_block, which is how this program
+        // could print a success line for a registration that never existed. The chain is the only
+        // authority on whether a transaction happened, so ask it.
+        await_inclusion(relay, &txid, max_block);
         Ok(())
     } else {
         // PRINT THE REFUSAL, DO NOT ONLY RETURN IT. Two separate bugs presented to a remote tester as a
@@ -565,11 +621,86 @@ fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
         println!("  That address is ALREADY registered with a device and mining, so there is nothing to");
         println!("  confirm right now. The proof has been left on the relay anyway: your wallet will pick");
         println!("  it up by itself if the registration ever lapses and needs renewing.");
+        return Ok(());
+    }
+    // SOME WALLETS SIGN IT THEMSELVES (operator 2026-09-13). A wallet that is open and set to sign
+    // automatically collects this proof and registers within a block or two — so sending its owner off to
+    // "open your wallet and confirm" is an instruction that was already carried out, for a control that
+    // will have disappeared by the time they look. Watch the chain for a short while first and let it
+    // answer the question; only ask the person to act if nobody did.
+    println!("  The proof is on the relay. Watching for your wallet to pick it up…");
+    let started = Instant::now();
+    let mut registered = false;
+    while started.elapsed() < WALLET_PICKUP_WAIT {
+        sleep(POLL);
+        let now_live = relay.get(&format!("/mining_status?address={address}"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.get("registered_present").and_then(|x| x.as_bool()))
+            .unwrap_or(false);
+        if now_live {
+            registered = true;
+            break;
+        }
+        println!("  {} {}", dim(".."), dim(&format!("waiting ({}s)", started.elapsed().as_secs())));
+    }
+    if registered {
+        println!();
+        println!("  {} {}", ok("Your wallet signed it and the registration is on chain."),
+                 dim("Nothing further to do."));
     } else {
+        println!();
         println!("  Open your wallet and confirm the registration — it must sign that itself, because a");
         println!("  registration is signed by the identity it registers. The proof is waiting for it.");
     }
     Ok(())
+}
+
+/// Watch the chain until `txid` is in a block, or until `max_block` passes and it never can be.
+///
+/// Reports rather than fails: by the time this runs the transaction is signed and accepted, and the
+/// caller's next step is usually to keep waiting anyway. What it removes is the SILENCE — an owner who
+/// is told "submitted" and then watches nothing happen has no way to tell a slow chain from a dead
+/// relay, and neither did this program.
+fn await_inclusion(relay: &Relay, txid: &str, max_block: i64) -> bool {
+    let started = Instant::now();
+    loop {
+        if let Ok(text) = relay.get(&format!("/get_transaction?txid={txid}")) {
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                // EXISTENCE IS THE CONFIRMATION. /get_transaction reads the MINED-tx index, so a hit
+                // means a block carried it; there is no block_number in the reply to test (checked
+                // against the live node — the keys are the transaction's own fields). A miss answers
+                // {"txid": "Not found"}, so the discriminator is whether `sender` came back, not
+                // whether the request succeeded.
+                let landed = v.get("sender").and_then(|x| x.as_str()).is_some()
+                    && v.get("txid").and_then(|x| x.as_str()) == Some(txid);
+                if landed {
+                    println!("  {} {}", ok(".."), dim("confirmed on chain"));
+                    return true;
+                }
+            }
+        }
+        let tip = relay.get("/status").ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.get("latest_block_height").and_then(|x| x.as_i64()))
+            .unwrap_or(0);
+        if tip > max_block {
+            // PAST ITS DEADLINE AND NOT IN A BLOCK. `register` lands exactly at max_block, so once the
+            // tip is beyond it the transaction can never be included by anyone. Say so plainly; the
+            // alternative is an owner waiting on something the chain has already discarded.
+            println!("  {} {}", bad("!!"),
+                     format!("the transaction was accepted by the relay but never reached a block \
+                              (deadline {max_block}, chain is at {tip})"));
+            return false;
+        }
+        if started.elapsed() > AWAIT_INCLUSION {
+            println!("  {} {}", warn(".."),
+                     dim(&format!("not in a block yet after {}s (deadline {max_block}, chain at {tip}) \
+                                   — still waiting", started.elapsed().as_secs())));
+            return false;
+        }
+        sleep(POLL);
+    }
 }
 
 fn chain_id(relay: &Relay) -> Result<String, String> {
