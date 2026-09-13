@@ -2657,8 +2657,16 @@ class CoreClient(threading.Thread):
                         # 5,100 blocks behind, oscillating build-refuse-rollback while this node is
                         # get.nadochain.com, the wallet's default relay.
                         if not self.memserver.terminate and self._state_diverged_reject():
-                            self._heal_state_divergence()
-                            return True              # pass ends; the next one re-applies cleanly
+                            if self._heal_state_divergence():
+                                return True          # pass ends; the next one re-applies cleanly
+                            # THE CHEAP REPAIR IS SPENT — escalate, never freeze. Returning here regardless
+                            # made the exhausted case its own wedge: the donor is never struck (correctly)
+                            # and nothing else runs either, so the node sits still forever. A corruption
+                            # deeper than the heal window wants the state REPLACED, which is what
+                            # force_reanchor does: non-destructive (our blocks are orphaned, not deleted)
+                            # and it selects by strictly-heaviest weight, so only the wrong side can act.
+                            if self._reanchor_after_failed_heal():
+                                return True
                         # INVALID/FORGED sync block (verify failed): the advertised heavier tip is
                         # not backed by a valid chain — exclude it, or this loop re-enters forever
                         # on the same bad advertisement (Sybil-stall). Auto-cleared, so a transient
@@ -2711,10 +2719,18 @@ class CoreClient(threading.Thread):
         Rolling indefinitely would walk the node down to its own finality floor one block at a time and
         call that a repair. Returns True when a block was reverted."""
         height = int(self.memserver.latest_block["block_number"])
-        # Count attempts AT A HEIGHT, not globally: healing one block is a success, and the counter must
-        # not carry a stale total into the next incident. Re-diverging at a NEW height is a fresh attempt.
+        # COUNT THE BURST, NOT THE HEIGHT (2026-09-13, same day, second bug). Keying the counter on the
+        # CURRENT height reset it after every successful rollback: each revert lands on a new height, so
+        # every attempt logged "1/3" and the bound never bit once. Live, that walked this node DOWN 16
+        # blocks in 70 seconds toward its finality floor, one block per pass, announcing a fresh attempt
+        # each time — the exact "walked down to the floor one rollback at a time while calling it a repair"
+        # failure the docstring above claims to prevent.
+        #
+        # The burst is anchored at the height where it STARTED and ends only when the tip climbs back
+        # ABOVE that — which is the only evidence the heal actually worked. Rolling further down is never
+        # progress, so it never resets the count.
         tracker = getattr(self, "_state_heal", None)
-        if not tracker or tracker[0] != height:
+        if not tracker or height > tracker[0]:
             tracker = (height, 0)
         if tracker[1] >= STATE_HEAL_MAX_DEPTH:
             self._rec_fail("state divergence deeper than the heal window — escalating to re-anchor",
@@ -2765,6 +2781,32 @@ class CoreClient(threading.Thread):
                             f"(attempt {tracker[1] + 1}/{STATE_HEAL_MAX_DEPTH}) — NOT striking the donor, "
                             f"this failure is ours")
         return True
+
+    def _reanchor_after_failed_heal(self) -> bool:
+        """Replace the state wholesale when reverting our own tip could not repair it.
+
+        Reached only once _heal_state_divergence has spent its window (or the floor refused it), which
+        means the corruption is older than the blocks we may legally revert. Re-deriving it is not an
+        option — that is the h4260 lesson — so the remedy is the one that does not depend on our state
+        being right: import a quorum-vouched snapshot of the heaviest chain.
+
+        NON-DESTRUCTIVE, unlike the purge escape: our blocks are orphaned in the store rather than
+        deleted, and every imported tail block is fully re-verified. Weight breaks the symmetry, so only
+        the side that is actually wrong can find a donor and act. Rate-limited by the ordinary re-anchor
+        cooldown so a node that cannot import does not hammer its peers once per pass."""
+        now = get_timestamp_seconds()
+        if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
+            return False
+        self._last_reanchor_ts = now
+        self.logger.warning("State divergence survived the rollback window — re-anchoring onto the "
+                            "strictly-heaviest chain (our blocks are orphaned, not deleted)")
+        if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=False):
+            self.memserver.rollbacks = 0
+            self._fork_state_cache = None          # identity changed; the cached verdict is stale
+            self._state_heal = None                # a new state deserves a fresh heal window
+            return True
+        self._rec_fail("re-anchor after failed state heal found no donor")
+        return False
 
     def _rollback_one_for_reorg(self, ancestor=None, budget=None) -> bool:
         """REORG leg of emergency sync: the MEASURED verdict says our chain diverged (see emergency_mode

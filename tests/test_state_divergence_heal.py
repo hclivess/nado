@@ -145,6 +145,22 @@ for _ in range(STATE_HEAL_MAX_DEPTH + 3):
         attempts += 1
 check(attempts == STATE_HEAL_MAX_DEPTH,
       f"it rolls back at most STATE_HEAL_MAX_DEPTH times at one height (got {attempts})")
+
+# THE WALK-DOWN. Shipped to production and caught there, not here: a rollback SUCCEEDS and lands on a new
+# height, and keying the attempt counter on the current height reset it every single time. Every attempt
+# logged "1/3" and the bound never bit — this node descended 16 blocks in 70 seconds toward its finality
+# floor, one block per pass. The burst must be anchored where it STARTED and end only when the tip climbs
+# back ABOVE that, because rolling further down is never evidence of progress.
+ms = FakeMemserver(69284, STATE_ERR)
+core = FakeCore(ms, None)
+walked = 0
+for _ in range(STATE_HEAL_MAX_DEPTH + 12):
+    if run_with_rollback(core, ok_rollback):     # each call lands the tip one lower, as the real one does
+        walked += 1
+check(walked == STATE_HEAL_MAX_DEPTH,
+      f"a DESCENDING divergence is bounded too — no walk to the finality floor (reverted {walked})")
+check(ms.latest_block["block_number"] == 69284 - STATE_HEAL_MAX_DEPTH,
+      f"...so the tip falls by at most the window (got {ms.latest_block['block_number']})")
 check(any("re-anchor" in w for w in core.rec_fail),
       "then it escalates to the re-anchor ladder instead of walking down to the floor")
 check(core.struck == 0, "still no peer struck while escalating")
