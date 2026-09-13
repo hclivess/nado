@@ -101,5 +101,29 @@ try:
 finally:
     CL.kv_ops, BO.get_block_number = saved_kv, saved_gbn
 
+# ---------------------------------------------------------------- 4. blind index -> build nothing, judge nothing
+import threading
+from protocol import TX_AT_MOST_ONCE_STRICT_HEIGHT
+s = Stub(tip=100)
+s._tx_index_incomplete = CoreClient._tx_index_incomplete.__get__(s)
+check(not s._tx_index_incomplete(), "no rebuild running and no marker -> the index is complete")
+ev = threading.Event()
+s._tx_reindex_thread = threading.Thread(target=ev.wait, daemon=True); s._tx_reindex_thread.start()
+check(s._tx_index_incomplete(), "a running rebuild thread -> incomplete (build nothing, judge nothing)")
+ev.set(); s._tx_reindex_thread.join(2)
+from config import get_home                       # the node reads get_home()/index/, not $HOME/index/
+marker = os.path.join(get_home(), "index"); os.makedirs(marker, exist_ok=True)
+open(os.path.join(marker, "tx_reindex.json"), "w").write('{"next": 5}')
+check(s._tx_index_incomplete(), "a resumable rebuild marker on disk -> incomplete, even with no thread")
+os.remove(os.path.join(marker, "tx_reindex.json"))
+check(not s._tx_index_incomplete(), "...and complete again once the marker is gone")
+
+# ---------------------------------------------------------------- 5. the chain's own replays stand below the gate
+G = TX_AT_MOST_ONCE_STRICT_HEIGHT
+check(CoreClient._replay_tolerated(G - 1), f"a replay in block {G - 1} (below the strict height) is tolerated")
+check(not CoreClient._replay_tolerated(G), f"...and at {G} the rule is strict")
+check(CoreClient._replay_tolerated(69056) and CoreClient._replay_tolerated(78078),
+      "the measured replay blocks 69056 and 78078 are below the gate on this chain")
+
 print(("\nFAILED: " + "; ".join(fails)) if fails else "\nall checks passed")
 sys.exit(1 if fails else 0)

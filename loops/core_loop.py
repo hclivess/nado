@@ -758,6 +758,7 @@ class CoreClient(threading.Thread):
                         and not _on_minority
                         and not _isolated
                         and self._rules_evaluable_at_tip()
+                        and not self._tx_index_incomplete()        # blind to at-most-once -> build nothing
                         and not getattr(self.memserver, "purge_breaker", False)):
                     # PRE-ASSEMBLY TX-SET RECONCILE (leaderless assembly touch-up, doc/leaderless-assembly.md):
                     # before building, hold the union of what our same-tip peers would build — see
@@ -2814,6 +2815,31 @@ class CoreClient(threading.Thread):
                            state=fresh.get("state"), tip=tip)
             return None
         return int(fresh["ancestor"])
+
+    def _tx_index_incomplete(self) -> bool:
+        """True while the tx-history index is being rebuilt, or a rebuild is pending resumption.
+
+        THE REPLAYS OF 09-12 AND 09-13 (13 txids included twice, at 69056/69057 and 78078). A node that
+        has just imported a snapshot holds the STATE but an incomplete tx index — the rebuild walks
+        0..tip in the background — so kv_ops.tx_get answers None for everything not yet re-walked and the
+        at-most-once gate is BLIND. Meanwhile the rollback had re-inserted the reverted blocks' txs into
+        the mempool. The node built them into a block, and a fleet that was mid-reindex itself accepted.
+        A node that cannot answer "was this mined?" must not build a block and must not judge one."""
+        t = getattr(self, "_tx_reindex_thread", None)
+        if t is not None and t.is_alive():
+            return True
+        try:
+            return os.path.exists(f"{get_home()}/index/tx_reindex.json")     # a resumable rebuild is pending
+        except Exception:
+            return False
+
+    @staticmethod
+    def _replay_tolerated(height: int) -> bool:
+        """Below TX_AT_MOST_ONCE_STRICT_HEIGHT the chain's own history stands: a replayed tx is applied again,
+        as the fleet applied it, so a complete-index node reaches the fleet's state root instead of refusing
+        the block forever. Pure function of height — see protocol.TX_AT_MOST_ONCE_STRICT_HEIGHT."""
+        from protocol import TX_AT_MOST_ONCE_STRICT_HEIGHT
+        return bool(TX_AT_MOST_ONCE_STRICT_HEIGHT) and int(height) < int(TX_AT_MOST_ONCE_STRICT_HEIGHT)
 
     def _held_back(self, tx, next_height: int) -> bool:
         """True when `tx` entered the pool THROUGH THIS NODE in the current slot, so it must not go into
@@ -4902,12 +4928,24 @@ class CoreClient(threading.Thread):
             seen_txids.add(txid)
             if kv_ops.tx_get(txid) is not None:
                 already_mined.append(t)
+        if remote and self._tx_index_incomplete():
+            # NOT VALID, NOT INVALID — NOT YET. With the index rebuilding, "not mined" is not knowledge and
+            # "mined" may be a stale row: this node cannot judge at-most-once at all. Defer the block (the
+            # caller retries later, nobody is struck) rather than answer blind — answering blind is how
+            # 13 replays reached the canonical chain (protocol.TX_AT_MOST_ONCE_STRICT_HEIGHT).
+            raise ProofUnavailable("tx index is rebuilding — cannot judge at-most-once yet")
         if already_mined and remote:
             # RESIDUE IS NOT A REPLAY (2026-09-13). "Already mined" can mean a row left behind by a branch
-            # we no longer hold — see _purge_index_residue — and refusing the canonical block for it is
-            # how .26/.28 stayed at 69055 for months. Drop rows whose block is not on our chain, re-ask.
+            # we no longer hold — see _purge_index_residue. Drop rows whose block is not on our chain, re-ask.
             self._purge_index_residue([t.get("txid") for t in already_mined])
             already_mined = [t for t in already_mined if kv_ops.tx_get(t.get("txid")) is not None]
+        if already_mined and remote and self._replay_tolerated(block["block_number"]):
+            # THE CHAIN'S OWN HISTORY STANDS. Below the strict height the fleet applied these replays; a node
+            # that refuses them here (the three with a complete index did, for hours and for months) can
+            # never reach the fleet's state root. Apply them again exactly as the fleet did, and say so.
+            self.logger.warning(f"Block {block['block_number']} replays {len(already_mined)} tx(s) mined earlier — "
+                                f"tolerated below TX_AT_MOST_ONCE_STRICT_HEIGHT, applied as the fleet applied them")
+            already_mined = []
         if already_mined:
             if remote:
                 self.logger.error(f"Block {block['block_number']} replays {len(already_mined)} already-mined tx(s)")

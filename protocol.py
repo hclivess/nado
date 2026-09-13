@@ -1527,7 +1527,8 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_EK_READY_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
-#                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+#                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
+#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    DEVICE_BIND_DEVKEY_ALL_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -1858,6 +1859,22 @@ DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
 # DEVICE_ATTEST_EK_CHALLENGERS proven challengers exist, the draw falls back to the duty senders it used
 # before — worse, but live, and it self-heals the moment k nodes have answered once.
 DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+
+# AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
+# measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at
+# the re-anchor points of the two incidents. A node that has just imported a snapshot has the STATE but
+# an incomplete tx index (the rebuild runs in the background), so its at-most-once gate was BLIND; the
+# rollback had re-inserted those txs into its mempool, it built them into a block, and the fleet — mid-
+# reindex too — accepted. The three nodes with a complete index (.26, .28, .208) refused, correctly, and
+# were stuck for it.
+#
+# Two halves. BELOW this height the rule is what the chain actually did: a replay is applied again, so a
+# complete-index node — and every future replay from genesis — reaches the fleet's state root instead of
+# refusing forever. AT AND ABOVE it the rule is strict, and the blindness that produced the replays is
+# closed in core_loop: no block is built and no remote block is judged while the tx index is rebuilding.
+# Live value sits above the last replay block and far enough out for the /update wave (rule 3); on a fresh
+# chain it is strict from block 1. Ledger: live from genesis (x = 1).
+TX_AT_MOST_ONCE_STRICT_HEIGHT = 81600 if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a
