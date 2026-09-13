@@ -109,6 +109,11 @@ class MemServer:
         self.reported_uptime = self.get_uptime()
 
         self.emergency_mode = False
+        # BORN HERE, AT WHICH TIP. txid -> the tip height when a transaction entered the pool THROUGH THIS
+        # NODE (user_origin: our own duties and tpm_ready, a wallet's submit) rather than through gossip.
+        # Read by core_loop._held_back: such a tx is not eligible for OUR OWN block in the slot it was born,
+        # because in that slot nobody else can have it yet. Pruned with the pool. Local, never consensus.
+        self.own_born = {}
         self.pool_warmed = False     # production gate: True after the first completed pool reconcile
                                      # with a peer (or solo/timeout fallback) — see core_loop.normal_mode
 
@@ -803,6 +808,13 @@ class MemServer:
                     return {"message": "Already being validated", "result": True}
                 self._inflight_txids.add(_txid)
         try:
+            if user_origin:
+                # Remember the slot this tx was born in on THIS node. A refused merge leaves a harmless
+                # entry that the candidate pass prunes along with everything not in the pool.
+                try:
+                    self.own_born[_txid] = int(self.latest_block["block_number"])
+                except Exception:
+                    pass
             return self._merge_transaction_validated(transaction, user_origin, _txid)
         finally:
             if isinstance(_txid, str):

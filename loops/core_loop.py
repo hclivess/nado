@@ -1652,7 +1652,8 @@ class CoreClient(threading.Thread):
         key = (peer, int(h))
         if key in memo[1]:
             return memo[1][key]
-        r = probe_block_hash_signed(peer, h, port=self.memserver.port, timeout=3, tip_hint=tip)
+        r = probe_block_hash_signed(peer, h, port=self.memserver.port, timeout=3, tip_hint=tip,
+                                    self_address=self.memserver.address)   # never our own answer
         memo[1][key] = r
         return r
 
@@ -2814,6 +2815,64 @@ class CoreClient(threading.Thread):
             return None
         return int(fresh["ancestor"])
 
+    def _held_back(self, tx, next_height: int) -> bool:
+        """True when `tx` entered the pool THROUGH THIS NODE in the current slot, so it must not go into
+        the block this node builds now.
+
+        THE REORG DRIVER, MEASURED (2026-09-13, /root/nado/fork_diffs.jsonl over three days): of 141 splits
+        where the two sides built from different transaction sets, 115 were a `tpm_ready` that WE held and
+        the peer did not, and the rest were our own duty transactions or a wallet's fresh submit. Every node
+        assembles every block, so a transaction only one node knows guarantees a same-height split — and
+        maybe_epoch_duty / maybe_tpm_ready run at the top of the pass, before production, putting our own
+        announcement into our block in the very slot it was created, before any gossip pass could carry it.
+
+        One slot of patience (~7 s, several 1 s gossip passes) is the whole fix: eligible from the next tip
+        on, by which time the reconcile can see it on peers. Applies to everything born through us, not only
+        our own duties — a wallet's submit is the same hazard. Local pacing, never consensus: it decides what
+        WE include, not what is valid."""
+        born = self.memserver.own_born.get(tx.get("txid"))
+        return born is not None and int(born) >= int(next_height) - 1
+
+    def _purge_index_residue(self, txids) -> list:
+        """Drop tx-index rows that name a block which is NOT on our chain; return the txids dropped.
+
+        THE .26/.28 WEDGE, MEASURED (2026-09-13). The fleet's canonical 69056 carries two transactions
+        those nodes' tx index already calls mined — in a block that is not on their chain. Rows written
+        while applying a branch that was later orphaned survived the branch, so every canonical block that
+        legitimately includes those transactions is refused as "already-mined", forever. The reindex that
+        would clear it (drop-and-rebuild from canonical bodies) is only ever started by a re-anchor.
+
+        The primary row names its block. A row is canonical iff that height is at or below our tip and the
+        body we hold at that height actually contains the txid; anything else is residue — local
+        corruption, not consensus state — and removing it restores the state a correct node has. Pure
+        function of our own chain, so every node with the same chain reaches the same answer."""
+        from ops.block_ops import get_block_number as _gbn
+        tip = int(self.memserver.latest_block["block_number"])
+        dropped = []
+        for txid in txids:
+            row = kv_ops.tx_get(txid)
+            if not row:
+                continue
+            try:
+                h = int(row.get("block_number"))
+            except (TypeError, ValueError):
+                h = -1
+            canonical = False
+            if 0 <= h <= tip:
+                blk = _gbn(h)
+                canonical = bool(blk) and any(t.get("txid") == txid for t in (blk.get("block_transactions") or []))
+            if canonical:
+                continue
+            try:
+                kv_ops.tx_index_del(txid=txid, block_number=h, sender=row.get("sender"), recipient=row.get("recipient"))
+                dropped.append(txid)
+            except Exception as e:
+                self.logger.warning(f"index residue: could not drop {str(txid)[:12]} (block {h}): {e}")
+        if dropped:
+            self.logger.warning(f"Dropped {len(dropped)} orphaned tx-index row(s) that named a block not on our "
+                                f"chain: {[d[:12] for d in dropped[:6]]}")
+        return dropped
+
     def _state_diverged_reject(self) -> bool:
         """Did the last refusal say OUR committed state is wrong, rather than their block?
 
@@ -3070,6 +3129,9 @@ class CoreClient(threading.Thread):
                 # correct from the start. Same tx-index oracle verify_block/the pool-cull already use.
                 if kv_ops.tx_get(tx.get("txid")) is not None:
                     continue
+                # BORN THIS SLOT, THROUGH US -> NOT IN OUR BLOCK YET (2026-09-13). See _held_back.
+                if self._held_back(tx, next_height):
+                    continue
                 validate_transaction(transaction=tx, logger=self.logger, block_height=next_height)
                 ledger.add(tx)
             except Exception as e:
@@ -3086,6 +3148,10 @@ class CoreClient(threading.Thread):
         # keep the log-once set bounded and self-healing: drop ids no longer in the pool (mined or aged
         # out) so a genuinely fresh occurrence of the same id logs again.
         self._excluded_logged &= {tx.get("txid") for tx in pool}
+        # the born-tip map follows the pool the same way: an id that is mined or aged out leaves it
+        _in_pool = {tx.get("txid") for tx in pool}
+        for _k in [k for k in self.memserver.own_born if k not in _in_pool]:
+            self.memserver.own_born.pop(_k, None)
         return selected
 
     def _tpm_tx_pending(self, recipient, enrol_id=None):
@@ -4836,6 +4902,12 @@ class CoreClient(threading.Thread):
             seen_txids.add(txid)
             if kv_ops.tx_get(txid) is not None:
                 already_mined.append(t)
+        if already_mined and remote:
+            # RESIDUE IS NOT A REPLAY (2026-09-13). "Already mined" can mean a row left behind by a branch
+            # we no longer hold — see _purge_index_residue — and refusing the canonical block for it is
+            # how .26/.28 stayed at 69055 for months. Drop rows whose block is not on our chain, re-ask.
+            self._purge_index_residue([t.get("txid") for t in already_mined])
+            already_mined = [t for t in already_mined if kv_ops.tx_get(t.get("txid")) is not None]
         if already_mined:
             if remote:
                 self.logger.error(f"Block {block['block_number']} replays {len(already_mined)} already-mined tx(s)")

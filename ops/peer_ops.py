@@ -221,7 +221,7 @@ def seed_peers():
     return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
 
 
-def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0):
+def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0, self_address=None):
     """One peer's SIGNED claim of its hash at `height` -> (hash, seats) — the stake-weighted probe
     behind the fork verdict (doc/finality.md §3a). Falls back to the UNSIGNED probe at weight 0 when the
     peer predates /hash_attest or the signature does not hold, so the seeds-first headcount keeps
@@ -240,6 +240,14 @@ def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0):
         if not (isinstance(h, str) and len(h) == 64):
             raise ValueError("no usable claim")
         addr, pk, sig, as_of = d.get("address"), d.get("public_key"), d.get("signature"), int(d.get("as_of", 0))
+        # NEVER COUNT OUR OWN ANSWER (2026-09-13). The IP carve-outs (own_ips, config ip) miss a node whose
+        # public address is not in its config: 185.238.249.208 carried ITSELF in its peer list, answered its
+        # own fork question with its own hash, read agreement, and sat BEHIND on an orphaned branch for hours
+        # — the "probing yourself vetoes your own recovery" trap, reached through a blind spot in the IP
+        # test. The signed claim names its signer; a claim signed by OUR key is us, whatever address it came
+        # from. Not an answer.
+        if self_address and addr == self_address:
+            return None
         if tip_hint and abs(int(tip_hint) - as_of) > 2 * EPOCH_LENGTH:
             return h, 0                                   # stale view: count the claim, weigh it nothing
         from ops.auth_ops import key_authorized
