@@ -233,6 +233,44 @@ its claimed hash is a competing block correctly discarded. Check whether the fle
 different block at that height before treating it as an incident — measured 2026-09-12, every node held
 the same 66084 and the rejection was stale.
 
+### The two commands, instead of re-typing the questions
+
+Both are READ-ONLY — GETs against `/status` and `/get_block`, no node imports, nothing written. They are
+safe to run against production during an incident, which is the point: the first thing you want when the
+fleet is sick is a command you are not afraid of.
+
+```bash
+python3 scripts/fleet_tips.py --watch 75     # who is stuck, where they diverge, and what they say about it
+python3 scripts/diagnose_wedge.py            # a state divergence -> the exact block that caused it
+```
+
+`fleet_tips.py` runs steps 1-4 above across every IP in `peers.dat` and prints each node's own verdict
+beside the measured one — a node whose self-verdict is `dead_fork` while the measurement says it is merely
+behind is a bug in the verdict, not a fork in the chain, and that gap is the finding.
+
+`diagnose_wedge.py` answers the question hash comparison cannot. `state_root` is inside the block-hash
+preimage, so agreeing on block N's hash means agreeing on the state it commits; the last agreed height
+therefore names the block whose APPLICATION diverged. It then prints that block's transactions, and a
+**zero-transaction** block is the loud case: identical state plus an identical empty block is a
+deterministic function, so a differing result proves something wrote to the database outside block
+application.
+
+**Never trust a uniform answer from your own tool.** `fleet_tips.py` first reported "agrees to tip-1,
+differs after" for nine unrelated nodes at once — an artifact of a binary search whose invariant assumed
+disagreement at the top without ever probing it. Identical findings across unrelated hosts mean the answer
+came from the method, not the fleet. Probe the ends before you trust the middle.
+
+### Ask, when the remedy is destructive or the cause is ours
+
+Diagnosis is yours to finish; some remedies are not yours to choose. Purge, re-anchor, rollback across a
+floor, and any push that restarts a fleet whose update path is already broken change state that cannot be
+put back — bring those to the operator with the measurement attached, a recommendation, and what each
+option costs. "Ship the fix" governs the fix; it does not license the demolition.
+
+This applies doubly when the evidence points at a change we shipped. Say so plainly and early, in those
+words, before proposing anything: the operator is the one paying for it, and a root cause hedged into
+passive voice costs them the time it takes to re-derive it.
+
 ### What this has cost before
 
 - **A node alone on a fork mines FASTEST** — unopposed, every slot. "Still moving" is not health, and

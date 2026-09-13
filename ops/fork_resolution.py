@@ -71,11 +71,13 @@ def majority_hash(height, peers, probe, min_answers=2):
 
 
 def _find_answerable(floor, tip, agrees):
-    """Any height in [floor, tip] the peer majority can actually answer, or None.
+    """Any height in [floor, tip] that is COMPARABLE -- the peer majority answers and so do we -- or None.
 
-    The answerable range is a CONTIGUOUS WINDOW, not the whole chain: peers prune old history (rolling
+    The comparable range is a CONTIGUOUS WINDOW, not the whole chain: peers prune old history (rolling
     mode) so everything below their retention is gone, and a node that raced ahead sits above everything
-    they hold. So a probe can come back empty from either end, and neither end can be assumed good.
+    they hold. WE prune too, so the window is also bounded below by OUR retention (see agrees()); a height
+    only one side holds tells us nothing. So a probe can come back empty from either end, and neither end
+    can be assumed good.
 
     Walks back from the tip with a doubling stride because the window is always at the TOP of the range —
     recent heights are the ones peers are most likely to hold. O(log depth) probes, and each uses a low
@@ -161,6 +163,19 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
         makes the verdict obtainable at all on a 2-peer node. This does NOT weaken the test: a real majority
         is still required, we just decline to abandon it over one timeout."""
         nonlocal probes
+        # OUR OWN PRUNING IS NOT A DISAGREEMENT (2026-09-13). This compared `our_hash_at(h) == theirs`,
+        # and a height WE have pruned makes our side None -- so `None == "<hash>"` is False, and the
+        # absence of our own block was recorded as a CLAIM that we hold a different one. An ARCHIVE peer
+        # answering at h0 was therefore enough to drive the ancestor to floor-1 on any node that had
+        # pruned its early history, which classify() reads as DEAD_FORK -- the one verdict whose remedy is
+        # destructive, reached from a height the node cannot see.
+        # Measured live: four nodes frozen for hours on `dead_fork, ancestor: -1` while merely needing a
+        # rollback of ~60 blocks, with this node (an archive node AND DEFAULT_SEED_PEERS[0]) supplying the
+        # h0 answer to every one of them. Everywhere else this module refuses to build a claim out of an
+        # absent answer ("Peers that do not answer are not evidence either way"); our own side is held to
+        # the same rule. A height we cannot serve is not comparable, and an incomparable height is None.
+        if our_hash_at(h) is None:
+            return None
         for _ in range(max(1, int(_attempts))):
             probes += 1
             theirs = majority_hash(h, peers, probe, min_answers=min_answers)
