@@ -3087,7 +3087,10 @@ async function broadcastLeaseRenewal(regEpoch) {
   if (_renewingLease) return false;
   _renewingLease = true;
   try {
-    log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing (fresh sequential proof)…"));
+    // NO SEQUENTIAL PROOF SINCE GEN 25. /posw_difficulty answers {"required_t": 0, "retired": true,
+    // "reason": "device attestation replaced PoSW at gen 25"} — the renewal signs a `register` and does
+    // no work at all. The message described retired machinery to the user, in sixteen languages.
+    log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing…"));
     // Up to 2 attempts: if the chain outran max_block while the (pure-JS) PoW was computing, recompute
     // against a fresh tip. Each attempt targets tip + POSW_TARGET_MARGIN (max headroom for the proof).
     let lastMsg = "";
