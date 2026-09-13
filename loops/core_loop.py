@@ -1975,12 +1975,26 @@ class CoreClient(threading.Thread):
                     # striking donors is self-harm: ESCALATE to the re-anchor ladder — a snapshot import
                     # replaces the state wholesale (quorum-vouched), and canonical restore keeps our
                     # bodies. Restore our branch first so we stay self-consistent until it lands.
+                    self.logger.error(f"Branch adoption: our L1 state is CORRUPT at agreed parent "
+                                      f"{int(anc)} ({rej.get('error', '')[:120]})")
+                    self._reapply_local_branch(old_tip)
+                    # TRY THE REPAIR THAT NEEDS NOBODY, FIRST (2026-09-13). This escalated straight to the
+                    # re-anchor ladder, which requires a peer advertising a strictly-heavier chain WITH a
+                    # snapshot above our finality floor. When the divergence is recent that donor does not
+                    # exist — snapshots are periodic and the fleet is only a few blocks ahead — so the node
+                    # looped: adopt, state corrupt, re-anchor, "no peer advertises ... staying put", adopt.
+                    # Measured on the relay at 77902 with the fleet 34 blocks ahead: the ladder could never
+                    # fire and the cheap fix was never reached.
+                    #
+                    # Reverting our own tip needs no donor at all, and the divergence entered while APPLYING
+                    # it — so undo that block from the journal and let the ordinary path re-apply it. Bounded
+                    # by STATE_HEAL_MAX_DEPTH; when the window is spent it falls through to the ladder
+                    # exactly as before, which is the right remedy for corruption older than we may revert.
+                    if self._heal_state_divergence():
+                        return None
                     self._rec_fail("own state corrupt at agreed parent — escalating to re-anchor",
                                    height=blk.get("block_number"))
-                    self.logger.error(f"Branch adoption: our L1 state is CORRUPT at agreed parent "
-                                      f"{int(anc)} ({rej.get('error', '')[:120]}) — re-anchoring to a "
-                                      f"quorum snapshot")
-                    self._reapply_local_branch(old_tip)
+                    self.logger.error("Rollback did not clear it — re-anchoring to a quorum snapshot")
                     return None
                 self._rec_fail("block failed full validation",
                           height=blk.get("block_number"), src=src)
