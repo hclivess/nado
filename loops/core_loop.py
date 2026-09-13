@@ -46,7 +46,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger, ProofUnavailable)
+    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger, ProofUnavailable, WindowUnavailable)
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
@@ -71,6 +71,10 @@ STATE_HEAL_MAX_DEPTH = 3
 # the positive answer is memoised for the epoch, this only bounds how long a finished refill waits to lift
 # the production gate. A minute is nothing against the minutes a fill takes and the hours a split costs.
 RULES_EVAL_RECHECK_S = 60
+# Consecutive failures to APPLY the measured majority's branch at one tip before adoption stops arguing
+# and hands the node to the re-anchor ladder. LOCAL pacing: one refusal may be a bad donor, three at the
+# same tip is our own state refusing the chain everyone else holds. Reset the moment the tip moves.
+ADOPT_FAIL_ESCALATE_AFTER = 3
 
 # CATCH-UP HOLD for the soft depth floor (see _depth_floor_corroborated): while the mesh's median advertised
 # height is more than this many blocks above ours, the floor waits instead of probing peers per block.
@@ -1557,6 +1561,12 @@ class CoreClient(threading.Thread):
         try:
             now = get_timestamp_seconds()
             cached = getattr(self, "_fork_state_cache", None)
+            # TIME-KEYED ON PURPOSE. Keying this cache on the tip as well was tried (2026-09-13) and it
+            # made the verdict FLAP: a healthy chain moves its tip every block, so every pass re-measured,
+            # the reorg leg saw a different ancestor each time, and no adoption ever ran to completion —
+            # a 4-node loopback mesh sat on 3-4 distinct tips for a whole run. The cheap status read
+            # keeps its TTL; the one consumer that ROLLS BACK checks freshness itself, at the moment it
+            # matters (_fresh_ancestor_for_adoption).
             if cached and now - cached[0] < FORK_STATE_TTL_S:
                 return cached[1]["state"]
             from ops.peer_ops import seed_peers, probe_block_hash_signed
@@ -1816,6 +1826,9 @@ class CoreClient(threading.Thread):
 
         Returns True (adopted), False (nothing usable — caller waits/strikes), or None (rollback refused:
         budget/floor — caller escalates to the re-anchor ladder, exactly as before)."""
+        anc = self._fresh_ancestor_for_adoption(anc)
+        if anc is None:
+            return False                                   # the fresh verdict is not a reorg: nothing to adopt
         hh = self.consensus.heaviest_block_hash
         our_w = self.memserver.latest_block.get("cumulative_weight", 0)
         src = next((ip for ip, st in self.consensus.status_pool.copy().items()
@@ -1903,8 +1916,25 @@ class CoreClient(threading.Thread):
             # full per-block validation. Roll to the ancestor, drop the spent verdict, and let the next
             # pass's donor flow fast-forward from the common chain (knows_block at the ancestor is True on
             # every majority donor).
+            # RE-MEASURE THE GRAFT BEFORE ROLLING (2026-09-13). The staging walk above discovers the true
+            # graft point and rolls no further; this path never did — it rolled straight to `anc`, a
+            # verdict that may be minutes and a hundred blocks stale on a node that kept syncing. The
+            # walk's own reasoning applies here unchanged: every block below the first one we share with
+            # the donor is ours already, and reverting it is pure loss plus a re-apply that can fail.
+            # One peer, ~log2(depth) probes, the same pairwise search the no-majority escape uses.
+            from ops.peer_ops import probe_block_hash as _pbh
+            try:
+                _graft = fork_resolution.pairwise_ancestor(
+                    get_block_hash_by_number, int(self.memserver.latest_block["block_number"]),
+                    lambda h: _pbh(src, h, port=self.memserver.port, timeout=5), floor=int(anc))
+            except Exception:
+                _graft = None
+            if _graft is not None and int(_graft) > int(anc):
+                self.logger.warning(f"Branch adoption: measured ancestor {anc} is stale — we share the donor's "
+                                    f"chain through {_graft}; rolling only to there")
+                anc = int(_graft)
             self.logger.warning(f"Branch adoption: majority branch longer than the staging cap — rolling to "
-                                f"the measured ancestor {anc} and continuing by forward sync")
+                                f"the ancestor {anc} and continuing by forward sync")
             self.memserver.rollbacks = 0
             _span = int(self.memserver.latest_block["block_number"]) - int(anc)
             _budget = min(max(_span, self.memserver.max_rollbacks), FINALITY_HARD_BACKSTOP)
@@ -2012,6 +2042,17 @@ class CoreClient(threading.Thread):
                                     f"full validation — restoring our own branch")
                 self._reapply_local_branch(old_tip)
                 self._reject_heaviest_tip()
+                # A BRANCH THE MEASURED MAJORITY HOLDS AND WE CANNOT APPLY IS OUR PROBLEM (2026-09-13). One
+                # refusal can be a bad donor; the same refusal on every pass at the same tip cannot — the
+                # verdict says the majority is on that branch, so the state that refuses it is ours. This
+                # returned False every time ("the donor flow finishes the job"), and nothing ever
+                # escalated: 185.238.249.208 looped for an hour, 350 blocks behind, striking honest donors.
+                # After ADOPT_FAIL_ESCALATE_AFTER consecutive failures at one tip, hand it to the re-anchor
+                # ladder exactly as a refused rollback does — the state gets replaced, not re-argued.
+                if self._note_adopt_validation_failure(blk.get("block_hash")):
+                    self._rec_fail("majority branch refused repeatedly at this tip — escalating to re-anchor",
+                                   height=blk.get("block_number"), src=src)
+                    return None
                 return False
         self._fork_state_cache = None              # the tip this verdict described no longer exists
         self.logger.warning(f"Adopted the measured majority branch: rolled to {anc}, applied "
@@ -2731,6 +2772,47 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Failed to get blocks after {from_hash} from {peer}: {e}")
             self._reject_heaviest_tip()
             return True
+
+    def _note_adopt_validation_failure(self, block_hash) -> bool:
+        """Count a failed application of THE SAME block at the CURRENT tip; True when the count reaches
+        ADOPT_FAIL_ESCALATE_AFTER and adoption should escalate instead of retrying.
+
+        Keyed on (tip, block): a node that moves starts over — a fresh tip is a fresh question — and a
+        DIFFERENT block failing is a moving branch, not our state refusing. Only the identical block, at
+        the identical tip, refused again and again, says the state doing the refusing is ours. Not keyed
+        on the donor, so a bad one that is benched and replaced still counts toward the same answer."""
+        key = (int(self.memserver.latest_block["block_number"]), str(block_hash or ""))
+        prev = getattr(self, "_adopt_fail", None)                    # ((tip, hash), count)
+        count = (prev[1] + 1) if (prev and prev[0] == key) else 1
+        self._adopt_fail = (key, count)
+        if count >= ADOPT_FAIL_ESCALATE_AFTER:
+            self._adopt_fail = None                                  # the ladder gets a clean slate
+            return True
+        return False
+
+    def _fresh_ancestor_for_adoption(self, anc):
+        """The ancestor to roll to, re-measured if the verdict that produced `anc` is about another tip.
+
+        A VERDICT IS ABOUT A TIP (2026-09-13). _fork_state caches by time — it must, or it flaps — so a node
+        that kept syncing after the measurement can arrive here holding an ancestor that no longer
+        describes it: 185.238.249.208 was identical to the fleet through 78077 and rolled back to a cached
+        77979 — 99 shared, correct blocks reverted — then could not re-apply what it had just thrown away.
+        Rolling back is the one act that must never run on a stale answer, so this is where freshness is
+        checked. Returns the ancestor to use, or None when a fresh measurement no longer says REORG."""
+        tip = int(self.memserver.latest_block["block_number"])
+        cached = getattr(self, "_fork_state_cache", None)
+        v = cached[1] if (cached and isinstance(cached[1], dict)) else None
+        if v is not None and v.get("tip") == tip:
+            return anc
+        self._fork_state_cache = None
+        self.logger.info(f"Branch adoption: the verdict was measured at tip {v.get('tip') if v else None}, "
+                         f"we are at {tip} — re-measuring before any rollback")
+        fresh = self._fork_verdict()
+        if fresh.get("state") != fork_resolution.REORG or fresh.get("ancestor") is None:
+            self._rec_fail("verdict changed on re-measure — not rolling back",
+                           state=fresh.get("state"), tip=tip)
+            return None
+        return int(fresh["ancestor"])
 
     def _state_diverged_reject(self) -> bool:
         """Did the last refusal say OUR committed state is wrong, rather than their block?
@@ -5119,6 +5201,16 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.warning(f"Block production skipped due to: {e}")
+            # THE BLOCK WE CANNOT EVALUATE NAMES WHAT TO FETCH (2026-09-13). A WindowUnavailable is a
+            # deferral that carries the window it needs; starting the fill HERE — where validation trips
+            # over the hole — is what lets a node stuck in recovery repair itself. The production gate
+            # (_rules_evaluable_at_tip) also starts it, but a node in an adoption loop never reaches that
+            # gate: 185.238.249.208 sat there for an hour with its hole untouched. One fill runs at a time.
+            if isinstance(e, WindowUnavailable):
+                self._rec_fail("cannot evaluate the challenger draw for this block — filling the window",
+                               height=block.get("block_number") if isinstance(block, dict) else None,
+                               window=[e.lo, e.hi])
+                self._fill_window_gaps(e.lo, e.hi)
             # remote diagnosis (/status "last_block_reject"): WHY this node refused a block its peers
             # accepted — the .26/.28 pair rejected the majority's 64916 through six opaque False returns
             # before this field existed.

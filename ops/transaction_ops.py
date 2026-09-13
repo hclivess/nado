@@ -525,9 +525,9 @@ def _proven_challengers(block_height: int) -> dict:
             # offending transaction and keeps building, so a gap-ridden node would quietly omit the
             # enrolment and diverge a second way. Deferring makes the node stall and backfill, which every
             # node applies identically, so a gap costs liveness on that node and never safety on the chain.
-            raise ProofUnavailable(
+            raise WindowUnavailable(
                 f"challenger draw needs block {h} of the window [{lo},{hi}) and this node does not have "
-                f"it — cannot evaluate the enrolment rule without it (sync the gap, do not guess)")
+                f"it — cannot evaluate the enrolment rule without it (sync the gap, do not guess)", lo, hi)
         for t in (block.get("block_transactions") or []):
             r, who = t.get("recipient"), t.get("sender")
             if not who:
@@ -1272,6 +1272,19 @@ class ProofUnavailable(Exception):
     deep=True and the proof is no longer required, so a permanently unavailable proof degrades to the
     accumulated-weight path instead of halting the node forever.
     """
+
+
+class WindowUnavailable(ProofUnavailable):
+    """The challenger draw needs a block in [lo, hi) that this node does not hold.
+
+    A ProofUnavailable — defer, never reject — that also NAMES the window, so the node can start filling it
+    the moment validation trips over the hole instead of waiting to reach the production gate. A node stuck
+    in recovery never reaches that gate (185.238.249.208 sat in an adoption loop for an hour with its hole
+    untouched), and the block it cannot evaluate is exactly the one telling it what to fetch."""
+
+    def __init__(self, msg, lo, hi):
+        super().__init__(msg)
+        self.lo, self.hi = int(lo), int(hi)
 
 
 def validate_transaction(transaction, logger, block_height, deep=False):

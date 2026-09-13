@@ -100,6 +100,13 @@ check(isinstance(err, TO.ProofUnavailable),
 check("do not guess" in str(err) and str(gap_at) in str(err),
       f"the message names the missing height and says not to guess ({str(err)[:90]})")
 
+# THE DEFERRAL NAMES THE WINDOW. A node stuck in recovery never reaches the production gate that starts a
+# fill, so the exception validation trips over is the one place it can learn what to fetch. The subclass
+# carries exactly the window the draw scans — the same one proven_window() names for the gate.
+check(isinstance(err, TO.WindowUnavailable), "...and it is a WindowUnavailable, so the node can start filling")
+check((getattr(err, "lo", None), getattr(err, "hi", None)) == (LO, HI),
+      f"...carrying the exact window [{LO},{HI}) (got {getattr(err, 'lo', None)}, {getattr(err, 'hi', None)})")
+
 # WHY ProofUnavailable SPECIFICALLY. validate_transaction's caller re-raises it to defer the whole block,
 # but swallows a generic Exception during OWN assembly — dropping the transaction and building without it.
 # A gap-ridden node would then omit the enrolment and diverge a second way, so the exception TYPE is the
