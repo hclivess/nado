@@ -621,13 +621,25 @@ fn hand_back(relay: &Relay, address: &str, id: &str, device: &Value,
             Err(_) => continue,
         };
         tried += 1;
-        if r.post_json("/tpm_proof_drop", &body).is_ok() {
-            accepted += 1;
+        // COUNT WHAT THE RELAY SAID, NOT THAT IT SPOKE. post_json succeeds on any HTTP reply, and a
+        // refusal is a perfectly good reply — {"ok": false, "reason": ...}. Counting those as accepted
+        // would print "left on 6 of 6 relays, so any wallet can find it" over a proof that no relay
+        // kept, which is the exact class of false success line this program has already burned an owner
+        // with once.
+        if let Ok(reply) = r.post_json("/tpm_proof_drop", &body) {
+            if reply.contains("\"ok\": true") || reply.contains("\"ok\":true") {
+                accepted += 1;
+            }
         }
     }
     if accepted == 0 {
-        // Fall back to the relay this run used, so the error names a real failure rather than a silence.
-        relay.post_json("/tpm_proof_drop", &body)?;
+        // NOBODY KEPT IT. Try the relay this run used one more time and report what it actually says —
+        // a proof no relay holds is a failed hand-back, and saying so is the whole point of counting.
+        let reply = relay.post_json("/tpm_proof_drop", &body)?;
+        if !(reply.contains("\"ok\": true") || reply.contains("\"ok\":true")) {
+            println!("  {} {}", bad("!!"), format!("no relay kept the proof: {}", reply.trim()));
+            return Err(format!("no relay accepted the device proof: {}", reply.trim()));
+        }
         accepted = 1;
     }
     println!("  {} {}", ok(".."),
