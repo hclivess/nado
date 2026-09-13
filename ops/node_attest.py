@@ -209,6 +209,11 @@ def device_histogram(rows, epoch_now: int, present) -> dict:
     out = {}
     present = set(present or ())
     for key, address, epoch, mode in rows:
+        # NOT EVERY ROW IN THAT TABLE IS A DEVICE. "tpmek:<identity>" is kv_ops.tpm_enrol_open_set's
+        # bookkeeping — one open enrolment per chip — parked in the devbind sub-DB. It surfaced on the
+        # first live render as a fifth slice, "Attested device — 0.0%": four rows, none live, no device.
+        if key.startswith("tpmek:"):
+            continue
         cls = key.split(":", 1)[0] if ":" in key else "unknown"
         slot = out.setdefault(cls, {"total": 0, "live": 0})
         slot["total"] += 1

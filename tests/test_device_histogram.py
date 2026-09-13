@@ -34,6 +34,7 @@ rows = [
     ("ledger:eee",      "E", NOW - 5000,                  "perm"),    # hardware wallet, old statement, present -> live for life
     ("trezor:fff",      "F", NOW - 5000,                  "perm"),    # hardware wallet, not present -> not live
     ("weird",           "G", NOW,                         "lease"),   # no class prefix -> unknown
+    ("tpmek:aaa",       "A", NOW,                         "lease"),   # enrolment bookkeeping in the same table -> NOT a device
 ]
 present = {"A", "B", "C", "E", "G"}
 h = device_histogram(rows, NOW, present)
@@ -44,6 +45,7 @@ check(c["android-key"] == {"total": 2, "live": 1}, f"a phone whose account is no
 check(c["ledger"] == {"total": 1, "live": 1}, "a permanent binding is live regardless of how old its statement is")
 check(c["trezor"] == {"total": 1, "live": 0}, "...but only while its account is present")
 check(c["unknown"] == {"total": 1, "live": 1}, "a key without a class prefix is 'unknown', never dropped")
+check("tpmek" not in c, "tpmek:<identity> rows are enrolment bookkeeping, not devices — never a slice")
 check(h["live_total"] == 4 and h["bound_total"] == 7, f"totals add up (live {h['live_total']}, bound {h['bound_total']})")
 
 e = device_histogram([], NOW, set())
