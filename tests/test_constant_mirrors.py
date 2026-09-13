@@ -29,7 +29,7 @@ def check(name, cond, detail=""):
 
 
 def main():
-    os.environ.setdefault("HOME", tempfile.mkdtemp())
+    os.environ["HOME"] = tempfile.mkdtemp()
     import protocol
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     js = open(os.path.join(root, "static", "interface.js"), encoding="utf8").read()

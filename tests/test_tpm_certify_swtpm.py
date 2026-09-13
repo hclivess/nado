@@ -22,7 +22,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado-swtpm-"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-swtpm-")
 _fails = []
 
 

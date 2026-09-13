@@ -16,7 +16,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado-hw-"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-hw-")
 from _attest_fixtures import cbor, sh   # noqa: E402
 
 fails = 0

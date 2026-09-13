@@ -14,7 +14,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado-enrol-"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-enrol-")
 _fails = []
 
 

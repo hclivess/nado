@@ -22,7 +22,7 @@ Run: python3 tests/test_self_update_dirty_conflict.py
 """
 import os, subprocess, sys, tempfile
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado-su-home-"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-su-home-")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import self_update as SU  # noqa: E402
 

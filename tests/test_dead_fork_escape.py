@@ -19,7 +19,7 @@ positive one.
 Run: python3 tests/test_dead_fork_escape.py
 """
 import os, sys, tempfile, traceback
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_fork_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_fork_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import peer_ops as P
 

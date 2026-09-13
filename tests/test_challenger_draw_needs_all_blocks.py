@@ -35,7 +35,7 @@ Run: python3 tests/test_challenger_draw_needs_all_blocks.py
 """
 import os, sys, tempfile
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_cdraw_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_cdraw_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops import transaction_ops as TO  # noqa: E402

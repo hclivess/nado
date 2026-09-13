@@ -16,7 +16,7 @@ Run: python3 tests/test_reorg_drivers.py
 """
 import os, sys, tempfile, json, io
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_rd_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_rd_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import loops.core_loop as CL                  # noqa: E402
@@ -113,10 +113,15 @@ check(s._tx_index_incomplete(), "a running rebuild thread -> incomplete (build n
 ev.set(); s._tx_reindex_thread.join(2)
 from config import get_home                       # the node reads get_home()/index/, not $HOME/index/
 marker = os.path.join(get_home(), "index"); os.makedirs(marker, exist_ok=True)
-open(os.path.join(marker, "tx_reindex.json"), "w").write('{"next": 5}')
+mfile = os.path.join(marker, "tx_reindex.json")
+open(mfile, "w").write('{"next": 5}')
+s._start_tx_reindex = CoreClient._start_tx_reindex.__get__(s)
 check(s._tx_index_incomplete(), "a resumable rebuild marker on disk -> incomplete, even with no thread")
-os.remove(os.path.join(marker, "tx_reindex.json"))
-check(not s._tx_index_incomplete(), "...and complete again once the marker is gone")
+t = getattr(s, "_tx_reindex_thread", None)
+check(t is not None, "...and the orphaned marker RESUMES the rebuild instead of freezing the node (185.100.232.5, 12 min)")
+t.join(10)
+check(not os.path.exists(mfile), "the resumed walk finishes and removes the marker (empty chain: nothing above next)")
+check(not s._tx_index_incomplete(), "...and the index is complete again")
 
 # ---------------------------------------------------------------- 5. the chain's own replays stand below the gate
 G = TX_AT_MOST_ONCE_STRICT_HEIGHT

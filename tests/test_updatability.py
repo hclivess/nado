@@ -16,7 +16,7 @@ healthy would have passed on all 21.
 Run: python3 tests/test_updatability.py
 """
 import os, sys, tempfile, traceback, subprocess
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_upd_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_upd_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import self_update as SU
 

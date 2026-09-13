@@ -30,7 +30,7 @@ Run: python3 tests/test_fork_resolution_self_pruned.py
 """
 import os, sys, tempfile
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_frsp_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_frsp_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops import fork_resolution as FR

@@ -10,7 +10,7 @@ Run: python3 tests/test_device_histogram.py
 """
 import os, sys, tempfile
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_devh_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_devh_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops.node_attest import device_histogram  # noqa: E402

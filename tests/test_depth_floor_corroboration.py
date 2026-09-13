@@ -21,7 +21,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import tempfile
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_corrob_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_corrob_")
 os.environ.setdefault("NADO_TESTNET", "1")
 for _d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{_d}", exist_ok=True)

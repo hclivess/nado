@@ -11,7 +11,7 @@ first one wrong, which is what produced the 40-minute wedge:
 Run: python3 tests/test_fork_resolution.py
 """
 import os, sys, tempfile, traceback
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_fr_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_fr_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import fork_resolution as FR
 

@@ -27,7 +27,7 @@ Run: python3 tests/test_state_divergence_heal.py
 """
 import os, sys, tempfile
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_sdh_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_sdh_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 fails = []

@@ -2829,9 +2829,17 @@ class CoreClient(threading.Thread):
         if t is not None and t.is_alive():
             return True
         try:
-            return os.path.exists(f"{get_home()}/index/tx_reindex.json")     # a resumable rebuild is pending
+            pending = os.path.exists(f"{get_home()}/index/tx_reindex.json")
         except Exception:
             return False
+        if pending:
+            # A marker with no thread behind it is a rebuild the last restart KILLED mid-walk (the thread is
+            # a daemon; the marker is its last checkpoint). Nothing at startup resumed it, so this predicate
+            # answered "rebuilding" forever and 185.100.232.5 sat frozen at 81467 for 12 minutes after the
+            # 4f5d6ab6 wave, building nothing and deferring every block. A pending rebuild is RESUMED here,
+            # not merely reported: _start_tx_reindex is idempotent and picks up at the marker's "next".
+            self._start_tx_reindex()
+        return pending
 
     @staticmethod
     def _replay_tolerated(height: int) -> bool:

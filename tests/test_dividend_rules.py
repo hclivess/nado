@@ -5,7 +5,7 @@ the halving lapse, and the 40% bonded levy. Also pins that NO
 activation gate exists for them any more — they rode gen 22 behind a generation-keyed gate that the reroll
 retired; a bare height sneaking back in would outlive its chain."""
 import os, sys, re, tempfile, traceback
-os.environ.setdefault("HOME", tempfile.mkdtemp())
+os.environ["HOME"] = tempfile.mkdtemp()
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import protocol as P
 

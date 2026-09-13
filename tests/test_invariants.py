@@ -11,7 +11,7 @@ Each replay is annotated with the real incident it reproduces.
 Run: python3 tests/test_invariants.py
 """
 import os, sys, tempfile, traceback, random
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_inv_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_inv_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import invariants as INV
 from protocol import TREASURY_GENESIS, BRIDGE_ESCROW, SHIELD_ESCROW, DIVIDEND_POOL

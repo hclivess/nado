@@ -24,7 +24,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado-clienttx-"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-clienttx-")
 _fails = []
 BIN = os.path.join(ROOT, "apps", "nado-tpm-attest", "target", "release", "nado-tpm-attest")
 

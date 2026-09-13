@@ -56,7 +56,7 @@ def check(name, cond):
 
 
 def main():
-    os.environ.setdefault("HOME", tempfile.mkdtemp())
+    os.environ["HOME"] = tempfile.mkdtemp()
     from ops import self_update as su
 
     # ---- the failure the fleet actually reported is classified as recoverable --------------------------

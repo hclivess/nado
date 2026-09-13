@@ -61,7 +61,11 @@ LMDB. Always:
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-...")   # BEFORE any nado import
 ```
 
-Every test in `tests/` does this on line 1 for this reason.
+Every test in `tests/` does this on line 1 for this reason. **Assign, never `setdefault`.** A shell
+always has `HOME` set, so `os.environ.setdefault("HOME", ...)` keeps `/root` and the test runs against
+`/root/nado`, which is the live node's home. Twenty-eight tests carried that form until 2026-09-13, when
+one of them wrote a resumable-reindex marker into the relay's `index/` and the relay stopped building
+blocks on it until the file was found and removed.
 
 ### 5. Run the undefined-names test on the final tree
 

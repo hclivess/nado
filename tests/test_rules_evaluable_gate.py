@@ -16,7 +16,7 @@ Run: python3 tests/test_rules_evaluable_gate.py
 """
 import os, sys, tempfile, time
 
-os.environ.setdefault("HOME", tempfile.mkdtemp(prefix="nado_reg_"))
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_reg_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import loops.core_loop as CL                       # noqa: E402
