@@ -88,7 +88,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
         # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
         from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
-                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES, DEVICE_REBIND_INSTANT_HEIGHT)
+                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, permanent_classes_at)
         device_key, permanent = None, False
         instant = bool(DEVICE_REBIND_INSTANT_HEIGHT and block_height is not None and block_height >= DEVICE_REBIND_INSTANT_HEIGHT)
         if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
@@ -101,8 +101,10 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                 from ops.device_attest import device_binding_key
                 device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
                                                 strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)   # same parse as validation
+                # permanent_classes_at(height), not the constant: "ek" joins at DEVICE_BIND_PERMANENT_EK_HEIGHT and an
+                # older block must replay under the set in force when it was made (same call as validation)
                 permanent = (block_height >= DEVICE_BIND_PERMANENT_HEIGHT
-                             and device_key.split(":", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES)
+                             and device_key.split(":", 1)[0] in permanent_classes_at(block_height))
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
                        device_key=device_key, permanent=permanent, instant=instant)
         return

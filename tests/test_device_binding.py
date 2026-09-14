@@ -272,7 +272,30 @@ def t_binding_modes():
     check("validation: the txid check still runs after the register branch (no early return)", "            return\n" not in seg)
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply: permanent is derived from the class at the block height and passed to apply_register",
-          "device_key.split(\":\", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES" in acc and "permanent=permanent" in acc)
+          "device_key.split(\":\", 1)[0] in permanent_classes_at(block_height)" in acc and "permanent=permanent" in acc)
+    # --- ek JOINS THE PERMANENT CLASSES AT ITS OWN GATE (DEVICE_BIND_PERMANENT_EK_HEIGHT, operator decision 2026-09-14):
+    # a helper-enrolled chip binds on its factory-fixed endorsement key, so from the gate it is a hardware wallet in every
+    # rule below; before it, the leased row it always had. Validation and apply consult the same height-pure function.
+    G = P.DEVICE_BIND_PERMANENT_EK_HEIGHT
+    check("below the ek gate the permanent classes are the factory-fixed hardware wallets", P.permanent_classes_at(G - 1) == frozenset(("ledger", "trezor")))
+    check("at the ek gate the endorsement-key class joins them, and nothing else does", P.permanent_classes_at(G) == frozenset(("ledger", "trezor", "ek")))
+    check("the WebAuthn tpm class (AIK per Windows account) stays leased", "tpm" not in P.permanent_classes_at(G + 10 ** 6))
+    check("the advisory reader (height None) sees the latest rule", P.permanent_classes_at(None) == P.permanent_classes_at(G))
+    check("the ek gate is at/after the permanent gate it extends", G >= P.DEVICE_BIND_PERMANENT_HEIGHT)
+    check("validation consults the height-pure set for the one-hardware-wallet rule", "dkey.split(\":\", 1)[0] in permanent_classes_at(block_height)" in seg)
+    ekey = "ek:" + "ab" * 32
+    c = "c" * 46
+    kv_ops.account_set(c, "balance", 0)
+    apply_register(c, 600, lg, device_key=ekey, permanent=True)
+    check("an ek statement at the gate writes the perm row and the devkey", kv_ops.devbind_get(ekey) == (c, 600, "perm") and (kv_ops.get_account(c) or {}).get("devkey") == ekey)
+    check("... so the chip-bound identity renews without a statement, like a Ledger", stmt_free_ok(c))
+    apply_register(c, 700, lg)
+    check("... and the statement-free renewal leaves the ek row's statement epoch alone", kv_ops.devbind_get(ekey) == (c, 600, "perm") and kv_ops.recert_latest(c) == 700)
+    apply_register(c, 700, lg, revert=True); apply_register(c, 600, lg, revert=True)
+    check("... and both revert to nothing", kv_ops.devbind_get(ekey) is None and "devkey" not in (kv_ops.get_account(c) or {}))
+    apply_register(c, 600, lg, device_key=ekey, permanent=False)
+    check("below the gate the same ek statement writes the historical leased row and no devkey", kv_ops.devbind_get(ekey) == (c, 600, "lease") and "devkey" not in (kv_ops.get_account(c) or {}) and not stmt_free_ok(c))
+    apply_register(c, 600, lg, revert=True)
     check("apply: a statement-free register past the gate derives no key", "if has_device or block_height < DEVICE_BIND_PERMANENT_HEIGHT:" in acc)
     na = open(os.path.join(ROOT, "ops", "node_attest.py")).read()
     check("node: a hardware-bound node renews on its own without a statement", "def renew_without_statement" in na and 'st.get("bind_mode") == "perm" and st.get("bind_live")' in na)

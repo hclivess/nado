@@ -331,6 +331,7 @@ The binding key is only as durable as the certificate behind it, and that differ
 | `trezor` | sha256(per-device certificate) | never — issued at the factory |
 | `tpm` | sha256(AIK certificate) | a new Windows account is created, or the TPM is cleared |
 | `android-key` | sha256(remotely-provisioned attestation certificate) | the OS rotates it (≈ 2 weeks in the live sample, ≤ 90 days by rule), or a factory reset |
+| `ek` | the chip's vendor-certified endorsement identity (helper enrolment, doc/tpm-attestation-without-a-ca.md) | never — burned in at manufacture; a TPM clear keeps it |
 
 A binding that outlives its key is worthless: after every rotation the same phone looks like a new device and
 could bind a fresh identity while the old binding still stands. That is why the leased classes must
@@ -340,6 +341,22 @@ lease adds nothing — the device cannot become another device — so it binds o
 
 `DEVICE_BIND_PERMANENT_CLASSES = {ledger, trezor}`; every other bindable class is leased. Height-gated
 (`DEVICE_BIND_PERMANENT_HEIGHT`) on the live chain; becomes 1 at the next reroll.
+
+**`ek` joins the permanent classes at `DEVICE_BIND_PERMANENT_EK_HEIGHT` (operator decision 2026-09-14).** The helper
+enrolment binds on the endorsement key, which is as factory-fixed as a Ledger's device key, yet the class was leased:
+every helper-enrolled identity had to run the helper again each lease to produce a fresh certify, and a browser wallet
+that could not reach the chip fell back to a Windows Hello prompt the chip could never answer. From the gate a register
+carrying an `ek` statement binds for life (`permanent_classes_at(height)` is what validation and apply consult, so
+earlier blocks replay under the old set) and the identity renews without a statement exactly like a hardware wallet;
+the wallet hides the helper download for it and the node poller renews it on its own. An identity bound before the
+gate stays leased until its next statement, because only a statement writes the account's `devkey` reverse index that
+a statement-free renewal is checked against — one more helper run after the gate, then never again. The WebAuthn `tpm`
+class stays leased: its AIK is per Windows account and a binding that outlived that key would let one PC bind an
+identity per account.
+
+What this does not weaken: the binding is to the chip, and a rebind by anyone who holds the chip evicts the old
+identity instantly, as for every class. What it changes: an enrolled chip in a drawer keeps its identity alive without
+the helper, which is the same trade the operator accepted for a Ledger in a drawer.
 
 ### Consensus state
 

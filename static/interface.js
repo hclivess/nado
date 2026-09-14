@@ -608,7 +608,7 @@ async function bindIsPermanent() {
   return !!(state.devbind && state.devbind.mode === "perm" && state.devbind.live);
 }
 function bindDeviceName(cls) {
-  return cls === "ledger" ? "Ledger" : cls === "trezor" ? "Trezor" : cls === "tpm" ? "Windows PC" : cls === "android-key" ? "phone" : (cls || "device");
+  return cls === "ledger" ? "Ledger" : cls === "trezor" ? "Trezor" : cls === "tpm" ? "Windows PC" : cls === "ek" ? "TPM chip" : cls === "android-key" ? "phone" : (cls || "device");
 }
 /// The freshest usable proof the enrolment helper left for THIS address on the current relay, or null.
 ///
@@ -997,7 +997,7 @@ function renderDeviceStatus() {
       el.className = "small mt warn"; return;
     }
     if (db && db.mode === "perm" && db.live) {
-      el.textContent = i18("device.mineOkPerm", "Real device: attested ✓ ({f}) — bound to this identity for life; renewals need no prompt.", { f: db.cls || st.fmt || "" });
+      el.textContent = i18("device.mineOkPerm", "Real device: attested ✓ ({f}) — bound to this identity for life; renewals need no prompt.", { f: bindDeviceName(db.cls || st.fmt) });
       el.className = "small mt ok"; return;
     }
     // NAME THE HANDLE, SHORTENED, AND KEEP THE WHOLE THING AVAILABLE. "attested ✓" with nothing beside it

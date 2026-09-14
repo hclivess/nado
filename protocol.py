@@ -1525,7 +1525,7 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
 #                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, DEVICE_ATTEST_EK_PROVEN_HEIGHT,
 #                                    DEVICE_ATTEST_EK_READY_HEIGHT,
-#                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT,
+#                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, DEVICE_BIND_PERMANENT_EK_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT
@@ -1578,6 +1578,24 @@ DEVICE_BIND_PERMANENT_HEIGHT = 3900 if CHAIN_GENERATION == 25 else 1   # reroll:
 # height the old rule (refuse a different sender for POSW_LEASE_EPOCHS after the last statement) replays unchanged.
 DEVICE_REBIND_INSTANT_HEIGHT = 5400 if CHAIN_GENERATION == 25 else 1   # reroll: instant moves from block 1
 DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
+# PERMANENT EK BINDINGS (operator decision 2026-09-14, doc/device-attestation.md §"Binding modes"). The vendor-endorsed
+# TPM enrolment binds an identity to the chip's ENDORSEMENT key ("ek:<identity>", ops/device_attest.device_binding_key)
+# — burned in at manufacture and never rotated, exactly the durability that made Ledger and Trezor permanent, and unlike
+# the WebAuthn "tpm" class whose AIK is per Windows account. Until this height every helper-enrolled identity had to run
+# the helper again every lease to produce a fresh certify; from it a register carrying an ek statement binds for LIFE
+# and the identity renews without a statement, like a hardware wallet. A previously leased ek row becomes permanent at
+# its next statement (the helper's next run), because only a statement writes the account's `devkey` reverse index.
+# Rebinding by another sender evicts as for every class. Gate at the fleet's adoption block (rule 3); fresh chain: block 1.
+DEVICE_BIND_PERMANENT_EK_HEIGHT = 92900 if CHAIN_GENERATION == 25 else 1
+
+
+def permanent_classes_at(height) -> frozenset:
+    """The device classes that bind for life at `height` — a pure function of height so a replay reaches the same
+    verdict. None = the latest rule, for ADVISORY readers only (the identity log); validation and apply pass the
+    block's height."""
+    if height is None or (DEVICE_BIND_PERMANENT_EK_HEIGHT and int(height) >= DEVICE_BIND_PERMANENT_EK_HEIGHT):
+        return DEVICE_BIND_PERMANENT_CLASSES | frozenset(("ek",))
+    return DEVICE_BIND_PERMANENT_CLASSES
 # SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
 # The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is
 # what a farm cannot mint. From BOND_DEVICE_CAP_HEIGHT the bonded PRODUCER draw counts an identity only while it is

@@ -1477,7 +1477,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
         from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
-                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_BIND_PERMANENT_CLASSES)
+                              DEVICE_BIND_PERMANENT_HEIGHT, permanent_classes_at)
         epoch_now = block_height // EPOCH_LENGTH
         # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register WITHOUT a
         # statement is the statement-free presence renewal of an identity permanently bound to a hardware wallet — valid
@@ -1522,7 +1522,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     raise AssertionError(f"register: this device already vouches for another identity "
                                          f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
                 if (DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
-                        and dkey.split(":", 1)[0] in DEVICE_BIND_PERMANENT_CLASSES):
+                        and dkey.split(":", 1)[0] in permanent_classes_at(block_height)):   # "ek" joins at its own gate
                     # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
                     # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
                     acc_r = get_account(transaction["sender"], create_on_error=False) or {}
