@@ -273,7 +273,7 @@ vouches for the wallet address; it never holds the NADO key.
 | transport | WebUSB, protocol v1 (`?##` framing) | WebHID, channel 0x0101 / tag 0x05 |
 | protocol | `AuthenticateDevice{challenge}` → `AuthenticityProof` (trezorlib.authentication) | secure-channel genuineness handshake (ledgerblue.checkGenuine): E0 04 / 50 / 51 / 52 |
 | what is signed | `compact_size(19) ‖ "AuthenticateDevice:" ‖ compact_size(32) ‖ challenge`, ECDSA P-256/SHA-256 by the secure element's per-device key | cert0: issuer over `0x02 ‖ header ‖ devicePub`; cert1: device key over `0x12 ‖ deviceNonce ‖ hostNonce ‖ ephemeralPub`, secp256k1/SHA-256, with `hostNonce = challenge[0..8]` |
-| chain / root | X.509 device cert (CN `<model> <serial>`, serialNumber) → Trezor CA → signed by a bare P-256 ROOT KEY per model, pinned in `DEVICE_ATTEST_TREZOR_ROOTS` | device key certified by Ledger's ISSUER key, pinned in `DEVICE_ATTEST_LEDGER_ISSUER_KEYS` |
+| chain / root | X.509 device cert (CN `<model> …`; a subject serialNumber is NOT guaranteed — the first real Safe statement had none, `DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT`) → Trezor CA → signed by a bare P-256 ROOT KEY per model, pinned in `DEVICE_ATTEST_TREZOR_ROOTS` | device key certified by Ledger's ISSUER key, pinned in `DEVICE_ATTEST_LEDGER_ISSUER_KEYS` |
 | the tap | the device asks for confirmation on screen | the device asks to allow the "unsafe manager" (our self-signed host certificate) |
 | binding key | `trezor:sha256(device certificate)` | `ledger:sha256(device public key)` |
 | refused | Trezor One / Model T (no secure element: no chain, kernel refuses the CN) | firmware without secure channel v2 |

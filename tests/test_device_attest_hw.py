@@ -57,7 +57,8 @@ def build_trezor(d, cn="T3T1 ABCDEF123456", serial="ABCDEF123456", ca_pathlen=0,
     sh("openssl", "x509", "-req", "-in", f"{d}/ca.csr", "-CA", f"{d}/{signer}.pem", "-CAkey", f"{d}/{signer}.key", "-CAcreateserial", "-sha256", "-days", "3650",
        "-extfile", f"{d}/ca.ext", "-out", f"{d}/ca.pem")
     open(f"{d}/dev.ext", "w").write("basicConstraints=critical,CA:FALSE\n")
-    sh("openssl", "req", "-new", "-key", f"{d}/dev.key", "-subj", f"/CN={cn}/serialNumber={serial}", "-out", f"{d}/dev.csr")
+    subj = f"/CN={cn}" + (f"/serialNumber={serial}" if serial is not None else "")   # None: a REAL Safe certificate (no serial)
+    sh("openssl", "req", "-new", "-key", f"{d}/dev.key", "-subj", subj, "-out", f"{d}/dev.csr")
     sh("openssl", "x509", "-req", "-in", f"{d}/dev.csr", "-CA", f"{d}/ca.pem", "-CAkey", f"{d}/ca.key", "-CAcreateserial", "-sha256", "-days", "3650",
        "-extfile", f"{d}/dev.ext", "-out", f"{d}/dev.pem")
     der = lambda n: sh("openssl", "x509", "-in", f"{d}/{n}.pem", "-outform", "DER")
@@ -87,6 +88,24 @@ def t_trezor():
     att2, root2 = build_trezor(tempfile.mkdtemp(), cn="Trezor One 123", serial="123")
     v = A.verify(att2, cdj(CHAL), CHAL, NOW, roots=[b"\x01" + root2], rp_ids=[])
     check("trezor: a CN naming no Safe model refuses (Trezor One / Model T have no secure element)", not v.get("ok") and "model" in v.get("reason", ""), v.get("reason"))
+    # THE REAL CERTIFICATE HAS NO serialNumber (2026-09-14): the kernel verifies it; the height-gated policy decides
+    att4, root4 = build_trezor(tempfile.mkdtemp(), serial=None)
+    v = A.verify(att4, cdj(CHAL), CHAL, NOW, roots=[b"\x01" + root4], rp_ids=[])
+    check("trezor: a device certificate WITHOUT a serialNumber verifies in the kernel (the first real Safe statement had none)",
+          v.get("ok") and v.get("aaguid") == "T3T1", v.get("reason"))
+    from ops.device_attest import cbor_decode, cert_subject_has_serial
+    import protocol as P
+    x_with = cbor_decode(att)["attStmt"]["x5c"][0]
+    x_without = cbor_decode(att4)["attStmt"]["x5c"][0]
+    check("the DER walk sees the serial on the synthetic chain and not on the real-shaped one", cert_subject_has_serial(x_with) and not cert_subject_has_serial(x_without))
+    check("...and reads garbage as 'no serial' rather than raising", not cert_subject_has_serial(b"\x30\x03\x02\x01"))
+    G = P.DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
+    src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
+    check("validation reproduces the historical refusal below the gate and drops it from the gate",
+          "int(transaction.get(\"max_block\") or 0) >= DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT" in src
+          and "trezor: device certificate has no serialNumber" in src and G >= 1)
+    rs = open(os.path.join(ROOT, "native", "attest", "src", "formats", "trezor.rs")).read()
+    check("the kernel no longer refuses on the serial (the message lives only in Python now)", 'return Err("trezor: device certificate has no serialNumber"' not in rs)
     att3, root3 = build_trezor(tempfile.mkdtemp(), root_signs_ca=False)
     v = A.verify(att3, cdj(CHAL), CHAL, NOW, roots=[b"\x01" + root3], rp_ids=[])
     check("trezor: a CA certificate not signed by the root refuses", not v.get("ok"), v.get("reason"))

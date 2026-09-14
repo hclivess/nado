@@ -163,6 +163,32 @@ def _der_tlv(buf: bytes, pos: int):
     return tag, 2 + n, int.from_bytes(buf[pos + 2:pos + 2 + n], "big")
 
 
+def cert_subject_has_serial(der: bytes) -> bool:
+    """True when the certificate's SUBJECT Name carries an X.509 serialNumber attribute (OID 2.5.4.5). A pure DER walk:
+    Certificate -> TBSCertificate -> [version] serialNumber signature issuer validity SUBJECT, then a search for the
+    attribute's OID encoding inside the subject's own bytes. Used by the height-gated Trezor serial rule
+    (DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT); malformed DER reads as "no serial" and the kernel has already
+    refused such a certificate anyway."""
+    try:
+        _, h, _ = _der_tlv(der, 0)                      # Certificate SEQUENCE
+        pos = h
+        _, h, _ = _der_tlv(der, pos)                    # TBSCertificate SEQUENCE
+        pos += h
+        tag, h, l = _der_tlv(der, pos)
+        if tag == 0xA0:                                 # [0] EXPLICIT version
+            pos += h + l
+        for _ in range(4):                              # serialNumber, signature, issuer, validity
+            _, h, l = _der_tlv(der, pos)
+            pos += h + l
+        tag, h, l = _der_tlv(der, pos)                  # subject Name
+        if tag != 0x30:
+            return False
+        subject = der[pos:pos + h + l]
+        return b"\x06\x03\x55\x04\x05" in subject
+    except Exception:
+        return False
+
+
 def _der_time(tag: int, body: bytes) -> int:
     """UTCTime (0x17, YYMMDDHHMMSSZ) or GeneralizedTime (0x18, YYYYMMDDHHMMSSZ) -> unix seconds."""
     import calendar

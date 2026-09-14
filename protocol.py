@@ -1526,7 +1526,8 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, DEVICE_ATTEST_EK_PROVEN_HEIGHT,
 #                                    DEVICE_ATTEST_EK_READY_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, DEVICE_BIND_PERMANENT_EK_HEIGHT,
-#                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT,
+#                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
+#                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -1965,6 +1966,11 @@ DEVICE_ATTEST_EK_ROOTS = frozenset((
 #   bare P-256 ROOT KEY per model (trezorlib.authentication.ROOT_PUBLIC_KEYS, production keys only; the Safe 7 has a
 #   backup root). Trezor One / Model T have no secure element and no per-device certificate: not accepted.
 #   Keys are SEC1 uncompressed points (hex); the model is read from the device certificate's CN by the kernel.
+# TREZOR serialNumber (2026-09-14). The kernel required a subject serialNumber on the device certificate — an
+# assumption from the spec, proven only against a synthetic chain. The first real Trezor Safe statement had none and was
+# refused on that alone. From this height the serial is not required (trezorlib does not require it either; nothing
+# consumes it); below it the refusal is reproduced in ops/transaction_ops so replay is unchanged. Fresh chain: block 1.
+DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT = 95500 if CHAIN_GENERATION == 25 else 1
 DEVICE_ATTEST_TREZOR_ROOTS = {
     "T2B1": ("04ca97480ac0d7b1e6efafe518cd433cec2bf8ab9822d76eafd34363b55d63e60380bff20acc75cde03cffcb50ab6f8ce70c878e37ebc58ff7cca0a83b16b15fa5",),   # Safe 3
     "T3B1": ("045b5c3fdd01f3602092834209b86df0ca86a9faf25cac35c73bf6237d66eb21eafcec3706f1ccd5eb4cc7f2fa1751213eccb1c78389afba89a5788ff31ee46a5d",),   # Safe 3 (rev.)

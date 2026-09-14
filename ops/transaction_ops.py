@@ -705,6 +705,18 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
         assert keys, f"trezor attestation: model {aaguid} is not accepted"
         assert root in {_h.sha256(bytes.fromhex(k)).hexdigest() for k in keys}, \
             "trezor attestation: CA certificate is not signed by this model's pinned Trezor root"
+        # THE REAL DEVICE CERTIFICATE HAS NO serialNumber (2026-09-14). The kernel used to refuse on that alone; the
+        # first real Trezor Safe statement to reach the fleet (the operator's tap for the LA node) failed exactly there
+        # with every cryptographic check passed. trezorlib tolerates its absence and nothing consumes it (binding key
+        # = sha256 of the certificate, model = CN). Below the gate the historical refusal is reproduced HERE so old
+        # blocks replay identically; from the gate the serial is not required. `register` lands exactly at max_block.
+        from protocol import DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
+        if not (DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
+                and int(transaction.get("max_block") or 0) >= DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT):
+            from ops.device_attest import cbor_decode, cert_subject_has_serial
+            _x5c = ((cbor_decode(att) or {}).get("attStmt") or {}).get("x5c") or []
+            assert _x5c and cert_subject_has_serial(_x5c[0]), \
+                "device attestation rejected: trezor: device certificate has no serialNumber"
     elif fmt == "ledger":
         from protocol import DEVICE_ATTEST_LEDGER_ISSUER_KEYS
         import hashlib as _h

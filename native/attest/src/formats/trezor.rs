@@ -2,8 +2,8 @@
 //!
 //! The wallet sends `AuthenticateDevice{challenge}` over USB; the device's secure element (Optiga) signs
 //! `compact_size(len("AuthenticateDevice:")) || "AuthenticateDevice:" || compact_size(len(challenge)) || challenge`
-//! with its per-device key and returns its X.509 certificate chain: device certificate (subject CN "<model> <serial>",
-//! serialNumber) → Trezor CA certificate(s) → signed by a bare P-256 ROOT PUBLIC KEY that Trezor publishes per
+//! with its per-device key and returns its X.509 certificate chain: device certificate (subject CN "<model> ...";
+//! a serialNumber attribute is NOT guaranteed — see verify) → Trezor CA certificate(s) → signed by a bare P-256 ROOT PUBLIC KEY that Trezor publishes per
 //! model (trezorlib.authentication.ROOT_PUBLIC_KEYS). No root certificate exists — the root is a key, pinned in
 //! protocol and passed to this kernel as a `0x01 || SEC1(65)` entry of the roots blob.
 //!
@@ -56,10 +56,13 @@ pub fn verify(st: &[(Value, Value)], challenge: &[u8], roots: &[Vec<u8>], now: i
     let leaf = &parsed[0];
     let cn = leaf.subject().iter_common_name().next().and_then(|a| a.as_str().ok()).unwrap_or("");
     let model = MODELS.iter().find(|m| cn.starts_with(&format!("{m} "))).ok_or_else(|| format!("trezor: device certificate CN '{cn}' names no known model"))?;
-    let has_serial = leaf.subject().iter_by_oid(&oid_registry::OID_X509_SERIALNUMBER).next().is_some();
-    if !has_serial {
-        return Err("trezor: device certificate has no serialNumber".into());
-    }
+    // NO serialNumber REQUIREMENT HERE (2026-09-14). This kernel was proven against a synthetic chain whose subject
+    // carried a serialNumber attribute; the first REAL Trezor Safe statement to reach the fleet (an operator's tap
+    // for the LA node) had none and was refused on this line alone — every cryptographic check had passed.
+    // trezorlib itself only reads the serial for cross-chain consistency and tolerates its absence, and nothing here
+    // consumes it (the binding key is sha256 of the certificate, the model is the CN). Whether a serial is required
+    // is a height-gated POLICY in ops/transaction_ops (DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT), like the TPM
+    // AAGUID rule: the kernel reports, Python decides, and old blocks replay under the old rule.
     out.aaguid = model.to_string();
     out.cred_id = crate::hex(&Sha256::digest(&x5c[0]));
     // 3. the chain: each link signed by the next, CA links are CAs, validity at the anchor time, the last link
