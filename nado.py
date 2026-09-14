@@ -109,7 +109,7 @@ def serialize(output, name=None, compress=None):
 # pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
 # --------------------------------------------------------------------------------------------------
 from ops.net_ops import client_ip_from, unpack_tx
-from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS
+from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS, LEASE_EPOCHS_BY_CLASS, LEASE_V2_EPOCH, LEASE_ASSERT_CLASSES
 
 try:
     _TRUSTED_PROXIES = frozenset(get_config().get("trusted_proxies") or [])
@@ -436,7 +436,10 @@ async def status(request):
             "epoch_length": EPOCH_LENGTH,
             # the presence-lease constants the wallet mirrors for its countdown / renewal timing — adopted
             # from here (like finality_depth) so a change never strands the browser on a stale literal
-            "posw_lease_epochs": POSW_LEASE_EPOCHS,
+            "posw_lease_epochs": POSW_LEASE_EPOCHS,          # the historical / default grant (an identity with no class yet)
+            "lease_epochs_by_class": dict(LEASE_EPOCHS_BY_CLASS),   # LEASE_V2_EPOCH: the wallet reads its class's own lease
+            "lease_v2_epoch": LEASE_V2_EPOCH,
+            "lease_assert_classes": sorted(LEASE_ASSERT_CLASSES),
             "fidelity_min_gap_epochs": FIDELITY_MIN_GAP_EPOCHS,
             # DEGRADATION VISIBILITY, same purpose as update_capable: without the native ML-DSA lib
             # every verify is ~84x slower (0.154 ms -> 12.98 ms measured) and serialised behind one
@@ -1044,6 +1047,15 @@ async def account(request):
                 _b = _bi(addr, data)
                 data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "handle": _b.get("bind_handle"),
                                    "live": _b["bind_live"], "epoch": _b["bind_epoch"]}
+                # PER-CLASS LEASES (LEASE_V2_EPOCH): the lease THIS identity's latest recert granted (its countdown), the lease
+                # its class grants now, and whether it may renew by credential signature (assert-class + a credential on chain)
+                from protocol import lease_epochs_for as _lef, lease_v2_at as _lv2, EPOCH_LENGTH as _EL
+                _tip = int(memserver.latest_block["block_number"]); _ep = _tip // _EL
+                _reg = int(data["reg_epoch"]) if isinstance(data.get("reg_epoch"), int) else -1
+                data["devbind"]["lease_epochs"] = kv_ops.lease_of(addr, _reg) if _reg >= 0 else _lef(_b["bind_cls"], _ep)
+                data["devbind"]["lease_epochs_next"] = _lef(_b["bind_cls"], _ep)
+                data["devbind"]["assert_ok"] = bool(_lv2(_ep) and _b["bind_cls"] in LEASE_ASSERT_CLASSES
+                                                    and isinstance(data.get("devcred"), str) and data.get("devcred"))
                 if readable == "true":
                     data.update({"balance": to_readable_amount(data["balance"])})
                     data.update({"produced": to_readable_amount(data["produced"])})
@@ -2573,11 +2585,13 @@ async def get_open_weights(request):
             # to E - SATURATION_LOOKBACK_EPOCHS; rows below the gc_rows_below watermark are GONE.
             # Refuse (410-style error) rather than serve a silently-truncated reconstruction — a
             # cold exec node must bootstrap from a SETTLED checkpoint instead of ancient replay.
-            from protocol import SATURATION_LOOKBACK_EPOCHS
+            from protocol import saturation_lookback_at
             from ops import kv_ops as _kv
             # the reconstruction needs rows from max(0, E - lookback); refuse iff pruning has
             # crossed that floor (with nothing pruned yet — watermark 0 — every epoch serves).
-            if max(0, e - SATURATION_LOOKBACK_EPOCHS) < _kv.meta_get_int("gc_rows_below", 0):
+            # The lookback is a function of E (protocol.saturation_lookback_at): it grows towards the 7-day bound
+            # from LEASE_V2_EPOCH on instead of refusing every epoch the day the leases lengthen.
+            if max(0, e - saturation_lookback_at(e)) < _kv.meta_get_int("gc_rows_below", 0):
                 return {"error": "epoch too old: recert history pruned (bootstrap the exec node "
                                  "from a settled checkpoint)", "epoch": e}
             return {"epoch": e, "weights": weights_at_epoch(e)}

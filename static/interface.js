@@ -43,9 +43,21 @@ let netAdopted = false;                          // true once a relay's /status 
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
-// registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (36 h at 6 min/epoch).
+// registration is a renewable presence LEASE renewed once per its class's grant (36 h for a phone, 7 days otherwise).
 const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150;
-let POSW_LEASE_EPOCHS = 360;   // MUST match protocol.py; refreshNetIdentity() adopts the relay's live value
+let POSW_LEASE_EPOCHS = 360;   // the historical / default grant (protocol.POSW_LEASE_EPOCHS); refreshNetIdentity() adopts the relay's value
+// PER-CLASS LEASES (protocol.LEASE_V2_EPOCH, 2026-09-14): a phone keeps 36 h, a Windows PC, Ledger, Trezor or enrolled
+// chip is present for 7 days per renewal. The relay tells the wallet the lease THIS identity's latest recert granted
+// (`devbind.lease_epochs` on /get_account) and the class table (`lease_epochs_by_class` on /status); every countdown,
+// renewal trigger and sentence below reads leaseEpochsOf(acc), never the constant, so no screen can name a stale number.
+let LEASE_BY_CLASS = {};
+function leaseEpochsOf(acc) {
+  const db = acc && acc.devbind;
+  if (db && Number.isInteger(db.lease_epochs) && db.lease_epochs > 0) return db.lease_epochs;
+  if (db && db.cls && Number.isInteger(LEASE_BY_CLASS[db.cls]) && LEASE_BY_CLASS[db.cls] > 0) return LEASE_BY_CLASS[db.cls];
+  return POSW_LEASE_EPOCHS;
+}
+function leaseText(acc, epochSecs) { return humanizeSeconds(leaseEpochsOf(acc) * (epochSecs || EPOCH_LENGTH * (state.blockTime || 8))); }
 // Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
 // BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
 // block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
@@ -656,6 +668,20 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     log("ok", i18("bind.renewNoTap", "Renewed without a prompt — this identity is bound for life to its hardware wallet."));
     return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), null);
   }
+  // SIGNATURE RENEWAL (protocol.LEASE_ASSERT_CLASSES — a Windows Hello identity): the credential the statement bound signs
+  // this block's challenge (navigator.credentials.get), ~200 bytes and no attestation prompt. The relay says whether the
+  // chain holds the credential (`devbind.assert_ok`); the credential id was kept beside the wallet at the statement. Any
+  // failure — no id, a cancelled prompt, a credential the OS forgot — falls through to a full statement below.
+  if (state.devbind && state.devbind.assert_ok) {
+    const credId = storedCredentialId(state.wallet.address);
+    if (credId) {
+      const a = await assertCredential(state.wallet.address, anchorHash, targetBlock, credId);
+      if (a) {
+        log("ok", i18("bind.renewSig", "Renewed with a Windows Hello confirmation — no attestation needed."));
+        return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), a);
+      }
+    }
+  }
   // THE HELPER'S PROOF COUNTS FOR A RENEWAL, NOT ONLY A FIRST REGISTRATION. A chip enrolled by the
   // enrolment helper is a LEASED binding, so it is not covered by the permanent branch above and used to
   // fall straight through to WebAuthn — summoning a Windows Hello prompt that the chip cannot answer, on
@@ -678,6 +704,32 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
     throw new Error(hint || i18("device.required", "This device could not attest itself. The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or a statement from another device. Savings collecting needs no device at all: bond NADO and you produce blocks without one."));
   }
   return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
+}
+
+// THE CREDENTIAL ID, kept beside the wallet at create() so a later renewal can ask THAT credential to sign (allowCredentials).
+// Per-viewer convenience only: the chain overrules it — the relay's assert_ok says whether the credential exists on chain,
+// and a get() that fails for any reason falls back to a full statement.
+function storedCredentialId(address) {
+  try { return localStorage.getItem("nado_cred_" + address) || null; } catch (e) { return null; }
+}
+function rememberCredentialId(address, rawId) {
+  try { localStorage.setItem("nado_cred_" + address, btoa(String.fromCharCode(...new Uint8Array(rawId)))); } catch (e) {}
+}
+async function assertCredential(sender, anchorHash, maxBlock, credIdB64) {
+  if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.get) return null;
+  try {
+    const chalHex = blake2bHash([CHAIN_ID, sender, anchorHash, maxBlock]);   // the same challenge derivation as a statement
+    const chal = new Uint8Array(chalHex.match(/../g).map((h) => parseInt(h, 16)));
+    const id = Uint8Array.from(atob(credIdB64), (c) => c.charCodeAt(0));
+    const cred = await navigator.credentials.get({ publicKey: {
+      challenge: chal, rpId: location.hostname, timeout: 120000, userVerification: "preferred",
+      allowCredentials: [{ type: "public-key", id }] } });
+    const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    return { ad: b64(cred.response.authenticatorData), cdj: b64(cred.response.clientDataJSON), sig: b64(cred.response.signature), rp: location.hostname };
+  } catch (e) {
+    log("info", i18("bind.sigFallback", "The saved credential could not sign — attesting with a full statement instead."));
+    return null;
+  }
 }
 
 // Ask the PLATFORM authenticator first (phone secure element, Windows Hello TPM, Touch ID) so a device that has one
@@ -1100,9 +1152,9 @@ async function renderVouched() {
     const db = acc && acc.devbind;
     let state_, cls = "";
     if (db && db.mode === "perm" && db.live) state_ = i18("node.item.perm", "bound for life to a {d} — renews on its own", { d: bindDeviceName(db.cls) });
-    else if (reg < 0 || epoch == null || epoch - reg >= POSW_LEASE_EPOCHS) { state_ = i18("node.item.expired", "no live lease — attest again"); cls = "warn"; due++; }
+    else if (reg < 0 || epoch == null || epoch - reg >= leaseEpochsOf(acc)) { state_ = i18("node.item.expired", "no live lease — attest again"); cls = "warn"; due++; }
     else {
-      const left = (reg + POSW_LEASE_EPOCHS - epoch) * secsPerEpoch, since = epoch - reg;
+      const left = (reg + leaseEpochsOf(acc) - epoch) * secsPerEpoch, since = epoch - reg;
       if (since >= FIDELITY_MIN_GAP_EPOCHS) { state_ = i18("node.item.renewable", "renewable now — lease ends in {t} (≈ {c})", { t: humanizeSeconds(left), c: _fmtClock(left) }); cls = "warn"; due++; }
       else state_ = i18("node.item.held", "lease held — renewal earns from ≈ {c}; ends in {t}", { c: _fmtClock((reg + FIDELITY_MIN_GAP_EPOCHS - epoch) * secsPerEpoch), t: humanizeSeconds(left) });
     }
@@ -1216,7 +1268,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
           const epochSecs = EPOCH_LENGTH * (state.blockTime || 8);
           if (epochNow != null && lj.movable_at_epoch != null && epochNow < lj.movable_at_epoch) {
             const wait = (lj.movable_at_epoch - epochNow) * epochSecs;
-            const msg = i18("bind.rebindWait", "This {n} vouches for another account and moved less than 36 h ago — it can be rebound from epoch {e} (in about {t}).",
+            const msg = i18("bind.rebindWait", "This {n} vouches for another account and moved less than a lease ago — it can be rebound from epoch {e} (in about {t}).",
               { n: state.hwDevice.name, e: lj.movable_at_epoch, t: humanizeSeconds(wait) });
             setDeviceStatus({ ok: false, fmt: state.attestVia, reason: msg });
             log("err", msg);
@@ -1270,6 +1322,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       attestation: "direct", timeout: 120000 });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
     const att = b64(cred.response.attestationObject), cdj = b64(cred.response.clientDataJSON);
+    rememberCredentialId(sender, cred.rawId);       // so the next renewal can be a signature by this credential
     // PRE-FLIGHT (2026-09-07): have the relay PARSE the statement before anything is submitted. fmt "none" (Windows
     // Hello under VBS or a software key, an Apple passkey), no certificate chain, an unpinned root, or a class the
     // network cannot bind to one identity (FIDO2 batch key) is refused by every node anyway — a user saw the raw
@@ -2555,7 +2608,7 @@ async function refreshUnlockLease() {
     const present = !!(ms && ms.registered_present);
     if (present && regEpoch >= 0 && ms && typeof ms.epoch === "number") {
       const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
-      const secsLeft = Math.max(0, (regEpoch + POSW_LEASE_EPOCHS - ms.epoch) * epochSecs);
+      const secsLeft = Math.max(0, (regEpoch + leaseEpochsOf(acc) - ms.epoch) * epochSecs);
       box.innerHTML = "⛏ " + escapeHtml(i18("unlock.mining",
         "Still collecting while locked — about {t} of presence left. Reopen before it runs out to auto-renew.",
         { t: humanizeSeconds(secsLeft) }));
@@ -2995,7 +3048,7 @@ function clearRegBanner(tag) {
 // deletes itself on a timer is telling the user their success was provisional; it was also the reason
 // people reported the mining confirmation "disappearing". Banners are retracted by the condition that
 // contradicts them — clearRegBanner(tag) — and by nothing else.
-// gen 25: registration is NOT one-time any more — every lease (36 h) renews with one tap on the device, so say so.
+// gen 25: registration is NOT one-time any more — every lease renews (a tap for a phone, a Hello confirmation for a PC, nothing for a hardware wallet), so say so.
 const REASSURE = "";   // no reassurance appendix: the banner text stands alone
 
 // Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
@@ -3077,7 +3130,7 @@ function failStart(reason) {
       const epochNow = tip != null ? Math.floor((tip + 8) / EPOCH_LENGTH) : null;
       const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
       if (acc && acc.registered === 1 && epochNow != null && regEpoch >= 0
-          && (epochNow - regEpoch) < POSW_LEASE_EPOCHS) {
+          && (epochNow - regEpoch) < leaseEpochsOf(acc)) {
         log("ok", i18("log.regHealed", "Registration confirmed on chain after all ✓ — resuming collecting automatically."));
         state.mining = true;
         startPollLoop();
@@ -3122,7 +3175,7 @@ async function maybeRenewLease(acc) {
     if (state.latest == null || state.latest <= _renewSubmitted.targetBlock) return;
     _renewSubmitted = null;
   }
-  if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
+  if ((epochNow - regEpoch) < Math.floor(leaseEpochsOf(acc) * 0.8)) return;   // lease still healthy (80 % of ITS grant)
   // BACK OFF AFTER A FAILURE, OR THIS RETRIES ON EVERY TICK. _renewSubmitted is set only when the relay
   // ACCEPTS the transaction, so an attempt that throws before that — a cancelled device prompt, a
   // ceremony this hardware cannot answer, a relay that will not serve the anchor — left every guard clear
@@ -3249,13 +3302,13 @@ function refreshLeasePanel(acc, ms) {
   // There is no lease to renew — the panel hides and the one Start button registers afresh.
   const msKnown = ms && typeof ms.registered_present === "boolean";
   const registered = !!(acc && acc.registered === 1) && (!msKnown || ms.registered_present);
-  if (!registered || regEpoch < 0 || epochNow == null || (epochNow - regEpoch) >= POSW_LEASE_EPOCHS) {
+  if (!registered || regEpoch < 0 || epochNow == null || (epochNow - regEpoch) >= leaseEpochsOf(acc)) {
     show("leaseWrap", false);
     btn.style.display = "none"; btn.disabled = true;   // Renew lives beside Start now, outside the panel
     return;
   }
   const epochSecs = EPOCH_LENGTH * ((ms && ms.block_time) || state.blockTime || 8);
-  const epochsLeft = regEpoch + POSW_LEASE_EPOCHS - epochNow;
+  const epochsLeft = regEpoch + leaseEpochsOf(acc) - epochNow;
   const secsLeft = Math.max(0, epochsLeft * epochSecs);
   const gap = epochNow - regEpoch;
   const earnsIn = Math.max(0, (regEpoch + FIDELITY_MIN_GAP_EPOCHS - epochNow) * epochSecs);
@@ -3268,12 +3321,13 @@ function refreshLeasePanel(acc, ms) {
     state.devbind = db || state.devbind;
     if (db && db.mode === "perm" && db.live) bm.textContent = i18("bind.perm", "Bound for life to a {d} — renews without a prompt.", { d: bindDeviceName(db.cls) });
     else if (state.attestVia === "remote") bm.textContent = i18("bind.remote", "Vouched for by another device — that device must attest this address again before the lease ends.");
-    else if (db) bm.textContent = i18("bind.lease", "Leased — re-attests every 36 h with a statement from this device.");
+    else if (db && db.assert_ok) bm.textContent = i18("bind.assert", "Leased — renews every {t} with a Windows Hello confirmation, no attestation prompt.", { t: leaseText(acc, epochSecs) });
+    else if (db) bm.textContent = i18("bind.lease", "Leased — re-attests every {t} with a statement from this device.", { t: leaseText(acc, epochSecs) });
     else bm.textContent = "";
   }
   // THE HELPER, WHEREVER RENEWAL IS. A LEASED binding re-attests on every renewal, and for a chip that
   // statement comes from the enrolment helper — but its download rendered only from renderMineFix(),
-  // which hides itself as soon as the device verdict is ok. So the owner who needs it most, every 36 h,
+  // which hides itself as soon as the device verdict is ok. So the owner who needs it most, every lease,
   // could not reach it at all: no card, no URL, nothing to type. Renewal and the means of renewal now
   // live in the same place. Permanent bindings renew with no prompt and are deliberately not offered it.
   const lh = $("leaseHelper");
@@ -3296,8 +3350,9 @@ function refreshLeasePanel(acc, ms) {
     note = i18("lease.remoteRenew", "Renewal earns now: on the other device open Collecting → \"Attest another wallet or node\" (it lists this address) and press Attest again. Nothing to press here.");
     enabled = false;
   } else if (gap >= FIDELITY_MIN_GAP_EPOCHS) {
-    note = i18("lease.canRenew", "Renewing now earns +1 fidelity and moves your expiry to about {c} tomorrow.",
-      { c: _fmtClock(POSW_LEASE_EPOCHS * epochSecs) });
+    // fidelity pays per ~19 h of gap since the gate (protocol.fidelity_step): a weekly renewal earns 8, a 36-hour one 1
+    note = i18("lease.canRenew", "Renewing now earns +{n} fidelity and moves your expiry to about {c}.",
+      { n: Math.max(1, Math.floor(gap / FIDELITY_MIN_GAP_EPOCHS)), c: _fmtClock(leaseEpochsOf(acc) * epochSecs) });
     enabled = !!state.wallet && !_renewingLease && !state.registering;
   } else {
     note = i18("lease.tooEarly", "The +1 fidelity for this renewal is available from about {c} (in {t}). Your fidelity is safe until the lease expires.",
@@ -3703,7 +3758,7 @@ async function pollOnce() {
     const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
     const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
     // OPEN-lane eligibility = a PoSW recert within POSW_LEASE_EPOCHS (the recert is the single presence signal).
-    const leaseValid = epochNow != null && regEpoch >= 0 && (epochNow - regEpoch) < POSW_LEASE_EPOCHS;
+    const leaseValid = epochNow != null && regEpoch >= 0 && (epochNow - regEpoch) < leaseEpochsOf(acc);
     // AUTHORITATIVE presence: the node's open-registry membership (mining_status.registered_present) is ground
     // truth. If the node says we're NOT present — even when the local reg_epoch heuristic thinks the lease is
     // fine — we (re)register. Otherwise a state/index skew or a dropped registration tx leaves us stuck
@@ -4393,7 +4448,7 @@ async function refreshDashboard() {
     const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
     if (regEpoch >= 0) {
       const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
-      const leaseEnd = regEpoch + POSW_LEASE_EPOCHS;
+      const leaseEnd = regEpoch + leaseEpochsOf(acc);
       $("mineLocked").textContent = humanizeSeconds(Math.max(0, (leaseEnd - ms.epoch) * epochSecs));
     } else {
       $("mineLocked").textContent = "—";
@@ -10125,6 +10180,7 @@ async function refreshNetIdentity() {
     // makes the pair self-healing instead of relying on someone remembering to edit two files.
     if (st && Number.isInteger(st.finality_depth) && st.finality_depth > 0) FINALITY_DEPTH = st.finality_depth;
     if (st && Number.isInteger(st.posw_lease_epochs) && st.posw_lease_epochs > 0) POSW_LEASE_EPOCHS = st.posw_lease_epochs;
+    if (st && st.lease_epochs_by_class && typeof st.lease_epochs_by_class === "object") LEASE_BY_CLASS = st.lease_epochs_by_class;
     if (st && Number.isInteger(st.fidelity_min_gap_epochs) && st.fidelity_min_gap_epochs > 0) FIDELITY_MIN_GAP_EPOCHS = st.fidelity_min_gap_epochs;
   } catch (e) {}
   return CHAIN_ID;

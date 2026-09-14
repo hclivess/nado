@@ -244,7 +244,12 @@ def device_histogram(rows, epoch_now: int, present) -> dict:
         cls = key.split(":", 1)[0] if ":" in key else "unknown"
         slot = out.setdefault(cls, {"total": 0, "live": 0})
         slot["total"] += 1
-        if address in present and (mode == "perm" or int(epoch_now) - int(epoch) <= POSW_LEASE_EPOCHS):
+        # live = the chain says present AND the binding is current: a permanent row for life, an assert-class row (its
+        # credential renews without refreshing the statement epoch) while present, a leased row within its class's lease
+        from protocol import LEASE_ASSERT_CLASSES, lease_epochs_for
+        cls_here = key.split(":", 1)[0]
+        within = int(epoch_now) - int(epoch) <= lease_epochs_for(cls_here, epoch_now)
+        if address in present and (mode == "perm" or cls_here in LEASE_ASSERT_CLASSES or within):
             slot["live"] += 1
     return {"classes": out,
             "live_total": sum(v["live"] for v in out.values()),

@@ -2100,29 +2100,76 @@ def tx_of_account(address: str, min_block: int, limit: int):
     return _read(_do)
 
 
-def hb_revert_put(epoch: int, address: str, prev_epoch: int, net_delta: int):
+def hb_revert_put(epoch: int, address: str, prev_epoch: int, net_delta: int, fields=None):
     """FIDELITY DECAY (revert record): store the EXACT inverse of a heartbeat's fidelity update — the
     account's PREVIOUS last-seen epoch and the NET fidelity delta applied — keyed (epoch,address), plain
     KV. Rollback reads this to restore fidelity + last_hb_epoch byte-identically. Written inside the
-    incorporate write txn (atomic with the heartbeat itself)."""
+    incorporate write txn (atomic with the heartbeat itself).
+    `fields` (LEASE_V2_EPOCH): [prev_devkey, prev_devcred] — the account fields a statement register overwrote
+    (None = the field did not exist). A two-element record is the legacy shape and restores nothing."""
     def _do(txn):
-        txn.put(be8(epoch) + address.encode(),
-                _pack([int(prev_epoch), int(net_delta)]), db=_dbs()["hb_revert"])
+        rec = [int(prev_epoch), int(net_delta)]
+        if fields is not None:
+            rec.append([(None if v is None else str(v)) for v in fields])
+        txn.put(be8(epoch) + address.encode(), _pack(rec), db=_dbs()["hb_revert"])
     _write(_do)
 
 
 def hb_revert_pop(epoch: int, address: str):
-    """Read + DELETE the revert record for (epoch,address); returns (prev_epoch, net_delta) or None
-    (None => nothing to invert, e.g. a heartbeat from before this feature). Runs in the active txn."""
+    """Read + DELETE the revert record for (epoch,address); returns (prev_epoch, net_delta, fields) or None
+    (None => nothing to invert, e.g. a heartbeat from before this feature). `fields` is None for a legacy record,
+    else [prev_devkey, prev_devcred] to restore exactly. Runs in the active txn."""
     def _do(txn):
         key = be8(epoch) + address.encode()
         raw = txn.get(key, db=_dbs()["hb_revert"])
         if raw is None:
             return None
         txn.delete(key, db=_dbs()["hb_revert"])
-        prev, net = _unpack(raw)
-        return int(prev), int(net)
+        rec = _unpack(raw)
+        prev, net = rec[0], rec[1]
+        fields = [(None if v is None else str(v)) for v in rec[2]] if len(rec) > 2 and rec[2] is not None else None
+        return int(prev), int(net), fields
     return _write(_do)
+
+
+# --- LEASE GRANTS (protocol.LEASE_V2_EPOCH) --------------------------------------------------------------------
+# "lease:<address>:<epoch>" -> msgpack([lease_epochs]) in the devbind sub-DB — the same trick the eviction and
+# enrolment rows use: consensus state, in the root, snapshot-carried, NO new sub-DB (a pre-gate root is untouched and a
+# node syncing across the gate needs no schema change). A recert's grant is what presence at any epoch is measured
+# against; a recert with no row (written before the gate) reads as POSW_LEASE_EPOCHS, the rule it was made under.
+# devbind_rows() cannot decode these (one-element record) and skips them, so /device_stats never sees a lease as a device.
+def _lease_key(address: str, epoch: int) -> bytes:
+    return f"lease:{address}:{int(epoch)}".encode()
+
+
+def lease_grant_put(address: str, epoch: int, lease_epochs: int):
+    def _do(txn):
+        txn.put(_lease_key(address, epoch), _pack([int(lease_epochs)]), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def lease_grant_del(address: str, epoch: int):
+    def _do(txn):
+        txn.delete(_lease_key(address, epoch), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def lease_grant_get(address: str, epoch: int):
+    """The lease granted by the recert at (address, epoch), or None when that recert predates the gate."""
+    def _do(txn):
+        raw = txn.get(_lease_key(address, epoch), db=_dbs()["devbind"])
+        return None if raw is None else int(_unpack(raw)[0])
+    return _read(_do)
+
+
+def lease_of(address: str, recert_epoch: int) -> int:
+    """How long the recert at `recert_epoch` keeps `address` present — ONE reader for the live registry, the
+    fraud-proof reconstruction and the continuity rule of the fidelity ramp. Pre-gate recerts: POSW_LEASE_EPOCHS."""
+    from protocol import POSW_LEASE_EPOCHS
+    if recert_epoch is None or int(recert_epoch) < 0:
+        return POSW_LEASE_EPOCHS
+    g = lease_grant_get(address, int(recert_epoch))
+    return POSW_LEASE_EPOCHS if g is None else g
 
 
 # --- ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key) ---------------

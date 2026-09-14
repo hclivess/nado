@@ -34,6 +34,10 @@ def _load():
     if is_stale(_SO, _CRATE):
         raise AttestKernelUnavailable(f"{_SO} is older than its sources — rebuild native/attest")
     lib = ctypes.CDLL(_SO)
+    lib.nado_attest_assert.restype = ctypes.c_int64
+    lib.nado_attest_assert.argtypes = [
+        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+        ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
     lib.nado_attest_verify.restype = ctypes.c_int64
     lib.nado_attest_verify.argtypes = [
         ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
@@ -73,6 +77,24 @@ def pinned_roots_der():
     for k in getattr(P, "DEVICE_ATTEST_LEDGER_ISSUER_KEYS", ()):
         out.append(b"\x02" + bytes.fromhex(k))
     return out
+
+
+def verify_assertion(cose_pub: bytes, ad: bytes, cdj: bytes, sig: bytes, challenge: bytes, rp_ids=None) -> dict:
+    """A WebAuthn ASSERTION (navigator.credentials.get) by a credential the chain already holds — the signature renewal
+    of protocol.LEASE_ASSERT_CLASSES. The kernel checks rpIdHash ∈ rp_ids, user presence, clientData.type
+    "webauthn.get" with OUR challenge, and the signature over authenticatorData || sha256(clientDataJSON) with the COSE
+    key (ES256 / RS256). -> {"ok", "reason", "alg"}. No fallback: the kernel is the verifier."""
+    lib = _load()
+    if rp_ids is None:
+        import protocol as P
+        rp_ids = list(getattr(P, "DEVICE_ATTEST_RP_IDS", ()))
+    rp = ("\0".join(rp_ids)).encode() + b"\0"
+    out = ctypes.create_string_buffer(4096)
+    n = lib.nado_attest_assert(cose_pub, len(cose_pub), ad, len(ad), cdj, len(cdj), sig, len(sig),
+                               challenge, len(challenge), rp, out, len(out))
+    if n < 0:
+        raise AttestKernelUnavailable("kernel returned an error")
+    return json.loads(out.raw[:n].decode("utf-8"))
 
 
 def _pack_roots(roots):

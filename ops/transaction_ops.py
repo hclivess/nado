@@ -582,6 +582,52 @@ def register_device_challenge(sender: str, anchor_hash: str, max_block: int) -> 
     return bytes.fromhex(blake2b_hash([CHAIN_ID, sender, anchor_hash, int(max_block)]))
 
 
+def is_assert_device(dev) -> bool:
+    """True when a register's `device` is a SIGNATURE RENEWAL (protocol.LEASE_ASSERT_CLASSES): a WebAuthn assertion
+    {ad, cdj, sig, rp} by the credential a statement already bound — no attestation object, no enrolment id."""
+    return (isinstance(dev, dict) and isinstance(dev.get("sig"), str) and isinstance(dev.get("ad"), str)
+            and "att" not in dev and "id" not in dev)
+
+
+def verify_register_assertion(transaction, anchor_hash):
+    """SIGNATURE RENEWAL (protocol.LEASE_V2_EPOCH, LEASE_ASSERT_CLASSES; doc/device-attestation.md §"Leases per class").
+    The sender's account carries `devkey` (the device its statement bound) and `devcred` (that statement's WebAuthn
+    credential, COSE); the devbind row must still point at the sender; the class must be one whose device key does not
+    rotate; and the kernel verifies the assertion over THIS block's own challenge. Renews the lease exactly like a
+    statement renewal and binds nothing. Raises AssertionError with the reason."""
+    import base64 as _b64
+    from protocol import (DEVICE_ATTEST_RP_IDS, POSW_ANCHOR_OFFSET, LEASE_ASSERT_CLASSES, lease_v2_at, EPOCH_LENGTH)
+    from ops import attest_native
+    dev = transaction["device"]
+    height = int(transaction.get("max_block") or 0)                 # `register` lands EXACTLY at max_block
+    assert lease_v2_at(height // EPOCH_LENGTH), "signature renewals are not enabled yet"
+    acc = get_account(transaction["sender"], create_on_error=False) or {}
+    dk, dc = acc.get("devkey"), acc.get("devcred")
+    assert isinstance(dk, str) and dk and isinstance(dc, str) and dc, \
+        "signature renewal: this identity has no credential on chain — renew with a statement first"
+    cls = dk.split(":", 1)[0]
+    assert cls in LEASE_ASSERT_CLASSES, f"signature renewal is not available for a {cls} binding — renew with a statement"
+    bound = kv_ops.devbind_get(dk)
+    assert bound and bound[0] == transaction["sender"], \
+        "signature renewal: the device that vouched for this identity now vouches for another — attest again"
+    try:
+        ad = _b64.b64decode(str(dev.get("ad", "")), validate=True)
+        cdj = _b64.b64decode(str(dev.get("cdj", "")), validate=True)
+        sig = _b64.b64decode(str(dev.get("sig", "")), validate=True)
+        cose = bytes.fromhex(dc)
+    except Exception:
+        raise AssertionError("signature renewal is not valid base64")
+    assert 37 <= len(ad) <= 4_000 and 0 < len(cdj) <= 4_000 and 0 < len(sig) <= 1_024, "signature renewal size out of bounds"
+    rp = str(dev.get("rp", "") or "")
+    assert 0 < len(rp) <= 253 and all(c.isalnum() or c in ".-" for c in rp), "device rp id malformed"
+    anchor_block = get_block_number(max(0, height - POSW_ANCHOR_OFFSET))
+    assert anchor_block and anchor_block.get("block_hash") == anchor_hash, "attestation anchor block unavailable"
+    challenge = register_device_challenge(transaction["sender"], anchor_hash, height)
+    verdict = attest_native.verify_assertion(cose, ad, cdj, sig, challenge, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
+    assert verdict.get("ok"), f"signature renewal rejected: {verdict.get('reason')}"
+    return verdict
+
+
 def is_ek_device(dev) -> bool:
     """True when a register's `device` is a VENDOR-ENDORSED TPM proof rather than a WebAuthn statement.
     Keyed on the presence of an enrolment id, which no WebAuthn statement carries — the two shapes share no
@@ -1051,7 +1097,7 @@ def reserved_uniqueness_keys(tx) -> list:
         try:
             # a statement-free renewal (DEVICE_BIND_PERMANENT_HEIGHT) binds nothing, so it occupies no device key
             if (DEVICE_BIND_STRICT_HEIGHT and int(tx.get("max_block", 0)) >= DEVICE_BIND_STRICT_HEIGHT
-                    and isinstance(tx.get("device"), dict)):
+                    and isinstance(tx.get("device"), dict) and not is_assert_device(tx.get("device"))):   # an assertion binds nothing
                 from ops.device_attest import device_binding_key
                 keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
         except Exception:
@@ -1497,7 +1543,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # from the next block). Before the gate, or for anyone else, it is the historical "Missing device attestation".
         stmt_free = bool(DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
                          and not isinstance(transaction.get("device"), dict))
-        if stmt_free:
+        if is_assert_device(transaction.get("device")):
+            # SIGNATURE RENEWAL (LEASE_V2_EPOCH): the credential a statement bound signs this block's challenge; nothing is
+            # bound and no device key is derived (the shape has no certificate). Validated in full here.
+            verify_register_assertion(transaction, anchor)
+        elif stmt_free:
             acc_r = get_account(transaction["sender"], create_on_error=False) or {}
             dk = acc_r.get("devkey")
             bound = kv_ops.devbind_get(dk) if isinstance(dk, str) and dk else None

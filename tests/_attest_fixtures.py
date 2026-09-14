@@ -70,10 +70,11 @@ def cbor(v):
     if isinstance(v, list):
         return bytes([0x80 | len(v)]) + b"".join(cbor(x) for x in v)
     if isinstance(v, int):
+        # major type 0 / 1 with 1- and 2-byte arguments: COSE alg -257 (RS256) needs the 2-byte form (n = 256)
         if v >= 0:
-            return bytes([v]) if v < 24 else bytes([0x18, v])
+            return bytes([v]) if v < 24 else (bytes([0x18, v]) if v < 256 else bytes([0x19]) + v.to_bytes(2, "big"))
         n = -1 - v
-        return bytes([0x20 | n]) if n < 24 else bytes([0x38, n])
+        return bytes([0x20 | n]) if n < 24 else (bytes([0x38, n]) if n < 256 else bytes([0x39]) + n.to_bytes(2, "big"))
     raise TypeError(v)
 
 

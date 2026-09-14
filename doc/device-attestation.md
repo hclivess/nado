@@ -430,6 +430,58 @@ open-lane draw, the one-register-per-epoch rule, the strict CBOR parse and the i
 permanent identity that stops renewing lapses like any other; the binding stays, so when it returns it renews
 without a statement.
 
+## Leases per class, signature renewals, fidelity by time (`LEASE_V2_EPOCH`, 2026-09-14)
+
+Operator decision (2026-09-14): renewals were too frequent for the classes whose device key never rotates. One epoch
+gate, `LEASE_V2_EPOCH` (epoch 1600 = block 96 000 on gen 25; epoch 0 on a reroll), keyed on the recert's epoch.
+
+### Why per class
+
+| class | lease | renewal | why |
+|---|---|---|---|
+| `android-key` | 36 h | a statement (tap + attestation) | the attestation certificate rotates (~13 days measured, ≤ 90 by rule); after a rotation the phone is a new device key and the old binding stays live until its lease ends, so one phone holds two identities for `lease / rotation` of the time — 12 % at 36 h, 54 % at 7 days. No stable identifier survives the rotation from a browser. |
+| `tpm` (Windows Hello) | 7 days | a **signature** by the bound credential (Hello confirmation, no attestation) | the AIK is per Windows account and does not rotate |
+| `ledger`, `trezor`, `ek` | 7 days | a bare register (no prompt) | permanent bindings, unchanged renewal path |
+
+`protocol.LEASE_EPOCHS_BY_CLASS`, `LEASE_EPOCHS_MAX = 1680`, `LEASE_ASSERT_CLASSES = {tpm}`.
+
+### Consensus state
+
+- **The grant is written down.** A recert at epoch E writes `lease:<address>:<E>` → `[lease_epochs]` in the `devbind`
+  DB (no new sub-DB; the eviction/enrolment trick). Presence at any epoch is `E − last_recert < lease_of(last_recert)`;
+  a recert with no row (pre-gate) reads as `POSW_LEASE_EPOCHS`, which is exactly the old rule, so every historical epoch
+  reconstructs unchanged. Both readers — `get_open_registry` (live) and `dividend_ops.present_at_epoch` (the fraud-proof
+  replay) — use `kv_ops.lease_of`; `tests/test_lease_v2.py` drives a history across the gate through both.
+- **Continuity** for the fidelity ramp is judged by the previous recert's own grant (a 6-day gap is continuous under a
+  7-day grant, a lapse under a 36-hour one).
+- **Fidelity measures time, not taps.** From the gate `fidelity_step` pays `FIDELITY_GAIN × (gap // FIDELITY_MIN_GAP_EPOCHS)`
+  per continuous recert: a weekly renewal earns 8, a 36-hour one still earns 1 — the same rate per day of presence for
+  every class. A lapse still halves. Live apply and the replay call the one function with the recert's epoch.
+- **`devkey` for every class, `devcred` for WebAuthn statements.** A statement at/after the gate stamps the account with
+  the device handle (every class) and the credential's COSE public key (from the statement's own authenticator data, so
+  every node derives the identical bytes). The previous values ride in the recert journal (`hb_revert` fields) and a
+  rollback restores or deletes both. This is what the retired `DEVICE_BIND_DEVKEY_ALL` gate wanted, at a height the
+  fleet was uniform for.
+- **Signature renewal** (`transaction_ops.verify_register_assertion`): a `register` whose `device` is `{ad, cdj, sig,
+  rp}` — a WebAuthn assertion (`navigator.credentials.get`) over the same anchor-bound challenge as a statement. Valid
+  iff the sender's `devkey` class is in `LEASE_ASSERT_CLASSES`, `devbind[devkey]` still points at the sender, the account
+  holds `devcred`, and the kernel (`nado_attest_assert`: rpIdHash, user presence, `webauthn.get`, challenge, ES256 /
+  RS256 over `authData ‖ sha256(clientDataJSON)`) verifies. Binds nothing, refreshes no statement epoch, occupies no
+  device key in a block. Not for `android-key`: an assertion window longer than its lease would hold the old binding
+  alive past the rotation.
+- **Retention and lookback** grow with the longest lease: `recert_history_epochs(epoch)` (15 000 → 55 000 at the gate)
+  and `saturation_lookback_at(epoch)`, which reaches `(FIDELITY_CAP + 1) × LEASE_EPOCHS_MAX` only once that much post-gate
+  history can exist, so the exec node's "history pruned?" guard refuses nothing the day the leases lengthen.
+
+### Wallet
+
+`/status` carries `lease_epochs_by_class`; `/get_account` carries `devbind.lease_epochs` (the grant of this identity's
+latest recert), `lease_epochs_next` and `assert_ok`. Every countdown, renewal trigger and sentence reads the identity's
+own grant (`leaseEpochsOf(acc)`); no screen names a fixed number except as a per-class fact. A Windows Hello identity
+whose statement landed after the gate renews with a Hello confirmation and no attestation prompt (`assertCredential`,
+the credential id kept beside the wallet at `create()`); any failure falls back to a full statement. An identity bound
+before the gate has no grant, no `devkey` and no `devcred` until its next statement: one more tap, then the new terms.
+
 ## Savings-lane cap per attested device (`BOND_DEVICE_CAP_HEIGHT`, 2026-09-07) — attested-only until block 16150
 
 > Superseded in part on 2026-09-08 evening: from `BOND_ATTEST_OPTIONAL_HEIGHT` the device lease is no longer required

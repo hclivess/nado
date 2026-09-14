@@ -71,6 +71,70 @@ def build_trezor(d, cn="T3T1 ABCDEF123456", serial="ABCDEF123456", ca_pathlen=0,
     return att, root_point
 
 
+# ---- SIGNATURE RENEWAL (protocol.LEASE_ASSERT_CLASSES): a WebAuthn ASSERTION by a credential the chain holds -----------
+def _cose_p256(pub_der):
+    """COSE_Key {1:2, 3:-7, -1:1, -2:x, -3:y} from a P-256 SubjectPublicKeyInfo (uncompressed point = last 65 bytes)."""
+    pt = pub_der[-65:]; assert pt[0] == 4
+    return cbor({1: 2, 3: -7, -1: 1, -2: pt[1:33], -3: pt[33:65]})
+
+
+def _cose_rsa(n, e):
+    return cbor({1: 3, 3: -257, -1: n, -2: e})
+
+
+def _assertion(d, keyfile, rp="get.nadochain.com", chal=None, typ="webauthn.get", present=True, rsa=False):
+    """authenticatorData (rpIdHash | flags | signCount) + clientDataJSON + signature over ad || sha256(cdj)."""
+    chal = CHAL if chal is None else chal
+    ad = hashlib.sha256(rp.encode()).digest() + bytes([0x05 if present else 0x04]) + (0).to_bytes(4, "big")
+    cd = json.dumps({"type": typ, "challenge": base64.urlsafe_b64encode(chal).decode().rstrip("="), "origin": "https://" + rp}).encode()
+    msg = ad + hashlib.sha256(cd).digest()
+    sig = sh("openssl", "dgst", "-sha256", "-sign", keyfile, inp=msg)
+    return ad, cd, sig
+
+
+def t_assertion():
+    from ops import attest_native as A
+    d = tempfile.mkdtemp()
+    sh("openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", f"{d}/cred.key")
+    pub = sh("openssl", "ec", "-in", f"{d}/cred.key", "-pubout", "-outform", "DER")
+    cose = _cose_p256(pub)
+    ad, cd, sig = _assertion(d, f"{d}/cred.key")
+    v = A.verify_assertion(cose, ad, cd, sig, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: an ES256 credential's signature over authData || sha256(clientData) verifies", v.get("ok") and v.get("alg") == "ES256", v)
+    v = A.verify_assertion(cose, ad, cd, sig, os.urandom(32), rp_ids=["get.nadochain.com"])
+    check("assertion: another challenge refuses", not v.get("ok") and "challenge" in v.get("reason", ""), v.get("reason"))
+    ad2, cd2, sig2 = _assertion(d, f"{d}/cred.key", typ="webauthn.create")
+    v = A.verify_assertion(cose, ad2, cd2, sig2, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: clientData.type must be webauthn.get (a create() ceremony is not a renewal)", not v.get("ok") and "webauthn.get" in v.get("reason", ""), v.get("reason"))
+    v = A.verify_assertion(cose, ad, cd, sig, CHAL, rp_ids=["other.example"])
+    check("assertion: the rp id must be an accepted one", not v.get("ok") and "rp" in v.get("reason", ""), v.get("reason"))
+    ad3, cd3, sig3 = _assertion(d, f"{d}/cred.key", present=False)
+    v = A.verify_assertion(cose, ad3, cd3, sig3, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: user presence is required", not v.get("ok") and "present" in v.get("reason", ""), v.get("reason"))
+    sh("openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", f"{d}/other.key")
+    ad4, cd4, sig4 = _assertion(d, f"{d}/other.key")
+    v = A.verify_assertion(cose, ad4, cd4, sig4, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: a signature by ANOTHER key refuses", not v.get("ok") and "verify" in v.get("reason", ""), v.get("reason"))
+    # RS256: the other algorithm the wallet offers (Windows Hello on machines whose TPM makes no ECC key)
+    sh("openssl", "genrsa", "-out", f"{d}/rsa.key", "2048")
+    mod = sh("openssl", "rsa", "-in", f"{d}/rsa.key", "-noout", "-modulus").decode().strip().split("=")[1]
+    n = bytes.fromhex(mod); e = (65537).to_bytes(3, "big")
+    ad5, cd5, sig5 = _assertion(d, f"{d}/rsa.key")
+    v = A.verify_assertion(_cose_rsa(n, e), ad5, cd5, sig5, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: an RS256 credential verifies too", v.get("ok") and v.get("alg") == "RS256", v)
+    v = A.verify_assertion(cbor({1: 1, 3: -8}), ad, cd, sig, CHAL, rp_ids=["get.nadochain.com"])
+    check("assertion: an unsupported credential algorithm is refused, not crashed", not v.get("ok") and "unsupported" in v.get("reason", ""), v.get("reason"))
+    # the statement verdict now carries the credential the chain will stamp
+    from ops.device_attest import credential_public_key
+    hw_att, _ = build_trezor(tempfile.mkdtemp())
+    check("the Python credential extractor reads None for a hardware-wallet statement (no WebAuthn credential)",
+          credential_public_key({"att": base64.b64encode(hw_att).decode()}) is None)
+    # ...and the COSE key out of a WebAuthn-shaped statement: authData with attested credential data appended
+    ad_att = hashlib.sha256(b"get.nadochain.com").digest() + bytes([0x45]) + (0).to_bytes(4, "big") + bytes(16) + (2).to_bytes(2, "big") + b"id" + cose
+    check("...and the exact COSE bytes out of a WebAuthn statement's authenticator data",
+          credential_public_key({"att": base64.b64encode(cbor({"fmt": "tpm", "attStmt": {}, "authData": ad_att})).decode()}) == cose.hex())
+
+
 def t_trezor():
     from ops import attest_native as A
     d = tempfile.mkdtemp()
@@ -232,6 +296,7 @@ def t_wallet_wiring():
 
 if __name__ == "__main__":
     t_trezor()
+    t_assertion()
     t_ledger()
     t_protocol_and_rule()
     t_wallet_wiring()

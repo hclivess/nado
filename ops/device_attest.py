@@ -98,6 +98,23 @@ def parse_auth_data(ad: bytes) -> dict:
     return out
 
 
+def credential_public_key(device) -> str | None:
+    """Hex of the COSE public key the WebAuthn statement's authenticator data carries (credentialPublicKey), or None for
+    a shape with no WebAuthn credential (a hardware-wallet statement has authData b"", a helper proof has none). Pure in
+    the tx bytes: apply derives the account's `devcred` from this, so every node stamps the identical value
+    (protocol.LEASE_V2_EPOCH); a signature renewal is later verified against exactly these bytes."""
+    try:
+        att = cbor_decode(_b64d(str(device.get("att", ""))))
+        ad = att.get("authData") if isinstance(att, dict) else None
+        if not isinstance(ad, (bytes, bytearray)) or len(ad) < 55 or not (ad[32] & 0x40):
+            return None
+        n = int.from_bytes(ad[53:55], "big")
+        cose = bytes(ad[55 + n:])
+        return cose.hex() if cose else None
+    except Exception:
+        return None
+
+
 def _auth_data_or_none(ad):
     try:
         return parse_auth_data(ad) if isinstance(ad, (bytes, bytearray)) and len(ad) >= 37 else None

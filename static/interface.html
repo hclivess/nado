@@ -328,7 +328,7 @@
     <details id="hwWrap" class="mt disc">
       <summary data-i18n="hw.other">Attest another way</summary>
       <div class="optlist">
-        <button id="btnHwNone" class="opt"><b data-i18n="hw.none">This device</b><small data-i18n="hw.cap.none">Android 12+ phone or Windows PC with a TPM · re-attests every 36 h</small></button>
+        <button id="btnHwNone" class="opt"><b data-i18n="hw.none">This device</b><small data-i18n="hw.cap.none">Android 12+ phone or Windows PC with a TPM · a phone re-attests every 36 h, a PC renews weekly</small></button>
         <button id="btnHwLedger" class="opt"><b data-i18n="hw.ledger">Ledger</b><small data-i18n="hw.cap.ledger">Nano S, Nano S Plus, Nano X, Stax, Flex — once, for life · Chrome, Edge or Brave on a computer</small></button>
         <button id="btnHwTrezor" class="opt"><b data-i18n="hw.trezor">Trezor Safe</b><small data-i18n="hw.cap.trezor">Safe 3, Safe 5, Safe 7 — once, for life · One and Model T have no secure element</small></button>
         <button id="btnHwRemote" class="opt"><b data-i18n="hw.remote">Another device</b><small data-i18n="hw.cap.remote">A phone or PC you trust vouches for this wallet</small></button>
@@ -341,7 +341,7 @@
 2. Plug the Ledger in, enter the PIN, stay on the dashboard (no app open).
 3. Use Chrome, Edge or Brave on a computer, press "Attest with Ledger" and pick the device in the browser dialog.
 4. The Ledger asks "Allow unsafe manager?": press both buttons to allow. The wallet registers by itself.
-Renewed every 36 h; the Ledger only vouches, it never holds this wallet's key.</div>
+Renews weekly on its own; the Ledger only vouches, it never holds this wallet's key.</div>
       <div class="small mt" style="white-space:pre-line" data-i18n="hw.guide.trezor">Trezor Safe 3 (T2B1, T3B1), Safe 5 (T3T1), Safe 7 (T3W1):
 1. Close Trezor Suite (and the Trezor Bridge) — they hold the device.
 2. Plug the Trezor in and unlock it.
@@ -368,7 +368,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
       <!-- WHO THIS DEVICE VOUCHES FOR (operator 2026-09-08: "expiration and renewal are not obvious"): every address this
            device attested, with its lease state and an "Attest again" button; the summary badge counts the ones due. -->
       <div id="nodeAttestList" class="optlist mt hidden"></div>
-      <p class="small mt" data-i18n="node.blurb">Vouch for another wallet or a node from this device. Paste the address (a wallet's address, or a node's from its /status page), then press the button: this device attests that address, the statement travels through the network, and the other wallet or node registers itself with it. Renew every 36 h. This device is the one bound, so it cannot vouch for a second identity while that lease lives.</p>
+      <p class="small mt" data-i18n="node.blurb">Vouch for another wallet or a node from this device. Paste the address (a wallet's address, or a node's from its /status page), then press the button: this device attests that address, the statement travels through the network, and the other wallet or node registers itself with it. Renew once per lease (36 h from a phone, 7 days from a Windows PC). This device is the one bound, so it cannot vouch for a second identity while that lease lives.</p>
       <input id="nodeAttestAddr" placeholder="wallet or node address (46 hex characters)" data-i18n-ph="node.addrPh" autocomplete="off" spellcheck="false" class="mono" />
       <div id="nodeAttestStatus" class="small mt" role="status" aria-live="polite"></div>
       <div class="row mt">
@@ -398,7 +398,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
         <div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO COLLECT — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
         <div class="label" data-i18n="mine.eta">Expected time to collect</div><div class="value sm" id="mineEta">—</div></div>
-      <div class="stat" data-i18n-title="tip.locked" title="COLLECTING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps collecting until it lapses (36 h). Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
+      <div class="stat" data-i18n-title="tip.locked" title="COLLECTING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps collecting until its lease lapses. Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
         <div class="label" data-i18n="mine.locked">Collecting while locked</div><div class="value sm" id="mineLocked">—</div></div>
     </div>
 
@@ -409,7 +409,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
          time of day the user chooses. Hidden until a lease exists. Lives under Mining, next to the lease-related stats. -->
     <div id="leaseWrap" class="mt hidden compact">
       <div class="lrow">
-        <span class="label" style="margin:0" data-i18n="lease.label">Presence lease <span class="hint" data-i18n-title="tip.lease" title="PRESENCE LEASE — the device attestation keeps this identity present for 36 h and renews automatically while the wallet is open. Fidelity rises by 1 per renewal made at least ~19 h after the last, up to 15 days of weight.">ⓘ</span></span>
+        <span class="label" style="margin:0" data-i18n="lease.label">Presence lease <span class="hint" data-i18n-title="tip.lease" title="PRESENCE LEASE — the device attestation keeps this identity present for its lease (36 h for a phone, 7 days for a Windows PC, hardware wallet or enrolled chip) and renews automatically while the wallet is open. Fidelity rises by 1 per ~19 h between renewals, up to 30 days of weight. Renewing never reduces fidelity.">ⓘ</span></span>
         <span class="value sm" id="leaseLeft" style="font-size:14px">—</span>
       </div>
       <div class="small" id="bindModeLine" style="margin-top:4px"></div>

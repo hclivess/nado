@@ -3393,7 +3393,7 @@ class CoreClient(threading.Thread):
             # renewal costs one fee-exempt transaction.
             epoch_now = tip // EPOCH_LENGTH
             last = kv_ops.recert_latest(me)
-            if last >= 0 and epoch_now < last + POSW_LEASE_EPOCHS - 1:
+            if last >= 0 and epoch_now < last + kv_ops.lease_of(me, last) - 1:      # this identity's own grant
                 return
             if last >= epoch_now:
                 return                          # one register per epoch

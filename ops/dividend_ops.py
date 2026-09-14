@@ -14,7 +14,7 @@ immutable, revert-safe recert history — so we replay the exact ramp `apply_reg
 `fidelity_at_epoch` MUST stay byte-identical to that ramp (ops/account_ops.apply_register) — a fraud proof
 that miscomputes it would false-slash honest settlers. test_dividend_fidelity.py pins the two together.
 """
-from protocol import POSW_LEASE_EPOCHS, fidelity_step, dividend_weight
+from protocol import POSW_LEASE_EPOCHS, LEASE_EPOCHS_MAX, fidelity_step, dividend_weight
 from ops import kv_ops
 
 
@@ -25,10 +25,12 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     fid = 0
     prev = -1
     for r in kv_ops.recert_epochs(address, upto_epoch=epoch):    # ascending, only recerts <= epoch
-        continuous = prev >= 0 and (r - prev) <= POSW_LEASE_EPOCHS
+        # continuity by the PREVIOUS recert's own grant (kv_ops.lease_of; pre-gate recerts read POSW_LEASE_EPOCHS) —
+        # the same reader and the same rule as the live apply
+        continuous = prev >= 0 and (r - prev) <= kv_ops.lease_of(address, prev)
         # THE SAME FUNCTION the live apply uses (protocol.fidelity_step) — not a mirror of it. This replay is
         # what a dividend fraud proof checks against, so the two cannot be allowed to drift.
-        fid = fidelity_step(fid, continuous, r - prev)
+        fid = fidelity_step(fid, continuous, r - prev, r)
         prev = r
     return fid
 
@@ -37,11 +39,13 @@ def present_at_epoch(epoch: int) -> set:
     """The OPEN-lane present set AT `epoch`: addresses whose lease was valid then — a recert in
     (epoch - POSW_LEASE_EPOCHS, epoch]. Reconstructed from the recert history (not the live `registered`
     flag), so it is well-defined for any past epoch, identically on every node."""
-    floor = epoch - POSW_LEASE_EPOCHS
+    floor = epoch - LEASE_EPOCHS_MAX                          # the widest candidate net any class's grant can reach
     present = set()
     for addr in kv_ops.recert_addresses_after(floor):           # a recert in some epoch > floor (may be > epoch)
         recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
-        if recs and recs[-1] > floor:                           # a recert within (floor, epoch] -> lease valid at epoch
+        # PER-CLASS LEASES: valid at `epoch` iff the latest recert's OWN grant still covers it (kv_ops.lease_of; a pre-gate
+        # recert reads POSW_LEASE_EPOCHS, so every historical epoch reconstructs exactly as before)
+        if recs and epoch - recs[-1] < kv_ops.lease_of(addr, recs[-1]):
             # EVICTED (DEVICE_REBIND_INSTANT_HEIGHT): a device move at or before `epoch` voided this lease — only a recert
             # newer than the voided one counts. Eviction rows are epoch-stamped consensus state, so this reconstructs
             # identically for any past epoch (the same rule get_open_registry applies live).

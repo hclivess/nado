@@ -25,7 +25,7 @@ restores everything byte-identically; records below finality are pruned lazily (
 determinism requirement, since finality bounds every legal rollback).
 """
 from ops import kv_ops
-from protocol import EPOCH_LENGTH, GC_IDLE_EPOCHS, RECERT_HISTORY_EPOCHS, GC_MAX_PER_EPOCH
+from protocol import EPOCH_LENGTH, GC_IDLE_EPOCHS, recert_history_epochs, GC_MAX_PER_EPOCH
 
 # account docs eligible for GC may carry ONLY these zeroed/lease fields — any schemaless extra
 # (public_key pubkey-once binding, kem_pub messaging key, ...) makes the account NOT trivially
@@ -45,7 +45,7 @@ def apply_idle_gc(block_height: int, logger) -> dict:
     if block_height % EPOCH_LENGTH != 0 or block_height == 0:
         return {"accounts": 0, "rows": 0}
     epoch = block_height // EPOCH_LENGTH
-    row_horizon = epoch - RECERT_HISTORY_EPOCHS
+    row_horizon = epoch - recert_history_epochs(epoch)      # gated: the horizon widens with the 7-day leases (LEASE_V2_EPOCH)
     acct_horizon = epoch - GC_IDLE_EPOCHS
     record = {"rows": [], "accounts": [], "bond_since": [], "wm_rows": None, "wm_accts": None}
     work = 0

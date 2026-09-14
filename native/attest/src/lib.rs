@@ -35,6 +35,8 @@ pub struct Out {
     pub security_level: i64,
     pub root_sha256: String,
     pub tpm_manufacturer: String,
+    /// the credential's COSE public key (hex) from authenticator data — what a later signature renewal verifies against
+    pub cred_pub: String,
 }
 
 pub fn fail(mut o: Out, why: &str) -> Out {
@@ -109,6 +111,7 @@ fn verify_inner(att: &[u8], cdj: &[u8], challenge: &[u8], roots: &[Vec<u8>], rp_
     };
     out.aaguid = hex(&a.aaguid);
     out.cred_id = hex(&a.cred_id);
+    out.cred_pub = hex(&a.cred_pubkey_cose);
     if a.flags & 0x01 == 0 {
         return fail(out, "user not present");
     }
@@ -192,6 +195,67 @@ pub extern "C" fn nado_attest_verify(
     let rp_list: Vec<String> = rp_str.split('\0').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
     let o = verify_inner(att, cdj, chal, &root_list, &rp_list, now_unix);
     let js = serde_json::to_vec(&o).unwrap_or_else(|_| b"{\"ok\":false,\"reason\":\"serialize\"}".to_vec());
+    let n = js.len().min(out_cap);
+    unsafe { std::ptr::copy_nonoverlapping(js.as_ptr(), out, n) };
+    n as i64
+}
+
+/// A WebAuthn ASSERTION by a credential the chain already holds (protocol.LEASE_ASSERT_CLASSES — the signature
+/// renewal, doc/device-attestation.md §"Leases per class"). Deterministic like verify_inner: no roots, no clock.
+/// Checks: rpIdHash ∈ rp_ids, user present, clientData.type "webauthn.get" with OUR challenge, and the signature
+/// over authenticatorData || sha256(clientDataJSON) with the COSE key (ES256 / RS256).
+fn assert_inner(cose: &[u8], ad: &[u8], cdj: &[u8], challenge: &[u8], sig: &[u8], rp_ids: &[String]) -> serde_json::Value {
+    let fail = |why: &str| serde_json::json!({"ok": false, "reason": why});
+    if ad.len() < 37 {
+        return fail("authData too short");
+    }
+    let rp_id_hash = &ad[..32];
+    if ad[32] & 0x01 == 0 {
+        return fail("user not present");
+    }
+    if !rp_ids.iter().any(|r| Sha256::digest(r.as_bytes()).as_slice() == rp_id_hash) {
+        return fail("rpIdHash does not match an accepted rp id");
+    }
+    let cd: serde_json::Value = match serde_json::from_slice(cdj) {
+        Ok(v) => v,
+        Err(_) => return fail("clientDataJSON is not JSON"),
+    };
+    if cd.get("type").and_then(|t| t.as_str()) != Some("webauthn.get") {
+        return fail("clientData.type is not webauthn.get");
+    }
+    let chal_b64 = cd.get("challenge").and_then(|c| c.as_str()).unwrap_or("");
+    match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(chal_b64) {
+        Ok(c) if c == challenge => {}
+        Ok(_) => return fail("challenge mismatch"),
+        Err(_) => return fail("challenge is not base64url"),
+    }
+    let mut msg = ad.to_vec();
+    msg.extend_from_slice(&Sha256::digest(cdj));
+    match authdata::verify_cose_signature(cose, &msg, sig) {
+        Ok(alg) => serde_json::json!({"ok": true, "reason": "ok", "alg": alg}),
+        Err(why) => fail(&why),
+    }
+}
+
+/// C ABI for assert_inner. rp_ids: NUL-separated UTF-8. Writes JSON into out and returns its length, or -1.
+#[no_mangle]
+pub extern "C" fn nado_attest_assert(
+    cose: *const u8, cose_len: usize, ad: *const u8, ad_len: usize, cdj: *const u8, cdj_len: usize,
+    sig: *const u8, sig_len: usize, chal: *const u8, chal_len: usize, rp_ids: *const c_char,
+    out: *mut u8, out_cap: usize,
+) -> i64 {
+    if cose.is_null() || ad.is_null() || cdj.is_null() || sig.is_null() || chal.is_null() || out.is_null() {
+        return -1;
+    }
+    let cose = unsafe { std::slice::from_raw_parts(cose, cose_len) };
+    let ad = unsafe { std::slice::from_raw_parts(ad, ad_len) };
+    let cdj = unsafe { std::slice::from_raw_parts(cdj, cdj_len) };
+    let sig = unsafe { std::slice::from_raw_parts(sig, sig_len) };
+    let chal = unsafe { std::slice::from_raw_parts(chal, chal_len) };
+    let rp_str = if rp_ids.is_null() { String::new() } else { unsafe { std::ffi::CStr::from_ptr(rp_ids) }.to_string_lossy().into_owned() };
+    let rp_list: Vec<String> = rp_str.split('\0').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+    let js = serde_json::to_vec(&assert_inner(cose, ad, cdj, chal, sig, &rp_list))
+        .unwrap_or_else(|_| b"{\"ok\":false,\"reason\":\"serialize\"}".to_vec());
     let n = js.len().min(out_cap);
     unsafe { std::ptr::copy_nonoverlapping(js.as_ptr(), out, n) };
     n as i64

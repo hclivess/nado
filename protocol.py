@@ -1365,7 +1365,68 @@ FIDELITY_MIN_GAP_EPOCHS = 192
 # compounds most. account_ops.apply_register and dividend_ops.fidelity_at_epoch must stay in lockstep.
 # deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
 # a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
-SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
+# PER-CLASS LEASES, GAP-PROPORTIONAL FIDELITY AND SIGNATURE RENEWALS (operator decision 2026-09-14; doc/scaling-open-lane.md
+# phases 1a/1b; doc/device-attestation.md §"Leases per class"). One epoch gate, LEASE_V2_EPOCH, keyed on the recert's epoch
+# — a register lands exactly at max_block, so its epoch is max_block // EPOCH_LENGTH on every node.
+#
+#   * THE LEASE IS PER CLASS, and it is written down. A recert at epoch E grants lease_epochs_for(class, E) epochs, and the
+#     grant is stored as consensus state ("lease:<address>:<E>" in the devbind DB, kv_ops.lease_grant_*), so presence at
+#     any past epoch is reconstructible: present(E) <=> E - last_recert < lease_of(last_recert). Rows from before the gate
+#     have no grant and read as POSW_LEASE_EPOCHS, which is exactly the old rule. Why per class and not one number: an
+#     Android attestation certificate rotates (~13 days measured, <= 90 by rule) and nothing stable survives it, so a lease
+#     longer than 36 h lets one phone hold a second identity for the overlap (lease/rotation: 12 % today, 54 % at 7 days).
+#     The classes whose binding key never rotates — Windows Hello's AIK (per Windows account), a Ledger's factory key, a
+#     Trezor's device certificate, a chip's endorsement key — carry no such overlap and go to 7 days.
+#   * FIDELITY MEASURES TIME, NOT TAPS. With leases of different lengths a per-recert gain would ramp a phone (36 h) eight
+#     times faster than a PC (7 days). From the gate a continuous recert earns FIDELITY_GAIN per FIDELITY_MIN_GAP_EPOCHS of
+#     gap (gap // 192): a weekly renewal earns 8, a 36-hour one still earns 1. Same rate per day of presence for every
+#     class; a lapse still halves. Live apply and the fraud-proof replay call the one function with the recert's epoch.
+#   * SIGNATURE RENEWALS (phase 1a) for LEASE_ASSERT_CLASSES: a Windows Hello identity renews with a WebAuthn assertion by
+#     the credential its statement bound (the COSE public key is stamped on the account as `devcred` at the statement),
+#     ~200 bytes and no attestation prompt, while devbind[devkey] still points at it. Not for android-key: its device key
+#     rotates, and an assertion window longer than the lease would hold the old binding alive past the rotation.
+#   * `devkey` is stamped for EVERY class from the gate (the reverse index a statement-free or signature renewal is checked
+#     against; also what lets /get_account name the class). An identity bound before the gate has no grant, no devkey and
+#     no devcred until its next statement: one more tap, then the new terms.
+LEASE_V2_EPOCH = 1600 if CHAIN_GENERATION == 25 else 0    # block 96 000 on gen 25 (rule 3); a fresh chain: from epoch 0
+LEASE_EPOCHS_BY_CLASS = {"android-key": 360, "tpm": 1680, "ledger": 1680, "trezor": 1680, "ek": 1680}
+LEASE_EPOCHS_MAX = 1680                                    # 7 days: the longest grant any class receives
+LEASE_ASSERT_CLASSES = frozenset(("tpm",))                 # renew by credential signature (phase 1a)
+RECERT_HISTORY_EPOCHS_V2 = 55_000                          # > (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX = 52 080 (~260 days)
+
+
+def lease_v2_at(epoch) -> bool:
+    """True when the per-class lease rules are in force at `epoch` (None = legacy, for callers that predate the gate)."""
+    return epoch is not None and (not LEASE_V2_EPOCH or int(epoch) >= LEASE_V2_EPOCH)
+
+
+def lease_epochs_for(cls, epoch) -> int:
+    """The lease a recert of class `cls` at `epoch` GRANTS. Below the gate, or for a class the table does not name (an
+    identity with no devkey yet), the historical POSW_LEASE_EPOCHS. Pure in (cls, epoch)."""
+    if not lease_v2_at(epoch):
+        return POSW_LEASE_EPOCHS
+    return int(LEASE_EPOCHS_BY_CLASS.get(cls, POSW_LEASE_EPOCHS))
+
+
+def recert_history_epochs(epoch) -> int:
+    """Recert-row retention horizon in force at `epoch` (the GC watermark is consensus, so this is gated too)."""
+    return RECERT_HISTORY_EPOCHS_V2 if lease_v2_at(epoch) else RECERT_HISTORY_EPOCHS
+
+
+def saturation_lookback_at(epoch) -> int:
+    """Rows behind `epoch` a weight reconstruction may need: a run of FIDELITY_CAP + 1 recerts is saturated whatever lies
+    before it, and gaps were <= POSW_LEASE_EPOCHS before the gate and <= LEASE_EPOCHS_MAX after it. Grows from the old
+    bound at the gate towards (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, so the exec node's "history pruned?" check does not
+    refuse every epoch the day the leases lengthen."""
+    e = int(epoch)
+    old = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
+    if not lease_v2_at(e):
+        return old
+    floor = max(e - (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, LEASE_V2_EPOCH - old)
+    return max(old, e - floor)
+
+
+SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX     # the eventual bound (documentation; see the function)
 
 # Seed for the per-epoch selection beacon (S4.3). Epochs 0-1 use this fixed constant directly
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of
@@ -1431,17 +1492,23 @@ AUTH_HISTORY_KEEP = 8              # configs kept per address for evidence-at-he
 DIVIDEND_WEIGHT_MAX = FIDELITY_CAP   # a FIDELITY_CAP-day streak's dividend weight (== 30); probation is 0
 
 
-def fidelity_step(cur_fid: int, continuous: bool, gap: int) -> int:
+def fidelity_step(cur_fid: int, continuous: bool, gap: int, epoch=None) -> int:
     """THE fidelity ramp — the new fidelity after a recert, given the current value, whether the recert is
-    continuous (gap <= POSW_LEASE_EPOCHS) and the gap to the previous one. ONE function, called by the live
+    continuous (gap <= the previous recert's lease) and the gap to the previous one. ONE function, called by the live
     apply (account_ops.apply_register) AND the fraud-proof replay (dividend_ops.fidelity_at_epoch): the two
     used to be hand-mirrored, and a divergence there false-slashes an honest settler.
-      continuous, gap >= FIDELITY_MIN_GAP_EPOCHS -> +FIDELITY_GAIN
+      continuous, gap >= FIDELITY_MIN_GAP_EPOCHS -> +FIDELITY_GAIN                       (before LEASE_V2_EPOCH)
+                                                 -> +FIDELITY_GAIN * (gap // FIDELITY_MIN_GAP_EPOCHS)   (from the gate:
+                                                    time, not taps — a 7-day renewal earns what seven 24-hour ones did)
       continuous, gap <  FIDELITY_MIN_GAP_EPOCHS -> unchanged (renews the lease, earns nothing — anti-farm spacing)
-      lapse / first recert                        -> max(FIDELITY_GAIN, cur_fid // 2)"""
+      lapse / first recert                        -> max(FIDELITY_GAIN, cur_fid // 2)
+    `epoch` is the recert's own epoch (None = the legacy rule, for callers that predate the gate)."""
     cur_fid = int(cur_fid)
     if continuous:
-        return cur_fid + (0 if gap < FIDELITY_MIN_GAP_EPOCHS else FIDELITY_GAIN)
+        if gap < FIDELITY_MIN_GAP_EPOCHS:
+            return cur_fid
+        steps = (int(gap) // FIDELITY_MIN_GAP_EPOCHS) if lease_v2_at(epoch) else 1
+        return cur_fid + FIDELITY_GAIN * steps
     return max(FIDELITY_GAIN, cur_fid // 2)
 
 
@@ -1532,7 +1599,7 @@ def split_open_block_reward(reward: int):
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
-#   from epoch 0 (x = 0 = always)    DEVICE_BIND_DEVKEY_ALL_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
+#   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
 #
 # CLEANUP AT THE REROLL: with the four "never" gates at 0 the savings lane is plain stake with no device, no pools and
 # no exclusion — so `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`,
@@ -1925,7 +1992,8 @@ DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 # state root diverged from the producer's, and it wedged for 11 hours — the relay, 5,000 blocks behind.
 # The rule itself is sound; the HEIGHT was the bug (rule 3: gate at the fleet's adoption block). It stays
 # off until the fleet is verified uniform, then gets a height measured from that fact rather than guessed.
-DEVICE_BIND_DEVKEY_ALL_EPOCH = None if CHAIN_GENERATION == 25 else 0
+# RETIRED 2026-09-14 (the devkey-for-all epoch gate): superseded by LEASE_V2_EPOCH, which stamps `devkey` for every class at a height the fleet was
+# verified uniform for (rule 3) — the thing this gate was waiting on. The constant is gone; the incident record stays.
 
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
