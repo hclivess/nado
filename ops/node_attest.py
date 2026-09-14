@@ -67,6 +67,33 @@ def _identity_and_size(device):
     return hashlib.sha256(blob.encode()).hexdigest(), len(blob)
 
 
+def drop_key(max_block, device) -> str:
+    """The refusal/skip key of a statement: "<max_block>:<sha256 of the statement's own bytes>", for EITHER shape.
+    THE LOST HELPER DROP (2026-09-14): the poller keyed a picked-up drop on device["att"], which only a WebAuthn
+    statement has. A helper (vendor-endorsed) drop had already been CONSUMED from the local store when the
+    KeyError fired, the peer loop logged it at debug level, and the node never registered from a statement its
+    operator had just made; the peer poll skipped helper drops for the same reason inside its except-continue.
+    One key derivation, shared by the store's dedupe and both pickup paths."""
+    return f"{int(max_block)}:{_identity_and_size(device)[0]}"
+
+
+# THE LAST THING THIS NODE DID WITH A STATEMENT (node-local, never consensus, served by /node_attest_status). An
+# operator who tapped for a node and saw nothing land had no way to learn whether the drop was never found, was found
+# and refused (and why), or was registered and lapsed — the poller's memory of a refusal was private. Written by the
+# two submission paths below; read by the status route.
+_last_attempt: dict = {}
+
+
+def last_attempt() -> dict:
+    return dict(_last_attempt)
+
+
+def _note_attempt(kind: str, ok: bool, message, tip, **extra):
+    _last_attempt.clear()
+    _last_attempt.update({"kind": kind, "ok": bool(ok), "message": None if ok else (str(message)[:300] if message else None),
+                          "at": int(time.time()), "tip": int(tip or 0), **extra})
+
+
 def drop(sender: str, max_block, device, tip: int) -> dict:
     """Accept a wallet's attestation for `sender`. Shape-checked only — the kernel verdict happens when the node
     builds its tx (memserver.merge_transaction -> transaction_ops.verify_register_device). Returns {ok, reason}."""
@@ -236,6 +263,7 @@ def renew_without_statement(memserver, tip: int, logger=None) -> dict:
     tx = construct_register_tx(memserver.keydict, target)
     result = memserver.merge_transaction(tx, user_origin=True)
     ok = bool(isinstance(result, dict) and result.get("result"))
+    _note_attempt("renew", ok, result.get("message") if isinstance(result, dict) else result, tip, max_block=target)
     try:
         from ops import identity_log
         identity_log.record("self", tx, ok, None if ok else (result.get("message") if isinstance(result, dict) else result))
@@ -281,7 +309,7 @@ def poll_peers(address: str, peers, port: int, timeout: float = 4.0, limit: int 
             for b in reversed(cands):
                 if not (isinstance(b, dict) and _valid_device(b.get("device")) and b.get("max_block")):
                     continue
-                key = f"{int(b['max_block'])}:{hashlib.sha256(str(b['device']['att']).encode()).hexdigest()}"
+                key = drop_key(b["max_block"], b["device"])      # either shape — see drop_key
                 if key in skip:
                     continue
                 return {"device": b["device"], "max_block": int(b["max_block"]), "from": peer, "key": key}
@@ -297,6 +325,13 @@ def register_from_drop(memserver, blob: dict, logger=None) -> dict:
     tx = construct_register_tx(memserver.keydict, blob["max_block"], device=blob["device"])
     result = memserver.merge_transaction(tx, user_origin=True)
     ok = bool(isinstance(result, dict) and result.get("result"))
+    try:
+        _tip = int(memserver.latest_block["block_number"])
+    except Exception:
+        _tip = 0
+    _note_attempt("drop", ok, result.get("message") if isinstance(result, dict) else result, _tip,
+                  max_block=int(blob["max_block"]), via=str(blob.get("from", "local")),
+                  shape="ek" if _is_ek_shape(blob["device"]) else "webauthn")
     try:
         from ops import identity_log
         identity_log.record("self", tx, ok)
@@ -362,9 +397,8 @@ class NodeAttestPoller:
         # forget refusals whose statement can no longer land
         for k in [k for k in self.refused if int(k.split(":")[0]) <= tip]:
             self.refused.pop(k, None)
-        import hashlib
         for blob in pickup_all(self.memserver.address, tip, consume=True):
-            key = f"{blob['max_block']}:{hashlib.sha256(str(blob['device']['att']).encode()).hexdigest()}"
+            key = drop_key(blob["max_block"], blob["device"])    # either shape — see drop_key (the drop is already consumed)
             if key in self.refused:
                 continue
             r = register_from_drop(self.memserver, blob, self.logger)

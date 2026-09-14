@@ -1957,6 +1957,7 @@ async def node_attest_status(request):
         tip = 0
     st = await asyncio.to_thread(_na.lease_state, memserver.address, tip)
     st["drop_waiting"] = _na.pickup(memserver.address, tip) is not None
+    st["last_attempt"] = _na.last_attempt()     # what this node last did with a statement, and why it failed if it did
     st["tip"] = tip
     return _resp(st)
 

@@ -135,13 +135,45 @@ def t_register_from_drop():
     check("the identity log records the node's own registrations (accepted and rejected)", len(recs) == 2 and [x["accepted"] for x in recs] == [True, False], recs)
 
 
+EK_DEV = {"ek": "ab" * 32, "id": "cd" * 16, "certinfo": "QUJD", "sig": "REVG"}
+
+
+def t_helper_drop_pickup():
+    """THE LOST HELPER DROP (2026-09-14): a helper-shaped drop has no `att`; both pickup paths keyed on it."""
+    from ops import node_attest as NA
+    from ops.key_ops import generate_keys
+    kd = generate_keys()
+    kd = kd[0] if isinstance(kd, tuple) else kd
+    mem = _FakeMem(kd, accept=False)
+    NA._drops.clear()
+    check("a helper-shaped drop is stored", NA.drop(mem.address, 150, EK_DEV, 100)["ok"])
+    check("its key derives without touching `att`", NA.drop_key(150, EK_DEV).startswith("150:") and NA.drop_key(150, DEV) != NA.drop_key(150, EK_DEV))
+    p = NA.NodeAttestPoller(mem, None, 9173)
+    p._last = 0.0
+    try:
+        p.tick()
+        ticked = True
+    except Exception as e:
+        ticked = False; err = e
+    check("the poller consumes it and builds a register instead of raising KeyError", ticked and mem.merged and mem.merged[0]["device"] == EK_DEV, None if ticked else err)
+    check("a refusal is remembered under the same key the peer poll skips", NA.drop_key(150, EK_DEV) in p.refused, p.refused)
+    la = NA.last_attempt()
+    check("the node's last attempt is readable: shape, max_block, refusal reason", la.get("kind") == "drop" and la.get("shape") == "ek" and la.get("max_block") == 150 and la.get("ok") is False and "rejected" in (la.get("message") or ""), la)
+    mem_ok = _FakeMem(kd, accept=True)
+    NA.register_from_drop(mem_ok, {"device": DEV, "max_block": 160, "from": "9.9.9.9"})
+    la = NA.last_attempt()
+    check("... and an accepted one records ok with no message", la.get("ok") is True and la.get("message") is None and la.get("via") == "9.9.9.9" and la.get("shape") == "webauthn", la)
+    check("/node_attest_status serves it", 'st["last_attempt"] = _na.last_attempt()' in open(os.path.join(ROOT, "nado.py")).read())
+
+
 def t_poll_peers():
     from ops import node_attest as NA
     a = "e" * 46
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = {"drop": {"device": DEV, "max_block": 180}} if f"sender={a}" in self.path else {"drop": None}
+            body = ({"drop": {"device": DEV, "max_block": 180}} if f"sender={a}" in self.path
+                    else {"drop": {"device": EK_DEV, "max_block": 181}} if "sender=" + "d" * 46 in self.path else {"drop": None})
             data = json.dumps(body).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
 
@@ -157,6 +189,8 @@ def t_poll_peers():
         check("no drop for another sender", NA.poll_peers("f" * 46, ["127.0.0.1"], port) is None)
         check("a statement the node already refused is skipped (never rebuilt/re-verified every 20 s)", NA.poll_peers(a, ["127.0.0.1"], port, skip={got["key"]}) is None)
         check("an unreachable peer is skipped, not fatal", NA.poll_peers(a, ["127.0.0.1"], 1) is None)
+        ek = NA.poll_peers("d" * 46, ["127.0.0.1"], port)
+        check("a HELPER-shaped drop on a peer is found too (it was skipped by an `att` KeyError before)", ek and ek["device"] == EK_DEV and ek["key"] == NA.drop_key(181, EK_DEV), ek)
     finally:
         srv.shutdown()
 
@@ -181,7 +215,7 @@ def t_wiring():
 
 
 if __name__ == "__main__":
-    for name in ("t_drop_store", "t_lease_state", "t_register_from_drop", "t_poll_peers", "t_wiring"):
+    for name in ("t_drop_store", "t_lease_state", "t_register_from_drop", "t_helper_drop_pickup", "t_poll_peers", "t_wiring"):
         try:
             globals()[name]()
         except Exception:
