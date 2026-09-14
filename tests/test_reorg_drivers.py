@@ -123,6 +123,29 @@ t.join(10)
 check(not os.path.exists(mfile), "the resumed walk finishes and removes the marker (empty chain: nothing above next)")
 check(not s._tx_index_incomplete(), "...and the index is complete again")
 
+# ---------------------------------------------------------------- 4b. the walk commits per batch, not per row
+# 185.100.232.5 (2026-09-13): one durable commit per tx row starved the core loop of the writer lock for 15+ min.
+import ops.kv_ops as KV
+from ops import account_ops as AO
+fake_chain = {h: {"block_transactions": [{"txid": f"t{h}_{i}", "sender": "s", "recipient": "r"} for i in range(5)]}
+              for h in range(0, 1000)}
+saved_gbn2, saved_fin = BO.get_block_number, CL.get_finalized_height
+BO.get_block_number = lambda n: fake_chain.get(n, False)
+CL.get_finalized_height = lambda: 999
+try:
+    s = Stub(tip=999)
+    s._start_tx_reindex = CoreClient._start_tx_reindex.__get__(s)
+    open(mfile, "w").write('{"next": 0}')
+    g0 = KV.write_generation()
+    s._start_tx_reindex(); s._tx_reindex_thread.join(60)
+    commits = KV.write_generation() - g0
+    check(not s._tx_reindex_thread.is_alive(), "a 1,000-block walk (5,000 rows) finishes")
+    check(commits <= 6, f"...in at most ceil(1000/{CL.TX_REINDEX_BATCH}) write txns, not one per row ({commits} commits)")
+    check((KV.tx_get("t999_4") or {}).get("block_number") == 999, "...and the last row is readable")
+    check(not os.path.exists(mfile), "...and the marker is gone")
+finally:
+    BO.get_block_number, CL.get_finalized_height = saved_gbn2, saved_fin
+
 # ---------------------------------------------------------------- 5. the chain's own replays stand below the gate
 G = TX_AT_MOST_ONCE_STRICT_HEIGHT
 check(CoreClient._replay_tolerated(G - 1), f"a replay in block {G - 1} (below the strict height) is tolerated")

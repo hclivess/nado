@@ -1979,6 +1979,27 @@ def tx_index_put(txid: str, block_number: int, sender: str, recipient: str):
     _write(_do)
 
 
+def tx_index_put_many(rows):
+    """Index many txs in ONE write txn: rows = iterable of (txid, block_number, sender, recipient), same
+    semantics per row as tx_index_put. THE STARVED CORE LOOP (185.100.232.5, 2026-09-13): the reindex walk
+    called tx_index_put per row, i.e. one durable (sync=True) commit per transaction, tens of thousands
+    back to back with no gap. LMDB has a single writer lock and it is not fair; the core loop needs it
+    every pass and waited behind the walk for 15+ minutes — reported_uptime frozen at 6 s, every block
+    deferred. A background rebuild commits in batches and YIELDS between them (core_loop._start_tx_reindex)."""
+    def _do(txn):
+        dbs = _dbs()
+        tdb, sdb, rdb = dbs["tx"], dbs["tx_by_sender"], dbs["tx_by_recipient"]
+        for txid, block_number, sender, recipient in rows:
+            key = txid.encode()
+            if txn.get(key, db=tdb) is None:
+                txn.put(key, _pack({"block_number": block_number, "sender": sender,
+                                    "recipient": recipient}), db=tdb)
+            dv = _dup_tx_value(block_number, txid)
+            txn.put(sender.encode(), dv, db=sdb, dupdata=True)
+            txn.put(recipient.encode(), dv, db=rdb, dupdata=True)
+    _write(_do)
+
+
 def prune_tx_history(cutoff_height: int, max_rows: int = 20000):
     """ROLLING MODE, tx half: drop tx-history rows for blocks strictly below `cutoff_height`.
     Returns the number of primary rows deleted. NODE-LOCAL and non-consensus by construction.

@@ -66,6 +66,7 @@ SEED_PROBE_MEMO_S = 30
 # repair, never whether a block is valid. Small on purpose: one block is the overwhelmingly common case
 # (the divergence entered applying our tip), and a deeper corruption wants the state replaced wholesale,
 # not walked down to the finality floor one rollback at a time while calling that a repair.
+TX_REINDEX_BATCH = 200        # blocks per reindex write txn (one fsync per batch; see _start_tx_reindex)
 STATE_HEAL_MAX_DEPTH = 3
 # How often a node that CANNOT evaluate the rules at its tip re-asks whether it can now. LOCAL pacing:
 # the positive answer is memoised for the epoch, this only bounds how long a finished refill waits to lift
@@ -4556,24 +4557,37 @@ class CoreClient(threading.Thread):
             from ops import alias_ops
             h = start
             done = 0
+            # ONE COMMIT PER BATCH, THEN YIELD. The walk used to commit per transaction row — one fsync each
+            # (the env opens sync=True), tens of thousands back to back. While the walk runs
+            # _tx_index_incomplete() is true, so the node builds nothing and defers every block: the walk's
+            # length IS the node's blind window, and 185.100.232.5 spent ~15 min in it after the d9af6549
+            # restart. The core loop also needs the same single LMDB writer lock every pass and the lock is not
+            # fair, so the sleep after each batch is what lets it take the lock. The marker is checkpointed
+            # AFTER the batch commits, so a restart loses at most one batch and never skips a row.
             while h <= top and not getattr(self, "_stop_reindex", False):
-                blk = _gbn(h)
-                if blk:
-                    for tx in blk.get("block_transactions") or []:
-                        try:
-                            recip = alias_ops.resolve_alias(tx["recipient"]) or tx["recipient"]
-                            kv_ops.tx_index_put(txid=tx["txid"], block_number=h, sender=tx["sender"],
-                                                recipient=recip)
-                        except Exception:
-                            pass
-                h += 1
-                done += 1
-                if done % 2000 == 0:
+                rows = []
+                stop_h = min(h + TX_REINDEX_BATCH, top + 1)
+                while h < stop_h:
+                    blk = _gbn(h)
+                    if blk:
+                        for tx in blk.get("block_transactions") or []:
+                            try:
+                                recip = alias_ops.resolve_alias(tx["recipient"]) or tx["recipient"]
+                                rows.append((tx["txid"], h, tx["sender"], recip))
+                            except Exception:
+                                pass
+                    h += 1
+                    done += 1
+                if rows:
                     try:
-                        _json.dump({"next": h}, open(marker, "w"))
-                    except Exception:
-                        pass
-                    time.sleep(0.05)      # yield the write lock to the core loop
+                        kv_ops.tx_index_put_many(rows)
+                    except Exception as e:
+                        self.logger.warning(f"tx-history reindex: batch ending at {h - 1} failed ({e}); continuing")
+                try:
+                    _json.dump({"next": h}, open(marker, "w"))
+                except Exception:
+                    pass
+                time.sleep(0.02)          # release the writer lock long enough for the core loop to take it
             try:
                 import os as _os
                 if h > top:
