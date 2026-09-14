@@ -540,6 +540,9 @@ at all. For a full node, use a Linux VM or WSL2 and run the one-liner inside it.
 
 NADO's Sybil resistance is **PoSEA** — Proof of Secure Element Attestation, pronounced "posee": every open-lane
 identity is a genuine device whose secure element vouches for it, and one device holds one identity at a time.
+The construction is written up in *Proof of Secure Element Attestation Without a Certificate Authority*,
+[doi:10.5281/zenodo.22749219](https://doi.org/10.5281/zenodo.22749219), with the reference implementation at
+[github.com/hclivess/posea](https://github.com/hclivess/posea).
 
 A registered mining identity must prove it runs on **real hardware**. When the wallet registers (and on
 every lease renewal, every 36 h) the device's secure hardware creates a hardware-bound key and returns a
@@ -1072,6 +1075,9 @@ shape is unchanged (49 chars).
   on registration bytes, ~10⁵ on the per-block draw) and the three gated optimisations that lift it to tens of millions:
   statement-free renewals + 7-day leases, certificate-chain deduplication, an O(log N) prefix-sum draw.
 
+- **Paper** — [doi:10.5281/zenodo.22749219](https://doi.org/10.5281/zenodo.22749219): *Proof of Secure
+  Element Attestation Without a Certificate Authority*. The CA-free TPM enrolment (four published messages,
+  security from their order), the resampling bound, and the enrolment completed on physical silicon.
 - **Whitepaper** — [`doc/whitepaper.md`](doc/whitepaper.md): the authoritative, accuracy-reviewed
   overview of the mechanism, with a full constants table and an explicit implemented-vs-planned split.
 - **Roadmap** — [`ROADMAP.md`](ROADMAP.md): where the app layer goes next. An honest gap analysis
