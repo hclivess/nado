@@ -2388,6 +2388,48 @@ class CoreClient(threading.Thread):
             return True
         return False
 
+    def _remeasure_on_competing_tip(self) -> bool:
+        """EVENT-DRIVEN VERDICT REFRESH, at most once per local tip. True when the cached verdict was dropped.
+
+        THE MINUTE ON THE SIDE BRANCH (2026-09-15, 76 episodes in one day on the relay). A same-height split is an
+        exact weight tie and only the measured majority verdict (_fork_state) breaks it — but that verdict is
+        cached for FORK_STATE_TTL_S, so a split that lands right after a measurement is invisible until the next
+        one, and every second of that is a solo block this node builds on its own branch and must later roll
+        back: measured 18:03:24 split -> 18:04:30 verdict -> 18:04:58 adopted, ten majority blocks re-applied.
+        Keying the cache on the tip was tried and made the verdict flap (see _fork_state), so this is not that:
+        it fires only on EVIDENCE of a split. When a heavier tip is advertised, ONE memoized probe asks the peer
+        advertising it for its hash at OUR height. Different hash -> a competing block exists -> the verdict is
+        stale in the direction that matters, drop it and re-measure now. Same hash -> the advertised tip descends
+        from ours, plain lag, nothing to do. Once per local tip hash, so a forward sync never re-probes per block,
+        and a verdict that already says minority is left alone (it is what the reorg leg is acting on)."""
+        try:
+            lb = self.memserver.latest_block
+            our_h, our_hash = int(lb["block_number"]), lb.get("block_hash")
+            if getattr(self, "_competing_checked_at", None) == our_hash:
+                return False
+            self._competing_checked_at = our_hash
+            cached = getattr(self, "_fork_state_cache", None)
+            if cached and cached[1].get("state") in (fork_resolution.REORG, fork_resolution.DEAD_FORK):
+                return False
+            hh = self.consensus.heaviest_block_hash
+            pool = self.consensus.status_pool or {}
+            _me = own_ips() | {self.memserver.ip, get_config().get("ip")} - {None}
+            peer = next((ip for ip, st in pool.items()
+                         if isinstance(st, dict) and st.get("latest_block_hash") == hh and ip not in _me), None)
+            if not peer:
+                return False
+            theirs = self._memo_probe(peer, our_h, our_h)
+            theirs_hash = theirs[0] if isinstance(theirs, (tuple, list)) else theirs
+            if not theirs_hash or theirs_hash == our_hash:
+                return False
+            self._fork_state_cache = None
+            self.logger.warning(f"Competing block at our height {our_h} on {peer} "
+                                f"({str(theirs_hash)[:12]} vs ours {str(our_hash)[:12]}) — re-measuring the fork state now")
+            return True
+        except Exception as e:
+            self.logger.debug(f"competing-tip check skipped: {e}")
+            return False
+
     def emergency_mode(self):
         """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under
         operator force_sync_ip): pick a donor advertising the heaviest tip, then either FAST-FORWARD
@@ -2400,6 +2442,9 @@ class CoreClient(threading.Thread):
         must not re-enter us indefinitely). Rollback depth is rate-limited per burst (max_rollbacks)
         and hard-capped by the finality floor (FinalityViolation -> refuse, resync forward only).
         A still-at-genesis node that no donor can full-serve retries snapshot bootstrap from here."""
+        # A SPLIT IS AN EVENT, NOT A SCHEDULE: before anything else, ask whether the advertised tip competes with
+        # our own block rather than extending it, and if so refresh the verdict now instead of at the next TTL.
+        self._remeasure_on_competing_tip()
         # THROTTLE the entry/loop logs + the telemetry: emergency_mode() is RE-ENTERED every ~1s while
         # behind, so logging "Entering/Looping emergency mode" per entry spammed the journal once/second
         # and made a genuine event impossible to spot. Emit (and count) at most once per _EMERGENCY_LOG_EVERY
