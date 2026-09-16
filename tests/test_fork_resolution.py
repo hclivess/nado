@@ -105,7 +105,9 @@ def t_search_is_logarithmic():
     peers, probe = peers_on("main")
     v = FR.resolve(ours, tip=100_000, finalized=0, peers=peers, probe=probe)
     assert v["ancestor"] == 50_000, v
-    assert v["probes"] <= 20, f"binary search must stay logarithmic, used {v['probes']} probes"
+    # + SHALLOW_SPLIT_DEPTH: the shallow-split fast path (2026-09-17) spends up to three rounds under the tip
+    # before the generic search runs; a deep fork pays them once and stays logarithmic after
+    assert v["probes"] <= 20 + FR.SHALLOW_SPLIT_DEPTH, f"binary search must stay logarithmic, used {v['probes']} probes"
 
 
 def t_classify_is_pure_arithmetic():

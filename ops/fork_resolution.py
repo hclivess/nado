@@ -39,6 +39,9 @@ _AGREE = 0.5
 _SWEEP = 64
 
 
+SHALLOW_SPLIT_DEPTH = 3     # heights under the tip tested before the generic floor-discovery + bisection search
+
+
 def majority_hash(height, peers, probe, min_answers=2):
     """The hash a strict majority of ANSWERING WEIGHT reports at `height`, or None if there is no majority
     or too few answers.
@@ -201,6 +204,24 @@ def find_common_ancestor(our_hash_at, tip, peers, probe, floor=0, min_answers=2)
     top = agrees(tip)
     if top:
         return tip, probes
+    # SHALLOW SPLIT FAST PATH (2026-09-17). A block hash commits to its whole prefix, so a majority that matches
+    # ours at tip-k is on our chain up to tip-k EXACTLY, and with the tip already disagreeing the ancestor IS
+    # tip-k — no search can say otherwise. The generic path below did not use that: after "tip disagrees" it
+    # went looking for the fleet's pruning floor near block 0, retrying every unanswerable height eight times,
+    # and only then bisected — measured on the relay 2026-09-17 00:02: 49 rounds, 43 s, for a one-block split
+    # whose answer was one probe away. Every same-height split (the everyday case: an announcement one side
+    # held) is answered here in one extra round; anything deeper than SHALLOW_SPLIT_DEPTH falls through
+    # unchanged. `None` (peers cannot answer just below our tip) falls through too: that is the lone-forker
+    # signature the generic path handles.
+    if top is False:
+        for k in range(1, SHALLOW_SPLIT_DEPTH + 1):
+            if tip - k < floor:
+                break
+            a = agrees(tip - k)
+            if a is True:
+                return tip - k, probes
+            if a is None:
+                break
     _requested_floor = floor
     _anchor = _find_answerable(floor, tip, agrees)
     if _anchor is None:
