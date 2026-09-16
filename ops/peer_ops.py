@@ -591,13 +591,23 @@ def check_save_peers(peers, logger, fails, unreachable):
     # p not in own_ips(): never persist any of our own addresses (a saved ghost survives every restart)
     good_peers = {p for p in peers if isinstance(p, str) and p != my_ip and p not in own_ips() and check_ip(p)} \
         - set(fails) - set(unreachable)
+    # A TABLE-KNOWN ADDRESS IS A SUCCESS, NOT A SKIP (2026-09-16). The 2026-09-01 bounding pass dropped
+    # already-persisted addresses BEFORE any I/O — right for the cost it targeted, but it also dropped them from
+    # `success`, and `success` is what sniff_buffered_peers ADDS TO THE DIAL SET. /announce_peer saves a validated
+    # peer to the table and THEN buffers it, so every announced peer arrived here already known and was never
+    # linked: the loopback split scenario stopped converging that day (its partition heal is announce-driven), and
+    # on the live fleet an announced peer that is on disk but not in memserver.peers stayed undialled until the next
+    # peerless disk reload. Known addresses cost no probe (they were validated when saved; the dial set benches an
+    # unreachable one on its own) and ride straight into `success`; only NEW addresses are probed and persisted.
+    known_ok = set()
     if good_peers:
         with _PEERS_LOCK:
             _known = _load_peers()
+        known_ok = {p for p in good_peers if p in _known}
         good_peers = {p for p in good_peers if p not in _known}
     good_peers = set(sorted(good_peers)[:CHECK_SAVE_PEERS_MAX])
     if not good_peers:
-        return {"success": [], "fails": fails}      # SAME SHAPE as below: sniff_buffered_peers indexes it
+        return {"success": sorted(known_ok), "fails": fails}      # SAME SHAPE as below: sniff_buffered_peers indexes it
 
     local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
@@ -630,7 +640,7 @@ def check_save_peers(peers, logger, fails, unreachable):
                 fails.append(entry)
 
 
-    return {"success": candidates.keys(),
+    return {"success": sorted(set(candidates.keys()) | known_ok),
             "fails": fails}
 
 

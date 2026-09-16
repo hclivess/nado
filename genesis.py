@@ -126,9 +126,14 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     if os.path.exists(open_path):
         with open(open_path) as of:
             open_ids = json.load(of)
-        for addr in sorted(open_ids):
-            create_account(address=addr, registered=1)
-            kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
+        # ONE WRITE TXN FOR THE WHOLE SEED (2026-09-16): each helper below commits durably on its own when no
+        # txn is open, and the carried allocation is ~1,200 accounts x 2 fields — 63 s of fsyncs measured on a
+        # loaded box, which blew the loopback harness's boot deadline and is dead time on every fresh node.
+        # The rows are byte-identical either way; only the commit boundary changes.
+        with kv_ops.write_txn():
+            for addr in sorted(open_ids):
+                create_account(address=addr, registered=1)
+                kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
         logger.warning(f"Seeded {len(open_ids)} registered open-lane genesis identities (epoch 0)")
 
     # RELAUNCH CARRY-FORWARD: seed prior-chain balances + bonded stake from a byte-identical genesis_alloc.dat
@@ -149,19 +154,20 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         with open(alloc_path) as af:
             alloc = json.load(af)
         carried = 0
-        for e in sorted(alloc, key=lambda x: x["address"]):
-            # AUTHORITATIVE set (not create_account's insert-or-ignore): a carried balance/stake must apply
-            # even when genesis_open.dat already created this address as a registered relay identity above,
-            # otherwise its coins would be silently dropped. account_set_field preserves other fields.
-            kv_ops.account_set_field(e["address"], "balance", int(e.get("balance", 0)))
-            kv_ops.account_set_field(e["address"], "bonded", int(e.get("bonded", 0)))
-            carried += int(e.get("balance", 0)) + int(e.get("bonded", 0))
-        # Count carried-forward coins (balances + locked bonded stake — all real, refundable supply) into
-        # totals so total_supply == TREASURY_GENESIS + produced - fees is accurate: get_supply reports the
-        # true supply, and the BOND-ELASTIC emission ratio (bonded/total_supply) has a correct denominator
-        # instead of dividing by block-produced-only supply. No-op on a fresh no-premine chain (alloc empty).
-        if carried:
-            kv_ops.totals_add(carried, 0)
+        with kv_ops.write_txn():                      # one commit for the whole allocation (see the seed above)
+            for e in sorted(alloc, key=lambda x: x["address"]):
+                # AUTHORITATIVE set (not create_account's insert-or-ignore): a carried balance/stake must apply
+                # even when genesis_open.dat already created this address as a registered relay identity above,
+                # otherwise its coins would be silently dropped. account_set_field preserves other fields.
+                kv_ops.account_set_field(e["address"], "balance", int(e.get("balance", 0)))
+                kv_ops.account_set_field(e["address"], "bonded", int(e.get("bonded", 0)))
+                carried += int(e.get("balance", 0)) + int(e.get("bonded", 0))
+            # Count carried-forward coins (balances + locked bonded stake — all real, refundable supply) into
+            # totals so total_supply == TREASURY_GENESIS + produced - fees is accurate: get_supply reports the
+            # true supply, and the BOND-ELASTIC emission ratio (bonded/total_supply) has a correct denominator
+            # instead of dividing by block-produced-only supply. No-op on a fresh no-premine chain (alloc empty).
+            if carried:
+                kv_ops.totals_add(carried, 0)
         logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances ({carried} raw) from the prior chain")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a

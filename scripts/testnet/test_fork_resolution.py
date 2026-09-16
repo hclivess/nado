@@ -134,7 +134,7 @@ def heights(n):
     return out
 
 
-def wait_all_up(n, deadline_s=90):
+def wait_all_up(n, deadline_s=180):     # genesis carries ~1,200 accounts; 90 s was overrun on a loaded box (2026-09-16)
     t0 = time.time()
     while time.time() - t0 < deadline_s:
         if len(heights(n)) == n:
@@ -188,11 +188,19 @@ def wait_converged(n, deadline_s, tol=2):
     return False, snap
 
 
+_announce_replies = {}
+
+
 def announce(to_i, ip):
+    """One /announce_peer call; the node's REPLY is tallied (printed by the scenarios), because an announcement
+    the node answers "known or invalid" links nothing — 2026-09-16: twelve such replies hid a broken heal."""
     try:
-        urllib.request.urlopen(f"http://{node_ip(to_i)}:{PORT}/announce_peer?ip={ip}", timeout=4).read()
+        body = urllib.request.urlopen(f"http://{node_ip(to_i)}:{PORT}/announce_peer?ip={ip}", timeout=4).read()
+        reply = body.decode(errors="replace")[:60]
+        _announce_replies[reply] = _announce_replies.get(reply, 0) + 1
         return True
-    except Exception:
+    except Exception as e:
+        _announce_replies[f"ERR {str(e)[:40]}"] = _announce_replies.get(f"ERR {str(e)[:40]}", 0) + 1
         return False
 
 
@@ -299,7 +307,7 @@ def scenario_split(minority=2, majority=3, grow_past=None):
         for i in ga:
             for j in gb:
                 healed += announce(i, node_ip(j)) + announce(j, node_ip(i))
-        print(f"[split] partition healed ({healed} announcements)")
+        print(f"[split] partition healed ({healed} announcements; replies {_announce_replies})")
         ok, snap = wait_converged(n, 600)
         assert ok, f"fleet failed to converge after heal: {snap}"
         print(f"[split] PASS — converged at {snap}")
