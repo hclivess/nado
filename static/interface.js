@@ -615,7 +615,10 @@ async function miningHashDeps() {
 async function bindIsPermanent() {
   try {
     const acc = await getAccount(state.wallet.address);
-    state.devbind = (acc && acc.devbind) || null;
+    // ONLY OVERWRITE WHEN THE ANSWER CARRIES THE FIELD. A read that omits `devbind` (an older relay, or a
+    // bundled endpoint that forgot to enrich it — the 2026-09-17 Hello-prompt bug) is not evidence that the
+    // binding is gone, and treating it as such is what sent a permanently-bound identity into a device prompt.
+    if (acc && "devbind" in acc) state.devbind = acc.devbind || null;
   } catch (e) { /* keep the last answer */ }
   return !!(state.devbind && state.devbind.mode === "perm" && state.devbind.live);
 }
@@ -994,7 +997,11 @@ function deviceIdentity(device) {
 /// The stored verdict for THIS identity, or null. One reader and one writer, because six inline
 /// JSON.parse calls is how the shape drifts and how a failure gets swallowed in a bare catch.
 function readDeviceStatus() {
-  try { return readDeviceStatus(); }
+  // READ THE STORE, NOT OURSELVES (2026-09-17). This called itself: every read blew the stack, the bare catch
+  // swallowed it, and the stored verdict has been unreadable since 2026-09-12 — so the device line fell back to
+  // "not verified yet" and deviceHint()/deviceGuide() lost the reason a statement was refused, which is the one
+  // thing that tells a Windows owner WHY Hello will not attest.
+  try { return JSON.parse(localStorage.getItem(deviceStatusKey()) || "null"); }
   catch (e) { return null; }          // absent or unreadable storage is "unknown", never an error path
 }
 function writeDeviceStatus(st) {

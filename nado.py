@@ -1027,6 +1027,39 @@ async def latest_block(request):
     return _resp(serialize(name="latest_block", output=lb if comp == "none" else memserver.latest_block, compress=comp))
 
 
+def _enrich_account(addr, data):
+    """Add the derived fields a wallet needs onto an account doc, IN PLACE: `reg_epoch` (the latest recert
+    epoch — the presence lease) and `devbind` (binding mode/class/handle + the per-class lease fields).
+
+    ONE IMPLEMENTATION, BOTH ENDPOINTS (2026-09-17). /get_account enriched and /wallet_view — the bundled
+    read the wallet actually polls — added only `reg_epoch`. getAccount() in the wallet prefers the bundle
+    while it is fresh, so `acc.devbind` was undefined on most reads: bindIsPermanent() answered FALSE for a
+    permanently-bound identity, the register path fell past the statement-free branch, and the owner of a
+    helper-enrolled chip got a Windows Hello prompt that chip cannot answer. It "worked on the second try"
+    whenever the bundle happened to be stale and the direct /get_account ran. Same cause made
+    leaseEpochsOf() fall back to the 36 h default for 7-day classes, so the countdown and the 80 % renewal
+    trigger were wrong too. A second enrichment site is how that happened; there is now only one."""
+    from ops import kv_ops as _kv
+    from ops.node_attest import bind_info as _bi
+    from protocol import lease_epochs_for as _lef, lease_v2_at as _lv2, EPOCH_LENGTH as _EL
+    data["reg_epoch"] = _kv.recert_latest(addr)      # latest recert epoch (presence lease)
+    # BINDING MODE (doc/device-attestation.md §"Binding modes"): the wallet reads `devbind.mode` to know whether
+    # this identity renews without a statement ("perm", live) or needs one every lease ("lease")
+    _b = _bi(addr, data)
+    _tip = int((memserver.latest_block or {}).get("block_number") or 0)
+    _ep = _tip // _EL
+    _reg = int(data["reg_epoch"]) if isinstance(data.get("reg_epoch"), int) else -1
+    # PER-CLASS LEASES (LEASE_V2_EPOCH): the lease THIS identity's latest recert granted (its countdown), the lease
+    # its class grants now, and whether it may renew by credential signature (assert-class + a credential on chain)
+    data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "handle": _b.get("bind_handle"),
+                       "live": _b["bind_live"], "epoch": _b["bind_epoch"],
+                       "lease_epochs": _kv.lease_of(addr, _reg) if _reg >= 0 else _lef(_b["bind_cls"], _ep),
+                       "lease_epochs_next": _lef(_b["bind_cls"], _ep),
+                       "assert_ok": bool(_lv2(_ep) and _b["bind_cls"] in LEASE_ASSERT_CLASSES
+                                         and isinstance(data.get("devcred"), str) and data.get("devcred"))}
+    return data
+
+
 async def account(request):
     """GET /get_account?address=&readable=&compress=: the account record (balance/produced/bonded, plus
     schemaless fields) enriched with reg_epoch, the latest PoSW recert epoch (presence lease). No
@@ -1039,23 +1072,7 @@ async def account(request):
             data = get_account(addr, create_on_error=False)
             code = 200
             if data:
-                from ops import kv_ops
-                data["reg_epoch"] = kv_ops.recert_latest(addr)   # latest PoSW recert epoch (presence lease)
-                # BINDING MODE (doc/device-attestation.md §"Binding modes"): the wallet reads `devbind.mode` to know whether
-                # this identity renews without a statement ("perm", live) or needs one every lease ("lease")
-                from ops.node_attest import bind_info as _bi
-                _b = _bi(addr, data)
-                data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "handle": _b.get("bind_handle"),
-                                   "live": _b["bind_live"], "epoch": _b["bind_epoch"]}
-                # PER-CLASS LEASES (LEASE_V2_EPOCH): the lease THIS identity's latest recert granted (its countdown), the lease
-                # its class grants now, and whether it may renew by credential signature (assert-class + a credential on chain)
-                from protocol import lease_epochs_for as _lef, lease_v2_at as _lv2, EPOCH_LENGTH as _EL
-                _tip = int(memserver.latest_block["block_number"]); _ep = _tip // _EL
-                _reg = int(data["reg_epoch"]) if isinstance(data.get("reg_epoch"), int) else -1
-                data["devbind"]["lease_epochs"] = kv_ops.lease_of(addr, _reg) if _reg >= 0 else _lef(_b["bind_cls"], _ep)
-                data["devbind"]["lease_epochs_next"] = _lef(_b["bind_cls"], _ep)
-                data["devbind"]["assert_ok"] = bool(_lv2(_ep) and _b["bind_cls"] in LEASE_ASSERT_CLASSES
-                                                    and isinstance(data.get("devcred"), str) and data.get("devcred"))
+                _enrich_account(addr, data)          # reg_epoch + devbind — the SAME fields /wallet_view returns
                 if readable == "true":
                     data.update({"balance": to_readable_amount(data["balance"])})
                     data.update({"produced": to_readable_amount(data["produced"])})
@@ -2001,7 +2018,9 @@ async def wallet_view(request):
         try:
             acc = get_account(address, create_on_error=False)
             if acc:
-                acc["reg_epoch"] = _kv.recert_latest(address)
+                # the bundle is what the wallet actually polls: it must carry EXACTLY what /get_account carries,
+                # or a field only that endpoint adds is invisible for as long as the bundle stays fresh
+                _enrich_account(address, acc)
             out["account"] = acc or None
         except Exception as e:
             out["account"] = None; out["account_error"] = str(e)[:120]
