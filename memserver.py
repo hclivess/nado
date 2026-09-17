@@ -449,15 +449,28 @@ class MemServer:
                 except asyncio.TimeoutError:
                     return []
                 return [tx for r in res if isinstance(r, list) for tx in r]
+            refused = {}
+            got = 0
             for tx in asyncio.run(_fetch()):
                 if not isinstance(tx, dict) or self._is_proof_settle(tx):
                     continue
+                got += 1
                 r = self.merge_transaction(tx)
                 if isinstance(r, dict) and r.get("result") and r.get("message") == "Success":
                     fetched += 1
+                else:
+                    # SAY WHY (2026-09-17): 30 of 56 reconcile passes that found a missing tx fetched nothing, and the
+                    # counters could not tell a peer that did not answer from a body our own admission refused.
+                    m = str((r or {}).get("message") if isinstance(r, dict) else r)[:60]
+                    refused[m] = refused.get(m, 0) + 1
         agreed = sum(1 for d in same.values() if set(d["txids"]) == ours)
-        return {"peers": len(answers), "same_tip": len(same), "agreed": agreed,
-                "missing": sum(len(v) for v in want_by_peer.values()), "fetched": fetched}
+        out = {"peers": len(answers), "same_tip": len(same), "agreed": agreed,
+               "missing": sum(len(v) for v in want_by_peer.values()), "fetched": fetched}
+        if want_by_peer:
+            out["received"] = got            # bodies that came back at all; missing - received = peers that did not answer
+            if refused:
+                out["refused"] = refused
+        return out
 
     def get_uptime(self) -> int:
         """Whole seconds this node process has been up (NOT system uptime) — refreshed into

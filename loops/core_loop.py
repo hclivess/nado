@@ -3545,8 +3545,19 @@ class CoreClient(threading.Thread):
                 return
             if self._tpm_tx_pending("tpm_ready", ""):
                 return
+            # AN INCLUSION DELAY, SIGNED (2026-09-17). tpm_ready lands FLEXIBLY (block_ops._lands_flexibly: it is
+            # not in the exact-landing set), so without min_block it was eligible the instant it existed: the
+            # canonical block at the split height carried an announcement created 1-3 s before the block —
+            # whoever had it built it in, whoever had not built without, and every node assembles every block.
+            # 63 of the relay's 86 split differences in one day were exactly this. min_block is in the signed
+            # body, so every node holds the announcement out until the same height (TX_INCLUSION_DELAY, the
+            # duty's own delay: ~55 s of gossip for a message nobody is waiting for). The one-slot _held_back
+            # was never enough — it delays only the originator, and a peer that received it by gossip built
+            # it in the very next slot.
+            from protocol import TX_INCLUSION_DELAY
             tx = construct_tpm_tx(self.memserver.keydict, "tpm_ready", "",
-                                  tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
+                                  tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN,
+                                  min_block=tip + TX_INCLUSION_DELAY)
             result = self.memserver.merge_transaction(tx, user_origin=True)
             if result and result.get("result"):
                 # Only mark it sent when it was ACCEPTED, or a refusal silences this node for the whole
