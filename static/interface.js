@@ -820,7 +820,10 @@ function renderMineFix(st) {
     + '<div class="small faint" style="margin:4px 0 10px">'
     + escapeHtml(i18("fix.p", "Windows Hello cannot vouch for this PC, but its TPM still can. The helper proves the chip and leaves the proof here for you to confirm — nothing to paste, and your key never leaves this browser."))
     + '</div>'
-    + '<a class="btn primary" style="display:inline-block;text-decoration:none" href="' + escapeHtml(primary) + '" rel="noopener">'
+    // FULL WIDTH, LIKE EVERY OTHER PRIMARY ACTION HERE (2026-09-18). As an inline-block it sat hugging the left
+    // edge, sized to its own label, directly under a full-width "Start collecting" — so the one control that
+    // unblocks a refused owner read as a minor link beside the button that had just failed them.
+    + '<a class="btn primary" style="display:block;width:100%;box-sizing:border-box;text-align:center;text-decoration:none" href="' + escapeHtml(primary) + '" rel="noopener">'
     + escapeHtml(primaryLabel) + '</a>'
     + '<div class="small faint" style="margin-top:8px">'
     + '<a href="' + escapeHtml(otherHref) + '" rel="noopener">' + escapeHtml(otherLabel) + '</a>'
