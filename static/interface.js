@@ -930,6 +930,17 @@ function deviceHint(st) {
   // the TPM, whichever Hello flavour the AAGUID names — telling that owner "not using a TPM" sent a real user chasing
   // Credential Guard for two evenings while the node's AAGUID rule was what refused them.
   if (fmt === "tpm") return i18("device.hint.tpmRefused", "The TPM did vouch for this key; the network refused the statement for another reason ({r}). If it names the \"hardware authenticator\", the relay has not updated yet — retry shortly.", { r: (st && st.reason) || "—" });
+  // THE HELPER IS THE ANSWER, NOT A FOOTNOTE (2026-09-18). Measured on the relay: of 26 sources refused in a week,
+  // 11 were Windows PCs whose Hello will not attest — every one of them has a chip the enrolment helper can prove,
+  // and only two identities on the whole chain are helper-bound. The hints below sent those owners to run
+  // `certreq -enrollaik`, to hunt through a BIOS for fTPM, or to fight Chrome's save dialog, while a download that
+  // needs none of that sat in a card on the same page. renderMineFix() puts that card directly above the banner
+  // this sentence lands in, so on a machine that can RUN the helper it is the one thing worth saying. The detailed
+  // remedies are not lost — deviceGuide() still carries them, one tap away, for whoever wants them.
+  // Not for: a hardware wallet's own error and a cancelled prompt (handled above / below — neither is the chip's
+  // fault), nor a verdict of fmt "tpm" (the chip DID vouch; the helper would prove the same thing twice).
+  if (st && !st.ok && (isWin || isLinux) && !/NotAllowedError|AbortError|cancel|abort/i.test(String(st.reason || "")))
+    return i18("device.hint.useHelper", "This browser could not attest this computer, but its security chip (TPM) can. Use the enrolment helper on this page: one download, run it once, then confirm here — no Windows Hello, no PIN and no command line.");
   if (isWin && (fmt === "none" || (st && !st.x5c)) && ag && !isWindowsHelloAaguid(ag))
     return i18("device.hint.pwManager", "{m} created this passkey, not Windows Hello — a synced passkey carries no hardware attestation, so your TPM was never asked. Open the wallet in Microsoft Edge, or in Chrome's save dialog pick \"Save another way\" \u2192 Windows Hello. Steps below.",
                { m: passkeyManagerName(ag) || i18("device.pwManagerGeneric", "A password manager") });
@@ -940,7 +951,7 @@ function deviceHint(st) {
   if (st && st.reason === "batch") return i18("device.hint.batch", "This phone carries a batch attestation certificate shared by many units (no remote key provisioning), so the network cannot bind it to one identity. Use an Android 12+ phone with Google Play services, a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.");
   if (st && st.reason === "unbindable") return i18("device.hint.unbindable", "A security key or a batch-attested phone carries no per-device certificate, so the network cannot bind it to one identity and refuses it. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.");
   if (st && st.reason === "unsupported") {
-    if (isLinux) return i18("device.hint.linux", "Linux has no attesting hardware of its own: connect a Ledger or Trezor (Chrome, Edge or Brave), or use Attest from another device.");
+    if (isLinux) return i18("device.hint.linux", "This browser cannot attest on Linux. If this machine has a TPM, the enrolment helper proves it directly — otherwise connect a Ledger or Trezor (Chrome, Edge or Brave), or use Attest from another device.");
     if (isWin) return i18("device.hint.winSetup", "Set up Windows Hello (Settings → Accounts → Sign-in options → PIN) on a PC with a TPM 2.0, then retry.");
     return i18("device.hint.generic", "Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.");
   }
