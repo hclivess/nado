@@ -1488,6 +1488,13 @@ const state = {
   // while mining, at most once per epoch. baseline = last balance we've accounted for.
   autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
+  // A DIVIDEND IS EARNINGS TOO (2026-09-19). The baseline below counts `produced`, the chain's MINED
+  // counter — correct for keeping transfers/faucet/bridge/withdrawals out, but the presence dividend is
+  // neither: it credits `balance` and never touches `produced`, so auto-save at ANY percentage swept none
+  // of it and the spendable balance grew regardless. Measured on the operator's own account: 1.594 NADO of
+  // dividend arrived in 5.7 h while its 50 auto-bonds covered only the mined slice. This tally holds
+  // dividend that has been CLAIMED (a dividend_withdraw we submitted) and not yet swept into savings.
+  autoBondDividend: 0n,
   autoBondPending: null,   // {target, epoch} while an auto-bond is in flight — prevents stacking bonds
   lastAutoBondEpoch: null,
 };
@@ -1961,7 +1968,12 @@ async function claimPendingDividends(pending) {
       const res = await submitTransaction(tx);
       state._divClaimGate[p.nonce] = latest.block_number + TX_INCLUSION_DELAY * 2;
       submitted++;
-      if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
+      if (res.data && res.data.result) {
+        // the claim is what puts these coins in `balance`, so this is the moment auto-save learns they are
+        // earnings; if the claim never lands, maybeAutoBond's balance guard simply declines and re-accrues
+        state.autoBondDividend += BigInt(p.amount);
+        log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
+      }
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
   }
 }
@@ -6218,7 +6230,7 @@ function setAutoBondPct(pct) {
   try { localStorage.setItem(LS_AUTOBOND, String(pct)); } catch (e) {}
   const note = $("autoBondNote");
   if (note) note.textContent = pct
-    ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of new collecting rewards each epoch.")}`
+    ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of what you earn each epoch — block rewards and the presence dividend.")}`
     : i18("autobond.off", "Off — collecting rewards stay in your spendable balance.");
   // keep BOTH controls (Stake tab + mining card) in sync, without clobbering the one being typed into
   for (const id of ["autoBondPct", "autoBondPctMine"]) {
@@ -6250,7 +6262,10 @@ async function maybeAutoBond(acc, ms) {
       // those earnings are retried instead of being written off. (This used to snap the baseline to
       // `balance` in both cases — which, now that the baseline counts MINED coins, would have written a
       // balance figure into a produced-denominated counter and broken the accounting outright.)
-      if (!landed && state.autoBondPending.consumed) state.autoBondBaseline -= state.autoBondPending.consumed;
+      if (!landed) {
+        if (state.autoBondPending.consumed) state.autoBondBaseline -= state.autoBondPending.consumed;
+        if (state.autoBondPending.fromDiv) state.autoBondDividend += state.autoBondPending.fromDiv;   // give the dividend slice back too
+      }
       state.autoBondPending = null;
     } else {
       return;
@@ -6264,8 +6279,12 @@ async function maybeAutoBond(acc, ms) {
   // core_loop.maybe_auto_bond, which this mirrors.
   const mined = BigInt(acc.produced ?? 0);
   if (state.autoBondBaseline == null) { state.autoBondBaseline = mined; return; }    // only future mining
-  const gain = mined - state.autoBondBaseline;
-  if (gain <= 0n) { state.autoBondBaseline = mined; return; }                        // nothing mined since
+  let minedGain = mined - state.autoBondBaseline;
+  if (minedGain < 0n) { state.autoBondBaseline = mined; minedGain = 0n; }            // a reorg took some back
+  // EARNINGS = MINED + DIVIDEND CLAIMED. Two counters because they are denominated differently: the mined
+  // side is a delta of the chain's own `produced`, the dividend side a tally of claims we submitted.
+  const gain = minedGain + state.autoBondDividend;
+  if (gain <= 0n) return;                                                            // nothing earned since
 
   let toBond = (gain * BigInt(pct)) / 100n;
   const fee = MIN_TX_FEE;
@@ -6283,9 +6302,13 @@ async function maybeAutoBond(acc, ms) {
       // over mined coins only; a received or withdrawn credit can never enter the baseline.
       const covered = (toBond * 100n) / BigInt(pct);
       const consumed = gain < covered ? gain : covered;
+      // SPEND THE DIVIDEND TALLY FIRST, the mined baseline with what is left: the baseline may only ever
+      // move forward over coins `produced` actually counted, so a dividend must never enter it.
+      const fromDiv = consumed < state.autoBondDividend ? consumed : state.autoBondDividend;
+      state.autoBondDividend -= fromDiv;
       // wait for THIS to land before the next, and remember what it consumed so a timeout can undo it
-      state.autoBondPending = { target: bonded + toBond, epoch, consumed };
-      state.autoBondBaseline += consumed;
+      state.autoBondPending = { target: bonded + toBond, epoch, consumed: consumed - fromDiv, fromDiv };
+      state.autoBondBaseline += (consumed - fromDiv);
       log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} newly collected) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
       refreshDashboard().catch(() => {});
     } else {

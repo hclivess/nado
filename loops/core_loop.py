@@ -373,6 +373,11 @@ class CoreClient(threading.Thread):
         # auto-bond per epoch (bond isn't per-block unique-keyed, so we self-limit).
         self.last_auto_bond_epoch = -1
         self.auto_bond_baseline = None
+        # A DIVIDEND IS EARNINGS TOO (2026-09-19): dividend that has been CLAIMED (a dividend_withdraw this
+        # node submitted) and not yet swept into savings. The baseline above counts `produced`, which a
+        # dividend never touches — so without this, auto-bond at ANY percentage swept none of it. See
+        # maybe_auto_bond. Mirrored by the wallet (static/interface.js state.autoBondDividend).
+        self.auto_bond_dividend = 0
         # AUTO-COLLECT (default on) + AUTO-REGISTER (opt-in): sweep the presence dividend, and keep the open-lane
         # PoSW lease alive, hands-free. Throttled to one of each per epoch (see maybe_auto_collect/register).
         self.last_auto_collect_epoch = -1
@@ -4727,10 +4732,16 @@ class CoreClient(threading.Thread):
             if self.auto_bond_baseline is None:
                 self.auto_bond_baseline = mined         # first observation: only FUTURE mining bonds
                 return
-            gain = mined - self.auto_bond_baseline
+            mined_gain = mined - self.auto_bond_baseline
+            if mined_gain < 0:
+                self.auto_bond_baseline = mined         # a reorg took some back
+                mined_gain = 0
+            # EARNINGS = MINED + DIVIDEND CLAIMED. Two counters because they are denominated differently: the
+            # mined side is a delta of the chain's `produced`, the dividend side a tally of claims we
+            # submitted (a dividend credits `balance` and never moves `produced` — see __init__).
+            gain = mined_gain + self.auto_bond_dividend
             if gain <= 0:
-                self.auto_bond_baseline = mined         # nothing mined since (or a reorg took some back)
-                return
+                return                                  # nothing earned since
             to_bond = (gain * int(pct)) // 100
             # never bond what we can't pay the fee for
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
@@ -4753,10 +4764,15 @@ class CoreClient(threading.Thread):
             # that is the whole gain; when the cap or the liquidity reserve cut `to_bond` down, the
             # remainder stays claimable on a later pass instead of being written off. The baseline can
             # only ever move FORWARD over mined coins, so a received or withdrawn credit never enters it.
-            self.auto_bond_baseline += min(gain, (to_bond * 100) // int(pct))
+            # SPEND THE DIVIDEND TALLY FIRST, the mined baseline with what is left: the baseline may only
+            # ever move forward over coins `produced` actually counted, so a dividend must never enter it.
+            covered = min(gain, (to_bond * 100) // int(pct))
+            from_div = min(covered, self.auto_bond_dividend)
+            self.auto_bond_dividend -= from_div
+            self.auto_bond_baseline += (covered - from_div)
             self.logger.info(
-                f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} newly MINED) into the bonded lane "
-                f"(max_block {max_block})")
+                f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} newly EARNED: {mined_gain} mined + "
+                f"{from_div + self.auto_bond_dividend} dividend) into the bonded lane (max_block {max_block})")
         except Exception as e:
             self.logger.warning(f"Auto-bond skipped: {e}")
 
@@ -4873,7 +4889,11 @@ class CoreClient(threading.Thread):
                     tx = construct_dividend_withdraw_tx(
                         self.memserver.keydict, int(w["amount"]), str(w["nonce"]), pr["proof"], max_block,
                         min_block=self.memserver.latest_block["block_number"] + FLEX_TX_MIN_MARGIN)
-                    self.memserver.merge_transaction(tx, user_origin=True)
+                    _r = self.memserver.merge_transaction(tx, user_origin=True)
+                    if isinstance(_r, dict) and _r.get("result"):
+                        # the claim is what credits `balance`, so this is where auto-bond learns these coins
+                        # are EARNINGS; a claim that never lands is caught by its balance guard and re-accrues
+                        self.auto_bond_dividend += int(w["amount"])
                     self.logger.info(
                         f"Auto-collect: claimed settled dividend withdrawal of {w['amount']} raw "
                         f"(nonce {w['nonce']}, max_block {max_block})")
