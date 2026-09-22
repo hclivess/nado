@@ -6356,6 +6356,20 @@ const _dutyDone = {};              // epoch X -> true once our duty tx for X was
 // broadcasting anything (a non-member never sends a rejected tx), then (2) submit one duty tx with
 // whatever sections are due. Mirrors the node's maybe_epoch_duty; secrets are deterministic from the
 // wallet key, so no cross-window storage is needed.
+/* The landing window for an epoch duty — the node's rule, line for line (core_loop.py, epoch duty):
+ *   min_block = latest + TX_INCLUSION_DELAY          the propagation guard; no producer can build it earlier
+ *   max_block = end of epoch X, capped to the reveal window while a reveal is still possible and open
+ * Every duty timing rule binds to max_block (attest epoch, commit epoch, reveal window — block_ops.py), so
+ * any landing inside the window keeps identical semantics. Pure, so tests/test_duty_window.mjs can lift it. */
+function dutyWindow(latest, X, revealPossible) {
+  const minBlock = latest + TX_INCLUSION_DELAY;
+  const epochHi = (X + 1) * EPOCH_LENGTH - 1;
+  const revealHi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1;
+  let hi = epochHi;
+  if (revealPossible && revealHi > latest) hi = Math.min(epochHi, revealHi);
+  return { minBlock, tb: hi, revealHi };
+}
+
 async function maybeRandao() {
   if (_randaoBusy || !state.wallet || state.locked || state.latest == null) return;
   _randaoBusy = true;
@@ -6383,9 +6397,16 @@ async function maybeRandao() {
     await refreshNetIdentity();
 
     // reveal window bounds the whole tx's landing block (the tightest of the three sections).
-    const revealHi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1;
-    const tb = Math.min(latest + 5, (X + 1) * EPOCH_LENGTH - 1);
-    if (tb <= latest) return;                                   // epoch tail — resume next epoch
+    // THE DUTY LANDS IN A WINDOW, NOT ON A CLIFF (2026-09-22). This built an exact-landing duty at
+    // latest + 5 — the LEGACY form, ~34 s of headroom at best and less behind Cloudflare — while the node
+    // has posted windowed duties since 2026-08-19. Measured on the relay over 24 h: every duty involved in
+    // a same-height split was this form, from browser-wallet validators, and 22 of the 23 the relay held
+    // and a peer lacked were LOST (never landed), because the fleet built the block before the duty had
+    // gossiped and an exact-landing tx that misses its block is dead. Same window as the node
+    // (core_loop.py, epoch duty): min_block is the propagation guard, max_block carries every deadline.
+    const revealPossible = !_randaoDead.has(X + 1);
+    const { minBlock, tb, revealHi } = dutyWindow(latest, X, revealPossible);
+    if (minBlock > tb) return;                                  // epoch tail — resume next epoch
 
     const data = {};
     // FFG attest (epoch X's checkpoint = first block of X)
@@ -6398,11 +6419,11 @@ async function maybeRandao() {
     // RANDAO commit for X+2 (deterministic secret from the key)
     data.commit = { target_epoch: X + 2, commitment: blake2bHash([DOMAIN_RANDAO_COMMIT, randaoSecretFor(X + 2)]) };
     // RANDAO reveal for X+1 (its E-1 finalized window), if the landing block is inside it
-    if (tb <= revealHi && !_randaoDead.has(X + 1)) {
+    if (tb <= revealHi && revealPossible) {
       data.reveal = { target_epoch: X + 1, secret: randaoSecretFor(X + 1) };
     }
 
-    let tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
+    let tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc), minBlock);
     let res = await submitTransaction(tx);
     let msg = String(res.data && (res.data.message || ""));
 
@@ -6427,7 +6448,7 @@ async function maybeRandao() {
       log("info", i18("log.dutyRevealDead",
         "Reveal for epoch {e} cannot be accepted ({m}) — dropping it and posting the rest of the duty.",
         {e: X + 1, m: msg.replace(/^Could not merge remote transaction:\s*/i, "").slice(0, 70)}));
-      tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
+      tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc), minBlock);   // same window
       res = await submitTransaction(tx);
       msg = String(res.data && (res.data.message || ""));
     }
