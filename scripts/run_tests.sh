@@ -16,7 +16,10 @@ NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNE
 run_one() {
   t=$1; n=$(basename "$t" .py); h="$OUT/home-$n"; mkdir -p "$h"
   flags="NADO_ALLOW_PYTHON_KERNELS=1"; case " $NATIVE_ONLY " in *" $n "*) flags="";; esac
-  env -i PATH="$PATH" HOME="$h" NADO_TESTNET=1 $flags timeout "$TMO" "$PY" "$t" > "$OUT/$n.log" 2>&1
+  # TMPDIR=$h: every tempfile.mkdtemp() a test makes (105 sites beyond the HOME line, 2026-09-22) lands
+  # under its own home instead of /tmp, so one rm of $OUT below is the whole cleanup. 8,000 unprefixed
+  # tmpXXXXXXXX directories were found in /tmp that day, almost all from these tests.
+  env -i PATH="$PATH" HOME="$h" TMPDIR="$h" NADO_TESTNET=1 $flags timeout "$TMO" "$PY" "$t" > "$OUT/$n.log" 2>&1
   rc=$?; fails=$(grep -c '^FAIL' "$OUT/$n.log"); skips=$(grep -c '^SKIP' "$OUT/$n.log")
   st=OK; [ "$rc" = 124 ] && st=TIMEOUT; { [ "$rc" != 0 ] || [ "$fails" != 0 ]; } && [ "$st" = OK ] && st=FAIL
   printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "$st" "$rc" "$fails" "$skips" "$n"
@@ -24,5 +27,12 @@ run_one() {
 export -f run_one; export OUT PY TMO NATIVE_ONLY
 ls $PAT | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | tee "$OUT/summary.txt"
 bad=$(grep -c -E '^(FAIL|TIMEOUT)' "$OUT/summary.txt")
+# A GREEN RUN LEAVES NOTHING BEHIND: the homes, the temp dirs and the logs go together. A run with a
+# failure keeps $OUT, because then the logs are the point.
+if [ "$bad" = 0 ]; then
+  echo "---- $(grep -c '^OK' "$OUT/summary.txt") ok, 0 failed; all green, $OUT removed"
+  rm -rf "$OUT"
+  exit 0
+fi
 echo "---- $(grep -c '^OK' "$OUT/summary.txt") ok, $bad failed/timed out; logs in $OUT"
-[ "$bad" = 0 ]
+exit 1
