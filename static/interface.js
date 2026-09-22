@@ -1637,6 +1637,16 @@ function relayMedianHeight() {
   const hs = relayPool.list.map((c) => Number(c.height) || 0).filter((h) => h > 0).sort((a, b) => a - b);
   return hs.length ? hs[Math.floor(hs.length / 2)] : 0;
 }
+function relayMaxHeight() { return relayPool.list.reduce((m, c) => Math.max(m, Number(c.height) || 0), 0); }
+/* A PROPAGATION GUARD IS COMPUTED FROM THE HIGHEST TIP THIS WALLET KNOWS (2026-09-22). Every guarded
+ * transaction set min_block = (the relay's tip) + TX_INCLUSION_DELAY. During an update wave a relay that has
+ * just restarted serves a tip several blocks behind the network while it catches up, so a wallet on it
+ * built a guard that was already in the past everywhere else: a dividend-collect blob built 9 s before
+ * block 193750 carried min_block 193748, the nodes that had it built it in, the rest had not received it,
+ * and five nodes rolled back one block. The pool's heights are already tracked (relayNoteHeight); the guard
+ * now starts from the best of the relay's tip, the pool's highest tip and the last tip this page saw. A
+ * guard that is a few blocks LATER than necessary only delays landing; one that is earlier splits. */
+function guardFrom(h) { return Math.max(Number(h) || 0, relayMaxHeight(), Number(state.latest) || 0) + TX_INCLUSION_DELAY; }
 function relayNoteHeight(h) {
   h = Number(h);
   if (!Number.isFinite(h) || h <= 0) return;
@@ -1964,7 +1974,7 @@ async function claimPendingDividends(pending) {
       // minBlock: the SAME anti-reorg propagation delay every other flexibly-landing tx uses. A claim
       // without it seeded the h67961 fork split (min_block: None, straight from this call site).
       const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds(),
-        latest.block_number + TX_INCLUSION_DELAY);
+        guardFrom(latest.block_number));
       const res = await submitTransaction(tx);
       state._divClaimGate[p.nonce] = latest.block_number + TX_INCLUSION_DELAY * 2;
       submitted++;
@@ -1987,7 +1997,7 @@ async function collectDividend() {
     const latest = await getLatestBlock();
     if (!latest) throw new RelayUnreachable("relay unavailable");
     const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + TX_TARGET_MARGIN, MIN_TX_FEE, nowSeconds(),
-      latest.block_number + TX_INCLUSION_DELAY);   // propagation delay -> identical producer mempools (anti-reorg)
+      guardFrom(latest.block_number));   // propagation delay -> identical producer mempools (anti-reorg)
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       state._divInFlight = { accrued: (state._divAccruedNow || "0"), ts: Date.now() };
@@ -2045,7 +2055,7 @@ async function cashOutExec() {
       const latest = await getLatestBlock();
       if (!latest) throw new RelayUnreachable("relay unavailable");
       return buildBlobTx(state.wallet, { op: "bridge_withdraw", amount: raw }, latest.block_number + TX_TARGET_MARGIN,
-        MIN_TX_FEE, nowSeconds(), latest.block_number + TX_INCLUSION_DELAY);
+        MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
     });
     if (res && res.data && res.data.result)
       log("ok", i18("exec.cashOutSent", "Cash-out submitted — {a} NADO returns to your wallet once it settles.", { a: rawToNado(raw) }));
@@ -2824,7 +2834,7 @@ function authPop(sender, cfg, privHex) {
 function authBuildTx(sender, signerPrivs, data, tipHeight) {
   const body = { sender, recipient: "auth", amount: 0, timestamp: nowSeconds(), data, nonce: randNonce(),
                  max_block: tipHeight + 40, chain_id: CHAIN_ID, fee: AUTH_FEE_PER_ENTRY * Math.max(1, signerPrivs.length),
-                 min_block: tipHeight + TX_INCLUSION_DELAY };
+                 min_block: guardFrom(tipHeight) };
   const txid = createTxid(body);
   const m = hexToBytes(txid);
   return { ...body, txid, signature: signerPrivs.map((p) => mldsaSignHex(p, m)) };
@@ -4806,7 +4816,7 @@ async function resumePendingExecSign() {
         if (!latest) throw new Error("relay unavailable");
         const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
           data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
-          min_block: latest.block_number + TX_INCLUSION_DELAY, chain_id: CHAIN_ID };
+          min_block: guardFrom(latest.block_number), chain_id: CHAIN_ID };
         return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
@@ -4933,7 +4943,7 @@ async function resumePendingExecSign() {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
       if (!latest) throw new Error("relay unavailable");
-      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), latest.block_number + TX_INCLUSION_DELAY);
+      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
     });
     if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
@@ -5487,7 +5497,7 @@ async function doSend() {
     // min_block (tip + TX_INCLUSION_DELAY): the transfer gossips to EVERY producer before any may
     // include it, so all nodes build the identical block — no fork/reorg lottery on a fresh tx.
     const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(),
-      !pubkeyEstablished(acc), state.latest + TX_INCLUSION_DELAY);
+      !pubkeyEstablished(acc), guardFrom(state.latest));
     if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(resolvedOwner || recipient, looksLikeAlias(recipient) ? recipient : ""); $("sendAmount").value = ""; show("payBanner", false); }
   } catch (e) { setMsg("sendMsg", i18("msg.sendFailed", "Send failed:") + " " + e.message, "err"); }
   finally { btn.disabled = false; }
@@ -5646,7 +5656,7 @@ async function assetBlob(payload, label, msgId, rows) {
   const latest = await getLatestBlock();
   if (!latest) { setMsg(msgId, i18("rollup.relayDown", "Relay unavailable."), "err"); return false; }
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, fee, nowSeconds(),
-    latest.block_number + TX_INCLUSION_DELAY);
+    guardFrom(latest.block_number));
   const ok = await submitAndReport(tx, label, msgId);
   if (ok) setTimeout(() => renderAssets().catch(() => {}), 1500);
   return ok;
@@ -5987,7 +5997,7 @@ async function vaultCall(method, args, opts, label, msgId, rows) {
   if (opts && opts.value != null) payload.value = opts.value;
   if (opts && opts.asset != null) payload.asset = opts.asset;
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, fee, nowSeconds(),
-    latest.block_number + TX_INCLUSION_DELAY);
+    guardFrom(latest.block_number));
   const ok = await submitAndReport(tx, label, msgId);
   if (ok) setTimeout(() => renderAssets().catch(() => {}), 1800);   // renderAssets() also refreshes vaults
   return ok;
@@ -6417,7 +6427,7 @@ async function maybeRandao() {
   try {
     const acc = await getAccount(state.wallet.address);
     if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;   // duties apply to bonded validators only
-    const latest = state.latest;
+    const latest = Math.max(state.latest, relayMaxHeight());   // the network's tip, not one lagging relay's (see guardFrom)
     const X = Math.floor(latest / EPOCH_LENGTH);
     for (const k of Object.keys(_dutyDone)) { if (Number(k) < X) delete _dutyDone[k]; }
     for (const e of _randaoDead) { if (e < X) _randaoDead.delete(e); }   // its reveal window is long shut
@@ -8382,7 +8392,7 @@ async function rollupDeploy() {
   const abi = ($("rollupCode").value === _rollupLoadedCode) ? _rollupLoadedAbi : {};
   if (abi && Object.keys(abi).length) payload.abi = abi;
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
-    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
+    guardFrom(latest.block_number));   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   if (res.data && res.data.result) {
     rollupAddPending(ns, cid, Object.keys(code), payload.abi);
@@ -8402,7 +8412,7 @@ async function rollupCall() {
   const payload = { op: "call", contract: p.cid, method: p.method, args: p.args };
   const ns = rollupNs(); if (ns !== "default") payload.ns = ns;
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
-    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
+    guardFrom(latest.block_number));   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   const ok = !!(res.data && res.data.result);
   const status = ok ? i18("rollup.histSent", "sent (applies at finality)") : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
@@ -8624,7 +8634,7 @@ async function msigPropose() {
     const body = {
       sender, recipient, amount: rawAmount, timestamp: nowSeconds(), data: "",
       nonce: randNonce(), max_block: latest.block_number + MSIG_TARGET_HEADROOM,
-      min_block: latest.block_number + TX_INCLUSION_DELAY,   // propagation delay (anti-reorg); trivially past by signing time
+      min_block: guardFrom(latest.block_number),   // propagation delay (anti-reorg); trivially past by signing time
       chain_id: CHAIN_ID, multisig: { threshold: d.threshold, members: d.members }, fee,
     };
     const tx = { ...body, txid: createTxid(body), signature: [] };
@@ -9485,7 +9495,7 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
   if (!latest) throw new Error("relay unavailable");
   const tx = buildBlobTx(state.wallet, { op: "field_transfer", proof_da: commitment },
     latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
-    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
+    guardFrom(latest.block_number));   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   return { ok: !!(res.data && res.data.result), da: true, commitment, txid: tx.txid,
            message: res.data && res.data.message };

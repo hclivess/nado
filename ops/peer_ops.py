@@ -966,3 +966,18 @@ def pool_warm_ready(status_pool, hash_pool, elder_s=None):
         except (TypeError, ValueError):
             continue
     return False
+
+
+def behind_network(status_pool, our_tip, slack=2):
+    """True when some peer advertises a tip more than `slack` blocks above ours: we are still catching up.
+    A system tx built now carries a propagation guard (min_block = our tip + TX_INCLUSION_DELAY) that is
+    already in the past for the rest of the network — h193750, 2026-09-22: a guard built from a tip eight
+    blocks stale was eligible on arrival, the nodes that had it built it in, and five nodes rolled back.
+    Pure. Production is NOT gated on this (a lone node must still mint); only the periodic system txs are."""
+    best = 0
+    for st in (status_pool or {}).values():
+        try:
+            best = max(best, int((st or {}).get("latest_block_height") or 0))
+        except (TypeError, ValueError):
+            continue
+    return best > int(our_tip) + int(slack)

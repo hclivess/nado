@@ -39,7 +39,7 @@ from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO
     AUTO_MIN_FEE_MULTIPLE, \
     TX_INCLUSION_DELAY, TX_TARGET_MARGIN, RESERVED_TX_MARGIN, FLEX_TX_MIN_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size, get_home
-from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status, own_ips
+from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status, own_ips, behind_network
 from ops import snapshot_ops
 from ops.pool_ops import cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -578,21 +578,33 @@ class CoreClient(threading.Thread):
                 self._last_duty_height = _tip_h
                 # FFG (#6): refresh the committee-attested finalized checkpoint.
                 self.update_ffg_and_attest()
-                # MERGED EPOCH DUTY (doc/consensus-aggregation.md): if we hold a committee seat,
-                # one tx carries FFG attest + RANDAO commit/reveal for this epoch.
-                self.maybe_epoch_duty()
-                # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
-                self.maybe_auto_bond()
-                self.maybe_auto_collect()
-                self.maybe_auto_register()
-                self.maybe_auto_vote()
-                # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT): answer the enrolments
-                # this node was DRAWN to challenge. Without this every enrolment expires unanswered.
-                self.maybe_tpm_challenge()
-                # ...and enrol THIS machine's own chip, so a headless node attests itself and mines.
-                self.maybe_tpm_self_enrol()
-                # ...and tell the chain this node is willing to be drawn as a challenger.
-                self.maybe_tpm_ready()
+                # NO SYSTEM TX WHILE CATCHING UP (2026-09-22). Each call below builds a tx whose SIGNED
+                # min_block is OUR tip + TX_INCLUSION_DELAY. After a restart this slot fires on every block
+                # we re-apply, so with a tip eight blocks stale the guard is already in the past for the rest
+                # of the network: the tx is eligible on arrival wherever it lands first and the mesh splits on
+                # it (h193750). Once we are at the network's tip they resume; nothing here is time-critical
+                # at the scale of a catch-up (ops.peer_ops.behind_network). Housekeeping below stays ungated.
+                if behind_network(self.consensus.status_pool.copy(), _tip_h):
+                    if not getattr(self, "_behind_noted", False):
+                        self._behind_noted = True
+                        self.logger.info(f"Catching up at {_tip_h}: system txs (duty, bond, collect, announce) wait for the tip")
+                else:
+                    self._behind_noted = False
+                    # MERGED EPOCH DUTY (doc/consensus-aggregation.md): if we hold a committee seat,
+                    # one tx carries FFG attest + RANDAO commit/reveal for this epoch.
+                    self.maybe_epoch_duty()
+                    # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
+                    self.maybe_auto_bond()
+                    self.maybe_auto_collect()
+                    self.maybe_auto_register()
+                    self.maybe_auto_vote()
+                    # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT): answer the enrolments
+                    # this node was DRAWN to challenge. Without this every enrolment expires unanswered.
+                    self.maybe_tpm_challenge()
+                    # ...and enrol THIS machine's own chip, so a headless node attests itself and mines.
+                    self.maybe_tpm_self_enrol()
+                    # ...and tell the chain this node is willing to be drawn as a challenger.
+                    self.maybe_tpm_ready()
                 # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
                 self.maybe_prune_history()
                 # ARCHIVE REFILL: advance earliest_block as the background canonical-chain fill (after a
