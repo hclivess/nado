@@ -740,8 +740,9 @@ class CoreClient(threading.Thread):
                 # POOL WARM-UP GATE: a freshly restarted node's pool is EMPTY, and deterministic
                 # production turns "my pool differs" straight into a same-height fork — every deploy
                 # wave seeded forks this way (blob h67007, bond h68376, duty h68345, all restart-window).
-                # Don't mint until the pool has reconciled once with a peer (peer_loop sets pool_warmed
-                # after its first completed merge_remote_transactions pass). Liveness-safe: warmed is
+                # Don't mint until the pool has reconciled once with an ELDER peer (peer_loop sets
+                # pool_warmed after a merge pass that included a peer up >= POOL_WARM_ELDER_S — a young
+                # peer's pool is as empty as ours in a wave; see ops.peer_ops.pool_warm_ready). Liveness-safe: warmed is
                 # forced True when there are no peers to reconcile with (solo mode) or 60 s after start
                 # (a mute mesh must not stall a producer forever).
                 if (not self.memserver.pool_warmed
@@ -1970,9 +1971,17 @@ class CoreClient(threading.Thread):
                 _ob = get_block(_oh) if _oh else None
                 if not isinstance(_ob, dict) or _ob.get("block_hash") == _blk.get("block_hash"):
                     continue
+                # WHO SENT IT, IN WHICH FORM, WITH HOW MUCH WINDOW LEFT (2026-09-22): the duty diagnosis that
+                # day took two hours because a record held a short txid and nothing else — every split tx
+                # had to be found again in a block, and the ones that were LOST (never landed) could not be
+                # found at all. Fields 4-6: sender prefix, "w" windowed / "x" exact-landing, blocks of
+                # window remaining at the split height. Append-only: readers of [0..2] are unchanged.
                 _sig = lambda b: sorted((t.get("recipient"),
                                          (t.get("data") or {}).get("op") if isinstance(t.get("data"), dict) else None,
-                                         str(t.get("txid"))[:16])
+                                         str(t.get("txid"))[:16],
+                                         str(t.get("sender"))[:10],
+                                         "w" if t.get("min_block") else "x",
+                                         int(t.get("max_block") or 0) - _n)
                                         for t in (b.get("block_transactions") or []))
                 _so, _st = _sig(_ob), _sig(_blk)
                 _d = {"at": get_timestamp_seconds(), "h": _n, "anc": int(anc), "src": src}

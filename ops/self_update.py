@@ -32,6 +32,7 @@ import os
 import re
 import shutil
 import subprocess
+import random
 import threading
 import time
 
@@ -290,6 +291,28 @@ _HINT_COOLDOWN = 3600                  # s per distinct advertised value — a s
 _hints = {}                            # advertised short-commit -> monotonic ts of its last evaluation
 
 
+_wave_pending = False
+
+
+def wave_delay(trigger, rng=random.random):
+    """Seconds a node waits before acting on an update signal. A PEER HINT is the cascade: every node that
+    heard one restarted at once, the whole fleet was down and back inside a few seconds, and no node came
+    back to a mesh with an elder to warm its pool from (protocol.POOL_WARM_ELDER_S) — so every wave split
+    (h191043, 2026-09-22). Spread over UPDATE_WAVE_JITTER_S, most of the fleet is up and warmed at every
+    moment of the wave. The operator's own /update and the timer are not a cascade and wait nothing."""
+    from protocol import UPDATE_WAVE_JITTER_S
+    return rng() * UPDATE_WAVE_JITTER_S if trigger == "peer-hint" else 0.0
+
+
+def _delayed_check(delay):
+    global _wave_pending
+    try:
+        time.sleep(max(0.0, float(delay)))
+        check_and_update("peer-hint")
+    finally:
+        _wave_pending = False
+
+
 def peer_hint(commit):
     """A peer's status advertised `commit` (its running_commit or its view of origin/main). If it is not
     one we recognize — not our HEAD, not the origin head we last saw, and not an ancestor already in our
@@ -315,7 +338,13 @@ def peer_hint(commit):
             return False
         except Exception:
             pass
-        threading.Thread(target=check_and_update, args=("peer-hint",), daemon=True,
+        # ONE DELAYED CHECK AT A TIME: the jitter below can outlast the hint cooldown, and a second hint
+        # must not start a second pull racing the first.
+        global _wave_pending
+        if _wave_pending:
+            return False
+        _wave_pending = True
+        threading.Thread(target=_delayed_check, args=(wave_delay("peer-hint"),), daemon=True,
                          name="peer_hint_update").start()
         return True
     except Exception:

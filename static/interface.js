@@ -2171,6 +2171,46 @@ async function fetchWalletView(addr) {
     return r.data;
   } catch (e) { if (isTransient(e)) return null; throw e; }
 }
+/* AN OPEN WALLET FOLLOWS THE BUILD IT IS SERVED FROM (2026-09-22). Nothing reloaded a tab when its relay
+ * moved to a new commit, so a validator who left the wallet open for days kept running the old duty code
+ * long after the fix that mattered to them shipped — every wallet fix this month reached external users
+ * only on their next manual reload. Once a minute the page asks its OWN origin (the node that served this
+ * file, so its commit and this file move together) which commit it runs. The first answer after load is
+ * the baseline; a commit never seen in this browser session means a new build is live, and the page
+ * reloads at the next idle moment: no modal open, no field focused, nothing in flight. The seen-set in
+ * sessionStorage is what stops a reload loop if the served file ever lags the reported commit. */
+const BUILD_CHECK_MS = 60000;
+let _bootCommit = null, _reloadArmed = false;
+function _seenBuilds() { try { return JSON.parse(sessionStorage.getItem("nado_builds_seen") || "[]"); } catch (e) { return []; } }
+function _rememberBuild(c) { try { const s = _seenBuilds(); if (!s.includes(c)) { s.push(c); sessionStorage.setItem("nado_builds_seen", JSON.stringify(s.slice(-8))); } } catch (e) {} }
+function noteBuild(commit) {
+  if (!commit || typeof commit !== "string") return false;
+  if (_bootCommit === null) { _bootCommit = commit; _rememberBuild(commit); return false; }
+  if (commit === _bootCommit || _reloadArmed || _seenBuilds().includes(commit)) return false;
+  _rememberBuild(commit);
+  _reloadArmed = true;
+  log("info", i18("log.newBuild", "A new wallet build is live — this page will reload when idle."));
+  reloadWhenIdle();
+  return true;
+}
+function walletIdle() {
+  const el = document.activeElement;
+  const typing = !!(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable));
+  const modal = !!(_modalEl && !_modalEl.classList.contains("hidden"));
+  return !typing && !modal && !_randaoBusy && !state._collecting && !state._cashingOut
+    && !state.registering && !state.pendingRegisterTx && !state.autoBondPending;
+}
+function reloadWhenIdle() {
+  if (walletIdle()) { location.reload(); return; }
+  setTimeout(reloadWhenIdle, 5000);
+}
+async function checkBuild() {
+  if (!/^https?:/.test(location.protocol)) return;
+  try {
+    const st = await (await fetch(location.origin + "/status", { cache: "no-store" })).json();
+    noteBuild(st && st.running_commit);
+  } catch (e) { /* origin unreachable for a moment — next minute */ }
+}
 function viewFresh(addr) {
   const v = walletView;
   return (v.data && Date.now() - v.at < VIEW_FRESH_MS && (!addr || v.addr === addr)) ? v.data : null;
@@ -3852,6 +3892,7 @@ function startPollLoop() {
   stopPollLoop();
   const periodMs = Math.max(8000, Math.min(state.blockTime, 60) * 1000);
   state.pollTimer = setInterval(pollOnce, periodMs);
+  if (!state._buildTimer) { checkBuild().catch(() => {}); state._buildTimer = setInterval(() => { checkBuild().catch(() => {}); }, BUILD_CHECK_MS); }
   // seamless shielded withdrawals: quietly sweep any settled unshield into the balance in the background
   if (!state.claimTimer) state.claimTimer = setInterval(() => {
     if (state.wallet && !state.locked && loadNotes().length) claimUnshields(true).catch(() => {});

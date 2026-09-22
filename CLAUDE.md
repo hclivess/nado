@@ -374,7 +374,8 @@ that is not, read its `/status` — `update_blocking` and `update_warnings` now 
 
 ```bash
 git push origin main          # THIS RESTARTS PRODUCTION
-curl -s localhost:9173/update # kick the fleet wave; peers cascade within seconds
+curl -s localhost:9173/update # kick the fleet wave; the kicked node restarts at once, the rest follow
+                              # over ~3 min (UPDATE_WAVE_JITTER_S) so an elder is always up to warm from
 ```
 
 Then verify: `/status` height climbing, `last_block_reject: null`, and `status_pool` showing every peer

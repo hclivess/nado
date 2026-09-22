@@ -765,6 +765,21 @@ AUTO_BOND_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE     # 0.001 NADO at defau
 # only sweeps once its accrued dividend (read from the local exec node) reaches this — below it, the
 # accrual just keeps growing fee-free until it's worth a tx.
 AUTO_COLLECT_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE  # 0.001 NADO at defaults: smallest sweep-worthy dividend
+
+# POOL WARM-UP ELDER (2026-09-22, non-consensus pacing). A freshly restarted node counts its pool as
+# reconciled only after it has merged with (or matched) a peer that has itself been up this long. The
+# 2026-08 warm-up gate accepted ANY peer's pool hash, so in an update wave two nodes that had both just
+# restarted warmed each other from empty pools, and the whole fleet split on the announcements that landed
+# during the wave — h191043, seven of nine nodes, the same five tpm_ready each. An elder is a node the wave
+# has not reached yet or one that finished restarting a while ago: either way it holds the network's pool.
+# Paired with UPDATE_WAVE_JITTER_S so that an elder exists at every moment of a wave.
+POOL_WARM_ELDER_S = 120
+# UPDATE WAVE JITTER (2026-09-22, non-consensus). A node acting on a PEER HINT — the cascade — waits a
+# uniform 0..this many seconds before pulling and restarting. Cascading "within seconds" restarted the
+# whole fleet at once, so nobody came back to a mesh with an elder to warm from. The operator's own
+# /update and the 15-minute timer are not a cascade and wait nothing; the initiating node still restarts
+# at once, so the head is visible immediately and the rest of the fleet follows inside ~3 minutes.
+UPDATE_WAVE_JITTER_S = 180
 # Default auto-bond percentage applied when the operator/user has NOT chosen one (fresh node config,
 # a browser with no saved preference, a new desktop wallet). Route this % of newly-mined spendable
 # earnings into bonded stake out of the box, so miners join the capital-gated bonded lane hands-free

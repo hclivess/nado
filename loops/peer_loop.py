@@ -6,7 +6,7 @@ import traceback
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
-from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
+from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, pool_warm_ready
 from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok, own_ips
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from ops import self_update
@@ -365,7 +365,12 @@ class PeerClient(threading.Thread):
                 # first completed reconcile pass against a live peer set -> the pool reflects the
                 # network's, so production is safe (core_loop pool warm-up gate). Peers whose hash
                 # already matches ours count as reconciled-by-equality.
-                if not self.memserver.pool_warmed and (self.consensus.transaction_hash_pool or _same_pool):
+                # ...against an ELDER (2026-09-22). Any peer's hash used to do, and in an update wave the first
+                # peer to answer had just restarted too: two empty pools agreed, both warmed, both built the
+                # block without the five announcements the rest of the mesh held (h191043, 7 of 9 nodes).
+                # ops.peer_ops.pool_warm_ready; the 60 s liveness cap in core_loop is unchanged.
+                if not self.memserver.pool_warmed and pool_warm_ready(self.consensus.status_pool,
+                                                                       self.consensus.transaction_hash_pool):
                     self.memserver.pool_warmed = True
 
                 self.memserver.save_pool()          # every few seconds: a restart must not lose accepted txs

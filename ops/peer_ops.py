@@ -948,3 +948,21 @@ if __name__ == "__main__":
     # save_peer(ip="1.1.2", port=0, address="haha2")
     # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
     # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
+
+
+def pool_warm_ready(status_pool, hash_pool, elder_s=None):
+    """True when at least one ELDER peer — reported_uptime >= POOL_WARM_ELDER_S — has advertised a pool
+    hash, i.e. this pass either merged its pool or matched it by equality. A young peer's pool proves
+    nothing about the network's: in an update wave it is as empty as ours, and warming from it is what
+    split the fleet at h191043 (2026-09-22). Pure; the 60 s liveness cap stays in core_loop, so a mesh
+    with no elder at all (fresh chain, solo node, everyone restarted) still produces."""
+    from protocol import POOL_WARM_ELDER_S
+    need = POOL_WARM_ELDER_S if elder_s is None else elder_s
+    hashes = hash_pool or {}
+    for ip, st in (status_pool or {}).items():
+        try:
+            if ip in hashes and int((st or {}).get("reported_uptime") or 0) >= need:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
