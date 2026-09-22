@@ -16,6 +16,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_selfip_")     # throwaway node home, set BEFORE imports
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.makedirs(os.environ["HOME"] + "/nado/private", exist_ok=True)
 
 from ops.peer_ops import usable_self_ip, update_local_ip         # noqa: E402

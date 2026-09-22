@@ -15,6 +15,7 @@ mainnet. This harness only touches throwaway temp dirs; it does not touch any re
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,7 @@ def main():
 
     workdir = tempfile.mkdtemp(prefix="nado_testnet_")
     print(f"[testnet] {n} nodes, up to {run_seconds}s, workdir {workdir}", flush=True)
+    converged = False   # bound before the try so the teardown can always read it
     keys = [generate_keydict() for _ in range(n)]
     # shared, sorted, BYTE-IDENTICAL bond manifest: each node bonds exactly B_MIN -> 1 share each,
     # so total_shares == n > 0 and the fail-closed selector always has a winner from block 1.
@@ -193,7 +195,14 @@ def main():
                 p.kill()
             except Exception:
                 pass
-        print(f"[testnet] torn down. logs under {workdir}", flush=True)
+        # A PASSING RUN LEAVES NOTHING BEHIND (2026-09-22): every run kept its n node homes forever, and with a
+        # run per loop/ops commit that was 1.3 GB of dead chains in /tmp. Logs are only worth keeping when
+        # something went wrong, so a converged run removes its workdir and a failed one keeps it for reading.
+        if converged:
+            shutil.rmtree(workdir, ignore_errors=True)
+            print("[testnet] torn down; workdir removed (converged)", flush=True)
+        else:
+            print(f"[testnet] torn down. logs under {workdir}", flush=True)
 
 
 if __name__ == "__main__":

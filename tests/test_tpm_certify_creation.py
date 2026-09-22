@@ -23,6 +23,7 @@ Run: python3 tests/test_tpm_certify_creation.py
 import os,socket,struct,subprocess,sys,tempfile,time,shutil,hashlib
 sys.path.insert(0,'/srv/nado-home/nado')
 os.environ["HOME"] = tempfile.mkdtemp()
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 from ops.tpm_linux import (LinuxTpm, ek_template, aik_template, RH_ENDORSEMENT, ST_SESSIONS,
                            ST_NO_SESSIONS, tpm2b, ALG_RSASSA, ALG_SHA256, _take2b)
 from ops.tpm_aik import aik_name, verify_rsassa_sha256, pub_area_rsa

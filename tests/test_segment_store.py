@@ -18,6 +18,7 @@ for _posix_only in ("pread", "pwrite"):
     if hasattr(os, _posix_only):
         delattr(os, _posix_only)
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_segstore_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_SEGMENT_BYTES"] = "2048"   # tiny segments -> rollover under test data sizes
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):

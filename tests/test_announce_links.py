@@ -8,6 +8,7 @@ fails/unreachable/own addresses are still excluded.  Run: python3 tests/test_ann
 """
 import os, sys, tempfile, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_announce_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_TESTNET"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(f"{os.environ['HOME']}/nado/private", exist_ok=True)

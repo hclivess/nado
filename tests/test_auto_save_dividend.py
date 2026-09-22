@@ -17,6 +17,7 @@ Run: python3 tests/test_auto_save_dividend.py
 """
 import os, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_autosave_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import loops.core_loop as CL

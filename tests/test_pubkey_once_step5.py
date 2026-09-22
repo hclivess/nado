@@ -7,6 +7,7 @@ Pubkey-once unit checks (#19, security step 5).
 """
 import os, sys, tempfile, traceback
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_pk1_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_TESTNET"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):

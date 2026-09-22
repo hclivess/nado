@@ -21,6 +21,7 @@ Run: python3 tests/test_auth_consensus.py   (sets NADO_AUTH_FORCE=1 itself)
 """
 import os, sys, tempfile, logging, traceback, copy
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_authc_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_AUTH_FORCE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

@@ -6,6 +6,7 @@ activation gate exists for them any more — they rode gen 22 behind a generatio
 retired; a bare height sneaking back in would outlive its chain."""
 import os, sys, re, tempfile, traceback
 os.environ["HOME"] = tempfile.mkdtemp()
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import protocol as P
 

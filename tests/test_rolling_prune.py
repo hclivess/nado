@@ -10,6 +10,7 @@ Run: python3 tests/test_rolling_prune.py
 """
 import os, sys, tempfile, traceback, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_prune_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_SEGMENT_BYTES"] = "4096"   # tiny segments so the whole-segment GC path actually rolls over
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):

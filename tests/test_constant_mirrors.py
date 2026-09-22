@@ -30,6 +30,7 @@ def check(name, cond, detail=""):
 
 def main():
     os.environ["HOME"] = tempfile.mkdtemp()
+    import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
     import protocol
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     js = open(os.path.join(root, "static", "interface.js"), encoding="utf8").read()

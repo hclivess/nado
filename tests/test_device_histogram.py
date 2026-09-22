@@ -11,6 +11,7 @@ Run: python3 tests/test_device_histogram.py
 import os, sys, tempfile
 
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_devh_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops.node_attest import device_histogram  # noqa: E402

@@ -7,6 +7,7 @@ Run: python3 tests/test_h4_redirect.py
 """
 import os, sys, tempfile, traceback, copy
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_h4_")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode.shielded import note_commitment, note_nullifier, owner_id, transfer_sighash, merkle_path
