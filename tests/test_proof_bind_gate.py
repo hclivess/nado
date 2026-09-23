@@ -51,17 +51,20 @@ LEGACY, STRICT = stark.RULES_LEGACY, stark.RULES_STRICT
 
 # ---- 1. the rules are a pure function of the block height ------------------------------------------------------
 def t_rules_pure_in_height():
-    assert stark.rules_for_height(GATE - 1) == LEGACY, "one block below the gate: the old rules"
-    assert stark.rules_for_height(GATE) == STRICT, "at the gate: both pins"
-    assert stark.rules_for_height(GATE + 100000) == STRICT
-    assert stark.rules_for_height(0) == LEGACY or GATE <= 0
+    # Only THIS gate's two fields are asserted: later gates (PROOF_BLOCK_SELECTOR_HEIGHT, A2) add fields of
+    # their own that flip at their own heights, and test_proof_block_selector pins those.
+    pins = lambda r: (r.pin_fri_domain, r.bind_statement)
+    assert pins(stark.rules_for_height(GATE - 1)) == (False, False), "one block below the gate: the old rules"
+    assert pins(stark.rules_for_height(GATE)) == (True, True), "at the gate: both pins"
+    assert pins(stark.rules_for_height(GATE + 100000)) == (True, True)
+    assert pins(stark.rules_for_height(0)) == (False, False) or GATE <= 0
     assert stark.rules_for_height(None) == STRICT, "no height known = strict, never permissive"
     assert stark.current_rules() == STRICT, "nothing set = strict (a forgotten site refuses loudly)"
     with stark.rules_at(GATE - 1):
-        assert stark.current_rules() == LEGACY
+        assert pins(stark.current_rules()) == (False, False)
         with stark.rules_at(GATE):
-            assert stark.current_rules() == STRICT
-        assert stark.current_rules() == LEGACY, "contexts nest and restore"
+            assert pins(stark.current_rules()) == (True, True)
+        assert pins(stark.current_rules()) == (False, False), "contexts nest and restore"
     assert stark.current_rules() == STRICT
 
 

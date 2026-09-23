@@ -1611,7 +1611,8 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
 #                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
-#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT
+#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
+#                                    PROOF_BLOCK_SELECTOR_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -2017,6 +2018,19 @@ PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1
 # execnode/state.py (rules_v2 on cursor+1), execnode/settlement_proofs._run_call (per-call cursor),
 # ops/transaction_ops (blob admission + records fold, block_height).
 EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1
+
+# IN-BLOCK SELECTOR (security review 2026-09-23, A2). The exec AIR's block schedule (which rows belong to which
+# call) was prover-declared and nothing tied a block's length to its RET: build_periodic filled the context,
+# program and args columns only inside declared blocks and ZERO elsewhere, and no constraint forced a row outside
+# every block to be a NOP. Declaring the last block with n = 1 therefore ran the call to its RET with CTX -> 0,
+# program 0 and call 0's args — deadline/owner checks against 0, or a settler's program on the victim's
+# registers ending in PAY. From this height the epoch AIR carries one more periodic column, P_IN (1 inside a
+# declared block, 0 outside), and the constraint (1 - P_IN) * (1 - f_NOP) = 0: every row outside the schedule
+# is a NOP, so the schedule bounds the execution. An extra column and an extra constraint change the proof
+# format (both the statement digest and the alphas), so prover and verifier flip on the same block through
+# stark.rules_at, like PROOF_BIND_HEIGHT. tests/test_proof_block_selector.py shows a trace executing past its
+# declared block VERIFYING below the gate and refused at it. Block 1 at the next reroll.
+PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

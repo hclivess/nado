@@ -303,8 +303,12 @@ FRI domain to the STARK's), A1 (absorb the rebuilt statement into the transcript
 > (`stark.rules_at`) entered by the L1 settle branch, the exec block apply and the settler (which proves for
 > `L1 tip + 1`); the verdict memo and the child verifier carry them. `tests/test_proof_bind_gate.py` BUILDS the P0
 > forgery (a FRI over 2N interpolated through the N spot-check values of a violated trace) and shows it ACCEPTED
-> under the legacy rules — the finding is now reproduced, not traced. A2 is an AIR change (a new periodic
-> selector + constraint on both prover and verifier), not a pin, and is still open; P1 remains a redesign.
+> under the legacy rules — the finding is now reproduced, not traced. **A2 is FIXED too**, on its own gate
+> `PROOF_BLOCK_SELECTOR_HEIGHT = 212000`: the exec AIR gains the periodic column `P_IN` (1 on declared rows) and
+> the constraint `(1 - P_IN)(1 - f_NOP) = 0`, present under `rules.in_block_selector` on both prover and
+> verifier (`vm_circuit.num_periodic`, `transitions(in_block)`, `build_periodic(in_block)`).
+> `tests/test_proof_block_selector.py` builds the forgery — an honest four-row witness declared as a one-row
+> block — and shows it VERIFYING under the pre-gate rules and refused at the gate. P1 remains a redesign.
 Until P0 lands, `SETTLE_PROOF_TRUSTLESS` means a bonded settler can settle any root; the operator may
 prefer to flip it off (quorum only) until the pin is deployed. P1 is a protocol redesign (trace LDT / DEEP)
 and should be scheduled, not patched.
@@ -325,6 +329,44 @@ and should be scheduled, not patched.
    > below the gate (the token booked as native value; the unbacked exit recorded) and closed at it.
 2. **Now, contracts (code + tests; upgrade signed by the deployer key):** C2 id bounds in thirteen
    contracts; C4 pets `EX` guard; C3 wallet-side lock sizing from wall clock; the medium items as chosen.
+
+   > **Status 2026-09-23 (later): C2 CODE DONE, upgrades pending the deployer key.** `_lib.id_guard` /
+   > `_lib.guard_ids` prefix `movi r4 2^32; mov r5 r<id>; lt r5 r4; require r5` onto every id-taking method,
+   > applied in each game's `build()` (fund/close carry it inline in `_lib`); autogame's six DSL methods start
+   > with `m.require(m.arg(0) < 2^32)`; reversi's `move` also bounds the cell (< 65). Fourteen contracts, not
+   > thirteen: **pool** splices tictactoe's `open` and had the identical hole. `tests/test_contract_id_bounds.py`
+   > reproduces the finding on the unguarded code (an aliased `open` writes outside its field set), then shows
+   > every guarded method reverting without a write for ids in [2^32, 2^62) and ≥ 2^62, and that honest calls
+   > produce identical io logs before and after (r4/r5 are scratch everywhere). The ABI and field layout are
+   > unchanged, so the wallets need nothing.
+   >
+   > The survey also found the same STRUCTURAL shape (bound at creation only, every later method unbounded) in
+   > bet, hamster, pets, holdem, farkle, coinflip, lend, reserve (`vid` beyond `open`) and dex (`pool` args beyond
+   > `open`/`fundn`); the review judged those sound because their guards compare content, and no payoff was
+   > proven. Bounding them is the same one-line-per-method change; it is a scoping decision for the operator,
+   > not done here. faucet and sovereign take no id argument.
+   >
+   > **To upgrade in place (the deployer key signs; one command per contract, same cid):**
+   > ```
+   > HOME=/root python3 -m execnode.games.deploy dice      --upgrade 230860957a7c1db403434ffb4a3969b3
+   > HOME=/root python3 -m execnode.games.deploy roulette  --upgrade b47b6197939e85804ec647b1e6491c30
+   > HOME=/root python3 -m execnode.games.deploy slots     --upgrade 42509ee496258eea278dd01d66a8eed8
+   > HOME=/root python3 -m execnode.games.deploy mines     --upgrade 584783cc92f57b40b4c832b9b1f3242c
+   > HOME=/root python3 -m execnode.games.deploy blackjack --upgrade d0be764f3da9c9cc6bb609280a887929
+   > HOME=/root python3 -m execnode.games.deploy tictactoe --upgrade 266e44abb869209132fc7925a1315c5d
+   > HOME=/root python3 -m execnode.games.deploy connect4  --upgrade b7cdf18106cf80c74fe423fd1da9032f
+   > HOME=/root python3 -m execnode.games.deploy reversi   --upgrade 167d4fb3ae5c282bfdfcb846bba7b5a1
+   > HOME=/root python3 -m execnode.games.deploy chess     --upgrade 2aa4f314876c71662bc3bb9c04177827
+   > HOME=/root python3 -m execnode.games.deploy stormhold --upgrade 093708c95385df4d6123ee56117fcc14
+   > HOME=/root python3 -m execnode.games.deploy scrapline --upgrade b062a72c3dbf5558f8ad4858b212d6ca
+   > HOME=/root python3 -m execnode.games.deploy hexholm   --upgrade a9113e07ff9b990437d1e47543b60696
+   > HOME=/root python3 -m execnode.games.deploy pool      --upgrade 043c6d95117ed222f3e95b1f2997fba9
+   > HOME=/root python3 -m execnode.games.deploy autogame  --upgrade af66948ff14f81ace98d4fde619b8e74
+   > ```
+   > Then confirm on the exec node that each cid's code begins with the guard
+   > (`/exec/contracts`, method `open`/`bet`/`begin`: first instruction `MOVI r4 4294967296` or `MOV r1 r0`).
+   > Storage scan before upgrading: a table whose `gg` row already holds an oversized table id would keep it
+   > (the settle-family methods read the id from storage); the review found no aliased slot in live storage.
 3. **Lock the contracts** once upgraded, and move `deployer`/`upgradable`/`zk_addrs` into the root (reroll).
 4. **Reroll-class:** S1 code-leaf binding; F3 prover context; Z1 masked trace; Z3 wide commitment; Z4 tree
    capacity; `chain_clock` re-anchoring for C3.

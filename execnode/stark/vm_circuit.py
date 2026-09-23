@@ -168,6 +168,21 @@ PC_ASSET, PC_SELF = PT_VAL + 1, PT_VAL + 2      # asset context of the owning ca
                                                 # it (0 = native NADO) and the callee's own address digest —
                                                 # what ACTX reads. Appended, so no existing index shifts.
 NUM_PERIODIC = PC_SELF + 1
+# A2 (security review 2026-09-23, PROOF_BLOCK_SELECTOR_HEIGHT): the IN-BLOCK selector, 1 on every row of a
+# declared call block and 0 outside (the NOP padding after the last call — and, in a forged schedule, the rows
+# a prover tried to execute past a block's declared end). Present ONLY under rules.in_block_selector, appended
+# after every existing column so no index shifts; num_periodic(rules) is the width the AIR expects.
+P_IN = NUM_PERIODIC
+
+
+def _in_block(in_block=None):
+    """Resolve the A2 switch: an explicit bool, else the rules in force (stark.rules_at). Every site that builds
+    the periodic table or the constraint list asks THIS, so the column and the constraint cannot disagree."""
+    return bool(stark.current_rules().in_block_selector) if in_block is None else bool(in_block)
+
+
+def num_periodic(in_block=None):
+    return NUM_PERIODIC + (1 if _in_block(in_block) else 0)
 
 # The epoch-DATA periodic columns — the ones whose SIZE scales with the epoch (fetch/io/args tables + per-row
 # context/args). These are what make a public verify O(epoch): each is a dense length-T column the verifier
@@ -428,7 +443,7 @@ def _wr_expr(row):
 
 
 # ---- the transition constraints -------------------------------------------------------------------
-def transitions(bind_io=False, gamma_fp=0, ext=False):
+def transitions(bind_io=False, gamma_fp=0, ext=False, in_block=None):
     """The full constraint list. All per-call context is PERIODIC (public), so ONE constraint set proves an
     EPOCH of N concatenated calls (aggregation) as well as a single call. Every constraint is
     c(cur, nxt, per, chal), chal = (β, γ). P_START(cur) pins a call's first row (registers←args, pc←0,
@@ -473,6 +488,17 @@ def transitions(bind_io=False, gamma_fp=0, ext=False):
         halt = F.add(c[F0 + _O["NOP"]], c[F0 + _O["RET"]])
         return F.mul(F.sub(1, p[P_END]), F.mul(halt, F.sub(n[F0 + _O["NOP"]], 1)))
     cons.append(c_absorb)
+
+    # -- A2: NOTHING EXECUTES OUTSIDE THE DECLARED SCHEDULE. c_absorb only forces a NOP AFTER a halt; a block
+    #    declared shorter than its call's execution simply continued on the next rows, where every context,
+    #    program and args column reads 0 — the call finished with CTX -> 0 and program 0. With P_IN public
+    #    (rebuilt by the verifier from the declared blocks), a row outside every block must be a NOP, so a
+    #    call's RET has to fall inside its own block. Honest traces already satisfy it: the padding after the
+    #    last call is NOP and blocks tile [0, total) contiguously. --
+    if _in_block(in_block):
+        def c_in_block(c, n, p, ch):
+            return F.mul(F.sub(1, p[P_IN]), F.sub(1, c[F0 + _O["NOP"]]))
+        cons.append(c_in_block)
 
     # -- call-start pins: on the first row of each call, registers = the call's periodic args, pc = 0,
     #    sponge = (0, 0). This is what "resets" the machine per call so an epoch is a clean concatenation. --
@@ -776,12 +802,12 @@ def build_epoch_trace(calls):
     return rows, T, blocks, progs, epoch_io, per_call
 
 
-def build_periodic(blocks, progs, epoch_io, T):
+def build_periodic(blocks, progs, epoch_io, T, in_block=None):
     """The public periodic columns for an epoch. The VERIFIER rebuilds every one of these from the public
     statement (the call list + programs) — none come from the proof. Fetch table = the distinct programs
     concatenated (each row tagged with its prog_id + local pc); io table = the whole epoch's log in one global
     order; context/args/start-end columns describe which call owns each execution row."""
-    cols = [[0] * T for _ in range(NUM_PERIODIC)]
+    cols = [[0] * T for _ in range(num_periodic(in_block))]
     # fetch table: prog_id, local pc, op, d, s, imm  (progs concatenated)
     j = 0
     for pid, prog in enumerate(progs):
@@ -818,6 +844,8 @@ def build_periodic(blocks, progs, epoch_io, T):
             cols[PC_ASSET][i], cols[PC_SELF][i] = actx
             cols[PC_PROG][i] = pid
             cols[PC_CALL][i] = bi
+            if _in_block(in_block):
+                cols[P_IN][i] = 1                     # A2: this row belongs to a declared block
             for k in range(NR):
                 cols[PA + k][i] = args8[k]
         starts.append((start, 1))
@@ -954,7 +982,7 @@ def _norm_call(call):
     return c
 
 
-def statement_digest(T, periodic, boundaries):
+def statement_digest(T, periodic, boundaries, committed=()):
     """A1 (security review 2026-09-23): the 32-byte digest of an epoch proof's PUBLIC STATEMENT — exactly the
     tables the verifier rebuilds and evaluates at the query points (build_periodic: programs, io log, args,
     per-row context) plus the boundaries. Absorbed into the transcript BEFORE the trace roots on both sides
@@ -965,14 +993,21 @@ def statement_digest(T, periodic, boundaries):
     Digested from the BUILT columns, not from the call dicts: the prover's `calls` carry `slots` and raw
     args while the verifier's public calls carry `selfd` and digested args, but both build the same columns —
     that equality is already what the proof's soundness rests on. Structured {period, base, sparse} columns
-    (the O(1) path) are encoded by their parts. Cost: one native blake2b over ~NUM_PERIODIC x T u64s."""
+    (the O(1) path) are encoded by their parts. Cost: one native blake2b over ~NUM_PERIODIC x T u64s.
+
+    `committed` (the O(1) path's COMMIT_PERIODIC): a committed column is bound through its Merkle root, which
+    stark.prove/verify absorb as a public parameter, and the verifier holds only a placeholder for it — so it
+    is digested as a marker, never by value. The LIVE path commits nothing, so its digest is unchanged."""
     import hashlib
     from array import array
     h = hashlib.blake2b(b"nado-epoch-statement-v1", digest_size=32)
     h.update(int(T).to_bytes(8, "little"))
     h.update(len(periodic).to_bytes(4, "little"))
-    for pc in periodic:
-        if isinstance(pc, dict):
+    _committed = set(committed or ())
+    for _i, pc in enumerate(periodic):
+        if _i in _committed:
+            h.update(b"C")
+        elif isinstance(pc, dict):
             base = [int(v) % F.P for v in pc.get("base", [])]
             sparse = [(int(i), int(v) % F.P) for i, v in pc.get("sparse", [])]
             h.update(b"S" + int(pc.get("period", 1)).to_bytes(8, "little"))
@@ -1017,7 +1052,8 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     _bnds = _boundaries(T, bind_io, fp_exec, _ext)
     # A1: under the rules in force (stark.rules_at — the settler sets them for the block the proof will land
     # in) the statement digest is absorbed; below the gate the transcript is byte-identical to before.
-    _stmt = statement_digest(T, periodic, _bnds) if stark.current_rules().bind_statement else None
+    _stmt = (statement_digest(T, periodic, _bnds, committed=(commit_periodic or ()))
+             if stark.current_rules().bind_statement else None)
     proof = stark.prove(trace, transitions(bind_io, gamma_fp, _ext), _bnds,
                         periodic=periodic, max_degree=MAX_DEGREE, num_queries=num_queries,
                         aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext), backend=backend,
@@ -1123,7 +1159,7 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
         bnds = _boundaries(proof["T"], bind_io=bind_io, fp_exec=_fp, ext=_ext)
         # A1: the statement the verifier just REBUILT is what enters the transcript — never anything the
         # proof carries. Rules come from stark.rules_at(<block being judged>), set by the L1 settle branch.
-        _stmt = (statement_digest(proof["T"], periodic, bnds)
+        _stmt = (statement_digest(proof["T"], periodic, bnds, committed=(commit_periodic or ()))
                  if stark.current_rules().bind_statement else None)
         return stark.verify(proof, transitions(bind_io, gamma_fp, _ext), bnds,
                             periodic=periodic, max_degree=MAX_DEGREE,
@@ -1144,7 +1180,7 @@ def _o1_periodic(blocks_decl, T):
     selectors, in structured (T-independent) form. The epoch-DATA columns (COMMIT_PERIODIC) are committed — their
     values come from the proof's openings, so they are placeholders here (stark.verify ignores committed slots).
     `blocks_decl` = proof["blocks"] (the declared call schedule). Cost is O(#calls), never O(#io)/O(#program)."""
-    per = [0] * NUM_PERIODIC
+    per = [0] * num_periodic()                        # A2: P_IN rides in the committed set under its rules
     per[PB] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(256)]}
     per[PS] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(128)]}
     starts = [(int(b["start"]), 1) for b in blocks_decl]
@@ -1152,6 +1188,12 @@ def _o1_periodic(blocks_decl, T):
             for i, b in enumerate(blocks_decl) if i + 1 < len(blocks_decl)]
     per[P_START] = {"period": 1, "base": [0], "sparse": starts}
     per[P_END] = {"period": 1, "base": [0], "sparse": ends}
+    if _in_block():
+        # A2: P_IN over the declared schedule. This path has no live caller; the live verifier rebuilds P_IN in
+        # build_periodic and evaluates it via its LDE.
+        total = sum(int(b["n"]) for b in blocks_decl)
+        per[P_IN] = [1] * total + [0] * (T - total)      # DENSE, as build_periodic makes it: the statement
+                                                         # digest encodes a column by its representation
     return per
 
 
@@ -1195,10 +1237,17 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
         if pos > T - 2:
             return False, "epoch does not fit the trace"
         periodic = _o1_periodic(decl, T)
-        return stark.verify(proof, transitions(ext=_ext), _boundaries(T, ext=_ext),
+        # A1 on the O(1) shape: the committed columns are bound through their roots (absorbed as public
+        # parameters above), so the digest carries a marker for them and the verifier's placeholders never
+        # enter it; the public columns are digested exactly as the prover's build_periodic made them.
+        _bnds = _boundaries(T, ext=_ext)
+        _stmt = (statement_digest(T, periodic, _bnds, committed=COMMIT_PERIODIC)
+                 if stark.current_rules().bind_statement else None)
+        return stark.verify(proof, transitions(ext=_ext), _bnds,
                             periodic=periodic, max_degree=MAX_DEGREE,
                             num_queries=num_queries, aux_spec=_aux_spec(periodic, ext=_ext), backend=backend,
-                            commit_periodic=COMMIT_PERIODIC, periodic_roots=list(per_roots))
+                            commit_periodic=COMMIT_PERIODIC, periodic_roots=list(per_roots),
+                            statement=_stmt)
     except MemoryError:
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the

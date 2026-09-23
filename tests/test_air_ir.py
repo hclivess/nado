@@ -41,12 +41,12 @@ def t_ir_matches_closures():
     full, periodic, T, chal = _real_trace()
     dense = [_stark._per_expand(pc, T) for pc in periodic]   # structured range/selector columns → dense
     trans = V.transitions()
-    prog = air_ir.build_program(trans, V.W_TOTAL, V.NUM_PERIODIC, 2)
+    prog = air_ir.build_program(trans, V.W_TOTAL, V.num_periodic(), 2)
     random.seed(1)
     for _ in range(30):
         j = random.randrange(T)
         cur, nxt = full[j], full[(j + 1) % T]
-        per = [dense[c][j] for c in range(V.NUM_PERIODIC)]
+        per = [dense[c][j] for c in range(V.num_periodic())]
         ir = air_ir.eval_program_point(prog, cur, nxt, per, list(chal))
         direct = [con(cur, nxt, per, chal) % F.P for con in trans]
         assert ir == direct, f"row {j}: IR != closures"
@@ -94,7 +94,7 @@ def t_python_ir_composition():
     c = _capture_composition()
     invZ, bnd = _ivz_bnd(c)
     ext = bool(c.get("ext_alphas"))
-    prog = air_ir.build_program(c["transitions"], c["W"], V.NUM_PERIODIC, 2, ext_chal=ext)
+    prog = air_ir.build_program(c["transitions"], c["W"], V.num_periodic(), 2, ext_chal=ext)
     chals = list(c["challenges"])
     if ext:                                  # the IR takes challenges as FLAT limbs, one CHAL leaf each
         chals = [limb for ch in c["challenges"] for limb in (ch if isinstance(ch, tuple) else (ch, 0))]
@@ -112,7 +112,7 @@ def t_native_composition():
         print("      (GF(p^2) alphas in use — the native arena is base-field by design; check N/A)")
         return
     invZ, bnd = _ivz_bnd(c)
-    prog = air_ir.build_program(c["transitions"], c["W"], V.NUM_PERIODIC, 2)
+    prog = air_ir.build_program(c["transitions"], c["W"], V.num_periodic(), 2)
     got = air_ir.compose_native(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], list(c["challenges"]),
                                 c["alphas"], invZ, c["boundaries"], bnd)
     if got is None:

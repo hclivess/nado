@@ -45,9 +45,11 @@ OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace 
 import contextvars as _cv
 from collections import namedtuple as _nt
 from contextlib import contextmanager as _cm
-Rules = _nt("Rules", "pin_fri_domain bind_statement")
-RULES_STRICT = Rules(True, True)          # at/after PROOF_BIND_HEIGHT, and the default when nothing set them
-RULES_LEGACY = Rules(False, False)        # below the gate: what every node accepted before 2026-09-23
+#   in_block_selector  the exec AIR carries the P_IN column and the "outside a block => NOP" constraint (A2,
+#                   PROOF_BLOCK_SELECTOR_HEIGHT). A format change on both sides, like bind_statement.
+Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector")
+RULES_STRICT = Rules(True, True, True)    # every pin on: the default when nothing set them
+RULES_LEGACY = Rules(False, False, False) # below every gate: what every node accepted before 2026-09-23
 _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 
 
@@ -57,8 +59,11 @@ def rules_for_height(height):
     which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
     if height is None:
         return RULES_STRICT
-    from protocol import PROOF_BIND_HEIGHT
-    return RULES_STRICT if int(height) >= int(PROOF_BIND_HEIGHT) else RULES_LEGACY
+    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT
+    h = int(height)
+    bind = h >= int(PROOF_BIND_HEIGHT)
+    return Rules(pin_fri_domain=bind, bind_statement=bind,
+                 in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)))
 
 
 def current_rules():

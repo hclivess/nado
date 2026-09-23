@@ -112,3 +112,24 @@ validation rule: old nodes accept what new nodes refuse, so it forks exactly lik
 - **The gate height must still be AHEAD at push time.** Tip 205,711 at 6.8 s/block when 208,000 was
   chosen (~4 h). If the push slips past it, move the gate before pushing — a gate in the past makes every
   node switch at its own update moment.
+
+## 8. Exec-layer rules are consensus rules too
+
+Every exec node computes the exec root and L1 settles it by quorum or proof, so a change to what a call
+DOES (what is refused, what is refunded, what a transfer records) forks the exec root exactly like an L1
+rule forks the chain. Learned shipping `EXEC_RULES_V2_HEIGHT` (C1/F2/Z2/S2 of the 2026-09-23 review).
+
+- **Gate on the block being applied.** `execnode._apply_block` advances `cursor` to h only AFTER applying
+  block h's blobs, so inside `apply_blob` the block is `cursor + 1` (`ExecState.rules_v2()`); the
+  settlement prover stamps each call with `cursor = h` (`calls_commit.block_calls`), so `_run_call` gates
+  on the call's own cursor and the two agree by construction.
+- **Mirror every refusal in the prover.** A call the chain skips must be UNPROVABLE
+  (`settlement_proofs._run_call` raises, the existing shape); a prover more permissive than the chain
+  proves a transition the chain never applied and settles a root every honest node disagrees with.
+- **Name the constant `*_HEIGHT`** so `tests/test_gate_reroll_transfer.py` sees it; register it in the
+  GATE LEDGER and `doc/reroll.md`.
+- **Show the legacy behaviour in the gate test, one block below the gate**, before showing the refusal at
+  it: `tests/test_exec_rules_v2.py` books the worthless token as native value and records the unbacked
+  exit under the old rules. A gate test that only shows the new rule has not demonstrated the hole.
+- **L1 admission rules that mirror an exec rule** (typing `method` in the blob) use the SAME constant on
+  `block_height`; the exec cursor is the L1 height, so one number gates both layers.

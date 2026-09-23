@@ -39,6 +39,15 @@ with ThreadPoolExecutor(16) as ex:
 PY
 ```
 
+## Keep the tree CLEAN until the local process has restarted
+
+The node restarts itself ~90 s after the checkout gets ahead of the running process
+(`ops/self_update.apply_stale_checkout`) — but refuses while any tracked file has uncommitted changes.
+Pushing from this checkout and then starting the next edit within two minutes leaves this node on the
+old commit indefinitely, logging `RESTART to apply (observing)` every 10 s while every peer moves on
+(2026-09-23, second push: one hour on the old commit, unnoticed until `/status_pool` was read beside
+`/status`). Wait for `running_commit` to change before editing, or edit in a scratch worktree.
+
 ## Check the PROCESS, never the tree
 
 `git log` tells you what the checkout contains. `/status` `running_commit` tells you what is **executing**.
@@ -71,3 +80,12 @@ systemctl restart nado.service
 
 Say how many nodes are on the new commit and what the tip was. If some are unreachable, say that too —
 they are still running old code and will judge blocks by old rules.
+
+## Contract code is not live when it is pushed
+
+A change under `execnode/games/*.py` reaches the chain only through an in-place upgrade signed by the
+deployer key: `HOME=/root python3 -m execnode.games.deploy <game> --upgrade <cid>` (same cid; never a new
+one — [exec-contract-upgrade-in-place]). The push restarts the fleet but changes no contract. Report a
+contract fix as "code committed, upgrade pending" until `/exec/contracts` on port 9273 shows the new
+first instruction for that cid, and hand the operator the exact per-contract commands (the review doc
+§7 has the fourteen for the 2026-09-23 id bounds).
