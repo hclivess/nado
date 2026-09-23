@@ -10,6 +10,7 @@ MV_BASE(20)+mc keyed by gameId → the frontend reads mv[g*10000 + mc] (view str
 Methods: open(g)[stake] · join(g)[stake] · move(g,enc,ply) · agree(g,result) · resign(g) · abort(g) · cancel(g).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.games import tictactoe as _t
 
 NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST, A1, A2 = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
@@ -214,4 +215,7 @@ ABI = {
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "abort", "cancel")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

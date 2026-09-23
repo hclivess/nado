@@ -12,13 +12,52 @@ Table field convention (shared by all banked games; keep these fixed):
     1 ta(banker)  2 tk(bankroll)  3 tp(pot = banker-withdrawable)  4 tc(committed/at-risk)  6 tz(closed)
 Index convention: slot 0 = table count, <tlist> field = table-id list. (Game index is game-specific.)
 
-Each helper returns asm TEXT (assembled by zkvmasm). Register/scratch usage matches the hand-written originals
-so the produced code is identical to what the audited contracts shipped — this is a de-duplication, not a
-behaviour change. `id` (the table/game id) is always the method's first arg in r0.
+Each helper returns asm TEXT (assembled by zkvmasm). Register/scratch usage matches the hand-written originals.
+`id` (the table/game id) is always the method's first arg in r0.
+
+ID BOUNDS (security review 2026-09-23, C2). A slot is `field * 2^32 + key` with no mask, so an id >= 2^32
+addresses ANOTHER field's storage: `fund(9*2^32 + 88)` moved a player's own settle height, a stranger's
+`bet(7*2^32 + 88, ...)` locked a table forever, `open(5*2^32 + 42)` locked a live tic-tac-toe game — reproduced
+on an isolated ExecState. Only `open_table` bounded its id. `id_guard`/`guard_ids` below put the same bound
+at the top of EVERY id-taking method (fund_table/close_table carry it inline), so `fund`/`close` are no longer
+byte-identical to the originals: they are the originals plus the guard.
 """
 
 # The banked-table field ids — the fixed convention every banked game shares.
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
+
+
+def id_guard(reg="r0", limit=1 << 32):
+    """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
+    instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:
+        movi r4 <limit> ; mov r5 <reg> ; lt r5 r4 ; require r5
+    (`lt` expands to RANGE r5 ; RANGE r4 ; LT — an operand >= 2^62 reverts in RANGE, so the bound holds over
+    the whole field.) r4/r5 are SCRATCH: every guarded method writes them before reading them, and no guarded
+    method takes more than three arguments (r0..r2), so nothing an honest caller passes lives there. The guard
+    WRITES both before reading either — a caller may preload up to eight registers through extra args (the
+    ABI arg count is UX metadata, never enforced), so a guard must not assume a register is zero."""
+    return f"""
+        movi r4 {int(limit)}
+        mov r5 {reg}
+        lt r5 r4
+        require r5"""
+
+
+def guard_ids(src, plan):
+    """Prefix the id guard onto each method named in `plan` ({method: [reg, ...]} or {method: [(reg, limit)]}).
+    `src` is a game's {method: asm text}; methods absent from `plan` are returned untouched. Applied in each
+    game's build(), after any generated methods are spliced in, so inherited strings (connect4/chess/stormhold
+    reuse tictactoe's open/join/...) are guarded once, in the module that ships them."""
+    out = dict(src)
+    for m, regs in plan.items():
+        if m not in out:
+            raise KeyError(f"guard_ids: method {m!r} is not in this contract")
+        pre = ""
+        for r in regs:
+            reg, limit = (r if isinstance(r, tuple) else (r, 1 << 32))
+            pre += id_guard(reg, limit)
+        out[m] = pre + "\n" + out[m]
+    return out
 
 
 def open_table(tlist):
@@ -61,7 +100,7 @@ def open_table(tlist):
 
 def fund_table():
     """fund(tableId)[value]: banker-only, table open — add value to bankroll (tk) and pot (tp)."""
-    return """
+    return id_guard("r0") + """
         ctx r1 value
         ctx r2 caller
         slot r4 1 r0
@@ -93,7 +132,7 @@ def close_table():
     mark the table closed (tz). The tc==0 guard is a solvency invariant: without it a banker could close over
     unsettled bets, pay themselves the pot (which still holds those bets' committed cover) and strand the
     players — see the escrow-accounting fix (every banked game shares this close)."""
-    return """
+    return id_guard("r0") + """
         ctx r1 caller
         slot r4 1 r0
         sload r5 r4

@@ -23,6 +23,7 @@ both keyed by gameId (frontend reads mv[g*10000+i] / mh[g*10000+i], view stride 
 Methods: open(g)[stake] · join(g)[stake] · move(g,enc,ply) · agree(g,result) · resign(g) · abort(g) · cancel(g).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.games import tictactoe as _t
 from execnode.games import chess as _c
 
@@ -229,4 +230,7 @@ ABI = {
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

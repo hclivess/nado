@@ -24,6 +24,7 @@ Methods: open(g,cfg)[stake] · join(g)[stake] · move(g,enc,ply) · agree(g,resu
 cancel(g).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.games import tictactoe as _t
 from execnode.games import chess as _c
 from execnode.games import stormhold as _s
@@ -108,4 +109,7 @@ ABI = {
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): pool splices tictactoe's `open`, which bounds nothing but g > 0 — the
+    # same aliasing hole as the seven board games the review named (this is the eighth). See _lib.id_guard.
+    ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "abort", "cancel")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

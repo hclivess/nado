@@ -1097,6 +1097,10 @@ def build():
         m.ret(m.const(1))
 
     with c.method("begin") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # begin(runId): claim a fresh id, set out, AND ARM. The first terrain height is pinned START_GAP
         # blocks in the FUTURE (so the road you will walk cannot be steered by when you call this), and the
         # dice stay UNSCHEDULED — nothing can resolve until you answer the tiles and commit.
@@ -1138,6 +1142,10 @@ def build():
         m.ret(m.arg(0))
 
     with c.method("plan") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # plan(runId, agg, stance, focus, healPct): re-tune the DIALS, nothing else. Optional — begin()
         # ships playable defaults — and there is deliberately no window check: the dials govern legs whose
         # dice do not exist yet, and the POLH fence (tested in advance()) keeps them off any leg whose roll
@@ -1186,6 +1194,10 @@ def build():
         m.ret(m.arg(1))
 
     with c.method("commit") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # commit(runId, word): your answer to the SPECIFIC sixteen tiles now in front of you — 3 bits each,
         # step 0 in the low bits. Zero is itself an action (A_DEFAULT: walk in and fight plainly), so an
         # unanswered tile is never a trap, just an unspent choice.
@@ -1217,6 +1229,10 @@ def build():
         m.ret(_r(m, RNH).get())
 
     with c.method("retire") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # retire(runId): walk away on your feet. Keeps everything, and earns the road bonus pro-rata on the
         # depth reached — the cash-out side of the push-or-bank decision.
         _own_or_die(m)
@@ -1225,6 +1241,10 @@ def build():
         m.ret(_r(m, RDP).get())
 
     with c.method("advance") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # advance(runId): resolve every leg whose rolling hash now exists, up to MAX_LEGS_PER_CALL.
         # PERMISSIONLESS — the outcome is a pure function of two already-final hashes, so who calls it and
         # when cannot change a single step.
@@ -1246,6 +1266,10 @@ def build():
         m.ret(_r(m, RDP).get())
 
     with c.method("march") as m:
+        # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
+        # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
+        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        m.require(m.arg(0) < (1 << 32))
         # march(runId, word, leg): settle-then-answer in ONE transaction — the latency op. The old cadence
         # was two round trips per leg: advance() lands, the client SEES the park, only then can commit()
         # go out ("Queued — sends itself", every leg, forever). This fuses them: resolve whatever legs the

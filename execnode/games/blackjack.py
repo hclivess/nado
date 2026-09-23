@@ -489,4 +489,7 @@ ABI["_view"]["board2"] = {"name": "dk", "base": DK_BASE, "cells": 16, "stride": 
 def build():
     src = dict(SRC)
     src["draw"] = "\n".join(_draw())
-    return zkvmasm.assemble_contract(src)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {"deal": ["r0", "r1"], "reveal": ["r0"], "hit": ["r0"], "draw": ["r0"], "stand": ["r0"], "settle": ["r0"], "reap": ["r0"]}
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
