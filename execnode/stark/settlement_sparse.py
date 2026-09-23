@@ -24,14 +24,19 @@ DEFAULT_DEPTH = 256                      # sparse-tree depth = full 128-bit-secu
                                          # (no future reroll for depth). Tests pass their own small depth.
 
 
-def sparse_projection(contracts, depth=DEFAULT_DEPTH):
+def sparse_projection(contracts, depth=DEFAULT_DEPTH, v2=False):
     """{slot_key(cid, slot): value} over every zkVM-runtime contract's storage — the sparse analogue of
-    settlement_proofs.zkvm_leaves. Deterministic (sorted), integers only."""
+    settlement_proofs.zkvm_leaves. Deterministic (sorted), integers only.
+
+    `v2` (EXEC_ROOT_V2_HEIGHT; callers pass ESB.root_v2(height)): the META leaf per contract as well —
+    exec_root.kv_projection's v2 rule, mirrored here so the pre-state pin still equals the settled KV half."""
     out = {}
     for cid in sorted(contracts):
         c = contracts[cid]
         if c.get("runtime") != "zkvm":
             continue
+        if v2:
+            out[ESB.meta_key(cid, depth)] = ESB.meta_commitment(*ESB.contract_meta(c))
         # CODE COMMITMENT — the SAME leaf exec_root.kv_projection commits, so this sparse root equals the KV
         # half of the settled root (which is what makes the settle proof's pre-state pin authenticate the
         # prover-supplied code against the tip). Must stay byte-identical to exec_root; both call ESB.
@@ -42,10 +47,10 @@ def sparse_projection(contracts, depth=DEFAULT_DEPTH):
     return out
 
 
-def sparse_root(contracts, depth=DEFAULT_DEPTH):
+def sparse_root(contracts, depth=DEFAULT_DEPTH, v2=False):
     """The settled SPARSE storage root (alghash2 CAPACITY-tuple, ~128-bit) — the binding-friendly, forgery-
     resistant replacement for zkvm_root."""
-    return ST.SparseStore(depth, sparse_projection(contracts, depth)).root()
+    return ST.SparseStore(depth, sparse_projection(contracts, depth, v2=v2)).root()
 
 
 def root_hex(root):
@@ -58,16 +63,20 @@ def root_from_hex(h):
     return ST.digest_from_hex(h)
 
 
-def sparse_root_hex(contracts, depth=DEFAULT_DEPTH):
+def sparse_root_hex(contracts, depth=DEFAULT_DEPTH, v2=False):
     """The settled sparse root as 64-hex — what a settle tx / state_root carries on-chain."""
-    return root_hex(sparse_root(contracts, depth))
+    return root_hex(sparse_root(contracts, depth, v2=v2))
 
 
 def _cid_io(bundle):
     """The epoch's io tagged with the CID it belongs to: split the global io by IO_RET (one segment per call)
     and pair each with its call's cid — [(cid, kind, slot, value), ...] in execution order."""
     out, seg_idx = [], 0
-    calls = bundle["calls"]
+    # one io segment per VM UNIT — the calls, plus each admitted in-span deploy's constructor (EXEC_ROOT_V2);
+    # a code event without one has no segment. Derived from the pinned pre-state and the bound entries, never
+    # from a prover-supplied list.
+    calls = [{"cid": cid} for cid, _pc in ESB.vm_units(bundle["pre_contracts"], bundle["calls"],
+                                                       int(bundle["cursor"]), int(bundle.get("timestamp", 0)))]
     for e in bundle["io"]:
         kind, a, b = int(e[0]), int(e[1]), int(e[2])
         if seg_idx < len(calls):
@@ -101,13 +110,18 @@ def prove_bound_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, b
     _stage["prove_epoch"] = _t.time() - _t0
     _t1 = _t.time()
     cid_io = _cid_io(bundle)
-    pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth))
+    v2 = ESB.root_v2(int(cursor))
+    pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth, v2=v2))
     sparse_pre = pre_store.root()
     pre_get = lambda cid, slot: ((pre_contracts.get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
+    # EXEC_ROOT_V2: the code- and meta-leaf updates of the span's code events LEAD the transition, in the
+    # order the verifier derives them (event_updates), then the storage writes. Same function on both sides.
+    lead = ESB.event_updates(pre_contracts, calls, depth) if v2 else []
     net = ESB.net_updates(pre_get, cid_io, depth)
     _stage["sparse_projection"] = _t.time() - _t1
     _t2 = _t.time()
-    tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in net], num_queries=num_queries)
+    tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in lead] + [(k, n) for (k, _o, n) in net],
+                             num_queries=num_queries)
     _stage["prove_transition"] = _t.time() - _t2
     try:
         print("[settle-prove] cursor=%s calls=%d net_updates=%d | %s | total %.1fs" % (
@@ -198,7 +212,10 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
             if not okc:
                 return False, f"pre_contracts keys are not canonical: {whyc}", None
         want_pre = tuple(int(x) % F.P for x in bundle["sparse_pre_root"])
-        if tuple(int(x) % F.P for x in sparse_root(bundle["pre_contracts"], depth)) != want_pre:
+        # EXEC_ROOT_V2: the pin covers the META leaves too (deployer, lock flag, runtime), so the deployer the
+        # event replay below judges an in-span upgrade by is the settled one, not the prover's.
+        v2 = ESB.root_v2(int(bundle["cursor"]))
+        if tuple(int(x) % F.P for x in sparse_root(bundle["pre_contracts"], depth, v2=v2)) != want_pre:
             return False, "pre_contracts do not match sparse_pre_root (unbound storage reads)", None
         pre_get = lambda cid, slot: ((bundle["pre_contracts"].get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
         # BIND cid_io TO THE EXEC PROOF (critical soundness): net_updates/bind_and_verify below drive the settled
@@ -209,8 +226,14 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         # ARBITRARY forged root (overwrite any contract's storage, drain escrow). _cid_io is a pure function of
         # the authenticated (io, calls), so this is transparent for honest bundles and closes the forgery.
         cid_io = _cid_io(bundle)
+        # EXEC_ROOT_V2 (S1): the transition must ALSO carry the code- and meta-leaf updates the span's bound
+        # code events cause — derived HERE from the pinned pre-state and the authenticated entries
+        # (event_updates == apply_event, the chain's own rules), never read from the prover. Without this an
+        # honest proof of a span with a deploy landed on a root the chain does not hold, and a dishonest one
+        # could prove calls against code the chain had replaced.
+        lead = ESB.event_updates(bundle["pre_contracts"], bundle["calls"], depth) if v2 else ()
         okb, whyb = ESB.bind_and_verify(bundle["transition"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
-                                        pre_get, cid_io, depth, num_queries=nq)
+                                        pre_get, cid_io, depth, num_queries=nq, lead_updates=lead)
         if not okb:
             return False, f"state transition binding failed: {whyb}", None
         return True, "ok (sparse-root bound, no replay)", bundle["sparse_post_root"]

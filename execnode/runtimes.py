@@ -45,6 +45,14 @@ def names():
     return sorted(_REGISTRY)
 
 
+def runtime_name_ok(name):
+    """EXEC_ROOT_V2_HEIGHT: a deploy/upgrade names its runtime EXACTLY — a registered name, as a string.
+    `get()` maps a falsy name to the default and a non-string to None, which let "" deploy as the default
+    runtime while the record stored "" (a contract the settlement prover then refused as non-zkvm). The
+    chain (state.py) and the verifier's event replay (exec_state_bind.apply_event) both judge by this."""
+    return isinstance(name, str) and name in _REGISTRY
+
+
 def zkvm_addr_digest(addr):
     """Deterministic field digest of an L1 address string — how addresses enter the field-native zkVM.
     Computed at the CALL BOUNDARY (never in-circuit): the digest is part of the public statement, so any

@@ -36,6 +36,32 @@ def call_leaf(call, cursor=0, timestamp=0):
     return int(blake2b_hash(payload), 16) % F.P
 
 
+EVENT_OPS = ("deploy", "upgrade", "lock", "transfer_contract")   # == exec_state_bind.EVENT_OPS (no import: L1 path)
+
+
+def event_leaf(ev):
+    """A field element committing to ONE code event's public fields (EXEC_ROOT_V2_HEIGHT, S1): the op, the
+    sender, the target cid (or the deploy's fixed name and nonce), the CODE COMMITMENT of the decoded code the
+    exec layer will apply (not the codez bytes — two encodings of one code are one code), the runtime, the
+    lock flag or the transferee, and the block. Chained with call_leaf in tx order, so a settle proof's
+    calls_commitment binds the code changes of its span as tightly as its calls. Domain-separated from
+    call_leaf by the leading tag. Never raises: block_summary derives a whole block at once (see _arg_field)."""
+    from execnode.stark import exec_state_bind as ESB
+    code = ev.get("code")
+    cc = ESB.code_commitment(code) if isinstance(code, dict) else 0
+    rt = ev.get("runtime")
+    payload = ["event", str(ev.get("op", "")), str(ev.get("caller", "")), str(ev.get("cid") or ""),
+               str(ev.get("at") or ""), str(ev.get("nonce") or ""), int(cc),
+               "" if rt is None else str(rt), 1 if ev.get("upgradable", True) else 0, str(ev.get("to") or ""),
+               int(ev.get("cursor", 0)), int(ev.get("timestamp", 0))]
+    return int(blake2b_hash(payload), 16) % F.P
+
+
+def entry_leaf(entry, cursor=0, timestamp=0):
+    """call_leaf or event_leaf, by the entry's op — the one dispatch every chain of leaves goes through."""
+    return event_leaf(entry) if entry.get("op") in EVENT_OPS else call_leaf(entry, cursor, timestamp)
+
+
 def _asset_field(a):
     """A call's `asset` context as the canonical int the exec statement commits (int(call.asset); 0 == native
     NADO). Asset ids are decimal-string alghash2 digests, so int() is exact; an unparseable value maps to 0 —
@@ -85,8 +111,9 @@ def block_calls(block, ns="default"):
     method = data.method, args = data.args, value = data.value; caller = the blob tx's L1 sender; and the
     execution context cursor = block number, timestamp = block timestamp. ALL op=='call' blobs are included —
     even ones that will skip/revert in the VM — so the commitment binds the RAW on-chain calldata; the proof's
-    state transition treats a skip/revert as a no-op (matching live apply). Deploys/other ops are excluded
-    (they don't move the kv half a bound-epoch proof settles)."""
+    state transition treats a skip/revert as a no-op (matching live apply). Deploys/other ops were excluded
+    before EXEC_ROOT_V2_HEIGHT ("they don't move the kv half" — they did: the code and meta leaves); from the
+    gate the four code events ride the list too (see below)."""
     h = int(block.get("block_number", 0))
     # DETERMINISM (consensus): block_timestamp is DELIBERATELY excluded from the block-hash preimage
     # (ops/block_ops.construct_block hashes it as None) so honest clock skew cannot fork the chain — a block
@@ -101,19 +128,68 @@ def block_calls(block, ns="default"):
     # protocol.chain_clock(height) instead (execnode sets state.block_ts from it), so neither the DA binding
     # nor contract execution can see a wall clock.
     ts = 0
+    # EXEC_ROOT_V2_HEIGHT (rides a reroll), two changes to what this list carries:
+    #   * the timestamp is protocol.chain_clock(h) — the SAME pure function of the height the chain hands the
+    #     VM as block_ts, so a call reading TIME proves the transition the chain applied. 0 here meant the
+    #     prover ran every TIME-reading call under a clock the chain never showed it, on every span. Still
+    #     committed data: it depends on nothing but h;
+    #   * the block's CODE EVENTS (deploy / upgrade / lock / transfer_contract) ride the list in tx order
+    #     between the calls, so a settle proof binds — and its transition carries — every code change of its
+    #     span (S1). Their public fields are exactly what exec_state_bind.apply_event judges.
+    # Below the gate the list is calls only with ts=0, exactly as before: the leaves persist in the exec
+    # summaries, which feed the L1 state root.
+    from execnode.stark.exec_state_bind import root_v2
+    v2 = root_v2(h)
+    if v2:
+        from protocol import chain_clock
+        ts = int(chain_clock(h))
     calls = []
     for tx in block.get("block_transactions", []):
         if tx.get("recipient") != "blob":
             continue
         d = tx.get("data")
-        if not isinstance(d, dict) or d.get("op") != "call":
+        if not isinstance(d, dict):
             continue
         if d.get("ns", "default") != ns:
             continue
-        calls.append({"cid": d.get("contract"), "method": d.get("method"), "caller": tx.get("sender"),
-                      "args": d.get("args", []), "value": _safe_int(d.get("value")),
-                      "asset": _asset_field(d.get("asset")), "cursor": h, "timestamp": ts})
+        op = d.get("op")
+        if op == "call":
+            calls.append({"cid": d.get("contract"), "method": d.get("method"), "caller": tx.get("sender"),
+                          "args": d.get("args", []), "value": _safe_int(d.get("value")),
+                          "asset": _asset_field(d.get("asset")), "cursor": h, "timestamp": ts})
+        elif v2 and op in EVENT_OPS:
+            calls.append(_event_entry(d, tx, op, h, ts))
     return calls
+
+
+def _event_entry(d, tx, op, h, ts):
+    """One code event as block_calls carries it: the public fields the chain's admission reads, coerced to
+    the shapes exec_state_bind.apply_event judges (a non-string cid or transferee becomes "", which it
+    refuses exactly as the chain refuses the original). The code is DECODED here — the same bytes the exec
+    layer applies — and None when undecodable, which apply_event refuses as the chain does."""
+    ev = {"op": op, "caller": tx.get("sender"), "cursor": h, "timestamp": ts}
+    if op in ("deploy", "upgrade"):
+        from execnode.code_codec import decode_code
+        try:
+            code = decode_code(d)
+        except Exception:
+            code = None
+        ev["code"] = code if isinstance(code, dict) else None
+    if op == "deploy":
+        at = d.get("at")
+        ev["at"] = at if isinstance(at, str) else None
+        ev["nonce"] = d.get("nonce", tx.get("txid"))
+        ev["runtime"] = d.get("runtime", "zkvm")
+        ev["upgradable"] = d.get("upgradable", True) not in (False, 0, "false", "0", "no")   # F10's rule
+        return ev
+    cid = d.get("contract")
+    ev["cid"] = cid if isinstance(cid, str) else ""
+    if op == "upgrade":
+        ev["runtime"] = d.get("runtime")                    # None: keep the contract's (the v2 rule)
+    elif op == "transfer_contract":
+        to = d.get("to")
+        ev["to"] = to if isinstance(to, str) else ""
+    return ev
 
 
 # --- RECORDS-INERTNESS (settle-with-proof binding, doc/rollups-and-settlement.md §6) ----------------
@@ -188,15 +264,22 @@ def block_summary(block):
         if tx.get("recipient") != "blob":
             continue
         d = tx.get("data")
-        if not isinstance(d, dict) or d.get("op") != "call":
+        if not isinstance(d, dict) or d.get("op") not in _summary_ops(block):
             continue
         _ns = d.get("ns", "default")
         if not isinstance(_ns, str):
             continue                                   # unhashable ns -> not a real namespace; skip (admission rejects it too)
         calls_by_ns.setdefault(_ns, [])
     for ns in list(calls_by_ns):
-        calls_by_ns[ns] = [call_leaf(c) for c in block_calls(block, ns)]
+        calls_by_ns[ns] = [entry_leaf(c) for c in block_calls(block, ns)]
     return block_records_inert(block), calls_by_ns
+
+
+def _summary_ops(block):
+    """The blob ops a block's summary discovers namespaces from: calls, plus the code events from
+    EXEC_ROOT_V2_HEIGHT (block_calls carries them from the same height)."""
+    from execnode.stark.exec_state_bind import root_v2
+    return ("call",) + (EVENT_OPS if root_v2(int(block.get("block_number", 0))) else ())
 
 
 def fold_leaves(node, leaves):
@@ -214,7 +297,7 @@ def da_calls_commitment(blocks, ns="default"):
     node = alghash.IV
     for blk in blocks:
         for call in block_calls(blk, ns):
-            node = alghash.merkle_node(node, call_leaf(call))
+            node = alghash.merkle_node(node, entry_leaf(call))
     return node
 
 
@@ -343,7 +426,7 @@ def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary,
 
 
 def leaves(calls, cursor=0, timestamp=0):
-    return [call_leaf(c, cursor, timestamp) for c in calls]
+    return [entry_leaf(c, cursor, timestamp) for c in calls]
 
 
 def io_leaf(cid, kind, slot, value):

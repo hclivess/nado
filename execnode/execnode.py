@@ -4385,7 +4385,7 @@ def _seed_root_ring_sync(ns, cursor, root_hex):
         kv = live_kv.__class__.__new__(live_kv.__class__)
         kv.depth, kv.e = live_kv.depth, live_kv.e
         kv.values, kv._keys, kv._memo = dict(live_kv.values), list(live_kv._keys), dict(live_kv._memo)
-        ER.apply_projection(kv, ER.kv_projection(view.contracts))
+        ER.apply_projection(kv, ER.kv_projection(view.contracts, v2=ER.root_v2(cursor)))   # the stash's own height picks the layout
         rec_p = ER.records_projection(view)
         from execnode.stark import storage_tree as SST
         rec = SST.SparseStore(ER.DEPTH, rec_p)

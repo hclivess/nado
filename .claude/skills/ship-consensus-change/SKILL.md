@@ -145,3 +145,18 @@ real epoch prove+verify (native prover, aux columns, row commit) BEFORE the batc
 `Transcript(DOMAIN_STARK` replay (`recursive_verify._fs`, `recursion_depth`, the wallet's `stark.js`) and give
 each the same prologue or a loud refusal; (4) "insufficient proof-of-work" in a verify = the two transcripts
 diverged before the grind, look at absorbs, not at the nonce.
+
+## 10. A prover that mirrors the chain must be tested AGAINST the chain, not against itself
+
+The settlement prover's `_run_call` and the verifier's public statement agreed with each other on every
+span and passed every suite — while both ran every call with `timestamp=0` and the chain ran it with
+`chain_clock(h)`, so any contract reading TIME (every game with a deadline) was proven under a context the
+chain never showed it (found 2026-09-23 while closing S1; fixed behind `EXEC_ROOT_V2_HEIGHT`). Nothing
+caught it because every test compared prover to verifier. The only test that discriminates is: apply the
+same blocks through `_apply_block` on an `ExecState`, prove the same blocks through `block_calls`, and
+assert the proof's post root equals the CHAIN's root (`tests/test_exec_root_v2.py`). Rules: (1) every
+context input the VM reads (`cursor`, `timestamp`, `caller`, `value`, `asset`, `selfd`, `abal`) is a
+cross-side value — diff how apply and prove each obtain it; (2) a rule with a chain side and a prover side
+(`apply_blob` / `apply_event`, escrow, budget) lives in ONE function or has a test that drives both with the
+same blobs and compares records; (3) an "honest proof lands beside the chain" is as serious as a forgery —
+it means the settled tip diverges from every exec node and nothing can extend it.

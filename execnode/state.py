@@ -37,21 +37,11 @@ import zstandard as _zstd
 # verbose JSON-opcode format is ~16-26x compressible, so a big verifier fits a small blob (battleship 110K->4.3K).
 # Deterministic across nodes (zstd decode + json parse are canonical), and cid still hashes the DECODED code dict,
 # so compression is transparent to the contract id. Decompress is STREAMING + bounded (anti zstd-bomb).
-CONTRACT_CODE_MAX_BYTES = 4 * 1024 * 1024
-def _bounded_unzstd(body, cap):
-    dctx = _zstd.ZstdDecompressor(); parts, total = [], 0
-    with dctx.stream_reader(body) as r:
-        while True:
-            ch = r.read(65536)
-            if not ch: break
-            total += len(ch)
-            if total > cap: raise ValueError("contract code decompresses beyond cap")
-            parts.append(ch)
-    return b"".join(parts)
-def _decode_code(payload):
-    cz = payload.get("codez")
-    if cz is None: return payload.get("code")
-    return json.loads(_bounded_unzstd(base64.b64decode(cz), CONTRACT_CODE_MAX_BYTES))
+# The decoder, the cid derivation and the fixed-name allowlist moved to execnode/code_codec.py (2026-09-23,
+# S1): L1's block summary and the settlement verifier's event replay need them too, and must not import this
+# module to get them. These names stay as aliases for the callers that grew up with them.
+from execnode.code_codec import (CONTRACT_CODE_MAX_BYTES, FIXED_CIDS, bounded_unzstd as _bounded_unzstd,
+                                 decode_code as _decode_code, contract_id as _contract_id)
 
 # Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
 # join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
@@ -122,8 +112,7 @@ def _coerce_fri_value(v):
 # of a fixed-name contract, so the operator's key would silently stop matching and `faucet` and `sovereign`
 # could never be (re)deployed on the new chain — precisely the failure the betanet-7 note above describes,
 # repeating itself one format change later.
-FIXED_CIDS = {"faucet": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67",
-              "sovereign": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"}
+# FIXED_CIDS: see execnode/code_codec.py (imported above).
 
 # ---- ASSETS (doc/assets.md) ------------------------------------------------------------------------
 # A fungible asset other than native NADO. There is exactly ONE ledger for them, at the exec layer, so an
@@ -551,7 +540,7 @@ class ExecState:
         gen = getattr(self, "_mut_gen", 0)
         if self._kv_store is not None and getattr(self, "_stores_gen", None) == gen:
             return self._kv_store, self._rec_store
-        kv_p = ER.kv_projection(self.contracts)
+        kv_p = ER.kv_projection(self.contracts, v2=ER.root_v2(self.cursor))   # the layout follows the cursor's height (EXEC_ROOT_V2)
         rec_p = ER.records_projection(self)
         if self._kv_store is None:
             self._kv_store = SST.SparseStore(ER.DEPTH, kv_p)
@@ -1137,7 +1126,7 @@ class ExecState:
     def contract_id(self, deployer, code, nonce):
         """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,
         so a deployer can know its cid before the blob even lands (submit_blob echoes it)."""
-        return blake2b_hash(["deploy", deployer, code, nonce])[:32]
+        return _contract_id(deployer, code, nonce)
 
     # --- applying blobs --------------------------------------------------------------------------
     def applying_height(self):
@@ -1145,6 +1134,14 @@ class ExecState:
         under EXEC_CTX_CURRENT_HEIGHT the cursor is advanced BEFORE the loop), else cursor + 1."""
         h = getattr(self, "_applying", None)
         return int(h) if h is not None else int(self.cursor) + 1
+
+    def rules_root_v2(self):
+        """EXEC_ROOT_V2_HEIGHT in force for the block being applied (same convention as rules_v2). Every rule
+        under it is MIRRORED in exec_state_bind.apply_event, which the settlement verifier replays over the
+        bound code events; a rule changed here without that mirror makes an honest proof unverifiable, or a
+        dishonest one verifiable. Keep the two together."""
+        from protocol import EXEC_ROOT_V2_HEIGHT
+        return self.applying_height() >= int(EXEC_ROOT_V2_HEIGHT)
 
     def rules_r2(self):
         """REVIEW_R2_HEIGHT in force for the block being applied (same convention as rules_v2)."""
@@ -1178,6 +1175,8 @@ class ExecState:
                 rt_name = payload.get("runtime", runtimes.DEFAULT_RUNTIME)   # pluggable: which VM runs it
                 if self.rules_r2() and not isinstance(rt_name, str):
                     return "skip: runtime must be a string"                  # F7: never store a raw non-name
+                if self.rules_root_v2() and not runtimes.runtime_name_ok(rt_name):
+                    return f"skip: unknown runtime {rt_name!r}"              # EXEC_ROOT_V2: exact name only (mirrored in apply_event)
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
@@ -1572,6 +1571,15 @@ class ExecState:
                 if c.get("upgradable", True) is False:
                     return f"skip: contract {cid} is locked (immutable)"
                 rt_name = payload.get("runtime", c.get("runtime", runtimes.DEFAULT_RUNTIME))
+                if self.rules_root_v2():
+                    # EXEC_ROOT_V2 (mirrored in exec_state_bind.apply_event): an absent OR null runtime keeps
+                    # the contract's; anything else must be an exact registered name. Before the gate a null
+                    # stored None as the runtime and "" stored "" — records the prover could not replay.
+                    rt_name = payload.get("runtime")
+                    if rt_name is None:
+                        rt_name = c.get("runtime", runtimes.DEFAULT_RUNTIME)
+                    if not runtimes.runtime_name_ok(rt_name):
+                        return f"skip: unknown runtime {rt_name!r}"
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
@@ -1588,7 +1596,13 @@ class ExecState:
                 # verified against the ordered stream before this shipped), so DONATED starts at the balance
                 # at this exact block. Deterministic: every node applies this upgrade at the same height and
                 # reads the same balance. A treasury payout after this line is NOT counted, by design.
-                if cid == "faucet" and "defund" in (code or {}) and not (c.get("storage") or {}).get("slots", {}).get("7"):
+                # GEN-25 ONLY (off from EXEC_ROOT_V2_HEIGHT): it writes a storage slot from the RECORDS half,
+                # which no settlement proof can derive — the verifier replays an upgrade as a code/meta change
+                # and nothing else (exec_state_bind.apply_event), so a span carrying this write would prove a
+                # root the chain does not hold. The next generation deploys the faucet with DONATED accounting
+                # from block 1 and never needs the seed.
+                if (cid == "faucet" and "defund" in (code or {}) and not self.rules_root_v2()
+                        and not (c.get("storage") or {}).get("slots", {}).get("7")):
                     self.bump_contract_slot("faucet", 7, int(self.bridge.get("faucet", 0)))
                 return f"upgrade {cid} by {sender[:12]}… (code replaced, storage kept)"
 

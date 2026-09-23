@@ -67,6 +67,24 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     holder-side solvency; issuer-only / mintable-only / supply-cap live in stage_asset_effects_pure — the
     SAME function the live apply path calls — so authority can never drift between apply and proof."""
     from execnode.state import stage_asset_effects_pure, commit_asset_effects_pure, asset_credit_dict
+    from execnode.stark import exec_state_bind as _ESB
+    if call.get("op") in _ESB.EVENT_OPS:
+        # A CODE EVENT (EXEC_ROOT_V2_HEIGHT, S1): apply it to the shadow under the chain's rules — the ONE
+        # implementation the verifier replays too (apply_event) — so every later call in the span runs the
+        # code it left. Its public entry is the event itself (block_calls' dict, leaf-identical to L1's
+        # summary). An admitted deploy whose code has a constructor is PROVEN as a call: caller = the
+        # deployer, no args, no value, no asset, the event's block context — exactly how state.py runs it.
+        # A reverting constructor deploys with EMPTY storage on chain, which the AIR cannot express, so it
+        # raises here like any reverted call and the span rides the quorum. Not metered: the chain does not
+        # count a constructor against the block budget either (state.py passes no meter to it).
+        admitted, ev_cid, _before = _ESB.apply_event(contracts, call)
+        if not (admitted and call["op"] == "deploy" and "constructor" in contracts[ev_cid]["code"]):
+            return None, dict(call), 0
+        unit = {"cid": ev_cid, "method": "constructor", "caller": call.get("caller"), "args": [], "value": 0,
+                "asset": 0, "cursor": call.get("cursor", cursor), "timestamp": call.get("timestamp", timestamp)}
+        ec, _pc, rows = _run_call(contracts, bridge, abal, assets, registry, unit, i, cursor, timestamp, beacons,
+                                  block_hashes, want_rows, payout_sink=payout_sink, meter=None)
+        return ec, dict(call), rows
     cid, method = call["cid"], call["method"]
     c = contracts.get(cid)
     if not c or c.get("runtime") != "zkvm":
@@ -290,15 +308,35 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
             if _used[_h] > int(EXEC_BLOCK_STEP_BUDGET):
                 raise ValueError(f"call {i}: block {_h} execution budget exhausted — the chain REVERTED this "
                                  f"call, so the span is unprovable")
-        epoch_calls.append(ec); public_calls.append(pc)
+        if ec is not None:                                # a code event without a constructor runs no VM
+            epoch_calls.append(ec)
+        public_calls.append(pc)
     proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend,
                                                          row_commit=row_commit)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
             "post_root": zkvm_root(contracts), "calls": public_calls,
             "io": [list(e) for e in epoch_io], "proof": proof,
-            "pre_contracts": {cid: {"code": c["code"], "storage": c["storage"], "runtime": "zkvm"}
-                              for cid, c in pre_contracts.items() if c.get("runtime") == "zkvm"},
+            "pre_contracts": _export_pre_contracts(pre_contracts, cursor),
             "num_queries": num_queries}
+
+
+def _export_pre_contracts(pre_contracts, cursor):
+    """The pre-state a bundle carries: code, storage and runtime per zkVM contract — and from
+    EXEC_ROOT_V2_HEIGHT its deployer and lock flag too, because the pre-state pin (sparse_root over these
+    records == the settled KV half) then covers the META leaf, and the verifier's event replay judges an
+    in-span upgrade by the deployer it finds here, authenticated by that pin."""
+    from execnode.stark import exec_state_bind as _ESB
+    v2 = _ESB.root_v2(int(cursor))
+    out = {}
+    for cid, c in pre_contracts.items():
+        if c.get("runtime") != "zkvm":
+            continue
+        rec = {"code": c["code"], "storage": c["storage"], "runtime": "zkvm"}
+        if v2:
+            rec["deployer"] = c.get("deployer", "")
+            rec["upgradable"] = c.get("upgradable", True) is not False
+        out[cid] = rec
+    return out
 
 
 def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
@@ -580,24 +618,14 @@ def verify_settlement(bundle, num_queries=None, check_proofs=True):
 def _epoch_pub_statement(bundle):
     """(pub_calls, epoch_io) — an epoch bundle's public statement, reconstructed from the bundle's pre-state +
     public calls (the same reconstruction verify_epoch runs before checking the proof)."""
-    import copy
-    contracts = copy.deepcopy(bundle["pre_contracts"])
+    # The walk lives in exec_state_bind.vm_units (EXEC_ROOT_V2_HEIGHT): it advances the pre-state through the
+    # span's bound CODE EVENTS as it goes, so a call after an in-span upgrade is judged against the code the
+    # upgrade left and an admitted deploy's constructor is one more proven call. Below the gate a bundle carries
+    # calls only and the walk is the plain per-call statement it always was.
+    from execnode.stark import exec_state_bind as _ESB
     cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
     epoch_io = [tuple(int(x) for x in e) for e in bundle["io"]]
-    pub_calls = []
-    for call in bundle["calls"]:
-        c = contracts.get(call["cid"])
-        if not c or c.get("runtime") != "zkvm":
-            raise ValueError("unknown contract")
-        # `selfd` is DERIVED from the cid, never carried in the bundle: the verifier recomputes the callee's
-        # own digest from public data, so a prover cannot choose what ACTX_SELF reads.
-        # PER-CALL context (the block the call executed in), falling back to the epoch-wide cursor/ts — must
-        # match _run_call's prove-time context, else verify_epoch_calls rebuilds a different statement than was
-        # proven. A multi-block span carries a distinct cursor per call (block_calls stamps height).
-        pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
-                          "args": call.get("args", []), "value": int(call.get("value", 0)),
-                          "cursor": int(call.get("cursor", cursor)), "timestamp": int(call.get("timestamp", ts)),
-                          "asset": int(call.get("asset", 0)), "selfd": runtimes.zkvm_addr_digest(call["cid"])})
+    pub_calls = [pc for _cid, pc in _ESB.vm_units(bundle["pre_contracts"], bundle["calls"], cursor, ts)]
     return pub_calls, epoch_io
 
 
@@ -625,16 +653,23 @@ def verify_epoch(bundle, num_queries=None, check_proof=True):
             if not ok:
                 return False, f"epoch proof invalid: {why}", None
         # 2) split the global log back per call (by RET markers) and replay to recompute the post root
+        from execnode.stark import exec_state_bind as _ESB
         contracts = copy.deepcopy(pre)
+        # the span's code events first (they never touch storage, so their order against the io is immaterial
+        # here), so a contract deployed in the span exists to receive its constructor's writes
+        for entry in bundle["calls"]:
+            if entry.get("op") in _ESB.EVENT_OPS:
+                _ESB.apply_event(contracts, entry)
+        units = _ESB.vm_units(pre, bundle["calls"], int(bundle["cursor"]), int(bundle.get("timestamp", 0)))
         segs, cur = [], []
         for e in epoch_io:
             cur.append(e)
             if e[0] == zkvm.IO_RET:
                 segs.append(cur); cur = []
-        if len(segs) != len(bundle["calls"]):
+        if len(segs) != len(units):
             return False, "io log call count mismatch", None
-        for call, seg in zip(bundle["calls"], segs):
-            c = contracts[call["cid"]]
+        for (unit_cid, _pc), seg in zip(units, segs):
+            c = contracts[unit_cid]
             slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
             # with_assets=True so an asset-carrying log replays instead of failing closed. The storage
             # advance (new_slots) is identical either way — the asset `effects` (6th element) are ignored

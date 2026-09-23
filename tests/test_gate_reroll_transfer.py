@@ -27,7 +27,7 @@ REROLL = {
     "DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT": 1, "DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT": 1, "DEVICE_ATTEST_EK_HEIGHT": 1,
     "DEVICE_ATTEST_EK_SHORT_HEIGHT": 1, "DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT": 1,
     "DEVICE_ATTEST_EK_PROVEN_HEIGHT": 1, "DEVICE_ATTEST_EK_READY_HEIGHT": 1,
-    "TX_AT_MOST_ONCE_STRICT_HEIGHT": 1, "PROOF_BIND_HEIGHT": 1, "EXEC_RULES_V2_HEIGHT": 1, "PROOF_BLOCK_SELECTOR_HEIGHT": 1, "REVIEW_R2_HEIGHT": 1, "EXEC_CTX_CURRENT_HEIGHT": 1,
+    "TX_AT_MOST_ONCE_STRICT_HEIGHT": 1, "PROOF_BIND_HEIGHT": 1, "EXEC_RULES_V2_HEIGHT": 1, "PROOF_BLOCK_SELECTOR_HEIGHT": 1, "REVIEW_R2_HEIGHT": 1, "EXEC_CTX_CURRENT_HEIGHT": 1, "EXEC_ROOT_V2_HEIGHT": 1,
     "LEASE_V2_EPOCH": 0,
     "BOND_ATTEST_OPTIONAL_HEIGHT": 1, "POOL_RETIRE_HEIGHT": 1, "BOND_CURVE_RETIRE_HEIGHT": 1,
     "OPEN_LANE_EXCLUDE_RETIRE_HEIGHT": 1,
@@ -75,6 +75,14 @@ def main():
     check("OPEN_LANE_EXCLUDE_BONDED_EPOCH follows its height at a reroll",
           eval(hexpr, {"CHAIN_GENERATION": 26}) // P.EPOCH_LENGTH == 0
           and P.OPEN_LANE_EXCLUDE_BONDED_EPOCH == P.OPEN_LANE_EXCLUDE_BONDED_HEIGHT // P.EPOCH_LENGTH)
+
+    # 3a. EXEC_ROOT_V2 stamps the prover's call context with the block being applied, which only holds once
+    #     EXEC_CTX_CURRENT (F3) advances the cursor BEFORE the block's blobs run — so the root gate can never
+    #     precede the context gate, on either generation.
+    for gen in (25, 26):
+        rv = eval(re.search(r"^EXEC_ROOT_V2_HEIGHT = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": gen})
+        cv = eval(re.search(r"^EXEC_CTX_CURRENT_HEIGHT = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": gen})
+        check(f"EXEC_ROOT_V2_HEIGHT never precedes EXEC_CTX_CURRENT_HEIGHT (gen {gen})", rv >= cv, (rv, cv))
 
     # 3b. the chain clock cadence is generation-keyed too: gen 25 must stay EXACTLY h*6 (60 ds), the next
     #     generation starts at the measured cadence (C3 re-anchor, 2026-09-23)

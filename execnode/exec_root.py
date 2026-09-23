@@ -91,12 +91,23 @@ def kvx_key(cid, m, k, v):
 
 
 # ---- projections -------------------------------------------------------------------------------------
-def kv_projection(contracts):
+root_v2 = ESB.root_v2                       # EXEC_ROOT_V2_HEIGHT layout switch, one definition (exec_state_bind)
+
+
+def kv_projection(contracts, v2=False):
     """{position: value} over ALL contract storage: int-valued 'slots' at slot_key(cid, slot) (the in-circuit
-    positions the settlement machinery proves), anything else as a KVX digest record."""
+    positions the settlement machinery proves), anything else as a KVX digest record.
+
+    `v2` (EXEC_ROOT_V2_HEIGHT, a reroll-only layout change; callers pass root_v2(height)): also a META leaf
+    per contract committing its deployer, lock flag and runtime — the facts an in-span upgrade's admission
+    depends on (S1) and that bootstrap adopted unauthenticated (C5). settlement_sparse.sparse_projection must
+    stay byte-identical to this for the pre-state pin to hold. False on gen 25 everywhere, so live roots are
+    untouched (tests/test_exec_root_v2.py pins that)."""
     out = {}
     for cid in sorted(contracts):
         c = contracts[cid]
+        if v2:
+            out[ESB.meta_key(cid, DEPTH)] = ESB.meta_commitment(*ESB.contract_meta(c))
         # CODE COMMITMENT. Contract code is part of the cid (cid = H(deployer, code, nonce)) but was committed
         # NOWHERE in the root — the KV half bound storage only. A settle-with-proof supplies its own
         # pre_contracts code and the exec proof runs it, so a bonded settler could prove an arbitrary storage
@@ -202,7 +213,7 @@ def full_root_hex(kv_root, rec_root):
 def state_root_hex(contracts, st):
     """Cold computation of the settled root from scratch (genesis/tools/tests; the node itself goes through
     persistent stores + apply_projection)."""
-    kv = ST.SparseStore(DEPTH, kv_projection(contracts))
+    kv = ST.SparseStore(DEPTH, kv_projection(contracts, v2=root_v2(getattr(st, "cursor", 0))))
     rec = ST.SparseStore(DEPTH, records_projection(st))
     return full_root_hex(kv.root(), rec.root())
 

@@ -142,6 +142,14 @@ escrow except through C1/C2.
   A bonded settler (B_MIN 10 NADO, fee 0) deploys/upgrades in-span and settles a self-consistent root honest
   nodes do not hold; every honest proof afterwards fails tip extension. Corollary: an honest prover cannot
   settle any span containing a deploy/upgrade. Fix touches `meta` → reroll-class.
+  > **Coded 2026-09-23 behind `EXEC_ROOT_V2_HEIGHT` (live 2^62; block 1 at the reroll).** Code events ride
+  > `block_calls` as leaves (`calls_commit.event_leaf`), the verifier replays them over the pinned pre-state
+  > (`exec_state_bind.apply_event` / `event_updates`, the chain's admission rules in one function) and requires
+  > the code+meta leaf updates FIRST in the transition; a deploy's constructor is a proven VM unit
+  > (`vm_units`). Also closed under the same gate, found while doing it: the prover stamped every call with
+  > `timestamp=0` while the chain ran it with `chain_clock(h)`, so any TIME-reading call proved a transition
+  > the chain never applied. `tests/test_exec_root_v2.py` drives the same blocks through `_apply_block` and
+  > through the prover and asserts the roots are equal — and unequal below the gate.
 - **S2 — HIGH. Solvency is enforced only by the prover.** Escrow affordability and PAY over-pay live in
   `settlement_proofs._run_call` (`:120-126, 150-151`); the verifier folds records effects
   `(cur + delta) % P` with no non-negativity (`records_bind.py:427-440`). A prover that drops the check
@@ -392,6 +400,16 @@ and should be scheduled, not patched.
    > leaves), Z1 (masked trace), Z3 (wide commitment), `chain_clock` re-anchoring, P1 (DEEP/trace LDT), sovereign's
    > global ply counter, hamster's dust sweep, and the banked-game reclaim "free option" (a design decision:
    > settle is permissionless, so a banker-side settler bot closes it operationally).
+
+   > **Status 2026-09-23 (late): the reroll-class work begins.** `chain_clock` re-anchored per generation
+   > (`CHAIN_CLOCK_CADENCE_DS`: 60 on gen 25 = exactly h*6, 65 next; 62d98f32, `/status.chain_clock` shows the
+   > lag). **S1 + C5 + the prover TIME context coded behind `EXEC_ROOT_V2_HEIGHT`** (2^62 live, 1 at the
+   > reroll): META leaf (deployer, lock flag, runtime) in the KV half, code events in the DA binding, the
+   > verifier-derived code/meta transition, constructor-as-call, `chain_clock(h)` in the call leaf; the v2
+   > upgrade rule names its runtime exactly, and the gen-25 faucet slot-7 seed is off from the gate (it wrote
+   > storage from the records half, which no proof can derive). Gen-25 roots, leaves and summaries are
+   > byte-unchanged (`tests/test_exec_root_v2.py`, `test_exec_root`, `test_settlement_sparse`, the DA-binding
+   > and records suites). Remaining: Z3 wide commitment + Z1 masked trace, then P1.
 
 Repro scripts used (scratch, not committed): `repro_contracts.py` (C1, C2 banked), `repro_ttt.py` (C2
 board), `repro_shield.py` (Z2), `repro_zk.py` (Z1, `NADO_ALLOW_PYTHON_KERNELS=1`, 23 s prove).

@@ -1625,7 +1625,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT,
-#                                    EXEC_CTX_CURRENT_HEIGHT (live value 2^62 = off until the reroll)
+#                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -2075,6 +2075,30 @@ EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespa
 # the cursor, so it turns on only from block 1 of the next generation: the live value is a height this chain
 # will never reach.
 EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+
+# EXEC ROOT V2 + CODE-EVENT BINDING (RIDES A REROLL; security review 2026-09-23, S1 and C5, plus the call-context
+# gap found while closing them). Four things the settlement binding could not see, closed together because each
+# needs the others:
+#   * a contract's DEPLOYER, LOCK FLAG and RUNTIME were in no root — bootstrap adopted them from any peer on a
+#     root-only check (C5), and a prover could not mirror an in-span upgrade's deployer check against anything
+#     authenticated. From the gate the KV half carries a META leaf per contract (exec_state_bind.meta_key ->
+#     meta_commitment(deployer, upgradable, runtime)) beside its code leaf;
+#   * deploy / upgrade / lock / transfer_contract blobs were excluded from block_calls, so the calls_commitment
+#     that binds a settle proof to the on-chain calldata never saw a code change (S1). From the gate they are
+#     CODE EVENTS in the same ordered list (calls_commit.event_leaf), in tx order between the calls;
+#   * the KV transition a bound epoch proves was derived from storage io alone, so an honest proof of any span
+#     with a deploy or upgrade landed on a root the chain does not hold, and a bonded settler could prove calls
+#     against code the chain had replaced. From the gate the VERIFIER replays the bound events over the pinned
+#     pre-state (exec_state_bind.event_updates — never the prover's word) and requires the code- and meta-leaf
+#     updates they cause in the transition, a deploy's constructor is proven as a call, and a later call in the
+#     span runs the code the events left;
+#   * block_calls stamped every call with timestamp 0 while the chain ran it with chain_clock(h): a contract
+#     reading TIME proved a transition the chain never applied, on every span, silently. From the gate the leaf
+#     and the proof carry chain_clock(h) — a pure function of the height, so still committed data.
+# The root layout, the exec summaries (`meta` sub-DB, in the L1 state root) and the DA leaves all change, which is
+# why this cannot turn on mid-generation: block 1 of the next one. Requires EXEC_CTX_CURRENT_HEIGHT to be in force
+# (the prover stamps the block being applied; tests/test_gate_reroll_transfer.py pins the order).
+EXEC_ROOT_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

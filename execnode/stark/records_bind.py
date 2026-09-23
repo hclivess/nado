@@ -320,7 +320,17 @@ def pay_effects_from_segment(seg, reg=None):
     """
     from execnode import runtimes as _rt
     from execnode import zkvm as _z
+    from execnode.stark import exec_state_bind as _ESB
     calls = seg.get("calls") or []
+    if _ESB.root_v2(int(seg.get("cursor", 0))):
+        # EXEC_ROOT_V2: the entries carry code events, which run no VM — except an admitted deploy's
+        # constructor, which runs one. The io splits per VM UNIT, derived from the pinned pre-state and the
+        # bound entries exactly as the KV verifier derives it (vm_units), never from a prover-supplied list.
+        try:
+            calls = [dict(pc, cid=cid) for cid, pc in _ESB.vm_units(seg.get("pre_contracts") or {}, calls,
+                                                                    int(seg.get("cursor", 0)), int(seg.get("timestamp", 0)))]
+        except Exception as e:
+            raise Unbindable(f"span entries do not walk: {e}")
     io = []
     for e in (seg.get("io") or ()):
         if not (isinstance(e, (list, tuple)) and len(e) == 3):

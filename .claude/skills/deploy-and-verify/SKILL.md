@@ -89,3 +89,8 @@ one — [exec-contract-upgrade-in-place]). The push restarts the fleet but chang
 contract fix as "code committed, upgrade pending" until `/exec/contracts` on port 9273 shows the new
 first instruction for that cid, and hand the operator the exact per-contract commands (the review doc
 §7 has the fourteen for the 2026-09-23 id bounds).
+
+Verify an upgrade by equality, not by a marker: fetch `/exec/contract?cid=<cid>` (port 9273) and compare its
+`code` with `execnode.games.<name>.build()` after a JSON round trip. The upgrade lands ~5-6 minutes after
+submit (finality plus exec apply). And take the cid from `/exec/contracts` matched by METHOD SET, not from
+the wallet page's constant — reserve's constant named a contract the exec node no longer held.
