@@ -77,3 +77,38 @@ Measure the cadence, choose a height far enough out for the `/update` wave, depl
 uniformity **before** the gate fires. Use `deploy-and-verify`.
 
 Gating late costs nothing. Gating early costs a fork.
+
+## 7. When the rule is a PROOF VERIFIER rule (STARK, FRI, recursion, shielded)
+
+Learned shipping P0 + A1 of the 2026-09-23 security review (`PROOF_BIND_HEIGHT`). A verifier pin is still a
+validation rule: old nodes accept what new nodes refuse, so it forks exactly like a weight change.
+
+- **The rules are a context, not a parameter.** `stark.verify` is reached through a dozen wrappers
+  (vm_circuit, settlement_sparse, exec_state_bind, state_transition, merkle_update, recursive_verify,
+  io_replay, appnote, joinsplit2). Do not thread a flag through them; wrap the CONSENSUS entry point:
+  `with stark.rules_at(block_height):` in `ops/transaction_ops` (settle branch), `execnode._apply_block`
+  (exec layer) and the settler. `stark.rules_for_height(h)` is the pure function; unset = STRICT, so a
+  path that forgets refuses an honest old proof loudly instead of accepting a forged one silently.
+- **Threads and children do not inherit it.** `asyncio.to_thread` copies the context; a bare `Thread`
+  does not; `ops/proof_child.py` is a fresh interpreter and takes `rules` in its request. Enter the
+  context INSIDE the worker body.
+- **A transcript change is a FORMAT change.** The prover must switch on the same block the verifier does:
+  the settler proves under `rules_at(L1 tip + 1)` (a settle is exact-landing above the tip), so at most one
+  proof straddling the gate is wasted. A proof-only tightening (P0) has no prover side; a transcript
+  change (A1) does — check `stark.prove`, `stark_native.prove` AND `recursive_verify._fs` absorb the same
+  thing in the same position (`stark.absorb_statement` is the single encoder).
+- **Never absorb a hex string under the alghash2 backend** — it hashes a `str` by its byte SUM (review
+  P2). Absorb field lanes (`stark.statement_lanes`).
+- **The verdict memo must key on the rules** as well as the bytes (`settle_verify_key(..., rules)`): the
+  same proof is ok=True one block below the gate and refused at it.
+- **Reproduce the forgery, do not trust the trace.** `tests/test_proof_bind_gate.py` builds the P0 forgery
+  (a FRI over 2N interpolated through the composition's N spot-check values) and shows it ACCEPTED under
+  the legacy rules and refused at the gate. A finding that only says "traced" is a finding you have not
+  seen fail.
+- **Test-suite traps for this area:** proving in Python needs `NADO_ALLOW_PYTHON_KERNELS=1` or every
+  prove raises the Rust-only policy; the child verifier pins PROTOCOL query strength, so a test that
+  lowers `fri.NUM_QUERIES` in-process needs `NADO_PROOF_VERIFY_INPROC=1`; a throwaway `git worktree` of
+  HEAD (with the untracked `native/**/*.so` symlinked in) tells a pre-existing failure from yours.
+- **The gate height must still be AHEAD at push time.** Tip 205,711 at 6.8 s/block when 208,000 was
+  chosen (~4 h). If the push slips past it, move the gate before pushing — a gate in the past makes every
+  node switch at its own update moment.

@@ -13,6 +13,9 @@ import os, sys, tempfile, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_settleprove_")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_TESTNET"] = "1"
+# This test lowers fri/stark.NUM_QUERIES IN-PROCESS; the settle branch verifies in a CHILD interpreter that
+# pins PROTOCOL strength (ops/proof_child.py, 2026-09-07) and cannot see the patch, so verify inline here.
+os.environ["NADO_PROOF_VERIFY_INPROC"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
@@ -85,7 +88,11 @@ try:
 
     # --- 4) build the settle-with-proof exactly as the prover loop does, and SELF-CHECK ---
     pre = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    proof = SS.prove_settlement_sparse(pre, calls, cursor=1, rec_hex=rec_hex8, num_queries=2, depth=D8)
+    # PROOF_BIND_HEIGHT (2026-09-23): a settle proof is built for the block it LANDS in — the settler enters
+    # stark.rules_at(tip + 1) around its prove — so this fixture proves under the rules of the block it is
+    # validated at. Unset rules are STRICT (the new format), which the L1 branch rightly refuses below the gate.
+    with SS.stark.rules_at(BH):
+        proof = SS.prove_settlement_sparse(pre, calls, cursor=1, rec_hex=rec_hex8, num_queries=2, depth=D8)
     composed_post = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_g8)
     check("SELF-CHECK: proof reproduces the exec node's real root", composed_post == real_root)
     check("SELF-CHECK: proof pre extends the justified tip", ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_g8) == protocol.EXEC_GENESIS_ROOT)

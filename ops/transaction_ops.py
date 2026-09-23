@@ -1301,8 +1301,8 @@ def _settle_verify_lock(key):
         return _SETTLE_VERIFY_LOCKS.setdefault(key, _threading.Lock())
 
 
-def settle_verify_key(proof, pda, from_da):
-    """Cache key for a settle proof's cryptographic verdict — it MUST bind the proof's BYTES.
+def settle_verify_key(proof, pda, from_da, rules=None):
+    """Cache key for a settle proof's cryptographic verdict — it MUST bind the proof's BYTES, and the RULES.
 
     This was once keyed on (cursor, kv_pre, kv_post, rec, rec_post): the proof's CLAIMS, not the FRI
     openings that actually get verified. Two proofs asserting the same thing shared an entry, so verifying
@@ -1312,8 +1312,16 @@ def settle_verify_key(proof, pda, from_da):
     DA proofs key on the COMMITMENT — a hash-based Merkle root over the exact shard set, which different
     bytes cannot present, and which the local DA store checks on the round trip before returning them.
     Inline proofs are digested directly: one pass over the proof against the ~22 s verification it guards.
+
+    THE RULES ARE PART OF THE KEY (2026-09-23). The verdict is a function of the bytes AND of the verification
+    rules in force at the block being judged (stark.rules_at: the FRI domain pin and the statement binding
+    from PROOF_BIND_HEIGHT). An old-format proof verified ok=True one block below the gate must NOT answer
+    ok=True for the block at the gate, where the same bytes are refused — the same "answers for input it
+    never saw" bypass as the claims-only key, on the rules axis instead of the bytes axis.
     """
-    return ("da", str(pda)) if from_da else ("inline", blake2b_hash(proof))
+    from execnode.stark import stark as _stk
+    r = tuple(_stk.current_rules() if rules is None else rules)
+    return ("da", str(pda), r) if from_da else ("inline", blake2b_hash(proof), r)
 
 
 class ProofUnavailable(Exception):
@@ -1952,10 +1960,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # A cache that answers for input it never saw is not a cache.
                 #
                 # See settle_verify_key for the binding argument.
-                _vk = settle_verify_key(proof, _pda, _from_da)
+                # THE RULES FOR THIS BLOCK, not for "now" (PROOF_BIND_HEIGHT; stark.rules_at). Set here, once,
+                # for every prove/verify beneath — the segment STARKs, the K->1 fold, the transition binding —
+                # and carried explicitly into the child interpreter, which has no context of its own.
+                from execnode.stark import stark as _stk
+                _rules = _stk.rules_for_height(block_height)
+                _vk = settle_verify_key(proof, _pda, _from_da, _rules)
                 _hit = _SETTLE_VERIFY_MEMO.get(_vk)
                 if _hit is None:
-                    with _settle_verify_lock(_vk):            # single flight per proof (see the memo note)
+                    with _settle_verify_lock(_vk), _stk.rules_at(block_height):   # single flight per proof
                         _hit = _SETTLE_VERIFY_MEMO.get(_vk)
                         if _hit is None:
                             # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the
@@ -1971,7 +1984,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                                 _hit = None
                                 if not _os.environ.get("NADO_PROOF_VERIFY_INPROC"):
                                     from ops.proof_child import verify_sparse_out_of_process
-                                    _hit = verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH)
+                                    _hit = verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH,
+                                                                        rules=_rules)
                                     _where = "child"
                                 if _hit is None:
                                     _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)

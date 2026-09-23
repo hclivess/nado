@@ -294,6 +294,17 @@ never re-executes calls — the exec AIR is the whole gate.
 
 **Before anything else — proof system, three verifier pins (validation rules, height-gated):** P0 (tie the
 FRI domain to the STARK's), A1 (absorb the rebuilt statement into the transcript), A2 (in-block selector).
+
+> **Status 2026-09-23 (evening): P0 and A1 are FIXED**, gated at `PROOF_BIND_HEIGHT = 208000` (gen 25; block 1
+> at a reroll). P0: `stark.verify` and `fri.verify` pin `(N, offset)` to the STARK's, and `recursive_verify.verify`
+> pins each inner `fri_public` the same way. A1: `vm_circuit.statement_digest` (the BUILT periodic tables +
+> boundaries) is absorbed through `stark.absorb_statement` before the trace roots in `stark.prove`,
+> `stark_native.prove`, `stark.verify` and the fold's `_fs` replay. Rules are a height-keyed context
+> (`stark.rules_at`) entered by the L1 settle branch, the exec block apply and the settler (which proves for
+> `L1 tip + 1`); the verdict memo and the child verifier carry them. `tests/test_proof_bind_gate.py` BUILDS the P0
+> forgery (a FRI over 2N interpolated through the N spot-check values of a violated trace) and shows it ACCEPTED
+> under the legacy rules — the finding is now reproduced, not traced. A2 is an AIR change (a new periodic
+> selector + constraint on both prover and verifier), not a pin, and is still open; P1 remains a redesign.
 Until P0 lands, `SETTLE_PROOF_TRUSTLESS` means a bonded settler can settle any root; the operator may
 prefer to flip it off (quorum only) until the pin is deployed. P1 is a protocol redesign (trace LDT / DEEP)
 and should be scheduled, not patched.

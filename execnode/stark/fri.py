@@ -210,7 +210,7 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, bac
 
 
 def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backend=None,
-           expected_ext=None):
+           expected_ext=None, expected_N=None, expected_offset=None):
     """Verify a FRI proof. Returns (ok, reason).
 
     C-1: `num_queries` and `expected_blowup`, when given, are the caller's PROTOCOL values — the verifier
@@ -230,6 +230,14 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
             return False, "bad FRI blowup"
         if expected_blowup is not None and blowup != expected_blowup:
             return False, "unexpected FRI blowup"
+        # P0 (2026-09-23): the caller's DOMAIN, when it has one, is pinned exactly like its blowup. A STARK's
+        # composition lives on ITS coset (N, OFF); a sub-proof declaring any other (N, offset) is a low-degree
+        # test of a different vector — one whose untested half a forger fills in to make any trace pass.
+        # stark.verify checks this before calling here as well; the pin lives at both ends on purpose.
+        if expected_N is not None and N != expected_N:
+            return False, "unexpected FRI domain size"
+        if expected_offset is not None and offset != expected_offset:
+            return False, "unexpected FRI domain offset"
         exp_layers = _expected_layers(N, blowup)
         if len(roots) != exp_layers:
             return False, "wrong FRI layer count"

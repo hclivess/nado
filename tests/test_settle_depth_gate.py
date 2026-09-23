@@ -26,6 +26,9 @@ import logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_depthgate_")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_TESTNET"] = "1"
+# This test lowers fri/stark.NUM_QUERIES IN-PROCESS; the settle branch verifies in a CHILD interpreter that
+# pins PROTOCOL strength (ops/proof_child.py, 2026-09-07) and cannot see the patch, so verify inline here.
+os.environ["NADO_PROOF_VERIFY_INPROC"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
@@ -107,8 +110,12 @@ try:
     st.apply_blob({"op": "call", "contract": CID, "method": "bump", "args": []}, CALLER, "n1")
     real_root = ER.full_root_hex(SST.SparseStore(D8, SS.sparse_projection(st.contracts, D8)).root(), rec_g8)
     pre = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    proof = SS.prove_settlement_sparse(pre, CC.block_calls(BLOCK, NS), cursor=H, rec_hex=rec_hex8,
-                                       num_queries=NQ, depth=D8)
+    # PROOF_BIND_HEIGHT (2026-09-23): a settle proof is built for the block it LANDS in — the settler enters
+    # stark.rules_at(tip + 1) around its prove — so this fixture proves under the rules of the block it is
+    # validated at. Unset rules are STRICT (the new format), which the L1 branch rightly refuses below the gate.
+    with SS.stark.rules_at(BH):
+        proof = SS.prove_settlement_sparse(pre, CC.block_calls(BLOCK, NS), cursor=H, rec_hex=rec_hex8,
+                                           num_queries=NQ, depth=D8)
 
     def settler():
         k = generate_keys()

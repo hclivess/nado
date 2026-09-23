@@ -64,7 +64,7 @@ def public_part(stark_proof):
     return out
 
 
-def _fs(pub, n_chal, n_alphas, b, ext=None):
+def _fs(pub, n_chal, n_alphas, b, ext=None, statement=None):
     """Rebuild the inner STARK's transcript at the FRI start and return (factory, challenges, alphas).
     Single-phase column mode: absorb the W column roots, draw the α's. Row mode: absorb the main row root
     (+ two-phase: draw the LogUp challenges, absorb the aux row root), draw the α's. The factory is what
@@ -87,6 +87,11 @@ def _fs(pub, n_chal, n_alphas, b, ext=None):
         roots_main, roots_aux = pub["col_roots"], []
 
     def replay(t):
+        # A1: the inner proof's statement digest sits BEFORE its first root, exactly where stark.prove and
+        # stark.verify put it (stark.absorb_statement is the single encoder). An inner exec proof made under
+        # bind_statement rules cannot be replayed without it — and a fold that dropped it would be verifying
+        # the same unbound statement the review found.
+        stark.absorb_statement(t, statement)
         for r in roots_main:
             t.absorb(r)
         # Draw in the inner proof's OWN field. stark.prove draws the aux challenges and then the alphas from
@@ -172,7 +177,8 @@ def _per_of(periodic, periodic_list, i):
 
 
 def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUERIES, periodic=None,
-          num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None, out_backend=None):
+          num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None, out_backend=None,
+          statement_list=None):
     """Produce ONE recursion bundle {fold, fold_public, comp, comp_public, row_mode} that authoritatively
     re-verifies ALL of `stark_proofs` (each built with backend=RECURSION; column- or row-committed — detected
     from the proof; two-phase AIRs pass num_challenges/num_aux/periodic). `stark_proofs` may be one proof or a
@@ -198,7 +204,8 @@ def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUE
     fri_proofs, mks, points = [], [], []
     for pi_, (p, bl) in enumerate(zip(proofs, bnds_list)):
         pub = public_part(p)
-        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext)
+        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext,
+                                statement=(statement_list[pi_] if statement_list is not None else None))
         fri_proofs.append(p["fri"]); mks.append(mk)
         N, blowup, T, wN, gT, last = _geometry(pub)
         gTp = F.primitive_root_of_unity(T)
@@ -250,7 +257,7 @@ def _chunk(points, size):
 
 def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=stark.NUM_QUERIES, periodic=None,
            num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None,
-           num_queries_inner=None, out_backend=None):
+           num_queries_inner=None, out_backend=None, statement_list=None):
     """AUTHORITATIVE verification of K inner proofs from their PUBLIC PARTS alone (`public_part(proof)` — full
     proofs are also accepted and reduced). Re-derives every proof's Fiat-Shamir challenges + query positions;
     verifies the FRI low-degree half against a verifier-built schedule (with the layer-0 seam values pinned as
@@ -303,12 +310,23 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         if num_queries_inner is not None and nqi != num_queries_inner:
             return False, f"inner query count {nqi} != verifier policy {num_queries_inner}"
         mks, points_public, seam = [], [], []
+        _rules = stark.current_rules()
         for pi_, (pub, bl) in enumerate(zip(pubs, bnds_list)):
             if pub["W"] != W:
                 return False, "inner proofs must share the AIR shape"
             if len(pub["layer0"]) != nqi:
                 return False, "inner proofs must share the query count"
-            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext)
+            # P0 (2026-09-23): the same domain pin stark.verify applies. This path never called stark.verify,
+            # so it never compared the inner FRI's declared (N, offset) with the inner STARK's (N, OFF):
+            # _canon_positions draws query indices over the FRI's N while _point_values evaluates the
+            # composition on the STARK's — the seam the review's 2N forgery walks through.
+            if _rules.pin_fri_domain:
+                _fp = pub["fri_public"]
+                if _fp.get("N") != pub["N"] or _fp.get("offset") != stark.OFF:
+                    return False, (f"inner proof {pi_}: FRI domain ({_fp.get('N')}, {_fp.get('offset')}) "
+                                   f"is not the STARK's ({pub['N']}, {stark.OFF})")
+            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext,
+                                    statement=(statement_list[pi_] if statement_list is not None else None))
             mks.append(mk)
             # AUTHORITATIVE POSITIONS + native FRI checks: query positions are FS-derived from the public part,
             # never read from the proof — comp binds the trace at the SAME positions the fold authenticates.

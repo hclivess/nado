@@ -954,6 +954,44 @@ def _norm_call(call):
     return c
 
 
+def statement_digest(T, periodic, boundaries):
+    """A1 (security review 2026-09-23): the 32-byte digest of an epoch proof's PUBLIC STATEMENT — exactly the
+    tables the verifier rebuilds and evaluates at the query points (build_periodic: programs, io log, args,
+    per-row context) plus the boundaries. Absorbed into the transcript BEFORE the trace roots on both sides
+    (stark.absorb_statement), so the challenges — and the query positions — depend on the statement being
+    claimed. Without it the io-table constraint is degree 1 in the periodic values at points fixed before the
+    statement was chosen, and a settler with >= NUM_QUERIES free io entries of their own rewrites any victim's.
+
+    Digested from the BUILT columns, not from the call dicts: the prover's `calls` carry `slots` and raw
+    args while the verifier's public calls carry `selfd` and digested args, but both build the same columns —
+    that equality is already what the proof's soundness rests on. Structured {period, base, sparse} columns
+    (the O(1) path) are encoded by their parts. Cost: one native blake2b over ~NUM_PERIODIC x T u64s."""
+    import hashlib
+    from array import array
+    h = hashlib.blake2b(b"nado-epoch-statement-v1", digest_size=32)
+    h.update(int(T).to_bytes(8, "little"))
+    h.update(len(periodic).to_bytes(4, "little"))
+    for pc in periodic:
+        if isinstance(pc, dict):
+            base = [int(v) % F.P for v in pc.get("base", [])]
+            sparse = [(int(i), int(v) % F.P) for i, v in pc.get("sparse", [])]
+            h.update(b"S" + int(pc.get("period", 1)).to_bytes(8, "little"))
+            h.update(len(base).to_bytes(8, "little")); h.update(array("Q", base).tobytes())
+            h.update(len(sparse).to_bytes(8, "little"))
+            h.update(array("Q", [x for pair in sparse for x in pair]).tobytes())
+        else:
+            try:
+                buf = array("Q", pc)                    # C-speed when every value is already in [0, 2^64)
+            except (OverflowError, TypeError):
+                buf = array("Q", [int(v) % F.P for v in pc])
+            h.update(b"D" + len(buf).to_bytes(8, "little")); h.update(buf.tobytes())
+    h.update(b"B" + len(boundaries).to_bytes(8, "little"))
+    for (row, col, val) in boundaries:
+        h.update(int(row).to_bytes(8, "little") + int(col).to_bytes(8, "little")
+                 + (int(val) % F.P).to_bytes(8, "little"))
+    return h.digest()
+
+
 def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
                       commit_periodic=None, bind_io=False, gamma_fp=0):
     """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
@@ -976,11 +1014,14 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     # The aux layout follows the CHALLENGE FIELD (β, γ in GF(p^2) on every backend but RECURSION), so the
     # constraints, the boundaries and the declared aux width must all be asked of the same source of truth.
     _ext = stark.ext_challenges_active(backend)
-    proof = stark.prove(trace, transitions(bind_io, gamma_fp, _ext),
-                        _boundaries(T, bind_io, fp_exec, _ext),
+    _bnds = _boundaries(T, bind_io, fp_exec, _ext)
+    # A1: under the rules in force (stark.rules_at — the settler sets them for the block the proof will land
+    # in) the statement digest is absorbed; below the gate the transcript is byte-identical to before.
+    _stmt = statement_digest(T, periodic, _bnds) if stark.current_rules().bind_statement else None
+    proof = stark.prove(trace, transitions(bind_io, gamma_fp, _ext), _bnds,
                         periodic=periodic, max_degree=MAX_DEGREE, num_queries=num_queries,
                         aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext), backend=backend,
-                        row_commit=row_commit, commit_periodic=commit_periodic)
+                        row_commit=row_commit, commit_periodic=commit_periodic, statement=_stmt)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
     if bind_io:
@@ -1080,11 +1121,15 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
         # separately for bind_io).
         _fp = int(proof.get("io_fingerprint", 0)) % F.P if bind_io else 0
         bnds = _boundaries(proof["T"], bind_io=bind_io, fp_exec=_fp, ext=_ext)
+        # A1: the statement the verifier just REBUILT is what enters the transcript — never anything the
+        # proof carries. Rules come from stark.rules_at(<block being judged>), set by the L1 settle branch.
+        _stmt = (statement_digest(proof["T"], periodic, bnds)
+                 if stark.current_rules().bind_statement else None)
         return stark.verify(proof, transitions(bind_io, gamma_fp, _ext), bnds,
                             periodic=periodic, max_degree=MAX_DEGREE,
                             num_queries=num_queries, aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext),
                             backend=backend, row_commit=row_commit, commit_periodic=commit_periodic,
-                            periodic_roots=periodic_roots)
+                            periodic_roots=periodic_roots, statement=_stmt)
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 

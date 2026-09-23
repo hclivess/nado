@@ -493,7 +493,7 @@ def fri_prove_native(col_ids, offset, blowup, num_queries, transcript, hash_mode
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None,
-          aux_spec=None, row_commit=False, backend=None):
+          aux_spec=None, row_commit=False, backend=None, statement=None):
     """HOLISTIC prove (step 6) — reproduces stark.prove ENTIRELY through the arena for the two alghash2
     backends (RECURSION and the default ALGHASH2): trace/aux/periodic LDEs, Merkle commits (per-column, or ONE
     row tree per phase when row_commit — RECURSION only), the composition, FRI, and the openings all stay in
@@ -547,6 +547,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         t = Transcript(DOMAIN_STARK, backend=b)
         if aux is not None:
             t.absorb("aux", str(aux))
+        stark.absorb_statement(t, statement)             # A1: same position as stark.prove / stark.verify
         col_roots, row_roots, trees, row_trees = [], [], [], []
         if row_commit:
             tid, root = commit_rows(list(range(W)))

@@ -37,6 +37,9 @@ import logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_batchcanon_")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 os.environ["NADO_TESTNET"] = "1"
+# This test lowers fri/stark.NUM_QUERIES IN-PROCESS; the settle branch verifies in a CHILD interpreter that
+# pins PROTOCOL strength (ops/proof_child.py, 2026-09-07) and cannot see the patch, so verify inline here.
+os.environ["NADO_PROOF_VERIFY_INPROC"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
@@ -146,8 +149,11 @@ try:
     # --- 3) ONE merged settlement over the whole span ---
     pre = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
     span_end = HEIGHTS[-1]
-    proof = SS.prove_settlement_sparse(pre, all_calls, cursor=span_end, rec_hex=rec_hex8,
-                                       num_queries=2, depth=D8, recursive=True, fold=False)
+    # PROOF_BIND_HEIGHT (2026-09-23): prove under the rules of the block the settle is validated at (BH), as
+    # the settler does with stark.rules_at(tip + 1); unset rules are the NEW format, refused below the gate.
+    with SS.stark.rules_at(BH):
+        proof = SS.prove_settlement_sparse(pre, all_calls, cursor=span_end, rec_hex=rec_hex8,
+                                           num_queries=2, depth=D8, recursive=True, fold=False)
     check(f"the merged settlement carries one segment per block ({BLOCKS})",
           len(proof["segments"]) == BLOCKS)
     composed = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_g8)
@@ -172,8 +178,9 @@ try:
     #   * it runs while the tip is still genesis. After the honest settle the tip has moved, and the short
     #     proof would be rejected for not extending the tip — a real rule, but not the one under test.
     print(f"[{_time.time()-_t0:6.0f}s] .. building the NEGATIVE (dropped-tx) batch", flush=True)
-    short = SS.prove_settlement_sparse(pre, all_calls[:-1], cursor=span_end, rec_hex=rec_hex8,
-                                       num_queries=2, depth=D8, recursive=True, fold=False)
+    with SS.stark.rules_at(BH):
+        short = SS.prove_settlement_sparse(pre, all_calls[:-1], cursor=span_end, rec_hex=rec_hex8,
+                                           num_queries=2, depth=D8, recursive=True, fold=False)
     short_root = ER.full_root_hex(SST.digest_from_hex(short["kv_post"]), rec_g8)
     check("a batch missing one off-chain tx reaches a DIFFERENT root", short_root != real_root)
     V3 = generate_keys()

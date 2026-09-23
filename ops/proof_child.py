@@ -9,7 +9,10 @@ package: never nado/memserver/kv_ops (importing the node opens the live LMDB —
 never-import-node-modules-against-live-db). Any child failure falls back to in-process verification and is
 NEVER cached as a verdict.
 
-Protocol: stdin = codec.pack({"proof": ..., "depth": int}); stdout = codec.pack([ok, reason, kv_pre, kv_post]).
+Protocol: stdin = codec.pack({"proof": ..., "depth": int, "rules": [pin_fri_domain, bind_statement]});
+stdout = codec.pack([ok, reason, kv_pre, kv_post]). `rules` (2026-09-23) are the verification rules for the
+block being judged (stark.rules_for_height in the parent): a fresh interpreter has no context, and an unset
+context means STRICT — which below PROOF_BIND_HEIGHT would refuse every honest legacy proof.
 """
 import os
 import subprocess
@@ -29,8 +32,11 @@ def main():
     sys.path.insert(0, REPO)
     from ops import codec
     from execnode.stark import settlement_sparse as SS
+    from execnode.stark import stark as _stk
     req = codec.unpack(sys.stdin.buffer.read())
-    res = SS.verify_settlement_sparse(req["proof"], depth=req["depth"])
+    _r = req.get("rules")
+    with _stk.with_rules(_stk.Rules(*[bool(x) for x in _r]) if _r is not None else _stk.RULES_STRICT):
+        res = SS.verify_settlement_sparse(req["proof"], depth=req["depth"])
     payload = codec.pack(list(res))
     view = memoryview(payload)
     while view:
@@ -39,7 +45,7 @@ def main():
     os.close(verdict_fd)
 
 
-def verify_sparse_out_of_process(proof, depth):
+def verify_sparse_out_of_process(proof, depth, rules=None):
     """(ok, reason, kv_pre_hex, kv_post_hex) from a child interpreter, or None when the child could not
     produce a verdict (caller falls back in-process; a None is never a verdict)."""
     from ops import codec
@@ -49,7 +55,10 @@ def verify_sparse_out_of_process(proof, depth):
         p = subprocess.Popen([sys.executable, "-c", "from ops.proof_child import main; main()"],
                              cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              env=env)
-        out, err = p.communicate(codec.pack({"proof": proof, "depth": int(depth)}), timeout=VERIFY_TIMEOUT_S)
+        from execnode.stark import stark as _stk
+        _r = list(_stk.current_rules() if rules is None else rules)
+        out, err = p.communicate(codec.pack({"proof": proof, "depth": int(depth), "rules": _r}),
+                                 timeout=VERIFY_TIMEOUT_S)
         if p.returncode != 0 or not out:
             print(f"[settle-verify] child failed rc={p.returncode}: {err[-300:]!r} — verifying in-process", flush=True)
             return None

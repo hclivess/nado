@@ -61,7 +61,11 @@ systemctl restart nado.service
 
 - `/status` height climbing, `last_block_reject: null`
 - `journalctl -u nado.service --since "3 min ago" | grep -iE "error|traceback"` — count them, do not skim
-- for a gated change: the fleet must be **uniform before the gate height**, not after
+- for a gated change: the fleet must be **uniform before the gate height**, not after — and the gate must
+  still be AHEAD of the tip when you push (`curl -s localhost:9173/status` → `latest_block_height` vs the
+  constant). A gate already behind the tip fires on each node at its own restart, which is a fork.
+- a settle proof in flight: `journalctl -u nado-exec` for `settle-with-proof … BUILT` — a proof that
+  straddles a format gate is refused once and re-proved next cadence; two refusals in a row is a bug.
 
 ## Never report a deploy from the push output alone
 

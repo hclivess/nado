@@ -1611,7 +1611,7 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
 #                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
-#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT
+#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -1976,6 +1976,26 @@ DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 # Live value sits above the last replay block and far enough out for the /update wave (rule 3); on a fresh
 # chain it is strict from block 1. Ledger: live from genesis (x = 1).
 TX_AT_MOST_ONCE_STRICT_HEIGHT = 81600 if CHAIN_GENERATION == 25 else 1
+
+# PROOF VERIFIER PINS (security review 2026-09-23, findings P0 + A1). From PROOF_BIND_HEIGHT every STARK the
+# chain verifies — settle-with-proof segments and their K->1 fold, the shielded pool and shielded contracts, and
+# every merkle-update transition under them — is judged under two extra rules, both of which an HONEST prover
+# already satisfies:
+#   P0  the FRI sub-proof's domain (N, offset) must equal the STARK's own. Nothing tied them: the spot-check
+#       binds layer-0 values at idx mod N/2 with the STARK's N, so a FRI declared over 2N proves "degree < N"
+#       for a vector whose first N points are the composition and whose second half is free — which is ALWAYS
+#       interpolable, so any statement (any settle root, any shielded transfer) was provable at honest cost.
+#       tests/test_proof_bind_gate.py builds that forgery and shows it verifying under the old rule.
+#   A1  the exec epoch's PUBLIC STATEMENT (the rebuilt periodic tables + boundaries: io log, args, programs,
+#       per-row context) is absorbed into the Fiat-Shamir transcript BEFORE the trace roots. Until now only
+#       column roots were absorbed, so the query points were fixed before the statement was chosen and a settler
+#       with a few hundred io entries of their own could rewrite any victim entry by solving a linear system.
+# A1 changes the transcript, so an old-format proof fails at/after the gate and a new-format proof fails before
+# it — every node switches at the same block, and the settler switches its prover at the same height. Verified
+# under stark.rules_at(<height of the block being judged>); ops/transaction_ops (L1 settle), execnode._apply_block
+# (exec layer) and the settler are the three sites that set it. Gate hygiene: a height ahead of the update wave
+# on the live chain; live from block 1 at the next reroll.
+PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

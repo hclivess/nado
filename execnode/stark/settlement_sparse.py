@@ -350,7 +350,7 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         raise ValueError("recursive settlement over an empty call span")
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
-    segments, exec_proofs, bnds, pers = [], [], [], []
+    segments, exec_proofs, bnds, pers, stmts = [], [], [], [], []
     for idx, h in enumerate(present):
         blk_calls = grouped[h]
         seg_cursor = int(cursor) if idx == len(present) - 1 else h     # last segment covers trailing empty blocks
@@ -371,6 +371,10 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         if not ok:
             raise ValueError(f"segment statement: {why}")
         exec_proofs.append(seg["proof"]); bnds.append(bl); pers.append(periodic)
+        # A1: the fold replays each inner transcript, so it needs the SAME statement digest prove_epoch_calls
+        # absorbed (under the same rules — the settler sets them once for the whole prove).
+        stmts.append(vm_circuit.statement_digest(seg["proof"]["T"], periodic, bl)
+                     if stark.current_rules().bind_statement else None)
     out = {"cursor": int(cursor), "rec": rec_hex,
            "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in segments[0]["sparse_pre_root"])),
            "kv_post": ST.digest_hex(tuple(int(x) % F.P for x in segments[-1]["sparse_post_root"])),
@@ -397,7 +401,7 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         out["recursive"] = RV.prove(exec_proofs, vm_circuit.transitions(ext=_fx), bnds, num_queries_outer=oq,
                                     periodic_list=pers, num_challenges=2,
                                     num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
-                                    comp_points_per_proof=comp_points_per_proof)
+                                    comp_points_per_proof=comp_points_per_proof, statement_list=stmts)
         out["comp_points_per_proof"] = comp_points_per_proof
     return out
 
@@ -454,7 +458,7 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             from execnode.stark import recursive_verify as RV
             nqi = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
             nqo = int(outer_queries) if outer_queries is not None else vm_circuit.stark.NUM_QUERIES
-            pubs, bnds, pers = [], [], []
+            pubs, bnds, pers, stmts = [], [], [], []
             for seg in segs:
                 pub_calls, epoch_io = SP._epoch_pub_statement(seg)
                 # Extension layout, same reason as the prove side above.
@@ -463,6 +467,10 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
                 if not ok2:
                     return False, f"segment statement: {why2}", None, None
                 pubs.append(RV.public_part(seg["proof"])); bnds.append(bl); pers.append(periodic)
+                # A1: the statement the VERIFIER rebuilt enters each inner replay — the fold path rebuilt the
+                # same tables and absorbed none of them, which is what the review found.
+                stmts.append(vm_circuit.statement_digest(seg["proof"]["T"], periodic, bl)
+                             if stark.current_rules().bind_statement else None)
             cpp = proof.get("comp_points_per_proof")
             if cpp is not None and (not isinstance(cpp, int) or cpp < 1):
                 return False, "bad comp chunk size", None, None
@@ -476,7 +484,7 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             okr, whyr = RV.verify(pubs, vm_circuit.transitions(ext=_fx), bnds, rb, num_queries_outer=nqo,
                                   periodic_list=pers, num_challenges=2,
                                   num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
-                                  comp_points_per_proof=cpp, num_queries_inner=nqi)
+                                  comp_points_per_proof=cpp, num_queries_inner=nqi, statement_list=stmts)
             if not okr:
                 return False, f"recursive verification failed: {whyr}", None, None
         return True, "ok", kv_pre_hex, ST.digest_hex(expect)

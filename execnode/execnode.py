@@ -1662,11 +1662,18 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
             _settle_skip_logged[_k] = cur
             print(f"[execnode] fold skipped ns={ns} span {sc}->{cur}: no exec calls to fold — proving "
                   f"UNFOLDED (the recursive path refuses an empty call span)", flush=True)
+    # THE PROOF MUST BE IN THE FORMAT ITS LANDING BLOCK WILL JUDGE (PROOF_BIND_HEIGHT, stark.rules_at). A settle
+    # is exact-landing at a block ABOVE the L1 tip at submit time, so the rules for tip+1 at prove START are the
+    # earliest that can apply; a proof begun within the last ~minute before the gate lands after it in the old
+    # format, is refused once, and the next cadence re-proves — bounded waste, never a fork. The context is
+    # entered INSIDE the worker thread (a thread does not inherit it) and again for the self-verify below.
+    _land_h = await _settle_landing_height(session, cur)
     def _prove():
         def _run(fold):
-            return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
-                                              beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                              depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold)
+            with SS.stark.rules_at(_land_h):
+                return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
+                                                  beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
+                                                  depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold)
         if not _fold:
             return _run(False)
         try:
@@ -1790,13 +1797,28 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
     # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
     if proof.get("recursive") is not None:
-        ok_v, why_v = await asyncio.to_thread(
-            lambda: SS.verify_settlement_sparse(proof, depth=EXEC_TREE_DEPTH)[:2])
+        def _self_verify():
+            with SS.stark.rules_at(_land_h):               # the rules the proof was built under (see _prove)
+                return SS.verify_settlement_sparse(proof, depth=EXEC_TREE_DEPTH)[:2]
+        ok_v, why_v = await asyncio.to_thread(_self_verify)
         if not ok_v:
             print(f"[execnode] recursive settle-with-proof ns={ns} self-verify failed ({why_v}) "
                   f"— falling back to quorum", flush=True)
             return None
     return proof
+
+
+async def _settle_landing_height(session, cur):
+    """The lowest L1 height a settle proven NOW can land in: the L1 tip + 1 (a settle is exact-landing above
+    the tip at submit, which is after the prove). Falls back to the span end + 1 if /status is unreachable —
+    the exec cursor is at most the tip, so that is never ABOVE the true landing block, i.e. it can only pick
+    the older rules, never newer ones the fleet does not yet judge by."""
+    try:
+        st = await _get_json(session, "/status")
+        tip = int((st or {}).get("latest_block_height") or 0)
+    except Exception:
+        tip = 0
+    return max(int(tip), int(cur)) + 1
 
 
 async def maybe_settle(session):
@@ -2522,7 +2544,17 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
     default_state — then advance every state's cursor to this height. Returns False (applying NOTHING) if a
     field_transfer proof is unavailable via DA, so the block STALLS in L1 order. Shared by the finalized tail
-    AND the provisional clone, so both apply identically."""
+    AND the provisional clone, so both apply identically.
+
+    Every proof this block carries (shielded transfers, shielded-contract calls, and anything else that reaches
+    stark.verify) is judged under the verification rules for THIS height (PROOF_BIND_HEIGHT, stark.rules_at) —
+    the exec layer's equivalent of the L1 settle branch setting them for the block it validates."""
+    from execnode.stark import stark as _stk
+    with _stk.rules_at(block["block_number"]):
+        return await _apply_block_inner(session, states_map, default_state, block, verbose=verbose)
+
+
+async def _apply_block_inner(session, states_map, default_state, block, verbose=True):
     h = block["block_number"]
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).

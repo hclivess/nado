@@ -26,6 +26,79 @@ from execnode.stark.fri import NUM_QUERIES
 
 OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace subgroup)
 
+# ---- CONSENSUS RULES FOR PROOF VERIFICATION, keyed on the L1 block being judged ------------------------------
+# Security review 2026-09-23 (P0, A1): two verifier pins that an honest prover already satisfies but that change
+# what a VERIFIER accepts, so they are height-gated (protocol.PROOF_BIND_HEIGHT) like every other validation rule.
+# The rules are a pure function of the height of the block whose transaction carries the proof, never of "now":
+#   pin_fri_domain  the FRI sub-proof's (N, offset) must equal the STARK's own (P0). Without it a FRI declared
+#                   over 2N is a genuinely low-degree vector whose second half is free, and ANY trace verifies.
+#   bind_statement  an exec epoch proof absorbs a digest of its public statement into the transcript before the
+#                   trace roots (A1), so the query points depend on the io log / args / programs being claimed.
+#                   This changes the proof FORMAT: prover and verifier must flip at the same block.
+# WHY A CONTEXT VARIABLE AND NOT A PARAMETER. stark.verify is reached through a dozen wrappers (vm_circuit,
+# settlement_sparse, exec_state_bind, state_transition, merkle_update, recursive_verify, io_replay, appnote,
+# joinsplit2 ...) and a rule threaded by hand through every one of them is a rule that is missed in one of them.
+# The three CONSENSUS entry points set it for everything beneath them: ops/transaction_ops (the L1 settle branch,
+# and the out-of-process verifier it spawns), execnode._apply_block (the exec layer at cursor h) and the settler
+# (which must PRODUCE the format the landing block will judge). Unset means STRICT: a path that forgets to set
+# the rules refuses an old-format proof loudly rather than accepting a forged one silently.
+import contextvars as _cv
+from collections import namedtuple as _nt
+from contextlib import contextmanager as _cm
+Rules = _nt("Rules", "pin_fri_domain bind_statement")
+RULES_STRICT = Rules(True, True)          # at/after PROOF_BIND_HEIGHT, and the default when nothing set them
+RULES_LEGACY = Rules(False, False)        # below the gate: what every node accepted before 2026-09-23
+_RULES = _cv.ContextVar("nado_proof_rules", default=None)
+
+
+def rules_for_height(height):
+    """The verification rules in force for a proof carried by the block at `height` — pure, replayable.
+    `None` (no height known) is STRICT: a caller that cannot say which block it is judging gets the new rules,
+    which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
+    if height is None:
+        return RULES_STRICT
+    from protocol import PROOF_BIND_HEIGHT
+    return RULES_STRICT if int(height) >= int(PROOF_BIND_HEIGHT) else RULES_LEGACY
+
+
+def current_rules():
+    r = _RULES.get()
+    return RULES_STRICT if r is None else r
+
+
+@_cm
+def with_rules(rules):
+    """`with stark.with_rules(Rules(...)):` — explicit rules, for a child process handed them over a pipe."""
+    tok = _RULES.set(Rules(*rules))
+    try:
+        yield
+    finally:
+        _RULES.reset(tok)
+
+
+@_cm
+def rules_at(height):
+    """`with stark.rules_at(h):` — every prove/verify inside judges (or produces) under the rules for block h.
+    Contexts are per thread: a worker thread or a child process must enter its own (see the three sites)."""
+    with with_rules(rules_for_height(height)):
+        yield
+
+
+def statement_lanes(statement):
+    """A 32-byte statement digest as 8 little-endian u32 lanes — exact under both transcript backends (the
+    alghash2 backend hashes a STRING by its byte SUM, so a hex digest must never be absorbed as text)."""
+    b = bytes(statement)
+    if len(b) != 32:
+        raise ValueError("statement digest must be 32 bytes")
+    return tuple(int.from_bytes(b[i:i + 4], "little") for i in range(0, 32, 4))
+
+
+def absorb_statement(t, statement):
+    """The ONE place the statement enters a transcript: stark.prove, stark_native.prove, stark.verify and
+    recursive_verify._fs all call this, right after `aux` and before any root, so they cannot drift apart."""
+    if statement is not None:
+        t.absorb("statement", *statement_lanes(statement))
+
 # H-7: a hard ceiling on the trace length a proof may claim. N (= blowup·T) is read from the proof and fed to
 # F.domain(N) BEFORE any FRI/query check, so an unbounded N is an unauthenticated single-request OOM
 # (N = 2^32 builds a ~34 GB list). Real shielded circuits use T ≈ 1024, so 2^17 is ~128× headroom and caps the
@@ -420,7 +493,7 @@ def _native_fallback(exc):
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-          aux_spec=None, backend=None, row_commit=False, commit_periodic=None):
+          aux_spec=None, backend=None, row_commit=False, commit_periodic=None, statement=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
     and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
     roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
@@ -475,7 +548,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             if stark_native.available():
                 return stark_native.prove(trace, transitions, boundaries, periodic=periodic,
                                           max_degree=max_degree, num_queries=num_queries, aux=aux,
-                                          aux_spec=aux_spec, row_commit=row_commit, backend=_b)
+                                          aux_spec=aux_spec, row_commit=row_commit, backend=_b,
+                                          statement=statement)
         except Exception as _e:
             _native_fallback(_e)                        # RAISES unless NADO_ALLOW_PYTHON_KERNELS
     # The arena did not cover this call (BLAKE2B backend or commit_periodic). Everything below is
@@ -506,6 +580,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     t = Transcript(DOMAIN_STARK, backend=b)
     if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
         t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
+    absorb_statement(t, statement)           # A1: the public statement digest, same position as every verifier
     # COMMITTED periodic columns (succinct verify): commit the listed columns' LDE and absorb their roots here,
     # as a public-parameter position BEFORE the main trace commitment (so the FS challenges depend on them). The
     # verifier opens these at each query point (O(log N)) instead of an O(T) dense poly_eval — the caller binds
@@ -603,7 +678,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
 
 def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-           aux_spec=None, backend=None, row_commit=False, commit_periodic=None, periodic_roots=None):
+           aux_spec=None, backend=None, row_commit=False, commit_periodic=None, periodic_roots=None,
+           statement=None):
     """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
     max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
     Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
@@ -661,6 +737,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         t = Transcript(DOMAIN_STARK, backend=b)
         if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
             t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
+        absorb_statement(t, statement)       # A1: a proof for statement S1 presented with S2 draws other challenges
         for r in per_roots:                  # committed-periodic roots: same public-parameter position as prove
             t.absorb(r)
         challenges = None
@@ -686,8 +763,24 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
         # expected_ext is PINNED, not read from the proof: the verifier decides the challenge field.
+        # P0 (2026-09-23): THE FRI DOMAIN IS THE STARK'S DOMAIN. Nothing below compared proof["fri"]["N"] and
+        # ["offset"] with the STARK's N and OFF: fri.verify checked the sub-proof against its OWN declared
+        # geometry, and the spot-check loop binds layer-0 values at idx mod (N/2) with the STARK's N. So a FRI
+        # declared over 2N with the same offset proves "degree < N" for a length-2N vector whose first N entries
+        # are v[j] = cp(x_{j mod N/2}) and whose second N entries are whatever makes the whole thing a degree < N
+        # polynomial — and N free points ALWAYS interpolate. Every fold, opening, grind and final layer is then
+        # honest for ANY trace, constraints violated or not. tests/test_proof_bind_gate.py builds exactly that
+        # forgery and shows it verifying under the legacy rules. Pinned here AND inside fri.verify (expected_N /
+        # expected_offset) so a caller that reaches fri.verify without this wrapper cannot lose the pin.
+        _rules = current_rules()
+        if _rules.pin_fri_domain:
+            _fN, _fO = proof["fri"].get("N"), proof["fri"].get("offset")
+            if _fN != N or _fO != OFF:
+                return False, f"FRI domain ({_fN}, {_fO}) is not the STARK's ({N}, {OFF})"
         ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2, backend=b,
-                             expected_ext=ext_challenges_active(b))
+                             expected_ext=ext_challenges_active(b),
+                             expected_N=(N if _rules.pin_fri_domain else None),
+                             expected_offset=(OFF if _rules.pin_fri_domain else None))
         if not ok:
             return False, f"composition is not low-degree: {why}"
 

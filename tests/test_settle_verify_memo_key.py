@@ -75,7 +75,7 @@ check("the same inline proof keys identically (the memo still hits)",
 # the same commitment; the local DA store checks that round-trip before handing the blob back.
 C1 = "4441ea8a9e6db120fc68359979a3989e0caebffc80ce480e4d84e041c4cc3763"
 C2 = "ea5f1f53ed52afee7ac4bdc67a73b0481b0c29f847f9ca5a8a9048bad9361d07"
-check("a DA proof keys on its commitment", settle_verify_key(HONEST, C1, True) == ("da", C1))
+check("a DA proof keys on its commitment", settle_verify_key(HONEST, C1, True)[:2] == ("da", C1))
 check("two DA commitments never share an entry",
       settle_verify_key(HONEST, C1, True) != settle_verify_key(HONEST, C2, True))
 check("the same DA commitment hits the memo (this is what keeps the core loop off 91 s)",
@@ -90,7 +90,21 @@ check("an inline proof and a DA proof never share a key",
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "ops", "transaction_ops.py")).read()
 check("validate_transaction builds its key through settle_verify_key",
-      "_vk = settle_verify_key(proof, _pda, _from_da)" in src)
+      "_vk = settle_verify_key(proof, _pda, _from_da, _rules)" in src)
+
+# ---- THE RULES ARE PART OF THE KEY (2026-09-23) --------------------------------------------------------
+# PROOF_BIND_HEIGHT changes what verifies: the same bytes are ok=True one block below the gate and refused at
+# it. A verdict cached under the legacy rules must never answer for the strict ones — or the block at the gate
+# accepts, unverified, the very proof format the gate exists to refuse.
+from execnode.stark import stark as _stk
+check("the same bytes key DIFFERENTLY under legacy and strict rules",
+      settle_verify_key(HONEST, None, False, _stk.RULES_LEGACY)
+      != settle_verify_key(HONEST, None, False, _stk.RULES_STRICT))
+check("...for DA-carried proofs too",
+      settle_verify_key(HONEST, C1, True, _stk.RULES_LEGACY) != settle_verify_key(HONEST, C1, True, _stk.RULES_STRICT))
+check("the settle branch derives the rules from the block height, not from now",
+      "_rules = _stk.rules_for_height(block_height)" in src and "_stk.rules_at(block_height)" in src)
+check("the child verifier is handed the same rules", "rules=_rules" in src)
 check("_from_da is only set once the proof actually came back from DA",
       "_from_da = False" in src and "_from_da = True" in src)
 check("the claims-only key is gone", 'str(proof.get("kv_pre"))' not in src)
