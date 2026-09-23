@@ -30,6 +30,12 @@ Live from genesis at the next reroll (`else 1`): `DEVICE_ATTEST_HEIGHT`, `DEVICE
 `POOL_RETIRE_HEIGHT`,
 `BOND_CURVE_RETIRE_HEIGHT`, `OPEN_LANE_EXCLUDE_RETIRE_HEIGHT`.
 
+Re-anchored, not gated: `CHAIN_CLOCK_CADENCE_DS` (60 on gen 25 = exactly `h*6`; 65 next). At every reroll
+**measure** the outgoing chain's cadence from its own block timestamps (`(ts[tip] - ts[1]) / (tip - 1)`, and the
+last ~10,000 blocks separately) and set the next value to the recent figure in deciseconds; the accumulated
+lag resets with the new `GENESIS_TIMESTAMP`. Gen 25 ran 6.69 s overall and 6.5 s recently against a clock that
+assumed 6, which is where the 40 h TIME lag came from.
+
 Never, delete the path (`else 0`): `BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`,
 `OPEN_LANE_EXCLUDE_BONDED_HEIGHT`.
 

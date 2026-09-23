@@ -98,13 +98,14 @@ BLOCK_TIMESTAMP_DRIFT = 30
 BLOCK_TIME = 6
 
 
+
 def chain_clock(block_number: int) -> int:
     """The DETERMINISTIC chain clock the execution layer exposes as TIME: a pure function of block height,
     so every node computes the identical value for a block and a contract reading TIME cannot fork exec
-    state. Monotonic and approximately wall-clock (it tracks real time exactly while blocks land on
-    schedule, and lags if they do not). Deliberately NOT block_timestamp, which is uncommitted and skews
-    by up to BLOCK_TIMESTAMP_DRIFT between honest nodes."""
-    return GENESIS_TIMESTAMP + int(block_number) * BLOCK_TIME
+    state. Monotonic and approximately wall-clock (it tracks real time while blocks land at the assumed
+    cadence, and drifts by the difference otherwise). Deliberately NOT block_timestamp, which is uncommitted
+    and skews by up to BLOCK_TIMESTAMP_DRIFT between honest nodes."""
+    return GENESIS_TIMESTAMP + (int(block_number) * CHAIN_CLOCK_CADENCE_DS) // 10
 
 # INCLUSION DELAY (blocks): a flexibly-landing tx sets min_block = submit_tip + this, so no producer may
 # include it until it has had this many blocks (~this * block_time seconds) to gossip to EVERY producer.
@@ -586,6 +587,17 @@ POSW_ENTRY_MULT = 32
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
 CHAIN_GENERATION = 25
+
+# CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
+# The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at
+# 1788774422, block 209400 at 1790175705) and ~6.5 s over its last 10,000, so TIME fell 40.7 h behind wall
+# time and the gap grew ~2.5 h a day. That mattered: OTC compared a chain-time expiry with a wall-clock
+# foreign deadline. The wallet now judges those by its own clock (static/dex.js), and the clock itself can
+# only ever be a height-keyed ESTIMATE — block_timestamp is uncommitted, so no committed wall time exists —
+# but the estimate should be the measured cadence and the accumulated lag resets with the new genesis.
+# 60 ds on gen 25 reproduces GENESIS + h*6 EXACTLY (h*60 // 10 == h*6), so live consensus is untouched; the
+# next generation starts at the cadence measured here. Re-measure at every reroll (doc/reroll.md).
+CHAIN_CLOCK_CADENCE_DS = 60 if CHAIN_GENERATION == 25 else 65
 
 # SCHEDULED-CLEANUP (gen 24 only): the ENTRIES-ONLY flood counting (84d122f3, 2026-09-01 17:12 UTC) shipped
 # UNGATED while betanet-6 was already 1600 blocks old. Every registration validated before the fleet's update

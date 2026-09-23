@@ -76,6 +76,13 @@ def main():
           eval(hexpr, {"CHAIN_GENERATION": 26}) // P.EPOCH_LENGTH == 0
           and P.OPEN_LANE_EXCLUDE_BONDED_EPOCH == P.OPEN_LANE_EXCLUDE_BONDED_HEIGHT // P.EPOCH_LENGTH)
 
+    # 3b. the chain clock cadence is generation-keyed too: gen 25 must stay EXACTLY h*6 (60 ds), the next
+    #     generation starts at the measured cadence (C3 re-anchor, 2026-09-23)
+    cexpr = re.search(r"^CHAIN_CLOCK_CADENCE_DS = ([^#\n]+)", src, re.M).group(1).strip()
+    check("CHAIN_CLOCK_CADENCE_DS: live 60 ds (h*6 exactly)", eval(cexpr, {"CHAIN_GENERATION": 25}) == 60 == P.CHAIN_CLOCK_CADENCE_DS)
+    check("CHAIN_CLOCK_CADENCE_DS: re-anchored to the measured 6.5 s at the reroll", eval(cexpr, {"CHAIN_GENERATION": 26}) == 65)
+    check("chain_clock on gen 25 is unchanged", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 6 for h in (0, 1, 7, 209400, 2**40)))
+
     # 4. the ledger comment exists and names the cleanup
     check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "CLEANUP AT THE REROLL" in src)
     return 0 if not _fails else 1

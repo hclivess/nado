@@ -461,6 +461,11 @@ async def status(request):
             # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2).
             "proof_rules": {"bind": _proto.PROOF_BIND_HEIGHT, "block_selector": _proto.PROOF_BLOCK_SELECTOR_HEIGHT,
                             "round2": _proto.REVIEW_R2_HEIGHT},
+            # THE CHAIN CLOCK VS THE WALL (2026-09-23): what TIME reads at the tip and how far behind (or ahead
+            # of) real time it is — the number the next reroll's cadence is set from, visible without a script.
+            "chain_clock": {"cadence_ds": _proto.CHAIN_CLOCK_CADENCE_DS,
+                            "at_tip": _proto.chain_clock(int(lb.get("block_number", 0) or 0)) if lb else None,
+                            "lag_s": (int(time.time()) - _proto.chain_clock(int(lb.get("block_number", 0) or 0))) if lb else None},
             # NODE TYPE (non-consensus, doc/rolling-mode-and-da.md): "archive" keeps every block body
             # forever; "rolling" drops bodies past its retention window (state + number<->hash indexes are
             # always kept, so it still validates and serves the beacon/FFG). Advertised so the network
