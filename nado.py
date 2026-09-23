@@ -460,7 +460,8 @@ async def status(request):
             # wallet's on-device prover must produce that format, so the heights are published here rather
             # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2).
             "proof_rules": {"bind": _proto.PROOF_BIND_HEIGHT, "block_selector": _proto.PROOF_BLOCK_SELECTOR_HEIGHT,
-                            "round2": _proto.REVIEW_R2_HEIGHT, "shield_wide": _proto.SHIELD_WIDE_HEIGHT},
+                            "round2": _proto.REVIEW_R2_HEIGHT, "shield_wide": _proto.SHIELD_WIDE_HEIGHT,
+                            "trace_ldt": _proto.PROOF_TRACE_LDT_HEIGHT},
             # THE CHAIN CLOCK VS THE WALL (2026-09-23): what TIME reads at the tip and how far behind (or ahead
             # of) real time it is — the number the next reroll's cadence is set from, visible without a script.
             "chain_clock": {"cadence_ds": _proto.CHAIN_CLOCK_CADENCE_DS,

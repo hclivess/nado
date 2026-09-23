@@ -1624,7 +1624,7 @@ def split_open_block_reward(reward: int):
 #                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
-#                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT,
+#                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2066,6 +2066,19 @@ PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1
 #          own prover reads this height from /status (`proof_rules`) and switches on the same block.
 # Block 1 at the next reroll.
 REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
+
+# TRACE LOW-DEGREE TEST (security review 2026-09-23, P1). Only the composition polynomial ever entered FRI: a
+# witness column with no boundary was an ARBITRARY function on the coset, so any gadget A(x)*w(x) = B(x) was
+# satisfiable POINTWISE (w := B/A) — the VM's inverse witness WI made a JNZ on zero jump and a failed REQUIRE
+# pass, for any epoch whose programs execute no LT (tests/test_proof_trace_ldt.py builds that forgery on a toy
+# AIR and shows it VERIFYING below this height). From the gate the prover adds sum_c beta^(c+1) * f_c(x) — beta
+# drawn after the alphas, every main and aux column — to the composition before FRI, so the one FRI run tests the
+# trace for low degree with the composition (the classic ALI shape, for which the soundness theorem holds), and
+# the verifier adds the same term at every query point. A format change on both sides, so it rides stark.rules_at
+# like the earlier proof gates; the wallet reads it from /status (`proof_rules.trace_ldt`). The K->1 recursion
+# fold does NOT carry the term yet and refuses under it (SETTLE_PROOF_RECURSIVE is off; SCHEDULED_CLEANUPS.md).
+# Block 1 at the next reroll.
+PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

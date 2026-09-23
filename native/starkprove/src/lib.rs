@@ -680,6 +680,82 @@ pub extern "C" fn sp_fold(col: usize, offset: u64, alpha: u64) -> i64 {
     (arena.cols.len() - 1) as i64
 }
 
+/// TRACE LOW-DEGREE BATCH (security review 2026-09-23, P1; stark.Rules.trace_ldt). Adds, IN PLACE, the
+/// random linear combination of every trace/aux column to the composition column(s):
+///     cp[j] += sum_c beta^(c+1) * col_c[j]
+/// so the one FRI run tests the trace columns for low degree together with the composition. Without it a
+/// witness column was never low-degree tested and any gadget A(x)*w(x) = B(x) was satisfiable pointwise.
+/// `cp` is one column id (base composition, `n_beta` == 1) or EXT_DEGREE consecutive ids (extension
+/// composition, `n_beta` == EXT_DEGREE); `cols` are the column ids in transcript order (main, then aux).
+/// Bit-identical to stark._trace_batch_add in Python. Returns 0, or -1 on a bad argument.
+///
+/// # Safety
+/// `cp` must point to `n_cp` ids, `cols` to `n_cols` ids and `beta` to `n_beta` limbs.
+#[no_mangle]
+pub unsafe extern "C" fn sp_batch_add(cp: *const usize, n_cp: usize, cols: *const usize, n_cols: usize,
+                                      beta: *const u64, n_beta: usize) -> i64 {
+    if cp.is_null() || cols.is_null() || beta.is_null() || n_cp == 0 || n_cp != n_beta {
+        return -1;
+    }
+    if !(n_cp == 1 || n_cp == EXT_DEGREE) {
+        return -1;
+    }
+    let cp_ids = std::slice::from_raw_parts(cp, n_cp);
+    let col_ids = std::slice::from_raw_parts(cols, n_cols);
+    let b = std::slice::from_raw_parts(beta, n_beta);
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    let n = arena.n;
+    for &c in cp_ids.iter().chain(col_ids.iter()) {
+        if c >= arena.cols.len() || arena.cols[c].len() != n {
+            return -1;
+        }
+    }
+    if n_cp == 1 {
+        let beta0 = b[0] % PU64;
+        let mut pw = beta0;                                  // beta^(c+1)
+        let mut acc = vec![0u64; n];
+        for &c in col_ids {
+            let col = &arena.cols[c];
+            for j in 0..n {
+                acc[j] = addf(acc[j], mulf(pw, col[j]));
+            }
+            pw = mulf(pw, beta0);
+        }
+        let cpc = &mut arena.cols[cp_ids[0]];
+        for j in 0..n {
+            cpc[j] = addf(cpc[j], acc[j]);
+        }
+        return 0;
+    }
+    let mut beta_e = EXT_ZERO;
+    for d in 0..EXT_DEGREE {
+        beta_e[d] = b[d] % PU64;
+    }
+    let mut pw = beta_e;
+    let mut acc: Vec<Vec<u64>> = (0..EXT_DEGREE).map(|_| vec![0u64; n]).collect();
+    for &c in col_ids {
+        let col = &arena.cols[c];
+        for j in 0..n {
+            let term = e_scalar(pw, col[j]);
+            for d in 0..EXT_DEGREE {
+                acc[d][j] = addf(acc[d][j], term[d]);
+            }
+        }
+        pw = e_mul(pw, beta_e);
+    }
+    for d in 0..EXT_DEGREE {
+        let cpc = &mut arena.cols[cp_ids[d]];
+        for j in 0..n {
+            cpc[j] = addf(cpc[j], acc[d][j]);
+        }
+    }
+    0
+}
+
 // ALGHASH2-backend Merkle (the DEFAULT backend): leaf = hashn([2, DOM_LEAF, x]); inner = hashn([9, DOM_NODE,
 // a(4), b(4)]) — byte-identical to alghash2.leaf/node (merkle.commit over backend.ALGHASH2).
 #[inline]

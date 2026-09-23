@@ -77,8 +77,8 @@ function lanes32(hex) {                       // stark.statement_lanes: 32 diges
   for (let i = 0; i < 32; i += 4) out.push(BigInt(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16)) + (BigInt(b[i + 3]) << 24n));
   return out;
 }
-export function airDigest(T, W, maxDegree, nTransitions, boundaries, periodic) {
-  const parts = [_TE.encode("nado-air-v1"), i8le(T), i8le(W), i8le(maxDegree), i8le(nTransitions), i8le(boundaries.length),
+export function airDigest(T, W, blowup, nTransitions, boundaries, periodic) {   // blowup = 2·nextPow2(maxDegree), as Python
+  const parts = [_TE.encode("nado-air-v1"), i8le(T), i8le(W), i8le(blowup), i8le(nTransitions), i8le(boundaries.length),
                  i8le(periodic ? periodic.length : 0)];
   for (const [row, col, val] of boundaries) parts.push(i8le(row), i8le(col), i8le(val));
   if (periodic) for (const pc of periodic) { parts.push(i8le(pc.length)); for (const v of pc) parts.push(i8le(v)); }
@@ -115,7 +115,10 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
     if (rules.round2) t.absorb("aux", ...lanes32(b2b32(_TE.encode(String(aux)))));   // P2: digest lanes, exact
     else t.absorb("aux", String(aux));
   }
-  if (rules.round2) t.absorb("air", ...lanes32(airDigest(T, W, maxDegree, transitions.length, boundaries, periodic)));
+  // The AIR identity hashes the LDE BLOWUP (stark.air_digest's third field), not max_degree: they differ for
+  // every real circuit (7 vs 16 for the join-splits), and passing maxDegree here diverged the transcript from
+  // the node's under round 2 — found by the cross-check the day before the gate.
+  if (rules.round2) t.absorb("air", ...lanes32(airDigest(T, W, blowup, transitions.length, boundaries, periodic)));
   const colRoots = [], colMlayers = [];
   for (let c = 0; c < W; c++) {
     const [root, ml] = merkle.commit(colLde[c]);
@@ -130,6 +133,19 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   for (let i = 0; i < transitions.length + boundaries.length; i++) alphas.push(useExt ? t.challengeExt() : t.challenge());
   const cp = composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, boundaries, alphas, useExt);
   _mk("composition (17 constraints)");
+  // P1 (PROOF_TRACE_LDT_HEIGHT, stark.trace_batch_add): the trace columns ride into FRI with the composition as
+  // sum_c beta^(c+1) f_c(x), beta drawn right after the alphas. The node adds the same term at every query
+  // point, so a proof made without it is refused at the gate (and one made with it, below the gate).
+  if (rules.traceLdt) {
+    const beta = useExt ? t.challengeExt() : t.challenge();
+    let pw = beta;
+    for (let c = 0; c < W; c++) {
+      const col = colLde[c];
+      if (useExt) { for (let j = 0; j < N; j++) cp[j] = F.extAdd(cp[j], F.extScalarMul(pw, col[j])); pw = F.extMul(pw, beta); }
+      else { for (let j = 0; j < N; j++) cp[j] = F.add(cp[j], F.mul(pw, col[j])); pw = F.mul(pw, beta); }
+    }
+    _mk("trace batch (P1)");
+  }
 
   const friBlowup = N / degBound;
   const friProof = fri.prove(cp, OFF, friBlowup, numQueries, t, useExt);

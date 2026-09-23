@@ -41,9 +41,10 @@ assert Z.to_hex(cm_in) == d["cm_in"], "JS commit != znote.commit"
 assert Z.to_hex(Z.nullifier(nsk, rho)) == d["nf"], "JS nullifier != znote.nullifier"
 assert Z.to_hex(SW.tree_root([cm_in])) == d["pool_root"] == d["root"], "JS tree != shielded_wide tree"
 _r2 = os.environ.get("NADO_PROOF_ROUND2") == "1"
-with _stk.with_rules(_stk.Rules(True, True, True, _r2)):
+_ldt = os.environ.get("NADO_PROOF_TRACE_LDT") == "1"
+with _stk.with_rules(_stk.Rules(True, True, True, _r2, _ldt)):
     ok, why = J3.verify_transfer(p, d["root"], d["nf"], d["cm1"], d["cm2"], 0, 0, lambda r: True)
 assert ok, "Python REJECTED the JS on-device joinsplit3 proof: " + why
-print("joinsplit3 (JS on-device wide proof, Python verify, round2=%s, JS prove %s ms): OK" % (_r2, d["ms"]))
+print("joinsplit3 (JS on-device wide proof, Python verify, round2=%s, trace_ldt=%s, JS prove %s ms): OK" % (_r2, _ldt, d["ms"]))
 PY
 echo "ALL PASSED — browser wide join-split prover ≡ Python (znote algebra + joinsplit3 circuit)"

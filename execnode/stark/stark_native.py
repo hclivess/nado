@@ -115,7 +115,9 @@ def available():
                                           ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t],
                          ctypes.c_int64),
                         ("sp_fri_size", [], ctypes.c_int64),
-                        ("sp_fri_serialize", [ctypes.c_void_p], ctypes.c_int64)):
+                        ("sp_fri_serialize", [ctypes.c_void_p], ctypes.c_int64),
+                        ("sp_batch_add", [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                                          ctypes.c_void_p, ctypes.c_size_t], ctypes.c_int64)):
                     if hasattr(lib, _nm):
                         getattr(lib, _nm).argtypes = _at
                         if _rt is not None:
@@ -383,6 +385,27 @@ def fold_ext(cols, offset, alpha):
     return cid
 
 
+def batch_add(cp_ids, col_ids, beta):
+    """P1 (PROOF_TRACE_LDT_HEIGHT): cp += sum_c beta^(c+1) * col_c in the arena, in place (sp_batch_add).
+    `cp_ids` is the one base composition id or the D extension limb ids; `beta` a base int or an extension
+    tuple to match. Bit-identical to stark.trace_batch_add. A library without the export is STALE: rebuild."""
+    _guard()
+    if not hasattr(_LIB, "sp_batch_add"):
+        from execnode.stark import native_guard as _ng
+        raise _ng.NativeMissing("sp_batch_add missing — native/starkprove predates PROOF_TRACE_LDT_HEIGHT; "
+                                "rebuild with `cargo build --release`")
+    from execnode.stark import extf as ext2
+    limbs = list(ext2.lift(beta)) if len(cp_ids) > 1 else [int(beta) % _P]
+    if len(limbs) != len(cp_ids):
+        raise ValueError("batch_add: beta width does not match the composition width")
+    cp_a = (ctypes.c_size_t * len(cp_ids))(*[int(c) for c in cp_ids])
+    col_a = (ctypes.c_size_t * max(1, len(col_ids)))(*[int(c) for c in col_ids])
+    b_a = (ctypes.c_uint64 * len(limbs))(*[int(x) % _P for x in limbs])
+    P = lambda x: ctypes.cast(x, ctypes.c_void_p)
+    if int(_LIB.sp_batch_add(P(cp_a), len(cp_ids), P(col_a), len(col_ids), P(b_a), len(limbs))) != 0:
+        raise RuntimeError("sp_batch_add failed")
+
+
 def stark_OFF():
     from execnode.stark import stark
     return stark.OFF % _P
@@ -591,6 +614,12 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         else:
             alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
             cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
+        # P1 (PROOF_TRACE_LDT_HEIGHT): the trace batch, in the arena — main columns are ids 0..W-1 and the aux
+        # columns follow them (lde_column appends in order), so the transcript-ordered column list is 0..Wtot-1.
+        _beta = stark.trace_batch_beta(t, _rules, _ext)
+        if _beta is not None:
+            from execnode.stark import extf as _efb
+            batch_add([cp_col + d for d in range(_efb.DEGREE)] if _ext else [cp_col], list(range(Wtot)), _beta)
 
         fri_blowup = N // deg_bound
         # HYBRID FRI. FRI's per-layer Merkle commitments hash EXTENSION leaves (alghash2.leaf_ext, a distinct

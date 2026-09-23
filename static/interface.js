@@ -9597,9 +9597,9 @@ async function _proofRulesNow() {
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
     const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
     _shieldWide = at("shield_wide");                                  // keep the pool choice in step with the proof rules
-    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2") };
+    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt") };
   } catch (e) {
-    return { bind: false, blockSelector: false, round2: false };   // an old node publishes no gates and judges by the old rules
+    return { bind: false, blockSelector: false, round2: false, traceLdt: false };   // an old node publishes no gates and judges by the old rules
   }
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;

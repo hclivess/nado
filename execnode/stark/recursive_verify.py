@@ -177,9 +177,20 @@ def _per_of(periodic, periodic_list, i):
     return periodic or []
 
 
+def _refuse_trace_ldt():
+    """P1 (PROOF_TRACE_LDT_HEIGHT): an inner proof made under the trace batch draws beta after its alphas and
+    its layer-0 seam value carries sum_c beta^(c+1) f_c(x); this fold's transcript replay (_fs) and its comp
+    AIRs (comp_verify / rowcomp_verify) know neither. Until they do, folding under the rule would prove a
+    statement the inner proofs do not make — so refuse loudly rather than build an unverifiable bundle.
+    SETTLE_PROOF_RECURSIVE is off, so no live path reaches here; the debt is in SCHEDULED_CLEANUPS.md."""
+    return stark.current_rules().trace_ldt
+
+
 def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUERIES, periodic=None,
           num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None, out_backend=None,
           statement_list=None):
+    if _refuse_trace_ldt():
+        raise NotImplementedError("the K->1 fold does not carry the trace low-degree batch (PROOF_TRACE_LDT_HEIGHT)")
     """Produce ONE recursion bundle {fold, fold_public, comp, comp_public, row_mode} that authoritatively
     re-verifies ALL of `stark_proofs` (each built with backend=RECURSION; column- or row-committed — detected
     from the proof; two-phase AIRs pass num_challenges/num_aux/periodic). `stark_proofs` may be one proof or a
@@ -262,6 +273,8 @@ def _chunk(points, size):
 def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=stark.NUM_QUERIES, periodic=None,
            num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None,
            num_queries_inner=None, out_backend=None, statement_list=None):
+    if _refuse_trace_ldt():
+        return False, "the K->1 fold does not carry the trace low-degree batch (PROOF_TRACE_LDT_HEIGHT): refused"
     """AUTHORITATIVE verification of K inner proofs from their PUBLIC PARTS alone (`public_part(proof)` — full
     proofs are also accepted and reduced). Re-derives every proof's Fiat-Shamir challenges + query positions;
     verifies the FRI low-degree half against a verifier-built schedule (with the layer-0 seam values pinned as

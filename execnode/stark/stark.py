@@ -51,9 +51,13 @@ from contextlib import contextmanager as _cm
 #                   periodic tables unless a statement digest already binds them) is absorbed before the roots
 #                   (P3/Z8); a string `aux` is absorbed as digest lanes, never by byte sum (P2); every Merkle
 #                   opening path is exactly log2(N) long (P4); a settle proof's pre_contracts keys are canonical (A4).
-Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2")
-RULES_STRICT = Rules(True, True, True, True)      # every pin on: the default when nothing set them
-RULES_LEGACY = Rules(False, False, False, False)  # below every gate: what every node accepted before 2026-09-23
+#   trace_ldt       PROOF_TRACE_LDT_HEIGHT (P1): the trace columns enter FRI with the composition, as the batch
+#                   sum_c beta^(c+1) f_c(x) with beta drawn after the alphas; the verifier adds the same term at
+#                   every query point. Defaults to False so a four-field Rules(...) written before the gate still
+#                   constructs (it names the pre-gate format); RULES_STRICT carries it on.
+Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2 trace_ldt", defaults=(False,))
+RULES_STRICT = Rules(True, True, True, True, True)         # every pin on: the default when nothing set them
+RULES_LEGACY = Rules(False, False, False, False, False)   # below every gate: what every node accepted before 2026-09-23
 _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 
 
@@ -63,12 +67,13 @@ def rules_for_height(height):
     which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
     if height is None:
         return RULES_STRICT
-    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT
+    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT
     h = int(height)
     bind = h >= int(PROOF_BIND_HEIGHT)
     return Rules(pin_fri_domain=bind, bind_statement=bind,
                  in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)),
-                 round2=(h >= int(REVIEW_R2_HEIGHT)))
+                 round2=(h >= int(REVIEW_R2_HEIGHT)),
+                 trace_ldt=(h >= int(PROOF_TRACE_LDT_HEIGHT)))
 
 
 def current_rules():
@@ -92,6 +97,43 @@ def rules_at(height):
     Contexts are per thread: a worker thread or a child process must enter its own (see the three sites)."""
     with with_rules(rules_for_height(height)):
         yield
+
+
+def trace_batch_beta(t, rules, ext):
+    """P1 (PROOF_TRACE_LDT_HEIGHT): the trace low-degree batch challenge, drawn from the transcript right AFTER
+    the constraint alphas — one draw, the columns take its powers. None below the gate. Every prover
+    (stark.prove, stark_native.prove, the wallet's stark.js) and every verifier draws it at this position."""
+    if not rules.trace_ldt:
+        return None
+    return t.challenge_ext() if ext else t.challenge()
+
+
+def trace_batch_add(cp, col_lde, W, N, beta, ext):
+    """cp[j] += sum_{c < W} beta^(c+1) * col_lde[c][j], in place — the prover's half of P1. Bit-identical to
+    native/starkprove sp_batch_add. Under extension alphas cp and beta are extension-valued, the columns base."""
+    pw = beta
+    for c in range(W):
+        col = col_lde[c]
+        if ext:
+            for j in range(N):
+                cp[j] = ext2.add(cp[j], ext2.scalar_mul(pw, col[j]))
+            pw = ext2.mul(pw, beta)
+        else:
+            for j in range(N):
+                cp[j] = F.add(cp[j], F.mul(pw, col[j]))
+            pw = F.mul(pw, beta)
+
+
+def trace_batch_point(row, beta, ext):
+    """sum_c beta^(c+1) * row[c] — the verifier's half of P1 at one opened row (every main and aux column)."""
+    acc = ext2.ZERO if ext else 0
+    pw = beta
+    for v in row:
+        if ext:
+            acc = ext2.add(acc, ext2.scalar_mul(pw, int(v) % F.P)); pw = ext2.mul(pw, beta)
+        else:
+            acc = F.add(acc, F.mul(pw, int(v) % F.P)); pw = F.mul(pw, beta)
+    return acc
 
 
 def statement_lanes(statement):
@@ -698,6 +740,11 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
               for _ in range(len(transitions) + len(boundaries))]
     cp = _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
                       challenges, ext_alphas=_ext_a)
+    # P1 (PROOF_TRACE_LDT_HEIGHT): the trace columns ride into FRI with the composition. Drawn AFTER the alphas
+    # (the verifier replays the same order), over every main and aux column (W is the total here).
+    _beta = trace_batch_beta(t, _rules, _ext_a)
+    if _beta is not None:
+        trace_batch_add(cp, col_lde, W, N, _beta, _ext_a)
 
     fri_blowup = N // deg_bound
     # RECURSION-DESTINED PROOFS STAY BASE-FIELD (item 14 of the ext-challenge port). The in-circuit FRI
@@ -828,6 +875,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 t.absorb(r)
         alphas = [(t.challenge_ext() if _ext_a else t.challenge())
                   for _ in range(len(transitions) + len(boundaries))]
+        _beta = trace_batch_beta(t, _rules, _ext_a)          # P1: same position as every prover
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
@@ -1072,6 +1120,10 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
                 cp = _add(cp, _combine(a, F.sub(cur_row[col], val), F.inv(F.sub(x, pt))))
+            if _beta is not None:
+                # P1: the opened row's own batch term. A column that is not low-degree cannot survive FRI
+                # once it is inside the polynomial FRI tests, whatever the composition looks like pointwise.
+                cp = _add(cp, trace_batch_point(cur_row, _beta, _ext_a))
             _claim = q["steps"][0]["lo"]
             if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"

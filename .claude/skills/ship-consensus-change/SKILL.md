@@ -145,6 +145,12 @@ real epoch prove+verify (native prover, aux columns, row commit) BEFORE the batc
 `Transcript(DOMAIN_STARK` replay (`recursive_verify._fs`, `recursion_depth`, the wallet's `stark.js`) and give
 each the same prologue or a loud refusal; (4) "insufficient proof-of-work" in a verify = the two transcripts
 diverged before the grind, look at absorbs, not at the nonce.
+(5) RE-RUN THE BROWSER CROSS-CHECK AFTER EVERY PROLOGUE EDIT, UNDER EVERY RULE FLAG. The round-2 commit changed
+Python's air_digest from max_degree to blowup after the wallet's stark.js had been written against max_degree,
+and the commit still claimed "crosscheck both ways"; the wallet would have been unable to prove from block
+214000. It was caught only because the next gate's cross-check was run with round2=1 too (2026-09-23 night).
+`NADO_PROOF_ROUND2=1 NADO_PROOF_TRACE_LDT=1 tests/joinsplit2_js_crosscheck.sh` (and joinsplit3) is the check;
+a claim about the wallet that this did not produce is not a claim.
 
 ## 10. A prover that mirrors the chain must be tested AGAINST the chain, not against itself
 

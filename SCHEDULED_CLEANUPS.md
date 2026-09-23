@@ -13,6 +13,18 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-09-23 — PROOF_TRACE_LDT_HEIGHT (216000): the K->1 fold must learn the trace batch BEFORE SETTLE_PROOF_RECURSIVE flips
+
+`protocol.PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1` (review 2026-09-23, P1). From the
+gate every STARK's FRI input is the composition PLUS `sum_c beta^(c+1) f_c(x)` over the trace columns
+(`stark.trace_batch_add`, `sp_batch_add`), with beta drawn after the alphas. `recursive_verify.prove/verify`
+REFUSE under the rule (`_refuse_trace_ldt`): the fold's transcript replay (`_fs`) draws no beta and its comp AIRs
+(`comp_verify`, `rowcomp_verify`, and the arena's fold kernels) recompute the layer-0 seam without the term.
+Harmless today because `SETTLE_PROOF_RECURSIVE` is False (activation requires a reroll) and the settler folds only
+when it is on. **Owed before that flag flips**: draw beta in `_fs`, add the batch of the opened row to the comp
+AIRs' expected layer-0 value (an extension-scalar accumulation over the row cells), and delete the refusal. Pinned
+by tests/test_proof_trace_ldt.py (`fold refuses under the rule`). At the reroll the gate is 1; the debt stays.
+
 ## 2026-09-02 — gen-24 DIV_CARRY_METER_EPOCH (600): delete at the gen-25 reroll
 
 `protocol.DIV_CARRY_METER_EPOCH = 600 if CHAIN_GENERATION == 24 else 0`, read by

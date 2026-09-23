@@ -94,3 +94,13 @@ Verify an upgrade by equality, not by a marker: fetch `/exec/contract?cid=<cid>`
 `code` with `execnode.games.<name>.build()` after a JSON round trip. The upgrade lands ~5-6 minutes after
 submit (finality plus exec apply). And take the cid from `/exec/contracts` matched by METHOD SET, not from
 the wallet page's constant — reserve's constant named a contract the exec node no longer held.
+
+## A Rust edit is a fleet-wide rebuild: commit it promptly, and expect the old kernel until the restart
+
+Editing anything under `native/<crate>/src` makes the running node's health line say `Native STALE
+['native/<crate>'] — working tree has uncommitted edits, refusing to auto-rebuild` every 10 s until the edit is
+committed, even after you ran `cargo build --release` yourself (2026-09-23, starkprove). Nothing stops: the exec
+node keeps the `.so` it loaded at start and only picks up the rebuilt one at its next restart, which the push
+causes. On every other node the updater rebuilds the crate before restarting (`_rebuild_native_if_changed`, ~1
+min for starkprove), so allow for that in the wave. Before committing, check `git status native/` — cargo may
+rewrite a tracked `Cargo.lock`; restore HEAD's copy rather than committing the rewrite.

@@ -36,7 +36,7 @@ const bnd = [[0, J2.S0, A.DOM_OWNER], [0, J2.S1, A.ivVal()], [0, J2.AB, A.DOM_OW
   [total, J2.ROOTREG, bt.root], [total, J2.NFREG, bt.nf], [total, J2.CMOUT1, bt.cm1], [total, J2.S0, bt.cm2]];
 // NADO_PROOF_ROUND2=1 exercises the round-2 transcript prologue (REVIEW_R2_HEIGHT); the Python side verifies
 // under the matching rules, so the crosscheck covers both formats the node will judge.
-const rules = { round2: process.env.NADO_PROOF_ROUND2 === "1" };
+const rules = { round2: process.env.NADO_PROOF_ROUND2 === "1", traceLdt: process.env.NADO_PROOF_TRACE_LDT === "1" };
 const proof = sstark.prove(bt.tr, J2.transitions(), bnd, J2.periodic(bt.T, bt.D), J2.MAX_DEGREE, sstark.NUM_QUERIES, null, rules);
 proof.D = bt.D;
 const ser = (x) => typeof x === "bigint" ? x.toString()

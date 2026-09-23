@@ -238,7 +238,20 @@ leaked or been drained yet; every finding below is a property of the code.
   shape. Fix: batch the trace LDEs into FRI (random linear combination, or DEEP-ALI with an OOD point from
   GF(p³) and OOD trace values absorbed before the FRI challenges) and set the FRI degree bound to what the
   AIR needs.
-- **P2 — HIGH on the shielded-contract path, verified by reading. The alghash2 transcript binds a string by
+  > **Shipped 2026-09-23 behind `PROOF_TRACE_LDT_HEIGHT = 216000` (block 1 at the reroll)** as the batched form:
+  > every trace and aux column enters the one FRI run with the composition as `sum_c beta^(c+1) f_c(x)`, beta drawn
+  > after the alphas (`stark.trace_batch_beta/trace_batch_add/trace_batch_point`, `sp_batch_add` in the arena,
+  > `static/stark/stark.js`). The FRI degree bound stays `next_pow2(md)·T`: a column of degree in [T, kT) still
+  > yields a valid trace on the domain (constraints read domain points only), and the classic ALI theorem then
+  > covers the shape. `tests/test_proof_trace_ldt.py` builds the pointwise-inverse forgery (v(0) = 0 pinned,
+  > v·w = 1 proven) and shows it VERIFYING below the gate and refused at it; the native prover matches Python bit
+  > for bit under the rule. The DEEP form (OOD point, exact degree bound, ZK randomiser) is where Z1 goes; the
+  > K->1 fold refuses under the rule until it carries the term (SCHEDULED_CLEANUPS.md; SETTLE_PROOF_RECURSIVE off).
+  > Found while cross-checking it: the wallet's round-2 prologue (`static/stark/stark.js airDigest`) hashed
+  > max_degree where the node hashes the blowup — a browser proof would have been refused from REVIEW_R2_HEIGHT
+  > (214000). The round-2 commit's "cross-checked both ways" was wrong; fixed in the same commit as P1, and the
+  > cross-check now runs under both flags.
+, verified by reading. The alghash2 transcript binds a string by
   its byte sum.** `backend.py:120-125` encodes `str` as `sum(bytes) % P`; `appnote_circuit` uses this
   backend and `shielded_state.py:411-421` passes `aux = str(withdraw_addr)` to bind the exit destination.
   An attacker grinds an address with the victim's byte sum (~2,400 classes), copies the proof, swaps the

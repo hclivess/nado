@@ -36,9 +36,10 @@ root, nf, cm1, cm2 = int(d["root"]), int(d["nf"]), int(d["cm1"]), int(d["cm2"])
 import os
 from execnode.stark import stark as _stk
 _r2 = os.environ.get("NADO_PROOF_ROUND2") == "1"
-with _stk.with_rules(_stk.Rules(True, True, True, _r2)):        # the rules the JS prover was told to use
+_ldt = os.environ.get("NADO_PROOF_TRACE_LDT") == "1"
+with _stk.with_rules(_stk.Rules(True, True, True, _r2, _ldt)):        # the rules the JS prover was told to use
     ok, why = J2.verify_transfer(p, root, nf, cm1, cm2, 0, 0, lambda r: True)
 assert ok, "Python REJECTED the JS on-device joinsplit2 proof: " + why
-print("joinsplit2 (JS on-device proof + range gadget, Python verify, round2=%s): OK" % _r2)
+print("joinsplit2 (JS on-device proof + range gadget, Python verify, round2=%s, trace_ldt=%s): OK" % (_r2, _ldt))
 PY
 echo "ALL PASSED — browser 2-output prover ≡ Python (C-3 range gadget included)"
