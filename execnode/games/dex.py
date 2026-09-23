@@ -45,6 +45,9 @@ POW, PPOOL, PSH, PPN, PPT = 5, 6, 7, 10, 11
 UNIT = 10 ** 8                     # 10^8 raw = 0.01 NADO — see the ARITHMETIC note
 BOUND = 1 << 31                    # ceiling on every reserve, share count and stated amount
 ID_MAX = 1 << 32                   # ids are slot keys: field·2^32 + id
+MIN_SEED = 1000                    # units each side must stage to SEED a pool (review 2026-09-23, medium): a
+                                   # 1-unit seed makes sup = 1, so every later joiner's share rounds to 0 or 1
+                                   # and the seeder captures the rounding — the first-provider inflation shape
 
 # 30 bps to the LPs: the full input joins the reserve, but only FEE_NUM/FEE_DEN of it prices the output,
 # so the difference stays in the pool and every share appreciates.
@@ -74,6 +77,7 @@ def build():
 
     # fundn(posId, pid, units)[NADO] — stage NATIVE liquidity into your position, binding it on first use.
     with c.method("fundn") as m:
+        m.require(m.arg(1) < ID_MAX)                   # C2 (2026-09-23): the pool id is a slot key too
         pos = m.arg(0)
         m.require(pos > 0)
         m.require(pos < ID_MAX)
@@ -97,6 +101,8 @@ def build():
 
     # fundt(posId, units)[asset] — stage TOKEN liquidity into an already-bound position.
     with c.method("fundt") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
+        m.require(m.arg(1) < ID_MAX)
         pos = m.arg(0)
         m.require(m.slot(POW, pos).get() == m.caller())
         m.require(m.slot(PPOOL, pos).get() == m.arg(1))
@@ -112,6 +118,8 @@ def build():
     # refund(posId) — take back BOTH pending sides. Staged funds are always the depositor's; without this
     # a position funded on one side only would strand them forever.
     with c.method("refund") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
+        m.require(m.arg(1) < ID_MAX)
         pos = m.arg(0)
         m.require(m.slot(POW, pos).get() == m.caller())
         m.require(m.slot(PPOOL, pos).get() == m.arg(1))
@@ -131,6 +139,8 @@ def build():
     #   after:         the NATIVE side sets the mint and the token side must COVER its proportional part;
     #                  unused token stays pending (refundable) rather than being silently absorbed.
     with c.method("join") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
+        m.require(m.arg(1) < ID_MAX)
         # REGISTER BUDGET: a named temp (m.set) is pinned for the WHOLE method and only ~7 registers exist
         # (r7 is DIVMOD's). ARGS are leaves — they re-materialize into a transient register on each use and
         # pin nothing — so the pool id rides in as an arg (checked against the position) instead of being
@@ -144,6 +154,8 @@ def build():
         sup = m.set(m.slot(SUP, pid).get(), "sup")
 
         m.jnz(sup != 0, "prop")
+        m.require(m.slot(PPN, pos).get() + 1 > MIN_SEED)   # seeding needs real size on BOTH sides (MIN_SEED)
+        m.require(m.slot(PPT, pos).get() + 1 > MIN_SEED)
         m.slot(RN, pid).set(m.slot(PPN, pos).get())
         m.slot(RT, pid).set(m.slot(PPT, pos).get())
         m.slot(SUP, pid).set(m.slot(PPN, pos).get())
@@ -176,6 +188,8 @@ def build():
 
     # exit(posId, shares) — burn shares, take the pro-rata slice of BOTH reserves.
     with c.method("exit") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
+        m.require(m.arg(1) < ID_MAX)
         pos = m.arg(0)
         pid = m.arg(1)                                 # a leaf (see the REGISTER BUDGET note in join)
         m.require(m.slot(POW, pos).get() == m.caller())
@@ -210,6 +224,7 @@ def build():
     # swapn(pid, units, minOut)[NADO] — sell NADO for the pool's token.
     #   out = RT·dxf // (RN + dxf),  dxf = dx·9970//10000
     with c.method("swapn") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
         pid = m.arg(0)
         m.require(m.slot(AST, pid).get() != 0)
         m.require(m.slot(AST, pid).get() == m.arg(3))  # asset as a checked leaf (see exit)
@@ -240,6 +255,7 @@ def build():
 
     # swapt(pid, units, minOut)[asset] — sell the pool's token for NADO. Mirror of swapn.
     with c.method("swapt") as m:
+        m.require(m.arg(0) < ID_MAX)                   # C2 (2026-09-23)
         pid = m.arg(0)
         m.require(m.slot(AST, pid).get() != 0)
         m.require(m.in_asset() == m.slot(AST, pid).get())

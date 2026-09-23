@@ -205,7 +205,7 @@ def _decomp15(v):
 
 
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
-        asset=0, selfd=0, abal=None, witness=False):
+        asset=0, selfd=0, abal=None, witness=False, meter=None):
     """Execute code[method] with r0..r7 = the first 8 args (padded); ARG reaches all of them (up to
     MAX_ARGS) by dynamic index. `caller` is a FIELD element (the alghash address
     digest — address strings never enter zkVM; the exec layer digests them at the call boundary). `storage` is
@@ -451,8 +451,12 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
             if op_name == "RET":
                 break
             pc = nxt_pc
+        if meter is not None:
+            meter["gas"] = gas                      # F4: executed steps, for the per-block budget
         return (True, ret, st, io) + ((steps,) if witness else ())
     except (ZkVMRevert, IndexError, KeyError, ZeroDivisionError):
+        if meter is not None:
+            meter["gas"] = gas
         return (False, None, storage, []) + (([],) if witness else ())
 
 

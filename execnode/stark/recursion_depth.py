@@ -48,6 +48,15 @@ def _fold_proof_fs(fold_proof, b=B.RECURSION):
     from execnode.stark import stark as _st
     _ext_outer = _st.ext_challenges_active(b)
 
+    # round2 (REVIEW_R2_HEIGHT): a fold proof's transcript now opens with its AIR identity, which includes the
+    # schedule-derived periodic tables (fri_verify._schedule_periodic_boundaries). This replay holds only the
+    # proof, not the schedule, so it cannot rebuild that prologue. The depth tree is not on the live settlement
+    # path (settlement_sparse folds through recursive_verify, which carries the prologue); refuse loudly here
+    # rather than replay a transcript that cannot match. Wiring the schedule through is the cleanup item.
+    if _st.current_rules().round2:
+        raise NotImplementedError("recursion_depth: the fold transcript replay is not available under the "
+                                  "round-2 proof rules (the schedule periodic is not held here)")
+
     def mk():
         t = Transcript(DOMAIN_STARK, backend=b)
         for r in col_roots:

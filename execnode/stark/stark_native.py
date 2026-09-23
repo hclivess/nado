@@ -545,9 +545,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             lde_column([trace[i][c] for i in range(T)], N, want_out=False)
 
         t = Transcript(DOMAIN_STARK, backend=b)
-        if aux is not None:
-            t.absorb("aux", str(aux))
+        _rules = stark.current_rules()
+        stark.absorb_aux(t, aux, _rules)                 # H-4 / P2
         stark.absorb_statement(t, statement)             # A1: same position as stark.prove / stark.verify
+        if _rules.round2:                                # P3/Z8: the TOTAL width (main + aux), as the verifier sees it
+            stark.absorb_air(t, stark.air_digest(T, W + (aux_spec["num_aux"] if aux_spec is not None else 0),
+                                                 N // T, len(transitions), boundaries,
+                                                 None if statement is not None else periodic))
         col_roots, row_roots, trees, row_trees = [], [], [], []
         if row_commit:
             tid, root = commit_rows(list(range(W)))

@@ -43,6 +43,10 @@ MOVE = f"""
     eq r5 r2
     require r5
     mov r5 r3
+    movi r6 {MAXMOVES}
+    lt r5 r6
+    require r5
+    mov r5 r3
     movi r6 2
     divmod r5 r6
     ctx r6 caller

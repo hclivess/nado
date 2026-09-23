@@ -5870,7 +5870,9 @@ function assetsWire() {
  * see an asset's supply or mintable flag, so a declared floor is only trustworthy when the registry says
  * the asset is fixed-supply AND its live supply still equals the vault's outstanding (renderVaults).
  * ------------------------------------------------------------------------------------------------- */
-const RESERVE_CID = "243abeed686b04e4d75aecee9f2d9813";   // execnode/games/reserve.py, nonce a5 (deterministic)
+const RESERVE_CID = "75ccbc64d09222c643c8f927afebbe57";   // execnode/games/reserve.py — the cid the exec node HOLDS
+                                                        // (2026-09-23: the previous constant named a contract that no
+                                                        // longer existed on the exec node, so the reserve page could not work)
 const VAULT_UNIT = 100000000n;                            // reserve.UNIT — raw per stored reserve unit
 const VAULT_MIN_NOTICE = 14400;                           // reserve.MIN_NOTICE — 1 day at 6s blocks
 const VAULT_BOUND = 1n << 31n;                            // reserve.BOUND — both reserve(UNITs) and outstanding < this
@@ -9520,7 +9522,11 @@ async function _onDeviceProve2(wit, execBase) {
   // verifier REQUIRES exactly this many + the grinding PoW (C-1), so an on-device proof must produce them or
   // it is rejected. The last arg binds the unshield withdraw_addr into the proof (H-4) so the exit can't be
   // redirected; null for a transfer.
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null);
+  // PROOF RULES BY HEIGHT (2026-09-23): the node judges a proof by the rules of the block it lands in, and
+  // publishes the gate heights in /status.proof_rules rather than have this page hard-code a number that goes
+  // stale. A proof lands above the current tip, so the rules for tip + 1 are the earliest that can apply.
+  const rules = await _proofRulesNow();
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, rules);
   proof.D = bt.D;
   const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
   const bundle = { stark: { joinsplit2: { proof: ser(proof), root: bt.root.toString(), nf: bt.nf.toString(),
@@ -9530,6 +9536,16 @@ async function _onDeviceProve2(wit, execBase) {
   const res = await _daSubmitFieldTransfer(bundle, execBase);
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
            cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
+}
+async function _proofRulesNow() {
+  try {
+    const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
+    const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
+    const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
+    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2") };
+  } catch (e) {
+    return { bind: false, blockSelector: false, round2: false };   // an old node publishes no gates and judges by the old rules
+  }
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 

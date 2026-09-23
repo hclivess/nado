@@ -96,7 +96,11 @@ def _settle():
     # pay = gs*m2/2
     L += ["slot r4 9 r0", "sload r5 r4"]                             # r5 = gs
     L += [f"movi r4 {(SC << 32) + 10}", "sload r6 r4"]                         # r6 = m2
-    L += ["mul r5 r6", "movi r4 2", "divmod r5 r4"]                  # r5 = gs*m2/2 = pay
+    # pay = gs*m2/2 WITHOUT forming gs*m2: DIVMOD's quotient window is 2^48, so a winning spin above ~3,518
+    # NADO could never settle (review 2026-09-23, medium). floor(gs*m2/2) = (gs//2)*m2 + (gs%2)*(m2//2).
+    L += ["mov r3 r6", "movi r4 2", "divmod r3 r4"]                  # r3 = m2//2
+    L += ["movi r4 2", "divmod r5 r4"]                               # r5 = gs//2, r7 = gs%2
+    L += ["mul r5 r6", "mul r7 r3", "add r5 r7"]                     # r5 = pay
     L += [f"movi r4 {(SC << 32) + 11}", "sstore r4 r5"]                        # SC[11] = pay
     L += ["slot r4 10 r0", "sload r6 r4", "pay r6 r5"]              # pay player ga
     # gr = r0stop + r1stop*64 + r2stop*4096 + 1

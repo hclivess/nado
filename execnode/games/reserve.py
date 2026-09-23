@@ -70,6 +70,7 @@ def build():
         m.require(m.arg(2) > 0)                        # supply
         m.require(m.arg(2) < BOUND)
         m.require(m.arg(3) + 1 > MIN_NOTICE)           # notice >= MIN_NOTICE, without a `ge`
+        m.require(m.arg(3) < (1 << 32))                # ...and bounded: an unbounded notice made release RANGE-revert forever
 
         # The caller STATES the reserve in UNITs and the contract checks it by MULTIPLYING. Deriving it
         # instead — `value // UNIT` — was wrong twice over: `//` is DIVMOD, whose divisor must be < 2^15
@@ -95,6 +96,7 @@ def build():
 
     # back(vid)[native] — anyone may add reserve. This is the ONLY way the floor goes up.
     with c.method("back") as m:
+        m.require(m.arg(0) < (1 << 32))                # C2 (2026-09-23): a vault id is a slot key
         vid = m.arg(0)
         m.require(_c(m, OWN, vid).get() != 0)
         m.require(m.in_asset() == 0)
@@ -108,6 +110,7 @@ def build():
 
     # redeem(vid)[asset] — burn what you sent, take amt*res//out. Floor-NEUTRAL: both terms fall together.
     with c.method("redeem") as m:
+        m.require(m.arg(0) < (1 << 32))                # C2 (2026-09-23): a vault id is a slot key
         vid = m.arg(0)
         m.require(_c(m, AST, vid).get() != 0)
         m.require(m.in_asset() == _c(m, AST, vid).get())   # the right token, and not native
@@ -132,6 +135,7 @@ def build():
     # announce(vid, amt) — owner starts the clock. Re-announcing RESTARTS it, so a pending small amount can
     # never be swapped for the whole reserve at the last second.
     with c.method("announce") as m:
+        m.require(m.arg(0) < (1 << 32))                # C2 (2026-09-23): a vault id is a slot key
         vid = m.arg(0)
         m.require(_c(m, OWN, vid).get() == m.caller())
         amt = m.set(m.arg(1), "amt")
@@ -142,6 +146,7 @@ def build():
         m.ret(amt)
 
     with c.method("cancel") as m:
+        m.require(m.arg(0) < (1 << 32))                # C2 (2026-09-23): a vault id is a slot key
         vid = m.arg(0)
         m.require(_c(m, OWN, vid).get() == m.caller())
         m.require(_c(m, PND, vid).get() > 0)
@@ -153,6 +158,7 @@ def build():
     # have taken the reserve below what was announced, and making the creator restart the wait for that would
     # punish them for the exits the notice is designed to enable.
     with c.method("release") as m:
+        m.require(m.arg(0) < (1 << 32))                # C2 (2026-09-23): a vault id is a slot key
         vid = m.arg(0)
         m.require(_c(m, OWN, vid).get() == m.caller())
         pnd = m.set(_c(m, PND, vid).get(), "pnd")

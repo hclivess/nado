@@ -4,6 +4,7 @@ import * as F from "./field.js";
 import * as merkle from "./merkle.js";
 import * as fri from "./fri.js";
 import { Transcript, DOMAIN_STARK } from "./transcript.js";
+import { b2b32, i8le, hexToBytes } from "./bhash.js";   // round-2 prologue (airDigest / aux lanes)
 
 export const OFF = F.GEN;
 export const NUM_QUERIES = fri.NUM_QUERIES;   // protocol query count (C-1), single source of truth = fri.js
@@ -65,7 +66,27 @@ function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, bou
   return cp;
 }
 
-export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = NUM_QUERIES, aux = null) {  // NUM_QUERIES from fri.js (C-1)
+// REVIEW ROUND 2 (2026-09-23, execnode/stark/stark.py absorb_aux / air_digest / absorb_air). Under `rules.round2`
+// the transcript prologue is: aux as the 8 u32 lanes of blake2b(aux) (never the raw string — the node's alghash2
+// backend hashed a string by its byte SUM), then the AIR identity: blake2b("nado-air-v1" ‖ T ‖ W ‖ maxDegree ‖
+// #transitions ‖ #boundaries ‖ #periodic ‖ each boundary (row, col, val) ‖ each periodic column (len ‖ values)),
+// every number a little-endian u64, absorbed as 8 u32 lanes. Byte-for-byte the Python layout; a proof made with
+// the wrong prologue is refused by the node at the gate, so the caller reads the gate height from /status.
+function lanes32(hex) {                       // stark.statement_lanes: 32 digest bytes -> 8 little-endian u32 ints
+  const b = hexToBytes(hex), out = [];
+  for (let i = 0; i < 32; i += 4) out.push(BigInt(b[i] | (b[i + 1] << 8) | (b[i + 2] << 16)) + (BigInt(b[i + 3]) << 24n));
+  return out;
+}
+export function airDigest(T, W, maxDegree, nTransitions, boundaries, periodic) {
+  const parts = [_TE.encode("nado-air-v1"), i8le(T), i8le(W), i8le(maxDegree), i8le(nTransitions), i8le(boundaries.length),
+                 i8le(periodic ? periodic.length : 0)];
+  for (const [row, col, val] of boundaries) parts.push(i8le(row), i8le(col), i8le(val));
+  if (periodic) for (const pc of periodic) { parts.push(i8le(pc.length)); for (const v of pc) parts.push(i8le(v)); }
+  return b2b32(...parts);
+}
+const _TE = new TextEncoder();
+
+export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = NUM_QUERIES, aux = null, rules = {}) {  // NUM_QUERIES from fri.js (C-1)
   const T = trace.length, W = trace[0].length;
   const blowup = blowupOf(maxDegree), N = blowup * T;
   const gT = F.primitiveRootOfUnity(T);
@@ -90,7 +111,11 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   const degBound = nextPow2(maxDegree) * T;
 
   const t = new Transcript(DOMAIN_STARK);
-  if (aux !== null && aux !== undefined) t.absorb("aux", String(aux));   // H-4: bind the unshield withdraw_addr
+  if (aux !== null && aux !== undefined) {                              // H-4: bind the unshield withdraw_addr
+    if (rules.round2) t.absorb("aux", ...lanes32(b2b32(_TE.encode(String(aux)))));   // P2: digest lanes, exact
+    else t.absorb("aux", String(aux));
+  }
+  if (rules.round2) t.absorb("air", ...lanes32(airDigest(T, W, maxDegree, transitions.length, boundaries, periodic)));
   const colRoots = [], colMlayers = [];
   for (let c = 0; c < W; c++) {
     const [root, ml] = merkle.commit(colLde[c]);

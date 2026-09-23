@@ -20,6 +20,7 @@ from execnode import zkvm                 # method_reads_actx (C1 rule, EXEC_RUL
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
 from execnode.shielded_state import apply_transition
+from execnode.shielded_field import TREE_DEPTH as TREE_DEPTH_FIELD
 from ops.address_ops import validate_address
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
@@ -960,6 +961,14 @@ class ExecState:
                 return f"skip field-shield: amount out of range ({amount})"
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
             with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
+                if self.rules_r2():
+                    # Z6: a duplicate commitment (sender-chosen rho) would share one leaf between two notes —
+                    # the second is a griefing lock on the first. Z4: past 2^TREE_DEPTH leaves the fixed-depth
+                    # tree silently dropped the leaf, and every later note was a permanent lock; fail closed.
+                    if self.field_pool.position(cm) is not None:
+                        return "skip field-shield: duplicate note commitment"
+                    if len(self.field_pool.commitments) >= (1 << TREE_DEPTH_FIELD):
+                        return "skip field-shield: the field pool is full"
                 self.field_pool.append(cm)
                 self.pool_value += amount                 # shielded supply (ops/invariants): escrow-backed entry
                 self._touch()
@@ -981,6 +990,18 @@ class ExecState:
             cm_outs = [int(js["cm_out"])]
         public = {"root": js.get("root"), "nullifiers": [js.get("nf")], "out_commitments": [str(c) for c in cm_outs],
                   "public_value": js.get("public_value"), "fee": js.get("fee")}
+        # Z9 (REVIEW_R2_HEIGHT): validate the exit destination BEFORE the (expensive) proof verification, the
+        # way the transparent path does. This path stored whatever string arrived, and an exit to a contract
+        # id or a malformed address is coins gone. The later missing-address check stays for the legacy rule.
+        if self.rules_r2():
+            try:
+                _pv0 = int(js.get("public_value") or 0)
+            except (TypeError, ValueError):
+                return "skip field-transfer: bad public_value"
+            if _pv0 < 0:
+                _addr0 = bundle.get("withdraw_addr")
+                if not _addr0 or not validate_address(_addr0, allow_reserved=False) or _addr0 in self.contracts:
+                    return "skip field-transfer: withdraw_addr is not a spendable account"
         ok, reason = shielded.verify_transfer(public, bundle, self.field_pool.knows_root)
         if not ok:
             return f"skip field-transfer: {reason}"
@@ -1037,6 +1058,8 @@ class ExecState:
                       "public_value": int(amount), "fee": 0}
             proof = {"inputs": [], "outputs": list(outputs)}
             with self._mutate_lock:
+                if self.rules_r2() and any(cm in self.shielded.commitments for cm in out_commitments):
+                    return "skip shield: duplicate note commitment"          # Z6 (REVIEW_R2_HEIGHT)
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
                 if ok:
                     self.pool_value += int(amount)        # shielded supply (ops/invariants)
@@ -1117,12 +1140,23 @@ class ExecState:
         return blake2b_hash(["deploy", deployer, code, nonce])[:32]
 
     # --- applying blobs --------------------------------------------------------------------------
+    def applying_height(self):
+        """The block whose blobs are being applied: `_applying` when _apply_block set it (it must, because
+        under EXEC_CTX_CURRENT_HEIGHT the cursor is advanced BEFORE the loop), else cursor + 1."""
+        h = getattr(self, "_applying", None)
+        return int(h) if h is not None else int(self.cursor) + 1
+
+    def rules_r2(self):
+        """REVIEW_R2_HEIGHT in force for the block being applied (same convention as rules_v2)."""
+        from protocol import REVIEW_R2_HEIGHT
+        return self.applying_height() >= int(REVIEW_R2_HEIGHT)
+
     def rules_v2(self):
         """EXEC_RULES_V2_HEIGHT in force for the block being applied. _apply_block advances `cursor` to h only
         AFTER applying block h's blobs, so during application the block is cursor + 1 — the same height the
         settlement prover stamps on each call (block_calls: cursor = h), so exec and proof refuse identically."""
         from protocol import EXEC_RULES_V2_HEIGHT
-        return int(self.cursor) + 1 >= int(EXEC_RULES_V2_HEIGHT)
+        return self.applying_height() >= int(EXEC_RULES_V2_HEIGHT)
 
     def apply_blob(self, payload, sender, txid):
         with self._mutate_lock:
@@ -1142,6 +1176,8 @@ class ExecState:
             if op == "deploy":
                 code = _decode_code(payload)              # raw `code` or zstd `codez`
                 rt_name = payload.get("runtime", runtimes.DEFAULT_RUNTIME)   # pluggable: which VM runs it
+                if self.rules_r2() and not isinstance(rt_name, str):
+                    return "skip: runtime must be a string"                  # F7: never store a raw non-name
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
@@ -1165,12 +1201,24 @@ class ExecState:
                     ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
+                    elif self.rules_r2() and _fx:
+                        # F8: a constructor's asset effects (an AMINT of its own token, say) were computed and
+                        # DROPPED. Stage and commit them exactly as a call's are; an illegal effect reverts the
+                        # constructor, so the contract deploys with empty state rather than half-applied effects.
+                        a_ok, _why, a_deltas, a_sup, a_meta = self.stage_asset_effects(cid, _fx)
+                        if a_ok:
+                            self.commit_asset_effects(a_deltas, a_sup, a_meta)
+                        else:
+                            storage = {}
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
                 # UPGRADABILITY (per-contract, opt-out): a contract is upgradable by its deployer unless it
                 # deploys with {"upgradable": false}. A stable contract can later renounce upgradability
                 # permanently via the `lock` op. This keeps mainnet safe (lockable/immutable) while letting a
                 # deployer iterate freely until they lock. Default True preserves the betanet workflow.
-                upgradable = payload.get("upgradable", True) is not False
+                _up = payload.get("upgradable", True)
+                # F10: only JSON `false` locked; 0, "false", "0" and "no" deployed UPGRADABLE while the deployer
+                # believed the contract locked. From REVIEW_R2_HEIGHT every false-like value locks.
+                upgradable = (_up not in (False, 0, "false", "0", "no")) if self.rules_r2() else (_up is not False)
                 self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender,
                                        "runtime": rt_name, "abi": abi if isinstance(abi, dict) else {},
                                        "upgradable": upgradable}
@@ -1246,12 +1294,13 @@ class ExecState:
                         if self.bridge.get(cid, 0) == 0:
                             self.bridge.pop(cid, None)
                         self.bridge[sender] = self.bridge.get(sender, 0) + value
+                _meter = {}
                 try:
                     ok, _ret, new_storage, payouts, effects = self._rt_run(
                         rt, c["code"], method, sender, args, c["storage"],
                         value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
                         block_hashes=self.block_hashes, asset=int(in_asset or 0),
-                        selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+                        selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), meter=_meter, **kw)
                 except Exception as e:
                     # F2: the VM raising (rather than reverting) must not keep the escrow. Below the gate the
                     # exception keeps propagating to the outer except, exactly as it always did.
@@ -1262,6 +1311,18 @@ class ExecState:
                 if not ok:
                     _refund()
                     return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
+                # F4 (REVIEW_R2_HEIGHT): a PER-BLOCK execution budget. Only GAS_LIMIT per call bounded the
+                # exec CPU a block could demand, and a 1 MiB block of cheap calls was measured at ~2 h. The
+                # steps this call executed are counted against the block's budget in tx order; a call that
+                # would take the block past it is treated as a revert (escrow refunded, nothing applied), and
+                # settlement_proofs mirrors the same count so the prover skips exactly what the chain skipped.
+                if self.rules_r2():
+                    from protocol import EXEC_BLOCK_STEP_BUDGET
+                    _used = int(getattr(self, "_block_steps", 0)) + int(_meter.get("gas", 0))
+                    if _used > int(EXEC_BLOCK_STEP_BUDGET):
+                        _refund()
+                        return f"call {cid}.{method} -> revert (block execution budget exhausted)"
+                    self._block_steps = _used
                 # A contract can only pay out what it HOLDS: reject (revert + refund) an over-pay so its balance
                 # can never go negative and no NADO is minted.
                 total_pay = sum(a for _t, a in payouts)
@@ -1641,6 +1702,9 @@ class ExecState:
                     addr = public.get("withdraw_addr")
                     if not addr:
                         return "skip: unshield missing withdraw_addr"
+                if self.rules_r2() and any(cm in self.shielded.commitments
+                                           for cm in (public.get("out_commitments") or [])):
+                    return "skip shielded_transfer: duplicate note commitment"   # Z6 (REVIEW_R2_HEIGHT)
                 ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
                 if not ok:
                     return f"skip shielded_transfer: {reason}"

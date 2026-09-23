@@ -47,8 +47,8 @@ CALL = {"code": CODE, "method": "go", "caller": "ndoAAAA" + "A" * 41, "args": []
         "timestamp": 6, "asset": 0, "selfd": 7, "slots": {}}
 
 
-def _rules(pin, bind, sel):
-    return stark.Rules(pin, bind, sel)
+def _rules(pin, bind, sel, r2=False):
+    return stark.Rules(pin, bind, sel, r2)      # round2 (REVIEW_R2_HEIGHT) is a later gate; off here
 
 
 LEGACY = _rules(True, True, False)        # the rules between PROOF_BIND_HEIGHT and this gate
@@ -80,8 +80,9 @@ def _verify(proof, io, rules):
 
 
 def t_rules_add_the_selector_at_the_gate():
-    assert stark.rules_for_height(GATE - 1) == _rules(True, True, False), "bind on, selector off"
-    assert stark.rules_for_height(GATE) == _rules(True, True, True)
+    r2 = stark.rules_for_height(GATE).round2
+    assert stark.rules_for_height(GATE - 1) == _rules(True, True, False, r2), "bind on, selector off"
+    assert stark.rules_for_height(GATE) == _rules(True, True, True, r2)
     assert stark.rules_for_height(BIND - 1) == stark.RULES_LEGACY
     assert stark.current_rules() == stark.RULES_STRICT and stark.RULES_STRICT.in_block_selector
     assert VC.num_periodic(False) == VC.NUM_PERIODIC and VC.num_periodic(True) == VC.NUM_PERIODIC + 1

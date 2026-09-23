@@ -137,7 +137,7 @@ class _ZkVM:
         return zkvm.validate_code(code)
 
     def run(self, code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
-            block_hashes=None, registry=None, asset=0, selfd=0, abal=None):
+            block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None):
         from execnode import zkvm
         from execnode.stark.field import P
         reg = registry if registry is not None else {}
@@ -150,7 +150,7 @@ class _ZkVM:
                                          timestamp=timestamp,
                                          beacons={e: v % P for e, v in (beacons or {}).items()},
                                          block_hashes={h: v % P for h, v in (block_hashes or {}).items()},
-                                         asset=asset, selfd=selfd, abal=abal)
+                                         asset=asset, selfd=selfd, abal=abal, meter=meter)
         if not ok:
             return (False, None, storage, [], [])
         # ASSET EFFECTS ride the SAME digest→address registry as payouts and revert on the same rule (see

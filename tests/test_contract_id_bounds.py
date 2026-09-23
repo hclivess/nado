@@ -40,24 +40,22 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-MODULES = "dice roulette slots mines blackjack tictactoe connect4 reversi chess stormhold scrapline hexholm pool".split()
+MODULES = ("dice roulette slots mines blackjack tictactoe connect4 reversi chess stormhold scrapline hexholm pool "
+           "holdem farkle coinflip lend bet hamster pets").split()
 CALLER = 12345                       # a field-form caller digest; any non-zero value
 ALIAS_LOW = (9 << 32) + 88           # a high half: addresses field+9's slot 88
 ALIAS_HUGE = (1 << 62) + 5           # refused by RANGE, not by the compare
 
 
 def _unguarded(mod):
-    """What build() assembled before the guard: the module's SRC with its generated methods spliced in."""
-    src = dict(mod.SRC)
-    if hasattr(mod, "_settle") and src.get("settle") is None:
-        src["settle"] = mod._settle()
-    if hasattr(mod, "_draw") and src.get("draw") is None:
-        src["draw"] = "\n".join(mod._draw())
-    if hasattr(mod, "_open") and src.get("open") is None:
-        src["open"] = "\n".join(mod._open())
-    if hasattr(mod, "_move") and src.get("move") is None:
-        src["move"] = "\n".join(mod._move())
-    return zkvmasm.assemble_contract(src)
+    """What build() assembles with the guard switched off: the same build(), with _lib.guard_ids as the
+    identity — so generated/spliced methods are covered for every module without knowing its shape."""
+    real = _lib.guard_ids
+    _lib.guard_ids = lambda src, plan: dict(src)
+    try:
+        return mod.build()
+    finally:
+        _lib.guard_ids = real
 
 
 def _plan(mod):
@@ -142,7 +140,7 @@ def t_guard_is_transparent_for_valid_ids():
         mod = importlib.import_module(f"execnode.games.{name}")
         before, after, plan = _unguarded(mod), mod.build(), _plan(mod)
         for method in plan:
-            for args in ([1, 1, 1], [7, 1, 3], [1, 2, 0]):
+            for args in ([1, 1, 1], [7, 1, 3], [1, 2, 0], [3, 5, 2]):
                 a = _run(before, method, args, value=2000)[:4]
                 b = _run(after, method, args, value=2000)[:4]
                 assert (a[0], a[1], a[2], list(a[3])) == (b[0], b[1], b[2], list(b[3])), \

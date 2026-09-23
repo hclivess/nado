@@ -117,10 +117,11 @@ def _forge(trace):
 
 
 def t_honest_toy_proof_verifies_under_both_rules():
-    pf = stark.prove(HONEST_TRACE, TRANS, BND, max_degree=2, num_queries=8)
-    assert pf["fri"]["N"] == pf["N"] and pf["fri"]["offset"] == stark.OFF, "an honest prover already satisfies P0"
+    # proven and verified under the SAME rules: later gates (A2, round2) make the transcript rule-dependent
     for rules in (LEGACY, STRICT):
         with stark.with_rules(rules):
+            pf = stark.prove(HONEST_TRACE, TRANS, BND, max_degree=2, num_queries=8)
+            assert pf["fri"]["N"] == pf["N"] and pf["fri"]["offset"] == stark.OFF, "an honest prover already satisfies P0"
             ok, why = stark.verify(pf, TRANS, BND, max_degree=2, num_queries=8)
             assert ok, f"honest proof under {rules}: {why}"
 
@@ -128,14 +129,15 @@ def t_honest_toy_proof_verifies_under_both_rules():
 def t_naive_violation_is_refused_under_both_rules():
     """The system was never broken for a LAZY forger: a violated constraint makes the composition high-degree
     and the real FRI refuses it. The finding is that a careful forger sidesteps FRI by redeclaring its domain."""
-    pf = stark.prove(BAD_TRACE, TRANS, BND, max_degree=2, num_queries=8)
     for rules in (LEGACY, STRICT):
         with stark.with_rules(rules):
+            pf = stark.prove(BAD_TRACE, TRANS, BND, max_degree=2, num_queries=8)
             ok, why = stark.verify(pf, TRANS, BND, max_degree=2, num_queries=8)
             assert not ok, f"a violated constraint must not verify under {rules}"
 
 
-_FORGED = _forge(BAD_TRACE)
+with stark.with_rules(LEGACY):
+    _FORGED = _forge(BAD_TRACE)                      # the forgery as a pre-gate prover would have built it
 
 
 def t_forgery_is_ACCEPTED_below_the_gate():
@@ -149,10 +151,11 @@ def t_forgery_is_ACCEPTED_below_the_gate():
 
 def t_forgery_is_refused_at_the_gate_naming_the_domain():
     with stark.with_rules(STRICT):
-        ok, why = stark.verify(_FORGED, TRANS, BND, max_degree=2, num_queries=8)
+        forged = _forge(BAD_TRACE)                   # built with every later prologue, so ONLY the pin refuses it
+        ok, why = stark.verify(forged, TRANS, BND, max_degree=2, num_queries=8)
         assert not ok and "FRI domain" in why, why
     # the default context is strict too: a caller that never set the rules gets the pin
-    ok, why = stark.verify(_FORGED, TRANS, BND, max_degree=2, num_queries=8)
+    ok, why = stark.verify(forged, TRANS, BND, max_degree=2, num_queries=8)
     assert not ok and "FRI domain" in why, why
 
 

@@ -136,12 +136,12 @@ REVEAL = f"""
     + ["jnz r5 @natural", "slot r4 12 r0", "movi r6 2", "sstore r4 r6",     # gf=2
        "slot r4 11 r0", "movi r6 0", "sstore r4 r6", "ret r0",             # gh=0
        "natural:",
-       "slot r4 9 r0", "sload r3 r4", "movi r6 5", "mul r3 r6", "movi r6 2", "divmod r3 r6",  # pay = stake*5/2
+       "slot r4 9 r0", "sload r3 r4", "mov r6 r3", "movi r5 2", "divmod r6 r5", "add r3 r3", "add r3 r6",  # pay = stake*5/2
        "slot r4 10 r0", "sload r6 r4", "pay r6 r3",                         # pay player
        # bank: release cover tc -= stake*3/2 ; tp -= (pay - stake) ; tk -= (pay - stake)
        "slot r4 7 r0", "sload r1 r4",                                       # t
        "slot r4 9 r0", "sload r2 r4",                                       # stake
-       "mov r5 r2", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",  # cover=stake*3/2
+       "mov r5 r2", "mov r6 r2", "movi r4 2", "divmod r6 r4", "add r5 r6",  # cover=stake*3/2
        "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tc -= cover
        "mov r5 r3", "sub r5 r2",                                            # net = pay - stake
        "slot r4 2 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tk -= net
@@ -217,7 +217,7 @@ SETTLE = f"""
     # bank: t ; tc -= cover(stake*3/2) ; tp += stake - payout ; tk += stake - payout
     + ["slot r4 7 r0", "sload r1 r4",                                       # t
        "slot r4 9 r0", "sload r3 r4",                                       # stake
-       "mov r5 r3", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",  # cover
+       "mov r5 r3", "mov r6 r3", "movi r4 2", "divmod r6 r4", "add r5 r6",  # cover
        "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",          # tc -= cover
        f"movi r4 {_s(8)}", "sload r2 r4", "mov r5 r3", "sub r5 r2",         # stake - payout
        "slot r4 2 r1", "sload r6 r4", "add r6 r5", "sstore r4 r6",          # tk += (stake-payout)
@@ -257,10 +257,10 @@ SRC = {
         notb r5
         require r5
         mov r5 r3
-        movi r6 3
-        mul r5 r6
-        movi r6 2
-        divmod r5 r6
+        mov r6 r3
+        movi r4 2
+        divmod r6 r4
+        add r5 r6
         slot r4 4 r1
         sload r6 r4
         add r6 r5
@@ -389,10 +389,10 @@ SRC = {
         slot r4 9 r0
         sload r3 r4
         mov r5 r3
-        movi r6 3
-        mul r5 r6
-        movi r6 2
-        divmod r5 r6
+        mov r6 r3
+        movi r4 2
+        divmod r6 r4
+        add r5 r6
         slot r4 4 r1
         sload r6 r4
         sub r6 r5
@@ -449,7 +449,7 @@ def _draw():
           "bust:",
           # lose: release cover, bank keeps stake. t=gg ; tc -= cover ; tp += stake ; tk += stake
           "slot r4 7 r0", "sload r1 r4", "slot r4 9 r0", "sload r3 r4",
-          "mov r5 r3", "movi r6 3", "mul r5 r6", "movi r6 2", "divmod r5 r6",   # cover
+          "mov r5 r3", "mov r6 r3", "movi r4 2", "divmod r6 r4", "add r5 r6",   # cover
           "slot r4 4 r1", "sload r6 r4", "sub r6 r5", "sstore r4 r6",           # tc -= cover
           # no tp change: deal already put the stake in the pot, and a bust pays the player nothing.
           "slot r4 2 r1", "sload r6 r4", "add r6 r3", "sstore r4 r6",           # tk += stake

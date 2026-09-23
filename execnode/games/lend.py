@@ -57,6 +57,7 @@ Methods: offer(id,principal,interest,collateral,duration)[principal] · cancel(i
   views: claimable_of(id,addr) · state_of(id) · due_of(id).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 
 LN, LR, BW, PR, IT, CO, DR, DL, ST, LC, BC = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 LLIST = 40
@@ -138,8 +139,10 @@ OFFER = "\n".join(
     # COLLATERAL MUST EXCEED PRINCIPAL. This is the whole incentive: repaying must be cheaper than walking
     # away, or the "loan" is just a sale and the lender is guaranteed to be the one holding the loss.
     + ["movi r1 3", "arg r2 r1", "mov r5 r3", "lt r5 r2", "require r5"]
-    # duration (arg 4) > 0
+    # duration (arg 4) > 0, and < 2^32 blocks: an unbounded duration made repay/default/claim RANGE-revert
+    # forever (review 2026-09-23, medium) — the loan could be taken but never closed.
     + ["movi r1 4", "arg r2 r1", "movi r5 0", "lt r5 r2", "require r5"]
+    + ["movi r1 4", "arg r2 r1", f"movi r5 {1 << 32}", "lt r2 r5", "require r2"]
     # persist terms
     + _store(PR, "r3")
     + ["movi r1 2", "arg r5 r1"] + _store(IT, "r5")
@@ -265,4 +268,7 @@ ABI = {
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("cancel", "take", "repay", "default", "claim", "claimable_of", "state_of", "due_of")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

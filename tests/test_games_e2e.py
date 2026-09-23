@@ -874,11 +874,17 @@ def t_pets():
         loser = pb if a_wins else pa
         assert rd(ptz.WD, bid) == (loser if dies else 0), "death differential"
         assert rd(ptz.OW, loser) == rd(ptz.OW, rd(ptz.WW, bid)), "loser claimed"
-        # gift back so pairings survive (the test drives both keys)
+        # gift back so pairings survive (the test drives both keys). C4 (review 2026-09-23): a pet in a live
+        # battle cannot be transferred until its EX lock lapses, so wait it out — and feed first, since the
+        # wait would otherwise starve it — exactly what a real owner has to do now.
         back = A if loser == pa else B
         wo = st.zk_addrs.get(str(rd(ptz.OW, loser)))
-        if rd(ptz.FU, loser) > st.cursor and wo != back:
-            call("transfer", [loser, back], None, wo)
+        if wo != back:
+            st.cursor = max(st.cursor, rd(ptz.EX, loser))
+            call("feed", [loser], 5 * 10**9, wo)
+            if rd(ptz.FU, loser) > st.cursor:
+                r_ = call("transfer", [loser, back], None, wo)
+                assert "ok" in r_, f"gift back after the lock lapsed: {r_}"
         fights += 1
     assert fights >= 3, f"only {fights} fights"
     # marketplace + naming (fresh pets so they're alive)

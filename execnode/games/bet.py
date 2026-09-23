@@ -39,6 +39,7 @@ Methods: create_market(m,nout,lock,deadline,desc,source,ev,thr,r0,r1,r2) · bet(
   void(m) · claim(m) · views: claimable_of(m,addr) · stake_of(m,i,addr) · total_of(m,addr) · claimed_of(m,addr).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 
 MK, NO, LK, DL, DS, SO, EV, RS, DN, VD, TOT, MRC, MTH, MCR = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 PL_BASE, VC_BASE = 16, 24
@@ -173,7 +174,10 @@ RESOLVE = "\n".join(
     + ["mov r5 r6", "notb r5", "mul r5 r3"]                                              # r5 = v
     + ["mov r3 r5", "mul r3 r2"] + _sl(VD) + ["sstore r4 r3"]                            # vd
     + ["notb r5", "mul r5 r2"] + _sl(DN) + ["sstore r4 r5", "mov r3 r5"]                 # dn
-    + ["mov r5 r1", "movi r6 1", "add r5 r6", "mul r5 r3"] + _sl(RS) + ["sstore r4 r5", "ret r0"])
+    # rs is recorded WHENEVER the oracle agreed, void or not: an auto-void (unbacked tote winner) still has a
+    # real result, and the BOOK settles on it (bclaim/bsweep branch on rs), so a void is never a free option
+    # against the bank (review 2026-09-23, medium: the old rs = dn·(i+1) left the book refunding).
+    + ["mov r5 r1", "movi r6 1", "add r5 r6", "mul r5 r2"] + _sl(RS) + ["sstore r4 r5", "ret r0"])
 
 # void(m): a resolver anytime before resolution; ANYONE once the deadline passes. Refunds via claim().
 VOID = "\n".join(
@@ -306,7 +310,7 @@ BCLAIM = "\n".join(
     # Branch on whether the market RESOLVED, not on the void flag: a market can auto-void because the
     # winning outcome had no TOTE backers while still having a real, oracle-agreed result. Refunding the
     # book there would be a free option against the bank.
-    + _sl(DN) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bvoid"]
+    + _sl(RS) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bvoid"]              # no RESULT -> stakes back
     + _sl(RS) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]                          # winning outcome
     + ["ctx r6 caller", f"movi r4 {TG_BPAY}", "hash r2 <- r4 r0 r5 r6", "sload r3 r2", "jmp @bpay"]
     + ["bvoid:", "movi r3 0"]
@@ -323,7 +327,7 @@ BSWEEP = "\n".join(
     + _sl(BK) + ["sload r5 r4", "mov r3 r5", "nez r3", "require r3", "eq r5 r6", "require r5"]
     + _sl(BD) + ["sload r5 r4", "nez r5", "notb r5", "require r5", "movi r5 1", "sstore r4 r5"]
     + _sl(BR) + ["sload r3 r4"]
-    + _sl(DN) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bswvoid"]
+    + _sl(RS) + ["sload r2 r4", "nez r2", "notb r2", "jnz r2 @bswvoid"]            # no RESULT -> sweep refunds
     + _sl(BS) + ["sload r5 r4", "add r3 r5"]
     + _sl(RS) + ["sload r5 r4", "movi r6 1", "sub r5 r6"]
     + [f"movi r4 {BP_BASE}", "add r4 r5", f"movi r6 {_2_32}", "mul r4 r6", "add r4 r0",
@@ -387,4 +391,7 @@ ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": MAX_OUT, "stri
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("book", "quote", "back", "bclaim", "bsweep", "bet", "resolve", "void", "claim", "claimable_of")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

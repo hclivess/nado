@@ -16,7 +16,10 @@ is already O(1)).
 """
 import os, sys, copy, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import fri, field as F, backend as B, fri_verify, recursion_depth as RD
+from execnode.stark import fri, field as F, backend as B, fri_verify, recursion_depth as RD, stark as _stk
+# The depth tree replays a fold proof's transcript without its schedule, which the round-2 prologue needs;
+# it is not on the live settlement path (recursive_verify is). Pin the pre-round-2 rules for this file.
+_stk._RULES.set(_stk.Rules(True, True, True, False))
 
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 

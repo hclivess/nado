@@ -371,5 +371,27 @@ and should be scheduled, not patched.
 4. **Reroll-class:** S1 code-leaf binding; F3 prover context; Z1 masked trace; Z3 wide commitment; Z4 tree
    capacity; `chain_clock` re-anchoring for C3.
 
+   > **Status 2026-09-23 (night): round 2 shipped behind `REVIEW_R2_HEIGHT = 214000`** (exec, L1 and proof rules
+   > on one gate): Z6 duplicate commitments refused (both pools), Z9 the field path validates the exit address
+   > before verifying, Z4 a full field pool refuses the deposit (was a silent drop), F7 runtime typed, F10 every
+   > false-like `upgradable` locks, F8 constructor asset effects staged/committed, F4 a per-block execution budget
+   > (`EXEC_BLOCK_STEP_BUDGET`, `zkvm.run(meter=)`, mirrored in `settlement_proofs.prove_epoch`), S4 a DA-carried
+   > proof records the proven marker, A4 canonical `pre_contracts` keys, P2 `aux` as digest lanes, P3/Z8 the AIR
+   > identity (`stark.air_digest`: T, total W, blowup, constraint count, boundaries, and the periodic tables when
+   > no statement digest binds them) absorbed before the roots on every prover, verifier and fold replay, P4 opening
+   > path lengths pinned. Z7: `/exec/prove_transfer{,2}` and `/exec/prove_call` are unrouted (the wallet proves
+   > on-device; `static/stark/stark.js` carries the same round-2 prologue and reads the gate heights from
+   > `/status.proof_rules`). C3 wallet: `static/dex.js` judges the foreign deadline by the wall clock with a
+   > cadence bound (6 s / 8 s), at fill and again at lock. F3 is coded behind `EXEC_CTX_CURRENT_HEIGHT`
+   > (live 2^62 = off until the reroll). `recursion_depth` (not on the live path) refuses its replay under round 2.
+   > Contracts (second upgrade pass): C4 pets battle lock on transfer/list/buy/accept_offer; C2 bounds in the
+   > nine remaining id-taking contracts; OTC bond retained until settle/expire/release; board-game abort deadline
+   > refreshed on every move; slots/blackjack payout windows; chess move cap; lend/reserve duration bounds; DEX
+   > minimum seed; bet's book settles on the recorded result; faucet prizes consume the operator's own donations.
+   > STILL OPEN, all reroll-class or redesigns: S1 (code-leaf binding: needs the KV transition to carry code
+   > leaves), Z1 (masked trace), Z3 (wide commitment), `chain_clock` re-anchoring, P1 (DEEP/trace LDT), sovereign's
+   > global ply counter, hamster's dust sweep, and the banked-game reclaim "free option" (a design decision:
+   > settle is permissionless, so a banker-side settler bot closes it operationally).
+
 Repro scripts used (scratch, not committed): `repro_contracts.py` (C1, C2 banked), `repro_ttt.py` (C2
 board), `repro_shield.py` (Z2), `repro_zk.py` (Z1, `NADO_ALLOW_PYTHON_KERNELS=1`, 23 s prove).

@@ -64,7 +64,7 @@ def public_part(stark_proof):
     return out
 
 
-def _fs(pub, n_chal, n_alphas, b, ext=None, statement=None):
+def _fs(pub, n_chal, n_alphas, b, ext=None, statement=None, air=None):
     """Rebuild the inner STARK's transcript at the FRI start and return (factory, challenges, alphas).
     Single-phase column mode: absorb the W column roots, draw the α's. Row mode: absorb the main row root
     (+ two-phase: draw the LogUp challenges, absorb the aux row root), draw the α's. The factory is what
@@ -92,6 +92,7 @@ def _fs(pub, n_chal, n_alphas, b, ext=None, statement=None):
         # bind_statement rules cannot be replayed without it — and a fold that dropped it would be verifying
         # the same unbound statement the review found.
         stark.absorb_statement(t, statement)
+        stark.absorb_air(t, air)                     # round2: the AIR identity, computed by the CALLER of _fs
         for r in roots_main:
             t.absorb(r)
         # Draw in the inner proof's OWN field. stark.prove draws the aux challenges and then the alphas from
@@ -204,8 +205,11 @@ def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUE
     fri_proofs, mks, points = [], [], []
     for pi_, (p, bl) in enumerate(zip(proofs, bnds_list)):
         pub = public_part(p)
-        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext,
-                                statement=(statement_list[pi_] if statement_list is not None else None))
+        _stmt_i = statement_list[pi_] if statement_list is not None else None
+        _air_i = (stark.air_digest(pub["T"], pub["W"], pub["blowup"], nt, bl,
+                                   None if _stmt_i is not None else _per_of(periodic, periodic_list, pi_))
+                  if stark.current_rules().round2 else None)
+        mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext, statement=_stmt_i, air=_air_i)
         fri_proofs.append(p["fri"]); mks.append(mk)
         N, blowup, T, wN, gT, last = _geometry(pub)
         gTp = F.primitive_root_of_unity(T)
@@ -325,8 +329,11 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
                 if _fp.get("N") != pub["N"] or _fp.get("offset") != stark.OFF:
                     return False, (f"inner proof {pi_}: FRI domain ({_fp.get('N')}, {_fp.get('offset')}) "
                                    f"is not the STARK's ({pub['N']}, {stark.OFF})")
-            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext,
-                                    statement=(statement_list[pi_] if statement_list is not None else None))
+            _stmt_i = statement_list[pi_] if statement_list is not None else None
+            _air_i = (stark.air_digest(pub["T"], pub["W"], pub["blowup"], nt, bl,
+                                       None if _stmt_i is not None else _per_of(periodic, periodic_list, pi_))
+                      if _rules.round2 else None)
+            mk, chals, alphas = _fs(pub, num_challenges, nt + len(bl), b, ext=_ext, statement=_stmt_i, air=_air_i)
             mks.append(mk)
             # AUTHORITATIVE POSITIONS + native FRI checks: query positions are FS-derived from the public part,
             # never read from the proof — comp binds the trace at the SAME positions the fold authenticates.

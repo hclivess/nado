@@ -27,20 +27,23 @@ byte-identical to the originals: they are the originals plus the guard.
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 
 
-def id_guard(reg="r0", limit=1 << 32):
+def id_guard(reg="r0", limit=1 << 32, scratch=("r4", "r5")):
     """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
     instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:
         movi r4 <limit> ; mov r5 <reg> ; lt r5 r4 ; require r5
-    (`lt` expands to RANGE r5 ; RANGE r4 ; LT — an operand >= 2^62 reverts in RANGE, so the bound holds over
-    the whole field.) r4/r5 are SCRATCH: every guarded method writes them before reading them, and no guarded
-    method takes more than three arguments (r0..r2), so nothing an honest caller passes lives there. The guard
+    (`lt` expands to RANGE ; RANGE ; LT — an operand >= 2^62 reverts in RANGE, so the bound holds over
+    the whole field.) `scratch` (r4/r5 by default) must be registers the body WRITES before reading and that
+    hold no declared argument; a method with four or more arguments passes a higher pair. The guard
     WRITES both before reading either — a caller may preload up to eight registers through extra args (the
     ABI arg count is UX metadata, never enforced), so a guard must not assume a register is zero."""
+    a, b = scratch
+    if reg in (a, b) or a == b:
+        raise ValueError(f"id_guard: scratch {scratch} overlaps the guarded register {reg}")
     return f"""
-        movi r4 {int(limit)}
-        mov r5 {reg}
-        lt r5 r4
-        require r5"""
+        movi {a} {int(limit)}
+        mov {b} {reg}
+        lt {b} {a}
+        require {b}"""
 
 
 def guard_ids(src, plan):
@@ -54,8 +57,14 @@ def guard_ids(src, plan):
             raise KeyError(f"guard_ids: method {m!r} is not in this contract")
         pre = ""
         for r in regs:
-            reg, limit = (r if isinstance(r, tuple) else (r, 1 << 32))
-            pre += id_guard(reg, limit)
+            # an entry is "r0", ("r1", limit), or ("r1", limit, ("r6", "r7")) for a method whose arguments
+            # occupy r4/r5 (the default scratch); the scratch pair must be written-before-read by the body.
+            if isinstance(r, tuple):
+                reg, limit = r[0], r[1]
+                scratch = r[2] if len(r) > 2 else ("r4", "r5")
+            else:
+                reg, limit, scratch = r, 1 << 32, ("r4", "r5")
+            pre += id_guard(reg, limit, scratch)
         out[m] = pre + "\n" + out[m]
     return out
 

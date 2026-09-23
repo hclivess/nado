@@ -32,6 +32,7 @@ Methods: open(t,g,commit,ante)[buyin] · join(t,g,commit)[buyin] · start(t) · 
   close_street(t) · reveal(g,x) · settle(t) · reclaim(t) · cancel(t) · rank_of(c0..c6).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.stark import alghash, field as F
 
 F0, S, GRACE, R = 14, 20, 5, 60
@@ -839,4 +840,7 @@ def build():
         "cancel": CANCEL,
         "rank_of": "\n".join(_rank_of()),
     }
-    return zkvmasm.assemble_contract(src)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("join", "start", "leave", "bet", "close_street", "reveal", "settle", "reclaim", "cancel")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))

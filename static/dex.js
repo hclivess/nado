@@ -1502,11 +1502,17 @@ async function otcAction(what, o, btn) {
     // §6.3 from the TAKER's side (the contract enforces the same rule; this is the plain-language refusal).
     // ASK: the taker funds the foreign leg, so its deadline must sit safely INSIDE the NADO window.
     // BID: the taker funds the NADO leg, so the maker's foreign deadline must sit safely PAST it.
-    const nowS = (dapp.chainNow && dapp.chainNow()) || Math.floor(Date.now() / 1000);
-    const nadoWindowS = Math.max(0, (od.expn - (dapp.cursor || 0))) * 6;
+    // C3 (security review 2026-09-23): the chain clock (GENESIS + h*6) runs HOURS behind wall time and the gap
+    // grows ~2.5 h/day, while the foreign deadline is a wall-clock timestamp. Judged in chain time, a BID whose
+    // foreign deadline was already in the wall-clock PAST looked fine: the taker locked NADO, the maker refunded
+    // the foreign leg at once and claimed the NADO with the secret. So the taker's own wall clock is the
+    // authority here, and the NADO window is sized with a cadence BOUND in the direction that is unsafe for the
+    // taker: the latest the NADO expiry can arrive (8 s/block) for a BID, the earliest (6 s/block) for an ASK.
+    const nowS = Math.floor(Date.now() / 1000);
+    const blocksLeft = Math.max(0, (od.expn - (dapp.cursor || 0)));
     const fdl = Number(od.expf) || 0;
-    const okAsk = fdl > nowS + 1800 && fdl < nowS + nadoWindowS * 0.75;
-    const okBid = fdl > nowS + nadoWindowS + 7200;
+    const okAsk = fdl > nowS + 1800 && fdl < nowS + blocksLeft * 6 * 0.75;
+    const okBid = fdl > nowS + blocksLeft * 8 + 7200;
     if (od.kind === OTC_ASK ? !okAsk : !okBid) {
       return alertBar("This order's foreign deadline does not line up with its NADO expiry — filling it "
         + "could let the maker reclaim their own lock and still take yours. Not safe to fill.");
@@ -1577,6 +1583,10 @@ async function otcAction(what, o, btn) {
     if (dapp.me !== owes) return alertBar("The NADO side of this swap is not yours to lock.");
     if (!/^[0-9a-f]{46}$/.test(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
     const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
+    if (!sells && !(Number(od.expf) > Math.floor(Date.now() / 1000) + blocks * 8 + 7200)) {   // C3, at lock time
+      return alertBar("The maker's foreign deadline no longer sits safely past this order's NADO expiry "
+        + "(judged by your clock, not the chain's). Locking now could let the maker reclaim their lock and still take yours.");
+    }
     if (!await uiConfirm({ title: "Lock the NADO side",
       body: sells ? "They can only take it with the swap secret, and only before it expires — after that you reclaim it yourself."
                   : `Lock ONLY after you have checked the maker's ${coinOf(od)} lock: the agreed amount, this order's hashlock, and a deadline past this order's NADO expiry. The maker holds the secret — if their lock is missing or short, they can take your NADO and give nothing.`,

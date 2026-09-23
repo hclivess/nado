@@ -128,6 +128,28 @@ def public_statement(bundle):
     return (bundle["calls_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
+def _canonical_pre_contracts(pre):
+    """(ok, why): every cid is lowercase hex of the live length and every slot key is a canonical decimal."""
+    if not isinstance(pre, dict):
+        return False, "not an object"
+    seen = set()
+    for cid, c in pre.items():
+        if not (isinstance(cid, str) and cid and cid == cid.lower() and all(ch in "0123456789abcdef" for ch in cid)):
+            return False, f"cid {str(cid)[:20]!r}"
+        if cid in seen:
+            return False, f"duplicate cid {cid[:12]}"
+        seen.add(cid)
+        slots = ((c or {}).get("storage") or {}).get("slots") or {}
+        if not isinstance(slots, dict):
+            return False, f"slots of {cid[:12]} not an object"
+        for k, v in slots.items():
+            if not isinstance(k, str) or not k.isdigit() or str(int(k)) != k:
+                return False, f"slot key {str(k)[:20]!r} of {cid[:12]}"
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                return False, f"slot value of {cid[:12]}/{k}"
+    return True, "ok"
+
+
 def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
     """Verify a bound epoch WITHOUT replaying the io or re-merkleizing the whole state: (1) the exec proof —
     the io is a valid execution of the public calls; (2) bind_and_verify — the transition's updates are exactly
@@ -167,6 +189,14 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         # settled tip. Pin the WHOLE pre-state: sparse_pre_root MUST be the root of pre_contracts' projection, so
         # every slot — read-only included — is the committed one. (This native path's O(state) cost; it already
         # carries the full pre_contracts. The succinct io-replay path binds each read via in-circuit membership.)
+        # A4 (round2): the pin below hashes pre_contracts through slot_key(cid, int(k)) / code_key(cid), so
+        # "05" and "5" (or two spellings of one cid) collapsed onto one leaf while pre_get read the OTHER
+        # spelling — a prover could serve an unbound value for every read-only slot. Every key must be the
+        # one spelling exec_root would produce.
+        if stark.current_rules().round2:
+            okc, whyc = _canonical_pre_contracts(bundle["pre_contracts"])
+            if not okc:
+                return False, f"pre_contracts keys are not canonical: {whyc}", None
         want_pre = tuple(int(x) % F.P for x in bundle["sparse_pre_root"])
         if tuple(int(x) % F.P for x in sparse_root(bundle["pre_contracts"], depth)) != want_pre:
             return False, "pre_contracts do not match sparse_pre_root (unbound storage reads)", None

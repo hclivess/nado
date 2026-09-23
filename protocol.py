@@ -1612,7 +1612,8 @@ def split_open_block_reward(reward: int):
 #                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
-#                                    PROOF_BLOCK_SELECTOR_HEIGHT
+#                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT,
+#                                    EXEC_CTX_CURRENT_HEIGHT (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -2031,6 +2032,37 @@ EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1
 # stark.rules_at, like PROOF_BIND_HEIGHT. tests/test_proof_block_selector.py shows a trace executing past its
 # declared block VERIFYING below the gate and refused at it. Block 1 at the next reroll.
 PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1
+
+# REVIEW ROUND 2 (security review 2026-09-23, the remaining non-reroll items), ONE gate for the exec layer, L1
+# and the proof rules alike (the exec cursor is the L1 height):
+#   exec   Z6 an output commitment already in a pool is refused (a sender-chosen rho let anyone lock a note);
+#          Z9 the field path validates the unshield destination like the transparent path does;
+#          Z4 a field pool at its tree capacity refuses the deposit instead of silently dropping the leaf;
+#          F7 a non-string runtime name is refused; F10 any false-like `upgradable` locks a deploy;
+#          F8 a constructor's asset effects are staged and committed like a call's;
+#          F4 a per-block execution budget (EXEC_BLOCK_STEP_BUDGET): a call that would take the block past it
+#             reverts (escrow refunded), mirrored by the settlement prover.
+#   L1     S4 a DA-carried settle proof records the proven marker like an inline one;
+#          A4 a settle proof's pre_contracts keys must be canonical (a cid alias or "05" for "5" aliased the
+#             pre-root pin, so read-only slot values went unbound).
+#   proof  P2 a string `aux` (the unshield address) is absorbed as digest lanes under the alghash2 backend, which
+#             hashed a string by its byte SUM; P3/Z8 every proof absorbs its AIR identity — T, W, max_degree,
+#             the constraint count, the boundaries and (for AIRs whose statement is not otherwise bound) the
+#             periodic tables — before its roots; P4 every Merkle opening path must be exactly log2(N) long.
+#          These change the proof format, so they ride stark.rules_at like the earlier proof gates; the wallet's
+#          own prover reads this height from /status (`proof_rules`) and switches on the same block.
+# Block 1 at the next reroll.
+REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
+EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
+                                   # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
+
+# F3 (RIDES A REROLL). The exec layer applies block h's calls with cursor h-1 / chain_clock(h-1) — the context is
+# advanced only AFTER the block — while block_calls stamps each call cursor = h and the settlement prover replays
+# with that, so an honest proof of any span with a cursor/time-reading call proves a transition the chain did not
+# apply. Setting the context BEFORE the loop is a live semantic change for every contract that reads TIME or
+# the cursor, so it turns on only from block 1 of the next generation: the live value is a height this chain
+# will never reach.
+EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

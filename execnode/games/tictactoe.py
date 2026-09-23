@@ -103,6 +103,11 @@ MOVE = f"""
     movi r6 1
     add r5 r6
     sstore r4 r5
+    slot r4 9 r0
+    ctx r5 cursor
+    movi r6 300
+    add r5 r6
+    sstore r4 r5
 {_wincheck()}
     jnz r6 @won
     slot r4 8 r0

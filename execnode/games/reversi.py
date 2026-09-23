@@ -124,11 +124,13 @@ def _move():
           f"movi r4 {_s(0)}", "sload r5 r4"]
     L += _bsl("r5", "r6") + [f"movi r4 {_s(1)}", "sload r4 r4", "sstore r6 r4",     # bd[base]=k
           "slot r4 8 r0", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5",  # mc++
+          "slot r4 9 r0", "ctx r5 cursor", "movi r6 300", "add r5 r6", "sstore r4 r5",   # dl refresh (review 2026-09-23)
           "slot r4 11 r0", "movi r5 0", "sstore r4 r5", "ret r0",                   # lp=0
           "pass:",
           "slot r4 11 r0", "sload r5 r4", "nez r5", "jnz r5 @endgame",
           "slot r4 11 r0", "movi r5 1", "sstore r4 r5",
-          "slot r4 8 r0", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5", "ret r0",
+          "slot r4 8 r0", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5",
+          "slot r4 9 r0", "ctx r5 cursor", "movi r6 300", "add r5 r6", "sstore r4 r5", "ret r0",   # dl refresh
           "endgame:",
           f"movi r4 {_s(3)}", "movi r5 0", "sstore r4 r5",                          # n1=0
           f"movi r4 {_s(4)}", "movi r5 0", "sstore r4 r5",                          # n2=0

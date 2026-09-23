@@ -47,9 +47,13 @@ from collections import namedtuple as _nt
 from contextlib import contextmanager as _cm
 #   in_block_selector  the exec AIR carries the P_IN column and the "outside a block => NOP" constraint (A2,
 #                   PROOF_BLOCK_SELECTOR_HEIGHT). A format change on both sides, like bind_statement.
-Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector")
-RULES_STRICT = Rules(True, True, True)    # every pin on: the default when nothing set them
-RULES_LEGACY = Rules(False, False, False) # below every gate: what every node accepted before 2026-09-23
+#   round2          REVIEW_R2_HEIGHT: the AIR identity (T, W, max_degree, constraint count, boundaries, and the
+#                   periodic tables unless a statement digest already binds them) is absorbed before the roots
+#                   (P3/Z8); a string `aux` is absorbed as digest lanes, never by byte sum (P2); every Merkle
+#                   opening path is exactly log2(N) long (P4); a settle proof's pre_contracts keys are canonical (A4).
+Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2")
+RULES_STRICT = Rules(True, True, True, True)      # every pin on: the default when nothing set them
+RULES_LEGACY = Rules(False, False, False, False)  # below every gate: what every node accepted before 2026-09-23
 _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 
 
@@ -59,11 +63,12 @@ def rules_for_height(height):
     which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
     if height is None:
         return RULES_STRICT
-    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT
+    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT
     h = int(height)
     bind = h >= int(PROOF_BIND_HEIGHT)
     return Rules(pin_fri_domain=bind, bind_statement=bind,
-                 in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)))
+                 in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)),
+                 round2=(h >= int(REVIEW_R2_HEIGHT)))
 
 
 def current_rules():
@@ -103,6 +108,59 @@ def absorb_statement(t, statement):
     recursive_verify._fs all call this, right after `aux` and before any root, so they cannot drift apart."""
     if statement is not None:
         t.absorb("statement", *statement_lanes(statement))
+
+
+def absorb_aux(t, aux, rules=None):
+    """The `aux` hook (H-4: the unshield destination). LEGACY: `t.absorb("aux", str(aux))` — which the alghash2
+    backend hashes by the string's BYTE SUM (review P2: ~2,400 classes; an attacker grinds an address with the
+    victim's sum and swaps the exit). Under round2 a string is absorbed as the 8 u32 lanes of its blake2b, exact
+    under every backend; ints/tuples are absorbed as field lanes. Mirrored by the wallet's stark.js prover."""
+    if aux is None:
+        return
+    r = current_rules() if rules is None else rules
+    if not r.round2:
+        t.absorb("aux", str(aux))
+        return
+    if isinstance(aux, (bytes, str)):
+        import hashlib
+        d = hashlib.blake2b(aux if isinstance(aux, bytes) else str(aux).encode(), digest_size=32).digest()
+        t.absorb("aux", *statement_lanes(d))
+    else:
+        t.absorb("aux", aux)
+
+
+def air_digest(T, W_total, blowup, n_transitions, boundaries, periodic=None):
+    """P3/Z8 (round2): the 32-byte identity of the AIR a proof claims to satisfy — geometry (T, the TOTAL trace
+    width including aux columns, the LDE blowup — public and derived from max_degree, so the fold needs no
+    extra input), constraint count, the boundary statement and (when given) the public periodic tables, in
+    a fixed byte layout that the wallet's stark.js reproduces byte for byte (no JSON): every value a
+    little-endian u64. A structured periodic column is expanded to its dense form first, so the
+    representation never matters. `periodic=None` when a statement digest already binds the tables (the exec
+    AIR), so the cost is not paid twice."""
+    import hashlib
+    from array import array
+    h = hashlib.blake2b(b"nado-air-v1", digest_size=32)
+    head = array("Q", [int(T), int(W_total), int(blowup), int(n_transitions), len(boundaries),
+                       0 if periodic is None else len(periodic)])
+    h.update(head.tobytes())
+    for (row, col, val) in boundaries:
+        h.update(array("Q", [int(row), int(col), int(val) % F.P]).tobytes())
+    if periodic is not None:
+        for pc in periodic:
+            dense = _per_expand(pc, T)
+            h.update(len(dense).to_bytes(8, "little"))
+            try:
+                h.update(array("Q", dense).tobytes())
+            except (OverflowError, TypeError):
+                h.update(array("Q", [int(v) % F.P for v in dense]).tobytes())
+    return h.digest()
+
+
+def absorb_air(t, digest):
+    """round2: the AIR identity enters right after the statement and before every root — the same position in
+    stark.prove, stark_native.prove, stark.verify, recursive_verify._fs and the wallet's stark.js."""
+    if digest is not None:
+        t.absorb("air", *statement_lanes(digest))
 
 # H-7: a hard ceiling on the trace length a proof may claim. N (= blowup·T) is read from the proof and fed to
 # F.domain(N) BEFORE any FRI/query check, so an unbounded N is an unauthenticated single-request OOM
@@ -583,9 +641,12 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     if row_commit and getattr(b, "name", "") != "recursion":
         raise ValueError("row_commit requires the RECURSION backend")
     t = Transcript(DOMAIN_STARK, backend=b)
-    if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
-        t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
+    _rules = current_rules()
+    absorb_aux(t, aux, _rules)               # H-4 / P2: bind an extra public input (e.g. an unshield withdraw_addr)
     absorb_statement(t, statement)           # A1: the public statement digest, same position as every verifier
+    if _rules.round2:                        # P3/Z8: the AIR identity (periodic too, unless the statement holds it)
+        absorb_air(t, air_digest(T, W + (aux_spec["num_aux"] if aux_spec is not None else 0), blowup,
+                                 len(transitions), boundaries, None if statement is not None else periodic))
     # COMMITTED periodic columns (succinct verify): commit the listed columns' LDE and absorb their roots here,
     # as a public-parameter position BEFORE the main trace commitment (so the FS challenges depend on them). The
     # verifier opens these at each query point (O(log N)) instead of an O(T) dense poly_eval — the caller binds
@@ -740,9 +801,12 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             if aux_spec is not None and len(col_roots) != W:
                 return False, "bad aux geometry"
         t = Transcript(DOMAIN_STARK, backend=b)
-        if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
-            t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
+        _rules = current_rules()
+        absorb_aux(t, aux, _rules)           # H-4 / P2: same extra public input the prover bound (unshield addr)
         absorb_statement(t, statement)       # A1: a proof for statement S1 presented with S2 draws other challenges
+        if _rules.round2:                    # P3/Z8: the AIR the VERIFIER holds is what enters, never the proof's
+            absorb_air(t, air_digest(T, W, blowup, len(transitions), boundaries,      # W = proof["W"], the total
+                                     None if statement is not None else periodic))
         for r in per_roots:                  # committed-periodic roots: same public-parameter position as prove
             t.absorb(r)
         challenges = None
@@ -777,7 +841,6 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         # honest for ANY trace, constraints violated or not. tests/test_proof_bind_gate.py builds exactly that
         # forgery and shows it verifying under the legacy rules. Pinned here AND inside fri.verify (expected_N /
         # expected_offset) so a caller that reaches fri.verify without this wrapper cannot lose the pin.
-        _rules = current_rules()
         if _rules.pin_fri_domain:
             _fN, _fO = proof["fri"].get("N"), proof["fri"].get("offset")
             if _fN != N or _fO != OFF:
@@ -793,6 +856,16 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         # opening per required FRI query, so an empty/short `openings` (or `queries`) can't skip them via zip().
         if len(proof["openings"]) != num_queries or len(proof["fri"]["queries"]) != num_queries:
             return False, "wrong opening/query count"
+        # P4 (round2): every authentication path is exactly log2(N) long. A path of the wrong length cannot
+        # reach an honest root, but pinning it removes the question rather than relying on the answer.
+        if _rules.round2:
+            _plen = N.bit_length() - 1
+            for _op in proof["openings"]:
+                _paths = ([p for c in (_op.get("cols") or []) for p in (c.get("cur_path"), c.get("nxt_path"))]
+                          if not row_commit else list(_op.get("cur_paths") or []) + list(_op.get("nxt_paths") or []))
+                _paths += [po.get("path") for po in (_op.get("per") or [])]
+                if any(not isinstance(p, (list, tuple)) or len(p) != _plen for p in _paths):
+                    return False, "opening path length is not log2(N)"
 
         # ONE CROSSING FOR EVERY AUTHENTICATION PATH IN THE PROOF.
         #

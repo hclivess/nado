@@ -2556,6 +2556,14 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
 
 async def _apply_block_inner(session, states_map, default_state, block, verbose=True):
     h = block["block_number"]
+    from protocol import EXEC_CTX_CURRENT_HEIGHT, chain_clock as _cc
+    for _st in states_map.values():
+        _st._applying = h              # the height every rules_* helper judges by (see ExecState.applying_height)
+        _st._block_steps = 0           # F4: the per-block execution budget starts fresh
+        if int(h) >= int(EXEC_CTX_CURRENT_HEIGHT):
+            # F3 (rides a reroll): the context a call sees is the block it executes in — what block_calls
+            # stamps and the settlement prover replays — not the previous one.
+            _st.cursor, _st.block_ts = h, _cc(h)
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
     resolved = {}
@@ -2679,6 +2687,7 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
             print(f"[execnode] block {h}: skipped tx {(tx.get('txid') or '')[:12]}… ({type(e).__name__}: {e})", flush=True)
     for _st in states_map.values():
         _st.cursor = h
+        _st._applying = None
         # TIME opcode: the DETERMINISTIC chain clock, NOT block_timestamp. block_timestamp sits outside the
         # block-hash preimage (so honest clock skew cannot fork the chain) and therefore differs between
         # honest nodes for the SAME block — measured live at 1 s apart. Feeding it to the VM made any
@@ -4061,7 +4070,8 @@ async def h_contracts(request):
         total += 1
         if len(items) < limit:
             items.append({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-                          "runtime": c.get("runtime", "zkvm"), "abi": c.get("abi") or {}})
+                          "runtime": c.get("runtime", "zkvm"), "abi": c.get("abi") or {},
+                          "upgradable": c.get("upgradable", True) is not False})   # C5: say so (review 2026-09-23)
     return web.json_response({"ns": request.query.get("ns", "default"), "contracts": items,
                               "total": total, "limit": limit})
 
@@ -4786,9 +4796,10 @@ async def main():
                     web.get("/exec/field_shielded", h_field_shielded),
                     web.get("/exec/private_state", h_private_state),
                     web.get("/exec/field_leaves", h_field_leaves),
-                    web.post("/exec/prove_transfer", h_prove_transfer),
-                    web.post("/exec/prove_transfer2", h_prove_transfer2),
-                    web.post("/exec/prove_call", h_prove_call),
+                    # Z7 (security review 2026-09-23): the delegated provers took the wallet's SPENDING KEY over
+                    # HTTP. The wallet has proven on-device since interface.js proveTransfer2 (WASM), so these
+                    # routes only remained as a way to hand a secret to a server. Unrouted for good; the handlers
+                    # stay only until the next cleanup pass. A private key is never sent anywhere (CLAUDE.md §8).
                     web.post("/exec/verify_call", h_verify_call),
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),

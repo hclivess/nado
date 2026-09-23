@@ -52,6 +52,7 @@ from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to, known_pe
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
 from ops import mining_history
+import protocol as _proto
 from protocol import (GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID,
                       ADDRESS_PREFIX, FINALITY_DEPTH, EPOCH_LENGTH)
 
@@ -455,6 +456,11 @@ async def status(request):
             # whether it is running behind it. Lets anyone spot a lagging node from /status alone.
             "running_commit": self_update.running_head(),
             "latest_main": self_update.latest_known(),
+            # PROOF RULE GATES (2026-09-23): a proof is judged by the rules of the block it lands in, and the
+            # wallet's on-device prover must produce that format, so the heights are published here rather
+            # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2).
+            "proof_rules": {"bind": _proto.PROOF_BIND_HEIGHT, "block_selector": _proto.PROOF_BLOCK_SELECTOR_HEIGHT,
+                            "round2": _proto.REVIEW_R2_HEIGHT},
             # NODE TYPE (non-consensus, doc/rolling-mode-and-da.md): "archive" keeps every block body
             # forever; "rolling" drops bodies past its retention window (state + number<->hash indexes are
             # always kept, so it still validates and serves the beacon/FFG). Advertised so the network

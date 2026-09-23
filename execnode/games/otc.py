@@ -353,10 +353,11 @@ def build():
         m.require(m.arg(1) != 0)
         m.require(m.slot(HID, o).get() == 0)                    # recorded once — it is what the taker verifies
         m.slot(HID, o).set(m.arg(1))
-        m.jnz(m.slot(TB, o).get() == 0, "tbdone")               # the taker bound their side: the bond's job is done
-        m.pay(m.slot(TAKER, o).get(), m.slot(TB, o).get())
-        m.label("tbdone")
-        m.slot(TB, o).set(m.const(0))
+        # The bond used to be returned HERE. That made bind(o, any-non-zero) a free exit: the taker locked the
+        # maker's foreign funds for two fees, took the bond back at once, and `release` (which requires
+        # HID == 0) could never free the maker (review 2026-09-23, medium). The bond now stays escrowed until
+        # settle (home), expire (home or to the maker) or release (to the maker) — the paths that already
+        # handle it.
         m.ret(m.arg(1))
 
     # settle(o, l0..l4) — the swap COMPLETED: whoever holds the preimage proves it and the order closes.

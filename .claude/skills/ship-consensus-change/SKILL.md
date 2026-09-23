@@ -133,3 +133,15 @@ rule forks the chain. Learned shipping `EXEC_RULES_V2_HEIGHT` (C1/F2/Z2/S2 of th
   exit under the old rules. A gate test that only shows the new rule has not demonstrated the hole.
 - **L1 admission rules that mirror an exec rule** (typing `method` in the blob) use the SAME constant on
   `block_height`; the exec cursor is the L1 height, so one number gates both layers.
+
+## 9. A digest both sides compute is a consensus object: prove it on the real thing
+
+The round-2 AIR identity (`stark.air_digest`) was first written with the prover's MAIN trace width while the
+verifier hashed `proof["W"]`, the TOTAL width including aux columns. A toy AIR (no aux) passed; every real
+exec-epoch proof failed with "insufficient proof-of-work (grinding)" — the transcript-divergence symptom that
+points at the proof rather than at the prologue. Rules: (1) build any cross-side digest from values that
+exist identically on both sides (`proof["W"]`, `proof["blowup"]`, never a prover-local variable); (2) run one
+real epoch prove+verify (native prover, aux columns, row commit) BEFORE the batch; (3) grep every
+`Transcript(DOMAIN_STARK` replay (`recursive_verify._fs`, `recursion_depth`, the wallet's `stark.js`) and give
+each the same prologue or a loud refusal; (4) "insufficient proof-of-work" in a verify = the two transcripts
+diverged before the grind, look at absorbs, not at the nonce.

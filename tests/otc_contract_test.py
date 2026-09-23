@@ -166,7 +166,12 @@ ok(st.bridge[A] == ab + bond(88) and rd(O.TB, 88) == 0, "…and the walker's bon
 rb = st.bridge[R]; call(R, "fill", [88, "0xtaker88b", "pending"], bond(88))
 ok(rd(O.ST, 88) == O.FILLED and rd(O.TAKER, 88) == zkvm_addr_digest(R), "a released order can be filled by someone else")
 call(R, "bind", [88, "l1:htlc:88"])
-ok(st.bridge[R] == rb and rd(O.TB, 88) == 0, "binding the NADO leg returns the taker's bond in full")
+# Review 2026-09-23 (medium): bind used to hand the bond back at once, so bind(o, junk) was a free exit that
+# also made release impossible. The bond now stays escrowed (attributed to the taker for a reroll refund)
+# until settle / expire / release. Order 88 is never closed below, so its bond is part of the pot from here on.
+HELD88 = bond(88)
+ok(st.bridge[R] == rb - HELD88 and rd(O.TB, 88) == HELD88,
+   "binding the NADO leg keeps the taker's bond escrowed until settle/expire/release")
 st.cursor = st.cursor + O.FILL_WINDOW + 1
 ok(refused(A, "release", [88]), "once the NADO leg is bound, release is impossible — someone has money at risk")
 st.cursor = 100
@@ -179,7 +184,7 @@ call(C, "fill", [3, "bc1qtaker3", "btc:lock:3"], bond(3))
 ok(refused(A, "bind", [3, "l1:htlc:3"]), "BID: the maker does not owe the NADO leg, so cannot bind it")
 call(C, "bind", [3, "l1:htlc:3"])
 ok(rd(O.HID, 3) == zkvm_addr_digest("l1:htlc:3"), "BID: the taker records the L1 HTLC they funded")
-ok(rd(O.ST, 3) == O.FILLED and st.bridge.get(cid, 0) == 0, "bid fill escrows nothing here")
+ok(rd(O.ST, 3) == O.FILLED and st.bridge.get(cid, 0) == HELD88 + bond(3), "bid fill escrows nothing but the taker bond (order 88's bound bond is still held)")
 call(A, "settle", [3] + O.preimage_limbs(secret(3)))
 ok(rd(O.ST, 3) == O.SETTLED, "bid closes on the preimage")
 
@@ -244,7 +249,7 @@ st.cursor = 100
 call(A, "post_intra", [15, 0, 10 ** 10, aid, 5, EXPN], 10 ** 10)          # native give, left open
 call(A, "post_intra", [16, aid, 10, 0, 10 ** 10, EXPN], 10, asset=aid)    # asset give, left open
 ref2 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref2 == {A: 10 ** 10}, f"attribution: only the native intra escrow is held here now: {ref2}")
+ok(ref2 == {A: 10 ** 10, R: HELD88}, f"attribution: the native intra escrow plus the bound taker bond: {ref2}")
 ok(sum(ref2.values()) == st.bridge.get(cid, 0), "attribution still sums EXACTLY to the contract's native pot")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved across the intra section too")
 
@@ -284,8 +289,8 @@ post(24, O.ASK)
 call(R, "boost", [24], 7 * 10 ** 8)
 call(A, "boost", [16], 3 * 10 ** 8)                        # o16 = the asset-intra order left open in H4
 ref3 = O.escrow_refunds(st.contracts[cid]["storage"], st.zk_addrs)
-ok(ref3 == {A: 10 ** 10 + 7 * 10 ** 8 + 3 * 10 ** 8},
-   f"attribution: the intra escrow plus live bounties, all to the maker: {ref3}")
+ok(ref3 == {A: 10 ** 10 + 7 * 10 ** 8 + 3 * 10 ** 8, R: HELD88},
+   f"attribution: the intra escrow plus live bounties to the maker, the bound bond to its taker: {ref3}")
 ok(sum(ref3.values()) == st.bridge.get(cid, 0), "attribution == the contract's native pot, exactly")
 ok(sum(st.bridge.values()) == supply0, "native supply conserved through the bounty section")
 

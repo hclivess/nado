@@ -238,7 +238,10 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # A settle-with-proof also records the on-chain VALIDITY marker (validation already verified the proof
         # deterministically, so a settle tx that reached apply with a `proof` is proven). settlement_justified
         # then reads this committed marker — the trustless, fork-free replacement for the old node-local cache.
-        proven = "proof" in data
+        # S4 (REVIEW_R2_HEIGHT): a DA-carried proof (`proof_da`) was fully verified at validation but never
+        # recorded the proven marker, so the settle it justified fell back to the quorum path.
+        from protocol import REVIEW_R2_HEIGHT as _R2
+        proven = "proof" in data or (block_height is not None and int(block_height) >= int(_R2) and "proof_da" in data)
         if revert:
             kv_ops.settlement_del(ns, cursor, sender, root)
             if proven:

@@ -16,6 +16,7 @@ has won yet (tb==0); it consumes the seat id rather than freeing it, so a score 
 new table. join() refuses a decided table (tb!=0) — that ante had no way home.
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.stark import alghash, field as F
 
 TA, T0, TS, TP, TN, TX, TZ, TB, TW, TFR, TI = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
@@ -583,4 +584,7 @@ ABI = {
 def build():
     src = dict(SRC)
     src["hold"] = "\n".join(_hold())
-    return zkvmasm.assemble_contract(src)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {**{m: ["r0"] for m in ("roll", "hold", "settle", "reclaim", "cancel")}, "join": ["r0", "r1"]}
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))

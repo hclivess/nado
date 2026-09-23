@@ -33,6 +33,7 @@ Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid) · feed(pid)[meal] · t
   refund_battle(bid).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.stark import alghash, field as F
 
 # economic + game constants (mirrored by static/pets-genes.js and the reference functions below)
@@ -259,6 +260,10 @@ FEED = "\n".join(
 TRANSFER = "\n".join(
     ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "require r6"]
     + _alive_pid("r0")
+    # C4 (security review 2026-09-23): a pet in a live battle (EX not yet lapsed) is not transferable — the
+    # same check release/combine make. Without it a two-account seller listed the losing pet mid-battle and
+    # resolve_battle reassigned the buyer's pet to the winner.
+    + _sl(EX) + ["sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     + ["mov r5 r1", "nez r5", "require r5",                                      # a real recipient digest
        "ctx r5 caller", "mov r6 r1", "eq r6 r5", "notb r6", "require r6"]
     + _sl(OW) + ["sstore r4 r1"]
@@ -272,6 +277,7 @@ NAME = "\n".join(
 LIST_ = "\n".join(
     ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "require r6"]
     + _alive_pid("r0")
+    + _sl(EX) + ["sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]                                                                       # C4: not mid-battle
     + ["movi r5 0", "lt r5 r1", "require r5"]
     + _sl(MP) + ["sstore r4 r1", "ret r0"])
 
@@ -283,6 +289,7 @@ BUY = "\n".join(
     _sl(MP) + ["sload r3 r4", "require r3"]                                      # it IS for sale
     + ["ctx r5 value", "eq r5 r3", "require r5"]                                 # exact ask
     + _alive_pid("r0")
+    + _sl(EX) + ["sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]                                                                       # C4: not mid-battle
     + ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "notb r6", "require r6"]
     + _sl(OW) + ["sload r5 r4", "pay r5 r3",                                     # price -> seller
                  "ctx r6 caller", "sstore r4 r6"]                                # pet -> buyer
@@ -307,6 +314,7 @@ ACCEPT_OFFER = "\n".join(
     + _sl(OP_) + ["sload r1 r4"]                                                 # r1 = the offered pet
     + ["ctx r5 caller", f"slot r4 {OW} r1", "sload r6 r4", "eq r6 r5", "require r6"]
     + _alive_pid("r1")
+    + [f"slot r4 {EX} r1", "sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]   # C4: keyed r1, the pet
     + ["ctx r5 caller"] + _sl(OV) + ["sload r3 r4", "pay r5 r3"]                 # escrow -> owner
     + _sl(OB) + ["sload r5 r4", f"slot r4 {OW} r1", "sstore r4 r5"]              # pet -> buyer
     + [f"slot r4 {MP} r1", "movi r5 0", "sstore r4 r5"]
@@ -1065,4 +1073,7 @@ def build():
     src["train_resolve"] = "\n".join(_train_resolve())
     src["resolve_battle"] = "\n".join(_resolve_battle())
     src["combine"] = "\n".join(_combine())
-    return zkvmasm.assemble_contract(src)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))

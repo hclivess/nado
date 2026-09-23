@@ -95,6 +95,26 @@ REWARD = f"""
     require r5            ; not already paid for this (game, day, rank)
     movi r5 1
     sstore r6 r5          ; mark this placement paid
+    ; PRIZES SPEND THE OPERATOR'S OWN MONEY FIRST (review 2026-09-23, C5): defund's allowance is
+    ; DONATED - DEFUNDED, and reward never reduced DONATED, so after paying prizes out of a mixed balance
+    ; the operator could take back OTHER donors' coins up to the amount already paid. DONATED now shrinks by
+    ; every prize down to the DEFUNDED floor, so the allowance is only ever the operator's unspent share.
+    movi r6 {DONATED}
+    sload r5 r6           ; DONATED
+    movi r6 {DEFUNDED}
+    sload r7 r6           ; DEFUNDED
+    sub r5 r7             ; avail = DONATED - DEFUNDED (>= 0 by defund's own check)
+    mov r6 r4
+    lt r6 r5              ; amount < avail ?
+    jnz r6 @partial
+    mov r5 r7             ; exhausted: DONATED' = DEFUNDED
+    jmp @store
+partial:
+    sub r5 r4
+    add r5 r7             ; DONATED' = DONATED - amount
+store:
+    movi r6 {DONATED}
+    sstore r6 r5
     pay r3 r4            ; pay the winner from the faucet balance (reverts if the faucet can't cover it)
     ret r0
 """

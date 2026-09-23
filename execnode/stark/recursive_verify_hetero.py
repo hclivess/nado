@@ -17,8 +17,17 @@ form one group and must share the mode. Verifier-authoritative + succinct exactl
 constraint-shaped is read from a proof.
 """
 from execnode.stark import extf
+from execnode.stark import stark          # round-2 AIR identity (_air_of)
 from execnode.stark import (field as F, fri_verify, comp_verify, rowcomp_verify, air_ir,
                             recursive_verify as RV, backend as B, recursion_depth as RD)
+
+
+def _air_of(pub, transitions, boundaries, periodic):
+    """round2 (REVIEW_R2_HEIGHT): the inner proof's AIR identity, exactly as stark.prove absorbed it — hetero items
+    carry no statement digest, so the periodic tables are part of it. None below the gate."""
+    if not stark.current_rules().round2:
+        return None
+    return stark.air_digest(pub["T"], pub["W"], pub["blowup"], len(transitions), boundaries, periodic or [])
 
 
 def _is_row(pub):
@@ -38,7 +47,8 @@ def _points_of(item):
     pub = RV.public_part(proof)
     row_mode = _is_row(pub)
     nt = len(transitions)
-    _mk, chals, alphas = RV._fs(pub, num_challenges, nt + len(boundaries), b)
+    _mk, chals, alphas = RV._fs(pub, num_challenges, nt + len(boundaries), b,
+                                air=_air_of(pub, transitions, boundaries, periodic))
     N, blowup, T, wN, gT, last = RV._geometry(pub)
     gTp = F.primitive_root_of_unity(T)
     per_evals = [stark._per_evaluator(pc, T, gTp) for pc in (periodic or [])]
@@ -92,7 +102,8 @@ def prove_hetero(items, num_queries_outer=fri_verify.NUM_QUERIES, out_backend=No
         pub = RV.public_part(it["proof"])
         if len(it["proof"]["fri"]["queries"]) != nqi:
             raise ValueError("hetero fold needs a shared inner query count")
-        _mk, _c, _a = RV._fs(pub, it.get("num_challenges", 0), len(it["transitions"]) + len(it["boundaries"]), b)
+        _mk, _c, _a = RV._fs(pub, it.get("num_challenges", 0), len(it["transitions"]) + len(it["boundaries"]), b,
+                             air=_air_of(pub, it["transitions"], it["boundaries"], it.get("periodic")))
         fri_proofs.append(it["proof"]["fri"]); mks.append(_mk)
     # FOLD SHAPE. One prove_fold over ALL K inner FRIs builds a trace that is LINEAR IN K: measured
     # 2026-08-05, the recursion AIR spends ~65,536 rows per folded proof (96 segments x 1088 rows for K=2,
@@ -158,7 +169,8 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
         mks, seam = [], []
         for pub, air in zip(pubs, item_airs):
             _mk, _c, _a = RV._fs(pub, air.get("num_challenges", 0),
-                                 len(air["transitions"]) + len(air["boundaries"]), b)
+                                 len(air["transitions"]) + len(air["boundaries"]), b,
+                                 air=_air_of(pub, air["transitions"], air["boundaries"], air.get("periodic")))
             pos = RV._canon_positions(pub, nqi, _mk)
             if pos is None:
                 return False, (f"an inner FRI public statement failed native verification: "
@@ -250,7 +262,8 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
                         or len(iair.get("periodic") or []) != len(air.get("periodic") or []):
                     return False, "group members must share the AIR shape (boundary/periodic count)"
                 _mk, chals, alphas = RV._fs(pub, iair.get("num_challenges", 0),
-                                            len(iair["transitions"]) + len(iair["boundaries"]), b)
+                                            len(iair["transitions"]) + len(iair["boundaries"]), b,
+                                            air=_air_of(pub, iair["transitions"], iair["boundaries"], iair.get("periodic")))
                 positions = RV._canon_positions(pub, nqi, _mk)
                 T = pub["T"]; gTp = F.primitive_root_of_unity(T)
                 per_evals = [stark._per_evaluator(pc, T, gTp) for pc in (iair.get("periodic") or [])]

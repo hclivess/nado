@@ -23,6 +23,10 @@ import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import (field as F, stark, backend as B, recursive_verify as RV, fri_verify,
                             comp_verify, air_ir, recursion_authdepth as AD)
+# The auth-depth tree rebuilds fold/comp schedules for its OWN replay; under the round-2 prologue that
+# reconstruction is not wired (this path is not on the live settlement route, which folds through
+# recursive_verify and IS covered under round 2 by the heavy fold test). Pin the pre-round-2 rules here.
+stark._RULES.set(stark.Rules(True, True, True, False))
 
 fails = 0
 def check(name, fn):

@@ -11,6 +11,7 @@ Index:    slot 0 = cnt (open-game count);  slot(9, i) = the i-th gameId   (so th
 Methods: open(g)[stake] · join(g)[stake] · settle(g) · reclaim(g) · cancel(g). gameId is a frontend int < 2^32.
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 
 NN, ST, PT, P1, P2, SD, SH, WS, LIST = 1, 2, 3, 4, 5, 6, 7, 8, 9
 
@@ -233,4 +234,7 @@ ABI = {
 
 
 def build():
-    return zkvmasm.assemble_contract(SRC)
+    # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
+    # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
+    ID_GUARDS = {m: ["r0"] for m in ("join", "settle", "reclaim", "cancel")}
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

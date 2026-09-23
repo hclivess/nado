@@ -55,7 +55,7 @@ def _apply_payouts(bridge, cid, payouts):
 
 
 def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons, block_hashes,
-              want_rows, payout_sink=None):
+              want_rows, payout_sink=None, meter=None):
     """Execute ONE call against the mutable shadows (contracts, bridge, abal, assets, registry): advance
     storage, resolve native payouts AND asset effects, and return (epoch_call, public_call, rows). `rows`
     (executed step count, only when want_rows) is what the segmenter packs against MAX_T. Raises on
@@ -140,7 +140,7 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     selfd = runtimes.zkvm_addr_digest(cid)
     res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=c_cursor, timestamp=c_ts,
                    beacons=beacons, block_hashes=block_hashes, selfd=selfd, asset=in_asset, abal=abal_view,
-                   witness=want_rows)
+                   witness=want_rows, meter=meter)
     ok, _ret, new_slots, io = res[:4]
     if not ok:
         raise ValueError(f"call {i} reverted — nothing to prove")
@@ -274,9 +274,22 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
     registry = {}
     pre_root = zkvm_root(contracts)
     epoch_calls, public_calls = [], []
+    # F4 MIRROR (REVIEW_R2_HEIGHT): the chain counts each call's executed steps against its block's budget in
+    # tx order and reverts the call that would exceed it; the prover counts identically and finds that call
+    # unprovable (the existing shape for "the chain skipped this call"), so a proof never asserts a transition
+    # the chain refused. Per block, because block_calls stamps each call with its block.
+    from protocol import REVIEW_R2_HEIGHT, EXEC_BLOCK_STEP_BUDGET
+    _used = {}
     for i, call in enumerate(calls):
+        _meter = {}
         ec, pc, _ = _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
-                              block_hashes, want_rows=False)
+                              block_hashes, want_rows=False, meter=_meter)
+        _h = int(call.get("cursor", cursor))
+        if _h >= int(REVIEW_R2_HEIGHT):
+            _used[_h] = _used.get(_h, 0) + int(_meter.get("gas", 0))
+            if _used[_h] > int(EXEC_BLOCK_STEP_BUDGET):
+                raise ValueError(f"call {i}: block {_h} execution budget exhausted — the chain REVERTED this "
+                                 f"call, so the span is unprovable")
         epoch_calls.append(ec); public_calls.append(pc)
     proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend,
                                                          row_commit=row_commit)
