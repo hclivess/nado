@@ -192,6 +192,15 @@ leaked or been drained yet; every finding below is a property of the code.
 - **Z3 — CRITICAL by design.** The note commitment is one 64-bit field element (`alghash.py:56-77`,
   "~2^32 collision"); ~2^33 sponge evaluations find two openings of one leaf → unshield up to escrow with no
   victim. `alghash2` (256-bit) exists and is not used by the pool.
+  > **Coded 2026-09-23 behind `SHIELD_WIDE_HEIGHT` (live 2^62; block 1 at the reroll).** The pool is
+  > `execnode/shielded_wide.py` over alghash2 digests (`execnode/stark/znote.py`: owner / cm / nf / rnode, one
+  > permutation each) and the proof is `execnode/stark/joinsplit3.py` — the same statement as joinsplit2 as 5+D
+  > permutation blocks plus the C-3 range blocks (T = 1024, W = 28 at depth 12; joinsplit2 was T = 2048, W = 21).
+  > L1 pins a deposit's owner to a 64-hex digest from the gate; joinsplit/joinsplit2 bundles are refused from it
+  > and joinsplit3 below it. Browser mirror: `static/alghash2.js` + `static/stark/joinsplit3.js`, and the wallet
+  > picks the pool by `/status.proof_rules.shield_wide`. Measured: Python prove 40.6 s (joinsplit2 45.4 s),
+  > verify 3.9 s (2.2 s); Node prove 84 s (joinsplit2 ~50 s). The shielded-CONTRACT notes
+  > (`shielded_state` / `appnote_circuit`) still use the 64-bit hash — same class, same fix, not yet done.
 - Z4 HIGH: the field pool truncates past 4,096 leaves (`shielded_field.py:14, 30-61, 90-93`); every later
   note is a permanent lock, every later transfer burns its input. Z5 HIGH (privacy): the L1 sender signs the
   blob, the claim DM carries `sender`, deposits are public — no sender anonymity even after Z1. Z6 nullifier
@@ -409,7 +418,9 @@ and should be scheduled, not patched.
    > upgrade rule names its runtime exactly, and the gen-25 faucet slot-7 seed is off from the gate (it wrote
    > storage from the records half, which no proof can derive). Gen-25 roots, leaves and summaries are
    > byte-unchanged (`tests/test_exec_root_v2.py`, `test_exec_root`, `test_settlement_sparse`, the DA-binding
-   > and records suites). Remaining: Z3 wide commitment + Z1 masked trace, then P1.
+   > and records suites). **Z3 coded behind `SHIELD_WIDE_HEIGHT`** (see the Z3 entry). Remaining: Z1 (masked
+   > trace) together with P1 (DEEP): both are properties of the composition polynomial, so the ZK randomiser is
+   > designed once, on the DEEP form, rather than twice; then the shielded-contract notes onto the wide hash.
 
 Repro scripts used (scratch, not committed): `repro_contracts.py` (C1, C2 banked), `repro_ttt.py` (C2
 board), `repro_shield.py` (Z2), `repro_zk.py` (Z1, `NADO_ALLOW_PYTHON_KERNELS=1`, 23 s prove).

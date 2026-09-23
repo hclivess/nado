@@ -2384,6 +2384,18 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # C-2: the exec node BINDS the note value to this escrowed amount by recomputing
             # commit(amount, owner, rho) itself, so the deposit must carry (owner, rho), not a free-choice cm.
             assert data.get("owner") is not None and data.get("rho") is not None, "field shield needs owner + rho"
+            from protocol import SHIELD_WIDE_HEIGHT as _SWH
+            if h >= int(_SWH):
+                # SHIELD_WIDE_HEIGHT (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
+                # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
+                # escrows the coins behind a note the exec layer then refuses to create — coins gone.
+                from execnode.stark import znote as _Z, field as _ZF
+                _ow = data.get("owner")
+                assert isinstance(_ow, str) and len(_ow) == 64 and _ow == _ow.lower(), "wide shield owner must be a 64-hex digest"
+                _Z.from_hex(_ow)                                                 # raises on an out-of-field lane
+                _rh = data.get("rho")
+                assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
+                    and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
         else:                                                        # transparent-phase note openings
             assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
     elif recipient == "unshield":

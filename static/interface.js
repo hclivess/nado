@@ -24,6 +24,8 @@ import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
 import { setMerkleWasm } from "./stark/merkle.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
+import * as alghash2 from "./alghash2.js";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
+import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
@@ -9262,7 +9264,29 @@ function wireAutoVoteToggle() {
  * which note is whose. Transparent phase today: the witness is the proof; the STARK slots in later.
  * -------------------------------------------------------------------------------------------- */
 let _shInit = false;
-function ensureShielded() { if (!_shInit) { alghash.initAlghash(blake2bHash); _shInit = true; } }
+function ensureShielded() { if (!_shInit) { alghash.initAlghash(blake2bHash); alghash2.initAlghash2(blake2bHash); _shInit = true; } }
+/* WHICH POOL (SHIELD_WIDE_HEIGHT, security review 2026-09-23 Z3). From the gate every note, owner id and
+ * nullifier is a 256-bit alghash2 digest and the proof is joinsplit3; below it the legacy 64-bit alghash pool
+ * and joinsplit2. The node publishes the gate in /status.proof_rules.shield_wide; a note or a proof is built for
+ * the NEXT block, so the rule for tip + 1 applies (the same rule _proofRulesNow uses). Resolved once per action
+ * (refreshShieldRules, awaited by every shielded entry point) and read synchronously after that, because the
+ * owner/address helpers are called from synchronous render paths. Until the first fetch answers, the wallet
+ * assumes the legacy pool, exactly as a node that publishes no gate would be judged. */
+let _shieldWide = null;
+async function refreshShieldRules() {
+  try {
+    const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
+    const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
+    _shieldWide = pr.shield_wide !== undefined && tip + 1 >= Number(pr.shield_wide);
+  } catch (e) { if (_shieldWide === null) _shieldWide = false; }
+  return _shieldWide;
+}
+function shieldWide() { return _shieldWide === true; }
+// owner ids as the wire carries them: a 64-hex digest (wide) or a decimal field element (legacy)
+function ownerStr(o) { return shieldWide() ? alghash2.toHex(o) : o.toString(); }
+function ownerParse(str) { return shieldWide() ? alghash2.fromHex(String(str)) : BigInt(str); }
+function cmStr(cm) { return shieldWide() ? alghash2.toHex(cm) : cm.toString(); }
+function noteCommit(value, owner, rho) { return shieldWide() ? alghash2.commit(value, owner, rho) : alghash.commit(value, owner, rho); }
 function shieldStoreKey() { return "nado.shieldf." + (state.wallet ? state.wallet.address : "none"); }
 function loadNotes() { try { return JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; } }
 function saveNotes(notes) { try { localStorage.setItem(shieldStoreKey(), JSON.stringify(notes)); } catch (e) {} }
@@ -9274,13 +9298,20 @@ function _randField() {   // a random Goldilocks field element (note randomness 
 // STABLE per-wallet shielded spend key, derived from the seed -> recoverable from the recovery phrase, and
 // reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
 function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash([DOMAIN_SHIELD_NSK, state.wallet.privateKey])) % alghash.P; }
-function shieldOwner() { return alghash.ownerOf(shieldNsk()); }
-function shieldAddr() { return "zaddr" + shieldOwner().toString(36); }
+function shieldOwner() { return shieldWide() ? alghash2.ownerOf(shieldNsk()) : alghash.ownerOf(shieldNsk()); }
+// a zaddr is the owner id in base36: ~13 chars for a legacy 64-bit id, ~50 for a wide 256-bit digest
+function shieldAddr() { return "zaddr" + (shieldWide() ? BigInt("0x" + alghash2.toHex(shieldOwner())) : shieldOwner()).toString(36); }
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
 function parseShieldAddr(a) {
   a = String(a || "").trim();
   if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
-  return _b36(a.slice(5));   // -> the recipient's owner id (a field element)
+  const body = a.slice(5), n = _b36(body);
+  // a wide id is 256 bits (its base36 form is longer than any 64-bit legacy id's 13 chars); the pools do not
+  // mix, so an address from the other pool is refused rather than silently sent into a note nobody can spend
+  const wideForm = body.length > 13;
+  if (wideForm !== shieldWide()) throw new Error(shieldWide() ? "that zaddr… is from the previous pool" : "that zaddr… is for the wide pool, not live yet");
+  if (!wideForm) return n;   // -> the recipient's owner id (a field element)
+  return alghash2.fromHex(n.toString(16).padStart(64, "0"));   // -> the recipient's owner digest (4 lanes)
 }
 
 // Shielded receive: amount-aware payment-link QR + link text (mirrors renderReceiveQR; the raw zaddr…
@@ -9297,7 +9328,7 @@ function renderZaddrQR() {
 
 async function renderShield() {
   if (!state.wallet) return;
-  ensureShielded();
+  ensureShielded(); await refreshShieldRules();
   renderZaddrQR();   // your reusable shielded receive address as a payment-link QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
@@ -9320,22 +9351,22 @@ async function renderShield() {
 
 async function doShield() {
   if (!state.wallet) return;
-  ensureShielded();
+  ensureShielded(); await refreshShieldRules();
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   const rho = _randField();
   const owner = shieldOwner();                               // this wallet's stable shielded owner
-  const cm = alghash.commit(rawAmount, owner, BigInt(rho));  // field-native note commitment
+  const cm = noteCommit(rawAmount, owner, BigInt(rho));      // field-native note commitment (wide from the gate)
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
     // C-2: send (owner, rho) so the exec node BINDS the note value to the escrowed amount by recomputing
     // commit(amount, owner, rho) itself. `cm` is kept for local reference only; the node does not trust it.
-    const data = { field: true, owner: owner.toString(), rho: rho.toString(), cm: cm.toString() };
+    const data = { field: true, owner: ownerStr(owner), rho: rho.toString(), cm: cmStr(cm) };
     const tx = buildTransferTx(state.wallet, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
-      notes.push({ value: rawAmount.toString(), rho, cm: cm.toString(), spent: false, ts: Date.now() });
+      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now() });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       $("shieldAmount").value = "";
@@ -9397,7 +9428,7 @@ function insufficientMsg(rawAmount) {
 
 async function doUnshield() {
   if (!state.wallet) return;
-  ensureShielded();
+  ensureShielded(); await refreshShieldRules();
   const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
@@ -9426,8 +9457,8 @@ async function doUnshield() {
       // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
       const wit = {
         cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-        v1: change.toString(), o1: owner.toString(), r1,
-        v2: "0", o2: owner.toString(), r2,
+        v1: change.toString(), o1: ownerStr(owner), r1,
+        v2: "0", o2: ownerStr(owner), r2,
         public_value: (-take).toString(), fee: "0", withdraw_addr: to,
       };
       const pr = await proveTransfer2(wit);
@@ -9506,7 +9537,11 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
 async function _onDeviceProve2(wit, execBase) {
   await ensureFastStarkHash();
   ensureShielded();
-  const leaves = (await execJSON("/exec/field_leaves", { base: execBase })).leaves || [];
+  const lv = await execJSON("/exec/field_leaves", { base: execBase });
+  const leaves = lv.leaves || [];
+  const rules = await _proofRulesNow();
+  if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
+  if (shieldWide()) return _onDeviceProve3(wit, execBase, leaves, rules);
   const cm = BigInt(wit.cm);
   const idx = leaves.findIndex((l) => BigInt(l) === cm);
   if (idx < 0) throw new Error("note not in the pool yet");
@@ -9525,7 +9560,6 @@ async function _onDeviceProve2(wit, execBase) {
   // PROOF RULES BY HEIGHT (2026-09-23): the node judges a proof by the rules of the block it lands in, and
   // publishes the gate heights in /status.proof_rules rather than have this page hard-code a number that goes
   // stale. A proof lands above the current tip, so the rules for tip + 1 are the earliest that can apply.
-  const rules = await _proofRulesNow();
   const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, rules);
   proof.D = bt.D;
   const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
@@ -9537,11 +9571,32 @@ async function _onDeviceProve2(wit, execBase) {
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
            cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
 }
+// WIDE on-device prover (SHIELD_WIDE_HEIGHT): the same flow over alghash2 digests and joinsplit3 — leaves and
+// digests are 64-hex, the path is the wide tree's, and the bundle is a `joinsplit3` one. Same shape of result.
+async function _onDeviceProve3(wit, execBase, leaves, rules) {
+  const idx = leaves.findIndex((l) => String(l) === String(wit.cm));
+  if (idx < 0) throw new Error("note not in the pool yet");
+  const { sibs, dirs } = alghash2.treePath(leaves, idx);
+  const J = sjoinsplit3;
+  const bt = J.buildTrace(BigInt(wit.nsk), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
+    BigInt(wit.v1), alghash2.fromHex(wit.o1), BigInt(wit.r1), BigInt(wit.v2), alghash2.fromHex(wit.o2), BigInt(wit.r2));
+  const bnd = J.boundaries(bt.D, bt.root, bt.nf, bt.cm1, bt.cm2, BigInt(wit.public_value), BigInt(wit.fee));
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, rules);
+  proof.D = bt.D;
+  const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
+  const bundle = { stark: { joinsplit3: { proof: ser(proof), root: alghash2.toHex(bt.root), nf: alghash2.toHex(bt.nf),
+    cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2), public_value: wit.public_value, fee: wit.fee } } };
+  if (wit.withdraw_addr) bundle.withdraw_addr = wit.withdraw_addr;
+  const res = await _daSubmitFieldTransfer(bundle, execBase);
+  return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
+           cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2) };
+}
 async function _proofRulesNow() {
   try {
     const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
     const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
+    _shieldWide = at("shield_wide");                                  // keep the pool choice in step with the proof rules
     return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2") };
   } catch (e) {
     return { bind: false, blockSelector: false, round2: false };   // an old node publishes no gates and judges by the old rules
@@ -9562,7 +9617,7 @@ async function proveTransfer2(wit) {   // 2-output proof (send + change) — ALW
 // any amount and keeps the change (1-in/2-out); the recipient reconstructs their note from a claim code.
 async function doSendShielded() {
   if (!netAdopted) await refreshNetIdentity();   // never sign with an unconfirmed chain_id
-  if (!state.wallet) return; ensureShielded();
+  if (!state.wallet) return; ensureShielded(); await refreshShieldRules();
   let recipientOwner;
   try { recipientOwner = parseShieldAddr($("zsendTo").value); }
   catch (e) { log("err", i18("shield.badZaddr", "Enter a valid zaddr… shielded address.")); return; }
@@ -9590,8 +9645,8 @@ async function doSendShielded() {
         : i18("shield.proving", "Generating your zero-knowledge proof…"));
       const wit = {
         cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-        v1: take.toString(), o1: recipientOwner.toString(), r1,
-        v2: change.toString(), o2: shieldOwner().toString(), r2,
+        v1: take.toString(), o1: ownerStr(recipientOwner), r1,
+        v2: change.toString(), o2: ownerStr(shieldOwner()), r2,
         public_value: "0", fee: "0",
       };
       const pr = await proveTransfer2(wit);
@@ -9742,18 +9797,18 @@ async function doDeliverZbill() {
 }
 
 async function doReceiveShielded() {
-  if (!state.wallet) return; ensureShielded();
+  if (!state.wallet) return; ensureShielded(); await refreshShieldRules();
   const code = String($("zrecvCode").value || "").trim();
   if (!code.startsWith("zbill") || code.indexOf(".") < 0) { log("err", i18("shield.badCode", "Paste a zbill… claim code.")); return; }
   try {
     const [vB, rB] = code.slice(5).split(".");
     const value = _b36(vB), rho = _b36(rB);
-    const cm = alghash.commit(value, shieldOwner(), rho);      // reconstruct the note with YOUR key
-    const info = await execJSON("/exec/field_shielded?cm=" + cm.toString());
+    const cm = noteCommit(value, shieldOwner(), rho);           // reconstruct the note with YOUR key
+    const info = await execJSON("/exec/field_shielded?cm=" + cmStr(cm));
     if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
-    if (notes.some((n) => n.cm === cm.toString())) { log("info", i18("shield.already", "You already have that banknote.")); return; }
-    notes.push({ value: value.toString(), rho: rho.toString(), cm: cm.toString(), spent: false, ts: Date.now() });
+    if (notes.some((n) => n.cm === cmStr(cm))) { log("info", i18("shield.already", "You already have that banknote.")); return; }
+    notes.push({ value: value.toString(), rho: rho.toString(), cm: cmStr(cm), spent: false, ts: Date.now() });
     saveNotes(notes);
     $("zrecvCode").value = "";
     log("ok", i18("shield.received", "Received {a} NADO privately ✓", { a: rawToNado(BigInt(value)) }));

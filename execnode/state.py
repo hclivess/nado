@@ -62,10 +62,15 @@ def _normalize_bundle(bundle):
     strings; the on-device proof now rides the DA layer and is applied via apply_blob->apply_field_transfer
     (no HTTP handler in between), so normalization MUST live here, not in a route. Idempotent — int() on an
     already-int is a no-op, so Python-generated bundles pass through untouched. No-op for non-joinsplit2."""
-    js = (bundle.get("stark") or {}).get("joinsplit2")
+    stark_b = bundle.get("stark") if isinstance(bundle.get("stark"), dict) else {}
+    js = stark_b.get("joinsplit2")
+    wide = False
+    if not js:
+        js = stark_b.get("joinsplit3")                # SHIELD_WIDE_HEIGHT: digests stay 64-hex, only the
+        wide = True                                    # scalars and the proof's numbers are coerced
     if not js:
         return
-    for k in ("root", "nf", "cm_out1", "cm_out2", "public_value", "fee"):
+    for k in (("public_value", "fee") if wide else ("root", "nf", "cm_out1", "cm_out2", "public_value", "fee")):
         if k in js and js[k] is not None:
             js[k] = int(js[k])
     p = js.get("proof") or {}
@@ -293,6 +298,11 @@ class ExecState:
         # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
         from execnode.shielded_field import FieldShieldedPool
         self.field_pool = FieldShieldedPool()
+        # WIDE POOL (SHIELD_WIDE_HEIGHT, Z3): the field pool over alghash2 digests. Present on every state so
+        # the code path is uniform; it contributes to the root and the snapshot ONLY once it holds a note, so
+        # a gen-25 root is byte-identical with or without this attribute (exec_root.records_projection).
+        from execnode.shielded_wide import WideShieldedPool
+        self.wide_pool = WideShieldedPool()
         # SHIELDED CONTRACTS (execnode/shielded_state.py): private application STATE, as against the pools
         # above which hold private VALUE. Per-contract note trees + one spent set. Contributes nothing to
         # the settled root until a contract actually holds a note, so its mere existence cannot move a root.
@@ -400,6 +410,8 @@ class ExecState:
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = d.get("uw_nonce", 0)
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+        from execnode.shielded_wide import WideShieldedPool
+        self.wide_pool = WideShieldedPool.from_dict(d["wide_pool"]) if "wide_pool" in d else WideShieldedPool()
         from execnode.shielded_state import ShieldedStatePool
         self.app_state = (ShieldedStatePool.from_dict(d["app_state"]) if "app_state" in d
                           else ShieldedStatePool())
@@ -450,6 +462,8 @@ class ExecState:
                     "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
                     "field_pool": self.field_pool.to_dict(),
+                    # EMPTY IS ABSENT (the app_state rule): a gen-25 snapshot must not change by a key it never needed
+                    **({"wide_pool": self.wide_pool.to_dict()} if self.wide_pool.commitments or self.wide_pool.nullifiers else {}),
                     "pool_value": self.pool_value, "pool_fees": self.pool_fees,
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
@@ -948,6 +962,8 @@ class ExecState:
             amount = int(amount)
             if not (0 < amount < MAX_EXIT_VALUE):     # note values must be < 2^61 to satisfy the range gadget
                 return f"skip field-shield: amount out of range ({amount})"
+            if self.rules_shield_wide():
+                return self._apply_wide_shield(amount, owner, rho)
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
             with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
                 if self.rules_r2():
@@ -965,12 +981,86 @@ class ExecState:
         except Exception as e:
             return f"skip field-shield: {e}"
 
+    def _apply_wide_shield(self, amount, owner, rho):
+        """SHIELD_WIDE_HEIGHT: the deposit's note in the WIDE pool — cm = znote.commit(amount, owner, rho) with
+        the owner a 64-hex alghash2 digest (L1 admission pins that shape from the same height, so a deposit
+        can no longer escrow coins behind a note this line refuses). Z6 and Z4 apply as on the legacy pool."""
+        from execnode.stark import znote as _Z, field as _F
+        from execnode.shielded_wide import TREE_DEPTH as _WD
+        cm = _Z.commit(amount, _Z.from_hex(owner), int(rho) % _F.P)
+        with self._mutate_lock:
+            if self.wide_pool.position(cm) is not None:
+                return "skip field-shield: duplicate note commitment"
+            if len(self.wide_pool.commitments) >= (1 << _WD):
+                return "skip field-shield: the wide pool is full"
+            self.wide_pool.append(cm)
+            self.pool_value += amount
+            self._touch()
+        return f"field-shield {amount} -> wide note #{len(self.wide_pool.commitments)}"
+
+    def _apply_wide_transfer(self, bundle):
+        """SHIELD_WIDE_HEIGHT: apply a joinsplit3 bundle against the WIDE pool — the same order of checks as
+        apply_field_transfer (destination, proof, value bounds, double-spend, mutate), with digests as 64-hex.
+        The nullifier set, the note tree and the exit record are the wide pool's; pool_value / pool_fees /
+        unshield_withdrawals are shared with the legacy pool, which is frozen from this height."""
+        from execnode import shielded
+        from execnode.stark import znote as _Z
+        from execnode.shielded_wide import TREE_DEPTH as _WD
+        js = (bundle.get("stark") or {}).get("joinsplit3") or {}
+        try:
+            root, nf = _Z.from_hex(js["root"]), _Z.from_hex(js["nf"])
+            cm_outs = [_Z.from_hex(js["cm_out1"]), _Z.from_hex(js["cm_out2"])]
+            pv, fee = int(js["public_value"]), int(js["fee"])
+        except Exception as e:
+            return f"skip field-transfer: malformed joinsplit3 bundle ({e})"
+        addr = None
+        if pv < 0:
+            addr = bundle.get("withdraw_addr")
+            if not addr or not validate_address(addr, allow_reserved=False) or addr in self.contracts:
+                return "skip field-transfer: withdraw_addr is not a spendable account"
+        if not (-MAX_EXIT_VALUE <= pv <= 0) or not (0 <= fee <= MAX_EXIT_VALUE):
+            return "skip field-transfer: public_value/fee out of range"
+        public = {"root": js["root"], "nullifiers": [js["nf"]], "out_commitments": [js["cm_out1"], js["cm_out2"]],
+                  "public_value": pv, "fee": fee}
+        ok, reason = shielded.verify_transfer(public, bundle, self.wide_pool.knows_root)
+        if not ok:
+            return f"skip field-transfer: {reason}"
+        with self._mutate_lock:
+            if self.wide_pool.has_nullifier(nf):
+                return "skip field-transfer: nullifier already spent (double-spend)"
+            if any(self.wide_pool.position(c) is not None for c in cm_outs) or cm_outs[0] == cm_outs[1]:
+                return "skip field-transfer: duplicate note commitment"          # Z6, on the wide pool
+            if len(self.wide_pool.commitments) + 2 > (1 << _WD):
+                return "skip field-transfer: the wide pool is full"              # Z4
+            self.wide_pool.spend(nf)
+            for c in cm_outs:
+                self.wide_pool.append(c)
+            self.pool_value += pv - fee
+            self.pool_fees += fee
+            if pv < 0:
+                self.uw_nonce += 1
+                self.unshield_withdrawals[str(self.uw_nonce)] = {"addr": addr, "amount": -pv}
+            self._touch()
+        return (f"field-transfer ok (wide): nf {js['nf'][:12]}… spent, {len(cm_outs)} note(s) added"
+                + (f", unshield {-pv} -> {addr}" if pv < 0 else ""))
+
     def apply_field_transfer(self, bundle):
         """Apply a Phase-2 STARK transfer: verify the join-split proof, reject a double-spend, then record the
         nullifier + append the output commitment. public_value<0 records a provable unshield exit."""
         from execnode import shielded
         _normalize_bundle(bundle)   # browser bundles carry big ints as strings (JS can't JSON BigInt) -> ints
         stark_b = bundle.get("stark") or {}
+        # SHIELD_WIDE_HEIGHT (Z3): one pool per generation. From the gate only a joinsplit3 bundle spends, and
+        # only from the wide pool; below it a joinsplit3 bundle is refused (there is no wide pool to spend
+        # from) and the legacy path below runs unchanged.
+        if not isinstance(stark_b, dict):
+            return "skip field-transfer: bad bundle"
+        if self.rules_shield_wide():
+            if "joinsplit3" not in stark_b:
+                return "skip field-transfer: the wide pool takes a joinsplit3 bundle"
+            return self._apply_wide_transfer(bundle)
+        if "joinsplit3" in stark_b:
+            return "skip field-transfer: joinsplit3 is not live before SHIELD_WIDE_HEIGHT"
         if "joinsplit2" in stark_b:                     # 2-output transfer (send + change)
             js = stark_b["joinsplit2"]
             cm_outs = [int(js["cm_out1"]), int(js["cm_out2"])]
@@ -1134,6 +1224,13 @@ class ExecState:
         under EXEC_CTX_CURRENT_HEIGHT the cursor is advanced BEFORE the loop), else cursor + 1."""
         h = getattr(self, "_applying", None)
         return int(h) if h is not None else int(self.cursor) + 1
+
+    def rules_shield_wide(self):
+        """SHIELD_WIDE_HEIGHT in force for the block being applied: deposits land in the wide pool and only a
+        joinsplit3 bundle spends; below it the legacy field pool and joinsplit/joinsplit2 (same convention as
+        rules_v2)."""
+        from protocol import SHIELD_WIDE_HEIGHT
+        return self.applying_height() >= int(SHIELD_WIDE_HEIGHT)
 
     def rules_root_v2(self):
         """EXEC_ROOT_V2_HEIGHT in force for the block being applied (same convention as rules_v2). Every rule

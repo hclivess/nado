@@ -1625,7 +1625,8 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT,
-#                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT (live value 2^62 = off until the reroll)
+#                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
+#                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -2099,6 +2100,16 @@ EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # why this cannot turn on mid-generation: block 1 of the next one. Requires EXEC_CTX_CURRENT_HEIGHT to be in force
 # (the prover stamps the block being applied; tests/test_gate_reroll_transfer.py pins the order).
 EXEC_ROOT_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+
+# WIDE SHIELDED POOL (RIDES A REROLL; security review 2026-09-23, Z3). The pool's note commitment, owner id,
+# nullifier and tree node were ONE Goldilocks element (alghash: ~2^32 collision by its own docstring), so ~2^33
+# sponge evaluations open one leaf two ways and unshield up to the whole escrow with no victim. From the gate the
+# pool is execnode/shielded_wide.py over alghash2 digests (four lanes, ~128-bit) and the join-split is
+# execnode/stark/joinsplit3.py; a `shield` deposit names its owner as a 64-hex digest and L1 refuses any other
+# form (coins would otherwise sit in escrow behind a note the exec layer never created). The legacy pool and
+# circuit are frozen from the same height: a joinsplit/joinsplit2 bundle is refused, a joinsplit3 one is refused
+# below it. Every commitment ever made changes shape, which is why this is block 1 of the next generation.
+SHIELD_WIDE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

@@ -50,6 +50,19 @@ def verify_transfer(public, proof, root_is_known):
     # Merkle depth MUST equal TREE_DEPTH. Pinning it (on top of the per-circuit T pin) leaves the whole trace
     # geometry fully determined by the protocol — a crafted depth can't misalign the periodic selectors.
     from execnode.shielded_field import TREE_DEPTH
+    # WIDE join-split (SHIELD_WIDE_HEIGHT, Z3): alghash2 digests, the wide pool's depth. The caller's
+    # root_is_known must be the WIDE pool's (state._apply_wide_transfer passes it); public digests ride as 64-hex.
+    if "joinsplit3" in bundle:
+        from execnode.stark import joinsplit3
+        from execnode.shielded_wide import TREE_DEPTH as WIDE_DEPTH
+        b = bundle["joinsplit3"]
+        try:
+            if b["proof"].get("D") != WIDE_DEPTH:
+                return False, "unexpected join-split tree depth"
+            return joinsplit3.verify_transfer(b["proof"], b["root"], b["nf"], b["cm_out1"], b["cm_out2"],
+                                              b["public_value"], b["fee"], root_is_known, aux=aux)
+        except (KeyError, TypeError) as e:
+            return False, f"malformed joinsplit3 bundle: {e}"
     # 2-output join-split (send any amount + change).
     if "joinsplit2" in bundle:
         b = bundle["joinsplit2"]

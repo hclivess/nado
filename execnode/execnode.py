@@ -4504,12 +4504,26 @@ async def h_field_shielded(request):
     """Field-native pool status; with ?cm=<int> also that commitment's leaf position (None if absent).
     Big field ints are returned as strings."""
     # Phase-2 field-native pool status + (optionally) a commitment's position.
-    fp = state.field_pool
     cm = request.query.get("cm")
+    if _shield_wide_now():
+        # SHIELD_WIDE_HEIGHT: the wide pool; a commitment is a 64-hex digest
+        wp = state.wide_pool
+        pos = wp.position(cm) if (cm and len(cm) == 64) else None
+        from execnode.stark import znote as _Z
+        return web.json_response({"root": _Z.to_hex(wp.root()), "notes": len(wp.commitments),
+                                  "nullifiers": len(wp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": True})
+    fp = state.field_pool
     # a field element is < 2^64 (20 digits); CPython's int() refuses > 4300 digits with a ValueError -> 500
     pos = fp.position(int(cm)) if (cm and len(cm) <= 32 and cm.lstrip("-").isdigit()) else None
     return web.json_response({"root": str(fp.root()), "notes": len(fp.commitments),
-                              "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos})
+                              "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": False})
+
+
+def _shield_wide_now():
+    """Whether the NEXT block applies SHIELD_WIDE_HEIGHT rules — what a wallet building a note or a proof for
+    the next block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules)."""
+    from protocol import SHIELD_WIDE_HEIGHT
+    return int(state.cursor) + 1 >= int(SHIELD_WIDE_HEIGHT)
 
 
 async def h_private_state(request):
@@ -4582,7 +4596,10 @@ async def h_field_leaves(request):
     Merkle path and prove ON-DEVICE — the witness never reaches this node."""
     # the field pool's commitment list (public) so the browser can build the Merkle path itself and prove
     # ON-DEVICE (the node never sees the witness). Big ints as strings.
-    return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments]})
+    if _shield_wide_now():
+        from execnode.stark import znote as _Z
+        return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True})
+    return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})
 
 
 async def h_prove_transfer2(request):
