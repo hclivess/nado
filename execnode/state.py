@@ -16,6 +16,7 @@ import threading
 
 from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
+from execnode import zkvm                 # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
 from execnode.shielded_state import apply_transition
@@ -1116,6 +1117,13 @@ class ExecState:
         return blake2b_hash(["deploy", deployer, code, nonce])[:32]
 
     # --- applying blobs --------------------------------------------------------------------------
+    def rules_v2(self):
+        """EXEC_RULES_V2_HEIGHT in force for the block being applied. _apply_block advances `cursor` to h only
+        AFTER applying block h's blobs, so during application the block is cursor + 1 — the same height the
+        settlement prover stamps on each call (block_calls: cursor = h), so exec and proof refuse identically."""
+        from protocol import EXEC_RULES_V2_HEIGHT
+        return int(self.cursor) + 1 >= int(EXEC_RULES_V2_HEIGHT)
+
     def apply_blob(self, payload, sender, txid):
         with self._mutate_lock:
             try:
@@ -1176,6 +1184,13 @@ class ExecState:
                 c = self.contracts.get(cid)
                 if not c:
                     return f"skip: no contract {cid}"
+                _v2 = self.rules_v2()
+                # F2 (2026-09-23): a non-string method used to pass every check here, be DEBITED below, and
+                # raise TypeError at the VM's `method not in code` — caught by the outer except with the
+                # escrow kept. Refuse it before any ledger moves. Legacy blocks keep the old outcome (the
+                # exception path), which is why the check is gated.
+                if _v2 and not isinstance(method, str):
+                    return "skip: method must be a string"
                 if not isinstance(args, list):
                     return "skip: args must be a list"
                 if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -1193,6 +1208,18 @@ class ExecState:
                 rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
                 if rt is None:
                     return f"skip: unknown runtime for {cid}"
+                # C1 (2026-09-23, reproduced): "one `value` field, two ledgers" is exactly the hole. A method
+                # that never reads ACTX cannot tell a token from NADO: it books `value`, and its later PAY
+                # draws native coins from the contract's shared holding — escrowed by OTHER players. So an
+                # asset-denominated value may only enter a method whose program reads ACTX (dex, otc,
+                # reserve today; all of them compare it and require asset 0 on their native-only methods).
+                # The settlement prover applies the same test (settlement_proofs._run_call), so a refused
+                # call is refused identically on every exec node and unprovable in every settle proof.
+                if _v2 and in_asset and value > 0 and not (
+                        c.get("runtime", runtimes.DEFAULT_RUNTIME) == "zkvm"
+                        and zkvm.method_reads_actx(c["code"], method)):
+                    return (f"skip: asset-denominated value into {cid[:12]}….{method}, which never reads "
+                            f"ACTX and would pay it out as native NADO")
                 # VALUE ESCROW: debit the caller's bridge INTO the contract (keyed by cid) BEFORE running, so the
                 # VALUE opcode reflects it and PAY can draw on it. A revert refunds exactly — no NADO created or lost.
                 if value > 0:
@@ -1209,11 +1236,6 @@ class ExecState:
                             del self.bridge[sender]
                         self.bridge[cid] = self.bridge.get(cid, 0) + value
                 kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                ok, _ret, new_storage, payouts, effects = self._rt_run(
-                    rt, c["code"], method, sender, args, c["storage"],
-                    value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
-                    block_hashes=self.block_hashes, asset=int(in_asset or 0),
-                    selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                 def _refund():
                     if value > 0:
                         if in_asset:
@@ -1224,6 +1246,19 @@ class ExecState:
                         if self.bridge.get(cid, 0) == 0:
                             self.bridge.pop(cid, None)
                         self.bridge[sender] = self.bridge.get(sender, 0) + value
+                try:
+                    ok, _ret, new_storage, payouts, effects = self._rt_run(
+                        rt, c["code"], method, sender, args, c["storage"],
+                        value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
+                        block_hashes=self.block_hashes, asset=int(in_asset or 0),
+                        selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+                except Exception as e:
+                    # F2: the VM raising (rather than reverting) must not keep the escrow. Below the gate the
+                    # exception keeps propagating to the outer except, exactly as it always did.
+                    if not _v2:
+                        raise
+                    _refund()
+                    return f"skip: call {cid[:12]}….{method} raised {type(e).__name__} — escrow refunded"
                 if not ok:
                     _refund()
                     return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
@@ -1587,6 +1622,16 @@ class ExecState:
                 pv = int(public.get("public_value", 0))
                 if pv > 0:
                     return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
+                if self.rules_v2():
+                    # Z2 (2026-09-23, reproduced): a `stark` bundle with neither join-split key fell through
+                    # verify_transfer to "output well-formedness only", which `[]` satisfies, and the branch
+                    # below then recorded an unbacked exit against the shield escrow for one fee. Fail closed:
+                    # a stark bundle must carry the proof, and an exit is bounded like every other value.
+                    _stk = proof.get("stark")
+                    if _stk is not None and not (isinstance(_stk, dict) and ("joinsplit" in _stk or "joinsplit2" in _stk)):
+                        return "skip shielded_transfer: stark bundle carries no join-split proof"
+                    if pv < 0 and not (-pv < MAX_EXIT_VALUE):
+                        return f"skip shielded_transfer: exit exceeds MAX_EXIT_VALUE"
                 # Validate the exit destination BEFORE any mutation. apply_transfer records the nullifier and
                 # appends the output commitments, so a missing withdraw_addr checked AFTERWARDS burned the note
                 # for a malformed unshield with no exit recorded — the exact ordering apply_field_transfer was

@@ -1611,7 +1611,7 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
 #                                    BOND_ATTEST_OPTIONAL_HEIGHT,
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
-#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT
+#                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
@@ -1996,6 +1996,27 @@ TX_AT_MOST_ONCE_STRICT_HEIGHT = 81600 if CHAIN_GENERATION == 25 else 1
 # (exec layer) and the settler are the three sites that set it. Gate hygiene: a height ahead of the update wave
 # on the live chain; live from block 1 at the next reroll.
 PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1
+
+# EXEC-LAYER CALL RULES V2 (security review 2026-09-23: C1/F1, F2, Z2, S2). Exec state is computed by every
+# exec node and settled to L1 by quorum or proof, so a rule that changes what a call DOES is a consensus rule
+# for the exec root and is gated on the height of the block being applied, exactly like an L1 rule. From this
+# height:
+#   C1  an ASSET-denominated call value is refused unless the method's program reads ACTX. The layer escrowed
+#       the asset into the contract's asset ledger and handed the contract `value` with no currency tag; every
+#       game reads `value` and later PAYs native NADO from its shared native holding — so one worthless token
+#       drained the native escrow of any of 25 contracts (reproduced on an isolated ExecState).
+#   F2  a call whose `method` is not a string is refused BEFORE the escrow (it used to debit, raise at the VM's
+#       `method not in code`, and keep the coins); any exception the VM raises refunds the escrow; and L1 blob
+#       admission types `method`.
+#   Z2  a shielded_transfer whose `stark` bundle carries no join-split proof is refused (the legacy partial
+#       path accepted `[]` and recorded an unbacked unshield exit for one fee); an exit is bounded by
+#       MAX_EXIT_VALUE here too.
+#   S2  the records fold in a settle proof refuses a running balance that goes negative (verified integers,
+#       not field residues — a prover that dropped its solvency check settled P − v).
+# Gate hygiene: ahead of the update wave on the live chain; block 1 at the next reroll. Callers:
+# execnode/state.py (rules_v2 on cursor+1), execnode/settlement_proofs._run_call (per-call cursor),
+# ops/transaction_ops (blob admission + records fold, block_height).
+EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a

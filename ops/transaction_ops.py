@@ -1783,6 +1783,12 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         if isinstance(payload, dict):
             _op = payload.get("op")
             assert _op is None or isinstance(_op, str), "Blob op must be a string"
+            # F2 (2026-09-23, EXEC_RULES_V2_HEIGHT): `method` is looked up in the contract's code dict; a list
+            # raised TypeError past the exec layer's escrow. The exec layer now refuses it before debiting and
+            # L1 refuses to order it at all. Height-gated like every admission rule.
+            if "method" in payload and block_height is not None \
+                    and int(block_height) >= int(_P.EXEC_RULES_V2_HEIGHT):
+                assert isinstance(payload["method"], str), "Blob method must be a string"
             # ns/to_ns/from_ns index the per-namespace state map: a list/dict there is unhashable -> TypeError.
             assert valid_namespace(payload.get("ns", DEFAULT_NS)), "Blob ns must be a valid namespace id"
             for _k in ("to_ns", "from_ns"):
@@ -1918,6 +1924,103 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             expected_pre = tip_root
             # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
             # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
+            # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
+            # not have moved records (enforced per block in verify_calls_bound_to_summaries).
+            # With SETTLE_PROOF_RECORDS the proof may instead carry `rec_post` and a `records` transition,
+            # and the records half is allowed to MOVE — provided that transition proves EXACTLY the effects
+            # this node committed for the span's blocks. `_records_bound` is the switch the DA gate reads.
+            rec_post_hex = rec_hex
+            _records_bound = False
+            if _protocol.SETTLE_PROOF_RECORDS and proof.get("records") is not None:
+                rec_post_hex = proof.get("rec_post") or rec_hex
+                _records_bound = True
+            # S3 (2026-09-23): THE CHEAP CHECKS RUN FIRST, ON THE PROOF'S CLAIMS. The full STARK verify and an
+            # O(state) sparse_root over a PROVER-CHOSEN pre_contracts used to run before the tip-extension, root,
+            # chain-read and calldata checks (fee-exempt, 192 MiB bodies) — a settle that could never land still
+            # cost minutes of consensus CPU. Every check below is a pure function of committed state and the
+            # proof's claimed halves; the verification that follows then pins those claims to what was proven,
+            # so nothing accepted here is accepted on the prover's word.
+            assert isinstance(kv_pre_claim, str) and isinstance(kv_post_claim, str) and isinstance(rec_hex, str), \
+                "Settle proof halves must be hex strings"
+            pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre_claim), SST.digest_from_hex(rec_hex))
+            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post_claim), SST.digest_from_hex(rec_post_hex))
+            assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
+            assert post_full == root, "Settle proof post_root must equal state_root"
+            # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
+            # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
+            # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
+            # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
+            # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
+            # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
+            from execnode.stark import field as _F
+            from execnode import zkvm as _zkvm
+            from execnode.state import ExecState as _ExecState
+            from ops.block_ops import get_block_hash_by_number as _bhash
+            from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
+            _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
+            for _kind, _key, _val in SS.chain_reads(proof):
+                assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
+                if _kind == _zkvm.IO_BHASH:
+                    assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
+                    _bh = _bhash(_key)
+                    assert _bh, "Settle proof BHASH height unavailable on chain"
+                    assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
+                elif _kind == _zkvm.IO_BEACON:
+                    assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
+                    assert _ExecState.exec_beacon_int(_key, kv_ops.reveals_for_epoch(_key)) % _F.P == _val, \
+                        "Settle proof BEACON does not match the finalized chain"
+                else:
+                    raise AssertionError("unknown chain-read kind in settle proof")
+            # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
+            # which returns False on a pruned node and the body on an archive node, so the same tx validated
+            # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
+            # node rejected the WHOLE BLOCK its peers accepted). No depth fence can fix that: a snapshot
+            # re-anchor (snapshot_ops.adopt_new_identity -> segment_store.reset) wipes ALL bodies, blob-bearing
+            # included, and backfills only a best-effort ~265-block tail. So the binding now reads the per-block
+            # EXEC SUMMARIES persisted at incorporate time (kv_ops.exec_summary_get) — committed state, which
+            # pruning never touches — instead of bodies.
+            #
+            # FIRST SETTLEMENT MUST BE BY QUORUM. This is what makes the summary window bounded and therefore
+            # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
+            # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
+            # and was the concrete case that broke the previous attempt.
+            # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
+            # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
+            # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
+            # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
+            # settle it. Cursor arithmetic only — no body, no exec state.
+            # ...UNLESS THE PROOF BINDS THE RECORDS HALF. The accrual is now DERIVED at incorporate time
+            # (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the boundary
+            # block's exec summary), so a records-bound proof carries it like any other effect and the
+            # binding below checks it against THIS node's own committed derivation. The blanket refusal was
+            # the single largest reason a span was rejected — 55 of 146 over one day — and it existed only
+            # because the accrual was invisible, not because it was unprovable.
+            # A records-FROZEN proof keeps the old rule exactly: it pins one records root across the span,
+            # so an accrual inside it would make the proof assert something false.
+            if not _records_bound:
+                assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
+                    "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
+            # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
+            # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
+            # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
+            # A RECORDS-FROZEN proof still refuses a PAY, and must: it pins one records root across the
+            # span, so a payout inside it would make the proof assert something false. A records-BOUND
+            # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
+            # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
+            if not _records_bound:
+                for _seg in (proof.get("segments") or []):
+                    for _e in (_seg.get("io") or []):
+                        assert int(_e[0]) != _zkvm.IO_PAY, \
+                            "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
+            from execnode.stark import calls_commit as _CC
+            # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
+            # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
+            # before and the two forms cannot be confused for one another.
+            _rec_effects = [] if _records_bound else None
+            _ok, _why = _CC.verify_calls_bound_to_summaries(
+                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
+                records_out=_rec_effects)
+            assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
             # DEPTH-GATED VERIFICATION. Cryptographic verification of the proof runs while the block is
             # near the tip; a block already buried under FINALITY_DEPTH is accepted on accumulated weight
             # instead, exactly as the chain already treats deep history for snapshot bootstrap.
@@ -1997,95 +2100,6 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 ok, why, kv_pre, kv_post = _hit
                 assert ok, f"Settle proof invalid: {why}"
             assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
-            # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
-            # not have moved records (enforced per block in verify_calls_bound_to_summaries).
-            # With SETTLE_PROOF_RECORDS the proof may instead carry `rec_post` and a `records` transition,
-            # and the records half is allowed to MOVE — provided that transition proves EXACTLY the effects
-            # this node committed for the span's blocks. `_records_bound` is the switch the DA gate reads.
-            rec_post_hex = rec_hex
-            _records_bound = False
-            if _protocol.SETTLE_PROOF_RECORDS and proof.get("records") is not None:
-                rec_post_hex = proof.get("rec_post") or rec_hex
-                _records_bound = True
-            pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre), SST.digest_from_hex(rec_hex))
-            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post), SST.digest_from_hex(rec_post_hex))
-            assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
-            assert post_full == root, "Settle proof post_root must equal state_root"
-            # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
-            # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
-            # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
-            # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
-            # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
-            # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
-            from execnode.stark import field as _F
-            from execnode import zkvm as _zkvm
-            from execnode.state import ExecState as _ExecState
-            from ops.block_ops import get_block_hash_by_number as _bhash
-            from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
-            _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
-            for _kind, _key, _val in SS.chain_reads(proof):
-                assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
-                if _kind == _zkvm.IO_BHASH:
-                    assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
-                    _bh = _bhash(_key)
-                    assert _bh, "Settle proof BHASH height unavailable on chain"
-                    assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
-                elif _kind == _zkvm.IO_BEACON:
-                    assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
-                    assert _ExecState.exec_beacon_int(_key, kv_ops.reveals_for_epoch(_key)) % _F.P == _val, \
-                        "Settle proof BEACON does not match the finalized chain"
-                else:
-                    raise AssertionError("unknown chain-read kind in settle proof")
-            # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
-            # which returns False on a pruned node and the body on an archive node, so the same tx validated
-            # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
-            # node rejected the WHOLE BLOCK its peers accepted). No depth fence can fix that: a snapshot
-            # re-anchor (snapshot_ops.adopt_new_identity -> segment_store.reset) wipes ALL bodies, blob-bearing
-            # included, and backfills only a best-effort ~265-block tail. So the binding now reads the per-block
-            # EXEC SUMMARIES persisted at incorporate time (kv_ops.exec_summary_get) — committed state, which
-            # pruning never touches — instead of bodies.
-            #
-            # FIRST SETTLEMENT MUST BE BY QUORUM. This is what makes the summary window bounded and therefore
-            # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
-            # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
-            # and was the concrete case that broke the previous attempt.
-            # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
-            # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
-            # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
-            # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
-            # settle it. Cursor arithmetic only — no body, no exec state.
-            # ...UNLESS THE PROOF BINDS THE RECORDS HALF. The accrual is now DERIVED at incorporate time
-            # (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the boundary
-            # block's exec summary), so a records-bound proof carries it like any other effect and the
-            # binding below checks it against THIS node's own committed derivation. The blanket refusal was
-            # the single largest reason a span was rejected — 55 of 146 over one day — and it existed only
-            # because the accrual was invisible, not because it was unprovable.
-            # A records-FROZEN proof keeps the old rule exactly: it pins one records root across the span,
-            # so an accrual inside it would make the proof assert something false.
-            if not _records_bound:
-                assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
-                    "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
-            # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
-            # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
-            # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
-            # A RECORDS-FROZEN proof still refuses a PAY, and must: it pins one records root across the
-            # span, so a payout inside it would make the proof assert something false. A records-BOUND
-            # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
-            # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
-            if not _records_bound:
-                for _seg in (proof.get("segments") or []):
-                    for _e in (_seg.get("io") or []):
-                        assert int(_e[0]) != _zkvm.IO_PAY, \
-                            "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
-            from execnode.stark import calls_commit as _CC
-            # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
-            # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
-            # before and the two forms cannot be confused for one another.
-            _rec_effects = [] if _records_bound else None
-            _ok, _why = _CC.verify_calls_bound_to_summaries(
-                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
-                records_out=_rec_effects)
-            assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
             # PAYOUTS, DERIVED FROM THE PROVEN io LOG. This runs only AFTER the segments have been bound to
             # this node's committed calls above — that binding is what makes the io log's provenance mean
             # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
@@ -2147,7 +2161,9 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         _t_rec = _time.time()
                         _rok, _rwhy = _RB.bind_and_verify_records(
                             proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
-                            depth=_protocol.EXEC_TREE_DEPTH)
+                            depth=_protocol.EXEC_TREE_DEPTH,
+                            # S2: refuse a running balance below zero from EXEC_RULES_V2_HEIGHT
+                            nonneg=(int(block_height) >= int(_protocol.EXEC_RULES_V2_HEIGHT)))
                         print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
                               f"({len(_eff)} effects) ok={_rok}", flush=True)
                         if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:

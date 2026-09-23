@@ -411,7 +411,7 @@ def span_effects(txs, accruals=(), div_carry=0):
     return effects
 
 
-def net_records_updates(pre_get, effects, depth=ER.DEPTH):
+def net_records_updates(pre_get, effects, depth=ER.DEPTH, nonneg=False):
     """Fold derived effects into the ordered NET update list the records transition must prove.
 
     `pre_get(tag, parts) -> int` reads the PRE-state value of a record position. Returns
@@ -432,6 +432,14 @@ def net_records_updates(pre_get, effects, depth=ER.DEPTH):
             pv = int(pre_get(tag, parts)) % F.P
             pre[key] = pv
             cur[key] = pv
+        # S2 (2026-09-23, EXEC_RULES_V2_HEIGHT): SOLVENCY IS THE VERIFIER'S TOO. Every pre-value here is
+        # authenticated (pinned_pre_get) and every delta is this node's own derivation, so the running
+        # balance is an INTEGER the verifier can bound — and must: folding modulo P let a prover that
+        # dropped its own affordability check settle a balance of P − v, a poisoned tip every honest proof
+        # afterwards fails to extend. A position that goes below zero is unbindable, never a field residue.
+        if nonneg and cur[key] + int(delta) < 0:
+            raise Unbindable(f"records effect drives position {tag}/{'/'.join(map(str, parts))} below zero "
+                             f"({cur[key]} + {int(delta)})")
         cur[key] = (cur[key] + int(delta)) % F.P
     out = []
     for key in sorted(cur):
@@ -464,7 +472,7 @@ def pinned_pre_get(projection, expected_pre_root, depth=ER.DEPTH):
 
 
 def bind_and_verify_records(tr, pre_root, post_root, pre_get, effects, depth=ER.DEPTH,
-                            num_queries=None, outer_queries=None):
+                            num_queries=None, outer_queries=None, nonneg=False):
     """Verify a records transition AND that its updates are EXACTLY the span's derived records effects.
 
     (1) derive the net updates from committed data; (2) require tr["updates"] == that set, in order;
@@ -487,7 +495,7 @@ def bind_and_verify_records(tr, pre_root, post_root, pre_get, effects, depth=ER.
     try:
         _t0 = _t.time()
         want = [(int(k), int(o) % F.P, int(n) % F.P)
-                for (k, o, n) in net_records_updates(pre_get, effects, depth)]
+                for (k, o, n) in net_records_updates(pre_get, effects, depth, nonneg=nonneg)]
         _derive_s = _t.time() - _t0
         got = [(int(k), int(o) % F.P, int(n) % F.P) for (k, o, n) in tr.get("updates", [])]
         if got != want:

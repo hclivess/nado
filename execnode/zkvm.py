@@ -78,6 +78,18 @@ CTX_CALLER, CTX_VALUE, CTX_CURSOR, CTX_TIME = 0, 1, 2, 3
 # 2 and 3 are reserved and read as 0 (the mux must be total on 0..3 for the constraint to be sound).
 ACTX_ASSET, ACTX_SELF = 0, 1
 
+
+def method_reads_actx(code, method):
+    """C1 (2026-09-23): whether `method`'s program ever executes ACTX — the only way a contract can learn
+    which currency its `value` arrived in. A method that never reads it treats an asset-denominated value as
+    native NADO (it PAYs from the contract's shared native holding), so the exec layer refuses asset value
+    into such a method from EXEC_RULES_V2_HEIGHT, and the settlement prover mirrors the refusal. Programs
+    have no inter-method calls, so the method's own instruction list is the whole reachable code."""
+    prog = code.get(method) if isinstance(code, dict) and isinstance(method, str) else None
+    if not isinstance(prog, list):
+        return False
+    return any(isinstance(ins, (list, tuple)) and ins and ins[0] == "ACTX" for ins in prog)
+
 # limb geometry shared with the AIR: 13 byte limbs (B0..B12) + 4 seven-bit limbs (S0..S3)
 NUM_BYTE_LIMBS, NUM_7BIT_LIMBS = 13, 4
 

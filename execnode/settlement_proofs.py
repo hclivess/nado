@@ -82,6 +82,17 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     # proved the wrong root and failed the DA binding.)
     c_cursor = int(call.get("cursor", cursor))
     c_ts = int(call.get("timestamp", timestamp))
+    # EXEC_RULES_V2_HEIGHT, MIRRORED (2026-09-23). The chain refuses these calls (execnode/state.py, same
+    # rule, same height: the block the call executed in), so the prover must find them unprovable too — a
+    # prover more permissive than the chain proves a transition the chain did not apply (the invariant the
+    # escrow block below documents). Raising is the existing shape for "the chain skipped this call".
+    from protocol import EXEC_RULES_V2_HEIGHT
+    if c_cursor >= int(EXEC_RULES_V2_HEIGHT):
+        if not isinstance(method, str):
+            raise ValueError(f"call {i}: method is not a string — the chain SKIPPED this call")
+        if in_asset and value > 0 and not zkvm.method_reads_actx(c["code"], method):
+            raise ValueError(f"call {i}: asset-denominated value into a method that never reads ACTX "
+                             f"— the chain SKIPPED this call, so the span is unprovable")
     cf, fargs = runtimes.zkvm_statement(caller, call.get("args", []), registry)
     slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
     if value > 0:

@@ -313,6 +313,16 @@ and should be scheduled, not patched.
 1. **Now, exec layer (code + tests, one deploy):** C1 asset gate; F2 method typing + refund-on-exception;
    Z2 fail-closed shielded bundle; S2 non-negativity in the records fold; S3 cheap checks first; S5 never
    memoise an exception. All are exec/L1 rules → each needs its cursor/height gate and the reroll branch.
+
+   > **Status 2026-09-23 (later): DONE**, one gate `EXEC_RULES_V2_HEIGHT = 210000` (gen 25; block 1 at a
+   > reroll). C1: `execnode/state.py` refuses asset value into a method whose program never executes ACTX
+   > (`zkvm.method_reads_actx`), and `settlement_proofs._run_call` mirrors it at the call's own cursor. F2:
+   > non-string `method` refused before the escrow, a VM exception refunds, L1 blob admission types `method`.
+   > Z2: a `stark` bundle without `joinsplit`/`joinsplit2` is refused and an exit is bounded by
+   > `MAX_EXIT_VALUE`. S2: `records_bind.net_records_updates(nonneg=True)` from the gate. S3: tip/root/chain-read/
+   > calldata checks now precede the verify (claims first, then pinned to the proven halves). S5: `MemoryError`
+   > re-raised at every verifier layer, never memoised. `tests/test_exec_rules_v2.py` shows C1 and Z2 OPEN
+   > below the gate (the token booked as native value; the unbacked exit recorded) and closed at it.
 2. **Now, contracts (code + tests; upgrade signed by the deployer key):** C2 id bounds in thirteen
    contracts; C4 pets `EX` guard; C3 wallet-side lock sizing from wall clock; the medium items as chosen.
 3. **Lock the contracts** once upgraded, and move `deployer`/`upgradable`/`zk_addrs` into the root (reroll).

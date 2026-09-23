@@ -184,6 +184,11 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         if not okb:
             return False, f"state transition binding failed: {whyb}", None
         return True, "ok (sparse-root bound, no replay)", bundle["sparse_post_root"]
+    except MemoryError:
+        # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
+        # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
+        # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
+        raise
     except Exception as e:
         return False, f"malformed bound epoch: {e}", None
 
@@ -256,6 +261,11 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         if not okr:
             return False, f"io replay failed: {whyr}", None
         return True, "ok (sparse-root bound via in-circuit io replay)", bundle["sparse_post_root"]
+    except MemoryError:
+        # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
+        # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
+        # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
+        raise
     except Exception as e:
         return False, f"malformed replay-bound epoch: {e}", None
 
@@ -488,6 +498,11 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             if not okr:
                 return False, f"recursive verification failed: {whyr}", None, None
         return True, "ok", kv_pre_hex, ST.digest_hex(expect)
+    except MemoryError:
+        # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
+        # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
+        # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
+        raise
     except Exception as e:
         return False, f"malformed sparse settlement: {e}", None, None
 

@@ -1006,6 +1006,11 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                   f"({_n_per} dense evals) + constraints {_t_con:.1f}s + "
                   f"rest {_el - _t_pre - _t_per - _t_con:.1f}s", flush=True)
         return True, "ok"
+    except MemoryError:
+        # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
+        # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
+        # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
+        raise
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
         # ("int() argument must be ... not 'list'") names neither the file, the line, nor the value — and a
