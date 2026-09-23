@@ -12,10 +12,20 @@ const mod = (x) => ((x % F.P) + F.P) % F.P;
 export const [NSK, RHO, VIN, VOUT1, VOUT2, CONS] = [12, 13, 14, 15, 16, 17];
 export const SIB = 18, DIR = 22, ACC = 23, RB0 = 24, RB1 = 25, RB2 = 26, RB3 = 27, NCOLS = 28;
 export const MAX_DEGREE = 7n;
+// Z1 (zero knowledge, joinsplit3.py): 8 randomizer columns close the trace and RANDOM_ROWS uniform rows follow
+// the real ones; ACTIVE gates every constraint that would otherwise reach into them.
+export const ZK_RANDOMIZERS = 8, NCOLS_TOTAL = NCOLS + ZK_RANDOMIZERS;
+export const RANDOM_ROWS = 2 * 320 + 16;             // 2 * NUM_QUERIES + 16, as Python (stark.NUM_QUERIES)
 const RNG_NIBBLES = 16, RNG_BLOCK = 17, RNG_VALUES = 3;
 export const [RC0, ACT_R, A_COMMIT, A_MERK, A_NF, A_OUT1, A_OUT2, ROW0,
-  RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2] = [0, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
-const NPER = 24;
+  RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2, ACTIVE] = [0, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+const NPER = 25;
+function randField() {                               // a uniform Goldilocks element from 16 CSPRNG bytes
+  const b = new Uint8Array(16); globalThis.crypto.getRandomValues(b); let x = 0n;
+  for (const by of b) x = (x << 8n) | BigInt(by);
+  return x % F.P;
+}
+const randRow = (n) => Array.from({ length: n }, randField);
 const LEN_OWNER = 2n, LEN_CM = 7n, LEN_NF = 3n;
 
 function nextPow2(x) { let p = 1; while (p < x) p <<= 1; return p; }
@@ -27,7 +37,7 @@ export function rows(D) {
   return { rootRow: lastRow(b.nf - 1), nfRow: lastRow(b.nf), cm1Row: lastRow(b.out1), spongeEnd: lastRow(b.out2),
            rangeStart: rs, total: rs + RNG_VALUES * RNG_BLOCK };
 }
-export const traceLength = (D) => nextPow2(rows(D).total);
+export const traceLength = (D) => nextPow2(rows(D).total + RANDOM_ROWS);
 
 function ordered(cur, sib, d) {
   const left = d ? sib : cur, right = d ? cur : sib;
@@ -71,7 +81,7 @@ export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) 
   const cm1 = b[R].slice(0, CAP);
   b = A2.permuteSnapshots([LEN_CM, A2.DOM_ZCM, v2, ...o2, r2, ...IV]); blks.push(b);
   const cm2 = b[R].slice(0, CAP);
-  const bl = blocks(D), rw = rows(D), T = nextPow2(rw.total);
+  const bl = blocks(D), rw = rows(D), T = traceLength(D);
   const cons = F.sub(F.sub(vIn, v1), v2);
   const rfill = rangeFill(rw.rangeStart, [vIn, v1, v2]);
   const pathFor = (bi) => { const k = bi < bl.memb ? 0 : bi - bl.memb + 1; return k < D ? [sibs[k].map(m), BigInt(Number(dirs[k]) & 1)] : [[0n, 0n, 0n, 0n], 0n]; };
@@ -80,14 +90,15 @@ export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) 
     const [sib, d] = pathFor(bi);
     for (let rr = 0; rr < BR; rr++) {
       const [acc, b0, b1, b2, b3] = rfill.get(bi * BR + rr) || [0n, 0n, 0n, 0n, 0n];
-      tr.push([...blks[bi][rr], nsk, rhoIn, vIn, v1, v2, cons, ...sib, d, acc, b0, b1, b2, b3]);
+      tr.push([...blks[bi][rr], nsk, rhoIn, vIn, v1, v2, cons, ...sib, d, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
     }
   }
   const lastLanes = tr[tr.length - 1].slice(0, W_ST);
-  while (tr.length < T) {
+  while (tr.length < rw.total) {                     // the range region: the sponge idles, registers hold
     const [acc, b0, b1, b2, b3] = rfill.get(tr.length) || [0n, 0n, 0n, 0n, 0n];
-    tr.push([...lastLanes, nsk, rhoIn, vIn, v1, v2, cons, 0n, 0n, 0n, 0n, 0n, acc, b0, b1, b2, b3]);
+    tr.push([...lastLanes, nsk, rhoIn, vIn, v1, v2, cons, 0n, 0n, 0n, 0n, 0n, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
   }
+  while (tr.length < T) tr.push(randRow(NCOLS_TOTAL));   // Z1: uniform rows, no constraint reaches them
   return { tr, T, D, root, nf, cm1, cm2 };
 }
 
@@ -108,6 +119,7 @@ export function periodic(T, D) {
     else if (bi === bl.out2 - 1) p[A_OUT2][row] = 1n;
   }
   p[ROW0][0] = 1n;
+  for (let row = 0; row < Math.min(T, rw.total - 1); row++) p[ACTIVE][row] = 1n;   // Z1: real-to-real transitions only
   for (let row = rw.rangeStart; row < Math.min(T, rw.total); row++) {
     const off = (row - rw.rangeStart) % RNG_BLOCK;
     if (off < RNG_NIBBLES) p[RNG_ACC][row] = 1n;
@@ -165,11 +177,11 @@ export function transitions() {
     for (let i = 0; i < CAP; i++) cons.push(pin(sel, RATE + i, konst(IV[i])));
   }
   cons.push((cur, nxt, per) => mul(per[ROW0], sub(cur[2], cur[NSK])));
-  for (const col of [NSK, RHO, VIN, VOUT1, VOUT2]) cons.push((cur, nxt) => sub(nxt[col], cur[col]));
-  for (let i = 0; i < CAP; i++) cons.push((cur, nxt, per) => mul(sub(1n, per[A_MERK]), sub(nxt[SIB + i], cur[SIB + i])));
-  cons.push((cur, nxt, per) => mul(sub(1n, per[A_MERK]), sub(nxt[DIR], cur[DIR])));
+  for (const col of [NSK, RHO, VIN, VOUT1, VOUT2]) cons.push((cur, nxt, per) => mul(per[ACTIVE], sub(nxt[col], cur[col])));
+  for (let i = 0; i < CAP; i++) cons.push((cur, nxt, per) => mul(per[ACTIVE], mul(sub(1n, per[A_MERK]), sub(nxt[SIB + i], cur[SIB + i]))));
+  cons.push((cur, nxt, per) => mul(per[ACTIVE], mul(sub(1n, per[A_MERK]), sub(nxt[DIR], cur[DIR]))));
   cons.push((cur, nxt, per) => mul(per[A_MERK], mul(cur[DIR], sub(1n, cur[DIR]))));
-  cons.push((cur) => sub(cur[CONS], sub(sub(cur[VIN], cur[VOUT1]), cur[VOUT2])));
+  cons.push((cur, nxt, per) => mul(per[ACTIVE], sub(cur[CONS], sub(sub(cur[VIN], cur[VOUT1]), cur[VOUT2]))));
   const nib = (c) => add(add(mul(8n, c[RB0]), mul(4n, c[RB1])), add(mul(2n, c[RB2]), c[RB3]));
   cons.push((c, n, p) => mul(p[RNG_ACC], sub(n[ACC], add(mul(16n, c[ACC]), nib(c)))));
   cons.push((c, n, p) => mul(p[RNG_START], c[ACC]));

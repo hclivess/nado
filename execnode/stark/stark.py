@@ -597,8 +597,41 @@ def _native_fallback(exc):
         sys.stderr.write(f"[stark] native prover fell back to Python: {msg}\n")
 
 
+def zk_randomizer_add(cp, col_lde, W, N, T, x_lde, k, ext):
+    """Z1: cp[j] += sum_{i<k} x_j^(i*T) * col_lde[W-k+i][j] — the RANDOMIZER polynomial R(x), a uniformly
+    random polynomial of degree < k*T assembled from the k random columns at the END of the trace (each
+    interpolates T uniform values, so each is a uniform polynomial of degree < T, and x^(iT) places it in its
+    own coefficient block). Adding R to the FRI input makes that input uniformly random, so nothing FRI reveals
+    (layer roots, fold openings, the final polynomial) depends on the witness. Committed BEFORE the challenges,
+    like every column, so a prover cannot pick R against the alphas. k == next_pow2(max_degree) covers the whole
+    degree range of the composition; the verifier adds the same term at every opened row."""
+    for j in range(N):
+        xT = F.pw(x_lde[j], T)
+        pw = 1
+        acc = 0
+        for i in range(k):
+            acc = F.add(acc, F.mul(pw, col_lde[W - k + i][j]))
+            pw = F.mul(pw, xT)
+        cp[j] = ext2.add(cp[j], ext2.lift(acc)) if ext else F.add(cp[j], acc)
+
+
+def zk_randomizer_point(row, x, T, k, ext):
+    """The verifier's half of zk_randomizer_add at one opened row (the last k cells are the randomizers)."""
+    xT = F.pw(x, T)
+    pw, acc = 1, 0
+    for i in range(k):
+        acc = F.add(acc, F.mul(pw, int(row[len(row) - k + i]) % F.P))
+        pw = F.mul(pw, xT)
+    return ext2.lift(acc) if ext else acc
+
+
+def _zk_salts(N):
+    import secrets as _sec
+    return [_sec.token_hex(32) for _ in range(N)]
+
+
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-          aux_spec=None, backend=None, row_commit=False, commit_periodic=None, statement=None):
+          aux_spec=None, backend=None, row_commit=False, commit_periodic=None, statement=None, zk=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
     and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
     roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
@@ -618,7 +651,15 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     per phase (main / aux) whose leaf j = alghash2.rrow(row j). The transcript absorbs one root per phase and
     each FRI query opens whole rows with ONE path per tree — 2 (or 4, two-phase) paths per query instead of
     2W, which is what makes recursing a wide (W=106) trace feasible. A DIFFERENT proof format ("row_roots" /
-    row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched."""
+    row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched.
+
+    `zk=k` (Z1, the shielded pool): ZERO-KNOWLEDGE mode on the blake2b backend. The trace's LAST k columns are
+    RANDOMIZERS (uniform values the circuit never constrains): their combination R(x) = sum x^(iT) r_i(x) is
+    added to the FRI input so FRI reveals nothing about the witness; every column leaf is SALTED
+    (backend.leaf_salted) so an unopened leaf hides its value; the openings carry the salts. The CIRCUIT
+    supplies the rest of the property — at least 2·num_queries random rows past its real rows, with its
+    constraints gated off there — because what an opened row shows is the column polynomial at that point,
+    and only enough random rows make those evaluations independent of the secret. Verified with the same k."""
     # HOLISTIC NATIVE PROVER (native/starkprove): the whole pipeline (LDE -> Merkle -> composition -> FRI ->
     # openings) runs in a PERSISTENT Rust arena instead of materializing every LDE column as a Python int list,
     # which is the recursion/settlement memory wall. Per doc/rust-only-proving.md this is not a preference:
@@ -664,6 +705,11 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     from execnode.stark.native_guard import require_native_prover
     require_native_prover("stark.py:prove (backend=%s, commit_periodic=%s)"
                           % (getattr(_b, "name", "?"), bool(commit_periodic)))
+    if zk is not None:
+        if getattr(_b, "name", "") != "blake2b" or aux_spec is not None or row_commit or commit_periodic:
+            raise ValueError("zk mode is column-mode, single-phase, blake2b only")
+        if not isinstance(zk, int) or zk < _next_pow2(max_degree) or zk >= len(trace[0]):
+            raise ValueError("zk needs at least next_pow2(max_degree) randomizer columns at the end of the trace")
     periodic = periodic or []
     commit_periodic = sorted(set(commit_periodic or []))  # periodic-column indices to COMMIT instead of publish
     if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):
@@ -699,12 +745,14 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         per_roots.append(root); per_mlayers.append(ml); t.absorb(root)
     col_roots, col_mlayers = [], []
     row_roots, row_layers = [], []
+    salts = [_zk_salts(N) for _ in range(W)] if zk is not None else None
     if row_commit:
         root, ml = _row_tree(col_lde, N)
         row_roots.append(root); row_layers.append(ml); t.absorb(root)
     else:
         for c in range(W):
-            root, ml = merkle.commit(col_lde[c], b)
+            root, ml = (merkle.commit_salted(col_lde[c], salts[c], b) if zk is not None
+                        else merkle.commit(col_lde[c], b))
             col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
     # EXTENSION-FIELD FLAG, hoisted above the aux draw because the AUX challenges need it too (see below).
     # RECURSION-backend proofs stay base-field (the in-circuit AIRs cannot verify ext), same rule as the fold.
@@ -745,6 +793,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     _beta = trace_batch_beta(t, _rules, _ext_a)
     if _beta is not None:
         trace_batch_add(cp, col_lde, W, N, _beta, _ext_a)
+    if zk is not None:                       # Z1: the randomizer polynomial masks everything FRI shows
+        zk_randomizer_add(cp, col_lde, W, N, T, x_lde, zk, _ext_a)
 
     fri_blowup = N // deg_bound
     # RECURSION-DESTINED PROOFS STAY BASE-FIELD (item 14 of the ext-challenge port). The in-circuit FRI
@@ -773,6 +823,9 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                 "cur": col_lde[c][lo], "cur_path": merkle.open_at(col_mlayers[c], lo),
                 "nxt": col_lde[c][nxt], "nxt_path": merkle.open_at(col_mlayers[c], nxt),
             } for c in range(W)]
+            if zk is not None:
+                for c in range(W):
+                    cols[c]["cur_salt"] = salts[c][lo]; cols[c]["nxt_salt"] = salts[c][nxt]
             op = {"lo": lo, "cols": cols}
             if commit_periodic:                          # open each committed periodic column at the query point
                 op["per"] = [{"val": per_lde[idx][lo], "path": merkle.open_at(per_mlayers[k], lo)}
@@ -792,7 +845,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
 def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
            aux_spec=None, backend=None, row_commit=False, commit_periodic=None, periodic_roots=None,
-           statement=None):
+           statement=None, zk=None):
     """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
     max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
     Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
@@ -834,6 +887,9 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         b = backend or _backend.DEFAULT
         if row_commit and getattr(b, "name", "") != "recursion":
             return False, "row_commit requires the RECURSION backend"
+        if zk is not None and (getattr(b, "name", "") != "blake2b" or aux_spec is not None or row_commit
+                               or commit_periodic or not isinstance(zk, int) or zk < _next_pow2(max_degree) or zk >= W):
+            return False, "zk mode: column-mode blake2b with at least next_pow2(max_degree) randomizer columns"
         n_aux = aux_spec["num_aux"] if aux_spec is not None else 0
         w_main = W - n_aux
         if aux_spec is not None and W <= n_aux:
@@ -1056,6 +1112,12 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                         if not _batch_ok[_bi + 1]:
                             return False, f"bad trace opening (nxt) col {c}"
                         _bi += 2
+                    elif zk is not None:
+                        # Z1: salted leaves — a proof without salts (the unsalted format) is refused outright
+                        if not merkle.verify_salted(col_roots[c], lo, col["cur"], col.get("cur_salt"), col["cur_path"], b):
+                            return False, f"bad salted trace opening (cur) col {c}"
+                        if not merkle.verify_salted(col_roots[c], nxt, col["nxt"], col.get("nxt_salt"), col["nxt_path"], b):
+                            return False, f"bad salted trace opening (nxt) col {c}"
                     else:
                         if not merkle.verify(col_roots[c], lo, col["cur"], col["cur_path"], b):
                             return False, f"bad trace opening (cur) col {c}"
@@ -1124,6 +1186,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 # P1: the opened row's own batch term. A column that is not low-degree cannot survive FRI
                 # once it is inside the polynomial FRI tests, whatever the composition looks like pointwise.
                 cp = _add(cp, trace_batch_point(cur_row, _beta, _ext_a))
+            if zk is not None:
+                cp = _add(cp, zk_randomizer_point(cur_row, x, T, zk, _ext_a))     # Z1: the randomizer polynomial
             _claim = q["steps"][0]["lo"]
             if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"

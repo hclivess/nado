@@ -11,7 +11,11 @@ Properties, each shown flipping at the gate and nowhere else:
     is spent, the notes are appended, the exit is recorded and is provable against state_root; a double-spend,
     a duplicate commitment and a bad destination are refused BEFORE any mutation;
   * a joinsplit2 bundle is refused from the gate and a joinsplit3 bundle is refused below it;
-  * the wide circuit's soundness checks: wrong fee, tampered outputs, unknown anchor, the C-3 wraparound.
+  * the wide circuit's soundness checks: wrong fee, tampered outputs, unknown anchor, the C-3 wraparound;
+  * ZERO KNOWLEDGE (Z1): a proof's openings never show nsk, rho or an amount (joinsplit2 showed nsk eight times in
+    one 4-query proof), every leaf is salted and an unsalted proof is refused, the trace carries 2·NUM_QUERIES+
+    random rows and 8 randomizer columns, two proofs of one witness share no commitment, a tampered randomizer
+    opening is refused, and a violated constraint is still refused with the randomizers present.
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_shielded_wide.py   (slow: real STARK proofs)
 """
@@ -208,6 +212,44 @@ def t_circuit_soundness():
     assert not J3.verify_transfer(wrap, root, nf, w1, w2, -1001, 0, pool.knows_root)[0], "an out-of-range value must not verify"
     # digests are 256-bit: four in-field lanes, and the legacy 64-bit forms are not accepted as wide digests
     assert len(cm) == 4 and all(0 <= x < F.P for x in cm)
+
+
+def t_zero_knowledge_shape():
+    pool = SW.WideShieldedPool()
+    oa, ob = Z.owner_of(NSK_A), Z.owner_of(NSK_B)
+    cm = Z.commit(1000, oa, 7); pool.append(cm)
+    sibs, dirs = SW.tree_path(pool.commitments, 0)
+    args = (NSK_A, 1000, 7, sibs, dirs, 600, ob, 11, 400, oa, 12, 0, 0)
+    p1, root, nf, cm1, cm2 = J3.prove_transfer(*args)
+    p2, *_ = J3.prove_transfer(*args)
+    assert p1["T"] == J3._next_pow2(J3._total(SW.TREE_DEPTH) + J3.RANDOM_ROWS) and p1["W"] == J3.NCOLS_TOTAL
+    assert J3.RANDOM_ROWS >= 2 * stark.NUM_QUERIES, "more random rows than opened evaluations per column"
+    assert J3.ZK_RANDOMIZERS == J3._next_pow2(J3.MAX_DEGREE)
+    secrets = {NSK_A % F.P, 7, 1000, 600, 400, 11, 12}
+    seen = [int(v) for op in p1["openings"] for c in op["cols"] for v in (c["cur"], c["nxt"])]
+    assert seen and not any(v in secrets for v in seen), "a witness value appeared in an opening"
+    assert all("cur_salt" in c and "nxt_salt" in c for op in p1["openings"] for c in op["cols"]), "every leaf is salted"
+    assert p1["col_roots"] != p2["col_roots"] and not set(p1["col_roots"]) & set(p2["col_roots"]), "randomised commitments"
+    assert p1["fri"]["roots"] != p2["fri"]["roots"], "randomised FRI"
+    for pf in (p1, p2):
+        ok, why = J3.verify_transfer(pf, root, nf, cm1, cm2, 0, 0, pool.knows_root); assert ok, why
+    bad = copy.deepcopy(p1)
+    for op in bad["openings"]:
+        for c in op["cols"]:
+            c.pop("cur_salt", None); c.pop("nxt_salt", None)
+    assert not J3.verify_transfer(bad, root, nf, cm1, cm2, 0, 0, pool.knows_root)[0], "an unsalted proof is refused"
+    bad = copy.deepcopy(p1); c = bad["openings"][0]["cols"][J3.NCOLS_TOTAL - 1]; c["cur"] = (int(c["cur"]) + 1) % F.P
+    assert not J3.verify_transfer(bad, root, nf, cm1, cm2, 0, 0, pool.knows_root)[0], "a tampered randomizer is refused"
+    # a violated constraint is still refused with the randomizers present: a trace whose second output value
+    # does not conserve, proven directly through stark.prove on the circuit's AIR
+    tr, T, D, r_, n_, c1_, c2_ = J3.build_trace(*args[:11])
+    for row in tr:
+        row[J3.VOUT2] = (row[J3.VOUT2] + 1) % F.P             # every real row now claims v_out2 = 401
+    bnd = J3._boundaries(D, r_, n_, c1_, c2_, 0, 0)
+    pf = stark.prove(tr, J3._transitions(), bnd, periodic=J3._periodic(T, D), max_degree=J3.MAX_DEGREE,
+                     num_queries=stark.NUM_QUERIES, zk=J3.ZK_RANDOMIZERS)
+    pf["D"] = D
+    assert not J3.verify_transfer(pf, r_, n_, c1_, c2_, 0, 0, lambda r: True)[0], "a violated constraint must not verify"
 
 
 if __name__ == "__main__":

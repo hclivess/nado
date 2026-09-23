@@ -9,6 +9,9 @@ import { b2b32, tag, i8le, hexToBytes } from "./bhash.js";
 // which the Python side no longer uses — so pure-JS-committed proofs failed Python verification.
 const leaf = (x) => b2b32(tag("\x00"), i8le(x));
 const node = (a, b) => b2b32(tag("\x01"), hexToBytes(a), hexToBytes(b));
+// Zero-knowledge leaf (backend.py `_Blake2b.leaf_salted`, Z1): frame 0x03 ‖ value ‖ 32 salt bytes, so an
+// unopened leaf cannot be inverted by searching the 64-bit value space. The salt rides in the opening.
+const leafSalted = (x, saltHex) => b2b32(tag("\x03"), i8le(x), hexToBytes(saltHex));
 // Extension-field leaf: its OWN frame tag (0x02) so it never collides with a base leaf (0x00) even when the
 // trailing limbs are zero — byte-for-byte with backend.py `_Blake2b.leaf_ext`. `limbs` is the DEGREE-tuple.
 export const leafExt = (limbs) => b2b32(tag("\x02"), ...limbs.map((x) => i8le(x)));
@@ -34,6 +37,17 @@ export function commit(values) {
 
 // Tree over PRECOMPUTED leaf digests (FRI commits ext layers this way: each leaf is leafExt(limbs)). Only
 // `node` is used — mirrors execnode/stark/merkle.commit_digests. Returns [root, layers] like commit().
+// Salted commitment (merkle.commit_salted): pure JS — the wasm tree knows only the unsalted leaf.
+export function commitSalted(values, salts) {
+  if (values.length !== salts.length) throw new Error("one salt per leaf");
+  let layer = values.map((v, i) => leafSalted(v, salts[i])); const layers = [layer];
+  while (layer.length > 1) {
+    const nx = []; for (let i = 0; i < layer.length; i += 2) nx.push(node(layer[i], layer[i + 1]));
+    layer = nx; layers.push(layer);
+  }
+  return [layers[layers.length - 1][0], layers];
+}
+
 export function commitDigests(digests) {
   let layer = digests.slice(); const layers = [layer];
   while (layer.length > 1) {

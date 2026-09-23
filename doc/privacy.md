@@ -139,6 +139,7 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | Phase-2 seam wired into verify_transfer | ✅ (verifies the FULL join-split proof) |
 | FULL join-split circuit (owner+commit+membership+nullifier+output+conservation) in one ZK proof | ✅ (tests/test_stark_joinsplit_circuit.py) |
 | migrate the POOL TREE + browser client from BLAKE2b to the field hash (alghash) | ⏳ rollout |
+| **Zero-knowledge join-split (Z1, inside SHIELD_WIDE_HEIGHT): randomizer columns + random rows + salted leaves; the old proof showed nsk in every opening** | ✅ coded, live at the reroll (`stark.prove(zk=)`, joinsplit3) |
 | **WIDE pool (SHIELD_WIDE_HEIGHT, next generation): commitments / owner ids / nullifiers / tree nodes are alghash2 digests (256-bit, ~128-bit collision) and the proof is joinsplit3** — the 64-bit alghash pool's ~2^32 collision let ~2^33 sponge evaluations open one leaf two ways (review 2026-09-23, Z3) | ✅ coded, live at the reroll (execnode/shielded_wide.py, execnode/stark/{znote,joinsplit3}.py, static/alghash2.js, static/stark/joinsplit3.js; tests/test_shielded_wide.py, tests/joinsplit3_js_crosscheck.sh) |
 | client-side / delegated STARK prover (the phone-proving hurdle) | ⏳ rollout |
 

@@ -9581,7 +9581,8 @@ async function _onDeviceProve3(wit, execBase, leaves, rules) {
   const bt = J.buildTrace(BigInt(wit.nsk), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
     BigInt(wit.v1), alghash2.fromHex(wit.o1), BigInt(wit.r1), BigInt(wit.v2), alghash2.fromHex(wit.o2), BigInt(wit.r2));
   const bnd = J.boundaries(bt.D, bt.root, bt.nf, bt.cm1, bt.cm2, BigInt(wit.public_value), BigInt(wit.fee));
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, rules);
+  // Z1: the wide circuit proves in ZERO-KNOWLEDGE mode (randomizer columns, random rows, salted leaves)
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, { ...rules, zk: J.ZK_RANDOMIZERS });
   proof.D = bt.D;
   const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
   const bundle = { stark: { joinsplit3: { proof: ser(proof), root: alghash2.toHex(bt.root), nf: alghash2.toHex(bt.nf),

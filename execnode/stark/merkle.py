@@ -33,6 +33,38 @@ def commit(values, backend=None):
     return layers[-1][0], layers
 
 
+def commit_salted(values, salts, backend=None):
+    """A commitment whose leaves are b.leaf_salted(value, salt) — the zero-knowledge form (stark.prove zk=).
+    Only the blake2b backend implements it (the shielded pool's proofs; nothing recursed is ever secret)."""
+    b = backend or _backend.DEFAULT
+    n = len(values)
+    if n & (n - 1) or len(salts) != n:
+        raise ValueError("Merkle vector length must be a power of two, one salt per leaf")
+    if not hasattr(b, "leaf_salted"):
+        raise ValueError(f"backend {getattr(b, 'name', '?')} has no salted leaf")
+    layer = [b.leaf_salted(v, s) for v, s in zip(values, salts)]
+    layers = [layer]
+    while len(layer) > 1:
+        layer = [b.node(layer[i], layer[i + 1]) for i in range(0, len(layer), 2)]
+        layers.append(layer)
+    return layers[-1][0], layers
+
+
+def verify_salted(root, index, value, salt, path, backend=None):
+    """verify() for a salted leaf."""
+    b = backend or _backend.DEFAULT
+    if not hasattr(b, "leaf_salted"):
+        return False
+    try:
+        h, idx = b.leaf_salted(value, salt), index
+    except (ValueError, TypeError):
+        return False
+    for sib in path:
+        h = b.node(h, sib) if idx % 2 == 0 else b.node(sib, h)
+        idx //= 2
+    return same_digest(h, root)
+
+
 def commit_digests(digests, backend=None):
     """Tree over PRECOMPUTED leaf digests (row-commitment: the caller hashed each whole trace row already).
     Only b.node is used. Returns (root, layers) with the same structure as commit."""

@@ -183,6 +183,16 @@ leaked or been drained yet; every finding below is a property of the code.
   deposits publish `(owner, rho, amount)` on L1, an observer holds a complete spend witness for every
   unspent note of that owner, permanently (`nsk` is derived once from the L1 key). Fix: a masked/blinded
   trace (random padding rows or a mask polynomial per witness column) — a circuit change.
+  > **Coded 2026-09-23 inside `SHIELD_WIDE_HEIGHT`** (joinsplit3 has no live proofs, so its format was free
+  > to change): `stark.prove(zk=k)` — the trace's last k = next_pow2(max_degree) = 8 columns are uniform
+  > RANDOMIZERS whose combination R(x) = Σ x^(iT) r_i(x) is added to the FRI input (uniformly random polynomial of
+  > degree < kT, committed before the challenges), every column leaf is SALTED (`backend.leaf_salted`, tag 0x03,
+  > the salt rides in the opening) so unopened leaves cannot be inverted by a 2^64 search, and the circuit adds
+  > RANDOM_ROWS = 2·NUM_QUERIES+16 uniform rows with every reaching constraint gated by an ACTIVE selector
+  > (T = 2048 at depth 12, W = 36). Measured: 0 witness values in 23,040 openings; two proofs of one witness share
+  > no root; an unsalted proof, a tampered randomizer and a violated constraint are refused. Python prove 92.8 s
+  > (joinsplit2 45.4 s), verify 3.1 s; the browser mirror (`static/stark/{stark,merkle,joinsplit3}.js`) proves in
+  > zk mode too. Remaining privacy gaps are the review's Z5 (the L1 sender signs the blob; deposits are public).
 - **Z2 — CRITICAL, reproduced. The transparent `shielded_transfer` op accepts an empty "stark" bundle and
   records an unbacked exit.** `shielded.py:240-242` routes any `proof.stark` to `verify_transfer`;
   `joinsplit_transfer.py:54-77` with neither join-split key falls to "output well-formedness only", which is
@@ -431,9 +441,13 @@ and should be scheduled, not patched.
    > upgrade rule names its runtime exactly, and the gen-25 faucet slot-7 seed is off from the gate (it wrote
    > storage from the records half, which no proof can derive). Gen-25 roots, leaves and summaries are
    > byte-unchanged (`tests/test_exec_root_v2.py`, `test_exec_root`, `test_settlement_sparse`, the DA-binding
-   > and records suites). **Z3 coded behind `SHIELD_WIDE_HEIGHT`** (see the Z3 entry). Remaining: Z1 (masked
-   > trace) together with P1 (DEEP): both are properties of the composition polynomial, so the ZK randomiser is
-   > designed once, on the DEEP form, rather than twice; then the shielded-contract notes onto the wide hash.
+   > and records suites). **Z3 coded behind `SHIELD_WIDE_HEIGHT`** (see the Z3 entry). **P1 shipped behind
+   > `PROOF_TRACE_LDT_HEIGHT = 216000`** as the batched trace low-degree test (see the P1 entry; the wallet's
+   > broken round-2 prologue was found and fixed by its cross-check). Remaining: Z1 (masked trace: randomizer rows
+   > gated by an ACTIVE selector in joinsplit3, a randomizer polynomial in the FRI batch, salted leaves on the
+   > blake2b backend — all inside SHIELD_WIDE_HEIGHT since joinsplit3 has no live proofs), the K->1 fold's batch
+   > term before SETTLE_PROOF_RECURSIVE flips, and the shielded-contract notes onto the wide hash.
+   > **Z1 coded** (see the Z1 entry): the wide join-split proves in zero-knowledge mode.
 
 Repro scripts used (scratch, not committed): `repro_contracts.py` (C1, C2 banked), `repro_ttt.py` (C2
 board), `repro_shield.py` (Z2), `repro_zk.py` (Z1, `NADO_ALLOW_PYTHON_KERNELS=1`, 23 s prove).

@@ -39,6 +39,17 @@ class _Blake2b:
         when the trailing limbs are zero — see alghash2.rleaf_ext for why that distinctness matters."""
         return _b2b32(b"\x02", *[(int(x) % F.P).to_bytes(8, "little") for x in limbs])
 
+    def leaf_salted(self, x, salt):
+        """ZERO-KNOWLEDGE leaf (stark.prove zk=, Z1): frame \x03 ‖ value ‖ 32 salt bytes. An unsalted leaf is
+        blake2b of one 64-bit value, which a 2^64 search inverts — so every UNOPENED leaf of a witness column's
+        commitment was a recoverable evaluation. The salt (proof-local, random, carried in the opening) makes
+        the unopened leaves hide their values information-theoretically. Its own tag, so a salted and an
+        unsalted commitment can never be confused for one another."""
+        s = bytes.fromhex(salt)
+        if len(s) != 32:
+            raise ValueError("a leaf salt is 32 bytes")
+        return _b2b32(b"\x03", (int(x) % F.P).to_bytes(8, "little"), s)
+
     # transcript: state is a 32-byte hex string. Items are field ints, digest hex strings, or short labels;
     # each is encoded unambiguously (tag + bytes) so the absorb is injective — no json (hashlib is C-fast; the
     # json.dumps was the whole cost, incl. the 2^GRIND_BITS grind hashes). Internal to a proof, same both sides.

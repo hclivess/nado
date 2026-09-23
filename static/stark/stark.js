@@ -85,6 +85,14 @@ export function airDigest(T, W, blowup, nTransitions, boundaries, periodic) {   
   return b2b32(...parts);
 }
 const _TE = new TextEncoder();
+function _salts(n) {                                 // n hex salts of 32 bytes, from the platform CSPRNG
+  const out = new Array(n), buf = new Uint8Array(32 * 1024);
+  for (let i = 0; i < n; i += 1024) {
+    globalThis.crypto.getRandomValues(buf);
+    for (let k = 0; k < 1024 && i + k < n; k++) { let s = ""; for (let b = 0; b < 32; b++) s += buf[k * 32 + b].toString(16).padStart(2, "0"); out[i + k] = s; }
+  }
+  return out;
+}
 
 export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = NUM_QUERIES, aux = null, rules = {}) {  // NUM_QUERIES from fri.js (C-1)
   const T = trace.length, W = trace[0].length;
@@ -119,9 +127,13 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   // every real circuit (7 vs 16 for the join-splits), and passing maxDegree here diverged the transcript from
   // the node's under round 2 — found by the cross-check the day before the gate.
   if (rules.round2) t.absorb("air", ...lanes32(airDigest(T, W, blowup, transitions.length, boundaries, periodic)));
+  // Z1 (stark.prove zk=): the last `zk` columns are randomizers, every leaf is salted, and their combination
+  // R(x) = sum x^(iT) r_i(x) masks the FRI input. Salts are 32 random bytes per leaf per column.
+  const zk = rules.zk ? Number(rules.zk) : 0;
+  const salts = zk ? Array.from({ length: W }, () => _salts(N)) : null;
   const colRoots = [], colMlayers = [];
   for (let c = 0; c < W; c++) {
-    const [root, ml] = merkle.commit(colLde[c]);
+    const [root, ml] = zk ? merkle.commitSalted(colLde[c], salts[c]) : merkle.commit(colLde[c]);
     colRoots.push(root); colMlayers.push(ml); t.absorb(root);
   }
   _mk("merkle.commit x16 (blake2b)");
@@ -146,6 +158,15 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
     }
     _mk("trace batch (P1)");
   }
+  if (zk) {                                          // Z1: the randomizer polynomial (stark.zk_randomizer_add)
+    const Tb = BigInt(T);
+    for (let j = 0; j < N; j++) {
+      const xT = F.pw(xLde[j], Tb); let pw = 1n, acc = 0n;
+      for (let i = 0; i < zk; i++) { acc = F.add(acc, F.mul(pw, colLde[W - zk + i][j])); pw = F.mul(pw, xT); }
+      cp[j] = useExt ? F.extAdd(cp[j], F.extLift(acc)) : F.add(cp[j], acc);
+    }
+    _mk("zk randomizer (Z1)");
+  }
 
   const friBlowup = N / degBound;
   const friProof = fri.prove(cp, OFF, friBlowup, numQueries, t, useExt);
@@ -157,8 +178,10 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
     const nxt = (lo + blowup) % N;
     const cols = [];
     for (let c = 0; c < W; c++) {
-      cols.push({ cur: colLde[c][lo], cur_path: merkle.openAt(colMlayers[c], lo),
-                  nxt: colLde[c][nxt], nxt_path: merkle.openAt(colMlayers[c], nxt) });
+      const col = { cur: colLde[c][lo], cur_path: merkle.openAt(colMlayers[c], lo),
+                    nxt: colLde[c][nxt], nxt_path: merkle.openAt(colMlayers[c], nxt) };
+      if (zk) { col.cur_salt = salts[c][lo]; col.nxt_salt = salts[c][nxt]; }
+      cols.push(col);
     }
     openings.push({ lo, cols });
   }

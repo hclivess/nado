@@ -25,7 +25,22 @@ their block's last row. What crosses blocks as witness is only the five register
 held constant) and the path (SIB lanes + DIR, held within a level, free at each level's absorb row).
 
 Degree: the round constraint is the x^7 S-box, so max_degree = ALPHA = 7 (blowup 16). At the pool's depth 12 the
-trace is 17 blocks × 55 + 51 = 986 rows -> T = 1024, W = 28 (joinsplit2: T = 2048, W = 21).
+real trace is 17 blocks × 55 + 51 = 986 rows, W = 28 witness columns.
+
+ZERO KNOWLEDGE (security review 2026-09-23, Z1). joinsplit2 was not zero-knowledge: nsk, rho and every amount sat
+in a CONSTANT column, a constant column's LDE is the constant, and every FRI query opens all columns — one
+4-query transfer showed nsk eight times. Three things close it, all inside this circuit's own format (it has no
+live proofs before SHIELD_WIDE_HEIGHT):
+  * RANDOM_ROWS uniform rows follow the real ones (T = next_pow2(total + RANDOM_ROWS) = 2048 at depth 12) and
+    every constraint that would reach into them — the register holds, the path holds, the conservation row
+    check — is gated by the ACTIVE selector (1 while both rows of a transition are real). With more random rows
+    than opened evaluations (2·NUM_QUERIES), what an opening shows of a witness column is independent of the
+    secret it carries on the real rows;
+  * ZK_RANDOMIZERS = next_pow2(ALPHA) = 8 uniform columns close the trace (unconstrained, appended by
+    build_trace); stark.prove(zk=8) folds them into a uniformly random polynomial that masks the FRI input, so
+    the layer roots, the fold openings and the final polynomial carry nothing of the witness;
+  * every column leaf is salted (backend.leaf_salted), so the UNOPENED leaves of a commitment cannot be
+    inverted by a 2^64 search of the value space.
 
 RANGE PROOF (C-3, unchanged from joinsplit2): conservation is only mod P and P ≈ 2^64 barely exceeds the coin
 range, so every note value is bit-decomposed into [0, 2^61) and, with the state-side |public_value|, fee ≤ 2^61
@@ -39,7 +54,10 @@ NSK, RHO, VIN, VOUT1, VOUT2, CONS = 12, 13, 14, 15, 16, 17
 SIB = 18                                          # SIB..SIB+3: the current level's sibling digest
 DIR = 22
 ACC, RB0, RB1, RB2, RB3 = 23, 24, 25, 26, 27
-NCOLS = 28
+NCOLS = 28                                        # witness columns the AIR reads
+ZK_RANDOMIZERS = 8                                # = next_pow2(MAX_DEGREE): stark.prove(zk=) requires that many
+NCOLS_TOTAL = NCOLS + ZK_RANDOMIZERS              # the trace width a proof declares
+RANDOM_ROWS = 2 * stark.NUM_QUERIES + 16          # more random rows than opened evaluations per column
 CAP = A2.CAPACITY
 RATE = A2.RATE
 R = A2.ROUNDS
@@ -52,8 +70,8 @@ RNG_VALUES = 3
 
 # periodic column indices: RC lanes, then the structural selectors
 (RC0, ACT_R, A_COMMIT, A_MERK, A_NF, A_OUT1, A_OUT2, ROW0,
- RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2) = (0, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
-NPER = 24
+ RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2, ACTIVE) = (0, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+NPER = 25
 
 LEN_OWNER, LEN_CM, LEN_NF = 2, 7, 3               # hashn's length prefix for each frame (znote.py)
 
@@ -87,7 +105,12 @@ def _total(D):
 
 
 def _T(D):
-    return _next_pow2(_total(D))
+    return _next_pow2(_total(D) + RANDOM_ROWS)
+
+
+def _rand_field():
+    import secrets
+    return secrets.randbelow(F.P)
 
 
 def _ordered(cur, sib, d):
@@ -153,7 +176,7 @@ def build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
     assert len(blocks) == nb
     cons = F.sub(F.sub(v_in, v1), v2)                 # = fee - public_value
     root_row, nf_row, cm1_row, sponge_end, rs, total = _rows(D)
-    T = _next_pow2(total)
+    T = _T(D)                                         # real rows + RANDOM_ROWS, padded (Z1)
     rfill = _range_fill(rs, (v_in, v1, v2))
     # the path registers LEAD by one block: block b's boundary row absorbs block b+1's fold with the sibling
     # held during block b (see _periodic: A_MERK marks those rows). Blocks 0..1 hold level 0's; membership
@@ -162,17 +185,22 @@ def build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
         k = 0 if bi < mb else bi - mb + 1
         return (list(sibs[k]), ds[k]) if k < D else ([0] * CAP, 0)
     tr = []
+    rnd = lambda n: [_rand_field() for _ in range(n)]
     for bi, blk in enumerate(blocks):
         sib, d = path_for(bi)
         for rr in range(BR):
             row = bi * BR + rr
             acc, b0, b1, b2, b3 = rfill.get(row, (0, 0, 0, 0, 0))
-            tr.append([int(x) % F.P for x in blk[rr]] + [nsk, rho_in, v_in, v1, v2, cons] + sib + [d, acc, b0, b1, b2, b3])
+            tr.append([int(x) % F.P for x in blk[rr]] + [nsk, rho_in, v_in, v1, v2, cons] + sib
+                      + [d, acc, b0, b1, b2, b3] + rnd(ZK_RANDOMIZERS))
     last_lanes = list(tr[-1][:W_ST])
-    while len(tr) < T:
+    while len(tr) < total:                            # the range region: the sponge idles, registers hold
         row = len(tr)
         acc, b0, b1, b2, b3 = rfill.get(row, (0, 0, 0, 0, 0))
-        tr.append(last_lanes + [nsk, rho_in, v_in, v1, v2, cons] + [0] * CAP + [0, acc, b0, b1, b2, b3])
+        tr.append(last_lanes + [nsk, rho_in, v_in, v1, v2, cons] + [0] * CAP + [0, acc, b0, b1, b2, b3]
+                  + rnd(ZK_RANDOMIZERS))
+    while len(tr) < T:                                # Z1: uniformly random rows, every column, no constraint reaches them
+        tr.append(rnd(NCOLS_TOTAL))
     assert tr[root_row][:CAP] == list(root) and tr[nf_row][:CAP] == list(nf)
     assert tr[cm1_row][:CAP] == list(cm1) and tr[sponge_end][:CAP] == list(cm2)
     return tr, T, D, root, nf, cm1, cm2
@@ -204,6 +232,8 @@ def _periodic(T, D):
             elif bi == o2b - 1:
                 p[A_OUT2][row] = 1
     p[ROW0][0] = 1
+    for row in range(min(T, total - 1)):              # Z1: a transition is constrained only between two REAL rows
+        p[ACTIVE][row] = 1
     for row in range(rs, min(T, total)):
         off = (row - rs) % RNG_BLOCK
         if off < RNG_NIBBLES:
@@ -280,16 +310,17 @@ def _transitions():
         cons += [pin(sel, RATE + i, const(IV[i])) for i in range(CAP)]
     # row 0: the OWNER frame absorbs nsk in lane 2 (its other lanes are boundary constraints)
     cons.append(lambda cur, nxt, per: F.mul(per[ROW0], F.sub(cur[2], cur[NSK])))
-    # the witness registers are constant over the trace, so every block reads the SAME secret value
+    # the witness registers are constant over the REAL rows (ACTIVE), so every block reads the SAME secret
+    # value; past the last real row they are random (Z1), and no constraint may reach there
     for col in (NSK, RHO, VIN, VOUT1, VOUT2):
-        cons.append((lambda c_: (lambda cur, nxt, per: F.sub(nxt[c_], cur[c_])))(col))
+        cons.append((lambda c_: (lambda cur, nxt, per: F.mul(per[ACTIVE], F.sub(nxt[c_], cur[c_]))))(col))
     # the path: SIB/DIR may change only right after a membership absorb row; DIR is a bit where it is used
     for i in range(CAP):
-        cons.append((lambda c_: (lambda cur, nxt, per: F.mul(F.sub(1, per[A_MERK]), F.sub(nxt[c_], cur[c_]))))(SIB + i))
-    cons.append(lambda cur, nxt, per: F.mul(F.sub(1, per[A_MERK]), F.sub(nxt[DIR], cur[DIR])))
+        cons.append((lambda c_: (lambda cur, nxt, per: F.mul(per[ACTIVE], F.mul(F.sub(1, per[A_MERK]), F.sub(nxt[c_], cur[c_])))))(SIB + i))
+    cons.append(lambda cur, nxt, per: F.mul(per[ACTIVE], F.mul(F.sub(1, per[A_MERK]), F.sub(nxt[DIR], cur[DIR]))))
     cons.append(lambda cur, nxt, per: F.mul(per[A_MERK], F.mul(cur[DIR], F.sub(1, cur[DIR]))))
-    # 2-output value conservation, pinned by the boundary to fee - public_value
-    cons.append(lambda cur, nxt, per: F.sub(cur[CONS], F.sub(F.sub(cur[VIN], cur[VOUT1]), cur[VOUT2])))
+    # 2-output value conservation, pinned by the boundary to fee - public_value (on the real rows)
+    cons.append(lambda cur, nxt, per: F.mul(per[ACTIVE], F.sub(cur[CONS], F.sub(F.sub(cur[VIN], cur[VOUT1]), cur[VOUT2]))))
     # C-3 range gadget (joinsplit2's, verbatim)
     def nib(cur):
         return F.add(F.add(F.mul(8, cur[RB0]), F.mul(4, cur[RB1])), F.add(F.mul(2, cur[RB2]), cur[RB3]))
@@ -323,7 +354,7 @@ def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2, pu
     tr, T, D, root, nf, cm1, cm2 = build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2)
     bnd = _boundaries(D, root, nf, cm1, cm2, public_value, fee)
     proof = stark.prove(tr, _transitions(), bnd, periodic=_periodic(T, D), max_degree=MAX_DEGREE,
-                        num_queries=num_queries, aux=aux)
+                        num_queries=num_queries, aux=aux, zk=ZK_RANDOMIZERS)
     proof["D"] = D
     return proof, root, nf, cm1, cm2
 
@@ -340,7 +371,8 @@ def verify_transfer(proof, root, nf, cm1, cm2, public_value, fee, root_is_known,
     D, T, Wc = proof.get("D"), proof.get("T"), proof.get("W")
     # H1: T and D determine every block and range-bind row; an under-declared T pushes the range binds past
     # the trace and makes the range proof vacuous. W is pinned so no unconstrained column rides along.
-    if not isinstance(D, int) or not isinstance(T, int) or D < 1 or T != _T(D) or Wc != NCOLS:
+    if not isinstance(D, int) or not isinstance(T, int) or D < 1 or T != _T(D) or Wc != NCOLS_TOTAL:
         return False, "bad trace geometry"
     bnd = _boundaries(D, root, nf, cm1, cm2, public_value, fee)
-    return stark.verify(proof, _transitions(), bnd, periodic=_periodic(T, D), max_degree=MAX_DEGREE, aux=aux)
+    return stark.verify(proof, _transitions(), bnd, periodic=_periodic(T, D), max_degree=MAX_DEGREE, aux=aux,
+                        zk=ZK_RANDOMIZERS)
