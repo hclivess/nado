@@ -142,13 +142,23 @@ def public_statement(bundle):
     return (bundle["calls_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
-def _canonical_pre_contracts(pre):
-    """(ok, why): every cid is lowercase hex of the live length and every slot key is a canonical decimal."""
+def _canonical_pre_contracts(pre, fixed_names=False):
+    """(ok, why): every cid is lowercase hex of the live length and every slot key is a canonical decimal.
+
+    `fixed_names` (protocol.PROOF_FIXED_CID_HEIGHT, from the settle's cursor): a cid may ALSO be exactly one of
+    code_codec.FIXED_CIDS. Without it every honest settle proof was refused from REVIEW_R2 on, because live state
+    holds `faucet` and `sovereign` — a check written against a synthetic pre-state that had only hex ids. A fixed
+    name is not an alias risk: cid_limbs blake2b-folds any non-hex id, so a name can collide with no hex id and no
+    other name. Keep the set EXACT — widening it to "any non-hex string" would admit "0x..", which int(_, 16)
+    DOES parse, i.e. exactly the two-spellings-of-one-leaf forgery A4 closed."""
+    from execnode.code_codec import FIXED_CIDS
     if not isinstance(pre, dict):
         return False, "not an object"
     seen = set()
     for cid, c in pre.items():
-        if not (isinstance(cid, str) and cid and cid == cid.lower() and all(ch in "0123456789abcdef" for ch in cid)):
+        if fixed_names and cid in FIXED_CIDS:
+            pass
+        elif not (isinstance(cid, str) and cid and cid == cid.lower() and all(ch in "0123456789abcdef" for ch in cid)):
             return False, f"cid {str(cid)[:20]!r}"
         if cid in seen:
             return False, f"duplicate cid {cid[:12]}"
@@ -208,7 +218,11 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         # spelling — a prover could serve an unbound value for every read-only slot. Every key must be the
         # one spelling exec_root would produce.
         if stark.current_rules().round2:
-            okc, whyc = _canonical_pre_contracts(bundle["pre_contracts"])
+            # PROOF_FIXED_CID_HEIGHT: keyed on the settle's cursor, as root_v2 is below — a pure function of the
+            # bundle, so every node reaches the same verdict on replay.
+            from protocol import PROOF_FIXED_CID_HEIGHT as _FIXED_CID_H
+            okc, whyc = _canonical_pre_contracts(bundle["pre_contracts"],
+                                                 fixed_names=int(bundle["cursor"]) >= int(_FIXED_CID_H))
             if not okc:
                 return False, f"pre_contracts keys are not canonical: {whyc}", None
         want_pre = tuple(int(x) % F.P for x in bundle["sparse_pre_root"])

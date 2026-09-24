@@ -166,3 +166,29 @@ cross-side value — diff how apply and prove each obtain it; (2) a rule with a 
 (`apply_blob` / `apply_event`, escrow, budget) lives in ONE function or has a test that drives both with the
 same blobs and compares records; (3) an "honest proof lands beside the chain" is as serious as a forgery —
 it means the settled tip diverges from every exec node and nothing can extend it.
+
+## 11. A verifier check must accept a proof built from the REAL state, before its gate fires
+
+REVIEW_R2's canonical-key check (`settlement_sparse._canonical_pre_contracts`, live at 214000) accepted only
+lowercase-hex contract ids. Its test fed it hand-written pre-states; live state also holds contracts at FIXED
+NAMES (`faucet`, `sovereign`, `code_codec.FIXED_CIDS`). From 214000 every honest proof-carrying settle was
+refused, every suite stayed green, and it surfaced ten thousand blocks later only because someone asked why no
+proof had landed (fixed behind `PROOF_FIXED_CID_HEIGHT`). A check that refuses honest input is as much an
+outage as a check that admits a forgery — it just fails silently, into the bare-quorum fallback.
+
+Before shipping any verifier check:
+
+```bash
+python3 tests/test_settle_proof_verifies_live_stash.py     # the real settle stash, under EVERY scheduled rule
+python3 tests/test_settle_proof_live_state_shape.py        # every contract-id kind the deploy path creates
+```
+
+The first proves from the newest real stash at a cursor above every finite gen-25 gate, so a check scheduled
+for a FUTURE height is judged against today's state before it fires. The second is the synthetic version for
+machines without a stash: its pre-state comes from the chain's own deploy and call paths, round-tripped through
+JSON like the stash, never from a dict written for the test. When you add a new way to name or store anything
+a verifier reads, add it to that file's pre-state.
+
+And never trust a timing claim in a comment about the verifier: `storage_tree` said "a sparse verifier never
+rebuilds the tree" long after the pre-state pin made it rebuild the whole tree cold in every verify child — the
+107-179 s "KV half" every settle logged, 6 s warm. Measure a verify in a FRESH process on the real state.

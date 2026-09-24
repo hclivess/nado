@@ -31,8 +31,9 @@ os.environ.setdefault("NADO_ALLOW_PYTHON_KERNELS", "1")
 # state — the same hazard that wedged prod when a test imported node modules against the real data dir.
 _TMP = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tmp_finality_probe")
 os.makedirs(_TMP, exist_ok=True)
-os.environ.setdefault("NADO_EXEC_STATE", os.path.join(_TMP, "exec_state.json"))
-os.environ.setdefault("NADO_EXEC_DA", os.path.join(_TMP, "exec_da"))
+os.environ["HOME"] = _TMP                     # BEFORE any nado import (CLAUDE.md rule 4)
+os.environ["NADO_EXEC_STATE"] = os.path.join(_TMP, "exec_state.json")   # ASSIGN, never setdefault (CLAUDE.md rule 4)
+os.environ["NADO_EXEC_DA"] = os.path.join(_TMP, "exec_da")          # ASSIGN, never setdefault
 
 from execnode.execnode import (finality_reverted, probe_height, recovery_available, linkage_broken,
                                ckpt_keep, rewind_target,

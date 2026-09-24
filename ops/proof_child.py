@@ -35,14 +35,44 @@ def main():
     from execnode.stark import stark as _stk
     req = codec.unpack(sys.stdin.buffer.read())
     _r = req.get("rules")
+    # A WARM FOLD CACHE, CARRIED ACROSS CHILDREN (2026-09-24). Every child is a fresh interpreter, so the pre-state
+    # pin in verify_bound_epoch (sparse_root over the WHOLE pre_contracts) rebuilt the depth-256 tree cold on every
+    # verify. MEASURED on the live settle stash (27 contracts, 15,078 slots): 112.4 s total, 107.8 s of it the pin;
+    # the same verify warm is 6.1 s. That cold rebuild is the 107-179 s "[settle-verify] KV half" every proof has
+    # logged since at least Sep 14, and it is what kept peers from admitting an inline settle proof in time. The
+    # storage_tree comment saying "a sparse verifier never rebuilds the tree" predates the pin and was wrong.
+    # Safe for consensus by construction: the cache memoizes a PURE function and load_fold_cache validates the file
+    # (fingerprint + spot-recompute), so a verdict is bit-identical cold, warm or with the file missing.
+    from execnode.stark import storage_tree as _ST
+    _fold_path = _fold_cache_path()
+    if _fold_path:
+        try:
+            _ST.load_fold_cache(_fold_path, int(req["depth"]))
+        except Exception:
+            pass                                   # a cache problem costs the cold rebuild, never the verdict
     with _stk.with_rules(_stk.Rules(*[bool(x) for x in _r]) if _r is not None else _stk.RULES_STRICT):
         res = SS.verify_settlement_sparse(req["proof"], depth=req["depth"])
+    # Saved only after an ACCEPTED proof: a refused one may carry an arbitrary pre_contracts, and letting it fill
+    # the file would let anyone who can submit a settle crowd the real state's folds out of it (bounded by
+    # _FOLD_CACHE_MAX either way, but there is no reason to keep a stranger's garbage).
+    if _fold_path and res and res[0] is True:
+        try:
+            _ST.save_fold_cache(_fold_path, int(req["depth"]))
+        except Exception:
+            pass
     payload = codec.pack(list(res))
     view = memoryview(payload)
     while view:
         n = os.write(verdict_fd, view)
         view = view[n:]
     os.close(verdict_fd)
+
+
+def _fold_cache_path():
+    """Where the verify child keeps its fold cache: beside the node's data (~/nado), never beside the exec node's own
+    file (a second writer would race it). None when the data dir does not exist, e.g. a bare test HOME."""
+    d = os.path.join(os.path.expanduser("~"), "nado")
+    return os.path.join(d, "settle_verify_folds.json") if os.path.isdir(d) else None
 
 
 def verify_sparse_out_of_process(proof, depth, rules=None):

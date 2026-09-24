@@ -317,6 +317,13 @@ never re-executes calls — the exec AIR is the whole gate.
 - **A4 — HIGH (storage binding).** Non-canonical `pre_contracts` keys (`"05"` vs `"5"`, cid aliases via
   `int(cid,16)`) alias the pre-root pin (`settlement_sparse.py:38-39, 173`): read-only slot values are
   unbound. Canonicalise or reject before the pin.
+  > **Regression found 2026-09-24, ours.** The A4 fix (live at `REVIEW_R2_HEIGHT` 214000) accepted only
+  > lowercase-hex cids, and live state holds `faucet` and `sovereign` at fixed names — so every honest
+  > proof-carrying settle from 214000 was refused (`cid 'faucet'`). None was submitted in that window, so
+  > none was actually refused, but none could land. From `PROOF_FIXED_CID_HEIGHT` (225000) the check also
+  > accepts exactly the `FIXED_CIDS` names, which cannot alias (cid_limbs blake2b-folds non-hex ids).
+  > Guarded by `tests/test_settle_proof_verifies_live_stash.py` (real stash, every scheduled rule) and
+  > `tests/test_settle_proof_live_state_shape.py` (every contract-id kind the deploy path makes).
 - A5 MEDIUM: the deposit statement never pins `VIN = 0` (`appnote_circuit.py:664-668`) — mints a note worth
   `delta + X`. A6 MEDIUM (completeness): a program containing `NOP` is executable but unprovable (the AIR
   treats NOP as the halt selector; the interpreter advances pc). A7 LOW: Rust alghash2 constants are

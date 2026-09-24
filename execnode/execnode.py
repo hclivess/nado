@@ -840,6 +840,11 @@ SETTLE_RESUBMIT_MAX_S = 1200
 SETTLE_PROPAGATION_GRACE_S = 900
 # Backstop only, so a pathological loop (blocks arriving far faster than expected) cannot spin unbounded.
 SETTLE_RESUBMIT_MAX = 200
+# Blocks of runway for an INLINE resubmission. The tx is the whole proof (~9 MiB), so peers need a push of that body
+# plus a verification before any of them holds it: ~7 s warm after the verify child's fold cache (ops/proof_child),
+# up to ~115 s cold on a peer's first proof. 20 blocks (~2 min at 6 s) covers the cold case and still gives ~10 tries
+# inside SETTLE_RESUBMIT_MAX_S. A DA-carried retry keeps latest+2: its tx is a commitment peers already prefetched.
+SETTLE_INLINE_RESUBMIT_MARGIN = 20
 # STRONG REFERENCES to the detached settle tasks. asyncio keeps only a WEAK reference to a running task, so
 # a task whose last strong reference is dropped can be garbage-collected MID-AWAIT — silently, with no
 # result, no exception and no done-callback. The tail loop assigned each task to a local that it reassigned
@@ -2069,16 +2074,31 @@ async def maybe_settle(session):
                     # is still the justified tip — which the hold is keeping true — and only give up after
                     # SETTLE_RESUBMIT_MAX tries so a proof that can never land cannot stall settlement.
                     _att = int(_pend.get("attempts", 1))
-                    # DA-CARRIED ONLY. An INLINE proof is not held anywhere we can cheaply rebuild it from,
-                    # and construct_settle_tx with both proof and proof_da None yields a BARE attestation —
-                    # which would advance the justified tip while reporting a successful "resubmit", i.e.
-                    # exactly the race this whole hold exists to prevent, dressed as a retry.
+                    # (Until 2026-09-24 this branch was DA-CARRIED ONLY, because an inline proof was not held
+                    # anywhere it could be rebuilt from. It is now kept in the marker; see below.)
                     _held_for = time.time() - float(_pend.get("first_submitted") or time.time())
+                    # AN INLINE PROOF RESUBMITS TOO (2026-09-24). It used to get exactly one shot: the marker kept
+                    # only the DA commitment, so an inline proof had nothing to rebuild from and this branch gave
+                    # up. Both proof-carrying settles of 2026-09-23 (210736, 211096) died that way, "GIVING UP
+                    # after 1 attempt(s)", while their pre-state was still the justified tip. The marker now holds
+                    # the proof it submitted (in memory only, ~9 MiB), so a retry re-signs the SAME bytes for a
+                    # fresh landing block. Our L1 memoises the verdict by proof identity, so a retry costs a post,
+                    # not a verification. THE INVARIANT IS UNCHANGED: a resubmission carries the proof or its DA
+                    # commitment, never neither — construct_settle_tx with both None is a BARE settle, which would
+                    # advance the justified tip past the span this proof extends.
+                    _rproof = None if _pend.get("proof_da") else _pend.get("proof")
                     if (_held_for < SETTLE_RESUBMIT_MAX_S and _att < SETTLE_RESUBMIT_MAX
-                            and _pend.get("proof_da") and _sc_now == int(_pend["pre_cursor"])):
+                            and (_pend.get("proof_da") or _rproof) and _sc_now == int(_pend["pre_cursor"])):
                         try:
-                            _rtx = construct_settle_tx(keys, int(_pend["cursor"]), _pend["root"], target,
-                                                       ns=ns, proof=None, proof_da=_pend["proof_da"])
+                            # An inline retry needs a runway: the tx IS the proof, so peers must receive ~9 MiB
+                            # and verify it before any of them can include it. A DA-carried retry is ~8 KB and
+                            # keeps the old latest+2.
+                            _rtarget = (_h_now + SETTLE_INLINE_RESUBMIT_MARGIN) if _rproof is not None else target
+                            _rtx = construct_settle_tx(keys, int(_pend["cursor"]), _pend["root"], _rtarget,
+                                                       ns=ns, proof=_rproof, proof_da=_pend.get("proof_da"))
+                            _rd = _rtx.get("data") or {}
+                            if not (_rd.get("proof") or _rd.get("proof_da")):
+                                raise ValueError("a resubmission would carry no proof (a bare settle); refusing")
                             # Posted inline rather than through _submit(), which is defined further down
                             # this loop body. Same generous budget: L1 verifies a proof-carrying settle
                             # INLINE before it answers, so a short timeout would drop a good submit.
@@ -2093,13 +2113,14 @@ async def maybe_settle(session):
                                 if _rout is None:
                                     _rout = {"result": False, "message": f"HTTP {_rr.status}"}
                             if isinstance(_rout, dict) and _rout.get("result"):
-                                _pend["max_block"] = int(_rtx.get("max_block") or target)
+                                _pend["max_block"] = int(_rtx.get("max_block") or _rtarget)
                                 _pend["attempts"] = _att + 1
                                 print(f"[execnode] settle-with-proof ns={ns} cursor {_pend['cursor']} missed "
                                       f"block {_h_now} (produced by someone else) — RESUBMITTED for "
                                       f"max_block {_pend['max_block']} (attempt {_att + 1}, "
-                                      f"{_held_for:.0f}s/{SETTLE_RESUBMIT_MAX_S}s held); the proof and its "
-                                      f"DA blob are reused",
+                                      f"{_held_for:.0f}s/{SETTLE_RESUBMIT_MAX_S}s held); the "
+                                      f"{'inline proof' if _rproof is not None else 'proof and its DA blob'} "
+                                      f"are reused",
                                       flush=True)
                                 _pend_active = True
                             else:
@@ -2486,8 +2507,11 @@ async def maybe_settle(session):
                 # cleared once the submit returns — so between "submit accepted" and "marker recorded" there
                 # was a hole exactly one /get_settled round trip wide, and a fresh prove started inside it.
                 # The awaited fetch was what opened it, for a value nothing needs immediately.
+                # "proof": the INLINE proof itself, so a missed landing block can be retried with the same bytes
+                # (see the resubmit branch). None for a DA-carried one, which retries by its commitment.
                 _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
                                        "proof_da": _txd.get("proof_da"), "pre_cursor": -1,
+                                       "proof": None if _txd.get("proof_da") else _txd.get("proof"),
                                        "attempts": 1, "first_submitted": time.time()}
                 # `pre_cursor` is the justified tip this proof EXTENDS. The resubmit path is only sound
                 # while that is still the tip — the proof pins pre_root to it — so it is recorded rather

@@ -36,6 +36,8 @@ import weakref
 
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_taskref_")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")   # ASSIGN: the exec state path is CWD-relative, so a test run from the live checkout reads the live exec files
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")   # ASSIGN: CWD-relative too, and a generation mismatch rmtree()s it on import
 os.environ["NADO_TESTNET"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

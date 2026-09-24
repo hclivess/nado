@@ -1625,6 +1625,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
+#                                    PROOF_FIXED_CID_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2079,6 +2080,17 @@ REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
 # fold does NOT carry the term yet and refuses under it (SETTLE_PROOF_RECURSIVE is off; SCHEDULED_CLEANUPS.md).
 # Block 1 at the next reroll.
 PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
+
+# THE FIXED-NAME CONTRACTS PASS THE PRE-STATE KEY CHECK (2026-09-24). REVIEW_R2's A4 check
+# (settlement_sparse._canonical_pre_contracts) accepted only lowercase-hex contract ids, but live state carries
+# two contracts under FIXED NAMES — `faucet` and `sovereign` (execnode/code_codec.FIXED_CIDS) — so from 214000
+# EVERY honest proof-carrying settle was refused ("cid 'faucet'"), found by verifying a proof built from the live
+# settle stash. A fixed name cannot alias anything: exec_state_bind.cid_limbs blake2b-folds a non-hex id before it
+# becomes limbs, so the A4 concern (two spellings of one leaf) does not arise for it. From this height the check
+# accepts lowercase hex OR exactly a FIXED_CIDS name; below it the refusal stands, so a replay judges every old
+# settle as it was judged. Keyed on the settle's cursor, like EXEC_ROOT_V2. Relaxes a rule, so it needs the
+# fleet on the new code before it fires. Block 1 at the next reroll.
+PROOF_FIXED_CID_HEIGHT = 225000 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

@@ -67,6 +67,12 @@ always has `HOME` set, so `os.environ.setdefault("HOME", ...)` keeps `/root` and
 one of them wrote a resumable-reindex marker into the relay's `index/` and the relay stopped building
 blocks on it until the file was found and removed.
 
+The exec node has a second path HOME does not cover: `execnode/execnode.py` resolves its state and DA
+directory RELATIVE TO THE WORKING DIRECTORY (`NADO_EXEC_STATE`, `NADO_EXEC_DA`), and importing it reads the
+state, restores the settle stash and re-stamps the `.gen` marker. Run from this checkout, that is the live
+exec node's files. A test that imports the exec node assigns all three before the import;
+`tests/test_tests_never_touch_live_exec_state.py` fails if one does not (nine tests did, 2026-09-24).
+
 ### 5. Run the undefined-names test on the final tree
 
 ```bash

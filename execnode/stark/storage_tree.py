@@ -76,6 +76,12 @@ _E_CACHE = {}
 # on production state (8,403 folds, a 1.5 MB file, 0.42 s to reload), root bit-identical. A restarted exec
 # node paid ~50 s before its first settle. save_fold_cache/load_fold_cache carry it across restarts.
 #
+# WRONG SINCE THE PRE-STATE PIN, CORRECTED 2026-09-24: the paragraph below was true when measured, but
+# settlement_sparse.verify_bound_epoch later gained a pin that recomputes sparse_root over the WHOLE pre-state,
+# so a verifier DOES rebuild the tree — 107.8 s of a 112.4 s cold verify on 15,078 live slots, 6.1 s warm. The
+# verify child (ops/proof_child.py) now loads and saves its own fold cache for that reason. Read the rest as
+# history:
+#
 # THIS IS A PROVER-ONLY WIN. An earlier revision of this comment also claimed "every VERIFY in a fresh
 # process pays it, including a fresh-syncing node". MEASURED, THAT IS FALSE: verify_settlement_sparse on
 # the same span is 5.04 s cold and 4.52 s warm — a sparse verifier checks AUTHENTICATION PATHS and never

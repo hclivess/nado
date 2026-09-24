@@ -30,6 +30,11 @@ import os
 import sys
 import tempfile
 
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-prov-fence-")   # BEFORE any nado import
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")   # ASSIGN: the exec state path is CWD-relative, so a test run from the live checkout reads the live exec files
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")   # ASSIGN: CWD-relative too, and a generation mismatch rmtree()s it on import
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from execnode import execnode as X

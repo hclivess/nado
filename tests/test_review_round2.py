@@ -168,7 +168,25 @@ def t_a4_non_canonical_pre_contracts_keys_are_refused():
     ok, why = SS._canonical_pre_contracts({"c" * 32: {"storage": {"slots": {"5": 1, "0": 7}}}})
     assert ok
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "execnode", "stark", "settlement_sparse.py")).read()
-    assert "if stark.current_rules().round2:\n            okc, whyc = _canonical_pre_contracts" in src
+    assert "if stark.current_rules().round2:" in src and "okc, whyc = _canonical_pre_contracts(bundle[\"pre_contracts\"]," in src
+
+
+def t_a4_fixed_name_contracts_pass_from_their_gate_and_nothing_else_does():
+    """PROOF_FIXED_CID_HEIGHT: live state holds `faucet` and `sovereign`, so the hex-only check refused EVERY honest
+    settle proof from 214000. From the gate exactly those names pass; a near-miss spelling never does."""
+    import protocol as P
+    pre = {"c" * 32: {"storage": {"slots": {"5": 1}}}, "faucet": {"storage": {"slots": {"1": 2}}},
+           "sovereign": {"storage": {"slots": {}}}}
+    ok, why = SS._canonical_pre_contracts(pre)
+    assert not ok and "faucet" in why, "below the gate the refusal stands, so replay is unchanged"
+    ok, why = SS._canonical_pre_contracts(pre, fixed_names=True)
+    assert ok, why
+    for bad in ("Faucet", "faucet ", "0xab", "FAUCET", "faucet2"):
+        ok, why = SS._canonical_pre_contracts({bad: {"storage": {"slots": {}}}}, fixed_names=True)
+        assert not ok, f"{bad!r} must stay refused"
+    assert "PROOF_FIXED_CID_HEIGHT = 225000 if CHAIN_GENERATION == 25 else 1" in open(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
+    assert P.PROOF_FIXED_CID_HEIGHT > P.REVIEW_R2_HEIGHT
 
 
 # ---- proof rules: P2 aux lanes, P3/Z8 AIR identity, P4 path lengths ----------------------------------------------

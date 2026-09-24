@@ -178,12 +178,20 @@ check("the pending marker keys on the submitted tx, not the local proof flags",
 # held, pre_root stayed valid) — block 25014 was simply produced by 5828bf2e…, not us. ~5 minutes of
 # proving lost to a slot lottery.
 check("a missed landing block is RESUBMITTED rather than abandoned", "RESUBMITTED for" in src)
-check("...reusing the proof already published to DA (an ~8 KB tx, not a reprove)",
-      'proof=None, proof_da=_pend["proof_da"]' in src)
+check("...reusing the proof already built: its DA commitment, or the inline proof itself (never a reprove)",
+      'proof=_rproof, proof_da=_pend.get("proof_da")' in src
+      and '"proof": None if _txd.get("proof_da") else _txd.get("proof"),' in src)
 check("...only while the pre-state it proves is still the justified tip",
       '_sc_now == int(_pend["pre_cursor"])' in src)
-check("...and NEVER for an inline proof, which would rebuild as a BARE settle",
-      '_pend.get("proof_da")' in src)
+# THE INLINE PROOF GOT ONE SHOT until 2026-09-24: the marker kept only the DA commitment, so both proof-carrying
+# settles of 2026-09-23 gave up "after 1 attempt(s)" with their pre-state still the justified tip. The invariant
+# that made inline retries forbidden still holds, now enforced on the built tx itself: a resubmission carries the
+# proof or its commitment, NEVER neither — a tx with neither is a BARE settle that advances the tip past the span.
+check("...and NEVER as a bare settle: the built retry must carry the proof or its commitment",
+      '(_pend.get("proof_da") or _rproof)' in src
+      and 'if not (_rd.get("proof") or _rd.get("proof_da")):' in src)
+check("...an inline retry gets a runway for peers to receive and verify it",
+      "SETTLE_INLINE_RESUBMIT_MARGIN = 20" in src and "_h_now + SETTLE_INLINE_RESUBMIT_MARGIN" in src)
 check("retries are bounded so a proof that can never land cannot stall settlement",
       "SETTLE_RESUBMIT_MAX" in src and "GIVING" in src)
 # BOUNDED BY TIME, NOT BY A COUNT. The first cut allowed 6 attempts and live they were consumed in about
