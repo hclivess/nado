@@ -1240,6 +1240,13 @@ class ExecState:
         from protocol import EXEC_ROOT_V2_HEIGHT
         return self.applying_height() >= int(EXEC_ROOT_V2_HEIGHT)
 
+    def rules_privacy_pause(self):
+        """PRIVACY_PAUSE_HEIGHT in force for the block being applied (same convention as rules_v2): private_call,
+        the legacy field pool's transfers and stark bundles on shielded_transfer are refused. The wide pool is not
+        paused — callers test rules_shield_wide() alongside this."""
+        from protocol import PRIVACY_PAUSE_HEIGHT
+        return self.applying_height() >= int(PRIVACY_PAUSE_HEIGHT)
+
     def rules_r2(self):
         """REVIEW_R2_HEIGHT in force for the block being applied (same convention as rules_v2)."""
         from protocol import REVIEW_R2_HEIGHT
@@ -1765,6 +1772,10 @@ class ExecState:
             # the VALUE/PAY escrow primitive; see doc/exec-instructions.md)
 
             if op == "field_transfer":
+                # PRIVACY_PAUSE_HEIGHT: the LEGACY field pool is closed (its proofs are not safe to accept); only
+                # the wide pool spends from the gate. Refused before the bundle is even parsed, so nothing moves.
+                if self.rules_privacy_pause() and not self.rules_shield_wide():
+                    return "skip field_transfer: the legacy field pool is paused (PRIVACY_PAUSE_HEIGHT)"
                 # PHASE-2: a full join-split STARK proof (delegated-prover output). The bundle rides as an
                 # OPAQUE JSON STRING so its big field ints survive JSON (JS would lose >2^53 precision).
                 bj = payload.get("bundle_json")
@@ -1794,6 +1805,11 @@ class ExecState:
                 pv = int(public.get("public_value", 0))
                 if pv > 0:
                     return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
+                # PRIVACY_PAUSE_HEIGHT: the transparent pool keeps its signed transfers, but a STARK bundle on this op
+                # is refused outright — it was verified against the bundle's own values while the pool was mutated
+                # from the unrelated `public` dict (review 2026-09-24), and it has no legitimate producer.
+                if self.rules_privacy_pause() and proof.get("stark") is not None:
+                    return "skip shielded_transfer: stark bundles are refused on this op (PRIVACY_PAUSE_HEIGHT)"
                 if self.rules_v2():
                     # Z2 (2026-09-23, reproduced): a `stark` bundle with neither join-split key fell through
                     # verify_transfer to "output well-formedness only", which `[]` satisfies, and the branch
@@ -1830,6 +1846,11 @@ class ExecState:
                 return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
 
             if op == "private_call":
+                # PRIVACY_PAUSE_HEIGHT: shielded contract notes are closed — a deposit could commit a note worth more
+                # than it paid, against ANY contract's whole balance (review 2026-09-24, reproduced). Refused before
+                # any parsing or balance movement, so a refused call is a pure no-op.
+                if self.rules_privacy_pause():
+                    return "skip private_call: shielded contract notes are paused (PRIVACY_PAUSE_HEIGHT)"
                 # SHIELDED CONTRACT transition (execnode/shielded_state.py): spend private notes, create
                 # private notes. Nothing about the transition is visible but its nullifiers, its output
                 # commitments and its public delta.

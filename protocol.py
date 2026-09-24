@@ -1625,7 +1625,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
-#                                    PROOF_FIXED_CID_HEIGHT,
+#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2093,6 +2093,15 @@ PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
 # DEFERRED 2026-09-24, before it fired: settle proofs stay closed on gen 25 until a pending proof-verifier
 # soundness fix ships (details withheld until then). Re-enable with that fix's gate, never ahead of it.
 PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+
+# PRIVACY PAUSE (2026-09-24). From this height the exec layer refuses `private_call` (shielded contract notes), the
+# LEGACY field pool's transfers, and a `stark` bundle on the transparent `shielded_transfer` op. (L1 already refuses
+# legacy field-shield deposits, keyed on REVIEW_R2_HEIGHT — ops/transaction_ops.field_shield_check.) A review found
+# value-creating flaws on these paths; none carries value today (0 private notes, 0 field notes, no private_call
+# in the logs), so closing them costs nothing while their fixes ship. The WIDE pool (SHIELD_WIDE_HEIGHT) is not
+# paused. Block 1 at the next reroll: shielded contract notes stay off until they move to the wide hash with
+# zero knowledge, and the legacy field pool is replaced there by the wide one.
+PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

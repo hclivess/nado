@@ -1353,6 +1353,38 @@ class WindowUnavailable(ProofUnavailable):
         self.lo, self.hi = int(lo), int(hi)
 
 
+
+def field_shield_check(data, block_height):
+    """Admission rules for a field-native `shield` deposit, judged at `block_height` (the block being validated).
+    A pure function so tests can drive it directly — the inline form read an unbound `h` for a day and nothing
+    caught it (tests/test_privacy_pause.py). Raises AssertionError on refusal, like the branch it came from."""
+    # C-2: the exec node BINDS the note value to this escrowed amount by recomputing
+    # commit(amount, owner, rho) itself, so the deposit must carry (owner, rho), not a free-choice cm.
+    assert data.get("owner") is not None and data.get("rho") is not None, "field shield needs owner + rho"
+    from protocol import SHIELD_WIDE_HEIGHT as _SWH, REVIEW_R2_HEIGHT as _R2H
+    # THE HEIGHT IS `block_height`, the block being judged. This branch read `h`, which only the HTLC
+    # branches above ever assign, so from a8a720f1 (2026-09-23) every field-shield deposit raised
+    # UnboundLocalError and was refused — the wide pool's own deposits included, i.e. on the reroll chain
+    # nobody could have entered it. Found 2026-09-24 while adding the privacy pause.
+    _sh = int(block_height)
+    # THE LEGACY FIELD POOL TAKES NO NEW DEPOSITS from REVIEW_R2_HEIGHT: the exec layer stops spending it at
+    # PRIVACY_PAUSE_HEIGHT (its proofs are not safe to accept), so a deposit would escrow coins behind a note
+    # nobody could ever use. Replay-safe to key on an already-passed height: the pool is append-only and
+    # holds ZERO leaves (measured 2026-09-24), so no field shield ever landed on gen 25, and from a8a720f1
+    # to this commit every one was refused anyway (the bug above). The wide pool is unaffected.
+    assert not (int(_R2H) <= _sh < int(_SWH)), "the legacy field pool is closed to deposits"
+    if _sh >= int(_SWH):
+        # SHIELD_WIDE_HEIGHT (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
+        # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
+        # escrows the coins behind a note the exec layer then refuses to create — coins gone.
+        from execnode.stark import znote as _Z, field as _ZF
+        _ow = data.get("owner")
+        assert isinstance(_ow, str) and len(_ow) == 64 and _ow == _ow.lower(), "wide shield owner must be a 64-hex digest"
+        _Z.from_hex(_ow)                                                 # raises on an out-of-field lane
+        _rh = data.get("rho")
+        assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
+            and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
+
 def validate_transaction(transaction, logger, block_height, deep=False):
     """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
     chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
@@ -2381,21 +2413,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
         if data.get("field"):                                        # Phase-2 field-native note (single commitment)
-            # C-2: the exec node BINDS the note value to this escrowed amount by recomputing
-            # commit(amount, owner, rho) itself, so the deposit must carry (owner, rho), not a free-choice cm.
-            assert data.get("owner") is not None and data.get("rho") is not None, "field shield needs owner + rho"
-            from protocol import SHIELD_WIDE_HEIGHT as _SWH
-            if h >= int(_SWH):
-                # SHIELD_WIDE_HEIGHT (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
-                # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
-                # escrows the coins behind a note the exec layer then refuses to create — coins gone.
-                from execnode.stark import znote as _Z, field as _ZF
-                _ow = data.get("owner")
-                assert isinstance(_ow, str) and len(_ow) == 64 and _ow == _ow.lower(), "wide shield owner must be a 64-hex digest"
-                _Z.from_hex(_ow)                                                 # raises on an out-of-field lane
-                _rh = data.get("rho")
-                assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
-                    and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
+            field_shield_check(data, block_height)
         else:                                                        # transparent-phase note openings
             assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
     elif recipient == "unshield":

@@ -9282,6 +9282,15 @@ async function refreshShieldRules() {
   return _shieldWide;
 }
 function shieldWide() { return _shieldWide === true; }
+// PRIVACY PAUSE (2026-09-24): the legacy field pool is closed — L1 refuses its deposits and the exec layer its
+// transfers (PRIVACY_PAUSE_HEIGHT) — so the wallet must not build a legacy deposit or proof: the deposit would be
+// refused and a legacy proof publishes the spend key. Only the wide pool is open. Every shielded entry point that
+// builds a transaction calls this right after refreshShieldRules().
+function shieldPaused() {
+  if (shieldWide()) return false;
+  log("err", i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected."));
+  return true;
+}
 // owner ids as the wire carries them: a 64-hex digest (wide) or a decimal field element (legacy)
 function ownerStr(o) { return shieldWide() ? alghash2.toHex(o) : o.toString(); }
 function ownerParse(str) { return shieldWide() ? alghash2.fromHex(String(str)) : BigInt(str); }
@@ -9337,6 +9346,8 @@ async function renderShield() {
     const p = await execJSON("/exec/field_shielded");
     $("shieldPool").textContent = i18("shield.poolInfo", "{n} banknotes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
+  // PRIVACY PAUSE: say so where the pool is described, AFTER the pool line so it is not overwritten.
+  if (!shieldWide()) $("shieldPool").textContent = i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected.");
   claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
   const box = $("shieldNotes"); box.innerHTML = "";
   const mine = notes.filter((n) => !n.spent);
@@ -9351,7 +9362,7 @@ async function renderShield() {
 
 async function doShield() {
   if (!state.wallet) return;
-  ensureShielded(); await refreshShieldRules();
+  ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   const rho = _randField();
@@ -9428,7 +9439,7 @@ function insufficientMsg(rawAmount) {
 
 async function doUnshield() {
   if (!state.wallet) return;
-  ensureShielded(); await refreshShieldRules();
+  ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
   const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
@@ -9618,7 +9629,7 @@ async function proveTransfer2(wit) {   // 2-output proof (send + change) — ALW
 // any amount and keeps the change (1-in/2-out); the recipient reconstructs their note from a claim code.
 async function doSendShielded() {
   if (!netAdopted) await refreshNetIdentity();   // never sign with an unconfirmed chain_id
-  if (!state.wallet) return; ensureShielded(); await refreshShieldRules();
+  if (!state.wallet) return; ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
   let recipientOwner;
   try { recipientOwner = parseShieldAddr($("zsendTo").value); }
   catch (e) { log("err", i18("shield.badZaddr", "Enter a valid zaddr… shielded address.")); return; }
@@ -9798,7 +9809,7 @@ async function doDeliverZbill() {
 }
 
 async function doReceiveShielded() {
-  if (!state.wallet) return; ensureShielded(); await refreshShieldRules();
+  if (!state.wallet) return; ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
   const code = String($("zrecvCode").value || "").trim();
   if (!code.startsWith("zbill") || code.indexOf(".") < 0) { log("err", i18("shield.badCode", "Paste a zbill… claim code.")); return; }
   try {

@@ -118,11 +118,21 @@ def t_deposit_lands_in_the_wide_pool_from_the_gate():
 
 
 def t_l1_admission_pins_the_owner_shape_from_the_gate():
-    import ops.transaction_ops as TO
-    src = open(TO.__file__).read()
-    i = src.index('elif recipient == "shield":')
-    body = src[i:i + 2500]
-    assert "SHIELD_WIDE_HEIGHT" in body and "64-hex digest" in body, "the shield branch must pin the owner shape at the gate"
+    # DRIVEN, NOT GREPPED. This used to assert on the branch's SOURCE TEXT, which stayed green for a day while the
+    # branch read an unbound `h` and raised on every field shield (2026-09-24). Call the real check instead.
+    import protocol as _P
+    from ops.transaction_ops import field_shield_check
+    _saved = _P.SHIELD_WIDE_HEIGHT
+    try:
+        _P.SHIELD_WIDE_HEIGHT = 1
+        field_shield_check({"field": True, "owner": Z.to_hex(Z.owner_of(NSK_A)), "rho": "5"}, 10)
+        try:
+            field_shield_check({"field": True, "owner": str(alghash.owner_of(NSK_A)), "rho": "5"}, 10)
+            raise RuntimeError("a legacy-shaped owner was admitted under the wide rule")
+        except AssertionError:
+            pass
+    finally:
+        _P.SHIELD_WIDE_HEIGHT = _saved
     # the check itself, driven directly: a wide owner parses, the legacy int form does not
     Z.from_hex(Z.to_hex(Z.owner_of(NSK_A)))
     refused = False
