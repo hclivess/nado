@@ -2090,7 +2090,9 @@ PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
 # accepts lowercase hex OR exactly a FIXED_CIDS name; below it the refusal stands, so a replay judges every old
 # settle as it was judged. Keyed on the settle's cursor, like EXEC_ROOT_V2. Relaxes a rule, so it needs the
 # fleet on the new code before it fires. Block 1 at the next reroll.
-PROOF_FIXED_CID_HEIGHT = 225000 if CHAIN_GENERATION == 25 else 1
+# DEFERRED 2026-09-24, before it fired: settle proofs stay closed on gen 25 until a pending proof-verifier
+# soundness fix ships (details withheld until then). Re-enable with that fix's gate, never ahead of it.
+PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

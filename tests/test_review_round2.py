@@ -184,7 +184,7 @@ def t_a4_fixed_name_contracts_pass_from_their_gate_and_nothing_else_does():
     for bad in ("Faucet", "faucet ", "0xab", "FAUCET", "faucet2"):
         ok, why = SS._canonical_pre_contracts({bad: {"storage": {"slots": {}}}}, fixed_names=True)
         assert not ok, f"{bad!r} must stay refused"
-    assert "PROOF_FIXED_CID_HEIGHT = 225000 if CHAIN_GENERATION == 25 else 1" in open(
+    assert "PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1" in open(
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
     assert P.PROOF_FIXED_CID_HEIGHT > P.REVIEW_R2_HEIGHT
 

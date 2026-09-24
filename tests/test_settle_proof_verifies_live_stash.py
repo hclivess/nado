@@ -50,6 +50,11 @@ def future_cursor(stash_cursor):
 
 
 def main():
+    if int(P.PROOF_FIXED_CID_HEIGHT) >= (1 << 62):
+        # DELIBERATE HOLD (2026-09-24): honest settle proofs over live state are refused on gen 25 until a pending
+        # verifier fix ships and re-schedules PROOF_FIXED_CID_HEIGHT with it. Say so instead of failing or passing.
+        print("SKIP  PROOF_FIXED_CID_HEIGHT is deferred: settle proofs are held closed on purpose until the "
+              "pending verifier fix re-schedules it"); return 0
     found = newest_stash()
     if not found:
         print("SKIP  no settle stash beside this checkout — not a settling exec node"); return 0
