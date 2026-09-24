@@ -32,6 +32,11 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from execnode.stark import field as F, fri, fri_verify, backend as B, stark, recursive_verify as RV
+# THE FOLD'S OWN RULES. The K->1 fold (and this hand-rolled replay of its composition check) does not carry the P1
+# trace batch or the full-domain query rule, and REFUSES under them (SCHEDULED_CLEANUPS.md). Proofs made under the
+# live strict default therefore could never match it — this file failed from PROOF_TRACE_LDT_HEIGHT on. It tests
+# the fold machinery in the rule window the fold implements: round 2 on, trace_ldt and full_query off.
+stark._RULES.set(stark.Rules(True, True, True, True, False))
 
 fails = 0
 

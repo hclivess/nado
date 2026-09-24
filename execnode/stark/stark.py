@@ -17,6 +17,8 @@ FRI's own query points that the committed composition equals the quotient recomp
 Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition mismatch (spot-checks reject).
 Soundness assumption: BLAKE2b collision-resistance.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
+from execnode.stark.native_guard import NativeMissing as _NativeMissing
 import os
 from collections import OrderedDict
 import sys
@@ -55,9 +57,10 @@ from contextlib import contextmanager as _cm
 #                   sum_c beta^(c+1) f_c(x) with beta drawn after the alphas; the verifier adds the same term at
 #                   every query point. Defaults to False so a four-field Rules(...) written before the gate still
 #                   constructs (it names the pre-gate format); RULES_STRICT carries it on.
-Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2 trace_ldt", defaults=(False,))
-RULES_STRICT = Rules(True, True, True, True, True)         # every pin on: the default when nothing set them
-RULES_LEGACY = Rules(False, False, False, False, False)   # below every gate: what every node accepted before 2026-09-23
+Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2 trace_ldt full_query",
+            defaults=(False, False))
+RULES_STRICT = Rules(True, True, True, True, True, True)          # every pin on: the default when nothing set them
+RULES_LEGACY = Rules(False, False, False, False, False, False)   # below every gate: what every node accepted before 2026-09-23
 _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 
 
@@ -67,13 +70,15 @@ def rules_for_height(height):
     which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
     if height is None:
         return RULES_STRICT
-    from protocol import PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT
+    from protocol import (PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
+                          PROOF_QUERY_FULL_HEIGHT)
     h = int(height)
     bind = h >= int(PROOF_BIND_HEIGHT)
     return Rules(pin_fri_domain=bind, bind_statement=bind,
                  in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)),
                  round2=(h >= int(REVIEW_R2_HEIGHT)),
-                 trace_ldt=(h >= int(PROOF_TRACE_LDT_HEIGHT)))
+                 trace_ldt=(h >= int(PROOF_TRACE_LDT_HEIGHT)),
+                 full_query=(h >= int(PROOF_QUERY_FULL_HEIGHT)))
 
 
 def current_rules():
@@ -108,24 +113,68 @@ def trace_batch_beta(t, rules, ext):
     return t.challenge_ext() if ext else t.challenge()
 
 
-def trace_batch_add(cp, col_lde, W, N, beta, ext):
+def query_pos(idx, N, rules):
+    """Where a FRI query opens the trace. LEGACY: idx mod N/2, the lower half only — and the composition claim was
+    compared against FRI layer 0 ONLY there. FRI tests degree < N/2 with fri_blowup = 2, and N/2 points always
+    interpolate a polynomial of that degree, so a prover could run an honest FRI on the interpolant of the TRUE
+    composition's lower half and every spot-check passed: any statement verified (review 2026-09-24, reproduced
+    under every rule then live). From PROOF_QUERY_FULL_HEIGHT the trace is opened at idx itself, uniform over the
+    whole domain, and compared with whichever of FRI's (lo, hi) pair idx is (fri_claim)."""
+    # mod N under the new rule: an honest FRI index is already < N (the verifier pins FRI's N to the STARK's), so this
+    # only keeps a malformed or forged index from indexing past the LDE in a prover or a test harness.
+    return int(idx) % N if rules.full_query else int(idx) % (N // 2)
+
+
+def fri_claim(step0, pos, N, rules):
+    """The FRI layer-0 value at `pos`: the lower element of the pair below N/2, the upper one above it."""
+    if rules.full_query and pos >= N // 2:
+        return step0["hi"]
+    return step0["lo"]
+
+
+def trace_batch_shift(deg_bound, T, rules):
+    """The exponent every trace column is shifted by inside the P1 batch. LEGACY 0: a column then only had to have
+    degree < deg_bound (= next_pow2(md)*T), and for max_degree >= 3 a column of degree N/4 could make a degree-4
+    constraint vanish on the whole LDE coset while the trace it denotes violates it (review 2026-09-24,
+    reproduced). From PROOF_QUERY_FULL_HEIGHT each column enters as x^(deg_bound-T) * f(x), which FRI's bound
+    deg < deg_bound forces to deg f < T — the degree the ALI argument assumes."""
+    return (int(deg_bound) - int(T)) if rules.full_query else 0
+
+
+def trace_batch_add(cp, col_lde, W, N, beta, ext, shift=0):
     """cp[j] += sum_{c < W} beta^(c+1) * col_lde[c][j], in place — the prover's half of P1. Bit-identical to
     native/starkprove sp_batch_add. Under extension alphas cp and beta are extension-valued, the columns base."""
+    # the sum is accumulated first and shifted ONCE: x^s is common to every column (bit-identical to sp_batch_add_shift)
+    acc = [ext2.ZERO if ext else 0 for _ in range(N)]
     pw = beta
     for c in range(W):
         col = col_lde[c]
         if ext:
             for j in range(N):
-                cp[j] = ext2.add(cp[j], ext2.scalar_mul(pw, col[j]))
+                acc[j] = ext2.add(acc[j], ext2.scalar_mul(pw, col[j]))
             pw = ext2.mul(pw, beta)
         else:
             for j in range(N):
-                cp[j] = F.add(cp[j], F.mul(pw, col[j]))
+                acc[j] = F.add(acc[j], F.mul(pw, col[j]))
             pw = F.mul(pw, beta)
+    xs = F.pw(OFF, shift) if shift else 1
+    step = F.pw(F.primitive_root_of_unity(N), shift) if shift else 1
+    for j in range(N):
+        if ext:
+            cp[j] = ext2.add(cp[j], _ext_scale(acc[j], xs))
+        else:
+            cp[j] = F.add(cp[j], F.mul(xs, acc[j]))
+        xs = F.mul(xs, step)
 
 
-def trace_batch_point(row, beta, ext):
-    """sum_c beta^(c+1) * row[c] — the verifier's half of P1 at one opened row (every main and aux column)."""
+def _ext_scale(e, k):
+    """An extension element times a base scalar, limb by limb."""
+    return tuple(F.mul(int(v) % F.P, k) for v in ext2.lift(e))
+
+
+def trace_batch_point(row, beta, ext, x=None, shift=0):
+    """x^shift * sum_c beta^(c+1) * row[c] — the verifier's half of P1 at one opened row (every main and aux
+    column); `shift` is trace_batch_shift, 0 below PROOF_QUERY_FULL_HEIGHT."""
     acc = ext2.ZERO if ext else 0
     pw = beta
     for v in row:
@@ -133,6 +182,9 @@ def trace_batch_point(row, beta, ext):
             acc = ext2.add(acc, ext2.scalar_mul(pw, int(v) % F.P)); pw = ext2.mul(pw, beta)
         else:
             acc = F.add(acc, F.mul(pw, int(v) % F.P)); pw = F.mul(pw, beta)
+    if shift:
+        k = F.pw(int(x) % F.P, shift)
+        acc = _ext_scale(acc, k) if ext else F.mul(acc, k)
     return acc
 
 
@@ -792,7 +844,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # (the verifier replays the same order), over every main and aux column (W is the total here).
     _beta = trace_batch_beta(t, _rules, _ext_a)
     if _beta is not None:
-        trace_batch_add(cp, col_lde, W, N, _beta, _ext_a)
+        trace_batch_add(cp, col_lde, W, N, _beta, _ext_a, shift=trace_batch_shift(deg_bound, T, _rules))
     if zk is not None:                       # Z1: the randomizer polynomial masks everything FRI shows
         zk_randomizer_add(cp, col_lde, W, N, T, x_lde, zk, _ext_a)
 
@@ -810,7 +862,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
     openings = []
     for q in fri_proof["queries"]:
-        lo = q["idx"] % (N // 2)
+        lo = query_pos(q["idx"], N, _rules)          # the whole domain from PROOF_QUERY_FULL_HEIGHT (query_pos)
         nxt = (lo + blowup) % N
         if row_commit:
             openings.append({"lo": lo,
@@ -932,6 +984,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         alphas = [(t.challenge_ext() if _ext_a else t.challenge())
                   for _ in range(len(transitions) + len(boundaries))]
         _beta = trace_batch_beta(t, _rules, _ext_a)          # P1: same position as every prover
+        deg_bound = N // 2                   # FRI's bound: fri_blowup is pinned to 2 below, so N = 2·deg_bound
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
@@ -988,7 +1041,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         if not row_commit and getattr(b, "name", "") in ("recursion", "alghash2"):
             _pending = []
             for _q, _op in zip(proof["fri"]["queries"], proof["openings"]):
-                _lo = _q["idx"] % (N // 2)
+                _lo = query_pos(_q["idx"], N, _rules)
                 _nxt = (_lo + blowup) % N
                 _cols = _op.get("cols") or []
                 if len(_cols) != W:
@@ -1012,7 +1065,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             from execnode.stark import alghash2 as _a2r
             _rp = []
             for _q, _op in zip(proof["fri"]["queries"], proof["openings"]):
-                _lo = _q["idx"] % (N // 2)
+                _lo = query_pos(_q["idx"], N, _rules)
                 _nxt = (_lo + blowup) % N
                 _cur = [int(v) % F.P for v in _op["cur"]]
                 _nxr = [int(v) % F.P for v in _op["nxt"]]
@@ -1028,7 +1081,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                 if _row_ok is None:
                     # NO SILENT PYTHON WALK. Falling back here is what hid this cost in the first place; a
                     # missing export means the crate is stale, which must be fixed, not worked around.
-                    raise RuntimeError(
+                    raise _NativeMissing(
                         "alghash2 native merkle_verify_paths(digest) unavailable — the native crate is "
                         "stale. Rebuild with `cargo build --release` in native/alghash2.")
 
@@ -1060,7 +1113,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         # all 16 LDEs of N = blowup·T = 524288 would buy the time back with ~300 MB. Only the ~320 values
         # actually queried are kept; each LDE is freed as soon as it has been sampled.
         _t_pre = _time.time()
-        _los = [q["idx"] % (N // 2) for q in proof["fri"]["queries"]]
+        _los = [query_pos(q["idx"], N, _rules) for q in proof["fri"]["queries"]]
         _per_q = {}
         _lde_hits = 0
         for _i, _pc in enumerate(periodic):
@@ -1075,7 +1128,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         _t_pre = _time.time() - _t_pre
         _bi = 0
         for _qi, (q, op) in enumerate(zip(proof["fri"]["queries"], proof["openings"])):
-            lo = q["idx"] % (N // 2)
+            lo = query_pos(q["idx"], N, _rules)
             if lo != op["lo"]:
                 return False, "opening index mismatch"
             nxt = (lo + blowup) % N
@@ -1185,10 +1238,11 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             if _beta is not None:
                 # P1: the opened row's own batch term. A column that is not low-degree cannot survive FRI
                 # once it is inside the polynomial FRI tests, whatever the composition looks like pointwise.
-                cp = _add(cp, trace_batch_point(cur_row, _beta, _ext_a))
+                cp = _add(cp, trace_batch_point(cur_row, _beta, _ext_a, x=x,
+                                                shift=trace_batch_shift(deg_bound, T, _rules)))
             if zk is not None:
                 cp = _add(cp, zk_randomizer_point(cur_row, x, T, zk, _ext_a))     # Z1: the randomizer polynomial
-            _claim = q["steps"][0]["lo"]
+            _claim = fri_claim(q["steps"][0], lo, N, _rules)     # the half the query really lands in
             if cp != (ext2.lift(_claim) if _ext_a else _claim):
                 return False, "trace/composition mismatch (a constraint is violated)"
         _el = _time.time() - _t_all
@@ -1200,7 +1254,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                   f"({_n_per} dense evals) + constraints {_t_con:.1f}s + "
                   f"rest {_el - _t_pre - _t_per - _t_con:.1f}s", flush=True)
         return True, "ok"
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).

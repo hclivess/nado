@@ -140,3 +140,11 @@ def require_native_prover(what: str):
         f"settlement_sparse. Measured 2026-08-04: a Python settle prove took 12+ minutes at ~75% of a core "
         f"and starved L1 into a re-anchor. Write the crate, or run with NADO_ALLOW_PYTHON_KERNELS=1 for a "
         f"build or a conformance test — never on a validator.")
+
+
+# A NODE-LOCAL FAILURE IS NOT A VERDICT (review 2026-09-24). Every verifier wraps its body in `except Exception` so a
+# malformed proof can never crash the node — but a missing or stale native kernel, or an out-of-memory, says nothing
+# about the proof: it is a fact about THIS machine. Turned into (False, "malformed proof: ...") it was memoised as a
+# refutation, and a node mid-update (fast-forwarded, not yet rebuilt) rejected a block every peer accepted. Every
+# verify path re-raises these, and the L1 settle branch turns them into ProofUnavailable: defer, never reject.
+NODE_LOCAL_ERRORS = (MemoryError, NativeMissing)

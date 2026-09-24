@@ -13,6 +13,7 @@ The commitment P_root is returned/checked so a caller can TIE the evaluated poly
 column (root equality: same values + same geometry ⇒ same root), which is how the io of an existing proof is
 bound without re-opening it on its own coset.
 """
+from execnode.stark import stark
 from execnode.stark import field as F, fri, merkle, backend as _backend, extf as ext2
 from execnode.stark.transcript import Transcript
 from execnode.stark.stark import _coset_evaluate, OFF as DEFAULT_OFF
@@ -71,13 +72,19 @@ def verify_eval(proof, z, num_queries=fri.NUM_QUERIES, transcript=None, backend=
         v, P_root, T, N, offset = proof["v"], proof["P_root"], proof["T"], proof["N"], proof["offset"]
         if not all(isinstance(x, int) for x in (T, N)) or N % T or (N // T) < 2 or (N & (N - 1)) or (T & (T - 1)):
             return False, "bad eval geometry"
+        if offset != stark.OFF:                      # the protocol's coset, never the proof's choice (review 2026-09-24)
+            return False, "eval offset is not the protocol coset offset"
         if expect_P_root is not None and P_root != expect_P_root:
             return False, "P_root does not match the pinned committed column"
         z = ext2.lift(z)
         v = ext2.lift(v)
         t.absorb("deep", *ext2.flatten([v, z]), P_root)
         blowup = N // T
-        okf, whyf = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=blowup, backend=b)
+        # PIN THE FRI DOMAIN TO THE ONE THE RELATION IS CHECKED ON (review 2026-09-24): the same P0 seam stark.verify
+        # closed — an unpinned FRI (N, offset) lets q be low-degree on one domain while the relation is evaluated
+        # on another. The offset is checked at the top of this function; the FRI is pinned to (N, OFF) here.
+        okf, whyf = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=blowup, backend=b,
+                               expected_N=N, expected_offset=stark.OFF)
         if not okf:
             return False, f"q not low-degree: {whyf}"
         qq = proof["fri"]["queries"]

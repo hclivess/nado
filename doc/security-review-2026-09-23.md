@@ -256,7 +256,8 @@ leaked or been drained yet; every finding below is a property of the code.
   > covers the shape. `tests/test_proof_trace_ldt.py` builds the pointwise-inverse forgery (v(0) = 0 pinned,
   > v·w = 1 proven) and shows it VERIFYING below the gate and refused at it; the native prover matches Python bit
   > for bit under the rule. The DEEP form (OOD point, exact degree bound, ZK randomiser) is where Z1 goes; the
-  > K->1 fold refuses under the rule until it carries the term (SCHEDULED_CLEANUPS.md; SETTLE_PROOF_RECURSIVE off).
+  > K->1 fold refuses under the rule until it carries the term (SCHEDULED_CLEANUPS.md). Correction 2026-09-24:
+  > SETTLE_PROOF_RECURSIVE is TRUE, not off, so that refusal is what keeps folds out of consensus.
   > Found while cross-checking it: the wallet's round-2 prologue (`static/stark/stark.js airDigest`) hashed
   > max_degree where the node hashes the blowup — a browser proof would have been refused from REVIEW_R2_HEIGHT
   > (214000). The round-2 commit's "cross-checked both ways" was wrong; fixed in the same commit as P1, and the

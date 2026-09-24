@@ -87,8 +87,11 @@ def verify_io_replay(bundle, pre_root, post_root, num_queries=None, backend=None
         if "fold_bundle" in bundle:                              # O(1) crypto: ONE recursion bundle re-verifies all K
             pubs = [RV.public_part(s["proof"]) for s in steps]
             per = MU._periodic(steps[0]["proof"]["T"], depth)
+            # The outer query count is the fold's soundness: the protocol's, never the bundle's (every sibling path
+            # pins it; this one read bundle["outer_queries"] — review 2026-09-24). Inner geometry pinned too.
             okr, whyr = RV.verify(pubs, MU._transitions(), bnds, bundle["fold_bundle"],
-                                  num_queries_outer=bundle["outer_queries"], periodic=per, num_queries_inner=nq)
+                                  num_queries_outer=MU.stark.NUM_QUERIES, periodic=per, num_queries_inner=nq,
+                                  max_degree=MU.MAX_DEGREE)
             if not okr:
                 return False, f"folded replay failed: {whyr}"
         else:

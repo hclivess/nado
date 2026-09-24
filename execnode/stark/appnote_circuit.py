@@ -661,7 +661,13 @@ def _deposit_boundaries(g, cm_out, public_delta):
     """Row 0 opens the OUTPUT sponge directly. ROOTREG and NFREG are pinned to 0 — a deposit proves no
     membership and reveals no nullifier, and pinning them is what stops a transition proof being presented
     as a deposit or the reverse."""
+    # VIN IS PINNED TO 0 (review 2026-09-24, reproduced: the 2026-09-23 review's A5, under-rated). Nothing tied the
+    # deposit's input value to anything — c_hold keeps it constant and the range block keeps it < 2^61, but CONS =
+    # VIN - VOUT = -delta was the only link to the public amount, so a deposit of 1 could commit a note worth
+    # 1 + X and drain the contract's whole bridge balance on the next spend. A deposit has no input note: VIN = 0.
+    # Unconditional: private_call has never carried a note on this chain and is paused (PRIVACY_PAUSE_HEIGHT).
     return [(0, S0, DOM_APPCM), (0, S1, alghash.IV), (0, AB, DOM_APPCM),
+            (0, VIN, 0),
             (0, CONS, F.sub(0, public_delta % F.P)),
             (g["out_end"], ROOTREG, 0),
             (g["out_end"], NFREG, 0),

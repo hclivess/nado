@@ -150,11 +150,21 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   // point, so a proof made without it is refused at the gate (and one made with it, below the gate).
   if (rules.traceLdt) {
     const beta = useExt ? t.challengeExt() : t.challenge();
+    // PROOF_QUERY_FULL_HEIGHT (stark.trace_batch_shift): the summed batch is multiplied by x^(degBound - T) on the
+    // coset, which forces every column below degree T inside FRI's bound. Accumulate first, shift once — the same
+    // order as stark.trace_batch_add and the native sp_batch_add_shift, so all three agree bit for bit.
+    const shift = rules.fullQuery ? BigInt(degBound - T) : 0n;
+    const acc = new Array(N);
+    for (let j = 0; j < N; j++) acc[j] = useExt ? F.extLift(0n) : 0n;
     let pw = beta;
     for (let c = 0; c < W; c++) {
       const col = colLde[c];
-      if (useExt) { for (let j = 0; j < N; j++) cp[j] = F.extAdd(cp[j], F.extScalarMul(pw, col[j])); pw = F.extMul(pw, beta); }
-      else { for (let j = 0; j < N; j++) cp[j] = F.add(cp[j], F.mul(pw, col[j])); pw = F.mul(pw, beta); }
+      if (useExt) { for (let j = 0; j < N; j++) acc[j] = F.extAdd(acc[j], F.extScalarMul(pw, col[j])); pw = F.extMul(pw, beta); }
+      else { for (let j = 0; j < N; j++) acc[j] = F.add(acc[j], F.mul(pw, col[j])); pw = F.mul(pw, beta); }
+    }
+    for (let j = 0; j < N; j++) {
+      const k = shift ? F.pw(xLde[j], shift) : 1n;
+      cp[j] = useExt ? F.extAdd(cp[j], F.extScalarMul(acc[j], k)) : F.add(cp[j], F.mul(k, acc[j]));
     }
     _mk("trace batch (P1)");
   }
@@ -174,7 +184,8 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
 
   const openings = [];
   for (const q of friProof.queries) {
-    const lo = q.idx % (N >> 1);
+    // PROOF_QUERY_FULL_HEIGHT (stark.query_pos): open the trace where the query really lands, over the whole domain.
+    const lo = rules.fullQuery ? q.idx : q.idx % (N >> 1);
     const nxt = (lo + blowup) % N;
     const cols = [];
     for (let c = 0; c < W; c++) {

@@ -29,6 +29,7 @@ TWO-PHASE (LogUp) AIRs: pass `num_challenges`/`num_aux`/`periodic` — the trans
 commitment, draws the challenges, absorbs the aux commitment, then draws the constraint α's, mirroring
 stark.prove(aux_spec=...). Two-phase requires row commitment (per-column trees would need 2·W paths per point).
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import field as F, stark, backend as B, fri_verify, comp_verify, rowcomp_verify, air_ir, extf as ext2
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
 
@@ -177,13 +178,23 @@ def _per_of(periodic, periodic_list, i):
     return periodic or []
 
 
+def fold_refused_at(height):
+    """True when a K->1 fold landing in the block at `height` would be refused (_refuse_trace_ldt under that block's
+    rules). The exec node asks this before proving, so it never builds a fold the chain refuses and then proves the
+    span a second time unfolded (review 2026-09-24)."""
+    r = stark.rules_for_height(height)
+    return bool(r.trace_ldt or r.full_query)
+
+
 def _refuse_trace_ldt():
     """P1 (PROOF_TRACE_LDT_HEIGHT): an inner proof made under the trace batch draws beta after its alphas and
     its layer-0 seam value carries sum_c beta^(c+1) f_c(x); this fold's transcript replay (_fs) and its comp
     AIRs (comp_verify / rowcomp_verify) know neither. Until they do, folding under the rule would prove a
     statement the inner proofs do not make — so refuse loudly rather than build an unverifiable bundle.
-    SETTLE_PROOF_RECURSIVE is off, so no live path reaches here; the debt is in SCHEDULED_CLEANUPS.md."""
-    return stark.current_rules().trace_ldt
+    SETTLE_PROOF_RECURSIVE IS TRUE (corrected 2026-09-24; this said "off"): L1 honours a `recursive` bundle, so this
+    refusal is the ONLY thing keeping the fold out of consensus. Do not delete it without the three owed items in
+    SCHEDULED_CLEANUPS.md, including a height gate."""
+    return stark.current_rules().trace_ldt or stark.current_rules().full_query
 
 
 def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUERIES, periodic=None,
@@ -272,7 +283,7 @@ def _chunk(points, size):
 
 def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=stark.NUM_QUERIES, periodic=None,
            num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None,
-           num_queries_inner=None, out_backend=None, statement_list=None):
+           num_queries_inner=None, out_backend=None, statement_list=None, max_degree=None):
     if _refuse_trace_ldt():
         return False, "the K->1 fold does not carry the trace low-degree batch (PROOF_TRACE_LDT_HEIGHT): refused"
     """AUTHORITATIVE verification of K inner proofs from their PUBLIC PARTS alone (`public_part(proof)` — full
@@ -331,6 +342,18 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         for pi_, (pub, bl) in enumerate(zip(pubs, bnds_list)):
             if pub["W"] != W:
                 return False, "inner proofs must share the AIR shape"
+            # THE INNER GEOMETRY IS PINNED, as stark.verify pins it (review 2026-09-24, reproduced). This path never
+            # checked N == blowup*T or blowup against the circuit: declaring T=8, blowup=4, N=64 made "the next
+            # row" g16 instead of g8, so transitions linked only row pairs and any end state verified. `max_degree`
+            # comes from the CALLER's circuit (the settlement and transition callers pass it), never the proof.
+            try:
+                _T, _bl, _N = int(pub["T"]), int(pub["blowup"]), int(pub["N"])
+            except Exception:
+                return False, f"inner proof {pi_}: malformed geometry"
+            if _T < 2 or _T & (_T - 1) or _N != _bl * _T:
+                return False, f"inner proof {pi_}: geometry N={_N} is not blowup*T={_bl}*{_T}"
+            if max_degree is not None and _bl != stark._blowup(max_degree):
+                return False, f"inner proof {pi_}: blowup {_bl} is not the circuit's {stark._blowup(max_degree)}"
             if len(pub["layer0"]) != nqi:
                 return False, "inner proofs must share the query count"
             # P0 (2026-09-23): the same domain pin stark.verify applies. This path never called stark.verify,
@@ -403,6 +426,8 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
             if not okc:
                 return False, f"composition half failed: {whyc}"
         return True, "authoritatively verified (K proofs: FRI low-degree + composition binding, verifier-built)"
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         _trace_if_asked()
         return False, f"malformed recursion bundle: {e}"

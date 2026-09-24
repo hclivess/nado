@@ -59,6 +59,28 @@ check(not undefined,
 for ln in undefined:
     print("     " + ln)
 
+# A FILE THAT DOES NOT PARSE HAS NO UNDEFINED NAMES. pyflakes reports it as a syntax error and checks nothing else in
+# it, so the filter above passed a production module that could not even be imported (2026-09-24: an import line
+# spliced into the middle of a parenthesised import). Any file pyflakes could not parse fails here.
+_syntax = [ln for ln in (proc.stdout + proc.stderr).splitlines()
+           if "invalid syntax" in ln or "SyntaxError" in ln or "problem decoding source" in ln
+           or ("unexpected" in ln and ":" in ln and "undefined name" not in ln)]
+check(not _syntax, f"every production module parses ({len(_syntax)} did not)")
+
+# SELF-CHECK: the filter must recognise pyflakes' own syntax-error wording, or the check above is green by accident.
+import tempfile as _tf
+with _tf.TemporaryDirectory() as _d:
+    _bad = os.path.join(_d, "bad.py")
+    with open(_bad, "w") as _fh:
+        _fh.write("from x import (a,\nfrom y import z\n b)\n")      # the 2026-09-24 splice, exactly
+    _p = subprocess.run([sys.executable, "-m", "pyflakes", _bad], capture_output=True, text=True)
+    _seen = [ln for ln in (_p.stdout + _p.stderr).splitlines()
+             if "invalid syntax" in ln or "SyntaxError" in ln or "problem decoding source" in ln
+             or ("unexpected" in ln and ":" in ln and "undefined name" not in ln)]
+    check(bool(_seen), "the syntax check recognises pyflakes' report of an unparsable file")
+for ln in _syntax:
+    print("     " + ln)
+
 # The three sites that motivated this file, pinned by import rather than by grep — a grep for the call would
 # pass just as happily against a file that still cannot resolve it.
 import importlib

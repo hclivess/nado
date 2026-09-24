@@ -11,6 +11,8 @@ each layer really is the fold of the previous one (with Merkle openings) and tha
 
 Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments + the transcript).
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
+from execnode.stark.native_guard import NativeMissing as _NativeMissing
 from execnode.stark import field as F, merkle, extf as ext2, alghash2 as a2
 from execnode.stark.transcript import Transcript
 from execnode.stark import backend as _backend
@@ -332,7 +334,7 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
                         # NO SILENT PYTHON WALK — falling back is what hid this cost for the feature's
                         # whole life. A missing export means a stale crate, which gets rebuilt, not routed
                         # around.
-                        raise RuntimeError(
+                        raise _NativeMissing(
                             "alghash2 native merkle_verify_paths unavailable — the native crate is stale. "
                             "Rebuild with `cargo build --release` in native/alghash2.")
                     _lb[_L] = _r
@@ -398,6 +400,8 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
                         return False, f"fold does not match final layer at layer {L}"
                 a = lo
         return True, "ok"
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
         # ("int() argument must be ... not 'list'") names neither the file, the line, nor the value — and a

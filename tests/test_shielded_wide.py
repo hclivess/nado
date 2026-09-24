@@ -226,6 +226,25 @@ def t_circuit_soundness():
     assert len(cm) == 4 and all(0 <= x < F.P for x in cm)
 
 
+def t_an_unshield_cannot_be_rewritten_into_a_fee():
+    """Review 2026-09-24 (reproduced on the legacy circuit): the circuit binds only fee - public_value, so (pv + k,
+    fee + k) verified with the same proof and anyone could burn a victim's exit into pool fees. joinsplit3.bind_aux
+    puts the address, the public value and the fee in the transcript."""
+    pool = SW.WideShieldedPool()
+    oa, ob = Z.owner_of(NSK_A), Z.owner_of(NSK_B)
+    cm = Z.commit(1000, oa, 7); pool.append(cm)
+    sibs, dirs = SW.tree_path(pool.commitments, 0)
+    ADDR = "ndo" + "A" * 45
+    proof, root, nf, cm1, cm2 = J3.prove_transfer(NSK_A, 1000, 7, sibs, dirs, 500, ob, 11, 400, oa, 12, -100, 0,
+                                                  aux=ADDR)
+    ok, why = J3.verify_transfer(proof, root, nf, cm1, cm2, -100, 0, pool.knows_root, aux=ADDR)
+    assert ok, why
+    ok, _ = J3.verify_transfer(proof, root, nf, cm1, cm2, 0, 100, pool.knows_root, aux=ADDR)
+    assert not ok, "THE FINDING: the exit rewritten into a fee verified"
+    assert not J3.verify_transfer(proof, root, nf, cm1, cm2, -100, 0, pool.knows_root, aux="ndo" + "B" * 45)[0], \
+        "a different exit address must not verify"
+
+
 def t_zero_knowledge_shape():
     pool = SW.WideShieldedPool()
     oa, ob = Z.owner_of(NSK_A), Z.owner_of(NSK_B)

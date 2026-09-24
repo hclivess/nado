@@ -35,8 +35,10 @@ const { sibs, dirs } = A2.treePath([cmIn], 0);
 const t0 = Date.now();
 const bt = J3.buildTrace(nsk, vIn, rho, sibs, dirs, 700n, o1, 0x2222n, 300n, o2, 0x3333n);
 const bnd = J3.boundaries(bt.D, bt.root, bt.nf, bt.cm1, bt.cm2, 0n, 0n);
-const rules = { round2: process.env.NADO_PROOF_ROUND2 === "1", traceLdt: process.env.NADO_PROOF_TRACE_LDT === "1" };
-const proof = sstark.prove(bt.tr, J3.transitions(), bnd, J3.periodic(bt.T, bt.D), J3.MAX_DEGREE, sstark.NUM_QUERIES, null, { ...rules, zk: J3.ZK_RANDOMIZERS });
+const rules = { round2: process.env.NADO_PROOF_ROUND2 === "1", traceLdt: process.env.NADO_PROOF_TRACE_LDT === "1",
+               fullQuery: process.env.NADO_PROOF_FULL_QUERY === "1" };
+// bindAux: the same (address, public value, fee) string the Python verifier rebuilds (joinsplit3.bind_aux)
+const proof = sstark.prove(bt.tr, J3.transitions(), bnd, J3.periodic(bt.T, bt.D), J3.MAX_DEGREE, sstark.NUM_QUERIES, J3.bindAux(null, 0n, 0n), { ...rules, zk: J3.ZK_RANDOMIZERS });
 proof.D = bt.D;
 const ms = Date.now() - t0;
 const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);

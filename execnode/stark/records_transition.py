@@ -38,6 +38,7 @@ movements, allowances, xmsg and the withdrawal records are still `Unbindable`. R
 CONSENSUS change and may only follow the derivations landing, one effect family at a time -- and it rides a
 reroll, like every other consensus flag on this path.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import state_transition as SX, storage_tree as ST, field as F
 from execnode import exec_root as ER
 
@@ -95,6 +96,8 @@ def verify_records_transition(tr, pre_root, post_root, num_queries=None, outer_q
             return False, "not a records-half transition"
         return SX.verify_transition(tr, pre_root, post_root, num_queries=num_queries,
                                     outer_queries=outer_queries)
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         return False, f"malformed records transition: {type(e).__name__}: {e}"
 
@@ -130,5 +133,7 @@ def verify_full_transition(kv_tr, rec_tr, pre_full_hex, post_full_hex, num_queri
         if not ok2:
             return False, f"records half invalid: {why2}"
         return True, "ok"
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         return False, f"malformed full transition: {type(e).__name__}: {e}"

@@ -385,7 +385,7 @@ def fold_ext(cols, offset, alpha):
     return cid
 
 
-def batch_add(cp_ids, col_ids, beta):
+def batch_add(cp_ids, col_ids, beta, shift=0, N=None):
     """P1 (PROOF_TRACE_LDT_HEIGHT): cp += sum_c beta^(c+1) * col_c in the arena, in place (sp_batch_add).
     `cp_ids` is the one base composition id or the D extension limb ids; `beta` a base int or an extension
     tuple to match. Bit-identical to stark.trace_batch_add. A library without the export is STALE: rebuild."""
@@ -402,7 +402,22 @@ def batch_add(cp_ids, col_ids, beta):
     col_a = (ctypes.c_size_t * max(1, len(col_ids)))(*[int(c) for c in col_ids])
     b_a = (ctypes.c_uint64 * len(limbs))(*[int(x) % _P for x in limbs])
     P = lambda x: ctypes.cast(x, ctypes.c_void_p)
-    if int(_LIB.sp_batch_add(P(cp_a), len(cp_ids), P(col_a), len(col_ids), P(b_a), len(limbs))) != 0:
+    if shift:
+        # PROOF_QUERY_FULL_HEIGHT: the sum is shifted by x^shift on the coset (stark.trace_batch_shift).
+        if not hasattr(_LIB, "sp_batch_add_shift"):
+            from execnode.stark import native_guard as _ng
+            raise _ng.NativeMissing("sp_batch_add_shift missing — native/starkprove predates "
+                                    "PROOF_QUERY_FULL_HEIGHT; rebuild with `cargo build --release`")
+        from execnode.stark import stark as _stk, field as _fld
+        s0 = pow(_stk.OFF % _P, int(shift), _P)
+        sstep = pow(_fld.primitive_root_of_unity(int(N)), int(shift), _P)
+        _LIB.sp_batch_add_shift.restype = ctypes.c_int64
+        _LIB.sp_batch_add_shift.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+                                            ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_uint64]
+        rc = int(_LIB.sp_batch_add_shift(P(cp_a), len(cp_ids), P(col_a), len(col_ids), P(b_a), len(limbs), s0, sstep))
+    else:
+        rc = int(_LIB.sp_batch_add(P(cp_a), len(cp_ids), P(col_a), len(col_ids), P(b_a), len(limbs)))
+    if rc != 0:
         raise RuntimeError("sp_batch_add failed")
 
 
@@ -619,7 +634,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         _beta = stark.trace_batch_beta(t, _rules, _ext)
         if _beta is not None:
             from execnode.stark import extf as _efb
-            batch_add([cp_col + d for d in range(_efb.DEGREE)] if _ext else [cp_col], list(range(Wtot)), _beta)
+            batch_add([cp_col + d for d in range(_efb.DEGREE)] if _ext else [cp_col], list(range(Wtot)), _beta,
+                      shift=stark.trace_batch_shift(deg_bound, T, _rules), N=N)
 
         fri_blowup = N // deg_bound
         # HYBRID FRI. FRI's per-layer Merkle commitments hash EXTENSION leaves (alghash2.leaf_ext, a distinct
@@ -664,7 +680,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
         openings, plen = [], N.bit_length() - 1
         for q in fri_proof["queries"]:
-            lo = q["idx"] % (N // 2)
+            lo = stark.query_pos(q["idx"], N, _rules)       # the whole domain from PROOF_QUERY_FULL_HEIGHT
             nxt = (lo + blowup) % N
             if row_commit:
                 openings.append({"lo": lo,

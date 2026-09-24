@@ -22,6 +22,7 @@ Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; the fir
 registers; the program, log, and args table live in periodic columns — nothing statement-shaped is read
 from the proof.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import field as F, alghash, stark, logup, extf as ext2
 from execnode import zkvm
 
@@ -1166,7 +1167,7 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
                             num_queries=num_queries, aux_spec=_aux_spec(periodic, bind_io, gamma_fp, _ext),
                             backend=backend, row_commit=row_commit, commit_periodic=commit_periodic,
                             periodic_roots=periodic_roots, statement=_stmt)
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
@@ -1248,7 +1249,7 @@ def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=Non
                             num_queries=num_queries, aux_spec=_aux_spec(periodic, ext=_ext), backend=backend,
                             commit_periodic=COMMIT_PERIODIC, periodic_roots=list(per_roots),
                             statement=_stmt)
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).

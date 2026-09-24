@@ -65,7 +65,9 @@ def _capture_composition():
                    challenges, ext_alphas=ext_alphas)
         cap.update(T=T, W=W, N=N, blowup=blowup, gT=gT, col_lde=col_lde, per_lde=per_lde, x_lde=x_lde,
                    transitions=transitions, boundaries=boundaries, alphas=alphas, challenges=challenges,
-                   ext_alphas=ext_alphas, out=out)
+                   ext_alphas=ext_alphas, out=list(out))   # a COPY: stark.prove adds the P1 trace batch into this
+                                                            # list in place afterwards, so a reference compared a
+                                                            # mutated value (broken since PROOF_TRACE_LDT_HEIGHT)
         return out
     stark._composition = spy
     try:

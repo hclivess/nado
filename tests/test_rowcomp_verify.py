@@ -11,6 +11,11 @@ import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, stark, backend as B, rowcomp_verify as RC, air_ir
 from execnode.stark.transcript import Transcript, DOMAIN_STARK
+# THE FOLD'S OWN RULES. The K->1 fold (and this hand-rolled replay of its composition check) does not carry the P1
+# trace batch or the full-domain query rule, and REFUSES under them (SCHEDULED_CLEANUPS.md). Proofs made under the
+# live strict default therefore could never match it — this file failed from PROOF_TRACE_LDT_HEIGHT on. It tests
+# the fold machinery in the rule window the fold implements: round 2 on, trace_ldt and full_query off.
+stark._RULES.set(stark.Rules(True, True, True, True, False))
 
 fails = 0
 def check(name, fn):
@@ -29,6 +34,13 @@ def _points(proof, transitions, boundaries):
     gT = F.primitive_root_of_unity(Tn); wN = F.primitive_root_of_unity(N)
     last = F.pw(gT, Tn - 1)
     t = Transcript(DOMAIN_STARK, backend=B.RECURSION)
+    # THE SAME PROLOGUE stark.prove absorbs before any root (aux, statement, and under round 2 the AIR identity).
+    # This replay skipped it, so from REVIEW_R2_HEIGHT it drew different alphas and failed as "not low-degree".
+    _r = stark.current_rules()
+    stark.absorb_aux(t, None, _r)
+    stark.absorb_statement(t, None)
+    if _r.round2:
+        stark.absorb_air(t, stark.air_digest(Tn, W, blowup, len(transitions), boundaries, []))
     for r in proof["row_roots"]:
         t.absorb(r)
     # DRAW IN THE PROOF'S OWN FIELD. stark.prove draws the constraint alphas from GF(p^D) whenever

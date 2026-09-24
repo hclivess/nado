@@ -12,6 +12,12 @@ import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import (stark, field as F, backend as B, recursive_verify as RV,
                             recursive_verify_hetero as RVH, extf as ext2)
+# THE FOLD'S OWN RULES (see test_rowcomp_verify.py): the K->1 fold and its composition replays implement neither
+# the P1 trace batch nor the full-domain query rule and REFUSE under them, so this file broke at
+# PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
+# verify_hetero implements NONE of the live pins and refuses under any of them (review 2026-09-24; it has no
+# production caller), so its machinery is tested under the LEGACY rules, the only window it implements.
+stark._RULES.set(stark.RULES_LEGACY)
 
 fails = 0
 def check(name, fn):

@@ -10,6 +10,7 @@ prover could relate pre_root and post_root by changing a DIFFERENT slot). One al
 (RATE 8 = both child digests fill the rate). old_val/new_val + pre_root/post_root + the POSITION (dirs) are the
 public statement; the path (siblings) is private witness in the trace.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import field as F, alghash2 as A2, stark, backend as B
 from execnode.stark.recursion import _permute_snapshots, _next_pow2, _W, _R, _RATE
 
@@ -420,6 +421,8 @@ def verify_updates(proof, items_public, roots, num_queries=stark.NUM_QUERIES, ba
                             periodic=_periodic_batch(proof["T"], D, K, [d for (_o, _n, d) in items_public]),
                             max_degree=MAX_DEGREE, num_queries=num_queries, backend=b,
                             row_commit=("row_roots" in proof))
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         import traceback as _tb
         _f = _tb.extract_tb(e.__traceback__)[-1]
@@ -445,6 +448,8 @@ def verify_update(proof, old_val, new_val, pre_root, post_root, dirs, num_querie
         return stark.verify(proof, _transitions(), bnd, periodic=_periodic(proof["T"], D),
                             max_degree=MAX_DEGREE, num_queries=num_queries, backend=b,
                             row_commit=("row_roots" in proof))
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         # SAY WHERE. This returned only the exception's text, which for a TypeError deep in the verifier
         # ("int() argument must be ... not 'list'") names neither the file, the line, nor the value — and a

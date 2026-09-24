@@ -694,6 +694,20 @@ pub extern "C" fn sp_fold(col: usize, offset: u64, alpha: u64) -> i64 {
 #[no_mangle]
 pub unsafe extern "C" fn sp_batch_add(cp: *const usize, n_cp: usize, cols: *const usize, n_cols: usize,
                                       beta: *const u64, n_beta: usize) -> i64 {
+    batch_add_impl(cp, n_cp, cols, n_cols, beta, n_beta, 1, 1)
+}
+
+/// PROOF_QUERY_FULL_HEIGHT: the same batch, with the accumulated sum multiplied pointwise by x^s before it is added
+/// (x_j = OFF * w^j on the coset, so x_j^s = s0 * sstep^j with s0 = OFF^s, sstep = w^s). With s0 = sstep = 1 it is
+/// sp_batch_add bit for bit. Bit-identical to stark.trace_batch_add(..., shift=s).
+#[no_mangle]
+pub unsafe extern "C" fn sp_batch_add_shift(cp: *const usize, n_cp: usize, cols: *const usize, n_cols: usize,
+                                            beta: *const u64, n_beta: usize, s0: u64, sstep: u64) -> i64 {
+    batch_add_impl(cp, n_cp, cols, n_cols, beta, n_beta, s0 % PU64, sstep % PU64)
+}
+
+unsafe fn batch_add_impl(cp: *const usize, n_cp: usize, cols: *const usize, n_cols: usize,
+                         beta: *const u64, n_beta: usize, s0: u64, sstep: u64) -> i64 {
     if cp.is_null() || cols.is_null() || beta.is_null() || n_cp == 0 || n_cp != n_beta {
         return -1;
     }
@@ -726,8 +740,10 @@ pub unsafe extern "C" fn sp_batch_add(cp: *const usize, n_cp: usize, cols: *cons
             pw = mulf(pw, beta0);
         }
         let cpc = &mut arena.cols[cp_ids[0]];
+        let mut xs = s0;
         for j in 0..n {
-            cpc[j] = addf(cpc[j], acc[j]);
+            cpc[j] = addf(cpc[j], mulf(xs, acc[j]));
+            xs = mulf(xs, sstep);
         }
         return 0;
     }
@@ -749,8 +765,10 @@ pub unsafe extern "C" fn sp_batch_add(cp: *const usize, n_cp: usize, cols: *cons
     }
     for d in 0..EXT_DEGREE {
         let cpc = &mut arena.cols[cp_ids[d]];
+        let mut xs = s0;
         for j in 0..n {
-            cpc[j] = addf(cpc[j], acc[d][j]);
+            cpc[j] = addf(cpc[j], mulf(xs, acc[d][j]));
+            xs = mulf(xs, sstep);
         }
     }
     0
@@ -1208,18 +1226,20 @@ pub unsafe extern "C" fn sp_compose(
             OP_POW => a >= i,
             _ => true,
         };
+            // NEGATIVE (review 2026-09-24): a positive code was read by the Python wrapper as a column id — a rejected
+            // program silently used trace column 2..7 as the composition. The wrappers treat any code < 0 as failure.
         if bad {
-            return 2;
+            return -2;
         }
     }
     for &o in outputs.iter().take(n_out) {
         if (o as usize) >= n_ops {
-            return 3;
+            return -3;
         }
     }
     for bi in 0..n_bnd {
         if (bnd_col[bi] as usize) >= w {
-            return 4;
+            return -4;
         }
     }
 
@@ -1304,7 +1324,7 @@ pub unsafe extern "C" fn sp_compose_ext(
     out: *mut u64,               // EXT_DEGREE * n, limb-major; may be null
 ) -> i64 {
     if degree != EXT_DEGREE {
-        return 7;
+        return -7;
     }
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
@@ -1329,7 +1349,7 @@ pub unsafe extern "C" fn sp_compose_ext(
     // over-count alphas at any other degree — the same off-by-one the Python side carried.)
     let n_logical = match n_out.checked_sub(n_pairs * (EXT_DEGREE - 1)) {
         Some(v) => v,
-        None => return 5,
+        None => return -5,
     };
     let alphas = std::slice::from_raw_parts(alphas, EXT_DEGREE * (n_logical + n_bnd));
 
@@ -1345,23 +1365,23 @@ pub unsafe extern "C" fn sp_compose_ext(
             _ => true,
         };
         if bad {
-            return 2;
+            return -2;
         }
     }
     for &o in outputs.iter().take(n_out) {
         if (o as usize) >= n_ops {
-            return 3;
+            return -3;
         }
     }
     for bi in 0..n_bnd {
         if (bnd_col[bi] as usize) >= w {
-            return 4;
+            return -4;
         }
     }
     for k in 0..n_pairs {
         // each group must name a real output AND leave room for all D-1 of its partners
         if (pairs[k] as usize) + (EXT_DEGREE - 1) >= n_out {
-            return 6;
+            return -6;
         }
     }
 

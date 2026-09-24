@@ -8,9 +8,14 @@ the pool did not use it. From the gate every commitment, owner id, nullifier and
 DIGEST (a CAPACITY-tuple of four field elements), and the join-split circuit (joinsplit3) proves the same
 functions in-circuit, one permutation per hash:
 
-    owner      = hashn([DOM_ZOWNER, nsk])                      3 elements incl. the length prefix
+    owner      = hashn([DOM_ZOWNER, *nsk])                     6 elements incl. the length prefix
     cm         = hashn([DOM_ZCM, value, *owner, rho])          8 elements = exactly RATE: one permutation
-    nf         = hashn([DOM_ZNF, nsk, rho])
+    nf         = hashn([DOM_ZNF, *nsk, rho])                   7 elements
+
+THE SPEND KEY IS FOUR LANES (review 2026-09-24). It was ONE field element: every zaddr and deposit owner is a public
+hashn([DOM, nsk]), so a single 64-bit search per target — and far less across many published owners at once —
+recovered a spend key; the 256-bit digests only protected commitments. nsk is now a CAPACITY-tuple (256 bits); a
+plain int is accepted as (nsk, 0, 0, 0) for tests and tools only, never by the wallet.
     node(a, b) = rnode(a, b)                                   [a | b | IV] permuted, no prefix (fixed arity)
 
 The domain tags live above alghash2's own (1..7) so a pool hash can never be read as a leaf, node, absorb,
@@ -36,9 +41,19 @@ def _d(x):
     return t
 
 
+def nsk_lanes(nsk):
+    """The spend key as four field lanes. A tuple/list must have exactly four; an int is (nsk, 0, 0, 0) — tests only."""
+    if isinstance(nsk, (list, tuple)):
+        t = tuple(int(v) % F.P for v in nsk)
+        if len(t) != CAP:
+            raise ValueError("a wide spend key has exactly %d lanes" % CAP)
+        return t
+    return (int(nsk) % F.P, 0, 0, 0)
+
+
 def owner_of(nsk):
-    """Spend-key binding: owner = hashn([DOM_ZOWNER, nsk])."""
-    return A2.hashn([DOM_ZOWNER, int(nsk) % F.P])
+    """Spend-key binding: owner = hashn([DOM_ZOWNER, nsk(4)])."""
+    return A2.hashn([DOM_ZOWNER, *nsk_lanes(nsk)])
 
 
 def commit(value, owner, rho):
@@ -47,8 +62,8 @@ def commit(value, owner, rho):
 
 
 def nullifier(nsk, rho):
-    """Nullifier nf = hashn([DOM_ZNF, nsk, rho]) — deterministic per note, unlinkable to cm without nsk."""
-    return A2.hashn([DOM_ZNF, int(nsk) % F.P, int(rho) % F.P])
+    """Nullifier nf = hashn([DOM_ZNF, nsk(4), rho]) — deterministic per note, unlinkable to cm without nsk."""
+    return A2.hashn([DOM_ZNF, *nsk_lanes(nsk), int(rho) % F.P])
 
 
 def merkle_node(left, right):

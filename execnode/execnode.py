@@ -1661,6 +1661,13 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # 61 proofs before this were. The fold is an upgrade to a proof we want either way, never a precondition
     # for producing one — the same shape as 82a8ab29 (a refused proof must still settle).
     _fold = SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and bool(calls)
+    # NO FOLD THE CHAIN WILL REFUSE (review 2026-09-24). recursive_verify refuses under PROOF_TRACE_LDT_HEIGHT (and the
+    # full-query rule), so a folded prove raised and the span was proven a SECOND time unfolded, doubling the cost
+    # against SETTLE_PROVE_TIMEOUT. Ask the rules of the block the proof lands in, and skip the doomed fold up front.
+    if _fold:
+        from execnode.stark import recursive_verify as _RVf
+        if _RVf.fold_refused_at(int(cur) + 1):
+            _fold = False
     if SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and not calls:
         _k = (ns, "foldskip")
         if _settle_skip_logged.get(_k) != cur:

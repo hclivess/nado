@@ -51,6 +51,8 @@ def main():
         except Exception:
             pass                                   # a cache problem costs the cold rebuild, never the verdict
     with _stk.with_rules(_stk.Rules(*[bool(x) for x in _r]) if _r is not None else _stk.RULES_STRICT):
+        # A node-local failure (native_guard.NODE_LOCAL_ERRORS) raises out of the verifier and ends this child with a
+        # non-zero status and no frame, which the parent reads as "no verdict" — never as "invalid".
         res = SS.verify_settlement_sparse(req["proof"], depth=req["depth"])
     # Saved only after an ACCEPTED proof: a refused one may carry an arbitrary pre_contracts, and letting it fill
     # the file would let anyone who can submit a settle crowd the real state's folds out of it (bounded by

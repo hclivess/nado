@@ -12,6 +12,7 @@ public (pre_root, post_root) AND re-verifies every update — either per-proof (
 bundle. Binding the updates to the epoch's actual SSTOREs is `exec_state_bind` (piece (b)); swapping this in as
 the settled root is the settlement integration (piece (c)).
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 import os
 import time
 
@@ -198,8 +199,22 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
             # updates, never taken from the transition, so the prover cannot choose what it is verified
             # against. (verdict-cache-must-bind-bytes and settle-verify-authenticate-intermediates were both
             # this bug class: a verifier trusting prover-supplied intermediates.)
-            okr, whyr = RV.verify(pubs, MU._transitions_batch(), tr["bnds"], tr["bundle"],
-                                  num_queries_outer=nqo, num_queries_inner=nqi,
+            #
+            # ...AND THE BOUNDARIES TOO (review 2026-09-24, reproduced). This passed tr["bnds"] — the prover's own
+            # list — so the roots chain compared with the public post_root had no tie to what the folded proofs
+            # proved: an honest bundle with roots[-1] swapped verified. The per-proof path below already rebuilt
+            # them (verify_updates); the bundle path now does the same, from the public updates and roots only.
+            if not batched:
+                return False, "a K->1 bundle needs batched merkle-update proofs"
+            depth = tr["depth"]
+            bnds, at = [], 0
+            for proof, span in zip(proofs, spans):
+                chunk = tr["updates"][at:at + span]
+                items = [(old_v, new_v, None, _dirs(key, depth)) for (key, old_v, new_v) in chunk]
+                bnds.append(MU._boundaries_batch(items, roots[at:at + span + 1], int(proof["D"])))
+                at += span
+            okr, whyr = RV.verify(pubs, MU._transitions_batch(), bnds, tr["bundle"],
+                                  num_queries_outer=nqo, num_queries_inner=nqi, max_degree=MU.MAX_DEGREE,
                                   periodic_list=_periodic_list(proofs, tr["updates"], tr["depth"],
                                                                int(tr.get("batch") or 1)))
             if not okr:
@@ -221,5 +236,7 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
                     return False, f"proof {pi} (updates {at}..{at + span - 1}) failed: {why}"
                 at += span
         return True, "state transition verified (roots chain + every update re-verified)"
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         return False, f"malformed transition: {e}"

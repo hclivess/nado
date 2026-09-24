@@ -13,6 +13,7 @@ This is the VERIFIER-side binding (native, O(#io) — the cost of reading the ca
 in-circuit LogUp that folds the derivation into the proof (so verify is O(1)) is the succinctness step on top.
 Key(cid, slot) maps a contract slot to a sparse-tree position deterministically.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import field as F, alghash2 as A2
 from hashing import blake2b_hash
 
@@ -302,5 +303,7 @@ def bind_and_verify(tr, pre_root, post_root, pre_get, cid_io, depth, num_queries
         if got != want:
             return False, f"transition updates do not match the epoch's net writes ({len(got)} vs {len(want)})"
         return SX.verify_transition(tr, pre_root, post_root, num_queries=num_queries, outer_queries=outer_queries)
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         return False, f"binding failed: {e}"

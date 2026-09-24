@@ -160,6 +160,13 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
     {transitions, boundaries[, periodic, num_challenges, num_aux]} for proof i (same order as prove_hetero).
     Checks the ONE fold covers every proof's FRI (at the verifier's inner-query policy) and each per-AIR-group
     comp re-verifies its proofs (row → rowcomp, column → comp). Returns (ok, reason)."""
+    # NOT SAFE UNDER THE LIVE RULES (review 2026-09-24). This path never carried the P0 domain pin, the P1 trace
+    # batch or the full-domain query rule, and pins no inner geometry. It has no production caller; refuse under any
+    # rule it does not implement rather than verify weaker than stark.verify, so no future caller can lean on it.
+    from execnode.stark import stark as _stk_h         # the body imports `stark` locally, shadowing the module name
+    _r = _stk_h.current_rules()
+    if _r.pin_fri_domain or _r.trace_ldt or _r.full_query:
+        return False, "verify_hetero does not implement the live proof rules (P0/P1/full-query): refused"
     try:
         b = B.RECURSION
         nqi = num_queries_inner if num_queries_inner is not None else fri_verify.NUM_QUERIES

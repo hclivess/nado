@@ -12,6 +12,11 @@ import os, sys, random, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, air_ir, comp_verify as CV
 from execnode.stark.recursion import rmerkle_commit, rmerkle_path
+from execnode.stark import stark as stark  # noqa: F811 (the fold-era rules below)
+# THE FOLD'S OWN RULES (see test_rowcomp_verify.py): the K->1 fold and its composition replays implement neither
+# the P1 trace batch nor the full-domain query rule and REFUSE under them, so this file broke at
+# PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
+stark._RULES.set(stark.Rules(True, True, True, True, False))
 
 fails = 0
 def check(name, fn):
@@ -111,7 +116,11 @@ def t_binds_real_stark_proof():
     assert stark.verify(proof, TRANS, BND, max_degree=8, num_queries=NQ_IN, backend=b)[0], "inner proof must verify"
     N, blowup, col_roots = proof["N"], proof["blowup"], proof["col_roots"]
     nt, nb = len(TRANS), len(BND)
-    _mk, _chals, alphas = RV._fs(RV.public_part(proof), 0, nt + nb, b)   # one-phase AIR: absorb col roots, draw nt+nb alphas
+    # the round-2 AIR identity enters the replay exactly as recursive_verify.verify passes it (this replay omitted it,
+    # so from REVIEW_R2_HEIGHT it drew different alphas and failed as 'not low-degree')
+    _air = (stark.air_digest(proof["T"], proof["W"], proof["blowup"], nt, BND, [])
+            if stark.current_rules().round2 else None)
+    _mk, _chals, alphas = RV._fs(RV.public_part(proof), 0, nt + nb, b, air=_air)   # one-phase AIR: col roots, nt+nb alphas
     alphas = [extf.canon(a) for a in alphas]
     x_dom = F.domain(N, stark.OFF)
     gT = F.primitive_root_of_unity(Tn)

@@ -1354,6 +1354,43 @@ class WindowUnavailable(ProofUnavailable):
 
 
 
+def settle_proof_io_check(proof, records_bound, block_height):
+    """What a settle proof's io log may carry, judged at `block_height`. Raises AssertionError on refusal.
+
+    NO PAYOUTS IN A RECORDS-FROZEN PROOF: a PAY moves bridge balances (RECORDS) at the runtime boundary, invisible to
+    block_records_inert, while the proof pins one records root across the span. A records-BOUND proof derives the
+    payout instead (records_bind.pay_effects_from_proof).
+
+    NO ASSET IO IN ANY SETTLE PROOF, from PROOF_QUERY_FULL_HEIGHT (review 2026-09-24): AMINT/ABURN/ASEL/ARENOUNCE move
+    the exec asset ledger exactly as PAY moves records, and an ABAL read comes from the io log with nothing tying it
+    to the settled ledger (the BHASH/BEACON hole chain_reads closes). The prover threads no asset state, so no honest
+    proof carries asset io: an asset-touching span rides the quorum. tests/test_zk_review_2026_09_24.py drives this."""
+    from execnode import zkvm as _zkvm
+    import protocol as _protocol
+    segs = proof.get("segments") or []
+    if not records_bound:
+        for _seg in segs:
+            for _e in (_seg.get("io") or []):
+                assert int(_e[0]) != _zkvm.IO_PAY, \
+                    "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
+    if int(block_height) >= int(_protocol.PROOF_QUERY_FULL_HEIGHT):
+        for _seg in segs:
+            for _e in (_seg.get("io") or []):
+                assert int(_e[0]) not in _zkvm.IO_ASSET_KINDS, \
+                    "settle-with-proof io contains asset io (unbound asset ledger moves or reads)"
+
+
+def exit_amount_check(amount, block_height):
+    """An exit claim's amount must be a real coin amount, not a field residue (review 2026-09-24). exec_root.verify_record
+    folds `amount % P`, so a claim of amount + k*P verified against a record of `amount`; escrow balances and the per-block
+    release cap happened to stop it, but the proof check itself must not depend on that. From PROOF_QUERY_FULL_HEIGHT
+    (judged at the block's height) an exit is below 2^61 — MAX_EXIT_VALUE, the bound every exec record is created
+    under. Raises AssertionError like the branches that call it."""
+    from protocol import PROOF_QUERY_FULL_HEIGHT as _QFH
+    if int(block_height) >= int(_QFH):
+        assert int(amount) < (1 << 61), "exit amount exceeds MAX_EXIT_VALUE"
+
+
 def field_shield_check(data, block_height):
     """Admission rules for a field-native `shield` deposit, judged at `block_height` (the block being validated).
     A pure function so tests can drive it directly — the inline form read an unbound `h` for a day and nothing
@@ -2039,11 +2076,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # span, so a payout inside it would make the proof assert something false. A records-BOUND
             # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
             # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
-            if not _records_bound:
-                for _seg in (proof.get("segments") or []):
-                    for _e in (_seg.get("io") or []):
-                        assert int(_e[0]) != _zkvm.IO_PAY, \
-                            "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
+            settle_proof_io_check(proof, _records_bound, block_height)   # PAY + asset io (see the function)
             from execnode.stark import calls_commit as _CC
             # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
             # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
@@ -2123,7 +2156,14 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                                                                         rules=_rules)
                                     _where = "child"
                                 if _hit is None:
-                                    _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                                    # A MISSING OR STALE NATIVE KERNEL IS NOT A VERDICT (native_guard.NODE_LOCAL_ERRORS):
+                                    # it says nothing about the proof, so it defers the block like an unavailable DA
+                                    # blob instead of rejecting what every peer accepts. Never memoised (raised here).
+                                    from execnode.stark.native_guard import NativeMissing as _NM
+                                    try:
+                                        _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                                    except _NM as _nm:
+                                        raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm}") from _nm
                                     _where = "inproc"
                                 print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]} ({_where})", flush=True)
                             if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
@@ -2191,11 +2231,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         _rok, _rwhy = _rhit
                     else:
                         _t_rec = _time.time()
-                        _rok, _rwhy = _RB.bind_and_verify_records(
-                            proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
-                            depth=_protocol.EXEC_TREE_DEPTH,
-                            # S2: refuse a running balance below zero from EXEC_RULES_V2_HEIGHT
-                            nonneg=(int(block_height) >= int(_protocol.EXEC_RULES_V2_HEIGHT)))
+                        from execnode.stark.native_guard import NativeMissing as _NM2
+                        try:
+                            _rok, _rwhy = _RB.bind_and_verify_records(
+                                proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
+                                depth=_protocol.EXEC_TREE_DEPTH,
+                                # S2: refuse a running balance below zero from EXEC_RULES_V2_HEIGHT
+                                nonneg=(int(block_height) >= int(_protocol.EXEC_RULES_V2_HEIGHT)))
+                        except _NM2 as _nm2:              # node-local, not a verdict: defer (see the KV half above)
+                            raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm2}") from _nm2
                         print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
                               f"({len(_eff)} effects) ok={_rok}", flush=True)
                         if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
@@ -2229,6 +2273,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert valid_namespace(ns), "bridge_withdraw ns must be a valid namespace id"
         assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
+        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad withdraw nonce/proof"
         # WINDOWED like dividend_withdraw (same bug class): an exit proven against the newest root died
         # at the next settle; the (ns, addr, nonce) nullifier still guarantees at-most-once release.
@@ -2284,6 +2329,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
         assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
+        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad dividend nonce/proof"
         # WINDOWED settlement validity (2026-08-18): a claim proven against ONLY the newest settled
         # root died the moment the next settle landed — permanently unminable, rebuilt each epoch, a
@@ -2426,6 +2472,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
         assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
+        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
         assert isinstance(nonce, str) and isinstance(proof, dict), "bad unshield nonce/proof"
         # WINDOWED like the other settlement-proven claims (same bug class); the (addr, nonce)
         # nullifier still guarantees at-most-once release.

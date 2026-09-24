@@ -192,3 +192,19 @@ a verifier reads, add it to that file's pre-state.
 And never trust a timing claim in a comment about the verifier: `storage_tree` said "a sparse verifier never
 rebuilds the tree" long after the pre-state pin made it rebuild the whole tree cold in every verify child — the
 107-179 s "KV half" every settle logged, 6 s warm. Measure a verify in a FRESH process on the real state.
+
+## 12. A spot-check must cover everything the prover commits to, and a replay must use the shared helpers
+
+Two forgeries the 2026-09-24 review reproduced came from checks that looked complete. Queries compared the composition
+with FRI only in the LOWER half of the domain. Since FRI's degree bound was N/2 and N/2 points always interpolate, any
+statement verified. And a degree bound one power of two too loose let a constraint vanish on the whole coset while the
+trace violated it. Both had tests. Neither test tried to forge.
+
+- **Every new verifier rule ships with a forgery test that passes BELOW its gate and is refused AT it.**
+  `tests/test_proof_query_full.py` is the model. A test that only shows honest proofs verifying proves nothing about
+  soundness.
+- **Never hand-roll a transcript replay.** Call `stark.absorb_aux`, `absorb_statement` and `absorb_air`.
+  `tests/test_rowcomp_verify.py` and `tests/test_comp_verify.py` replayed the transcript by hand and silently broke at
+  the round-2 prologue, and their failures hid behind the Python-kernel runner pitfall for ten thousand blocks.
+- **Run the proof suites with `NADO_ALLOW_PYTHON_KERNELS=1`, and read every failure.** "Proving in Python is not
+  permitted" is the runner, but a test that fails for that reason has also stopped telling you anything else.

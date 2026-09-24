@@ -13,17 +13,22 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
-## 2026-09-23 — PROOF_TRACE_LDT_HEIGHT (216000): the K->1 fold must learn the trace batch BEFORE SETTLE_PROOF_RECURSIVE flips
+## 2026-09-24 — the K->1 fold stays REFUSED: SETTLE_PROOF_RECURSIVE is already True, so lifting the refusal is live
 
-`protocol.PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1` (review 2026-09-23, P1). From the
-gate every STARK's FRI input is the composition PLUS `sum_c beta^(c+1) f_c(x)` over the trace columns
-(`stark.trace_batch_add`, `sp_batch_add`), with beta drawn after the alphas. `recursive_verify.prove/verify`
-REFUSE under the rule (`_refuse_trace_ldt`): the fold's transcript replay (`_fs`) draws no beta and its comp AIRs
-(`comp_verify`, `rowcomp_verify`, and the arena's fold kernels) recompute the layer-0 seam without the term.
-Harmless today because `SETTLE_PROOF_RECURSIVE` is False (activation requires a reroll) and the settler folds only
-when it is on. **Owed before that flag flips**: draw beta in `_fs`, add the batch of the opened row to the comp
-AIRs' expected layer-0 value (an extension-scalar accumulation over the row cells), and delete the refusal. Pinned
-by tests/test_proof_trace_ldt.py (`fold refuses under the rule`). At the reroll the gate is 1; the debt stays.
+**Corrected 2026-09-24.** This entry used to say `SETTLE_PROOF_RECURSIVE` is False and activation needs a reroll. It is
+**True** (protocol.py, set at alphanet-14), and L1 honours a `recursive` bundle in a settle proof: `verify_settlement_
+sparse` skips the per-segment exec proof and calls `recursive_verify.verify`. The ONLY thing keeping the fold out of
+consensus is `_refuse_trace_ldt` (every block >= PROOF_TRACE_LDT_HEIGHT, and so every block >= PROOF_QUERY_FULL_HEIGHT).
+Deleting it deploys a rule relaxation with no gate, on the next /update wave.
+
+Owed before the refusal may go, IN THIS ORDER:
+1. the fold must implement every live proof rule: draw beta in `_fs` and add the SHIFTED batch of the opened row
+   (`stark.trace_batch_shift`) to the comp AIRs' expected layer-0 value; open at `stark.query_pos` and compare with
+   `stark.fri_claim` (the full-domain rule) — the comp AIRs and the arena's fold kernels all assume the lower half;
+2. the two fold forgeries of review 2026-09-24 stay closed (both fixed 2026-09-24: inner geometry pinned via
+   `max_degree`, transition-bundle boundaries rebuilt from public data) — keep their tests green;
+3. a height gate `... if CHAIN_GENERATION == 25 else 1` for the relaxation, registered in the GATE LEDGER.
+Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
 
 ## 2026-09-02 — gen-24 DIV_CARRY_METER_EPOCH (600): delete at the gen-25 reroll
 

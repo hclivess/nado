@@ -80,6 +80,7 @@ ORDERING. The update list is sorted by KEY, matching records_transition.records_
 must agree byte-for-byte or the binding rejects an honest span. Both derive NET effects: a key touched
 twice in a span is ONE update carrying its pre-state old value and its final new value.
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import field as F
 from execnode import exec_root as ER
 
@@ -519,5 +520,7 @@ def bind_and_verify_records(tr, pre_root, post_root, pre_get, effects, depth=ER.
         return _res
     except Unbindable as e:
         return False, f"span carries an underivable records effect: {e}"
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict (native_guard)
+        raise
     except Exception as e:
         return False, f"records binding failed: {type(e).__name__}: {e}"

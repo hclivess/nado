@@ -578,7 +578,8 @@ def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
         okr, whyr = RV.verify(pubs, vm_circuit.transitions(ext=_fx), bnds, rb, num_queries_outer=nqo,
                               periodic_list=pers, num_challenges=2,
                               num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
-                              comp_points_per_proof=cpp, num_queries_inner=nqi)
+                              comp_points_per_proof=cpp, num_queries_inner=nqi,
+                              max_degree=vm_circuit.MAX_DEGREE)     # inner geometry pinned (review 2026-09-24)
         if not okr:
             return False, f"recursive verification failed: {whyr}", None
         return True, "ok (authoritative recursive)", post

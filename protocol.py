@@ -1625,7 +1625,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
-#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT,
+#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2077,7 +2077,8 @@ REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
 # trace for low degree with the composition (the classic ALI shape, for which the soundness theorem holds), and
 # the verifier adds the same term at every query point. A format change on both sides, so it rides stark.rules_at
 # like the earlier proof gates; the wallet reads it from /status (`proof_rules.trace_ldt`). The K->1 recursion
-# fold does NOT carry the term yet and refuses under it (SETTLE_PROOF_RECURSIVE is off; SCHEDULED_CLEANUPS.md).
+# fold does NOT carry the term yet and refuses under it. SETTLE_PROOF_RECURSIVE is TRUE (this said "off" until
+# 2026-09-24), so that refusal is live consensus — SCHEDULED_CLEANUPS.md lists what must precede lifting it.
 # Block 1 at the next reroll.
 PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
 
@@ -2102,6 +2103,17 @@ PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # paused. Block 1 at the next reroll: shielded contract notes stay off until they move to the wide hash with
 # zero knowledge, and the legacy field pool is replaced there by the wide one.
 PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1
+
+# FULL-DOMAIN QUERIES AND A DEGREE-EXACT TRACE BATCH (review 2026-09-24, both reproduced under every rule then live).
+# (1) A query opened the trace at idx mod N/2 and compared the composition with FRI layer 0 ONLY in the lower half;
+# FRI tests degree < N/2 and N/2 points always interpolate such a polynomial, so an honest FRI over the interpolant of
+# the true composition's lower half made ANY statement verify. From this height the trace is opened at idx itself
+# and compared with whichever half idx lands in (stark.query_pos / fri_claim). (2) The P1 trace batch only bounded a
+# column by deg_bound = next_pow2(md)*T, loose enough for md >= 3 to satisfy a constraint on the whole coset while
+# the trace violates it; each column now enters as x^(deg_bound-T)*f(x), forcing deg f < T (stark.trace_batch_shift,
+# native sp_batch_add_shift, the wallet's stark.js). A format change on both sides, so it rides stark.rules_at like
+# every proof gate; the wallet reads it from /status (`proof_rules.full_query`). Block 1 at the next reroll.
+PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

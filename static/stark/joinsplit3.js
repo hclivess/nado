@@ -9,8 +9,9 @@ import * as A2 from "../alghash2.js";
 
 const W_ST = A2.WIDTH, CAP = A2.CAPACITY, RATE = A2.RATE, R = A2.R_ROUNDS, BR = R + 1;
 const mod = (x) => ((x % F.P) + F.P) % F.P;
-export const [NSK, RHO, VIN, VOUT1, VOUT2, CONS] = [12, 13, 14, 15, 16, 17];
-export const SIB = 18, DIR = 22, ACC = 23, RB0 = 24, RB1 = 25, RB2 = 26, RB3 = 27, NCOLS = 28;
+// NSK..NSK+3: the spend key is four lanes (joinsplit3.py, review 2026-09-24)
+export const NSK = 12, RHO = 16, VIN = 17, VOUT1 = 18, VOUT2 = 19, CONS = 20;
+export const SIB = 21, DIR = 25, ACC = 26, RB0 = 27, RB1 = 28, RB2 = 29, RB3 = 30, NCOLS = 31;
 export const MAX_DEGREE = 7n;
 // Z1 (zero knowledge, joinsplit3.py): 8 randomizer columns close the trace and RANDOM_ROWS uniform rows follow
 // the real ones; ACTIVE gates every constraint that would otherwise reach into them.
@@ -26,7 +27,7 @@ function randField() {                               // a uniform Goldilocks ele
   return x % F.P;
 }
 const randRow = (n) => Array.from({ length: n }, randField);
-const LEN_OWNER = 2n, LEN_CM = 7n, LEN_NF = 3n;
+const LEN_OWNER = 5n, LEN_CM = 7n, LEN_NF = 6n;
 
 function nextPow2(x) { let p = 1; while (p < x) p <<= 1; return p; }
 function blocks(D) { return { owner: 0, commit: 1, memb: 2, nf: D + 2, out1: D + 3, out2: D + 4, count: D + 5 }; }
@@ -65,17 +66,17 @@ export function transfer(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) {
 
 export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) {
   const m = (x) => ((BigInt(x) % F.P) + F.P) % F.P;
-  nsk = m(nsk); vIn = m(vIn); rhoIn = m(rhoIn); v1 = m(v1); r1 = m(r1); v2 = m(v2); r2 = m(r2);
+  nsk = A2.nskLanes(nsk); vIn = m(vIn); rhoIn = m(rhoIn); v1 = m(v1); r1 = m(r1); v2 = m(v2); r2 = m(r2);
   o1 = o1.map(m); o2 = o2.map(m);
   const D = sibs.length, IV = A2.ivLanes();
   const blks = [];
-  let b = A2.permuteSnapshots([LEN_OWNER, A2.DOM_ZOWNER, nsk, 0n, 0n, 0n, 0n, 0n, ...IV]); blks.push(b);
+  let b = A2.permuteSnapshots([LEN_OWNER, A2.DOM_ZOWNER, ...nsk, 0n, 0n, ...IV]); blks.push(b);
   const owner = b[R].slice(0, CAP);
   b = A2.permuteSnapshots([LEN_CM, A2.DOM_ZCM, vIn, ...owner, rhoIn, ...IV]); blks.push(b);
   let cur = b[R].slice(0, CAP);
   for (let k = 0; k < D; k++) { b = A2.permuteSnapshots(ordered(cur, sibs[k].map(m), Number(dirs[k]) & 1)); blks.push(b); cur = b[R].slice(0, CAP); }
   const root = cur;
-  b = A2.permuteSnapshots([LEN_NF, A2.DOM_ZNF, nsk, rhoIn, 0n, 0n, 0n, 0n, ...IV]); blks.push(b);
+  b = A2.permuteSnapshots([LEN_NF, A2.DOM_ZNF, ...nsk, rhoIn, 0n, ...IV]); blks.push(b);
   const nf = b[R].slice(0, CAP);
   b = A2.permuteSnapshots([LEN_CM, A2.DOM_ZCM, v1, ...o1, r1, ...IV]); blks.push(b);
   const cm1 = b[R].slice(0, CAP);
@@ -90,13 +91,13 @@ export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) 
     const [sib, d] = pathFor(bi);
     for (let rr = 0; rr < BR; rr++) {
       const [acc, b0, b1, b2, b3] = rfill.get(bi * BR + rr) || [0n, 0n, 0n, 0n, 0n];
-      tr.push([...blks[bi][rr], nsk, rhoIn, vIn, v1, v2, cons, ...sib, d, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
+      tr.push([...blks[bi][rr], ...nsk, rhoIn, vIn, v1, v2, cons, ...sib, d, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
     }
   }
   const lastLanes = tr[tr.length - 1].slice(0, W_ST);
   while (tr.length < rw.total) {                     // the range region: the sponge idles, registers hold
     const [acc, b0, b1, b2, b3] = rfill.get(tr.length) || [0n, 0n, 0n, 0n, 0n];
-    tr.push([...lastLanes, nsk, rhoIn, vIn, v1, v2, cons, 0n, 0n, 0n, 0n, 0n, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
+    tr.push([...lastLanes, ...nsk, rhoIn, vIn, v1, v2, cons, 0n, 0n, 0n, 0n, 0n, acc, b0, b1, b2, b3, ...randRow(ZK_RANDOMIZERS)]);
   }
   while (tr.length < T) tr.push(randRow(NCOLS_TOTAL));   // Z1: uniform rows, no constraint reaches them
   return { tr, T, D, root, nf, cm1, cm2 };
@@ -134,7 +135,7 @@ export function boundaries(D, root, nf, cm1, cm2, publicValue, fee) {
   const rw = rows(D), IV = A2.ivLanes();
   const consPub = F.sub(mod(BigInt(fee)), mod(BigInt(publicValue)));
   const bnd = [[0, 0, LEN_OWNER], [0, 1, A2.DOM_ZOWNER]];
-  for (let k = 3; k < RATE; k++) bnd.push([0, k, 0n]);
+  for (let k = 2 + CAP; k < RATE; k++) bnd.push([0, k, 0n]);
   for (let i = 0; i < CAP; i++) bnd.push([0, RATE + i, IV[i]]);
   bnd.push([0, CONS, consPub]);
   for (const [row, dig] of [[rw.rootRow, root], [rw.nfRow, nf], [rw.cm1Row, cm1], [rw.spongeEnd, cm2]])
@@ -169,15 +170,16 @@ export function transitions() {
   for (let i = 0; i < CAP; i++) cons.push(pin(A_MERK, i, left(i)));
   for (let i = 0; i < CAP; i++) cons.push(pin(A_MERK, CAP + i, right(i)));
   for (let i = 0; i < CAP; i++) cons.push(pin(A_MERK, RATE + i, konst(IV[i])));
-  cons.push(pin(A_NF, 0, konst(LEN_NF)), pin(A_NF, 1, konst(A2.DOM_ZNF)), pin(A_NF, 2, reg(NSK)), pin(A_NF, 3, reg(RHO)));
-  for (let i = 0; i < 4; i++) cons.push(pin(A_NF, 4 + i, konst(0n)));
+  cons.push(pin(A_NF, 0, konst(LEN_NF)), pin(A_NF, 1, konst(A2.DOM_ZNF)));
+  for (let i = 0; i < CAP; i++) cons.push(pin(A_NF, 2 + i, reg(NSK + i)));
+  cons.push(pin(A_NF, 6, reg(RHO)), pin(A_NF, 7, konst(0n)));
   for (let i = 0; i < CAP; i++) cons.push(pin(A_NF, RATE + i, konst(IV[i])));
   for (const [sel, vreg] of [[A_OUT1, VOUT1], [A_OUT2, VOUT2]]) {
     cons.push(pin(sel, 0, konst(LEN_CM)), pin(sel, 1, konst(A2.DOM_ZCM)), pin(sel, 2, reg(vreg)));
     for (let i = 0; i < CAP; i++) cons.push(pin(sel, RATE + i, konst(IV[i])));
   }
-  cons.push((cur, nxt, per) => mul(per[ROW0], sub(cur[2], cur[NSK])));
-  for (const col of [NSK, RHO, VIN, VOUT1, VOUT2]) cons.push((cur, nxt, per) => mul(per[ACTIVE], sub(nxt[col], cur[col])));
+  for (let i = 0; i < CAP; i++) cons.push((cur, nxt, per) => mul(per[ROW0], sub(cur[2 + i], cur[NSK + i])));
+  for (const col of [NSK, NSK + 1, NSK + 2, NSK + 3, RHO, VIN, VOUT1, VOUT2]) cons.push((cur, nxt, per) => mul(per[ACTIVE], sub(nxt[col], cur[col])));
   for (let i = 0; i < CAP; i++) cons.push((cur, nxt, per) => mul(per[ACTIVE], mul(sub(1n, per[A_MERK]), sub(nxt[SIB + i], cur[SIB + i]))));
   cons.push((cur, nxt, per) => mul(per[ACTIVE], mul(sub(1n, per[A_MERK]), sub(nxt[DIR], cur[DIR]))));
   cons.push((cur, nxt, per) => mul(per[A_MERK], mul(cur[DIR], sub(1n, cur[DIR]))));
@@ -189,4 +191,11 @@ export function transitions() {
   for (const col of [RB0, RB1, RB2, RB3]) cons.push((c, n, p) => mul(p[RNG_ACC], mul(c[col], sub(1n, c[col]))));
   for (const [sel, vreg] of [[RBIND_VIN, VIN], [RBIND_VOUT1, VOUT1], [RBIND_VOUT2, VOUT2]]) cons.push((c, n, p) => mul(p[sel], sub(c[ACC], c[vreg])));
   return cons;
+}
+
+// The transcript's extra public input: the unshield destination, the public value and the fee together — the Python
+// joinsplit3.bind_aux string byte for byte. The circuit binds only fee - public_value, so without this a relay (or
+// anyone reading DA) could shift value from the exit into the fee and land the rewrite first (review 2026-09-24).
+export function bindAux(withdrawAddr, publicValue, fee) {
+  return "j3|" + (withdrawAddr || "") + "|" + BigInt(publicValue).toString() + "|" + BigInt(fee).toString();
 }

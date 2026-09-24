@@ -37,7 +37,10 @@ def check(name, fn):
 
 
 GATE = int(P.PROOF_TRACE_LDT_HEIGHT)
-LEGACY, STRICT = stark.RULES_LEGACY, stark.RULES_STRICT
+LEGACY = stark.RULES_LEGACY
+# THIS FILE JUDGES THE P1 ERA: every pin up to PROOF_TRACE_LDT_HEIGHT on, the later full-domain query rule OFF. Its
+# forgery mirrors the prover of that era (lower-half openings); test_proof_query_full.py covers the rule after it.
+STRICT = stark.RULES_STRICT._replace(full_query=False)
 PRE = STRICT._replace(trace_ldt=False)          # every earlier pin on, only this gate off
 T_TOY, NQ = 16, 8
 

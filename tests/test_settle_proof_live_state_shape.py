@@ -47,6 +47,11 @@ def check(name, fn):
 
 
 NQ, DEPTH = 8, 16
+# PROOF_FIXED_CID_HEIGHT is DEFERRED to the reroll on gen 25 (2^62: settle proofs stay closed until the verifier fixes
+# of review 2026-09-24 and S1 are all live). This file tests the RULE, so it schedules the gate at a finite height of
+# its own — below the reroll-only EXEC_ROOT_V2, whose different root layout would otherwise be in force up there.
+# settlement_sparse reads the constant at call time, so setting it here is what the verifier sees.
+protocol.PROOF_FIXED_CID_HEIGHT = 230000
 ABOVE = protocol.PROOF_FIXED_CID_HEIGHT + 100
 BELOW = protocol.REVIEW_R2_HEIGHT + 100          # round 2 on, the fixed-name acceptance not yet
 ALICE = "ndoAAAA" + "A" * 41

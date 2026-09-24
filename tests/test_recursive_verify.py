@@ -12,6 +12,10 @@ for its two-phase LogUp challenges).
 import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, stark, backend as B, recursive_verify as RV
+# THE FOLD'S OWN RULES (see test_rowcomp_verify.py): the K->1 fold and its composition replays implement neither
+# the P1 trace batch nor the full-domain query rule and REFUSE under them, so this file broke at
+# PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
+stark._RULES.set(stark.Rules(True, True, True, True, False))
 
 fails = 0
 def check(name, fn):

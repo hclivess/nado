@@ -15,6 +15,7 @@ bound state-transition proof (no replay, no whole-state merkle):
 Wiring this in as THE consensus settled root (settle tx state_root, ops/transaction_ops exit proofs, state.py's
 projection) is the deploy step that rides the reroll (a new state-root scheme = a genesis change; forking cleared).
 """
+from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NODE_LOCAL_ERRORS
 from execnode.stark import (field as F, storage_tree as ST, state_transition as SX, exec_state_bind as ESB,
                             vm_circuit, calls_commit as CC, stark, backend as _bk)
 from execnode import settlement_proofs as SP, zkvm
@@ -83,6 +84,11 @@ def _cid_io(bundle):
             out.append((calls[seg_idx]["cid"], kind, a, b))
         if kind == zkvm.IO_RET:
             seg_idx += 1
+    # ONE RET-SEGMENT PER VM UNIT, EXACTLY (review 2026-09-24, defence in depth). The flat path
+    # (settlement_proofs.verify_epoch) already refuses a count mismatch; this path silently dropped io past the last
+    # unit. The AIR makes RET halt, so an honest log always matches — a mismatch is a malformed bundle.
+    if seg_idx != len(calls):
+        raise ValueError(f"io log carries {seg_idx} call segments for {len(calls)} VM units")
     return out
 
 
@@ -251,7 +257,7 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         if not okb:
             return False, f"state transition binding failed: {whyb}", None
         return True, "ok (sparse-root bound, no replay)", bundle["sparse_post_root"]
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
@@ -328,7 +334,7 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         if not okr:
             return False, f"io replay failed: {whyr}", None
         return True, "ok (sparse-root bound via in-circuit io replay)", bundle["sparse_post_root"]
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).
@@ -559,13 +565,14 @@ def verify_settlement_sparse(proof, num_queries=None, depth=None, outer_queries=
             # the answer for both halves.
             _fx = stark.ext_challenges_active(_bk.RECURSION)
             okr, whyr = RV.verify(pubs, vm_circuit.transitions(ext=_fx), bnds, rb, num_queries_outer=nqo,
+                                  max_degree=vm_circuit.MAX_DEGREE,
                                   periodic_list=pers, num_challenges=2,
                                   num_aux=(vm_circuit.NUM_AUX_EXT if _fx else vm_circuit.NUM_AUX),
                                   comp_points_per_proof=cpp, num_queries_inner=nqi, statement_list=stmts)
             if not okr:
                 return False, f"recursive verification failed: {whyr}", None, None
         return True, "ok", kv_pre_hex, ST.digest_hex(expect)
-    except MemoryError:
+    except _NODE_LOCAL_ERRORS:              # memory or a missing/stale kernel: not a verdict
         # S5 (2026-09-23): a RESOURCE failure is not a verdict. Converting it to (False, ...) let one node memoise
         # an out-of-memory as a cryptographic refutation that its peers, with more RAM, never saw — a fork on the
         # resource axis. It propagates; the settle branch never caches an exception (see ops/proof_child too).

@@ -81,9 +81,15 @@ export function rnode(a, b) {   // one permutation over [a | b | IV], no length 
 // ---- the wide note algebra (execnode/stark/znote.py) ----
 export const DOM_ZOWNER = 21n, DOM_ZCM = 22n, DOM_ZNF = 23n;
 export const EMPTY_LEAF = [0n, 0n, 0n, 0n];
-export const ownerOf = (nsk) => hashn([DOM_ZOWNER, BigInt(nsk)]);
+// THE SPEND KEY IS FOUR LANES (znote.nsk_lanes, review 2026-09-24): an array of four field elements; a single value
+// is (nsk, 0, 0, 0), accepted for tests only — the wallet always derives four lanes.
+export function nskLanes(nsk) {
+  if (Array.isArray(nsk)) { if (nsk.length !== CAPACITY) throw new Error("a wide spend key has exactly 4 lanes"); return nsk.map((x) => mod(BigInt(x))); }
+  return [mod(BigInt(nsk)), 0n, 0n, 0n];
+}
+export const ownerOf = (nsk) => hashn([DOM_ZOWNER, ...nskLanes(nsk)]);
 export const commit = (value, owner, rho) => hashn([DOM_ZCM, BigInt(value), ...owner.map(BigInt), BigInt(rho)]);
-export const nullifier = (nsk, rho) => hashn([DOM_ZNF, BigInt(nsk), BigInt(rho)]);
+export const nullifier = (nsk, rho) => hashn([DOM_ZNF, ...nskLanes(nsk), BigInt(rho)]);
 export const merkleNode = (left, right) => rnode(left, right);
 export function foldPath(leaf, sibs, dirs) {
   let acc = leaf.map(BigInt);

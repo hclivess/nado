@@ -102,6 +102,9 @@ const DOMAIN_RANDAO_COMMIT = "randao-commit-v1", DOMAIN_RANDAO_SECRET = "randao-
 // (they are invisible to users); a rename would require explicit migration code, never a sed.
 const DOMAIN_HD_ACCOUNT = "hd-account-v1";        // child-account key derivation
 const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // shielded nullifier-secret derivation
+// THE WIDE POOL'S KEY COMES FROM ITS OWN DOMAIN, AND IS FOUR LANES (review 2026-09-24). Every legacy (non-ZK)
+// proof published the v1 key; reusing it for the wide pool would hand anyone holding an old proof the new spend key.
+const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";
 const DOMAIN_FORUM_LOGIN = "forum-login-v1";      // forum login challenge (matches forum/server.py)
 const MIN_TX_FEE = 1000;
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
@@ -9297,8 +9300,22 @@ function ownerParse(str) { return shieldWide() ? alghash2.fromHex(String(str)) :
 function cmStr(cm) { return shieldWide() ? alghash2.toHex(cm) : cm.toString(); }
 function noteCommit(value, owner, rho) { return shieldWide() ? alghash2.commit(value, owner, rho) : alghash.commit(value, owner, rho); }
 function shieldStoreKey() { return "nado.shieldf." + (state.wallet ? state.wallet.address : "none"); }
-function loadNotes() { try { return JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; } }
-function saveNotes(notes) { try { localStorage.setItem(shieldStoreKey(), JSON.stringify(notes)); } catch (e) {} }
+// ONLY THE ACTIVE POOL'S NOTES (review 2026-09-24): a wide note's cm is 64 hex, a legacy one a decimal. They were
+// summed together, so after a pool switch the balance counted notes this pool cannot spend.
+function _notePoolIsWide(n) { return /^[0-9a-f]{64}$/.test(String(n && n.cm)); }
+function loadNotes() {
+  let all; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; }
+  const wide = shieldWide();
+  return all.filter((n) => _notePoolIsWide(n) === wide);
+}
+// keep the OTHER pool's notes on disk untouched: saveNotes only ever receives the active pool's list
+function saveNotes(notes) {
+  try {
+    let all = []; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) {}
+    const wide = shieldWide();
+    localStorage.setItem(shieldStoreKey(), JSON.stringify(all.filter((n) => _notePoolIsWide(n) !== wide).concat(notes)));
+  } catch (e) {}
+}
 function _randField() {   // a random Goldilocks field element (note randomness rho)
   const b = crypto.getRandomValues(new Uint8Array(8)); let x = 0n;
   for (const by of b) x = (x << 8n) | BigInt(by);
@@ -9307,7 +9324,15 @@ function _randField() {   // a random Goldilocks field element (note randomness 
 // STABLE per-wallet shielded spend key, derived from the seed -> recoverable from the recovery phrase, and
 // reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
 function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash([DOMAIN_SHIELD_NSK, state.wallet.privateKey])) % alghash.P; }
-function shieldOwner() { return shieldWide() ? alghash2.ownerOf(shieldNsk()) : alghash.ownerOf(shieldNsk()); }
+// the wide spend key: 32 bytes of blake2b over the v2 domain, as four 64-bit lanes reduced into the field
+function shieldNskWide() {
+  ensureShielded();
+  const h = blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]);
+  return [0, 1, 2, 3].map((i) => BigInt("0x" + h.slice(16 * i, 16 * i + 16)) % alghash2.P);
+}
+// the spend key in the form the active pool's prover takes (wit.nsk): four decimal lanes (wide) or one (legacy)
+function shieldNskWire() { return shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
+function shieldOwner() { return shieldWide() ? alghash2.ownerOf(shieldNskWide()) : alghash.ownerOf(shieldNsk()); }
 // a zaddr is the owner id in base36: ~13 chars for a legacy 64-bit id, ~50 for a wide 256-bit digest
 function shieldAddr() { return "zaddr" + (shieldWide() ? BigInt("0x" + alghash2.toHex(shieldOwner())) : shieldOwner()).toString(36); }
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
@@ -9467,7 +9492,7 @@ async function doUnshield() {
       // withdrawal = a 2-output join-split with a public exit: out1 = change (back to me), out2 = empty note,
       // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
       const wit = {
-        cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+        cm: note.cm, nsk: shieldNskWire(), value_in: note.value, rho_in: note.rho,
         v1: change.toString(), o1: ownerStr(owner), r1,
         v2: "0", o2: ownerStr(owner), r2,
         public_value: (-take).toString(), fee: "0", withdraw_addr: to,
@@ -9589,11 +9614,13 @@ async function _onDeviceProve3(wit, execBase, leaves, rules) {
   if (idx < 0) throw new Error("note not in the pool yet");
   const { sibs, dirs } = alghash2.treePath(leaves, idx);
   const J = sjoinsplit3;
-  const bt = J.buildTrace(BigInt(wit.nsk), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
+  const bt = J.buildTrace(wit.nsk.map(BigInt), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
     BigInt(wit.v1), alghash2.fromHex(wit.o1), BigInt(wit.r1), BigInt(wit.v2), alghash2.fromHex(wit.o2), BigInt(wit.r2));
   const bnd = J.boundaries(bt.D, bt.root, bt.nf, bt.cm1, bt.cm2, BigInt(wit.public_value), BigInt(wit.fee));
   // Z1: the wide circuit proves in ZERO-KNOWLEDGE mode (randomizer columns, random rows, salted leaves)
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, { ...rules, zk: J.ZK_RANDOMIZERS });
+  // bindAux: the exit address, public value and fee all enter the transcript (joinsplit3.bind_aux), so no one can
+  // rewrite the exit into a fee after the proof is published.
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, J.bindAux(wit.withdraw_addr, wit.public_value, wit.fee), { ...rules, zk: J.ZK_RANDOMIZERS });
   proof.D = bt.D;
   const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
   const bundle = { stark: { joinsplit3: { proof: ser(proof), root: alghash2.toHex(bt.root), nf: alghash2.toHex(bt.nf),
@@ -9609,9 +9636,10 @@ async function _proofRulesNow() {
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
     const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
     _shieldWide = at("shield_wide");                                  // keep the pool choice in step with the proof rules
-    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt") };
+    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt"),
+             fullQuery: at("full_query") };   // PROOF_QUERY_FULL_HEIGHT: full-domain openings + the shifted batch
   } catch (e) {
-    return { bind: false, blockSelector: false, round2: false, traceLdt: false };   // an old node publishes no gates and judges by the old rules
+    return { bind: false, blockSelector: false, round2: false, traceLdt: false, fullQuery: false };   // an old node publishes no gates and judges by the old rules
   }
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
@@ -9656,7 +9684,7 @@ async function doSendShielded() {
               { i: String(i + 1), n: String(picks.length) })
         : i18("shield.proving", "Generating your zero-knowledge proof…"));
       const wit = {
-        cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+        cm: note.cm, nsk: shieldNskWire(), value_in: note.value, rho_in: note.rho,
         v1: take.toString(), o1: ownerStr(recipientOwner), r1,
         v2: change.toString(), o2: ownerStr(shieldOwner()), r2,
         public_value: "0", fee: "0",
@@ -9816,7 +9844,13 @@ async function doReceiveShielded() {
     const [vB, rB] = code.slice(5).split(".");
     const value = _b36(vB), rho = _b36(rB);
     const cm = noteCommit(value, shieldOwner(), rho);           // reconstruct the note with YOUR key
-    const info = await execJSON("/exec/field_shielded?cm=" + cmStr(cm));
+    // LOOK IT UP LOCALLY, NOT BY ASKING (review 2026-09-24): querying field_shielded by cm told the relay exactly which
+    // note this wallet was claiming, linking the requester to the note. Fetch every leaf (the spend path already does)
+    // and search here, so the relay learns nothing but "this wallet read the pool".
+    const lv = await execJSON("/exec/field_leaves");
+    const _mine = cmStr(cm);
+    const _pos = (lv.leaves || []).findIndex((l) => String(l) === _mine);
+    const info = { pos: _pos < 0 ? null : _pos };
     if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
     if (notes.some((n) => n.cm === cmStr(cm))) { log("info", i18("shield.already", "You already have that banknote.")); return; }
