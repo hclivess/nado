@@ -5624,7 +5624,7 @@ async function renderAssets() {
   $("assetIssuedList").innerHTML = _myIssued.length ? _myIssued.map((a) =>
     '<div style="margin:.35rem 0"><b>' + escapeHtml(a.sym) + '</b> <span class="dim">' + escapeHtml(a.name) + '</span>' + assetUriLink(a.uri)
     + ' <span class="faint">· ' + i18("assets.supplyIs", "supply") + " "
-    + escapeHtml(assetToDisplay(a.supply, a.dec)) + ' · ' + a.holders + " " + i18("assets.holders", "holders")
+    + escapeHtml(assetToDisplay(a.supply, a.dec)) + ' · ' + (Number(a.holders) || 0) + " " + i18("assets.holders", "holders")
     + ' · ' + (a.mintable ? i18("assets.isMintable", "mintable") : i18("assets.isFixed", "fixed supply"))
     + '</span></div>').join("")
     : '<span class="faint">' + i18("assets.noneIssued", "You have not issued an asset.") + '</span>';
@@ -7484,8 +7484,9 @@ function _nodeType(st) {
   const snap = st && st.snapshot_height ? ' <span class="mono faint" title="' +
     i18("stats.ndSnapTip", "bootstrapped from a snapshot — no block bodies from before it") + '">snap</span>' : "";
   if (t === "rolling") {
-    const n = st.history_retention ? " " + (st.history_retention >= 1000
-      ? Math.round(st.history_retention / 1000) + "k" : st.history_retention) : "";
+    // Number(): a peer-supplied string here went into innerHTML verbatim (review 2026-09-25) — only digits render
+    const ret = Number(st.history_retention);
+    const n = Number.isFinite(ret) && ret > 0 ? " " + (ret >= 1000 ? Math.round(ret / 1000) + "k" : Math.round(ret)) : "";
     return '<span title="' + i18("stats.ndRollingTip", "prunes block bodies past its retention window") + '">'
       + i18("stats.ndRolling", "rolling") + n + "</span>" + snap;
   }
@@ -7583,7 +7584,7 @@ async function renderNodes() {
     } catch { verdictByTip[h] = "unknown"; }
   }));
   const branchOf = (st) => {
-    const h = st.latest_block_hash;
+    const h = escapeHtml(String(st.latest_block_hash || ""));   // peer-supplied: escaped before any markup (2026-09-25)
     if (!h) return [`<span class="faint">?</span>`, ""];
     const d = (st.latest_block_height != null && relayH != null) ? st.latest_block_height - relayH : 0;
     const v = verdictByTip[h];
@@ -7615,7 +7616,8 @@ async function renderNodes() {
     if (st.snapshot_hash == null || st.snapshot_height == null) return [`<span class="faint">?</span>`, ""];
     const maj = ckpMajByHeight[st.snapshot_height];
     const bad = maj && maj.hash !== st.snapshot_hash;
-    return [`<span class="mono" title="${st.snapshot_hash}">${st.snapshot_height}/${st.snapshot_hash.slice(0, 6)}</span>`
+    const _sh = escapeHtml(String(st.snapshot_hash)), _sn = Number(st.snapshot_height) || 0;   // peer-supplied (2026-09-25)
+    return [`<span class="mono" title="${_sh}">${_sn}/${_sh.slice(0, 6)}</span>`
             + (bad ? ` <span style="color:${_CRED}">✕ fork</span>` : ""), bad ? `color:${_CRED}` : ""];
   };
   const ckpForked = rows.filter(([, st]) => checkpointOf(st)[1]).length;
@@ -8657,19 +8659,22 @@ function msigRefreshStatus() {
   const box = $("msigStatus");
   let tx = null;
   try { tx = msigBlobTx(); }
-  catch (e) { box.innerHTML = '<span class="warn">' + e.message + "</span>"; return; }
+  catch (e) { box.innerHTML = '<span class="warn">' + escapeHtml(String(e.message)) + "</span>"; return; }
   if (!tx) { box.textContent = ""; return; }
   const d = tx.multisig;
+  // EVERY FIELD OF A PASTED PROPOSAL IS ATTACKER-CHOSEN (review 2026-09-25): a "co-signer" can craft recipient,
+  // max_block and threshold, and this ran on paste. Escape strings and coerce numbers before any markup.
+  const _e = (v) => escapeHtml(String(v));
   const mine = state.wallet && d.members.includes(state.wallet.address);
   const signed = tx.signature.map((e) => makeAddress(String(e.public_key || "")));
   const iSigned = state.wallet && signed.includes(state.wallet.address);
   const ready = signed.length >= d.threshold;
   const rows = [
-    i18("msig.stFrom", "From {a}", { a: tx.sender.slice(0, 12) + "…" }),
-    i18("msig.stTo", "to {a}", { a: tx.recipient }),
-    rawToNado(BigInt(tx.amount)) + " NADO",
-    i18("msig.stSigs", "signatures {have}/{need}", { have: signed.length, need: d.threshold }),
-    i18("msig.stExpiry", "valid until block {b}", { b: tx.max_block }),
+    i18("msig.stFrom", "From {a}", { a: _e(String(tx.sender).slice(0, 12)) + "…" }),
+    i18("msig.stTo", "to {a}", { a: _e(tx.recipient) }),
+    _e(rawToNado(BigInt(tx.amount))) + " NADO",
+    i18("msig.stSigs", "signatures {have}/{need}", { have: signed.length, need: Number(d.threshold) || 0 }),
+    i18("msig.stExpiry", "valid until block {b}", { b: Number(tx.max_block) || 0 }),
   ];
   let verdict;
   if (ready) verdict = '<span class="ok">' + i18("msig.stReady", "Ready to submit ✓") + "</span>";
@@ -9106,7 +9111,7 @@ async function renderQuorum() {
         <span style="display:flex;gap:8px;align-items:center">${pid16 ? `<a class="prop-link mono small" href="/quorum#prop=${pid16}" title="${escapeHtml(i18("quorum.linkTip", "Copy a shareable link to this proposal"))}">#${pid16.slice(0, 8)}</a>` : ""}<span class="badge ${p.status === "open" ? "idle" : "ok"}">${i18(stKey, stEn)}</span></span></div>
       <div class="small faint">→ ${exReservedOrAddr(p.recipient || "")}${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
       <div class="progress mt"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></div>
-      <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: p.voters || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
+      <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: Number(p.voters) || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
       ${canVote ? `<button class="accent mt small qvote" data-i="${i}" style="width:100%">${i18("quorum.voteYes", "Vote yes")}</button>` : ""}
       ${canVote ? `<button class="ghost mt small qoppose" data-i="${i}" style="width:100%">${i18("quorum.oppose", "Oppose / withdraw vote")}</button>` : ""}
       ${canExec ? `<button class="primary mt small qexec" data-i="${i}" style="width:100%">${i18("quorum.execute", "Execute payout")}</button>` : ""}</div>`;

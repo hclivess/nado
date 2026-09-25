@@ -1,4 +1,5 @@
 import asyncio
+import re
 import glob
 import ipaddress
 import json
@@ -106,7 +107,18 @@ def _migrate_legacy_peers():
 # survived `int()` there, so one peer advertising "999999999999" made every remote block "deep" fleet-wide
 # and switched the cryptographic settle verification off (SETTLE_PROOF_DEPTH_GATED trusts the depth signal).
 _STATUS_INT_FIELDS = ("latest_block_weight", "latest_block_height", "finalized_height", "ffg_finalized",
-                      "snapshot_height", "reported_uptime", "protocol")
+                      "snapshot_height", "reported_uptime", "protocol", "history_retention")
+# SHAPES, NOT JUST TYPES (review 2026-09-25): this node re-serves every admitted status on /status_pool and the
+# wallet renders several of these fields, so "any string" let one hostile peer put markup into every wallet's Stats
+# tab (history_retention was not checked at all). Honest peers send exactly these shapes — refuse anything else.
+_STATUS_HEX_FIELDS = ("latest_block_hash", "earliest_block_hash", "upcoming_block_hash", "transaction_pool_hash",
+                      "snapshot_hash", "address")
+_STATUS_SHAPES = {
+    "version": re.compile(r"[A-Za-z0-9._+-]{1,64}"),
+    "chain_id": re.compile(r"[A-Za-z0-9._-]{1,48}"),
+    "node_type": re.compile(r"archive|rolling"),
+    "relay_url": re.compile(r"https?://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?/?"),
+}
 _STATUS_STR_FIELDS = ("latest_block_hash", "earliest_block_hash", "upcoming_block_hash",
                       "transaction_pool_hash", "snapshot_hash", "address", "version", "chain_id")
 
@@ -124,6 +136,14 @@ def status_fields_well_typed(status) -> bool:
     for f in _STATUS_STR_FIELDS:
         v = status.get(f)
         if v is not None and not isinstance(v, str):
+            return False
+    for f in _STATUS_HEX_FIELDS:
+        v = status.get(f)
+        if v is not None and not re.fullmatch(r"[0-9a-f]{0,128}", v):
+            return False
+    for f, rx in _STATUS_SHAPES.items():
+        v = status.get(f)
+        if v is not None and not (isinstance(v, str) and rx.fullmatch(v)):
             return False
     return True
 
