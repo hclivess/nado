@@ -22,7 +22,7 @@ _fails = []
 
 # gate -> value on a fresh chain. 1 = live from genesis, 0 = never (its code path is cleanup fodder).
 REROLL = {
-    "DEVICE_ATTEST_HEIGHT": 1, "DEVICE_BIND_HEIGHT": 1, "DEVICE_BIND_STRICT_HEIGHT": 1,
+    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "DEVICE_BIND_HEIGHT": 1, "DEVICE_BIND_STRICT_HEIGHT": 1,
     "DEVICE_BIND_PERMANENT_HEIGHT": 1, "DEVICE_REBIND_INSTANT_HEIGHT": 1, "DEVICE_BIND_PERMANENT_EK_HEIGHT": 1,
     "DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT": 1, "DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT": 1, "DEVICE_ATTEST_EK_HEIGHT": 1,
     "DEVICE_ATTEST_EK_SHORT_HEIGHT": 1, "DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT": 1,
@@ -54,13 +54,14 @@ def main():
             check(f"{name}: found in protocol.py", False)
             continue
         expr = m.group(1).strip()
-        live = eval(expr, {"CHAIN_GENERATION": 25})          # noqa: S307 - our own constant expression
-        nxt = eval(expr, {"CHAIN_GENERATION": 26})
-        # gen 26 (betanet-8) is live: the chain runs the reroll value, and the gen-25 branch is replay history
-        check(f"{name}: the live chain runs the reroll value", nxt == getattr(P, name), f"{nxt} != {getattr(P, name)}")
+        # evaluated at the LIVE generation and the next one: a gen-25 gate already runs its reroll value on gen 27
+        # (its gen-25 branch is history), a gate added on gen 27 runs its live height now and `want` at the next reroll
+        live = eval(expr, {"CHAIN_GENERATION": P.CHAIN_GENERATION})   # noqa: S307 - our own constant expression
+        nxt = eval(expr, {"CHAIN_GENERATION": P.CHAIN_GENERATION + 1})
+        check(f"{name}: live value unchanged", live == getattr(P, name), f"{live} != {getattr(P, name)}")
         check(f"{name}: reroll value {want}", nxt == want, f"got {nxt}")
-        if live not in (0, 1):                                # a real gen-25 height MUST carry the branch
-            check(f"{name}: keyed on CHAIN_GENERATION", "CHAIN_GENERATION == 25" in expr, expr)
+        if live not in (0, 1):                                # a real live height MUST carry the branch
+            check(f"{name}: keyed on CHAIN_GENERATION", f"CHAIN_GENERATION == {P.CHAIN_GENERATION}" in expr, expr)
 
     # 3. nothing new slipped in unkeyed: every *_HEIGHT / *_EPOCH gate is either in the ledger or a plain parameter
     declared = set(re.findall(r"^([A-Z][A-Z0-9_]*(?:HEIGHT|EPOCH)) = ", src, re.M))

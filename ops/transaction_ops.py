@@ -1727,7 +1727,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height),
                                                         height=block_height)
             assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
-            assert ek.get("root_sha256") in DEVICE_ATTEST_EK_ROOTS, \
+            from protocol import EK_ENROL_ROOTS_AT_HEIGHT, ek_roots_at
+            # the set the kernel just verified against (ek_roots_at), not the base set: below the gate the base set
+            # refused Intel V2-root chips the kernel had accepted (protocol.EK_ENROL_ROOTS_AT_HEIGHT)
+            _roots = ek_roots_at(block_height) if int(block_height) >= EK_ENROL_ROOTS_AT_HEIGHT else DEVICE_ATTEST_EK_ROOTS
+            assert ek.get("root_sha256") in _roots, \
                 "endorsement certificate does not chain to a pinned silicon-vendor root"
             _te.validate_publication(str(ek["identity"]), pub)
             eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))

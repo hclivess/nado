@@ -1633,6 +1633,8 @@ def split_open_block_reward(reward: int):
 #                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
 #
+# GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1)
+#
 # CLEANUP AT THE REROLL: with the four "never" gates at 0 the savings lane is plain stake with no device, no pools and
 # no exclusion — so `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`,
 # `open_lane_draw_registry` to `return open_registry`, `reward_ops._pool_split` and the pool transactions go, and the
@@ -2224,6 +2226,12 @@ DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
 ))
 DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT = 58200 if CHAIN_GENERATION == 25 else 1
+# ENROLMENT TRUSTS THE ROOTS IN FORCE (2026-09-25). The kernel verified a tpm_enrol chain against ek_roots_at(height)
+# (V2 included), and the next line re-checked the root against the BASE set only, so an Intel chip whose endorsement
+# certificate walks to the V2 root passed the kernel and was refused anyway — while the wallet's pre-flight (every
+# pinned root) told its owner the chip was fine. From this height validation checks the same set the kernel used.
+# Accepting what was refused is a consensus change: gated at the fleet's adoption block (rule 3), 1 at the next reroll.
+EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
 
 
 def ek_roots_at(height) -> frozenset:

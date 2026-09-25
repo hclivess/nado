@@ -3363,7 +3363,12 @@ class CoreClient(threading.Thread):
                         pass
             now = int(self.memserver.latest_block.get("block_timestamp") or time.time())
             verdict = attest_native.verify_ek(chain, now)
-            if not (verdict.get("ok") and verdict.get("root_sha256") in DEVICE_ATTEST_EK_ROOTS):
+            # the roots consensus will judge this node's enrolment by (ek_roots_at the next block) — the base set
+            # alone refused Intel V2-root chips here too (protocol.EK_ENROL_ROOTS_AT_HEIGHT)
+            from protocol import EK_ENROL_ROOTS_AT_HEIGHT, ek_roots_at
+            _nxt = int(self.memserver.latest_block.get("block_number") or 0) + 1
+            _roots = ek_roots_at(_nxt) if _nxt >= EK_ENROL_ROOTS_AT_HEIGHT else DEVICE_ATTEST_EK_ROOTS
+            if not (verdict.get("ok") and verdict.get("root_sha256") in _roots):
                 self.logger.warning(
                     f"endorsement certificate does not chain to a pinned vendor root "
                     f"({verdict.get('reason') or verdict.get('root_sha256')}) — this node will not enrol")
