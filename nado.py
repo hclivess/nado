@@ -455,6 +455,10 @@ async def status(request):
             # has SEEN (cached by the last /update or daily check — never fetched inline here), and
             # whether it is running behind it. Lets anyone spot a lagging node from /status alone.
             "running_commit": self_update.running_head(),
+            # NATIVE LIBRARIES (2026-09-25): per crate, whether the library the loader opens is present, current
+            # against its Rust sources, and newer than this process (rebuilt but not yet loaded). A peer's rebuild
+            # after a .rs commit was otherwise unverifiable without a shell on the box.
+            "native": self_update.native_report(),
             "latest_main": self_update.latest_known(),
             # PROOF RULE GATES (2026-09-23): a proof is judged by the rules of the block it lands in, and the
             # wallet's on-device prover must produce that format, so the heights are published here rather

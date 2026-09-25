@@ -149,7 +149,9 @@ def t_peer_hint_unknown_commit_kicks_a_check_once():
     calls = []
     def fake_check(trigger):
         calls.append(trigger); fired.set()
-    with patched(_hints={}, check_and_update=fake_check):
+    # wave_delay -> 0: the hint's check waits a random UPDATE_WAVE_JITTER delay (up to minutes) before it runs, and
+    # this test only asks WHETHER it runs — with the real delay it waited 5 s for a thread sleeping up to 180 s
+    with patched(_hints={}, check_and_update=fake_check, wave_delay=lambda _t: 0):
         assert SU.peer_hint("deadbeefcafe"), "unknown commit must kick a check"
         assert fired.wait(5), "the check thread must actually run"
         assert calls == ["peer-hint"], calls

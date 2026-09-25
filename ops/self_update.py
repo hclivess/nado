@@ -848,6 +848,57 @@ def _shared_libs(crate_path):
     return out
 
 
+def _loader_lib(crate):
+    """The ONE library file each crate's loader opens. Every crate is target/release/libnado_<name>.so EXCEPT
+    wasm/goldilocks, whose loader (execnode/stark/goldilocks_native.py) opens libgoldilocks.so. The staleness and
+    digest checks built the libnado_ name for all of them, so goldilocks was never checked: a node that fast-forwarded
+    across a goldilocks change kept a stale library the loader then refused (found 2026-09-25 adding the /status
+    native report). Keep this in step with the loaders."""
+    name = os.path.basename(crate)
+    fn = "libgoldilocks.so" if crate == "wasm/goldilocks" else f"libnado_{name}.so"
+    return os.path.join(_REPO_DIR, crate, "target", "release", fn)
+
+
+_PROC_START = __import__("time").time()          # when THIS process loaded its libraries (native_report)
+_NATIVE_REPORT = [0.0, None]
+
+
+def native_report(max_age=60):
+    """{crate: {"state": ok|stale|missing, "built": ISO-8601 UTC or None, "restart_needed": bool}} plus "ok": bool —
+    published in /status so an operator can read every peer's native libraries without a shell on the box. States
+    use native_guard.is_stale, the loader's own definition. `restart_needed`: the library on disk is newer than this
+    process, so the process still runs the copy it loaded (a rebuild without a restart). Cached `max_age` seconds:
+    it is a few stat calls, but /status is hit constantly."""
+    import time as _t
+    now = _t.time()
+    if _NATIVE_REPORT[1] is not None and now - _NATIVE_REPORT[0] < max_age:
+        return _NATIVE_REPORT[1]
+    try:
+        from execnode.stark import native_guard as _ng
+    except Exception:
+        _ng = None
+    out, all_ok = {}, True
+    for crate in _CRATES:
+        path = os.path.join(_REPO_DIR, crate)
+        if not os.path.isdir(path):
+            continue
+        so = _loader_lib(crate)
+        try:
+            m = os.path.getmtime(so)
+        except OSError:
+            out[crate] = {"state": "missing", "built": None, "restart_needed": False}
+            all_ok = False
+            continue
+        stale = bool(_ng and _ng.is_stale(so, path))
+        out[crate] = {"state": "stale" if stale else "ok",
+                      "built": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(m)),
+                      "restart_needed": m > _PROC_START}
+        all_ok = all_ok and not stale
+    rep = {"ok": all_ok, "crates": out}
+    _NATIVE_REPORT[:] = [now, rep]
+    return rep
+
+
 def _missing_required_libs():
     """Crates from _CRATES that exist in the tree but have NO compiled shared library. These are the ones a
     node cannot run without (there is no Python fallback since betanet-14), so an /update should build them
@@ -893,7 +944,7 @@ def _stale_required_libs():
         path = os.path.join(_REPO_DIR, crate)
         if not os.path.isdir(path):
             continue
-        so = os.path.join(path, "target", "release", f"libnado_{os.path.basename(crate)}.so")
+        so = _loader_lib(crate)
         if not os.path.exists(so):
             continue                                # absent is _missing_required_libs' job, not ours
         try:
@@ -909,7 +960,7 @@ def _lib_digests(crates):
     import hashlib
     out = {}
     for crate in crates:
-        so = os.path.join(_REPO_DIR, crate, "target", "release", f"libnado_{os.path.basename(crate)}.so")
+        so = _loader_lib(crate)
         try:
             with open(so, "rb") as fh:
                 out[crate] = hashlib.sha256(fh.read()).hexdigest()
