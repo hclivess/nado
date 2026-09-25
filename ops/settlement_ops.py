@@ -33,11 +33,13 @@ def active_settler_shares(ns: str, bonded_registry: dict) -> int:
     top = kv_ops.settlement_max_cursor(ns)
     if top < 0:
         return 0
-    from protocol import SETTLE_ANCHOR_HEIGHT, SETTLE_ANCHOR_LONG_CURSORS
-    if top < int(SETTLE_ANCHOR_HEIGHT):
+    from protocol import SETTLE_ANCHOR_LONG_CURSORS
+    # gen 25's SETTLE_ANCHOR_HEIGHT was 1 from gen 26 (deleted). A namespace whose top attested cursor is 0 (the exec
+    # genesis) was below it and keeps the rule it always had there: the window of the highest attested cursor.
+    if top < 1:
         active = kv_ops.settlement_validators_since(ns, top - SETTLE_ACTIVITY_CURSORS)
         return sum(selection_shares(bonded_registry[v]["bonded"]) for v in active if v in bonded_registry)
-    # SETTLE_ANCHOR_HEIGHT: anchor the window by STAKE (see protocol.py). `last` = each recently attesting bonded
+    # THE STAKE ANCHOR: anchor the window by STAKE (protocol.SETTLE_ANCHOR_LONG_CURSORS). `last` = each recently attesting bonded
     # validator's highest cursor; the anchor is the highest cursor that validators holding more than a third of that
     # stake have reached (ties broken by address, so the order is total). A tiny bond at the top cannot move it.
     last = kv_ops.settlement_last_cursors(ns, top - SETTLE_ANCHOR_LONG_CURSORS)

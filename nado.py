@@ -110,7 +110,7 @@ def serialize(output, name=None, compress=None):
 # pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
 # --------------------------------------------------------------------------------------------------
 from ops.net_ops import client_ip_from, unpack_tx
-from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS, LEASE_EPOCHS_BY_CLASS, LEASE_V2_EPOCH, LEASE_ASSERT_CLASSES
+from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS, LEASE_EPOCHS_BY_CLASS, LEASE_ASSERT_CLASSES
 
 try:
     _TRUSTED_PROXIES = frozenset(get_config().get("trusted_proxies") or [])
@@ -451,8 +451,10 @@ async def status(request):
             # the presence-lease constants the wallet mirrors for its countdown / renewal timing — adopted
             # from here (like finality_depth) so a change never strands the browser on a stale literal
             "posw_lease_epochs": POSW_LEASE_EPOCHS,          # the historical / default grant (an identity with no class yet)
-            "lease_epochs_by_class": dict(LEASE_EPOCHS_BY_CLASS),   # LEASE_V2_EPOCH: the wallet reads its class's own lease
-            "lease_v2_epoch": LEASE_V2_EPOCH,
+            "lease_epochs_by_class": dict(LEASE_EPOCHS_BY_CLASS),   # per-class leases: the wallet reads its class's own lease
+            # the per-class lease rules hold from epoch 0 (gen 25's LEASE_V2_EPOCH, 0 from gen 26, is deleted); the field
+            # stays at that value because the wallet still reads it
+            "lease_v2_epoch": 0,
             "lease_assert_classes": sorted(LEASE_ASSERT_CLASSES),
             "fidelity_min_gap_epochs": FIDELITY_MIN_GAP_EPOCHS,
             # DEGRADATION VISIBILITY, same purpose as update_capable: without the native ML-DSA lib
@@ -475,11 +477,12 @@ async def status(request):
             "latest_main": self_update.latest_known(),
             # PROOF RULE GATES (2026-09-23): a proof is judged by the rules of the block it lands in, and the
             # wallet's on-device prover must produce that format, so the heights are published here rather
-            # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2).
-            "proof_rules": {"bind": _proto.PROOF_BIND_HEIGHT, "block_selector": _proto.PROOF_BLOCK_SELECTOR_HEIGHT,
-                            "round2": _proto.REVIEW_R2_HEIGHT, "shield_wide": _proto.SHIELD_WIDE_HEIGHT,
-                            "trace_ldt": _proto.PROOF_TRACE_LDT_HEIGHT,
-                            "full_query": _proto.PROOF_QUERY_FULL_HEIGHT},
+            # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2). Every one of
+            # these rules is live from block 1 since gen 26 — their gen-25 gates (PROOF_BIND_HEIGHT,
+            # PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, SHIELD_WIDE_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
+            # PROOF_QUERY_FULL_HEIGHT) are deleted — and the wallet still reads the heights, so each is served as 1.
+            "proof_rules": {"bind": 1, "block_selector": 1, "round2": 1, "shield_wide": 1, "trace_ldt": 1,
+                            "full_query": 1},
             # THE CHAIN CLOCK VS THE WALL (2026-09-23): what TIME reads at the tip and how far behind (or ahead
             # of) real time it is — the number the next reroll's cadence is set from, visible without a script.
             "chain_clock": {"cadence_ds": _proto.CHAIN_CLOCK_CADENCE_DS,
@@ -1071,7 +1074,7 @@ def _enrich_account(addr, data):
     trigger were wrong too. A second enrichment site is how that happened; there is now only one."""
     from ops import kv_ops as _kv
     from ops.node_attest import bind_info as _bi
-    from protocol import lease_epochs_for as _lef, lease_v2_at as _lv2, EPOCH_LENGTH as _EL
+    from protocol import lease_epochs_for as _lef, EPOCH_LENGTH as _EL
     data["reg_epoch"] = _kv.recert_latest(addr)      # latest recert epoch (presence lease)
     # BINDING MODE (doc/device-attestation.md §"Binding modes"): the wallet reads `devbind.mode` to know whether
     # this identity renews without a statement ("perm", live) or needs one every lease ("lease")
@@ -1079,13 +1082,13 @@ def _enrich_account(addr, data):
     _tip = int((memserver.latest_block or {}).get("block_number") or 0)
     _ep = _tip // _EL
     _reg = int(data["reg_epoch"]) if isinstance(data.get("reg_epoch"), int) else -1
-    # PER-CLASS LEASES (LEASE_V2_EPOCH): the lease THIS identity's latest recert granted (its countdown), the lease
+    # PER-CLASS LEASES: the lease THIS identity's latest recert granted (its countdown), the lease
     # its class grants now, and whether it may renew by credential signature (assert-class + a credential on chain)
     data["devbind"] = {"mode": _b["bind_mode"], "cls": _b["bind_cls"], "handle": _b.get("bind_handle"),
                        "live": _b["bind_live"], "epoch": _b["bind_epoch"],
                        "lease_epochs": _kv.lease_of(addr, _reg) if _reg >= 0 else _lef(_b["bind_cls"], _ep),
                        "lease_epochs_next": _lef(_b["bind_cls"], _ep),
-                       "assert_ok": bool(_lv2(_ep) and _b["bind_cls"] in LEASE_ASSERT_CLASSES
+                       "assert_ok": bool(_b["bind_cls"] in LEASE_ASSERT_CLASSES
                                          and isinstance(data.get("devcred"), str) and data.get("devcred"))}
     return data
 
@@ -1275,11 +1278,11 @@ async def devbind_lookup(request):
                    "bound_to": None, "bound_epoch": -1, "mode": None, "movable_at_epoch": None}
             if row:
                 tip = int(memserver.latest_block["block_number"])
-                instant = bool(_p.DEVICE_REBIND_INSTANT_HEIGHT and tip + 1 >= _p.DEVICE_REBIND_INSTANT_HEIGHT)
                 out.update({"bound_to": row[0], "bound_epoch": int(row[1]), "mode": row[2],
-                            # instant moves: movable now (the other identity is evicted in the same block)
-                            "movable_at_epoch": (tip // _p.EPOCH_LENGTH) if instant else int(row[1]) + _p.POSW_LEASE_EPOCHS,
-                            "evicts": instant})
+                            # instant moves (every block from 1; gen 25's DEVICE_REBIND_INSTANT_HEIGHT is deleted):
+                            # movable now, the other identity is evicted in the same block
+                            "movable_at_epoch": tip // _p.EPOCH_LENGTH,
+                            "evicts": True})
             return out
         return _resp(await asyncio.to_thread(_work))
     except Exception as e:
@@ -2590,7 +2593,7 @@ async def get_open_weights(request):
             # the reconstruction needs rows from max(0, E - lookback); refuse iff pruning has
             # crossed that floor (with nothing pruned yet — watermark 0 — every epoch serves).
             # The lookback is a function of E (protocol.saturation_lookback_at): it grows towards the 7-day bound
-            # from LEASE_V2_EPOCH on instead of refusing every epoch the day the leases lengthen.
+            # instead of refusing every epoch the day the leases lengthen.
             if max(0, e - saturation_lookback_at(e)) < _kv.meta_get_int("gc_rows_below", 0):
                 return {"error": "epoch too old: recert history pruned (bootstrap the exec node "
                                  "from a settled checkpoint)", "epoch": e}

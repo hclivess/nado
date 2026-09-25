@@ -261,10 +261,7 @@ def renew_without_statement(memserver, tip: int, logger=None) -> dict:
     statement (accepted by validation only while its devbind row points back at it). Same merge + gossip path as
     a dropped statement; the identity log records it as bind "renew"."""
     from ops.transaction_ops import construct_register_tx
-    from protocol import DEVICE_BIND_PERMANENT_HEIGHT
-    target = int(tip) + RENEW_TARGET_MARGIN
-    if not DEVICE_BIND_PERMANENT_HEIGHT or target < DEVICE_BIND_PERMANENT_HEIGHT:
-        return {"result": False, "message": "permanent bindings are not live yet"}
+    target = int(tip) + RENEW_TARGET_MARGIN      # (>= 30: gen 25's DEVICE_BIND_PERMANENT_HEIGHT, 1 from gen 26, is deleted)
     tx = construct_register_tx(memserver.keydict, target)
     result = memserver.merge_transaction(tx, user_origin=True)
     ok = bool(isinstance(result, dict) and result.get("result"))

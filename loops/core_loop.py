@@ -598,7 +598,7 @@ class CoreClient(threading.Thread):
                     self.maybe_auto_collect()
                     self.maybe_auto_register()
                     self.maybe_auto_vote()
-                    # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT): answer the enrolments
+                    # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md): answer the enrolments
                     # this node was DRAWN to challenge. Without this every enrolment expires unanswered.
                     self.maybe_tpm_challenge()
                     # ...and enrol THIS machine's own chip, so a headless node attests itself and mines.
@@ -2913,14 +2913,6 @@ class CoreClient(threading.Thread):
             self._start_tx_reindex()
         return pending
 
-    @staticmethod
-    def _replay_tolerated(height: int) -> bool:
-        """Below TX_AT_MOST_ONCE_STRICT_HEIGHT the chain's own history stands: a replayed tx is applied again,
-        as the fleet applied it, so a complete-index node reaches the fleet's state root instead of refusing
-        the block forever. Pure function of height — see protocol.TX_AT_MOST_ONCE_STRICT_HEIGHT."""
-        from protocol import TX_AT_MOST_ONCE_STRICT_HEIGHT
-        return bool(TX_AT_MOST_ONCE_STRICT_HEIGHT) and int(height) < int(TX_AT_MOST_ONCE_STRICT_HEIGHT)
-
     def _held_back(self, tx, next_height: int) -> bool:
         """True when `tx` entered the pool THROUGH THIS NODE in the current slot, so it must not go into
         the block this node builds now.
@@ -3412,13 +3404,12 @@ class CoreClient(threading.Thread):
 
         Best-effort; never raises."""
         try:
-            from protocol import (DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS, CHAIN_ID,
-                                  POSW_LEASE_EPOCHS, POSW_ANCHOR_OFFSET)
+            from protocol import DEVICE_ATTEST_EK_CHALLENGERS, CHAIN_ID, POSW_LEASE_EPOCHS, POSW_ANCHOR_OFFSET
             from ops import tpm_enrol as _te, tpm_aik
             from ops.transaction_ops import (construct_tpm_tx, construct_register_tx,
                                              register_device_challenge)
             tip = self.memserver.latest_block["block_number"]
-            if not (DEVICE_ATTEST_EK_HEIGHT and tip >= DEVICE_ATTEST_EK_HEIGHT):
+            if tip < 1:                     # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT)
                 return
             ident = self._tpm_identity()
             if not ident:
@@ -3552,7 +3543,7 @@ class CoreClient(threading.Thread):
                 tpm.close()
 
     def maybe_tpm_ready(self):
-        """ANNOUNCE THAT THIS NODE WILL ANSWER CHALLENGES (protocol.DEVICE_ATTEST_EK_READY_HEIGHT).
+        """ANNOUNCE THAT THIS NODE WILL ANSWER CHALLENGES (the tpm_ready transaction).
 
         The draw has to choose challengers from somewhere, and every on-chain signal it used before was a
         proxy for the wrong thing: bonded stake measures capital, block production measures winning a
@@ -3563,14 +3554,13 @@ class CoreClient(threading.Thread):
         So a node says so itself. One zero-amount message, re-sent while it keeps running, and the draw
         prefers addresses that have volunteered. Opt out with `"challenger": false` in config.json: the
         node stops announcing and drops out of the pool when the window lapses."""
-        from protocol import (DEVICE_ATTEST_EK_READY_HEIGHT, DEVICE_ATTEST_EK_READY_EVERY,
-                              TX_LANDING_WINDOW, RESERVED_TX_MARGIN)
+        from protocol import DEVICE_ATTEST_EK_READY_EVERY, TX_LANDING_WINDOW, RESERVED_TX_MARGIN
         from ops.transaction_ops import construct_tpm_tx
         try:
             if not self.memserver.config.get("challenger", True):
                 return
             tip = int((self.memserver.latest_block or {}).get("block_number") or 0)
-            if not (DEVICE_ATTEST_EK_READY_HEIGHT and tip >= DEVICE_ATTEST_EK_READY_HEIGHT):
+            if tip < 1:                     # tpm_ready is valid from block 1 (gen 25's DEVICE_ATTEST_EK_READY_HEIGHT)
                 return
             if tip - getattr(self, "_tpm_ready_at", -10 ** 9) < DEVICE_ATTEST_EK_READY_EVERY:
                 return
@@ -3620,9 +3610,9 @@ class CoreClient(threading.Thread):
 
         Best-effort; never raises."""
         try:
-            from protocol import DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS
+            from protocol import DEVICE_ATTEST_EK_CHALLENGERS
             tip = self.memserver.latest_block["block_number"]
-            if not (DEVICE_ATTEST_EK_HEIGHT and tip >= DEVICE_ATTEST_EK_HEIGHT):
+            if tip < 1:                     # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT)
                 return
             me = self.memserver.address
             # NO ELIGIBILITY TEST HERE. The draw decides who may answer, and the only membership question
@@ -4426,10 +4416,9 @@ class CoreClient(threading.Thread):
         Cheap: a positive answer is memoised for the epoch (the draw caches its own scan on success); a
         negative one is re-asked every RULES_EVAL_RECHECK_S so a finished fill lifts the gate promptly."""
         from ops.transaction_ops import _proven_challengers, proven_window
-        from protocol import DEVICE_ATTEST_EK_PROVEN_HEIGHT, EPOCH_LENGTH
+        from protocol import EPOCH_LENGTH
+        # (next_h >= 1, where the proven-challenger draw always applies: gen 25's DEVICE_ATTEST_EK_PROVEN_HEIGHT is deleted)
         next_h = int(self.memserver.latest_block["block_number"]) + 1
-        if not DEVICE_ATTEST_EK_PROVEN_HEIGHT or next_h < DEVICE_ATTEST_EK_PROVEN_HEIGHT:
-            return True
         epoch = next_h // EPOCH_LENGTH
         now = time.monotonic()
         memo = getattr(self, "_rules_eval_memo", None)            # (epoch, ok, checked_at)
@@ -5056,20 +5045,16 @@ class CoreClient(threading.Thread):
             # NOT VALID, NOT INVALID — NOT YET. With the index rebuilding, "not mined" is not knowledge and
             # "mined" may be a stale row: this node cannot judge at-most-once at all. Defer the block (the
             # caller retries later, nobody is struck) rather than answer blind — answering blind is how
-            # 13 replays reached the canonical chain (protocol.TX_AT_MOST_ONCE_STRICT_HEIGHT).
+            # 13 replays reached the canonical chain on gen 25 (its TX_AT_MOST_ONCE_STRICT_HEIGHT history).
             raise ProofUnavailable("tx index is rebuilding — cannot judge at-most-once yet")
         if already_mined and remote:
             # RESIDUE IS NOT A REPLAY (2026-09-13). "Already mined" can mean a row left behind by a branch
             # we no longer hold — see _purge_index_residue. Drop rows whose block is not on our chain, re-ask.
             self._purge_index_residue([t.get("txid") for t in already_mined])
             already_mined = [t for t in already_mined if kv_ops.tx_get(t.get("txid")) is not None]
-        if already_mined and remote and self._replay_tolerated(block["block_number"]):
-            # THE CHAIN'S OWN HISTORY STANDS. Below the strict height the fleet applied these replays; a node
-            # that refuses them here (the three with a complete index did, for hours and for months) can
-            # never reach the fleet's state root. Apply them again exactly as the fleet did, and say so.
-            self.logger.warning(f"Block {block['block_number']} replays {len(already_mined)} tx(s) mined earlier — "
-                                f"tolerated below TX_AT_MOST_ONCE_STRICT_HEIGHT, applied as the fleet applied them")
-            already_mined = []
+        # AT-MOST-ONCE IS STRICT AT EVERY HEIGHT. Gen 25 tolerated the replays its fleet had applied below
+        # TX_AT_MOST_ONCE_STRICT_HEIGHT; that gate was 1 from gen 26 and is deleted with the tolerance, which could
+        # only ever apply to block 0 — and a remote block is rebuilt at our tip + 1 (rebuild_block), never 0.
         if already_mined:
             if remote:
                 self.logger.error(f"Block {block['block_number']} replays {len(already_mined)} already-mined tx(s)")

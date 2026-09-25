@@ -195,12 +195,12 @@ def enrol_window(created_height: int) -> int:
     A FUNCTION OF THE RECORD, NOT OF NOW. Deriving it from the height a record is evaluated at would move
     its deadline under it — a record could be live to one caller and expired to another at the same
     moment, and a supersede valid on one node and invalid on the next, which is a fork over block
-    validity rather than a disagreement about a timer."""
-    from protocol import (DEVICE_ATTEST_EK_ENROL_BLOCKS, DEVICE_ATTEST_EK_ENROL_SHORT,
-                          DEVICE_ATTEST_EK_SHORT_HEIGHT)
-    if DEVICE_ATTEST_EK_SHORT_HEIGHT and int(created_height) >= DEVICE_ATTEST_EK_SHORT_HEIGHT:
-        return DEVICE_ATTEST_EK_ENROL_SHORT
-    return DEVICE_ATTEST_EK_ENROL_BLOCKS
+    validity rather than a disagreement about a timer.
+
+    Every record is created by a tpm_enrol in a block >= 1 (genesis carries no transactions), and gen 25's
+    DEVICE_ATTEST_EK_SHORT_HEIGHT was 1 from gen 26 (deleted), so every record takes the short window."""
+    from protocol import DEVICE_ATTEST_EK_ENROL_SHORT
+    return DEVICE_ATTEST_EK_ENROL_SHORT
 
 
 def _is_hex(s: str) -> bool:

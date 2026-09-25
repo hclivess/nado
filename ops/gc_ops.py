@@ -45,7 +45,7 @@ def apply_idle_gc(block_height: int, logger) -> dict:
     if block_height % EPOCH_LENGTH != 0 or block_height == 0:
         return {"accounts": 0, "rows": 0}
     epoch = block_height // EPOCH_LENGTH
-    row_horizon = epoch - recert_history_epochs(epoch)      # gated: the horizon widens with the 7-day leases (LEASE_V2_EPOCH)
+    row_horizon = epoch - recert_history_epochs(epoch)      # the horizon the 7-day leases need (RECERT_HISTORY_EPOCHS_V2)
     acct_horizon = epoch - GC_IDLE_EPOCHS
     record = {"rows": [], "accounts": [], "bond_since": [], "wm_rows": None, "wm_accts": None}
     work = 0

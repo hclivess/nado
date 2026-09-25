@@ -102,7 +102,7 @@ def credential_public_key(device) -> str | None:
     """Hex of the COSE public key the WebAuthn statement's authenticator data carries (credentialPublicKey), or None for
     a shape with no WebAuthn credential (a hardware-wallet statement has authData b"", a helper proof has none). Pure in
     the tx bytes: apply derives the account's `devcred` from this, so every node stamps the identical value
-    (protocol.LEASE_V2_EPOCH); a signature renewal is later verified against exactly these bytes."""
+    (gen 25's LEASE_V2_EPOCH); a signature renewal is later verified against exactly these bytes."""
     try:
         att = cbor_decode(_b64d(str(device.get("att", ""))))
         ad = att.get("authData") if isinstance(att, dict) else None

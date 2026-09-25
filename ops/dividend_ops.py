@@ -46,7 +46,7 @@ def present_at_epoch(epoch: int) -> set:
         # PER-CLASS LEASES: valid at `epoch` iff the latest recert's OWN grant still covers it (kv_ops.lease_of; a pre-gate
         # recert reads POSW_LEASE_EPOCHS, so every historical epoch reconstructs exactly as before)
         if recs and epoch - recs[-1] < kv_ops.lease_of(addr, recs[-1]):
-            # EVICTED (DEVICE_REBIND_INSTANT_HEIGHT): a device move at or before `epoch` voided this lease — only a recert
+            # EVICTED (an instant device move): a device move at or before `epoch` voided this lease — only a recert
             # newer than the voided one counts. Eviction rows are epoch-stamped consensus state, so this reconstructs
             # identically for any past epoch (the same rule get_open_registry applies live).
             if recs[-1] <= kv_ops.devevict_voided(addr, epoch):
@@ -63,16 +63,15 @@ def weights_at_epoch(epoch: int) -> dict:
     re-derives."""
     # A 0 weight (no fidelity at all) means ABSENT from the set — the exec accrual floors listed weights to 1, so
     # listing is the grant. Gen 24 used this omission for probation; gen 25 has none, so only fidelity 0 is absent.
-    from protocol import DIVIDEND_ATTESTED_EPOCH
     out = {}
     for addr in present_at_epoch(epoch):
-        # DIVIDENDS REQUIRE ATTESTATION (protocol.DIVIDEND_ATTESTED_EPOCH): a genesis-seeded identity (only recert at
-        # epoch 0, never attested) produces blocks but takes no dividend from the gate on. Same recert history the
-        # present set is derived from, so every node and the fraud-proof replay agree.
-        if epoch >= DIVIDEND_ATTESTED_EPOCH:
-            recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
-            if not recs or recs[-1] <= 0:
-                continue
+        # DIVIDENDS REQUIRE ATTESTATION: a genesis-seeded identity (only recert at epoch 0, never attested) produces
+        # blocks but takes no dividend. Same recert history the present set is derived from, so every node and the
+        # fraud-proof replay agree. Unconditional: gen 25's DIVIDEND_ATTESTED_EPOCH was 0 from gen 26 (deleted), and a
+        # present address has a recert <= epoch, so `epoch >= 0` always held here.
+        recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
+        if not recs or recs[-1] <= 0:
+            continue
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
         if w > 0:
             out[addr] = w

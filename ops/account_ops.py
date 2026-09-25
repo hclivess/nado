@@ -1,7 +1,7 @@
 import threading
 
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, lease_v2_at, lease_epochs_for, LEASE_EPOCHS_MAX, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, lease_epochs_for, LEASE_EPOCHS_MAX, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -84,41 +84,38 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # registered flag; `heartbeat` (one per epoch) records presence + bumps fidelity. Neither moves
     # balance or charges a fee (a 0-balance address could not pay one) — validation enforces fee==0.
     if recipient == "register":
-        # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT): from the gate the register's device certificate is
-        # bound to the sender for one lease. Derived HERE from the tx bytes (validation already accepted them), so
-        # apply and revert see the same key; below the gate nothing is written and old blocks replay unchanged.
-        from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
-                              DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, permanent_classes_at)
+        # ONE DEVICE, ONE IDENTITY: the register's device certificate is bound to the sender. Derived HERE from the tx
+        # bytes (validation already accepted them), so apply and revert see the same key. The device gates of gen 25
+        # (DEVICE_BIND_HEIGHT, _STRICT_, _PERMANENT_, DEVICE_REBIND_INSTANT_HEIGHT) were all 1 from gen 26 and are
+        # deleted: apply runs only for a block's own transactions and genesis carries none, so block_height >= 1 here
+        # and every one of them held. (block_height None raises at apply_register's epoch below, as it always did.)
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
         device_key, permanent = None, False
-        instant = bool(DEVICE_REBIND_INSTANT_HEIGHT and block_height is not None and block_height >= DEVICE_REBIND_INSTANT_HEIGHT)
-        if DEVICE_BIND_HEIGHT and block_height is not None and block_height >= DEVICE_BIND_HEIGHT:
-            # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register with NO
-            # statement is a hardware identity's statement-free presence renewal (validation admitted it only because
-            # devbind[devkey] points back at the sender) — it writes nothing to devbind. A statement from a permanent class
-            # binds for life. Same parse as validation, at the block's own height.
-            has_device = isinstance(transaction.get("device"), dict)
-            # a SIGNATURE RENEWAL (transaction_ops.is_assert_device) carries no certificate: it binds nothing and stamps
-            # nothing, like a statement-free renewal — the lease grant it writes is by the class already on the account
-            from ops.transaction_ops import is_assert_device as _is_assert
-            if _is_assert(transaction.get("device")):
-                has_device = False
-            elif has_device or block_height < DEVICE_BIND_PERMANENT_HEIGHT:
-                from ops.device_attest import device_binding_key
-                device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                                strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)   # same parse as validation
-                # permanent_classes_at(height), not the constant: "ek" joins at DEVICE_BIND_PERMANENT_EK_HEIGHT and an
-                # older block must replay under the set in force when it was made (same call as validation)
-                permanent = (block_height >= DEVICE_BIND_PERMANENT_HEIGHT
-                             and device_key.split(":", 1)[0] in permanent_classes_at(block_height))
-        # THE CREDENTIAL, from the tx bytes (LEASE_V2_EPOCH): the COSE public key inside the statement's authenticator data
-        # becomes the account's `devcred`, which a later signature renewal is verified against. Pure in the bytes every
-        # node holds, so apply stamps the identical value everywhere; None for shapes with no WebAuthn credential.
+        # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register with NO statement is a hardware
+        # identity's statement-free presence renewal (validation admitted it only because devbind[devkey] points back at
+        # the sender) — it writes nothing to devbind. A statement from a permanent class binds for life. Same parse as
+        # validation (strict), at the block's own height.
+        has_device = isinstance(transaction.get("device"), dict)
+        # a SIGNATURE RENEWAL (transaction_ops.is_assert_device) carries no certificate: it binds nothing and stamps
+        # nothing, like a statement-free renewal — the lease grant it writes is by the class already on the account
+        from ops.transaction_ops import is_assert_device as _is_assert
+        if _is_assert(transaction.get("device")):
+            has_device = False
+        elif has_device:
+            from ops.device_attest import device_binding_key
+            device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
+                                            strict=True)   # same parse as validation
+            # permanent_classes_at(height), the same call as validation
+            permanent = device_key.split(":", 1)[0] in permanent_classes_at(block_height)
+        # THE CREDENTIAL, from the tx bytes: the COSE public key inside the statement's authenticator data becomes the
+        # account's `devcred`, which a later signature renewal is verified against. Pure in the bytes every node holds, so
+        # apply stamps the identical value everywhere; None for shapes with no WebAuthn credential.
         cred_pub = None
-        if device_key and not revert and lease_v2_at(block_height // EPOCH_LENGTH):
+        if device_key and not revert:
             from ops.device_attest import credential_public_key
             cred_pub = credential_public_key(transaction.get("device") or {})
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
-                       device_key=device_key, permanent=permanent, instant=instant, cred_pub=cred_pub)
+                       device_key=device_key, permanent=permanent, cred_pub=cred_pub)
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -130,7 +127,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
                      logger=logger, revert=revert)
         return
 
-    # --- VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
+    # --- VENDOR-ENDORSED TPM ENROLMENT (gen 25's DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
     #     the four-message proof that an attestation key lives inside a vendor-certified chip. Fee-exempt, no
     #     coin movement, one consensus row per enrolment. Revert-symmetric: apply journals the WHOLE previous
     #     record (or None when it created the row), so a rollback restores the exact prior state — the state
@@ -233,10 +230,9 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # A settle-with-proof also records the on-chain VALIDITY marker (validation already verified the proof
         # deterministically, so a settle tx that reached apply with a `proof` is proven). settlement_justified
         # then reads this committed marker — the trustless, fork-free replacement for the old node-local cache.
-        # S4 (REVIEW_R2_HEIGHT): a DA-carried proof (`proof_da`) was fully verified at validation but never
-        # recorded the proven marker, so the settle it justified fell back to the quorum path.
-        from protocol import REVIEW_R2_HEIGHT as _R2
-        proven = "proof" in data or (block_height is not None and int(block_height) >= int(_R2) and "proof_da" in data)
+        # S4: a DA-carried proof (`proof_da`) was fully verified at validation but never recorded the proven marker, so
+        # the settle it justified fell back to the quorum path. `>= 1` is gen 25's REVIEW_R2_HEIGHT from gen 26 (deleted).
+        proven = "proof" in data or (block_height is not None and int(block_height) >= 1 and "proof_da" in data)
         if revert:
             kv_ops.settlement_del(ns, cursor, sender, root)
             if proven:
@@ -693,7 +689,7 @@ def get_open_registry(current_epoch: int):
         # ONE txn for every member doc (get_accounts_many) — the same docs get_account returns, without an
         # env.begin() per address. Iteration order is irrelevant to the result (a dict keyed by address).
         registry = {}
-        # PER-CLASS LEASES (protocol.LEASE_V2_EPOCH): the candidate set is every address with a recert inside the LONGEST
+        # PER-CLASS LEASES (gen 25's LEASE_V2_EPOCH): the candidate set is every address with a recert inside the LONGEST
         # lease; each is present iff its latest recert's own GRANT still covers this epoch (kv_ops.lease_of — the same
         # reader dividend_ops.present_at_epoch uses; pre-gate recerts read as POSW_LEASE_EPOCHS, so history is unchanged).
         members = kv_ops.recert_addresses_after(current_epoch - LEASE_EPOCHS_MAX)
@@ -724,8 +720,7 @@ def get_open_registry(current_epoch: int):
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
-def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, instant=False,
-                   cred_pub=None):
+def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, cred_pub=None):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
@@ -733,7 +728,7 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
     exact fidelity net is stored (hb_revert store reused) and restored, the recert rows removed, and
     `registered` cleared only if no recert remains.
 
-    `device_key` (from protocol.DEVICE_BIND_HEIGHT): the register's device certificate is bound to `address` at
+    `device_key`: the register's device certificate is bound to `address` at
     `epoch` in the consensus devbind table; the value it overwrote is journaled (devbind_revert) and restored on
     rollback — rollback_one_block must be the EXACT inverse of incorporate_block (the h4260 lesson)."""
     if revert:
@@ -763,7 +758,7 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             if evicted is not None:
                 kv_ops.devevict_set(evicted, prev_evict)      # the evicted identity's eviction list, exactly as before
         if fields is not None:
-            # LEASE_V2_EPOCH: the statement stamped `devkey` (every class) and `devcred`; put back exactly what it overwrote.
+            # The statement stamped `devkey` (every class) and `devcred`; put back exactly what it overwrote.
             # The permanent-binding journal above restored `devkey` to the same value — the two records were cut from the
             # same account state, so this is idempotent, and it is the ONLY restore path for a leased class.
             for name, prev_val in zip(("devkey", "devcred"), fields):
@@ -772,7 +767,6 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
                 else:
                     kv_ops.account_set_field(address, name, prev_val)
     else:
-        v2 = lease_v2_at(epoch)
         acc_before = kv_ops.get_account(address) or {}
         fields = None
         if device_key:
@@ -781,11 +775,12 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             # row no longer points back at it) and stamps the sender's account with `devkey`, the reverse index a
             # statement-free renewal is validated against. The journal carries the previous row AND the previous devkey.
             prev_bind = kv_ops.devbind_get(device_key)
-            # INSTANT MOVE (DEVICE_REBIND_INSTANT_HEIGHT): the device leaves another identity -> that identity is EVICTED in
-            # this block: its current lease is voided (an eviction row names the recert epoch it voids), so it drops out of
-            # the open registry and the epoch weights at once and comes back only with a NEWER register of its own.
+            # INSTANT MOVE: the device leaves another identity -> that identity is EVICTED in this block: its current lease
+            # is voided (an eviction row names the recert epoch it voids), so it drops out of the open registry and the
+            # epoch weights at once and comes back only with a NEWER register of its own. (Unconditional: the only caller
+            # passes a block's own height, where gen 25's DEVICE_REBIND_INSTANT_HEIGHT — 1 from gen 26 — always held.)
             evicted, prev_evict = None, None
-            if instant and prev_bind and prev_bind[0] != address:
+            if prev_bind and prev_bind[0] != address:
                 evicted = prev_bind[0]
                 prev_evict = kv_ops.devevict_get(evicted)
                 kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])
@@ -798,22 +793,21 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             else:
                 kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch)
-            if v2:
-                # STAMP THE HANDLE FOR EVERY CLASS, AND THE CREDENTIAL (protocol.LEASE_V2_EPOCH). `devkey` is the reverse
-                # index — account -> the device that vouches for it — that a statement-free or signature renewal is
-                # validated against, and what lets /get_account name the class; `devcred` is the COSE public key of the
-                # WebAuthn credential the statement created, the key a signature renewal (LEASE_ASSERT_CLASSES) verifies.
-                # The exact previous values go into the recert journal (hb_revert `fields`) so a rollback restores or
-                # deletes both — the earlier attempt at this stamp (DEVICE_BIND_DEVKEY_ALL_EPOCH) forked one node because
-                # its HEIGHT was wrong, not the rule; and it had no restore path for a leased class, which this has.
-                prev_dk = acc_before.get("devkey") if isinstance(acc_before.get("devkey"), str) else None
-                prev_dc = acc_before.get("devcred") if isinstance(acc_before.get("devcred"), str) else None
-                fields = [prev_dk, prev_dc]
-                kv_ops.account_set_field(address, "devkey", device_key)
-                if cred_pub:
-                    kv_ops.account_set_field(address, "devcred", str(cred_pub))
-                else:
-                    kv_ops.account_del_field(address, "devcred")    # a hardware wallet / chip statement has no WebAuthn credential
+            # STAMP THE HANDLE FOR EVERY CLASS, AND THE CREDENTIAL (every epoch; gen 25's LEASE_V2_EPOCH). `devkey` is the reverse
+            # index — account -> the device that vouches for it — that a statement-free or signature renewal is
+            # validated against, and what lets /get_account name the class; `devcred` is the COSE public key of the
+            # WebAuthn credential the statement created, the key a signature renewal (LEASE_ASSERT_CLASSES) verifies.
+            # The exact previous values go into the recert journal (hb_revert `fields`) so a rollback restores or
+            # deletes both — the earlier attempt at this stamp (DEVICE_BIND_DEVKEY_ALL_EPOCH) forked one node because
+            # its HEIGHT was wrong, not the rule; and it had no restore path for a leased class, which this has.
+            prev_dk = acc_before.get("devkey") if isinstance(acc_before.get("devkey"), str) else None
+            prev_dc = acc_before.get("devcred") if isinstance(acc_before.get("devcred"), str) else None
+            fields = [prev_dk, prev_dc]
+            kv_ops.account_set_field(address, "devkey", device_key)
+            if cred_pub:
+                kv_ops.account_set_field(address, "devcred", str(cred_pub))
+            else:
+                kv_ops.account_del_field(address, "devcred")    # a hardware wallet / chip statement has no WebAuthn credential
         prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
         acc = kv_ops.get_account(address)
         cur_fid = int(acc.get("fidelity", 0)) if acc else 0
@@ -827,13 +821,13 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
         # and the softened lapse (halve, not reset).
         net = fidelity_step(cur_fid, continuous, epoch - prev, epoch) - cur_fid
         kv_ops.recert_put(address, epoch)
-        if v2:
-            # THE GRANT (protocol.LEASE_V2_EPOCH): this recert keeps the identity present for its class's lease. The class is
-            # the statement's device when there is one, else the device already stamped on the account (a statement-free or
-            # signature renewal); an identity with neither is on the historical lease until its next statement.
-            dk_now = device_key or (acc.get("devkey") if acc and isinstance(acc.get("devkey"), str) else None)
-            cls = dk_now.split(":", 1)[0] if dk_now else None
-            kv_ops.lease_grant_put(address, epoch, lease_epochs_for(cls, epoch))
+        # THE GRANT (every epoch; gen 25's LEASE_V2_EPOCH was 0 from gen 26): this recert keeps the identity present for
+        # its class's lease. The class is the statement's device when there is one, else the device already stamped on
+        # the account (a statement-free or signature renewal); an identity with neither is on the historical lease until
+        # its next statement.
+        dk_now = device_key or (acc.get("devkey") if acc and isinstance(acc.get("devkey"), str) else None)
+        cls = dk_now.split(":", 1)[0] if dk_now else None
+        kv_ops.lease_grant_put(address, epoch, lease_epochs_for(cls, epoch))
         kv_ops.account_set(address, "registered", 1)
         if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):
             raise AssertionError(f"Fidelity underflow for {address}")

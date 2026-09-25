@@ -92,7 +92,7 @@ _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_rever
 # (pool_revert — the staking-pool journal — was node-local, never in SNAPSHOT_DBS or the state root, and never written
 # from generation 26 on; it left both tuples with the pool code, so SNAPSHOT_DBS and the root are unchanged.)
 # devbind (device certificate -> {address, epoch}, ops/device_attest.device_binding_key) IS consensus state: written
-# only by apply_register from protocol.DEVICE_BIND_HEIGHT, block-derived, so it stays IN the snapshot and the root.
+# only by apply_register from gen 25's DEVICE_BIND_HEIGHT, block-derived, so it stays IN the snapshot and the root.
 # devbind_revert is its rollback journal (keyed epoch|address), node-local like every other *_revert.
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 DUP_DBS = frozenset(_DUP_DBS)     # the DUPSORT set, for readers that must treat multi-value keys differently
@@ -2117,7 +2117,7 @@ def hb_revert_pop(epoch: int, address: str):
     return _write(_do)
 
 
-# --- LEASE GRANTS (protocol.LEASE_V2_EPOCH) --------------------------------------------------------------------
+# --- LEASE GRANTS (gen 25's LEASE_V2_EPOCH) --------------------------------------------------------------------
 # "lease:<address>:<epoch>" -> msgpack([lease_epochs]) in the devbind sub-DB — the same trick the eviction and
 # enrolment rows use: consensus state, in the root, snapshot-carried, NO new sub-DB (a pre-gate root is untouched and a
 # node syncing across the gate needs no schema change). A recert's grant is what presence at any epoch is measured
@@ -2157,7 +2157,7 @@ def lease_of(address: str, recert_epoch: int) -> int:
     return POSW_LEASE_EPOCHS if g is None else g
 
 
-# --- ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key) ---------------
+# --- ONE DEVICE, ONE IDENTITY (gen 25's DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key) ---------------
 # devbind: <device key str> -> msgpack([address, epoch]) (leased) or msgpack([address, epoch, "perm"]) (permanent, from
 # DEVICE_BIND_PERMANENT_HEIGHT) — which identity a device certificate vouches for and the epoch of the LAST STATEMENT that
 # bound it (a leased binding is live for POSW_LEASE_EPOCHS from that epoch; a permanent one for life, movable after it).
@@ -2285,7 +2285,7 @@ def devbind_revert_pop(epoch: int, address: str):
 
 
 
-# --- VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT; ops/tpm_enrol) ------------------------
+# --- VENDOR-ENDORSED TPM ENROLMENT (gen 25's DEVICE_ATTEST_EK_HEIGHT; ops/tpm_enrol) ------------------------
 # Rows live in the devbind DB under "tpm:<enrol id>", the same trick the eviction rows use: consensus state, in
 # the state root and carried by snapshots like every other devbind row, with NO NEW SUB-DB — so the root of
 # every state written before the gate fires is untouched, and a node that syncs across the gate needs no

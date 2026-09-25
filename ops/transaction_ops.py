@@ -559,17 +559,17 @@ def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
     from ops.block_ops import epoch_beacon
     from ops import tpm_enrol as _te
-    from protocol import DEVICE_ATTEST_EK_PROVEN_HEIGHT
     epoch = int(block_height) // EPOCH_LENGTH
     # PROVEN CHALLENGERS FIRST, duty senders only as a fallback. Eligibility earned by acting, where
     # acting requires being drawn, would exclude everyone on a fresh chain and after any long quiet
     # period — so when fewer than k have proven themselves the old pool still runs the draw. Worse, but
     # live, and it self-heals the moment k nodes have answered once.
+    # Every caller holds a tpm_* tx that passed the enrolment rule (block_height >= 1), so the proven pool is always
+    # consulted (the DEVICE_ATTEST_EK_PROVEN_HEIGHT gate was 1 from gen 26 and is deleted).
     weights = _recent_producers(block_height)
-    if DEVICE_ATTEST_EK_PROVEN_HEIGHT and int(block_height) >= DEVICE_ATTEST_EK_PROVEN_HEIGHT:
-        proven = _proven_challengers(block_height)
-        if len(proven) >= DEVICE_ATTEST_EK_CHALLENGERS:
-            weights = proven
+    proven = _proven_challengers(block_height)
+    if len(proven) >= DEVICE_ATTEST_EK_CHALLENGERS:
+        weights = proven
     return _te.challenger_set(enrol_id_hex, weights, epoch_beacon(epoch),
                               DEVICE_ATTEST_EK_CHALLENGERS)
 
@@ -590,17 +590,17 @@ def is_assert_device(dev) -> bool:
 
 
 def verify_register_assertion(transaction, anchor_hash):
-    """SIGNATURE RENEWAL (protocol.LEASE_V2_EPOCH, LEASE_ASSERT_CLASSES; doc/device-attestation.md §"Leases per class").
+    """SIGNATURE RENEWAL (gen 25's LEASE_V2_EPOCH, LEASE_ASSERT_CLASSES; doc/device-attestation.md §"Leases per class").
     The sender's account carries `devkey` (the device its statement bound) and `devcred` (that statement's WebAuthn
     credential, COSE); the devbind row must still point at the sender; the class must be one whose device key does not
     rotate; and the kernel verifies the assertion over THIS block's own challenge. Renews the lease exactly like a
     statement renewal and binds nothing. Raises AssertionError with the reason."""
     import base64 as _b64
-    from protocol import (DEVICE_ATTEST_RP_IDS, POSW_ANCHOR_OFFSET, LEASE_ASSERT_CLASSES, lease_v2_at, EPOCH_LENGTH)
+    from protocol import DEVICE_ATTEST_RP_IDS, POSW_ANCHOR_OFFSET, LEASE_ASSERT_CLASSES
     from ops import attest_native
     dev = transaction["device"]
     height = int(transaction.get("max_block") or 0)                 # `register` lands EXACTLY at max_block
-    assert lease_v2_at(height // EPOCH_LENGTH), "signature renewals are not enabled yet"
+    # (the LEASE_V2_EPOCH "not enabled yet" assert is gone: that gate was epoch 0 from gen 26, true for every epoch)
     acc = get_account(transaction["sender"], create_on_error=False) or {}
     dk, dc = acc.get("devkey"), acc.get("devcred")
     assert isinstance(dk, str) and dk and isinstance(dc, str) and dc, \
@@ -653,12 +653,13 @@ def verify_register_device_ek(transaction: dict, anchor_hash: str) -> dict:
     below is the ENDORSEMENT identity, which is one per chip by manufacture — so a machine that enrols ten
     attestation keys, or whose owner changes, still holds exactly one identity at a time.
     """
-    from protocol import DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_aik
     dev = transaction.get("device") or {}
     height = int(transaction.get("max_block") or 0)      # `register` lands EXACTLY at max_block
-    assert DEVICE_ATTEST_EK_HEIGHT and height >= DEVICE_ATTEST_EK_HEIGHT, \
-        "vendor-endorsed TPM attestation is not enabled yet"
+    # DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted): only a max_block of 0 — block 0 is genesis, which carries
+    # no transactions — still falls below it. Kept so the verdict for such a tx is unchanged.
+    assert height >= 1, "vendor-endorsed TPM attestation is not enabled yet"
     eid = dev.get("id")
     assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
     rec = kv_ops.tpm_enrol_get(eid)
@@ -713,12 +714,12 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     # PER-DEVICE-CLASS CONSTRAINTS (doc/device-attestation.md — none of these may be spoofable):
     #   apple / android-key: the vendor root reached is the whole proof (chain verified by the kernel).
     #   tpm: the chain must end at Microsoft's TPM root and the AIK certificate's TPM manufacturer must be a physical
-    #        maker (Microsoft's own id is a virtual TPM). Below DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT it ALSO had to
-    #        carry the Windows Hello hardware AAGUID — see the regression note below.
+    #        maker (Microsoft's own id is a virtual TPM). On gen 25 below 41200 it ALSO had to carry the Windows Hello
+    #        hardware AAGUID — see the regression note below.
     #   packed: the AAGUID must be a FIDO2 authenticator with full attestation in the pinned metadata snapshot AND
     #        the chain must end at one of THAT authenticator's own roots.
     from protocol import (DEVICE_ATTEST_TPM_AAGUIDS, DEVICE_ATTEST_TPM_MANUFACTURERS, DEVICE_ATTEST_FIDO_AAGUID_ROOTS,
-                          DEVICE_ATTEST_ROOT_FINGERPRINTS, DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT)
+                          DEVICE_ATTEST_ROOT_FINGERPRINTS)
     aaguid, root = str(verdict.get("aaguid") or ""), str(verdict.get("root_sha256") or "")
     if fmt == "tpm":
         # NEVER JUDGE A TPM STATEMENT BY ITS AAGUID AGAIN (2026-09-10). The AAGUID names the Windows Hello FLAVOUR
@@ -730,10 +731,10 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
         # that remain ARE the proof (pinned Microsoft root + physical manufacturer + the kernel's certify check), and
         # the binding is the AIK certificate either way (one per physical TPM per Windows account), so widening this
         # cannot buy an attacker an extra identity. Height-gated because it is a consensus rule: `register` lands
-        # EXACTLY at max_block (block_ops._lands_flexibly), so max_block IS this tx's landing height — the same input
-        # the assembly-path gate at DEVICE_BIND_STRICT_HEIGHT reads — and old blocks replay under the old rule.
-        if not (DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT
-                and int(transaction.get("max_block") or 0) >= DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT):
+        # EXACTLY at max_block (block_ops._lands_flexibly), so max_block IS this tx's landing height. The gate
+        # (DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT) was 1 from gen 26 and is deleted; only a max_block below 1 — a tx that
+        # can never land, block 0 being genesis — still met the old rule, and keeps it so its verdict is unchanged.
+        if int(transaction.get("max_block") or 0) < 1:
             assert aaguid in DEVICE_ATTEST_TPM_AAGUIDS, "tpm attestation: not the Windows Hello hardware authenticator"
         assert root in DEVICE_ATTEST_ROOT_FINGERPRINTS, "tpm attestation: chain does not end at the pinned Microsoft TPM root"
         assert str(verdict.get("tpm_manufacturer") or "").upper() in DEVICE_ATTEST_TPM_MANUFACTURERS, \
@@ -754,11 +755,10 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
         # THE REAL DEVICE CERTIFICATE HAS NO serialNumber (2026-09-14). The kernel used to refuse on that alone; the
         # first real Trezor Safe statement to reach the fleet (the operator's tap for the LA node) failed exactly there
         # with every cryptographic check passed. trezorlib tolerates its absence and nothing consumes it (binding key
-        # = sha256 of the certificate, model = CN). Below the gate the historical refusal is reproduced HERE so old
-        # blocks replay identically; from the gate the serial is not required. `register` lands exactly at max_block.
-        from protocol import DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
-        if not (DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
-                and int(transaction.get("max_block") or 0) >= DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT):
+        # = sha256 of the certificate, model = CN), so the serial is not required. `register` lands exactly at max_block;
+        # the gate (DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT) was 1 from gen 26 and is deleted — only a max_block
+        # below 1 (a tx that can never land) still met the historical refusal, and keeps it so its verdict is unchanged.
+        if int(transaction.get("max_block") or 0) < 1:
             from ops.device_attest import cbor_decode, cert_subject_has_serial
             _x5c = ((cbor_decode(att) or {}).get("attStmt") or {}).get("x5c") or []
             assert _x5c and cert_subject_has_serial(_x5c[0]), \
@@ -1051,9 +1051,10 @@ def reserved_uniqueness_key(tx):
             return ("duty", tx["sender"], tx["max_block"] // EPOCH_LENGTH)
         if r == "slash":
             d = tx.get("data") or {}
-            from protocol import SLASH_DEDUP_HEIGHT
-            if int(tx.get("max_block") or 0) >= int(SLASH_DEDUP_HEIGHT):
-                # SLASH_DEDUP_HEIGHT: key by the RESOLVED offence (see protocol.py), for both proof shapes
+            # ONE SLASH PER OFFENCE (the SLASH_DEDUP_HEIGHT gate, 1 from gen 26, deleted): key by the RESOLVED
+            # offence for both proof shapes. `>= 1` is that gate's value, kept because a tx's max_block is its own
+            # field and 0 (never landable) must keep its per-proof key exactly as before.
+            if int(tx.get("max_block") or 0) >= 1:
                 res = resolve_slash(d)
                 if res is not None:
                     return ("slash", res[0], res[1])
@@ -1104,15 +1105,16 @@ def reserved_uniqueness_keys(tx) -> list:
     if base is None:
         return []
     keys = [base]
-    # ONE DEVICE PER BLOCK (DEVICE_BIND_STRICT_HEIGHT): the devbind rule reads PARENT state, so without this key N
-    # senders could bind one device inside a single block. `register` lands exactly at max_block, so max_block is the
-    # block height — a deterministic gate with no height argument. A malformed statement yields no key here; validation
-    # rejects it anyway.
+    # ONE DEVICE PER BLOCK (the strict binding rule, gen 25's DEVICE_BIND_STRICT_HEIGHT): the devbind rule reads PARENT
+    # state, so without this key N senders could bind one device inside a single block. `register` lands exactly at
+    # max_block, so max_block is the block height. `>= 1` is the deleted gate's gen-26+ value, kept because max_block is
+    # the tx's own field (a malformed or zero one must keep yielding no key). A malformed statement yields no key here;
+    # validation rejects it anyway.
     if tx.get("recipient") == "register":
-        from protocol import DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_MAX_CERT_SECS
+        from protocol import DEVICE_BIND_MAX_CERT_SECS
         try:
-            # a statement-free renewal (DEVICE_BIND_PERMANENT_HEIGHT) binds nothing, so it occupies no device key
-            if (DEVICE_BIND_STRICT_HEIGHT and int(tx.get("max_block", 0)) >= DEVICE_BIND_STRICT_HEIGHT
+            # a statement-free renewal (the permanent binding mode) binds nothing, so it occupies no device key
+            if (int(tx.get("max_block", 0)) >= 1
                     and isinstance(tx.get("device"), dict) and not is_assert_device(tx.get("device"))):   # an assertion binds nothing
                 from ops.device_attest import device_binding_key
                 keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
@@ -1377,19 +1379,20 @@ def settle_proof_io_check(proof, records_bound, block_height):
     block_records_inert, while the proof pins one records root across the span. A records-BOUND proof derives the
     payout instead (records_bind.pay_effects_from_proof).
 
-    NO ASSET IO IN ANY SETTLE PROOF, from PROOF_QUERY_FULL_HEIGHT (review 2026-09-24): AMINT/ABURN/ASEL/ARENOUNCE move
+    NO ASSET IO IN ANY SETTLE PROOF (review 2026-09-24; gen 25's PROOF_QUERY_FULL_HEIGHT): AMINT/ABURN/ASEL/ARENOUNCE move
     the exec asset ledger exactly as PAY moves records, and an ABAL read comes from the io log with nothing tying it
     to the settled ledger (the BHASH/BEACON hole chain_reads closes). The prover threads no asset state, so no honest
-    proof carries asset io: an asset-touching span rides the quorum. tests/test_zk_review_2026_09_24.py drives this."""
+    proof carries asset io: an asset-touching span rides the quorum. tests/test_zk_review_2026_09_24.py drives this.
+    `block_height >= 1` is the deleted gate's value from gen 26: height 0 (mempool admission on a genesis tip) keeps the
+    verdict it always had."""
     from execnode import zkvm as _zkvm
-    import protocol as _protocol
     segs = proof.get("segments") or []
     if not records_bound:
         for _seg in segs:
             for _e in (_seg.get("io") or []):
                 assert int(_e[0]) != _zkvm.IO_PAY, \
                     "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
-    if int(block_height) >= int(_protocol.PROOF_QUERY_FULL_HEIGHT):
+    if int(block_height) >= 1:
         for _seg in segs:
             for _e in (_seg.get("io") or []):
                 assert int(_e[0]) not in _zkvm.IO_ASSET_KINDS, \
@@ -1399,11 +1402,11 @@ def settle_proof_io_check(proof, records_bound, block_height):
 def exit_amount_check(amount, block_height):
     """An exit claim's amount must be a real coin amount, not a field residue (review 2026-09-24). exec_root.verify_record
     folds `amount % P`, so a claim of amount + k*P verified against a record of `amount`; escrow balances and the per-block
-    release cap happened to stop it, but the proof check itself must not depend on that. From PROOF_QUERY_FULL_HEIGHT
-    (judged at the block's height) an exit is below 2^61 — MAX_EXIT_VALUE, the bound every exec record is created
-    under. Raises AssertionError like the branches that call it."""
-    from protocol import PROOF_QUERY_FULL_HEIGHT as _QFH
-    if int(block_height) >= int(_QFH):
+    release cap happened to stop it, but the proof check itself must not depend on that. An exit is below 2^61 —
+    MAX_EXIT_VALUE, the bound every exec record is created under — at every height from 1 (gen 25's
+    PROOF_QUERY_FULL_HEIGHT, 1 from gen 26 and deleted; height 0 keeps its old verdict). Raises AssertionError like the
+    branches that call it."""
+    if int(block_height) >= 1:
         assert int(amount) < (1 << 61), "exit amount exceeds MAX_EXIT_VALUE"
 
 
@@ -1414,20 +1417,16 @@ def field_shield_check(data, block_height):
     # C-2: the exec node BINDS the note value to this escrowed amount by recomputing
     # commit(amount, owner, rho) itself, so the deposit must carry (owner, rho), not a free-choice cm.
     assert data.get("owner") is not None and data.get("rho") is not None, "field shield needs owner + rho"
-    from protocol import SHIELD_WIDE_HEIGHT as _SWH, REVIEW_R2_HEIGHT as _R2H
     # THE HEIGHT IS `block_height`, the block being judged. This branch read `h`, which only the HTLC
     # branches above ever assign, so from a8a720f1 (2026-09-23) every field-shield deposit raised
     # UnboundLocalError and was refused — the wide pool's own deposits included, i.e. on the reroll chain
     # nobody could have entered it. Found 2026-09-24 while adding the privacy pause.
     _sh = int(block_height)
-    # THE LEGACY FIELD POOL TAKES NO NEW DEPOSITS from REVIEW_R2_HEIGHT: the exec layer stops spending it at
-    # PRIVACY_PAUSE_HEIGHT (its proofs are not safe to accept), so a deposit would escrow coins behind a note
-    # nobody could ever use. Replay-safe to key on an already-passed height: the pool is append-only and
-    # holds ZERO leaves (measured 2026-09-24), so no field shield ever landed on gen 25, and from a8a720f1
-    # to this commit every one was refused anyway (the bug above). The wide pool is unaffected.
-    assert not (int(_R2H) <= _sh < int(_SWH)), "the legacy field pool is closed to deposits"
-    if _sh >= int(_SWH):
-        # SHIELD_WIDE_HEIGHT (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
+    # THE LEGACY FIELD POOL TAKES NO DEPOSITS: gen 25 closed it between REVIEW_R2_HEIGHT and SHIELD_WIDE_HEIGHT, and
+    # from gen 26 both gates were 1, so that window is empty and every deposit from block 1 is a WIDE one. Height 0
+    # (mempool admission on a genesis tip) was below both gates and keeps its old verdict: no shape check.
+    if _sh >= 1:
+        # THE WIDE POOL (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
         # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
         # escrows the coins behind a note the exec layer then refuses to create — coins gone.
         from execnode.stark import znote as _Z, field as _ZF
@@ -1627,15 +1626,16 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
-        from protocol import (DEVICE_BIND_HEIGHT, DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_STRICT_HEIGHT,
-                              DEVICE_BIND_PERMANENT_HEIGHT, permanent_classes_at)
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
         epoch_now = block_height // EPOCH_LENGTH
-        # BINDING MODES (DEVICE_BIND_PERMANENT_HEIGHT, doc/device-attestation.md §"Binding modes"): a register WITHOUT a
-        # statement is the statement-free presence renewal of an identity permanently bound to a hardware wallet — valid
-        # only while the sender's `devkey` row still points back at the sender in "perm" mode (a rebind elsewhere ends it
-        # from the next block). Before the gate, or for anyone else, it is the historical "Missing device attestation".
-        stmt_free = bool(DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
-                         and not isinstance(transaction.get("device"), dict))
+        # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
+        # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
+        # this function also runs at mempool admission on a genesis tip (block_height 0), where every one of them was off.
+        # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register WITHOUT a statement is the statement-free
+        # presence renewal of an identity permanently bound to a hardware wallet — valid only while the sender's `devkey`
+        # row still points back at the sender in "perm" mode (a rebind elsewhere ends it from the next block). For anyone
+        # else it is the historical "Missing device attestation".
+        stmt_free = bool(block_height >= 1 and not isinstance(transaction.get("device"), dict))
         if is_assert_device(transaction.get("device")):
             # SIGNATURE RENEWAL (LEASE_V2_EPOCH): the credential a statement bound signs this block's challenge; nothing is
             # bound and no device key is derived (the shape has no certificate). Validated in full here.
@@ -1649,35 +1649,23 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 "to a hardware wallet renews without one)"
         else:
             verify_register_device(transaction, anchor)
-            # ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT, doc/device-attestation.md §"One device, one identity"):
+            # ONE DEVICE, ONE IDENTITY (doc/device-attestation.md §"One device, one identity"):
             # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
             # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
             # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
             # apply_register writes, at the block's own height.
-            if DEVICE_BIND_HEIGHT and block_height >= DEVICE_BIND_HEIGHT:
+            if block_height >= 1:
                 from ops.device_attest import device_binding_key
                 try:
-                    # strict from DEVICE_BIND_STRICT_HEIGHT: duplicate CBOR keys are refused, so the chain the kernel verified
-                    # IS the certificate that gets bound (IndexError/ValueError alike = malformed = invalid)
-                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                              strict=block_height >= DEVICE_BIND_STRICT_HEIGHT)
+                    # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
+                    # gets bound (IndexError/ValueError alike = malformed = invalid)
+                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
                 except (ValueError, IndexError) as e:
                     raise AssertionError(f"register: {e}")
-                bound = kv_ops.devbind_get(dkey)
-                # The cooldown is ONE rule for both modes: a device that made a statement for another sender less than a
-                # lease ago cannot vouch for this one. For a leased class that is the lease itself; for a permanent class it
-                # is the rebind cooldown — `bound[1]` is the epoch of the device's last STATEMENT (statement-free renewals
-                # never refresh it), so the device holder can always move it after one lease, whatever the old owner does.
-                from protocol import DEVICE_REBIND_INSTANT_HEIGHT
-                instant = bool(DEVICE_REBIND_INSTANT_HEIGHT and block_height >= DEVICE_REBIND_INSTANT_HEIGHT)
-                # INSTANT MOVES (DEVICE_REBIND_INSTANT_HEIGHT): the cooldown is gone — the move is legal in any block because
-                # apply EVICTS the identity the device leaves (its lease is voided at once), so one device backs one identity
-                # at every instant. Below the gate: the historical cooldown, unchanged.
-                if not instant and bound and bound[0] != transaction["sender"] and epoch_now < bound[1] + POSW_LEASE_EPOCHS:
-                    raise AssertionError(f"register: this device already vouches for another identity "
-                                         f"({bound[0][:12]}…) until epoch {bound[1] + POSW_LEASE_EPOCHS} — one device, one identity")
-                if (DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT
-                        and dkey.split(":", 1)[0] in permanent_classes_at(block_height)):   # "ek" joins at its own gate
+                # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it
+                # replaced): a device may move to another sender in any block, because apply EVICTS the identity it leaves
+                # (its lease is voided at once), so one device backs one identity at every instant.
+                if dkey.split(":", 1)[0] in permanent_classes_at(block_height):
                     # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
                     # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
                     acc_r = get_account(transaction["sender"], create_on_error=False) or {}
@@ -1692,14 +1680,14 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # this node runs the challenger loop, so the draw can prefer addresses that have said so over
         # addresses that merely look like validators on chain. Zero amount, no data, and the signature
         # (checked for every transaction) is the whole of what makes it the sender's own statement.
-        from protocol import DEVICE_ATTEST_EK_READY_HEIGHT
-        assert DEVICE_ATTEST_EK_READY_HEIGHT and block_height >= DEVICE_ATTEST_EK_READY_HEIGHT, \
-            "challenger announcements are not enabled yet"
+        # gen 25's DEVICE_ATTEST_EK_READY_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on
+        # a genesis tip) fell below it, and keeps its verdict.
+        assert block_height >= 1, "challenger announcements are not enabled yet"
         assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
         assert not transaction.get("data"), "tpm_ready carries no data"
 
     elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
-        # VENDOR-ENDORSED TPM ENROLMENT (protocol.DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md).
+        # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md).
         # Four fee-exempt, zero-amount messages that prove an attestation key lives inside a chip whose
         # ENDORSEMENT key a silicon vendor certified — the path for the 26.8 % of attempts Windows Hello
         # refuses, and the only path a headless Linux node has ever had.
@@ -1708,11 +1696,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # certified chip. It is `register` that consumes it, with a FRESH TPM2_Certify over that block's own
         # challenge, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation keys in one
         # chip yields one identity, not ten. Anyone may spend blocks on enrolments that buy them nothing.
-        from protocol import (DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS,
-                              DEVICE_ATTEST_EK_ENROL_BLOCKS)
+        from protocol import DEVICE_ATTEST_EK_CHALLENGERS, DEVICE_ATTEST_EK_ENROL_BLOCKS
         from ops import tpm_enrol as _te
-        assert DEVICE_ATTEST_EK_HEIGHT and block_height >= DEVICE_ATTEST_EK_HEIGHT, \
-            "vendor-endorsed TPM enrolment is not enabled yet"
+        # gen 25's DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on a
+        # genesis tip) fell below it, and keeps its verdict.
+        assert block_height >= 1, "vendor-endorsed TPM enrolment is not enabled yet"
         assert transaction["amount"] == 0 and transaction["fee"] == 0, \
             f"{recipient} tx is fee-exempt and carries no amount"
         data = transaction.get("data") or {}
@@ -1838,11 +1826,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         if isinstance(payload, dict):
             _op = payload.get("op")
             assert _op is None or isinstance(_op, str), "Blob op must be a string"
-            # F2 (2026-09-23, EXEC_RULES_V2_HEIGHT): `method` is looked up in the contract's code dict; a list
-            # raised TypeError past the exec layer's escrow. The exec layer now refuses it before debiting and
-            # L1 refuses to order it at all. Height-gated like every admission rule.
+            # F2 (2026-09-23): `method` is looked up in the contract's code dict; a list raised TypeError past the
+            # exec layer's escrow. The exec layer refuses it before debiting and L1 refuses to order it at all.
+            # `>= 1` is gen 25's EXEC_RULES_V2_HEIGHT from gen 26 (deleted): height 0 / None keep their old verdict.
             if "method" in payload and block_height is not None \
-                    and int(block_height) >= int(_P.EXEC_RULES_V2_HEIGHT):
+                    and int(block_height) >= 1:
                 assert isinstance(payload["method"], str), "Blob method must be a string"
             # ns/to_ns/from_ns index the per-namespace state map: a list/dict there is unhashable -> TypeError.
             assert valid_namespace(payload.get("ns", DEFAULT_NS)), "Blob ns must be a valid namespace id"
@@ -2222,8 +2210,9 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                             _rok, _rwhy = _RB.bind_and_verify_records(
                                 proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
                                 depth=_protocol.EXEC_TREE_DEPTH,
-                                # S2: refuse a running balance below zero from EXEC_RULES_V2_HEIGHT
-                                nonneg=(int(block_height) >= int(_protocol.EXEC_RULES_V2_HEIGHT)))
+                                # S2: refuse a running balance below zero (from height 1: gen 25's
+                                # EXEC_RULES_V2_HEIGHT, 1 from gen 26 and deleted)
+                                nonneg=(int(block_height) >= 1))
                         except _NM2 as _nm2:              # node-local, not a verdict: defer (see the KV half above)
                             raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm2}") from _nm2
                         print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "

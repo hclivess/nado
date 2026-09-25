@@ -96,13 +96,13 @@ if __name__ == "__main__":
 
 
 def key_bound(address, public_key, height=None, account=None):
-    """ADDRESS_KEY_BIND_HEIGHT: may `public_key` act for `address` given the key the account already has on chain?
-    make_address only binds the first 21 bytes of the key's rho, which a forger CHOOSES (review 2026-09-25), so from the
-    gate a key must also EQUAL the account's recorded key when it has one. True below the gate, and True for an address
-    with no recorded key (nothing to compare — see the protocol comment). `height` None = judged under the rule.
+    """THE ADDRESS IS BOUND TO ITS PUBLISHED KEY: may `public_key` act for `address` given the key the account already
+    has on chain? make_address only binds the first 21 bytes of the key's rho, which a forger CHOOSES (review
+    2026-09-25), so a key must also EQUAL the account's recorded key when it has one. True for an address with no
+    recorded key (nothing to compare). `height` None = judged under the rule; a height below 1 is not (gen 25's
+    ADDRESS_KEY_BIND_HEIGHT was 1 from gen 26 and is deleted — height 0 keeps the verdict it had below that gate).
     `account` may be passed to avoid a second lookup. Pure read; never raises (a lookup failure refuses)."""
-    from protocol import ADDRESS_KEY_BIND_HEIGHT
-    if height is not None and int(height) < int(ADDRESS_KEY_BIND_HEIGHT):
+    if height is not None and int(height) < 1:
         return True
     try:
         if account is None:
