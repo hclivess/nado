@@ -1195,7 +1195,7 @@ def hash_attest_message(height: int, block_hash: str, as_of_height: int) -> byte
     return f"hashattest|{CHAIN_ID}|{int(height)}|{str(block_hash)}|{int(as_of_height)}".encode()
 
 
-def verify_equivocation_proof(proof) -> tuple:
+def verify_equivocation_proof(proof, judge_height=None) -> tuple:
     """Verify a block-authorship EQUIVOCATION proof: the SAME identity validly signed TWO DIFFERENT
     blocks at the SAME height+parent (#15 step 5C). proof = {block_number, parent_hash, public_key,
     block_hash_a, signature_a, block_hash_b, signature_b}. Returns (offender_address, block_number)
@@ -1224,7 +1224,7 @@ def verify_equivocation_proof(proof) -> tuple:
         # key's past double-signs stay slashable and a key can never be pinned on an account it never held.
         from ops.auth_ops import key_valid_at
         offender = proof.get("offender") or make_address(pk)
-        if not isinstance(offender, str) or not key_valid_at(pk, offender, bn):
+        if not isinstance(offender, str) or not key_valid_at(pk, offender, bn, judge_height):
             return None
         return offender, bn
     except Exception:

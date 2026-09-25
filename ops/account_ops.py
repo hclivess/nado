@@ -158,7 +158,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # already slashed at this height, so reflect just extracts (offender, height) and burns the bond.
     if recipient == "slash":
         from ops.transaction_ops import resolve_slash   # lazy: transaction_ops imports account_ops
-        result = resolve_slash(transaction.get("data") or {})   # block-authorship OR FFG-attestation equivocation
+        result = resolve_slash(transaction.get("data") or {}, block_height)   # same judging height as validation
         if result:
             offender, height = result
             apply_slash(address=offender, height=height, logger=logger, revert=revert)

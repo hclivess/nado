@@ -93,3 +93,22 @@ if __name__ == "__main__":
     print(
         validate_address(make_address(public_key, address_length=42, checksum_size=2))
     )
+
+
+def key_bound(address, public_key, height=None, account=None):
+    """ADDRESS_KEY_BIND_HEIGHT: may `public_key` act for `address` given the key the account already has on chain?
+    make_address only binds the first 21 bytes of the key's rho, which a forger CHOOSES (review 2026-09-25), so from the
+    gate a key must also EQUAL the account's recorded key when it has one. True below the gate, and True for an address
+    with no recorded key (nothing to compare — see the protocol comment). `height` None = judged under the rule.
+    `account` may be passed to avoid a second lookup. Pure read; never raises (a lookup failure refuses)."""
+    from protocol import ADDRESS_KEY_BIND_HEIGHT
+    if height is not None and int(height) < int(ADDRESS_KEY_BIND_HEIGHT):
+        return True
+    try:
+        if account is None:
+            from ops import kv_ops
+            account = kv_ops.get_account(address)
+    except Exception:
+        return False
+    stored = (account or {}).get("public_key")
+    return (not stored) or str(stored) == str(public_key)

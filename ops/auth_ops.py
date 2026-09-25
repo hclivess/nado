@@ -204,21 +204,28 @@ def key_authorized(pubkey: str, address: str, height=None, acc=None) -> bool:
     if acc is None:
         acc = kv_ops.get_account(address) if P.AUTH_ACTIVE else None
     if not P.AUTH_ACTIVE or not is_configured(acc):
-        return make_address(pubkey) == address
+        # ADDRESS_KEY_BIND_HEIGHT: deriving the address is not enough (its prefix is choosable) — the key must be
+        # the one the account published. This is every block signature, status attestation and message login.
+        from ops.address_ops import key_bound
+        return make_address(pubkey) == address and key_bound(address, pubkey, height, account=acc if P.AUTH_ACTIVE else None)
     cfg = effective_config(address, acc, height)
     i = signer_index(pubkey, address, cfg)
     return i is not None and policy_satisfied(cfg["sign"], {i})
 
 
-def key_valid_at(pubkey: str, address: str, height: int) -> bool:
+def key_valid_at(pubkey: str, address: str, height: int, judge_height=None) -> bool:
     """EVIDENCE check: was `pubkey` an authenticator of `address` at `height`? Answered from auth_history
     (the config with the greatest from_height <= height); before any history row the derived key is the
     only valid one. A rotated-away key's past double-signs therefore stay slashable."""
+    # ADDRESS_KEY_BIND_HEIGHT: evidence keys too (forged slashing). The rule follows the JUDGING block (`judge_height`),
+    # never the offence's own height — forged evidence could simply name an offence from before the gate. None (an
+    # off-chain caller such as the watchtower) = judged under the rule.
+    from ops.address_ops import key_bound
     if not P.AUTH_ACTIVE:
-        return make_address(pubkey) == address
+        return make_address(pubkey) == address and key_bound(address, pubkey, judge_height)
     rows = [r for r in kv_ops.auth_history(address) if r[0] <= int(height)]
     if not rows:
-        return make_address(pubkey) == address
+        return make_address(pubkey) == address and key_bound(address, pubkey, judge_height)
     return blake2b_hash(pubkey) in rows[-1][2]
 
 

@@ -1625,7 +1625,7 @@ def split_open_block_reward(reward: int):
 #                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
-#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT,
+#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT, ADDRESS_KEY_BIND_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2114,6 +2114,15 @@ PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1
 # native sp_batch_add_shift, the wallet's stark.js). A format change on both sides, so it rides stark.rules_at like
 # every proof gate; the wallet reads it from /status (`proof_rules.full_query`). Block 1 at the next reroll.
 PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1
+
+# AN ADDRESS IS BOUND TO THE KEY IT FIRST PUBLISHED (review 2026-09-25, reproduced). An address is the first 42 hex of
+# the public key — the first 21 bytes of ML-DSA's rho, a seed anyone may CHOOSE when building a key — so a key built
+# on the victim's rho prefix derives the victim's address and signs validly: every account was spendable, any block
+# signature and double-sign evidence forgeable, from the address alone. From this height a transaction, a block
+# signature and any key evidence must use EXACTLY the key the account already has on chain (PUBKEY-ONCE: its first
+# sent tx recorded it). An address that has NEVER sent has no key on chain and is not protected by this rule — only a
+# hash-based address at the reroll fixes those. Block 1 at the next reroll.
+ADDRESS_KEY_BIND_HEIGHT = 232700 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

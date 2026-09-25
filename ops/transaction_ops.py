@@ -228,7 +228,7 @@ def construct_slash_tx(keydict, proof, max_block):
     return tx
 
 
-def verify_attestation_equivocation_proof(proof):
+def verify_attestation_equivocation_proof(proof, judge_height=None):
     """Verify an FFG ATTESTATION double-vote: the SAME bonded validator SIGNED two attestations for the SAME
     target_epoch but DIFFERENT target_hash. proof = {"attest_a": <signed attest tx>, "attest_b": <signed
     attest tx>}. Returns (offender_address, target_epoch) when valid, else None. Unforgeable: only the
@@ -259,7 +259,7 @@ def verify_attestation_equivocation_proof(proof):
                 _d0 = _d0.get("attest") or {}
             from ops.auth_ops import key_valid_at
             _h = int(_d0.get("target_epoch", 0)) * EPOCH_LENGTH if isinstance(_d0.get("target_epoch"), int) else 0
-            if not key_valid_at(pk, sender, _h):                       # the key must have authorized the sender THEN
+            if not key_valid_at(pk, sender, _h, judge_height):         # the key must have authorized the sender THEN
                 return None
             body = {k: v for k, v in tx.items() if k not in ("txid", "signature")}
             if create_txid(body) != txid:                              # txid binds the full attestation body
@@ -283,15 +283,15 @@ def verify_attestation_equivocation_proof(proof):
         return None
 
 
-def resolve_slash(data):
+def resolve_slash(data, judge_height=None):
     """Resolve a slash proof — block-authorship OR FFG-attestation equivocation — to (offender, dedup_height).
     Attestation slashes are namespaced at _ATTEST_SLASH_BASE+epoch so they never collide with a block-height
     slash. Returns None if neither proof verifies. Shared by validate_transaction + reflect_transaction."""
     if isinstance(data, dict) and ("attest_a" in data or "attest_b" in data):
-        r = verify_attestation_equivocation_proof(data)
+        r = verify_attestation_equivocation_proof(data, judge_height)
         return (r[0], _ATTEST_SLASH_BASE + r[1]) if r else None
     from ops.block_ops import verify_equivocation_proof
-    r = verify_equivocation_proof(data)
+    r = verify_equivocation_proof(data, judge_height)
     return (r[0], r[1]) if r else None
 
 
@@ -1521,7 +1521,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
         assert transaction["amount"] == 0, "Slash tx must have zero amount"
         assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
-        result = resolve_slash(transaction.get("data"))   # block-authorship OR FFG-attestation equivocation
+        result = resolve_slash(transaction.get("data"), block_height)   # judged at THIS block (ADDRESS_KEY_BIND)
         assert result, "Invalid or missing equivocation proof"
         offender, height = result
         assert not kv_ops.slash_exists(offender, height), "This offence is already slashed (replay)"
@@ -2768,6 +2768,11 @@ def validate_origin(transaction: dict, block_height=None):
         sender=transaction["sender"],
         public_key=public_key
     ), "Invalid sender"
+    # ADDRESS_KEY_BIND_HEIGHT (review 2026-09-25): the address binds only a CHOOSABLE prefix of the key, so a carried
+    # key must also equal the one this account already published. Without it, anyone could spend from any address.
+    from ops.address_ops import key_bound
+    assert key_bound(transaction["sender"], public_key, block_height), \
+        "public_key is not the key this account has on chain"
 
     assert verify(
         signed=signature,
