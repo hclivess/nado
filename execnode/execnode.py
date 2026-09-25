@@ -2571,6 +2571,16 @@ PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if thi
 _DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
 
 
+def _da_op_refused_at(op, h):
+    """True when apply_blob refuses `op` at height h WITHOUT reading its proof: private_call from PRIVACY_PAUSE_HEIGHT,
+    and a legacy field_transfer from PRIVACY_PAUSE_HEIGHT until SHIELD_WIDE_HEIGHT. Mirrors ExecState.
+    rules_privacy_pause / rules_shield_wide exactly; the DA pre-resolve uses it so a refused op can never stall a block."""
+    from protocol import PRIVACY_PAUSE_HEIGHT, SHIELD_WIDE_HEIGHT
+    if int(h) < int(PRIVACY_PAUSE_HEIGHT):
+        return False
+    return op == "private_call" or (op == "field_transfer" and int(h) < int(SHIELD_WIDE_HEIGHT))
+
+
 async def _apply_block(session, states_map, default_state, block, verbose=True):
     """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
     default_state — then advance every state's cursor to this height. Returns False (applying NOTHING) if a
@@ -2588,6 +2598,10 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
 async def _apply_block_inner(session, states_map, default_state, block, verbose=True):
     h = block["block_number"]
     from protocol import EXEC_CTX_CURRENT_HEIGHT, chain_clock as _cc
+    # The context each state had BEFORE this block, so a DA stall below can put it back exactly (EXEC-2, review
+    # 2026-09-25): under EXEC_CTX_CURRENT the cursor is advanced to h up front, and returning False with it at h made
+    # the tail loop resume at h+1 — every transaction in the stalled block silently lost, on the nodes that stalled.
+    _prev_ctx = {id(_st): (_st.cursor, getattr(_st, "block_ts", 0)) for _st in states_map.values()}
     for _st in states_map.values():
         _st._applying = h              # the height every rules_* helper judges by (see ExecState.applying_height)
         _st._block_steps = 0           # F4: the per-block execution budget starts fresh
@@ -2602,6 +2616,12 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
         d = tx.get("data")
         # Which ops ride DA, and the field each one's bytes are injected back into — see _DA_BLOB_OPS.
         inject = _DA_BLOB_OPS.get(d.get("op")) if isinstance(d, dict) else None
+        # AN OP THIS HEIGHT REFUSES IS NEVER FETCHED (review 2026-09-25, reproduced). apply_blob refuses private_call
+        # and legacy field transfers from PRIVACY_PAUSE_HEIGHT without reading the proof, but this pre-resolve ran
+        # FIRST and stalled on an unavailable proof_da — so one MIN_TX_FEE blob naming a proof_da nobody holds froze
+        # the exec cursor on every node for good. Same predicate as apply_blob, so every node skips identically.
+        if inject and isinstance(d, dict) and _da_op_refused_at(d.get("op"), h):
+            inject = None
         if (tx.get("recipient") == "blob" and isinstance(d, dict)
                 and inject and d.get("proof_da") and inject not in d):
             # A MALFORMED proof_da (path chars -> DaStore._dir raises) or non-UTF-8 DA bytes are NOT a
@@ -2614,6 +2634,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                 if bb is None:
                     if verbose:
                         print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
+                    for _st in states_map.values():           # EXEC-2: nothing of block h applied, so h is NOT done
+                        _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
                     return False
                 resolved[tx.get("txid")] = (inject, bb.decode())
             except Exception as e:

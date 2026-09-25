@@ -1626,6 +1626,7 @@ def split_open_block_reward(reward: int):
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
 #                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT, ADDRESS_KEY_BIND_HEIGHT,
+#                                    SETTLE_ANCHOR_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2123,6 +2124,17 @@ PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1
 # sent tx recorded it). An address that has NEVER sent has no key on chain and is not protected by this rule — only a
 # hash-based address at the reroll fixes those. Block 1 at the next reroll.
 ADDRESS_KEY_BIND_HEIGHT = 232700 if CHAIN_GENERATION == 25 else 1
+
+# THE SETTLE QUORUM'S ACTIVITY WINDOW IS ANCHORED BY STAKE, NOT BY THE HIGHEST CURSOR ANYONE CLAIMS (review 2026-09-25,
+# reproduced). The window counted validators who attested within SETTLE_ACTIVITY_CURSORS of the HIGHEST attested cursor,
+# and any bonded validator can push that to the block height — so after honest settlers fell 1,440 cursors behind (an
+# exec stall), one 10-NADO bond was the whole active set and justified any root, then drained the escrows through exit
+# claims. From this height the window is anchored at the cursor that validators holding MORE THAN A THIRD of recently
+# attesting stake have reached (settlement_ops.active_settler_shares); an attacker cannot move it without that stake.
+# Validators still leak out after going dark, relative to that anchor; only those silent for SETTLE_ANCHOR_LONG_CURSORS
+# leave the stake basis entirely. Judged on the namespace's top attested cursor, which cannot exceed the block height.
+SETTLE_ANCHOR_HEIGHT = 232900 if CHAIN_GENERATION == 25 else 1
+SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall longer than this reopens the leak
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

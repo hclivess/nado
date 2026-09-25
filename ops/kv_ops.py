@@ -1152,6 +1152,24 @@ def settlement_validators_since(ns: str, floor_cursor: int) -> set:
     return _read(_do)
 
 
+def settlement_last_cursors(ns: str, floor_cursor: int) -> dict:
+    """{validator: its HIGHEST attested cursor} over attestations for `ns` at cursors >= floor_cursor — the input to the
+    stake-weighted settlement anchor (settlement_ops.active_settler_shares). Range scan from the floor key, ascending,
+    so the last write per validator is its maximum. O(attestations inside the window)."""
+    prefix = ns.encode() + b"\x00"
+    start = prefix + be8(max(0, int(floor_cursor)))
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["settlements"]) as cur:
+            if cur.set_range(start):
+                for k, v in cur.iternext(keys=True, values=True):
+                    if not k.startswith(prefix) or len(k) != len(prefix) + 8:
+                        break
+                    out[v.decode().split("|", 1)[0]] = int.from_bytes(k[len(prefix):], "big")
+        return out
+    return _read(_do)
+
+
 def settlement_cursors(ns: str):
     """All exec_cursors in namespace `ns` that have at least one settlement attestation, ascending.
 

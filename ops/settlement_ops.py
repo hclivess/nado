@@ -33,8 +33,26 @@ def active_settler_shares(ns: str, bonded_registry: dict) -> int:
     top = kv_ops.settlement_max_cursor(ns)
     if top < 0:
         return 0
-    active = kv_ops.settlement_validators_since(ns, top - SETTLE_ACTIVITY_CURSORS)
-    return sum(selection_shares(bonded_registry[v]["bonded"]) for v in active if v in bonded_registry)
+    from protocol import SETTLE_ANCHOR_HEIGHT, SETTLE_ANCHOR_LONG_CURSORS
+    if top < int(SETTLE_ANCHOR_HEIGHT):
+        active = kv_ops.settlement_validators_since(ns, top - SETTLE_ACTIVITY_CURSORS)
+        return sum(selection_shares(bonded_registry[v]["bonded"]) for v in active if v in bonded_registry)
+    # SETTLE_ANCHOR_HEIGHT: anchor the window by STAKE (see protocol.py). `last` = each recently attesting bonded
+    # validator's highest cursor; the anchor is the highest cursor that validators holding more than a third of that
+    # stake have reached (ties broken by address, so the order is total). A tiny bond at the top cannot move it.
+    last = kv_ops.settlement_last_cursors(ns, top - SETTLE_ANCHOR_LONG_CURSORS)
+    shares = {v: selection_shares(bonded_registry[v]["bonded"]) for v in last if v in bonded_registry}
+    shares = {v: sh for v, sh in shares.items() if sh > 0}
+    total = sum(shares.values())
+    if total == 0:
+        return 0
+    anchor, acc = None, 0
+    for v in sorted(shares, key=lambda v: (-last[v], v)):
+        acc += shares[v]
+        if acc * 3 > total:
+            anchor = last[v]
+            break
+    return sum(sh for v, sh in shares.items() if last[v] >= anchor - SETTLE_ACTIVITY_CURSORS)
 
 
 def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry: dict) -> bool:
