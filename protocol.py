@@ -27,7 +27,7 @@ if not __debug__:
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "betanet-7"  # BETANET (gen 25): the REAL-DEVICE reroll — every open-lane identity is attested hardware; PoSW, per-IP budgets and probation retired. Was "betanet-6"  # BETANET (gen 24): the SYBIL-RULES + ACCOUNT-AUTH reroll — balances, bonded stake,
+CHAIN_ID = "betanet-8"  # BETANET (gen 26): the carry-everything reroll — balances, bonded stake, identities, device bindings, aliases and auth history carried. Was "betanet-7"  # BETANET (gen 25): the REAL-DEVICE reroll — every open-lane identity is attested hardware; PoSW, per-IP budgets and probation retired. Was "betanet-6"  # BETANET (gen 24): the SYBIL-RULES + ACCOUNT-AUTH reroll — balances, bonded stake,
                         # dividends and bridged coins fold forward from betanet-4
                         # (genesis_data/genesis_alloc.dat). Every 2026-08-25 rule is live from block 0
                         # with NO gate: linear bonded weight (no per-identity cap), the dividend's own
@@ -66,7 +66,7 @@ DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW bindi
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
 
-GENESIS_TIMESTAMP = 1788772790  # betanet-7 (gen 25): the REAL-DEVICE reroll (2026-09-07T09:19:50Z). Was 1788269732 = betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
+GENESIS_TIMESTAMP = 1790328896  # betanet-8 (gen 26): the carry-everything reroll (2026-09-25T09:34:56Z). Was 1788772790 = betanet-7 (gen 25): the REAL-DEVICE reroll (2026-09-07T09:19:50Z). Was 1788269732 = betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
                                 # timestamp so no prior-generation block links in.
                                 # Block 0's hash is blake2b_hash_link(timestamp, []), so a DISTINCT
                                 # timestamp is what actually makes this a different chain — no
@@ -586,7 +586,7 @@ POSW_ENTRY_MULT = 32
 #   that carried these rules for the last hours of gen 22 is deleted — it existed for replay of gen-22
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
-CHAIN_GENERATION = 25
+CHAIN_GENERATION = 26
 
 # CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
 # The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at
@@ -597,7 +597,7 @@ CHAIN_GENERATION = 25
 # but the estimate should be the measured cadence and the accumulated lag resets with the new genesis.
 # 60 ds on gen 25 reproduces GENESIS + h*6 EXACTLY (h*60 // 10 == h*6), so live consensus is untouched; the
 # next generation starts at the cadence measured here. Re-measure at every reroll (doc/reroll.md).
-CHAIN_CLOCK_CADENCE_DS = 60 if CHAIN_GENERATION == 25 else 65
+CHAIN_CLOCK_CADENCE_DS = 60 if CHAIN_GENERATION == 25 else 64   # 64: gen 25 measured 6.41 s over its last 10,000 blocks (6.67 s overall)
 
 # SCHEDULED-CLEANUP (gen 24 only): the ENTRIES-ONLY flood counting (84d122f3, 2026-09-01 17:12 UTC) shipped
 # UNGATED while betanet-6 was already 1600 blocks old. Every registration validated before the fleet's update
