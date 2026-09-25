@@ -677,7 +677,7 @@
   "pool.rulesHead": "House rules",
   "pool.safe1": "The contract is a pure <b>escrow + shot log</b> — the rules run in your browser, and every shot lands on-chain in order.",
   "pool.safe2": "<b>The physics has no floats in it.</b> Positions, speeds, angles and square roots are exact integers, so two browsers replaying the same log always agree ball for ball — there is no rounding for either side to exploit.",
-  "pool.safe3": "<b>The rack is drawn by the chain.</b> Joining pins a block height that hasn't been mined yet, and its hash shuffles the triangle — neither player nor the node can fish for a break.",
+  "pool.safe3": "<b>The rack is drawn by the chain.</b> Joining pins a block height that hasn't been collected yet, and its hash shuffles the triangle — neither player nor the node can fish for a break.",
   "pool.safe4": "<b>Stall or dispute:</b> after the shot clock either player claims a <b>refund</b>. Concede / agree / refund are the only outcomes — <b>no one can ever be robbed</b>. The contract is upgradable.",
   "pool.safeHead": "How the frame is safe & fair",
   "pool.scoreboardHead": "🏆 Staked-frame scoreboard",
