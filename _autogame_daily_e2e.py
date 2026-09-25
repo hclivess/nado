@@ -23,7 +23,7 @@ from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx
 from protocol import MIN_TX_FEE
 
-CID = "af66948ff14f81ace98d4fde619b8e74"          # execnode/games/autogame.py
+CID = "96903c302fa191a70c54dd67d764b302"          # execnode/games/autogame.py
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
 FAILS = []

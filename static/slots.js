@@ -9,7 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPa
 import { BankedGame } from "./bankedgame.js?v=d61b7dbd";
 import { Practice } from "./practice.js?v=716edb1a";      // free in-browser practice (play chips, no chain)
 
-const CID = "42509ee496258eea278dd01d66a8eed8";
+const CID = "477b8cb1ba7c7e8ea14759e95a8e40ee";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
 const bg = new BankedGame(dapp, { icon: "🎰", bankIcon: "🎰" });   // shared banked-table SDK (reader/actions/tracking/chips); slots shows 🎰 for banked machines too
 const SPIN_D = 2, MAXM2 = 300, COVER = (MAXM2 - 2) / 2;   // cover per spin = stake * 149

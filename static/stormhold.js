@@ -13,7 +13,7 @@ import { ART } from "./stormhold-art.js?v=bb298f4c";
 import { prng, randomMove } from "./stormhold-bot.js?v=bdb7c3b3";   // powers the free practice-vs-computer mode
 import { prand } from "./practice.js?v=716edb1a";
 
-const CID = "093708c95385df4d6123ee56117fcc14";
+const CID = "cccc59d26d1bccc6a9da275719b4d7f8";
 const dapp = new NadoDapp({ cid: CID, app: "Stormhold" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("storm." + k, d, v) : d;
 const SKIP = 4095;

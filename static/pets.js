@@ -9,7 +9,7 @@ import * as G from "./pets-genes.js?v=91476d5b";
 import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js?v=cde4652c";
 
-const CID = "847d80f3decd49fa4d90888962708628";   // execnode/games/pets.py (zkVM, nonce "a5")
+const CID = "7fd0dcbc8d3bab21d5d892d7761f5c18";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 
 const petSlug = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, "");

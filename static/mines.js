@@ -9,7 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, order
 import { BankedGame } from "./bankedgame.js?v=d61b7dbd";
 import { Practice } from "./practice.js?v=716edb1a";      // free in-browser practice (play chips, no chain)
 
-const CID = "584783cc92f57b40b4c832b9b1f3242c";
+const CID = "6b657648c0b12fe3e646ac87841e8b42";
 const T = 25, NMIN = 1, NMAX = 24, PICK_D = 2, REAP = 1200;
 const dapp = new NadoDapp({ cid: CID, app: "Mines" });
 const bg = new BankedGame(dapp, { icon: "💣" });

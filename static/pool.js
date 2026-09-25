@@ -12,7 +12,7 @@ import { DuelGame } from "./duelgame.js?v=15b267a7";
 import * as E from "./pool-engine.js?v=f57297e4";
 import { prand } from "./practice.js?v=716edb1a";
 
-const CID = "043c6d95117ed222f3e95b1f2997fba9";
+const CID = "402f0e29ac7c6984ed4d7fb6fa2bff33";
 const dapp = new NadoDapp({ cid: CID, app: "Pool" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("pool." + k, d, v) : d;
 

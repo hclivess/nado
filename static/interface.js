@@ -24,7 +24,7 @@ import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
 import { setMerkleWasm } from "./stark/merkle.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
-import * as alghash2 from "./alghash2.js";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
+import * as alghash2 from "./alghash2.js?v=931768eb";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
 import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";

@@ -17,7 +17,7 @@
 import { Book } from "./bookgame.js?v=88899a3d";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, disp, alertBar, notify, confirmingLabel, loadQR, share, shareInvite, esc } from "./nadodapp.js?v=6b8ef380";
 
-const CID = "386cc6bd021cbb183d33bdf56c23f49f";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
+const CID = "cb58c6a87aec76e08a48468c0bfad70a";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 // the fixed-odds BOOK (bank vs punters) — model, solvency maths, actions and settle predicates all
 // live in the shared scaffold, so this game and hamster cannot drift on the part that moves money
