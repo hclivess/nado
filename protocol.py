@@ -586,7 +586,7 @@ POSW_ENTRY_MULT = 32
 #   that carried these rules for the last hours of gen 22 is deleted — it existed for replay of gen-22
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
-CHAIN_GENERATION = 26
+CHAIN_GENERATION = 27   # 26 was built with every registered identity leased (79 open-lane collectors against 46 live); bumped before block 1 so every node rebuilds genesis with the carried present set
 
 # CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
 # The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at

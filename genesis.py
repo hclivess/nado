@@ -110,6 +110,23 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
                 create_account(address=entry["address"], balance=0, bonded=entry["bonded"])
             logger.warning(f"TESTNET: seeded {len(bonds)} bonded genesis accounts")
 
+    # STATE OUTSIDE ACCOUNT RECORDS (device bindings, aliases, account-auth history) and the PRESENT set, seeded only when
+    # the carry file names THIS generation — so no node replaying an earlier generation's genesis is ever affected by it.
+    carry = None
+    carry_path = (os.environ.get("NADO_GENESIS_CARRY")        # a rehearsal points this at a scratch copy
+                  or os.path.join(os.path.dirname(os.path.abspath(__file__)), "genesis_data", "genesis_carry.dat"))
+    if os.path.exists(carry_path):
+        from protocol import CHAIN_GENERATION as _GEN
+        with open(carry_path) as cf:
+            carry = json.load(cf)
+        if int(carry.get("generation", -1)) != int(_GEN):
+            carry = None
+    # LEASES AT GENESIS: with a carried "present" list, exactly those identities hold a lease at epoch 0 — NOT every
+    # registered identity and NOT every relay identity in genesis_open.dat. Seeding all registered ones revived 33 lapsed
+    # identities on betanet-8 (79 collectors against 46 live), and a lapsed identity drawn for an open-lane slot produces
+    # nothing for its whole lease. Without a list (a fresh no-premine chain) the relay identities bootstrap the lane.
+    leased = set(carry["present"]) if carry is not None and "present" in carry else None
+
     # MAINNET-capable OPEN-lane bootstrap (no premine, no bonded seed required): seed registered +
     # present relay identities from a byte-identical genesis_open.dat so a fresh chain can PRODUCE
     # from height 1 through the OPEN lane. With TREASURY_GENESIS=0 nobody holds coins to bond, so the
@@ -135,7 +152,8 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         with kv_ops.write_txn():
             for addr in sorted(open_ids):
                 create_account(address=addr, registered=1)
-                kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
+                if leased is None or addr in leased:
+                    kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
         logger.warning(f"Seeded {len(open_ids)} registered open-lane genesis identities (epoch 0)")
 
     # RELAUNCH CARRY-FORWARD: seed prior-chain balances + bonded stake from a byte-identical genesis_alloc.dat
@@ -178,34 +196,26 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         with kv_ops.write_txn():
             _ids = 0
             for e in sorted(alloc, key=lambda x: x["address"]):
-                present = [f for f in CARRY_FIELDS if f in e]
-                for f in present:
+                fields = [f for f in CARRY_FIELDS if f in e]
+                for f in fields:
                     kv_ops.account_set_field(e["address"], f, e[f])
-                if present:
+                if fields:
                     _ids += 1
-                if str(e.get("registered", "0")) not in ("0", "", "None"):
+                if str(e.get("registered", "0")) not in ("0", "", "None") and (leased is None or e["address"] in leased):
                     kv_ops.recert_put(address=e["address"], epoch=0)
         if _ids:
             logger.warning(f"RELAUNCH: carried identity fields for {_ids} accounts")
 
-    # STATE OUTSIDE ACCOUNT RECORDS (device bindings, aliases, account-auth history), seeded only when the carry file
-    # names THIS generation — so no node replaying an earlier generation's genesis is ever affected by it.
-    carry_path = (os.environ.get("NADO_GENESIS_CARRY")        # a rehearsal points this at a scratch copy
-                  or os.path.join(os.path.dirname(os.path.abspath(__file__)), "genesis_data", "genesis_carry.dat"))
-    if os.path.exists(carry_path):
-        from protocol import CHAIN_GENERATION as _GEN
-        with open(carry_path) as cf:
-            carry = json.load(cf)
-        if int(carry.get("generation", -1)) == int(_GEN):
-            with kv_ops.write_txn():
-                for key, addr, mode in sorted(carry.get("devbind") or []):
-                    kv_ops.devbind_set(key, addr, 0, mode)
-                for name, owner in sorted(carry.get("aliases") or []):
-                    kv_ops.alias_put(name, owner)
-                for addr, ver, keys in sorted(carry.get("auth_history") or []):
-                    kv_ops.auth_history_put(addr, 0, int(ver), list(keys))
-            logger.warning(f"RELAUNCH: carried {len(carry.get('devbind') or [])} device bindings, "
-                           f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories")
+    if carry is not None:
+        with kv_ops.write_txn():
+            for key, addr, mode in sorted(carry.get("devbind") or []):
+                kv_ops.devbind_set(key, addr, 0, mode)
+            for name, owner in sorted(carry.get("aliases") or []):
+                kv_ops.alias_put(name, owner)
+            for addr, ver, keys in sorted(carry.get("auth_history") or []):
+                kv_ops.auth_history_put(addr, 0, int(ver), list(keys))
+        logger.warning(f"RELAUNCH: carried {len(carry.get('devbind') or [])} device bindings, "
+                       f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->

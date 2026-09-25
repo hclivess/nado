@@ -200,10 +200,19 @@ def build_extra():
             if rows:
                 _h, ver, keys = rows[-1]                         # the CURRENT config, effective from block 0
                 hist.append([address, int(ver), list(keys)])
-    print(f"carried: {len(devbind)} device bindings, {len(aliases)} aliases, {len(hist)} auth histories")
+    # PRESENT = the identities holding a live lease at the tip. Only these get a lease at the new genesis: seeding one for
+    # every registered identity revived 33 lapsed ones on betanet-8 (79 collectors against 46 live), and a lapsed
+    # identity drawn for an open-lane slot produces nothing for its whole lease (36 h to 7 days). The rest keep their
+    # registration and devices and rejoin with their next renewal.
+    from ops.account_ops import get_open_registry
+    from protocol import EPOCH_LENGTH as _EL
+    _tip = next(int(sys.argv[i + 1]) for i, a in enumerate(sys.argv) if a == "--l1-tip")
+    present = sorted(get_open_registry(_tip // _EL))
+    print(f"carried: {len(devbind)} device bindings, {len(aliases)} aliases, {len(hist)} auth histories, "
+          f"{len(present)} present identities")
     from protocol import CHAIN_GENERATION as _G
     # "generation" = the chain this carry SEEDS (the next one); genesis refuses a file naming any other generation.
-    return {"generation": int(_G) + 1, "devbind": devbind, "aliases": aliases, "auth_history": sorted(hist)}
+    return {"generation": int(_G) + 1, "devbind": devbind, "aliases": aliases, "auth_history": sorted(hist), "present": present}
 
 
 def main():
