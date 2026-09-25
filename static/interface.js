@@ -1541,7 +1541,11 @@ const RELAY_SLOW_WINDOW = 6;                 // ... over the last N answers ...
 const RELAY_SLOW_MIN = 4;                    // ... and this many slow ones rotate (4 of 6)
 const RELAY_HOME_FAST_MS = 2000;             // home must answer its probe this fast to win the wallet back
 const relayPool = {
-  list: (() => { try { const l = JSON.parse(localStorage.getItem(LS_RELAY_POOL) || "[]"); return Array.isArray(l) ? l.filter((c) => c && typeof c.url === "string") : []; } catch (e) { return []; } })(),
+  // The saved list restores URLs only, never HEIGHTS: a height from an earlier session is from an earlier chain after
+  // a reroll (betanet-7's ~233000 against betanet-8's hundreds), and guardFrom takes the pool MAX, so every tx built
+  // before the first /relays refresh carried an unreachable min_block, and relayNoteHeight judged the healthy home
+  // relay 232,000 blocks stale against the median and switched away from it. refreshRelayPool fills live heights.
+  list: (() => { try { const l = JSON.parse(localStorage.getItem(LS_RELAY_POOL) || "[]"); return Array.isArray(l) ? l.filter((c) => c && typeof c.url === "string").map((c) => ({ url: c.url, height: 0 })) : []; } catch (e) { return []; } })(),
   auto: null,          // the relay we switched to, or null = on the home relay
   fails: 0,            // consecutive hard failures of the CURRENT relay
   bad: new Map(),      // url -> time of last failed probe

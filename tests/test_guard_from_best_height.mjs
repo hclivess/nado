@@ -33,5 +33,17 @@ check(`every guarded build site uses guardFrom (${guarded} calls; ${raw.length} 
 if (raw.length) raw.forEach(l => console.log('   raw:', l.trim().slice(0, 100)));
 check('the duty window is derived from the best tip, not one relay\'s', /const latest = Math\.max\(state\.latest, relayMaxHeight\(\)\);/.test(js));
 
+// A pool restored from localStorage carries URLs, never heights: after the betanet-8 reroll a returning wallet restored
+// betanet-7's ~233000 heights, and guardFrom (the pool MAX) set an unreachable min_block on every tx until a refresh.
+const restore = (js.match(/\n  list: (\(\(\) => \{ try \{ const l = JSON\.parse\(localStorage\.getItem\(LS_RELAY_POOL\)[^\n]*\}\)\(\)),\n/) || [])[1];
+check('the saved relay pool restore is found', !!restore);
+if (restore) {
+  const saved = JSON.stringify([{ url: 'https://a.example', height: 233042 }, { url: 'https://b.example', height: 233050 }]);
+  const list = new Function('localStorage', 'LS_RELAY_POOL', 'return ' + restore)({ getItem: () => saved }, 'k');
+  check('a restored pool keeps its urls', list.length === 2 && list[0].url === 'https://a.example');
+  check('a restored pool carries no height from an earlier session', list.every(c => c.height === 0));
+  check('so the guard starts from live tips only', mk(list.map(c => c.height), 0)(500) === 500 + D);
+}
+
 console.log(fails ? `\nFAILED: ${fails}` : '\nall checks passed');
 process.exit(fails ? 1 : 0);
