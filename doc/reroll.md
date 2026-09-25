@@ -65,15 +65,19 @@ must be reviewable as "new genesis, same rules".
 3. Rehearse the source edit on a throwaway worktree (symlink `native/` in).
 4. Back up the data directory.
 5. `systemctl stop nado-watchtower nado-exec nado` (a fixed-point snapshot).
-6. Run the carry-forward tool `--write`; confirm Δ = 0.
-7. Edit: `CHAIN_ID`, `GENESIS_TIMESTAMP`, **`CHAIN_GENERATION`** — the last is THE purge trigger; forgetting it means
+6. **Drain the exec tail**: `python3 tools/exec_drain.py /root/nado/exec_state.json /root`. The exec node applies only
+   finalized blocks, so at any stop it is ~45 blocks behind the tip, and those blocks hold real exec ops (dividend
+   claims, deposits). The drain replays them with the exec node's own apply path and prints the tip.
+7. Run the carry-forward tool `--write --l1-tip <that tip>`; confirm Δ = 0. It also records the identities PRESENT at
+   the tip (a live lease); genesis leases exactly those, never every registered identity (see failure 6).
+8. Edit: `CHAIN_ID`, `GENESIS_TIMESTAMP`, **`CHAIN_GENERATION`** — the last is THE purge trigger; forgetting it means
    nothing purges. Delete `private/genesis_alloc.dat`. No gate edits are needed (see above).
-8. `tests/test_genesis_alloc_format.py`, `tests/test_gate_reroll_transfer.py` (update its generation), commit.
-9. `systemctl start nado` — the node self-purges on the generation mismatch. Check `/get_supply` equals the carry
+9. `tests/test_genesis_alloc_format.py`, `tests/test_gate_reroll_transfer.py` (update its generation), commit.
+10. `systemctl start nado` — the node self-purges on the generation mismatch. Check `/get_supply` equals the carry
    total, then push and kick the `/update` wave so the fleet purges too.
-10. Start exec and watchtower, then `python3 -m execnode.games.redeploy` (confirms via a provisional view, needs no
+11. Start exec and watchtower, then `python3 -m execnode.games.redeploy` (confirms via a provisional view, needs no
     finality), `_fund_faucet.py <NADO>`, and any manual refunds.
-11. Follow-up commit: the cleanup above.
+12. Follow-up commit: the cleanup above.
 
 ## Failure modes that have actually happened
 
@@ -88,5 +92,11 @@ must be reviewable as "new genesis, same rules".
    mismatched `genesis_hash`.
 5. **A splice edit can produce valid-but-wrong Python** (`f# comment` parses as a bare name): `py_compile` *and*
    import-smoke every edited module before restarting anything.
+6. **Every registered identity leased at genesis** (betanet-8, gen 26): the open lane showed 79 collectors against 46
+   live, because lapsed identities got a fresh lease and would have been drawn for slots they never fill. Caught before
+   block 1 and re-rolled as gen 27. Before starting, check the node's `open:N` log line equals the tip's live count.
+7. **The `/update` wave never leaves the push host**: the checkout you push from is already current, answers
+   `up_to_date`, and only a node that actually UPDATED forwards the wave — and after a reroll its peer pool is empty
+   anyway (every old-chain peer is refused). Kick two fleet nodes directly (`http://<ip>:9173/update?wave=true`).
 
 Verify unification by comparing a block hash at a **common height**, never by comparing tips.
