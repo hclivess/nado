@@ -1626,7 +1626,7 @@ def split_open_block_reward(reward: int):
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
 #                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT, ADDRESS_KEY_BIND_HEIGHT,
-#                                    SETTLE_ANCHOR_HEIGHT,
+#                                    SETTLE_ANCHOR_HEIGHT, SLASH_DEDUP_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
 #   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
@@ -2135,6 +2135,13 @@ ADDRESS_KEY_BIND_HEIGHT = 232700 if CHAIN_GENERATION == 25 else 1
 # leave the stake basis entirely. Judged on the namespace's top attested cursor, which cannot exceed the block height.
 SETTLE_ANCHOR_HEIGHT = 232900 if CHAIN_GENERATION == 25 else 1
 SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall longer than this reopens the leak
+
+# ONE SLASH PER OFFENCE PER BLOCK (review 2026-09-25, reproduced). The in-block uniqueness key for a slash read the
+# block-authorship proof's fields, which a double-vote proof does not carry, so it fell back to a per-txid key and two
+# reports of one offence both entered a block (a double burn, or a raise inside incorporate_block). From this height a
+# slash is keyed by the (offender, dedup height) resolve_slash returns, the identity apply already dedupes on. Keyed on
+# the tx's own max_block, so history replays unchanged. Block 1 at the next reroll.
+SLASH_DEDUP_HEIGHT = 233300 if CHAIN_GENERATION == 25 else 1
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 

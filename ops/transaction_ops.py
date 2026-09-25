@@ -1049,6 +1049,12 @@ def reserved_uniqueness_key(tx):
             return ("duty", tx["sender"], tx["max_block"] // EPOCH_LENGTH)
         if r == "slash":
             d = tx.get("data") or {}
+            from protocol import SLASH_DEDUP_HEIGHT
+            if int(tx.get("max_block") or 0) >= int(SLASH_DEDUP_HEIGHT):
+                # SLASH_DEDUP_HEIGHT: key by the RESOLVED offence (see protocol.py), for both proof shapes
+                res = resolve_slash(d)
+                if res is not None:
+                    return ("slash", res[0], res[1])
             return ("slash", make_address(d["public_key"]), d["block_number"])
         if r == "alias":
             return ("alias", (tx.get("data") or {}).get("name"))     # one op per name per block

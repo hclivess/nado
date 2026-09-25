@@ -385,6 +385,16 @@ class ExecState:
         from execnode.shielded_field import FieldShieldedPool
         self.contracts = d.get("contracts", {})
         self.cursor = d.get("cursor", -1)
+        # THE CLOCK FOLLOWS THE CURSOR (review 2026-09-25, reproduced): block_ts is not in the snapshot, so a restored
+        # state kept 0 and its FIRST applied block ran every TIME read as 0 — a different root from nodes that did not
+        # restart (every /update wave). After applying block h the exec node sets block_ts = chain_clock(h), a pure
+        # function of the cursor, so the restored value is derived the same way. (Rewind, repair and anchor-adopt all
+        # restore through here.)
+        try:
+            from protocol import chain_clock as _cc
+            self.block_ts = _cc(int(self.cursor)) if int(self.cursor) >= 0 else 0
+        except Exception:
+            self.block_ts = 0
         self.bridge = d.get("bridge", {})
         self.assets = d.get("assets", {})
         self.abal = {a: dict(h) for a, h in d.get("abal", {}).items()}
