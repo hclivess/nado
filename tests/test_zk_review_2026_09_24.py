@@ -37,7 +37,7 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-GATE = int(P.PROOF_QUERY_FULL_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's PROOF_QUERY_FULL_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 TRANS = [lambda c, n, p: F.sub(n[0], F.add(c[0], 1))]
 BND = [(0, 0, 0)]
 
@@ -202,8 +202,10 @@ def t_the_compose_kernels_return_negative_error_codes():
 
 def t_the_exec_node_never_builds_a_fold_the_chain_refuses():
     from execnode.stark import recursive_verify as RV
-    assert not RV.fold_refused_at(P.REVIEW_R2_HEIGHT)
-    assert RV.fold_refused_at(P.PROOF_TRACE_LDT_HEIGHT) and RV.fold_refused_at(GATE)
+    # every proof rule holds from block 1 (the gen-25 gates are deleted): the fold is refused from there, and only
+    # height 0 — below every deleted gate — is not
+    assert not RV.fold_refused_at(0)
+    assert RV.fold_refused_at(1) and RV.fold_refused_at(GATE) and RV.fold_refused_at(10 ** 6)
     src = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
     assert "_RVf.fold_refused_at(int(cur) + 1)" in src
 

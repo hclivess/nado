@@ -94,9 +94,10 @@ def main():
           set(reg) == {kd["address"], b} and all(set(e) == {"bonded", "fidelity", "bond_since"} for e in reg.values())
           and reg[b]["bonded"] == P.B_MIN, reg)
 
-    # 5. the gradient (DIVIDEND_WEIGHT_CAP_V2_EPOCH was OPEN_LANE_EXCLUDE_BONDED_EPOCH before 2026-09-09)
-    GE = P.DIVIDEND_WEIGHT_CAP_V2_EPOCH
-    check("dividend_weight caps at 15 from DIVIDEND_WEIGHT_CAP_V2_EPOCH", P.dividend_weight(30, GE) == 15 and P.dividend_weight(7, GE) == 7)
+    # 5. the gradient: min(fidelity, 15) at every epoch (gen 25 gated it at DIVIDEND_WEIGHT_CAP_V2_EPOCH, 0 from gen 26 and
+    #    deleted after the betanet-8 reroll)
+    check("dividend_weight caps at 15 from epoch 0", all(P.dividend_weight(30, e) == 15 and P.dividend_weight(7, e) == 7
+                                                       for e in (0, 1, 110, 10 ** 6)) and not hasattr(P, "DIVIDEND_WEIGHT_CAP_V2_EPOCH"))
     kv_ops.close_all()
 
     # 6. nothing deleted came back

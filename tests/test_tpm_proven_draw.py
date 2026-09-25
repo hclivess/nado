@@ -58,7 +58,7 @@ def install(blocks):
     T._tpm_producer_cache[0] = None
 
 
-HEIGHT = P.DEVICE_ATTEST_EK_PROVEN_HEIGHT + 500
+HEIGHT = 501                        # the proven draw holds from block 1 (gen 25's DEVICE_ATTEST_EK_PROVEN_HEIGHT, deleted)
 NODES = [f"{i:02x}" * 23 for i in range(1, 6)]        # five real nodes that answer
 WALLETS = [f"{i:02x}" * 23 for i in range(100, 112)]  # twelve mining wallets that never answer
 
@@ -85,13 +85,10 @@ few = T._tpm_challengers("ab" * 16, HEIGHT)
 check("falls back when fewer than k have proven", len(few) == P.DEVICE_ATTEST_EK_CHALLENGERS,
       f"drew {len(few)}")
 
-# THE GATE: below it, the old pool decides, so old blocks replay unchanged.
+# (THE GATE is gone: every tpm_* transaction lands at block >= 1, where the proven pool always decided, so the
+#  below-the-gate duty-sender draw was deleted with gen 25's DEVICE_ATTEST_EK_PROVEN_HEIGHT)
+check("the proven-draw gate stays deleted", not hasattr(P, "DEVICE_ATTEST_EK_PROVEN_HEIGHT"))
 install(build_chain(NODES, WALLETS, HEIGHT))
-below = set()
-for i in range(60):
-    below |= set(T._tpm_challengers(f"{i:032x}", P.DEVICE_ATTEST_EK_PROVEN_HEIGHT - 1))
-check("below the gate the old duty-sender pool is used", bool(below & set(WALLETS)),
-      "no wallet drawn below the gate — the gate is not doing anything")
 
 # DETERMINISM: the same inputs must give the same set, or nodes disagree about block validity.
 a = T._tpm_challengers("cd" * 16, HEIGHT)

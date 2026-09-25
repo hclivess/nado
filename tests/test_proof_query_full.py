@@ -36,7 +36,7 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-GATE = int(P.PROOF_QUERY_FULL_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's PROOF_QUERY_FULL_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 PRE, NEW = stark.rules_for_height(GATE - 1), stark.rules_for_height(GATE)
 
 
@@ -110,8 +110,7 @@ def t_rules_are_pure_in_height():
     assert not PRE.full_query and NEW.full_query
     assert stark.rules_for_height(None).full_query and stark.current_rules().full_query, "unset = strict"
     assert stark.Rules(True, True, True, True, True).full_query is False, "a five-field Rules is the pre-gate format"
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1" in src
+    assert not hasattr(P, "PROOF_QUERY_FULL_HEIGHT"), "the gate stays deleted"
 
 
 def t_half_domain_forgery_verifies_below_the_gate_and_is_refused_at_it():

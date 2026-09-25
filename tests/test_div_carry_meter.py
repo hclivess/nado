@@ -1,11 +1,11 @@
-"""METERED DIVIDEND CARRY (protocol.DIV_CARRY_METER_EPOCH, records_bind.dividend_accrual_effects) — 2026-09-02.
+"""METERED DIVIDEND CARRY (records_bind.dividend_accrual_effects) — 2026-09-02.
 
 Epochs 0-193 of betanet-6: every identity on probation, weight set empty, the whole inflow carried forward.
 Epoch 194: ONE identity had left probation and received the entire backlog, 113.29 NADO against 0.587 NADO
-per epoch (fazer's report). Pinned here: the gate's shape; the pre-gate rule is byte-identical to the old one;
-after the gate a backlog releases max(inflow, floor) per epoch on top of the inflow and drains even at zero
-inflow; nothing is ever lost (inflow in == distributed + carry out); and the live accrual applies exactly
-what the settle binding derives (one function).
+per epoch (fazer's report). Pinned here: no gate is left (gen 24's DIV_CARRY_METER_EPOCH and its unmetered
+`epoch is None` branch were deleted after the betanet-8 reroll, as SCHEDULED_CLEANUPS.md asked); a backlog releases
+max(inflow, floor) per epoch on top of the inflow and drains even at zero inflow; nothing is ever lost (inflow in ==
+distributed + carry out); and the live accrual applies exactly what the settle binding derives (one function).
 Run: python3 tests/test_div_carry_meter.py
 """
 import os
@@ -28,19 +28,15 @@ def check(name, cond, detail=""):
 import protocol as P
 from execnode.stark import records_bind as RB
 
-G = P.DIV_CARRY_METER_EPOCH
-# gen 25: the gen-24 activation (600) was retired at the reroll — the meter is THE rule from epoch 0, no generation key.
-check("the meter is unconditional from epoch 0 (gen-24 gate retired)", G == 0 and P.CHAIN_GENERATION >= 25, (G, P.CHAIN_GENERATION))
+G = 0                                              # the meter is THE rule from epoch 0
+check("the meter is unconditional: no gate constant is left", not hasattr(P, "DIV_CARRY_METER_EPOCH") and P.CHAIN_GENERATION >= 25)
 check("no generation-keyed expression survives", "if CHAIN_GENERATION == 24" not in open(os.path.join(ROOT, "protocol.py")).read())
 
 INF, W = 5_871_180_000, {"a": 2}
-# ---- before the gate (or a caller with no epoch): the whole backlog is in the pot — the old rule, unchanged
-eff, carry = RB.dividend_accrual_effects(INF, W, 100 * INF, None)
-check("no epoch -> old rule: the whole backlog pays out at once", sum(d for _, _, d in eff) == 101 * INF and carry == 0)
-if G > 0:
-    eff, carry = RB.dividend_accrual_effects(INF, W, 100 * INF, G - 1)
-    check("one epoch before the gate -> old rule", sum(d for _, _, d in eff) == 101 * INF and carry == 0)
-# ---- at/after the gate: metered
+# ---- no unmetered rule is left: a caller with no epoch gets the same metered answer as epoch 0
+check("no epoch -> the same metered rule (the unmetered branch is deleted)",
+      RB.dividend_accrual_effects(INF, W, 100 * INF, None) == RB.dividend_accrual_effects(INF, W, 100 * INF, 0))
+# ---- metered
 eff, carry = RB.dividend_accrual_effects(INF, W, 100 * INF, G)
 paid = sum(d for _, _, d in eff)
 check("at the gate a 100-epoch backlog releases ONE epoch's inflow on top of the inflow", paid == 2 * INF and carry == 99 * INF, (paid, carry))

@@ -114,7 +114,7 @@ def t_inner_geometry_is_pinned():
 
 def t_the_heterogeneous_verifier_refuses_under_every_live_rule():
     from execnode.stark import recursive_verify_hetero as RH
-    with stark.with_rules(stark.rules_for_height(P.PROOF_BIND_HEIGHT)):
+    with stark.with_rules(stark.rules_for_height(1)):      # block 1: every proof rule (gen 25's PROOF_BIND_HEIGHT and later, deleted)
         ok, why = RH.verify_hetero([], [], {})
         assert not ok and "refused" in why, why
 

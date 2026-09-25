@@ -32,12 +32,14 @@ def refused(who, method, args, value=None):
     except Exception: pass
     return before == json.dumps({"s": st.contracts["faucet"]["storage"], "b": st.bridge}, sort_keys=True, default=str)
 
-# the situation on chain: the operator funded the faucet before defund existed (nothing recorded), then the upgrade lands
-call(OP, "fund", [], 300 * 10 ** 10)
-ok(slot(7) == 0, "pre-upgrade code records nothing (as today)")
+# the upgrade lands defund(). Gen 25 SEEDED slot 7 with the balance at the upgrade block (the operator had funded the
+# faucet before defund existed); that seed ran only below EXEC_ROOT_V2_HEIGHT, 1 from gen 26 and deleted, so on this
+# chain the upgrade seeds nothing and the operator's donations are recorded by fund() alone.
 st.apply_blob({"op": "upgrade", "contract": "faucet", "code": F.build(), "abi": F.ABI}, OP, "u")
 ok("defund" in st.contracts["faucet"]["code"], "1. upgrade lands defund()")
-ok(slot(7) == 300 * 10 ** 10, "   the seed records the balance at the upgrade block as the operator's donations (treasury never paid in)")
+ok(slot(7) == 0, "   no seed: the upgrade records nothing as the operator's donations")
+call(OP, "fund", [], 300 * 10 ** 10)
+ok(slot(7) == 300 * 10 ** 10, "   operator fund() records DONATED")
 
 # from now on: operator fund() records, stranger fund() does not, treasury credits do not
 call(OP, "fund", [], 100 * 10 ** 10);   ok(slot(7) == 400 * 10 ** 10, "2. operator fund() adds to DONATED")

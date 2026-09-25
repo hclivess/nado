@@ -15,7 +15,10 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ops.node_attest import device_histogram  # noqa: E402
-from protocol import POSW_LEASE_EPOCHS        # noqa: E402
+from protocol import LEASE_EPOCHS_BY_CLASS    # noqa: E402
+# a chip's lease is its class's grant (per-class leases hold at every epoch since gen 26; gen 25's LEASE_V2_EPOCH gate
+# is deleted) — 7 days for "ek", not the historical POSW_LEASE_EPOCHS
+EK_LEASE = LEASE_EPOCHS_BY_CLASS["ek"]
 
 fails = []
 
@@ -26,10 +29,10 @@ def check(cond, label):
         fails.append(label)
 
 
-NOW = 1000
+NOW = 10000
 rows = [
     ("ek:aaa",          "A", NOW - 1,                     "lease"),   # chip, fresh lease, present -> live
-    ("ek:bbb",          "B", NOW - POSW_LEASE_EPOCHS - 1, "lease"),   # chip, lease ran out -> not live
+    ("ek:bbb",          "B", NOW - EK_LEASE - 1,         "lease"),   # chip, lease ran out -> not live
     ("android-key:ccc", "C", NOW - 3,                     "lease"),   # phone, present -> live
     ("android-key:ddd", "D", NOW - 3,                     "lease"),   # phone, NOT present -> not live
     ("ledger:eee",      "E", NOW - 5000,                  "perm"),    # hardware wallet, old statement, present -> live for life
@@ -52,9 +55,9 @@ check(h["live_total"] == 4 and h["bound_total"] == 7, f"totals add up (live {h['
 e = device_histogram([], NOW, set())
 check(e == {"classes": {}, "live_total": 0, "bound_total": 0}, "no bindings -> empty, zero, zero (never an error)")
 
-# the lease boundary is inclusive: exactly POSW_LEASE_EPOCHS old still vouches
-b = device_histogram([("ek:x", "X", NOW - POSW_LEASE_EPOCHS, "lease")], NOW, {"X"})
-check(b["classes"]["ek"]["live"] == 1, "a lease exactly POSW_LEASE_EPOCHS old is still live (inclusive)")
+# the lease boundary is inclusive: exactly the class's grant old still vouches
+b = device_histogram([("ek:x", "X", NOW - EK_LEASE, "lease")], NOW, {"X"})
+check(b["classes"]["ek"]["live"] == 1, "a lease exactly the class's grant old is still live (inclusive)")
 
 print(("\nFAILED: " + "; ".join(fails)) if fails else "\nall checks passed")
 sys.exit(1 if fails else 0)

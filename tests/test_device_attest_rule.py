@@ -62,14 +62,14 @@ def main():
         calls.update(base, fmt="tpm", tpm_manufacturer="4D534654")
         try: TO.verify_register_device(tx, anchor_hash); raise AssertionError("virtual TPM accepted")
         except AssertionError as e: assert "physical" in str(e), str(e)
-        # THE PROOF DECIDES, NOT THE AAGUID, from DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT (2026-09-10). A real Intel-PTT PC
-        # produced kernel-valid TPM statements under the "VBS" AAGUID and the old rule threw them away; below the gate
-        # the historical refusal must still replay byte-identically.
+        # THE PROOF DECIDES, NOT THE AAGUID (2026-09-10; gen 25's DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, from block 1
+        # since and deleted). A real Intel-PTT PC produced kernel-valid TPM statements under the "VBS" AAGUID and the
+        # old rule threw them away; a max_block of 0 (below the deleted gate) keeps the historical refusal.
         calls.update(base, fmt="tpm", aaguid="9ddd1817af5a4672a2b93e3dd95000a9")
-        old = {**tx, "max_block": P.DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT - 1}
+        old = {**tx, "max_block": 0}
         try: TO.verify_register_device(old, anchor_hash); raise AssertionError("VBS AAGUID accepted below the gate")
         except AssertionError as e: assert "hardware authenticator" in str(e), str(e)
-        assert max_block >= P.DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, "fixture must land at or above the gate"
+        assert max_block >= 1, "fixture must land at or above block 1"
         assert TO.verify_register_device(tx, anchor_hash)["ok"], "a TPM-certified statement is judged by its proof at the gate"
         # ...but the proof itself still has to hold: a virtual TPM stays refused at any height
         calls.update(base, fmt="tpm", aaguid="9ddd1817af5a4672a2b93e3dd95000a9", tpm_manufacturer="4D534654")

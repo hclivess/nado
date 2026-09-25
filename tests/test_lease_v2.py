@@ -40,20 +40,14 @@ def check(name, cond, detail=""):
         fails.append(name)
 
 
-G = P.LEASE_V2_EPOCH or 0
-BEFORE = max(0, G - 100)            # an epoch strictly below the gate (on a reroll G = 0 and everything is v2)
+G = 0                               # the per-class rules hold from epoch 0 (gen 25's LEASE_V2_EPOCH, deleted)
+check("the epoch gate stays deleted", not hasattr(P, "LEASE_V2_EPOCH") and not hasattr(P, "lease_v2_at"))
 PC, PHONE, NOKEY = "p" * 46, "a" * 46, "n" * 46
 TPMKEY, ANDKEY = "tpm:" + "11" * 32, "android-key:" + "22" * 32
 for a in (PC, PHONE, NOKEY):
     kv_ops.account_set(a, "balance", 0)
 
 # ---------------------------------------------------------------- the grant, and the reader
-if G:
-    apply_register(PC, BEFORE, logger, device_key=TPMKEY)
-    check("below the gate a recert writes no grant and lease_of reads the historical lease",
-          kv_ops.lease_grant_get(PC, BEFORE) is None and kv_ops.lease_of(PC, BEFORE) == P.POSW_LEASE_EPOCHS)
-    check("...and stamps no devkey for a leased class", "devkey" not in (kv_ops.get_account(PC) or {}))
-    apply_register(PC, BEFORE, logger, revert=True)
 apply_register(PC, G + 1, logger, device_key=TPMKEY, cred_pub="a5010203262001" + "00" * 8)
 check("a Windows Hello recert at the gate is granted the 7-day lease", kv_ops.lease_of(PC, G + 1) == P.LEASE_EPOCHS_BY_CLASS["tpm"] == 1680)
 check("...and the account carries devkey AND the credential", (kv_ops.get_account(PC) or {}).get("devkey") == TPMKEY
@@ -89,7 +83,7 @@ apply_register(PHONE, G + 1 + 1400 + 300, logger, device_key=ANDKEY)   # 30 h la
 check("a 30-hour renewal on the phone earns exactly 1, as before", fid(PHONE) - f2 == P.FIDELITY_GAIN, fid(PHONE) - f2)
 check("the ramp at the gate pays 8 for a full week and 1 for 36 hours",
       P.fidelity_step(0, True, 1680, G) == 8 * P.FIDELITY_GAIN and P.fidelity_step(0, True, 360, G) == P.FIDELITY_GAIN)
-check("...and below the gate a week paid 1 (the historical rule)", (not G) or P.fidelity_step(0, True, 1680, G - 1) == P.FIDELITY_GAIN)
+check("...and a caller with no epoch still gets the historical rule (a week paid 1)", P.fidelity_step(0, True, 1680, None) == P.FIDELITY_GAIN)
 check("...a gap below the minimum still earns nothing", P.fidelity_step(5, True, 100, G) == 5)
 for a in (PC, PHONE):
     live, replay = fid(a), D.fidelity_at_epoch(a, G + 1 + 1400 + 300)
@@ -110,8 +104,9 @@ apply_register(NOKEY, E9, logger, revert=True)
 check("a statement-free recert's revert leaves no grant behind", kv_ops.lease_grant_get(NOKEY, E9) is None)
 
 # ---------------------------------------------------------------- lookback / retention widen without a cliff
-check("retention widens at the gate and exceeds the saturation bound", P.recert_history_epochs(G) == P.RECERT_HISTORY_EPOCHS_V2 > (P.FIDELITY_CAP + 1) * P.LEASE_EPOCHS_MAX
-      and ((not G) or P.recert_history_epochs(G - 1) == P.RECERT_HISTORY_EPOCHS))
+check("retention is the widened horizon at every epoch and exceeds the saturation bound",
+      P.recert_history_epochs(G) == P.RECERT_HISTORY_EPOCHS_V2 > (P.FIDELITY_CAP + 1) * P.LEASE_EPOCHS_MAX
+      and P.recert_history_epochs(None) == P.RECERT_HISTORY_EPOCHS)
 old = (P.FIDELITY_CAP + 1) * P.POSW_LEASE_EPOCHS
 check("the lookback at the gate equals the old bound (no epoch is refused the day the leases lengthen)", P.saturation_lookback_at(G) == old)
 check("...and reaches the 7-day bound only once that much history can exist", P.saturation_lookback_at(G + 100_000) == (P.FIDELITY_CAP + 1) * P.LEASE_EPOCHS_MAX

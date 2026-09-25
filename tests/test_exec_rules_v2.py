@@ -49,7 +49,7 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-GATE = int(P.EXEC_RULES_V2_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's EXEC_RULES_V2_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 ALICE = "mldsa44" + "a" * 42
 BOB = "mldsa44" + "b" * 42
 
@@ -78,8 +78,7 @@ def t_rules_v2_is_a_pure_function_of_the_block():
     assert not st.rules_v2(), "one block below the gate: legacy"
     st.cursor = GATE - 1
     assert st.rules_v2(), "at the gate: v2"
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1" in src
+    assert not hasattr(P, "EXEC_RULES_V2_HEIGHT"), "the gate stays deleted"
 
 
 # ---- C1 ----------------------------------------------------------------------------------------------------
@@ -211,18 +210,26 @@ def t_z2_legacy_records_an_unbacked_exit_for_an_empty_bundle():
 
 
 def t_z2_gate_refuses_a_bundle_without_a_join_split_proof():
+    # From block 1 the privacy pause (gen 25's PRIVACY_PAUSE_HEIGHT, deleted with this file's gate) refuses EVERY stark
+    # bundle on this op before the Z2 check is reached — so the bundle is refused, and nothing moves, either way.
     st, _, _ = fresh(GATE)
     r = st.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx")
-    assert r == "skip shielded_transfer: stark bundle carries no join-split proof", r
+    assert r.startswith("skip shielded_transfer") and "stark bundle" in r, r
     assert st.pool_value == 0 and not st.unshield_withdrawals
     r = st.apply_blob(_exit_blob(-1_000_000, []), ALICE, "tx")
     assert r.startswith("skip shielded_transfer"), r
 
 
 def t_z2_gate_bounds_the_exit():
+    # a stark bundle never reaches the bound from block 1 (the pause refuses it first); a signed transfer does
     st, _, _ = fresh(GATE)
     r = st.apply_blob(_exit_blob(-MAX_EXIT_VALUE, {"joinsplit": {}}), ALICE, "tx")
+    assert r.startswith("skip shielded_transfer"), r
+    blob = _exit_blob(-MAX_EXIT_VALUE, None)
+    blob["proof"] = {"sig": "x"}
+    r = st.apply_blob(blob, ALICE, "tx")
     assert "MAX_EXIT_VALUE" in r, r
+    assert st.pool_value == 0 and not st.unshield_withdrawals
 
 
 # ---- S2 ----------------------------------------------------------------------------------------------------
@@ -240,7 +247,7 @@ def t_s2_records_fold_refuses_a_negative_running_balance():
     ok = RB.net_records_updates(pre_get, [(ER.T_BRIDGE_BAL, ("s" * 40,), -100)], depth=8, nonneg=True)
     assert ok[0][2] == 0, "reaching exactly zero is fine"
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops", "transaction_ops.py")).read()
-    assert "nonneg=(int(block_height) >= int(_protocol.EXEC_RULES_V2_HEIGHT))" in src
+    assert "nonneg=(int(block_height) >= 1))" in src
 
 
 # ---- S3 ----------------------------------------------------------------------------------------------------

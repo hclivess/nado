@@ -4,7 +4,8 @@ REVIEW_R2's canonical-key check (settlement_sparse._canonical_pre_contracts, liv
 lowercase-hex contract ids. Its test fed it hand-written pre-states that held only hex ids — but the chain also
 deploys contracts at FIXED NAMES (`faucet`, `sovereign`: code_codec.FIXED_CIDS), and live state holds both. So from
 214000 every honest proof-carrying settle was refused ("cid 'faucet'"), and every test stayed green because no test
-proved over a state the chain had built. PROOF_FIXED_CID_HEIGHT (225000) fixes it.
+proved over a state the chain had built. The fixed-name acceptance fixes it (gen 25's PROOF_FIXED_CID_HEIGHT; from
+settle cursor 1 since gen 26, and the gate was deleted after the betanet-8 reroll).
 
 THE RULE THIS FILE ENFORCES: a verifier check is tested against a pre-state produced by the chain's OWN deploy and
 call paths, round-tripped through JSON exactly as the settle stash is, never against a dict written for the test.
@@ -14,10 +15,9 @@ Every way the chain can name a contract is created here:
 and storage is written by real calls, so slot keys carry the spelling the VM writes.
 
 Properties:
-  * every contract id the deploy path can produce passes the check from the gate (a new FIXED_CIDS entry, or a new
-    way of naming a contract, fails HERE before it can fail on chain);
-  * an honest proof over that state verifies above the gate and lands on exactly the chain's KV root;
-  * below the gate the same proof is refused — replay judges old settles as they were judged;
+  * every contract id the deploy path can produce passes the check (a new FIXED_CIDS entry, or a new way of naming a
+    contract, fails HERE before it can fail on chain);
+  * an honest proof over that state verifies and lands on exactly the chain's KV root;
   * the verify child (ops/proof_child) reaches the same verdict as in-process, carries its fold cache between
     children, and writes that cache only after an accepted proof.
 
@@ -47,13 +47,10 @@ def check(name, fn):
 
 
 NQ, DEPTH = 8, 16
-# PROOF_FIXED_CID_HEIGHT is DEFERRED to the reroll on gen 25 (2^62: settle proofs stay closed until the verifier fixes
-# of review 2026-09-24 and S1 are all live). This file tests the RULE, so it schedules the gate at a finite height of
-# its own — below the reroll-only EXEC_ROOT_V2, whose different root layout would otherwise be in force up there.
-# settlement_sparse reads the constant at call time, so setting it here is what the verifier sees.
-protocol.PROOF_FIXED_CID_HEIGHT = 230000
-ABOVE = protocol.PROOF_FIXED_CID_HEIGHT + 100
-BELOW = protocol.REVIEW_R2_HEIGHT + 100          # round 2 on, the fixed-name acceptance not yet
+# Every rule this file exercises holds from block 1 (the gen-25 gates are deleted), so any height above the span's
+# three blocks of setup is the live rule. (The "below the gate" refusal of gen 25 — round 2 on, fixed names not yet —
+# exists at no height a chain-built pre-state can reach any more, so it is not pinned here.)
+ABOVE = 300_100
 ALICE = "ndoAAAA" + "A" * 41
 BUMP = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
 
@@ -95,7 +92,7 @@ def _live_shaped(cursor):
     pre = _stash_form(st.contracts)
     span = [_tx(ALICE, {"op": "call", "contract": c, "method": "bump"}, f"s{i}") for i, c in enumerate(cids)]
     _chain([_block(cursor, span)], st)
-    return pre, CC.block_calls(_block(cursor, span)), SS.sparse_root(st.contracts, DEPTH)
+    return pre, CC.block_calls(_block(cursor, span)), SS.sparse_root(st.contracts, DEPTH, v2=True)   # the root_v2 layout (every height >= 1)
 
 
 def _prove(pre, calls, cursor):
@@ -109,7 +106,7 @@ def _verify(pf, cursor):
 
 
 # ---------------------------------------------------------------------------------------------------------
-def t_every_id_the_deploy_path_can_produce_passes_the_key_check_from_the_gate():
+def t_every_id_the_deploy_path_can_produce_passes_the_key_check():
     ids = sorted(FIXED_CIDS) + [contract_id(s, BUMP, n) for s in (ALICE, "ndo" + "Z" * 45) for n in ("a", "b", "c")]
     for cid in ids:
         ok, why = SS._canonical_pre_contracts({cid: {"storage": {"slots": {"0": 1}}}}, fixed_names=True)
@@ -125,13 +122,6 @@ def t_honest_proof_over_chain_built_state_verifies_and_lands_on_the_chain_root()
     assert kv_post == SS.root_hex(chain_root), "the proof must settle exactly the chain's KV root"
 
 
-def t_below_the_gate_the_same_proof_is_refused_as_it_was():
-    pre, calls, _root = _live_shaped(BELOW)
-    pf = _prove(pre, calls, BELOW)
-    ok, why, _a, _b = _verify(pf, BELOW)
-    assert not ok and "faucet" in why or "sovereign" in why, why
-
-
 def t_the_verify_child_agrees_and_carries_its_fold_cache():
     from ops import proof_child as PC
     os.makedirs(os.path.join(os.environ["HOME"], "nado"), exist_ok=True)
@@ -139,13 +129,12 @@ def t_the_verify_child_agrees_and_carries_its_fold_cache():
     assert path and path.startswith(os.environ["HOME"]), "the child's cache must live under the node's HOME"
     if os.path.exists(path):
         os.remove(path)
-    pre_b, calls_b, _ = _live_shaped(BELOW)
-    refused = PC.verify_sparse_out_of_process(_prove(pre_b, calls_b, BELOW), DEPTH,
-                                              rules=stark.rules_for_height(BELOW))
-    assert refused is not None and refused[0] is False
-    assert not os.path.exists(path), "a refused proof must not write the cache"
     pre, calls, _ = _live_shaped(ABOVE)
     pf = _prove(pre, calls, ABOVE)
+    # a refusal: the same proof judged under the rules of height 0 (below every deleted gate — a different format)
+    refused = PC.verify_sparse_out_of_process(pf, DEPTH, rules=stark.rules_for_height(0))
+    assert refused is not None and refused[0] is False
+    assert not os.path.exists(path), "a refused proof must not write the cache"
     # the child verifies at full protocol query strength; this proof is a toy (NQ), so compare verdict shape only
     # through the in-process verifier at the SAME strength the child uses
     want = SS.verify_settlement_sparse(pf, depth=DEPTH) if False else None

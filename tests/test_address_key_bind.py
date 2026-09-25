@@ -38,7 +38,7 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-GATE = int(P.ADDRESS_KEY_BIND_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's ADDRESS_KEY_BIND_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 log = logging.getLogger("t")
 
 

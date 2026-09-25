@@ -50,7 +50,7 @@ def slash(nonce, proof, max_block):
 
 
 proof = {"attest_a": attest(5, "aa" * 32), "attest_b": attest(5, "bb" * 32)}
-G = int(P.SLASH_DEDUP_HEIGHT)
+G = 1   # the rule holds from block 1 (gen 25's SLASH_DEDUP_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 old = [T.reserved_uniqueness_keys(slash(n, proof, G - 1)) for n in ("n1", "n2")]
 new = [T.reserved_uniqueness_keys(slash(n, proof, G)) for n in ("n1", "n2")]
 check("THE FINDING: below the gate two reports of one double-vote get distinct keys (replay unchanged)",
@@ -59,7 +59,6 @@ check("from the gate they share one key, so the second is dropped from the block
 check("the key names the offender", new[0][0][1] == att["address"])
 other = {"attest_a": attest(6, "cc" * 32), "attest_b": attest(6, "dd" * 32)}
 check("a DIFFERENT offence still gets its own key", T.reserved_uniqueness_keys(slash("n3", other, G)) != new[0])
-check("the ledger pins the gate", "SLASH_DEDUP_HEIGHT = 233300 if CHAIN_GENERATION == 25 else 1" in
-      open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read())
+check("the gate stays deleted (the rule holds from block 1)", not hasattr(P, "SLASH_DEDUP_HEIGHT"))
 print("ALL PASS" if not fails else f"{len(fails)} FAILURES")
 sys.exit(1 if fails else 0)

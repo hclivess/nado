@@ -37,8 +37,8 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-GATE = int(P.PROOF_BLOCK_SELECTOR_HEIGHT)
-BIND = int(P.PROOF_BIND_HEIGHT)
+# the selector (gen 25's PROOF_BLOCK_SELECTOR_HEIGHT) and the bind pins (PROOF_BIND_HEIGHT) hold from block 1 since gen
+# 26 and both gates were deleted after the betanet-8 reroll: height 0 is below every pin, block 1 has them all
 NQ = 4
 # A call that reads NO context (so a forged schedule changes nothing the trace already committed to) and
 # executes four instructions before RET: the shape whose declared length nothing bound.
@@ -80,14 +80,12 @@ def _verify(proof, io, rules):
 
 
 def t_rules_add_the_selector_at_the_gate():
-    r2 = stark.rules_for_height(GATE).round2
-    assert stark.rules_for_height(GATE - 1) == _rules(True, True, False, r2), "bind on, selector off"
-    assert stark.rules_for_height(GATE) == _rules(True, True, True, r2)
-    assert stark.rules_for_height(BIND - 1) == stark.RULES_LEGACY
+    assert stark.rules_for_height(0) == stark.RULES_LEGACY, "height 0: below every deleted gate"
+    assert stark.rules_for_height(1) == stark.RULES_STRICT and stark.rules_for_height(1).in_block_selector, \
+        "block 1: every pin, the selector included"
     assert stark.current_rules() == stark.RULES_STRICT and stark.RULES_STRICT.in_block_selector
     assert VC.num_periodic(False) == VC.NUM_PERIODIC and VC.num_periodic(True) == VC.NUM_PERIODIC + 1
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1" in src
+    assert not hasattr(P, "PROOF_BLOCK_SELECTOR_HEIGHT") and not hasattr(P, "PROOF_BIND_HEIGHT"), "the gates stay deleted"
 
 
 def t_honest_proof_verifies_under_the_new_rules():

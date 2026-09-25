@@ -142,7 +142,6 @@ def main():
         ek_id = hashlib.sha256(ek_spki).hexdigest()
         boot.flush(ek_h)
 
-        P.DEVICE_ATTEST_EK_HEIGHT = P.DEVICE_ATTEST_EK_HEIGHT or 1
         pinned = sorted(P.DEVICE_ATTEST_EK_ROOTS)[0]
         # patched on the MODULE, because _tpm_identity imports it at call time
         from ops import attest_native as _an
@@ -152,7 +151,7 @@ def main():
 
         kd = generate_keys()
         me = kd["address"]
-        tip = max(2000, P.DEVICE_ATTEST_EK_HEIGHT + 100)
+        tip = 2000                          # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT, deleted)
         mem = FakeMem(kd, tip)
         core = types.SimpleNamespace(memserver=mem, logger=logger, _tpm_identity_cache=None)
         core._tpm_open = lambda: _sim_tpm(sim)

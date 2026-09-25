@@ -68,13 +68,13 @@ def t_post_root_matches_full_reprojection():
     """The sparse transition's post_root equals an independent whole-state re-projection — so binding the
     transition to the io is equivalent to (but far cheaper than) the old replay + re-merkleize."""
     post = _replay_post(_BUNDLE)
-    assert SS.sparse_root(post, DEPTH) == _BUNDLE["sparse_post_root"], "sparse transition != full re-projection"
+    assert SS.sparse_root(post, DEPTH, v2=True) == _BUNDLE["sparse_post_root"], "sparse transition != full re-projection"
 
 
 def t_withdrawal_membership():
     """The settled sparse root serves exit proofs: COUNTER slot 0 is now 2 (two bumps); prove it's a member."""
     post = _replay_post(_BUNDLE)
-    store = ST.SparseStore(DEPTH, SS.sparse_projection(post, DEPTH))
+    store = ST.SparseStore(DEPTH, SS.sparse_projection(post, DEPTH, v2=True))   # the root_v2 layout: every exec height >= 1 since gen 26 (EXEC_ROOT_V2_HEIGHT deleted)
     root = store.root()
     assert root == _BUNDLE["sparse_post_root"]
     key = ESB.slot_key(CID_C, 0, DEPTH)

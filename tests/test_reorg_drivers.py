@@ -104,7 +104,6 @@ finally:
 
 # ---------------------------------------------------------------- 4. blind index -> build nothing, judge nothing
 import threading
-from protocol import TX_AT_MOST_ONCE_STRICT_HEIGHT
 s = Stub(tip=100)
 s._tx_index_incomplete = CoreClient._tx_index_incomplete.__get__(s)
 check(not s._tx_index_incomplete(), "no rebuild running and no marker -> the index is complete")
@@ -147,12 +146,15 @@ try:
 finally:
     BO.get_block_number, CL.get_finalized_height = saved_gbn2, saved_fin
 
-# ---------------------------------------------------------------- 5. the chain's own replays stand below the gate
-G = TX_AT_MOST_ONCE_STRICT_HEIGHT
-check(CoreClient._replay_tolerated(G - 1), f"a replay in block {G - 1} (below the strict height) is tolerated")
-check(not CoreClient._replay_tolerated(G), f"...and at {G} the rule is strict")
-check(CoreClient._replay_tolerated(69056) and CoreClient._replay_tolerated(78078),
-      "the measured replay blocks 69056 and 78078 are below the gate on this chain")
+# ---------------------------------------------------------------- 5. at-most-once is strict at every height
+# Gen 25 tolerated the replays its fleet had applied below TX_AT_MOST_ONCE_STRICT_HEIGHT (69056, 78078). From gen 26 that
+# gate was block 1 — the tolerance could only ever fire for block 0, and a remote block is rebuilt at tip + 1 — so it
+# was deleted with the gate after the betanet-8 reroll.
+import protocol as _P
+check(not hasattr(CoreClient, "_replay_tolerated") and not hasattr(_P, "TX_AT_MOST_ONCE_STRICT_HEIGHT"),
+      "no replay tolerance and no strict-height gate are left")
+_src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "loops", "core_loop.py")).read()
+check('if already_mined:\n            if remote:' in _src, "an already-mined tx in a remote block is refused, at any height")
 
 print(("\nFAILED: " + "; ".join(fails)) if fails else "\nall checks passed")
 sys.exit(1 if fails else 0)

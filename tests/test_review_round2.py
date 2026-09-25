@@ -41,7 +41,7 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-GATE = int(P.REVIEW_R2_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's REVIEW_R2_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 ALICE = "mldsa44" + "a" * 42
 LEGACY = stark.Rules(True, True, True, False)
 NEW = stark.Rules(True, True, True, True)
@@ -59,9 +59,7 @@ def t_rules_flip_at_the_gate():
     assert not stark.rules_for_height(GATE - 1).round2 and stark.rules_for_height(GATE).round2
     st = fresh(GATE - 1); assert not st.rules_r2()
     st = fresh(GATE); assert st.rules_r2()
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1" in src
-    assert "EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1" in src
+    assert not hasattr(P, "REVIEW_R2_HEIGHT") and not hasattr(P, "EXEC_CTX_CURRENT_HEIGHT"), "the gates stay deleted"
 
 
 # ---- F7 / F10 / F8 (deploy) ---------------------------------------------------------------------------------
@@ -133,30 +131,39 @@ def t_f4_block_budget_reverts_the_call_that_exceeds_it_and_the_prover_mirrors():
 
 # ---- Z6 / Z9 / Z4 (shielded) ---------------------------------------------------------------------------------
 def t_z6_duplicate_field_note_refused_and_z4_pool_full():
+    # From block 1 a field shield lands in the WIDE pool (gen 25's SHIELD_WIDE_HEIGHT, deleted with REVIEW_R2's gate),
+    # where Z6 and Z4 apply exactly as they did on the legacy pool; the legacy pool is reachable only at height 0,
+    # below every deleted gate, where the duplicate was historically admitted.
+    from execnode.stark import znote as _Z
+    from execnode.shielded_wide import TREE_DEPTH as _WD
+    owner = _Z.to_hex(_Z.owner_of(7))
     st = fresh(GATE)
-    assert st.apply_field_shield(1000, 7, 9).startswith("field-shield")
-    assert st.apply_field_shield(1000, 7, 9) == "skip field-shield: duplicate note commitment"
+    assert st.apply_field_shield(1000, owner, 9).startswith("field-shield")
+    assert st.apply_field_shield(1000, owner, 9) == "skip field-shield: duplicate note commitment"
     st_old = fresh(GATE - 1)
     assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield")
-    assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield"), "legacy admitted the duplicate"
+    assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield"), "height 0: the legacy pool admits the duplicate"
     st = fresh(GATE)
-    st.field_pool.commitments = [i + 1 for i in range(1 << TREE_DEPTH)]     # a full tree
-    assert st.apply_field_shield(5, 1, 2) == "skip field-shield: the field pool is full"
+    st.wide_pool.commitments = [i + 1 for i in range(1 << _WD)]              # a full tree
+    assert st.apply_field_shield(5, owner, 2) == "skip field-shield: the wide pool is full"
 
 
 def t_z9_field_exit_address_validated():
-    from execnode.state import MAX_EXIT_VALUE
+    # From block 1 field transfers spend the WIDE pool (a joinsplit3 bundle); Z9 holds there, before the proof runs.
     st = fresh(GATE)
-    bundle = {"stark": {"joinsplit2": {"proof": {}, "root": "0", "nf": "1", "cm_out1": "2", "cm_out2": "3",
-                                       "public_value": -5, "fee": 0}}, "withdraw_addr": "not-an-address"}
+    bundle = {"stark": {"joinsplit3": {"proof": {}, "root": "0" * 64, "nf": "1" * 64, "cm_out1": "2" * 64,
+                                       "cm_out2": "3" * 64, "public_value": -5, "fee": 0}}, "withdraw_addr": "not-an-address"}
     r = st.apply_field_transfer(bundle)
     assert "withdraw_addr is not a spendable account" in r, r
+    legacy = {"stark": {"joinsplit2": {"proof": {}, "root": "0", "nf": "1", "cm_out1": "2", "cm_out2": "3",
+                                       "public_value": -5, "fee": 0}}, "withdraw_addr": "not-an-address"}
+    assert "joinsplit3" in st.apply_field_transfer(legacy), "the legacy bundle is refused outright from block 1"
 
 
 # ---- S4 the DA-carried proven marker -------------------------------------------------------------------------
 def t_s4_da_proof_records_the_marker_from_the_gate():
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops", "account_ops.py")).read()
-    assert '"proof_da" in data' in src and "REVIEW_R2_HEIGHT" in src
+    assert 'int(block_height) >= 1 and "proof_da" in data' in src
 
 
 # ---- A4 canonical pre_contracts keys ---------------------------------------------------------------------------
@@ -172,21 +179,22 @@ def t_a4_non_canonical_pre_contracts_keys_are_refused():
 
 
 def t_a4_fixed_name_contracts_pass_from_their_gate_and_nothing_else_does():
-    """PROOF_FIXED_CID_HEIGHT: live state holds `faucet` and `sovereign`, so the hex-only check refused EVERY honest
-    settle proof from 214000. From the gate exactly those names pass; a near-miss spelling never does."""
+    """THE FIXED NAMES (gen 25's PROOF_FIXED_CID_HEIGHT, from settle cursor 1 since): live state holds `faucet` and
+    `sovereign`, so the hex-only check refused EVERY honest settle proof from 214000. Exactly those names pass; a
+    near-miss spelling never does; a settle at cursor 0 keeps the refusal."""
     import protocol as P
     pre = {"c" * 32: {"storage": {"slots": {"5": 1}}}, "faucet": {"storage": {"slots": {"1": 2}}},
            "sovereign": {"storage": {"slots": {}}}}
     ok, why = SS._canonical_pre_contracts(pre)
-    assert not ok and "faucet" in why, "below the gate the refusal stands, so replay is unchanged"
+    assert not ok and "faucet" in why, "without the fixed names (cursor 0) the refusal stands"
     ok, why = SS._canonical_pre_contracts(pre, fixed_names=True)
     assert ok, why
     for bad in ("Faucet", "faucet ", "0xab", "FAUCET", "faucet2"):
         ok, why = SS._canonical_pre_contracts({bad: {"storage": {"slots": {}}}}, fixed_names=True)
         assert not ok, f"{bad!r} must stay refused"
-    assert "PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1" in open(
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert P.PROOF_FIXED_CID_HEIGHT > P.REVIEW_R2_HEIGHT
+    assert not hasattr(P, "PROOF_FIXED_CID_HEIGHT")
+    assert 'fixed_names=int(bundle["cursor"]) >= 1)' in open(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "execnode", "stark", "settlement_sparse.py")).read()
 
 
 # ---- proof rules: P2 aux lanes, P3/Z8 AIR identity, P4 path lengths ----------------------------------------------

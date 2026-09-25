@@ -152,16 +152,19 @@ def t9_inactivity_leak_dark_majority_cannot_block():
         "V1's 4/50 no longer justifies alone once the big settler participates"
 
 def t10_window_expiry_leaks_stale_settlers():
-    """Prove a settler with no attestation within SETTLE_ACTIVITY_CURSORS of the newest one leaks
-    back out of the denominator."""
+    """The window is anchored by STAKE (gen 25's SETTLE_ANCHOR_HEIGHT, from cursor 1 since gen 26 and deleted): one
+    settler jumping the top cursor far ahead does NOT leak the others out of the denominator, so it cannot justify a
+    root alone (the review 2026-09-25 capture). Leaking past SETTLE_ANCHOR_LONG_CURSORS is pinned by
+    tests/test_settle_anchor.py."""
     from protocol import SETTLE_ACTIVITY_CURSORS
     reg = get_bonded_registry()
+    before = active_settler_shares(DEFAULT_NS, reg)
     top = kv_ops.settlement_max_cursor(DEFAULT_NS)
     far = top + SETTLE_ACTIVITY_CURSORS + 10
-    kv_ops.settlement_put(DEFAULT_NS, far, V1["address"], ROOT_A)   # V1 advances the window far ahead
+    kv_ops.settlement_put(DEFAULT_NS, far, V1["address"], ROOT_A)   # V1 advances the top far ahead
     active = active_settler_shares(DEFAULT_NS, reg)
-    assert active == 4, f"only V1 is inside the window now, got {active}"
-    assert settlement_justified(DEFAULT_NS, far, ROOT_A, reg), "the lone in-window settler justifies alone"
+    assert active == before, f"one settler jumping ahead must not shrink the denominator ({before} -> {active})"
+    assert not settlement_justified(DEFAULT_NS, far, ROOT_A, reg), "a lone settler ahead of the stake cannot justify alone"
 
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():

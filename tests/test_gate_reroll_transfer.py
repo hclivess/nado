@@ -1,12 +1,13 @@
-"""EVERY GEN-25 CONSENSUS GATE TRANSFERS AT A REROLL (protocol.py "GATE LEDGER", 2026-09-09).
+"""EVERY CONSENSUS GATE TRANSFERS AT A REROLL (protocol.py "GATE LEDGER", 2026-09-09).
 
 A gate written as a bare height (`POOL_HEIGHT = 6000`) silently survives a reroll: the fresh chain would leave the
-rule off for its first 6,000 blocks. Every gate is therefore `<live height> if CHAIN_GENERATION == 25 else <x>`, and
-this test pins BOTH halves:
-  1. the gen-25 value still equals what the running chain uses (a reroll edit must never change live consensus);
+rule off for its first 6,000 blocks. Every gate is therefore `<live height> if CHAIN_GENERATION == <gen> else <x>`,
+and this test pins BOTH halves:
+  1. the live value still equals what the running chain uses (a reroll edit must never change live consensus);
   2. the reroll value is the one the ledger documents — 1 = live from block 1 / epoch 0, 0 = never (dead code to
-     delete in the cleanup pass; the gates already deleted that way are pinned as DELETED);
-  3. no gate constant is left unkeyed (a new one added without a reroll branch fails here).
+     delete in the cleanup pass);
+  3. no gate constant is left unkeyed (a new one added without a reroll branch fails here);
+  4. the gates already cleaned up after a reroll stay DELETED — every gen-25 gate, since the betanet-8 cleanup.
 Run: python3 tests/test_gate_reroll_transfer.py
 """
 import os
@@ -22,23 +23,31 @@ _fails = []
 
 # gate -> value on a fresh chain. 1 = live from genesis, 0 = never (its code path is cleanup fodder).
 REROLL = {
-    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "DEVICE_BIND_HEIGHT": 1, "DEVICE_BIND_STRICT_HEIGHT": 1,
-    "DEVICE_BIND_PERMANENT_HEIGHT": 1, "DEVICE_REBIND_INSTANT_HEIGHT": 1, "DEVICE_BIND_PERMANENT_EK_HEIGHT": 1,
-    "DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT": 1, "DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT": 1, "DEVICE_ATTEST_EK_HEIGHT": 1,
-    "DEVICE_ATTEST_EK_SHORT_HEIGHT": 1, "DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT": 1,
-    "DEVICE_ATTEST_EK_PROVEN_HEIGHT": 1, "DEVICE_ATTEST_EK_READY_HEIGHT": 1,
-    "TX_AT_MOST_ONCE_STRICT_HEIGHT": 1, "PROOF_BIND_HEIGHT": 1, "EXEC_RULES_V2_HEIGHT": 1, "PROOF_BLOCK_SELECTOR_HEIGHT": 1, "REVIEW_R2_HEIGHT": 1, "PROOF_TRACE_LDT_HEIGHT": 1, "PROOF_FIXED_CID_HEIGHT": 1, "PRIVACY_PAUSE_HEIGHT": 1, "PROOF_QUERY_FULL_HEIGHT": 1, "ADDRESS_KEY_BIND_HEIGHT": 1, "SETTLE_ANCHOR_HEIGHT": 1, "SLASH_DEDUP_HEIGHT": 1, "EXEC_CTX_CURRENT_HEIGHT": 1, "EXEC_ROOT_V2_HEIGHT": 1, "SHIELD_WIDE_HEIGHT": 1,
-    "LEASE_V2_EPOCH": 0,
-    # (BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT, OPEN_LANE_EXCLUDE_BONDED_HEIGHT — reroll value 0 —
-    #  and their retire twins BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT,
-    #  OPEN_LANE_EXCLUDE_RETIRE_HEIGHT were deleted with their code after the betanet-8 reroll; see DELETED below.)
-    "DIVIDEND_ATTESTED_EPOCH": 0, "DIVIDEND_WEIGHT_CAP_V2_EPOCH": 0, "DIV_CARRY_METER_EPOCH": 0,
+    # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed); EK_ENROL_ROOTS_AT_HEIGHT is the gen-27 gate (1400).
+    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1,
+    # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
+    #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
-# Gates whose code path was deleted in the post-reroll cleanup (doc/reroll.md §"What the cleanup deletes"). They must
-# stay gone: a re-added constant with the old name would read as a live switch for code that no longer exists.
-DELETED = ("BOND_DEVICE_CAP_HEIGHT", "BOND_WEIGHT_CURVE_HEIGHT", "POOL_HEIGHT", "OPEN_LANE_EXCLUDE_BONDED_HEIGHT",
-           "OPEN_LANE_EXCLUDE_BONDED_EPOCH", "BOND_ATTEST_OPTIONAL_HEIGHT", "POOL_RETIRE_HEIGHT",
-           "BOND_CURVE_RETIRE_HEIGHT", "OPEN_LANE_EXCLUDE_RETIRE_HEIGHT")
+# Gates cleaned up after the betanet-8 reroll (doc/reroll.md §"What the cleanup deletes"). They must stay gone: a
+# re-added constant with the old name would read as a live switch for code that no longer branches on it.
+DELETED = (
+    # slice 1: reroll value 0 (never) and their retire twins — deleted with their code paths
+    "BOND_DEVICE_CAP_HEIGHT", "BOND_WEIGHT_CURVE_HEIGHT", "POOL_HEIGHT", "OPEN_LANE_EXCLUDE_BONDED_HEIGHT",
+    "OPEN_LANE_EXCLUDE_BONDED_EPOCH", "BOND_ATTEST_OPTIONAL_HEIGHT", "POOL_RETIRE_HEIGHT",
+    "BOND_CURVE_RETIRE_HEIGHT", "OPEN_LANE_EXCLUDE_RETIRE_HEIGHT",
+    # slice 2: reroll value 1 (from block 1) — the rule is unconditional (a `>= 1` survives only where height 0 reaches)
+    "DEVICE_BIND_HEIGHT", "DEVICE_BIND_STRICT_HEIGHT", "DEVICE_BIND_PERMANENT_HEIGHT", "DEVICE_REBIND_INSTANT_HEIGHT",
+    "DEVICE_BIND_PERMANENT_EK_HEIGHT", "DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT", "DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT",
+    "DEVICE_ATTEST_EK_HEIGHT", "DEVICE_ATTEST_EK_SHORT_HEIGHT", "DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT",
+    "DEVICE_ATTEST_EK_PROVEN_HEIGHT", "DEVICE_ATTEST_EK_READY_HEIGHT", "TX_AT_MOST_ONCE_STRICT_HEIGHT",
+    "PROOF_BIND_HEIGHT", "EXEC_RULES_V2_HEIGHT", "PROOF_BLOCK_SELECTOR_HEIGHT", "REVIEW_R2_HEIGHT",
+    "PROOF_TRACE_LDT_HEIGHT", "PROOF_FIXED_CID_HEIGHT", "PRIVACY_PAUSE_HEIGHT", "PROOF_QUERY_FULL_HEIGHT",
+    "ADDRESS_KEY_BIND_HEIGHT", "SETTLE_ANCHOR_HEIGHT", "SLASH_DEDUP_HEIGHT", "EXEC_CTX_CURRENT_HEIGHT",
+    "EXEC_ROOT_V2_HEIGHT", "SHIELD_WIDE_HEIGHT",
+    # slice 2: reroll value 0 on an epoch comparison (from epoch 0 = always)
+    "LEASE_V2_EPOCH", "DIVIDEND_ATTESTED_EPOCH", "DIVIDEND_WEIGHT_CAP_V2_EPOCH", "DIV_CARRY_METER_EPOCH",
+    "lease_v2_at",
+)
 
 
 def check(name, cond, detail=""):
@@ -50,7 +59,7 @@ def check(name, cond, detail=""):
 def main():
     import protocol as P
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("this test tracks the live generation (gen 27 since the betanet-8 reroll; gates still read their gen-25 values)", P.CHAIN_GENERATION == 27, P.CHAIN_GENERATION)
+    check("this test tracks the live generation (gen 27 since the betanet-8 reroll)", P.CHAIN_GENERATION == 27, P.CHAIN_GENERATION)
 
     for name, want in sorted(REROLL.items()):
         m = re.search(r"^" + name + r" = ([^#\n]+)", src, re.M)
@@ -75,22 +84,26 @@ def main():
                  "GC_MAX_PER_EPOCH"}           # a per-boundary work bound
     check("no gate constant is missing from the ledger", not (unkeyed - not_gates), sorted(unkeyed - not_gates))
     check("the cleaned-up gates stay deleted", not any(hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M) for n in DELETED),
-          [n for n in DELETED if hasattr(P, n)])
+          [n for n in DELETED if hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M)])
+    check("no gen-25 branch is left in protocol.py", "CHAIN_GENERATION == 25" not in src)
 
-    # 3a. EXEC_ROOT_V2 stamps the prover's call context with the block being applied, which only holds once
-    #     EXEC_CTX_CURRENT (F3) advances the cursor BEFORE the block's blobs run — so the root gate can never
-    #     precede the context gate, on either generation.
-    for gen in (25, 26):
-        rv = eval(re.search(r"^EXEC_ROOT_V2_HEIGHT = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": gen})
-        cv = eval(re.search(r"^EXEC_CTX_CURRENT_HEIGHT = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": gen})
-        check(f"EXEC_ROOT_V2_HEIGHT never precedes EXEC_CTX_CURRENT_HEIGHT (gen {gen})", rv >= cv, (rv, cv))
+    # 3a. the EXEC_ROOT_V2 layout stamps the prover's call context with the block being applied, which only holds
+    #     once the F3 context (the cursor advanced BEFORE the block's blobs run) is in force — so the layout switch
+    #     can never precede the context switch. Both gates are inlined as `>= 1` (genesis, h = 0, below both):
+    #     pin that the two sites still switch at the same height. Read as SOURCE — importing execnode.execnode would
+    #     open the exec state relative to the working directory (CLAUDE.md rule 4).
+    esb = open(os.path.join(ROOT, "execnode", "stark", "exec_state_bind.py")).read()
+    exn = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
+    rv = re.search(r"def root_v2\(height\):.*?return int\(height\) >= (\d+)", esb, re.S)
+    cv = re.search(r"_st\._applying = h.*?if int\(h\) >= (\d+):\n\s+# F3", exn, re.S)
+    check("the exec root v2 layout switches at height 1", bool(rv) and rv.group(1) == "1", rv and rv.group(1))
+    check("the F3 call context switches at height 1", bool(cv) and cv.group(1) == "1", cv and cv.group(1))
+    check("the root layout never precedes the call context", bool(rv and cv) and int(rv.group(1)) >= int(cv.group(1)))
 
-    # 3b. the chain clock cadence is generation-keyed too: gen 25 must stay EXACTLY h*6 (60 ds), the next
-    #     generation starts at the measured cadence (C3 re-anchor, 2026-09-23)
-    cexpr = re.search(r"^CHAIN_CLOCK_CADENCE_DS = ([^#\n]+)", src, re.M).group(1).strip()
-    check("CHAIN_CLOCK_CADENCE_DS: live 60 ds (h*6 exactly)", eval(cexpr, {"CHAIN_GENERATION": 25}) == 60)
-    check("CHAIN_CLOCK_CADENCE_DS: re-anchored to the measured 6.41 s at the reroll", eval(cexpr, {"CHAIN_GENERATION": 26}) == 64 == P.CHAIN_CLOCK_CADENCE_DS)
-    check("chain_clock on gen 26 runs at 6.4 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 64 // 10 for h in (0, 1, 7, 209400, 2**40)))
+    # 3b. the chain clock cadence is re-anchored at every reroll (C3, 2026-09-23): gen 25 ran 60 ds; the reroll set
+    #     the measured 6.41 s, and the gen-25 branch was collapsed after the betanet-8 reroll
+    check("CHAIN_CLOCK_CADENCE_DS: the measured 6.41 s (64 ds)", P.CHAIN_CLOCK_CADENCE_DS == 64)
+    check("chain_clock runs at 6.4 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 64 // 10 for h in (0, 1, 7, 209400, 2**40)))
 
     # 4. the ledger comment exists and names the cleanup
     check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "THE SAVINGS LANE IS PLAIN STAKE" in src)

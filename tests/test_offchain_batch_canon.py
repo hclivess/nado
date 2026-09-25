@@ -109,7 +109,7 @@ try:
     # leaf — contract CODE is now committed in the KV half (exec_state_bind.code_key), so a deployed contract
     # is no longer invisible until its first slot write. Project the genesis contract set into kv_g8.
     GEN_CONTRACTS = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8)).root()
+    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8, v2=True)).root()   # the root_v2 layout: every exec height >= 1 since gen 26 (EXEC_ROOT_V2_HEIGHT deleted)
     rec_g8 = SST.SparseStore(D8, ER.records_projection(ExecState(tempfile.mktemp(suffix=".json")))).root()
     rec_hex8 = SST.digest_hex(rec_g8)
     protocol.EXEC_GENESIS_ROOT = ER.full_root_hex(kv_g8, rec_g8)
@@ -143,7 +143,7 @@ try:
         with kv_ops.write_txn():
             kv_ops.exec_summary_put(h, _inert, _calls_by_ns)
     print(f"[{_time.time()-_t0:6.0f}s] .. burst applied, summaries stored; proving", flush=True)
-    real_root = ER.full_root_hex(SST.SparseStore(D8, SS.sparse_projection(st.contracts, D8)).root(), rec_g8)
+    real_root = ER.full_root_hex(SST.SparseStore(D8, SS.sparse_projection(st.contracts, D8, v2=True)).root(), rec_g8)
     check(f"the burst produced {N} on-chain calls to settle", len(all_calls) == N)
 
     # --- 3) ONE merged settlement over the whole span ---

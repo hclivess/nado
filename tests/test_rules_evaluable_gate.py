@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import loops.core_loop as CL                       # noqa: E402
 from loops.core_loop import CoreClient, RULES_EVAL_RECHECK_S  # noqa: E402
 from ops import transaction_ops as TO             # noqa: E402
-from protocol import DEVICE_ATTEST_EK_PROVEN_HEIGHT, EPOCH_LENGTH  # noqa: E402
+import protocol as _P  # noqa: E402
+from protocol import EPOCH_LENGTH  # noqa: E402
 
 fails = []
 
@@ -68,17 +69,13 @@ def with_draw(raising):
     return fake
 
 
-TIP = max(DEVICE_ATTEST_EK_PROVEN_HEIGHT, 60) + 7 * EPOCH_LENGTH
+TIP = 60 + 7 * EPOCH_LENGTH
 
-# ---------------------------------------------------------------- before the gate: always allowed
-s = Stub(max(1, DEVICE_ATTEST_EK_PROVEN_HEIGHT - 5))
+# ---------------------------------------------------------------- no gate: the rule applies at every tip
+# (gen 25 skipped the check below DEVICE_ATTEST_EK_PROVEN_HEIGHT; from gen 26 that was block 1 — the next block is
+#  always >= 1 — and the gate was deleted after the betanet-8 reroll)
+check(not hasattr(_P, "DEVICE_ATTEST_EK_PROVEN_HEIGHT"), "the proven-draw gate stays deleted")
 orig = TO._proven_challengers
-TO._proven_challengers = with_draw(raising=True)
-try:
-    check(s._rules_evaluable_at_tip() is True, "below the proven-draw gate the rule does not apply")
-    check(not s.fills, "...and nothing is fetched for it")
-finally:
-    TO._proven_challengers = orig
 
 # ---------------------------------------------------------------- complete history: produce, memoised
 s = Stub(TIP)

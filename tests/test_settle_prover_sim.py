@@ -56,7 +56,7 @@ try:
     # leaf — contract CODE is now committed in the KV half (exec_state_bind.code_key), so a deployed contract
     # is no longer invisible until its first slot write. Project the genesis contract set into kv_g8.
     GEN_CONTRACTS = {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8)).root()
+    kv_g8 = SST.SparseStore(D8, SS.sparse_projection(GEN_CONTRACTS, D8, v2=True)).root()   # the root_v2 layout: every exec height >= 1 since gen 26 (EXEC_ROOT_V2_HEIGHT deleted)
     rec_g8 = SST.SparseStore(D8, ER.records_projection(ExecState(tempfile.mktemp(suffix=".json")))).root()
     rec_hex8 = SST.digest_hex(rec_g8)
     protocol.EXEC_GENESIS_ROOT = ER.full_root_hex(kv_g8, rec_g8)
@@ -74,7 +74,7 @@ try:
     st.contracts[CID] = {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}
     st.cursor = 1; st.block_ts = chain_clock(1)
     st.apply_blob({"op": "call", "contract": CID, "method": "bump", "args": []}, CALLER, "n1")
-    real_root = ER.full_root_hex(SST.SparseStore(D8, SS.sparse_projection(st.contracts, D8)).root(), rec_g8)
+    real_root = ER.full_root_hex(SST.SparseStore(D8, SS.sparse_projection(st.contracts, D8, v2=True)).root(), rec_g8)
 
     # --- 3) persist the block-1 exec summary the DA binding reads (what incorporate_block writes) ---
     block1 = {"block_number": 1, "block_hash": "ab" * 32, "block_transactions": [

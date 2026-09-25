@@ -20,8 +20,9 @@ logger = logging.getLogger("idlegc"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import (EPOCH_LENGTH, GC_IDLE_EPOCHS, RECERT_HISTORY_EPOCHS, POSW_LEASE_EPOCHS,
-                      SATURATION_LOOKBACK_EPOCHS, FIDELITY_CAP)
+from protocol import (EPOCH_LENGTH, GC_IDLE_EPOCHS, POSW_LEASE_EPOCHS, SATURATION_LOOKBACK_EPOCHS, FIDELITY_CAP)
+# the retention in force at every epoch since gen 26 (the per-class leases; gen 25's LEASE_V2_EPOCH gate is deleted)
+from protocol import RECERT_HISTORY_EPOCHS_V2 as RECERT_HISTORY_EPOCHS
 from ops import kv_ops
 from ops.gc_ops import apply_idle_gc, revert_idle_gc
 from ops.account_ops import create_account

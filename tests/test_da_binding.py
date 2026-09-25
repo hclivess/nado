@@ -42,12 +42,15 @@ BLK2 = _block(101, 1706, [_blob(A, "cid_dice", "bet", [1, 20])])
 
 # 1) block_calls extracts exactly the default-ns op=='call' blobs, in order, with the block's context
 def t_extract():
-    cs = CC.block_calls(BLK1, "default")
-    return (len(cs) == 2
-            # timestamp is PINNED to 0, never the block's: block_timestamp is not in the block-hash
-            # preimage, so honest clock skew made the leaf differ node-to-node. cursor pins the block.
+    from protocol import chain_clock
+    entries = CC.block_calls(BLK1, "default")
+    cs = [c for c in entries if c.get("op") is None]        # the calls; code events ride in the same list (S1)
+    return (len(cs) == 2 and [e.get("op") for e in entries if e.get("op")] == ["deploy"]
+            # timestamp is never the block's own: block_timestamp is not in the block-hash preimage, so honest
+            # clock skew made the leaf differ node-to-node. Since gen 26 it is chain_clock(cursor) — a pure
+            # function of the height (EXEC_ROOT_V2's rule; gen 25 pinned 0). cursor pins the block.
             and cs[0] == {"cid": "cid_dice", "method": "bet", "caller": A, "args": [3, 50], "value": 0,
-                          "asset": 0, "cursor": 100, "timestamp": 0}     # asset: 0 = native NADO value
+                          "asset": 0, "cursor": 100, "timestamp": chain_clock(100)}     # asset: 0 = native NADO value
             and cs[1]["method"] == "settle" and cs[1]["caller"] == B
             and CC.block_calls(BLK1, "rollup2")[0]["cid"] == "cid_other")
 check("block_calls: only default-ns op=='call' blobs, ordered, with committed-only context", t_extract)

@@ -45,7 +45,7 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-GATE = int(P.PROOF_BIND_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's PROOF_BIND_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 LEGACY, STRICT = stark.RULES_LEGACY, stark.RULES_STRICT
 
 
@@ -68,9 +68,8 @@ def t_rules_pure_in_height():
     assert stark.current_rules() == STRICT
 
 
-def t_gate_carries_the_reroll_branch():
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1" in src
+def t_gate_stays_deleted():
+    assert not hasattr(P, "PROOF_BIND_HEIGHT")
 
 
 # ---- 2. P0: build the forgery, watch the old rule accept it, watch the gate refuse it ----------------------------

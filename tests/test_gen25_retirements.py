@@ -13,12 +13,12 @@ from ops import ratelimit
 
 
 def main():
-    assert P.CHAIN_GENERATION == 25 and P.CHAIN_ID == "betanet-7", (P.CHAIN_GENERATION, P.CHAIN_ID)
+    assert P.CHAIN_GENERATION >= 25, (P.CHAIN_GENERATION, P.CHAIN_ID)      # the gen-25 retirements hold on every later chain
     assert C.get_protocol() >= 12, "pre-reroll nodes must be shed at handshake"
     assert P.DEVICE_ATTEST_HEIGHT == 1, "the device rule is unconditional from block 1"
     assert P.on_probation(0, 5) is False and P.on_probation(1, 5) is False, "probation retired"
     assert P.dividend_weight(1, 5) == 1, "an attested identity earns from its first lease"
-    assert P.POSW_ENTRY_COUNT_HEIGHT == 0 and P.DIV_CARRY_METER_EPOCH == 0, "gen-24 gates retired"
+    assert P.POSW_ENTRY_COUNT_HEIGHT == 0 and not hasattr(P, "DIV_CARRY_METER_EPOCH"), "gen-24 gates retired"
     assert not hasattr(ratelimit, "allow_registration") and not hasattr(ratelimit, "allow_identity"), "per-IP budgets retired"
     assert hasattr(ratelimit, "allow"), "the plain API rate limiter stays"
     tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()

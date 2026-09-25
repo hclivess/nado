@@ -595,9 +595,9 @@ CHAIN_GENERATION = 27   # 26 was built with every registered identity leased (79
 # foreign deadline. The wallet now judges those by its own clock (static/dex.js), and the clock itself can
 # only ever be a height-keyed ESTIMATE — block_timestamp is uncommitted, so no committed wall time exists —
 # but the estimate should be the measured cadence and the accumulated lag resets with the new genesis.
-# 60 ds on gen 25 reproduces GENESIS + h*6 EXACTLY (h*60 // 10 == h*6), so live consensus is untouched; the
-# next generation starts at the cadence measured here. Re-measure at every reroll (doc/reroll.md).
-CHAIN_CLOCK_CADENCE_DS = 60 if CHAIN_GENERATION == 25 else 64   # 64: gen 25 measured 6.41 s over its last 10,000 blocks (6.67 s overall)
+# Gen 25 ran at 60 ds (GENESIS + h*6 exactly); the reroll re-anchored it to the cadence measured there, and the
+# gen-25 branch was collapsed after the betanet-8 reroll. Re-measure at every reroll (doc/reroll.md).
+CHAIN_CLOCK_CADENCE_DS = 64   # 64: gen 25 measured 6.41 s over its last 10,000 blocks (6.67 s overall)
 
 # SCHEDULED-CLEANUP (gen 24 only): the ENTRIES-ONLY flood counting (84d122f3, 2026-09-01 17:12 UTC) shipped
 # UNGATED while betanet-6 was already 1600 blocks old. Every registration validated before the fleet's update
@@ -608,20 +608,20 @@ CHAIN_CLOCK_CADENCE_DS = 60 if CHAIN_GENERATION == 25 else 64   # 64: gen 25 mea
 # history. Landing blocks BELOW this height count every register tx; from it on, entries only. Generation-keyed:
 # on gen 25+ the rule is entries-only from block 0 and this constant is 0.
 POSW_ENTRY_COUNT_HEIGHT = 0             # retired at gen 25 (device attestation replaces the PoSW entry rules); kept as a name for the difficulty module until it is deleted
-# SCHEDULED-CLEANUP (gen 24 only): METERED DIVIDEND CARRY. While every identity was on probation (epochs 0-193
+# METERED DIVIDEND CARRY (a gen-24 gate, cleaned up after the betanet-8 reroll). While every identity was on probation (epochs 0-193
 # of betanet-6) the accrual found an empty weight set and carried the WHOLE inflow forward; at epoch 194 the one
 # identity that had just left probation received the entire backlog — 113.29 NADO against 0.587 NADO per epoch
 # (reported by fazer, 2026-09-02). From this epoch the carry is released at most one epoch's inflow per epoch
 # (never less than DIV_CARRY_RELEASE_FLOOR, so a backlog drains even if inflow stops), so a backlog flows to
 # everyone leaving probation over the following hours instead of to whoever is first. Both accrual paths read
-# ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applies from epoch 0.
-DIV_CARRY_METER_EPOCH = 0               # gen 25: the carry is metered from epoch 0 (the gen-24 gate at 600 retired)
+# ONE function (records_bind.dividend_accrual_effects). On gen 25+ the meter applied from epoch 0; the constant
+# (DIV_CARRY_METER_EPOCH = 0) and the unmetered branch were deleted after the betanet-8 reroll: the meter is unconditional.
 # DIVIDENDS REQUIRE ATTESTATION (2026-09-07, operator: "dividends must require attestation"). The 12 genesis_open.dat
 # identities are seeded with a recert at epoch 0 so the open lane can PRODUCE from block 0 — they never attested, and
 # through the lease they were also PRESENT for the dividend. From this epoch an identity whose only recert is the genesis
 # seed (latest recert epoch == 0 as of the epoch) is excluded from the dividend weight set; a seed that renews with a real
-# attested register (epoch >= 1) earns like anyone else. Epoch-gated for replayability; becomes 0 at the next reroll.
-DIVIDEND_ATTESTED_EPOCH = 30 if CHAIN_GENERATION == 25 else 0        # reroll: required from epoch 0
+# attested register (epoch >= 1) earns like anyone else. Gen 25 gated it at epoch 30 (DIVIDEND_ATTESTED_EPOCH); from gen 26
+# it held from epoch 0, and the constant was deleted after the betanet-8 reroll (dividend_ops.weights_at_epoch).
 DIV_CARRY_RELEASE_FLOOR = 5 * 10 ** 9           # 0.5 NADO per epoch, raw
 
 
@@ -1393,8 +1393,9 @@ FIDELITY_MIN_GAP_EPOCHS = 192
 # deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
 # a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
 # PER-CLASS LEASES, GAP-PROPORTIONAL FIDELITY AND SIGNATURE RENEWALS (operator decision 2026-09-14; doc/scaling-open-lane.md
-# phases 1a/1b; doc/device-attestation.md §"Leases per class"). One epoch gate, LEASE_V2_EPOCH, keyed on the recert's epoch
-# — a register lands exactly at max_block, so its epoch is max_block // EPOCH_LENGTH on every node.
+# phases 1a/1b; doc/device-attestation.md §"Leases per class"). Gen 25 gated all of it at one epoch, LEASE_V2_EPOCH (1600),
+# keyed on the recert's epoch; from gen 26 that gate was 0 and it was deleted after the betanet-8 reroll, so every rule
+# below holds at every epoch. Only a caller with NO epoch (None, one that predates the gate) still gets the legacy value.
 #
 #   * THE LEASE IS PER CLASS, and it is written down. A recert at epoch E grants lease_epochs_for(class, E) epochs, and the
 #     grant is stored as consensus state ("lease:<address>:<E>" in the devbind DB, kv_ops.lease_grant_*), so presence at
@@ -1415,41 +1416,34 @@ FIDELITY_MIN_GAP_EPOCHS = 192
 #   * `devkey` is stamped for EVERY class from the gate (the reverse index a statement-free or signature renewal is checked
 #     against; also what lets /get_account name the class). An identity bound before the gate has no grant, no devkey and
 #     no devcred until its next statement: one more tap, then the new terms.
-LEASE_V2_EPOCH = 1600 if CHAIN_GENERATION == 25 else 0    # block 96 000 on gen 25 (rule 3); a fresh chain: from epoch 0
 LEASE_EPOCHS_BY_CLASS = {"android-key": 360, "tpm": 1680, "ledger": 1680, "trezor": 1680, "ek": 1680}
 LEASE_EPOCHS_MAX = 1680                                    # 7 days: the longest grant any class receives
 LEASE_ASSERT_CLASSES = frozenset(("tpm",))                 # renew by credential signature (phase 1a)
 RECERT_HISTORY_EPOCHS_V2 = 55_000                          # > (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX = 52 080 (~260 days)
 
 
-def lease_v2_at(epoch) -> bool:
-    """True when the per-class lease rules are in force at `epoch` (None = legacy, for callers that predate the gate)."""
-    return epoch is not None and (not LEASE_V2_EPOCH or int(epoch) >= LEASE_V2_EPOCH)
-
-
 def lease_epochs_for(cls, epoch) -> int:
-    """The lease a recert of class `cls` at `epoch` GRANTS. Below the gate, or for a class the table does not name (an
-    identity with no devkey yet), the historical POSW_LEASE_EPOCHS. Pure in (cls, epoch)."""
-    if not lease_v2_at(epoch):
+    """The lease a recert of class `cls` at `epoch` GRANTS. With no epoch (None, a legacy caller), or for a class the
+    table does not name (an identity with no devkey yet), the historical POSW_LEASE_EPOCHS. Pure in (cls, epoch)."""
+    if epoch is None:
         return POSW_LEASE_EPOCHS
     return int(LEASE_EPOCHS_BY_CLASS.get(cls, POSW_LEASE_EPOCHS))
 
 
 def recert_history_epochs(epoch) -> int:
-    """Recert-row retention horizon in force at `epoch` (the GC watermark is consensus, so this is gated too)."""
-    return RECERT_HISTORY_EPOCHS_V2 if lease_v2_at(epoch) else RECERT_HISTORY_EPOCHS
+    """Recert-row retention horizon at `epoch` (the GC watermark is consensus): the 7-day-lease horizon at every epoch,
+    the historical one only for a caller with no epoch (None)."""
+    return RECERT_HISTORY_EPOCHS_V2 if epoch is not None else RECERT_HISTORY_EPOCHS
 
 
 def saturation_lookback_at(epoch) -> int:
     """Rows behind `epoch` a weight reconstruction may need: a run of FIDELITY_CAP + 1 recerts is saturated whatever lies
-    before it, and gaps were <= POSW_LEASE_EPOCHS before the gate and <= LEASE_EPOCHS_MAX after it. Grows from the old
-    bound at the gate towards (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, so the exec node's "history pruned?" check does not
-    refuse every epoch the day the leases lengthen."""
+    before it, and gaps are <= LEASE_EPOCHS_MAX. Grows from the old bound (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS at epoch 0
+    (where the per-class leases start: gen 25's LEASE_V2_EPOCH, 0 from gen 26 and deleted) towards
+    (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, so the exec node's "history pruned?" check does not refuse every epoch."""
     e = int(epoch)
     old = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
-    if not lease_v2_at(e):
-        return old
-    floor = max(e - (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, LEASE_V2_EPOCH - old)
+    floor = max(e - (FIDELITY_CAP + 1) * LEASE_EPOCHS_MAX, -old)
     return max(old, e - floor)
 
 
@@ -1524,17 +1518,17 @@ def fidelity_step(cur_fid: int, continuous: bool, gap: int, epoch=None) -> int:
     continuous (gap <= the previous recert's lease) and the gap to the previous one. ONE function, called by the live
     apply (account_ops.apply_register) AND the fraud-proof replay (dividend_ops.fidelity_at_epoch): the two
     used to be hand-mirrored, and a divergence there false-slashes an honest settler.
-      continuous, gap >= FIDELITY_MIN_GAP_EPOCHS -> +FIDELITY_GAIN                       (before LEASE_V2_EPOCH)
-                                                 -> +FIDELITY_GAIN * (gap // FIDELITY_MIN_GAP_EPOCHS)   (from the gate:
-                                                    time, not taps — a 7-day renewal earns what seven 24-hour ones did)
+      continuous, gap >= FIDELITY_MIN_GAP_EPOCHS -> +FIDELITY_GAIN * (gap // FIDELITY_MIN_GAP_EPOCHS)   (time, not taps —
+                                                    a 7-day renewal earns what seven 24-hour ones did)
+                                                 -> +FIDELITY_GAIN                       (epoch None: the legacy rule)
       continuous, gap <  FIDELITY_MIN_GAP_EPOCHS -> unchanged (renews the lease, earns nothing — anti-farm spacing)
       lapse / first recert                        -> max(FIDELITY_GAIN, cur_fid // 2)
-    `epoch` is the recert's own epoch (None = the legacy rule, for callers that predate the gate)."""
+    `epoch` is the recert's own epoch (None = the legacy rule, for callers that predate gen 25's LEASE_V2_EPOCH)."""
     cur_fid = int(cur_fid)
     if continuous:
         if gap < FIDELITY_MIN_GAP_EPOCHS:
             return cur_fid
-        steps = (int(gap) // FIDELITY_MIN_GAP_EPOCHS) if lease_v2_at(epoch) else 1
+        steps = (int(gap) // FIDELITY_MIN_GAP_EPOCHS) if epoch is not None else 1
         return cur_fid + FIDELITY_GAIN * steps
     return max(FIDELITY_GAIN, cur_fid // 2)
 
@@ -1568,7 +1562,7 @@ def dividend_weight(fidelity, epoch: int) -> int:
     in the set is the grant). Gen 24 skipped fidelity 1 (probation) because identities were free to farm; gen 25
     identities are attested devices, so the line is unbroken. `epoch` is kept in the signature so the live path and
     the fraud-proof replay call the same function with the same arguments."""
-    cap = DIVIDEND_WEIGHT_CAP_V2 if int(epoch) >= DIVIDEND_WEIGHT_CAP_V2_EPOCH else FIDELITY_CAP   # no truthiness guard: the reroll value is 0 = from epoch 0, not "off"
+    cap = DIVIDEND_WEIGHT_CAP_V2   # every epoch (gen 25's DIVIDEND_WEIGHT_CAP_V2_EPOCH, 0 from gen 26, is deleted; callers pass epoch >= 0)
     return 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), cap)
 
 
@@ -1610,29 +1604,32 @@ def split_open_block_reward(reward: int):
 # kernel). Roots are consensus constants: never fetched, never learned from a peer, changed only by a gated
 # protocol commit. Fingerprints are SHA-256 over the DER certificate.
 # ---------------------------------------------------------------------------------------------------------------
-# GATE LEDGER (2026-09-09). EVERY gen-25 consensus gate is written `<live height> if CHAIN_GENERATION == 25 else <x>`,
-# so a reroll needs no edit: bump CHAIN_GENERATION and each rule lands where a fresh chain wants it. `x = 1` means the
-# rule is live from block 1 (or epoch 0); `x = 0` means the feature never turns on and its code path is dead weight to
-# be DELETED in the cleanup pass. tests/test_gate_reroll_transfer.py pins both halves of every line below.
+# GATE LEDGER (2026-09-09). EVERY consensus gate is written `<live height> if CHAIN_GENERATION == <gen> else <x>`, so a
+# reroll needs no edit: bump CHAIN_GENERATION and each rule lands where a fresh chain wants it. `x = 1` means the rule
+# is live from block 1 (or epoch 0); `x = 0` means the feature never turns on and its code path is dead weight to be
+# DELETED in the cleanup pass. tests/test_gate_reroll_transfer.py pins every live line and every deleted name.
 #
-#   live from genesis (x = 1)        DEVICE_ATTEST_HEIGHT, DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT,
-#                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT,
-#                                    DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, DEVICE_ATTEST_EK_PROVEN_HEIGHT,
-#                                    DEVICE_ATTEST_EK_READY_HEIGHT,
-#                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, DEVICE_BIND_PERMANENT_EK_HEIGHT,
+# THE GEN-25 GATES ARE ALL GONE (cleanup after the betanet-8 reroll, doc/reroll.md §"What the cleanup deletes"):
+#   never (x = 0), path deleted      BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
+#                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT and their retire twins BOND_ATTEST_OPTIONAL_HEIGHT,
+#                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
+#                                    (slice 1 — see "THE SAVINGS LANE IS PLAIN STAKE" below)
+#   live from block 1 (x = 1),       DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT,
+#   rule inlined (slice 2)           DEVICE_REBIND_INSTANT_HEIGHT, DEVICE_BIND_PERMANENT_EK_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
+#                                    DEVICE_ATTEST_EK_HEIGHT, DEVICE_ATTEST_EK_SHORT_HEIGHT, DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT,
+#                                    DEVICE_ATTEST_EK_PROVEN_HEIGHT, DEVICE_ATTEST_EK_READY_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
-#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT, ADDRESS_KEY_BIND_HEIGHT,
-#                                    SETTLE_ANCHOR_HEIGHT, SLASH_DEDUP_HEIGHT,
+#                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT,
+#                                    ADDRESS_KEY_BIND_HEIGHT, SETTLE_ANCHOR_HEIGHT, SLASH_DEDUP_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
-#                                    (live value 2^62 = off until the reroll)
-#   never (x = 0), delete the path   (none left: BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT and
-#                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT were deleted after the betanet-8 reroll together
-#                                    with their retire twins BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT,
-#                                    BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT — see "THE SAVINGS
-#                                    LANE IS PLAIN STAKE" below)
-#   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
+#   from epoch 0 (x = 0 = always),   LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH,
+#   rule inlined (slice 2)           DIV_CARRY_METER_EPOCH
+# WHERE `>= 1` SURVIVES IN THE CODE it is the deleted gate's own value, kept on purpose: height 0 (genesis, mempool
+# admission on a genesis tip, the exec state at cursor -1 / 0) or a tx's own max_block of 0 was BELOW every one of
+# those gates, and the cleanup must not change any verdict. Where the height is provably >= 1 the guard is gone.
+# DEVICE_ATTEST_HEIGHT (= 1) is a plain constant, not a generation-keyed gate; it stays.
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1)
 # ---------------------------------------------------------------------------------------------------------------
@@ -1646,14 +1643,14 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # keys, Apple statements, batch-attested pre-RKP Android) are refused from the gate: unbindable = unacceptable.
 # Gate hygiene: shipped on the live betanet-7 chain, so it is a HEIGHT ahead of the fleet's adoption (registrations
 # below it carry no binding and replay unchanged); becomes 1 at the next reroll.
-DEVICE_BIND_HEIGHT = 460 if CHAIN_GENERATION == 25 else 1              # reroll: one device one identity from block 1
+# DEVICE_BIND_HEIGHT: gen 25 gate at 460; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 # STRICT BINDING (review 2026-09-07, two confirmed holes): (1) a statement with DUPLICATE CBOR map keys made the kernel
 # verify one chain (first key) while the Python parser hashed another (last key) for the binding — N identities per
 # device; from this height the consensus parser refuses duplicate keys, so both sides see one map. (2) The binding was
 # checked against PARENT state, so N senders could bind the same device inside ONE block; from this height a register tx
 # also occupies the in-block uniqueness key ("devbind", key) — one device per block, in assembly and verification alike.
 # Height-gated for replayability; becomes 1 at the next reroll.
-DEVICE_BIND_STRICT_HEIGHT = 1700 if CHAIN_GENERATION == 25 else 1   # reroll: strict parse from block 1
+# DEVICE_BIND_STRICT_HEIGHT: gen 25 gate at 1700; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable
@@ -1666,7 +1663,7 @@ DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # 
 # another sender (rebind, no old-key signature needed: lost key, sold device) once POSW_LEASE_EPOCHS have passed since
 # its last STATEMENT (statement-free renewals never refresh the binding epoch, so an old owner cannot pin it); the move
 # supersedes the old binding in that block. Height-gated on the live betanet-7 chain; becomes 1 at the next reroll.
-DEVICE_BIND_PERMANENT_HEIGHT = 3900 if CHAIN_GENERATION == 25 else 1   # reroll: bind-for-life from block 1
+# DEVICE_BIND_PERMANENT_HEIGHT: gen 25 gate at 3900; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 # INSTANT MOVES (operator decision 2026-09-07 evening, doc/device-attestation.md §"Rebinding"): from this height a device
 # may move to another sender in ANY block — no cooldown — because the move EVICTS the identity it leaves in the same
 # block: an eviction row (devbind key "evict:<address>": [[evict_epoch, voided_recert_epoch], ...]) voids that identity's
@@ -1674,7 +1671,7 @@ DEVICE_BIND_PERMANENT_HEIGHT = 3900 if CHAIN_GENERATION == 25 else 1   # reroll:
 # voided one), so at every instant exactly one identity is backed by the device and hopping earns nothing (each hop
 # kills the previous identity, the new one starts at fidelity 1). Whoever holds the device wins immediately. Before this
 # height the old rule (refuse a different sender for POSW_LEASE_EPOCHS after the last statement) replays unchanged.
-DEVICE_REBIND_INSTANT_HEIGHT = 5400 if CHAIN_GENERATION == 25 else 1   # reroll: instant moves from block 1
+# DEVICE_REBIND_INSTANT_HEIGHT: gen 25 gate at 5400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # PERMANENT EK BINDINGS (operator decision 2026-09-14, doc/device-attestation.md §"Binding modes"). The vendor-endorsed
 # TPM enrolment binds an identity to the chip's ENDORSEMENT key ("ek:<identity>", ops/device_attest.device_binding_key)
@@ -1684,14 +1681,16 @@ DEVICE_BIND_PERMANENT_CLASSES = frozenset(("ledger", "trezor"))
 # and the identity renews without a statement, like a hardware wallet. A previously leased ek row becomes permanent at
 # its next statement (the helper's next run), because only a statement writes the account's `devkey` reverse index.
 # Rebinding by another sender evicts as for every class. Gate at the fleet's adoption block (rule 3); fresh chain: block 1.
-DEVICE_BIND_PERMANENT_EK_HEIGHT = 92900 if CHAIN_GENERATION == 25 else 1
+# DEVICE_BIND_PERMANENT_EK_HEIGHT: gen 25 gate at 92900; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 
 def permanent_classes_at(height) -> frozenset:
     """The device classes that bind for life at `height` — a pure function of height so a replay reaches the same
     verdict. None = the latest rule, for ADVISORY readers only (the identity log); validation and apply pass the
     block's height."""
-    if height is None or (DEVICE_BIND_PERMANENT_EK_HEIGHT and int(height) >= DEVICE_BIND_PERMANENT_EK_HEIGHT):
+    # "ek" is permanent from height 1 (gen 25's DEVICE_BIND_PERMANENT_EK_HEIGHT, 1 from gen 26, deleted); height 0
+    # was below that gate and keeps the set it had
+    if height is None or int(height) >= 1:
         return DEVICE_BIND_PERMANENT_CLASSES | frozenset(("ek",))
     return DEVICE_BIND_PERMANENT_CLASSES
 # THE SAVINGS LANE IS PLAIN STAKE (cleanup after the betanet-8 reroll, doc/reroll.md §"What the cleanup deletes").
@@ -1705,11 +1704,9 @@ def permanent_classes_at(height) -> frozenset:
 # transaction_ops.validate_transaction keep that gen-27 behaviour exactly. The history (why each rule came and went)
 # is in doc/device-attestation.md and git.
 # GENTLER DIVIDEND GRADIENT (operator decision 2026-09-08): min(fidelity, 15) instead of 30 from this epoch — a thirty-day identity
-# earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Epoch-gated inside
-# dividend_weight (the epoch is already in its signature for exactly this; the constant is read at call time).
+# earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Gen 25 gated it at epoch 110
+# (DIVIDEND_WEIGHT_CAP_V2_EPOCH); from gen 26 it held from epoch 0 and the gate was deleted after the betanet-8 reroll.
 DIVIDEND_WEIGHT_CAP_V2 = 15
-DIVIDEND_WEIGHT_CAP_V2_EPOCH = 110 if CHAIN_GENERATION == 25 else 0   # was OPEN_LANE_EXCLUDE_BONDED_EPOCH (6600 // 60 = 110): decoupled 2026-09-09 so a
-#   retired gate cannot drag the gradient with it; reroll: the flat 15 from epoch 0
 DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset((
     "0915dd5c07a28db549d1f677bb5a75d4bfbe9561a773424327762e9e02f9bb29",  # Apple WebAuthn Root CA (2045)
     "cedb1cb6dc896ae5ec797348bce9286753c2b38ee71ce0fbe34a9a1248800dfc",  # Google Hardware Attestation Root (2042)
@@ -1757,7 +1754,7 @@ DEVICE_ATTEST_TPM_AAGUIDS = frozenset(("08987058cadc4b81b6e130de50dcbe96",))   #
 # and the format check refuses it one line above. So from this height the tpm rule is exactly: pinned Microsoft root +
 # physical manufacturer + the kernel's certify proof. Binding is unaffected (device_binding_key hashes the AIK
 # certificate — one per physical TPM per Windows account — whatever AAGUID the credential carries).
-DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT = 41200 if CHAIN_GENERATION == 25 else 1   # reroll: the proof decides from block 1
+# DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT: gen 25 gate at 41200; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
     "49465800",  # IFX  Infineon
     "53544D20",  # STM  STMicroelectronics
@@ -1806,7 +1803,7 @@ DEVICE_ATTEST_TPM_MANUFACTURERS = frozenset((
 # enters the SAME one-device-one-identity table as every other. One chip is one identity however many
 # attestation keys it enrols, and the endorsement key cannot be re-minted without invalidating the vendor
 # certificate that made the chip admissible in the first place.
-DEVICE_ATTEST_EK_HEIGHT = 45300 if CHAIN_GENERATION == 25 else 1   # reroll: vendor-endorsed attestation from block 1
+# DEVICE_ATTEST_EK_HEIGHT: gen 25 gate at 45300; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # HOW MANY INDEPENDENT CHALLENGERS ONE ENROLMENT NEEDS. The residual attack on a CA-free enrolment is a
 # challenger that privately hands its secret to a client with no chip. With k challengers drawn from the
@@ -1866,7 +1863,7 @@ DEVICE_ATTEST_EK_ENROL_BLOCKS = 720
 # moves under it: an enrolment opened before the gate keeps the window it was opened with, and every node
 # — including one replaying years later — computes the same deadline for the same record.
 DEVICE_ATTEST_EK_ENROL_SHORT = 180
-DEVICE_ATTEST_EK_SHORT_HEIGHT = 56184 if CHAIN_GENERATION == 25 else 1
+# DEVICE_ATTEST_EK_SHORT_HEIGHT: gen 25 gate at 56184; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # ROOTS ADDED AFTER THE FIRST SET, GATED. Adding a vendor root is a CONSENSUS change: a node that has it
 # accepts an enrolment a node that does not will reject, and the two then disagree about whether a block is
@@ -1899,7 +1896,7 @@ DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
 # drawn, excludes everyone at genesis and after any long quiet period. When fewer than
 # DEVICE_ATTEST_EK_CHALLENGERS proven challengers exist, the draw falls back to the duty senders it used
 # before — worse, but live, and it self-heals the moment k nodes have answered once.
-DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+# DEVICE_ATTEST_EK_PROVEN_HEIGHT: gen 25 gate at 59400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at
@@ -1915,7 +1912,7 @@ DEVICE_ATTEST_EK_PROVEN_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 # closed in core_loop: no block is built and no remote block is judged while the tx index is rebuilding.
 # Live value sits above the last replay block and far enough out for the /update wave (rule 3); on a fresh
 # chain it is strict from block 1. Ledger: live from genesis (x = 1).
-TX_AT_MOST_ONCE_STRICT_HEIGHT = 81600 if CHAIN_GENERATION == 25 else 1
+# TX_AT_MOST_ONCE_STRICT_HEIGHT: gen 25 gate at 81600; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # PROOF VERIFIER PINS (security review 2026-09-23, findings P0 + A1). From PROOF_BIND_HEIGHT every STARK the
 # chain verifies — settle-with-proof segments and their K->1 fold, the shielded pool and shielded contracts, and
@@ -1935,7 +1932,7 @@ TX_AT_MOST_ONCE_STRICT_HEIGHT = 81600 if CHAIN_GENERATION == 25 else 1
 # under stark.rules_at(<height of the block being judged>); ops/transaction_ops (L1 settle), execnode._apply_block
 # (exec layer) and the settler are the three sites that set it. Gate hygiene: a height ahead of the update wave
 # on the live chain; live from block 1 at the next reroll.
-PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1
+# PROOF_BIND_HEIGHT: gen 25 gate at 208000; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # EXEC-LAYER CALL RULES V2 (security review 2026-09-23: C1/F1, F2, Z2, S2). Exec state is computed by every
 # exec node and settled to L1 by quorum or proof, so a rule that changes what a call DOES is a consensus rule
@@ -1956,7 +1953,7 @@ PROOF_BIND_HEIGHT = 208000 if CHAIN_GENERATION == 25 else 1
 # Gate hygiene: ahead of the update wave on the live chain; block 1 at the next reroll. Callers:
 # execnode/state.py (rules_v2 on cursor+1), execnode/settlement_proofs._run_call (per-call cursor),
 # ops/transaction_ops (blob admission + records fold, block_height).
-EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1
+# EXEC_RULES_V2_HEIGHT: gen 25 gate at 210000; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # IN-BLOCK SELECTOR (security review 2026-09-23, A2). The exec AIR's block schedule (which rows belong to which
 # call) was prover-declared and nothing tied a block's length to its RET: build_periodic filled the context,
@@ -1969,7 +1966,7 @@ EXEC_RULES_V2_HEIGHT = 210000 if CHAIN_GENERATION == 25 else 1
 # format (both the statement digest and the alphas), so prover and verifier flip on the same block through
 # stark.rules_at, like PROOF_BIND_HEIGHT. tests/test_proof_block_selector.py shows a trace executing past its
 # declared block VERIFYING below the gate and refused at it. Block 1 at the next reroll.
-PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1
+# PROOF_BLOCK_SELECTOR_HEIGHT: gen 25 gate at 212000; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # REVIEW ROUND 2 (security review 2026-09-23, the remaining non-reroll items), ONE gate for the exec layer, L1
 # and the proof rules alike (the exec cursor is the L1 height):
@@ -1990,7 +1987,7 @@ PROOF_BLOCK_SELECTOR_HEIGHT = 212000 if CHAIN_GENERATION == 25 else 1
 #          These change the proof format, so they ride stark.rules_at like the earlier proof gates; the wallet's
 #          own prover reads this height from /status (`proof_rules`) and switches on the same block.
 # Block 1 at the next reroll.
-REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
+# REVIEW_R2_HEIGHT: gen 25 gate at 214000; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # TRACE LOW-DEGREE TEST (security review 2026-09-23, P1). Only the composition polynomial ever entered FRI: a
 # witness column with no boundary was an ARBITRARY function on the coset, so any gadget A(x)*w(x) = B(x) was
@@ -2004,7 +2001,7 @@ REVIEW_R2_HEIGHT = 214000 if CHAIN_GENERATION == 25 else 1
 # fold does NOT carry the term yet and refuses under it. SETTLE_PROOF_RECURSIVE is TRUE (this said "off" until
 # 2026-09-24), so that refusal is live consensus — SCHEDULED_CLEANUPS.md lists what must precede lifting it.
 # Block 1 at the next reroll.
-PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
+# PROOF_TRACE_LDT_HEIGHT: gen 25 gate at 216000; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # THE FIXED-NAME CONTRACTS PASS THE PRE-STATE KEY CHECK (2026-09-24). REVIEW_R2's A4 check
 # (settlement_sparse._canonical_pre_contracts) accepted only lowercase-hex contract ids, but live state carries
@@ -2017,7 +2014,7 @@ PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1
 # fleet on the new code before it fires. Block 1 at the next reroll.
 # DEFERRED 2026-09-24, before it fired: settle proofs stay closed on gen 25 until a pending proof-verifier
 # soundness fix ships (details withheld until then). Re-enable with that fix's gate, never ahead of it.
-PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+# PROOF_FIXED_CID_HEIGHT: gen 25 gate at 2^62 (never on gen 25); 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # PRIVACY PAUSE (2026-09-24). From this height the exec layer refuses `private_call` (shielded contract notes), the
 # LEGACY field pool's transfers, and a `stark` bundle on the transparent `shielded_transfer` op. (L1 already refuses
@@ -2026,7 +2023,7 @@ PROOF_FIXED_CID_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # in the logs), so closing them costs nothing while their fixes ship. The WIDE pool (SHIELD_WIDE_HEIGHT) is not
 # paused. Block 1 at the next reroll: shielded contract notes stay off until they move to the wide hash with
 # zero knowledge, and the legacy field pool is replaced there by the wide one.
-PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1
+# PRIVACY_PAUSE_HEIGHT: gen 25 gate at 226400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # FULL-DOMAIN QUERIES AND A DEGREE-EXACT TRACE BATCH (review 2026-09-24, both reproduced under every rule then live).
 # (1) A query opened the trace at idx mod N/2 and compared the composition with FRI layer 0 ONLY in the lower half;
@@ -2037,7 +2034,7 @@ PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1
 # the trace violates it; each column now enters as x^(deg_bound-T)*f(x), forcing deg f < T (stark.trace_batch_shift,
 # native sp_batch_add_shift, the wallet's stark.js). A format change on both sides, so it rides stark.rules_at like
 # every proof gate; the wallet reads it from /status (`proof_rules.full_query`). Block 1 at the next reroll.
-PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1
+# PROOF_QUERY_FULL_HEIGHT: gen 25 gate at 228500; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # AN ADDRESS IS BOUND TO THE KEY IT FIRST PUBLISHED (review 2026-09-25, reproduced). An address is the first 42 hex of
 # the public key — the first 21 bytes of ML-DSA's rho, a seed anyone may CHOOSE when building a key — so a key built
@@ -2046,7 +2043,7 @@ PROOF_QUERY_FULL_HEIGHT = 228500 if CHAIN_GENERATION == 25 else 1
 # signature and any key evidence must use EXACTLY the key the account already has on chain (PUBKEY-ONCE: its first
 # sent tx recorded it). An address that has NEVER sent has no key on chain and is not protected by this rule — only a
 # hash-based address at the reroll fixes those. Block 1 at the next reroll.
-ADDRESS_KEY_BIND_HEIGHT = 232700 if CHAIN_GENERATION == 25 else 1
+# ADDRESS_KEY_BIND_HEIGHT: gen 25 gate at 232700; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # THE SETTLE QUORUM'S ACTIVITY WINDOW IS ANCHORED BY STAKE, NOT BY THE HIGHEST CURSOR ANYONE CLAIMS (review 2026-09-25,
 # reproduced). The window counted validators who attested within SETTLE_ACTIVITY_CURSORS of the HIGHEST attested cursor,
@@ -2056,7 +2053,7 @@ ADDRESS_KEY_BIND_HEIGHT = 232700 if CHAIN_GENERATION == 25 else 1
 # attesting stake have reached (settlement_ops.active_settler_shares); an attacker cannot move it without that stake.
 # Validators still leak out after going dark, relative to that anchor; only those silent for SETTLE_ANCHOR_LONG_CURSORS
 # leave the stake basis entirely. Judged on the namespace's top attested cursor, which cannot exceed the block height.
-SETTLE_ANCHOR_HEIGHT = 232900 if CHAIN_GENERATION == 25 else 1
+# SETTLE_ANCHOR_HEIGHT: gen 25 gate at 232900; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall longer than this reopens the leak
 
 # ONE SLASH PER OFFENCE PER BLOCK (review 2026-09-25, reproduced). The in-block uniqueness key for a slash read the
@@ -2064,7 +2061,7 @@ SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall 
 # reports of one offence both entered a block (a double burn, or a raise inside incorporate_block). From this height a
 # slash is keyed by the (offender, dedup height) resolve_slash returns, the identity apply already dedupes on. Keyed on
 # the tx's own max_block, so history replays unchanged. Block 1 at the next reroll.
-SLASH_DEDUP_HEIGHT = 233300 if CHAIN_GENERATION == 25 else 1
+# SLASH_DEDUP_HEIGHT: gen 25 gate at 233300; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 
@@ -2074,7 +2071,7 @@ EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespa
 # apply. Setting the context BEFORE the loop is a live semantic change for every contract that reads TIME or
 # the cursor, so it turns on only from block 1 of the next generation: the live value is a height this chain
 # will never reach.
-EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+# EXEC_CTX_CURRENT_HEIGHT: gen 25 gate at 2^62 (never on gen 25); 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # EXEC ROOT V2 + CODE-EVENT BINDING (RIDES A REROLL; security review 2026-09-23, S1 and C5, plus the call-context
 # gap found while closing them). Four things the settlement binding could not see, closed together because each
@@ -2098,7 +2095,7 @@ EXEC_CTX_CURRENT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # The root layout, the exec summaries (`meta` sub-DB, in the L1 state root) and the DA leaves all change, which is
 # why this cannot turn on mid-generation: block 1 of the next one. Requires EXEC_CTX_CURRENT_HEIGHT to be in force
 # (the prover stamps the block being applied; tests/test_gate_reroll_transfer.py pins the order).
-EXEC_ROOT_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+# EXEC_ROOT_V2_HEIGHT: gen 25 gate at 2^62 (never on gen 25); 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # WIDE SHIELDED POOL (RIDES A REROLL; security review 2026-09-23, Z3). The pool's note commitment, owner id,
 # nullifier and tree node were ONE Goldilocks element (alghash: ~2^32 collision by its own docstring), so ~2^33
@@ -2108,7 +2105,7 @@ EXEC_ROOT_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # form (coins would otherwise sit in escrow behind a note the exec layer never created). The legacy pool and
 # circuit are frozen from the same height: a joinsplit/joinsplit2 bundle is refused, a joinsplit3 one is refused
 # below it. Every commitment ever made changes shape, which is why this is block 1 of the next generation.
-SHIELD_WIDE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
+# SHIELD_WIDE_HEIGHT: gen 25 gate at 2^62 (never on gen 25); 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # NODES VOLUNTEER, RATHER THAN BEING INFERRED. Deducing willingness from behaviour is second-guessing: a
 # node that has not been drawn lately looks identical to one that has stopped running the loop, and a
@@ -2121,7 +2118,7 @@ SHIELD_WIDE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 25 else 1
 # same exposure as before, now with a signal that is at least about the right question.
 DEVICE_ATTEST_EK_READY_WINDOW = 2000        # ~3.8 h: a node re-announces long before this lapses
 DEVICE_ATTEST_EK_READY_EVERY = 400          # how often a running node re-announces (~45 min)
-DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
+# DEVICE_ATTEST_EK_READY_HEIGHT: gen 25 gate at 59400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # THE REVERSE INDEX, FOR EVERY CLASS. `devkey` on an account names the device that vouches for it, and it
 # was written only for PERMANENT classes because only they needed it — a statement-free renewal is
@@ -2146,7 +2143,7 @@ DEVICE_ATTEST_EK_READY_HEIGHT = 59400 if CHAIN_GENERATION == 25 else 1
 DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
     "2e1b3ba79af56d758be51697621bc4b9e8cee0983db3e749c55eb9b37c6d2ae0",  # Intel TPM EK Root CA (2049)
 ))
-DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT = 58200 if CHAIN_GENERATION == 25 else 1
+# DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT: gen 25 gate at 58200; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 # ENROLMENT TRUSTS THE ROOTS IN FORCE (2026-09-25). The kernel verified a tpm_enrol chain against ek_roots_at(height)
 # (V2 included), and the next line re-checked the root against the BASE set only, so an Intel chip whose endorsement
 # certificate walks to the V2 root passed the kernel and was refused anyway — while the wallet's pre-flight (every
@@ -2159,7 +2156,9 @@ def ek_roots_at(height) -> frozenset:
     """The endorsement roots in force at `height`. A PURE FUNCTION OF HEIGHT so every node — including one
     replaying this block years from now — trusts exactly the set that was in force when it was written."""
     base = DEVICE_ATTEST_EK_ROOTS
-    if DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT and int(height or 0) >= DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT:
+    # the V2 roots are in force from height 1 (gen 25's DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT, 1 from gen 26, deleted);
+    # height 0 / None was below that gate and keeps the base set
+    if int(height or 0) >= 1:
         return base | DEVICE_ATTEST_EK_ROOTS_V2
     return base
 
@@ -2192,7 +2191,7 @@ DEVICE_ATTEST_EK_ROOTS = frozenset((
 # assumption from the spec, proven only against a synthetic chain. The first real Trezor Safe statement had none and was
 # refused on that alone. From this height the serial is not required (trezorlib does not require it either; nothing
 # consumes it); below it the refusal is reproduced in ops/transaction_ops so replay is unchanged. Fresh chain: block 1.
-DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT = 95500 if CHAIN_GENERATION == 25 else 1
+# DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT: gen 25 gate at 95500; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 DEVICE_ATTEST_TREZOR_ROOTS = {
     "T2B1": ("04ca97480ac0d7b1e6efafe518cd433cec2bf8ab9822d76eafd34363b55d63e60380bff20acc75cde03cffcb50ab6f8ce70c878e37ebc58ff7cca0a83b16b15fa5",),   # Safe 3
     "T3B1": ("045b5c3fdd01f3602092834209b86df0ca86a9faf25cac35c73bf6237d66eb21eafcec3706f1ccd5eb4cc7f2fa1751213eccb1c78389afba89a5788ff31ee46a5d",),   # Safe 3 (rev.)

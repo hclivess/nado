@@ -128,10 +128,9 @@ def main():
               kv_ops.tpm_enrol_get(eid)["pub"] == aik_pub.hex())
 
         # --- the register ------------------------------------------------------------------------------
-        P.DEVICE_ATTEST_EK_HEIGHT = P.DEVICE_ATTEST_EK_HEIGHT or 1
         sender = "a" * 46
         anchor = "b" * 64
-        max_block = max(2000, P.DEVICE_ATTEST_EK_HEIGHT)
+        max_block = 2000                    # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT, deleted)
         challenge = T.register_device_challenge(sender, anchor, max_block)
         cert_info, sig = tpm.certify(aik_h, aik_h, challenge)
 

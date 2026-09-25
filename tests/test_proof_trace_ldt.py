@@ -36,7 +36,7 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
-GATE = int(P.PROOF_TRACE_LDT_HEIGHT)
+GATE = 1   # the rule holds from block 1 (gen 25's PROOF_TRACE_LDT_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 LEGACY = stark.RULES_LEGACY
 # THIS FILE JUDGES THE P1 ERA: every pin up to PROOF_TRACE_LDT_HEIGHT on, the later full-domain query rule OFF. Its
 # forgery mirrors the prover of that era (lower-half openings); test_proof_query_full.py covers the rule after it.
@@ -102,8 +102,7 @@ def t_rules_pure_in_height():
     assert stark.rules_for_height(None).trace_ldt and stark.current_rules().trace_ldt, "unset = strict"
     assert stark.Rules(True, True, True, True).trace_ldt is False, "a four-field Rules names the pre-gate format"
     assert stark.RULES_STRICT.trace_ldt and not stark.RULES_LEGACY.trace_ldt
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "PROOF_TRACE_LDT_HEIGHT = 216000 if CHAIN_GENERATION == 25 else 1" in src
+    assert not hasattr(P, "PROOF_TRACE_LDT_HEIGHT"), "the gate stays deleted"
 
 
 def t_honest_proofs_verify_under_their_own_rules_and_the_format_flips():

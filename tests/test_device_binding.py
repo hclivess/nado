@@ -1,13 +1,14 @@
-"""ONE DEVICE, ONE IDENTITY (protocol.DEVICE_BIND_HEIGHT; ops/device_attest.device_binding_key; kv_ops devbind;
+"""ONE DEVICE, ONE IDENTITY (ops/device_attest.device_binding_key; kv_ops devbind;
 account_ops.apply_register; transaction_ops register branch). "Using one device to attest 100,000 wallets must be
 impossible." Pins:
   1. the binding key: the REAL Android vector binds on x5c[1] (per-device RKP certificate, 13-day validity); a
      long-lived (batch) x5c[1] is refused; tpm binds on the AIK leaf; packed/apple/none are refused;
   2. the DER validity walk agrees with openssl on every certificate of the real chain;
   3. apply/revert symmetry: binding written at apply, the overwritten value restored on revert, table byte-identical;
-  4. the rule: a second sender on the same device inside the lease is invalid; the same sender renews; after the
-     lease the device may move; below the gate nothing is checked or written;
-  5. consensus hygiene: devbind is snapshot-carried (in the root), devbind_revert is node-local; the gate is a height.
+  4. the rule: the key is derived from the verified statement and bound; a move to another sender EVICTS the identity
+     it leaves (the pre-instant cooldown went with gen 25's DEVICE_REBIND_INSTANT_HEIGHT);
+  5. consensus hygiene: devbind is snapshot-carried (in the root), devbind_revert is node-local; the gen-25 device
+     gates are gone (the rules hold from block 1).
 Run: python3 tests/test_device_binding.py
 """
 import base64
@@ -125,20 +126,14 @@ def t_rule():
     a, b = "a" * 46, "b" * 46
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
-    check("rule wired after the kernel verdict, gated on DEVICE_BIND_HEIGHT",
-          "verify_register_device(transaction, anchor)" in seg and "DEVICE_BIND_HEIGHT" in seg and "devbind_get(dkey)" in seg
-          and seg.index("verify_register_device(") < seg.index("devbind_get(dkey)"))
-    # simulate the table as apply would leave it: device bound to `a` at epoch 100
-    kv_ops.devbind_set(key, a, 100)
-    gate_epoch = 100
-    # replicate the rule's arithmetic exactly (the seg above pins the wiring; this pins the semantics)
-    def rule(sender, epoch_now):
-        bound = kv_ops.devbind_get(key)
-        return not (bound and bound[0] != sender and epoch_now < bound[1] + P.POSW_LEASE_EPOCHS)
-    check("same device, DIFFERENT sender inside the lease -> invalid", not rule(b, gate_epoch + 5))
-    check("same device, same sender -> valid (renewal)", rule(a, gate_epoch + 5))
-    check("after the lease expires the device may vouch for another sender", rule(b, gate_epoch + P.POSW_LEASE_EPOCHS))
-    check("one epoch before expiry still blocked", not rule(b, gate_epoch + P.POSW_LEASE_EPOCHS - 1))
+    check("rule wired after the kernel verdict: the device key is derived (strictly) from the verified statement",
+          "verify_register_device(transaction, anchor)" in seg and "dkey = device_binding_key(" in seg
+          and seg.index("verify_register_device(") < seg.index("dkey = device_binding_key("))
+    # (the pre-instant COOLDOWN — a device that vouched for another sender inside its lease was refused — ran only below
+    #  gen 25's DEVICE_REBIND_INSTANT_HEIGHT and was deleted with that gate after the betanet-8 reroll; a move now evicts
+    #  the identity it leaves, pinned by t_instant_rebind)
+    check("the deleted cooldown is not reachable from validation any more", "one device, one identity\")" not in seg
+          and "if not instant and bound" not in seg)
     kv_ops.close_all()
 
 
@@ -170,19 +165,20 @@ def t_strict_binding():
     except ValueError as e:
         check("strict parse refuses duplicate keys", "duplicate" in str(e), e)
     check("strict parse of a clean statement gives the same key as before", device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS, strict=True) == real_key)
-    check("gate: DEVICE_BIND_STRICT_HEIGHT is a height at/after the bind gate", P.DEVICE_BIND_STRICT_HEIGHT >= P.DEVICE_BIND_HEIGHT)
-    tx_at = {"recipient": "register", "sender": "a" * 46, "max_block": P.DEVICE_BIND_STRICT_HEIGHT, "device": {"att": v["att"]}}
-    tx_before = {**tx_at, "max_block": P.DEVICE_BIND_STRICT_HEIGHT - 1}
+    # the strict rule holds from block 1 (gen 25's DEVICE_BIND_STRICT_HEIGHT, deleted); a max_block of 0 — never landable,
+    # block 0 is genesis — was below that gate and keeps the verdict it had
+    tx_at = {"recipient": "register", "sender": "a" * 46, "max_block": 1, "device": {"att": v["att"]}}
+    tx_before = {**tx_at, "max_block": 0}
     keys_at, keys_before = TO.reserved_uniqueness_keys(tx_at), TO.reserved_uniqueness_keys(tx_before)
-    check("in-block uniqueness: a register at/after the gate occupies ('devbind', key)", ("devbind", real_key) in keys_at and ("register", "a" * 46) in keys_at, keys_at)
-    check("below the gate only the per-sender key (historical block validity unchanged)", keys_before == [("register", "a" * 46)], keys_before)
+    check("in-block uniqueness: a register from block 1 occupies ('devbind', key)", ("devbind", real_key) in keys_at and ("register", "a" * 46) in keys_at, keys_at)
+    check("a max_block of 0 keeps only the per-sender key (as below the deleted gate)", keys_before == [("register", "a" * 46)], keys_before)
     tx_b = {**tx_at, "sender": "b" * 46}
     try:
         TO.assert_unique_reserved([tx_at, tx_b]); check("two senders, one device, one block -> refused", False)
     except ValueError as e:
         check("two senders, one device, one block -> refused", "devbind" in str(e), e)
     src = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
-    check("apply parses with the same strictness as validation", "strict=block_height >= DEVICE_BIND_STRICT_HEIGHT" in src)
+    check("apply parses with the same strictness as validation", "strict=True)   # same parse as validation" in src)
 
 
 def t_binding_modes():
@@ -204,7 +200,6 @@ def t_binding_modes():
     # --- constants
     check("permanent classes are exactly the factory-fixed-key ones", P.DEVICE_BIND_PERMANENT_CLASSES == frozenset(("ledger", "trezor")))
     check("permanent classes are bindable classes", P.DEVICE_BIND_PERMANENT_CLASSES <= P.DEVICE_BIND_CLASSES)
-    check("the permanent gate is at/after the strict gate", P.DEVICE_BIND_PERMANENT_HEIGHT >= P.DEVICE_BIND_STRICT_HEIGHT)
     # --- row formats: a leased row is byte-identical to the historical two-element row (state root / replay)
     kv_ops.devbind_set("android-key:" + "33" * 32, a, 7)
     raw = kv_ops._read(lambda txn: txn.get(("android-key:" + "33" * 32).encode(), db=kv_ops._dbs()["devbind"]))
@@ -260,29 +255,29 @@ def t_binding_modes():
     apply_register(b, 900, lg, device_key=lkey, permanent=True)        # the device moved away after a lease
     check("once the device moved away the old identity may bind a new hardware wallet", second_perm_ok(a, lkey2))
     # --- in-block uniqueness: a statement-free register occupies no device key
-    tx_nf = {"recipient": "register", "sender": a, "max_block": max(P.DEVICE_BIND_STRICT_HEIGHT, P.DEVICE_BIND_PERMANENT_HEIGHT)}
+    tx_nf = {"recipient": "register", "sender": a, "max_block": 1}
     check("a statement-free register occupies only its per-sender key", TO.reserved_uniqueness_keys(tx_nf) == [("register", a)], TO.reserved_uniqueness_keys(tx_nf))
     kv_ops.close_all()
     # --- wiring pins
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
-    check("validation: the statement-free branch is gated on DEVICE_BIND_PERMANENT_HEIGHT and checks devkey -> perm row -> sender",
-          "stmt_free = bool(DEVICE_BIND_PERMANENT_HEIGHT and block_height >= DEVICE_BIND_PERMANENT_HEIGHT" in seg
+    check("validation: the statement-free branch holds from block 1 and checks devkey -> perm row -> sender",
+          'stmt_free = bool(block_height >= 1 and not isinstance(transaction.get("device"), dict))' in seg
           and 'bound[0] == transaction["sender"] and bound[2] == "perm"' in seg and "verify_register_device(transaction, anchor)" in seg)
     check("validation: one hardware wallet per identity is enforced from the gate", "already bound for life to another hardware wallet" in seg)
     check("validation: the txid check still runs after the register branch (no early return)", "            return\n" not in seg)
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply: permanent is derived from the class at the block height and passed to apply_register",
           "device_key.split(\":\", 1)[0] in permanent_classes_at(block_height)" in acc and "permanent=permanent" in acc)
-    # --- ek JOINS THE PERMANENT CLASSES AT ITS OWN GATE (DEVICE_BIND_PERMANENT_EK_HEIGHT, operator decision 2026-09-14):
-    # a helper-enrolled chip binds on its factory-fixed endorsement key, so from the gate it is a hardware wallet in every
-    # rule below; before it, the leased row it always had. Validation and apply consult the same height-pure function.
-    G = P.DEVICE_BIND_PERMANENT_EK_HEIGHT
-    check("below the ek gate the permanent classes are the factory-fixed hardware wallets", P.permanent_classes_at(G - 1) == frozenset(("ledger", "trezor")))
-    check("at the ek gate the endorsement-key class joins them, and nothing else does", P.permanent_classes_at(G) == frozenset(("ledger", "trezor", "ek")))
+    # --- ek IS A PERMANENT CLASS (operator decision 2026-09-14; gen 25 gated it at DEVICE_BIND_PERMANENT_EK_HEIGHT, from
+    # block 1 since and deleted): a helper-enrolled chip binds on its factory-fixed endorsement key, so it is a hardware
+    # wallet in every rule below. Height 0 was below that gate and keeps the set it had. Validation and apply consult the
+    # same height-pure function.
+    G = 1
+    check("at height 0 the permanent classes are the factory-fixed hardware wallets", P.permanent_classes_at(G - 1) == frozenset(("ledger", "trezor")))
+    check("from block 1 the endorsement-key class joins them, and nothing else does", P.permanent_classes_at(G) == frozenset(("ledger", "trezor", "ek")))
     check("the WebAuthn tpm class (AIK per Windows account) stays leased", "tpm" not in P.permanent_classes_at(G + 10 ** 6))
     check("the advisory reader (height None) sees the latest rule", P.permanent_classes_at(None) == P.permanent_classes_at(G))
-    check("the ek gate is at/after the permanent gate it extends", G >= P.DEVICE_BIND_PERMANENT_HEIGHT)
     check("validation consults the height-pure set for the one-hardware-wallet rule", "dkey.split(\":\", 1)[0] in permanent_classes_at(block_height)" in seg)
     ekey = "ek:" + "ab" * 32
     c = "c" * 46
@@ -294,14 +289,8 @@ def t_binding_modes():
     check("... and the statement-free renewal leaves the ek row's statement epoch alone", kv_ops.devbind_get(ekey) == (c, 600, "perm") and kv_ops.recert_latest(c) == 700)
     apply_register(c, 700, lg, revert=True); apply_register(c, 600, lg, revert=True)
     check("... and both revert to nothing", kv_ops.devbind_get(ekey) is None and "devkey" not in (kv_ops.get_account(c) or {}))
-    # "below the gate" exists only while the gate is a real height (gen 25). From the betanet-8 reroll it is block 1 and
-    # permanent_classes_at makes every ek statement permanent, so a non-permanent ek register is not a state validation
-    # can produce any more — nothing to pin.
-    if G > 1:
-        apply_register(c, 600, lg, device_key=ekey, permanent=False)
-        check("below the gate the same ek statement writes the historical leased row and no devkey", kv_ops.devbind_get(ekey) == (c, 600, "lease") and "devkey" not in (kv_ops.get_account(c) or {}) and not stmt_free_ok(c))
-        apply_register(c, 600, lg, revert=True)
-    check("apply: a statement-free register past the gate derives no key", "if has_device or block_height < DEVICE_BIND_PERMANENT_HEIGHT:" in acc)
+    # (a non-permanent ek register is not a state validation can produce since the betanet-8 reroll — nothing to pin)
+    check("apply: a statement-free register derives no key", "        elif has_device:\n            from ops.device_attest import device_binding_key" in acc)
     na = open(os.path.join(ROOT, "ops", "node_attest.py")).read()
     check("node: a hardware-bound node renews on its own without a statement", "def renew_without_statement" in na and 'st.get("bind_mode") == "perm" and st.get("bind_live")' in na)
     nd = open(os.path.join(ROOT, "nado.py")).read()
@@ -318,7 +307,7 @@ def t_binding_modes():
 
 
 def t_instant_rebind():
-    """INSTANT MOVES (protocol.DEVICE_REBIND_INSTANT_HEIGHT): a device may move in any block because the move EVICTS the
+    """INSTANT MOVES (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, from block 1 since): a device may move in any block because the move EVICTS the
     identity it leaves — an epoch-stamped eviction row voids that identity's current lease for the open registry and for
     the epoch-weight reconstruction alike; it returns only with a newer register of its own. Revert restores the row."""
     from ops import kv_ops
@@ -333,10 +322,9 @@ def t_instant_rebind():
     lkey = "ledger:" + "55" * 32
     for addr in (a, b):
         kv_ops.account_set(addr, "balance", 0)
-    check("the instant gate is at/after the permanent gate", P.DEVICE_REBIND_INSTANT_HEIGHT >= P.DEVICE_BIND_PERMANENT_HEIGHT)
     apply_register(a, 100, lg, device_key=lkey, permanent=True)
     check("a is present before any move", a in get_open_registry(100) and a in D.present_at_epoch(100))
-    apply_register(b, 105, lg, device_key=lkey, permanent=True, instant=True)      # the device moves a -> b in epoch 105
+    apply_register(b, 105, lg, device_key=lkey, permanent=True)                    # the device moves a -> b in epoch 105
     check("the row flips to b", kv_ops.devbind_get(lkey) == (b, 105, "perm"))
     check("a carries an eviction row naming the recert it voids", kv_ops.devevict_get(a) == [(105, 100)], kv_ops.devevict_get(a))
     check("a is OUT of the live open registry at once", a not in get_open_registry(105) and b in get_open_registry(105))
@@ -349,19 +337,18 @@ def t_instant_rebind():
     apply_register(b, 105, lg, revert=True)
     check("reverting the move restores the row and removes the eviction", kv_ops.devbind_get(lkey) == (a, 100, "perm") and kv_ops.devevict_get(a) == [])
     check("... and a is present again in the live registry", a in get_open_registry(105))
-    # legacy (pre-gate) apply writes no eviction
-    apply_register(b, 500, lg, device_key=lkey, permanent=True)
-    check("below the gate a move writes no eviction row (historical replay unchanged)", kv_ops.devevict_get(a) == [])
-    apply_register(b, 500, lg, revert=True)
+    # (the pre-gate apply that wrote no eviction went with the gate: apply_register has no `instant` switch any more)
+    import inspect
+    check("apply_register always evicts: no pre-gate `instant` switch is left", "instant" not in inspect.signature(apply_register).parameters)
     kv_ops.close_all()
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
     seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
-    check("rule: the cooldown applies only below DEVICE_REBIND_INSTANT_HEIGHT", 'if not instant and bound and bound[0] != transaction["sender"]' in seg)
+    check("rule: no cooldown — the move is legal in any block because apply evicts", "NO COOLDOWN" in seg and "if not instant and bound" not in seg)
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply: an instant move evicts the previous holder and journals its eviction list",
           "kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])" in acc and "kv_ops.devevict_set(evicted, prev_evict)" in acc)
     check("registry + reconstruction share the eviction rule", "devevict_voided(address, current_epoch)" in acc and "devevict_voided(addr, epoch)" in open(os.path.join(ROOT, "ops", "dividend_ops.py")).read())
-    check("relay: /devbind_lookup reports movable now after the gate", '"evicts": instant' in open(os.path.join(ROOT, "nado.py")).read())
+    check("relay: /devbind_lookup reports movable now", '"evicts": True' in open(os.path.join(ROOT, "nado.py")).read())
 
 
 def t_hygiene():
@@ -370,7 +357,9 @@ def t_hygiene():
     from ops import snapshot_ops as S
     check("devbind is consensus state: snapshot-carried and in the root", "devbind" in kv_ops.SNAPSHOT_DBS and "devbind" not in S.ROOT_EXCLUDED_DBS)
     check("devbind_revert is a node-local journal (never in the root)", "devbind_revert" in kv_ops._LOCAL_DBS and "devbind_revert" not in kv_ops.SNAPSHOT_DBS)
-    check("the gate is a height ahead of the fleet's adoption on the live chain", isinstance(P.DEVICE_BIND_HEIGHT, int) and P.DEVICE_BIND_HEIGHT >= 1)
+    check("the gen-25 device gates are gone (the rules hold from block 1)", not any(hasattr(P, n) for n in (
+        "DEVICE_BIND_HEIGHT", "DEVICE_BIND_STRICT_HEIGHT", "DEVICE_BIND_PERMANENT_HEIGHT", "DEVICE_REBIND_INSTANT_HEIGHT",
+        "DEVICE_BIND_PERMANENT_EK_HEIGHT")))
     check("accepted classes are exactly the bindable ones", P.DEVICE_BIND_CLASSES == frozenset(("android-key", "tpm", "trezor", "ledger")))
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply derives the key from the tx bytes at the block height and passes it to apply_register",

@@ -1,6 +1,7 @@
 """The 2026-08-25 dividend rules (protocol.py), unconditional since the betanet-5 (gen 23) reroll: the
-dividend weight (LINEAR min(fidelity, 30) over EVERY level since gen 25 — gen 24 skipped fidelity 1 as probation
-while identities were free to farm; replaced the convex 1..25 curve on 2026-09-01),
+dividend weight (LINEAR over EVERY level since gen 25 — gen 24 skipped fidelity 1 as probation while identities were
+free to farm; replaced the convex 1..25 curve on 2026-09-01; capped at DIVIDEND_WEIGHT_CAP_V2 = 15 at every epoch since
+gen 26, the gentler gradient of 2026-09-08 whose epoch gate was deleted after the betanet-8 reroll),
 the halving lapse, and the 40% bonded levy. Also pins that NO
 activation gate exists for them any more — they rode gen 22 behind a generation-keyed gate that the reroll
 retired; a bare height sneaking back in would outlive its chain."""
@@ -38,13 +39,15 @@ def t_bonded_levy():
 
 def t_dividend_curve():
     got = [P.dividend_weight(f, 0) for f in (0, 1, 2, 5, 10, 15, 20, 25, 30, 99, None, -3)]
-    # gen 25: ONE clean line over every level — fidelity 1 (the first lease) pays 1; no skipped level, no probation
-    assert got == [0, 1, 2, 5, 10, 15, 20, 25, 30, 30, 0, 0], got
-    assert [P.dividend_weight(f, 0) for f in range(1, 31)] == list(range(1, 31)), "every fidelity level 1..30 is on the line"
+    # ONE clean line over every level — fidelity 1 (the first lease) pays 1; no skipped level, no probation — capped at
+    # the gentler gradient's 15 from epoch 0 (gen 25 ran the flat 30 until its epoch 110)
+    assert got == [0, 1, 2, 5, 10, 15, 15, 15, 15, 15, 0, 0], got
+    assert [P.dividend_weight(f, 0) for f in range(1, 16)] == list(range(1, 16)), "every fidelity level 1..15 is on the line"
+    assert P.dividend_weight(30, 0) == P.dividend_weight(30, 10 ** 6) == P.DIVIDEND_WEIGHT_CAP_V2 == 15, "one cap at every epoch"
     assert all(P.dividend_weight(f, 0) <= P.dividend_weight(f + 1, 0) for f in range(0, 35)), "monotonic"
     assert P.dividend_weight(1, 0) == P.dividend_weight(1, 999_999) == 1, "no epoch ever gates the first lease"
     assert P.on_probation(1, 0) is False and P.on_probation(0, 5) is False, "probation retired: the name always answers False"
-    assert P.dividend_weight(P.FIDELITY_CAP, 0) == P.DIVIDEND_WEIGHT_MAX == P.FIDELITY_CAP == 30
+    assert P.DIVIDEND_WEIGHT_MAX == P.FIDELITY_CAP == 30, "the ramp itself still saturates at 30 (fidelity)"
     from ops.mining_ops import open_shares
     assert open_shares(0) == 2 and open_shares(30) == 10, "selection weight keeps its liveness floor"
 
@@ -68,24 +71,24 @@ def t_live_apply_and_replay_share_the_step():
 
 
 def t_dividends_require_attestation():
-    """protocol.DIVIDEND_ATTESTED_EPOCH: a genesis-seeded identity (recert only at epoch 0) is PRESENT (it produces) but
-    takes no dividend from the gate on; an attested identity (recert >= 1) earns; below the gate the old set stands."""
+    """DIVIDENDS REQUIRE ATTESTATION (gen 25's DIVIDEND_ATTESTED_EPOCH, 0 from gen 26 and deleted): a genesis-seeded
+    identity (recert only at epoch 0) is PRESENT (it produces) but takes no dividend; an attested identity (recert >= 1)
+    earns."""
     import tempfile, os
     os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-divatt-")
     from ops import kv_ops
     kv_ops.close_all(); kv_ops.init_env()
     from ops.dividend_ops import weights_at_epoch, present_at_epoch
-    G = P.DIVIDEND_ATTESTED_EPOCH
-    assert G >= 1
+    assert not hasattr(P, "DIVIDEND_ATTESTED_EPOCH"), "the epoch gate stays deleted"
+    G = 1                                          # the first epoch an attested (recert >= 1) identity can be present in
     seed, real = "5" * 46, "6" * 46
     kv_ops.recert_put(seed, 0)                     # genesis_open.dat seed
     kv_ops.recert_put(real, 1)                     # attested register at epoch 1
     assert seed in present_at_epoch(G) and real in present_at_epoch(G), "both hold a lease (the seed still produces)"
     w = weights_at_epoch(G)
     assert seed not in w and w.get(real, 0) >= 1, w
-    if G > 1:
-        w0 = weights_at_epoch(G - 1)
-        assert seed in w0 and real in w0, "below the gate the seeded identity was in the set (replay unchanged)"
+    w0 = weights_at_epoch(0)
+    assert seed not in w0, "at epoch 0 too: the rule has no gate left"
     kv_ops.recert_put(seed, G)                     # the seed attests (a real register) -> earns like anyone
     assert seed in weights_at_epoch(G + 1)
     kv_ops.close_all()
@@ -97,6 +100,6 @@ if __name__ == "__main__":
     check("dividend weight: linear min(fidelity, 30), 0 on probation, selection weight untouched", t_dividend_curve)
     check("fidelity step: spacing kept, lapse halves", t_fidelity_step)
     check("live apply and fraud-proof replay share protocol.fidelity_step", t_live_apply_and_replay_share_the_step)
-    check("dividends require attestation: genesis seeds produce but do not earn from DIVIDEND_ATTESTED_EPOCH", t_dividends_require_attestation)
+    check("dividends require attestation: genesis seeds produce but do not earn, at every epoch", t_dividends_require_attestation)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

@@ -2,14 +2,17 @@
 
 A review of the proof system found value-creating flaws on the privacy paths (a shielded-contract deposit that could
 commit a note worth more than it paid, reproduced against a 1,000,000-unit contract balance, among others). None of
-these paths carries value today, so they close at a gate while the fixes ship:
+these paths carries value today, so they closed at a gate while the fixes ship. On gen 25 that gate was 226400; from
+gen 26 it (and the wide pool's and REVIEW_R2's) was 1, and all three were deleted after the betanet-8 reroll, so the
+rules hold from block 1 and only height 0 is still below them:
 
-  * the exec layer refuses `private_call`, the LEGACY field pool's `field_transfer`, and a `stark` bundle on the
-    transparent `shielded_transfer` op — before parsing anything or moving any balance, so a refusal is a no-op;
-  * the wide pool (SHIELD_WIDE_HEIGHT) stays open;
-  * L1 refuses a legacy field-shield deposit from REVIEW_R2_HEIGHT (transaction_ops.field_shield_check), judged at
-    the block's own height. That check used to read an unbound `h` and raised on EVERY field shield, wide ones
-    included — this file drives it at every height kind, so a NameError/UnboundLocalError fails here first.
+  * the exec layer refuses `private_call` and a `stark` bundle on the transparent `shielded_transfer` op — before
+    parsing anything or moving any balance, so a refusal is a no-op;
+  * `field_transfer` belongs to the wide pool from block 1 (the legacy pool's pause window, between the pause and the
+    wide pool, is empty), so it is never refused as paused;
+  * L1 admits only a WIDE field-shield deposit from block 1 (transaction_ops.field_shield_check), judged at the block's
+    own height. That check used to read an unbound `h` and raised on EVERY field shield, wide ones included — this
+    file drives it at every height kind, so a NameError/UnboundLocalError fails here first.
 
 Run: python3 tests/test_privacy_pause.py
 """
@@ -31,7 +34,7 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-G = int(P.PRIVACY_PAUSE_HEIGHT)
+G = 1                       # the pause holds from block 1 (gen 25's PRIVACY_PAUSE_HEIGHT, deleted); height 0 is below it
 USER = "ndo" + "A" * 45
 
 
@@ -42,10 +45,12 @@ def _state_at(h):
     return st
 
 
-def t_the_gate_is_registered_and_keyed_on_the_generation():
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
-    assert "PRIVACY_PAUSE_HEIGHT = 226400 if CHAIN_GENERATION == 25 else 1" in src
-    assert G > P.REVIEW_R2_HEIGHT and P.SHIELD_WIDE_HEIGHT == (1 << 62), "the wide pool is still reroll-only"
+def t_the_gates_are_deleted_and_the_rules_hold_from_block_1():
+    for name in ("PRIVACY_PAUSE_HEIGHT", "SHIELD_WIDE_HEIGHT", "REVIEW_R2_HEIGHT"):
+        assert not hasattr(P, name), f"{name} is back"
+    st0, st1 = _state_at(0), _state_at(1)
+    assert not (st0.rules_privacy_pause() or st0.rules_shield_wide() or st0.rules_r2()), "height 0: below every one"
+    assert st1.rules_privacy_pause() and st1.rules_shield_wide() and st1.rules_r2(), "block 1: all three in force"
 
 
 def t_private_call_is_refused_from_the_gate_before_any_parsing():
@@ -59,17 +64,11 @@ def t_private_call_is_refused_from_the_gate_before_any_parsing():
     assert "paused" not in r, f"below the gate the pause must not apply: {r}"
 
 
-def t_legacy_field_transfer_is_refused_from_the_gate_and_the_wide_pool_is_not():
+def t_field_transfer_belongs_to_the_wide_pool_and_is_never_refused_as_paused():
     blob = {"op": "field_transfer", "bundle_json": json.dumps({"kind": "joinsplit2"})}
-    assert "paused" in _state_at(G).apply_blob(dict(blob), USER, "t3")
+    r = _state_at(G).apply_blob(dict(blob), USER, "t5")
+    assert "paused" not in r, f"the wide pool must stay open under the pause: {r}"
     assert "paused" not in _state_at(G - 1).apply_blob(dict(blob), USER, "t4")
-    saved = P.SHIELD_WIDE_HEIGHT
-    try:
-        P.SHIELD_WIDE_HEIGHT = 1                                  # a chain where the wide pool is live
-        r = _state_at(G).apply_blob(dict(blob), USER, "t5")
-        assert "paused" not in r, f"the wide pool must stay open under the pause: {r}"
-    finally:
-        P.SHIELD_WIDE_HEIGHT = saved
 
 
 def t_stark_bundles_are_refused_on_the_transparent_op_but_signed_transfers_are_not():
@@ -82,25 +81,19 @@ def t_stark_bundles_are_refused_on_the_transparent_op_but_signed_transfers_are_n
 def t_field_shield_admission_is_judged_at_the_block_height_and_never_raises_a_name_error():
     from ops.transaction_ops import field_shield_check
     legacy = {"field": True, "owner": "123", "rho": "456"}
-    for h in (1, P.REVIEW_R2_HEIGHT - 1):
-        field_shield_check(dict(legacy), h)                       # below REVIEW_R2 the legacy pool took deposits
-    for h in (P.REVIEW_R2_HEIGHT, G, G + 10 ** 6):
+    field_shield_check(dict(legacy), 0)                           # height 0: below every deleted gate, no shape check
+    for h in (G, G + 10 ** 6):
         try:
             field_shield_check(dict(legacy), h)
             raise RuntimeError(f"a legacy field shield at {h} was admitted")
         except AssertionError as e:
-            assert "closed to deposits" in str(e), e
-    saved = P.SHIELD_WIDE_HEIGHT
-    try:
-        P.SHIELD_WIDE_HEIGHT = 1
-        field_shield_check({"field": True, "owner": "0" * 64, "rho": "7"}, G)      # the wide pool's own deposit
-        for bad in ({"field": True, "owner": "123", "rho": "7"}, {"field": True, "owner": "0" * 64, "rho": "x"}):
-            try:
-                field_shield_check(dict(bad), G); raise RuntimeError(f"malformed wide deposit admitted: {bad}")
-            except AssertionError:
-                pass
-    finally:
-        P.SHIELD_WIDE_HEIGHT = saved
+            assert "wide shield owner" in str(e), e
+    field_shield_check({"field": True, "owner": "0" * 64, "rho": "7"}, G)          # the wide pool's own deposit
+    for bad in ({"field": True, "owner": "123", "rho": "7"}, {"field": True, "owner": "0" * 64, "rho": "x"}):
+        try:
+            field_shield_check(dict(bad), G); raise RuntimeError(f"malformed wide deposit admitted: {bad}")
+        except AssertionError:
+            pass
 
 
 if __name__ == "__main__":

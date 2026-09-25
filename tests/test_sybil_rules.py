@@ -43,10 +43,11 @@ def t2_clean_curve():
     import protocol as P
     from ops.mining_ops import open_shares
     E1 = 0
-    check("dividend: fidelity 1 pays 1 from the first lease, linear to 30, capped",
-          [P.dividend_weight(f, E1) for f in (None, 0, 1, 2, 10, 30, 31)] == [0, 0, 1, 2, 10, 30, 30])
-    check("dividend: every level 1..30 is on the line (no skipped level)",
-          [P.dividend_weight(f, E1) for f in range(1, 31)] == list(range(1, 31)))
+    # capped at DIVIDEND_WEIGHT_CAP_V2 (15) at every epoch since gen 26 (gen 25 ran the flat 30 until its epoch 110)
+    check("dividend: fidelity 1 pays 1 from the first lease, linear to 15, capped",
+          [P.dividend_weight(f, E1) for f in (None, 0, 1, 2, 10, 15, 30, 31)] == [0, 0, 1, 2, 10, 15, 15, 15])
+    check("dividend: every level 1..15 is on the line (no skipped level)",
+          [P.dividend_weight(f, E1) for f in range(1, 16)] == list(range(1, 16)))
     check("dividend: the epoch never gates the curve", all(P.dividend_weight(1, e) == 1 for e in (0, 1, 400, 10**6)))
     check("open draw: floor+bonus from the first lease, epoch or not",
           [open_shares(f, E1) for f in (None, 0, 1, 2, 30)] == [2, 2, 2, 2, 10] and open_shares(0) == 2 and open_shares(1, 999) == 2)

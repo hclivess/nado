@@ -80,9 +80,7 @@ def software_chip():
 
 
 def main():
-    P.DEVICE_ATTEST_EK_HEIGHT = P.DEVICE_ATTEST_EK_HEIGHT or 1
-    gate = P.DEVICE_ATTEST_EK_HEIGHT
-    tip = gate + 500
+    tip = 501                               # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT, deleted)
     kd = generate_keys()
     me = kd["address"]
     mem = FakeMem(kd, tip)

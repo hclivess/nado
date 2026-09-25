@@ -164,11 +164,12 @@ def t_trezor():
     x_without = cbor_decode(att4)["attStmt"]["x5c"][0]
     check("the DER walk sees the serial on the synthetic chain and not on the real-shaped one", cert_subject_has_serial(x_with) and not cert_subject_has_serial(x_without))
     check("...and reads garbage as 'no serial' rather than raising", not cert_subject_has_serial(b"\x30\x03\x02\x01"))
-    G = P.DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    check("validation reproduces the historical refusal below the gate and drops it from the gate",
-          "int(transaction.get(\"max_block\") or 0) >= DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT" in src
-          and "trezor: device certificate has no serialNumber" in src and G >= 1)
+    seg = src[src.index('elif fmt == "trezor":'):src.index('elif fmt == "ledger":')]
+    check("validation drops the serial requirement from block 1 (a max_block of 0 keeps the historical refusal)",
+          'if int(transaction.get("max_block") or 0) < 1:' in seg
+          and "trezor: device certificate has no serialNumber" in seg
+          and not hasattr(P, "DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT"))
     rs = open(os.path.join(ROOT, "native", "attest", "src", "formats", "trezor.rs")).read()
     check("the kernel no longer refuses on the serial (the message lives only in Python now)", 'return Err("trezor: device certificate has no serialNumber"' not in rs)
     att3, root3 = build_trezor(tempfile.mkdtemp(), root_signs_ca=False)
