@@ -16,6 +16,7 @@ This test does not run them. It resolves every module they import, which is enou
 world has moved on underneath it.
 """
 import ast
+import re
 import importlib.util
 import os
 import sys
@@ -60,6 +61,12 @@ def main():
             print(f"  FAIL  {f:26s} cannot load: {', '.join(bad)}")
         else:
             print(f"  PASS  {f:26s} imports resolve")
+        # A PASTED contract id is the same rot one layer down: it dies at every reroll while the script still loads.
+        # After betanet-8, 13 of these scripts targeted contracts that no longer existed. Derive it: target_cids().
+        pasted = re.findall(r'"[0-9a-f]{32}"', open(os.path.join(ROOT, f)).read())
+        if pasted:
+            fails.append(f)
+            print(f"  FAIL  {f:26s} pastes a contract id ({pasted[0]}) — use execnode.games.redeploy.target_cids()")
     return 1 if fails else 0
 
 

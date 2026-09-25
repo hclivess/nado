@@ -9,6 +9,7 @@
 # this driver proves the CHAIN half: seeds, escrow, free-actor ply binding, payouts.
 import sys, json, time, urllib.request, random, subprocess
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict
 from ops.transaction_ops import (construct_blob_tx, construct_bridge_deposit_tx,
@@ -18,7 +19,7 @@ from protocol import MIN_TX_FEE
 from execnode.stark import alghash, field as F
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "c532e36ac30f61619e9ac989a1c0994e"
+CID = target_cids()["hexholm"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10
 STAKE = NADO // 100
 MOVES_TO_PLAY = 30

@@ -4,6 +4,7 @@
 # contract math (bust folds the stake; a clean batch banks the re-priced value and cashes out).
 import sys, json, time, urllib.request, random
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx
 from protocol import MIN_TX_FEE
@@ -24,7 +25,7 @@ def ref_draws(bh, gh, g, gp, count, n_mines):
     return 0
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "ecb7f71c9149e272f537a80bd3392474"
+CID = target_cids()["mines"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10
 ok_all = True
 def ck(n, c):

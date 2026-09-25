@@ -37,7 +37,6 @@ release.
 
 | File | Upstream | Licence |
 |---|---|---|
-| `static/bootstrap.bundle.min.js` | Bootstrap v5.2.0-beta1, © 2011–2022 The Bootstrap Authors | MIT |
 | `static/vendor/nado-crypto.js` | bundle of `@noble/hashes` 1.4.0 and `@noble/post-quantum` 0.2.0, © Paul Miller | MIT |
 | `static/vendor/qrcode.js` | `qrcode-generator`, © Kazuhiko Arase | MIT |
 | `static/vendor/bip39_wordlist.js` | BIP-39 English wordlist (bitcoin/bips) | BSD-2-Clause |

@@ -4,6 +4,7 @@
 # /exec/contract storage and the Python reference (tests/pets_ref.py). Run: nado_venv/bin/python _pets_e2e.py
 import json, urllib.request, time, sys
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict, sign, unhex
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx, create_txid
@@ -13,7 +14,7 @@ from protocol import MIN_TX_FEE, CHAIN_ID
 from tests.pets_ref import ref_gene, ref_species, ref_stat, ref_power, ref_train_roll, ref_train_ok, ref_battle_turns
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "a5099d7f767cfe8e84855a7cb64994cb"
+CID = target_cids()["pets"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10; MINT_FEE = NADO; TRAIN_FEE = 5 * 10**9
 
 def j(u): return json.load(urllib.request.urlopen(u, timeout=8))

@@ -3,6 +3,7 @@
 # open a machine, spin it, settle permissionlessly, and assert the exact paytable payout on-chain.
 import sys, json, time, urllib.request, random
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import create_txid, construct_blob_tx, construct_bridge_deposit_tx
 from signatures import sign, unhex
@@ -27,7 +28,7 @@ def ref_spin(bh, sh, g):
     return stops, syms, m2_of(*syms)
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "f976149cd5e8de62b24ee3ed13179c15"
+CID = target_cids()["slots"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10
 ok_all = True
 def ck(n, c):

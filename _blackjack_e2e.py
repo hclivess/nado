@@ -4,6 +4,7 @@
 # the exact contract outcome + payout against the inlined reference.
 import sys, json, time, urllib.request, random
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx
 from protocol import MIN_TX_FEE
@@ -30,7 +31,7 @@ def ref_outcome(stake, pb, pnat, db, dnat):
     return 0, 4
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
-CID = "7b240c833702a4124b7891bf8006e39a"
+CID = target_cids()["blackjack"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10
 ok_all = True
 def ck(n, c):

@@ -15,9 +15,10 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 
-CID = "c532e36ac30f61619e9ac989a1c0994e"
+CID = target_cids()["hexholm"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 EX = os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/")
 PY = sys.executable
 

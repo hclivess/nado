@@ -191,15 +191,8 @@ def wire(targets):
                 changed.append(f"_faucet_rewards.py[{idx}] {game}: {old[:10]}… -> {targets[game][:10]}…")
         open(fr, "w", encoding="utf-8").write("\n".join(lines))
 
-    for harness, game in (("_autogame_e2e.py", "autogame"), ("_autogame_daily_e2e.py", "autogame")):
-        path = os.path.join(ROOT, harness)
-        if not os.path.exists(path):
-            continue
-        src = open(path, encoding="utf-8").read()
-        m = re.search(r'^CID = "([0-9a-z]+)"', src, re.M)
-        if m and m.group(1) != targets[game]:
-            open(path, "w", encoding="utf-8").write(src[:m.start(1)] + targets[game] + src[m.end(1):])
-            changed.append(f"{harness}: {m.group(1)[:10]}… -> {targets[game][:10]}…")
+    # The live e2e scripts (_*_e2e.py) are not rewired here: they derive their cid from target_cids() at run time,
+    # so a reroll cannot strand them (13 pointed at dead contracts after betanet-8 while only autogame's were rewired).
     return changed
 
 

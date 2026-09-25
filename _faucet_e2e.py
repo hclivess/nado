@@ -4,6 +4,7 @@
 # already happened; this is the player half of doc/faucet.md.)
 import sys, json, time, urllib.request
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict
 from ops.transaction_ops import construct_blob_tx, draft_transaction, create_transaction
@@ -57,7 +58,7 @@ ck("player credited exactly the grant", ok)
 ck("faucet debited exactly the grant", exbal("faucet") == f0 - grant)
 # the money is REAL play money: stake it — deposit path not needed (it's already exec-side); prove
 # usability by a value call: open a tiny scrapline duel with it (same escrow machinery as dice bets)
-r = post(construct_blob_tx(P2, {"op": "call", "contract": "72a195822ef32caa9680eee51eb95dc9", "method": "open",
+r = post(construct_blob_tx(P2, {"op": "call", "contract": target_cids()["scrapline"], "method": "open",
                                 "args": [990000001], "value": grant // 2}, tip() + 25, MIN_TX_FEE))
 ck("stake tx accepted", bool(r.get("result")))
 ok = wait(lambda: exbal(A2) == b0 + grant - grant // 2, "granted funds staked in a game")

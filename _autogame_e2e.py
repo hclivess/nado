@@ -8,6 +8,7 @@
 import json, sys, time, urllib.error, urllib.request
 
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.address_ops import make_address
 from ops.transaction_ops import construct_blob_tx
@@ -18,7 +19,7 @@ from tests import autogame_model as M
 
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
-CID = "96903c302fa191a70c54dd67d764b302"
+CID = target_cids()["autogame"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 
 
 def j(u):

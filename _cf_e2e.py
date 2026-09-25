@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, "/root/nado")
+from execnode.games.redeploy import target_cids
 from config import get_timestamp_seconds
 from ops.key_ops import load_keys
 from ops.transaction_ops import (construct_blob_tx, construct_bridge_deposit_tx, create_transaction,
@@ -28,7 +29,7 @@ from execnode.stark import alghash, field as F
 
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
-CID = "7dd1e147f769ced73123a1aefd5aac8c"       # execnode/games/coinflip.py — same cid static/coinflip.js uses
+CID = target_cids()["coinflip"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10 ** 10
 STAKE = NADO // 100                            # 0.01 NADO a side; this is a smoke test, not a wager
 
