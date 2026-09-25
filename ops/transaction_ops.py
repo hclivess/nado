@@ -1079,6 +1079,14 @@ def reserved_uniqueness_key(tx):
             return ("treasury_vote", tx["sender"], (tx.get("data") or {}).get("pid"))    # one vote per (validator, pid) per block
         if r == "treasury_execute":
             return ("treasury_execute", (tx.get("data") or {}).get("pid"))               # one payout per pid per block
+        # ONE ENROLMENT MESSAGE PER (sender, enrolment) PER BLOCK. Each validates against the parent record, so a
+        # challenger loop's retry could put two in one candidate; the second always raised at apply ("already
+        # challenged" / "not awaiting a commitment" / "already revealed") and the node built a block it could not
+        # apply. The key refuses NO block that apply did not already refuse, so it needs no height gate — only the
+        # builder changes (dedupe_reserved drops the copy). tpm_enrol is deliberately absent: a second enrolment of
+        # the same chip APPLIES today (it overwrites the row), so keying it would change which blocks are valid.
+        if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
+            return (r, tx["sender"], str((tx.get("data") or {}).get("id")))
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
