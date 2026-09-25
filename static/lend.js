@@ -247,7 +247,7 @@ async function refresh() {
 // ---- wiring -----------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp, render);
-  stickyInputs(["oPrincipal", "oInterest", "oCollateral", "oDays"], "nado_lend_form");
+  stickyInputs(dapp, ["oPrincipal", "oInterest", "oCollateral", "oDays"]);   // (dapp, ids): the swapped call threw at boot, so no button was ever wired (since 2026-08-02)
   $("btnOffer").onclick = postOffer;
 
   // Bind each amount slider once. Moving the PRINCIPAL re-syncs the other two, because their maxes are
