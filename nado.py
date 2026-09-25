@@ -139,7 +139,20 @@ def _is_local_request(resolved_ip, headers) -> bool:
     if resolved_ip not in ("127.0.0.1", "::1"):
         return False
     h = headers or {}
-    return not (h.get("X-Forwarded-For") or h.get("X-Real-IP") or h.get("Forwarded"))
+    if h.get("X-Forwarded-For") or h.get("X-Real-IP") or h.get("Forwarded"):
+        return False
+    # ...AND THE REQUEST MUST NAME THE LOOPBACK HOST (review 2026-09-25, reproduced from the public internet). The
+    # header test above assumed every proxy adds X-Forwarded-For; the 24 game vhosts on the seed box proxy with
+    # `proxy_set_header Host $host` and NO forwarding header, so a client connecting straight to the origin's 443
+    # (no firewall, Cloudflare bypassed) with SNI dice.nadochain.com reached /terminate, /log and /force_sync as
+    # "local". A proxy always sends the PUBLIC name it was reached by; a genuine local caller (curl localhost:9173,
+    # the exec node on 127.0.0.1:9173) sends the loopback name. Fail closed on anything else.
+    host = str(h.get("Host") or "").strip().lower()
+    if host.startswith("["):                                   # [::1]:9173
+        host = host[1:].split("]", 1)[0]
+    elif host.count(":") == 1:                                 # name:port
+        host = host.split(":", 1)[0]
+    return host in ("localhost", "127.0.0.1", "::1")
 
 
 def _is_local(request) -> bool:

@@ -24,10 +24,19 @@ def t1_is_local_request():
     seg = src[src.index("def _is_local_request"):src.index("def _is_local(request)")]
     exec(seg, ns)
     f = ns["_is_local_request"]
-    check("plain local call (no headers) is local", f("127.0.0.1", {}) and f("::1", {}))
-    check("proxied loopback with X-Forwarded-For is NOT local", not f("127.0.0.1", {"X-Forwarded-For": "1.2.3.4"}))
-    check("proxied loopback with X-Real-IP is NOT local", not f("127.0.0.1", {"X-Real-IP": "1.2.3.4"}))
-    check("proxied loopback with RFC 7239 Forwarded is NOT local", not f("127.0.0.1", {"Forwarded": "for=1.2.3.4"}))
+    L = {"Host": "localhost:9173"}
+    check("plain local call (loopback Host, no forwarding header) is local",
+          f("127.0.0.1", L) and f("::1", {"Host": "[::1]:9173"}) and f("127.0.0.1", {"Host": "127.0.0.1:9173"})
+          and f("127.0.0.1", {"Host": "localhost"}))
+    # 2026-09-25, reproduced from the public internet: the seed box's 24 game vhosts proxy with `Host $host` and NO
+    # forwarding header, so a client reaching the origin directly was "local" and could GET /terminate.
+    check("a proxied request carrying a PUBLIC Host is NOT local even with no forwarding header",
+          not f("127.0.0.1", {"Host": "dice.nadochain.com"}) and not f("127.0.0.1", {"Host": "nadochain.com:443"})
+          and not f("127.0.0.1", {"Host": "38.242.201.206"}) and not f("::1", {"Host": "[2001:db8::1]:443"}))
+    check("a request with no Host at all is NOT local", not f("127.0.0.1", {}))
+    check("proxied loopback with X-Forwarded-For is NOT local", not f("127.0.0.1", {"Host": "localhost:9173", "X-Forwarded-For": "1.2.3.4"}))
+    check("proxied loopback with X-Real-IP is NOT local", not f("127.0.0.1", {"Host": "localhost:9173", "X-Real-IP": "1.2.3.4"}))
+    check("proxied loopback with RFC 7239 Forwarded is NOT local", not f("127.0.0.1", {"Host": "localhost:9173", "Forwarded": "for=1.2.3.4"}))
     check("a resolved remote IP is never local", not f("1.2.3.4", {}) and not f("1.2.3.4", {"X-Forwarded-For": "127.0.0.1"}))
     check("even an XFF claiming loopback does not make a remote local", not f("5.6.7.8", {"X-Forwarded-For": "127.0.0.1"}))
 
