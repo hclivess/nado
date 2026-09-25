@@ -30,7 +30,7 @@ OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace 
 
 # ---- CONSENSUS RULES FOR PROOF VERIFICATION, keyed on the L1 block being judged ------------------------------
 # Security review 2026-09-23 (P0, A1): two verifier pins that an honest prover already satisfies but that change
-# what a VERIFIER accepts, so they are height-gated (protocol.PROOF_BIND_HEIGHT) like every other validation rule.
+# what a VERIFIER accepts, so they are height-gated (gen 25's PROOF_BIND_HEIGHT) like every other validation rule.
 # The rules are a pure function of the height of the block whose transaction carries the proof, never of "now":
 #   pin_fri_domain  the FRI sub-proof's (N, offset) must equal the STARK's own (P0). Without it a FRI declared
 #                   over 2N is a genuinely low-degree vector whose second half is free, and ANY trace verifies.
@@ -67,18 +67,16 @@ _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 def rules_for_height(height):
     """The verification rules in force for a proof carried by the block at `height` — pure, replayable.
     `None` (no height known) is STRICT: a caller that cannot say which block it is judging gets the new rules,
-    which reject an honest old-format proof visibly instead of accepting a forged one invisibly."""
-    if height is None:
+    which reject an honest old-format proof visibly instead of accepting a forged one invisibly.
+
+    EVERY PIN IS ON FROM HEIGHT 1. The six fields were gen-25 gates (PROOF_BIND_HEIGHT for the first two,
+    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT, PROOF_QUERY_FULL_HEIGHT), each 1 from gen
+    26; the constants are deleted. The plumbing (Rules, rules_at, with_rules, the child-process hand-off) is KEPT:
+    height 0 — genesis, applied by the exec node from cursor -1 — was below every gate and still gets RULES_LEGACY,
+    and the prover/verifier branches on each field are exercised by the tests that construct Rules explicitly."""
+    if height is None or int(height) >= 1:
         return RULES_STRICT
-    from protocol import (PROOF_BIND_HEIGHT, PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
-                          PROOF_QUERY_FULL_HEIGHT)
-    h = int(height)
-    bind = h >= int(PROOF_BIND_HEIGHT)
-    return Rules(pin_fri_domain=bind, bind_statement=bind,
-                 in_block_selector=(h >= int(PROOF_BLOCK_SELECTOR_HEIGHT)),
-                 round2=(h >= int(REVIEW_R2_HEIGHT)),
-                 trace_ldt=(h >= int(PROOF_TRACE_LDT_HEIGHT)),
-                 full_query=(h >= int(PROOF_QUERY_FULL_HEIGHT)))
+    return RULES_LEGACY
 
 
 def current_rules():

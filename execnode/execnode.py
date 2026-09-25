@@ -2572,13 +2572,13 @@ _DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
 
 
 def _da_op_refused_at(op, h):
-    """True when apply_blob refuses `op` at height h WITHOUT reading its proof: private_call from PRIVACY_PAUSE_HEIGHT,
-    and a legacy field_transfer from PRIVACY_PAUSE_HEIGHT until SHIELD_WIDE_HEIGHT. Mirrors ExecState.
-    rules_privacy_pause / rules_shield_wide exactly; the DA pre-resolve uses it so a refused op can never stall a block."""
-    from protocol import PRIVACY_PAUSE_HEIGHT, SHIELD_WIDE_HEIGHT
-    if int(h) < int(PRIVACY_PAUSE_HEIGHT):
+    """True when apply_blob refuses `op` at height h WITHOUT reading its proof: private_call, from height 1. Mirrors
+    ExecState.rules_privacy_pause / rules_shield_wide exactly (both `>= 1`: gen 25's PRIVACY_PAUSE_HEIGHT and
+    SHIELD_WIDE_HEIGHT, 1 from gen 26 and deleted — so the legacy field_transfer window between them is empty); the DA
+    pre-resolve uses it so a refused op can never stall a block."""
+    if int(h) < 1:
         return False
-    return op == "private_call" or (op == "field_transfer" and int(h) < int(SHIELD_WIDE_HEIGHT))
+    return op == "private_call"
 
 
 async def _apply_block(session, states_map, default_state, block, verbose=True):
@@ -2588,7 +2588,7 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     AND the provisional clone, so both apply identically.
 
     Every proof this block carries (shielded transfers, shielded-contract calls, and anything else that reaches
-    stark.verify) is judged under the verification rules for THIS height (PROOF_BIND_HEIGHT, stark.rules_at) —
+    stark.verify) is judged under the verification rules for THIS height (stark.rules_at) —
     the exec layer's equivalent of the L1 settle branch setting them for the block it validates."""
     from execnode.stark import stark as _stk
     with _stk.rules_at(block["block_number"]):
@@ -2597,7 +2597,7 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
 
 async def _apply_block_inner(session, states_map, default_state, block, verbose=True):
     h = block["block_number"]
-    from protocol import EXEC_CTX_CURRENT_HEIGHT, chain_clock as _cc
+    from protocol import chain_clock as _cc
     # The context each state had BEFORE this block, so a DA stall below can put it back exactly (EXEC-2, review
     # 2026-09-25): under EXEC_CTX_CURRENT the cursor is advanced to h up front, and returning False with it at h made
     # the tail loop resume at h+1 — every transaction in the stalled block silently lost, on the nodes that stalled.
@@ -2605,9 +2605,10 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     for _st in states_map.values():
         _st._applying = h              # the height every rules_* helper judges by (see ExecState.applying_height)
         _st._block_steps = 0           # F4: the per-block execution budget starts fresh
-        if int(h) >= int(EXEC_CTX_CURRENT_HEIGHT):
-            # F3 (rides a reroll): the context a call sees is the block it executes in — what block_calls
-            # stamps and the settlement prover replays — not the previous one.
+        if int(h) >= 1:
+            # F3: the context a call sees is the block it executes in — what block_calls stamps and the settlement
+            # prover replays — not the previous one. `>= 1`: gen 25's EXEC_CTX_CURRENT_HEIGHT, 1 from gen 26
+            # (deleted); genesis (h = 0, applied from cursor -1) keeps the order it always had.
             _st.cursor, _st.block_ts = h, _cc(h)
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
@@ -4573,10 +4574,10 @@ async def h_field_shielded(request):
 
 
 def _shield_wide_now():
-    """Whether the NEXT block applies SHIELD_WIDE_HEIGHT rules — what a wallet building a note or a proof for
-    the next block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules)."""
-    from protocol import SHIELD_WIDE_HEIGHT
-    return int(state.cursor) + 1 >= int(SHIELD_WIDE_HEIGHT)
+    """Whether the NEXT block applies the wide-pool rules — what a wallet building a note or a proof for the next
+    block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules). From height 1: gen 25's
+    SHIELD_WIDE_HEIGHT was 1 from gen 26 and is deleted; only a fresh state (cursor -1) is still below it."""
+    return int(state.cursor) + 1 >= 1
 
 
 async def h_private_state(request):

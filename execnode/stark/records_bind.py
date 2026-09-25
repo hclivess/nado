@@ -159,22 +159,20 @@ def dividend_accrual_effects(inflow, weights, div_carry, epoch=None):
     (state.accrue_dividend_epoch) and by the settle binding alike, so the two cannot drift. Returns
     ([(tag, parts, delta), ...], new_carry). Integer-only, `sorted(weights.items())`, `max(1, w)` flooring.
 
-    CARRY. No present set (or no pot): nothing is distributed and the whole pot carries forward. From
-    protocol.DIV_CARRY_METER_EPOCH the carry is METERED: an epoch releases at most max(inflow, floor) of the
-    backlog on top of its own inflow, so a backlog built while everyone was on probation drains over hours to
-    everyone leaving probation, not to the first identity out (epoch 194 of betanet-6 paid 113 NADO to one
-    address). Before the gate (`epoch` below it, or None for a caller that predates the meter) the whole
-    backlog is in the pot, byte-for-byte the old rule.
+    CARRY. No present set (or no pot): nothing is distributed and the whole pot carries forward. The carry is
+    METERED at every epoch: an epoch releases at most max(inflow, floor) of the backlog on top of its own inflow, so
+    a backlog built while everyone was on probation drains over hours to everyone leaving probation, not to the first
+    identity out (epoch 194 of betanet-6 paid 113 NADO to one address). The gate that kept the old unmetered rule
+    (gen 24's DIV_CARRY_METER_EPOCH, 0 from gen 25) and its `epoch is None` branch were deleted after the betanet-8
+    reroll (SCHEDULED_CLEANUPS.md): every production caller passes the accrued epoch, an int >= 0
+    (state.accrue_dividend_epoch from the exec tail, core_loop._accrual_effects, execnode's records derivation), for
+    which the meter already applied. `epoch` stays in the signature so every caller reads the same.
     """
-    from protocol import DIV_CARRY_METER_EPOCH, DIV_CARRY_RELEASE_FLOOR
+    from protocol import DIV_CARRY_RELEASE_FLOOR
     inflow, carry = int(inflow), int(div_carry)
-    metered = epoch is not None and int(epoch) >= int(DIV_CARRY_METER_EPOCH)
     total_w = sum(max(1, int(w)) for w in weights.values()) if weights else 0
-    if metered:
-        release = min(max(0, carry), max(inflow, int(DIV_CARRY_RELEASE_FLOOR)))
-        pot, held = inflow + release, carry - release
-    else:
-        pot, held = inflow + carry, 0
+    release = min(max(0, carry), max(inflow, int(DIV_CARRY_RELEASE_FLOOR)))
+    pot, held = inflow + release, carry - release
     if pot <= 0 or total_w <= 0:
         return [], max(0, pot) + held
     out, distributed = [], 0

@@ -100,12 +100,12 @@ def _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timest
     # proved the wrong root and failed the DA binding.)
     c_cursor = int(call.get("cursor", cursor))
     c_ts = int(call.get("timestamp", timestamp))
-    # EXEC_RULES_V2_HEIGHT, MIRRORED (2026-09-23). The chain refuses these calls (execnode/state.py, same
+    # EXEC CALL RULES V2, MIRRORED (2026-09-23). The chain refuses these calls (execnode/state.py rules_v2, same
     # rule, same height: the block the call executed in), so the prover must find them unprovable too — a
     # prover more permissive than the chain proves a transition the chain did not apply (the invariant the
     # escrow block below documents). Raising is the existing shape for "the chain skipped this call".
-    from protocol import EXEC_RULES_V2_HEIGHT
-    if c_cursor >= int(EXEC_RULES_V2_HEIGHT):
+    # `>= 1`: gen 25's EXEC_RULES_V2_HEIGHT, 1 from gen 26 (deleted) — the same literal ExecState.rules_v2 reads.
+    if c_cursor >= 1:
         if not isinstance(method, str):
             raise ValueError(f"call {i}: method is not a string — the chain SKIPPED this call")
         if in_asset and value > 0 and not zkvm.method_reads_actx(c["code"], method):
@@ -292,18 +292,19 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
     registry = {}
     pre_root = zkvm_root(contracts)
     epoch_calls, public_calls = [], []
-    # F4 MIRROR (REVIEW_R2_HEIGHT): the chain counts each call's executed steps against its block's budget in
+    # F4 MIRROR (ExecState.rules_r2): the chain counts each call's executed steps against its block's budget in
     # tx order and reverts the call that would exceed it; the prover counts identically and finds that call
     # unprovable (the existing shape for "the chain skipped this call"), so a proof never asserts a transition
-    # the chain refused. Per block, because block_calls stamps each call with its block.
-    from protocol import REVIEW_R2_HEIGHT, EXEC_BLOCK_STEP_BUDGET
+    # the chain refused. Per block, because block_calls stamps each call with its block. `>= 1`: gen 25's
+    # REVIEW_R2_HEIGHT, 1 from gen 26 (deleted) — the same literal rules_r2 reads.
+    from protocol import EXEC_BLOCK_STEP_BUDGET
     _used = {}
     for i, call in enumerate(calls):
         _meter = {}
         ec, pc, _ = _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
                               block_hashes, want_rows=False, meter=_meter)
         _h = int(call.get("cursor", cursor))
-        if _h >= int(REVIEW_R2_HEIGHT):
+        if _h >= 1:
             _used[_h] = _used.get(_h, 0) + int(_meter.get("gas", 0))
             if _used[_h] > int(EXEC_BLOCK_STEP_BUDGET):
                 raise ValueError(f"call {i}: block {_h} execution budget exhausted — the chain REVERTED this "

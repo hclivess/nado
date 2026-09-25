@@ -78,10 +78,10 @@ EVENT_OPS = ("deploy", "upgrade", "lock", "transfer_contract")   # the blob ops 
 
 def root_v2(height):
     """Whether the exec root, the DA leaves and the settlement binding at `height` use the EXEC_ROOT_V2 layout.
-    A pure function of the height so a replay lands on the same root. Read through the module attribute so a
-    test can move the gate; the live value never moves (tests/test_gate_reroll_transfer.py)."""
-    import protocol
-    return int(height) >= int(protocol.EXEC_ROOT_V2_HEIGHT)
+    A pure function of the height so a replay lands on the same root. Every height from 1: gen 25's
+    EXEC_ROOT_V2_HEIGHT was 1 from gen 26 and is deleted. KEEP THE `>= 1`: the exec state is rooted at cursor -1
+    and 0 (before / after genesis) under the v1 layout, and that root reaches the exec summaries in L1 `meta`."""
+    return int(height) >= 1
 
 
 def meta_key(cid, depth):

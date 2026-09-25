@@ -1235,39 +1235,38 @@ class ExecState:
         h = getattr(self, "_applying", None)
         return int(h) if h is not None else int(self.cursor) + 1
 
+    # THE RULE HELPERS BELOW ALL HOLD FROM HEIGHT 1. Each was a gen-25 gate (SHIELD_WIDE_HEIGHT, EXEC_ROOT_V2_HEIGHT,
+    # PRIVACY_PAUSE_HEIGHT, REVIEW_R2_HEIGHT, EXEC_RULES_V2_HEIGHT) whose value from gen 26 is 1; the constants are
+    # deleted. The `>= 1` stays because applying_height() is 0 for a state at cursor -1 applying genesis, where every
+    # one of them was off — every live blob sits in a block >= 1, so on the chain they are always on.
     def rules_shield_wide(self):
-        """SHIELD_WIDE_HEIGHT in force for the block being applied: deposits land in the wide pool and only a
+        """The wide pool in force for the block being applied: deposits land in the wide pool and only a
         joinsplit3 bundle spends; below it the legacy field pool and joinsplit/joinsplit2 (same convention as
         rules_v2)."""
-        from protocol import SHIELD_WIDE_HEIGHT
-        return self.applying_height() >= int(SHIELD_WIDE_HEIGHT)
+        return self.applying_height() >= 1
 
     def rules_root_v2(self):
-        """EXEC_ROOT_V2_HEIGHT in force for the block being applied (same convention as rules_v2). Every rule
+        """The EXEC_ROOT_V2 rules in force for the block being applied (same convention as rules_v2). Every rule
         under it is MIRRORED in exec_state_bind.apply_event, which the settlement verifier replays over the
         bound code events; a rule changed here without that mirror makes an honest proof unverifiable, or a
         dishonest one verifiable. Keep the two together."""
-        from protocol import EXEC_ROOT_V2_HEIGHT
-        return self.applying_height() >= int(EXEC_ROOT_V2_HEIGHT)
+        return self.applying_height() >= 1
 
     def rules_privacy_pause(self):
-        """PRIVACY_PAUSE_HEIGHT in force for the block being applied (same convention as rules_v2): private_call,
+        """The privacy pause in force for the block being applied (same convention as rules_v2): private_call,
         the legacy field pool's transfers and stark bundles on shielded_transfer are refused. The wide pool is not
         paused — callers test rules_shield_wide() alongside this."""
-        from protocol import PRIVACY_PAUSE_HEIGHT
-        return self.applying_height() >= int(PRIVACY_PAUSE_HEIGHT)
+        return self.applying_height() >= 1
 
     def rules_r2(self):
-        """REVIEW_R2_HEIGHT in force for the block being applied (same convention as rules_v2)."""
-        from protocol import REVIEW_R2_HEIGHT
-        return self.applying_height() >= int(REVIEW_R2_HEIGHT)
+        """The review-round-2 exec rules in force for the block being applied (same convention as rules_v2)."""
+        return self.applying_height() >= 1
 
     def rules_v2(self):
-        """EXEC_RULES_V2_HEIGHT in force for the block being applied. _apply_block advances `cursor` to h only
+        """The exec call rules v2 in force for the block being applied. _apply_block advances `cursor` to h only
         AFTER applying block h's blobs, so during application the block is cursor + 1 — the same height the
         settlement prover stamps on each call (block_calls: cursor = h), so exec and proof refuse identically."""
-        from protocol import EXEC_RULES_V2_HEIGHT
-        return self.applying_height() >= int(EXEC_RULES_V2_HEIGHT)
+        return self.applying_height() >= 1
 
     def apply_blob(self, payload, sender, txid):
         with self._mutate_lock:
