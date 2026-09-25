@@ -953,16 +953,21 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         eid = str(data["id"])
 
     if revert:
+        # The journal holds the record as it stood BEFORE this block (kv_ops.tpm_enrol_revert_put: first write wins),
+        # and rollback reverts a block's messages last-to-first, so the FIRST revert for (h, eid) restores the whole
+        # block's effect on this enrolment and every later one finds the journal gone. "Not found" therefore means
+        # "already undone by a later message of this block" — or a block from before the gate.
         found, prev = kv_ops.tpm_enrol_revert_pop(h, eid)
         if not found:
-            return                      # a block from before the gate: nothing was written, nothing to undo
+            return
         if prev is None:
-            kv_ops.tpm_enrol_del(eid)   # this message CREATED the row
-            if recipient == "tpm_enrol":
-                # The marker was claimed by this very message, so undoing it releases the chip. Journalled
-                # implicitly: a created row means there was no open enrolment before, which is exactly the
-                # condition validation asserted.
-                kv_ops.tpm_enrol_open_set(str(ek["identity"]), None)
+            # the row was CREATED in this block (by its tpm_enrol, perhaps followed by other messages): drop it and
+            # release the chip's marker, which that tpm_enrol claimed — read from the row, since the message being
+            # reverted first need not be the tpm_enrol itself
+            cur = kv_ops.tpm_enrol_get(eid)
+            kv_ops.tpm_enrol_del(eid)
+            if cur is not None:
+                kv_ops.tpm_enrol_open_set(str(cur["ek"]), None)
         else:
             kv_ops.tpm_enrol_set(eid, prev)
         return

@@ -294,9 +294,13 @@ def t_binding_modes():
     check("... and the statement-free renewal leaves the ek row's statement epoch alone", kv_ops.devbind_get(ekey) == (c, 600, "perm") and kv_ops.recert_latest(c) == 700)
     apply_register(c, 700, lg, revert=True); apply_register(c, 600, lg, revert=True)
     check("... and both revert to nothing", kv_ops.devbind_get(ekey) is None and "devkey" not in (kv_ops.get_account(c) or {}))
-    apply_register(c, 600, lg, device_key=ekey, permanent=False)
-    check("below the gate the same ek statement writes the historical leased row and no devkey", kv_ops.devbind_get(ekey) == (c, 600, "lease") and "devkey" not in (kv_ops.get_account(c) or {}) and not stmt_free_ok(c))
-    apply_register(c, 600, lg, revert=True)
+    # "below the gate" exists only while the gate is a real height (gen 25). From the betanet-8 reroll it is block 1 and
+    # permanent_classes_at makes every ek statement permanent, so a non-permanent ek register is not a state validation
+    # can produce any more — nothing to pin.
+    if G > 1:
+        apply_register(c, 600, lg, device_key=ekey, permanent=False)
+        check("below the gate the same ek statement writes the historical leased row and no devkey", kv_ops.devbind_get(ekey) == (c, 600, "lease") and "devkey" not in (kv_ops.get_account(c) or {}) and not stmt_free_ok(c))
+        apply_register(c, 600, lg, revert=True)
     check("apply: a statement-free register past the gate derives no key", "if has_device or block_height < DEVICE_BIND_PERMANENT_HEIGHT:" in acc)
     na = open(os.path.join(ROOT, "ops", "node_attest.py")).read()
     check("node: a hardware-bound node renews on its own without a statement", "def renew_without_statement" in na and 'st.get("bind_mode") == "perm" and st.get("bind_live")' in na)

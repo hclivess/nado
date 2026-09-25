@@ -2409,9 +2409,16 @@ def tpm_enrol_revert_put(height: int, enrol_id: str, prev):
     """Journal what an enrolment message OVERWROTE: the whole previous record, or None when the message
     CREATED the row. Always written on apply, so pop can tell "there was no row" (delete on revert) from
     "no journal" (a block from before the gate) — the distinction devbind_revert_put learned the hard way."""
+    # FIRST WRITE WINS within a block: the journal holds the record as it stood BEFORE the block. Two challengers
+    # answering in the same block is the ordinary case; the second put used to overwrite the first, so a rollback
+    # restored the mid-block record, left the first blob behind, and re-applying the block then raised "this
+    # challenger already challenged this enrolment" — the node could not re-take its own block (review 2026-09-25).
     def _do(txn):
-        rec = [prev[k] for k in _TPM_ENROL_FIELDS] if prev else None
-        txn.put(be8(int(height)) + _tpm_enrol_key(enrol_id), _pack(rec), db=_dbs()["devbind_revert"])
+        k = be8(int(height)) + _tpm_enrol_key(enrol_id)
+        if txn.get(k, db=_dbs()["devbind_revert"]) is not None:
+            return
+        rec = [prev[k2] for k2 in _TPM_ENROL_FIELDS] if prev else None
+        txn.put(k, _pack(rec), db=_dbs()["devbind_revert"])
     _write(_do)
 
 
