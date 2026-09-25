@@ -160,7 +160,10 @@ def wire(targets):
     # SECOND CID IN ONE FRONTEND: dex.js also carries `const OTC_CID` (the cross-chain book + limit orders).
     # It was never on this list, so the gen-24 redeploy left it on the pre-reroll id and the book showed
     # "Loading orders…" forever (found 2026-09-02). Same rule as `const CID`: repoint, restamp, verify.
-    for path, var, game in ((os.path.join(STATIC, "dex.js"), "OTC_CID", "otc"),):
+    # interface.js carries RESERVE_CID (the wallet's reserve panel) — missed the same way until the betanet-8 reroll,
+    # where the redeploy reported every CID live while the panel pointed at the betanet-7 reserve.
+    for path, var, game in ((os.path.join(STATIC, "dex.js"), "OTC_CID", "otc"),
+                            (os.path.join(STATIC, "interface.js"), "RESERVE_CID", "reserve")):
         if game not in targets or not os.path.exists(path):
             continue
         src = open(path, encoding="utf-8").read()
@@ -222,10 +225,10 @@ def verify(targets, ex):
     bad = []
     for path in sorted(glob.glob(os.path.join(STATIC, "*.js"))):
         _src = open(path, encoding="utf-8").read()
-        for var in ("CID", "OTC_CID"):
-            m = re.search(r'^const %s = "([0-9a-z]+)";' % var, _src, re.M)
-            if m and m.group(1) not in have:
-                bad.append(f"{os.path.basename(path)} {var} -> {m.group(1)}")
+        # EVERY `const CID` / `const <NAME>_CID`, not a list of names: a list is how RESERVE_CID went unchecked
+        for var, cid in re.findall(r'^const ((?:[A-Z]+_)?CID) = "([0-9a-z]+)";', _src, re.M):
+            if cid not in have:
+                bad.append(f"{os.path.basename(path)} {var} -> {cid}")
     fr = os.path.join(ROOT, "_faucet_rewards.py")
     if os.path.exists(fr):
         for cid in re.findall(r'\(\d+,\s*"([0-9a-z]+)"', open(fr, encoding="utf-8").read()):

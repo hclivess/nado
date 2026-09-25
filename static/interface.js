@@ -5875,7 +5875,7 @@ function assetsWire() {
  * see an asset's supply or mintable flag, so a declared floor is only trustworthy when the registry says
  * the asset is fixed-supply AND its live supply still equals the vault's outstanding (renderVaults).
  * ------------------------------------------------------------------------------------------------- */
-const RESERVE_CID = "75ccbc64d09222c643c8f927afebbe57";   // execnode/games/reserve.py — the cid the exec node HOLDS
+const RESERVE_CID = "bd760bd8215e8040f5b95a53d55f6031";   // execnode/games/reserve.py — the cid the exec node HOLDS
                                                         // (2026-09-23: the previous constant named a contract that no
                                                         // longer existed on the exec node, so the reserve page could not work)
 const VAULT_UNIT = 100000000n;                            // reserve.UNIT — raw per stored reserve unit
