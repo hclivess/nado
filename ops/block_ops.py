@@ -713,9 +713,9 @@ def _mining_status_lanes(epoch):
             if entry is None or entry[0] != key:
                 beacon = epoch_beacon(epoch)
                 open_reg = get_open_registry(epoch)
-                # DISPLAY MIRRORS THE DRAW: from BOND_DEVICE_CAP_HEIGHT the bonded producer registry is the attested,
-                # per-device-capped subset (mining_ops.bonded_producer_registry) — the wallet's "expected time to mine"
-                # and lane totals must say what the consensus draw does, not what the raw stake table holds.
+                # DISPLAY MIRRORS THE DRAW: the wallet's "expected time to mine" and lane totals go through the same
+                # registry functions the consensus draw calls (mining_ops.bonded_producer_registry /
+                # open_lane_draw_registry), never a re-derivation at this call site.
                 from .mining_ops import bonded_producer_registry
                 bonded_reg = bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)
                 from .mining_ops import open_lane_draw_registry
@@ -734,7 +734,7 @@ def mining_status(address, latest_block_number, block_time):
     (display only, never consensus). For the slot after the tip: reports the lane split, each lane's
     total weight + size, and `address`'s open/bonded weight, then derives expected blocks/seconds
     between wins from this identity's share of each lane."""
-    from protocol import K_OPEN, BOND_DEVICE_CAP_HEIGHT as _BDC_H, BOND_DEVICE_CAP as _BDC
+    from protocol import K_OPEN
     next_block = latest_block_number + 1
     epoch = epoch_of(next_block)
     beacon, open_reg, bonded_reg, total_open, total_bonded, _bwt, open_shares = _mining_status_lanes(epoch)
@@ -742,18 +742,6 @@ def mining_status(address, latest_block_number, block_time):
     _open_draw = open_lane_draw_registry(open_reg, next_block)
     my_open = open_shares(open_reg[address]["fidelity"], epoch) if address in _open_draw else 0
     my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
-    from .mining_ops import bond_knee as _bond_knee
-    from protocol import BOND_WEIGHT_CURVE_HEIGHT as _BWC_H
-    _raw_reg = get_bonded_registry()
-    _my_raw_stake = int(_raw_reg.get(address, {}).get("bonded", 0)) + int(_raw_reg.get(address, {}).get("pooled", 0))
-    from protocol import BOND_ATTEST_OPTIONAL_HEIGHT as _BAO_H, POOL_RETIRE_HEIGHT as _PR_H
-    _attest_req = not (_BAO_H and next_block >= _BAO_H)      # mirrors bonded_producer_registry's gate
-    _pools_off = bool(_PR_H and next_block >= _PR_H)          # retired: delegation ignored, every identity solo
-    _cand_total = sum(int(i.get("bonded", 0)) + (0 if _pools_off else int(i.get("pooled", 0))) for a, i in _raw_reg.items()
-                      if (a in open_reg or not _attest_req) and (_pools_off or not i.get("pool_to")))
-    from protocol import BOND_CURVE_RETIRE_HEIGHT as _BCR_H
-    _plain = bool(_BCR_H and next_block >= _BCR_H)              # the knee is gone: weight = stake
-    _my_knee = 0 if _plain else (_bond_knee(_my_raw_stake, _cand_total - _my_raw_stake) if (_BWC_H and next_block >= _BWC_H) else int(_BDC))
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
     expected_wins_per_block = 0.0
@@ -768,54 +756,22 @@ def mining_status(address, latest_block_number, block_time):
         "open_registry_size": len(open_reg), "total_open_weight": total_open,
         "bonded_registry_size": len(bonded_reg), "total_bonded_shares": total_bonded,
         "address": address, "registered_present": address in open_reg,
-        # FREE LANE = CAPITAL-FREE: attested but staked -> no open-lane weight, no dividend (the wallet says so)
+        # read through open_lane_draw_registry, which excludes nobody since the gen-25 exclusion gates went: False
+        # for every address, kept because wallets read it
         "open_excluded_bonded": bool(address in open_reg and address not in _open_draw),
         "my_open_weight": my_open, "my_bonded_shares": my_bonded,
-        # SAVINGS-LANE CAP: is the cap live for the next block, does this identity's stake count in the producer draw
-        # (attested + capped), and the cap itself — so the wallet can say "bond, but attest" and "counting X of Y"
-        "bond_cap_active": bool(_BDC_H and next_block >= _BDC_H) and not _plain,   # False from BOND_CURVE_RETIRE_HEIGHT
-        "bond_attest_required": _attest_req,      # False from BOND_ATTEST_OPTIONAL_HEIGHT: savings produce without a device
-        "pools_retired": _pools_off,              # True from POOL_RETIRE_HEIGHT: pool_to is dead state, the wallet says so
+        # The savings lane is plain stake (protocol.py "THE SAVINGS LANE IS PLAIN STAKE"): no device is required and
+        # weight = stake. The two flags stay because wallets read them; the gen-25 cap / knee / pool fields went with
+        # the gates (bond_cap_active, pools_retired, bond_device_cap, bond_knee and the delegation view).
+        "bond_attest_required": False,
         "bonded_producing": address in bonded_reg,
         "my_bonded_raw": int((get_account(address, create_on_error=False) or {}).get("bonded", 0) or 0) if address else 0,
-        "bond_device_cap": int(_BDC),
-        # THE CURVE: this identity's producing weight (own + delegated stake through the knee/tail) and its knee
         "my_bonded_effective": int(bonded_reg[address]["bonded"]) if address in bonded_reg else 0,
-        "bond_knee": _my_knee,                    # 0 once the knee is gone
-        "bond_plain": _plain,
+        "bond_plain": True,
         "expected_blocks_between_wins": expected_blocks,
         "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
         "bonded_producer_cut": int(__import__("protocol").split_bonded_block_reward(int(get_block_reward()))[0]),
-        # DELEGATION (operator 2026-09-08: "nowhere on the wallet main page does it say delegated or what the expected
-        # delegation earnings are"): when this account's stake produces through a pool, the pool's own expectation and
-        # this account's slice of it — display only, never consensus. The wallet turns it into "≈ X NADO/day".
-        **({} if _pools_off else _delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, _raw_reg)),
     }
-
-
-def _delegation_view(address, bonded_reg, _bwt, total_bonded, bonded_frac, block_time, raw_reg):
-    """{pool_to, pool_label, pool_fee_bps, pool_share, pool_producing, pool_expected_seconds_between_wins,
-    bonded_producer_cut} for a delegator; {} otherwise. pool_share = my stake / (pool's own + pooled) — the pro-rata
-    slice reward_ops._pool_split pays before the fee; bonded_producer_cut = what a bonded block pays its producer."""
-    try:
-        acc = get_account(address, create_on_error=False) if address else None
-        to = (acc or {}).get("pool_to")
-        if not to:
-            return {}
-        pool = get_account(to, create_on_error=False) or {}
-        own = int(raw_reg.get(to, {}).get("bonded", 0)); pooled = int(raw_reg.get(to, {}).get("pooled", 0))
-        mine = int((acc or {}).get("bonded", 0) or 0)
-        share = (mine / (own + pooled)) if (own + pooled) > 0 else 0.0
-        pw = _bwt(bonded_reg[to]) if to in bonded_reg else 0
-        exp_blocks = (total_bonded / (bonded_frac * pw)) if (pw and total_bonded) else None
-        from protocol import split_bonded_block_reward
-        producer_cut = split_bonded_block_reward(int(get_block_reward()))[0]
-        return {"pool_to": to, "pool_label": str(pool.get("pool_label") or ""), "pool_fee_bps": int(pool.get("pool_fee_bps", 0) or 0),
-                "pool_share": share, "pool_producing": to in bonded_reg,
-                "pool_expected_seconds_between_wins": (exp_blocks * block_time) if exp_blocks else None,
-                "bonded_producer_cut": int(producer_cut)}
-    except Exception:
-        return {}
 
 
 def block_already_indexed(block_hash):

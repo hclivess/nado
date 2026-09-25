@@ -5,7 +5,7 @@ rule off for its first 6,000 blocks. Every gate is therefore `<live height> if C
 this test pins BOTH halves:
   1. the gen-25 value still equals what the running chain uses (a reroll edit must never change live consensus);
   2. the reroll value is the one the ledger documents — 1 = live from block 1 / epoch 0, 0 = never (dead code to
-     delete in the cleanup pass);
+     delete in the cleanup pass; the gates already deleted that way are pinned as DELETED);
   3. no gate constant is left unkeyed (a new one added without a reroll branch fails here).
 Run: python3 tests/test_gate_reroll_transfer.py
 """
@@ -29,12 +29,16 @@ REROLL = {
     "DEVICE_ATTEST_EK_PROVEN_HEIGHT": 1, "DEVICE_ATTEST_EK_READY_HEIGHT": 1,
     "TX_AT_MOST_ONCE_STRICT_HEIGHT": 1, "PROOF_BIND_HEIGHT": 1, "EXEC_RULES_V2_HEIGHT": 1, "PROOF_BLOCK_SELECTOR_HEIGHT": 1, "REVIEW_R2_HEIGHT": 1, "PROOF_TRACE_LDT_HEIGHT": 1, "PROOF_FIXED_CID_HEIGHT": 1, "PRIVACY_PAUSE_HEIGHT": 1, "PROOF_QUERY_FULL_HEIGHT": 1, "ADDRESS_KEY_BIND_HEIGHT": 1, "SETTLE_ANCHOR_HEIGHT": 1, "SLASH_DEDUP_HEIGHT": 1, "EXEC_CTX_CURRENT_HEIGHT": 1, "EXEC_ROOT_V2_HEIGHT": 1, "SHIELD_WIDE_HEIGHT": 1,
     "LEASE_V2_EPOCH": 0,
-    "BOND_ATTEST_OPTIONAL_HEIGHT": 1, "POOL_RETIRE_HEIGHT": 1, "BOND_CURVE_RETIRE_HEIGHT": 1,
-    "OPEN_LANE_EXCLUDE_RETIRE_HEIGHT": 1,
-    "BOND_DEVICE_CAP_HEIGHT": 0, "BOND_WEIGHT_CURVE_HEIGHT": 0, "POOL_HEIGHT": 0,
-    "OPEN_LANE_EXCLUDE_BONDED_HEIGHT": 0,
+    # (BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT, OPEN_LANE_EXCLUDE_BONDED_HEIGHT — reroll value 0 —
+    #  and their retire twins BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT,
+    #  OPEN_LANE_EXCLUDE_RETIRE_HEIGHT were deleted with their code after the betanet-8 reroll; see DELETED below.)
     "DIVIDEND_ATTESTED_EPOCH": 0, "DIVIDEND_WEIGHT_CAP_V2_EPOCH": 0, "DIV_CARRY_METER_EPOCH": 0,
 }
+# Gates whose code path was deleted in the post-reroll cleanup (doc/reroll.md §"What the cleanup deletes"). They must
+# stay gone: a re-added constant with the old name would read as a live switch for code that no longer exists.
+DELETED = ("BOND_DEVICE_CAP_HEIGHT", "BOND_WEIGHT_CURVE_HEIGHT", "POOL_HEIGHT", "OPEN_LANE_EXCLUDE_BONDED_HEIGHT",
+           "OPEN_LANE_EXCLUDE_BONDED_EPOCH", "BOND_ATTEST_OPTIONAL_HEIGHT", "POOL_RETIRE_HEIGHT",
+           "BOND_CURVE_RETIRE_HEIGHT", "OPEN_LANE_EXCLUDE_RETIRE_HEIGHT")
 
 
 def check(name, cond, detail=""):
@@ -68,15 +72,10 @@ def main():
     unkeyed = {n for n in declared - set(REROLL)
                if isinstance(getattr(P, n, None), int) and getattr(P, n) > 1}
     not_gates = {"GENESIS_TIMESTAMP",          # a timestamp, not a switch
-                 "GC_MAX_PER_EPOCH",           # a per-boundary work bound
-                 "OPEN_LANE_EXCLUDE_BONDED_EPOCH"}   # DERIVED from a keyed gate — checked below instead
+                 "GC_MAX_PER_EPOCH"}           # a per-boundary work bound
     check("no gate constant is missing from the ledger", not (unkeyed - not_gates), sorted(unkeyed - not_gates))
-
-    # a derived gate must follow its parent into the next generation (0 // 60 = 0), never freeze at its gen-25 value
-    hexpr = re.search(r"^OPEN_LANE_EXCLUDE_BONDED_HEIGHT = ([^#\n]+)", src, re.M).group(1).strip()
-    check("OPEN_LANE_EXCLUDE_BONDED_EPOCH follows its height at a reroll",
-          eval(hexpr, {"CHAIN_GENERATION": 26}) // P.EPOCH_LENGTH == 0
-          and P.OPEN_LANE_EXCLUDE_BONDED_EPOCH == P.OPEN_LANE_EXCLUDE_BONDED_HEIGHT // P.EPOCH_LENGTH)
+    check("the cleaned-up gates stay deleted", not any(hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M) for n in DELETED),
+          [n for n in DELETED if hasattr(P, n)])
 
     # 3a. EXEC_ROOT_V2 stamps the prover's call context with the block being applied, which only holds once
     #     EXEC_CTX_CURRENT (F3) advances the cursor BEFORE the block's blobs run — so the root gate can never
@@ -94,7 +93,7 @@ def main():
     check("chain_clock on gen 26 runs at 6.4 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 64 // 10 for h in (0, 1, 7, 209400, 2**40)))
 
     # 4. the ledger comment exists and names the cleanup
-    check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "CLEANUP AT THE REROLL" in src)
+    check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "THE SAVINGS LANE IS PLAIN STAKE" in src)
     return 0 if not _fails else 1
 
 

@@ -254,9 +254,8 @@
         <div class="small faint"><span data-i18n="lbl.registered">Registered</span> <span id="walReg">—</span>
           · <span data-i18n="lbl.fidelity">Fidelity</span> <span id="walFidelity">—</span></div>
         <div class="small faint" id="walProbation"></div></div>
-      <!-- SAVINGS AT WORK (operator 2026-09-08): delegation is its own cartouche — it does not replace Registered / Present
-           (a delegator still holds a device lease and earns the dividend), so it gets a full-width row of its own. Hidden
-           while nothing is bonded. Three states: delegated to a pool / producing on this device / bonded but idle. -->
+      <!-- SAVINGS AT WORK (operator 2026-09-08): its own full-width row, beside Registered / Present. Hidden while nothing
+           is bonded. Two states: producing / bonded but idle (the delegated-to-a-pool state went with the pool code). -->
       <div class="stat hidden" id="walDelegStat">
         <div class="label" data-i18n="lbl.savingsWork">Savings</div>
         <div class="value sm" id="walDelegValue" style="font-family:inherit;font-size:13px;line-height:1.3;overflow-wrap:anywhere">—</div>
@@ -455,6 +454,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
         <div class="mine-legend">
           <span class="lg"><i class="sw open"></i><span data-i18n="lanes.open">OPEN lane</span> <b id="mineOpen">—</b></span>
           <span class="lg"><i class="sw bonded"></i><span data-i18n="lanes.bonded">BONDED lane</span> <b id="mineBonded">—</b></span>
+          <!-- empty full-width item: breaks the legend before Dividend (it once carried the gen-25 savings-cap line) -->
           <span class="lg" id="bondCapLine" style="flex-basis:100%"></span>
           <span class="lg" data-i18n-title="tip.mineDiv" title="Presence dividend — your fidelity-weighted share of the dividend pool, paid to attested devices, counted on the day the claim landed on-chain."><i class="sw div"></i><span data-i18n="mine.dividend">Dividend</span> <b id="mineDiv">—</b></span>
         </div>
@@ -813,35 +813,6 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="small faint mt" data-i18n="stake.noFee">No network fee — unbonding is free.</div>
     <button id="btnUnbond" class="ghost mt" style="width:100%" data-i18n="btn.unbond">Unbond stake</button>
     <div id="stakeMsg" class="small mt faint"></div>
-
-    <!-- STAKING POOLS (protocol.POOL_HEIGHT): a holder without a device delegates bonded stake to an attested identity;
-         the pool produces with own + delegated stake under the per-device cap and the chain splits every win. -->
-    <div id="poolWrap" class="mt hidden">
-      <h3 style="margin:18px 0 6px" data-i18n="spool.title">Staking pools — delegate savings, or run a pool</h3>
-      <div class="small faint mt" data-i18n="spool.blurb">Savings produce blocks on their own: weight is stake, one for one, no device and nothing to renew. Coins never leave your account and unbond after a timelock.</div>
-      <div id="poolMine" class="small mt"></div>
-      <label class="mt"><span data-i18n="spool.pick">Delegate to a pool</span></label>
-      <select id="poolSelect" class="mt" style="width:100%"></select>
-      <div class="row mt">
-        <button id="btnDelegate" class="accent" data-i18n="spool.delegate">Delegate my savings</button>
-        <button id="btnUndelegate" class="ghost" data-i18n="spool.undelegate">Undelegate</button>
-      </div>
-      <div id="poolRun" class="mt">
-        <h3 style="margin:18px 0 6px;font-size:1em" data-i18n="spool.runTitle">Run a pool</h3>
-        <div class="row mt">
-          <label style="flex:1 1 140px"><span data-i18n="spool.fee">Fee (% of delegators' share)</span><input id="poolFee" type="number" min="0" max="100" step="0.1" placeholder="10" /></label>
-          <label style="flex:1 1 140px"><span data-i18n="spool.label">Pool name</span><input id="poolLabel" maxlength="32" placeholder="my pool" /></label>
-        </div>
-        <div class="row mt">
-          <label style="flex:1 1 140px"><span data-i18n="spool.min">Minimum delegation (NADO)</span><input id="poolMin" inputmode="decimal" placeholder="10" /></label>
-          <label style="flex:1 1 140px"><span data-i18n="spool.max">Maximum total (NADO)</span><input id="poolMax" inputmode="decimal" placeholder="1000000" /></label>
-        </div>
-        <label class="mt"><input id="poolOpen" type="checkbox" checked /> <span data-i18n="spool.open">Open to new delegators</span></label>
-        <button id="btnPoolSave" class="accent mt" style="width:100%" data-i18n="spool.save">Save pool terms</button>
-        <button id="btnPoolClose" class="ghost mt hidden" style="width:100%" data-i18n="spool.close">Close my pool (releases every delegator)</button>
-      </div>
-      <div id="poolMsg" class="small mt faint"></div>
-    </div>
 
     <!-- PENDING UNBOND. Leaving savings is two steps: `unbond` records the request (coins stay bonded and
          slashable), and a matured `withdraw` actually moves them. Nothing used to show the request, so an

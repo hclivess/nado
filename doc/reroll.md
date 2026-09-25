@@ -26,9 +26,7 @@ gate added without a branch fails that test.
 Live from genesis at the next reroll (`else 1`): `DEVICE_ATTEST_HEIGHT`, `DEVICE_BIND_HEIGHT`,
 `DEVICE_BIND_STRICT_HEIGHT`, `DEVICE_BIND_PERMANENT_HEIGHT`, `DEVICE_REBIND_INSTANT_HEIGHT`, `DEVICE_BIND_PERMANENT_EK_HEIGHT`,
 `DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT`, `DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT`, `DEVICE_ATTEST_EK_HEIGHT`,
-`DEVICE_ATTEST_EK_SHORT_HEIGHT`, `DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT`, `DEVICE_ATTEST_EK_PROVEN_HEIGHT`, `DEVICE_ATTEST_EK_READY_HEIGHT`, `TX_AT_MOST_ONCE_STRICT_HEIGHT`, `PROOF_BIND_HEIGHT`, `EXEC_RULES_V2_HEIGHT`, `PROOF_BLOCK_SELECTOR_HEIGHT`, `REVIEW_R2_HEIGHT`, `PROOF_TRACE_LDT_HEIGHT`, `PROOF_FIXED_CID_HEIGHT`, `PRIVACY_PAUSE_HEIGHT`, `PROOF_QUERY_FULL_HEIGHT`, `ADDRESS_KEY_BIND_HEIGHT`, `SETTLE_ANCHOR_HEIGHT`, `SLASH_DEDUP_HEIGHT`, `EXEC_CTX_CURRENT_HEIGHT`, `EXEC_ROOT_V2_HEIGHT`, `SHIELD_WIDE_HEIGHT` (all live 2^62: OFF on gen 25, from block 1 after; the root layout, the exec summaries and the DA leaves change at the second, so it can only ever fire at block 1), `BOND_ATTEST_OPTIONAL_HEIGHT`,
-`POOL_RETIRE_HEIGHT`,
-`BOND_CURVE_RETIRE_HEIGHT`, `OPEN_LANE_EXCLUDE_RETIRE_HEIGHT`.
+`DEVICE_ATTEST_EK_SHORT_HEIGHT`, `DEVICE_ATTEST_EK_ROOTS_V2_HEIGHT`, `DEVICE_ATTEST_EK_PROVEN_HEIGHT`, `DEVICE_ATTEST_EK_READY_HEIGHT`, `TX_AT_MOST_ONCE_STRICT_HEIGHT`, `PROOF_BIND_HEIGHT`, `EXEC_RULES_V2_HEIGHT`, `PROOF_BLOCK_SELECTOR_HEIGHT`, `REVIEW_R2_HEIGHT`, `PROOF_TRACE_LDT_HEIGHT`, `PROOF_FIXED_CID_HEIGHT`, `PRIVACY_PAUSE_HEIGHT`, `PROOF_QUERY_FULL_HEIGHT`, `ADDRESS_KEY_BIND_HEIGHT`, `SETTLE_ANCHOR_HEIGHT`, `SLASH_DEDUP_HEIGHT`, `EXEC_CTX_CURRENT_HEIGHT`, `EXEC_ROOT_V2_HEIGHT`, `SHIELD_WIDE_HEIGHT` (all live 2^62: OFF on gen 25, from block 1 after; the root layout, the exec summaries and the DA leaves change at the second, so it can only ever fire at block 1).
 
 Gen 27 (betanet-8) gates, keyed `== 27` the same way — live from block 1 at the next reroll: `EK_ENROL_ROOTS_AT_HEIGHT`.
 
@@ -38,15 +36,18 @@ last ~10,000 blocks separately) and set the next value to the recent figure in d
 lag resets with the new `GENESIS_TIMESTAMP`. Gen 25 ran 6.69 s overall and 6.5 s recently against a clock that
 assumed 6, which is where the 40 h TIME lag came from.
 
-Never, delete the path (`else 0`): `BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`,
-`OPEN_LANE_EXCLUDE_BONDED_HEIGHT`.
+Never, delete the path (`else 0`): none left. `BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT` and
+`OPEN_LANE_EXCLUDE_BONDED_HEIGHT` (with the derived `OPEN_LANE_EXCLUDE_BONDED_EPOCH`) and their `else 1` retire twins
+`BOND_ATTEST_OPTIONAL_HEIGHT`, `POOL_RETIRE_HEIGHT`, `BOND_CURVE_RETIRE_HEIGHT`, `OPEN_LANE_EXCLUDE_RETIRE_HEIGHT` were
+deleted with their code after the betanet-8 reroll (below); `tests/test_gate_reroll_transfer.py` pins them as deleted.
 
 From epoch 0 (`else 0` = always on): `LEASE_V2_EPOCH`, `DIVIDEND_ATTESTED_EPOCH`, `DIVIDEND_WEIGHT_CAP_V2_EPOCH`,
 `DIV_CARRY_METER_EPOCH`.
 
 ### What the cleanup deletes
 
-With the four "never" gates at 0 the savings lane is plain stake with no device, no pools and no exclusion, so:
+**Done for the savings-lane gates after the betanet-8 reroll (gen 27).** With the four "never" gates at 0 the savings
+lane is plain stake with no device, no pools and no exclusion, so:
 
 - `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`;
 - `mining_ops.open_lane_draw_registry` collapses to `return open_registry`;
@@ -54,6 +55,14 @@ With the four "never" gates at 0 the savings lane is plain stake with no device,
 - `reward_ops._pool_split`, the `pool` / `delegate` / `undelegate` transactions, the `pool_*` account fields, the
   `pool_revert` DB and `/pools` all go;
 - the retire gates themselves become vacuous and go with them.
+
+Three things deliberately stayed, because deleting them would have changed gen-27 behaviour: `pool`, `delegate` and
+`undelegate` remain in `RESERVED_RECIPIENTS` with their per-block uniqueness key, and `validate_transaction` still
+refuses them with the message the gen-25 branch raised at `POOL_HEIGHT = 0` ("staking pools are not enabled yet") —
+falling through to the generic path would turn a refused tx into an accepted one. `/mining_status` keeps the fields
+wallets read, at their fixed gen-27 values (`bond_attest_required: false`, `bond_plain: true`,
+`open_excluded_bonded`); `bond_cap_active`, `pools_retired`, `bond_device_cap`, `bond_knee` and the delegation view
+went. `tests/test_savings_lane_is_plain_stake.py` pins all of it.
 
 Do this in a **follow-up commit after** the reroll is live and verified, never in the same one — the reroll commit
 must be reviewable as "new genesis, same rules".

@@ -53,8 +53,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | Method | Path | Params | Returns |
 |---|---|---|---|
 | GET | `/mining_status` · `/posw_difficulty` · `/get_open_weights` | `?epoch=` | mining / open-lane state. `?epoch=` REFUSES epochs whose recert lookback crosses the idle-GC row-retention horizon (a cold exec node bootstraps from a settled checkpoint instead) |
-| GET | `/mining_status` fields (2026-09-08) | `?address=` | `bond_cap_active`, `bonded_producing`, `my_bonded_raw`, `my_bonded_effective` (curve weight), `bond_knee`, `bond_attest_required` (False from `BOND_ATTEST_OPTIONAL_HEIGHT` 16150: savings need no device), `pools_retired` (True from `POOL_RETIRE_HEIGHT` 16900), `bonded_producer_cut` (raw), `expected_seconds_between_wins` |
-| GET | `/pools` | — | staking pools — RETIRED at block 16900: `active` False, `retired` True, `pools` empty; kept for old wallets |
+| GET | `/mining_status` fields (2026-09-08) | `?address=` | `bonded_producing`, `my_bonded_raw`, `my_bonded_effective` (= stake), `bond_attest_required` (always False: savings need no device), `bond_plain` (always True), `open_excluded_bonded` (always False), `bonded_producer_cut` (raw), `expected_seconds_between_wins`. The gen-25 cap / knee / pool fields (`bond_cap_active`, `bond_knee`, `bond_device_cap`, `pools_retired`, the delegation view) and `/pools` were removed after the betanet-8 reroll |
 | GET | `/treasury_status` | — | treasury + governance |
 | GET | `/get_dividend_inflow` | — | presence-dividend pool inflow |
 

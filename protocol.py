@@ -1621,24 +1621,20 @@ def split_open_block_reward(reward: int):
 #                                    DEVICE_ATTEST_EK_READY_HEIGHT,
 #                                    DEVICE_BIND_PERMANENT_HEIGHT, DEVICE_REBIND_INSTANT_HEIGHT, DEVICE_BIND_PERMANENT_EK_HEIGHT,
 #                                    DEVICE_ATTEST_TPM_ANY_AAGUID_HEIGHT, DEVICE_ATTEST_TREZOR_SERIAL_OPTIONAL_HEIGHT,
-#                                    BOND_ATTEST_OPTIONAL_HEIGHT,
-#                                    POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT,
 #                                    TX_AT_MOST_ONCE_STRICT_HEIGHT, PROOF_BIND_HEIGHT, EXEC_RULES_V2_HEIGHT,
 #                                    PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT,
 #                                    PROOF_FIXED_CID_HEIGHT, PRIVACY_PAUSE_HEIGHT, PROOF_QUERY_FULL_HEIGHT, ADDRESS_KEY_BIND_HEIGHT,
 #                                    SETTLE_ANCHOR_HEIGHT, SLASH_DEDUP_HEIGHT,
 #                                    EXEC_CTX_CURRENT_HEIGHT, EXEC_ROOT_V2_HEIGHT, SHIELD_WIDE_HEIGHT
 #                                    (live value 2^62 = off until the reroll)
-#   never (x = 0), delete the path   BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT,
-#                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT  (+ their retire twins become vacuous)
+#   never (x = 0), delete the path   (none left: BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT and
+#                                    OPEN_LANE_EXCLUDE_BONDED_HEIGHT were deleted after the betanet-8 reroll together
+#                                    with their retire twins BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT,
+#                                    BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT — see "THE SAVINGS
+#                                    LANE IS PLAIN STAKE" below)
 #   from epoch 0 (x = 0 = always)    LEASE_V2_EPOCH, DIVIDEND_ATTESTED_EPOCH, DIVIDEND_WEIGHT_CAP_V2_EPOCH, DIV_CARRY_METER_EPOCH
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1)
-#
-# CLEANUP AT THE REROLL: with the four "never" gates at 0 the savings lane is plain stake with no device, no pools and
-# no exclusion — so `mining_ops.bonded_producer_registry` collapses to `return bonded_registry`,
-# `open_lane_draw_registry` to `return open_registry`, `reward_ops._pool_split` and the pool transactions go, and the
-# knee/cap helpers (`bond_weight`, `bond_knee`) lose their last caller. Delete them together with the gates.
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -1698,92 +1694,17 @@ def permanent_classes_at(height) -> frozenset:
     if height is None or (DEVICE_BIND_PERMANENT_EK_HEIGHT and int(height) >= DEVICE_BIND_PERMANENT_EK_HEIGHT):
         return DEVICE_BIND_PERMANENT_CLASSES | frozenset(("ek",))
     return DEVICE_BIND_PERMANENT_CLASSES
-# SAVINGS-LANE CAP PER ATTESTED DEVICE (operator decision 2026-09-07, doc/device-attestation.md §"Savings-lane cap").
-# The old per-KEY bond cap was void (a second key restored linear weight); a per-DEVICE cap is not, because a device is
-# what a farm cannot mint. From BOND_DEVICE_CAP_HEIGHT the bonded PRODUCER draw counts an identity only while it is
-# attested (a live open-lane lease — every lease is a device statement, and devbind keeps one identity per device) and
-# counts at most BOND_DEVICE_CAP of its stake: shares = min(bonded, BOND_DEVICE_CAP) // B_MIN. Unattested stake has
-# ZERO producer weight — anything else is dodged by splitting keys. LIVENESS: if NO attested bonded identity exists the
-# draw falls back to the whole (uncapped) registry, exactly like the tenure ramp's fallback — the cap protects an
-# attested set and must never stall the chain. Producer selection and reward ONLY: fork-choice weight
-# (total_bonded_shares) and the FFG/settlement quorum stay uncapped and attestation-free, so finality never depends on
-# device count. Height-gated on the live chain; becomes 1 at the next reroll.
-BOND_DEVICE_CAP_HEIGHT = 4200 if CHAIN_GENERATION == 25 else 0        # reroll: 0 = never (the cap/curve is retired)
-BOND_DEVICE_CAP = 1_000 * DENOMINATION       # 1,000 NADO of stake counts per attested device (100 shares at B_MIN)
-# THE CURVE (operator decision 2026-09-08 after simulation, doc/device-attestation.md §"Savings-lane cap"): from this
-# height the cliff `min(stake, 1,000)` becomes a KNEE and a bounded TAIL. Knee = max(BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS
-# of everyone ELSE's stake in the attested producer set) — a device's own stake never lifts its own knee (a 50,000 NADO
-# device under "5 % of the lane" took 53 % of blocks in simulation; under "5 % of the others" 24 %). Above the knee
-# weight = K·(1.5 − 0.5·K/stake): continuous, same slope at the knee, saturating at 1.5·K, so no coin ever counts for
-# nothing and no device ever counts for more than 1.5 knees. Simulated over the live lane and four stress cases
-# (single whale, split whale, 40-phone farm, 100-device lane): farms stay at their stake share (median-relative caps
-# handed them 60 %), the single whale is bounded, the honest lane is barely moved, and X = 5 % only bites once the lane
-# exceeds ~10,000 NADO, where it holds the biggest device to ~7 % of blocks. Fork weight and the FFG quorum stay linear.
-BOND_WEIGHT_CURVE_HEIGHT = 11800 if CHAIN_GENERATION == 25 else 0     # reroll: 0 = never (weight is plain stake)
-BOND_KNEE_OTHERS_BPS = 500           # knee = 5 % of the other producing identities' stake, floored at BOND_DEVICE_CAP
-BOND_TAIL_BPS = 15000                # the tail saturates at 1.5 x knee
-# BONDED LANE WITHOUT A DEVICE (operator decision 2026-09-08 evening, "lets drop the requirement for the bonded lane, we
-# have the knee rule"). Numbers on the live lane (46 keys, 6,385 NADO, producing weight 3,887): the attestation
-# requirement idled 13 keys / 1,231 NADO (19 % of stake), cost honest device owners ~40 % of their share relative to
-# plain stake weight, and against a whale it only ever stopped a holder with ONE phone — 10,000 NADO on three phones
-# already took 62-72 % of the lane, the same as the 61 % plain proof of stake gives. Capital is the Sybil resistance
-# of a bonded lane; the device does its work on the free lane and the dividend, which this does not touch. From this
-# height `bonded_producer_registry` no longer requires a live device lease: every non-delegating bonded identity is in
-# the draw on the knee/tail curve. Renewals, leases and the dividend are untouched; delegators still ride their pool.
-# REROLL: keyed on the current generation — at the next reroll this is 1 (live from genesis) with no edit needed.
-BOND_ATTEST_OPTIONAL_HEIGHT = 16150 if CHAIN_GENERATION == 25 else 1
-# STAKING POOLS (operator decision 2026-09-07 night, doc/device-attestation.md §"Pools"): a holder without a device
-# points their bonded stake at an ATTESTED identity (`delegate` tx, data {"to"}); the pool produces with own + delegated
-# stake, capped at BOND_DEVICE_CAP like any device, and every block it wins is split at apply: the delegators' pro-rata
-# portion minus the pool's fee goes to the delegators, the rest (own share + fee + rounding dust) to the pool. The coins
-# never leave the delegator's account (fork weight and the FFG quorum stay theirs); only producer weight moves, and a
-# delegator has no producer weight of their own while delegating. The pool sets its terms with the `pool` tx
-# (fee_bps, open, min, max, label) and leaves them with `undelegate`. Sybil surface unchanged: every unit of producing
-# weight still sits on one real attested device with the same cap; what changes is that capital may rent that device.
-# Height-gated; becomes 1 at the next reroll.
-POOL_HEIGHT = 6000 if CHAIN_GENERATION == 25 else 0                    # reroll: 0 = pools never enabled
-# STAKING POOLS RETIRED (operator decision 2026-09-08 night: "retire delegation, we can revive it if we ever need to, we
-# have git"). Pools existed for the weeks the bonded lane was attested-only; with the lane device-free
-# (BOND_ATTEST_OPTIONAL_HEIGHT) a pool could pay a delegator at most what solo staking pays, minus a fee — the live
-# numbers: nadochain.com's delegators at 51 % of solo (2,572 staked curved to 1,306), ninja pool's at 79 %. From this
-# height: delegations are IGNORED in the producer draw (every bonded identity produces alone, former delegators
-# included, nothing to do), `reward_ops._pool_split` is off (the whole cut is the producer's), and the pool / delegate /
-# undelegate transactions are refused. Account fields (pool_to, pool_*) stay in state untouched — no sweep, no root
-# churn — and are simply dead. REROLL: keyed on the generation — at the next reroll this is 1 (pools never live).
-POOL_RETIRE_HEIGHT = 16900 if CHAIN_GENERATION == 25 else 1
-# THE KNEE IS GONE (operator decision 2026-09-09: "just remove the knee now... no gating"). With free keys every per-wallet
-# curve is undone by splitting at the knee — it shaped nobody's weight (no identity was above 1,000 NADO) and only taxed
-# the uninformed while inviting wallet sprawl. From this height the savings-lane producer weight is plain stake. The
-# height is NOW (no waiting window): nobody was above the knee, so nodes updating minutes apart draw identically; the
-# constant exists only so blocks 11800-16900, drawn with the curve while pools sat above the knee, still replay.
-# REROLL: keyed on the generation — plain stake from genesis at the next reroll.
-BOND_CURVE_RETIRE_HEIGHT = 19400 if CHAIN_GENERATION == 25 else 1
-POOL_MAX_FEE_BPS = 10_000            # a pool may keep up to 100 % of the delegators' portion (its own choice, visible)
-POOL_MIN_DELEGATION = B_MIN          # a delegation below one share would add no weight
-POOL_MAX_MEMBERS = 1000              # pools are no longer bounded by the device cap (BOND_WEIGHT_CURVE_HEIGHT); sanity bound
-POOL_MAX_TOTAL = 100_000_000 * DENOMINATION   # a pool's `max` may be anything up to this (effectively unlimited)
-POOL_LABEL_MAX = 32
-# OPEN-LANE BLOCKS ARE FOR DEVICE-ONLY MINERS (operator decision 2026-09-08): from this height an identity with bonded
-# stake >= B_MIN (one share, 10 NADO) is not drawn for OPEN slots — it produces in the bonded lane. The rule is per
-# DEVICE, not per key (one device = one identity), so a whale cannot keep a second wallet in the free lane without a
-# second device: each device produces in one lane. The identity stays ATTESTED and KEEPS the presence dividend — the
-# dividend is the universal per-device reward for staying present, paid to every attested identity by fidelity (the
-# operator's choice: "available for everyone"). Read as-of-parent from the account's live `bonded`, like every draw input.
-OPEN_LANE_EXCLUDE_BONDED_HEIGHT = 6600 if CHAIN_GENERATION == 25 else 0   # reroll: 0 = stakers always in the free lane
-# STAKERS ARE BACK IN THE FREE LANE (operator decision 2026-09-09: "ok let stakers back in"). The exclusion was a
-# PER-ACCOUNT rule, and per-account rules are void while keys are free: a staker keeps the device wallet under the
-# threshold and parks the surplus in a second, device-less account, which the chain cannot tell apart from two people.
-# Measured on the live lane before the change: an attested device with no stake earned ~1.38 NADO/day from the open
-# lane, and bonding its FIRST 10 NADO cut that to ~0.14 — a tenfold pay cut for saving, needing ~100 NADO just to
-# break even. So the rule taxed the users who did not think to split, and the dilution it protected against arrives
-# anyway once splitting is understood. From this height the open draw is every attested identity again: one device,
-# one slot, capital-free, `devbind` still one identity per device, OPEN_BPS unchanged. Only the DRAW changes — the
-# dividend was never gated on stake, and OPEN_LANE_EXCLUDE_BONDED_EPOCH keeps its separate meaning below
-# (the fidelity gradient), so it stays as it is.
-# REROLL: keyed on the generation — no exclusion at all from genesis at the next reroll.
-OPEN_LANE_EXCLUDE_RETIRE_HEIGHT = 29900 if CHAIN_GENERATION == 25 else 1
-OPEN_LANE_EXCLUDE_BONDED_EPOCH = OPEN_LANE_EXCLUDE_BONDED_HEIGHT // EPOCH_LENGTH   # the dividend-gradient epoch below
-# GENTLER DIVIDEND GRADIENT (same decision): min(fidelity, 15) instead of 30 from this epoch — a thirty-day identity
+# THE SAVINGS LANE IS PLAIN STAKE (cleanup after the betanet-8 reroll, doc/reroll.md §"What the cleanup deletes").
+# Gen 25 carried eight gates here — the per-device cap (BOND_DEVICE_CAP_HEIGHT), the knee/tail curve
+# (BOND_WEIGHT_CURVE_HEIGHT), staking pools (POOL_HEIGHT), the open-lane exclusion of stakers
+# (OPEN_LANE_EXCLUDE_BONDED_HEIGHT) and the four gates that retired them again (BOND_ATTEST_OPTIONAL_HEIGHT,
+# POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT). Their reroll values were 0 / 1, so
+# from generation 26 on none of those rules ever ran: the bonded producer draw is the raw bonded registry, the open
+# draw is the whole attested registry, and pool / delegate / undelegate are refused. The code paths were deleted with
+# the gates; mining_ops.bonded_producer_registry / open_lane_draw_registry and the refusal in
+# transaction_ops.validate_transaction keep that gen-27 behaviour exactly. The history (why each rule came and went)
+# is in doc/device-attestation.md and git.
+# GENTLER DIVIDEND GRADIENT (operator decision 2026-09-08): min(fidelity, 15) instead of 30 from this epoch — a thirty-day identity
 # earned 30x a one-day one; now 15x, so a newcomer's first week is not almost nothing. Epoch-gated inside
 # dividend_weight (the epoch is already in its signature for exactly this; the constant is read at call time).
 DIVIDEND_WEIGHT_CAP_V2 = 15

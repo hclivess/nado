@@ -3344,51 +3344,28 @@ function _fmtClock(secsFromNow) {
   try { return new Date(Date.now() + secsFromNow * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
   catch (e) { return ""; }
 }
-// DELEGATION ON THE OVERVIEW (operator 2026-09-08): a delegator saw "Saved 54 NADO" and nothing about where it works or
-// what it earns. From /mining_status: the pool's expected time between its bonded wins, this account's pro-rata slice
-// and the producer cut of a bonded block -> ≈ NADO/day after the pool's fee. Estimate only, never a promise.
+// SAVINGS AT WORK ON THE OVERVIEW (operator 2026-09-08): producing ≈ NADO/day, or idle. From /mining_status: this
+// identity's expected time between bonded wins and the producer cut of a bonded block. Estimate only, never a promise.
+// (The staking-pool states — delegated / pool idle / pools retired — went with the pool code after the betanet-8
+// reroll: no account can hold `pool_to` on a chain where pools never ran.)
 function renderDelegationLine(acc, ms) {
   const wrap = $("walDelegStat"), val = $("walDelegValue"), el = $("walDelegLine"); if (!wrap || !val || !el) return;
   const bonded = BigInt((acc && acc.bonded) || 0);
   if (!acc || bonded <= 0n) { show("walDelegStat", false); return; }
   show("walDelegStat", true);
   const cut = Number((ms && ms.bonded_producer_cut) || 0) / 1e10;
-  const perDayOf = (secs, share, feeBps) => (86400 / Number(secs)) * cut * share * (1 - Number(feeBps || 0) / 10000);
+  const perDayOf = (secs) => (86400 / Number(secs)) * cut;
   const fmt = (x) => x >= 1 ? x.toFixed(2) : x.toFixed(4);
   const badge = (cls, txt) => { val.innerHTML = `<span class="badge ${cls}">${escapeHtml(txt)}</span>`; };
-  if (acc.pool_to && ms && ms.pools_retired) {
-    badge("ok", i18("ovw.producing", "Producing"));
-    el.textContent = i18("ovw.poolsRetired", "pools retired — your savings produce on their own");
-    return;
-  }
-  if (acc.pool_to) {
-    const name = (ms && ms.pool_label) || acc.pool_to.slice(0, 10) + "…";
-    const fee = poolPct(ms && ms.pool_fee_bps);
-    badge("idle", name);                                      // terse (operator 2026-09-08): the pool's name is the value
-    if (!ms || !ms.pool_producing || !ms.pool_expected_seconds_between_wins) {
-      el.textContent = i18("ovw.delegatedIdle", "delegated · pool idle");
-      return;
-    }
-    const share = Number(ms.pool_share || 0);
-    el.textContent = i18("ovw.delegatedDetail", "{s} % · fee {f} · ≈{x}/day", { f: fee, s: (share * 100).toFixed(1), x: fmt(perDayOf(ms.pool_expected_seconds_between_wins, share, ms.pool_fee_bps)) });
-    return;
-  }
   if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
     badge("ok", i18("ovw.producing", "Producing"));
-    el.textContent = i18("ovw.producingDetail", "{e} NADO counting · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins, 1, 0)) });
+    el.textContent = i18("ovw.producingDetail", "{e} NADO counting · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins)) });
     return;
   }
   badge("no", i18("ovw.idle", "Idle"));
-  el.textContent = (ms && ms.bond_attest_required === false) ? i18("ovw.idleSoon", "enters the draw on its own") : i18("ovw.idleDetail", "attest this device or delegate");
+  el.textContent = i18("ovw.idleSoon", "enters the draw on its own");   // savings need no device (bond_attest_required is always false)
 }
 function refreshLeasePanel(acc, ms) {
-  state.poolTo = (acc && typeof acc.pool_to === "string") ? acc.pool_to : null;   // for the Mining page's savings line
-  // STAKING POOLS: the panel is always on the Savings card (operator: "pretty important"); /pools is rate-limited
-  // 20/min per IP, so refresh it at most every 30 s per dashboard cycle
-  if ($("poolWrap") && (!refreshLeasePanel._poolAt || Date.now() - refreshLeasePanel._poolAt > 30000)) {
-    refreshLeasePanel._poolAt = Date.now();
-    refreshPools(acc).catch(() => {});
-  }
   const wrap = $("leaseWrap"), btn = $("btnRenewLease");
   if (!wrap || !btn) return;
   const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
@@ -4493,7 +4470,7 @@ async function refreshDashboard() {
     $("walBalance").textContent = nadoShort(freeRaw) + " NADO"; $("walBalance").title = bal + " NADO";
     $("walBonded").textContent = nadoShort(bondedRaw) + " NADO"; $("walBonded").title = bonded + " NADO";
     $("walTotal").textContent = nadoShort(freeRaw + bondedRaw) + " NADO"; $("walTotal").title = rawToNado(freeRaw + bondedRaw) + " NADO";
-    renderDelegationLine(acc, ms);                     // "Delegated to … ≈ X NADO/day" right under the Bonded figure
+    renderDelegationLine(acc, ms);                     // "Producing · ≈ X NADO/day" right under the Bonded figure
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
     refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     // REGISTERED follows the chain's PRESENCE, not the account flag: the flag stays 1 after an eviction (the device moved
@@ -4520,12 +4497,6 @@ async function refreshDashboard() {
     $("sendAvail").textContent = "0 NADO";
     $("stkAvail").textContent = "0 NADO";
     $("stkBonded").textContent = "0 NADO";
-    // A wallet with no chain account yet still gets the pool list (read-only): the picker sat empty for a brand-new
-    // wallet because refreshLeasePanel — the only caller of refreshPools — runs on the account branch (2026-09-08).
-    if ($("poolWrap") && (!refreshLeasePanel._poolAt || Date.now() - refreshLeasePanel._poolAt > 30000)) {
-      refreshLeasePanel._poolAt = Date.now();
-      refreshPools(null).catch(() => {});
-    }
   }
 
   // pending (mempool / pre-block) money — in flight either way, shown but clearly NOT usable yet.
@@ -4632,20 +4603,6 @@ function renderLanes(ms) {
   const _youMark = " " + i18("lane.youMark", "(you)");
   $("laneOpenYou").textContent = myOpen > 0 ? _youMark : "";
   $("laneBondedYou").textContent = myBond > 0 ? _youMark : "";
-  // SAVINGS-LANE CAP PER ATTESTED DEVICE (protocol.BOND_DEVICE_CAP_HEIGHT): say plainly whether this stake counts in
-  // the producer draw. Unattested stake weighs nothing there; at most 1,000 NADO per device counts.
-  const bcl = $("bondCapLine");
-  if (bcl) {
-    const raw = num(ms.my_bonded_raw), cap = num(ms.bond_device_cap);
-    if (!ms.bond_cap_active || raw <= 0) bcl.textContent = "";
-    else if (state.poolTo && !ms.pools_retired) bcl.textContent = i18("bond.delegated", "Your savings stake ({n} NADO) produces through the pool {p}.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)), p: state.poolTo.slice(0, 12) + "…" });
-    else if (!ms.bonded_producing && ms.bond_attest_required === false) bcl.textContent = i18("bond.rampOnly", "Your savings stake ({n} NADO) enters the draw on its own — no device needed.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
-    else if (!ms.bonded_producing) bcl.textContent = i18("bond.needsAttest", "Your savings stake ({n} NADO) produces blocks only while this identity is attested — register above. Beyond the knee each extra coin counts less.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
-    else if (num(ms.my_bonded_effective) && num(ms.my_bonded_effective) < raw + num(ms.pooled_in || 0) && num(ms.bond_knee) && raw > num(ms.bond_knee)) bcl.textContent = i18("bond.capped", "Savings stake beyond the knee counts less: {n} NADO staked counts as {c} (knee {k} NADO).", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)), c: (num(ms.my_bonded_effective) / 1e10).toFixed(0), k: (num(ms.bond_knee) / 1e10).toFixed(0) });
-    else bcl.textContent = ms.bond_attest_required === false
-      ? i18("bond.countingFree", "Savings stake counting in full ({n} NADO) — no device needed for savings.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) })
-      : i18("bond.counting", "Savings stake counting in full ({n} NADO) — this identity is attested.", { n: nadoShort(BigInt(ms.my_bonded_raw || 0)) });
-  }
 }
 
 function setConn(ok, tip) {
@@ -6168,122 +6125,9 @@ async function doBond(kind) {
   finally { btn.disabled = false; }
 }
 
-/* ----------------------------------------------------------------------------------------------
- * STAKING POOLS (protocol.POOL_HEIGHT). Three fee-exempt, zero-amount txs: `pool` (terms), `delegate` ({to}),
- * `undelegate`. The picker reads /pools; the account's own `pool_to` / pool fields come with /get_account.
- * -------------------------------------------------------------------------------------------- */
-function buildPoolTx(wallet, recipient, data, targetBlock, timestamp) {
-  const draft = { sender: wallet.address, recipient, amount: 0, timestamp, data, nonce: randNonce(),
-    public_key: wallet.publicKey, max_block: targetBlock, chain_id: CHAIN_ID };
-  return finalizeTransaction(draft, wallet.privateKey, 0);
-}
-let _poolsCache = null;
-async function fetchPools() {
-  const r = await fetch(relayBase() + "/pools", { cache: "no-store" });
-  const d = await r.json();
-  _poolsCache = d;
-  return d;
-}
-function poolPct(bps) { return (Number(bps || 0) / 100).toFixed(1).replace(/\.0$/, "") + " %"; }
-// Room / pooled figures are read-only summaries: two decimals, not the ten of the raw unit (a picker line read
-// "room 99046.1618097931 NADO" on 2026-09-08). Inputs the user edits (min/max) keep rawToNado's exact value.
+// Read-only summaries: two decimals, not the ten of the raw unit (a line read "room 99046.1618097931 NADO" on
+// 2026-09-08). Inputs the user edits keep rawToNado's exact value.
 function nadoShort(raw) { const t = rawToNado(BigInt(raw || 0)); const i = t.indexOf("."); return i < 0 ? t : t.slice(0, i + 3).replace(/\.?0+$/, ""); }
-async function refreshPools(acc) {
-  const wrap = $("poolWrap"); if (!wrap) return;
-  let d = null;
-  try { d = await fetchPools(); } catch (e) { show("poolWrap", false); return; }
-  if (!d || !d.active) { show("poolWrap", false); return; }   // hidden only while the chain has no pools yet
-  show("poolWrap", true);
-  const mine = $("poolMine"), sel = $("poolSelect");
-  const me = state.wallet ? state.wallet.address : "";
-  const bonded = BigInt((acc && acc.bonded) || 0);
-  // my status: delegating / running a pool / neither
-  if (acc && acc.pool_to) {
-    const p = (d.pools || []).find((x) => x.address === acc.pool_to);
-    mine.innerHTML = escapeHtml(i18("spool.mineDelegating", "Your savings ({n} NADO) are delegated to {p} — fee {f}, {a}.", {
-      n: rawToNado(bonded), p: (p && p.label) ? p.label + " (" + acc.pool_to.slice(0, 10) + "…)" : acc.pool_to.slice(0, 12) + "…",
-      f: poolPct(p ? p.fee_bps : 0), a: p && p.attested ? i18("spool.attestedYes", "producing") : i18("spool.attestedNo", "NOT producing — its device lease lapsed") }));
-  } else if (acc && "pool_open" in acc) {
-    const p = (d.pools || []).find((x) => x.address === me) || {};
-    mine.innerHTML = escapeHtml(i18("spool.mineRunning", "You run a pool: {n} NADO delegated by {m} delegator(s), fee {f}, room {r} NADO, {o}.", {
-      n: nadoShort(p.pooled), m: p.members || 0, f: poolPct(acc.pool_fee_bps), r: nadoShort(p.room),
-      o: Number(acc.pool_open) === 1 ? i18("spool.isOpen", "open") : i18("spool.isClosed", "closed") }));
-    if ($("poolFee") && document.activeElement !== $("poolFee")) $("poolFee").value = (Number(acc.pool_fee_bps || 0) / 100).toString();
-    if ($("poolLabel") && document.activeElement !== $("poolLabel")) $("poolLabel").value = acc.pool_label || "";
-    if ($("poolMin") && document.activeElement !== $("poolMin")) $("poolMin").value = rawToNado(BigInt(acc.pool_min || 0));
-    if ($("poolMax") && document.activeElement !== $("poolMax")) $("poolMax").value = rawToNado(BigInt(acc.pool_max || 0));
-    if ($("poolOpen")) $("poolOpen").checked = Number(acc.pool_open) === 1;
-    show("btnPoolClose", true);
-  } else {
-    show("btnPoolClose", false);
-    const solo = (d.total_weight && d.bonded_slots_per_day && bonded > 0n)
-      ? " " + i18("spool.solo", "On their own they earn ≈{x}/day per 100 NADO — a pool only helps if its line beats that.",
-          // total_weight is in SHARES (B_MIN = min_delegation raw each); 100 NADO = 100e10 / min_delegation shares (2026-09-08: a Czech
-          // wallet read "≈143238330170.778/den" because this divided raw by shares)
-          { x: (Number(d.bonded_slots_per_day) * (Number(d.bonded_producer_cut || 0) / 1e10) * ((100e10 / Number(d.min_delegation || 1e11)) / Number(d.total_weight))).toFixed(3) }) : "";
-    mine.textContent = bonded > 0n
-      ? i18("spool.mineNone", "Your {n} NADO of savings are not delegated.", { n: nadoShort(bonded) }) + solo
-      : i18("spool.mineNoStake", "Bond some savings first, then delegate them here.");
-  }
-  // the picker: open, attested pools with room, cheapest first
-  const opts = (d.pools || []).filter((p) => p.open === 1 && p.address !== me && !p.delegating);
-  // ≈ NADO/day per 100 NADO delegated, after the fee: the pool's share of bonded slots × producer cut, spread over its stake
-  const yieldOf = (p) => {
-    const tot = Number(d.total_weight || 0), w = Number(p.weight || 0), st = Number(p.own || 0) + Number(p.pooled || 0);
-    if (!tot || !w || !st) return null;
-    return Number(d.bonded_slots_per_day || 0) * (w / tot) * (Number(d.bonded_producer_cut || 0) / 1e10) * (1 - Number(p.fee_bps || 0) / 10000) / (st / 1e10) * 100;
-  };
-  opts.forEach((p) => { p._y = yieldOf(p); });
-  opts.sort((a, b) => (b._y || 0) - (a._y || 0));           // best net yield first (the relay's order is fee-first)
-  sel.innerHTML = "";
-  if (!opts.length) { const o = document.createElement("option"); o.value = ""; o.textContent = i18("spool.none", "No open pools yet"); sel.appendChild(o); }
-  for (const p of opts) {
-    const o = document.createElement("option"); o.value = p.address;
-    const y = p._y != null ? " · " + i18("spool.yieldShort", "≈{x}/day per 100", { x: p._y >= 1 ? p._y.toFixed(2) : p._y.toFixed(3) }) : "";
-    o.textContent = `${p.label || p.address.slice(0, 12) + "…"} · ${i18("spool.feeShort", "fee")} ${poolPct(p.fee_bps)}${y} · ${i18("spool.roomShort", "room")} ${nadoShort(p.room)} · ${p.members} ${i18("spool.membersShort", "delegators")}${p.attested ? "" : " · " + i18("spool.notAttestedShort", "not producing")}`;
-    sel.appendChild(o);
-  }
-  if ($("btnUndelegate")) $("btnUndelegate").disabled = !(acc && acc.pool_to);
-  if ($("btnDelegate")) $("btnDelegate").disabled = !opts.length || bonded <= 0n;
-}
-async function poolAction(kind) {
-  if (!state.wallet) return;
-  const btn = $(kind === "pool" ? "btnPoolSave" : kind === "close" ? "btnPoolClose" : kind === "delegate" ? "btnDelegate" : "btnUndelegate");
-  let data = {};
-  try {
-    if (kind === "close") {
-      data = { close: 1 };
-    } else if (kind === "pool") {
-      const fee = Math.round(Number($("poolFee").value || 0) * 100);
-      if (!(fee >= 0 && fee <= 10000)) throw new Error(i18("spool.badFee", "Fee must be 0–100 %."));
-      const mn = nadoToRaw($("poolMin").value || "10"), mx = nadoToRaw($("poolMax").value || "1000000");
-      data = { fee_bps: fee, open: $("poolOpen").checked ? 1 : 0, min: Number(mn), max: Number(mx), label: ($("poolLabel").value || "").slice(0, 32) };
-    } else if (kind === "delegate") {
-      const to = $("poolSelect").value; if (!to) throw new Error(i18("spool.none", "No open pools yet"));
-      data = { to };
-    }
-  } catch (e) { setMsg("poolMsg", e.message, "err"); return; }
-  const p = kind === "delegate" ? ((_poolsCache && _poolsCache.pools) || []).find((x) => x.address === data.to) : null;
-  const ok = await uiConfirm({
-    title: kind === "close" ? i18("spool.close", "Close my pool (releases every delegator)") : kind === "pool" ? i18("spool.save", "Save pool terms") : kind === "delegate" ? i18("spool.delegate", "Delegate my savings") : i18("spool.undelegate", "Undelegate"),
-    rows: kind === "pool" ? [
-      { k: i18("spool.feeShort", "fee"), v: poolPct(data.fee_bps) }, { k: i18("spool.open", "Open to new delegators"), v: data.open ? i18("spool.isOpen", "open") : i18("spool.isClosed", "closed") },
-      { k: i18("spool.min", "Minimum delegation (NADO)"), v: rawToNado(BigInt(data.min)) + " NADO" }, { k: i18("spool.max", "Maximum total (NADO, up to 1,000)"), v: rawToNado(BigInt(data.max)) + " NADO" } ]
-    : kind === "delegate" ? [ { k: i18("spool.pick", "Delegate to a pool"), v: (p && p.label) || data.to.slice(0, 16) + "…" }, { k: i18("spool.feeShort", "fee"), v: poolPct(p ? p.fee_bps : 0) } ] : [],
-    note: kind === "close" ? i18("spool.closeNote", "Your pool's terms are removed and every delegator is released in the same block; their coins stay theirs. Your own stake keeps producing on its own.")
-        : kind === "delegate" ? i18("spool.delegateNote", "Your coins stay in your account. The pool produces with them and the chain pays your share in every block it wins. You can undelegate any time.")
-        : kind === "undelegate" ? i18("spool.undelegateNote", "Your savings stop producing through the pool from the next block.") : i18("spool.saveNote", "New terms apply from the next block; existing delegators keep their place."),
-  });
-  if (!ok) { setMsg("poolMsg", i18("msg.cancelled", "Cancelled."), null); return; }
-  if (btn) btn.disabled = true;
-  try {
-    const targetBlock = await nextTargetBlock();
-    const tx = buildPoolTx(state.wallet, kind === "close" ? "pool" : kind, data, targetBlock, nowSeconds());
-    if (await submitAndReport(tx, kind, "poolMsg")) setTimeout(() => refreshDashboard().catch(() => {}), 2500);
-  } catch (e) { setMsg("poolMsg", kind + " " + i18("msg.failed", "failed:") + " " + e.message, "err"); }
-  finally { if (btn) btn.disabled = false; }
-}
-
 /* AUTO-BOND: compound a configured % of newly-mined spendable earnings straight into bonded stake.
  * Mirrors the node's core_loop.maybe_auto_bond EXACTLY: throttled to one bond per epoch, accrues
  * below the AUTO_BOND_MIN_RAW dust floor instead of emitting fee-dominated dust txs. No upper stop:
@@ -10033,10 +9877,6 @@ function wireEvents() {
   };
   try { if (localStorage.getItem("nado_attest_via") === "remote") state.attestVia = "remote"; } catch (e) {}
   if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; state.tapArmed = false; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
-  if ($("btnPoolSave")) $("btnPoolSave").onclick = () => poolAction("pool");
-  if ($("btnPoolClose")) $("btnPoolClose").onclick = () => poolAction("close");
-  if ($("btnDelegate")) $("btnDelegate").onclick = () => poolAction("delegate");
-  if ($("btnUndelegate")) $("btnUndelegate").onclick = () => poolAction("undelegate");
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");

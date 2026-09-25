@@ -178,79 +178,23 @@ def bond_ramp_weight(base_shares: int, bond_since, epoch: int) -> int:
 
 
 def open_lane_draw_registry(open_registry: dict, slot: int) -> dict:
-    """The registry the OPEN-lane draw runs over. Between OPEN_LANE_EXCLUDE_BONDED_HEIGHT and
-    OPEN_LANE_EXCLUDE_RETIRE_HEIGHT it was attested identities WITHOUT a bonded share; outside that window it is the
-    registry unchanged (one device, one slot, staked or not — see protocol.py for why the exclusion was retired).
-    Never mutates its argument."""
-    from protocol import OPEN_LANE_EXCLUDE_BONDED_HEIGHT, OPEN_LANE_EXCLUDE_RETIRE_HEIGHT
-    # RETIRED (OPEN_LANE_EXCLUDE_RETIRE_HEIGHT, protocol.py): stakers are drawn again — the exclusion was per-account
-    # and free keys void it (park the surplus in a second wallet). One device is one open slot, staked or not.
-    # INVARIANT: this is the ONE place the open draw filters; /mining_status mirrors it through the same function, so
-    # `open_excluded_bonded` follows automatically and must never be recomputed at a call site.
-    if OPEN_LANE_EXCLUDE_RETIRE_HEIGHT and slot >= OPEN_LANE_EXCLUDE_RETIRE_HEIGHT:
-        return open_registry
-    if not OPEN_LANE_EXCLUDE_BONDED_HEIGHT or slot < OPEN_LANE_EXCLUDE_BONDED_HEIGHT:
-        return open_registry
-    return {a: i for a, i in open_registry.items() if int(i.get("bonded", 0) or 0) < B_MIN}
-
-
-def bond_weight(stake: int, knee: int) -> int:
-    """Producing weight of one attested device (protocol.BOND_WEIGHT_CURVE_HEIGHT): the stake itself up to `knee`, then
-    knee·(m − (m−1)·knee/stake) with m = BOND_TAIL_BPS/10000 — continuous at the knee with slope 1, saturating at m·knee.
-    Integer arithmetic only (consensus)."""
-    from protocol import BOND_TAIL_BPS
-    stake, knee = int(stake), int(knee)
-    if stake <= knee or knee <= 0:
-        return max(0, stake)
-    return (knee * BOND_TAIL_BPS - (BOND_TAIL_BPS - 10_000) * knee * knee // stake) // 10_000
-
-
-def bond_knee(stake: int, others_total: int) -> int:
-    """This device's knee: max(BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS of the OTHER attested devices' stake)."""
-    from protocol import BOND_DEVICE_CAP, BOND_KNEE_OTHERS_BPS
-    return max(int(BOND_DEVICE_CAP), int(others_total) * BOND_KNEE_OTHERS_BPS // 10_000)
+    """The registry the OPEN-lane draw runs over: the whole attested registry, staked or not — one device, one slot.
+    (Gen 25 excluded stakers between OPEN_LANE_EXCLUDE_BONDED_HEIGHT and OPEN_LANE_EXCLUDE_RETIRE_HEIGHT; both gates
+    were 0 / 1 from generation 26 on, so the filter never ran and was deleted — protocol.py "THE SAVINGS LANE IS
+    PLAIN STAKE".) Returns its argument itself, never a copy.
+    INVARIANT: this is the ONE place the open draw would filter; /mining_status mirrors it through the same function,
+    so `open_excluded_bonded` follows automatically and must never be recomputed at a call site."""
+    return open_registry
 
 
 def bonded_producer_registry(bonded_registry: dict, open_registry: dict, slot: int) -> dict:
-    """The registry the bonded PRODUCER draw runs over (protocol.BOND_DEVICE_CAP_HEIGHT, doc/device-attestation.md
-    §"Savings-lane cap"): from the gate, only ATTESTED identities (present in the open registry as of the same parent —
-    a live device lease) with their stake capped at BOND_DEVICE_CAP per device; unattested stake weighs zero there.
-    From BOND_ATTEST_OPTIONAL_HEIGHT the lease is no longer required — every non-delegating bonded identity is drawn
-    on the curve (operator decision 2026-09-08, protocol.py).
-    LIVENESS: when no attested bonded identity exists the whole registry is returned unchanged (the cap has no attested
-    set to protect and must never stall a bonded slot). Below the gate: the registry unchanged. Never touches the
-    entries it was given (copies), never used for fork-choice weight or the quorum."""
-    from protocol import BOND_DEVICE_CAP_HEIGHT, BOND_DEVICE_CAP, POOL_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, BOND_ATTEST_OPTIONAL_HEIGHT, POOL_RETIRE_HEIGHT, BOND_CURVE_RETIRE_HEIGHT
-    if not BOND_DEVICE_CAP_HEIGHT or slot < BOND_DEVICE_CAP_HEIGHT:
-        return bonded_registry
-    # PLAIN STAKE from BOND_CURVE_RETIRE_HEIGHT (protocol.py): no device filter, no pools, no cap, no curve — the raw
-    # registry, weight = stake. Everything below this line is history (blocks 4200-19399) kept for replay.
-    if BOND_CURVE_RETIRE_HEIGHT and slot >= BOND_CURVE_RETIRE_HEIGHT:
-        return bonded_registry
-    # POOLS LIVE ONLY BETWEEN POOL_HEIGHT AND POOL_RETIRE_HEIGHT (protocol.py): outside that window pool_to / pooled are
-    # ignored and every bonded identity is drawn on its own stake. INVARIANT: this is the one place the draw reads
-    # delegation; the reward split and the wallet mirror follow the same two constants.
-    pools = bool(POOL_HEIGHT and slot >= POOL_HEIGHT and not (POOL_RETIRE_HEIGHT and slot >= POOL_RETIRE_HEIGHT))
-    curve = bool(BOND_WEIGHT_CURVE_HEIGHT and slot >= BOND_WEIGHT_CURVE_HEIGHT)
-    # ATTESTATION REQUIRED ONLY BEFORE BOND_ATTEST_OPTIONAL_HEIGHT (protocol.py: the device bought nothing against a
-    # whale with three phones and idled a fifth of the stake). From that height every non-delegating bonded identity is
-    # a candidate; the knee/tail curve is the only shaping. INVARIANT: the gate lives HERE, in the one function the
-    # draw, the wallet's /mining_status and the tests all call — never re-filter by open_registry at a call site.
-    attested_only = not (BOND_ATTEST_OPTIONAL_HEIGHT and slot >= BOND_ATTEST_OPTIONAL_HEIGHT)
-    stakes = {}
-    for address, info in bonded_registry.items():
-        if pools and info.get("pool_to"):
-            continue                                   # a delegator's stake produces through its pool, never on its own
-        if (not attested_only) or address in open_registry:
-            stakes[address] = int(info.get("bonded", 0)) + (int(info.get("pooled", 0)) if pools else 0)
-    total = sum(stakes.values())
-    out = {}
-    for address, stake in stakes.items():
-        capped = dict(bonded_registry[address])
-        # THE CURVE (BOND_WEIGHT_CURVE_HEIGHT): knee from the OTHER devices' stake, bounded tail above it; before it the cliff
-        capped["bonded"] = bond_weight(stake, bond_knee(stake, total - stake)) if curve else min(stake, BOND_DEVICE_CAP)
-        out[address] = capped
-    return out if out else bonded_registry
+    """The registry the bonded PRODUCER draw runs over: the raw bonded registry, weight = stake — no device filter, no
+    pools, no cap, no curve. (Gen 25 shaped it with BOND_DEVICE_CAP_HEIGHT, BOND_WEIGHT_CURVE_HEIGHT, POOL_HEIGHT and
+    their retire gates; from generation 26 on every one of them resolved to "plain stake" for every slot, so the
+    shaping was deleted — protocol.py "THE SAVINGS LANE IS PLAIN STAKE".) Returns its argument itself, never a copy.
+    INVARIANT: the draw, the wallet's /mining_status and the tests all call this one function — never re-filter the
+    bonded registry at a call site."""
+    return bonded_registry
 
 
 def _bonded_ramped_weight(epoch: int):
@@ -333,8 +277,8 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         The instant ANY stake bonds, bonded slots return to the bonded lane and the ceiling re-applies.
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
     bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
-    # SAVINGS-LANE CAP PER ATTESTED DEVICE (BOND_DEVICE_CAP_HEIGHT): the draw registry is the attested, per-device-capped
-    # subset; the `bonded_registry` argument keeps its meaning for the empty-lane policy below and for fork weight.
+    # the draw registry (mining_ops.bonded_producer_registry: plain stake); the `bonded_registry` argument keeps its
+    # meaning for the empty-lane policy below and for fork weight.
     draw_registry = bonded_producer_registry(bonded_registry, open_registry, slot)
     def _bonded_draw():
         """Bonded-lane draw with the tenure ramp applied, plus a deterministic un-ramped
@@ -350,8 +294,7 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         if w is None and draw_registry:
             w = _weighted_draw(draw_registry, _bonded_shares, beacon, slot)
         return w
-    # FREE LANE = CAPITAL-FREE (OPEN_LANE_EXCLUDE_BONDED_HEIGHT): the open draw runs over attested identities WITHOUT a
-    # bonded share; the full `open_registry` stays the attested set for the bonded cap above.
+    # the open draw registry (open_lane_draw_registry: every attested identity, staked or not)
     open_draw = open_lane_draw_registry(open_registry, slot)
     if lane_of(slot, beacon) == "open":
         winner = _weighted_draw(open_draw, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
