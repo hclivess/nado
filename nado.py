@@ -2858,6 +2858,14 @@ def _static_cached(full, build):
     return built
 
 
+# Classic scripts nothing imports and that import nothing: stamped by their OWN mtime, not the global JS epoch, so a
+# push that does not touch them keeps their URL — and the CDN copy. i18n.js is 7.4 MB (2.2 MB gzipped); on the epoch
+# it got a new URL at every push, every edge re-pulled it cold from the origin in 10-22 s, and 2 of 5 fetches right
+# after the betanet-8 pushes arrived TRUNCATED, which leaves the whole wallet in untranslated defaults ("via {h}").
+# Coherency is kept: its URL changes exactly when its bytes do. Never add a file here that imports or is imported.
+_OWN_STAMP_JS = frozenset(("i18n.js",))
+
+
 def _stamp_static_refs(html):
     """Rewrite src/href="/static/<asset>" references in `html` (bytes) to .../<asset>?v=<version>. A .js
     asset is stamped with the global JS epoch (so all modules bust together); other assets use their own
@@ -2866,7 +2874,8 @@ def _stamp_static_refs(html):
     def sub(m):
         rel = m.group(2)[len(b"/static/"):].decode()
         try:
-            v = jsep if rel.endswith(".js") else int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
+            v = jsep if (rel.endswith(".js") and rel not in _OWN_STAMP_JS) \
+                else int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
         except (OSError, UnicodeDecodeError):
             return m.group(0)
         return m.group(1) + m.group(2) + b"?v=%d" % v + m.group(3)

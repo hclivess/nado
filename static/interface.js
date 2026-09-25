@@ -374,7 +374,12 @@ function looksLikeAlias(s) {
   return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !isAddressShaped(s || "") && !isSendableReserved(s);
 }
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
-function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
+// Before i18n.js has loaded, the English fallback still gets its {placeholders} filled: returning it raw rendered
+// "via {h}" in the header of every fresh load that drew it early (betanet-8 walk, 2026-09-25).
+function i18(k, fb, vars) {
+  if (typeof window !== "undefined" && window.t) return window.t(k, fb, vars);
+  return String(fb != null ? fb : k).replace(/\{(\w+)\}/g, (m, n) => (vars && vars[n] != null ? String(vars[n]) : m));
+}
 async function resolveAlias(name) {
   try {
     name = (name || "").trim().toLowerCase();   // registry names are all-lowercase
@@ -8797,9 +8802,14 @@ async function msgPublishPrekey() {
   try {
     const acc = await getAccount(state.wallet.address);
     if (acc && acc.kem_pub === id.kemPub) { state._msgPublished = state.wallet.address; return; }  // already bound
+    // A brand-new wallet has no account on chain yet, and the relay refuses its tx ("Empty account"). Wait for the
+    // first coins instead of submitting a tx that cannot land; the next call retries.
+    if (!acc) return;
     const targetBlock = await nextTargetBlock();
-    await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds()));
-    state._msgPublished = state.wallet.address;   // one publish per session; confirms on-chain within a block
+    const out = await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds()));
+    // Only an ACCEPTED submit counts: a refusal returns result:false without throwing, and marking it published
+    // left a newly funded wallet unreachable by DM for the rest of the session.
+    if (out && out.data && out.data.result) state._msgPublished = state.wallet.address;
   } catch (e) {}
 }
 
