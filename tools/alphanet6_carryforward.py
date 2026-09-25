@@ -56,6 +56,20 @@ def build():
     uws = d.get("unshield_withdrawals", {})          # pending unshield exits (ditto)
     shielded = d.get("shielded", {})
     cids = set(contracts)
+    # THE EXEC STATE MUST BE AT THE L1 TIP. Deposits (bridge, faucet, shield) and dividend inflow in blocks the exec
+    # node has not applied yet would otherwise stay stranded in keyless escrow. The runbook stops the services only
+    # after the exec cursor has caught up with the L1 tip (see doc/reroll.md step 5); refuse otherwise.
+    # The L1 tip comes from the operator (`--l1-tip N`, read from /status just before the services stop): the store
+    # keeps no tip accessor, and guessing one would defeat the check.
+    _tip = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--l1-tip" and i + 1 < len(sys.argv):
+            _tip = int(sys.argv[i + 1])
+    if "--allow-gap" not in sys.argv:
+        if _tip is None:
+            raise SystemExit("pass --l1-tip <height from /status> (or --allow-gap after reconciling the gap by hand)")
+        if int(d.get("cursor", -1)) < _tip:
+            raise SystemExit(f"exec cursor {d.get('cursor')} is behind the L1 tip {_tip}: let exec catch up first")
 
     assert not shielded.get("commitments"), \
         "shielded pool is NOT empty — holders would lose notes; have them unshield before the reroll"
@@ -90,6 +104,24 @@ def build():
         for addr, amt in pot_refunds_for(cid, contracts[cid], pot, d.get("zk_addrs") or {}).items():
             pot_refunds[addr] = pot_refunds.get(addr, 0) + amt
             credit(addr, amt)
+    # ALREADY-CLAIMED EXITS ARE NOT PAID AGAIN (review 2026-09-25, measured). The exec node applies only FINALIZED L1
+    # blocks, so exec_state trails L1 by ~45 blocks: a withdrawal claimed on L1 in that gap is already in its owner's
+    # L1 balance while its exec record still exists. Folding it again paid it twice — and Δ stayed 0, because the
+    # debit lands on the reserved escrow account. Drop every record whose L1 nullifier is set.
+    dws = {n: w for n, w in dws.items() if not kv_ops.dividend_nullifier_exists(w["addr"], str(n))}
+    bws = {n: w for n, w in bws.items() if not kv_ops.bridge_nullifier_exists("default", w["addr"], str(n))}
+    uws = {n: w for n, w in uws.items() if not kv_ops.shield_nullifier_exists(w["addr"], str(n))}
+    # PRINT EVERY NON-FAUCET POT that fell to the deployer, with the owners its table slots name (field 1 = owner
+    # digest, field 2 = amount; zk_addrs maps a digest to an address), so the operator can refund them by hand after
+    # the reroll. Printing only — the fold above is unchanged, so conservation is unaffected.
+    _z = d.get("zk_addrs") or {}
+    for cid, pot in sorted(pot_bridge.items()):
+        if cid == "faucet" or not pot:
+            continue
+        sl = {int(k): int(v) for k, v in ((contracts[cid].get("storage") or {}).get("slots") or {}).items()}
+        ids = sorted({k & 0xffffffff for k in sl if k >> 32 in (1, 2)})
+        owners = [(_z.get(str(sl.get((1 << 32) + i))) or "?", sl.get((2 << 32) + i, 0)) for i in ids]
+        print(f"  MANUAL REFUND? {cid[:16]} pot {pot} raw -> deployer; table owners/amounts: {owners[:8]}")
     # 4) fold uncollected dividends + pending dividend withdrawals
     for a, v in dividend.items():
         credit(a, _num(v))
@@ -125,9 +157,53 @@ def build():
     if carried != l1_total:
         raise SystemExit("conservation failed — refusing to write")
 
-    return sorted(({"address": a, "balance": e["balance"], "bonded": e["bonded"]}
-                   for a, e in alloc.items() if e["balance"] or e["bonded"]),
-                  key=lambda e: e["address"])
+    # IDENTITY CARRY (gen 25 -> 26, operator decision 2026-09-25: "carry them"). Per account: the recorded public key
+    # (keeps ADDRESS_KEY_BIND effective from block 1 — without it every account would be "never sent" again), the
+    # messaging key, registration + fidelity, the device key/credential and any account-authentication config. Only
+    # fields present on the old chain are written, so an entry without them is byte-identical to the old format.
+    ids = {}
+    for address, doc in kv_ops.iter_accounts():
+        x = {}
+        for f in CARRY_FIELDS:
+            v = doc.get(f)
+            if v not in (None, "", 0, "0"):
+                x[f] = v
+        if x:
+            ids[address] = x
+    out = []
+    for a in sorted(set(alloc) | set(ids)):
+        e = alloc.get(a, {"balance": 0, "bonded": 0})
+        if not (e["balance"] or e["bonded"] or a in ids):
+            continue
+        row = {"address": a, "balance": e["balance"], "bonded": e["bonded"]}
+        row.update(ids.get(a, {}))
+        out.append(row)
+    print(f"identity fields carried for {len(ids)} accounts")
+    return out
+
+
+# The account fields that carry across a reroll besides balance/bonded (genesis.CARRY_FIELDS must match).
+CARRY_FIELDS = ("public_key", "kem_pub", "registered", "fidelity", "devkey", "devcred", "auth")
+
+
+def build_extra():
+    """State outside account records that carries too: device bindings (re-stamped at epoch 0, mode kept) and aliases.
+    Written to genesis_data/genesis_carry.dat; genesis seeds it when present."""
+    kv_ops.init_env()
+    devbind = sorted([k, a, m] for (k, a, _e, m) in kv_ops.devbind_rows())
+    aliases = sorted([n.decode() if isinstance(n, bytes) else n, o.decode() if isinstance(o, bytes) else o]
+                     for n, o in kv_ops.iter_db_pairs("aliases"))
+    hist = []
+    for address, doc in kv_ops.iter_accounts():
+        if doc.get("auth"):
+            rows = kv_ops.auth_history(address)
+            if rows:
+                _h, ver, keys = rows[-1]                         # the CURRENT config, effective from block 0
+                hist.append([address, int(ver), list(keys)])
+    print(f"carried: {len(devbind)} device bindings, {len(aliases)} aliases, {len(hist)} auth histories")
+    from protocol import CHAIN_GENERATION as _G
+    # "generation" = the chain this carry SEEDS (the next one); genesis refuses a file naming any other generation.
+    return {"generation": int(_G) + 1, "devbind": devbind, "aliases": aliases, "auth_history": sorted(hist)}
 
 
 def main():
@@ -144,6 +220,12 @@ def main():
         with open(repo, "w") as f:
             json.dump(alloc, f, indent=0, sort_keys=True)
         print(f"\nWROTE {path} and genesis_data/genesis_alloc.dat  ({len(alloc)} accounts)")
+        extra = build_extra()
+        xpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "genesis_data", "genesis_carry.dat")
+        with open(xpath, "w") as f:
+            json.dump(extra, f, indent=0, sort_keys=True)
+        print(f"WROTE genesis_data/genesis_carry.dat")
     else:
         print("\n(dry run — pass --write to persist genesis_alloc.dat)")
 

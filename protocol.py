@@ -1568,7 +1568,7 @@ def dividend_weight(fidelity, epoch: int) -> int:
     in the set is the grant). Gen 24 skipped fidelity 1 (probation) because identities were free to farm; gen 25
     identities are attested devices, so the line is unbroken. `epoch` is kept in the signature so the live path and
     the fraud-proof replay call the same function with the same arguments."""
-    cap = DIVIDEND_WEIGHT_CAP_V2 if (DIVIDEND_WEIGHT_CAP_V2_EPOCH and int(epoch) >= DIVIDEND_WEIGHT_CAP_V2_EPOCH) else FIDELITY_CAP
+    cap = DIVIDEND_WEIGHT_CAP_V2 if int(epoch) >= DIVIDEND_WEIGHT_CAP_V2_EPOCH else FIDELITY_CAP   # no truthiness guard: the reroll value is 0 = from epoch 0, not "off"
     return 0 if fidelity is None or int(fidelity) < 0 else min(int(fidelity), cap)
 
 

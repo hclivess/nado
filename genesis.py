@@ -1,4 +1,6 @@
 import asyncio
+# must match tools/alphanet6_carryforward.CARRY_FIELDS
+CARRY_FIELDS = ("public_key", "kem_pub", "registered", "fidelity", "devkey", "devcred", "auth")
 import json
 import os
 
@@ -169,6 +171,41 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
             if carried:
                 kv_ops.totals_add(carried, 0)
         logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances ({carried} raw) from the prior chain")
+        # IDENTITY CARRY (gen 26, operator decision 2026-09-25): the optional per-account fields the carry-forward tool
+        # writes (tools/alphanet6_carryforward.CARRY_FIELDS). Only present in an allocation built for a generation that
+        # carries identities, so an older allocation seeds byte-identically to before. Registered identities get a
+        # lease at epoch 0, like the open-lane genesis identities above.
+        with kv_ops.write_txn():
+            _ids = 0
+            for e in sorted(alloc, key=lambda x: x["address"]):
+                present = [f for f in CARRY_FIELDS if f in e]
+                for f in present:
+                    kv_ops.account_set_field(e["address"], f, e[f])
+                if present:
+                    _ids += 1
+                if str(e.get("registered", "0")) not in ("0", "", "None"):
+                    kv_ops.recert_put(address=e["address"], epoch=0)
+        if _ids:
+            logger.warning(f"RELAUNCH: carried identity fields for {_ids} accounts")
+
+    # STATE OUTSIDE ACCOUNT RECORDS (device bindings, aliases, account-auth history), seeded only when the carry file
+    # names THIS generation — so no node replaying an earlier generation's genesis is ever affected by it.
+    carry_path = (os.environ.get("NADO_GENESIS_CARRY")        # a rehearsal points this at a scratch copy
+                  or os.path.join(os.path.dirname(os.path.abspath(__file__)), "genesis_data", "genesis_carry.dat"))
+    if os.path.exists(carry_path):
+        from protocol import CHAIN_GENERATION as _GEN
+        with open(carry_path) as cf:
+            carry = json.load(cf)
+        if int(carry.get("generation", -1)) == int(_GEN):
+            with kv_ops.write_txn():
+                for key, addr, mode in sorted(carry.get("devbind") or []):
+                    kv_ops.devbind_set(key, addr, 0, mode)
+                for name, owner in sorted(carry.get("aliases") or []):
+                    kv_ops.alias_put(name, owner)
+                for addr, ver, keys in sorted(carry.get("auth_history") or []):
+                    kv_ops.auth_history_put(addr, 0, int(ver), list(keys))
+            logger.warning(f"RELAUNCH: carried {len(carry.get('devbind') or [])} device bindings, "
+                           f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->
