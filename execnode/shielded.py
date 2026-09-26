@@ -238,7 +238,7 @@ class ShieldedPool:
 # INVARIANT proven: every input commitment is in the tree at `root`; each nullifier = H(spend_secret,rho) and
 # matches its input; each out_commitment = H(value,owner,rho); and  sum(inputs)+public_value == sum(outputs)+fee.
 
-def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
+def verify_transfer(public: dict, proof: dict, root_is_known, wide_depth=None) -> tuple:
     """Verify a shielded transfer. `root_is_known(root)` -> bool tells us the `root` is one the pool actually
     held (anchor freshness). Returns (ok, reason).
 
@@ -249,7 +249,8 @@ def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
     below stays authoritative for real spends until then. The signature of THIS function does not change."""
     if isinstance(proof, dict) and proof.get("stark"):
         from execnode.stark import joinsplit_transfer
-        return joinsplit_transfer.verify_transfer(public, proof, root_is_known)
+        # wide_depth: the WIDE pool's depth in force for the block being judged (ZK_HARDEN_HEIGHT), from the pool
+        return joinsplit_transfer.verify_transfer(public, proof, root_is_known, wide_depth=wide_depth)
     try:
         root = public["root"]
         nfs = public["nullifiers"]

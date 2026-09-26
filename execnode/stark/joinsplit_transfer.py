@@ -39,8 +39,9 @@ def prove_output_commitments(outputs):
     return {"outputs": proofs}, cms
 
 
-def verify_transfer(public, proof, root_is_known):
-    """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle)."""
+def verify_transfer(public, proof, root_is_known, wide_depth=None):
+    """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle). `wide_depth` is the wide
+    pool's depth in force for the block being judged; the state passes its pool's (see the joinsplit3 branch)."""
     bundle = proof.get("stark") or {}
     # H-4: an unshield exit's destination (proof["withdraw_addr"]) is bound INTO the proof's transcript, so
     # a front-runner can't copy the bundle and swap the address — a different address diverges the transcript
@@ -53,11 +54,17 @@ def verify_transfer(public, proof, root_is_known):
     # WIDE join-split (SHIELD_WIDE_HEIGHT, Z3): alghash2 digests, the wide pool's depth. The caller's
     # root_is_known must be the WIDE pool's (state._apply_wide_transfer passes it); public digests ride as 64-hex.
     if "joinsplit3" in bundle:
-        from execnode.stark import joinsplit3
-        from execnode.shielded_wide import TREE_DEPTH as WIDE_DEPTH
+        from execnode.stark import joinsplit3, stark as _stk
+        from execnode.shielded_wide import TREE_DEPTH, DEPTH_HARDENED
+        # D IS PINNED TO THE DEPTH IN FORCE, NEVER READ FROM THE PROOF (ZK_HARDEN_HEIGHT: 12 below, 48 from it). The exec
+        # state passes its pool's depth (ExecState.wide_enter put it at depth_at(applying height)); a caller that passes
+        # none gets the depth of the proof rules in force (stark.rules_at, set by _apply_block for the block's height;
+        # unset means STRICT, i.e. 48 — a caller that cannot say which block it judges refuses a depth-12 proof loudly).
+        if wide_depth is None:
+            wide_depth = DEPTH_HARDENED if _stk.current_rules().zk_harden else TREE_DEPTH
         b = bundle["joinsplit3"]
         try:
-            if b["proof"].get("D") != WIDE_DEPTH:
+            if b["proof"].get("D") != wide_depth:
                 return False, "unexpected join-split tree depth"
             return joinsplit3.verify_transfer(b["proof"], b["root"], b["nf"], b["cm_out1"], b["cm_out2"],
                                               b["public_value"], b["fee"], root_is_known, aux=aux)

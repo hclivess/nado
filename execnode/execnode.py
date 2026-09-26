@@ -2610,6 +2610,10 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
             # prover replays — not the previous one. `>= 1`: gen 25's EXEC_CTX_CURRENT_HEIGHT, 1 from gen 26
             # (deleted); genesis (h = 0, applied from cursor -1) keeps the order it always had.
             _st.cursor, _st.block_ts = h, _cc(h)
+    # THE WIDE POOL'S DEPTH FOLLOWS THE BLOCK (ZK_HARDEN_HEIGHT: 12 -> 48), for every block and in step with the cursor
+    # above, so no await below ever exposes a state whose cursor is past the gate and whose pool is not (a snapshot
+    # taken then would be refused by _restore). The replaced pool is kept so a DA stall puts it back with the cursor.
+    _prev_wide = {id(_st): _st.wide_enter(h) for _st in states_map.values() if hasattr(_st, "wide_enter")}
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
     resolved = {}
@@ -2637,6 +2641,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                         print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
                     for _st in states_map.values():           # EXEC-2: nothing of block h applied, so h is NOT done
                         _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
+                        if _prev_wide.get(id(_st)) is not None:    # ...and so is the pool it deepened (ZK_HARDEN)
+                            _st.wide_restore(_prev_wide[id(_st)])
                     return False
                 resolved[tx.get("txid")] = (inject, bb.decode())
             except Exception as e:
@@ -3583,6 +3589,7 @@ async def tail_loop():
                         # attestations until a quorum-verified bootstrap replaces the state.
                         state.replay_gap = True
                         state.cursor = h
+                        state.wide_enter(h)        # ZK_HARDEN_HEIGHT: the pool's depth follows the cursor, body or not
                         continue
                     _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
                     if not await _apply_block(session, states, state, block, verbose=True):
@@ -4565,7 +4572,8 @@ async def h_field_shielded(request):
         pos = wp.position(cm) if (cm and len(cm) == 64) else None
         from execnode.stark import znote as _Z
         return web.json_response({"root": _Z.to_hex(wp.root()), "notes": len(wp.commitments),
-                                  "nullifiers": len(wp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": True})
+                                  "nullifiers": len(wp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": True,
+                                  "depth": _wide_depth_next()})
     fp = state.field_pool
     # a field element is < 2^64 (20 digits); CPython's int() refuses > 4300 digits with a ValueError -> 500
     pos = fp.position(int(cm)) if (cm and len(cm) <= 32 and cm.lstrip("-").isdigit()) else None
@@ -4578,6 +4586,16 @@ def _shield_wide_now():
     block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules). From height 1: gen 25's
     SHIELD_WIDE_HEIGHT was 1 from gen 26 and is deleted; only a fresh state (cursor -1) is still below it."""
     return int(state.cursor) + 1 >= 1
+
+
+def _wide_depth_next():
+    """The wide tree depth a wallet must build its path and proof at: the depth in force for the NEXT block (the tip+1
+    rule of _shield_wide_now), shielded_wide.depth_at. Below ZK_HARDEN_HEIGHT that is the pool's own depth, 12. From the
+    block before the gate it is 48 while the pool is still 12 — correct for the proof, which can only land at or past the
+    gate, where the pool is deepened over the same leaves and a depth-48 root over them is an anchor. The wallet reads
+    this and never hard-codes a depth; a response without it means an exec node from before the field (depth 12)."""
+    from execnode.shielded_wide import depth_at
+    return max(state.wide_pool.depth, depth_at(int(state.cursor) + 1))
 
 
 async def h_private_state(request):
@@ -4652,7 +4670,9 @@ async def h_field_leaves(request):
     # ON-DEVICE (the node never sees the witness). Big ints as strings.
     if _shield_wide_now():
         from execnode.stark import znote as _Z
-        return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True})
+        # "depth": the tree the wallet must build its path and proof at (ZK_HARDEN_HEIGHT: 12 -> 48); see _wide_depth_next
+        return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True,
+                                  "depth": _wide_depth_next()})
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})
 
 
