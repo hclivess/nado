@@ -148,6 +148,23 @@ def public_statement(bundle):
     return (bundle["calls_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
+def _exported_shape(pre, v2):
+    """(ok, why): every pre_contracts record is exactly settlement_proofs._export_pre_contracts's shape — runtime
+    "zkvm", code a non-empty object, storage holding only `slots`, and from EXEC_ROOT_V2 the deployer and lock flag.
+    Keep the two in step: a field the exporter adds must be admitted here in the same commit."""
+    want = {"code", "storage", "runtime", "deployer", "upgradable"} if v2 else {"code", "storage", "runtime"}
+    for cid, c in (pre or {}).items():
+        if not isinstance(c, dict) or set(c) != want:
+            return False, f"{str(cid)[:12]}: fields {sorted(c) if isinstance(c, dict) else type(c).__name__}"
+        if c["runtime"] != "zkvm" or not isinstance(c["code"], dict) or not c["code"]:
+            return False, f"{str(cid)[:12]}: not a zkVM record"
+        if not isinstance(c["storage"], dict) or set(c["storage"]) - {"slots"}:
+            return False, f"{str(cid)[:12]}: storage carries more than slots"
+        if v2 and (not isinstance(c["deployer"], str) or not isinstance(c["upgradable"], bool)):
+            return False, f"{str(cid)[:12]}: deployer / upgradable malformed"
+    return True, "ok"
+
+
 def _canonical_pre_contracts(pre, fixed_names=False):
     """(ok, why): every cid is lowercase hex of the live length and every slot key is a canonical decimal.
 
@@ -231,6 +248,15 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
                                                  fixed_names=int(bundle["cursor"]) >= 1)
             if not okc:
                 return False, f"pre_contracts keys are not canonical: {whyc}", None
+        # EVERY RECORD IS AN EXPORTED zkVM RECORD (zk_harden; zk audit 2026-09-26, SETTLE-1). sparse_projection skips
+        # any record whose runtime is not "zkvm", so a PHANTOM record at an in-span deploy's cid changed no pin leaf —
+        # and the event replay below then saw the cid as taken, treated the deploy as refused, and a trustless settle
+        # landed a root without the deploy (reproduced end to end through validate_transaction). Honest bundles carry
+        # exactly what settlement_proofs._export_pre_contracts emits, so anything else is refused.
+        if stark.current_rules().zk_harden:
+            okx, whyx = _exported_shape(bundle["pre_contracts"], ESB.root_v2(int(bundle["cursor"])))
+            if not okx:
+                return False, f"pre_contracts are not exported zkVM records: {whyx}", None
         want_pre = tuple(int(x) % F.P for x in bundle["sparse_pre_root"])
         # EXEC_ROOT_V2: the pin covers the META leaves too (deployer, lock flag, runtime), so the deployer the
         # event replay below judges an in-span upgrade by is the settled one, not the prover's.

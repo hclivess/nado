@@ -140,9 +140,9 @@ class _ZkVM:
     name = "zkvm"
     wants_registry = True         # state.py passes its persistent digest→address registry to run()
 
-    def validate_code(self, code):
+    def validate_code(self, code, height=None):
         from execnode import zkvm
-        return zkvm.validate_code(code)
+        return zkvm.validate_code(code, height=height)   # height: the applying block (ZKVM-2, see zkvm.validate_code)
 
     def run(self, code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
             block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None):

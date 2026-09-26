@@ -1297,7 +1297,7 @@ class ExecState:
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
-                rt.validate_code(code)                    # raises ZkVMError on bad code (caught below)
+                rt.validate_code(code, height=self.applying_height())   # raises ZkVMError (caught below); height: ZKVM-2, mirrored in apply_event
                 # FIXED-NAME deploy (doc/faucet.md §4): a SYSTEM contract may claim a well-known literal
                 # cid instead of the derived hash, so the L1 reserved recipient, the exec ledger key and
                 # the contract address are all the same word. Allowlisted per name to a sole deployer —
@@ -1701,7 +1701,7 @@ class ExecState:
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 try:
-                    rt.validate_code(code)
+                    rt.validate_code(code, height=self.applying_height())   # ZKVM-2, mirrored in apply_event
                 except Exception as e:
                     return f"skip: invalid code ({e})"
                 c["code"] = code
