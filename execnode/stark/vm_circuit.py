@@ -182,6 +182,23 @@ def _in_block(in_block=None):
     return bool(stark.current_rules().in_block_selector) if in_block is None else bool(in_block)
 
 
+def _nop_steps(in_block=None):
+    """NOP IS A REAL INSTRUCTION under zk_harden (ZK_HARDEN_HEIGHT; zk audit 2026-09-26, ZKVM-2). The interpreter has
+    always stepped over NOP (pc + 1, nothing else), while this AIR treated every NOP row as a HALT — so a contract that
+    executed one ran on the exec layer and could never be proven. From the gate the AIR matches the interpreter: a NOP
+    INSIDE a declared call block (P_IN = 1) is an ordinary step — fetched from the program table, pc + 1, registers
+    held — and only a NOP OUTSIDE every block is the padding/halt marker it was built as. It rides the A2 block
+    selector (P_IN), so it needs in_block; programs are also tagged from 1 (build_periodic) so the fetch table's
+    (0,0,0,…) padding row cannot stand in for a fetched instruction now that NOP rows are fetched too."""
+    return bool(stark.current_rules().zk_harden) and _in_block(in_block)
+
+
+def _nop_halts(c, p, steps):
+    """The NOP flag as a HALT: every NOP before the gate; only an out-of-block NOP (padding) after it."""
+    nop = c[F0 + _O["NOP"]]
+    return F.mul(nop, F.sub(1, p[P_IN])) if steps else nop
+
+
 def num_periodic(in_block=None):
     return NUM_PERIODIC + (1 if _in_block(in_block) else 0)
 
@@ -485,8 +502,9 @@ def transitions(bind_io=False, gamma_fp=0, ext=False, in_block=None):
 
     # -- NOP is absorbing (nothing executes after RET / a padding gap) — but NOT across a call boundary,
     #    where the next row is the successor call's (pinned) START row instead of a NOP --
+    _steps = _nop_steps(in_block)                       # ZKVM-2: an in-block NOP steps instead of halting
     def c_absorb(c, n, p, ch):
-        halt = F.add(c[F0 + _O["NOP"]], c[F0 + _O["RET"]])
+        halt = F.add(_nop_halts(c, p, _steps), c[F0 + _O["RET"]])
         return F.mul(F.sub(1, p[P_END]), F.mul(halt, F.sub(n[F0 + _O["NOP"]], 1)))
     cons.append(c_absorb)
 
@@ -556,7 +574,7 @@ def transitions(bind_io=False, gamma_fp=0, ext=False, in_block=None):
         d = F.sub(d, F.mul(c[F0 + _O["JMP"]], jump))
         nz = F.mul(_rs_val(c), c[WI])
         d = F.sub(d, F.mul(c[F0 + _O["JNZ"]], F.mul(nz, jump)))
-        d = F.sub(d, F.mul(F.add(c[F0 + _O["NOP"]], c[F0 + _O["RET"]]), F.neg(1)))
+        d = F.sub(d, F.mul(F.add(_nop_halts(c, p, _steps), c[F0 + _O["RET"]]), F.neg(1)))   # hold on a halt only
         return F.mul(F.sub(1, p[P_END]), d)
     cons.append(c_pc)
 
@@ -620,7 +638,7 @@ def transitions(bind_io=False, gamma_fp=0, ext=False, in_block=None):
     # -- the four LogUp buses (one shared accumulator) --
     _add, _sub, _mul, _rd = _algebra(ext)
     def c_hf(c, n, p, ch):
-        active = F.sub(1, c[F0 + _O["NOP"]])
+        active = F.sub(1, _nop_halts(c, p, _steps))      # ZKVM-2: an in-block NOP is fetched like any instruction
         return _sub(_mul(_rd(c, HF), _add(ch[0], _fetch_tuple(c, p, ch[1]))), active)
     def c_gf(c, n, p, ch):
         t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], ch[1])
@@ -809,13 +827,14 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
     concatenated (each row tagged with its prog_id + local pc); io table = the whole epoch's log in one global
     order; context/args/start-end columns describe which call owns each execution row."""
     cols = [[0] * T for _ in range(num_periodic(in_block))]
+    _ptag = 1 if _nop_steps(in_block) else 0            # ZKVM-2: programs tagged from 1 once NOP rows are fetched
     # fetch table: prog_id, local pc, op, d, s, imm  (progs concatenated)
     j = 0
     for pid, prog in enumerate(progs):
         for pc, ins in enumerate(prog):
             if j >= T:
                 raise ValueError("programs do not fit the trace")
-            cols[PP_PROG][j] = pid; cols[PP_PC][j] = pc; cols[PP_OP][j] = _O[ins[0]]
+            cols[PP_PROG][j] = pid + _ptag; cols[PP_PC][j] = pc; cols[PP_OP][j] = _O[ins[0]]   # from 1 under ZKVM-2
             cols[PP_D][j] = ins[1]; cols[PP_S][j] = ins[2]; cols[PP_IMM][j] = ins[3] % F.P
             j += 1
     # io log table: global order
@@ -849,7 +868,7 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
         for i in range(start, start + nrows):
             cols[PC_CALLER][i], cols[PC_VALUE][i], cols[PC_CURSOR][i], cols[PC_TIME][i] = ctx
             cols[PC_ASSET][i], cols[PC_SELF][i] = actx
-            cols[PC_PROG][i] = pid
+            cols[PC_PROG][i] = pid + _ptag              # tagged from 1 under ZKVM-2 — see _nop_steps
             cols[PC_CALL][i] = bi + _tag0              # tagged from 1 under zk_harden — see the args table above
             if _in_block(in_block):
                 cols[P_IN][i] = 1                     # A2: this row belongs to a declared block
@@ -873,6 +892,7 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
 def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
     """The prover's phase-2 witness: the 18 challenge-dependent helper/accumulator columns, built against the
     already-computed public periodic columns. With `bind_io`, ALSO fills the appended FIO fingerprint column."""
+    _steps_aux = _nop_steps()                           # ZKVM-2: must equal transitions()'s choice (same rules)
     def build(trace, chal):
         beta, gamma = chal
         T = len(trace)
@@ -900,14 +920,15 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
                 return tuple(cols[ext2.DEGREE * k + i][row] for i in range(ext2.DEGREE))
             return cols[idx - W_MAIN][row]
         def perrow(i):
-            return [per_cols[c][i] for c in range(NUM_PERIODIC)]
+            # EVERY periodic column present, the appended A2 selector P_IN included: the ZKVM-2 fetch gate reads it
+            return [per_cols[c][i] for c in range(len(per_cols))]
         for i in range(T):
             cur = trace[i]
             nxt = trace[i + 1] if i + 1 < T else trace[i]
             p = perrow(i)
             # _add/_mul/_inv follow the challenge field; under ext every 1/(β + tuple) is a GF(p^2) inverse
             # and `put` splits it into its (lo, hi) limbs.
-            hf = _mul(F.sub(1, cur[F0 + _O["NOP"]]), _inv(_add(beta, _fetch_tuple(cur, p, gamma))))
+            hf = _mul(F.sub(1, _nop_halts(cur, p, _steps_aux)), _inv(_add(beta, _fetch_tuple(cur, p, gamma))))
             gf_t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], gamma)
             gf = _mul(cur[MF], _inv(_add(beta, gf_t)))
             hio = _mul(_io_active(cur), _inv(_add(beta, _io_tuple(cur, nxt, gamma))))

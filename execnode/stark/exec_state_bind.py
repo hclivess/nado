@@ -130,9 +130,7 @@ def apply_event(contracts, ev):
         if not isinstance(code, dict) or not runtimes.runtime_name_ok(rt_name):
             return False, None, None
         try:
-            # the event's committed block height: the SAME height state.py's deploy passes (ZKVM-2, no NOP from
-            # ZK_HARDEN_HEIGHT) — the two admission paths must refuse identically
-            runtimes.get(rt_name).validate_code(code, height=ev.get("cursor"))
+            runtimes.get(rt_name).validate_code(code)
         except Exception:
             return False, None, None                        # the chain's outer except: "skip"
         at = ev.get("at")
@@ -162,7 +160,7 @@ def apply_event(contracts, ev):
         if not runtimes.runtime_name_ok(rt_name):
             return False, cid, None
         try:
-            runtimes.get(rt_name).validate_code(code, height=ev.get("cursor"))   # ZKVM-2, as the deploy above
+            runtimes.get(rt_name).validate_code(code)
         except Exception:
             return False, cid, None
         c["code"] = code

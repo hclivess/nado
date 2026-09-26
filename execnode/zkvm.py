@@ -103,18 +103,9 @@ class ZkVMRevert(ZkVMError):
     have no satisfying witness, so 'provable' and 'executes successfully' are the same set of calls."""
 
 
-def validate_code(code, height=None):
+def validate_code(code):
     """Reject malformed zkVM bytecode at deploy: {method: [[op,d,s,imm],...]}, ops known, operands in range,
-    jump targets inside the method. Deterministic across nodes (pure structural checks).
-
-    `height`: the block the deploy/upgrade is applied in. From ZK_HARDEN_HEIGHT a NOP is refused (zk audit 2026-09-26,
-    ZKVM-2): the interpreter steps over NOP but the AIR treats it as a halt, so a call that executes one runs on the
-    exec layer yet can never be proven, and every settle span containing it falls back to the quorum forever. BOTH
-    admission paths pass the same height — execnode/state.py (applying_height) and the verifier's replay,
-    exec_state_bind.apply_event (the event's committed cursor) — or an honest settle proof stops verifying. None (an
-    assembler or tool with no block) keeps the old rule."""
-    from protocol import ZK_HARDEN_HEIGHT as _ZKH
-    _no_nop = height is not None and int(height) >= _ZKH
+    jump targets inside the method. Deterministic across nodes (pure structural checks)."""
     if not isinstance(code, dict) or not code:
         raise ZkVMError("contract code must be a non-empty {method: [instructions]} object")
     for method, prog in code.items():
@@ -127,8 +118,6 @@ def validate_code(code, height=None):
                     or not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in ins[1:])):
                 raise ZkVMError(f"invalid instruction {ins!r} in {method}")
             op, d, s, imm = ins
-            if _no_nop and op == "NOP":
-                raise ZkVMError(f"NOP in {method}: refused from ZK_HARDEN_HEIGHT (the AIR halts on it, so it cannot be proven)")
             if d >= NUM_REGS or s >= NUM_REGS:
                 raise ZkVMError(f"register out of range in {ins!r}")
             if imm >= F.P:
