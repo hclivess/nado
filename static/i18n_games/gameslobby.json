@@ -342,7 +342,7 @@
   "games.ttt.name": "Tic-Tac-Toe"
  },
  "en": {
-  "games.autogame.blurb": "A warrior march over a committed road: the sixteen tiles ahead are already fixed by a mined block hash, and the march holds until you answer them. Queue a reaction for every tile you can see, then commit — only that schedules the dice, drawn from a block that does not exist yet. The road cannot be rerolled and the roll cannot be foreseen: neither you nor the chain can cheat. March deep and bank your renown — die, and only a quarter of what you never banked comes home.",
+  "games.autogame.blurb": "A warrior march over a committed road: the sixteen tiles ahead are already fixed by a collected block's hash, and the march holds until you answer them. Queue a reaction for every tile you can see, then commit — only that schedules the dice, drawn from a block that does not exist yet. The road cannot be rerolled and the roll cannot be foreseen: neither you nor the chain can cheat. March deep and bank your renown — die, and only a quarter of what you never banked comes home.",
   "games.autogame.m0": "One step per block",
   "games.autogame.m1": "Plays while you sleep",
   "games.autogame.m2": "Push or bank",

@@ -1090,7 +1090,7 @@
     "autogame.roadInFlight": "Your answers are on their way to a block. The dice get pinned the moment they land — nothing to do but watch.",
     "autogame.roadLegacy": "This run predates the current rules and never started walking. \"Begin the march\" below wakes it; the road appears seconds later.",
     "autogame.roadNoRun": "Set out and the next sixteen tiles of your road appear here, each one waiting for your answer.",
-    "autogame.roadPinning": "Pinning your road to a mined block… you'll pick an action for each tile the moment it appears, in a second or two.",
+    "autogame.roadPinning": "Pinning your road to a collected block… you'll pick an action for each tile the moment it appears, in a second or two.",
     "autogame.roadPipeline": "Answer the NEXT sixteen now — the last leg is closing itself in the background. The march never waits for paperwork.",
     "autogame.roadQueued": "Next answers queued — they send themselves the moment the last leg closes.",
     "autogame.roadRolling": "Your answers are locked in and the dice for this leg are scheduled. Nothing can change it now — settle it to see what happens.",
