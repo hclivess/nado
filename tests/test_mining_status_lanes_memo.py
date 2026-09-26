@@ -1,5 +1,9 @@
 """block_ops.mining_status: the lane totals are computed once per (env, write generation, epoch) and reused
 across the wallet's ~4/s polls; a new write generation recomputes. Also pins the peer loop's self-ip guard."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 
@@ -20,6 +24,10 @@ def main():
         return {"b1": {"bonded": 10 ** 12, "fidelity": 2, "bond_since": 0}}
     block_ops.get_open_registry = _open
     block_ops.get_bonded_registry = _bonded
+    # The response also carries bonded_producer_cut (0cb61b8f), computed from the block reward, whose bond-elastic
+    # multiplier reads the registry through get_bonded_registry's own per-write-generation cache. That read is not the
+    # lane memo this test pins (and is cached in production), so it is stubbed out of the count.
+    block_ops.get_block_reward = lambda: 10 ** 9
     kv_ops.env_path = lambda home=None: "/x"
     kv_ops.write_generation = lambda: GEN[0]
     block_ops._ms_lanes_cache[0] = None

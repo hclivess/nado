@@ -27,6 +27,8 @@ Everything here is integer-only and clamped, mirroring the VM exactly:
 # implementations, cross-checked" honest. If they were restated here, a retune would silently desync the
 # oracle from the thing it is meant to be checking, and the differential test would pass while the game
 # changed underneath it.
+import os as _os, sys as _sys                # a library the autogame tests import; importable on its own too
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from execnode.games.autogame import (      # noqa: E402
     LEG, MAX_LEGS_PER_CALL, CHAPTER, HP0, STAM_MAX, AGG_MAX, REGEN_DIV, REGEN_CAP_DIV, BOSS_EVERY,
     TIER_EVERY, NIGHT_EVERY, LEVEL_CAP, LIFESTEAL_DIV, HORDE_DIV, STREAK_DIV, DEATH_KEEP, COMPLETE_BONUS,

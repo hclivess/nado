@@ -47,7 +47,10 @@ def make_core(pct):
     mem = FakeMem(kd, pct)
     core = types.SimpleNamespace(
         memserver=mem, logger=logger,
-        last_auto_bond_epoch=-1, auto_bond_baseline=None,
+        # every field Core.__init__ gives these (loops/core_loop.py): auto_bond_dividend came later and, missing here,
+        # made maybe_auto_bond raise AttributeError inside its own try and "skip" — the test failed for weeks while
+        # the real Core (which initialises it to 0) bonded fine
+        last_auto_bond_epoch=-1, auto_bond_baseline=None, auto_bond_dividend=0,
         maybe_auto_bond=lambda: Core.maybe_auto_bond(core))
     return core, mem, kd
 

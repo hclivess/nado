@@ -2,7 +2,12 @@
 interface addresses) and check_ip rejects each; (2) while fast-forwarding, the depth-floor corroboration
 verdict is reused for SYNC_CORROB_TTL_S instead of being re-probed per applied block; other modes probe
 every call. Source pins for the peer-loop merges."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
+import re
 import sys
 import time
 
@@ -48,7 +53,12 @@ def main():
     psrc = open(os.path.join(root, "ops", "peer_ops.py")).read()
     assert "ip == my_ip or ip in own_ips()" in psrc and "p not in own_ips() and check_ip(p)" in psrc
     csrc = open(os.path.join(root, "loops", "core_loop.py")).read()
-    assert csrc.count("_me = own_ips() | {self.memserver.ip, get_config().get(\"ip\")}") == 4
+    # EVERY self-set the core loop builds is the own-ip SET (a dual-stack host that is also a seed). An exact count of
+    # one spelling broke when more probe sites adopted the guard (4 -> 7, two via getattr); the property is that none
+    # is built any other way and the known sites are all still there.
+    _me_sets = re.findall(r"^\s*_me = (.+)$", csrc, re.M)
+    assert len(_me_sets) >= 4, _me_sets
+    assert all(m.startswith("own_ips() | {") for m in _me_sets), [m for m in _me_sets if not m.startswith("own_ips() | {")]
     print("ALL OK")
 
 

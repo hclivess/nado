@@ -192,14 +192,18 @@ def t_the_prover_derives_the_same_shape():
 
 def t_a_frozen_records_proof_still_refuses_a_pay():
     """The refusal is still right where records are PINNED across the span: a payout inside one would make
-    the proof assert something false."""
-    src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    # There are TWO `if not _records_bound:` blocks (the epoch-boundary assert comes first), so anchor on
-    # the one that actually guards the PAY scan rather than on whichever appears earliest.
-    i = src.rindex("if not _records_bound:", 0, src.index("IO_PAY"))
-    seg_src = src[i:i + 600]
-    assert "IO_PAY" in seg_src, "the frozen path must still scan for a PAY"
-    assert "assert int(_e[0]) != _zkvm.IO_PAY" in seg_src, "and still refuse it"
+    the proof assert something false. Driven through ops.transaction_ops.settle_proof_io_check (the check moved there
+    from an inline block; a source-text match found nothing and failed for weeks while the refusal held)."""
+    from ops import transaction_ops as T
+    from execnode import zkvm as Z
+    pay = {"segments": [{"io": [[Z.IO_SSTORE, 1, 2], [Z.IO_PAY, 7, 5], [Z.IO_RET, 0, 0]]}]}
+    refused = None
+    try:
+        T.settle_proof_io_check(pay, records_bound=False, block_height=100)
+    except AssertionError as e:
+        refused = str(e)
+    assert refused and "PAY" in refused, "a records-FROZEN proof carrying a PAY was admitted"
+    T.settle_proof_io_check(pay, records_bound=True, block_height=100)   # a records-BOUND proof derives the payout
 
 
 def t_the_derivation_runs_only_after_the_calldata_binding():

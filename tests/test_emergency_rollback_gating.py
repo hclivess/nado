@@ -21,6 +21,10 @@ ABSENCE OF INFORMATION IS NEVER EVIDENCE OF DIVERGENCE.
 
 Run: python3 tests/test_emergency_rollback_gating.py
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import asyncio
 import os
 import sys
@@ -224,8 +228,13 @@ def t_the_production_gate_is_cheap_on_the_healthy_path():
     probe_at = nm.index("_vs = self._fork_state()")
     grace_at = nm.index("MINORITY_GRACE_S")
     assert grace_at < probe_at, "the probe runs before the hysteresis has passed"
-    reset_at = nm.index("self._prod_minority_since = None")
+    # TWO resets since 2026-09-02: one BEFORE the probe (the majority is merely BEHIND us on our own chain — a fleet
+    # booting together), and the one this pins, AFTER it, in the else-branch taken when we are back on the majority
+    # hash. index() found the first one and failed for three weeks while the property held; rindex() finds the last.
+    reset_at = nm.rindex("self._prod_minority_since = None")
     assert reset_at > probe_at, "the hysteresis timer is never reset when back on the majority hash"
+    assert nm.count("self._prod_minority_since = None") >= 2 and nm.index("self._prod_minority_since = None") < probe_at, \
+        "the reset for a majority merely behind us (on our own canonical chain) is gone"
 
 
 # ---- STABLE TIE-BREAK: splits must resolve once, not see-saw for hours --------------------------------
