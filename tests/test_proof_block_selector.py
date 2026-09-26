@@ -81,7 +81,7 @@ def _verify(proof, io, rules):
 
 def t_rules_add_the_selector_at_the_gate():
     assert stark.rules_for_height(0) == stark.RULES_LEGACY, "height 0: below every deleted gate"
-    assert stark.rules_for_height(1) == stark.RULES_STRICT and stark.rules_for_height(1).in_block_selector, \
+    assert stark.rules_for_height(1).in_block_selector and stark.rules_for_height(1)[:6] == stark.RULES_STRICT[:6], \
         "block 1: every pin, the selector included"
     assert stark.current_rules() == stark.RULES_STRICT and stark.RULES_STRICT.in_block_selector
     assert VC.num_periodic(False) == VC.NUM_PERIODIC and VC.num_periodic(True) == VC.NUM_PERIODIC + 1

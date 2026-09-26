@@ -1631,7 +1631,8 @@ def split_open_block_reward(reward: int):
 # those gates, and the cleanup must not change any verdict. Where the height is provably >= 1 the guard is gone.
 # DEVICE_ATTEST_HEIGHT (= 1) is a plain constant, not a generation-keyed gate; it stays.
 #
-# GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1)
+# GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
+#                                    ZK_HARDEN_HEIGHT (-> 1)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2150,6 +2151,20 @@ DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
 # pinned root) told its owner the chip was fine. From this height validation checks the same set the kernel used.
 # Accepting what was refused is a consensus change: gated at the fleet's adoption block (rule 3), 1 at the next reroll.
 EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
+
+# ZK HARDENING (zk audit 2026-09-26). One activation height for the consensus-changing fixes the audit found:
+#   * ZKVM-1  the exec AIR's ARG bus: calls are tagged from 1, so an args-table padding row (0,0,0) can no longer stand
+#             in for the first call's first argument (a forged proof read args[0] as 0 — reproduced at 320 queries);
+#   * SETTLE-1 a settle proof's pre_contracts must be exactly the records the exporter emits (runtime zkvm, known keys):
+#             a phantom non-zkvm record at an in-span deploy's cid was invisible to the pre-state pin and made the
+#             verifier treat the deploy as refused, so a trustless settle could omit it (reproduced end to end);
+#   * ZKVM-2  a deploy or upgrade carrying NOP is refused: the interpreter runs NOP, the AIR halts on it, so any span
+#             that executed one could never be proof-settled (no live contract carries NOP);
+#   * the wide shielded pool's tree grows from depth 12 (4,096 notes — fillable for ~0.0004 NADO, after which every
+#             note was locked) to depth 48 (2^48 notes), at the same proving cost as depth 20 (joinsplit3 T = 4096).
+# Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
+# (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
+ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 
 
 def ek_roots_at(height) -> frozenset:

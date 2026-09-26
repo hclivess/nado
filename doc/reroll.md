@@ -28,7 +28,8 @@ no verdict moves; only where the height is provably >= 1 does the comparison go.
 
 ### The ledger (gen 27, betanet-8)
 
-Live gates, keyed `== 27` — live from block 1 at the next reroll: `EK_ENROL_ROOTS_AT_HEIGHT` (1400).
+Live gates, keyed `== 27` — live from block 1 at the next reroll: `EK_ENROL_ROOTS_AT_HEIGHT` (1400),
+`ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, no NOP, wide pool depth 48).
 `DEVICE_ATTEST_HEIGHT` is a plain `1`, not generation-keyed.
 
 **Every gen-25 gate is gone** (both cleanup slices below). Inlined as unconditional rules after the betanet-8 reroll

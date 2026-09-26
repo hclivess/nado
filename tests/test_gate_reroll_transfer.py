@@ -24,7 +24,7 @@ _fails = []
 # gate -> value on a fresh chain. 1 = live from genesis, 0 = never (its code path is cleanup fodder).
 REROLL = {
     # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed); EK_ENROL_ROOTS_AT_HEIGHT is the gen-27 gate (1400).
-    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1,
+    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1,
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
