@@ -2081,6 +2081,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # Everything else in this branch still runs at any depth: cursor match, tip extension, root
             # composition, chain-read binding, the epoch/PAY guards and the DA binding. Only the expensive
             # cryptographic check is skipped, so a fabricated settle is still refused on structure.
+            # THE PROOF IDENTITY IS NEEDED ON BOTH PATHS: the records-half memo below keys on it (`_rvk`). It used to
+            # be computed only in the strict branch, so a records-bound settle validated DEEP (a node more than
+            # FINALITY_DEPTH behind, catching up) raised UnboundLocalError on `_vk`. The first records-bound settle on
+            # betanet-8 landed at block 10212; nodes that saw it at the tip moved on, and a node that had to SYNC
+            # across it (behind, restarting, or new) rejected the block forever — the relay sat frozen at 10211 for
+            # 80 minutes (2026-09-26). Computing it here costs one hash and changes no verdict.
+            from execnode.stark import stark as _stk
+            _rules = _stk.rules_for_height(block_height)
+            _vk = settle_verify_key(proof, _pda, _from_da, _rules)
             if deep and _protocol.SETTLE_PROOF_DEPTH_GATED:
                 kv_pre, kv_post = kv_pre_claim, kv_post_claim
             else:
@@ -2105,9 +2114,6 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # THE RULES FOR THIS BLOCK, not for "now" (PROOF_BIND_HEIGHT; stark.rules_at). Set here, once,
                 # for every prove/verify beneath — the segment STARKs, the K->1 fold, the transition binding —
                 # and carried explicitly into the child interpreter, which has no context of its own.
-                from execnode.stark import stark as _stk
-                _rules = _stk.rules_for_height(block_height)
-                _vk = settle_verify_key(proof, _pda, _from_da, _rules)
                 _hit = _SETTLE_VERIFY_MEMO.get(_vk)
                 if _hit is None:
                     with _settle_verify_lock(_vk), _stk.rules_at(block_height):   # single flight per proof
