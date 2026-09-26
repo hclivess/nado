@@ -253,15 +253,19 @@ def _periodic(T, D):
 # with the same `cur` object at a point, so the twelve round constraints would each recompute the same
 # twelve x^7 terms — 144 per point instead of 12. Keyed on the VALUES (a tuple of the lanes and their round
 # constants), never on id(): the verifier builds its rows one query at a time and an address is reused.
-_SBOX_MEMO = [None, None]
+# ONE (key, values) TUPLE, swapped in a single assignment (zk audit 2026-09-26, F3): the key and the values used to live
+# in two slots, so two threads evaluating constraints could pair one row's key with another row's S-boxes and refuse a
+# valid proof — a verdict that differs node to node the day anything verifies joinsplit3 off the event loop.
+_SBOX_MEMO = [None]
 
 
 def _sboxes(cur, per):
     key = (tuple(cur[:W_ST]), tuple(per[RC0:RC0 + W_ST]))
-    if _SBOX_MEMO[0] != key:
-        _SBOX_MEMO[0] = key
-        _SBOX_MEMO[1] = [F.pw(F.add(cur[j], per[RC0 + j]), A2.ALPHA) for j in range(W_ST)]
-    return _SBOX_MEMO[1]
+    m = _SBOX_MEMO[0]
+    if m is None or m[0] != key:
+        m = (key, [F.pw(F.add(cur[j], per[RC0 + j]), A2.ALPHA) for j in range(W_ST)])
+        _SBOX_MEMO[0] = m
+    return m[1]
 
 
 def _transitions():

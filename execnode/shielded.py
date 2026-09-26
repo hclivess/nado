@@ -206,10 +206,20 @@ class ShieldedPool:
         return {"commitments": self.commitments, "nullifiers": sorted(self.nullifiers),
                 "anchors": self.anchor_list, "root": self.root()}
 
+    # A SNAPSHOT'S ANCHORS ARE NOT TRUSTED (zk audit 2026-09-26, F2): the exec state root does not commit the anchor
+    # window, so a donor's snapshot could carry the root of a fake tree. This pool remembers one anchor per TRANSFER
+    # (after all its outputs), so the window cannot be rebuilt from the commitments alone — instead every snapshot
+    # anchor must be the root of a real PREFIX of the committed commitments (a fake tree's root never is). Each
+    # transfer appends a few outputs, so the last _ANCHOR_LOOKBACK prefixes cover the whole window.
+    _ANCHOR_LOOKBACK = 8 * ANCHOR_WINDOW
+
     @classmethod
     def from_dict(cls, d):
-        """Rebuild a pool from a to_dict snapshot."""
-        return cls(d.get("commitments"), d.get("nullifiers"), d.get("anchors"))
+        """Rebuild a pool from a to_dict snapshot, keeping only anchors that are roots of real prefixes."""
+        cms = list(d.get("commitments") or [])
+        n = len(cms)
+        real = {merkle_root(cms[:k]) for k in range(max(0, n + 1 - cls._ANCHOR_LOOKBACK), n + 1)}
+        return cls(cms, d.get("nullifiers"), [a for a in (d.get("anchors") or []) if a in real])
 
 
 # --- transfer statement + verifier seam -----------------------------------------------------------

@@ -400,7 +400,11 @@ class ExecState:
         self.abal = {a: dict(h) for a, h in d.get("abal", {}).items()}
         self.allow = {a: {o: dict(s) for o, s in owners.items()} for a, owners in d.get("allow", {}).items()}
         self.withdrawals = d.get("withdrawals", {})
-        self.wd_nonce = d.get("wd_nonce", 0)
+        # EXIT COUNTERS ARE FLOORED at the highest pending key (zk audit 2026-09-26, F2): the counter holds the LAST nonce
+        # used, and a snapshot counter below a pending record's key made the next exit OVERWRITE that record. Honest
+        # counters are always >= every key, so the floor never moves them; outbox_seq below does the same.
+        _floor = lambda cnt, recs: max(int(cnt or 0), max((int(k) for k in (recs or {}) if str(k).isdigit()), default=0))
+        self.wd_nonce = _floor(d.get("wd_nonce", 0), d.get("withdrawals"))
         ob = d.get("outbox", {})
         if not isinstance(ob, dict):
             # NO legacy shapes on betanet: a pre-dict outbox snapshot must not half-load — fail
@@ -415,10 +419,10 @@ class ExecState:
         self.last_div_epoch = d.get("last_div_epoch", -1)
         self.div_carry = d.get("div_carry", 0)
         self.dividend_withdrawals = d.get("dividend_withdrawals", {})
-        self.dw_nonce = d.get("dw_nonce", 0)
+        self.dw_nonce = _floor(d.get("dw_nonce", 0), d.get("dividend_withdrawals"))
         self.shielded = ShieldedPool.from_dict(d["shielded"]) if "shielded" in d else ShieldedPool()
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
-        self.uw_nonce = d.get("uw_nonce", 0)
+        self.uw_nonce = _floor(d.get("uw_nonce", 0), d.get("unshield_withdrawals"))
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
         from execnode.shielded_wide import WideShieldedPool
         self.wide_pool = WideShieldedPool.from_dict(d["wide_pool"]) if "wide_pool" in d else WideShieldedPool()

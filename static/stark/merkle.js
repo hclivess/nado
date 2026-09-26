@@ -4,7 +4,9 @@
 import { bytesToHex } from "../vendor/nado-crypto.js";
 import { b2b32, tag, i8le, hexToBytes } from "./bhash.js";
 
-// byte-for-byte with execnode/stark/backend.py `_Blake2b` (and the wasm Merkle, vendor/blake2b-wasm.js):
+// byte-for-byte with execnode/stark/backend.py `_Blake2b`. NOT with the wasm Merkle (vendor/blake2b-wasm.js, wasm/blake2b
+// merkle_commit), which still uses the retired canonical-JSON leaf/node — so the wallet does not enable it (zk audit
+// 2026-09-26, browser F2):
 // leaf = blake2b(0x00 ‖ field-as-8-LE) ; node = blake2b(0x01 ‖ fromhex(a) ‖ fromhex(b)). Was canonical-JSON,
 // which the Python side no longer uses — so pure-JS-committed proofs failed Python verification.
 const leaf = (x) => b2b32(tag("\x00"), i8le(x));

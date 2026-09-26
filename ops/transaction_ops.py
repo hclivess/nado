@@ -2139,7 +2139,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                                     # A MISSING OR STALE NATIVE KERNEL IS NOT A VERDICT (native_guard.NODE_LOCAL_ERRORS):
                                     # it says nothing about the proof, so it defers the block like an unavailable DA
                                     # blob instead of rejecting what every peer accepts. Never memoised (raised here).
-                                    from execnode.stark.native_guard import NativeMissing as _NM
+                                    # ALL of NODE_LOCAL_ERRORS, not just NativeMissing: an out-of-memory here is this node's
+                                    # limit, not the proof's fault, and rejecting on it split a low-memory node from the fleet
+                                    # (zk audit 2026-09-26, SETTLE-2).
+                                    from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM
                                     try:
                                         _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
                                     except _NM as _nm:
@@ -2211,7 +2214,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         _rok, _rwhy = _rhit
                     else:
                         _t_rec = _time.time()
-                        from execnode.stark.native_guard import NativeMissing as _NM2
+                        from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM2   # OOM included (SETTLE-2)
                         try:
                             _rok, _rwhy = _RB.bind_and_verify_records(
                                 proof["records"], _pre_rec, _post_rec, _pre_get, _eff,

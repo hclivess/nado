@@ -19,10 +19,9 @@ import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country fla
 import * as alghash from "./alghash.js?v=849f345a";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
-import { initBlake2bWasm, initMerkleWasm } from "./vendor/blake2b-wasm.js";
+import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
 import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
-import { setMerkleWasm } from "./stark/merkle.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as alghash2 from "./alghash2.js?v=931768eb";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
 import * as sjoinsplit3 from "./stark/joinsplit3.js";
@@ -9223,9 +9222,40 @@ function renderZaddrQR() {
   _drawQR($("zaddrQR"), $("zaddrQRNote"), link, 260);
 }
 
+// A SPEND IS CONFIRMED BY THE CHAIN, NOT BY THE RELAY TAKING THE BLOB (zk audit 2026-09-26, browser F1). L1 admits a
+// shielded blob without checking its proof; the exec node judges it later and may refuse it (a stale proof, two tabs
+// spending one note). The note used to be marked spent — and its change credited — the moment the blob reached the
+// mempool, so a refused proof hid the note for good. Now a spend remembers its output commitments: once one appears in
+// the tree the spend is confirmed; if none has appeared SPEND_LAND_GRACE_MS later, the note is restored and the phantom
+// change dropped. The tree is read whole and searched here (as the claim path does), so the relay learns nothing.
+const SPEND_LAND_GRACE_MS = 20 * 60 * 1000;   // landing window + finality, with room for a slow exec node
+function _markSpendPending(note, pr) {
+  note.spentAt = Date.now();
+  note.spentOuts = [pr && pr.cm_out1, pr && pr.cm_out2].filter(Boolean).map(String);
+}
+async function reconcileSpentNotes() {
+  const notes = loadNotes();
+  const open = notes.filter((n) => n.spent && Array.isArray(n.spentOuts) && n.spentOuts.length);
+  if (!open.length) return 0;
+  let leaves;
+  try { leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String)); } catch (e) { return 0; }
+  let changed = false, restored = 0;
+  for (const n of open) {
+    if (n.spentOuts.some((c) => leaves.has(String(c)))) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }
+    if (Date.now() - Number(n.spentAt || 0) < SPEND_LAND_GRACE_MS) continue;
+    const outs = new Set(n.spentOuts.map(String));
+    for (let i = notes.length - 1; i >= 0; i--) if (notes[i] !== n && outs.has(String(notes[i].cm))) notes.splice(i, 1);
+    n.spent = false; delete n.spentOuts; delete n.spentAt; changed = true; restored++;
+  }
+  if (changed) saveNotes(notes);
+  if (restored) log("info", i18("shield.restored", "{n} banknote(s) whose spend never landed on chain are back in your balance.", { n: String(restored) }));
+  return restored;
+}
+
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded(); await refreshShieldRules();
+  await reconcileSpentNotes().catch(() => 0);
   renderZaddrQR();   // your reusable shielded receive address as a payment-link QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
@@ -9375,6 +9405,7 @@ async function doUnshield() {
       // The proof (on-device or delegated) was applied; the withdrawal settles on L1 via the bonded-quorum root.
       // Nothing else to submit — just track the change note + auto-claim.
       note.spent = true;
+      _markSpendPending(note, pr);        // confirmed by its outputs landing, or restored (reconcileSpentNotes)
       if (change > 0n) notes.push({ value: change.toString(), rho: r1, cm: pr.cm_out1, spent: false, ts: Date.now() });
       saveNotes(notes);
       done += take;
@@ -9405,7 +9436,10 @@ async function ensureFastStarkHash() {
   try {
     const h = await initBlake2bWasm();
     initStarkHashing((data, size = 32) => (size === 32 ? bytesToHex(h(canonicalBytes(data))) : blake2bHash(data, size)));
-    setMerkleWasm(await initMerkleWasm());   // whole-tree Merkle in wasm
+    // NO WASM MERKLE (zk audit 2026-09-26, browser F2): wasm/blake2b's merkle_commit still hashes leaves and nodes with
+    // the retired canonical-JSON scheme, so any root it built was one the node recomputes differently and refuses. The
+    // live wide-pool prover never reached it (salted columns and extension FRI layers are pure JS), but any base-field
+    // caller would have. Pure-JS Merkle below; re-enable only after the wasm packing matches bhash.js leaf/node.
   } catch (e) {
     initStarkHashing(blake2bHash);   // wasm unavailable -> pure-JS fallback
   }
@@ -9502,7 +9536,10 @@ async function _proofRulesNow() {
     return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt"),
              fullQuery: at("full_query") };   // PROOF_QUERY_FULL_HEIGHT: full-domain openings + the shifted batch
   } catch (e) {
-    return { bind: false, blockSelector: false, round2: false, traceLdt: false, fullQuery: false };   // an old node publishes no gates and judges by the old rules
+    // NEVER prove under guessed rules (zk audit 2026-09-26, browser F1): this fallback used to return every rule OFF,
+    // the wide prover then built a proof no node accepts, L1 took the blob anyway and the note was marked spent. Every
+    // rule is live from block 1, so a failed /status means "try again", not "old rules".
+    throw new Error(i18("err.relayHttp", "The relay is unreachable right now (HTTP {s}). Please try again in a moment.", { s: "status" }));
   }
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
@@ -9569,6 +9606,7 @@ async function doSendShielded() {
         return;
       }
       note.spent = true;
+      _markSpendPending(note, pr);        // confirmed by its outputs landing, or restored (reconcileSpentNotes)
       if (change > 0n) notes.push({ value: change.toString(), rho: r2, cm: pr.cm_out2, spent: false, ts: Date.now() });
       saveNotes(notes);
       // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them

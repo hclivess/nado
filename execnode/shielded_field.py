@@ -109,12 +109,17 @@ class FieldShieldedPool:
                 "nullifiers": [str(n) for n in sorted(self.nullifiers)],
                 "anchors": [str(a) for a in self.anchors]}
 
+    # A SNAPSHOT'S ANCHORS ARE NOT TRUSTED (zk audit 2026-09-26, F2): the exec state root commits the tree and the
+    # nullifier set, not the anchor window, so a node adopting a peer's snapshot took the donor's anchors on faith — a
+    # fake tree's root there let a real proof against it through. Honest anchors are a pure function of the append-only
+    # commitments (every append remembers its root), so they are REBUILT: the roots of the last 128 prefixes.
     @classmethod
     def from_dict(cls, d):
-        """Rebuild a pool from a to_dict snapshot (string ints back to field elements)."""
-        return cls([int(c) for c in d.get("commitments", [])],
-                   [int(n) for n in d.get("nullifiers", [])],
-                   [int(a) for a in d.get("anchors", [])])
+        """Rebuild a pool from a to_dict snapshot (string ints back to field elements); anchors rebuilt, not read."""
+        cms = [int(c) % F.P for c in d.get("commitments", [])]
+        n = len(cms)
+        return cls(cms, [int(nf) for nf in d.get("nullifiers", [])],
+                   [tree_root(cms[:k]) for k in range(max(0, n + 1 - 128), n + 1)])
 
 
 # --- delegated proving: build the witness path from the pool + prove the full join-split ---

@@ -110,9 +110,20 @@ class WideShieldedPool:
                 "nullifiers": [Z.to_hex(n) for n in sorted(self.nullifiers)],
                 "anchors": [Z.to_hex(a) for a in self.anchors]}
 
+    # A SNAPSHOT'S ANCHORS ARE NOT TRUSTED (zk audit 2026-09-26, F2): the exec state root commits the tree and the
+    # nullifier set but not the anchor window, so a node adopting a peer's snapshot (bootstrap, repair, anchor adopt)
+    # took the donor's anchors on faith — a donor could add the root of a fake tree and the joiner then accepted a real
+    # proof against it (forged note, pool_value driven negative, a forged exit). Honest anchors are a pure function of
+    # the append-only commitments, so they are REBUILT here and the snapshot's list is ignored.
+    # Every append remembers its root (append -> _remember), so the window is exactly the roots of the last
+    # ANCHOR_WINDOW prefixes (the empty root while fewer notes exist). At the 4096-leaf cap that is 128 tree roots, once
+    # per load.
     @classmethod
     def from_dict(cls, d):
-        return cls(d.get("commitments", []), d.get("nullifiers", []), d.get("anchors", []))
+        cms = [Z._d(c) for c in (d.get("commitments") or [])]
+        n = len(cms)
+        anchors = [tree_root(cms[:k]) for k in range(max(0, n + 1 - ANCHOR_WINDOW), n + 1)]
+        return cls(cms, d.get("nullifiers", []), anchors)
 
 
 def prove_transfer2(pool, nsk, value_in, rho_in, cm_in_pos, v1, o1, r1, v2, o2, r2, public_value, fee,
