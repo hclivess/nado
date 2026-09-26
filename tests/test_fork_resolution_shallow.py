@@ -7,6 +7,10 @@ tip-k exactly. Pins: 1-, 2- and 3-block splits resolve in k+1 rounds; a deeper f
 divergence through the generic path; a tip-1 nobody can answer falls through to the generic path unchanged.
 Run: python3 tests/test_fork_resolution_shallow.py
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import fork_resolution as fr

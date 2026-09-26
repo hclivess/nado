@@ -2,6 +2,10 @@
 workers missed the generation key at once and each re-ran the unjustified-top-cursor walk
 concurrently — ~80% of busy samples in py-spy, starving the core thread to 37s/block applies.
 The herd must resolve to exactly ONE compute per generation."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

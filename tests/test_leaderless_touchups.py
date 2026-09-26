@@ -9,6 +9,10 @@ it without a leader; this file pins them:
      the core thread reconciles against peers ONCE per tip right before building;
   3. an aggregate-spend refusal no longer purges the sender's other pooled txs (that purge was itself a
      pool-divergence source)."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 import tempfile

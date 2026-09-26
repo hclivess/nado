@@ -19,6 +19,10 @@ RE-DERIVED — which is what scripts/rekey_alloc.py does, and what nothing in th
 The checks below are cheap and run every time, because the failure mode is silent, total, and only observable
 after a reroll has already happened.
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import json
 import os
 import sys

@@ -2,7 +2,7 @@
 # tests/pets_js_crosscheck_gen.py — emit reference vectors (JSON on stdout) for pets_js_crosscheck.mjs,
 # using the SAME reference functions the contract is differentially tested against.
 import sys, json, random
-sys.path.insert(0, "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 from tests.pets_ref import (vm_hash, ref_gene, ref_species, ref_si, ref_stat, ref_power,
                             ref_train_roll, ref_train_ok, ref_battle, ref_battle_turns)
 

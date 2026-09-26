@@ -190,6 +190,26 @@ yourself"*.
   which you did not. "Committed" is not "deployed"; "compiles" is not "runs"; "the endpoint exists" is
   not "the user can reach it".
 
+### 11. Every change ships with its test — enforced, not remembered
+
+*"test cover everything from this session and every future session"*. A fix or feature is not done until a test in
+`tests/` pins its property (named after the property, CLAUDE conventions below), and the test is in the SAME commit
+as the change. `scripts/git-hooks/pre-push` (installed: `git config core.hooksPath scripts/git-hooks`) refuses any
+push containing a code commit without a test change — `[no-test: <reason>]` in the message is the only way past it,
+and it needs a real reason — then runs the core guards and every test the push touches.
+
+- **Before a release: `scripts/run_tests.sh`** — the whole suite, Python and `.mjs`, each test in its own HOME. It
+  skips LIVE tests (`test_otc_swap_e2e` posts real transactions); `tests/test_tests_are_isolated.py` keeps that list,
+  the HOME rule and the no-live-paths rule true for every test.
+- **A consensus change is tested under BOTH rule sets**: the new rules refuse the attack / accept the honest case, and
+  the pre-gate rules keep the old behaviour so history replays (the zk-audit tests of 2026-09-26 are the pattern).
+- **An instruction, endpoint or page that exists must be exercised**: `tests/test_every_opcode_is_provable.py` fails
+  the day an opcode is added without a proving program; a headless walk of every page found the lend page broken for
+  eight weeks.
+
+*Why:* on 2026-09-26 an audit of one session's 43 commits found 8 code changes with no test of their own, 60 tests
+that reached the live database when run directly, and a wallet test runner that had never run the `.mjs` tests.
+
 ---
 
 ## How a block gets made, and how a tip goes wrong

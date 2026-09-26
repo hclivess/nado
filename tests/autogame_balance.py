@@ -18,7 +18,7 @@ The health check is the last block: a skilled (bloodlust-aware, adaptive) pilot 
 on p90, while an idle player still survives. If a fixed constant ever dominates on both, the skill dimension
 is gone and the economy needs another pass."""
 import sys, hashlib, statistics
-sys.path.insert(0, "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 from tests import autogame_model as M
 
 

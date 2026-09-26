@@ -8,6 +8,10 @@ was moved into the flexibly-landing class (proof-gated, at-most-once, no landing
 
 (Run: python3 tests/test_tx_landing_window.py — pure logic, no node, fast.)
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import TX_TARGET_MARGIN, TX_LANDING_WINDOW

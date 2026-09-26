@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# EVERY CHANGE SHIPS WITH ITS TEST (CLAUDE.md rule 11). Installed with `git config core.hooksPath scripts/git-hooks`
+# on the push host (this checkout: every push to the fleet goes through it). Refuses the push when:
+#   1. a pushed commit changes code (anything outside doc/, tests/, *.md and a few asset dirs) without adding or
+#      changing a file under tests/ — unless its message carries "[no-test: <reason>]" (a reason, not a shrug);
+#   2. a core guard fails: undefined names, the gate ledger, test isolation, the exec-file guard, i18n coverage;
+#   3. any test the push adds or changes fails (run the way scripts/run_tests.sh runs it — isolated HOME, live tests
+#      skipped).
+# The 2026-09-26 audit found 8 code commits of one session with no test of their own. Bypass (git push --no-verify)
+# only with the operator's explicit yes, and say so in the next commit.
+set -u
+cd "$(git rev-parse --show-toplevel)"
+PY=${PY:-nado_venv/bin/python}; [ -x "$PY" ] || PY=/srv/nado-home/nado/nado_venv/bin/python
+Z=0000000000000000000000000000000000000000
+fail=0; changed_tests=()
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$Z" ] && continue                                   # a delete
+  base=$rsha; [ "$base" = "$Z" ] && base=$(git merge-base "$lsha" origin/main 2>/dev/null || echo "")
+  range=${base:+$base..}$lsha
+  for c in $(git rev-list "$range"); do
+    files=$(git show --name-only --format= "$c")
+    code=$(echo "$files" | grep -vE '^(doc/|tests/|legal/|graphics/|website/|genesis_data/)|\.md$|^$' || true)
+    tst=$(echo "$files" | grep -E '^tests/' || true)
+    msg=$(git log -1 --format=%B "$c")
+    if [ -n "$code" ] && [ -z "$tst" ] && ! echo "$msg" | grep -q '\[no-test: [^]]\+\]'; then
+      echo "pre-push: $(git log -1 --format='%h %s' "$c" | cut -c1-100)"
+      echo "          changes code without a test (add one under tests/, or write [no-test: <reason>] in the message)"
+      fail=1
+    fi
+  done
+  while read -r f; do [ -n "$f" ] && [ -f "$f" ] && changed_tests+=("$f"); done < <(git diff --name-only "${base:-$lsha~1}" "$lsha" -- 'tests/test_*.py' 'tests/test_*.mjs' 2>/dev/null)
+done
+[ "$fail" = 0 ] || { echo "pre-push: refused — every change ships with its test"; exit 1; }
+echo "pre-push: core guards"
+for g in tests/test_no_undefined_names.py tests/test_gate_reroll_transfer.py tests/test_tests_are_isolated.py \
+         tests/test_tests_never_touch_live_exec_state.py; do
+  env -i PATH="$PATH" HOME="$(mktemp -d)" "$PY" "$g" > /tmp/pre-push-guard.log 2>&1 || { echo "  FAIL $g"; tail -5 /tmp/pre-push-guard.log; fail=1; }
+done
+node tests/i18n_coverage.mjs > /tmp/pre-push-guard.log 2>&1 || { echo "  FAIL i18n coverage"; tail -5 /tmp/pre-push-guard.log; fail=1; }
+if [ "${#changed_tests[@]}" -gt 0 ]; then
+  echo "pre-push: the ${#changed_tests[@]} test(s) this push adds or changes"
+  PY="$PY" NADO_TEST_JOBS=${NADO_TEST_JOBS:-2} bash scripts/run_tests.sh "${changed_tests[*]}" || fail=1
+fi
+[ "$fail" = 0 ] || { echo "pre-push: refused — fix the failures above"; exit 1; }
+echo "pre-push: ok"

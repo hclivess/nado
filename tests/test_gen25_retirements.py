@@ -2,6 +2,10 @@
 that only existed to make identities expensive without one are gone — sequential work (PoSW) and its difficulty
 machinery, the per-IP entry budget and identity cap, probation, the node's open-lane auto-register, the gen-24
 gate constants. This pins that none of them survives (doc/device-attestation.md, "What the reroll retires")."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 

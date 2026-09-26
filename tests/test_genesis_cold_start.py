@@ -22,6 +22,10 @@ The checks below pin BOTH directions. A gate that only ever blocks would stop th
 which is a worse outage than the fork it prevents — so the release path (mesh up) and the bounded escape
 (quiet period expired) matter just as much as the block.
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 import types

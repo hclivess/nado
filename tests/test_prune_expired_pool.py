@@ -3,8 +3,12 @@
 # 2026-09-04: a relay stuck in emergency sync held a 10 MiB settle tx 1,500 blocks past its max_block because
 # eviction ran only on the produce path; a first fix hooked the core-loop pass, which never ends while behind
 # (emergency_mode loops internally). Pruning belongs to the pool owner, driven by a thread that always ticks.
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, tempfile, threading, re
-sys.path.insert(0, "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 os.environ.setdefault("NADO_HOME", tempfile.mkdtemp(prefix="nado-prune-test-"))
 
 F = []
@@ -46,12 +50,12 @@ ck("no tip yet → 0, no crash", ms2.prune_expired_pool() == 0)
 ck("no tip yet → live_pool serves everything (admission decides)", len(ms2.live_pool()) == 1)
 
 # WIRING: the peer loop ticks the prune every pass; the three peer-facing pool reads go through live_pool.
-src = open("/root/nado/loops/peer_loop.py").read()
+src = open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))), "loops/peer_loop.py")).read()
 ck("peer loop prunes before reconciling", src.index("prune_expired_pool()") < src.index("merge_remote_transactions(user_origin=False"))
-api = open("/root/nado/nado.py").read()
+api = open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))), "nado.py")).read()
 ck("/transactions_by_id serves live_pool", 'memserver.live_pool() if t.get("txid") in wanted' in api)
 ck("/transaction_ids lists live_pool", 't.get("txid") for t in memserver.live_pool()' in api)
 ck("/transaction_pool dumps live_pool", 'lambda: memserver.live_pool()' in api)
-ck("save_pool persists live_pool", "txs = self.live_pool()" in open("/root/nado/memserver.py").read())
-ck("core loop no longer carries its own prune", "prune_expired_pool" not in open("/root/nado/loops/core_loop.py").read())
+ck("save_pool persists live_pool", "txs = self.live_pool()" in open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))), "memserver.py")).read())
+ck("core loop no longer carries its own prune", "prune_expired_pool" not in open(__import__("os").path.join(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))), "loops/core_loop.py")).read())
 print("FAILED:", F) if F else print("ALL OK"); sys.exit(1 if F else 0)

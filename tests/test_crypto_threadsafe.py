@@ -5,7 +5,7 @@
 # ~1 in 5 under load -> the intermittent "Could not merge remote transaction: Invalid signature" 403. This
 # pins the fix (a process-wide crypto lock): concurrent keygen+sign+verify must yield ZERO false failures.
 import sys, threading
-sys.path.insert(0, "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 from signatures import generate_keydict, sign, verify
 
 F = []

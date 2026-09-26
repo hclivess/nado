@@ -2,6 +2,10 @@
 register tx must carry a hardware attestation over blake2b([chain_id, sender, anchor_hash, max_block]) whose
 chain ends at a pinned root, evaluated at the ANCHOR block's timestamp. Uses the real native kernel with a
 synthetic chain and a test root injected as the pinned set."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import base64
 import os
 import sys

@@ -2,6 +2,10 @@
 blake2b(_leaf(triple)) — the root must be BIT-IDENTICAL with a hot, cold, or poisoned-size cache,
 and repeated walks must actually hit the cache (the per-block state-root walk was 31% of process
 CPU; unchanged rows must cost a dict hit, not a pack+hash)."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("NADO_HOME", "/tmp/nado-leafcache-test-home")   # never the live home

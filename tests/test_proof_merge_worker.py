@@ -5,6 +5,10 @@
 status_pool stayed empty behind it, the node saw no peer ahead, stayed in produce mode and sat 70 blocks
 behind a mesh it believed it led. Now: proof settles go to a single worker thread (same merge_transaction,
 same admission rules), one verification per txid.   Run: python3 tests/test_proof_merge_worker.py"""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import sys, os, time, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memserver import MemServer   # noqa: E402

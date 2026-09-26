@@ -6,9 +6,12 @@
 #   1. producer  — match_transactions_target skips an already-mined txid
 #   2. consensus — a block's tx set may not contain a duplicate txid, nor an already-mined one
 #   3. mempool   — merge_transaction refuses an already-mined txid
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import sys, tempfile, os
-sys.path.insert(0, "/root/nado")
-os.environ.setdefault("NADO_HOME", "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 
 F = []
 def ck(n, c): print(("  ok  " if c else " FAIL ") + n); (F.append(n) if not c else None)

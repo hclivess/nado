@@ -2,6 +2,10 @@
 apple: nonce extension = sha256(authData || sha256(cdj)), chain leaf -> intermediate signed by a pinned root.
 android-key: sig over authData || sha256(cdj), key-description ext carries clientDataHash + security levels.
 Negative cases: wrong challenge, unpinned root, software security level, tampered signature, expired leaf."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import base64
 import hashlib
 import json

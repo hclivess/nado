@@ -1,30 +1,35 @@
 #!/usr/bin/env bash
 # Run EVERY tests/test_*.py the way it must be run — isolated HOME (never the live node's data dir), testnet
 # mode, Python STARK kernels allowed except for the two tests that certify the shipped native path — and fail
-# on any non-zero exit or FAIL line. The suite is print-PASS/FAIL scripts, not pytest: `pytest tests/` collects
+# on any non-zero exit or FAIL line. Runs the .mjs wallet tests with node too, and SKIPS the LIVE tests. The suite is print-PASS/FAIL scripts, not pytest: `pytest tests/` collects
 # three functions and goes green (2026-09-02 audit). Usage: scripts/run_tests.sh [pattern] (default: all).
 #   NADO_TEST_TIMEOUT   per-test seconds (default 900; the fold/prove tests need minutes)
 #   NADO_TEST_JOBS      parallel jobs (default 2; every job gets its own HOME)
 set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-nado_venv/bin/python}
-PAT=${1:-'tests/test_*.py'}
+PAT=${1:-'tests/test_*.py tests/test_*.mjs'}      # .mjs: the wallet/JS tests, run with node (they were never run here)
 TMO=${NADO_TEST_TIMEOUT:-900}
 JOBS=${NADO_TEST_JOBS:-2}
 OUT=$(mktemp -d /tmp/nado-tests.XXXXXX)
 NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNELS (certifies the shipped native path)
+# LIVE tests talk to the node this checkout runs (tests/test_tests_are_isolated.py keeps this list and the tree in
+# step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.
+LIVE="test_otc_swap_e2e"
 run_one() {
-  t=$1; n=$(basename "$t" .py); h="$OUT/home-$n"; mkdir -p "$h"
+  t=$1; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; h="$OUT/home-$n"; mkdir -p "$h"
+  case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac
+  run=("$PY" "$t"); case "$t" in *.mjs) run=(node "$t");; esac
   flags="NADO_ALLOW_PYTHON_KERNELS=1"; case " $NATIVE_ONLY " in *" $n "*) flags="";; esac
   # TMPDIR=$h: every tempfile.mkdtemp() a test makes (105 sites beyond the HOME line, 2026-09-22) lands
   # under its own home instead of /tmp, so one rm of $OUT below is the whole cleanup. 8,000 unprefixed
   # tmpXXXXXXXX directories were found in /tmp that day, almost all from these tests.
-  env -i PATH="$PATH" HOME="$h" TMPDIR="$h" NADO_TESTNET=1 $flags timeout "$TMO" "$PY" "$t" > "$OUT/$n.log" 2>&1
+  env -i PATH="$PATH" HOME="$h" TMPDIR="$h" NADO_TESTNET=1 $flags timeout "$TMO" "${run[@]}" > "$OUT/$n.log" 2>&1
   rc=$?; fails=$(grep -c '^FAIL' "$OUT/$n.log"); skips=$(grep -c '^SKIP' "$OUT/$n.log")
   st=OK; [ "$rc" = 124 ] && st=TIMEOUT; { [ "$rc" != 0 ] || [ "$fails" != 0 ]; } && [ "$st" = OK ] && st=FAIL
   printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "$st" "$rc" "$fails" "$skips" "$n"
 }
-export -f run_one; export OUT PY TMO NATIVE_ONLY
+export -f run_one; export OUT PY TMO NATIVE_ONLY LIVE
 ls $PAT | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | tee "$OUT/summary.txt"
 bad=$(grep -c -E '^(FAIL|TIMEOUT)' "$OUT/summary.txt")
 # A GREEN RUN LEAVES NOTHING BEHIND: the homes, the temp dirs and the logs go together. A run with a

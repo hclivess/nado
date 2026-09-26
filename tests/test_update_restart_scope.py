@@ -9,6 +9,10 @@ including old CONSENSUS code — so every case below that is not purely document
 must every ambiguous one (no paths, an unreadable diff). These pin both halves; a future addition to
 _INERT_PREFIXES that swallows something executable fails here.
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import sys
 import os
 

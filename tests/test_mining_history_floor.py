@@ -1,6 +1,10 @@
 """mining_history: a tip DIP is not a reorg. Only an anchor mismatch drops the index; the maintainer passes
 the finalized floor, so an ordinary rollback never invalidates an indexed height (2026-09-06: every
 emergency rollback rescanned 60k full block bodies from genesis and starved the relay)."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 

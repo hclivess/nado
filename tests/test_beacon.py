@@ -3,8 +3,12 @@
 # the VM via the BEACON opcode, so a game can settle OBJECTIVELY from chain randomness with NO player
 # secret-reveal. Each beacon is a pure function of that epoch's FINALIZED reveals, so every node agrees
 # regardless of when it started; a partially-witnessed epoch (below beacon_floor) is unavailable, not wrong.
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import sys, tempfile
-sys.path.insert(0, "/root/nado")
+sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 from execnode.state import ExecState
 from protocol import EPOCH_LENGTH, GENESIS_BEACON
 from ops.mining_ops import compute_beacon

@@ -10,6 +10,10 @@ on dead branches for hours with a perfectly correct probe nothing was allowed to
 Weight breaks the symmetry the way fork choice already does: the lighter side yields. These checks pin that
 property, especially the two directions that must resolve to "nobody purges" — ties and unknown weights.
 """
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -1,5 +1,9 @@
 """find_common_ancestor answers a merely-SHORT node after ONE probe round: when the peer majority matches our
 hash at our own tip, the answerable-range search must not run (27-28 probes per verdict before 2026-09-06)."""
+import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
+_os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
+_os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.json")
+_os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os
 import sys
 
