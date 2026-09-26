@@ -826,12 +826,18 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
         cols[PL_ACT][i] = 1
     # args table: every call's FULL argument vector, concatenated in call order (call, index, value). This is
     # what the ARG opcode's bus looks values up in — rebuilt from the public statement, never from the proof.
+    # CALLS ARE TAGGED FROM 1 under zk_harden (ZK_HARDEN_HEIGHT; zk audit 2026-09-26, ZKVM-1). Table rows past
+    # args_total stay (0, 0, 0), and the table-side multiplicity MA is a free witness, so with call 0 tagged 0 that
+    # padding row WAS a valid args entry (call 0, index 0, value 0): a forged proof read the first call's args[0] as 0
+    # (reproduced at 320 queries). Tagging calls from 1 on BOTH sides (here and PC_CALL below — built from the public
+    # statement by prover and verifier alike) leaves the padding matching no execution row.
+    _tag0 = 1 if stark.current_rules().zk_harden else 0
     j = 0
     for bi, (_start, _nrows, _pid, call) in enumerate(blocks):
         for k, v in enumerate(call["args_f"]):
             if j >= T:
                 raise ValueError("args do not fit the trace")
-            cols[PT_CALL][j] = bi; cols[PT_IDX][j] = k; cols[PT_VAL][j] = v % F.P
+            cols[PT_CALL][j] = bi + _tag0; cols[PT_IDX][j] = k; cols[PT_VAL][j] = v % F.P
             j += 1
     # per-execution-row context + args (dense, epoch-sized — these live in COMMIT_PERIODIC)
     starts, ends = [], []
@@ -844,7 +850,7 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
             cols[PC_CALLER][i], cols[PC_VALUE][i], cols[PC_CURSOR][i], cols[PC_TIME][i] = ctx
             cols[PC_ASSET][i], cols[PC_SELF][i] = actx
             cols[PC_PROG][i] = pid
-            cols[PC_CALL][i] = bi
+            cols[PC_CALL][i] = bi + _tag0              # tagged from 1 under zk_harden — see the args table above
             if _in_block(in_block):
                 cols[P_IN][i] = 1                     # A2: this row belongs to a declared block
             for k in range(NR):
