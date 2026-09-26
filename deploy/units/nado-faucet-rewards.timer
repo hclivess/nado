@@ -6,7 +6,7 @@
 # silently skipping them — safe because the payout is idempotent per (game, day, rank).
 [Unit]
 Description=Run the NADO faucet prize distributor daily
-Documentation=file:///root/nado/doc/faucet.md
+Documentation=file://@REPO@/doc/faucet.md
 
 [Timer]
 OnCalendar=*-*-* 00:20:00 UTC

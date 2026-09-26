@@ -1,11 +1,10 @@
-# Run the NADO Bet oracle worker (fill + resolve) every 10 minutes.
 [Unit]
 Description=Run the NADO Bet oracle worker every 10 minutes
 
 [Timer]
 OnBootSec=4min
 OnUnitActiveSec=10min
-Unit=bet-oracle.service
+Unit=nado-bet-oracle.service
 
 [Install]
 WantedBy=timers.target

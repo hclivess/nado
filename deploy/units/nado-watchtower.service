@@ -1,0 +1,19 @@
+# OTC watchtower (scripts/otc_watchtower.py). A TEMPLATE — see nado-bet-oracle.service. Existed only in /etc on
+# the operator box until 2026-09-26.
+[Unit]
+Description=NADO OTC watchtower (expire sweep + relays revealed swap secrets from ETH/SOL/L1)
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@REPO@
+Environment=HOME=@HOME@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/otc_watchtower.py scan --submit --loop 60 --eth eth https://ethereum-rpc.publicnode.com 0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b 0x3a6ed3d17cc00feeb5dd53b69341d42b09ed9e14 --eth eths https://ethereum-sepolia-rpc.publicnode.com 0xea946ca7df38607ba8af01e30486524c97363ec3 0x16a2714026cf9ace31cf4fd9b20fcedc3721e71b
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -385,6 +385,15 @@ def _attest_kernel_ok() -> bool:
     return _ATTEST_KERNEL_OK[0]
 
 
+def _jobs_report():
+    """The cached job report (ops/jobs.py) — refreshed by _node_jobs_loop, never computed in the handler."""
+    try:
+        from ops import jobs
+        return jobs.report()
+    except Exception:
+        return None
+
+
 async def status(request):
     """GET /status: the node's status dict — address, chain ends (latest/earliest hash, weight),
     finalized_height + ffg_finalized, protocol/version, chain_id (the network partition key peers gate
@@ -475,6 +484,10 @@ async def status(request):
             # after a .rs commit was otherwise unverifiable without a shell on the box.
             "native": self_update.native_report(),
             "latest_main": self_update.latest_known(),
+            # JOBS (2026-09-26, ops/jobs.py): every job this machine should run (deploy/units/manifest.json) with its
+            # systemd state, the in-node samplers' last success, and `problems` — so a job that stops is seen from
+            # /status and from every peer's status_pool instead of failing silently for days.
+            "jobs": _jobs_report(),
             # PROOF RULE GATES (2026-09-23): a proof is judged by the rules of the block it lands in, and the
             # wallet's on-device prover must produce that format, so the heights are published here rather
             # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2). Every one of
@@ -3773,6 +3786,32 @@ def _daily_stats_loop():
 
 
 _threading.Thread(target=_daily_stats_loop, daemon=True, name="daily_stats").start()
+
+
+def _node_jobs_loop():
+    """In-node jobs + the job report (ops/jobs.py, deploy/units/manifest.json, doc/jobs.md).
+    DEX PRICES (ops/dex_prices.py): sampled here, not by a separate process — the old detached script died at a
+    reboot and the shared chart froze for two days unseen. Runs on every node; only a node with an exec node has
+    prices to read (the others fail the read quietly and write nothing). JOB REPORT: every declared unit's systemd
+    state, refreshed each pass for /status `jobs`. Pull-only and failure-isolated; nothing here touches consensus."""
+    from ops import dex_prices, jobs
+    jobs.inner["dex_prices"] = {"role": "exec", "since": time.time(), "last_ok": None}
+    time.sleep(20)
+    while True:
+        try:
+            n = dex_prices.sample_once(_proto.CHAIN_ID)
+            if n is not None:
+                jobs.inner["dex_prices"].update(last_ok=int(time.time()), series=n)
+        except Exception as e:
+            logger.info(f"dex price sample failed (retrying next pass): {e}")
+        try:
+            jobs.refresh(get_config())
+        except Exception as e:
+            logger.info(f"job report refresh failed: {e}")
+        time.sleep(dex_prices.EVERY)
+
+
+_threading.Thread(target=_node_jobs_loop, daemon=True, name="node_jobs").start()
 
 
 def _gossip_worker():

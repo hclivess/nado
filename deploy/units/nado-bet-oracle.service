@@ -1,0 +1,18 @@
+# NADO Bet oracle (scripts/bet_oracle.py): fills upcoming fixtures and posts finished results, signing as the node's
+# operator key. A TEMPLATE: the root reconciler (scripts/reconcile_units.py, doc/jobs.md) fills @USER@ @GROUP@ @HOME@
+# @REPO@ from the installed nado.service and refuses any unit that would not run as the node's own account.
+# Was bet-oracle.service, running as ROOT from the account-owned checkout (install.sh's migration to the account had
+# been overwritten by scripts/install-timers.sh on 2026-08-15).
+[Unit]
+Description=NADO Bet oracle — fill upcoming fixtures + post finished results
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+Environment=HOME=@HOME@
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/bet_oracle.py fill --submit
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/bet_oracle.py resolve --submit

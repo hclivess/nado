@@ -1,0 +1,17 @@
+# NADO faucet prize distributor (_faucet_rewards.py, doc/faucet.md). A TEMPLATE — see nado-bet-oracle.service.
+# Ran as ROOT from the account-owned checkout until 2026-09-26; now as the node's account (same operator key: the
+# old HOME=/root resolved /root/nado/private/keys.dat, a symlink to the account's own private/keys.dat).
+[Unit]
+Description=NADO faucet prize distributor — pay airdrop-play leaderboards from the faucet
+Documentation=file://@REPO@/doc/faucet.md
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+Environment=HOME=@HOME@
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/_faucet_rewards.py
+TimeoutStartSec=900

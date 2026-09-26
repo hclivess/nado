@@ -39,8 +39,9 @@ faucet with no scheduled distributor accumulates forever and every airdrop-play 
 the live state on betanet-3: a funded bank, 14 enrolled games, and no distributor on the box — the code was
 written and simply never scheduled, with nothing in the repo to notice was missing.
 
-    sudo scripts/install-timers.sh          # installs + enables the faucet timer (and the bet oracle)
+    # declared in deploy/units/ (role operator) and installed by the job reconciler after every update — doc/jobs.md
     systemctl list-timers 'nado-*'          # confirm it is armed
+    curl -s localhost:9173/status | python3 -c "import json,sys; print(json.load(sys.stdin)['jobs']['problems'])"
     systemctl start nado-faucet-rewards     # run one now; safe, see below
 
 Runs daily at 00:20 UTC — after the boundary the boards are keyed on, because they rank YESTERDAY's

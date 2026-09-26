@@ -626,6 +626,10 @@ UNITEOF
     # restart bridge: the unprivileged node cannot systemctl-restart itself after a self-update; it
     # writes a flag into /run/nado (its RuntimeDirectory) and this root-owned pair applies the restart.
     # The unit list is FIXED here — root never executes anything from the account-owned checkout.
+    # JOBS (doc/jobs.md): root runs the job reconciler only from this ROOT-OWNED COPY, refreshed by re-running
+    # install.sh as root. It reads deploy/units/ from the checkout as untrusted data and installs only nado-* units
+    # that run as the account, so the account can schedule its own code as itself and nothing more.
+    install -o root -g root -m 0755 "$REPO_DIR/scripts/reconcile_units.py" /usr/local/sbin/nado-reconcile-units
     cat > /etc/systemd/system/nado-restart.service <<BRIDGEEOF
 [Unit]
 Description=NADO restart bridge (applies a self-update restart requested by the unprivileged node)
@@ -634,7 +638,8 @@ Description=NADO restart bridge (applies a self-update restart requested by the 
 Type=oneshot
 # the sleep mirrors the updater's restart delay: the /update HTTP response + peer update wave get out
 # first ($$ because systemd itself expands \$VAR in ExecStart before the shell runs)
-ExecStart=/bin/sh -c 'sleep 5; rm -f /run/nado/restart-request; for u in nado nado-exec forum; do systemctl try-restart "\$\$u.service" 2>/dev/null || true; done'
+# the reconciler first: a job committed to deploy/units/ is installed by the update that brings it (doc/jobs.md)
+ExecStart=/bin/sh -c 'sleep 5; rm -f /run/nado/restart-request; /usr/bin/python3 /usr/local/sbin/nado-reconcile-units >/dev/null 2>&1 || true; for u in nado nado-exec forum; do systemctl try-restart "\$\$u.service" 2>/dev/null || true; done'
 BRIDGEEOF
     cat > /etc/systemd/system/nado-restart.path <<BRIDGEEOF
 [Unit]
@@ -662,7 +667,10 @@ BRIDGEEOF
   fi
   systemctl daemon-reload
   systemctl enable nado.service
-  if [ -n "$SERVICE_ACCOUNT" ]; then systemctl enable --now nado-restart.path; fi
+  if [ -n "$SERVICE_ACCOUNT" ]; then
+    systemctl enable --now nado-restart.path
+    /usr/bin/python3 /usr/local/sbin/nado-reconcile-units || true   # this machine's declared jobs, now (doc/jobs.md)
+  fi
   systemctl restart nado.service
   echo "==> service installed, enabled and started."
   echo "    status:  systemctl status nado"

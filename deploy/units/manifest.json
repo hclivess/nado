@@ -1,0 +1,15 @@
+{
+  "_doc": "Every job this system runs, in one place (doc/jobs.md). role: node = every node; exec = nodes with an exec node; operator = the machine whose private/config.json sets \"operator_jobs\": true. source: repo = the unit files live in this directory and scripts/reconcile_units.py installs, refreshes and enables them (as root, through the nado-restart bridge after every update); install.sh = per-machine units that install.sh generates with that machine's settings, never overwritten from here, listed only so /status can report them. Work that only reads the chain runs INSIDE the node instead (the DEX price sampler, the daily stats) and needs no unit.",
+  "jobs": [
+    {"unit": "nado.service",              "role": "node",     "source": "install.sh"},
+    {"unit": "nado-restart.path",         "role": "node",     "source": "install.sh"},
+    {"unit": "nado-exec.service",         "role": "exec",     "source": "install.sh"},
+    {"unit": "forum.service",             "role": "operator", "source": "install.sh"},
+    {"unit": "nado-watchtower.service",   "role": "operator", "source": "repo",
+     "files": ["nado-watchtower.service"]},
+    {"unit": "nado-faucet-rewards.timer", "role": "operator", "source": "repo",
+     "files": ["nado-faucet-rewards.service", "nado-faucet-rewards.timer"], "runs": "nado-faucet-rewards.service"},
+    {"unit": "nado-bet-oracle.timer",     "role": "operator", "source": "repo",
+     "files": ["nado-bet-oracle.service", "nado-bet-oracle.timer"], "runs": "nado-bet-oracle.service"}
+  ]
+}
