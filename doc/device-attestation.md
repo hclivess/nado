@@ -6,6 +6,14 @@ probation, per-IP budgets, the ingress identity cap) is linear in identity count
 1,000 times the same way 1,000 phones would. Measured 2026-09-06: ~1,000 of 1,191 registered identities
 belong to two or three operators running browser farms on Linux/Windows servers.
 
+> **Status on betanet-8 (gen 27, 2026-09-25/26).** Every gate named in this document has been removed from the code.
+> The rules they switched ON are unconditional from block 1 (cleanup slice 2, 9c6bf717). The savings-lane cap, the
+> bond curve, staking pools and the open-lane exclusion never ran on betanet-8 and their code is deleted (slice 1,
+> e7a17f00): the savings lane is plain stake, and `pool` / `delegate` / `undelegate` are refused. Sections about
+> those mechanisms are kept as the record of what was built and why it was retired. The one live gen-27 gate here is
+> `EK_ENROL_ROOTS_AT_HEIGHT` (1400): from it a TPM enrolment is judged by the same endorsement roots the kernel verified
+> against, so Intel chips whose EK certificate walks to the V2 root can enrol.
+
 The one thing a server cannot fake is genuine hardware's secure element. Four device classes expose it
 to a web page through WebAuthn *attestation* — the device creates a non-exportable key in hardware and
 returns a statement, signed inside that hardware, that chains to a vendor attestation root:
@@ -644,10 +652,11 @@ both the live commit and the fraud-proof replay call.
 
 ## Gates and the next reroll
 
-Every gate in this document is written `<live height> if CHAIN_GENERATION == 25 else <1|0>` (protocol.py, "GATE
-LEDGER"), so a reroll carries them without an edit: the device rules land at block 1, and the retired ones
-(`BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`, `OPEN_LANE_EXCLUDE_BONDED_HEIGHT`) land at 0 —
-never on, their code deleted in the follow-up cleanup. Procedure and the full ledger: [doc/reroll.md](reroll.md);
+Every gate in this document was written `<live height> if CHAIN_GENERATION == 25 else <1|0>` (protocol.py, "GATE
+LEDGER"), so the betanet-8 reroll carried them without an edit: the device rules landed at block 1, and the retired
+ones (`BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`, `OPEN_LANE_EXCLUDE_BONDED_HEIGHT`) at 0 —
+never on. The follow-up cleanup is DONE: the never-on code is deleted (e7a17f00) and every block-1 gate is inlined
+(9c6bf717). New gates on this chain are keyed `== 27` (the first: `EK_ENROL_ROOTS_AT_HEIGHT`). Procedure and the full ledger: [doc/reroll.md](reroll.md);
 pinned by `tests/test_gate_reroll_transfer.py`.
 
 ## Phases

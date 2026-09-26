@@ -220,10 +220,9 @@ pair moves it back out after a timelock (see below). Bonded **producer** weight 
 Pools existed for the weeks the bonded lane required a device: a holder without one delegated to an identity that had
 one. Once the lane went device-free, a pool could pay a delegator at most what solo staking pays, minus a fee — on the
 live lane nadochain.com's delegators were at 51 % of solo (2,572 NADO staked, curved to 1,306) and ninja pool's at
-79 %. So from block 16900 (`POOL_RETIRE_HEIGHT`, never live at the next reroll) delegations are ignored in the draw and
-every bonded identity produces alone, former delegators included, with nothing to do; the in-block split is off and the
-`pool` / `delegate` / `undelegate` transactions are refused. The account fields stay in state as dead data (no sweep,
-no root churn). The code stays in git if a reason ever returns.
+79 %. So pools were retired on betanet-7 (block 16900) and never ran on betanet-8, where their code is deleted
+(2026-09-25): every bonded identity produces alone, the reward goes to the producer, and the `pool` / `delegate` /
+`undelegate` transactions are refused. The code stays in git if a reason ever returns.
 
 > **Bonded lane + FFG finality — now active.** At the **10-NADO** entry the bonded registry is
 > **populated** and blocks began producing on the bonded lane the moment `B_MIN` dropped. At the old

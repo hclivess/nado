@@ -546,6 +546,10 @@ needs to be online continuously:
 This is the antithesis of a bridge validator set: there is no committee to bribe, no threshold to corrupt,
 and being a watchtower requires no permission, stake, or identity.
 
+**The operator's own watchtower** is `scripts/otc_watchtower.py` (expire sweep + relaying revealed secrets from
+ETH/SOL/L1), run as the operator job `nado-watchtower.service` declared in `deploy/units/` and installed by the job
+reconciler (doc/jobs.md). Its state shows in `/status` → `jobs`.
+
 ---
 
 ## 11. What we deliberately do NOT build (and why)
@@ -594,13 +598,23 @@ and being a watchtower requires no permission, stake, or identity.
 | **4 (daemon done 2026-08-26)** | `scripts/otc_watchtower.py` SHIPPED — expire sweep (escrow always drains home, zero-escrow opens skipped) + BTC secret-scan settle relay (finds a revealed preimage in any claim witness and re-posts settle; payment goes to the recorded party, never the tower) + secrets-file settle; contract discovered by method shape, dry-run default, --submit/--loop for the daemon. On-chain BOUNTIES for towers remain phase 5 (§8) | `tests/test_otc_watchtower.py` (8/8) + live dry-run |
 | **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. §9.1 collateral was shipped and then WITHDRAWN 2026-08-28 (unobservable performance made the forfeit free money for takers — see §9.1). The L3 gossip discovery relay is DROPPED as unnecessary — §5's whole argument is that the on-chain book IS the discovery layer, and it is live. Still future: a dedicated `bridge.nadochain.com` Swap dApp (cosmetic), ETH-leg automation (needs HtlcEth deployed on a real EVM chain — an operator decision, it costs gas) | bounty section of `tests/otc_contract_test.py` (83/83) |
 
-**File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_contract.py` as its source of
+**File map (to build):** `execnode/games/otc.py` (+ `tests/otc_contract_test.py` as its source of
 truth), a cross-chain tab inside the existing `static/dex.{html,js}` exchange dApp (one venue: AMM + book, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,
 `website/nginx-bridge.nadochain.com.conf`, a card in `website/games.html`/the app catalog, and this doc.
 
 ---
 
-## 14. How it compares
+## 14. The DEX page's shared price history
+
+The DEX page's chart and Markets tab read `/static/market/prices.json`, so every visitor sees the same history rather
+than whatever their own browser happened to record. The node writes it (`ops/dex_prices.py`, a loop in `nado.py`):
+every 30 s it reads the AMM's pool reserves and the cross-chain book from the local exec node, records a price per
+pool (and the mid of each cross-chain market's open book), and estimates volume from reserve moves and settled swaps.
+The contract ids come from `static/dex.js`'s own `const CID` / `const OTC_CID`, so the chart and the page cannot point
+at different contracts; the file carries the chain id and starts fresh after a reroll. Nodes without an exec node
+write nothing. It used to be a hand-started script that died at a reboot (doc/jobs.md).
+
+## 15. How it compares
 
 | bridge model | authority | worst-case loss | on NADO |
 |---|---|---|---|

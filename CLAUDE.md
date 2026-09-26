@@ -29,7 +29,7 @@ peers linked, no `Error in peer loop`.
 ### 2. Every consensus gate carries a reroll branch
 
 ```python
-FEATURE_HEIGHT = 45300 if CHAIN_GENERATION == 25 else 1
+FEATURE_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1      # keyed on the LIVE generation (27 = betanet-8)
 ```
 
 Never a bare height. `else 1` = live from block 1 on a fresh chain; `else 0` = the feature never turns
@@ -379,13 +379,32 @@ After every push, prove the wave landed: `status_pool` uniform on the new `runni
 that is not, read its `/status` — `update_blocking` and `update_warnings` now name the exact condition.
 
 ```bash
-git push origin main          # THIS RESTARTS PRODUCTION
-curl -s localhost:9173/update # kick the fleet wave; the kicked node restarts at once, the rest follow
-                              # over ~3 min (UPDATE_WAVE_JITTER_S) so an elder is always up to warm from
+git push origin main          # THIS RESTARTS PRODUCTION (this node self-restarts ~90 s later; users see ~10 s of 502s)
+curl -s "http://<fleet-ip>:9173/update?wave=true"   # kick the wave FROM A FLEET NODE, not from here
 ```
 
-Then verify: `/status` height climbing, `last_block_reject: null`, and `status_pool` showing every peer
-on the new `running_commit`.
+**The wave never leaves the push host.** Only a node that actually UPDATED forwards `/update`, and this checkout is
+already current when you push, so `localhost:9173/update` answers `up_to_date` and forwards nothing. Kick one or two
+fleet IPs from `peers.dat`; each one that updates forwards the wave to its peers. **Batch pushes**: every push restarts
+this node, the public relay.
+
+Then verify, and **compare, never just print**: `/status` height read twice ~60 s apart AND against a peer's height,
+`last_block_reject: null`, `jobs.problems` empty, and `status_pool` showing every peer on the new `running_commit`.
+On 2026-09-26 the relay's height was printed after a push while it had been frozen for 80 minutes, ~700 blocks behind,
+with `last_block_reject` non-null in the same output — a lone reading of a stuck node looks exactly like a healthy one.
+
+**Root and ownership.** The node runs as the `nado` account and owns `/srv/nado-home`. Work done here as root (edits,
+commits, pushes) leaves root-owned files — including git objects — that the node's own updater cannot write. After
+root git work: `chown -R nado:nado /srv/nado-home` (install.sh does the same). Root never EXECUTES anything from the
+checkout (install.sh's rule; doc/jobs.md).
+
+## Jobs: everything that runs is declared in `deploy/units/manifest.json`
+
+Read **`doc/jobs.md`** before adding anything that runs on its own. Work that only reads the chain runs INSIDE the node
+(a loop in `nado.py`, like the DEX price sampler and daily stats) — never a hand-started `python … &`, which is how the
+price chart froze for two days after a reboot. Operator jobs are `nado-*` unit templates in `deploy/units/` that the
+root-owned reconciler installs after every update. `/status` → `jobs.problems` names any declared job that is missing,
+stopped, failing or stale. No timer or service is added any other way.
 
 A reroll is different and has its own runbook: **`doc/reroll.md`**. `CHAIN_GENERATION` is the purge
 trigger; forgetting to bump it means nothing purges.

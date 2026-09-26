@@ -39,3 +39,34 @@ service. It installs and enables; it never disables, stops or removes. `tests/te
 success, the last reconcile result, and `problems` — every job that is not installed, not active, whose last run
 failed, or (in-node) has not succeeded for 5 minutes. Peers pass `/status` around, so a dead job on any node shows
 up in every other node's `status_pool`.
+
+## Setting up an operator machine
+
+A fresh install: `sudo scripts/install.sh --service` places the reconciler and runs it; set `"operator_jobs": true` in
+`private/config.json` and the next update installs the operator jobs.
+
+**An existing operator machine** (from before 2026-09-26) needs a one-time root pass, because the reconciler never
+removes anything — the old root-run `bet-oracle.*` units would otherwise keep running beside `nado-bet-oracle.*`:
+
+```bash
+sudo chown -R nado:nado /srv/nado-home          # root-owned files block the node's own updater
+sudo install -o root -g root -m 0755 /srv/nado-home/nado/scripts/reconcile_units.py /usr/local/sbin/nado-reconcile-units
+sudo sed -i 's|rm -f /run/nado/restart-request; for u|rm -f /run/nado/restart-request; /usr/bin/python3 /usr/local/sbin/nado-reconcile-units >/dev/null 2>\&1 \|\| true; for u|' /etc/systemd/system/nado-restart.service
+sudo systemctl disable --now bet-oracle.timer && sudo rm /etc/systemd/system/bet-oracle.service /etc/systemd/system/bet-oracle.timer
+sudo systemctl daemon-reload && sudo /usr/bin/python3 /usr/local/sbin/nado-reconcile-units
+```
+
+Done on the relay (get.nadochain.com) on 2026-09-26: the reconciler wrote all five templates, enabled
+`nado-bet-oracle.timer`, a manual oracle run succeeded as `nado`, and `/status` `jobs.problems` came back empty.
+
+**Changing the reconciler itself** means re-running install.sh as root (or the `install` line above): the root-owned
+copy is deliberately never refreshed from the checkout.
+
+## History
+
+- bet oracle: `scripts/bet-oracle.{service,timer}` (root, 2026-07-12) → `deploy/units/nado-bet-oracle.*` (account).
+- faucet distributor: `scripts/nado-faucet-rewards.*` (root) → `deploy/units/nado-faucet-rewards.*` (account).
+- watchtower: `/etc` only → `deploy/units/nado-watchtower.service`.
+- DEX price sampler: `scripts/dex_price_sampler.py` run by hand → `ops/dex_prices.py` in the node; its history now
+  carries the chain id and starts fresh on a reroll (the old file showed betanet-7 prices on betanet-8).
+- `scripts/install-timers.sh`: deleted — the reconciler replaces it.

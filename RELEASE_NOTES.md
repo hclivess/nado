@@ -1,3 +1,36 @@
+# betanet-8 (gen 27) — the carry-everything reroll (2026-09-25)
+
+**Everything carried, exactly.** Balances, bonded stake, uncollected dividends and pending exits: 128,252,772,528,624
+raw left betanet-7 at block 233042 and the same total started betanet-8 (Δ = 0). New this time: identities
+(registration, fidelity, device credential, account-auth keys), 103 device bindings, 6 aliases and account-auth history
+carry too, so nobody re-registers or re-binds a device. The exec layer was brought to the exact L1 tip before the carry,
+so dividend claims and deposits in the last unfinalized blocks were not lost.
+
+**The open lane starts with the 46 identities that were live at the tip.** An identity whose lease had lapsed on
+betanet-7 keeps its registration and device and rejoins with its next renewal. (A first genesis leased every registered
+identity — 79 collectors, 33 of them absent — and was replaced before block 1; no block was ever built on it.)
+
+**What changed for users**
+- Every rule betanet-7 switched on part-way is live from block 1: the full-domain proof checks, the key binding of
+  addresses that have sent, the stake-anchored settle window, one slash per offence per block, the privacy pause.
+- The savings lane is plain stake; staking pools, the savings cap and the bond curve are gone (they had been retired
+  on betanet-7). `pool` / `delegate` / `undelegate` are refused.
+- Intel TPMs whose endorsement certificate walks to Intel's V2 root can enrol, from block 1400.
+- The chain clock runs at the measured 6.4 s per block (was 6), so contract time tracks the wall clock again.
+- Game contracts were redeployed and every page rewired (the wallet's reserve panel included); the faucet prize bank
+  was refilled (99.4 NADO); the one game pot the carry could not attribute was refunded by hand (block 3090).
+
+**Fixed alongside**
+- The lend page never wired its buttons (since 2026-08-02); it works now.
+- A node catching up across a block with a records-bound settle proof crashed there; fixed before any new node hit it.
+- Two TPM challengers answering in one block could leave a node unable to re-take that block after a reorg; fixed.
+- A returning wallet no longer carries the previous chain's relay heights into its first transactions.
+- The translation file keeps its cache across updates, so pages stop showing raw placeholders after a deploy.
+
+**For operators:** every background job is declared in `deploy/units/manifest.json` and installed by the node's own
+update (doc/jobs.md); `/status` → `jobs.problems` lists anything missing or stopped. An existing operator machine needs
+the one-time pass in doc/jobs.md.
+
 # betanet-7 (gen 25) — the PoSEA reroll: Proof of Secure Element Attestation (2026-09-07)
 
 **2026-09-09 — stakers are back in the free lane (from block 29900; no exclusion at all at the next reroll).** One

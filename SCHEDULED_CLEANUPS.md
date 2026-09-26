@@ -13,12 +13,30 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
+
+- **`EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1`** (Intel V2-root chips enrol, f524cb0a): the first
+  gen-27 gate. At the next reroll it is 1 — inline it as unconditional (keep `>= 1` where height 0 reaches it).
+- **Exec-layer `>= 1` helpers keep dead legacy branches** (slice 2, 9c6bf717): the `ExecState.rules_*` helpers, the
+  exec root layout and the legacy field-pool checks under `rules_r2()` still branch on height 0, which no real block
+  reaches. Deletable only with a replay proving height 0 never reaches them — a cleanup, not owed by a reroll.
+- **A settle proof whose span starts at exec cursor 0 may not match the settled genesis root**: the exec genesis root at
+  cursor 0 is the v1 layout, a proof starting there uses v2 (found by the slice-2 agent; same on the old code; betanet-8
+  is past cursor 0, so it bites only the first settle after the NEXT reroll). Investigate before that reroll.
+- **Seven tests fail identically on old and new code, unrelated to the gates**: autogame_model (run path),
+  test_auto_bond, test_emergency_rollback_gating, test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and
+  test_pay_binding (stale source greps), test_settle_fold_tree (times out). Fix or delete each; a red test nobody reads
+  is how the lend page stayed broken from 2026-08-02 to 2026-09-26.
+- **install.sh's root→account migration branch** says to delete it by mainnet; it is also what install-timers.sh
+  undid (doc/jobs.md). Delete with the next installer pass once no root install remains.
+
 ## 2026-09-24 — the K->1 fold stays REFUSED: SETTLE_PROOF_RECURSIVE is already True, so lifting the refusal is live
 
 **Corrected 2026-09-24.** This entry used to say `SETTLE_PROOF_RECURSIVE` is False and activation needs a reroll. It is
 **True** (protocol.py, set at alphanet-14), and L1 honours a `recursive` bundle in a settle proof: `verify_settlement_
 sparse` skips the per-segment exec proof and calls `recursive_verify.verify`. The ONLY thing keeping the fold out of
-consensus is `_refuse_trace_ldt` (every block >= PROOF_TRACE_LDT_HEIGHT, and so every block >= PROOF_QUERY_FULL_HEIGHT).
+consensus is `_refuse_trace_ldt` (every block >= 1 — its gates PROOF_TRACE_LDT_HEIGHT and PROOF_QUERY_FULL_HEIGHT were
+inlined at the betanet-8 cleanup, 9c6bf717).
 Deleting it deploys a rule relaxation with no gate, on the next /update wave.
 
 Owed before the refusal may go, IN THIS ORDER:
@@ -27,10 +45,15 @@ Owed before the refusal may go, IN THIS ORDER:
    `stark.fri_claim` (the full-domain rule) — the comp AIRs and the arena's fold kernels all assume the lower half;
 2. the two fold forgeries of review 2026-09-24 stay closed (both fixed 2026-09-24: inner geometry pinned via
    `max_degree`, transition-bundle boundaries rebuilt from public data) — keep their tests green;
-3. a height gate `... if CHAIN_GENERATION == 25 else 1` for the relaxation, registered in the GATE LEDGER.
+3. a height gate `... if CHAIN_GENERATION == 27 else 1` for the relaxation (at the fleet's adoption block), registered
+   in the GATE LEDGER.
 Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
 
-## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): delete at the gen-25 reroll
+## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): delete at the gen-25 reroll — STILL OWED
+
+**Status 2026-09-26:** the gate is dead (`protocol.POSW_ENTRY_COUNT_HEIGHT = 0` since gen 25, pinned by
+tests/test_gen25_retirements.py) but the NAME is still imported by `ops/reg_difficulty.py`, and tests/test_posw_rule_gate.py
+no longer exists. Owed: delete the constant, `entries_only_at`, the `entries_only` parameters and this entry together.
 
 `protocol.POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0`, read by
 `ops/reg_difficulty.entries_only_at(landing_height)`. The entries-only flood counting (84d122f3) was pushed at

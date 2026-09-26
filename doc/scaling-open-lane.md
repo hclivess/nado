@@ -3,6 +3,7 @@
 *Design, 2026-09-09. Each phase is gated and independently shippable.*
 
 > **Status 2026-09-14: phases 1a and 1b are LIVE from `LEASE_V2_EPOCH` (block 96 000), per class, not uniformly.**
+> **2026-09-26:** on betanet-8 they are live from epoch 0; the `LEASE_V2_EPOCH` gate itself is removed from the code (9c6bf717).
 > Windows Hello identities renew by credential signature (1a) and get a 7-day lease (1b), as do Ledger, Trezor and
 > helper-enrolled chips (which already renewed without a statement). **Android keeps the 36-hour lease with a
 > statement**: its attestation certificate rotates (~13 days measured) and nothing stable survives the rotation, so

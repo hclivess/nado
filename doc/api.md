@@ -36,6 +36,8 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/get_blocks_after` · `/get_blocks_before` | `?hash=&count=` | ranges for sync |
 | GET | `/get_settled` | — | latest settled/finalized height |
 | GET | `/status` | — | node status: `chain_id`, `version`, tip, peers; debug telemetry: `hard_finality`, `recovery` (live recovery phase), `recovery_fail` (last failed recovery), `last_block_reject` (why production last skipped), `last_fork_diff` (tx-set diff of the last fork's first divergent block) |
+| GET | `/status` → `jobs` | | every job this machine should run (doc/jobs.md): `roles`, `units` (systemd state, enabled, last run and result per declared unit), `inner` (in-node samplers: `dex_prices.last_ok`), `reconcile` (the root reconciler's last result) and `problems` (anything missing, stopped, failing or stale — empty = healthy) |
+| GET | `/status` → `native` | | per native crate: library present, current against its Rust sources, newer than this process |
 | GET | `/status` → `auth_active` | | whether the `auth` transaction (account authentication) is live on this chain generation |
 | GET | `/health` | — | liveness |
 | GET | `/get_snapshot_manifest` · `/get_snapshot_chunk` | `?index=` | fast-sync snapshot |
