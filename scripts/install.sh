@@ -639,7 +639,12 @@ Type=oneshot
 # the sleep mirrors the updater's restart delay: the /update HTTP response + peer update wave get out
 # first ($$ because systemd itself expands \$VAR in ExecStart before the shell runs)
 # the reconciler first: a job committed to deploy/units/ is installed by the update that brings it (doc/jobs.md)
-ExecStart=/bin/sh -c 'sleep 5; rm -f /run/nado/restart-request; /usr/bin/python3 /usr/local/sbin/nado-reconcile-units >/dev/null 2>&1 || true; for u in nado nado-exec forum; do systemctl try-restart "\$\$u.service" 2>/dev/null || true; done'
+# ...then START any of the fixed units that is ENABLED but not running (2026-09-27, 185.100.232.5): nado-exec has
+# Requires=nado.service, so restarting nado stops it, and two restart requests close together (a wave kick plus the
+# queued re-check) left it stopped cleanly — "inactive (dead), result success" — where try-restart, which only restarts
+# RUNNING units, never brought it back. Enabled means the machine is meant to run it; an operator who wants a unit off
+# disables it. INVARIANT: the bridge must never leave an enabled unit down after an update.
+ExecStart=/bin/sh -c 'sleep 5; rm -f /run/nado/restart-request; /usr/bin/python3 /usr/local/sbin/nado-reconcile-units >/dev/null 2>&1 || true; for u in nado nado-exec forum; do systemctl try-restart "\$\$u.service" 2>/dev/null || true; done; sleep 3; for u in nado nado-exec forum; do if systemctl is-enabled --quiet "\$\$u.service" 2>/dev/null && ! systemctl is-active --quiet "\$\$u.service"; then systemctl start "\$\$u.service" 2>/dev/null || true; fi; done'
 BRIDGEEOF
     cat > /etc/systemd/system/nado-restart.path <<BRIDGEEOF
 [Unit]

@@ -92,10 +92,33 @@ def _cid_from_client():
         return None
 
 
+EXEC_WAIT_S = 90          # an exec node restarting for an update is back within seconds; a dead one is not
+
+
+def _wait_for_exec(exec_url, wait_s=None, poll_s=5):
+    """Wait until the exec node answers, up to EXEC_WAIT_S. A run that lands while the exec node restarts for an update
+    (2026-09-27 23:39: "Connection refused" during the wave to 7709680c) used to fail outright and put
+    "nado-bet-oracle.service last run exit-code" in /status jobs.problems for ten minutes, on every deploy the timer
+    happened to overlap. Returns True when it answered; a node that stays down is still reported by resolve_cid."""
+    import time
+    deadline = time.monotonic() + (EXEC_WAIT_S if wait_s is None else wait_s)
+    while True:
+        try:
+            _get(f"{exec_url}/exec/root", timeout=5)
+            return True
+        except Exception:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll_s)
+
+
 def resolve_cid(exec_url, explicit=None):
     """The live bet contract id. Tries --cid, then the website's cid, then a method-shape match over every
     deployed contract; each candidate must EXIST on this exec node and expose the bet methods. Raises with
     what it tried, so a redeploy can never turn into a silent no-op again."""
+    if not _wait_for_exec(exec_url):
+        raise SystemExit(f"bet_oracle: the exec node at {exec_url} did not answer for {EXEC_WAIT_S} s — it is down, "
+                         f"not restarting (check nado-exec.service)")
     tried = []
     for src, cid in (("--cid", explicit), ("static/bet.js", _cid_from_client())):
         if not cid:
