@@ -104,6 +104,17 @@ check("device bindings follow their account", x["devbind"] == sorted([["dk1", v2
                                                                       ["dk2", v2_address(K[1]), "webauthn"]]), x["devbind"])
 check("aliases follow their account", x["aliases"] == [["alice", v2_address(K[1])]], x["aliases"])
 check("auth histories follow their account", x["auth_history"] == [[v2_address(K[0]), 1, ["k"]]], x["auth_history"])
+# KEY ROTATION (operator: "we have the rotating account system, don't break it"): a rotated account's config lists PUBLIC
+# KEYS, not addresses, and the account re-keys by its RECORDED key — the base key its first tx carried, which is the key the
+# wallet derives the account address from — so the rotated signer keys carry untouched and the account lands where the
+# wallet looks.
+rot = [generate_keydict()["public_key"], generate_keydict()["public_key"]]
+o2, x2, _s, _r = rekey([{"address": keyed, "balance": 7, "bonded": 0, "public_key": K[0],
+                         "auth": {"v": 2, "keys": rot, "sign": ["ID", 0], "reconf": ["ID", 1]}}],
+                       {"auth_history": [[keyed, 2, rot]]}, [])
+check("a rotated account lands at the hash of its BASE key, with its rotated keys untouched",
+      o2[0]["address"] == v2_address(K[0]) and o2[0]["auth"]["keys"] == rot and x2["auth_history"] == [[v2_address(K[0]), 2, rot]],
+      (o2, x2))
 check("the present set follows its accounts", x["present"] == sorted([v2_address(K[0]), v2_address(K[1])]), x["present"])
 check("relay seeds follow their account", s2 == [v2_address(K[0])], s2)
 check("a binding that names an account nobody can re-key refuses the carry",
