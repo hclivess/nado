@@ -3372,7 +3372,14 @@ async def make_app(port):
         # the per-path cap to the request itself so read() raises 413 at `limit` instead.
         if cl is None and limit < _MAX_INLINE_TX:
             request = request.clone(client_max_size=limit)
-        resp = await handler(request)
+        # A CLIENT THAT HANGS UP MID-BODY IS NOT AN ERROR (2026-09-27): during every update wave a peer restarts while
+        # its gossip POST to /submit_transaction is still being read, and read() raises ConnectionResetError. Nothing
+        # is lost — the peer re-gossips after its restart — but aiohttp logged a full traceback per drop, which the
+        # health watch counts as an anomaly on every push. The peer is gone, so the status is for the log only.
+        try:
+            resp = await handler(request)
+        except ConnectionResetError:
+            return web.Response(status=499, text="client closed the connection")
         # CORS for the READ API: every GET here is public, unauthenticated chain data (the same bytes any
         # peer or wallet reads), so any origin may read it — nadochain.com's live "next block, as every
         # node computes it" widget and any explorer/dashboard. No credentials are ever involved; the
