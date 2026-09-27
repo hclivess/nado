@@ -2876,6 +2876,24 @@ async def _html_response(request, full):
     return web.Response(body=body, content_type="text/html", charset="utf-8", headers=headers)
 
 
+_STATIC_SECRET_NAMES = re.compile(r"^(keys\.dat|nado-identity.*\.json|.*\.(key|pem|p12|pfx))$", re.I)
+
+
+def _static_secret(full):
+    """True for a file under static/ that must never be served, whatever its path. FOUND LIVE 2026-09-27: the TPM
+    enrolment helper writes its signing identity (a private key) as nado-identity.json BESIDE ITSELF, and a run from
+    static/ left one there on 2026-09-11 — served to the internet with HTTP 200 for 16 days. Three rules, any one
+    refuses: a dotfile; a key-material name; and a file its owner made unreadable to others (mode without o+r) —
+    which is how a program writes a secret, and which no file meant for download has (the helpers are 0755)."""
+    base = os.path.basename(full)
+    if base.startswith(".") or _STATIC_SECRET_NAMES.match(base):
+        return True
+    try:
+        return not (os.stat(full).st_mode & 0o004)
+    except OSError:
+        return True
+
+
 async def static_handler(request):
     """GET /static/{path}: serve a file from static/ with open CORS. HTML goes through _html_response
     (asset-stamped + ETag revalidation). An asset requested with a numeric ?v= is content-addressed by
@@ -2886,6 +2904,8 @@ async def static_handler(request):
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
     if not (full == _STATIC_DIR or full.startswith(_STATIC_DIR + os.sep)) or not os.path.isfile(full):
+        return web.Response(status=404, text="Not found")
+    if _static_secret(full):                 # 404, not 403: never confirm that a secret is there
         return web.Response(status=404, text="Not found")
     if full.endswith(".html"):
         return await _html_response(request, full)
