@@ -56,7 +56,7 @@ def refresh(config):
         _cache.update(at=time.time(), value={"error": f"manifest unreadable: {e}"})
         return
     mine = roles(config)
-    units, problems = {}, []
+    units, problems, unreadable = {}, [], []
     for job in jobs:
         if job.get("role") not in mine:
             continue
@@ -64,6 +64,12 @@ def refresh(config):
         if s is None:
             continue
         runs = _show(job["runs"]) if job.get("runs") else None
+        if not s["load"]:
+            # NOTHING READABLE is not "not installed" (2026-09-27): on two fleet nodes `systemctl show` returns no
+            # properties at all from the node's own process — while the same units demonstrably restart on update —
+            # and the report named three working units as missing. Unknown is reported as unknown, never as a fault.
+            unreadable.append(job["unit"])
+            continue
         if s["load"] != "loaded":
             problems.append(f"{job['unit']} not installed")
         elif s["state"] != "active":
@@ -84,7 +90,7 @@ def refresh(config):
     except Exception:
         rec = None
     _cache.update(at=time.time(), value={"roles": sorted(mine), "units": units, "inner": dict(inner),
-                                          "problems": problems, "reconcile": rec})
+                                          "problems": problems, "unreadable": unreadable, "reconcile": rec})
 
 
 def report():
