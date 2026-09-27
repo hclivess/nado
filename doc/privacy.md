@@ -187,6 +187,23 @@ mainnet fixes make availability an **on-chain deterministic fact** before a blob
 shards), rejected at L1 inclusion if missing; or (b) a **deterministic expiry** keyed to an on-chain
 availability attestation quorum (the skip decision reads the same settled record on every node). Tracked as
 the DA layer's blocking item for a non-alpha launch.
+
+**The bounded wait (audit 2026-09-25, `EXEC_DA_DEADLINE_HEIGHT`, dormant at 2^62 until the exec fleet runs it).**
+The freeze was reproduced (`tests/test_exec_never_stalls_on_unheld_proof.py`): one blob, 1,000 retries, cursor
+frozen, the honest deposit in the same block never credited — and the rolling DA window (`DA_RETAIN`, a count over
+an open `/da/publish`) could evict an honest proof into the same state for any node that had not fetched it yet.
+From the gate, a DA-carried op whose proof is still unavailable once L1 finality reaches its block +
+`EXEC_DA_WAIT_BLOCKS` (90) is **refused** (never dispatched; nothing moves, nothing is credited) and the rest of the
+block applies; before that the block stalls exactly as above. The paragraph above still holds, and this is not the
+sound fix it describes: the *moment* the node stops waiting is agreed (heights only), but the verdict at that moment
+is "held or not", which is not. What it buys: the free attack (a proof nobody holds) is refused identically on every
+node, every honest proof — published before its blob is submitted and pulled by every live exec node's provisional
+tail seconds after inclusion — applies identically, and the exec layer lags at most ~90 blocks under attack instead of
+stopping. What it costs: a proof first released to *some* exec nodes inside the last poll before the deadline can split
+the exec roots (the root pool logs `EXEC ROOT OUT OF MAJORITY`), and a node replaying a block after its proof has left
+every store refuses what the fleet applied. Two local guards narrow that: a proof resolved for an on-chain op is
+**pinned** in the DA store for ~7 days of blocks (a flood of publishes can no longer evict it), and a node retries a
+missing proof for a local grace before it refuses. Turning the gate on is an operator decision on that trade.
 | ML-DSA spend authorisation (a leaked note opening can't move funds) | ✅ (tests/test_shielded.py t7) |
 
 The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**

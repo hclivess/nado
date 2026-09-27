@@ -427,6 +427,14 @@ DA_N = int(os.environ.get("NADO_DA_N", "8"))
 # published. The bound is a COUNT, which caps disk at retain x blob size regardless of settle cadence.
 DA_RETAIN = int(os.environ.get("NADO_DA_RETAIN", "24"))
 DA = DaStore(DA_DIR, retain=DA_RETAIN)
+# PINNED ON TOP OF THE WINDOW (audit 2026-09-25, the eviction route to the exec stall). The count above is over EVERY
+# object and /da/publish is open, so 24 junk publishes evicted a field transfer's proof before a lagging exec node had
+# applied its block. Every proof _apply_block resolves for an on-chain op is therefore pinned (DaStore.pin) until this
+# node's finalized tail passes the op's height + DA_PIN_BLOCKS (~7 days at 6.4 s: a node down for less than that still
+# finds the bytes on every peer), at most DA_PIN_MAX of them (a ~4 MB transfer proof is ~3x that on disk). Local
+# storage policy, not a verdict — which is why these are not protocol constants.
+DA_PIN_BLOCKS = int(os.environ.get("NADO_DA_PIN_BLOCKS", str(7 * 13500)))
+DA_PIN_MAX = int(os.environ.get("NADO_DA_PIN_MAX", "256"))
 # H-7: cap concurrent proving/applying so a flood of POSTs can't exhaust CPU/memory (each prove is a full
 # STARK; each apply verifies a ~1MB proof). Created lazily on the running loop.
 _inflight = None
@@ -2567,7 +2575,8 @@ PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if thi
 #
 # ONE TABLE, not two branches, because the all-or-nothing stall in _apply_block is what keeps every node
 # applying the identical bundle: a per-op difference there is a fork. Adding an op here is all it takes to
-# give it those semantics.
+# give it those semantics — INCLUDING the bounded wait (_da_deadline_passed): an op added here can never stall
+# the tail past EXEC_DA_DEADLINE_HEIGHT's rule, so never give one its own resolver that waits unboundedly.
 _DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
 
 
@@ -2581,21 +2590,56 @@ def _da_op_refused_at(op, h):
     return op == "private_call"
 
 
-async def _apply_block(session, states_map, default_state, block, verbose=True):
+# LOCAL GRACE before the deadline refusal (liveness only, never a verdict input): a node that reaches block h long
+# after the deadline — catching up after a restart, its peer list not loaded yet — must not refuse an op whose proof it
+# simply has not had a chance to fetch, when the live fleet applied it. It retries for DA_SKIP_GRACE_S from its FIRST
+# miss on that commitment before refusing. On the attack (nobody holds the proof) every node still ends up refusing;
+# the grace only moves a node's decision toward "applied", the answer the live fleet reached.
+DA_SKIP_GRACE_S = float(os.environ.get("NADO_DA_SKIP_GRACE", "60"))
+_DA_MISS_SINCE = {}          # commitment -> time.monotonic() of this node's first failed fetch
+
+
+def _da_deadline_passed(h, finalized):
+    """True when a DA-carried op in block h whose proof this node cannot resolve is REFUSED instead of stalling the
+    block: from protocol.EXEC_DA_DEADLINE_HEIGHT, once L1 finality has reached h + EXEC_DA_WAIT_BLOCKS (audit
+    2026-09-25, HIGH "exec stall" — see the protocol comment for what is and is not a pure function here).
+
+    A function of (h, finalized) only — block heights, never a wall clock — so every exec node stops waiting at the
+    same point of the L1 chain. `finalized` is None on the PROVISIONAL tail: a speculative view never refuses (it is
+    rebuilt from the finalized state every poll and must not run ahead of the finalized verdict).
+    Read from protocol at call time, so a test can move the gate."""
+    import protocol as _p
+    if finalized is None or int(h) < int(_p.EXEC_DA_DEADLINE_HEIGHT):
+        return False
+    return int(finalized) >= int(h) + int(_p.EXEC_DA_WAIT_BLOCKS)
+
+
+def _da_grace_over(commitment):
+    """Record a failed fetch of `commitment`; True once this node has retried it for DA_SKIP_GRACE_S."""
+    if len(_DA_MISS_SINCE) > 4096:            # a flood of distinct unheld commitments must not grow this forever
+        _DA_MISS_SINCE.clear()
+    first = _DA_MISS_SINCE.setdefault(str(commitment), time.monotonic())
+    return time.monotonic() - first >= DA_SKIP_GRACE_S
+
+
+async def _apply_block(session, states_map, default_state, block, verbose=True, finalized=None):
     """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
     default_state — then advance every state's cursor to this height. Returns False (applying NOTHING) if a
-    field_transfer proof is unavailable via DA, so the block STALLS in L1 order. Shared by the finalized tail
-    AND the provisional clone, so both apply identically.
+    DA-carried proof is unavailable via DA, so the block STALLS in L1 order — but only until the exec DA deadline
+    (_da_deadline_passed(h, finalized)): past it the unresolvable op is REFUSED and the rest of the block applies,
+    so no blob can freeze the exec layer. Shared by the finalized tail AND the provisional clone, so both apply
+    identically; only the finalized tail passes `finalized` (the L1 finalized height it is working against).
 
     Every proof this block carries (shielded transfers, shielded-contract calls, and anything else that reaches
     stark.verify) is judged under the verification rules for THIS height (stark.rules_at) —
     the exec layer's equivalent of the L1 settle branch setting them for the block it validates."""
     from execnode.stark import stark as _stk
     with _stk.rules_at(block["block_number"]):
-        return await _apply_block_inner(session, states_map, default_state, block, verbose=verbose)
+        return await _apply_block_inner(session, states_map, default_state, block, verbose=verbose,
+                                        finalized=finalized)
 
 
-async def _apply_block_inner(session, states_map, default_state, block, verbose=True):
+async def _apply_block_inner(session, states_map, default_state, block, verbose=True, finalized=None):
     h = block["block_number"]
     from protocol import chain_clock as _cc
     # The context each state had BEFORE this block, so a DA stall below can put it back exactly (EXEC-2, review
@@ -2613,7 +2657,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
     resolved = {}
-    for tx in block.get("block_transactions", []):
+    refused = set()          # block positions of DA ops refused at the deadline: never dispatched below
+    for _pos, tx in enumerate(block.get("block_transactions", [])):
         d = tx.get("data")
         # Which ops ride DA, and the field each one's bytes are injected back into — see _DA_BLOB_OPS.
         inject = _DA_BLOB_OPS.get(d.get("op")) if isinstance(d, dict) else None
@@ -2633,16 +2678,37 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
             try:
                 bb = await da_fetch(session, d["proof_da"])
                 if bb is None:
+                    # BOUNDED WAIT (audit 2026-09-25, HIGH "exec stall", reproduced): the stall below used to be the
+                    # only outcome, forever — one MIN_TX_FEE blob naming a proof_da nobody holds froze every exec node.
+                    # Past the deadline (a function of h and the L1 finalized height only) the op is REFUSED: never
+                    # dispatched, so nothing moves and nothing is credited or refunded (its L1 fee was burned on L1),
+                    # and the rest of the block applies. Keep BOTH halves: dropping the stall half-applies blocks
+                    # whose proof is merely slow, dropping the deadline brings the freeze back.
+                    if _da_deadline_passed(h, finalized) and _da_grace_over(d["proof_da"]):
+                        _DA_MISS_SINCE.pop(str(d["proof_da"]), None)
+                        refused.add(_pos)
+                        print(f"[execnode] block {h}: REFUSED {d['op']} {str(tx.get('txid') or '')[:12]}… — its proof "
+                              f"{str(d['proof_da'])[:16]}… is still unavailable via DA at finalized {finalized} "
+                              f"(exec DA deadline); the rest of the block applies", flush=True)
+                        continue
+                    _da_grace_over(d["proof_da"])              # start (or keep) this node's local grace clock
                     if verbose:
                         print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
                     for _st in states_map.values():           # EXEC-2: nothing of block h applied, so h is NOT done
                         _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
                     return False
+                _DA_MISS_SINCE.pop(str(d["proof_da"]), None)
+                # PIN what an on-chain op needed (the eviction route): a node that applies this block later must
+                # still find these bytes on its peers, whatever /da/publish floods the rolling window meanwhile.
+                try:
+                    DA.pin(d["proof_da"], int(h) + DA_PIN_BLOCKS, cap=DA_PIN_MAX)
+                except Exception:
+                    pass                                       # availability bookkeeping never fails a block
                 resolved[tx.get("txid")] = (inject, bb.decode())
             except Exception as e:
                 if verbose:
                     print(f"[execnode] block {h}: skipping {d.get('op')} with bad DA proof ({type(e).__name__})", flush=True)
-    for tx in block.get("block_transactions", []):
+    for _pos, tx in enumerate(block.get("block_transactions", [])):
       # PER-TX GUARD (halt-class, audit 2026-07): this DISPATCH code — not apply_blob, which is already
       # fully guarded — used a payload field (`ns`) as a dict key with no type check, so a blob carrying an
       # unhashable ns raised TypeError HERE and aborted the whole block before the cursor advance below. The
@@ -2650,6 +2716,10 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
       # MIN_TX_FEE tx. L1 admission now refuses such a payload; this ensures ONE bad tx can never freeze the
       # cursor regardless (a block from history, or any future field this loop reads without checking).
       try:
+        if _pos in refused:
+            # REFUSED AT THE EXEC DA DEADLINE (see the pre-resolve): not dispatched at all — not even to apply_blob
+            # without its bytes, where an inline `bundle` riding beside the proof_da would apply in its place.
+            continue
         if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
             _field, _bytes = resolved[tx["txid"]]
             tx = {**tx, "data": {**tx["data"], _field: _bytes}}
@@ -2750,6 +2820,12 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
         _st.block_ts = _chain_clock(h)
         _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
         _st.record_block_hash(h, block.get("block_hash"))   # BLOCKHASH randomness for this finalized height
+    if finalized is not None:
+        # the finalized tail owns pin expiry: the provisional one must not release what finality still needs
+        try:
+            DA.expire_pins(h)
+        except Exception:
+            pass
     return True
 
 
@@ -3585,7 +3661,9 @@ async def tail_loop():
                         state.cursor = h
                         continue
                     _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
-                    if not await _apply_block(session, states, state, block, verbose=True):
+                    # `finalized` IS WHAT BOUNDS THE DA STALL (audit 2026-09-25): without it _apply_block waits for an
+                    # unavailable proof forever. Only this tail passes it; the provisional ones must not.
+                    if not await _apply_block(session, states, state, block, verbose=True, finalized=finalized):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
                     # REMEMBER THIS ROOT POINT (per ns): exit proofs must verify against the root L1

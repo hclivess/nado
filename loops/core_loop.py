@@ -3432,6 +3432,11 @@ class CoreClient(threading.Thread):
 
             if rec["state"] == "open":
                 blobs = {b[0]: b for b in (rec.get("blobs") or [])}
+                # A DELAYED DRAW HAS NO CHALLENGERS YET (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT), and no blobs equals no
+                # challengers — without this the node would commit to nothing before anyone was drawn.
+                # INVARIANT: never commit against an empty set; consensus refuses it (tpm_enrol.apply_commit).
+                if not rec.get("challengers"):
+                    return                      # the set is drawn, and written, by the first challenge
                 if set(blobs) != set(rec["challengers"]):
                     return                      # still waiting for the drawn challengers
                 if self._tpm_tx_pending("tpm_commit", eid):
@@ -3645,10 +3650,23 @@ class CoreClient(threading.Thread):
             from ops.transaction_ops import construct_tpm_tx
             store = self._tpm_secrets_load()
             min_block = tip + TX_INCLUSION_DELAY
-            mine_count = sum(1 for _e, r in live if me in (r.get("challengers") or []))
+            # THE SET A RECORD NAMES MAY NOT BE WRITTEN YET. From TPM_DRAW_UNGRINDABLE_HEIGHT an enrolment is stored
+            # with no challengers and its set is drawn from its draw epoch on — by the very challenge we are about to
+            # send. So membership is asked of the draw (tpm_drawn_challengers: the stored set, or the pure draw once
+            # the epoch has come), never of the stored field alone, or nobody would ever answer a delayed enrolment.
+            # INVARIANT: ask at the TIP, the height the mempool admits at; the challenge then lands after draw_opens.
+            from ops.transaction_ops import tpm_drawn_challengers
+
+            def _drawn(r):
+                try:
+                    return tpm_drawn_challengers(r, tip) or []
+                except Exception:
+                    return []               # a window this node cannot read yet: skip, the next pass retries
+            drawn_of = {e: _drawn(r) for e, r in live}
+            mine_count = sum(1 for e, _r in live if me in drawn_of[e])
             self.memserver.tpm_duty = f"live={len(live)} drawn_for={mine_count}"
             for eid, rec in live:
-                if me not in (rec.get("challengers") or []):
+                if me not in drawn_of[eid]:
                     continue
                 # THE DEADLINE IS THE ENROLMENT'S, THE WINDOW IS THE MEMPOOL'S, AND max_block MUST RESPECT
                 # BOTH. Setting it to the enrolment's expiry alone put it up to 719 blocks ahead of the

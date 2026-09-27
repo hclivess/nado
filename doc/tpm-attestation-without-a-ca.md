@@ -188,6 +188,53 @@ The numbers shrink fast as the candidate set grows: the same attacker share agai
 nodes is a different problem. This is a small-network weakness, which is precisely when it is cheapest to
 exploit and least likely to be noticed.
 
+## The draw was also grindable offline, and that was worse (2026-09-27)
+
+The table above prices an attacker who takes one draw per window. The draw allowed far more than that. It
+was `challenger_set(enrol_id, pool, epoch_beacon(epoch of the enrol))`, and both non-pool inputs were in the
+client's hands when it built the enrol:
+
+- `enrol_id = H(chain, ek_identity, aik_name)`, and `aik_name = H(public area)`. The public area is the
+  client's own bytes — `authPolicy` is free (validate_aik_pub_area reads only its length) and the modulus is
+  any key — so with one software key every candidate costs one SHA-256 and a few blake2b. No keygen, no TPM: once all three
+  challengers collude they hand over `S`, and the attacker certifies later under a software key whose
+  public area it chose.
+- `epoch_beacon(E)` is anchored on block `(E-1)*60` plus RANDAO reveals that close at `E*60 - 46`, so it is
+  fixed ~45 blocks BEFORE epoch E starts and stays fixed for all 60 of its blocks: ~105 blocks (~12 min) of
+  lead in which the whole draw is computable offline.
+
+So an attacker with pool share `p` spread over >= 3 bonded accounts tries ~`1/P` public areas, where
+`P ~= p^3` (exactly, successive weighted sampling), and lands the winner in the same epoch. At the table's
+3-node row (P = 0.53 %) that is ~190 hashes; with three weight-1 accounts against a pool of total weight
+700 it is ~6 x 10^7 — seconds to minutes in native code, well inside the lead. The grind turns "all k
+collude with probability P" into "all k collude whenever the attacker has k accounts in the pool", on the
+first attempt, for every endorsement certificate it holds.
+
+**Commit, then draw** (`protocol.TPM_DRAW_UNGRINDABLE_HEIGHT`, `ops/tpm_enrol.py`). From the gate an
+enrolment opened at `h` in epoch `E` is drawn from:
+
+| input | value | why the client cannot aim it |
+|---|---|---|
+| key | the endorsement identity | fixed per chip by manufacture; the enrolment id, the AIK and every tx field are out |
+| weights | `_tpm_pool(h)` — the pool as of the enrol block | frozen before the dice exist, so joining the pool after seeing them buys nothing |
+| dice | `epoch_beacon(E + 2)` | its anchor `(E+1)*60` is strictly after `h`, so it did not exist when the enrol was signed |
+
+The record is written with an empty set; `/tpm_enrolment` serves the set the chain will enforce (or k
+placeholders before the draw epoch, which is what keeps the shipped helper waiting instead of committing to
+nothing); the first `tpm_challenge` from block `(E+2)*60` on materialises the set into the record, and
+commit, reveal and register read a written set exactly as before. Exact weighted sampling without replacement
+means a pool with k weighted members always seats k, so the enrol is checked against the pool up front.
+
+**Retries still work, and still resample.** A record lives the draw wait (61..120 blocks) plus the usual 180,
+and a supersede after that lands in a later draw epoch with fresh dice and a re-read pool. That keeps the
+liveness escape of 2026-09-11 and leaves exactly the per-window rates in the table above — the offline
+grind is gone, the resampling weakness is not, and the candidates listed there still apply to it.
+
+What the dice still depend on: the anchor block's hash (every node assembles it from the mempool, so a
+participant can try to steer it with its own transactions and its effect on the state root, as it could for
+producer selection) and RANDAO reveals (one bit of withholding per revealer). That is the chain's standard
+beacon quality, and far from the free, offline, unbounded grind it replaces.
+
 ## The two proof shapes are not symmetric
 
 There is ONE consensus entry point for granting an attested identity — `verify_register_device`, called

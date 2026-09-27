@@ -953,11 +953,19 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
     prev = kv_ops.tpm_enrol_get(eid)
     kv_ops.tpm_enrol_revert_put(h, eid, prev)
     if recipient == "tpm_enrol":
+        # COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT): from the gate the record is written with NO
+        # challengers — its dice are two epochs away — and the first tpm_challenge materialises them.
+        # INVARIANT: never draw here for a delayed record; a draw at the enrol is a draw the client could predict.
+        drawn = [] if _te.draw_is_delayed(h) else _tpm_challengers_for(eid, h)
         rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
-                             _te.aik_name_hex(pub), pub, sender, h,
-                             _tpm_challengers_for(eid, h))
+                             _te.aik_name_hex(pub), pub, sender, h, drawn)
     elif recipient == "tpm_challenge":
-        rec = _te.apply_challenge(prev, sender, bytes.fromhex(data["blob"]), bytes.fromhex(data["enc"]), h)
+        # The journal above holds `prev` as it was — for a delayed record, with its set still empty — so a rollback
+        # of the materialising challenge restores the undrawn record exactly (Rollback must be the exact inverse).
+        # INVARIANT: materialise here AND in validation (transaction_ops), from the same pure function.
+        from ops.transaction_ops import tpm_materialise_draw
+        rec = _te.apply_challenge(tpm_materialise_draw(prev, h), sender, bytes.fromhex(data["blob"]),
+                                  bytes.fromhex(data["enc"]), h)
     elif recipient == "tpm_commit":
         rec = _te.apply_commit(prev, sender, str(data["commit"]), h)
     else:
@@ -973,6 +981,9 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
 
 
 def _tpm_anchor_time(block_height):
+    # INVARIANT: apply re-verifies the endorsement chain, so it must read the SAME clock validation read — delegate to
+    # transaction_ops._anchor_time, never a block_timestamp of its own (protocol.CERT_CLOCK_HEIGHT: that field differs
+    # between honest nodes for one block, and apply here indexes ek["identity"] without re-checking ek["ok"]).
     from ops.transaction_ops import _anchor_time
     return _anchor_time({}, block_height)
 

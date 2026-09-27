@@ -64,9 +64,13 @@ def t_the_resolver_stalls_rather_than_half_applying():
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "execnode", "execnode.py"), encoding="utf8").read()
     i = src.index("_DA_BLOB_OPS.get(d.get(\"op\"))")
-    window = src[i:i + 1800]
+    # the window covers the exec DA deadline (audit 2026-09-25) too: the stall is bounded, never removed — past
+    # _da_deadline_passed the op is refused whole (`continue` into `refused`), before it the block still stalls
+    window = src[i:i + 3600]
     assert "UNAVAILABLE via DA" in window and "return False" in window, \
         "an unavailable DA proof no longer stalls the block"
+    assert "_da_deadline_passed(h, finalized)" in window and "refused.add(_pos)" in window, \
+        "the bounded wait is gone — an unheld proof_da would freeze the exec tail forever again"
 
 
 # ---- a real proof through a real DA store -------------------------------------------------------------

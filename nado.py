@@ -1864,6 +1864,7 @@ async def tpm_enrolment(request):
     published by their own challengers, and the whole point of the construction is that a verifier
     re-derives the proof from public values."""
     from ops import kv_ops as _kv
+    from ops.transaction_ops import tpm_challengers_view
     eid = str(request.query.get("id", ""))
     if len(eid) != 32 or any(c not in "0123456789abcdef" for c in eid):
         return _resp({"found": False, "error": "malformed enrolment id"}, status=400)
@@ -1878,8 +1879,12 @@ async def tpm_enrolment(request):
     tip = int((memserver.latest_block or {}).get("block_number") or 0)
     expires_at = int(rec.get("h") or 0) + _win(int(rec.get("h") or 0))
     expired = rec.get("state") != "proven" and tip >= expires_at
-    return _resp({"found": True, "id": eid, "expires_at": expires_at, "expired": expired,
-                  "tip": tip, **rec})
+    out = {"found": True, "id": eid, "expires_at": expires_at, "expired": expired, "tip": tip, **rec}
+    # A DELAYED DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT) is stored with no challengers until its first challenge;
+    # the view serves the set the chain will enforce, or k placeholders before its draw epoch — never an empty list,
+    # which the shipped helper would read as "every challenger answered" (transaction_ops.tpm_challengers_view).
+    out.update(tpm_challengers_view(rec, tip))
+    return _resp(out)
 
 
 async def tpm_enrol_challenge(request):
