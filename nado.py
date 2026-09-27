@@ -297,6 +297,9 @@ def _public_relay_url():
     return _PUBLIC_RELAY_URL[0]
 
 
+_RELAYS_LEAD_MAX = 30   # the wallet's RELAY_LEAD_MAX: how far ahead of us a peer's reported height is believed
+
+
 async def relays(request):
     """GET /relays: every RPC endpoint on THIS chain a wallet could use instead of us — ourselves plus each
     peer in status_pool (already gated to our genesis by peer_loop's admission checks), with the peer's
@@ -322,16 +325,24 @@ async def relays(request):
             "version": memserver.version,
             "node_type": "archive" if getattr(memserver, "archive", False) else "rolling",
         }]
+        own_h = lb.get("block_number") if isinstance(lb.get("block_number"), int) else None
         for ip, st in list(consensus.status_pool.items()):
             if not isinstance(st, dict) or ip == memserver.ip:
                 continue
+            # A PEER'S HEIGHT IS ITS OWN CLAIM (audit 2026-09-25): passed through verbatim, one peer reporting 10^9 was
+            # every wallet's "network tip". Clamped to our tip + _RELAYS_LEAD_MAX (a peer honestly ahead by a few blocks
+            # still ranks first); anything that is not an int is reported as unknown.
+            _h = st.get("latest_block_height")
+            _h = _h if isinstance(_h, int) and not isinstance(_h, bool) and _h >= 0 else None
+            if _h is not None and own_h is not None:
+                _h = min(_h, own_h + _RELAYS_LEAD_MAX)
             url = st.get("relay_url")
             if not (isinstance(url, str) and url.lower().startswith(("http://", "https://"))):
                 url = None
             out.append({
                 "self": False, "ip": ip, "url": url, "api": f"http://{hostport(ip, port)}",
                 "address": st.get("address"), "chain_id": st.get("chain_id"),
-                "height": st.get("latest_block_height"), "finalized": st.get("finalized_height"),
+                "height": _h, "finalized": st.get("finalized_height"),
                 "version": st.get("version"), "node_type": st.get("node_type"),
             })
         return {"chain_id": CHAIN_ID, "relays": out}
