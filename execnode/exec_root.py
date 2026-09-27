@@ -129,6 +129,14 @@ def kv_projection(contracts, v2=False):
     return out
 
 
+def asset_meta_digest(meta):
+    """The digest an asset's T_ASSET_META leaf is positioned by. ONE encoding, shared by records_projection and
+    records_bind's asset derivation: the settle verifier authenticates a prover-supplied metadata preimage by
+    finding THIS leaf in the pinned projection, and a second copy of the encoding would drift from the first."""
+    return blake2b_hash(["asset", meta["issuer"], int(meta["seed"]), meta["name"], meta["sym"], int(meta["dec"]),
+                         int(meta["supply"]), bool(meta["mintable"]), meta.get("uri", "")])
+
+
 def records_projection(st):
     """{position: value} over the exec layer's non-contract state. `st` is duck-typed (an ExecState or anything
     exposing .bridge/.dividend/.withdrawals/.dividend_withdrawals/.unshield_withdrawals/.shielded/.field_pool/
@@ -145,11 +153,7 @@ def records_projection(st):
         for holder, amt in row.items():
             out[record_key(T_ASSET_BAL, aid, holder)] = int(amt) % F.P
     for aid, meta in getattr(st, "assets", {}).items():
-        out[record_key(T_ASSET_META, aid, blake2b_hash(["asset", meta["issuer"], int(meta["seed"]),
-                                                        meta["name"], meta["sym"], int(meta["dec"]),
-                                                        int(meta["supply"]),
-                                                        bool(meta["mintable"]),
-                                                        meta.get("uri", "")]))] = 1  # metadata pointer, committed
+        out[record_key(T_ASSET_META, aid, asset_meta_digest(meta))] = 1  # metadata pointer, committed
     # DELEGATED-SPEND authorizations — one leaf per (asset, owner, spender), so an allowance is provable
     # against the settled root exactly like the balance it can move.
     for aid, owners in getattr(st, "allow", {}).items():

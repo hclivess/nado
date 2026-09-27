@@ -1173,7 +1173,8 @@ def _state_for(request):
 
 
 async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_hex_expected=None,
-                              calls=None, pre_contracts=None, pre_bridge=None, beacons=None, bhashes=None):
+                              calls=None, pre_contracts=None, pre_bridge=None, beacons=None, bhashes=None,
+                              pre_abal=None, pre_assets=None):
     """Prove the RECORDS half of a span, or return None to leave it frozen.
 
     THE PROVER HAS NEVER BUILT ONE. records_transition.py has existed for weeks, ops/transaction_ops.py
@@ -1251,9 +1252,11 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         # through one reader (runtimes.split_io) rather than two implementations that have to agree.
         if calls:
             try:
+                # ...AND THE ASSET MOVES (ZK_HARDEN_HEIGHT): pre_abal/pre_assets are passed only when the proof
+                # lands at or past the gate; without them an asset call raises here, as it always did.
                 effects.extend(SP.span_payout_effects(
                     pre_contracts or {}, calls, cursor=cur, beacons=beacons, block_hashes=bhashes,
-                    pre_bridge=pre_bridge))
+                    pre_bridge=pre_bridge, pre_abal=pre_abal, pre_assets=pre_assets))
             except Exception as _pe:
                 # An unprovable call makes the whole span unprovable anyway; declining here just reaches
                 # that answer before paying for the records prove.
@@ -1560,6 +1563,13 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # composed with the records half AT sc. It only happened to be safe to write digest_hex(rec_root) here
     # while the two were forced equal by the skip below.
     rec_hex = SST.digest_hex(rec_pre_root)
+    # ASSET CALLS SETTLE BY PROOF FROM ZK_HARDEN_HEIGHT (records_bind.PinnedAssets binds them on L1). Below it L1
+    # refuses asset io, so the ledgers are withheld and an asset-touching span stays unprovable here exactly as
+    # before. Asked of the landing block (tip + 1), the same authority the proof's rules come from below.
+    from protocol import ZK_HARDEN_HEIGHT as _ZKH
+    _assets_on = (await _settle_landing_height(session, cur)) >= _ZKH
+    _pre_abal = (snap.get("state") or {}).get("abal") if _assets_on else None
+    _pre_assets = (snap.get("state") or {}).get("assets") if _assets_on else None
     _records_half = None
     if rec_pre_root != rec_root:
         # THE RECORDS HALF MOVED — which used to end the span here. It no longer has to: the prover can
@@ -1607,7 +1617,8 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
                 session, ns, type(st).snapshot_view(snap["state"]), span_blocks, sc, cur,
                 rec_hex_expected=rec_hex, calls=calls, pre_contracts=pre_contracts, pre_bridge=pre_bridge,
                 beacons={e: v % _F.P for e, v in st.beacons.items()},
-                bhashes={h: v % _F.P for h, v in st.block_hashes.items()})
+                bhashes={h: v % _F.P for h, v in st.block_hashes.items()},
+                pre_abal=_pre_abal, pre_assets=_pre_assets)
         finally:
             # `finally`, not a trailing assignment: _build_records_half can return None, raise, or be
             # cancelled, and any path that leaves this True would wedge the records half permanently — a
@@ -1685,7 +1696,8 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
             with SS.stark.rules_at(_land_h):
                 return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
                                                   beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                                  depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold)
+                                                  depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold,
+                                                  pre_abal=_pre_abal, pre_assets=_pre_assets)
         if not _fold:
             return _run(False)
         try:
@@ -1806,6 +1818,18 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
         proof["records"], proof["rec_post"], proof["records_pre"] = _rtr, _rpost, _rproj
         print(f"[execnode] settle-with-proof ns={ns} span {sc}->{cur} carries a RECORDS half: "
               f"{rec_hex[:16]}… -> {_rpost[:16]}… ({len(_rtr.get('updates') or ())} update(s))", flush=True)
+    # 6a'. ASSET IO is bound on L1 against the pinned pre-state (records_bind.PinnedAssets): ship the metadata
+    # preimages of the assets the io names, and — for a records-FROZEN proof, whose asset io must net to nothing
+    # (e.g. a span that only reads balances) — the pre projection the reads are checked against.
+    if _assets_on:
+        from execnode.stark import records_bind as _RBa
+        _has_aio, _aids = _RBa.proof_asset_ids(proof)
+        if _has_aio:
+            _pa = _pre_assets or {}
+            proof["asset_meta_pre"] = {a: _pa[a] for a in sorted(_aids) if a in _pa}
+            if "records_pre" not in proof:
+                proof["records_pre"] = await asyncio.to_thread(
+                    lambda: ER.records_projection(type(st).snapshot_view(snap["state"])))
     # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
     # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
     if proof.get("recursive") is not None:

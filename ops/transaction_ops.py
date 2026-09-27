@@ -1381,10 +1381,15 @@ def settle_proof_io_check(proof, records_bound, block_height):
 
     NO ASSET IO IN ANY SETTLE PROOF (review 2026-09-24; gen 25's PROOF_QUERY_FULL_HEIGHT): AMINT/ABURN/ASEL/ARENOUNCE move
     the exec asset ledger exactly as PAY moves records, and an ABAL read comes from the io log with nothing tying it
-    to the settled ledger (the BHASH/BEACON hole chain_reads closes). The prover threads no asset state, so no honest
-    proof carries asset io: an asset-touching span rides the quorum. tests/test_zk_review_2026_09_24.py drives this.
+    to the settled ledger (the BHASH/BEACON hole chain_reads closes). tests/test_zk_review_2026_09_24.py drives this.
     `block_height >= 1` is the deleted gate's value from gen 26: height 0 (mempool admission on a genesis tip) keeps the
-    verdict it always had."""
+    verdict it always had.
+
+    ...UNTIL ZK_HARDEN_HEIGHT, where asset io is ADMITTED because it is now BOUND: records_bind.PinnedAssets re-derives
+    every asset move from the proven io against the pinned pre-state (issuer, supply cap, holdings, and each ABAL
+    read against the running balance), and the settle branch folds those moves into the records binding — or, for a
+    records-frozen proof, requires them to net to nothing (records_bind.proof_asset_ids). Before that height the
+    refusal stands exactly as it was, so replay is unchanged."""
     from execnode import zkvm as _zkvm
     segs = proof.get("segments") or []
     if not records_bound:
@@ -1392,7 +1397,7 @@ def settle_proof_io_check(proof, records_bound, block_height):
             for _e in (_seg.get("io") or []):
                 assert int(_e[0]) != _zkvm.IO_PAY, \
                     "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
-    if int(block_height) >= 1:
+    if 1 <= int(block_height) < _P.ZK_HARDEN_HEIGHT:
         for _seg in segs:
             for _e in (_seg.get("io") or []):
                 assert int(_e[0]) not in _zkvm.IO_ASSET_KINDS, \
@@ -2160,10 +2165,35 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
             # than inside verify_calls_bound_to_summaries) keeps the calldata binding a pure function of
             # committed state, with the execution-derived half added on top and clearly separable.
+            # ASSET IO, BOUND (ZK_HARDEN_HEIGHT; settle_proof_io_check refuses it below). The asset ledger is part
+            # of the records half, so what an asset call did is judged against the PINNED pre-state: records_pre
+            # must hash to the tip's records root, and PinnedAssets walks the proven io through the live staging
+            # rules — issuer-only mint/renounce, the supply cap, holdings, and every ABAL read against the running
+            # authenticated balance. A records-bound proof folds those moves into its binding like a payout; a
+            # records-FROZEN one (say, a span that only reads balances) must move nothing at all.
+            _asset_view = _asset_pin = None
+            from execnode.stark import records_bind as _RBA
+            if int(block_height) >= _P.ZK_HARDEN_HEIGHT and _RBA.proof_asset_ids(proof)[0]:
+                try:
+                    _asset_pin = _RBA.pinned_pre_get(proof.get("records_pre") or {}, SST.digest_from_hex(rec_hex),
+                                                     depth=_protocol.EXEC_TREE_DEPTH)
+                except (_RBA.Unbindable, TypeError, ValueError, AttributeError) as _e:
+                    raise AssertionError(f"settle-with-proof asset io without a pinned pre-state: {_e}")
+                _asset_view = _RBA.PinnedAssets(_asset_pin, proof.get("asset_meta_pre") or {})
+                if not _records_bound:
+                    # An asset-VALUED call's escrow is not in this net (PinnedAssets.escrow emits nothing; the summary
+                    # carries it), which is safe only because block_records_inert marks every value call non-inert and
+                    # verify_calls_bound_to_summaries refuses a frozen proof over a non-inert block. Keep them together.
+                    try:
+                        _anet = _RBA.net_records_updates(_asset_pin, _RBA.pay_effects_from_proof(proof, _asset_view),
+                                                         _protocol.EXEC_TREE_DEPTH, nonneg=True)
+                    except _RBA.Unbindable as _e:
+                        raise AssertionError(f"settle-with-proof carries an unsettleable asset effect: {_e}")
+                    assert not _anet, "records-frozen settle proof moves the asset ledger"
             if _records_bound:
                 from execnode.stark import records_bind as _RBP
                 try:
-                    _pay_fx = _RBP.pay_effects_from_proof(proof)
+                    _pay_fx = _RBP.pay_effects_from_proof(proof, _asset_view)
                 except _RBP.Unbindable as _e:
                     raise AssertionError(f"settle-with-proof carries an unsettleable payout: {_e}")
                 if _pay_fx:
@@ -2187,8 +2217,9 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     # PIN THE PRE-STATE the binding reads, exactly as the KV half pins pre_contracts
                     # against sparse_pre_root: the projection must hash to the TIP's committed records
                     # root, so every value the arithmetic touches is authenticated rather than asserted.
-                    _pre_get = _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
-                                                  depth=_protocol.EXEC_TREE_DEPTH)
+                    # (already pinned above when the proof carries asset io: same projection, same root)
+                    _pre_get = _asset_pin or _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
+                                                                depth=_protocol.EXEC_TREE_DEPTH)
                     # MEMOIZE THE RECORDS VERDICT TOO — this is what wedged the node, twice.
                     #
                     # The KV half has been memoized since settle_verify_key existed; the records half was

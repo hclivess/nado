@@ -138,9 +138,9 @@ def t_a_trailing_unterminated_log_is_refused():
 
 
 def t_an_asset_payout_refuses_the_span():
-    """The asset ledger is not part of the records projection this module derives. Half-deriving it would
-    let a prover settle a root that silently omits the rest — the same fail-closed rule
-    block_records_effects already applies."""
+    """WITHOUT A PINNED ASSET LEDGER (below ZK_HARDEN_HEIGHT, or any caller that passes none) an asset effect refuses
+    the span: half-deriving the asset ledger would let a prover settle a root that silently omits the rest. From the
+    gate records_bind.PinnedAssets derives it instead — tests/test_asset_ops_settle_by_proof.py."""
     try:
         RB.pay_effects_from_segment(seg([call()], [
             (Z.IO_ASEL, 7, 0), (Z.IO_PAY, dg(PAYEE), 3), (Z.IO_RET, 0, 0)]))
@@ -217,8 +217,11 @@ def t_the_derivation_runs_only_after_the_calldata_binding():
     i_bind = src.index("Settle proof not bound to the on-chain calldata")
     # Match the CALL, not the name: the comment above the frozen-path guard mentions the function too, and
     # anchoring on the bare name silently compared against a comment.
-    i_pay = src.index("_RBP.pay_effects_from_proof(proof)")
+    i_pay = src.index("_RBP.pay_effects_from_proof(proof, _asset_view)")
     assert i_bind < i_pay, "payout derivation must come AFTER the calldata binding"
+    # ...and so must the asset derivation of a records-FROZEN proof (ZK_HARDEN_HEIGHT), which walks the same io
+    i_asset = src.index("_RBA.pay_effects_from_proof(proof, _asset_view)")
+    assert i_bind < i_asset, "asset derivation must come AFTER the calldata binding"
 
 
 for nm, fn in [("a payout derives the pair state writes", t_a_payout_derives_the_pair_state_writes),

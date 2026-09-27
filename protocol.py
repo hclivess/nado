@@ -2158,10 +2158,14 @@ EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
 #   * SETTLE-1 a settle proof's pre_contracts must be exactly the records the exporter emits (runtime zkvm, known keys):
 #             a phantom non-zkvm record at an in-span deploy's cid was invisible to the pre-state pin and made the
 #             verifier treat the deploy as refused, so a trustless settle could omit it (reproduced end to end);
-#   * ZKVM-2  a deploy or upgrade carrying NOP is refused: the interpreter runs NOP, the AIR halts on it, so any span
-#             that executed one could never be proof-settled (no live contract carries NOP);
+#   * ZKVM-2  NOP is a real, provable step: the interpreter ran NOP while the AIR halted on it, so any span that
+#             executed one could never be proof-settled; under zk_harden the AIR advances past it (vm_circuit
+#             _nop_halts) instead of the NOP being refused at deploy;
 #   * the wide shielded pool's tree grows from depth 12 (4,096 notes — fillable for ~0.0004 NADO, after which every
 #             note was locked) to depth 48 (2^48 notes), at the same proving cost as depth 20 (joinsplit3 T = 4096).
+#   * ASSET instructions settle by proof: a settle proof may carry asset io (ASEL/AMINT/ABURN/ABAL/ARENOUNCE) and an
+#             asset-valued call, bound against the pinned records pre-state (records_bind.PinnedAssets) — before it
+#             every asset-touching span could only settle by quorum (settle_proof_io_check). doc/assets.md §8.
 # Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
 # (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
 ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1

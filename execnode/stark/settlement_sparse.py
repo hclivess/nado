@@ -379,7 +379,7 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
                             block_hashes=None, pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES,
                             depth=DEFAULT_DEPTH, backend=None, row_commit=None,
                             recursive=False, fold=True, max_rows=None, outer_queries=None,
-                            comp_points_per_proof=None):
+                            comp_points_per_proof=None, pre_abal=None, pre_assets=None):
     """Assemble the settle-with-proof payload the L1 branch verifies: bound epoch(s) over the KV half plus
     the (unchanged) records half `rec_hex` — {cursor, kv_pre, kv_post, rec, segments}. Multi-epoch spans
     chain more segments (each bound epoch's post == the next's pre).
@@ -391,7 +391,12 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     per-segment stark.verify calls. The sparse state-transition binding stays per segment (the lighter,
     separately-foldable half). Folding is a VERIFICATION-STRATEGY change only: kv_pre/kv_post — the settled root
     — are byte-identical to the non-recursive proof of the same span. (A block whose calls exceed one trace is
-    unsupported — the DA binding folds per block — and raises, so the exec node falls back to quorum.)"""
+    unsupported — the DA binding folds per block — and raises, so the exec node falls back to quorum.)
+
+    `pre_abal`/`pre_assets` are the asset ledger at the span's start (doc/assets.md §8). They gate the proof —
+    an asset effect the chain would revert makes the span unprovable — and never enter the KV root; the
+    records half carries what the asset calls moved (records_bind.asset_records_effects). Without them an
+    asset-touching span raises, which is the pre-ZK_HARDEN answer (L1 refuses asset io before that height)."""
     # DEFAULT TO AN ARENA-COVERED BACKEND. stark.prove only reaches the native arena when
     # _b.name in ("recursion", "alghash2"); backend=None resolves to _backend.DEFAULT, which is BLAKE2B,
     # which the arena does NOT implement — so the whole settle prove silently ran in pure Python. Measured
@@ -433,7 +438,8 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         row_commit = _stark_default.row_commit_default(backend)
     if not recursive:
         bundle = prove_bound_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
-                                   block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                                   block_hashes=block_hashes, pre_bridge=pre_bridge, pre_abal=pre_abal,
+                                   pre_assets=pre_assets, num_queries=num_queries,
                                    depth=depth, backend=backend, row_commit=row_commit)
         return {"cursor": int(cursor), "rec": rec_hex,
                 "kv_pre": ST.digest_hex(tuple(int(x) % F.P for x in bundle["sparse_pre_root"])),
@@ -459,17 +465,23 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
         raise ValueError("recursive settlement over an empty call span")
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
+    # THE ASSET LEDGER ADVANCES WITH THE SEGMENTS, like `bridge`: a later block's ABAL/APAY is judged against the
+    # balances the earlier blocks left. It used to be a fresh `{}` per segment ("records-frozen span ⇒ empty
+    # asset shadow is inert"), true only while L1 refused asset io outright — with it admitted (ZK_HARDEN) an
+    # empty shadow would refuse every honest asset span.
+    abal = {a: dict(h) for a, h in (pre_abal or {}).items()}
+    assets = copy.deepcopy(pre_assets or {})
     segments, exec_proofs, bnds, pers, stmts = [], [], [], [], []
     for idx, h in enumerate(present):
         blk_calls = grouped[h]
         seg_cursor = int(cursor) if idx == len(present) - 1 else h     # last segment covers trailing empty blocks
         seg = prove_bound_epoch(contracts, blk_calls, cursor=seg_cursor, timestamp=timestamp, beacons=beacons,
-                                block_hashes=block_hashes, pre_bridge=bridge, num_queries=num_queries,
-                                depth=depth, backend=_bk.RECURSION, row_commit=True)
+                                block_hashes=block_hashes, pre_bridge=bridge, pre_abal=abal, pre_assets=assets,
+                                num_queries=num_queries, depth=depth, backend=_bk.RECURSION, row_commit=True)
         segments.append(seg)
-        reg = {}                                          # advance contracts (+bridge) to this block's post-state
-        for j, call in enumerate(blk_calls):              # (records-frozen span ⇒ empty asset shadow is inert)
-            _run_call(contracts, bridge, {}, {}, reg, call, j, h, timestamp, beacons, block_hashes, False)
+        reg = {}                                          # advance contracts (+bridge, +assets) to this block's post-state
+        for j, call in enumerate(blk_calls):
+            _run_call(contracts, bridge, abal, assets, reg, call, j, h, timestamp, beacons, block_hashes, False)
         pub_calls, epoch_io = SP._epoch_pub_statement(seg)
         # These segments are proven with RECURSION, which now draws from GF(p^2) — so the statement must be
         # rebuilt under the EXTENSION layout (each logical aux column is a base-column PAIR, W 131 -> 149).

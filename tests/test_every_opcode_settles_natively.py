@@ -3,9 +3,11 @@ arena, verified by L1's verify_settlement_sparse — landing on exactly the chai
 
 tests/test_every_opcode_is_provable.py proves each opcode per call through vm_circuit with the Python kernels, which a
 node refuses; this runs the same programs (tests/opcode_programs.py) the way the exec node proves them, native kernels
-only. Excluded, by rule rather than by gap: PAY and the asset ops (a settle proof refuses asset io, and PAY only
-settles records-bound — tests/test_pay_binding.py, test_zk_review_2026_09_24.py), BHASH/BEACON (bound to the
-finalized chain on L1 — chain_reads), and CTX's `value` (it needs an exec bridge escrow; CTX itself is covered).
+only. NOTHING IS EXCLUDED. The opcodes that cannot run in THIS span — a records-frozen KV-half proof — settle by proof
+in their own shipped-path tests, and this test asserts each of those exists and runs the instruction (ELSEWHERE):
+PAY, BHASH and BEACON records-bound and chain-bound (test_pay_and_chain_reads_settle_natively.py), and the five asset
+ops through the pinned asset ledger from ZK_HARDEN_HEIGHT (test_asset_ops_settle_by_proof.py, and end to end through
+L1's validate_transaction in test_asset_settle_l1.py). CTX's `value` needs an escrow; CTX itself is covered here.
 
 Run: python3 tests/test_every_opcode_settles_natively.py            (native kernels required)
 """
@@ -26,7 +28,16 @@ from execnode.stark import settlement_sparse as SS, calls_commit as CC, stark, s
 from opcode_programs import CASES
 
 NQ, DEPTH, H = 16, 16, 300_000
-EXCLUDED = {"PAY", "ASEL", "AMINT", "ABURN", "ABAL", "ARENOUNCE", "BHASH", "BEACON"}
+# opcode -> (the shipped-path settle test that proves it, the assembly that must appear in that test)
+ELSEWHERE = {"PAY": ("test_pay_and_chain_reads_settle_natively.py", "pay r1 r2"),
+             "BHASH": ("test_pay_and_chain_reads_settle_natively.py", "bhash r2 r1"),
+             "BEACON": ("test_pay_and_chain_reads_settle_natively.py", "beacon r4 r3"),
+             "ASEL": ("test_asset_ops_settle_by_proof.py", "apay r1 r2 r3"),        # apay = ASEL + PAY
+             "AMINT": ("test_asset_ops_settle_by_proof.py", "amint r1 r2 r3"),
+             "ABURN": ("test_asset_ops_settle_by_proof.py", "aburn r1 r3"),
+             "ABAL": ("test_asset_ops_settle_by_proof.py", "abal r4 r1"),
+             "ARENOUNCE": ("test_asset_ops_settle_by_proof.py", "arenounce r1")}
+EXCLUDED = set(ELSEWHERE)            # from THIS span only
 fails = 0
 
 
@@ -73,6 +84,10 @@ with stark.with_rules(stark.RULES_STRICT):
     except Exception as e:
         check("the span proves natively and verifies with L1's entry point", False, f"{type(e).__name__}: {str(e)[:200]}")
 missing = sorted(set(zkvm.OPS) - covered - EXCLUDED, key=zkvm.OPS.index)
-check("every settle-eligible opcode is in the span", not missing, missing)
+check("every opcode not settled elsewhere is in the span", not missing, missing)
+for _op, (_file, _asm) in sorted(ELSEWHERE.items()):
+    _path = os.path.join(HERE, _file)
+    _src = open(_path).read() if os.path.exists(_path) else ""
+    check(f"{_op} settles by proof in {_file}", _asm in _src and "prove_settlement_sparse" in _src, (_file, _asm))
 print("ALL PASS" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
