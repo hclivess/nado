@@ -61,7 +61,7 @@ def main():
 
     # wiring: the /submit ingress records every register tx with the mempool verdict
     nado = open(os.path.join(ROOT, "nado.py")).read()
-    seg = nado[nado.index("def _work(body, ip):"):nado.index("def _work(body, ip):") + 1500]
+    seg = nado[nado.index("def _work_submit(body, ip):"):nado.index("def _work_submit(body, ip):") + 1500]   # the /submit worker
     check("/submit records the register tx after the mempool verdict", "identity_log.record(ip, transaction," in seg)
     kv_ops.close_all()
 
