@@ -29,7 +29,12 @@
  * narration whenever a poll landed mid-registration, turning a stale-banner bug into a blank-banner one.
  */
 import { readFileSync } from 'node:fs';
-const js = readFileSync('/srv/nado-home/nado/static/interface.js', 'utf8');
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+// THIS tree, never the live checkout's absolute path: read from /srv/nado-home/nado, a test run in a worktree
+// checked the deployed file instead of the one under review, and three tests went stale unnoticed (2026-09-27).
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
 let fails = 0;
 const check = (n, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + n); if (!c) fails++; };
 
@@ -79,7 +84,10 @@ check('the healthy poll branch retracts BOTH problem banners',
 
 // The regression itself: retraction must sit OUTSIDE `if (wasStarting)`. Inside it, both reported
 // symptoms come straight back — steady-state mining and the failStart self-heal both arrive here false.
-const healthy = js.match(/markMiningActive\(\);[\s\S]*?if \(wasStarting\) \{/);
+// Anchored on the first `if (wasStarting` in CODE after markMiningActive() (the comment above mentions the name), whatever shape the gate takes: it used to be an
+// `if (wasStarting) {` block and is now a one-line `if (wasStarting || justLanded) log(...)`, and an anchor on the
+// old text failed while the property it guards still held.
+const healthy = js.match(/markMiningActive\(\);[\s\S]*?if \(wasStarting/);
 check('retraction happens BEFORE the wasStarting gate, not inside it',
   !!healthy && /clearRegBanner\("unreachable"\)/.test(healthy[0]));
 check('...and the narration banners stay untagged, so nothing can retract them',

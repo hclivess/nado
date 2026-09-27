@@ -3470,8 +3470,8 @@ async function maybeRegister() {
       log("err", i18("log.regExpired", "Registration tx expired before inclusion — re-registering automatically."));
       state.regSubmitted = null;                 // fall through and broadcast a fresh one
     } else {
-      // HOW FAR IS "FAR"? The tx was built as tip + poswTargetMarginFor(...), so the remaining distance can
-      // never legitimately exceed POSW_TARGET_MARGIN. A larger number does not mean a long wait — it means
+      // HOW FAR IS "FAR"? The tx was built as tip + REG_TARGET_MARGIN (a fixed 30 since gen 25), so the remaining
+      // distance can never legitimately exceed POSW_TARGET_MARGIN. A larger number does not mean a long wait — it means
       // OUR view of the tip is wrong, which happens whenever the relay is still syncing and reports a low
       // tip. The old guard was `state.latest != null`, and `0 != null` is TRUE, so a relay at height 0
       // turned "blocks to go" into the absolute target height: a user was shown "25913 blocks to register"

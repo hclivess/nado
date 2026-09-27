@@ -11,11 +11,16 @@
  * the page glow teal. --accent-rgb fixes that only if it is arithmetically the same colour as --accent,
  * which is checked, because a mismatch is invisible in review and obvious on screen. */
 import { readFileSync } from 'node:fs';
-const R = '/srv/nado-home/nado/static/';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+// THIS tree, never the live checkout's absolute path: read from /srv/nado-home/nado, a test run in a worktree
+// checked the deployed file instead of the one under review, and three tests went stale unnoticed (2026-09-27).
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const R = join(ROOT, 'static') + '/';
 const css = readFileSync(R + 'interface.css', 'utf8');
 const js  = readFileSync(R + 'interface.js', 'utf8');
 const i18 = readFileSync(R + 'i18n.js', 'utf8');
-const read = (rel) => readFileSync('/srv/nado-home/nado/' + rel, 'utf8');
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 let fails = 0;
 const check = (n, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + n); if (!c) fails++; };
 
@@ -91,10 +96,20 @@ const html = readFileSync(R + 'interface.html', 'utf8');
 check('the SDK carries the shared tokens to every dapp page', /theme\.css/.test(sdk));
 check('...and mirrors the wallet\'s stored choice', /nado_theme/.test(sdk) && /data-theme/.test(sdk));
 check('...validating it rather than trusting it', /\/\^\[a-z\]\{3,10\}\$\//.test(sdk));
-check('the SDK hardcodes NO palette colour any more',
-  !/#(00ad93|00c9a7|131a23|243140|e6edf3|93a1b0|1a232e)/i.test(sdk));
-check('the SDK stopped inventing variable names nothing defines',
-  !/--accent2|--elev,|--dim,/.test(sdk));
+// What RENDERS is what matters: a palette hex inside a var(--x, #fallback) only shows if theme.css failed to load,
+// so strip the fallbacks first. (The old check banned the hex anywhere and the names --accent2/--elev/--dim, which
+// theme.css has defined in every palette since; it went red while every game followed the theme.)
+const sdkNoFallbacks = sdk.replace(/var\(--[a-z0-9-]+,[^()]*(\([^()]*\))?[^()]*\)/g, 'var()');
+check('the SDK renders NO hardcoded palette colour (only var() fallbacks carry one)',
+  !/#(00ad93|00c9a7|131a23|243140|e6edf3|93a1b0|1a232e)\b/i.test(sdkNoFallbacks));
+// ...and every variable it reads is one the theme defines, so no element silently sticks to its fallback. The only
+// exceptions are status colours that are not part of a palette and a per-game override that falls back to the theme.
+const themeVars = new Set([...tok.matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]));
+const NOT_PALETTE = new Set(['--gold', '--warn', '--danger', '--mono', '--card']);
+const undefinedVars = [...new Set([...sdk.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]))]
+  .filter((v) => !themeVars.has(v) && !NOT_PALETTE.has(v));
+check('every variable the SDK reads is defined by theme.css (' + (undefinedVars.join(', ') || 'none missing') + ')',
+  undefinedVars.length === 0);
 check('theme.css defines every palette', (tok.match(/--accent-rgb:/g) || []).length === new Set(cssIds).size + 1);
 
 check('the logo is driven by variables', (svg.match(/var\(--logo-\d/g) || []).length === 5);

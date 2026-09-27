@@ -337,7 +337,7 @@ function _modalCSS() {
   s.textContent =
     ".sdk-modal-bg{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(3,6,10,.66);backdrop-filter:blur(3px);animation:sdkFade .14s ease}"
     + ".sdk-modal-bg.hidden{display:none}"
-    + ".sdk-modal{max-width:400px;width:100%;background:var(--card,var(--panel,#141a24));color:var(--txt,var(--fg,#e8eef6));border:1px solid var(--border,rgba(255,255,255,.12));border-radius:14px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.5);animation:sdkPop .16s cubic-bezier(.2,.9,.3,1.15)}"
+    + ".sdk-modal{max-width:400px;width:100%;background:var(--card,var(--bg-elev,#141a24));color:var(--txt,#e8eef6);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:14px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.5);animation:sdkPop .16s cubic-bezier(.2,.9,.3,1.15)}"
     + ".sdk-modal h3{margin:0 0 12px;font-size:16px;font-weight:700}"
     + ".sdk-modal-body{color:var(--txt-dim);font-size:14px;margin-bottom:14px;white-space:pre-line}.sdk-modal-body.hidden{display:none}"
     + ".sdk-modal-warn{color:var(--warn,#e3b341);font-size:13px;font-weight:600;margin-bottom:14px}.sdk-modal-warn.hidden{display:none}"
