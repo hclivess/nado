@@ -26,6 +26,22 @@ typed in Settings):
 Nothing in `/relays` is trusted: a listed node is used only after it passed the chain + height checks, and
 the node's own "Wrong or missing chain id" rejection backstops every signed transaction.
 
+### What one lying relay cannot do (2026-09-27)
+
+Pool heights are **self-reported**, so any height a relay claims is treated as a claim:
+
+- **The wallet's tip estimate** (`relayTipEstimate`) is the pool's highest height, but never more than
+  `RELAY_LEAD_MAX` (30) blocks above the pool's **median**. The propagation guard (`guardFrom`), the duty window and
+  the failover ranking all use it. Before this, one relay claiming height 10^9 put every transaction's `min_block`
+  past its `max_block` (nothing the wallet signed could land) and ranked itself first for failover.
+- **Failover acceptance** compares a candidate with the median, which a single liar cannot move.
+- **When home is unreachable** — exactly when failover happens — a candidate is adopted only if at least one other
+  pool relay holds the **same finalized block** (`relayCorroborated`); with no other relay to ask it is used as before.
+- **Programs are downloaded from home only.** The TPM enrolment helper and its checksum are built from the home
+  relay (`enrolBase`), never from a failover relay a stranger may be running.
+- **`/relays` clamps** each peer's reported height to this node's tip + `_RELAYS_LEAD_MAX` (30) before handing it to
+  wallets. Tests: `tests/test_relay_trust.mjs`, `tests/test_guard_from_best_height.mjs`.
+
 ## What a browser can actually reach
 
 Every node speaks **plain HTTP** on the API port (`9173`). A wallet served over **HTTPS** cannot fetch

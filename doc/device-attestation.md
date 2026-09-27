@@ -267,6 +267,26 @@ What this bounds: one Android device (per ~2-week certificate rotation, which is
 Windows account on one TPM holds ONE open-lane identity at a time. Tests: tests/test_device_binding.py (real
 Android chain binds on x5c[1]; batch/packed/apple refused; apply/revert symmetry; the rule's arithmetic).
 
+### The binding key is the certificate's SIGNED part (`DEVICE_BIND_CANONICAL_HEIGHT` = 19800, 2026-09-27)
+
+Until this gate the binding key was `sha256` of the certificate's **raw bytes**, but the native kernel parses the DER
+and ignores anything after it. So the same chip's certificate with different junk appended verified every time and
+hashed to a new key every time: **one device, unlimited identities**. Reported by the 2026-09-25 audit and fixed
+2026-09-27. A scan of every register statement on betanet-8 before the gate found none that used it.
+
+From the gate:
+- The key is `sha256(TBSCertificate)` (`ops/device_attest.cert_signed_part`): exactly the bytes the issuer signed.
+  They can't change without breaking the signature, and nothing outside them (junk, a re-encoded outer length, the
+  signature's own encoding) changes the key.
+- A certificate with any byte after its DER structure is refused.
+- **Switch-over:** a device bound before the gate sits in the table under its raw-bytes key, which the canonical key
+  doesn't match. Apply therefore also looks up that legacy key; if it backs another identity, that identity is evicted
+  and the legacy row removed, exactly as an instant move would. The switch gives no device a second identity. The
+  legacy row has its own rollback journal record (`<address>|legacy`) and is restored exactly.
+
+Validation, the one-device-per-block key and apply derive the key at the same height with the same flag.
+Test: `tests/test_one_device_one_identity.py`.
+
 ## Hardware wallets: `trezor` and `ledger` (2026-09-07)
 
 A hardware wallet's FIDO2 mode is refused (batch certificate), but both vendors also expose a PER-DEVICE key

@@ -178,7 +178,7 @@ def t_strict_binding():
     except ValueError as e:
         check("two senders, one device, one block -> refused", "devbind" in str(e), e)
     src = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
-    check("apply parses with the same strictness as validation", "strict=True)   # same parse as validation" in src)
+    check("apply parses with the same strictness as validation", "strict=True, canonical=_canon)   # same parse as validation" in src)
 
 
 def t_binding_modes():

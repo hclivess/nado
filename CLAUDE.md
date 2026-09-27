@@ -403,6 +403,10 @@ git push origin main          # THIS RESTARTS PRODUCTION (this node self-restart
 curl -s "http://<fleet-ip>:9173/update?wave=true"   # kick the wave FROM A FLEET NODE, not from here
 ```
 
+**A kick that lands on a busy or rate-limited check is not lost** (2026-09-27): the reply says `queued_recheck: true`
+and the node re-checks on its own shortly after (ops/self_update.queue_recheck). A node still behind 12 minutes after a
+push is a bug to diagnose, not to kick by hand and forget.
+
 **The wave never leaves the push host.** Only a node that actually UPDATED forwards `/update`, and this checkout is
 already current when you push, so `localhost:9173/update` answers `up_to_date` and forwards nothing. Kick one or two
 fleet IPs from `peers.dat`; each one that updates forwards the wave to its peers. **Batch pushes**: every push restarts

@@ -992,8 +992,13 @@ class MemServer:
         # pinned silicon-vendor root. An attacker with no account gains the right to have those rules
         # reject it. Requiring capital before a participant may finish proving it owns hardware inverts
         # the point of a lane that exists for participants who have none.
+        #
+        # tpm_ready LEFT THIS LIST (audit 2026-09-27): an announcement from a never-funded address was the one free,
+        # unbounded, account-creating message on the chain (protocol.SPAM_HARDEN_HEIGHT). Its honest sender is a node
+        # that already holds an account, and from the gate a bonded one. NOTE: this check is mempool policy only —
+        # consensus never runs it — so it is never the bound that makes a kind safe; validate_transaction is.
         elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
-                                                  "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready") \
+                                                  "tpm_challenge", "tpm_commit", "tpm_reveal") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}
@@ -1035,6 +1040,12 @@ class MemServer:
                     # merge_transaction calls on other threads (double-accept / lost-append races).
                     with self.mempool_lock:
                         if _txid not in self._pool_txid_set():
+                            ok, victim = self._free_pool_admit(transaction)
+                            if not ok:
+                                return {"result": False,
+                                        "message": "Too many pending fee-exempt transactions from this sender"}
+                            if victim is not None:
+                                self._transaction_pool.remove(victim)
                             self._transaction_pool.append(transaction)
                             self.pool_gen += 1   # in-place append — bump the content signal by hand
 
@@ -1053,6 +1064,28 @@ class MemServer:
                             "result": False}
 
             return {"message": "Success", "result": True}
+
+    def _free_pool_admit(self, transaction):
+        """(admit?, tx to evict) under protocol.FREE_POOL_PER_SENDER — MEMPOOL POLICY, not consensus (audit 2026-09-27).
+        Consensus bounds how many fee-exempt txs of a sender LAND (per-block uniqueness keys, nullifiers), but nothing
+        bounded how many sat in the pool: one account could pool thousands of distinct-nonce copies (only one lands per
+        block, the rest wait out their landing window), and the byte cull never evicts several free kinds, so the flood
+        pushed paid transactions out instead. A sender now holds at most FREE_POOL_PER_SENDER fee-exempt txs (an honest
+        node pools a handful: its duties, a settle, an announcement). Over the cap the LOWEST txids win — the new tx
+        replaces the sender's highest if it sorts below it — so every node converges on the same subset whatever order
+        the copies arrived in (a pool that differed by arrival order would build different blocks). Only the sender's own
+        key can fill its slots. Caller holds mempool_lock. INVARIANT: keep the choice a pure function of the tx set."""
+        from protocol import FREE_POOL_PER_SENDER
+        if transaction.get("fee") != 0:
+            return True, None
+        s = transaction.get("sender")
+        mine = [t for t in self._transaction_pool if t.get("sender") == s and t.get("fee") == 0]
+        if len(mine) < FREE_POOL_PER_SENDER:
+            return True, None
+        worst = max(mine, key=lambda t: str(t.get("txid")))
+        if str(transaction.get("txid")) < str(worst.get("txid")):
+            return True, worst
+        return False, None
 
     def merge_transactions(self, transactions, user_origin=False) -> None:
         """Merge a whole remote batch one tx at a time through merge_transaction, which contains its

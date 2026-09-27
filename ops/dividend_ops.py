@@ -17,6 +17,40 @@ that miscomputes it would false-slash honest settlers. test_dividend_fidelity.py
 from protocol import POSW_LEASE_EPOCHS, LEASE_EPOCHS_MAX, fidelity_step, dividend_weight
 from ops import kv_ops
 
+_CARRIED = [None]
+
+
+def carried_identities() -> dict:
+    """{address: carried fidelity} for the identities THIS generation's carry named as present — read once from the same
+    files genesis built this chain from (genesis_data/genesis_carry.dat "present", only when it names this generation;
+    the allocation from private/ first, else the repo copy, exactly as genesis.py resolves it). Static for the life of a
+    chain, identical on every node that built the same genesis. {} on a chain without a carry."""
+    if _CARRIED[0] is not None:
+        return _CARRIED[0]
+    import json, os
+    from protocol import CHAIN_GENERATION
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = {}
+    try:
+        carry_path = os.environ.get("NADO_GENESIS_CARRY") or os.path.join(here, "genesis_data", "genesis_carry.dat")
+        with open(carry_path) as f:
+            carry = json.load(f)
+        if int(carry.get("generation", -1)) == int(CHAIN_GENERATION):
+            present = set(carry.get("present") or [])
+            from ops.data_ops import get_home
+            alloc_path = f"{get_home()}/private/genesis_alloc.dat"
+            if not os.path.exists(alloc_path):
+                alloc_path = os.path.join(here, "genesis_data", "genesis_alloc.dat")
+            fid = {}
+            if os.path.exists(alloc_path):
+                with open(alloc_path) as f:
+                    fid = {e["address"]: int(e.get("fidelity") or 0) for e in json.load(f) if isinstance(e, dict)}
+            out = {a: fid.get(a, 0) for a in present}
+    except (OSError, ValueError, TypeError):
+        out = {}
+    _CARRIED[0] = out
+    return out
+
 
 def fidelity_at_epoch(address: str, epoch: int) -> int:
     """Reconstruct `address`'s raw fidelity AS OF `epoch`, from its recert history (recerts <= epoch), by
@@ -24,7 +58,15 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     `epoch` (uncapped — dividend_weight() applies the FIDELITY_CAP saturation, matching the live path)."""
     fid = 0
     prev = -1
+    from protocol import DIVIDEND_CARRY_EPOCH
+    carried = carried_identities() if epoch >= DIVIDEND_CARRY_EPOCH else {}
     for r in kv_ops.recert_epochs(address, upto_epoch=epoch):    # ascending, only recerts <= epoch
+        if r == 0 and address in carried:
+            # THE CARRY'S LEASE (DIVIDEND_CARRY_EPOCH): the epoch-0 recert of a carried identity continues its previous
+            # generation — its fidelity starts at the carried value, exactly as the live apply continued from the
+            # carried account field. Replaying it as a fresh first recert reset every carried veteran to a newcomer.
+            fid, prev = int(carried[address]), 0
+            continue
         # continuity by the PREVIOUS recert's own grant (kv_ops.lease_of; pre-gate recerts read POSW_LEASE_EPOCHS) —
         # the same reader and the same rule as the live apply
         continuous = prev >= 0 and (r - prev) <= kv_ops.lease_of(address, prev)
@@ -71,7 +113,11 @@ def weights_at_epoch(epoch: int) -> dict:
         # present address has a recert <= epoch, so `epoch >= 0` always held here.
         recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
         if not recs or recs[-1] <= 0:
-            continue
+            # ...EXCEPT AN IDENTITY THE CARRY NAMED AS PRESENT (DIVIDEND_CARRY_EPOCH): it attested on the previous chain
+            # and was leased at epoch 0 for exactly that reason; the exclusion is for genesis seeds that never did.
+            from protocol import DIVIDEND_CARRY_EPOCH
+            if not (recs and recs[-1] == 0 and epoch >= DIVIDEND_CARRY_EPOCH and addr in carried_identities()):
+                continue
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
         if w > 0:
             out[addr] = w

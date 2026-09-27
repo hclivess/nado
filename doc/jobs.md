@@ -40,6 +40,10 @@ success, the last reconcile result, and `problems` — every job that is not ins
 failed, or (in-node) has not succeeded for 5 minutes. Peers pass `/status` around, so a dead job on any node shows
 up in every other node's `status_pool`.
 
+`unreadable` lists units whose state this node could not read at all: `systemctl show` returning no properties from
+the node's own process. Measured on two fleet nodes, 2026-09-27. Unknown is not a fault, so these are never
+`problems`. The report used to call working units "not installed". Test: `tests/test_jobs_report.py`.
+
 ## Setting up an operator machine
 
 A fresh install: `sudo scripts/install.sh --service` places the reconciler and runs it; set `"operator_jobs": true` in

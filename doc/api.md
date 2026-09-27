@@ -202,3 +202,31 @@ There is **no coinflip read API**: the dApp derives game / lobby / scoreboard fr
 via the generic `GET /exec/contract?cid=<coinflip-cid>` (storage maps: `st` stake, `pt` pot,
 `sd` settled, `nn` player count, `dl` deadline, `p1`/`p2` addresses, `c1`/`c2` commits, `s1`/`s2` secrets,
 `r1`/`r2` revealed flags, `ws` winner slot).
+
+## 6. Signing from a dApp (`exec_sign`) — who may be signed for silently
+
+A dApp never holds a key. It asks the wallet to sign, one of two ways (`static/nadodapp.js` does both):
+
+- **redirect:** `https://<wallet>/?exec_sign=<base64 JSON>&ret=<return URL>&app=<name>`; the wallet answers by
+  navigating back to `ret` with `?ok=1&txid=…` (or `ok=0&err=…`);
+- **hidden frame:** a reusable `<iframe src="<wallet>/?bgsvc=1">`; the page posts `{nadoExecSignReq: 1, payload, app}`
+  and the wallet posts the result back to the page's origin.
+
+**Silent signing follows the caller, never `ret`** (2026-09-27; `tests/test_exec_sign_trust.mjs`). A request is signed
+without a tap only when the site that ASKED is a trusted one — the postMessage sender's `e.origin`, or on the redirect
+path the origin of `document.referrer` — and it is the same site `ret` names. `ret` is part of the request, so a link
+from anywhere could name a trusted game; until this rule, such a link made a default wallet sign any value-free call
+with no tap. A request whose caller is unknown or different still works, through the visible confirm, which says the
+site did not ask and shows every counterparty (`to`, asset, `spender`, arguments).
+
+What this asks of a dApp:
+
+- **Do not set `Referrer-Policy: no-referrer`** (header or `<meta name="referrer">`) on a page that redirects to the
+  wallet. The browser default (`strict-origin-when-cross-origin`) sends the origin the wallet needs; with no referrer
+  every move asks for a tap.
+- `ret` must be an `http(s)` URL; anything else (`javascript:`, `data:`) is refused as malformed.
+- A hidden-frame answer always goes to the sender's own origin; a `ret` in the message is ignored.
+
+What the silent path covers: value-free contract calls (on by default, Settings → auto-sign), NADO bets up to the
+user's cap (never an asset-valued call), `htlc_claim` paying the user, and — only if the user turns on "auto-sign
+everything" — any contract call, never an asset transfer, approval or contract transfer.

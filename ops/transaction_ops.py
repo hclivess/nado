@@ -791,7 +791,7 @@ def construct_register_tx(keydict, max_block, posw_proof=None, device=None):
     return tx
 
 
-def construct_msgkey_tx(keydict, kem_pub, max_block):
+def construct_msgkey_tx(keydict, kem_pub, max_block, fee=0):
     """Build a SIGNED on-chain messaging-key tx. FEE-EXEMPT + zero-amount identity tx (recipient 'msgkey')
     that BINDS the sender's ML-KEM-768 encryption pubkey (`kem_pub`, 2368 hex chars) to their on-chain
     account, so anyone can DM them by address/alias with no off-chain prekey publish. kem_pub rides top-level
@@ -801,7 +801,7 @@ def construct_msgkey_tx(keydict, kem_pub, max_block):
     tx = {"sender": keydict["address"], "recipient": "msgkey", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0, "kem_pub": kem_pub}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee), "kem_pub": kem_pub}   # fee: a ROTATION pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -1086,13 +1086,40 @@ def reserved_uniqueness_key(tx):
         # challenger loop's retry could put two in one candidate; the second always raised at apply ("already
         # challenged" / "not awaiting a commitment" / "already revealed") and the node built a block it could not
         # apply. The key refuses NO block that apply did not already refuse, so it needs no height gate — only the
-        # builder changes (dedupe_reserved drops the copy). tpm_enrol is deliberately absent: a second enrolment of
-        # the same chip APPLIES today (it overwrites the row), so keying it would change which blocks are valid.
+        # builder changes (dedupe_reserved drops the copy). tpm_enrol was deliberately absent: a second enrolment of
+        # the same chip applied (it overwrote the row), so keying it changes which blocks are valid — it is keyed below,
+        # behind SPAM_HARDEN_HEIGHT.
         if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
             return (r, tx["sender"], str((tx.get("data") or {}).get("id")))
+        # FROM SPAM_HARDEN_HEIGHT (audit 2026-09-27), keyed on the tx's own max_block like `slash`, which is safe because
+        # the gate sits more than a landing window beyond the fleet's adoption (no tx carrying max_block >= the gate
+        # existed while any node ran the old rule):
+        #  * tpm_ready — one per sender per block. It had no key at all and lands flexibly, so copies with fresh nonces
+        #    all landed together (five blocks on betanet-8 carried two from one sender before the gate).
+        #  * tpm_enrol — one per CHIP per block. The one-open-enrolment-per-chip rule reads the parent record, so several
+        #    enrolments of one chip (distinct attestation keys) all passed inside a single block; the key is the chip's
+        #    endorsement identity, sha256 of its SubjectPublicKeyInfo, the same handle the kernel's verdict names.
+        from protocol import SPAM_HARDEN_HEIGHT
+        if r in ("tpm_ready", "tpm_enrol") and int(tx.get("max_block") or 0) >= SPAM_HARDEN_HEIGHT:
+            if r == "tpm_ready":
+                return ("tpm_ready", tx["sender"])
+            return ("tpm_enrol", ek_identity_of(tx))
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
+
+
+def ek_identity_of(tx) -> str:
+    """The endorsement identity a tpm_enrol names: sha256 of the leaf certificate's SubjectPublicKeyInfo, lifted by the
+    kernel's lenient parser — the handle attest_native.verify_ek reports as `identity`. A leaf that does not parse gets a
+    per-tx key (no dedupe), and validation refuses the tx anyway."""
+    import hashlib
+    from ops import attest_native
+    try:
+        leaf = bytes.fromhex(str(((tx.get("data") or {}).get("ek") or [""])[0]))
+        return hashlib.sha256(attest_native.ek_public_der(leaf)).hexdigest()
+    except Exception:
+        return "unparsed:" + str(tx.get("txid"))
 
 
 def reserved_uniqueness_keys(tx) -> list:
@@ -1111,13 +1138,17 @@ def reserved_uniqueness_keys(tx) -> list:
     # the tx's own field (a malformed or zero one must keep yielding no key). A malformed statement yields no key here;
     # validation rejects it anyway.
     if tx.get("recipient") == "register":
-        from protocol import DEVICE_BIND_MAX_CERT_SECS
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT
         try:
             # a statement-free renewal (the permanent binding mode) binds nothing, so it occupies no device key
             if (int(tx.get("max_block", 0)) >= 1
                     and isinstance(tx.get("device"), dict) and not is_assert_device(tx.get("device"))):   # an assertion binds nothing
                 from ops.device_attest import device_binding_key
-                keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
+                # the SAME key validation and apply use at this height (DEVICE_BIND_CANONICAL_HEIGHT): the signed part of the
+                # certificate, so two statements of one device with different trailing junk collide here too
+                keys.append(("devbind", device_binding_key(
+                    tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
+                    canonical=int(tx.get("max_block", 0)) >= DEVICE_BIND_CANONICAL_HEIGHT)))
         except Exception:
             pass
     if tx.get("recipient") == "duty":
@@ -1442,6 +1473,36 @@ def field_shield_check(data, block_height):
         assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
             and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
 
+def tx_shape_check(transaction, block_height):
+    """From SPAM_HARDEN_HEIGHT: only the known top-level keys, and a body no bigger than its kind needs. Pure shape — no
+    state — so it is identical in the mempool and in block verification. Every size below is canonical bytes (the txid's
+    own encoding), measured on the tx as signed. INVARIANT: a new top-level field on any client needs its name here
+    (protocol.TX_TOP_KEYS / TX_TOP_KEYS_BY_RECIPIENT) before that client ships, or the node refuses its transactions."""
+    from protocol import (SPAM_HARDEN_HEIGHT, TX_TOP_KEYS, TX_TOP_KEYS_BY_RECIPIENT, TX_MAX_BYTES,
+                          TX_MAX_BYTES_PER_EXTRA_SIG, TPM_ENROL_MAX_BYTES, BLOB_MAX_BYTES)
+    if block_height is None or int(block_height) < SPAM_HARDEN_HEIGHT:
+        return
+    recipient = transaction.get("recipient")
+    allowed = TX_TOP_KEYS | TX_TOP_KEYS_BY_RECIPIENT.get(recipient, frozenset())
+    extra = sorted(k for k in transaction if k not in allowed)
+    assert not extra, f"unknown transaction field(s): {', '.join(str(k)[:32] for k in extra[:4])}"
+    body = transaction
+    if recipient == "settle":
+        # the settle proof is verified (inline, or fetched from DA by its commitment) and priced by its own rules; what
+        # is capped here is everything else, where nothing checks the bytes
+        data = transaction.get("data")
+        if isinstance(data, dict) and "proof" in data:
+            body = dict(transaction, data={k: v for k, v in data.items() if k != "proof"})
+    sigs = transaction.get("signature")
+    cap = TX_MAX_BYTES + TX_MAX_BYTES_PER_EXTRA_SIG * max(0, len(sigs) - 1 if isinstance(sigs, list) else 0)
+    if recipient == "tpm_enrol":
+        cap = max(cap, TPM_ENROL_MAX_BYTES)
+    elif recipient in ("blob", "xmsg"):
+        cap = max(cap, BLOB_MAX_BYTES + TX_MAX_BYTES)
+    size = len(canonical_bytes(body))
+    assert size <= cap, f"transaction is {size} bytes, over the {cap}-byte limit for a {recipient if recipient in RESERVED_RECIPIENTS else 'transfer'}"
+
+
 def validate_transaction(transaction, logger, block_height, deep=False):
     """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
     chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
@@ -1455,6 +1516,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     Rejection is what stands between the ledger and forged, replayed, underpaid or double-claimed txs."""
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
+    # NO UNBOUNDED BODIES (protocol.SPAM_HARDEN_HEIGHT): before it, any tx could carry unlimited extra top-level keys,
+    # because the txid hashes every key and nothing listed the allowed ones — a fee-exempt message was free AND
+    # unbounded in size. Checked first, before any signature or state read, so an oversized body costs one encode.
+    tx_shape_check(transaction, block_height)
     # HALT-CLASS (codec safety, audit 2026-07): `data` must survive the STORAGE codec, which
     # incorporate_block -> save_block packs with ensure_ascii=False. A lone UTF-16 surrogate ("\ud800")
     # passes the txid/signature (canonical_bytes is ensure_ascii=True) yet makes that pack raise
@@ -1631,7 +1696,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
-        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT, permanent_classes_at
         epoch_now = block_height // EPOCH_LENGTH
         # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
         # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
@@ -1664,12 +1729,25 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 try:
                     # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
                     # gets bound (IndexError/ValueError alike = malformed = invalid)
-                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
+                    # canonical from DEVICE_BIND_CANONICAL_HEIGHT: keyed on the certificate's SIGNED part, trailing bytes
+                    # refused — the raw-bytes key let one device back unlimited identities (protocol.py, the gate's note)
+                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
+                                              canonical=block_height >= DEVICE_BIND_CANONICAL_HEIGHT)
                 except (ValueError, IndexError) as e:
                     raise AssertionError(f"register: {e}")
                 # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it
                 # replaced): a device may move to another sender in any block, because apply EVICTS the identity it leaves
                 # (its lease is voided at once), so one device backs one identity at every instant.
+                # ...BUT NOT TO A NEW SENDER EVERY BLOCK (SPAM_HARDEN_HEIGHT, audit 2026-09-27). A register needs no funds and
+                # creates its sender's account, so one device hopping to a fresh address each block was a free ~13 KB tx
+                # and a new account row per block, forever. From the gate a device moves to a DIFFERENT sender at most once
+                # per epoch (60 blocks): the first move — a lost key, a sold device, a wallet migration — is still instant,
+                # and renewals by the bound sender are unaffected. INVARIANT: keep the first move instant; bound the rest.
+                from protocol import SPAM_HARDEN_HEIGHT as _SPAM_H
+                if block_height >= _SPAM_H:
+                    _cur = kv_ops.devbind_get(dkey)
+                    assert not (_cur and _cur[0] != transaction["sender"] and int(_cur[1]) == epoch_now), \
+                        "register: this device already moved to another account this epoch — try again next epoch"
                 if dkey.split(":", 1)[0] in permanent_classes_at(block_height):
                     # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
                     # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
@@ -1690,6 +1768,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert block_height >= 1, "challenger announcements are not enabled yet"
         assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
         assert not transaction.get("data"), "tpm_ready carries no data"
+        # A VOLUNTEER HAS STAKE (SPAM_HARDEN_HEIGHT, audit 2026-09-27). Before it this was the cheapest message on the
+        # chain: any fee, no uniqueness key, sendable from a never-funded address (it skips the empty-account check), and
+        # it wrote the sender's account row — free, unlimited, every block — and every sender joined the challenger pool
+        # at weight 1, so a thousand free addresses outweighed the fleet in the TPM challenger draw. From the gate it is
+        # fee-free only from a bonded sender, once per sender per block (reserved_uniqueness_key), and writes nothing.
+        # INVARIANT: an announcement must cost the announcer stake; never let it through from an unbonded account.
+        from protocol import SPAM_HARDEN_HEIGHT
+        if int(block_height) >= SPAM_HARDEN_HEIGHT:
+            assert transaction["fee"] == 0, "tpm_ready is fee-exempt (fee must be 0)"
+            _acc = get_account(transaction["sender"], create_on_error=False)
+            assert _acc and _acc.get("bonded", 0) >= B_MIN, "only a bonded validator can volunteer as a challenger"
 
     elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
         # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md).
@@ -1793,14 +1882,30 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
         # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is
         # sender-scoped (writes only the sender's own kem_pub) and anti-spam-gated by the empty-account rule
-        # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account), so
-        # envelope-shape checks suffice here. Re-publish / key rotation is allowed.
+        # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account).
+        # THAT WAS NOT A BOUND (audit 2026-09-27): the empty-account check is mempool policy that consensus never runs,
+        # an emptied account still "exists", and accounts were free to create (tpm_ready wrote one) — so msgkey was a
+        # free ~10 KB message every block, forever, from any number of accounts. From SPAM_HARDEN_HEIGHT only the FIRST
+        # bind is free (bounded by the paid transfer that created the account); a rotation pays MIN_TX_FEE, re-binding
+        # the key already bound is refused, and the tx carries no data. INVARIANT: never make a repeatable msgkey free.
+        from protocol import SPAM_HARDEN_HEIGHT
         assert transaction["amount"] == 0, "msgkey tx must have zero amount"
-        assert transaction["fee"] == 0, "msgkey tx is fee-exempt (fee must be 0)"
         kp = transaction.get("kem_pub")
         # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
         assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
             "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
+        if block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT:
+            assert not transaction.get("data"), "msgkey carries no data"
+            _acc = get_account(transaction["sender"], create_on_error=False)
+            assert _acc, "msgkey needs an account on chain"
+            if _acc.get("kem_pub"):
+                assert _acc["kem_pub"] != kp, "this messaging key is already bound to the account"
+                assert transaction["fee"] >= MIN_TX_FEE, f"rotating a messaging key pays the minimum fee {MIN_TX_FEE}"
+                assert _acc.get("balance", 0) >= transaction["fee"], "msgkey sender cannot afford the fee"
+            else:
+                assert transaction["fee"] == 0, "the first messaging key is fee-exempt (fee must be 0)"
+        else:
+            assert transaction["fee"] == 0, "msgkey tx is fee-exempt (fee must be 0)"
     elif recipient == "auth":
         # ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
         # validate_origin verified every signature entry; here the SIGNER SET decides the effect (full
@@ -1857,12 +1962,27 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     elif recipient == "settle":
         # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
         # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
+        from protocol import SPAM_HARDEN_HEIGHT, SETTLE_MAX_LAG
         assert transaction["amount"] == 0, "Settle tx must have zero amount"
-        assert transaction["fee"] == 0, "Settle tx is fee-exempt (fee must be 0)"
         data = transaction.get("data") or {}
         cursor = data.get("exec_cursor")
         root = data.get("state_root")
         ns = data.get("ns", DEFAULT_NS)
+        # FREE ONLY WHERE IT IS A DUTY (SPAM_HARDEN_HEIGHT, audit 2026-09-27). Before it one 10-NADO bond could land a
+        # permanent settle row for every (namespace, cursor) pair — any namespace name, any past cursor — for free. The
+        # duty is the default namespace near the tip (honest settles trailed their block by 12..380 blocks); another
+        # namespace pays MIN_TX_FEE, and a cursor more than SETTLE_MAX_LAG behind is refused.
+        # INVARIANT: never make a settle free that the settle loop does not need.
+        _spam = block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT
+        if _spam and ns != DEFAULT_NS:
+            assert transaction["fee"] >= MIN_TX_FEE, f"a settle outside the default namespace pays the minimum fee {MIN_TX_FEE}"
+            _sa = get_account(transaction["sender"], create_on_error=False)
+            assert _sa and _sa.get("balance", 0) >= transaction["fee"], "settle sender cannot afford the fee"
+        else:
+            assert transaction["fee"] == 0, "Settle tx is fee-exempt (fee must be 0)"
+        if _spam and isinstance(cursor, int) and not isinstance(cursor, bool):     # (the type is refused just below)
+            assert int(block_height) - cursor <= SETTLE_MAX_LAG, \
+                f"Settle exec_cursor is more than {SETTLE_MAX_LAG} blocks behind this block"
         assert valid_namespace(ns), "Settle ns must be a valid namespace id ([a-z0-9._-], <=32)"
         assert ns != DEFAULT_NS or "ns" not in data, "default namespace must be omitted from settle data (canonical form)"
         # Upper bound is CONSENSUS-CRITICAL, not cosmetic: exec_cursor is packed be8 (struct '>Q') into the
@@ -2314,7 +2434,16 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         from ops.settlement_ops import latest_settled
         from execnode import exec_root as ER
         assert transaction["amount"] == 0, "xmsg carries no L1 amount"
-        assert transaction["fee"] == 0, "xmsg is fee-exempt"
+        # PAID FROM SPAM_HARDEN_HEIGHT (audit 2026-09-27): a lone bonded settler is quorum in a namespace nobody else
+        # settles, so it could settle a made-up root there and deliver unlimited free xmsgs against it, each a permanent
+        # nullifier row. No zero-balance claimant needs this path (unlike the exits), so it pays like any message.
+        from protocol import SPAM_HARDEN_HEIGHT
+        if block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT:
+            assert transaction["fee"] >= MIN_TX_FEE, f"xmsg pays the minimum fee {MIN_TX_FEE}"
+            _xa = get_account(transaction["sender"], create_on_error=False)
+            assert _xa and _xa.get("balance", 0) >= transaction["fee"], "xmsg sender cannot afford the fee"
+        else:
+            assert transaction["fee"] == 0, "xmsg is fee-exempt"
         data = transaction.get("data") or {}
         from_ns, to_ns = data.get("from_ns", DEFAULT_NS), data.get("to_ns")
         msg, proof = data.get("message"), data.get("proof")

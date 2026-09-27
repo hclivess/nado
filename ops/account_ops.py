@@ -26,6 +26,11 @@ def get_account(address, create_on_error=True):
     return None
 
 
+def _spam_harden_height():
+    from protocol import SPAM_HARDEN_HEIGHT
+    return SPAM_HARDEN_HEIGHT
+
+
 def reflect_transaction(transaction, logger, block_height=None, revert=False):
     """Apply — or with revert=True EXACTLY undo — one transaction's state effects. This is the
     single state-transition dispatcher, keyed on the reserved recipient name (bond/unbond/withdraw,
@@ -90,7 +95,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # deleted: apply runs only for a block's own transactions and genesis carries none, so block_height >= 1 here
         # and every one of them held. (block_height None raises at apply_register's epoch below, as it always did.)
         from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
-        device_key, permanent = None, False
+        device_key, permanent, legacy_key = None, False, None
         # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register with NO statement is a hardware
         # identity's statement-free presence renewal (validation admitted it only because devbind[devkey] points back at
         # the sender) — it writes nothing to devbind. A statement from a permanent class binds for life. Same parse as
@@ -103,8 +108,16 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             has_device = False
         elif has_device:
             from ops.device_attest import device_binding_key
+            from protocol import DEVICE_BIND_CANONICAL_HEIGHT
+            _canon = block_height >= DEVICE_BIND_CANONICAL_HEIGHT
             device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                            strict=True)   # same parse as validation
+                                            strict=True, canonical=_canon)   # same parse as validation
+            # THE SAME DEVICE UNDER ITS PRE-GATE KEY (DEVICE_BIND_CANONICAL_HEIGHT): a device bound before the gate sits in
+            # devbind under sha256(raw certificate). Its canonical key is new to the table, so without this lookup the
+            # switch would let every such device back one more identity. apply_register evicts what the legacy row backs.
+            if _canon:
+                _lk = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
+                legacy_key = _lk if _lk != device_key else None
             # permanent_classes_at(height), the same call as validation
             permanent = device_key.split(":", 1)[0] in permanent_classes_at(block_height)
         # THE CREDENTIAL, from the tx bytes: the COSE public key inside the statement's authenticator data becomes the
@@ -115,7 +128,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             from ops.device_attest import credential_public_key
             cred_pub = credential_public_key(transaction.get("device") or {})
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
-                       device_key=device_key, permanent=permanent, cred_pub=cred_pub)
+                       device_key=device_key, permanent=permanent, cred_pub=cred_pub, legacy_key=legacy_key)
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -125,6 +138,17 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "msgkey":
         apply_msgkey(address=sender, kem_pub=transaction["kem_pub"], txid=transaction["txid"],
                      logger=logger, revert=revert)
+        if fee:        # a key ROTATION pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); a first bind, and every msgkey
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # before the gate, carries 0
+        return
+
+    # --- CHALLENGER ANNOUNCEMENT (tpm_ready). Before SPAM_HARDEN_HEIGHT it had no branch here and fell through to the
+    #     ordinary transfer below, which wrote a zero account for a never-funded sender and a junk row named "tpm_ready"
+    #     — free account creation, which is what made msgkey's "the account must exist" bound void. From the gate it
+    #     writes nothing (validation holds its fee at 0 and requires a bonded sender, who already has an account).
+    #     Pre-gate blocks still take the fall-through, so replay is unchanged. INVARIANT: never let a fee-exempt kind
+    #     reach the transfer path — it creates accounts for free.
+    if recipient == "tpm_ready" and block_height is not None and int(block_height) >= _spam_harden_height():
         return
 
     # --- VENDOR-ENDORSED TPM ENROLMENT (gen 25's DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
@@ -241,6 +265,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.settlement_put(ns, cursor, sender, root)
             if proven:
                 kv_ops.settlement_proof_put(ns, cursor, root)
+        if fee:        # outside the default namespace a settle pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned)
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
     # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.
@@ -309,6 +335,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.xmsg_nullifier_del(from_ns, seq)
         else:
             kv_ops.xmsg_nullifier_put(from_ns, seq)
+        if fee:        # xmsg pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); 0 before it
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
     # --- SHIELD DEPOSIT (doc/privacy.md): lock `amount` in the shielded-pool escrow, burn the fee. The output
@@ -720,7 +748,8 @@ def get_open_registry(current_epoch: int):
     return {addr: dict(info) for addr, info in entry[1].items()}
 
 
-def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, cred_pub=None):
+def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, cred_pub=None,
+                   legacy_key=None):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
@@ -742,6 +771,14 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
         kv_ops.lease_grant_del(address, epoch)                  # the grant this recert wrote (no-op before the gate)
         if kv_ops.recert_latest(address) < 0:
             kv_ops.account_set(address, "registered", 0)
+        # the LEGACY-ROW record (DEVICE_BIND_CANONICAL_HEIGHT) first: it was written after the main one
+        lrec = kv_ops.devbind_revert_pop(epoch, address + "|legacy")
+        if lrec is not None:
+            lkey, l_addr, l_epoch, l_mode, _ldk, _lperm, l_evicted, l_prev_evict = lrec
+            if l_addr is not None:
+                kv_ops.devbind_set(lkey, l_addr, l_epoch, l_mode)
+            if l_evicted is not None:
+                kv_ops.devevict_set(l_evicted, l_prev_evict)
         brec = kv_ops.devbind_revert_pop(epoch, address)
         if brec is not None:
             key, prev_addr, prev_epoch, prev_mode, prev_devkey, was_perm, evicted, prev_evict = brec
@@ -793,6 +830,23 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             else:
                 kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch)
+            # THE PRE-GATE ROW OF THIS SAME DEVICE (DEVICE_BIND_CANONICAL_HEIGHT; transaction_ops passes it only from the
+            # gate). If it backs ANOTHER identity, that identity loses the device exactly as an instant move would: it is
+            # evicted and the legacy row removed, so neither its signature nor its statement-free renewals find a row that
+            # points back at it. Journaled under "<address>|legacy" and restored first on rollback.
+            if legacy_key:
+                lb = kv_ops.devbind_get(legacy_key)
+                if lb and lb[0] != address:
+                    l_ev, l_prev_ev = None, None
+                    if lb[0] != evicted:
+                        l_ev = lb[0]
+                        l_prev_ev = kv_ops.devevict_get(l_ev)
+                        kv_ops.devevict_set(l_ev, l_prev_ev + [(epoch, kv_ops.recert_latest(l_ev))])
+                    # perm=True keeps the row's MODE in the record whatever it was ("perm" or "lease"): rollback restores
+                    # the row exactly (the short record would restore a permanent binding as a lease)
+                    kv_ops.devbind_revert_put(epoch, address + "|legacy", legacy_key, lb, None, perm=True,
+                                              evicted=l_ev, prev_evict=l_prev_ev)
+                    kv_ops.devbind_del(legacy_key)
             # STAMP THE HANDLE FOR EVERY CLASS, AND THE CREDENTIAL (every epoch; gen 25's LEASE_V2_EPOCH). `devkey` is the reverse
             # index — account -> the device that vouches for it — that a statement-free or signature renewal is
             # validated against, and what lets /get_account name the class; `devcred` is the COSE public key of the
