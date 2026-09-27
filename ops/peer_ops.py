@@ -11,7 +11,7 @@ from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config, hostport, test_self_port
 from .data_ops import set_and_sort, get_home
-from .net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
+from .net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY, MAX_CONTROL_BODY
 
 import aiohttp
 
@@ -161,7 +161,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:
                 if response.status == 200:
                     # anti-OOM: cap the untrusted body like every other peer fetcher (compressed side),
                     # and unpack_zstd_peer caps the decompressed side against a zstd bomb.
-                    status = unpack_zstd_peer(await read_capped(response, MAX_PEER_BODY))
+                    status = unpack_zstd_peer(await read_capped(response, MAX_CONTROL_BODY), cap=MAX_CONTROL_BODY)
                     # reject a malformed-typed status here too (this fetcher feeds the snapshot/reanchor
                     # weight comparisons directly, bypassing the peer_loop admission gate).
                     return status if status_fields_well_typed(status) else False

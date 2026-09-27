@@ -4,7 +4,7 @@ import json
 import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
-from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
+from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY, MAX_CONTROL_BODY
 from config import hostport
 """this module is optimized for low memory and bandwidth usage"""
 
@@ -24,9 +24,9 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
-                    body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
+                    body = await read_capped(response, MAX_CONTROL_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
-                        fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
+                        fetched = unpack_zstd_peer(body, cap=MAX_CONTROL_BODY)                # bomb-capped zstd(msgpack) wire
                     else:
                         fetched = json.loads(body.decode())[key]
         return fetched
@@ -74,8 +74,8 @@ async def get_tx_ids_of(peer, port, logger, fail_storage, semaphore):
                 async with session.get(url_construct) as response:
                     if response.status != 200:
                         raise ValueError(f"HTTP {response.status}")
-                    body = await read_capped(response, MAX_PEER_BODY)
-                    fetched = unpack_zstd_peer(body)
+                    body = await read_capped(response, MAX_CONTROL_BODY)
+                    fetched = unpack_zstd_peer(body, cap=MAX_CONTROL_BODY)
                     if not isinstance(fetched, list):
                         raise ValueError("malformed id list")
                     return peer, fetched
@@ -98,7 +98,7 @@ async def get_next_block_txids_of(peer, port, logger, semaphore, timeout=1.5):
                 async with session.get(url_construct) as response:
                     if response.status != 200:
                         return None
-                    body = await read_capped(response, MAX_PEER_BODY)
+                    body = await read_capped(response, MAX_CONTROL_BODY)
                     d = json.loads(body)
                     if not isinstance(d, dict) or not isinstance(d.get("txids"), list):
                         return None
@@ -205,9 +205,9 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
-                    body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
+                    body = await read_capped(response, MAX_CONTROL_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
-                        fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
+                        fetched = unpack_zstd_peer(body, cap=MAX_CONTROL_BODY)                # bomb-capped zstd(msgpack) wire
                     else:
                         fetched = json.loads(body.decode())
 
