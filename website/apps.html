@@ -61,18 +61,28 @@
     nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px}
     nav a{margin-left:0}
   }
+  /* UNIVERSAL NAV (2026-09-13): the same links on every page; the wallet CTA is a small button. */
+  nav a.here{color:var(--txt)}
+  nav a.btn{color:#04110a;padding:7px 13px;font-size:14px;border-radius:10px}
+  nav a.btn:hover{color:#04110a}
 </style>
 </head>
 <body>
 <div class="glow"></div>
 <div class="wrap">
   <header>
-    <a class="brand" href="/" style="color:inherit"><img src="/logo.svg" alt=""> NADO</a>
+    <a class="brand" href="/"><img src="/logo.svg" alt="" /> NADO</a>
     <nav>
-      <a href="/" data-i18n="games.navHome">Home</a>
-      <a href="/emission" data-i18n="games.navEmission">Emission</a>
-      <a href="https://forum.nadochain.com" data-i18n="games.navForum">Forum</a>
-      <a href="https://github.com/hclivess/nado" data-i18n="games.navGitHub">GitHub</a>
+      <a href="/#what" data-i18n="nav.what">What</a>
+      <a href="/#features" data-i18n="nav.features">Features</a>
+      <a href="/#build">Build</a>
+      <a href="/production">Production</a>
+      <a href="/emission" data-i18n="nav.emission">Emission</a>
+      <a class="here" href="/apps" data-i18n="nav.apps">Apps</a>
+      <a href="/#treasury" data-i18n="nav.treasury">Treasury</a>
+      <a href="https://forum.nadochain.com">Forum</a>
+      <a href="https://github.com/hclivess/nado">GitHub</a>
+      <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Collect Rewards</a>
     </nav>
   </header>
 
@@ -94,7 +104,7 @@
   </div>
 
   <footer>
-    <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a>
+    <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a><a href="https://doi.org/10.5281/zenodo.22749219">Paper</a>
     <div style="margin-top:12px" data-i18n="apps.responsible">Play responsibly — the games here are real-value games of chance. Lending is not a game: a missed deadline means the collateral changes hands.</div>
   </footer>
 </div>

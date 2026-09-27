@@ -103,6 +103,10 @@
   .dot.on{background:var(--pos);box-shadow:0 0 10px rgba(58,210,159,.7)}
   footer{border-top:1px solid var(--line);padding:26px 0 40px;color:var(--faint);font-size:13.5px}
   footer a{color:var(--muted)}
+  /* UNIVERSAL NAV (2026-09-13): the same links on every page; the wallet CTA is a small button. */
+  nav a.here{color:var(--txt)}
+  nav a.btn{color:#04110a;padding:7px 13px;font-size:14px;border-radius:10px}
+  nav a.btn:hover{color:#04110a}
 </style>
 </head>
 <body>
@@ -112,13 +116,16 @@
   <header>
     <a class="brand" href="/"><img src="/logo.svg" alt="" /> NADO</a>
     <nav>
-      <a href="/#what">What</a>
+      <a href="/#what" data-i18n="nav.what">What</a>
+      <a href="/#features" data-i18n="nav.features">Features</a>
+      <a href="/#build">Build</a>
       <a class="here" href="/production">Production</a>
-      <a href="/#features">Features</a>
-      <a href="/emission">Emission</a>
-      <a href="/apps">Apps</a>
-      <a href="/#start">Start</a>
+      <a href="/emission" data-i18n="nav.emission">Emission</a>
+      <a href="/apps" data-i18n="nav.apps">Apps</a>
+      <a href="/#treasury" data-i18n="nav.treasury">Treasury</a>
+      <a href="https://forum.nadochain.com">Forum</a>
       <a href="https://github.com/hclivess/nado">GitHub</a>
+      <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Collect Rewards</a>
     </nav>
   </header>
 
@@ -277,6 +284,7 @@
       <a href="https://get.nadochain.com">Interface</a> ·
       <a href="https://github.com/hclivess/nado">GitHub</a> ·
       <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
+      <a href="https://doi.org/10.5281/zenodo.22749219">Paper</a> ·
       <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
       <a href="https://twitter.com/nadochain">Twitter/X</a>
     </div>
