@@ -4492,6 +4492,40 @@ async function refreshMiningChart(addr, acc, ms) {
   if (_mineData) drawMiningChart(_mineData);
 }
 
+// SCHEDULED-CLEANUP: DELETE announceKey (and its call in refreshDashboard, and tests/test_wallet_self_announce.py)
+// BEFORE THE GEN-28 REROLL — operator, 2026-09-27: "we will delete that code before reroll" / "not after, before".
+// Its only job is to get keys on chain ahead of the carry, which re-keys to hash addresses (SCHEDULED_CLEANUPS.md).
+// SELF-ANNOUNCEMENT (operator, 2026-09-27: "add self announcement to the wallet so they secure themselves"). An account
+// that has RECEIVED coins but never sent has no public key on chain, and until it does two things are true: its format-1
+// address commits to only 21 bytes of a key someone else can choose (the keyless-address forgery), and the next reroll's
+// hash addresses cannot move it to the address this wallet will derive (tools/rekey_v2.py needs the key). The wallet
+// fixes both by itself: the first time it sees its account on chain without a key, it publishes the account's messaging
+// key — a FREE first bind (SPAM_HARDEN_HEIGHT keeps the first bind free) whose tx carries the public key, which the node
+// records on the account (PUBKEY-ONCE). No prompt, no fee, nothing for the owner to do.
+// It used to happen only as a side effect of the messaging loop, which starts once per page — so a derived (HD) account,
+// or any account switched to later, never announced. This runs on every dashboard cycle for the ACTIVE account.
+// INVARIANT: announce only when the chain shows no key (never a paid rotation), and only an accepted submit counts.
+async function announceKey(acc) {
+  const w = state.wallet;
+  if (!w || !w.privateKey || !acc) return;             // no account on chain yet: nothing to secure; the next cycle retries
+  const a = w.address;
+  if (acc.public_key) { (state._keyAnnounced ||= {})[a] = true; return; }
+  if (acc.kem_pub) return;                             // a key-less account with a bound messaging key cannot re-bind it for free
+  // KEY ROTATION (account auth, doc/key-rotation.md): a configured account signs with a ROTATED key (authSync puts it in
+  // state.wallet under the account's address). The node records the FIRST key a sender's tx carries as the account's
+  // key, and the gen-28 carry re-keys the account to the hash of that key — so an announcement signed by a rotated key
+  // would pin the wrong key and move the coins to an address this wallet never derives. Announce only from the BASE key
+  // (the one whose address this is), and never for a configured account. INVARIANT: the recorded key is the base key.
+  if (acc.auth || acc.auth_pending || makeAddress(w.publicKey) !== a) return;
+  const done = (state._keyAnnounced ||= {});
+  if (done[a] || (Date.now() - ((state._keyAnnounceAt ||= {})[a] || 0)) < 60000) return;
+  state._keyAnnounceAt[a] = Date.now();
+  const m = await loadMessaging(); if (!m) return;
+  const id = msgIdentity(); if (!id || state.wallet !== w) return;
+  const out = await submitTransaction(buildMsgkeyTx(w, id.kemPub, await nextTargetBlock(), nowSeconds(), 0));
+  if (out && out.data && out.data.result) { done[a] = true; state._msgPublished = a; }
+}
+
 async function refreshDashboard() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
@@ -4504,6 +4538,7 @@ async function refreshDashboard() {
   if (!refreshDashboard._vouchedAt || Date.now() - refreshDashboard._vouchedAt > 60000) { refreshDashboard._vouchedAt = Date.now(); renderVouched().catch(() => {}); }
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
   refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
+  announceKey(acc).catch(() => {});                    // put this account's public key on chain (secures it; see below)
 
   // wallet card + send/stake panels (balances are shared across tabs)
   if (acc) {

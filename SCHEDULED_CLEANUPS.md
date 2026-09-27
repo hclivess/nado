@@ -13,6 +13,15 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-09-27 — owed BEFORE the gen-28 reroll
+
+- **The wallet's key self-announcement** (`announceKey` in static/interface.js, its call in `refreshDashboard`, and
+  `tests/test_wallet_self_announce.py`). Operator: "you can add self announcement then, but we will delete that code
+  before reroll". Its only purpose is to get every opened wallet's public key on chain BEFORE the carry, so
+  tools/rekey_v2.py can move the account to its format-2 (hash) address. On a format-2 chain it has nothing to do.
+  Delete it on main BEFORE the reroll ("not after, before"), as a step of the reroll runbook ahead of the carry
+  (doc/reroll.md).
+
 ## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
 
 - **`EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1`** (Intel V2-root chips enrol, f524cb0a): the first
@@ -23,10 +32,11 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 - **A settle proof whose span starts at exec cursor 0 may not match the settled genesis root**: the exec genesis root at
   cursor 0 is the v1 layout, a proof starting there uses v2 (found by the slice-2 agent; same on the old code; betanet-8
   is past cursor 0, so it bites only the first settle after the NEXT reroll). Investigate before that reroll.
-- **Seven tests fail identically on old and new code, unrelated to the gates**: autogame_model (run path),
-  test_auto_bond, test_emergency_rollback_gating, test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and
-  test_pay_binding (stale source greps), test_settle_fold_tree (times out). Fix or delete each; a red test nobody reads
-  is how the lend page stayed broken from 2026-08-02 to 2026-09-26.
+- **Two tests fail identically on old and new code, unrelated to the gates**: autogame_model (run path) and
+  test_settle_fold_tree (times out at the default ceiling; the reroll branch's runner gives it the slow one). Fix or
+  delete each; a red test nobody reads is how the lend page stayed broken from 2026-08-02 to 2026-09-26. (test_auto_bond,
+  test_emergency_rollback_gating, test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and test_pay_binding were
+  stale on correct code and are fixed, 5e5d48ad.)
 - **install.sh's root→account migration branch** says to delete it by mainnet; it is also what install-timers.sh
   undid (doc/jobs.md). Delete with the next installer pass once no root install remains.
 
