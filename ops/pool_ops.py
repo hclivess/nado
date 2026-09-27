@@ -8,9 +8,10 @@ from .data_ops import get_byte_size, sort_list_dict
 FEE_EXEMPT_RECIPIENTS = frozenset({
     "register", "heartbeat", "unbond", "withdraw", "commit", "reveal", "attest",
     "settle", "bridge_withdraw", "dividend_withdraw",
-    # msgkey (bind ML-KEM messaging pubkey to the account) is fee-exempt + zero-value; it is NOT added to the
-    # empty-account onboarding bypass, so the sender must already have an on-chain account (registered / holds
-    # coins) — that gate replaces register's PoSW as the anti-spam bound, so it is safe from the cull too.
+    # msgkey (bind ML-KEM messaging pubkey to the account) is zero-value. The empty-account check was once named as its
+    # anti-spam bound; it is not one (mempool policy only, and accounts were free to create). The bounds are consensus
+    # — only the FIRST bind is free, a rotation pays MIN_TX_FEE (protocol.SPAM_HARDEN_HEIGHT) — plus the per-sender cap
+    # on pooled fee-exempt txs (memserver._free_pool_admit), which is what keeps protecting it from the cull safe.
     "msgkey",
     # The four enrolment messages (doc/tpm-attestation-without-a-ca.md) are fee-exempt and zero-value.
     # Each is bounded: tpm_enrol needs a vendor-signed endorsement chain and only one may be open per

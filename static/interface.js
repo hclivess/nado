@@ -600,7 +600,7 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp, device) {
 // peers can DM them by address/alias with NO off-chain prekey. Mirrors buildRegisterTx — the extra committed
 // field is `kem_pub` (register's `posw`). public_key is included (pubkey-once stores it idempotently; it's
 // excluded from the txid so its presence is free and always safe).
-function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp) {
+function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp, fee = 0) {
   const draft = {
     sender: wallet.address,
     recipient: "msgkey",
@@ -613,7 +613,7 @@ function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp) {
     chain_id: CHAIN_ID,
     kem_pub: kemPubHex,
   };
-  return finalizeTransaction(draft, wallet.privateKey, 0);
+  return finalizeTransaction(draft, wallet.privateKey, fee);
 }
 
 // The sequential proof hashes POSW_T (1,000,000) times in a chain. Route that through the WASM blake2b —
@@ -8737,7 +8737,13 @@ async function msgPublishPrekey() {
     // first coins instead of submitting a tx that cannot land; the next call retries.
     if (!acc) return;
     const targetBlock = await nextTargetBlock();
-    const out = await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds()));
+    // Only the FIRST messaging key is free; replacing a bound one pays the minimum fee (the node's SPAM_HARDEN_HEIGHT
+    // rule: a free, repeatable msgkey was free spam). A chain still before that rule refuses a fee on msgkey, so a
+    // refusal naming the fee is retried once at 0.
+    let out = await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds(),
+                                                    acc.kem_pub ? MIN_TX_FEE : 0));
+    if (acc.kem_pub && out && out.data && !out.data.result && /fee must be 0/.test(String(out.data.message || "")))
+      out = await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds(), 0));
     // Only an ACCEPTED submit counts: a refusal returns result:false without throwing, and marking it published
     // left a newly funded wallet unreachable by DM for the rest of the session.
     if (out && out.data && out.data.result) state._msgPublished = state.wallet.address;

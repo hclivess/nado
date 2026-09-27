@@ -26,6 +26,11 @@ def get_account(address, create_on_error=True):
     return None
 
 
+def _spam_harden_height():
+    from protocol import SPAM_HARDEN_HEIGHT
+    return SPAM_HARDEN_HEIGHT
+
+
 def reflect_transaction(transaction, logger, block_height=None, revert=False):
     """Apply — or with revert=True EXACTLY undo — one transaction's state effects. This is the
     single state-transition dispatcher, keyed on the reserved recipient name (bond/unbond/withdraw,
@@ -133,6 +138,17 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "msgkey":
         apply_msgkey(address=sender, kem_pub=transaction["kem_pub"], txid=transaction["txid"],
                      logger=logger, revert=revert)
+        if fee:        # a key ROTATION pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); a first bind, and every msgkey
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # before the gate, carries 0
+        return
+
+    # --- CHALLENGER ANNOUNCEMENT (tpm_ready). Before SPAM_HARDEN_HEIGHT it had no branch here and fell through to the
+    #     ordinary transfer below, which wrote a zero account for a never-funded sender and a junk row named "tpm_ready"
+    #     — free account creation, which is what made msgkey's "the account must exist" bound void. From the gate it
+    #     writes nothing (validation holds its fee at 0 and requires a bonded sender, who already has an account).
+    #     Pre-gate blocks still take the fall-through, so replay is unchanged. INVARIANT: never let a fee-exempt kind
+    #     reach the transfer path — it creates accounts for free.
+    if recipient == "tpm_ready" and block_height is not None and int(block_height) >= _spam_harden_height():
         return
 
     # --- VENDOR-ENDORSED TPM ENROLMENT (gen 25's DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
@@ -249,6 +265,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.settlement_put(ns, cursor, sender, root)
             if proven:
                 kv_ops.settlement_proof_put(ns, cursor, root)
+        if fee:        # outside the default namespace a settle pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned)
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
     # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.
@@ -317,6 +335,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.xmsg_nullifier_del(from_ns, seq)
         else:
             kv_ops.xmsg_nullifier_put(from_ns, seq)
+        if fee:        # xmsg pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); 0 before it
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
     # --- SHIELD DEPOSIT (doc/privacy.md): lock `amount` in the shielded-pool escrow, burn the fee. The output

@@ -1633,6 +1633,7 @@ def split_open_block_reward(reward: int):
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
 #                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
+#                                    SPAM_HARDEN_HEIGHT (-> 1)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -1667,6 +1668,31 @@ DEVICE_BIND_CANONICAL_HEIGHT = 19800 if CHAIN_GENERATION == 27 else 1
 # newcomers. From this EPOCH: an identity the carry named as present counts as attested, and its replayed fidelity starts
 # from its carried value (ops/dividend_ops). Epochs before it are committed and stay as they were.
 DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
+# NO FREE REPEATABLE TRANSACTIONS (2026-09-27, operator: "make sure it is not exploitable in the future (no fees empty
+# address spam)"). Measured on betanet-8 before the gate (audit + probes, doc/security-review-2026-09-27.md §"Free
+# transactions"): tpm_ready carried no fee rule and no uniqueness key, so a never-funded address could land any number of
+# them in every block, each writing an account row, and the senders fed the TPM challenger draw; msgkey was free forever
+# from any account that existed, even at zero balance; any transaction could carry unlimited extra top-level keys (the
+# txid hashes them all), so a fee-exempt message was unbounded in size; one chip could open several enrolments in one
+# block; a single 10-NADO bond could land permanent settle rows in unlimited namespaces for free; xmsg was free; and one
+# device could hop to a fresh never-funded sender every block. From this height:
+#   * a transaction carries only TX_TOP_KEYS (plus TX_TOP_KEYS_BY_RECIPIENT) and fits TX_MAX_BYTES (+ per extra signature);
+#   * msgkey is free only for the FIRST bind; a rotation pays MIN_TX_FEE, re-binding the same key is refused, no data;
+#   * tpm_ready is fee-free only from a bonded sender (B_MIN), once per sender per block, and writes no account;
+#   * tpm_enrol occupies ("tpm_enrol", endorsement identity) — one enrolment per chip per block;
+#   * settle is free only in the default namespace and no more than SETTLE_MAX_LAG behind the block; other namespaces pay;
+#   * xmsg pays MIN_TX_FEE;
+#   * a device moves to a DIFFERENT sender at most once per epoch (the first move stays instant).
+# Every fee a free kind now pays is burned like any fee. Height ahead of the fleet's adoption; 1 at the next reroll.
+SPAM_HARDEN_HEIGHT = 24000 if CHAIN_GENERATION == 27 else 1
+TX_TOP_KEYS = frozenset(("sender", "recipient", "amount", "fee", "timestamp", "data", "nonce", "public_key",
+                         "max_block", "min_block", "chain_id", "txid", "signature", "multisig"))
+TX_TOP_KEYS_BY_RECIPIENT = {"msgkey": frozenset(("kem_pub",)), "register": frozenset(("device", "posw"))}
+TX_MAX_BYTES = 64 * 1024                 # canonical bytes; the largest honest non-proof tx on betanet-8 was 16.5 KB
+TX_MAX_BYTES_PER_EXTRA_SIG = 8 * 1024    # an auth / multisig entry (ML-DSA signature + key) beyond the first
+TPM_ENROL_MAX_BYTES = 192 * 1024         # an endorsement chain of up to 8 DER certificates of 8 KiB, in hex, + the key
+SETTLE_MAX_LAG = 5000                    # blocks; honest settles on betanet-8 trailed their block by 12..380
+FREE_POOL_PER_SENDER = 16                # MEMPOOL POLICY, not consensus: pooled fee-exempt txs per sender (memserver)
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable

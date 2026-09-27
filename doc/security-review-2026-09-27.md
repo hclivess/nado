@@ -74,6 +74,31 @@ push. Such a kick now queues one deferred re-check. Test: `tests/test_update_kic
 **Jobs report (operational) — ce75f17a.** Units whose state cannot be read were reported as "not installed". They are
 now listed under `jobs.unreadable`. Test: `tests/test_jobs_report.py`.
 
+### Free transactions (`SPAM_HARDEN_HEIGHT`)
+
+Operator, 2026-09-27: "make sure it is not exploitable in the future (no fees empty address spam)". An audit of every
+fee-exempt kind, checked with probes against the real validation code, found these free, repeatable paths:
+
+| kind | before the gate | from the gate |
+|---|---|---|
+| any | the txid hashes every top-level key and nothing listed the allowed ones, so any tx could carry unlimited extra bytes (a paid transfer up to the 192 MiB submit limit, a fee-exempt message for free) | only `TX_TOP_KEYS` (+ `kem_pub` on msgkey, `device`/`posw` on register); at most `TX_MAX_BYTES` (64 KiB) + 8 KiB per extra signature; `tpm_enrol` 192 KiB; blob/xmsg the blob cap + 64 KiB; a settle's proof is outside the cap, everything else inside |
+| `tpm_ready` | any fee, no uniqueness key, sendable from a never-funded address (it skipped the empty-account check), and it fell through to the transfer path, writing an account for its sender. Every sender joined the TPM challenger pool at weight 1, so a thousand free addresses outweighed the fleet in the draw | fee 0 from a bonded (B_MIN) sender only; one per sender per block; writes nothing. Mempool: out of the empty-account bypass |
+| `msgkey` | free forever from any account that existed, including an emptied one (the empty-account check is mempool policy consensus never runs, and `tpm_ready` created accounts for free) | the first bind is free; a rotation pays `MIN_TX_FEE`; re-binding the bound key and carrying data are refused; an account must exist at consensus |
+| `tpm_enrol` | the one-open-enrolment-per-chip rule read the parent record, so one chip could open several enrolments in one block | one per endorsement identity per block (uniqueness key) |
+| `settle` | one 10-NADO bond could land a permanent row for every (namespace, cursor): any namespace name, any past cursor | free only in the default namespace and at most `SETTLE_MAX_LAG` (5,000) blocks behind; elsewhere `MIN_TX_FEE` |
+| `xmsg` | free; a lone settler is quorum in a namespace of its own | `MIN_TX_FEE` |
+| `register` | a register needs no funds and creates its sender's account, and a device could move to a new sender every block | a device moves to a DIFFERENT sender at most once per epoch; the first move is still instant |
+| mempool | nothing bounded how many fee-exempt txs one sender pooled, and the byte cull never evicts several free kinds | at most `FREE_POOL_PER_SENDER` (16) per sender, lowest txids kept so pools converge (policy, not consensus) |
+
+Measured before choosing the limits (whole chain, 21,347 blocks): only the allowlisted keys ever appeared; the largest
+honest non-proof tx was 16.5 KB; honest settles all used the default namespace and trailed their block by 12..380; no
+xmsg was ever sent; two of the ten `tpm_ready` senders were unbonded fleet nodes (6877baf3…, 83393971…) — they leave the
+challenger pool at the gate unless they bond B_MIN. Test: `tests/test_free_tx_spam_bounded.py`.
+
+Still open, not part of this gate: `MIN_TX_FEE` is 1000 raw (1e-7 NADO), so "pays the fee" is a weak price for bytes;
+`htlc_claim`, `bridge_withdraw` and `unshield` from a never-touched address meet the mempool's empty-account check
+despite the comment that a zero-balance claimant can claim.
+
 ## Execution layer (zk-harden branch, dormant until `ZK_HARDEN_HEIGHT`)
 
 **Asset instructions settle by proof.** Every settle proof refused asset io, so an asset-touching span could only

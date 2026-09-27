@@ -3566,6 +3566,14 @@ class CoreClient(threading.Thread):
                 return
             if self._tpm_tx_pending("tpm_ready", ""):
                 return
+            # A VOLUNTEER HAS STAKE (protocol.SPAM_HARDEN_HEIGHT): from the gate only a bonded account may announce, so an
+            # unbonded node stays quiet instead of logging a refusal every interval. It rejoins by bonding B_MIN.
+            from protocol import SPAM_HARDEN_HEIGHT, B_MIN
+            if tip + 1 >= SPAM_HARDEN_HEIGHT:
+                from ops.account_ops import get_account
+                _me = get_account(self.memserver.keydict["address"], create_on_error=False) or {}
+                if int(_me.get("bonded") or 0) < B_MIN:
+                    return
             # AN INCLUSION DELAY, SIGNED (2026-09-17). tpm_ready lands FLEXIBLY (block_ops._lands_flexibly: it is
             # not in the exact-landing set), so without min_block it was eligible the instant it existed: the
             # canonical block at the split height carried an announcement created 1-3 s before the block —
