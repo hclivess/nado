@@ -46,7 +46,10 @@ def check(name, fn):
 H = 300_000
 from ops.address_ops import make_checksum as _mk
 def _addr(ch):
-    body = ch * 45                      # ADDRESS_LENGTH 49 = 45 body + 4 checksum; validate_address checks the checksum
+    # a REAL-LENGTH address: validate_address checks the length as well as the checksum (a 49-character string passed
+    # while only the checksum was checked, and stopped passing when format 2 made the length part of the format)
+    from protocol import ADDRESS_BODY
+    body = ch * ADDRESS_BODY
     return body + _mk(body)
 ALICE = _addr("a")
 BOB = _addr("b")
