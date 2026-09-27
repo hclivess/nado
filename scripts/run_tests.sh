@@ -4,6 +4,7 @@
 # on any non-zero exit or FAIL line. Runs the .mjs wallet tests with node too, and SKIPS the LIVE tests. The suite is print-PASS/FAIL scripts, not pytest: `pytest tests/` collects
 # three functions and goes green (2026-09-02 audit). Usage: scripts/run_tests.sh [pattern] (default: all).
 #   NADO_TEST_TIMEOUT   per-test seconds (default 900; the fold/prove tests need minutes)
+#   NADO_TEST_SLOW_TIMEOUT  seconds for the SLOW list below (default 10800)
 #   NADO_TEST_JOBS      parallel jobs (default 2; every job gets its own HOME)
 set -u
 cd "$(dirname "$0")/.."
@@ -13,6 +14,10 @@ TMO=${NADO_TEST_TIMEOUT:-900}
 JOBS=${NADO_TEST_JOBS:-2}
 OUT=$(mktemp -d /tmp/nado-tests.XXXXXX)
 NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNELS (certifies the shipped native path)
+# SLOW tests get their own ceiling: test_settle_fold_tree proves a K=4 tree fold in Python and needs well over an hour
+# (measured 2026-09-26: 2 h 28 min to ALL PASS, so the 900 s default can only ever report it as a TIMEOUT).
+SLOW="test_settle_fold_tree"
+STMO=${NADO_TEST_SLOW_TIMEOUT:-10800}
 # LIVE tests talk to the node this checkout runs (tests/test_tests_are_isolated.py keeps this list and the tree in
 # step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.
 LIVE="test_otc_swap_e2e"
@@ -21,15 +26,16 @@ run_one() {
   case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac
   run=("$PY" "$t"); case "$t" in *.mjs) run=(node "$t");; esac
   flags="NADO_ALLOW_PYTHON_KERNELS=1"; case " $NATIVE_ONLY " in *" $n "*) flags="";; esac
+  tmo=$TMO; case " $SLOW " in *" $n "*) tmo=$STMO;; esac
   # TMPDIR=$h: every tempfile.mkdtemp() a test makes (105 sites beyond the HOME line, 2026-09-22) lands
   # under its own home instead of /tmp, so one rm of $OUT below is the whole cleanup. 8,000 unprefixed
   # tmpXXXXXXXX directories were found in /tmp that day, almost all from these tests.
-  env -i PATH="$PATH" HOME="$h" TMPDIR="$h" NADO_TESTNET=1 $flags timeout "$TMO" "${run[@]}" > "$OUT/$n.log" 2>&1
+  env -i PATH="$PATH" HOME="$h" TMPDIR="$h" NADO_TESTNET=1 $flags timeout "$tmo" "${run[@]}" > "$OUT/$n.log" 2>&1
   rc=$?; fails=$(grep -c '^FAIL' "$OUT/$n.log"); skips=$(grep -c '^SKIP' "$OUT/$n.log")
   st=OK; [ "$rc" = 124 ] && st=TIMEOUT; { [ "$rc" != 0 ] || [ "$fails" != 0 ]; } && [ "$st" = OK ] && st=FAIL
   printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "$st" "$rc" "$fails" "$skips" "$n"
 }
-export -f run_one; export OUT PY TMO NATIVE_ONLY LIVE
+export -f run_one; export OUT PY TMO STMO SLOW NATIVE_ONLY LIVE
 ls $PAT | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | tee "$OUT/summary.txt"
 bad=$(grep -c -E '^(FAIL|TIMEOUT)' "$OUT/summary.txt")
 # A GREEN RUN LEAVES NOTHING BEHIND: the homes, the temp dirs and the logs go together. A run with a
