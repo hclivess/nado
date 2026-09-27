@@ -101,7 +101,10 @@ def main():
     # A HEALTHY HOST is about disk, inodes and memory. Local edits are reported too — psychz sat 15 commits
     # behind for a day with /status claiming blocking=[] — but as a WARNING: since 2026-09-13 the updater
     # moves a conflicting edit aside instead of refusing, so an edit never blocks and never belongs here.
-    check("...and a healthy host trips none of them", not r["blocking"])
+    # The RESOURCE reasons only: the rest of `blocking` describes the checkout this test runs in (a worktree on another
+    # branch reports "checkout is on 'x', not 'main'"), which is true and correct there and says nothing about the host.
+    _res = [b for b in r["blocking"] if "free on the checkout filesystem" in b]   # disk + inodes (memory only warns)
+    check("...and a healthy host trips none of them" + (f" {_res}" if _res else ""), not _res)
     if r["checks"].get("dirty_files"):
         check("...local edits are named as a warning, not a block (the updater resolves them itself)",
               any("local edits" in w for w in r["warnings"]))

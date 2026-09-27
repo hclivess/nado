@@ -53,7 +53,10 @@ for fn in sorted(os.listdir(HERE)):
             stripped = line.strip()
             if stripped.startswith("#") or not BAD.search(line):
                 continue
-            if not any(k in line for k in FIELDY):
+            # judge the CODE, not its prose: a check LABEL such as "the challenge lands after …" named a field
+            # word while the int() compared two block heights (test_tpm_challenger_loop.py, 2026-09-27)
+            code = re.sub(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'', '""', line)
+            if not any(k in code for k in FIELDY) or not BAD.search(code):
                 continue
             # a _bump-style helper guarded by isinstance is exactly the correct form
             if "isinstance" in line:

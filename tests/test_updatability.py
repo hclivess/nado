@@ -56,7 +56,12 @@ def t_healthy_node_is_capable():
     """This repo is a real checkout with a unit — the baseline must be clean, or every other result is noise."""
     r = SU.updatability(probe_remote=False)
     assert r["checks"]["git_checkout"], f"this repo should be a checkout: {r}"
-    assert r["capable"], f"a healthy node must be capable: {r['blocking']}"
+    # Run from a review WORKTREE on another branch, "checkout is on '<branch>', not 'main'" is true and correct — that
+    # checkout could not fast-forward main — and says nothing about the node. Only that one reason is excused, and only
+    # when the branch really is not main.
+    other = [b for b in r["blocking"]
+             if not (r["checks"].get("branch") not in (None, "main") and b.startswith("checkout is on '"))]
+    assert not other, f"a healthy node must be capable: {other}"
 
 
 def t_gitless_node_is_detected():
