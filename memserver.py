@@ -518,11 +518,17 @@ class MemServer:
         d = tx.get("data") if isinstance(tx, dict) else None
         return tx.get("recipient") == "settle" and isinstance(d, dict) and ("proof" in d or "proof_da" in d)
 
+    # BOUNDED (audit 2026-09-25): the queue holds whole proof-bearing txs — each up to the 192 MiB body cap — and was
+    # unbounded, filled before validation from whatever peers advertised. Its callers are the reconcile pass and the
+    # mempool restore; a tx declined here is not in the pool, so a later reconcile pass fetches it again.
+    _PROOF_Q_MAX = 4
+
     def _queue_proof_merge(self, tx, user_origin):
-        """Hand a proof-bearing settle to the single proof worker (dedup by txid: one verification per tx)."""
+        """Hand a proof-bearing settle to the single proof worker (dedup by txid: one verification per tx).
+        Returns False when the worker's queue is full and the tx was declined for now."""
         import queue, threading
         if not hasattr(self, "_proof_q"):
-            self._proof_q, self._proof_inflight = queue.Queue(), set()
+            self._proof_q, self._proof_inflight = queue.Queue(maxsize=self._PROOF_Q_MAX), set()
             def _worker():
                 while True:
                     tx, uo = self._proof_q.get()
@@ -535,9 +541,14 @@ class MemServer:
             threading.Thread(target=_worker, name="proof_verify", daemon=True).start()
         txid = tx.get("txid")
         if txid in self._proof_inflight or txid in self._pool_txid_set():
-            return
-        self._proof_inflight.add(txid)
-        self._proof_q.put((tx, user_origin))
+            return True
+        self._proof_inflight.add(txid)      # BEFORE the put: the worker discards it when done, and must find it
+        try:
+            self._proof_q.put_nowait((tx, user_origin))
+        except queue.Full:
+            self._proof_inflight.discard(txid)
+            return False                    # declined for now: never blocks the caller, never grows the queue
+        return True
 
     # ---- MEMPOOL PERSISTENCE ----------------------------------------------------------------------------
     # A restart used to drop every pooled transaction on the floor: a client had been told "accepted" and
