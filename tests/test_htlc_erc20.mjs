@@ -1,5 +1,5 @@
 // ERC-20 leg (doc/dex-bridge.md §6.5) against a real EVM, with hostile tokens.
-// Run: /root/tools/anvil --port 8611 --silent &  then  node tests/test_htlc_erc20.mjs
+// Run: node tests/test_htlc_erc20.mjs   (starts its own anvil; or RPC=<url> to use a running EVM)
 // Covers: a standard token, a USDT-style no-return token, a fee-on-transfer token (the escrow must be
 // what ARRIVED), and a token that re-enters the HTLC during transferFrom (the guard must stop it).
 import { readFileSync } from "fs";
@@ -7,7 +7,28 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const E = await import(join(HERE, "..", "static", "ethsign.js"));
-const URL_ = process.env.RPC || "http://127.0.0.1:8611";
+// A PRIVATE devnet unless RPC names one: the runner never had an anvil on 8611, so this test failed on every full run
+// ("fetch failed … ECONNREFUSED"). It starts its own anvil on a free port and stops it on exit; with no anvil
+// installed it SKIPs, saying why, instead of failing.
+import { spawn } from "child_process";
+import { existsSync } from "fs";
+const ANVIL = process.env.ANVIL || "/root/tools/anvil";
+let URL_ = process.env.RPC || "";
+let _anvil = null;
+if (!URL_) {
+  if (!existsSync(ANVIL)) { console.log(`SKIP  no anvil at ${ANVIL} and no RPC given — the ERC-20 leg needs an EVM`); process.exit(0); }
+  const port = 20000 + (process.pid % 20000);
+  _anvil = spawn(ANVIL, ["--port", String(port), "--silent"], { stdio: "ignore" });
+  process.on("exit", () => { try { _anvil.kill(); } catch (e) {} });
+  URL_ = `http://127.0.0.1:${port}`;
+  let up = false;
+  for (let i = 0; i < 100 && !up; i++) {
+    try { const r = await fetch(URL_, { method: "POST", headers: { "content-type": "application/json" },
+                                        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) });
+          up = r.ok; } catch (e) { await new Promise((z) => setTimeout(z, 100)); }
+  }
+  if (!up) { console.log("FAIL  the private anvil did not come up"); process.exit(1); }
+}
 const K0 = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const A0 = E.ethAddress(K0);
 let pass = 0, fail = 0;
@@ -20,6 +41,15 @@ const keccakSel = async (sig) => {
 };
 const pad = (h) => h.replace(/^0x/, "").padStart(64, "0");
 const num = (n) => BigInt(n).toString(16).padStart(64, "0");
+// The test tokens are COMPILED from tests/fixtures/erc20_test_tokens.sol on every run (they used to be hand-built into
+// /tmp/erc20t/out, whose sources were never committed). No solc -> SKIP, saying why.
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { execFileSync } from "child_process";
+const SOLC = process.env.SOLC || "/root/tools/solc";
+if (!existsSync(SOLC)) { console.log(`SKIP  no solc at ${SOLC} — the hostile test tokens are compiled per run`); process.exit(0); }
+const TOK = mkdtempSync(join(tmpdir(), "erc20t-"));
+execFileSync(SOLC, ["--bin", "--optimize", "-o", TOK, "--overwrite", join(HERE, "fixtures", "erc20_test_tokens.sol")], { stdio: "ignore" });
 async function deploy(binPath) {
   const bin = readFileSync(binPath, "utf8").trim();
   const r = await E.deployHtlc(URL_, K0, "0x" + bin);
@@ -44,7 +74,7 @@ const S_KEY = await keccakSel("lockKey(address,bytes32,address,address,uint256,u
 const now = async () => Number(BigInt((await E.rpc(URL_, "eth_getBlockByNumber", ["latest", false])).timestamp));
 
 async function scenario(name, binName, amount, expectEscrow) {
-  const tok = await deploy(join("/tmp/erc20t/out", binName));
+  const tok = await deploy(join(TOK, binName));
   if (binName === "Evil.bin") await call(tok, "0x" + await keccakSel("setHtlc(address)") + pad(HTLC));
   await call(tok, "0x" + S_APPROVE + pad(HTLC) + num(amount));
   const dl = (await now()) + 3600;
@@ -72,7 +102,7 @@ ok(BigInt(await view(evil, triedSel)) === 1n, "re-entering token DID attempt a n
 ok(BigInt(await view(evil, revSel)) === 1n, "the nested call was REJECTED by the reentrancy guard");
 
 // wrong secret / early refund / late refund on a standard token
-const tok = await deploy(join("/tmp/erc20t/out", "Good.bin"));
+const tok = await deploy(join(TOK, "Good.bin"));
 await call(tok, "0x" + S_APPROVE + pad(HTLC) + num(500));
 const dl2 = (await now()) + 1200;
 await call(HTLC, "0x" + S_FUND + pad(tok) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(dl2) + num(500));
@@ -89,7 +119,7 @@ ok(BigInt(await view(tok, S_BAL + pad(A0))) - f0 === 500n, "post-deadline refund
 // ---- audit regressions -------------------------------------------------------------------------------
 // the key binds the AMOUNT: an underfunded lock lands elsewhere, so a claim finds nothing and the
 // preimage is never revealed (v1 let 1 unit of dust buy the victim's secret).
-const tok3 = await deploy(join("/tmp/erc20t/out", "Good.bin"));
+const tok3 = await deploy(join(TOK, "Good.bin"));
 await call(tok3, "0x" + S_APPROVE + pad(HTLC) + num(1000));
 const dl3 = (await now()) + 1800;
 await call(HTLC, "0x" + S_FUND + pad(tok3) + pad(bob.addr) + pad(A0) + pad("0x" + H) + num(dl3) + num(1));  // 1 unit
