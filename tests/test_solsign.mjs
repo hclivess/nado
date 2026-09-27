@@ -15,7 +15,8 @@ import * as ed from "../static/vendor/noble-ed25519.js";
 const hex2 = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
 
 const PID = process.argv[2], URL = process.argv[3] || "http://127.0.0.1:8999";
-if (!PID) { console.error("usage: test_solsign.mjs <program_id> [rpc]"); process.exit(2); }
+// not provisioned -> SKIP with the reason (the runner calls it with no program id; exit 2 failed every full run)
+if (!PID) { console.log("SKIP  no Solana HTLC program id given — usage: test_solsign.mjs <program_id> [rpc]"); process.exit(0); }
 const SOL = 1_000_000_000n;
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? (pass++, console.log("  ok   " + m)) : (fail++, console.log("  FAIL " + m)); };

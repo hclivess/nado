@@ -405,7 +405,9 @@ function marketCard(mk) {
   const oddsRow = mk.outsHTML;
   const meta = [];
   if (mk.myTotal > 0) meta.push('<span class="b ok" style="margin-left:0">' + window.t("bet.yourBet", "your bet {amt}", { amt: rawToNado(mk.myTotal) }) + "</span>");
-  meta.push(statusText(mk));
+  // statusText is PLAIN text carrying a market's outcome label, which its creator chose (audit 2026-09-25: a label of
+  // <img onerror=…> ran script on a page that shares its origin with a plaintext wallet key). Escape at every HTML sink.
+  meta.push(esc(statusText(mk)));
   return '<div class="mkt' + (mk.id === activeMarket ? " sel" : "") + '" data-m="' + mk.id + '">' +
     '<div class="top"><span class="ttl">' + esc(mk.title) + "</span>" + statusTag(mk.status) + "</div>" +
     '<div class="meta">' + meta.join(" · ") + "</div>" + oddsRow + "</div>";
@@ -493,7 +495,7 @@ function render() {
   gate({ mybets: signedIn && mine.length > 0 });
   if (mine.length) $("myBetsList").innerHTML = mine.map((mk) => {
     const c = claimable(mk);
-    let tag = statusText(mk);
+    let tag = esc(statusText(mk));            // plain text into innerHTML: escaped (see marketCard)
     if (c > 0) tag = '<span class="b ok">' + window.t("bet.toCollect", "💰 {amt} to collect", { amt: rawToNado(c) }) + "</span>";
     else if (mk.claimed) tag = '<span class="b dimb">' + window.t("bet.collectedTag", "collected ✓") + "</span>";
     return '<div class="pos" data-m="' + mk.id + '" style="cursor:pointer"><span>' + esc(mk.title) +

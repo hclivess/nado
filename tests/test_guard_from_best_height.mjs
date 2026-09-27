@@ -17,21 +17,26 @@ const check = (name, cond) => { console.log((cond ? 'PASS  ' : 'FAIL  ') + name)
 const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
 const D = Number((js.match(/^const TX_INCLUSION_DELAY = (\d+);/m) || [])[1]);
 const lift = (n) => (js.match(new RegExp(`\\nfunction ${n}\\([^)]*\\) \\{[\\s\\S]*?\\}\\n`)) || [''])[0];
-const src = lift('relayMaxHeight') + lift('guardFrom');
-check('both functions lifted', src.includes('relayMaxHeight') && src.includes('guardFrom'));
-const mk = (heights, latest) => new Function('relayPool', 'state', 'TX_INCLUSION_DELAY', src + '; return guardFrom;')({ list: heights.map(h => ({ height: h })) }, { latest }, D);
+// guardFrom reads relayTipEstimate: the pool's max, credible only up to RELAY_LEAD_MAX above the median (a relay's
+// height is self-reported, and one claiming 10^9 used to put every guard past its max_block — audit 2026-09-25)
+const LEAD = Number((js.match(/^const RELAY_LEAD_MAX = (\d+);/m) || [])[1]);
+const src = lift('relayMedianHeight') + lift('relayMaxHeight') + lift('relayTipEstimate') + lift('guardFrom');
+check('the guard and its tip estimate are lifted', src.includes('relayTipEstimate') && src.includes('guardFrom') && LEAD > 0);
+const mk = (heights, latest) => new Function('relayPool', 'state', 'TX_INCLUSION_DELAY', 'RELAY_LEAD_MAX', src + '; return guardFrom;')({ list: heights.map(h => ({ height: h })) }, { latest }, D, LEAD);
 
 check('relay behind the pool: the guard starts from the pool\'s highest tip', mk([200, 208], 190)(200) === 208 + D);
 check('relay at the front: the guard starts from the relay\'s tip', mk([200, 190], 190)(208) === 208 + D);
 check('no pool, no page tip: the relay\'s tip alone', mk([], 0)(150) === 150 + D);
 check('the page\'s last-seen tip counts when it is the highest', mk([100], 300)(100) === 300 + D);
+check('one relay claiming an absurd height moves the guard at most RELAY_LEAD_MAX past the median',
+      mk([200, 201, 202, 1e9], 0)(200) <= 202 + LEAD + D);
 check('a bad height is treated as zero, never as a guard', mk([], 0)(undefined) === D);
 
 const guarded = (js.match(/guardFrom\(/g) || []).length;
 const raw = js.split('\n').filter(l => /\+ TX_INCLUSION_DELAY\b/.test(l) && !/function guardFrom|const minBlock = latest \+ TX_INCLUSION_DELAY|TX_INCLUSION_DELAY \* 2|^\s*\*|^\s*\/\//.test(l));
 check(`every guarded build site uses guardFrom (${guarded} calls; ${raw.length} raw sites left)`, guarded >= 14 && raw.length === 0);
 if (raw.length) raw.forEach(l => console.log('   raw:', l.trim().slice(0, 100)));
-check('the duty window is derived from the best tip, not one relay\'s', /const latest = Math\.max\(state\.latest, relayMaxHeight\(\)\);/.test(js));
+check('the duty window is derived from the network tip estimate, not one relay\'s', /const latest = Math\.max\(state\.latest, relayTipEstimate\(\)\);/.test(js));
 
 // A pool restored from localStorage carries URLs, never heights: after the betanet-8 reroll a returning wallet restored
 // betanet-7's ~233000 heights, and guardFrom (the pool MAX) set an unreachable min_block on every tx until a refresh.

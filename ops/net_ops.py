@@ -40,6 +40,10 @@ def unpack_tx(body):
 # RAISED with MAX_TX_BODY: this bounds "a single block" too (snapshot_ops fetches one block under it), and a
 # block that carries an inline settle proof is no longer a small control message.
 MAX_PEER_BODY = max(8 << 20, _MAX_INLINE_TX_BYTES + (8 << 20))
+# CONTROL messages (/status, /peers, /transaction_ids, /next_block_txids) are KBs — measured 2026-09-27: 6.5 KB,
+# 215 B, 252 B, 307 B — yet were read under MAX_PEER_BODY, so any peer could make every status pass buffer ~200 MiB
+# per request (audit 2026-09-25). 8 MiB still fits ~130k txids. Blocks, tx bodies and snapshots keep MAX_PEER_BODY.
+MAX_CONTROL_BODY = 8 << 20
 MAX_SNAPSHOT_TOTAL = 2 << 30      # absolute ceiling on a whole snapshot (sum of all chunk bytes)
 MAX_SNAPSHOT_ACCOUNTS = 50_000_000
 

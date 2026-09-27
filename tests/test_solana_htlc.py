@@ -19,6 +19,11 @@ from solders.hash import Hash
 from solders.system_program import ID as SYS_ID
 
 RPC = os.environ.get("SOL_RPC", "http://127.0.0.1:8999")
+# NOT PROVISIONED -> SKIP, saying so: the program has to be built (cargo build-sbf, scripts/solana-htlc) and deployed to a
+# running solana-test-validator first. The runner never had one, and the bare open() below crashed every full run.
+if len(sys.argv) < 2 and not os.path.exists("/tmp/svl/progid.txt"):
+    print("SKIP  no Solana HTLC program provisioned (pass <program_id>, or deploy it and write /tmp/svl/progid.txt)")
+    sys.exit(0)
 PROGRAM = Pubkey.from_string(sys.argv[1] if len(sys.argv) > 1 else open("/tmp/svl/progid.txt").read().strip())
 passed = failed = 0
 

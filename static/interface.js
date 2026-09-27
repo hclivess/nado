@@ -409,8 +409,13 @@ async function resolveAlias(name) {
 async function relayAgreesWithHome(url, candTip) {
   const home = homeRelay();
   if (!url || url === home) return true;
+  let hs = null;
+  try { hs = await fetchWithTimeout(home + "/status", { cache: "no-store" }, 6000).then((r) => r.json()); } catch (e) {}
+  // HOME CANNOT BE ASKED — which is exactly when a failover happens. A candidate was then adopted on its own word
+  // (audit 2026-09-25). Ask another pool relay instead: the candidate is used only if one of up to two others holds
+  // the same finalized block. With no other relay to ask it is used as before (liveness over nothing at all).
+  if (!hs || !Number(hs.latest_block_height)) return relayCorroborated(url, candTip);
   try {
-    const hs = await fetchWithTimeout(home + "/status", { cache: "no-store" }, 6000).then((r) => r.json());
     const n = Math.min(Number(hs.latest_block_height) || 0, Number(candTip) || 0) - 60;
     if (n <= 0) return true;
     const [a, b] = await Promise.all([url, home].map((base) =>
@@ -421,6 +426,20 @@ async function relayAgreesWithHome(url, candTip) {
     }
   } catch (e) { /* no comparison possible */ }
   return true;
+}
+async function relayCorroborated(url, candTip) {
+  const n = (Number(candTip) || 0) - 60;
+  if (n <= 0) return true;
+  const hashAt = (base) => fetchWithTimeout(base + "/get_block?number=" + n + "&hash_only=1", { cache: "no-store" }, 6000)
+    .then((r) => r.json()).then((d) => (d && d.block_hash) || null).catch(() => null);
+  const others = relayPool.list.map((c) => c.url).filter((u) => u !== url && u !== homeRelay()).slice(0, 2);
+  if (!others.length) return true;
+  const mine = await hashAt(url);
+  if (!mine) return false;
+  const theirs = await Promise.all(others.map(hashAt));
+  if (theirs.some((h) => h === mine)) return true;
+  log("err", i18("log.relayUncorroborated", "Relay {a} could not be confirmed by any other relay (block {n}) — not using it.", { a: relayHost(url), n }));
+  return false;
 }
 // Live validation of the Send "to" field: a valid address, OR a registered alias (resolved
 // against the node, so the ✗ clears once the alias exists). Guards against stale async results.
@@ -818,7 +837,7 @@ function renderMineFix(st) {
   // A phone or a Mac cannot run the helper at all — offering it there would be the same mistake in a
   // different direction, so those keep the existing guidance and this card stays hidden.
   if (!isWin && !isLinux) { show("mineFix", false); el.innerHTML = ""; return false; }
-  const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(w.address);
+  const base = enrolBase() + "/download_enrol?address=" + encodeURIComponent(w.address);
   const primary = isWin ? base : base + "&os=linux";
   const otherHref = isWin ? base + "&os=linux" : base;
   const primaryLabel = isWin ? i18("fix.win", "Download for Windows") : i18("fix.linux", "Download for Linux");
@@ -836,7 +855,7 @@ function renderMineFix(st) {
     + escapeHtml(primaryLabel) + '</a>'
     + '<div class="small faint" style="margin-top:8px">'
     + '<a href="' + escapeHtml(otherHref) + '" rel="noopener">' + escapeHtml(otherLabel) + '</a>'
-    + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">'
+    + ' · <a href="' + escapeHtml(enrolBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">'
     + escapeHtml(i18("remote.dlHash", "checksums")) + '</a></div>'
     + '</div>';
   show("mineFix", true);
@@ -845,12 +864,12 @@ function renderMineFix(st) {
 
 function tpmHelperLinks() {
   if (!state.wallet || !state.wallet.address) return "";
-  const base = relayBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
+  const base = enrolBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
   return '<b>' + escapeHtml(i18("tpm.dlTitle", "This PC's security chip can vouch for you instead")) + '</b><br>'
     + escapeHtml(i18("remote.tpmOffer", "Or use this PC's security chip: if Windows Hello will not attest here, the enrolment helper proves the TPM directly and leaves the proof for this wallet to confirm.")) + '<br>'
     + '<a href="' + escapeHtml(base) + '" rel="noopener">' + escapeHtml(i18("remote.dlWin", "Download for Windows")) + '</a>'
     + ' · <a href="' + escapeHtml(base + "&os=linux") + '" rel="noopener">' + escapeHtml(i18("remote.dlLinux", "Download for Linux")) + '</a>'
-    + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>';
+    + ' · <a href="' + escapeHtml(enrolBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>';
 }
 
 function deviceGuide(st) {
@@ -1554,6 +1573,10 @@ const relayPool = {
 };
 function homeRelay() { return (state.relay || location.origin).replace(/\/+$/, ""); }
 function relayBase() { return relayPool.auto || homeRelay(); }
+// A PROGRAM THE USER RUNS comes from the relay they chose, never a failover one (audit 2026-09-25): a pool relay is
+// adopted on its own word when home is down, and the enrolment helper and its checksum were built from relayBase(),
+// so a hostile relay that got adopted could hand out its own binary with a matching checksum.
+function enrolBase() { return homeRelay(); }
 function relayHost(url) { try { return new URL(url).host; } catch (e) { return String(url || ""); } }
 // A candidate this PAGE can use: http(s) origin, and https when the page itself is https (a browser blocks
 // an http:// fetch from an https page — mixed content — so a bare ip:port peer only helps a wallet that was
@@ -1651,6 +1674,15 @@ function relayMedianHeight() {
   return hs.length ? hs[Math.floor(hs.length / 2)] : 0;
 }
 function relayMaxHeight() { return relayPool.list.reduce((m, c) => Math.max(m, Number(c.height) || 0), 0); }
+// THE NETWORK TIP, AS FAR AS ONE LIAR CAN MOVE IT (audit 2026-09-25). Pool heights are SELF-REPORTED through /relays,
+// so the plain max let one relay claiming an absurd height push every guard past its max_block (no tx could land) and
+// rank itself first for failover. The max is used only up to RELAY_LEAD_MAX above the median: an honest node a few
+// blocks ahead still counts; a liar cannot move the estimate further than that.
+const RELAY_LEAD_MAX = 30;
+function relayTipEstimate() {
+  const med = relayMedianHeight();
+  return med ? Math.min(relayMaxHeight(), med + RELAY_LEAD_MAX) : 0;
+}
 /* A PROPAGATION GUARD IS COMPUTED FROM THE HIGHEST TIP THIS WALLET KNOWS (2026-09-22). Every guarded
  * transaction set min_block = (the relay's tip) + TX_INCLUSION_DELAY. During an update wave a relay that has
  * just restarted serves a tip several blocks behind the network while it catches up, so a wallet on it
@@ -1659,7 +1691,7 @@ function relayMaxHeight() { return relayPool.list.reduce((m, c) => Math.max(m, N
  * and five nodes rolled back one block. The pool's heights are already tracked (relayNoteHeight); the guard
  * now starts from the best of the relay's tip, the pool's highest tip and the last tip this page saw. A
  * guard that is a few blocks LATER than necessary only delays landing; one that is earlier splits. */
-function guardFrom(h) { return Math.max(Number(h) || 0, relayMaxHeight(), Number(state.latest) || 0) + TX_INCLUSION_DELAY; }
+function guardFrom(h) { return Math.max(Number(h) || 0, relayTipEstimate(), Number(state.latest) || 0) + TX_INCLUSION_DELAY; }
 function relayNoteHeight(h) {
   h = Number(h);
   if (!Number.isFinite(h) || h <= 0) return;
@@ -1717,7 +1749,9 @@ function relayAcceptable(st) {
   if (CHAIN_ID && netAdopted && st.chain_id !== CHAIN_ID) return false;
   const h = Number(st.latest_block_height);
   if (!Number.isFinite(h)) return false;
-  const best = Math.max(Number(state.latest) || 0, ...relayPool.list.map((c) => Number(c.height) || 0));
+  // the MEDIAN, which one lying relay cannot move (the estimate may sit RELAY_LEAD_MAX above it — more than this
+  // tolerance — so honest relays would fail a bar a liar raised)
+  const best = Math.max(Number(state.latest) || 0, relayMedianHeight());
   return h >= best - RELAY_HEIGHT_TOLERANCE;
 }
 function adoptRelay(url, st) {
@@ -1746,7 +1780,9 @@ async function rotateRelay() {
   relayPool.bad.set(cur, now);
   const cands = [];
   if (relayPool.auto) cands.push({ url: homeRelay(), home: true });
-  for (const c of [...relayPool.list].sort((a, b) => (Number(b.height) || 0) - (Number(a.height) || 0))) {
+  const _cap = relayTipEstimate() || Infinity;          // rank by height only as far as it is credible (see above)
+  const _rank = (c) => Math.min(Number(c.height) || 0, _cap);
+  for (const c of [...relayPool.list].sort((a, b) => _rank(b) - _rank(a))) {
     if (c.url === cur || c.url === homeRelay()) continue;
     if ((relayPool.bad.get(c.url) || 0) > now - RELAY_BAD_MS) continue;
     cands.push(c);
@@ -3543,12 +3579,12 @@ async function maybeRegister() {
         // at all, and the only way through is the enrolment helper. It used to be reachable solely by
         // knowing a query string, which meant it reached exactly the people who had already been told it
         // by hand. The address is baked into the filename the download sends, so nothing is pasted.
-        const _dlBase = relayBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
+        const _dlBase = enrolBase() + "/download_enrol?address=" + encodeURIComponent(state.wallet.address);
         const _help = '<div class="mt">'
           + escapeHtml(i18("remote.tpmOffer", "Or use this PC's security chip: if Windows Hello will not attest here, the enrolment helper proves the TPM directly and leaves the proof for this wallet to confirm.")) + ' '
           + '<a href="' + escapeHtml(_dlBase) + '" rel="noopener">' + escapeHtml(i18("remote.dlWin", "Download for Windows")) + '</a>'
           + ' · <a href="' + escapeHtml(_dlBase + "&os=linux") + '" rel="noopener">' + escapeHtml(i18("remote.dlLinux", "Download for Linux")) + '</a>'
-          + ' · <a href="' + escapeHtml(relayBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>'
+          + ' · <a href="' + escapeHtml(enrolBase() + "/static/nado-tpm-enrol.sha256") + '" rel="noopener">' + escapeHtml(i18("remote.dlHash", "checksums")) + '</a>'
           + '</div>';
         setRegBanner(i18("remote.switchBack", "To go back to attesting on this device instead, open \"Attest another way\" below and pick \"This device\". ") +
           i18("remote.waiting", "Waiting for another device to vouch: on that device's wallet open Collecting → \"Attest another wallet or node\", paste this address and confirm there: {a}", { a: state.wallet.address }) + _help, "warn", "remote");
@@ -6320,7 +6356,7 @@ async function maybeRandao() {
   try {
     const acc = await getAccount(state.wallet.address);
     if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;   // duties apply to bonded validators only
-    const latest = Math.max(state.latest, relayMaxHeight());   // the network's tip, not one lagging relay's (see guardFrom)
+    const latest = Math.max(state.latest, relayTipEstimate());   // the network's tip, not one lagging relay's (see guardFrom)
     const X = Math.floor(latest / EPOCH_LENGTH);
     for (const k of Object.keys(_dutyDone)) { if (Number(k) < X) delete _dutyDone[k]; }
     for (const e of _randaoDead) { if (e < X) _randaoDead.delete(e); }   // its reveal window is long shut

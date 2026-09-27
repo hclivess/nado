@@ -297,6 +297,9 @@ def _public_relay_url():
     return _PUBLIC_RELAY_URL[0]
 
 
+_RELAYS_LEAD_MAX = 30   # the wallet's RELAY_LEAD_MAX: how far ahead of us a peer's reported height is believed
+
+
 async def relays(request):
     """GET /relays: every RPC endpoint on THIS chain a wallet could use instead of us — ourselves plus each
     peer in status_pool (already gated to our genesis by peer_loop's admission checks), with the peer's
@@ -322,16 +325,24 @@ async def relays(request):
             "version": memserver.version,
             "node_type": "archive" if getattr(memserver, "archive", False) else "rolling",
         }]
+        own_h = lb.get("block_number") if isinstance(lb.get("block_number"), int) else None
         for ip, st in list(consensus.status_pool.items()):
             if not isinstance(st, dict) or ip == memserver.ip:
                 continue
+            # A PEER'S HEIGHT IS ITS OWN CLAIM (audit 2026-09-25): passed through verbatim, one peer reporting 10^9 was
+            # every wallet's "network tip". Clamped to our tip + _RELAYS_LEAD_MAX (a peer honestly ahead by a few blocks
+            # still ranks first); anything that is not an int is reported as unknown.
+            _h = st.get("latest_block_height")
+            _h = _h if isinstance(_h, int) and not isinstance(_h, bool) and _h >= 0 else None
+            if _h is not None and own_h is not None:
+                _h = min(_h, own_h + _RELAYS_LEAD_MAX)
             url = st.get("relay_url")
             if not (isinstance(url, str) and url.lower().startswith(("http://", "https://"))):
                 url = None
             out.append({
                 "self": False, "ip": ip, "url": url, "api": f"http://{hostport(ip, port)}",
                 "address": st.get("address"), "chain_id": st.get("chain_id"),
-                "height": st.get("latest_block_height"), "finalized": st.get("finalized_height"),
+                "height": _h, "finalized": st.get("finalized_height"),
                 "version": st.get("version"), "node_type": st.get("node_type"),
             })
         return {"chain_id": CHAIN_ID, "relays": out}
@@ -756,35 +767,58 @@ async def submit_transaction(request):
     # deploy: a 25-contract redeploy submits in bursts and five of them came back 429, silently leaving
     # contracts undeployed. Exempt it from BOTH buckets.
     _local = _is_local(request)
-    if (request.content_length or 0) > 2 * 1024 * 1024:
+    # A BODY WITHOUT A LENGTH IS A LARGE BODY (audit 2026-09-25). Chunked transfer sends no Content-Length, so
+    # `content_length or 0` read it as small: it skipped the strict bucket, and from a linked peer skipped every
+    # bucket, while still delivering up to the 192 MiB cap. Honest senders — the wallet's fetch, peers' gossip —
+    # always send a length, so an unknown one is judged as the worst case it can be.
+    _large = request.content_length is None or request.content_length > 2 * 1024 * 1024
+    if _large:
         if not _local and _rate_limited(request, 6):
             return _RL()
     elif not _local and ip not in memserver.peers and _rate_limited(request, 30):
         return _RL()
-
-    def _work(body, ip):
-        """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
+    # ...AND AT MOST _LARGE_SUBMIT_MAX LARGE BODIES IN FLIGHT AT ONCE, node-wide: the per-IP bucket bounds one
+    # source, not many, and each large body is held in memory whole while it is read and decoded.
+    if _large and not _local:
+        global _large_inflight
+        if _large_inflight >= _LARGE_SUBMIT_MAX:
+            return _RL()
+        _large_inflight += 1
         try:
-            transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
-            rej = _ip_registration_rejection(ip, transaction)
-            if rej:
-                return rej, 429
-            output = memserver.merge_transaction(transaction, user_origin=True)
-            if should_gossip(output):       # newly accepted -> fan out to peers, minus the sender
-                memserver.enqueue_gossip(transaction, exclude_ip=ip)
-            # IDENTITY LOG (gen 25): the per-IP enforcement is gone, the OBSERVATION stays — every register tx
-            # leaves one node-local line (ip, sender, entry/renewal, device class, AAGUID, certificate hashes) so
-            # "are these identities really individual?" is answered from data: tools/identity_audit.py.
-            # only USER ingress: a peer re-pushing the same tx (push gossip lands here too, answered "Already
-            # present") would log every relay as "N senders behind one IP" — the farm signature the log exists for
-            if ip not in memserver.peers and output.get("message") != "Already present":
-                identity_log.record(ip, transaction, output.get("result"), output.get("message"))
-            return output, (200 if output.get("result") else 403)
-        except Exception as e:
-            return f"Error: {e}", 403
+            body = await request.read()
+            out, code = await asyncio.to_thread(_work_submit, body, ip)
+        finally:
+            _large_inflight -= 1
+        return _resp(out, status=code)
     body = await request.read()
-    out, code = await asyncio.to_thread(_work, body, ip)
+    out, code = await asyncio.to_thread(_work_submit, body, ip)
     return _resp(out, status=code)
+
+
+_LARGE_SUBMIT_MAX = 2
+_large_inflight = 0
+
+
+def _work_submit(body, ip):
+    """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
+    try:
+        transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
+        rej = _ip_registration_rejection(ip, transaction)
+        if rej:
+            return rej, 429
+        output = memserver.merge_transaction(transaction, user_origin=True)
+        if should_gossip(output):       # newly accepted -> fan out to peers, minus the sender
+            memserver.enqueue_gossip(transaction, exclude_ip=ip)
+        # IDENTITY LOG (gen 25): the per-IP enforcement is gone, the OBSERVATION stays — every register tx
+        # leaves one node-local line (ip, sender, entry/renewal, device class, AAGUID, certificate hashes) so
+        # "are these identities really individual?" is answered from data: tools/identity_audit.py.
+        # only USER ingress: a peer re-pushing the same tx (push gossip lands here too, answered "Already
+        # present") would log every relay as "N senders behind one IP" — the farm signature the log exists for
+        if ip not in memserver.peers and output.get("message") != "Already present":
+            identity_log.record(ip, transaction, output.get("result"), output.get("message"))
+        return output, (200 if output.get("result") else 403)
+    except Exception as e:
+        return f"Error: {e}", 403
 
 
 def _ip_registration_rejection(ip, transaction):
@@ -1332,6 +1366,10 @@ def _tpm_enrol_gc():
 # the address it names.
 _TPM_PROOFS = {}
 _TPM_PROOF_TTL = 1800
+# BOUNDED (audit 2026-09-25): the dict was keyed by any address string and filled BEFORE the proof was checked, with a
+# TTL as the only limit — so a stream of drops under fresh addresses grew it without bound. Only an ACCEPTED proof is
+# stored now, the endpoint is throttled per IP, and the oldest entry is evicted once this many are held.
+_TPM_PROOFS_MAX = 2048
 
 
 async def tpm_proof_drop(request):
@@ -1341,6 +1379,8 @@ async def tpm_proof_drop(request):
     THE WALLET HAS TO SIGN THE REGISTRATION ITSELF, because a registration is signed by the identity it
     registers; the helper cannot do it and should not be able to. So the helper does the half that
     needs the chip and stops there."""
+    if _rate_limited(request, 10, 60):       # a person enrols one chip; ten a minute is generous and bounds the rest
+        return _RL()
     try:
         body = await request.json()
         addr = str(body.get("address") or "")
@@ -1350,10 +1390,15 @@ async def tpm_proof_drop(request):
         if not isinstance(dev, dict) or not dev.get("certinfo") or not dev.get("sig"):
             return _resp({"ok": False, "reason": "no device proof"}, status=400)
         now = time.time()
-        for k in [k for k, v in _TPM_PROOFS.items() if now - v[0] > _TPM_PROOF_TTL]:
-            _TPM_PROOFS.pop(k, None)
-        _TPM_PROOFS[addr] = (now, {"id": str(body.get("id") or ""), "device": dev,
-                                   "max_block": int(body.get("max_block") or 0)})
+        _entry = (now, {"id": str(body.get("id") or ""), "device": dev, "max_block": int(body.get("max_block") or 0)})
+
+        def _keep():
+            # STORED ONLY ONCE ACCEPTED, and bounded: see _TPM_PROOFS_MAX.
+            for k in [k for k, v in _TPM_PROOFS.items() if now - v[0] > _TPM_PROOF_TTL]:
+                _TPM_PROOFS.pop(k, None)
+            while len(_TPM_PROOFS) >= _TPM_PROOFS_MAX:
+                _TPM_PROOFS.pop(min(_TPM_PROOFS, key=lambda k: _TPM_PROOFS[k][0]), None)
+            _TPM_PROOFS[addr] = _entry
         # AND INTO THE STORE THE WALLET ACTUALLY POLLS. This endpoint had its own private dict and its own
         # pickup, and nothing in the wallet read either — so the first proof ever produced on real silicon
         # sat here until its max_block passed, with no button anywhere that could collect it. The wallet
@@ -1372,6 +1417,7 @@ async def tpm_proof_drop(request):
                 logger.error(f"tpm_proof_drop: mirror refused for {addr[:12]}: {_mirror.get('reason')}")
                 return _resp({"ok": False, "reason": f"proof not accepted: {_mirror.get('reason')}"},
                              status=400)
+            _keep()
             # AND FAN IT OUT, because a wallet does not stay on one relay. This called node_attest.drop()
             # in-process, which stores locally and skips the one-hop forward that /node_attest_drop does
             # for exactly this reason — so the proof existed on precisely ONE node. A wallet load-balances
@@ -1387,6 +1433,7 @@ async def tpm_proof_drop(request):
             # endpoint reported success, and the only way anyone found out was a person looking for a
             # button that was never going to appear.
             logger.error(f"tpm_proof_drop: mirror into node_attest failed: {type(_e).__name__}: {_e}")
+            _keep()                          # the drop stands (see above); it is still bounded
         return _resp({"ok": True})
     except Exception as e:
         return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
@@ -2876,6 +2923,24 @@ async def _html_response(request, full):
     return web.Response(body=body, content_type="text/html", charset="utf-8", headers=headers)
 
 
+_STATIC_SECRET_NAMES = re.compile(r"^(keys\.dat|nado-identity.*\.json|.*\.(key|pem|p12|pfx))$", re.I)
+
+
+def _static_secret(full):
+    """True for a file under static/ that must never be served, whatever its path. FOUND LIVE 2026-09-27: the TPM
+    enrolment helper writes its signing identity (a private key) as nado-identity.json BESIDE ITSELF, and a run from
+    static/ left one there on 2026-09-11 — served to the internet with HTTP 200 for 16 days. Three rules, any one
+    refuses: a dotfile; a key-material name; and a file its owner made unreadable to others (mode without o+r) —
+    which is how a program writes a secret, and which no file meant for download has (the helpers are 0755)."""
+    base = os.path.basename(full)
+    if base.startswith(".") or _STATIC_SECRET_NAMES.match(base):
+        return True
+    try:
+        return not (os.stat(full).st_mode & 0o004)
+    except OSError:
+        return True
+
+
 async def static_handler(request):
     """GET /static/{path}: serve a file from static/ with open CORS. HTML goes through _html_response
     (asset-stamped + ETag revalidation). An asset requested with a numeric ?v= is content-addressed by
@@ -2886,6 +2951,8 @@ async def static_handler(request):
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
     if not (full == _STATIC_DIR or full.startswith(_STATIC_DIR + os.sep)) or not os.path.isfile(full):
+        return web.Response(status=404, text="Not found")
+    if _static_secret(full):                 # 404, not 403: never confirm that a secret is there
         return web.Response(status=404, text="Not found")
     if full.endswith(".html"):
         return await _html_response(request, full)
@@ -3172,6 +3239,9 @@ async def update_node(request):
         return _resp({"status": "disabled", "reason": "auto_update=false in config — /update is disabled"},
                      status=403)
     result = await asyncio.to_thread(self_update.check_and_update, "remote")
+    # busy / rate_limited: the kick is remembered, not dropped (self_update.queue_recheck)
+    if self_update.queue_recheck(result):
+        result = dict(result, queued_recheck=True)
     if result.get("status") == "updated" and request.query.get("wave", "1") != "0":
         peer_list = list(memserver.peers)
 
