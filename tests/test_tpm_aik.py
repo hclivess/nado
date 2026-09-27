@@ -147,9 +147,11 @@ def main():
     import protocol as P
     from ops import attest_native
     loaded = attest_native._ek_roots_blob()
+    # Every root ANY height trusts is pinned: the base set plus the V2 set (ek_roots_at; Intel's V2 root joined with
+    # f524cb0a). Checking the base set alone went red the day V2 was added, while every file was correctly pinned.
+    PINNED = P.DEVICE_ATTEST_EK_ROOTS | P.DEVICE_ATTEST_EK_ROOTS_V2
     check("every pinned endorsement root has its certificate on disk",
-          len(loaded) == len(P.DEVICE_ATTEST_EK_ROOTS),
-          f"{len(loaded)} loaded vs {len(P.DEVICE_ATTEST_EK_ROOTS)} pinned")
+          len(loaded) == len(PINNED), f"{len(loaded)} loaded vs {len(PINNED)} pinned")
 
     ekdir = os.path.join(ROOT, "protocol_roots", "ek")
     import base64 as _b64
@@ -160,7 +162,7 @@ def main():
         pem = open(os.path.join(ekdir, name)).read()
         der = _b64.b64decode("".join(l.strip() for l in pem.splitlines() if l and not l.startswith("-----")))
         on_disk[hashlib.sha256(der).hexdigest()] = name
-    unpinned = {n for fp, n in on_disk.items() if fp not in P.DEVICE_ATTEST_EK_ROOTS}
+    unpinned = {n for fp, n in on_disk.items() if fp not in PINNED}
     check("no endorsement certificate sits in the directory unpinned", not unpinned, sorted(unpinned))
 
     # These are TRUST ANCHORS: a root that is not self-signed is an intermediate, and pinning one silently

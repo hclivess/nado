@@ -73,6 +73,13 @@ def forge():
 
 
 def main():
+    # The forgery is built with the `cryptography` package, which the node's venv does not carry (the system python
+    # does). Without it there is nothing to demonstrate — SKIP, saying why, rather than fail the run.
+    try:
+        import cryptography  # noqa: F401
+    except ImportError:
+        print("SKIP  the `cryptography` package is not installed for this interpreter — run with a python that has it")
+        return 0
     from ops.tpm_aik import verify_rsassa_sha256, pub_area_rsa
     ek_name, child_pub, creation_data, certify_info, sig = forge()
 

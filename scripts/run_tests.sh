@@ -5,10 +5,13 @@
 # three functions and goes green (2026-09-02 audit). Usage: scripts/run_tests.sh [pattern] (default: all).
 #   NADO_TEST_TIMEOUT   per-test seconds (default 900; the fold/prove tests need minutes)
 #   NADO_TEST_SLOW_TIMEOUT  seconds for the SLOW list below (default 10800)
+#   PY_ORACLE           interpreter for tests that use `cryptography` as a TEST ORACLE (default python3). The node's
+#                       venv deliberately has no such dependency (ops/tpm_aik.py), so those tests run where it exists.
 #   NADO_TEST_JOBS      parallel jobs (default 2; every job gets its own HOME)
 set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-nado_venv/bin/python}
+PY_ORACLE=${PY_ORACLE:-python3}
 PAT=${1:-'tests/test_*.py tests/test_*.mjs'}      # .mjs: the wallet/JS tests, run with node (they were never run here)
 TMO=${NADO_TEST_TIMEOUT:-900}
 JOBS=${NADO_TEST_JOBS:-2}
@@ -25,6 +28,10 @@ run_one() {
   t=$1; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; h="$OUT/home-$n"; mkdir -p "$h"
   case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac
   run=("$PY" "$t"); case "$t" in *.mjs) run=(node "$t");; esac
+  case "$t" in *.py)
+    if grep -qE "^[[:space:]]*(from|import) cryptography" "$t" && ! "$PY" -c "import cryptography" 2>/dev/null \
+       && "$PY_ORACLE" -c "import cryptography" 2>/dev/null; then run=("$PY_ORACLE" "$t"); fi;;
+  esac
   flags="NADO_ALLOW_PYTHON_KERNELS=1"; case " $NATIVE_ONLY " in *" $n "*) flags="";; esac
   tmo=$TMO; case " $SLOW " in *" $n "*) tmo=$STMO;; esac
   # TMPDIR=$h: every tempfile.mkdtemp() a test makes (105 sites beyond the HOME line, 2026-09-22) lands
@@ -35,7 +42,7 @@ run_one() {
   st=OK; [ "$rc" = 124 ] && st=TIMEOUT; { [ "$rc" != 0 ] || [ "$fails" != 0 ]; } && [ "$st" = OK ] && st=FAIL
   printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "$st" "$rc" "$fails" "$skips" "$n"
 }
-export -f run_one; export OUT PY TMO STMO SLOW NATIVE_ONLY LIVE
+export -f run_one; export OUT PY PY_ORACLE TMO STMO SLOW NATIVE_ONLY LIVE
 ls $PAT | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | tee "$OUT/summary.txt"
 bad=$(grep -c -E '^(FAIL|TIMEOUT)' "$OUT/summary.txt")
 # A GREEN RUN LEAVES NOTHING BEHIND: the homes, the temp dirs and the logs go together. A run with a
