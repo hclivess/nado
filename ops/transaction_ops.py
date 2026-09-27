@@ -421,12 +421,24 @@ def _hex_list(v, max_items: int, cap: int, what: str) -> list:
     return [_hex_bytes(x, cap, what) for x in v]
 
 
-def _anchor_time(transaction: dict, block_height: int) -> int:
-    """The clock a certificate's validity is judged against: the ANCHOR BLOCK's timestamp, never wall time.
-    Wall time makes validity node-local, and a certificate expiring mid-block would then be valid on one node
-    and expired on the next — a fork with no attacker involved."""
-    from protocol import POSW_ANCHOR_OFFSET
-    b = get_block_number(max(0, int(block_height) - POSW_ANCHOR_OFFSET))
+def _anchor_time(transaction: dict, block_height: int, anchor_block: dict = None) -> int:
+    """The clock a certificate's validity is judged against at `block_height` — the ONE function every consensus
+    certificate check reads (tpm_enrol validation, its apply in account_ops, verify_register_device).
+
+    Never wall time: that makes validity node-local, and a certificate expiring mid-block would be valid on one node
+    and expired on the next. Below protocol.CERT_CLOCK_HEIGHT it is the anchor block's block_timestamp, which turned
+    out to be node-local too — it is outside the block hash and every node stamps its own copy (protocol.py
+    CERT_CLOCK_HEIGHT carries the measurement). From the gate it is chain_clock(anchor height): a pure function of the
+    height, needing no block read, so a pruned node, an archive node and a node fed a re-stamped block by a lying peer
+    reach the same verdict.
+    INVARIANT: at or above CERT_CLOCK_HEIGHT nothing here may read block_timestamp, time.time() or any stored block
+    field; a certificate verdict must be a function of (transaction bytes, height, pinned roots) alone."""
+    from protocol import POSW_ANCHOR_OFFSET, CERT_CLOCK_HEIGHT, chain_clock
+    anchor_h = max(0, int(block_height) - POSW_ANCHOR_OFFSET)
+    if int(block_height) >= CERT_CLOCK_HEIGHT:
+        return chain_clock(anchor_h)
+    # below the gate: the historical rule, byte for byte, so replay of the live chain keeps every verdict
+    b = anchor_block if anchor_block is not None else get_block_number(anchor_h)
     assert b, "enrolment anchor block unavailable"
     return int(b.get("block_timestamp") or 0)
 
@@ -477,7 +489,8 @@ def _recent_producers(block_height: int) -> dict:
     return weights
 
 
-_tpm_proven_cache = [None]
+_tpm_proven_cache = [None]              # [{(lo, hi): {address: weight}}], or [None] when cleared
+_TPM_PROVEN_CACHE_WINDOWS = 8          # a delayed draw reads a window at most ~5 epochs behind the tip's
 
 
 def proven_window(block_height: int) -> tuple:
@@ -505,9 +518,13 @@ def _proven_challengers(block_height: int) -> dict:
     node replaying this in a year derives the same set."""
     from protocol import DEVICE_ATTEST_EK_READY_WINDOW as _R
     lo, hi = proven_window(block_height)
-    entry = _tpm_proven_cache[0]
-    if entry is not None and entry[0] == (lo, hi):
-        return dict(entry[1])
+    # SEVERAL WINDOWS AT ONCE (COMMIT, THEN DRAW, protocol.TPM_DRAW_UNGRINDABLE_HEIGHT): a delayed enrolment is drawn
+    # from the pool as of its ENROL block, read up to a few epochs after the tip's own window moved on, so a single
+    # slot would thrash — two pending enrolments from different epochs meant two 6000-block rescans per block in the
+    # challenger loop alone. INVARIANT: keep more than one window cached; `[0] = None` still clears it (tests do).
+    entry = _tpm_proven_cache[0] or {}
+    if (lo, hi) in entry:
+        return dict(entry[(lo, hi)])
     acted, duties = set(), {}
     for h in range(lo, hi):
         block = get_block_number(h)
@@ -546,7 +563,9 @@ def _proven_challengers(block_height: int) -> dict:
             elif r in _DUTY_RECIPIENTS:
                 duties[who] = duties.get(who, 0) + 1
     out = {a: max(1, duties.get(a, 0)) for a in acted}
-    _tpm_proven_cache[0] = ((lo, hi), dict(out))
+    kept = dict(_tpm_proven_cache[0] or {})
+    kept[(lo, hi)] = dict(out)
+    _tpm_proven_cache[0] = dict(sorted(kept.items())[-_TPM_PROVEN_CACHE_WINDOWS:])   # the newest windows
     return out
 
 
@@ -566,12 +585,89 @@ def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
     # live, and it self-heals the moment k nodes have answered once.
     # Every caller holds a tpm_* tx that passed the enrolment rule (block_height >= 1), so the proven pool is always
     # consulted (the DEVICE_ATTEST_EK_PROVEN_HEIGHT gate was 1 from gen 26 and is deleted).
+    return _te.challenger_set(enrol_id_hex, _tpm_pool(block_height), epoch_beacon(epoch),
+                              DEVICE_ATTEST_EK_CHALLENGERS)
+
+
+def _tpm_pool(block_height: int) -> dict:
+    """{address: weight} the challenger draw for an enrolment opened at `block_height` samples from: the proven
+    challengers when at least k exist, the recent duty senders otherwise (see _tpm_challengers). ONE DEFINITION,
+    shared by the legacy draw, the delayed draw's enrol-time check and its materialisation, so the pool a delayed
+    enrolment was admitted against is exactly the pool it is later drawn from."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     weights = _recent_producers(block_height)
     proven = _proven_challengers(block_height)
     if len(proven) >= DEVICE_ATTEST_EK_CHALLENGERS:
         weights = proven
-    return _te.challenger_set(enrol_id_hex, weights, epoch_beacon(epoch),
-                              DEVICE_ATTEST_EK_CHALLENGERS)
+    return weights
+
+
+def tpm_drawn_challengers(rec: dict, block_height: int):
+    """The challenger set of enrolment `rec` as a block at `block_height` sees it, or None when it is not drawn yet.
+
+    A record written with its set (every legacy record, and a delayed one once its first challenge landed) answers
+    with the stored set. A delayed record with an empty set is drawn here — COMMIT, THEN DRAW (ops/tpm_enrol):
+    keyed on the endorsement identity only, weighted by the pool as of the ENROL block, with the beacon of the draw
+    epoch, and only from that epoch's first block on. A pure function of committed chain data, so the challenger
+    loop, the relay's /tpm_enrolment and consensus all name the same set without it having been written yet.
+
+    INVARIANT: the three inputs stay (rec["ek"], _tpm_pool(rec["h"]), epoch_beacon(draw_epoch(rec["h"]))). Keying on
+    anything the client writes, or reading the pool or the beacon at `block_height`, re-opens the grind: the pool
+    could be joined after the dice are known, and a beacon the client knew at the enrol is the original hole."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
+    from ops.block_ops import epoch_beacon
+    from ops import tpm_enrol as _te
+    stored = list(rec.get("challengers") or [])
+    if stored or not _te.draw_is_delayed(rec["h"]):
+        return stored
+    if int(block_height) < _te.draw_opens(rec["h"]):
+        return None
+    return _te.challenger_set_exact(_te.draw_key(rec["ek"]), _tpm_pool(int(rec["h"])),
+                                    epoch_beacon(_te.draw_epoch(rec["h"])), DEVICE_ATTEST_EK_CHALLENGERS)
+
+
+def tpm_challengers_view(rec: dict, tip: int) -> dict:
+    """The challenger fields /tpm_enrolment serves for `rec` at `tip`: {} for a record whose set is written, else
+    {"challengers": the pure draw once its epoch has come, or k placeholders before, "draw_at", "draw_pending"}.
+
+    NEVER AN EMPTY SET FOR AN OPEN RECORD. The shipped helper (apps/nado-tpm-attest enrol.rs) reads only
+    len(challengers) and compares it with len(blobs): an empty list reads as "every drawn challenger answered", so
+    it would activate nothing, commit to nothing, be refused, and exit — a client that cannot be rebuilt by us
+    breaking on the gate. k placeholders keep it printing "0/3 answered" and waiting, exactly as a slow draw does."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
+    from ops import tpm_enrol as _te
+    if rec.get("state") != "open" or rec.get("challengers"):
+        return {}
+    at = _te.draw_opens(int(rec.get("h") or 0))
+    try:
+        drawn = tpm_drawn_challengers(rec, tip)
+    except Exception:
+        drawn = None                         # this node cannot evaluate the draw yet; the placeholders still say "wait"
+    full = bool(drawn) and len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS
+    return {"challengers": sorted(drawn) if full else [f"(drawn at block {at})"] * DEVICE_ATTEST_EK_CHALLENGERS,
+            "draw_at": at, "draw_pending": not full}
+
+
+def tpm_materialise_draw(rec: dict, block_height: int) -> dict:
+    """`rec` with its challenger set filled in, for the tpm_challenge that is about to land at `block_height`.
+    Validation and apply both call this before apply_challenge, so the dry run and the real transition see the same
+    set; apply then STORES it, and every later message (commit, reveal, register) reads a written set exactly as it
+    did before the gate. The record it was materialised from is what the rollback journal holds, so a revert puts
+    the empty set back byte for byte. Raises AssertionError before the draw epoch or on a short set."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
+    from ops import tpm_enrol as _te
+    if rec.get("challengers"):
+        return rec
+    drawn = tpm_drawn_challengers(rec, block_height)
+    assert drawn is not None, \
+        f"this enrolment's challengers are drawn at block {_te.draw_opens(rec['h'])} — a challenge cannot land before"
+    # Cannot be short for a record the enrol check admitted (same pool, exact sampling), but a short set is a weaker
+    # proof, so it is never written: the record then simply expires and the chip re-enrols.
+    assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
+        "not enough independent challengers were in the pool this enrolment was opened against"
+    out = dict(rec)
+    out["challengers"] = sorted(str(a) for a in drawn)
+    return out
 
 
 def register_device_challenge(sender: str, anchor_hash: str, max_block: int) -> bytes:
@@ -705,7 +801,11 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     assert 0 < len(rp) <= 253 and all(c.isalnum() or c in ".-" for c in rp), "device rp id malformed"
     anchor_block = get_block_number(max(0, int(transaction["max_block"]) - POSW_ANCHOR_OFFSET))
     assert anchor_block and anchor_block.get("block_hash") == anchor_hash, "attestation anchor block unavailable"
-    now = int(anchor_block.get("block_timestamp") or 0)
+    # THE CERTIFICATE CLOCK IS _anchor_time, never this block's own block_timestamp read inline: that field is outside
+    # the block hash and differs node to node for the same block (protocol.CERT_CLOCK_HEIGHT). `register` lands exactly
+    # at max_block, so max_block is the height the gate is judged at. The anchor block is still read above — the
+    # challenge binds its HASH, which is committed — but its timestamp must not decide validity from the gate.
+    now = _anchor_time(transaction, int(transaction["max_block"]), anchor_block=anchor_block)
     challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
     verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
     assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
@@ -1808,6 +1908,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             from ops import attest_native
             chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
             pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
+            # the clock is _anchor_time, and apply_tpm_enrol_tx re-runs this same call through it — validation and
+            # apply must judge the chain at the SAME agreed time or a record validated here fails to apply there
             ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height),
                                                         height=block_height)
             assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
@@ -1849,9 +1951,18 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     "this chip already has an enrolment in progress — finish it or wait for it to expire"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
             # bonded registry must not thereby cut the number of parties it takes to collude.
-            drawn = _tpm_challengers(eid, block_height)
-            assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
-                "not enough independent challengers are bonded to open an enrolment"
+            if _te.draw_is_delayed(block_height):
+                # COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT). The set does not exist yet — its dice
+                # are two epochs away — so what is checked here is that the pool it WILL be drawn from, frozen at
+                # this block, can seat k (exact sampling always does when it has k weighted members).
+                # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a
+                # beacon it already knows (this epoch's) — that is the grind this gate closes.
+                assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
+                    "not enough independent challengers are bonded to open an enrolment"
+            else:
+                drawn = _tpm_challengers(eid, block_height)
+                assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
+                    "not enough independent challengers are bonded to open an enrolment"
         else:
             eid = data.get("id")
             assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
@@ -1863,7 +1974,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # as it stands at this block. The state machine raises AssertionError on every rule it enforces,
             # which is what validation wants, and apply re-runs it rather than trusting this.
             if recipient == "tpm_challenge":
-                _te.apply_challenge(rec, sender, _hex_bytes(data.get("blob"), 1024, "credential blob"),
+                # a delayed draw's set is materialised by its first challenge; apply does the same (account_ops)
+                # INVARIANT: validation and apply must both materialise, or they judge against different sets
+                _te.apply_challenge(tpm_materialise_draw(rec, block_height), sender,
+                                    _hex_bytes(data.get("blob"), 1024, "credential blob"),
                                     _hex_bytes(data.get("enc"), 1024, "wrapped seed"), block_height)
             elif recipient == "tpm_commit":
                 _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)

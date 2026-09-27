@@ -28,6 +28,20 @@ will leak S to it. The set is DRAWN from the bonded registry by the epoch beacon
 challenger's secret. Forging then requires all DEVICE_ATTEST_EK_CHALLENGERS of them to collude, which is a
 property consensus can observe, rather than a key someone promises to guard.
 
+COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT, audit 2026-09-27). "Keyed on the enrolment id" was the
+hole: the id hashes the attestation key's public area, which the CLIENT writes, and the beacon of the enrol's
+own epoch is public before the enrol is built. So a client could compute the draw offline and grind public
+areas until every seat fell on a pool member it controls — and with every seat colluding the challengers hand
+it the secrets and no chip is involved at all. From the gate an enrolment opened at h (epoch E) is drawn from:
+
+    key      the ENDORSEMENT identity             one per chip, fixed by manufacture — nothing the client writes
+    weights  the challenger pool as of block h    frozen before the dice exist, so nobody can join it to aim
+    dice     epoch_beacon(E + DELAY)              anchored on block (E+1)*EPOCH_LENGTH > h: unknown at commit
+
+and the record is written with NO challengers; the first tpm_challenge from the draw epoch on materialises the
+set into it (transaction_ops.tpm_materialise_draw). Retrying still works exactly as before: an expired record is
+superseded at a later height, whose own draw epoch has different dice and whose pool is re-read.
+
 WHAT AN ENROLMENT CONFERS. Nothing by itself. It records that a specific attestation key lives in a
 specific vendor-certified chip. A `register` still has to produce a fresh TPM2_Certify over that block's
 own challenge under that key, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation
@@ -104,6 +118,74 @@ def challenger_set(enrol_id_hex: str, weights: dict, beacon: str, k: int) -> lis
     return picked
 
 
+def draw_is_delayed(created_height: int) -> bool:
+    """True when an enrolment opened at `created_height` is drawn COMMIT-THEN-DRAW (see the module docstring).
+    A pure function of the record's own height, so a record's rule never changes under it and a replay of an
+    old block reaches the verdict it had."""
+    from protocol import TPM_DRAW_UNGRINDABLE_HEIGHT
+    return int(created_height) >= TPM_DRAW_UNGRINDABLE_HEIGHT
+
+
+def draw_epoch(created_height: int) -> int:
+    """The epoch whose beacon draws a delayed enrolment's challengers. INVARIANT: its anchor block
+    ((draw_epoch - 1) * EPOCH_LENGTH) must lie STRICTLY AFTER created_height, or the client knows the dice when it
+    commits and the grind is back; TPM_DRAW_DELAY_EPOCHS >= 2 is what guarantees it for every height in the epoch."""
+    from protocol import EPOCH_LENGTH, TPM_DRAW_DELAY_EPOCHS
+    return int(created_height) // EPOCH_LENGTH + TPM_DRAW_DELAY_EPOCHS
+
+
+def draw_opens(created_height: int) -> int:
+    """The first block at which a delayed enrolment's challengers exist (the first block of its draw epoch).
+    By then the beacon's anchor is EPOCH_LENGTH blocks deep and its RANDAO reveal window has closed, so the value
+    every node reads is final."""
+    from protocol import EPOCH_LENGTH
+    return draw_epoch(created_height) * EPOCH_LENGTH
+
+
+def draw_key(ek_identity: str) -> str:
+    """What a delayed draw is keyed on: the endorsement identity and NOTHING the client writes.
+    INVARIANT: never mix the enrolment id, the attestation key's public area or name, the owner or any tx field in
+    here — each is a free choice of the client, and a free choice in the key is a grind (the 2026-09-27 finding).
+    Two attestation keys of one chip therefore draw the same set in the same draw epoch, which is the point."""
+    return "ek:" + str(ek_identity)
+
+
+def challenger_set_exact(key: str, weights: dict, beacon: str, k: int) -> list:
+    """The delayed draw: `k` distinct challengers by weighted sampling WITHOUT replacement — each pick removes its
+    band and the next draw runs over what is left. The same distribution challenger_set's redraw-on-duplicate
+    reaches when it succeeds, minus its attempt cap, so a pool with >= k positively weighted members ALWAYS seats k.
+    That matters here and not there: the enrol is checked against the pool up front, and the set only exists two
+    epochs later, so a short set could not be refused any more — it would silently waste the whole window.
+    Deterministic: sorted addresses, integer weights, the draw hashed from (beacon, key, round)."""
+    pool = []
+    for address in sorted(weights):
+        raw = weights[address]
+        # same shape rule as challenger_set: a non-integer weight is a REJECTION (AssertionError), never a TypeError
+        assert isinstance(raw, int) and not isinstance(raw, bool), \
+            f"challenger weight for {address} must be an integer, got {type(raw).__name__}"
+        if raw > 0:
+            pool.append((address, int(raw)))
+    picked = []
+    for i in range(int(k)):
+        total = sum(w for _a, w in pool)
+        if total == 0:
+            break
+        draw = int(blake2b_hash([str(beacon), f"tpmdraw:{key}:{i}"]), 16) % total
+        acc = 0
+        for j, (address, w) in enumerate(pool):
+            acc += w
+            if draw < acc:
+                picked.append(address)
+                del pool[j]
+                break
+    return picked
+
+
+def pool_can_seat(weights: dict, k: int) -> bool:
+    """Whether challenger_set_exact over `weights` will seat k — the enrol-time check for a delayed draw."""
+    return sum(1 for w in weights.values() if isinstance(w, int) and not isinstance(w, bool) and w > 0) >= int(k)
+
+
 def new_record(ek_identity: str, ek_spki: bytes, aik_name_hex: str, aik_pub: bytes, owner: str,
                height: int, challengers: list) -> dict:
     """The endorsement PUBLIC KEY is stored, not just its digest: every node has to re-derive the credential
@@ -144,6 +226,11 @@ def apply_commit(rec: dict, sender: str, commitment: str, height: int) -> dict:
     has not been asked for yet, which is worth nothing."""
     assert rec.get("state") == STATE_OPEN, "enrolment is not awaiting a commitment"
     assert sender == rec["owner"], "only the identity that opened an enrolment may answer it"
+    # A DELAYED DRAW STARTS WITH NO CHALLENGERS (COMMIT, THEN DRAW), and an empty set equals an empty set of blobs:
+    # without this a commitment to nothing would pass the check below and then die on max() of nothing — a
+    # ValueError, not a rejection. INVARIANT: a commitment needs a drawn, non-empty set; every pre-gate record was
+    # written with k challengers, so this moves no verdict for them.
+    assert rec.get("challengers"), "the challengers for this enrolment have not been drawn yet"
     blobs = _pairs(rec, "blobs")
     assert set(blobs) == set(rec["challengers"]), "not every drawn challenger has issued its challenge"
     assert int(height) > max(int(v[2]) for v in blobs.values()), \
@@ -198,8 +285,16 @@ def enrol_window(created_height: int) -> int:
     validity rather than a disagreement about a timer.
 
     Every record is created by a tpm_enrol in a block >= 1 (genesis carries no transactions), and gen 25's
-    DEVICE_ATTEST_EK_SHORT_HEIGHT was 1 from gen 26 (deleted), so every record takes the short window."""
+    DEVICE_ATTEST_EK_SHORT_HEIGHT was 1 from gen 26 (deleted), so every record takes the short window.
+
+    A DELAYED DRAW GETS THE SAME WORKING TIME, counted from when its challengers exist: the wait for the draw epoch
+    (61..120 blocks) plus the short window. Counting from the enrol instead would leave 60..119 blocks for three
+    challenges, a commit and three reveals. Still a pure function of created_height, so a supersede is decided
+    identically everywhere; and a superseding enrol lands after draw_opens(h) + SHORT, in a later draw epoch, so
+    the retry is always drawn from fresh dice (AN EXPIRED ATTEMPT MUST BE RETRYABLE, transaction_ops)."""
     from protocol import DEVICE_ATTEST_EK_ENROL_SHORT
+    if draw_is_delayed(created_height):
+        return draw_opens(created_height) - int(created_height) + DEVICE_ATTEST_EK_ENROL_SHORT
     return DEVICE_ATTEST_EK_ENROL_SHORT
 
 

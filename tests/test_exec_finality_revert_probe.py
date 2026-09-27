@@ -250,7 +250,8 @@ def t_the_loop_runs_the_probe_and_recovers_through_the_ladder():
     assert "hash_only=1" in loop, "the probe no longer asks hash-only (blind below the body floor)"
     # The linkage check must sit BEFORE the block is applied.
     lk = loop.index("if linkage_broken(state.block_hashes, h, block):")
-    ap = loop.index("if not await _apply_block(session, states, state, block, verbose=True):")
+    # (the finalized tail passes `finalized` since the exec DA deadline — it is what bounds a DA stall)
+    ap = loop.index("if not await _apply_block(session, states, state, block, verbose=True, finalized=finalized):")
     assert lk < ap, "linkage is checked after the block was already applied"
     # The recovery ladder: rewind first; wipe only gated, keeping DA; no source -> STRANDED, not a wipe.
     rec = src[src.index("async def _recover_from_revert"):]

@@ -1867,6 +1867,7 @@ async def tpm_enrolment(request):
     published by their own challengers, and the whole point of the construction is that a verifier
     re-derives the proof from public values."""
     from ops import kv_ops as _kv
+    from ops.transaction_ops import tpm_challengers_view
     eid = str(request.query.get("id", ""))
     if len(eid) != 32 or any(c not in "0123456789abcdef" for c in eid):
         return _resp({"found": False, "error": "malformed enrolment id"}, status=400)
@@ -1881,8 +1882,12 @@ async def tpm_enrolment(request):
     tip = int((memserver.latest_block or {}).get("block_number") or 0)
     expires_at = int(rec.get("h") or 0) + _win(int(rec.get("h") or 0))
     expired = rec.get("state") != "proven" and tip >= expires_at
-    return _resp({"found": True, "id": eid, "expires_at": expires_at, "expired": expired,
-                  "tip": tip, **rec})
+    out = {"found": True, "id": eid, "expires_at": expires_at, "expired": expired, "tip": tip, **rec}
+    # A DELAYED DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT) is stored with no challengers until its first challenge;
+    # the view serves the set the chain will enforce, or k placeholders before its draw epoch — never an empty list,
+    # which the shipped helper would read as "every challenger answered" (transaction_ops.tpm_challengers_view).
+    out.update(tpm_challengers_view(rec, tip))
+    return _resp(out)
 
 
 async def tpm_enrol_challenge(request):
@@ -3375,7 +3380,14 @@ async def make_app(port):
         # the per-path cap to the request itself so read() raises 413 at `limit` instead.
         if cl is None and limit < _MAX_INLINE_TX:
             request = request.clone(client_max_size=limit)
-        resp = await handler(request)
+        # A CLIENT THAT HANGS UP MID-BODY IS NOT AN ERROR (2026-09-27): during every update wave a peer restarts while
+        # its gossip POST to /submit_transaction is still being read, and read() raises ConnectionResetError. Nothing
+        # is lost — the peer re-gossips after its restart — but aiohttp logged a full traceback per drop, which the
+        # health watch counts as an anomaly on every push. The peer is gone, so the status is for the log only.
+        try:
+            resp = await handler(request)
+        except ConnectionResetError:
+            return web.Response(status=499, text="client closed the connection")
         # CORS for the READ API: every GET here is public, unauthenticated chain data (the same bytes any
         # peer or wallet reads), so any origin may read it — nadochain.com's live "next block, as every
         # node computes it" widget and any explorer/dashboard. No credentials are ever involved; the

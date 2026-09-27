@@ -1646,7 +1646,10 @@ def split_open_block_reward(reward: int):
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
 #                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
-#                                    SPAM_HARDEN_HEIGHT (-> 1)
+#                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
+#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer,
+#                                    dormant at 2^62 until the exec fleet runs the release)
+#                                    CERT_CLOCK_HEIGHT (dormant 2^62 -> 1)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -1698,6 +1701,29 @@ DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 #   * a device moves to a DIFFERENT sender at most once per epoch (the first move stays instant).
 # Every fee a free kind now pays is burned like any fee. Height ahead of the fleet's adoption; 1 at the next reroll.
 SPAM_HARDEN_HEIGHT = 24000 if CHAIN_GENERATION == 27 else 1
+# THE ENROLMENT'S CHALLENGERS ARE DRAWN FROM RANDOMNESS THE CLIENT HAS NOT SEEN (audit 2026-09-27, CRIT "draw keyed on
+# client-chosen AIK enrol_id (grindable)"; doc/tpm-attestation-without-a-ca.md §"Who challenges"). Below this height the
+# k challengers are drawn AT the tpm_enrol from epoch_beacon(epoch of the enrol) keyed on the enrolment id — and that id
+# hashes the attestation key's public area, which the client writes (authPolicy and the modulus are free bytes). That
+# beacon is fixed from block (E-1)*EPOCH_LENGTH on, so a client computes the whole draw offline and grinds public areas
+# until all k seats land on pool members it controls; with every seat colluding the chip proof is forged outright (the
+# challengers hand it S, no TPM is ever touched). From this height (ops/tpm_enrol "COMMIT, THEN DRAW"):
+#   * the draw is keyed on the ENDORSEMENT identity (fixed per chip by manufacture), never on the enrolment id or any
+#     other field the client writes;
+#   * its randomness is epoch_beacon(E + TPM_DRAW_DELAY_EPOCHS) for an enrol landing in epoch E, whose anchor block
+#     (E+1)*EPOCH_LENGTH lies strictly AFTER the enrol block — so the enrolment is committed before its dice exist;
+#   * the weights are the pool as of the enrol block (frozen before the dice exist, so nobody can join it to aim);
+#   * the draw is exact weighted sampling without replacement, so a pool of >= k weighted members always seats k —
+#     checked at the enrol instead of discovered after the delay;
+#   * the record is written with no challengers, and the first tpm_challenge from the draw epoch on materialises them
+#     into it; the record lives TPM_DRAW_DELAY_EPOCHS' wait plus the usual DEVICE_ATTEST_EK_ENROL_SHORT.
+# The client (apps/nado-tpm-attest) needs no change: /tpm_enrolment serves k placeholders while the draw is pending.
+# Live at 28500 (set 2026-09-27 at tip 26776, ~3.5 h ahead of the push for the update wave); 1 at the next reroll.
+TPM_DRAW_UNGRINDABLE_HEIGHT = 28500 if CHAIN_GENERATION == 27 else 1
+# Two, not one: epoch E+1's beacon is anchored on block E*EPOCH_LENGTH, which is at or BEFORE any enrol in epoch E —
+# the client would know it. E+2's anchor (E+1)*EPOCH_LENGTH is the first one strictly after every enrol of epoch E.
+# INVARIANT: never lower this below 2, or the draw is predictable when the enrolment is built.
+TPM_DRAW_DELAY_EPOCHS = 2
 TX_TOP_KEYS = frozenset(("sender", "recipient", "amount", "fee", "timestamp", "data", "nonce", "public_key",
                          "max_block", "min_block", "chain_id", "txid", "signature", "multisig"))
 TX_TOP_KEYS_BY_RECIPIENT = {"msgkey": frozenset(("kem_pub",)), "register": frozenset(("device", "posw"))}
@@ -2223,6 +2249,48 @@ EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
 # Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
 # (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
 ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+
+# EXEC DA DEADLINE (audit 2026-09-25, HIGH "exec stall"). The exec tail resolves every DA-carried proof of a block before
+# mutating anything and, when one cannot be fetched, applies NOTHING and retries — all-or-nothing, so no node ever
+# half-applies a block. With no bound that retry was forever: one MIN_TX_FEE blob {op: field_transfer, proof_da: <a
+# commitment nobody holds>} froze the exec cursor on every exec node for good (every game, asset and exit with it), and
+# so did an honest proof evicted from every DaStore (DA_RETAIN) before a lagging node fetched it. Reproduced in
+# tests/test_exec_never_stalls_on_unheld_proof.py. From this height a DA-carried op in block h whose proof this node
+# still cannot resolve once L1 finality has reached h + EXEC_DA_WAIT_BLOCKS is REFUSED (never dispatched, nothing moves)
+# and the rest of the block applies; before that point the block stalls exactly as it always did.
+#   WHAT IS AND IS NOT A PURE FUNCTION. The deadline — WHEN the node stops waiting — is (h, finalized height), agreed
+#   data, never a wall clock. The verdict at the deadline is "held or not", and availability is NOT agreed data
+#   (doc/privacy.md "availability-halt griefing"): a proof nobody holds is refused identically everywhere (the attack),
+#   a proof every live exec node pulled while the block was still provisional is applied identically everywhere (every
+#   honest transfer: the wallet publishes before it submits, and the provisional tail fetches seconds after inclusion),
+#   and only a proof first released to SOME nodes inside the last poll before the deadline can split the exec roots —
+#   which the root pool reports (CRITICAL "EXEC ROOT OUT OF MAJORITY"). The sound end state makes availability an
+#   on-chain fact (an attestation quorum the deadline reads); until then this trades a free, permanent, fleet-wide freeze
+#   for a bounded lag (<= EXEC_DA_WAIT_BLOCKS behind finality while under attack). Exec-layer consensus (it moves the exec
+#   state root the settle quorum signs), so it waits for the exec fleet to run the release; then a height ahead of the
+#   exec fleet's adoption (rule 3). An exec node on older code keeps stalling where this one refuses.
+EXEC_DA_DEADLINE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# ~9.6 min at 6.4 s. The tail first reaches block h at finality (~FINALITY_DEPTH = 45 behind the tip) and the provisional
+# tail has already tried the fetch before that, so an honest proof has been retried for well over five minutes when the
+# deadline falls. A literal, not 2 * FINALITY_DEPTH: tuning finality must never silently move an exec verdict.
+EXEC_DA_WAIT_BLOCKS = 90
+# CERTIFICATE VALIDITY READS THE CHAIN CLOCK (audit 2026-09-25 HIGH, "certificate validity is judged by block_timestamp,
+# which is outside the block hash"). Every device and endorsement certificate's notBefore/notAfter was judged against the
+# ANCHOR block's block_timestamp (ops/transaction_ops._anchor_time, verify_register_device, and the tpm_enrol apply in
+# ops/account_ops). That field is outside the block-hash preimage (block_ops.construct_block hashes it as None) and under
+# leaderless assembly every node stamps its OWN copy of every block with its own wall clock: measured 2026-09-27 on eight
+# fleet nodes, blocks 24000/24500/24700/24800 carried one hash each and block_timestamps up to 12 s apart. Nothing bounds
+# it from below either (valid_block_timestamp caps only now + BLOCK_TIMESTAMP_DRIFT), so a peer serving sync can hand
+# out a same-hash block stamped 0 or years back. A certificate whose validity edge fell inside that spread was valid on
+# one node and invalid on the next — a fork with no attacker — and a relay could pick the edge at will. From this height
+# the clock is protocol.chain_clock(anchor height): a pure function of the height, the exec layer's TIME since gen 26.
+# TRADE-OFF, measured: chain_clock LAGS wall time whenever blocks are slower than CHAIN_CLOCK_CADENCE_DS (betanet-8 at
+# block 24886: 11.8 h behind after 2.3 days, 8.1 s real cadence vs 6.4 s assumed). A lagging clock accepts a certificate
+# that expired within the lag and REFUSES one issued within it (a fresh Windows AIK certificate, a just-rotated Android
+# remote-provisioned intermediate), so re-measure the cadence at the reroll (doc/reroll.md) before this goes live.
+# Dormant (2^62) on gen 27: switching a live chain's clock would move every verdict by the current lag at once. 1 at the
+# next reroll. INVARIANT: no consensus certificate check may read block_timestamp or wall time at or above this height.
+CERT_CLOCK_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 
 
 def ek_roots_at(height) -> frozenset:

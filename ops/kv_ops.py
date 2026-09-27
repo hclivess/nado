@@ -2363,6 +2363,10 @@ def tpm_enrol_open_for_ek(ek_identity: str):
 
 
 def tpm_enrol_open_set(ek_identity: str, enrol_id):
+    # INVARIANT: every apply-side call is preceded by tpm_enrol_open_revert_put for the same (height, chip), and
+    # every revert-side call restores the JOURNALED value, never a re-derived one. This row is in devbind, so in the
+    # L1 root; the revert used to delete it outright, which is only the prior value for a chip's FIRST enrolment
+    # (audit 2026-09-25, HIGH: a rolled-back second enrolment left the chip with no marker — a state-root split).
     def _do(txn):
         k = ("tpmek:" + str(ek_identity)).encode()
         if enrol_id:
@@ -2370,6 +2374,45 @@ def tpm_enrol_open_set(ek_identity: str, enrol_id):
         else:
             txn.delete(k, db=_dbs()["devbind"])
     _write(_do)
+
+
+def _tpm_enrol_open_revert_key(height: int, ek_identity: str) -> bytes:
+    return be8(int(height)) + ("tpmek:" + str(ek_identity)).encode()
+
+
+def tpm_enrol_open_revert_put(height: int, ek_identity: str, prev_enrol_id):
+    """Journal the chip's open-enrolment marker as it stood BEFORE a tpm_enrol overwrote it: the enrolment id it
+    named, or None when there was no marker. Always written, so pop can tell "there was no marker" (delete on
+    revert) from "no journal" (a block applied before this journal existed).
+
+    THE REVERT USED TO DELETE THE MARKER instead of restoring it (audit 2026-09-25, HIGH). That is the prior value
+    only for a chip's first enrolment: once an earlier attempt had expired, a rolled-back second enrolment left the
+    chip with NO marker where every node that never applied the block still named the first — and a re-open of an
+    expired record under the same id left the marker on that id instead of the one it replaced. The marker is in
+    devbind, so in the L1 root: either one is a state-root split from an ordinary one-block reorg.
+
+    Node-local (devbind_revert is in _LOCAL_DBS): rollback bookkeeping, never in the root or a snapshot, so adding
+    it changes no forward state. FIRST WRITE WINS within a block, exactly like tpm_enrol_revert_put — two
+    enrolments of one chip can land in one block (each validates against the parent), and the journal must hold
+    the marker as it stood before the BLOCK, not the one the first enrolment of the block wrote."""
+    def _do(txn):
+        k = _tpm_enrol_open_revert_key(height, ek_identity)
+        if txn.get(k, db=_dbs()["devbind_revert"]) is not None:
+            return
+        txn.put(k, _pack(str(prev_enrol_id) if prev_enrol_id else None), db=_dbs()["devbind_revert"])
+    _write(_do)
+
+
+def tpm_enrol_open_revert_pop(height: int, ek_identity: str):
+    """Read + DELETE the marker journal for (height, chip): (found, previous enrolment id or None)."""
+    def _do(txn):
+        k = _tpm_enrol_open_revert_key(height, ek_identity)
+        raw = txn.get(k, db=_dbs()["devbind_revert"])
+        if raw is None:
+            return False, None
+        txn.delete(k, db=_dbs()["devbind_revert"])
+        return True, _unpack(raw)
+    return _write(_do)
 
 
 def tpm_enrol_revert_put(height: int, enrol_id: str, prev):

@@ -27,6 +27,9 @@ REROLL = {
     "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1, "DEVICE_BIND_CANONICAL_HEIGHT": 1,
     "DIVIDEND_CARRY_EPOCH": 0,                     # an epoch gate: 0 = from epoch 0 = always on the next chain
     "SPAM_HARDEN_HEIGHT": 1,
+    "TPM_DRAW_UNGRINDABLE_HEIGHT": 1,              # live at 28500 on gen 27
+    "EXEC_DA_DEADLINE_HEIGHT": 1,                  # exec layer: a DA op whose proof never arrives is refused, not waited on forever
+    "CERT_CLOCK_HEIGHT": 1,                        # dormant (2^62) on gen 27: certificate validity reads chain_clock
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
