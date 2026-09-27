@@ -19,7 +19,9 @@ OUT=$(mktemp -d /tmp/nado-tests.XXXXXX)
 NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNELS (certifies the shipped native path)
 # SLOW tests get their own ceiling: test_settle_fold_tree proves a K=4 tree fold in Python and needs well over an hour
 # (measured 2026-09-26: 2 h 28 min to ALL PASS, so the 900 s default can only ever report it as a TIMEOUT).
-SLOW="test_settle_fold_tree"
+# measured 2026-09-27 on this host: fold_hardening 25 min, games_e2e 27 min, shielded_wide 27 min, every_opcode_is_provable
+# under 1 h — each a TIMEOUT under the 900 s default, each ALL PASS given the time.
+SLOW="test_settle_fold_tree test_fold_hardening test_games_e2e test_shielded_wide test_every_opcode_is_provable"
 STMO=${NADO_TEST_SLOW_TIMEOUT:-10800}
 # LIVE tests talk to the node this checkout runs (tests/test_tests_are_isolated.py keeps this list and the tree in
 # step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.
