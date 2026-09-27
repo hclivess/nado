@@ -1111,13 +1111,17 @@ def reserved_uniqueness_keys(tx) -> list:
     # the tx's own field (a malformed or zero one must keep yielding no key). A malformed statement yields no key here;
     # validation rejects it anyway.
     if tx.get("recipient") == "register":
-        from protocol import DEVICE_BIND_MAX_CERT_SECS
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT
         try:
             # a statement-free renewal (the permanent binding mode) binds nothing, so it occupies no device key
             if (int(tx.get("max_block", 0)) >= 1
                     and isinstance(tx.get("device"), dict) and not is_assert_device(tx.get("device"))):   # an assertion binds nothing
                 from ops.device_attest import device_binding_key
-                keys.append(("devbind", device_binding_key(tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)))
+                # the SAME key validation and apply use at this height (DEVICE_BIND_CANONICAL_HEIGHT): the signed part of the
+                # certificate, so two statements of one device with different trailing junk collide here too
+                keys.append(("devbind", device_binding_key(
+                    tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
+                    canonical=int(tx.get("max_block", 0)) >= DEVICE_BIND_CANONICAL_HEIGHT)))
         except Exception:
             pass
     if tx.get("recipient") == "duty":
@@ -1626,7 +1630,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
-        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT, permanent_classes_at
         epoch_now = block_height // EPOCH_LENGTH
         # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
         # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
@@ -1659,7 +1663,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 try:
                     # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
                     # gets bound (IndexError/ValueError alike = malformed = invalid)
-                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
+                    # canonical from DEVICE_BIND_CANONICAL_HEIGHT: keyed on the certificate's SIGNED part, trailing bytes
+                    # refused — the raw-bytes key let one device back unlimited identities (protocol.py, the gate's note)
+                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
+                                              canonical=block_height >= DEVICE_BIND_CANONICAL_HEIGHT)
                 except (ValueError, IndexError) as e:
                     raise AssertionError(f"register: {e}")
                 # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it

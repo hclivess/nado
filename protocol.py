@@ -1632,7 +1632,7 @@ def split_open_block_reward(reward: int):
 # DEVICE_ATTEST_HEIGHT (= 1) is a plain constant, not a generation-keyed gate; it stays.
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
-#                                    ZK_HARDEN_HEIGHT (-> 1)
+#                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -1652,6 +1652,13 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # also occupies the in-block uniqueness key ("devbind", key) — one device per block, in assembly and verification alike.
 # Height-gated for replayability; becomes 1 at the next reroll.
 # DEVICE_BIND_STRICT_HEIGHT: gen 25 gate at 1700; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
+# ONE DEVICE, ONE IDENTITY — FOR REAL (audit 2026-09-25, fixed 2026-09-27). The binding key hashed the certificate's RAW
+# bytes while the native kernel ignores bytes after the DER, so one chip's certificate with different junk appended bound
+# a new identity each time: unlimited identities per device. From this height the key is the certificate's SIGNED part
+# (ops/device_attest.cert_signed_part — it cannot vary without breaking the issuer's signature), certificates with
+# trailing bytes are refused, and a device's pre-gate (raw-bytes) binding counts as the same device, so the switch hands
+# no device a second identity. Measured before the gate: no trailing-byte certificate had been registered on betanet-8.
+DEVICE_BIND_CANONICAL_HEIGHT = 19800 if CHAIN_GENERATION == 27 else 1
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable

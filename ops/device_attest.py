@@ -264,7 +264,28 @@ def cert_validity(der: bytes) -> tuple:
     return nb, na
 
 
-def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -> str:
+def cert_signed_part(der: bytes) -> bytes:
+    """The TBSCertificate of a DER X.509 certificate — its exact bytes as the issuer signed them. Raises ValueError on
+    malformed DER or on ANY byte after the certificate.
+
+    WHY THE BINDING KEY IS THIS, NOT THE RAW BYTES (DEVICE_BIND_CANONICAL_HEIGHT). The raw-bytes key let one device back
+    unlimited identities: the native kernel parses the DER and ignores bytes after it, so the same chip's certificate
+    with different junk appended verified every time and hashed to a new key each time (audit 2026-09-25). The signed
+    part cannot vary without breaking the issuer's signature, and nothing outside it — junk, a re-encoded outer length,
+    the signature's own encoding — changes it. Trailing bytes are refused outright as well."""
+    der = bytes(der)
+    tag, h, n = _der_tlv(der, 0)
+    if tag != 0x30:
+        raise ValueError("certificate is not a SEQUENCE")
+    if h + n != len(der):
+        raise ValueError("certificate carries bytes outside its DER structure")
+    t2, h2, n2 = _der_tlv(der, h)
+    if t2 != 0x30 or h + h2 + n2 > len(der):
+        raise ValueError("tbsCertificate is not a SEQUENCE")
+    return der[h:h + h2 + n2]
+
+
+def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False, canonical: bool = False) -> str:
     """The ONE-IDENTITY-PER-DEVICE handle of an attestation (doc/device-attestation.md §"One device, one identity"):
       android-key : "android-key:" + sha256(x5c[1]) — the device's remotely-provisioned attestation-key certificate
                     (subject O=TEE, CN=<device id>, issued by a Droid CA), reused for every credential the device
@@ -278,8 +299,12 @@ def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -
                     ENDORSEMENT key, one per chip by manufacture and impossible to re-mint: a chip that enrols
                     ten attestation keys still holds one identity, and regenerating the endorsement seed to
                     fake a new chip invalidates the vendor certificate that made it admissible.
+    `canonical` (from DEVICE_BIND_CANONICAL_HEIGHT): certificate-backed classes key on the certificate's SIGNED part
+    (cert_signed_part), not its raw bytes — see there for why. Below the gate the raw-bytes key is kept exactly.
     Raises ValueError with the reason (the validation turns it into the tx's rejection message). Pure parsing over
     bytes the native kernel has already verified; deterministic by construction (consensus input)."""
+    _h = (lambda c: hashlib.sha256(cert_signed_part(c)).hexdigest()) if canonical \
+        else (lambda c: hashlib.sha256(c).hexdigest())
     # The endorsement identity rides in the transaction, so this stays a PURE function of the tx bytes like
     # every other class: apply and revert derive the same key with no database read, and validation is what
     # checks the declared identity against the enrolment record.
@@ -301,16 +326,16 @@ def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False) -
         if na - nb > int(max_cert_secs):
             raise ValueError("batch-attested Android device (long-lived attestation certificate) cannot be bound to one "
                              "identity — a device with remote key provisioning (Android 12+) is required")
-        return "android-key:" + hashlib.sha256(x5c[1]).hexdigest()
+        return "android-key:" + _h(x5c[1])
     if fmt == "tpm":
         if not x5c:
             raise ValueError("tpm statement has no AIK certificate")
-        return "tpm:" + hashlib.sha256(x5c[0]).hexdigest()
+        return "tpm:" + _h(x5c[0])
     if fmt == "trezor":
         # the device certificate (CN "<model> <serial>", per-device key from the secure element)
         if not x5c:
             raise ValueError("trezor statement has no device certificate")
-        return "trezor:" + hashlib.sha256(x5c[0]).hexdigest()
+        return "trezor:" + _h(x5c[0])
     if fmt == "ledger":
         # the factory-certified device public key — permanent for the life of the device
         return "ledger:" + hashlib.sha256(ledger_device_pubkey(att)).hexdigest()
