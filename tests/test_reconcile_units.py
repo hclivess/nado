@@ -89,5 +89,34 @@ check("a timer triggering another service is refused", V("nado-x.timer", "[Timer
 check("a timer triggering its own validated service is accepted", not V("nado-x.timer", "[Timer]\nUnit=nado-x.service\n", {"nado-x.service"}))
 check("a plain account service is accepted", not V("nado-x.service", "[Service]\nUser=nado\nExecStart=/bin/true\n"))
 
+# THE EXEC KEEPER (2026-09-27: nado-exec left "inactive (dead)" by an update on 185.100.232.5 and 185.238.249.208, and the
+# fleet's root bridge only try-restarts). It reaches every exec machine through this reconciler, and its mechanism is a
+# dependency — so dependencies are now checked: only the node's own units.
+check("a dependency on the node's own unit is accepted (the keeper's Wants=nado-exec.service)",
+      not V("nado-k.service", "[Unit]\nWants=nado-exec.service\n[Service]\nUser=nado\nExecStart=/bin/true\n"))
+check("a dependency on a system unit is refused (Wants=ssh.service would let the account start anything)",
+      V("nado-k.service", "[Unit]\nWants=ssh.service\n[Service]\nUser=nado\nExecStart=/bin/true\n"))
+check("...in every dependency form (Requires, BindsTo, OnFailure, Upholds)",
+      all(V("nado-k.service", f"[Unit]\n{k}=cron.service\n[Service]\nUser=nado\nExecStart=/bin/true\n")
+          for k in ("Requires", "BindsTo", "OnFailure", "Upholds")))
+etc, repo = machine(False)
+R.DEST = etc
+open(os.path.join(etc, "nado-exec.service"), "w").write("[Service]\nUser=nado\n")      # install.sh's: an exec machine
+calls.clear()
+rc = R.main()
+kept = sorted(f for f in os.listdir(etc) if f.startswith("nado-exec-keeper"))
+check("an exec machine gets the keeper, rendered and valid", rc == 0 and kept == ["nado-exec-keeper.service",
+      "nado-exec-keeper.timer"], (rc, kept, json.load(open(R.RESULT)).get("errors")))
+ktext = open(os.path.join(etc, "nado-exec-keeper.service")).read()
+check("...which runs as the node's account and wants nado-exec", "User=nado" in ktext and "Wants=nado-exec.service" in ktext)
+check("...and its timer is enabled and started", ["enable", "--now", "nado-exec-keeper.timer"] in calls, calls)
+check("...while the machine's install.sh unit nado-exec.service is never rewritten",
+      open(os.path.join(etc, "nado-exec.service")).read() == "[Service]\nUser=nado\n")
+etc, repo = machine(False)
+R.DEST = etc
+calls.clear()
+R.main()
+check("a machine without an exec node gets no keeper", not any(f.startswith("nado-exec-keeper") for f in os.listdir(etc)))
+
 print("ALL PASS" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
