@@ -1,0 +1,22 @@
+# NADO exec keeper: brings nado-exec.service back when an update restart left it stopped. A TEMPLATE: the root
+# reconciler (scripts/reconcile_units.py, doc/jobs.md) fills @USER@ @GROUP@ and refuses any unit that would not run as the
+# node's own account.
+# WHY (2026-09-27): after the update waves to 7709680c and 56af9d58, 185.100.232.5 and 185.238.249.208 reported
+# "nado-exec.service inactive (dead), result success" and stayed down. nado-exec has Requires=nado.service, so restarting
+# nado stops it, and the root restart bridge on fleet machines only runs `systemctl try-restart`, which restarts RUNNING
+# units. Operators of community nodes do not re-run install.sh, so a fix to the bridge never reaches them; this unit does,
+# because the reconciler installs it after every self-update. Its whole mechanism is Wants=: whenever the keeper starts,
+# systemd itself starts nado-exec if it is not running — the node's own code, as its own account, which install.sh
+# already set the machine up to run. ExecStart does nothing.
+# To turn a machine's exec node OFF: `systemctl disable --now nado-exec-keeper.timer nado-exec.service` (a stopped or
+# merely disabled nado-exec is started again by this keeper otherwise).
+[Unit]
+Description=NADO exec keeper — start nado-exec if an update left it stopped
+Wants=nado-exec.service
+After=nado.service
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+ExecStart=/bin/true

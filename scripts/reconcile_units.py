@@ -60,6 +60,17 @@ def validate(name, text, user, group, services):
         target = (re.findall(r"^Unit=(.*)$", text, re.M) or [name[:-6] + ".service"])
         if len(target) != 1 or target[0] != name[:-6] + ".service" or target[0] not in services:
             return f"{name}: a timer may only trigger its own validated service"
+    # DEPENDENCIES ONLY ON THE NODE'S OWN UNITS (2026-09-27). A dependency makes PID 1 start or stop the named unit, so an
+    # unchecked Wants=/Requires= would let the account start ANY system unit — the reconciler's promise is only "the
+    # account can schedule its own code as itself". nado-exec-keeper uses exactly this to restart nado-exec, which is the
+    # node's own code under its own account; anything outside nado-*/network-online.target is refused. (Root copies
+    # installed before this check accept any dependency — install.sh refreshes them.)
+    for dep_key in ("Wants", "Requires", "Requisite", "BindsTo", "PartOf", "Upholds", "PropagatesReloadTo",
+                    "PropagatesStopTo", "StopPropagatedFrom", "OnFailure", "OnSuccess", "Conflicts"):
+        for line in re.findall(r"^%s\s*=(.*)$" % dep_key, text, re.M):
+            for dep in line.split():
+                if not (NAME_RE.match(dep) or dep in ("nado.service", "network-online.target")):
+                    return f"{name}: {dep_key}={dep} — a job may depend only on the node's own units"
     return None
 
 

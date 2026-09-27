@@ -337,8 +337,9 @@ years later. Concretely:
 - **No wall clocks — and `block_timestamp` is one.** It is outside the block hash and every node stamps its
   own copy (measured 2026-09-27: one block hash, stamps 12 s apart across the fleet), so a certificate whose
   validity edge falls between two nodes' stamps is valid on one and expired on the next — a fork with no
-  attacker. Consensus time is `protocol.chain_clock(height)`; certificate validity moves onto it at
-  `CERT_CLOCK_HEIGHT` (the next reroll).
+  attacker. Agreed time is `transaction_ops.agreed_time(height)`: the median of the committee's own
+  duty-transaction clocks in committed blocks (certificate validity reads it from `CERT_CLOCK_HEIGHT`).
+  `chain_clock(height)` is agreed too but only ASSUMES a cadence — it ran 12 h behind in two days.
 - **No network reads.** No revocation lists, no vendor fetches, no peer-learned trust. Roots are pinned
   constants; changing one is a gated protocol commit.
 - **No dict-order dependence.** msgpack preserves insertion order, so a record two nodes build with the

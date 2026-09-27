@@ -1,0 +1,11 @@
+[Unit]
+Description=Check every 2 minutes that the NADO exec node is running
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=nado-exec-keeper.service
+
+[Install]
+WantedBy=timers.target

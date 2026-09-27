@@ -428,19 +428,93 @@ def _anchor_time(transaction: dict, block_height: int, anchor_block: dict = None
     Never wall time: that makes validity node-local, and a certificate expiring mid-block would be valid on one node
     and expired on the next. Below protocol.CERT_CLOCK_HEIGHT it is the anchor block's block_timestamp, which turned
     out to be node-local too — it is outside the block hash and every node stamps its own copy (protocol.py
-    CERT_CLOCK_HEIGHT carries the measurement). From the gate it is chain_clock(anchor height): a pure function of the
-    height, needing no block read, so a pruned node, an archive node and a node fed a re-stamped block by a lying peer
-    reach the same verdict.
+    CERT_CLOCK_HEIGHT carries the measurement). From the gate it is agreed_time(anchor height): the median of the
+    bonded validators' own duty-transaction clocks in committed blocks, so a pruned node, an archive node and a node
+    fed a re-stamped block by a lying peer reach the same verdict.
     INVARIANT: at or above CERT_CLOCK_HEIGHT nothing here may read block_timestamp, time.time() or any stored block
-    field; a certificate verdict must be a function of (transaction bytes, height, pinned roots) alone."""
-    from protocol import POSW_ANCHOR_OFFSET, CERT_CLOCK_HEIGHT, chain_clock
+    field other than committed transaction bodies; a certificate verdict must be a function of agreed data alone."""
+    from protocol import POSW_ANCHOR_OFFSET, CERT_CLOCK_HEIGHT
     anchor_h = max(0, int(block_height) - POSW_ANCHOR_OFFSET)
     if int(block_height) >= CERT_CLOCK_HEIGHT:
-        return chain_clock(anchor_h)
+        return agreed_time(anchor_h)
     # below the gate: the historical rule, byte for byte, so replay of the live chain keeps every verdict
     b = anchor_block if anchor_block is not None else get_block_number(anchor_h)
     assert b, "enrolment anchor block unavailable"
     return int(b.get("block_timestamp") or 0)
+
+
+_agreed_time_cache = {}                # {(lo, hi, hash of block hi-1): seconds}; bounded below
+
+
+def agreed_time_window(height: int) -> tuple:
+    """[lo, hi) of committed blocks agreed_time(height) reads: the CERT_CLOCK_WINDOW blocks before the start of
+    `height`'s epoch — every one an ancestor of `height`, quantised so the answer is cached per epoch."""
+    from protocol import CERT_CLOCK_WINDOW, EPOCH_LENGTH
+    hi = (max(0, int(height)) // EPOCH_LENGTH) * EPOCH_LENGTH
+    return max(1, hi - CERT_CLOCK_WINDOW), hi
+
+
+def agreed_time(height: int) -> int:
+    """AGREED TIME at `height` (protocol.CERT_CLOCK_HEIGHT): the median, over distinct senders, of the timestamps the
+    bonded committee signed into its own duty transactions in agreed_time_window(height).
+
+    WHY THIS AND NOT THE OTHERS. block_timestamp is outside the block hash and differs node to node for one block
+    (measured 12 s apart) and a syncing peer can serve any value. chain_clock(height) is agreed but only assumes a
+    cadence: on betanet-8 it ran 11.8 h behind after 2.3 days, which would refuse every freshly issued certificate.
+    A duty tx's `timestamp` is inside its txid (so inside the block), written by the validator's own clock when it
+    signs, and every node reads the same committed bodies — agreed data that tracks real time. One sample per sender
+    (its latest in the window) and the MEDIAN: a minority of the committee cannot move it outside the honest range,
+    the same trust the committee's FFG votes already carry. Lags real time by roughly the window plus the anchor
+    offset (~30 min at 8 s blocks); CERT_NOT_BEFORE_GRACE absorbs that for freshly issued certificates.
+    Fewer than CERT_CLOCK_MIN_SAMPLES senders (a newborn chain) falls back to chain_clock(hi), agreed as well.
+    A block of the window this node does not hold DEFERS (WindowUnavailable), never guesses — the challenger draw's
+    rule (2026-09-13: guessing from a partial window forked two nodes)."""
+    from protocol import CERT_CLOCK_MIN_SAMPLES, chain_clock
+    lo, hi = agreed_time_window(height)
+    # keyed on the window's LAST block hash too: a reorg reaching into the window must never be answered from memory
+    from ops.block_ops import get_block_hash_by_number
+    key = (lo, hi, get_block_hash_by_number(hi - 1) if hi > lo else None)
+    if key in _agreed_time_cache:
+        return _agreed_time_cache[key]
+    latest = {}
+    for h in range(lo, hi):
+        block = get_block_number(h)
+        if not block:
+            raise WindowUnavailable(
+                f"the certificate clock needs block {h} of the window [{lo},{hi}) and this node does not have it "
+                f"— cannot judge certificate validity without it (sync the gap, do not guess)", lo, hi)
+        for t in (block.get("block_transactions") or []):
+            if t.get("recipient") not in _DUTY_RECIPIENTS:
+                continue
+            ts, who = t.get("timestamp"), t.get("sender")
+            # an unvalidated field: only a sane integer counts (no bool, no float, no pre-2020 or far-future value)
+            if who and isinstance(ts, int) and not isinstance(ts, bool) and 1_577_836_800 <= ts < (1 << 40):
+                if ts > latest.get(who, 0):
+                    latest[who] = ts
+    samples = sorted(latest.values())
+    t = samples[(len(samples) - 1) // 2] if len(samples) >= CERT_CLOCK_MIN_SAMPLES else chain_clock(hi)
+    if len(_agreed_time_cache) >= 64:
+        _agreed_time_cache.clear()
+    _agreed_time_cache[key] = t
+    return t
+
+
+def cert_verdict(verify_at, block_height: int, now: int) -> dict:
+    """Run a certificate-chain check `verify_at(seconds) -> verdict` at the agreed clock, with the notBefore grace.
+
+    The kernel checks notBefore <= now <= notAfter for every certificate at ONE instant. Agreed time lags real time
+    (agreed_time), so a certificate issued minutes ago looks not-yet-valid. From CERT_CLOCK_HEIGHT a chain that fails
+    at `now` is checked once more at now + CERT_NOT_BEFORE_GRACE and accepted if that passes: acceptance then means
+    every notBefore <= now + grace and every notAfter >= now, so an EXPIRED certificate is never accepted by the
+    grace (expiry is still judged at `now`). The one chain this can refuse that the ideal rule accepts is one whose
+    certificates are valid together only strictly inside (now, now + grace) — a fresh certificate beside one expiring
+    within the grace. Deterministic: both instants are agreed. Below the gate: exactly one check at `now`."""
+    from protocol import CERT_CLOCK_HEIGHT, CERT_NOT_BEFORE_GRACE
+    v = verify_at(int(now))
+    if v.get("ok") or int(block_height) < CERT_CLOCK_HEIGHT:
+        return v
+    v2 = verify_at(int(now) + CERT_NOT_BEFORE_GRACE)
+    return v2 if v2.get("ok") else v
 
 
 # Recent-producer weights, memoised on the window they cover. The window only moves when the tip does, and
@@ -807,7 +881,9 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     # challenge binds its HASH, which is committed — but its timestamp must not decide validity from the gate.
     now = _anchor_time(transaction, int(transaction["max_block"]), anchor_block=anchor_block)
     challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
-    verdict = attest_native.verify(att, cdj, challenge, now, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp])
+    # the notBefore grace from CERT_CLOCK_HEIGHT (cert_verdict): agreed time lags, a phone's certificate may be minutes old
+    verdict = cert_verdict(lambda t: attest_native.verify(att, cdj, challenge, t, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp]),
+                           int(transaction["max_block"]), now)
     assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
     fmt = verdict.get("fmt")
     assert fmt in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {fmt}"
@@ -1910,8 +1986,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
             # the clock is _anchor_time, and apply_tpm_enrol_tx re-runs this same call through it — validation and
             # apply must judge the chain at the SAME agreed time or a record validated here fails to apply there
-            ek = attest_native.verify_ek(chain, _anchor_time(transaction, block_height),
-                                                        height=block_height)
+            _now = _anchor_time(transaction, block_height)
+            ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=block_height), block_height, _now)
             assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
             from protocol import EK_ENROL_ROOTS_AT_HEIGHT, ek_roots_at
             # the set the kernel just verified against (ek_roots_at), not the base set: below the gate the base set

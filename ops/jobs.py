@@ -18,6 +18,8 @@ RECONCILE_RESULT = "/run/nado/jobs-reconcile.json"
 # In-node jobs report here: {name: {"role": which machines should run it, "since": loop start, "last_ok": unix of the
 # last success, ...}} — set by the loops in nado.py. A job past STALE_S without a success is listed under `problems`.
 inner = {}
+supervisor = None          # the exec supervisor's last decision (ops/exec_supervisor.py), set by nado.py's job loop
+RECONCILER = "/usr/local/sbin/nado-reconcile-units"   # install.sh's root-owned copy; absent on machines installed before it
 STALE_S = 300
 _cache = {"at": 0.0, "value": None}
 
@@ -71,9 +73,17 @@ def refresh(config):
             unreadable.append(job["unit"])
             continue
         if s["load"] != "loaded":
-            problems.append(f"{job['unit']} not installed")
+            # A REPO JOB ON A MACHINE WITHOUT THE RECONCILER IS NOT MISSING (2026-09-27): only install.sh's root-owned
+            # reconciler installs repo units, and machines installed before it (the whole community fleet at the time)
+            # have none — every one reported "nado-exec-keeper.timer not installed" for a unit nothing there could
+            # install. Report what the operator can act on, not what the machine cannot have.
+            if not (job.get("source") == "repo" and not os.path.exists(RECONCILER)):
+                problems.append(f"{job['unit']} not installed")
         elif s["state"] != "active":
-            problems.append(f"{job['unit']} {s['state']}")
+            if job["unit"] == "nado-exec.service" and supervisor and str(supervisor).startswith(("running it", "started it")):
+                pass                              # the node runs the exec node itself meanwhile (ops/exec_supervisor.py)
+            else:
+                problems.append(f"{job['unit']} {s['state']}")
         elif runs and runs.get("result") not in (None, "", "success"):
             problems.append(f"{job['runs']} last run {runs['result']}")
         units[job["unit"]] = {k: v for k, v in s.items() if v not in (None, "")}
@@ -90,7 +100,8 @@ def refresh(config):
     except Exception:
         rec = None
     _cache.update(at=time.time(), value={"roles": sorted(mine), "units": units, "inner": dict(inner),
-                                          "problems": problems, "unreadable": unreadable, "reconcile": rec})
+                                          "problems": problems, "unreadable": unreadable, "reconcile": rec,
+                                          "exec_supervisor": supervisor})
 
 
 def report():
