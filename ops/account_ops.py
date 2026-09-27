@@ -921,16 +921,33 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         found, prev = kv_ops.tpm_enrol_revert_pop(h, eid)
         if not found:
             return
+        # The chip is read from the record (the row before or after this block — the id binds the chip, so both
+        # name the same one), since the message being reverted first need not be the tpm_enrol itself.
+        cur = kv_ops.tpm_enrol_get(eid)
+        ek_id = str((prev or cur or {}).get("ek") or "") or None
         if prev is None:
-            # the row was CREATED in this block (by its tpm_enrol, perhaps followed by other messages): drop it and
-            # release the chip's marker, which that tpm_enrol claimed — read from the row, since the message being
-            # reverted first need not be the tpm_enrol itself
-            cur = kv_ops.tpm_enrol_get(eid)
-            kv_ops.tpm_enrol_del(eid)
-            if cur is not None:
-                kv_ops.tpm_enrol_open_set(str(cur["ek"]), None)
+            kv_ops.tpm_enrol_del(eid)        # the row was CREATED in this block
         else:
-            kv_ops.tpm_enrol_set(eid, prev)
+            kv_ops.tpm_enrol_set(eid, prev)  # e.g. an expired record this block's tpm_enrol superseded
+        if ek_id is None:
+            return
+        # RESTORE THE CHIP'S MARKER FROM ITS JOURNAL, NEVER BY DELETING IT (audit 2026-09-25, HIGH). This used to
+        # set the marker to None whenever the row was created here — the prior value only for a chip's FIRST
+        # enrolment. After an earlier attempt expired, rolling back the second left the chip with no marker where
+        # every node that never applied the block still named the first; superseding an expired record under the
+        # same id left the marker on that id instead of the one it replaced. The marker is in devbind, so in the
+        # L1 root: a state-root split from a one-block reorg. INVARIANT: revert restores what apply journaled
+        # (kv_ops.tpm_enrol_open_revert_put); it never re-derives a prior value.
+        mfound, mprev = kv_ops.tpm_enrol_open_revert_pop(h, ek_id)
+        if mfound:
+            # popped by the FIRST revert of this block to reach the chip (first-write-wins journal), so it restores
+            # the marker as it stood before the block even when two enrolments of the chip landed in it
+            kv_ops.tpm_enrol_open_set(ek_id, mprev)
+        elif prev is None and kv_ops.tpm_enrol_open_for_ek(ek_id) == eid:
+            # A block applied before the marker journal existed: the old behaviour is the best information there
+            # is. Guarded on the marker still naming THIS enrolment so that, when the journal was already popped by
+            # a later message of the same block, the value it restored is never clobbered.
+            kv_ops.tpm_enrol_open_set(ek_id, None)
         return
 
     prev = kv_ops.tpm_enrol_get(eid)
@@ -947,7 +964,12 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h)
     kv_ops.tpm_enrol_set(eid, rec)
     if recipient == "tpm_enrol":
-        kv_ops.tpm_enrol_open_set(str(ek["identity"]), eid)   # this chip's slot is taken until it expires
+        # INVARIANT: journal the marker this overwrites BEFORE overwriting it — revert restores exactly that value
+        # (audit 2026-09-25, HIGH: the revert used to delete the marker, splitting the root after a reorg of a
+        # chip's second enrolment). Node-local journal; the devbind write below is unchanged.
+        _ek_id = str(ek["identity"])
+        kv_ops.tpm_enrol_open_revert_put(h, _ek_id, kv_ops.tpm_enrol_open_for_ek(_ek_id))
+        kv_ops.tpm_enrol_open_set(_ek_id, eid)   # this chip's slot is taken until it expires
 
 
 def _tpm_anchor_time(block_height):
