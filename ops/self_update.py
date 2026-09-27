@@ -308,9 +308,53 @@ def _delayed_check(delay):
     global _wave_pending
     try:
         time.sleep(max(0.0, float(delay)))
-        check_and_update("peer-hint")
+        queue_recheck(check_and_update("peer-hint"))
     finally:
         _wave_pending = False
+
+
+# A KICK THAT LANDS ON A BUSY CHECK IS NOT LOST (2026-09-27). check_and_update answers `busy` while another check
+# holds the lock and `rate_limited` inside _MIN_INTERVAL — and both simply returned. When the running check had
+# fetched BEFORE the push landed, the node stayed on the old commit: its peer hint went into a one-hour cooldown
+# (_HINT_COOLDOWN) and the next chance was the 15-minute timer. Measured: 185.238.249.208 answered `busy` to a wave
+# kick and was still on the previous commit 12 minutes later, with update_available false and nothing blocking.
+# Now either answer queues ONE deferred re-check (after the rate-limit window, or _BUSY_RETRY_S); a re-check that
+# lands on busy again re-queues, at most _RECHECK_MAX times; at most one is pending at any moment.
+_BUSY_RETRY_S = 20
+_RECHECK_MAX = 5
+_recheck_lock = threading.Lock()
+_recheck_pending = False
+
+
+def queue_recheck(res, attempt=0):
+    """Queue one deferred check_and_update when `res` was busy/rate_limited. Returns True when one was queued."""
+    global _recheck_pending
+    st = (res or {}).get("status") if isinstance(res, dict) else None
+    if st not in ("busy", "rate_limited") or attempt >= _RECHECK_MAX:
+        return False
+    with _recheck_lock:
+        if _recheck_pending:
+            return False
+        _recheck_pending = True
+    try:
+        delay = int(res.get("retry_in_s") or 0) + 1 if st == "rate_limited" else _BUSY_RETRY_S
+    except (TypeError, ValueError):
+        delay = _BUSY_RETRY_S
+    threading.Thread(target=_recheck, args=(delay, attempt), daemon=True, name="update_recheck").start()
+    return True
+
+
+def _recheck(delay, attempt):
+    global _recheck_pending
+    try:
+        time.sleep(max(0.0, float(delay)))
+    finally:
+        with _recheck_lock:
+            _recheck_pending = False
+    try:
+        queue_recheck(check_and_update("deferred"), attempt + 1)
+    except Exception as e:                              # never raise out of a daemon thread
+        _log().warning(f"deferred update check failed: {e}")
 
 
 def peer_hint(commit):

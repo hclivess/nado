@@ -3239,6 +3239,9 @@ async def update_node(request):
         return _resp({"status": "disabled", "reason": "auto_update=false in config — /update is disabled"},
                      status=403)
     result = await asyncio.to_thread(self_update.check_and_update, "remote")
+    # busy / rate_limited: the kick is remembered, not dropped (self_update.queue_recheck)
+    if self_update.queue_recheck(result):
+        result = dict(result, queued_recheck=True)
     if result.get("status") == "updated" and request.query.get("wave", "1") != "0":
         peer_list = list(memserver.peers)
 
