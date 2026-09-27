@@ -40,6 +40,31 @@ from execnode import shielded_state as _appstate
 
 L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
+
+
+def acquire_state_lock(state_path):
+    """ONE EXEC NODE PER STATE FILE (2026-09-27). Take an exclusive, non-blocking flock on <state>.lock, or return None.
+    Two exec processes over one exec_state.json both load it, both re-stamp the .gen marker and restore the settle stash,
+    and both write it back — divergent state from one file. Nothing prevented that: the node's own exec supervisor
+    (ops/exec_supervisor.py) runs the exec node as a child while nado-exec.service is down, and the service coming back
+    must not run beside it. The lock is held for the life of the process (the kernel drops it on exit, even on kill)."""
+    import fcntl
+    fh = open(str(state_path) + ".lock", "a+")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+if __name__ == "__main__":
+    # BEFORE the module-level state load below: that load already writes (the .gen marker, the settle stash). Only the
+    # running exec node takes it — tests import this module with their own temporary state and never contend.
+    _STATE_LOCK = acquire_state_lock(STATE_PATH)
+    if _STATE_LOCK is None:
+        sys.exit(f"[execnode] another exec node already holds {STATE_PATH}.lock — refusing to run a second one over "
+                 f"the same state (the node's exec supervisor hands over when nado-exec.service starts)")
 PORT = int(os.environ.get("NADO_EXEC_PORT", "9273"))
 # H-7: loopback by default — the /exec POST endpoints prove/verify/apply and mutate state without auth, so a
 # public bind is opt-in (a browser-reachable shielded pool sets NADO_EXEC_BIND=0.0.0.0). Even when exposed, the

@@ -3887,6 +3887,14 @@ def _node_jobs_loop():
         except Exception as e:
             logger.info(f"dex price sample failed (retrying next pass): {e}")
         try:
+            # EXEC SUPERVISOR (ops/exec_supervisor.py, 2026-09-27): an update restart can leave nado-exec stopped on a
+            # machine whose root side cannot bring it back (185.100.232.5, 185.238.249.208); the node runs it itself
+            # until the service returns. Before the report, so the report reads what it decided.
+            from ops import exec_supervisor
+            jobs.supervisor = exec_supervisor.supervise(log=logger.warning)
+        except Exception as e:
+            logger.info(f"exec supervisor pass failed: {e}")
+        try:
             jobs.refresh(get_config())
         except Exception as e:
             logger.info(f"job report refresh failed: {e}")
