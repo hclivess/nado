@@ -9,7 +9,9 @@ from a worktree they tested the LIVE code instead of the change. And test_otc_sw
 operator's keys while matching the runner's test_*.py glob.
 Pins, for every tests/*.py: (1) it ASSIGNS HOME before its first import of ops / memserver / genesis / nado / loops (or
 re-runs itself in a child whose environment names HOME); (2) it never puts the live checkout on sys.path or opens a
-file under it; (3) a URL to the live node's ports in CODE (not prose) appears only in a file listed in LIVE, and
+file under it, nor names a keys.dat (rule 8: msg_ratchet_e2e.mjs derived an identity from the node's own key) —
+and neither does any tests/*.mjs (three wallet tests read /srv/nado-home/nado/static by absolute path,
+so from a worktree they checked the deployed file and went stale unnoticed, 2026-09-27); (3) a URL to the live node's ports in CODE (not prose) appears only in a file listed in LIVE, and
 scripts/run_tests.sh skips every LIVE file.
 
 Run: python3 tests/test_tests_are_isolated.py
@@ -25,6 +27,15 @@ LIVE = {"test_otc_swap_e2e.py"}          # posts real transactions to 127.0.0.1:
 DANGER = re.compile(r"^\s*(from\s+(ops|memserver|genesis|nado|loops)\b|import\s+(ops|memserver|genesis|nado|loops)\b)", re.M)
 ASSIGN_HOME = re.compile(r'^\s*_?os\.environ\["HOME"\]\s*=', re.M)
 LIVE_URL = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\]):9[12]73")   # a REQUEST, not a peer key or Host header
+
+
+LIVE_PATH_JS = re.compile(r"""['"`]/(root/nado|srv/nado-home/nado)(/|['"`])""")   # a path LITERAL in JS code
+
+
+def _js_code(src):
+    """JS source with // line comments and /* block */ comments removed (a comment may name the path)."""
+    src = re.sub(r"/\*[\s\S]*?\*/", "", src)
+    return "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("//"))
 
 
 def _code_strings(src):
@@ -52,8 +63,18 @@ def offenders():
         if re.search(r'sys\.path\.insert\(0,\s*["\']/(root/nado|srv/nado-home/nado)', code) or \
                 re.search(r'open\(\s*["\']/(root/nado|srv/nado-home/nado)/', code):
             bad.append(f"{name}: reads code or files from the live checkout instead of its own tree")
+        if any("keys.dat" in s for s in _code_strings(src)):
+            bad.append(f"{name}: names a keys.dat in code — the node's private key is never read by a test (CLAUDE.md rule 8)")
         if name not in LIVE and any(LIVE_URL.match(s) for s in _code_strings(src)):
             bad.append(f"{name}: talks to the live node's ports in code but is not listed in LIVE")
+    for name in sorted(os.listdir(TESTS)):
+        if not name.endswith(".mjs"):
+            continue
+        src = open(os.path.join(TESTS, name), encoding="utf-8", errors="replace").read()
+        if LIVE_PATH_JS.search(_js_code(src)):
+            bad.append(f"{name}: reads the live checkout by absolute path instead of its own tree")
+        if "keys.dat" in _js_code(src):
+            bad.append(f"{name}: reads a keys.dat — the node's private key is never read by a test (CLAUDE.md rule 8)")
     runner = open(os.path.join(ROOT, "scripts", "run_tests.sh")).read()
     for n in sorted(LIVE):
         if n.rsplit(".", 1)[0] not in runner:
@@ -68,6 +89,11 @@ def self_check():
     assert LIVE_URL.match("http://127.0.0.1:9173/status") and LIVE_URL.match("http://localhost:9273") \
         and not LIVE_URL.match("http://127.0.0.2:19173") and not LIVE_URL.match("127.0.0.1:9173")
     assert _code_strings('"""doc http://127.0.0.1:9173"""\nX = 1') == []
+    assert LIVE_PATH_JS.search(_js_code("const js = readFileSync('/srv/nado-home/nado/static/interface.js');"))
+    assert not LIVE_PATH_JS.search(_js_code("// read from /srv/nado-home/nado, a test run in a worktree\nconst R = join(ROOT, 's');"))
+    assert "keys.dat" in _js_code("const kd = JSON.parse(fs.readFileSync('/root/nado/private/keys.dat'));")
+    assert "keys.dat" not in _js_code("// A used to be the node's own private/keys.dat\nconst kd = 1;")
+    assert any("keys.dat" in x for x in _code_strings("k = open('/root/nado/private/keys.dat').read()"))
 
 
 if __name__ == "__main__":

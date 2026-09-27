@@ -1,12 +1,14 @@
 /* _msg_ratchet_e2e.mjs — LIVE end-to-end of the KEM Double Ratchet through the running node's message pool.
- * Two REAL registered accounts (A = this node's keys.dat, B = private/_msg_e2e_b.json) exchange v2 envelopes via
+ * Two REAL registered accounts (A = private/_msg_e2e_a.json, B = private/_msg_e2e_b.json) exchange v2 envelopes via
  * POST /message → GET /tags → GET /message exactly as the wallet does; a third identity C scans the same tags and
  * must see nothing. Keys are read from disk and never printed. Run: node _msg_ratchet_e2e.mjs [step]
  *   step "keys"  → print both ML-KEM pubkeys (for the msgkey on-chain publish)   step "run" → the exchange */
 import fs from 'node:fs';
 const M = await import('./static/messaging.js');
 const NODE = 'http://127.0.0.1:9173';
-const kdA = JSON.parse(fs.readFileSync('/root/nado/private/keys.dat')), kdB = JSON.parse(fs.readFileSync('private/_msg_e2e_b.json'));
+// BOTH identities are dedicated TEST accounts. A used to be the node's own private/keys.dat — the production key,
+// which no tool may read (CLAUDE.md rule 8: a fallback that reached into the same file once signed as the node).
+const kdA = JSON.parse(fs.readFileSync('private/_msg_e2e_a.json')), kdB = JSON.parse(fs.readFileSync('private/_msg_e2e_b.json'));
 // addresses are RE-DERIVED from the pubkey (ops.key_ops.load_keys does the same: a key file may carry a stale prefix)
 const { blake2b, bytesToHex } = await import('./static/vendor/nado-crypto.js');
 const addrOf = (pubHex) => { const body = pubHex.slice(0, 42); return body + bytesToHex(blake2b(new TextEncoder().encode(JSON.stringify(body)), { dkLen: 2 })); };
