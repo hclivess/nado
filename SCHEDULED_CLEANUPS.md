@@ -13,15 +13,6 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
-## 2026-09-27 — owed BEFORE the gen-28 reroll
-
-- **The wallet's key self-announcement** (`announceKey` in static/interface.js, its call in `refreshDashboard`, and
-  `tests/test_wallet_self_announce.py`). Operator: "you can add self announcement then, but we will delete that code
-  before reroll". Its only purpose is to get every opened wallet's public key on chain BEFORE the carry, so
-  tools/rekey_v2.py can move the account to its format-2 (hash) address. On a format-2 chain it has nothing to do.
-  Delete it on main BEFORE the reroll ("not after, before"), as a step of the reroll runbook ahead of the carry
-  (doc/reroll.md).
-
 ## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
 
 - **`EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1`** (Intel V2-root chips enrol, f524cb0a): the first

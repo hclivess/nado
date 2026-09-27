@@ -109,9 +109,6 @@ must be reviewable as "new genesis, same rules".
 ## Runbook (as executed for gen 22, 23 and 24)
 
 1. Audit exec state read-only over HTTP (`/exec/contracts`, `/exec/bridge`, `/exec/assets`).
-   **Before the gen-28 reroll**: delete the wallet's key self-announcement (`announceKey`, static/interface.js, and
-   `tests/test_wallet_self_announce.py`) on main first — operator: "we will delete that code before reroll"
-   (SCHEDULED_CLEANUPS.md).
 2. Dry-run `tools/alphanet6_carryforward.py` against a **read-only LMDB copy**; it folds balances, bonded, dividends,
    pending withdrawals and the bridge, hard-asserts the shielded pool is EMPTY, and refuses unless supply conserves
    exactly (Δ = 0).
