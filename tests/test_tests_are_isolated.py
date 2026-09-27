@@ -29,7 +29,9 @@ ASSIGN_HOME = re.compile(r'^\s*_?os\.environ\["HOME"\]\s*=', re.M)
 LIVE_URL = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\]):9[12]73")   # a REQUEST, not a peer key or Host header
 
 
-LIVE_PATH_JS = re.compile(r"""['"`]/(root/nado|srv/nado-home/nado)(/|['"`])""")   # a path LITERAL in JS code
+# a path LITERAL in JS code: the live checkout, or ANY other checkout under /srv (selftest_vectors_crosscheck.mjs imported
+# /srv/nado-merge/…, a tree that no longer exists, so it had not run for months)
+LIVE_PATH_JS = re.compile(r"""['"`]/(root/nado|srv/[A-Za-z0-9_.-]+)(/|['"`])""")
 
 
 def _js_code(src):
@@ -92,6 +94,7 @@ def self_check():
         and not LIVE_URL.match("http://127.0.0.2:19173") and not LIVE_URL.match("127.0.0.1:9173")
     assert _code_strings('"""doc http://127.0.0.1:9173"""\nX = 1') == []
     assert LIVE_PATH_JS.search(_js_code("const js = readFileSync('/srv/nado-home/nado/static/interface.js');"))
+    assert LIVE_PATH_JS.search(_js_code('import { x } from "/srv/nado-merge/static/nadotx.js";'))
     assert not LIVE_PATH_JS.search(_js_code("// read from /srv/nado-home/nado, a test run in a worktree\nconst R = join(ROOT, 's');"))
     assert "private/keys.dat" in _js_code("const kd = JSON.parse(fs.readFileSync('/root/nado/private/keys.dat'));")
     assert "private/keys.dat" not in _js_code("// A used to be the node's own private/keys.dat\nconst kd = 1;")

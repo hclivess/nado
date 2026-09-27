@@ -16,10 +16,10 @@
 //   * JSON.parse cannot carry the >2^53 torture values -- build those objects with BigInt LITERALS, exactly
 //     as runSelfTest does, or canonicalize throws "integer > 2^53".
 import { blake2bHash, makeAddress, canonicalize, ADDR_PREFIX, ADDR_LEN, isAddress }
-  from "/srv/nado-merge/static/nadotx.js";
+  from "../static/nadotx.js";
 import { readFileSync } from "node:fs";
 
-const src = readFileSync("/srv/nado-merge/static/interface.js", "utf8");
+const src = readFileSync(new URL("../static/interface.js", import.meta.url), "utf8");
 const body0 = src.slice(src.indexOf("const VEC = {"));
 const VEC = eval("(" + body0.slice(body0.indexOf("{"), body0.indexOf("\n};") + 2) + ")");
 
