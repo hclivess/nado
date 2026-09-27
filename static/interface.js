@@ -245,10 +245,17 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
 /* ----------------------------------------------------------------------------------------------
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
+// ADDRESS FORMAT 2 (gen 28): mirrors protocol.ADDRESS_FORMAT and static/nadotx.js (tests/test_address_format_v2.py).
+// A key-derived address commits to the WHOLE public key; a multisig address (its own prefix) keeps format 1.
+const ADDR_FORMAT = 1;
+const DOMAIN_ADDRESS_V2 = "nado-address-v2";
 function makeAddress(pubHex, prefix = ADDR_PREFIX) {
-  const body = prefix + pubHex.slice(0, ADDR_BODY);
+  const body = prefix + (ADDR_FORMAT >= 2 && prefix === ADDR_PREFIX
+    ? blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2)
+    : pubHex.slice(0, ADDR_BODY));
   return body + blake2bHash(body, 2);
 }
+function legacyAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
 
 function newKeypair() {
   // The private key is a 32-byte ML-DSA-44 SEED; the 1312-byte public key derives from it.

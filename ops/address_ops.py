@@ -74,16 +74,39 @@ def make_address(
     + 4-hex blake2b checksum (protocol.py owns all three — the one-constant rebrand point). Must stay
     DETERMINISTIC and stable — proof_sender re-derives it to bind a pubkey to its sender, so any
     change here orphans every existing address (= ships only with a CHAIN_GENERATION reroll)."""
-    from protocol import ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM
+    from protocol import ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM, ADDRESS_FORMAT
     if address_length is None:
         address_length = ADDRESS_BODY
     if checksum_size is None:
         checksum_size = ADDRESS_CHECKSUM
     if prefix is None:
         prefix = ADDRESS_PREFIX
-    address_no_checksum = f"{prefix}{public_key[:address_length]}"
+    # FORMAT 2 for key-derived addresses (protocol.ADDRESS_FORMAT): the body commits to the WHOLE key. A multisig
+    # address (prefix MSIG_PREFIX) is derived from a descriptor hash already and keeps format 1.
+    if ADDRESS_FORMAT >= 2 and prefix == ADDRESS_PREFIX:
+        body = address_body_v2(public_key, address_length)
+    else:
+        body = public_key[:address_length]
+    address_no_checksum = f"{prefix}{body}"
     address = f"{address_no_checksum}{make_checksum(address_no_checksum, checksum_size=checksum_size)}"
     return address
+
+
+def address_body_v2(public_key: str, address_length: int = None) -> str:
+    """Format-2 address body: blake2b over [DOMAIN_ADDRESS_V2, lowercase public-key hex], ADDRESS_BODY/2 bytes.
+    LOWERCASED so one key has exactly one address (the hex of a key is not unique: 'AB' and 'ab' are the same bytes).
+    Mirrored byte-for-byte by static/nadotx.js and static/interface.js (blake2bHash over the same canonical list)."""
+    from protocol import ADDRESS_BODY, DOMAIN_ADDRESS_V2
+    n = ADDRESS_BODY if address_length is None else address_length
+    return blake2b_hash([DOMAIN_ADDRESS_V2, str(public_key).lower()], size=n // 2)
+
+
+def legacy_address(public_key: str) -> str:
+    """The FORMAT-1 address of a key (its first ADDRESS_BODY hex chars + checksum). Only for recognising what an
+    account was called on a format-1 chain — the legacy-claim path — never for authorising anything on its own."""
+    from protocol import ADDRESS_PREFIX, ADDRESS_BODY
+    body = f"{ADDRESS_PREFIX}{public_key[:ADDRESS_BODY]}"
+    return body + make_checksum(body)
 
 
 if __name__ == "__main__":

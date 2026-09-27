@@ -72,7 +72,18 @@ export const ADDR_BODY = 42;                                   // hex chars of p
 export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;    // + 4-hex blake2b checksum (46 today)
 export const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
 export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
-export function makeAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
+// ADDRESS FORMAT 2 (gen 28; protocol.ADDRESS_FORMAT): the body is a hash of the WHOLE public key — format 1's first 21
+// bytes are the key's rho, which a forger chooses. MUST equal protocol.ADDRESS_FORMAT for the chain these files ship
+// with: tests/test_address_format_v2.py fails the commit that changes one without the other.
+export const ADDR_FORMAT = 1;
+export const DOMAIN_ADDRESS_V2 = "nado-address-v2";
+export function addressBodyV2(pubHex) { return blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2); }
+export function makeAddress(pubHex) {
+  const body = ADDR_PREFIX + (ADDR_FORMAT >= 2 ? addressBodyV2(pubHex) : pubHex.slice(0, ADDR_BODY));
+  return body + blake2bHash(body, 2);
+}
+// the FORMAT-1 name of a key, for recognising a format-1 account in the legacy-claim flow — never authorisation
+export function legacyAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
 // The seed MUST be exactly 32 bytes (64 hex). noble zero-PADS a short seed into the SHAKE preimage while the
 // node's dilithium builds a different-length preimage, so a 63-hex seed (e.g. a dropped leading-zero byte)
 // derives a DIFFERENT address in the browser than on the node -> the node rejects the tx as pubkey!=sender.

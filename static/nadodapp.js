@@ -32,6 +32,10 @@ const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn
 // An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (betanet-14).
 export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const ADDR_BODY = 42;
+// mirrors protocol.ADDRESS_FORMAT (tests/test_address_format_v2.py). A format-2 address cannot be derived from a
+// format-1 one (it hashes the whole key), so a signed-in session is keyed by the format: after the change the old
+// session is simply not read, the game shows signed-out, and the next sign-in returns the new address.
+const ADDR_FORMAT = 1;
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
 
 /**
@@ -1169,7 +1173,7 @@ export class NadoDapp {
   constructor({ cid, app, ns = "default" }) {
     this.cid = cid; this.app = app; this.ns = ns;
     const slug = app.replace(/\W+/g, "").toLowerCase();
-    this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
+    this.LS_ME = "nado_" + slug + "_me" + (ADDR_FORMAT >= 2 ? "_v" + ADDR_FORMAT : ""); this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.LS_CLICK = "nado_" + slug + "_clickpend";   // the click-time pending registry (see busy/pending)
     this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
     this._autoTried = new Map();   // settle key -> last attempt ms (stops a rejected settle machine-gunning,

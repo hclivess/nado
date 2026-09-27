@@ -587,6 +587,14 @@ POSW_ENTRY_MULT = 32
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
 CHAIN_GENERATION = 27   # 26 was built with every registered identity leased (79 open-lane collectors against 46 live); bumped before block 1 so every node rebuilds genesis with the carried present set
+# ADDRESS FORMAT 2 (gen 28): the body is a HASH of the whole public key, not its first 21 bytes. An ML-DSA public key
+# begins with rho, a public seed the key generator CHOOSES, so format 1 let anyone build a valid keypair whose first
+# 21 bytes equal any address and spend from it — every account that had not yet published its key (audit 2026-09-25;
+# measured 2026-09-27: ~817 NADO in never-sent accounts). Format 2 needs a second preimage of a 168-bit hash. Same
+# length and checksum, so every validator and UI is unchanged; multisig addresses (already a descriptor hash) keep
+# format 1. Keyed to the generation like every gate: gen 27 keeps format 1, the reroll and any later chain is format 2.
+ADDRESS_FORMAT = 1 if CHAIN_GENERATION == 27 else 2
+DOMAIN_ADDRESS_V2 = "nado-address-v2"
 
 # CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
 # The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at
