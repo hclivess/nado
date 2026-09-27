@@ -217,6 +217,28 @@ def build_extra():
 
 def main():
     alloc = build()
+    # ADDRESS FORMAT 2 on the chain this carry seeds (protocol.ADDRESS_FORMAT for the NEXT generation): every account and
+    # every piece of carried state moves to the format-2 address of its recorded key (tools/rekey_v2.py).
+    from protocol import CHAIN_GENERATION as _G
+    _next_format = 1 if int(_G) + 1 == 27 else 2
+    _seeds_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "genesis_data", "genesis_open.dat")
+    _seeds = json.load(open(_seeds_path)) if os.path.exists(_seeds_path) else []
+    extra = None
+    if _next_format >= 2:
+        from tools.rekey_v2 import rekey
+        extra = build_extra() if "--l1-tip" in sys.argv else {}
+        # KEYS FROM OLDER GENERATIONS (tools/recover_keys.py over the old backups): an account that never sent on this
+        # chain but did on an older one re-keys like any other, and its owner's wallet derives the new address by itself.
+        # Required so the step cannot be forgotten; `--known-keys none` states deliberately that there are none.
+        _kk = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--known-keys" and i + 1 < len(sys.argv)), None)
+        if _kk is None:
+            raise SystemExit("format 2: pass --known-keys <tools/recover_keys.py output> (or --known-keys none)")
+        _known = {} if _kk == "none" else json.load(open(_kk))
+        alloc, extra, _seeds, rep = rekey(alloc, extra, _seeds, _known)
+        print(f"ADDRESS FORMAT 2: {rep['rekeyed']} accounts re-keyed ({rep['recovered_from_older_generations']} with a key "
+              f"from an older generation), {rep['keyless_kept_at_old_address']} with no "
+              f"recorded key kept at their old address (claimable with a seed proof), "
+              f"{rep['bond_released_raw']} raw of keyless bond released into balance")
     if "--write" in sys.argv:
         path = f"{get_home()}/private/genesis_alloc.dat"
         tmp = path + ".tmp"
@@ -229,7 +251,10 @@ def main():
         with open(repo, "w") as f:
             json.dump(alloc, f, indent=0, sort_keys=True)
         print(f"\nWROTE {path} and genesis_data/genesis_alloc.dat  ({len(alloc)} accounts)")
-        extra = build_extra()
+        if extra is None:
+            extra = build_extra()
+        with open(_seeds_path, "w") as f:
+            json.dump(_seeds, f, indent=1)
         xpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "genesis_data", "genesis_carry.dat")
         with open(xpath, "w") as f:

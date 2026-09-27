@@ -114,6 +114,13 @@ must be reviewable as "new genesis, same rules".
    claims, deposits). The drain replays them with the exec node's own apply path and prints the tip.
 7. Run the carry-forward tool `--write --l1-tip <that tip>`; confirm Δ = 0. It also records the identities PRESENT at
    the tip (a live lease); genesis leases exactly those, never every registered identity (see failure 6).
+   **Into address format 2 (gen 27 → 28)** every address changes and the tool re-keys the carry (`tools/rekey_v2.py`).
+   First recover the keys older generations recorded, from the backups' `index/state` (never the live one; the tool
+   refuses it): `python3 tools/recover_keys.py /root/known_keys.json <backup>/index/state ...`, then pass
+   `--known-keys /root/known_keys.json` to the carry, which refuses to run without it. Measured at gen 27: 871 accounts
+   had never sent on gen 27, and older generations held the key of 535 of them (674 NADO); every such owner's wallet
+   derives the new address from the key it already holds. The rest (~142 NADO) stay at their old address, rejected by
+   shape, until their owner's wallet claims them with the seed proof.
 8. Edit: `CHAIN_ID`, `GENESIS_TIMESTAMP`, **`CHAIN_GENERATION`** — the last is THE purge trigger; forgetting it means
    nothing purges. Delete `private/genesis_alloc.dat`. No gate edits are needed (see above).
 9. `tests/test_genesis_alloc_format.py`, `tests/test_gate_reroll_transfer.py` (update its generation), commit.
