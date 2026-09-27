@@ -3470,8 +3470,8 @@ async function maybeRegister() {
       log("err", i18("log.regExpired", "Registration tx expired before inclusion — re-registering automatically."));
       state.regSubmitted = null;                 // fall through and broadcast a fresh one
     } else {
-      // HOW FAR IS "FAR"? The tx was built as tip + poswTargetMarginFor(...), so the remaining distance can
-      // never legitimately exceed POSW_TARGET_MARGIN. A larger number does not mean a long wait — it means
+      // HOW FAR IS "FAR"? The tx was built as tip + REG_TARGET_MARGIN (a fixed 30 since gen 25), so the remaining
+      // distance can never legitimately exceed POSW_TARGET_MARGIN. A larger number does not mean a long wait — it means
       // OUR view of the tip is wrong, which happens whenever the relay is still syncing and reports a low
       // tip. The old guard was `state.latest != null`, and `0 != null` is TRUE, so a relay at height 0
       // turned "blocks to go" into the absolute target height: a user was shown "25913 blocks to register"
@@ -4694,11 +4694,18 @@ const OFFICIAL_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*nadochain\.com$/;
 // an origin the user may sign for: an official nadochain.com game, a built-in entry, OR one they added in
 // Settings (NOT the blanket "trust any site" bypass — callers add that so an unknown 3rd-party gets a louder path).
 const originAllowed = (origin) => OFFICIAL_ORIGIN.test(origin) || EXEC_SIGN_ALLOW.includes(origin) || userAllowedOrigins().includes(origin);
+// WHO ASKED is not WHERE TO ANSWER (audit 2026-09-25, HIGH). `ret` is part of the request, so any page, email or chat
+// link can name https://chess.nadochain.com/ as `ret` — and silent signing used to trust exactly that. The CALLER is
+// what the browser vouches for: e.origin on a postMessage, and on the URL path the origin of document.referrer (the
+// page that navigated here, or the page embedding the hidden frame). A missing referrer (an email link, noreferrer)
+// is an unknown caller: the request still works, but only through a visible confirm, never a silent sign.
+function _referrerOrigin() { try { return document.referrer ? new URL(document.referrer).origin : ""; } catch (e) { return ""; } }
 let pendingExecSign = (() => {
   try {
     const p = new URLSearchParams(location.search);
     const b = p.get("exec_sign");
-    return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp", bg: p.get("bg") === "1" } : null;
+    return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp", bg: p.get("bg") === "1",
+                 caller: _referrerOrigin() } : null;
   } catch (e) { return null; }
 })();
 // EARLY background-sign triage: a hidden-iframe (bg=1) request that CAN'T be signed silently must bounce the
@@ -4735,12 +4742,21 @@ async function resumePendingExecSign() {
   pendingExecSign = null;
   if (!bg) { try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {} }
   let call, retUrl;
-  try { call = JSON.parse(decodeURIComponent(escape(atob(req.payload)))); retUrl = new URL(req.ret); }
+  try {
+    call = JSON.parse(decodeURIComponent(escape(atob(req.payload)))); retUrl = new URL(req.ret);
+    // A `ret` of javascript:/data: parses as a URL with origin "null" and back() would NAVIGATE to it — script on the
+    // wallet's origin, next to the seed (audit 2026-09-25). Only a web page can be answered.
+    if (retUrl.protocol !== "https:" && retUrl.protocol !== "http:") throw new Error("ret is not a web page");
+  }
   catch (e) { if (bg) return needUI(); uiAlert(i18("dapp.bad", "Ignored a malformed signing request.")); return; }
   // The origin allowlist is the default guard. A user can opt to skip it (Settings → "Trust any site that
   // asks me to sign") — unknown origins then get a LOUDER confirm that names the origin, never a silent pass.
   const skipOriginCheck = localStorage.getItem("nado_skip_origin_check") === "1";
   const trustedOrigin = originAllowed(retUrl.origin);
+  // SILENT signing needs the trusted site to be the one ASKING (see _referrerOrigin). Every autosign below reads
+  // `silentOk`, never `trustedOrigin` alone — a crafted link naming a trusted `ret` gets the visible confirm.
+  const fromRet = !!req.caller && req.caller === retUrl.origin;
+  const silentOk = trustedOrigin && fromRet;
   if (!trustedOrigin && !skipOriginCheck) {
     if (bg) return needUI("untrusted");   // don't silently sign for an unknown site in a hidden frame — redirect so the warning shows
     uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
@@ -4750,10 +4766,10 @@ async function resumePendingExecSign() {
   // redirect would carry); otherwise it navigates back as before.
   const back = bg
     ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
-    : (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
+    : (params) => { const r = retUrl.href; location.href = r + (r.includes("?") ? "&" : "?") + params; };
   // an htlc_claim is value-free and can only pay THIS wallet, so it rides the same auto-sign switch as a
   // game move; everything else that moves or commits money always opens the visible confirm
-  const claimSilently = !!call.htlc_claim && localStorage.getItem("nado_autosign_dapp") !== "0" && trustedOrigin;
+  const claimSilently = !!call.htlc_claim && localStorage.getItem("nado_autosign_dapp") !== "0" && silentOk;
   if (bg && (call.connect || call.deposit || call.htlc_lock || call.htlc_refund || (call.htlc_claim && !claimSilently))) return needUI();   // sign-in / deposit / swap-lock always need the visible confirm
   if (call.connect) {   // lightweight "sign in": just return the wallet address, no transaction, no fee
     const c = await uiConfirm({
@@ -4894,11 +4910,21 @@ async function resumePendingExecSign() {
   if (blob.method)   rows.push({ k: i18("dapp.method", "Method"), v: String(blob.method) });
   if (blob.game !== undefined)  rows.push({ k: i18("dapp.game", "Game"), v: String(blob.game) });
   try { if (blob.stake  !== undefined) rows.push({ k: i18("dapp.stake", "Stake"),  v: rawToNado(BigInt(blob.stake)) + " NADO" }); } catch (e) {}
-  try { if (blob.amount !== undefined && blob.amount) rows.push({ k: i18("dapp.amount", "Amount"), v: rawToNado(BigInt(blob.amount)) + " NADO" }); } catch (e) {}
+  // SHOW WHERE IT GOES (audit 2026-09-25): an asset_transfer used to show "Amount N NADO" and nothing else — not the
+  // recipient, not which asset, and in the wrong unit. Every op's counterparty and asset are rows now.
+  const _assetId = blob.asset ? String(blob.asset) : "";
+  const _unit = (v) => _assetId ? String(v) + " " + i18("dapp.assetUnits", "units of asset {a}", { a: _assetId.slice(0, 12) + "…" })
+                                : rawToNado(BigInt(v)) + " NADO";
+  try { if (blob.amount !== undefined && blob.amount) rows.push({ k: i18("dapp.amount", "Amount"), v: _unit(blob.amount) }); } catch (e) {}
+  if (_assetId) rows.push({ k: i18("dapp.asset", "Asset"), v: _assetId });
+  if (blob.to !== undefined) rows.push({ k: i18("dlg.to", "To"), v: String(blob.to) });
+  if (blob.spender !== undefined) rows.push({ k: i18("dapp.spender", "Spender"), v: String(blob.spender) });
+  if (Array.isArray(blob.args) && blob.args.length)
+    rows.push({ k: i18("dapp.args", "Arguments"), v: blob.args.map((a) => typeof a === "bigint" ? a.toString() : JSON.stringify(a)).join(", ").slice(0, 200) });
   // A `call` can carry VALUE — real NADO escrowed from YOUR exec balance into the contract. Show it prominently
   // (it can't be spoofed by the dApp's label) so signing a staking call is always an informed choice.
   let escrow = 0n; try { escrow = blob.value ? BigInt(blob.value) : 0n; } catch (e) { escrow = 0n; }
-  if (escrow > 0n) rows.push({ k: i18("dapp.escrows", "Escrows from your exec balance"), v: rawToNado(escrow) + " NADO" });
+  if (escrow > 0n) rows.push({ k: i18("dapp.escrows", "Escrows from your exec balance"), v: _unit(escrow) });
   // AUTOSIGN (opt-in): value-free contract calls from APPROVED game origins (chess moves, settles, reveals —
   // nothing escrows, nothing moves beyond the network fee) can sign+submit without the confirm tap, so a game
   // isn't interrupted on every action. Anything that moves NADO (value/deposit/withdraw) ALWAYS confirms.
@@ -4908,7 +4934,8 @@ async function resumePendingExecSign() {
   // user-set ceiling, so a game can never quietly drain more than you allow. 0 (default) = always confirm
   // bets. The escrow is from the bounded EXEC/playable balance, never L1, and only from trusted origins.
   let betCap = 0n; try { betCap = BigInt(localStorage.getItem("nado_autosign_bet_cap_raw") || "0"); } catch (e) { betCap = 0n; }
-  const smallBet = escrow > 0n && escrow <= betCap && (blob.op || "call") === "call" && blob.amount === undefined && !call.confirm;
+  // The cap is in NADO raw units, so an ASSET-valued call never rides it (it would pull cap-many units of any token).
+  const smallBet = silentOk && !_assetId && escrow > 0n && escrow <= betCap && (blob.op || "call") === "call" && blob.amount === undefined && !call.confirm;
   const submitBlob = async () => {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
@@ -4922,11 +4949,13 @@ async function resumePendingExecSign() {
   // an explicit "0" (turned off in Settings) disables it. Anything moving NADO never autosigns.
   // never autosign for an origin that isn't on the trusted allowlist (even if the user enabled skip) —
   // an untrusted site always gets an explicit confirm that names it.
-  const autosignOn = localStorage.getItem(AUTOSIGN_KEY) !== "0" && trustedOrigin;
+  const autosignOn = localStorage.getItem(AUTOSIGN_KEY) !== "0" && silentOk;
   // AUTO-SIGN EVERYTHING (opt-in): sign ANY contract call from a trusted game \u2014 bets included \u2014 with no
   // tap. Off by default; the user turns it on in Settings or straight from a sign dialog. Untrusted
   // origins are still never auto-signed.
-  const autosignAll = localStorage.getItem("nado_autosign_all") === "1" && trustedOrigin;
+  // Held to what its label promises — exec-layer contract CALLS — so it never signs an asset_transfer, asset_approve
+  // or transfer_contract, and never an asset-valued call (audit 2026-09-25).
+  const autosignAll = localStorage.getItem("nado_autosign_all") === "1" && silentOk && (blob.op || "call") === "call" && !_assetId;
   if (autosignAll || (valueFree && autosignOn) || smallBet) {
     if (!bg) signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce (not needed in a hidden frame)
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
@@ -4941,14 +4970,16 @@ async function resumePendingExecSign() {
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
           { app: req.app, a: _abShort(state.wallet.address) }),
     rows,
+    // A trusted site's name in `ret` is not proof the site asked: say so when the caller is not that site.
+    warn: (trustedOrigin && !fromRet) ? i18("dapp.notFromSite", "This request did not come from {site} itself — a link or another page opened it. Sign only if you just asked {site} for this.", { site: retUrl.origin }) : undefined,
     // One opt-in on every trusted-game dialog: auto-sign ALL exec-layer calls from now on. These only ever
     // escrow from your playable (exec/VM) balance — never your L1 wallet — so ticking it lets bets/spins and
     // moves alike sign with no tap. Only shown for trusted origins.
-    checkbox: trustedOrigin ? { label: i18("dapp.autoExecOptIn", "Auto-sign exec-layer game calls from now on (escrow from your playable balance, never L1)"), checked: false } : null,
+    checkbox: silentOk ? { label: i18("dapp.autoExecOptIn", "Auto-sign exec-layer game calls from now on (escrow from your playable balance, never L1)"), checked: false } : null,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
   if (!okc) { back("ok=0"); return; }
-  if (trustedOrigin && modalCheckValue()) { try { localStorage.setItem("nado_autosign_all", "1"); } catch (e) {} }
+  if (silentOk && modalCheckValue()) { try { localStorage.setItem("nado_autosign_all", "1"); } catch (e) {} }
   try {
     // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits
     // on the rare hedged "Invalid signature" rejection so a contract call isn't lost to a bad signature draw.
@@ -5347,11 +5378,14 @@ function importKeyFile(file) {
 /* The network fee is a tiny fixed protocol minimum (destroyed, not paid out). We hide the raw-unit
  * complexity entirely: the user never types a fee — we apply the relay's recommended fee (floored at
  * MIN_TX_FEE) automatically and just DISPLAY it in NADO. Returns the fee in RAW units. */
+const MAX_QUOTED_FEE = 100 * MIN_TX_FEE;
 async function getRecommendedFee() {
   try {
     const r = await rpcJSON("/get_recommended_fee");
     const f = r.ok && r.data ? Number(r.data.fee) : NaN;
-    return Math.max(Number.isFinite(f) ? Math.floor(f) : 0, MIN_TX_FEE);
+    // A CEILING TOO (audit 2026-09-25): the quote is the tip block's mean fee, so one tx paying a huge fee — or a
+    // hostile failover relay — could make every confirm propose burning it. Fees are destroyed, not refunded.
+    return Math.min(Math.max(Number.isFinite(f) ? Math.floor(f) : 0, MIN_TX_FEE), MAX_QUOTED_FEE);
   } catch (e) { return MIN_TX_FEE; }
 }
 async function currentFeeRaw() {
@@ -8540,6 +8574,20 @@ async function msigSign() {
   try {
     const tx = msigBlobTx();
     if (!tx) { setMsg("msigMsg", i18("msig.pasteFirst", "Paste a proposal first."), "err"); return; }
+    // A SIGNATURE IS CONSENT, so it gets the same confirm a submit does (audit 2026-09-25): the proposer chose the
+    // fee — which is burned — and any data, and co-signers used to add their signature without seeing either.
+    const d = tx.multisig;
+    const ok = await uiConfirm({
+      title: i18("msig.signTitle", "Sign this multisig transfer"),
+      rows: [
+        { k: i18("dlg.amount", "Amount"), v: rawToNado(BigInt(tx.amount)) + " NADO" },
+        { k: i18("dlg.to", "To"), v: String(tx.recipient) },
+        { k: i18("dlg.fee", "Network fee"), v: rawToNado(BigInt(tx.fee)) + " NADO" },
+        { k: i18("msig.dlgSigs", "Signatures"), v: tx.signature.length + " / " + d.threshold },
+      ].concat(tx.data ? [{ k: i18("dapp.args", "Arguments"), v: (typeof tx.data === "string" ? tx.data : JSON.stringify(tx.data)).slice(0, 200) }] : []),
+      confirmText: i18("msig.sign", "Sign"),
+    });
+    if (!ok) { setMsg("msigMsg", i18("msg.cancelled", "Cancelled."), null); return; }
     const added = msigTrySignLocal(tx);
     $("msigBlob").value = canonicalize(tx);
     msigRefreshStatus();
@@ -10276,7 +10324,9 @@ function installBgSignListener() {
     if (!d || d.nadoExecSignReq !== 1) return;
     const trusted = originAllowed(e.origin) || localStorage.getItem("nado_skip_origin_check") === "1";
     if (!trusted) { try { e.source && e.source.postMessage({ nadoExecSign: 1, needui: 1, reason: "untrusted" }, e.origin); } catch (err) {} return; }
-    pendingExecSign = { payload: d.payload, ret: d.ret || (e.origin + "/"), app: d.app || "a game", bg: true };
+    // The answer goes back to the SENDER, whatever `ret` it names: taking d.ret let an untrusted sender (with "trust
+    // any site" on) name a trusted game and inherit its autosign (audit 2026-09-25).
+    pendingExecSign = { payload: d.payload, ret: e.origin + "/", app: d.app || "a game", bg: true, caller: e.origin };
     resumePendingExecSign();
   });
 }

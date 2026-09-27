@@ -4,7 +4,12 @@
  * the rest were the wallet re-broadcasting because acc.reg_epoch cannot move until the tx is mined, and
  * `register` lands EXACTLY at max_block so the in-flight window is the whole margin. */
 import { readFileSync } from 'node:fs';
-const js = readFileSync('/srv/nado-home/nado/static/interface.js', 'utf8');
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+// THIS tree, never the live checkout's absolute path: read from /srv/nado-home/nado, a test run in a worktree
+// checked the deployed file instead of the one under review, and three tests went stale unnoticed (2026-09-27).
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
 let fails = 0;
 const check = (n, c) => { console.log((c ? 'PASS  ' : 'FAIL  ') + n); if (!c) fails++; };
 
@@ -15,8 +20,13 @@ check('...cleared when the chain\'s recert epoch moves past the broadcast epoch'
   /regEpoch > _renewSubmitted\.atEpoch/.test(js));
 check('...and set only on an ACCEPTED submit',
   /result\)\s*\{[\s\S]{0,200}_renewSubmitted = \{ targetBlock: tb, atEpoch: regEpoch \}/.test(js));
-check('the margin sizer exists', /function poswTargetMarginFor\(requiredT\)/.test(js));
-check('both register paths use it', (js.match(/poswTargetMarginFor\(/g) || []).length >= 3);
+// GEN 25 retired the PoSW proof, so the per-proof margin sizer (poswTargetMarginFor) no longer sizes anything: a
+// registration's only wait is the device prompt, and 864522d5 set a fixed REG_TARGET_MARGIN. What must hold is that
+// both register paths build at tip + that margin, and that it stays inside what the nodes accept (POSW_TARGET_MARGIN).
+const _m = js.match(/const REG_TARGET_MARGIN = (\d+);/), _p = js.match(/const POSW_TARGET_MARGIN = (\d+);/);
+check('the register target margin is fixed and inside the protocol ceiling',
+  !!_m && !!_p && Number(_m[1]) >= 12 && Number(_m[1]) <= Number(_p[1]));
+check('both register paths build at tip + REG_TARGET_MARGIN', (js.match(/\+ REG_TARGET_MARGIN;/g) || []).length >= 2);
 
 // the sizer's actual numbers
 const m = js.match(/function poswTargetMarginFor\(requiredT\) \{[\s\S]*?\n\}/)[0];

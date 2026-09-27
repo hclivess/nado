@@ -21,7 +21,7 @@ of thing a constrained fTPM might refuse. Until it runs on real silicon the comm
 Run: python3 tests/test_tpm_certify_creation.py
 """
 import os,socket,struct,subprocess,sys,tempfile,time,shutil,hashlib
-sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # THIS tree, not the live checkout
 os.environ["HOME"] = tempfile.mkdtemp()
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)   # leave no /tmp home behind (9,600 leaked by 2026-09-22)
 from ops.tpm_linux import (LinuxTpm, ek_template, aik_template, RH_ENDORSEMENT, ST_SESSIONS,
