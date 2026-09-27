@@ -172,3 +172,20 @@ paid out: from a per-block jackpot to a fidelity-weighted, off-L1, withdraw-when
 > **Linear since betanet-6 (2026-09-01):** `dividend_weight = min(fidelity, 30)`, 0 while on probation. The convex
 > curve back-loaded the pool onto month-long streaks and made one lapse cost 72 % of weight; both shapes are linear
 > in identity count, so the change costs nothing against farms and pays presence proportionally.
+
+## 10. Carried identities and the betanet-8 dividend gap (`DIVIDEND_CARRY_EPOCH` = 340, 2026-09-27)
+
+**What went wrong (our reroll commit 302215f2).**
+- The betanet-8 carry leased every carried identity with a recert at epoch 0 (`genesis.py`).
+- The dividend rule excludes exactly that marker, to keep never-attested genesis seeds out. So every carried identity was present and produced blocks, but earned **no dividend** until it re-registered.
+- The replay that builds the committed weights (`dividend_ops.fidelity_at_epoch`) rebuilt fidelity from gen-27 recerts only. So a carried veteran who did renew weighed like a newcomer. The live account field and `/get_open_weights` showed the right value, so the discrepancy was invisible.
+- **Measured on 2026-09-27:** the 23 carried identities that had not re-registered were in no committed weight set. A handful of fresh identities took nearly all of the inflow; one alone took it all for epochs 40–94.
+
+**From epoch 340:**
+- An identity the carry named as present (`genesis_carry.dat` "present") counts as attested.
+- Its replayed fidelity starts from its carried value (`genesis_alloc.dat`), which is exactly where the live apply continued from.
+- The files are read once, the same way `genesis.py` resolves them (`dividend_ops.carried_identities`).
+- Committed epochs before 340 stay as they were; making the underpaid identities whole is a separate decision for the operator.
+- Test: `tests/test_dividend_carried_identities.py`.
+
+**For every future reroll:** a carried identity must not be marked like an unattested seed. The carry names the present set, and both the dividend rule and the fidelity replay must read it.

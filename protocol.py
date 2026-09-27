@@ -1632,7 +1632,8 @@ def split_open_block_reward(reward: int):
 # DEVICE_ATTEST_HEIGHT (= 1) is a plain constant, not a generation-keyed gate; it stays.
 #
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
-#                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1)
+#                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
+#   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -1659,6 +1660,13 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # trailing bytes are refused, and a device's pre-gate (raw-bytes) binding counts as the same device, so the switch hands
 # no device a second identity. Measured before the gate: no trailing-byte certificate had been registered on betanet-8.
 DEVICE_BIND_CANONICAL_HEIGHT = 19800 if CHAIN_GENERATION == 27 else 1
+# CARRIED IDENTITIES EARN THE DIVIDEND (2026-09-27; our reroll commit 302215f2). The betanet-8 carry leased every carried
+# identity with a recert at epoch 0 — the very marker the dividend rule uses to exclude never-attested genesis seeds —
+# so every carried identity was present, produced blocks, and earned no dividend until it re-registered; and the replay
+# behind the committed weights rebuilt fidelity from gen-27 recerts only, so carried veterans who did renew weighed like
+# newcomers. From this EPOCH: an identity the carry named as present counts as attested, and its replayed fidelity starts
+# from its carried value (ops/dividend_ops). Epochs before it are committed and stay as they were.
+DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 DEVICE_BIND_MAX_CERT_SECS = 90 * 86400   # an Android attestation certificate valid longer than this is a shared BATCH cert
 DEVICE_BIND_CLASSES = frozenset(("android-key", "tpm", "trezor", "ledger"))   # each carries a PER-DEVICE certificate/key
 # BINDING MODES (doc/device-attestation.md §"Binding modes", operator decision 2026-09-07). A binding is only as durable
