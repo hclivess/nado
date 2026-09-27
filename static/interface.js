@@ -4502,6 +4502,12 @@ async function announceKey(acc) {
   const a = w.address;
   if (acc.public_key) { (state._keyAnnounced ||= {})[a] = true; return; }
   if (acc.kem_pub) return;                             // a key-less account with a bound messaging key cannot re-bind it for free
+  // KEY ROTATION (account auth, doc/key-rotation.md): a configured account signs with a ROTATED key (authSync puts it in
+  // state.wallet under the account's address). The node records the FIRST key a sender's tx carries as the account's
+  // key, and the gen-28 carry re-keys the account to the hash of that key — so an announcement signed by a rotated key
+  // would pin the wrong key and move the coins to an address this wallet never derives. Announce only from the BASE key
+  // (the one whose address this is), and never for a configured account. INVARIANT: the recorded key is the base key.
+  if (acc.auth || acc.auth_pending || makeAddress(w.publicKey) !== a) return;
   const done = (state._keyAnnounced ||= {});
   if (done[a] || (Date.now() - ((state._keyAnnounceAt ||= {})[a] || 0)) < 60000) return;
   state._keyAnnounceAt[a] = Date.now();

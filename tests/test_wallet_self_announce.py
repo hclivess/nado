@@ -13,6 +13,8 @@ Pins:
      messaging key) — the first msgkey bind is free under the node's SPAM_HARDEN_HEIGHT rule;
   3. the tx it sends carries the public key and pays no fee (buildMsgkeyTx puts public_key in the body; fee 0);
   4. it is throttled per address and counts only an accepted submit;
+  4b. KEY ROTATION is never broken: a configured account, or a signer that is not the address's base key, never
+      announces (the node records the first key it sees as the account's key, and the carry re-keys by it);
   5. the node side: a first-bind msgkey from a key-less funded account validates at the gate, and applying it records the
      sender's public key (PUBKEY-ONCE) — so the announcement actually secures the account.
 
@@ -48,6 +50,10 @@ check("...using the account it just fetched (no second relay round trip)",
 check("it stops once the chain shows a key", "if (acc.public_key)" in fn)
 check("it never pays to re-bind a messaging key", "if (acc.kem_pub) return;" in fn)
 check("an account not on chain yet is left for the next cycle", "!acc) return;" in fn)
+check("a rotated (auth-configured) account never announces", "acc.auth || acc.auth_pending" in fn)
+check("...and only the BASE key (the one the address derives from) ever announces — a rotated signer would pin the wrong "
+      "key and the reroll would move the coins to an address the wallet never derives",
+      "makeAddress(w.publicKey) !== a" in fn)
 # 3
 check("the announcement is a FREE msgkey (fee 0)", "buildMsgkeyTx(w, id.kemPub, await nextTargetBlock(), nowSeconds(), 0)" in fn)
 b = js[js.index("function buildMsgkeyTx("):]
