@@ -63,8 +63,10 @@ def offenders():
         if re.search(r'sys\.path\.insert\(0,\s*["\']/(root/nado|srv/nado-home/nado)', code) or \
                 re.search(r'open\(\s*["\']/(root/nado|srv/nado-home/nado)/', code):
             bad.append(f"{name}: reads code or files from the live checkout instead of its own tree")
-        if any("keys.dat" in s for s in _code_strings(src)):
-            bad.append(f"{name}: names a keys.dat in code — the node's private key is never read by a test (CLAUDE.md rule 8)")
+        # the node key's PATH (private/keys.dat) — a test may name a file keys.dat in a temp dir to prove it is
+        # refused (test_static_never_serves_secrets); what it may never do is point at the node's own key
+        if any("private/keys.dat" in s for s in _code_strings(src)):
+            bad.append(f"{name}: names the node key (private/keys.dat) in code — the node's private key is never read by a test (CLAUDE.md rule 8)")
         if name not in LIVE and any(LIVE_URL.match(s) for s in _code_strings(src)):
             bad.append(f"{name}: talks to the live node's ports in code but is not listed in LIVE")
     for name in sorted(os.listdir(TESTS)):
@@ -73,8 +75,8 @@ def offenders():
         src = open(os.path.join(TESTS, name), encoding="utf-8", errors="replace").read()
         if LIVE_PATH_JS.search(_js_code(src)):
             bad.append(f"{name}: reads the live checkout by absolute path instead of its own tree")
-        if "keys.dat" in _js_code(src):
-            bad.append(f"{name}: reads a keys.dat — the node's private key is never read by a test (CLAUDE.md rule 8)")
+        if "private/keys.dat" in _js_code(src):
+            bad.append(f"{name}: reads the node key (private/keys.dat) — the node's private key is never read by a test (CLAUDE.md rule 8)")
     runner = open(os.path.join(ROOT, "scripts", "run_tests.sh")).read()
     for n in sorted(LIVE):
         if n.rsplit(".", 1)[0] not in runner:
@@ -91,9 +93,10 @@ def self_check():
     assert _code_strings('"""doc http://127.0.0.1:9173"""\nX = 1') == []
     assert LIVE_PATH_JS.search(_js_code("const js = readFileSync('/srv/nado-home/nado/static/interface.js');"))
     assert not LIVE_PATH_JS.search(_js_code("// read from /srv/nado-home/nado, a test run in a worktree\nconst R = join(ROOT, 's');"))
-    assert "keys.dat" in _js_code("const kd = JSON.parse(fs.readFileSync('/root/nado/private/keys.dat'));")
-    assert "keys.dat" not in _js_code("// A used to be the node's own private/keys.dat\nconst kd = 1;")
-    assert any("keys.dat" in x for x in _code_strings("k = open('/root/nado/private/keys.dat').read()"))
+    assert "private/keys.dat" in _js_code("const kd = JSON.parse(fs.readFileSync('/root/nado/private/keys.dat'));")
+    assert "private/keys.dat" not in _js_code("// A used to be the node's own private/keys.dat\nconst kd = 1;")
+    assert any("private/keys.dat" in x for x in _code_strings("k = open('/root/nado/private/keys.dat').read()"))
+    assert not any("private/keys.dat" in x for x in _code_strings("p = mk('keys.dat', 0o644)"))
 
 
 if __name__ == "__main__":
