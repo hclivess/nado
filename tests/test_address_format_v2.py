@@ -51,8 +51,15 @@ try:
     v2 = A.make_address(pk)
     want_body = blake2b_hash([P.DOMAIN_ADDRESS_V2, pk.lower()], size=P.ADDRESS_BODY // 2)
     check("format 2 hashes the whole key", v2[:-4] == P.ADDRESS_PREFIX + want_body, v2)
-    check("...keeps the address length and a valid checksum", len(v2) == P.ADDRESS_LENGTH and A.validate_address(v2))
+    check("...and keeps the 42-hex body", len(v2[:-(P.ADDRESS_CHECKSUM * 2)]) == P.ADDRESS_BODY)
     check("...and one key has one address whatever the hex case", A.make_address(pk.upper()) == v2)
+    P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 4, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 8
+    v2 = A.make_address(pk)
+    check("format 2 carries a 4-byte checksum: a 50-character address", len(v2) == 50 and A.validate_address(v2)
+          and A.is_address(v2), v2)
+    check("THE OLD FORMAT IS REJECTED: a format-1 address is not an address on a format-2 chain",
+          not A.validate_address(victim_v1) and not A.is_address(victim_v1), victim_v1)
+    check("...nor is a format-2 body with a format-1 checksum", not A.validate_address(v2[:-8] + A.make_checksum(v2[:-8], 2)))
     forger = pk[:P.ADDRESS_BODY] + ("0" if pk[P.ADDRESS_BODY] != "0" else "1") + pk[P.ADDRESS_BODY + 1:]
     check("a key sharing the victim's first 21 bytes derives the victim's FORMAT-1 address (the hole)",
           A.legacy_address(forger) == victim_v1)
@@ -66,6 +73,7 @@ try:
           (ms1, ms2))
 finally:
     P.ADDRESS_FORMAT = _saved
+    P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = (2, 46) if _saved == 1 else (4, 50)
 
 # 5. the browser agrees, and every JS copy of the format follows protocol
 js = {n: open(os.path.join(ROOT, "static", n)).read() for n in ("nadotx.js", "interface.js", "nadodapp.js")}
@@ -73,6 +81,11 @@ for n, src in js.items():
     m = re.search(r"(?:export )?const ADDR_FORMAT = (\d+);", src)
     check(f"{n} carries ADDR_FORMAT equal to protocol.ADDRESS_FORMAT", bool(m) and int(m.group(1)) == P.ADDRESS_FORMAT,
           m and m.group(1))
+    check(f"{n} takes its checksum size from the format (4 bytes in format 2)",
+          re.search(r"const ADDR_CK = ADDR_FORMAT >= 2 \? 4 : 2;", src) is not None)
+    # (the SDK's format-1 prefix heal keeps its {46}: it returns before it under format 2 — "any generation" marks it)
+    code = "\n".join(l for l in src.splitlines() if "any generation" not in l)
+    check(f"{n} hard-codes no 46-character address", not re.search(r"\{46\}|ADDR_BODY \+ 4\b", code))
 node = shutil.which("node")
 if node:
     probe = f"""

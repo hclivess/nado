@@ -87,6 +87,7 @@ const RELAY_STALE_BLOCKS: i64 = 120;
 fn relay_height(r: &Relay) -> Option<i64> {
     let text = r.get("/status").ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
+    crate::tx::set_address_format(&v);          // before any key is derived: every relay of a chain reports the same
     v.get("latest_block_height").and_then(|x| x.as_i64())
 }
 
@@ -746,6 +747,7 @@ fn await_inclusion(relay: &Relay, txid: &str, max_block: i64) -> bool {
 fn chain_id(relay: &Relay) -> Result<String, String> {
     let text = relay.get("/status")?;
     let v: Value = serde_json::from_str(&text).map_err(|e| format!("bad relay reply: {e}"))?;
+    crate::tx::set_address_format(&v);
     v.get("chain_id").and_then(|x| x.as_str()).map(String::from)
         .ok_or_else(|| "relay did not report a chain id".into())
 }

@@ -54,6 +54,11 @@ def _heal_addr(a):
     untouched (an operator may legitimately configure something we can't parse; that must not be dropped).
     """
     try:
+        from protocol import ADDRESS_FORMAT
+        if ADDRESS_FORMAT >= 2:
+            # a format-2 address hashes the whole key: it cannot be derived from an older string. An old entry stays
+            # as it is (and matches nobody) until the operator replaces it — doc/reroll.md, the gen-28 checklist.
+            return a
         if not validate_address(a):
             return a                                  # not an address of ANY generation — leave it alone
         if is_address(a):

@@ -31,12 +31,16 @@ const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
 // An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (betanet-14).
 export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
-const ADDR_BODY = 42;
 // mirrors protocol.ADDRESS_FORMAT (tests/test_address_format_v2.py). A format-2 address cannot be derived from a
 // format-1 one (it hashes the whole key), so a signed-in session is keyed by the format: after the change the old
 // session is simply not read, the game shows signed-out, and the next sign-in returns the new address.
 const ADDR_FORMAT = 1;
-const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");
+// 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
+const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
+const ADDR_BODY = 42;
+export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;
+const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");
+export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
 
 /**
  * SELF-HEAL a signed-in session address across an address-format change (the betanet-7 debrand:
@@ -54,6 +58,9 @@ export function healAddress(a) {
   if (!a || typeof a !== "string") return null;
   a = a.trim().toLowerCase();
   if (ADDR_RE.test(a)) return a;                                  // already current — the common path
+  // A FORMAT-2 ADDRESS CANNOT BE HEALED FROM A FORMAT-1 ONE (it hashes the whole key): anything that is not a current
+  // address is dropped, forcing a clean sign-in. Only the old prefix-change heal (format 1 -> format 1) remains.
+  if (ADDR_FORMAT >= 2) return null;
   if (!/^[a-z][a-z0-9]*[0-9a-f]{46}$/.test(a)) return null;       // not an address of any generation
   try {
     const tail = a.slice(0, -4);                                  // prefix + body
@@ -551,7 +558,7 @@ export const shortAddr = (addr, head = 6, tail = 5) => {
   const s = String(addr);
   // Length is the discriminator now that there is no prefix. Game UIs render sentinels through disp()
   // (hexholm passes "?", pool passes "cpu"), and those must come back verbatim rather than truncated.
-  if (s.length !== ADDR_BODY + 4) return s;
+  if (s.length !== ADDR_LEN) return s;
   return s.slice(0, head) + "…" + s.slice(-tail);
 };
 export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : shortAddr(addr));

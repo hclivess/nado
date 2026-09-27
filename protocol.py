@@ -54,8 +54,7 @@ DENOMINATION = 10_000_000_000  # 1e10
 ADDRESS_PREFIX = ""             # removed at alphanet-14; kept as a constant so the derivation stays one place
 MSIG_PREFIX = "msig"           # policy accounts (M-of-N multisig) — the 1-vs-3 split; see doc/address-format.md
 ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
-ADDRESS_CHECKSUM = 2           # checksum bytes (4 hex chars), blake2b over prefix+body
-ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 49 today
+# ADDRESS_CHECKSUM and ADDRESS_LENGTH depend on the format: defined next to ADDRESS_FORMAT (after CHAIN_GENERATION).
 
 # ---- DOMAIN-SEPARATION TAGS (consensus; brand-carrying) --------------------------------------------
 # Renamed ONLY at a CHAIN_GENERATION reroll — everything re-derives from genesis there (see
@@ -595,6 +594,12 @@ CHAIN_GENERATION = 27   # 26 was built with every registered identity leased (79
 # format 1. Keyed to the generation like every gate: gen 27 keeps format 1, the reroll and any later chain is format 2.
 ADDRESS_FORMAT = 1 if CHAIN_GENERATION == 27 else 2
 DOMAIN_ADDRESS_V2 = "nado-address-v2"
+# THE OLD FORMAT IS REJECTED BY SHAPE (operator, 2026-09-27: "i expect nado to reject the old address format"). A format-2
+# address carries a 4-byte checksum, so it is 50 characters and every format-1 address (46) fails validation everywhere —
+# a payment to an address copied from the old chain cannot silently burn coins. It also makes a typo slip through one
+# time in 2^32 instead of 2^16.
+ADDRESS_CHECKSUM = 2 if ADDRESS_FORMAT == 1 else 4          # checksum bytes, blake2b over prefix+body
+ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 46 (format 1) / 50 (format 2)
 
 # CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
 # The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at

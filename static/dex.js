@@ -13,7 +13,7 @@
 import { htlcScript, p2wshAddress } from "./btcleg.js?v=93bc368e";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=dc3d1162";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js?v=b35591fc";
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR,
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR, isAddress,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
@@ -1581,7 +1581,7 @@ async function otcAction(what, o, btn) {
     const owes = sells ? od.maker : od.taker;            // ASK: the maker sells NADO; BID: the taker provides it
     const to = sells ? od.taker : od.maker;
     if (dapp.me !== owes) return alertBar("The NADO side of this swap is not yours to lock.");
-    if (!/^[0-9a-f]{46}$/.test(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
+    if (!isAddress(String(to))) return alertBar("The counterparty's NADO address isn't visible yet — wait for their fill to land.");
     const blocks = Math.max(1, od.expn - (dapp.cursor || 0));
     if (!sells && !(Number(od.expf) > Math.floor(Date.now() / 1000) + blocks * 8 + 7200)) {   // C3, at lock time
       return alertBar("The maker's foreign deadline no longer sits safely past this order's NADO expiry "

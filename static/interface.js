@@ -87,11 +87,17 @@ const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
 const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
-const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + 4;                     // 46 today
-const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$");    // strict (lowercase)
+// ADDRESS FORMAT 2 (gen 28): mirrors protocol.ADDRESS_FORMAT and static/nadotx.js (tests/test_address_format_v2.py).
+// A key-derived address commits to the WHOLE public key; a multisig address (its own prefix) keeps format 1.
+const ADDR_FORMAT = 1;
+const DOMAIN_ADDRESS_V2 = "nado-address-v2";
+// 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
+const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
+const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;          // 46 (format 1) / 50 (format 2)
+const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
-const MSIG_RE_I = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + 4) + "}$", "i");   // policy accounts are payable
+const MSIG_RE_I = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$", "i");   // policy accounts are payable
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
 // DOMAIN-SEPARATION TAGS — mirror protocol.py DOMAIN_* (renamed only at a CHAIN_GENERATION reroll).
 const DOMAIN_MSIG = "msig-v2", DOMAIN_REGISTER = "register-v1";
@@ -245,15 +251,11 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
 /* ----------------------------------------------------------------------------------------------
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
-// ADDRESS FORMAT 2 (gen 28): mirrors protocol.ADDRESS_FORMAT and static/nadotx.js (tests/test_address_format_v2.py).
-// A key-derived address commits to the WHOLE public key; a multisig address (its own prefix) keeps format 1.
-const ADDR_FORMAT = 1;
-const DOMAIN_ADDRESS_V2 = "nado-address-v2";
 function makeAddress(pubHex, prefix = ADDR_PREFIX) {
   const body = prefix + (ADDR_FORMAT >= 2 && prefix === ADDR_PREFIX
     ? blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2)
     : pubHex.slice(0, ADDR_BODY));
-  return body + blake2bHash(body, 2);
+  return body + blake2bHash(body, ADDR_CK);
 }
 function legacyAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
 
@@ -350,7 +352,7 @@ function renderAccountBar() {
 function validateAddress(addr) {
   addr = (addr || "").trim();
   if (!ADDR_RE.test(addr)) return false; // prefix + body + checksum hex
-  return blake2bHash(addr.slice(0, -4), 2) === addr.slice(-4);
+  return blake2bHash(addr.slice(0, -ADDR_CK * 2), ADDR_CK) === addr.slice(-ADDR_CK * 2);
 }
 
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
@@ -1183,7 +1185,7 @@ function nodeAttestInit() {
 // THE VOUCHED LIST: addresses this device attested (node-local), each with its lease state. Refreshed when the panel
 // opens and once a minute from the dashboard; the summary badge says how many are due so the reminder survives collapse.
 const LS_VOUCHED = "nado_vouched";
-function vouchedList() { try { const l = JSON.parse(localStorage.getItem(LS_VOUCHED) || "[]"); return Array.isArray(l) ? l.filter((a) => /^[0-9a-f]{46}$/.test(a)) : []; } catch (e) { return []; } }
+function vouchedList() { try { const l = JSON.parse(localStorage.getItem(LS_VOUCHED) || "[]"); return Array.isArray(l) ? l.filter((a) => ADDR_RE.test(a)) : []; } catch (e) { return []; } }
 function vouchedAdd(addr) { const l = vouchedList(); if (!l.includes(addr)) { l.push(addr); try { localStorage.setItem(LS_VOUCHED, JSON.stringify(l)); } catch (e) {} } }
 function vouchedRemove(addr) { try { localStorage.setItem(LS_VOUCHED, JSON.stringify(vouchedList().filter((a) => a !== addr))); } catch (e) {} renderVouched().catch(() => {}); }
 async function renderVouched() {
@@ -1228,7 +1230,7 @@ async function renderVouched() {
 }
 function nodeAttestAddr() {
   const v = ($("nodeAttestAddr") && $("nodeAttestAddr").value || "").trim().toLowerCase();
-  return /^[0-9a-f]{46}$/.test(v) ? v : "";
+  return ADDR_RE.test(v) ? v : "";
 }
 
 // What a tap would do for that address right now, from the relay's view of the account: no lease → needs a tap;

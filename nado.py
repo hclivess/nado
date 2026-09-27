@@ -559,6 +559,9 @@ async def status(request):
             # chain (e.g. a pre-relaunch betanet) never enter the status/consensus pools — a foreign
             # chain's advertised weight would otherwise stall production via the caught-up gate.
             "chain_id": CHAIN_ID,
+            # which address formula this chain uses (protocol.ADDRESS_FORMAT): clients that derive addresses outside the
+            # served JS — the TPM helper binary — read it here before deriving any key's address
+            "address_format": __import__("protocol").ADDRESS_FORMAT,
             # WALLET-GRADE ORIGIN (config.get_public_relay_url): where a BROWSER can reach this node's API over
             # TLS, or null. Peers collect it through status_pool and serve it from /relays, which is how a web
             # wallet learns where else it can go when its own relay stops answering. Opt-in per operator.

@@ -131,9 +131,32 @@ pub fn create_txid(tx: &Map<String, Value>) -> String {
 /// long hash yields a checksum that rejects every valid address. And the input is the CANONICAL
 /// encoding of the body string, quotes included, because that is what the node hashes.
 pub fn make_address(public_key: &str) -> String {
-    let body: String = public_key.chars().take(42).collect();
-    let checksum = blake2b_hex(&canonical_bytes(&Value::String(body.clone())), 2);
+    // FORMAT 2 (gen 28, protocol.ADDRESS_FORMAT): the body is blake2b over the canonical ["nado-address-v2", <lowercase
+    // key hex>], 21 bytes — the WHOLE key, because format 1's first 21 bytes are the key's rho, which a forger chooses.
+    // The format is the CHAIN'S, learned from the relay's /status (set_address_format) before any key is derived.
+    let v2 = ADDRESS_FORMAT.load(Ordering::Relaxed) >= 2;
+    let body: String = if v2 {
+        blake2b_hex(&canonical_bytes(&Value::Array(vec![
+            Value::String("nado-address-v2".into()), Value::String(public_key.to_ascii_lowercase())])), 21)
+    } else {
+        public_key.chars().take(42).collect()
+    };
+    // format 2 carries a 4-byte checksum (a 50-char address), so a format-1 address is rejected by shape everywhere
+    let checksum = blake2b_hex(&canonical_bytes(&Value::String(body.clone())), if v2 { 4 } else { 2 });
     format!("{body}{checksum}")
+}
+
+use std::sync::atomic::{AtomicU8, Ordering};
+static ADDRESS_FORMAT: AtomicU8 = AtomicU8::new(1);
+
+/// The chain's address format, as its relay reports it in /status (`address_format`; a relay that predates the field
+/// is format 1). Only 1 and 2 exist; anything else is ignored.
+pub fn set_address_format(v: &Value) {
+    if let Some(f) = v.get("address_format").and_then(|x| x.as_u64()) {
+        if f == 1 || f == 2 {
+            ADDRESS_FORMAT.store(f as u8, Ordering::Relaxed);
+        }
+    }
 }
 
 pub struct Keys {
@@ -217,4 +240,25 @@ pub fn selftest() -> Result<(), String> {
 /// sha256, for identifying a certificate. Named so it is not mistaken for the chain's blake2b hashing.
 pub fn blake2b_free_sha256(data: &[u8]) -> String {
     hex(&crate::sha::sha256(data))
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::*;
+
+    // Vectors from the node (ops/address_ops.py) for the key "AB" x 1312. Format 1 slices the key as given; format 2
+    // hashes the LOWERCASED whole key — so the helper and the node derive the same address in both formats.
+    const PK: &str = "AB";
+    #[test]
+    fn address_matches_the_node_in_both_formats() {
+        let pk = PK.repeat(1312);
+        ADDRESS_FORMAT.store(1, Ordering::Relaxed);
+        assert_eq!(make_address(&pk), "ABABABABABABABABABABABABABABABABABABABABABf406");
+        ADDRESS_FORMAT.store(2, Ordering::Relaxed);
+        assert_eq!(make_address(&pk), "15229657b46158e93d7412385f721a4a145b9f14d1f610f218");
+        set_address_format(&serde_json::json!({"address_format": 7}));      // not a format: ignored
+        assert_eq!(make_address(&pk), "15229657b46158e93d7412385f721a4a145b9f14d1f610f218");
+        set_address_format(&serde_json::json!({"address_format": 1}));
+        assert_eq!(make_address(&pk), "ABABABABABABABABABABABABABABABABABABABABABf406");
+    }
 }

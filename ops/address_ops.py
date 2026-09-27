@@ -12,7 +12,7 @@ def proof_sender(public_key, sender):
         return False
 
 
-def validate_address(address: str, checksum_size: int = 2, allow_reserved: bool = True):
+def validate_address(address: str, checksum_size: int = None, allow_reserved: bool = True):
     """CONSENSUS address check: the trailing 4 hex chars must be the blake2b checksum of everything
     before them (catches typos/truncation deterministically on every node). Reserved protocol names
     pass only when allow_reserved — see below for why the sender slot must set it False."""
@@ -21,9 +21,15 @@ def validate_address(address: str, checksum_size: int = 2, allow_reserved: bool 
     # the sender slot so a tx can't claim to originate FROM a reserved name.
     if address in RESERVED_RECIPIENTS:
         return allow_reserved
+    # THE CHECKSUM LENGTH IS THE FORMAT'S (protocol.ADDRESS_CHECKSUM: 2 bytes in format 1, 4 in format 2), and the
+    # comparison uses it — this compared the last 4 hex chars whatever `checksum_size` said, so a longer checksum was
+    # never actually checked. The exact length is required too: a format-1 address on a format-2 chain is rejected.
+    from protocol import ADDRESS_CHECKSUM, ADDRESS_LENGTH
+    n = (ADDRESS_CHECKSUM if checksum_size is None else checksum_size) * 2
     if (isinstance(address, str)
-            and len(address) > checksum_size * 2
-            and address[-4:] == make_checksum(address[: -checksum_size * 2])):
+            and len(address) == (ADDRESS_LENGTH if checksum_size is None else len(address))
+            and len(address) > n
+            and address[-n:] == make_checksum(address[:-n], checksum_size=n // 2)):
         return True
     return False
 
@@ -46,13 +52,15 @@ def is_address(value) -> bool:
         return False
     if MSIG_PREFIX and value.startswith(MSIG_PREFIX):
         return False
-    body = value[:-4]
+    from protocol import ADDRESS_CHECKSUM
+    n = ADDRESS_CHECKSUM * 2
+    body = value[:-n]
     if not body or any(c not in "0123456789abcdef" for c in body):
         return False
-    return value[-4:] == make_checksum(body)
+    return value[-n:] == make_checksum(body, checksum_size=ADDRESS_CHECKSUM)
 
 
-def make_checksum(public_key: str, checksum_size: int = 2) -> str:
+def make_checksum(public_key: str, checksum_size: int = None) -> str:
     """2-byte (4-hex) blake2b checksum appended to addresses so a typo/truncation fails validation
     instead of silently burning coins.
 
@@ -60,6 +68,8 @@ def make_checksum(public_key: str, checksum_size: int = 2) -> str:
     digest. blake2b keys its output length into the IV, so those are different values and slicing a 32-byte
     hash yields a wrong checksum that rejects every valid address. The in-tree JS does this correctly
     (static/interface.js: blake2bHash(body, 2) -> noble blake2b {dkLen: 2}); match that, not a slice."""
+    if checksum_size is None:
+        from protocol import ADDRESS_CHECKSUM as checksum_size        # the format's (2 bytes format 1, 4 format 2)
     checksum = blake2b_hash(data=public_key, size=checksum_size)
     return checksum
 
@@ -106,7 +116,7 @@ def legacy_address(public_key: str) -> str:
     account was called on a format-1 chain — the legacy-claim path — never for authorising anything on its own."""
     from protocol import ADDRESS_PREFIX, ADDRESS_BODY
     body = f"{ADDRESS_PREFIX}{public_key[:ADDRESS_BODY]}"
-    return body + make_checksum(body)
+    return body + make_checksum(body, checksum_size=2)             # format 1's 2-byte checksum, always
 
 
 if __name__ == "__main__":
