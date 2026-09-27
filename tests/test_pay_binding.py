@@ -194,12 +194,12 @@ def t_a_frozen_records_proof_still_refuses_a_pay():
     """The refusal is still right where records are PINNED across the span: a payout inside one would make
     the proof assert something false."""
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    # There are TWO `if not _records_bound:` blocks (the epoch-boundary assert comes first), so anchor on
-    # the one that actually guards the PAY scan rather than on whichever appears earliest.
-    i = src.rindex("if not _records_bound:", 0, src.index("IO_PAY"))
-    seg_src = src[i:i + 600]
+    # c28ef7b2 moved the inline PAY scan into settle_proof_io_check(proof, records_bound, ...): pin the body AND its call
+    fn = src[src.index("def settle_proof_io_check"):src.index("def exit_amount_check")]
+    seg_src = fn[fn.index("if not records_bound:"):][:600]
     assert "IO_PAY" in seg_src, "the frozen path must still scan for a PAY"
     assert "assert int(_e[0]) != _zkvm.IO_PAY" in seg_src, "and still refuse it"
+    assert "settle_proof_io_check(proof, _records_bound, block_height)" in src, "validate_transaction must still call it"
 
 
 def t_the_derivation_runs_only_after_the_calldata_binding():

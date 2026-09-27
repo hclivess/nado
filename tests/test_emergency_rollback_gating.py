@@ -224,8 +224,12 @@ def t_the_production_gate_is_cheap_on_the_healthy_path():
     probe_at = nm.index("_vs = self._fork_state()")
     grace_at = nm.index("MINORITY_GRACE_S")
     assert grace_at < probe_at, "the probe runs before the hysteresis has passed"
-    reset_at = nm.index("self._prod_minority_since = None")
+    # the LAST reset is the "back on the majority hash" branch. The first one (20edbb8a, 2026-09-02) belongs to the
+    # "the majority tip is our own ancestor" branch above the probe; index() found that one and this check failed
+    # for 25 days on correct code.
+    reset_at = nm.rindex("self._prod_minority_since = None")
     assert reset_at > probe_at, "the hysteresis timer is never reset when back on the majority hash"
+    assert nm.count("self._prod_minority_since = None") >= 2, "the own-ancestor branch no longer clears the timer"
 
 
 # ---- STABLE TIE-BREAK: splits must resolve once, not see-saw for hours --------------------------------

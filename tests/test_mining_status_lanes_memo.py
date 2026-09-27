@@ -20,6 +20,8 @@ def main():
         return {"b1": {"bonded": 10 ** 12, "fidelity": 2, "bond_since": 0}}
     block_ops.get_open_registry = _open
     block_ops.get_bonded_registry = _bonded
+    # 0cb61b8f: bonded_producer_cut reads get_block_reward() -> get_bonded_registry() on every poll, outside the lane memo
+    block_ops.get_block_reward = lambda: 10 ** 9
     kv_ops.env_path = lambda home=None: "/x"
     kv_ops.write_generation = lambda: GEN[0]
     block_ops._ms_lanes_cache[0] = None

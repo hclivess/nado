@@ -48,6 +48,10 @@ def make_core(pct):
     core = types.SimpleNamespace(
         memserver=mem, logger=logger,
         last_auto_bond_epoch=-1, auto_bond_baseline=None,
+        # every field CoreClient.__init__ gives the compounder. auto_bond_dividend (2af0ce3f, 2026-09-19) was missing,
+        # maybe_auto_bond's catch-all turned the AttributeError into "Auto-bond skipped", and four checks failed
+        # for eight days as "no bond submitted" — which reads like a logic regression, not a stale fixture.
+        auto_bond_dividend=0,
         maybe_auto_bond=lambda: Core.maybe_auto_bond(core))
     return core, mem, kd
 
