@@ -6,6 +6,9 @@ peer's snapshot used to take the donor's anchors on faith: the root of a fake tr
 (zk audit 2026-09-26 F2, reproduced: forged note, pool_value negative, a forged exit). Pins: after any number of appends,
 save+load reproduces the live anchor window exactly (an honest restart changes nothing); an injected fake root is
 dropped; and an exit counter below a pending record's key is floored so the next exit cannot overwrite it.
+The wide pool is pinned at both of its depths (12 below ZK_HARDEN_HEIGHT, 48 from it): the snapshot carries the depth, a
+pool deepened at the gate holds exactly the window a restart rebuilds, and the depth-48 rebuild is O(n) tree hashes
+(through the incremental frontier), not one tree per window prefix.
 
 Run: python3 tests/test_snapshot_anchors_rebuilt.py
 """
@@ -32,15 +35,50 @@ def check(name, ok, detail=""):
 
 rnd = random.Random(7)
 wide_cm = lambda: tuple(rnd.randrange(1, 2**63) for _ in range(4))
-for n in (0, 1, 5, ANCHOR_WINDOW - 1, ANCHOR_WINDOW, ANCHOR_WINDOW + 7):
+# at BOTH depths the wide pool can have (12 below ZK_HARDEN_HEIGHT, 48 from it): the snapshot carries the depth, and the
+# window is rebuilt at it
+for depth in (12, 48):
+    for n in (0, 1, 5, ANCHOR_WINDOW - 1, ANCHOR_WINDOW, ANCHOR_WINDOW + 7):
+        live = WideShieldedPool(depth=depth)
+        for _ in range(n):
+            live.append(wide_cm())
+        back = WideShieldedPool.from_dict(json.loads(json.dumps(live.to_dict())))
+        check(f"wide pool d{depth}, {n} notes: a restart reproduces the depth, root and anchor window exactly",
+              (back.depth, back.root(), back.anchors) == (depth, live.root(), live.anchors))
+        fake = live.to_dict()
+        fake["anchors"] = fake["anchors"] + [Z.to_hex(wide_cm())]
+        check(f"wide pool d{depth}, {n} notes: a donor's extra root is dropped",
+              WideShieldedPool.from_dict(fake).anchors == live.anchors)
+
+# a pool DEEPENED at the gate (12 -> 48) holds exactly the window a restart rebuilds — else a node that restarted after
+# the switch and one that did not would accept different anchors, and an anchor decides whether a transfer applies
+for n in (0, 3, ANCHOR_WINDOW + 20):
     live = WideShieldedPool()
     for _ in range(n):
         live.append(wide_cm())
-    back = WideShieldedPool.from_dict(json.loads(json.dumps(live.to_dict())))
-    check(f"wide pool, {n} notes: a restart reproduces the anchor window exactly", back.anchors == live.anchors)
-    fake = live.to_dict()
-    fake["anchors"] = fake["anchors"] + [Z.to_hex(wide_cm())]
-    check(f"wide pool, {n} notes: a donor's extra root is dropped", WideShieldedPool.from_dict(fake).anchors == live.anchors)
+    old_roots = set(live.anchors)
+    deep = live.deepened(48)
+    for _ in range(3):
+        deep.append(wide_cm())
+    back = WideShieldedPool.from_dict(json.loads(json.dumps(deep.to_dict())))
+    check(f"deepened pool, {n}+3 notes: a restart reproduces the window", (back.anchors, back.depth) == (deep.anchors, 48))
+    check(f"deepened pool, {n}+3 notes: no depth-12 root survives the switch", not (old_roots & set(deep.anchors)))
+
+# the depth-48 rebuild is O(n) once, not one tree per window prefix (O(128·n)): count the tree hashes
+import execnode.shielded_wide as _SW
+_calls = [0]
+_real = _SW.Z.merkle_node
+def _counting(a, b):
+    _calls[0] += 1
+    return _real(a, b)
+big = [wide_cm() for _ in range(3000)]
+_SW.Z.merkle_node = _counting
+try:
+    WideShieldedPool.from_dict({"commitments": [Z.to_hex(c) for c in big], "depth": 48})
+finally:
+    _SW.Z.merkle_node = _real
+bound = 2 * len(big) + (ANCHOR_WINDOW + 1) * 48 + 48
+check(f"a 3,000-note depth-48 snapshot rebuilds in O(n) tree hashes ({_calls[0]} <= {bound})", _calls[0] <= bound, _calls[0])
 
 for n in (0, 3, 130):
     live = FieldShieldedPool()

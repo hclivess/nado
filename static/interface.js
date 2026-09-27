@@ -23,7 +23,7 @@ import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
 import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
-import * as alghash2 from "./alghash2.js?v=931768eb";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
+import * as alghash2 from "./alghash2.js?v=08c4277c";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
 import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
@@ -9565,7 +9565,8 @@ async function _onDeviceProve2(wit, execBase) {
   const leaves = lv.leaves || [];
   const rules = await _proofRulesNow();
   if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
-  if (shieldWide()) return _onDeviceProve3(wit, execBase, leaves, rules);
+  // the tree depth is the exec node's (ZK_HARDEN_HEIGHT: 12 -> 48), read from the same response as the leaves
+  if (shieldWide()) return _onDeviceProve3(wit, execBase, leaves, rules, alghash2.treeDepth(lv));
   const cm = BigInt(wit.cm);
   const idx = leaves.findIndex((l) => BigInt(l) === cm);
   if (idx < 0) throw new Error("note not in the pool yet");
@@ -9597,10 +9598,12 @@ async function _onDeviceProve2(wit, execBase) {
 }
 // WIDE on-device prover (SHIELD_WIDE_HEIGHT): the same flow over alghash2 digests and joinsplit3 — leaves and
 // digests are 64-hex, the path is the wide tree's, and the bundle is a `joinsplit3` one. Same shape of result.
-async function _onDeviceProve3(wit, execBase, leaves, rules) {
+// THE PATH IS BUILT AT THE DEPTH THE EXEC NODE REPORTS (`depth`, from /exec/field_leaves), never a constant here: the
+// pool is depth 12 below ZK_HARDEN_HEIGHT and 48 from it, and the node refuses a proof whose D is not the depth in force.
+async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
   const idx = leaves.findIndex((l) => String(l) === String(wit.cm));
   if (idx < 0) throw new Error("note not in the pool yet");
-  const { sibs, dirs } = alghash2.treePath(leaves, idx);
+  const { sibs, dirs } = alghash2.treePath(leaves, idx, depth);
   const J = sjoinsplit3;
   const bt = J.buildTrace(wit.nsk.map(BigInt), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
     BigInt(wit.v1), alghash2.fromHex(wit.o1), BigInt(wit.r1), BigInt(wit.v2), alghash2.fromHex(wit.o2), BigInt(wit.r2));

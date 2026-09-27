@@ -107,17 +107,28 @@ export const eq = (a, b) => a.length === b.length && a.every((x, i) => mod(BigIn
 
 // The fixed-depth wide tree — execnode/shielded_wide.py's tree_path, so the path folds to the pool's root
 // exactly as joinsplit3's MEMBERSHIP blocks do.
-export const TREE_DEPTH = 12;
-let _EMPTY = null;
-function EMPTY() {
-  if (!_EMPTY) { _EMPTY = [EMPTY_LEAF]; for (let i = 0; i < TREE_DEPTH; i++) _EMPTY.push(merkleNode(_EMPTY[i], _EMPTY[i])); }
+// THE DEPTH IS THE EXEC NODE'S, NOT THIS FILE'S (ZK_HARDEN_HEIGHT, zk audit 2026-09-26): the pool grows from depth 12 to
+// 48 at a height, and /exec/field_leaves reports the depth to build at. treeDepth(response) reads it; LEGACY_TREE_DEPTH
+// is only what an exec node from before that field means (it never said, and it was 12). Never pass a constant here.
+export const LEGACY_TREE_DEPTH = 12;
+export function treeDepth(leavesResponse) {
+  const d = leavesResponse && leavesResponse.depth;
+  if (d === undefined || d === null) return LEGACY_TREE_DEPTH;
+  const n = Number(d);
+  // a sanity bound, not the protocol's list: the node's verifier decides which depth it accepts
+  if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("the exec node reported a bad shielded tree depth: " + d);
+  return n;
+}
+const _EMPTY = [EMPTY_LEAF];
+function EMPTY(depth) {
+  while (_EMPTY.length <= depth) { const e = _EMPTY[_EMPTY.length - 1]; _EMPTY.push(merkleNode(e, e)); }
   return _EMPTY;
 }
-export function treePath(leaves, pos) {
-  const em = EMPTY();
+export function treePath(leaves, pos, depth = LEGACY_TREE_DEPTH) {
+  const em = EMPTY(depth);
   const sibs = [], dirs = [];
   let idx = pos, level = leaves.map((x) => (typeof x === "string" ? fromHex(x) : x.map(BigInt)));
-  for (let d = 0; d < TREE_DEPTH; d++) {
+  for (let d = 0; d < depth; d++) {
     const sib = idx ^ 1;
     sibs.push(sib < level.length ? level[sib] : em[d]);
     dirs.push(idx & 1);
@@ -127,11 +138,11 @@ export function treePath(leaves, pos) {
   }
   return { sibs, dirs };
 }
-export function treeRoot(leaves) {
-  if (!leaves.length) return EMPTY()[TREE_DEPTH];
-  const em = EMPTY();
+export function treeRoot(leaves, depth = LEGACY_TREE_DEPTH) {
+  if (!leaves.length) return EMPTY(depth)[depth];
+  const em = EMPTY(depth);
   let level = leaves.map((x) => (typeof x === "string" ? fromHex(x) : x.map(BigInt)));
-  for (let d = 0; d < TREE_DEPTH; d++) {
+  for (let d = 0; d < depth; d++) {
     const nxt = [];
     for (let i = 0; i < level.length; i += 2) nxt.push(merkleNode(level[i], i + 1 < level.length ? level[i + 1] : em[d]));
     level = nxt;
