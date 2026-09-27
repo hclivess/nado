@@ -9,7 +9,7 @@ COUNT of objects (DA_RETAIN = 24) over an open /da/publish, so junk publishes ev
 lagging exec node had fetched it.
 
 Properties pinned here (no network: the DA fetch is stubbed to fail deterministically, or served from a temp store):
-  * REPRODUCTION — below EXEC_DA_DEADLINE_HEIGHT (the live rule while the gate is dormant) the block stalls on every
+  * REPRODUCTION — below EXEC_DA_DEADLINE_HEIGHT (the live rule until block 29000) the block stalls on every
     retry however far finality runs ahead: cursor frozen, the bridge deposit in the same block never credited;
   * from the gate, a merely SLOW proof still stalls the whole block until finality reaches h + EXEC_DA_WAIT_BLOCKS
     (all-or-nothing is kept — nothing half-applies);
@@ -274,7 +274,7 @@ def t_the_finalized_tail_bounds_the_stall_and_the_provisional_one_does_not():
     prov = src[src.index("async def _refresh_provisional"):src.index("async def tail_loop")]
     assert "finalized=" not in "".join(l for l in prov.splitlines() if "_apply_block(" in l), \
         "a provisional tail passes finalized — a speculative view would refuse ahead of the finalized verdict"
-    assert "EXEC_DA_DEADLINE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1" in open(protocol.__file__).read()
+    assert "EXEC_DA_DEADLINE_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1" in open(protocol.__file__).read()   # activated 2026-09-27
 
 
 for _name, _fn in list(globals().items()):

@@ -1634,9 +1634,7 @@ def split_open_block_reward(reward: int):
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
 #                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
 #                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
-#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer,
-#                                    dormant at 2^62 until the exec fleet runs the release)
-#                                    CERT_CLOCK_HEIGHT (dormant 2^62 -> 1)
+#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2252,28 +2250,33 @@ ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 #   for a bounded lag (<= EXEC_DA_WAIT_BLOCKS behind finality while under attack). Exec-layer consensus (it moves the exec
 #   state root the settle quorum signs), so it waits for the exec fleet to run the release; then a height ahead of the
 #   exec fleet's adoption (rule 3). An exec node on older code keeps stalling where this one refuses.
-EXEC_DA_DEADLINE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+EXEC_DA_DEADLINE_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1   # activated 2026-09-27 (operator: "should you? yes.")
 # ~9.6 min at 6.4 s. The tail first reaches block h at finality (~FINALITY_DEPTH = 45 behind the tip) and the provisional
 # tail has already tried the fetch before that, so an honest proof has been retried for well over five minutes when the
 # deadline falls. A literal, not 2 * FINALITY_DEPTH: tuning finality must never silently move an exec verdict.
 EXEC_DA_WAIT_BLOCKS = 90
-# CERTIFICATE VALIDITY READS THE CHAIN CLOCK (audit 2026-09-25 HIGH, "certificate validity is judged by block_timestamp,
+# CERTIFICATE VALIDITY READS AGREED TIME (audit 2026-09-25 HIGH, "certificate validity is judged by block_timestamp,
 # which is outside the block hash"). Every device and endorsement certificate's notBefore/notAfter was judged against the
 # ANCHOR block's block_timestamp (ops/transaction_ops._anchor_time, verify_register_device, and the tpm_enrol apply in
 # ops/account_ops). That field is outside the block-hash preimage (block_ops.construct_block hashes it as None) and under
 # leaderless assembly every node stamps its OWN copy of every block with its own wall clock: measured 2026-09-27 on eight
 # fleet nodes, blocks 24000/24500/24700/24800 carried one hash each and block_timestamps up to 12 s apart. Nothing bounds
-# it from below either (valid_block_timestamp caps only now + BLOCK_TIMESTAMP_DRIFT), so a peer serving sync can hand
-# out a same-hash block stamped 0 or years back. A certificate whose validity edge fell inside that spread was valid on
-# one node and invalid on the next — a fork with no attacker — and a relay could pick the edge at will. From this height
-# the clock is protocol.chain_clock(anchor height): a pure function of the height, the exec layer's TIME since gen 26.
-# TRADE-OFF, measured: chain_clock LAGS wall time whenever blocks are slower than CHAIN_CLOCK_CADENCE_DS (betanet-8 at
-# block 24886: 11.8 h behind after 2.3 days, 8.1 s real cadence vs 6.4 s assumed). A lagging clock accepts a certificate
-# that expired within the lag and REFUSES one issued within it (a fresh Windows AIK certificate, a just-rotated Android
-# remote-provisioned intermediate), so re-measure the cadence at the reroll (doc/reroll.md) before this goes live.
-# Dormant (2^62) on gen 27: switching a live chain's clock would move every verdict by the current lag at once. 1 at the
-# next reroll. INVARIANT: no consensus certificate check may read block_timestamp or wall time at or above this height.
-CERT_CLOCK_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# it from below either, so a peer serving sync can hand out a same-hash block stamped 0 or years back. A certificate whose
+# validity edge fell inside that spread was valid on one node and invalid on the next — a fork with no attacker — and a
+# relay could pick the edge at will.
+# FROM THIS HEIGHT the clock is transaction_ops.agreed_time(anchor height): the MEDIAN over distinct senders of the
+# timestamps the bonded committee signed into its own duty transactions in the CERT_CLOCK_WINDOW blocks before the anchor's
+# epoch — committed bodies every node reads identically, written by validators' real clocks. chain_clock(height) was the
+# first candidate and was REJECTED: it assumes a cadence and ran 11.8 h behind after 2.3 days (8.1 s real vs 6.4 s
+# assumed), which would have refused every freshly issued certificate. Measured on betanet-8 (2026-09-27, heights 19086,
+# 25086, 27086): 11 senders per window, spread 2-10 min, median 26-31 min behind real time. That lag is absorbed by
+# CERT_NOT_BEFORE_GRACE on notBefore only (transaction_ops.cert_verdict) — expiry is still judged at agreed time, so the
+# grace never accepts an expired certificate. Live height ahead of the fleet's adoption; 1 at the next reroll.
+# INVARIANT: no consensus certificate check may read block_timestamp or wall time at or above this height.
+CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1
+CERT_CLOCK_WINDOW = 120                 # blocks (2 epochs): ~11 committee senders on betanet-8
+CERT_CLOCK_MIN_SAMPLES = 3              # fewer distinct senders (a newborn chain) -> chain_clock, agreed as well
+CERT_NOT_BEFORE_GRACE = 86400           # a certificate may be up to a day "early" (agreed time lags ~30 min; CA skew)
 
 
 def ek_roots_at(height) -> frozenset:

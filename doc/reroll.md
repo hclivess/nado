@@ -34,8 +34,8 @@ Live gates, keyed `== 27` — live from block 1 at the next reroll: `EK_ENROL_RO
 `SPAM_HARDEN_HEIGHT` (no free repeatable transactions: key allowlist + size caps, msgkey first bind only, tpm_ready bonded, one enrolment per chip per block, settle/xmsg paid outside the duty, one device move per epoch — doc/security-review-2026-09-27.md),
 `ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, no NOP, wide pool depth 48),
 `TPM_DRAW_UNGRINDABLE_HEIGHT` (28500: the TPM enrolment's challengers are drawn from the endorsement identity and the beacon two epochs after the enrol, never from the client-chosen enrolment id — ops/tpm_enrol "COMMIT, THEN DRAW").
-`EXEC_DA_DEADLINE_HEIGHT` (2^62, dormant; exec layer, audit 2026-09-25 "exec stall": a DA-carried op whose proof is still unavailable once finality reaches its block + `EXEC_DA_WAIT_BLOCKS` is refused instead of stalling the exec tail forever).
-`CERT_CLOCK_HEIGHT` (dormant 2^62 on gen 27: certificate validity is judged at `chain_clock(anchor height)` instead of the anchor block's uncommitted `block_timestamp` — audit 2026-09-25 HIGH; re-measure `CHAIN_CLOCK_CADENCE_DS` first, since a lagging chain clock refuses certificates issued within the lag).
+`EXEC_DA_DEADLINE_HEIGHT` (29000, activated by the operator 2026-09-27; exec layer, audit 2026-09-25 "exec stall": a DA-carried op whose proof is still unavailable once finality reaches its block + `EXEC_DA_WAIT_BLOCKS` is refused instead of stalling the exec tail forever).
+`CERT_CLOCK_HEIGHT` (29000: certificate validity is judged at `agreed_time(anchor height)` — the median of the committee's duty-tx clocks, with a one-day notBefore grace — instead of the anchor block's uncommitted `block_timestamp` — audit 2026-09-25 HIGH; re-measure `CHAIN_CLOCK_CADENCE_DS` first, since a lagging chain clock refuses certificates issued within the lag).
 `DEVICE_ATTEST_HEIGHT` is a plain `1`, not generation-keyed.
 
 **Every gen-25 gate is gone** (both cleanup slices below). Inlined as unconditional rules after the betanet-8 reroll
