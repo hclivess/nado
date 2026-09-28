@@ -1653,6 +1653,7 @@ def split_open_block_reward(reward: int):
 #                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
 #                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1),
 #                                    SETTLE_STAKE_FLOOR_HEIGHT (-> 1; dormant 2^62 on gen 27, reroll-only)
+#   reroll-only (2^62 on gen 27)     TX_HEX_CANONICAL_HEIGHT (-> 1; txid-excluded witnesses are canonical hex)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -1730,6 +1731,33 @@ TPM_DRAW_DELAY_EPOCHS = 2
 TX_TOP_KEYS = frozenset(("sender", "recipient", "amount", "fee", "timestamp", "data", "nonce", "public_key",
                          "max_block", "min_block", "chain_id", "txid", "signature", "multisig"))
 TX_TOP_KEYS_BY_RECIPIENT = {"msgkey": frozenset(("kem_pub",)), "register": frozenset(("device", "posw"))}
+# ONE TRANSACTION, ONE BYTE STRING (audit 2026-09-25, MED "sig/pubkey hex re-encoding"). The txid hashes the body WITHOUT
+# `public_key` (PUBKEY-ONCE) and without `signature` (string or entry list), yet the block hash, the upcoming-block hash
+# and every stored block commit the FULL body. Verification decoded both through bytes.fromhex, which accepts UPPERCASE,
+# mixed case and whitespace between (and around) the bytes, and an entry list took any extra keys and a `public_key` of
+# null. So anyone relaying a transaction could re-encode it into another byte string with the SAME txid that still
+# validated: nodes holding "the same" tx built different blocks from one mempool (every node assembles every block, so
+# that is a fork driver), the pre-assembly reconcile could not heal it (it compares txids, which agree), dedup-by-txid
+# kept whichever copy came first — and a mixed-case key on an account's FIRST tx was stored verbatim as its PUBKEY-ONCE
+# key, after which the owner's own lowercase-key transactions failed key_bound (a relayer could lock an account out).
+# From this height every txid-excluded witness must be canonical: `public_key`, when the key is present, exactly
+# MLDSA44_PUBKEY_HEX lowercase hex; `signature` exactly MLDSA44_SIG_HEX lowercase hex, or a list of entries each exactly
+# {"signature"[, "public_key"]} with both canonical (ops/transaction_ops.excluded_witness_check). Honest clients already
+# emit this (Python .hex(), noble bytesToHex, Rust {:02x}).
+# ALSO FROM THIS HEIGHT (found while fixing the above, reproduced in the same test): a tx signed with an entry LIST
+# carries NO top-level public_key. Nothing verifies that key when the signature is a list, yet PUBKEY-ONCE stored it as
+# the sender's key when none was stored, and the implicit auth config then authorizes it: a relayer adding its own key
+# to an account's list-signed FIRST tx took the account over. Live on gen 27 for any account whose first tx is a
+# list-signed one that does not install an auth config; this reroll-only gate does NOT close it on the live chain.
+# NOT CLOSED by this rule, because no encoding rule can close it: the SIGNER can mint any number of valid signatures over
+# one txid (ML-DSA signing is hedged), and a relayer can still strip/add a public_key the account already published
+# (top-level, or a sole authenticator's entry key), reorder an entry list, or drop surplus entries. Only a block hash
+# that stops committing witness bytes closes those (tests/test_excluded_hex_fields_are_canonical.py pins them as known
+# open, so the day one closes the test says so).
+# Reroll-only: a live flip would refuse txs some nodes admitted; (1 << 62) on gen 27, from block 1 on gen 28.
+TX_HEX_CANONICAL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+MLDSA44_PUBKEY_HEX = 2 * 1312            # ML-DSA-44 public key (FIPS 204 Table 2), hex chars
+MLDSA44_SIG_HEX = 2 * 2420               # ML-DSA-44 signature, hex chars
 TX_MAX_BYTES = 64 * 1024                 # canonical bytes; the largest honest non-proof tx on betanet-8 was 16.5 KB
 TX_MAX_BYTES_PER_EXTRA_SIG = 8 * 1024    # an auth / multisig entry (ML-DSA signature + key) beyond the first
 TPM_ENROL_MAX_BYTES = 192 * 1024         # an endorsement chain of up to 8 DER certificates of 8 KiB, in hex, + the key

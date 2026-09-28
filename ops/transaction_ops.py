@@ -1402,6 +1402,9 @@ def create_txid(transaction):
     # to the sender address by proof_sender, stored on-chain on first use), not part of the tx
     # identity — so a later tx may OMIT the 1312-byte ML-DSA key and still produce the same txid.
     # The browser light-miner computes the identical txid (canonical_bytes, public_key excluded).
+    # INVARIANT (audit 2026-09-25 "sig/pubkey hex re-encoding"): whatever this hash leaves out (public_key here, the
+    # signature via validate_txid) still enters the block hash, so it must have exactly ONE valid spelling —
+    # excluded_witness_check pins it. Excluding a new field without adding it there reopens tx re-encoding.
     body = {k: v for k, v in transaction.items() if k != "public_key"}
     return blake2b_hash(body)
 
@@ -1679,6 +1682,56 @@ def tx_shape_check(transaction, block_height):
     assert size <= cap, f"transaction is {size} bytes, over the {cap}-byte limit for a {recipient if recipient in RESERVED_RECIPIENTS else 'transfer'}"
 
 
+_LOWER_HEX = frozenset("0123456789abcdef")
+
+
+def _canonical_hex(s, n: int) -> bool:
+    """Exactly `n` lowercase hex characters — the ONE spelling of a byte string. bytes.fromhex also takes uppercase,
+    mixed case and whitespace, which is precisely the freedom excluded_witness_check removes."""
+    return isinstance(s, str) and len(s) == n and all(c in _LOWER_HEX for c in s)
+
+
+def excluded_witness_check(transaction, block_height):
+    """From TX_HEX_CANONICAL_HEIGHT: every witness the txid does NOT hash has exactly one byte-string spelling.
+
+    create_txid excludes `public_key` and validate_txid strips `signature` (a string, or the auth/multisig entry list
+    with each entry's own key), but the block hash and the upcoming-block hash commit the full body. Before the gate a
+    relayer could re-encode those fields (case, whitespace, an entry's extra keys or a null key) into a different body
+    with the SAME txid that still validated — two nodes then held "the same" tx and built different blocks from one
+    mempool, and a mixed-case key on an account's first tx became its stored PUBKEY-ONCE key, locking the owner's own
+    transactions out (audit 2026-09-25, MED "sig/pubkey hex re-encoding"; tests/test_excluded_hex_fields_are_canonical.py).
+
+    INVARIANT: a new txid-excluded field on a transaction, or a new key inside a signature entry, must be added HERE with
+    its exact canonical form, or it reopens the re-encoding hole. Pure shape — no state read — so the mempool and
+    verify_block agree. Height None or below the gate: no rule (gen-27 replay is unchanged)."""
+    if block_height is None or int(block_height) < _P.TX_HEX_CANONICAL_HEIGHT:
+        return
+    pk_n, sig_n = _P.MLDSA44_PUBKEY_HEX, _P.MLDSA44_SIG_HEX
+    # PRESENT means canonical: an honest client that relies on the key it already published OMITS the field, it never
+    # sends null or "" (validate_origin reads both as "omitted", so either was a free re-encoding of an absent key)
+    if "public_key" in transaction:
+        assert _canonical_hex(transaction["public_key"], pk_n), \
+            f"public_key must be exactly {pk_n} lowercase hex characters"
+    sig = transaction.get("signature")
+    if isinstance(sig, list):
+        # NO TOP-LEVEL KEY BESIDE AN ENTRY LIST (found while fixing the above, reproduced): with a list, every key rides
+        # in its entry and verification never reads the top-level public_key — yet index_transactions stored it as the
+        # sender's PUBKEY-ONCE key when none was stored, and the implicit config then authorizes exactly that key. So a
+        # relayer adding ITS key to an account's list-signed FIRST tx (same txid, still valid) took the account over.
+        # sign_entries, the wallet's auth/multisig builders and draft_multisig_spend never send one.
+        assert "public_key" not in transaction, "a transaction signed with an entry list carries no top-level public_key"
+        for entry in sig:
+            assert isinstance(entry, dict) and set(entry) in ({"signature"}, {"signature", "public_key"}), \
+                "a signature entry carries exactly signature and, optionally, public_key"
+            assert _canonical_hex(entry["signature"], sig_n), \
+                f"a signature entry's signature must be exactly {sig_n} lowercase hex characters"
+            if "public_key" in entry:
+                assert _canonical_hex(entry["public_key"], pk_n), \
+                    f"a signature entry's public_key must be exactly {pk_n} lowercase hex characters"
+    else:
+        assert _canonical_hex(sig, sig_n), f"signature must be exactly {sig_n} lowercase hex characters"
+
+
 def validate_transaction(transaction, logger, block_height, deep=False):
     """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
     chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
@@ -1696,6 +1749,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     # because the txid hashes every key and nothing listed the allowed ones — a fee-exempt message was free AND
     # unbounded in size. Checked first, before any signature or state read, so an oversized body costs one encode.
     tx_shape_check(transaction, block_height)
+    # ONE TX, ONE BYTE STRING (protocol.TX_HEX_CANONICAL_HEIGHT; audit 2026-09-25 "sig/pubkey hex re-encoding"): the
+    # witnesses the txid does not hash must have exactly one spelling, BEFORE validate_origin decodes them leniently.
+    # INVARIANT: never move this after validate_origin or behind a branch — every tx kind, multisig and auth included.
+    excluded_witness_check(transaction, block_height)
     # HALT-CLASS (codec safety, audit 2026-07): `data` must survive the STORAGE codec, which
     # incorporate_block -> save_block packs with ensure_ascii=False. A lone UTF-16 surrogate ("\ud800")
     # passes the txid/signature (canonical_bytes is ensure_ascii=True) yet makes that pack raise
@@ -2847,7 +2904,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
 
 def sort_transaction_pool(transactions: list, key="txid") -> list:
     """dedup + sort a tx list by `key` (txid). Dedup is BY TXID, not by deep content — every pooled tx
-    passed validate_txid (the txid is the content hash), so txid-equality IS content-equality; the old
+    passed validate_txid (the txid is the content hash), so txid-equality IS content-equality EXCEPT for the witnesses
+    the txid excludes (signature, public_key): those are pinned to one spelling only from TX_HEX_CANONICAL_HEIGHT, and
+    even then a signer's re-signature or a stripped already-published key is a second valid body for one txid (audit
+    2026-09-25; tests/test_excluded_hex_fields_are_canonical.py "KNOWN OPEN") — first-seen wins here; the old
     sort_list_dict deep-froze the full posw payloads (~36 KiB/tx) on a per-second consensus path, which
     starved the event loop at mempool scale. Output is identical for validated inputs."""
     seen = set()
@@ -3174,6 +3234,8 @@ def validate_txid(transaction, logger):
         tx_copy = transaction.copy()
         txid_to_check = tx_copy["txid"]
         tx_copy.pop("txid")
+        # the signature (string or entry list, each entry's key with it) is outside the txid, so its spelling is pinned
+        # by excluded_witness_check, not here (audit 2026-09-25 "sig/pubkey hex re-encoding")
         tx_copy.pop("signature")
         txid_genuine = create_txid(tx_copy)
         if txid_genuine == txid_to_check:
@@ -3311,6 +3373,13 @@ def index_transactions(block, sorted_transactions, logger):
         # PUBKEY-ONCE (#19): record the sender's pubkey on its FIRST indexed tx (the one carrying it),
         # so later txs from this sender (e.g. every-epoch heartbeats) may omit the 1312-byte key.
         # Idempotent (skip if already stored); revert is handled symmetrically in unindex_transactions.
+        # STORED VERBATIM, SO ITS SPELLING IS CONSENSUS: key_bound later compares this string exactly, and before
+        # TX_HEX_CANONICAL_HEIGHT a relayer could re-case a first tx's key (same txid, still valid) and lock the owner's
+        # own lowercase-key transactions out (audit 2026-09-25). INVARIANT: never normalise here instead — rewriting
+        # the stored spelling changes the accounts root for gen-27 replay; excluded_witness_check refuses it upstream.
+        # AND ONLY AN AUTHENTICATED KEY MAY LAND HERE: with an entry-list signature nothing verifies the top-level key,
+        # so storing it let a relayer install its own key as a never-sent account's authenticator (reproduced; refused
+        # from TX_HEX_CANONICAL_HEIGHT by excluded_witness_check). A new path that stores a key must store a VERIFIED one.
         pk = transaction.get("public_key")
         if pk:
             sender_acc = get_account(transaction["sender"], create_on_error=False)

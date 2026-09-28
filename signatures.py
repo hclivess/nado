@@ -59,6 +59,11 @@ _CRYPTO_LOCK = threading.Lock()
 
 def unhex(hexed):
     """hex str -> bytes; every key/seed/signature crosses the API as hex, this is the one decoder."""
+    # LENIENT BY DESIGN, NOT A SPELLING CHECK (audit 2026-09-25 "sig/pubkey hex re-encoding"): fromhex takes uppercase,
+    # mixed case and whitespace, so many strings decode to one key or signature. A transaction's signature/public_key
+    # are outside its txid, so that freedom let a relayer re-encode a tx without changing its id; consensus pins their
+    # spelling in ops/transaction_ops.excluded_witness_check (protocol.TX_HEX_CANONICAL_HEIGHT). INVARIANT: a new
+    # consensus path that decodes a txid-excluded hex field must run behind that check, never rely on this decoder.
     return b"".fromhex(hexed)
 
 

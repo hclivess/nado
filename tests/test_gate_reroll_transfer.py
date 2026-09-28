@@ -31,6 +31,7 @@ REROLL = {
     "EXEC_DA_DEADLINE_HEIGHT": 1,                  # exec layer: a DA op whose proof never arrives is refused, not waited on forever
     "CERT_CLOCK_HEIGHT": 1,                        # live at 29000 on gen 27: certificate validity reads agreed_time
     "SETTLE_STAKE_FLOOR_HEIGHT": 1,                # dormant (2^62) on gen 27: a settled root needs 1/16 of ALL bonded stake
+    "TX_HEX_CANONICAL_HEIGHT": 1,                  # reroll-only (2^62 on gen 27): txid-excluded witnesses are canonical hex
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

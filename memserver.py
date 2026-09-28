@@ -1019,6 +1019,9 @@ class MemServer:
             # whole pool doing full-dict __eq__ on every genuinely NEW tx (the one case the fast path
             # at the top of this method cannot short-circuit). Kept rather than deleted because another
             # thread can have added this txid since that fast path ran.
+            # NOT THE CONVERSE: one txid is not one body — the signature/public_key are outside the txid, so a second
+            # spelling of a pooled tx lands here as "Already present" and the first-seen copy stays, on each node its
+            # own (audit 2026-09-25; TX_HEX_CANONICAL_HEIGHT pins the hex spelling, the "KNOWN OPEN" variants remain).
             if transaction.get("txid") in self._pool_txid_set():
                 # Idempotent: already pooled (e.g. a re-gossiped heartbeat) — a benign success, not an
                 # error (matches the "already present" handling clients now expect).
