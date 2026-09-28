@@ -40,13 +40,13 @@ def fake_get(url, timeout=15):
 
 B._get = fake_get
 B._cid_from_client = lambda: CID
-cid, src = B.resolve_cid("http://127.0.0.1:9273")
+cid, src = B.resolve_cid("http://127.0.0.1:1")
 check("an exec node restarting (refused twice, then up) is waited for and the contract is found", cid == CID, (cid, src))
 
 state["refusals"] = 10 ** 9
 B.EXEC_WAIT_S = 0
 try:
-    B.resolve_cid("http://127.0.0.1:9273")
+    B.resolve_cid("http://127.0.0.1:1")
     check("an exec node that stays down still fails", False)
 except SystemExit as e:
     check("an exec node that stays down still fails, naming it as down", "did not answer" in str(e), str(e))
