@@ -32,6 +32,7 @@ REROLL = {
     "CERT_CLOCK_HEIGHT": 1,                        # live at 29000 on gen 27: certificate validity reads agreed_time
     "SETTLE_STAKE_FLOOR_HEIGHT": 1,                # dormant (2^62) on gen 27: a settled root needs 1/16 of ALL bonded stake
     "TX_HEX_CANONICAL_HEIGHT": 1,                  # reroll-only (2^62 on gen 27): txid-excluded witnesses are canonical hex
+    "BLOCK_SIG_CHAIN_BIND_HEIGHT": 1,              # dormant on gen 27: block signatures name generation + genesis (slash replay)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

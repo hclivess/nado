@@ -813,6 +813,9 @@ class CoreClient(threading.Thread):
                             # winner, attach the detached authorship signature; a relay (or a fast-forward
                             # catch-up copy) leaves it unsigned — still valid (win-offline). Not signing a
                             # fast-forward copy avoids any same-height authorship edge case while behind.
+                            # INVARIANT (audit 2026-09-25 cross-generation slash replay): sign ONLY through
+                            # sign_block — from BLOCK_SIG_CHAIN_BIND_HEIGHT its message names this chain, and a
+                            # hand-built message here would be refused by every peer (and be slashable elsewhere).
                             if (not _peer_ahead
                                     and self.memserver.address == block_candidate["block_creator"]
                                     and block_candidate["block_number"] > self.last_signed_height):

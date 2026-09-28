@@ -64,6 +64,7 @@ DOMAIN_MSIG = "msig-v2"                       # multisig virtual-pubkey derivati
 DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW binding (ops/mining_ops)
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
+DOMAIN_BLOCKSIG = "blocksig-v2"               # chain-bound block-authorship signature (ops/block_ops, BLOCK_SIG_CHAIN_BIND_HEIGHT)
 
 GENESIS_TIMESTAMP = 1790328896  # betanet-8 (gen 26): the carry-everything reroll (2026-09-25T09:34:56Z). Was 1788772790 = betanet-7 (gen 25): the REAL-DEVICE reroll (2026-09-07T09:19:50Z). Was 1788269732 = betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
                                 # timestamp so no prior-generation block links in.
@@ -1654,6 +1655,8 @@ def split_open_block_reward(reward: int):
 #                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1),
 #                                    SETTLE_STAKE_FLOOR_HEIGHT (-> 1; dormant 2^62 on gen 27, reroll-only)
 #   reroll-only (2^62 on gen 27)     TX_HEX_CANONICAL_HEIGHT (-> 1; txid-excluded witnesses are canonical hex)
+#                                    BLOCK_SIG_CHAIN_BIND_HEIGHT (dormant 2^62 on gen 27 -> 1: block signatures
+#                                    name their generation + genesis, so old-chain signatures are no slash evidence)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2360,6 +2363,25 @@ CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1
 CERT_CLOCK_WINDOW = 120                 # blocks (2 epochs): ~11 committee senders on betanet-8
 CERT_CLOCK_MIN_SAMPLES = 3              # fewer distinct senders (a newborn chain) -> chain_clock, agreed as well
 CERT_NOT_BEFORE_GRACE = 86400           # a certificate may be up to a day "early" (agreed time lags ~30 min; CA skew)
+# A BLOCK SIGNATURE NAMES ITS CHAIN (audit 2026-09-25 MED "cross-generation slash replay: the block signature lacks
+# chain_id"). The winner's detached authorship signature covered blake2b(height, parent_hash, block_hash) and nothing
+# else, and verify_equivocation_proof never asks whether the proof's parent_hash is a block of THIS chain. Validator keys
+# carry across rerolls and slash markers do not, so on a new generation (reproduced in
+# tests/test_slash_evidence_is_this_chain_only.py):
+#   * any real double-sign from ANY earlier chain — already slashed there or not — slashes the carried bond again here;
+#   * a reroll that reuses the genesis (gens 7-9 reused alphanet-8's; gens 26 and 27 share CHAIN_ID and
+#     GENESIS_TIMESTAMP) makes every block-1 winner's honest old-generation signature and its honest new one a valid
+#     "equivocation" at the same parent: anyone holding the old block can burn the bond.
+# FROM THIS HEIGHT the signed message is blake2b(DOMAIN_BLOCKSIG, CHAIN_GENERATION, genesis hash, height, parent_hash,
+# block_hash) (block_ops._block_sig_message_fields), so a signature made for any other generation or genesis does not
+# verify here at all — neither as a block signature nor as slash evidence — and evidence below this height is refused
+# once the rule is live. Bound to the GENERATION and the genesis hash, never to the CHAIN_ID label: those two are fixed
+# for a chain's whole life (a different value is a different chain and purges), while a CHAIN_ID rename must never
+# change a signature's bytes (tests/test_genesis_sync_invariant: the relaunch-3 -> alphanet-1 rename wedged sync).
+# The signature is DETACHED (outside the block hash), so block hashes, fork choice and the state root are unchanged;
+# what moves is which signature bytes verify_block_signature accepts. Dormant on gen 27 (its signatures and every slash
+# replay byte-identically); live from block 1 on the next chain, where every node runs this code from genesis.
+BLOCK_SIG_CHAIN_BIND_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 
 
 def ek_roots_at(height) -> frozenset:

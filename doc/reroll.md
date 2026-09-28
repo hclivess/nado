@@ -40,6 +40,7 @@ execnode/stark/calls_commit.py "THE BINDING IS WIDE"),
 `CERT_CLOCK_HEIGHT` (29000: certificate validity is judged at `agreed_time(anchor height)` — the median of the committee's duty-tx clocks, with a one-day notBefore grace — instead of the anchor block's uncommitted `block_timestamp` — audit 2026-09-25 HIGH; re-measure `CHAIN_CLOCK_CADENCE_DS` first, since a lagging chain clock refuses certificates issued within the lag).
 `SETTLE_STAKE_FLOOR_HEIGHT` (dormant `1 << 62` on gen 27, reroll-only: a quorum-settled exec root also needs its attesting shares above `SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN` = 1/16 of ALL bonded shares — audit 2026-09-25 HIGH "lone-settler drain": on a fresh chain, or after every other settler is silent `SETTLE_ANCHOR_LONG_CURSORS`, one 10-NADO bond was the whole quorum and paid itself the escrows through exits. **At the reroll, measure** settling stake against `total_bonded_shares` (`/mining_status`, and the settle txs of the last few hundred blocks): on 2026-09-28 it was 125 of 952 shares; the floor freezes settlement if non-settling bonded stake outgrows the settlers 16:1).
 `TX_HEX_CANONICAL_HEIGHT` (reroll-only: `(1 << 62)` on gen 27, never live there — audit 2026-09-25 MED "sig/pubkey hex re-encoding": every txid-excluded witness — `public_key`, `signature`, each signature-list entry — must be exact-length lowercase hex, entries exactly `{signature[, public_key]}`, and a list-signed tx carries no top-level `public_key`; before it a relayer could re-encode a tx into different bytes with the same txid, a mixed-case first-tx key locked its owner out, and a relayer's key added beside the entry list of a never-sent account's first tx was stored as that account's key and then spent from it — reproduced, LIVE on gen 27, not closed there by this gate. Signer re-signing, public_key strip/add, entry reorder/drop stay open — they need a witness-free block hash).
+`BLOCK_SIG_CHAIN_BIND_HEIGHT` (dormant `2^62` on gen 27 → 1: the winner's block signature names `CHAIN_GENERATION` and the genesis hash, so a signature made for any other chain is neither a valid block signature nor slash evidence — audit 2026-09-25 "cross-generation slash replay"; validator keys carry across rerolls, slash markers do not).
 `DEVICE_ATTEST_HEIGHT` is a plain `1`, not generation-keyed.
 
 **Every gen-25 gate is gone** (both cleanup slices below). Inlined as unconditional rules after the betanet-8 reroll
@@ -131,7 +132,11 @@ must be reviewable as "new genesis, same rules".
    derives the new address from the key it already holds. The rest (~142 NADO) stay at their old address, rejected by
    shape, until their owner's wallet claims them with the seed proof.
 8. Edit: `CHAIN_ID`, `GENESIS_TIMESTAMP`, **`CHAIN_GENERATION`** — the last is THE purge trigger; forgetting it means
-   nothing purges. Delete `private/genesis_alloc.dat`. No gate edits are needed (see above).
+   nothing purges. `CHAIN_ID` and `GENESIS_TIMESTAMP` must both be NEW values, never an earlier generation's: an FFG
+   double-vote proof is bound to its chain only by the tx `chain_id`, so a reused `CHAIN_ID` makes an old
+   generation's attestations slash evidence on the new chain (gens 26 and 27 shared both; no block was built on 26).
+   `tests/test_slash_evidence_is_this_chain_only.py` refuses a pair it has seen before — add the new pair to its table.
+   Delete `private/genesis_alloc.dat`. No gate edits are needed (see above).
 9. `tests/test_genesis_alloc_format.py`, `tests/test_gate_reroll_transfer.py` (update its generation), commit.
 10. `systemctl start nado` — the node self-purges on the generation mismatch. Check `/get_supply` equals the carry
    total and the node's `open:N` log line equals the tip's live collector count, then push and kick the wave **from a
