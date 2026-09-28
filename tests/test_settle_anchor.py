@@ -53,7 +53,17 @@ leak = ([(c, "honest1", GOOD) for c in range(STALL, STALL + 3 * W, 60)] + [(STAL
 check("the leak still works: honest2 goes dark, honest1 (60% of stake) alone justifies later cursors",
       justified(leak, STALL + 3 * W - 60, GOOD))
 far = STALL + P.SETTLE_ANCHOR_LONG_CURSORS + W + 10
-check("a committee silent past SETTLE_ANCHOR_LONG_CURSORS no longer blocks (the documented bound)",
+_gate = P.SETTLE_STAKE_FLOOR_HEIGHT
+P.SETTLE_STAKE_FLOOR_HEIGHT = 1 << 62                   # the gen-27 rule: no stake floor
+check("gen 27: a committee silent past SETTLE_ANCHOR_LONG_CURSORS no longer blocks (the documented bound)",
       justified(honest + [(far, "attacker", FAKE)], far, FAKE))
+# THE LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): that bound handed the whole quorum to one B_MIN bond. From
+# SETTLE_STAKE_FLOOR_HEIGHT (1 at the reroll) the attester also needs 1/16 of ALL bonded stake, which silence cannot
+# shrink — tests/test_lone_settler_cannot_settle.py is the end-to-end reproduction.
+P.SETTLE_STAKE_FLOOR_HEIGHT = 1
+check("from the stake floor: the lone bond past the long silence is refused",
+      not justified(honest + [(far, "attacker", FAKE)], far, FAKE))
+check("from the stake floor: the honest committee still justifies", justified(honest, STALL, GOOD))
+P.SETTLE_STAKE_FLOOR_HEIGHT = _gate
 print("ALL PASS" if not fails else f"{len(fails)} FAILURES")
 sys.exit(1 if fails else 0)

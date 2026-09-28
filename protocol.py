@@ -250,6 +250,10 @@ SETTLE_DEN = 3
 # a withdrawal record (funds stuck, not lost). Same trust trade FFG accepted: going dark forfeits
 # your say, and a hostile LONE settler only controls the root if every honest settler has been dark
 # for the whole window (~2.4h at 6s blocks; systemd restarts make that an outage, not an accident).
+# That sentence did not hold where the window is EMPTY — a fresh chain, a fresh namespace, or every other settler silent
+# past SETTLE_ANCHOR_LONG_CURSORS — where one B_MIN bond was the whole quorum (audit 2026-09-25, the lone-settler drain).
+# SETTLE_STAKE_FLOOR_HEIGHT adds a floor of ALL bonded stake that no silence can shrink. INVARIANT: never let the
+# denominator shrink without that floor behind it.
 # The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
 SETTLE_ACTIVITY_CURSORS = 1440
 
@@ -1647,7 +1651,8 @@ def split_open_block_reward(reward: int):
 # GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
 #                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
 #                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
-#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1)
+#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1),
+#                                    SETTLE_STAKE_FLOOR_HEIGHT (-> 1; dormant 2^62 on gen 27, reroll-only)
 #   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2134,6 +2139,33 @@ DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
 # leave the stake basis entirely. Judged on the namespace's top attested cursor, which cannot exceed the block height.
 # SETTLE_ANCHOR_HEIGHT: gen 25 gate at 232900; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall longer than this reopens the leak
+
+# A SETTLED ROOT NEEDS A FLOOR OF ALL BONDED STAKE, NOT ONLY OF THE ACTIVE SETTLERS (audit 2026-09-25 HIGH "lone-settler
+# drain after 100,800 silent cursors / on a fresh chain"; reproduced in tests/test_lone_settler_cannot_settle.py). The
+# quorum denominator (settlement_ops.active_settler_shares) is the stake that ATTESTED recently, so it is EMPTY until
+# somebody settles (a fresh chain, a fresh namespace) and it empties again once the other settlers have been silent for
+# SETTLE_ANCHOR_LONG_CURSORS. In both states the first bonded account to settle is the whole denominator: one B_MIN
+# bond (10 NADO) justified any root it liked, and dividend_withdraw / unshield / bridge_withdraw proven against that root
+# paid DIVIDEND_POOL, SHIELD_ESCROW and BRIDGE_ESCROW out to it. At a reroll every settler starts from zero at once,
+# so the gap opens at block 1 (on betanet-8 the honest settlers' first attestations landed in block 12).
+# From this height a quorum-justified root ALSO needs its attesting shares to exceed SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN
+# of ALL bonded shares — a quantity going silent cannot shrink (only unbonding moves it). Validity-proven roots are
+# untouched: they need no quorum.
+# THE FRACTION IS MEASURED, NOT CHOSEN (2026-09-28, live betanet-8 at tip 27777): 67 bonded validators, 952 shares, and
+# FOUR of them settle (48 + 47 + 25 + 5 = 125 shares, 13.1 %). The 2/3-of-active rule already needs ~84 of those 125;
+# 1/16 of 952 is 60, so any three of the four, or the two large ones together, still settle, and the leak still lets
+# the settlers keep going when one of them is dark. Half of bonded stake (the first proposal) would have frozen every
+# exit on the live chain — the alphanet failure the inactivity leak was built to end. A freeze returns if non-settling
+# bonded stake grows past 16x the settling stake (~2.1x today) without a settler joining: WATCH THAT RATIO at a reroll.
+# Counting DISTINCT settlers was rejected: a second 10-NADO key costs nothing (per-key rules are void); stake is the
+# only dial an attacker cannot split around. Judged on the settled cursor: a block carrying cursor c has height >=
+# max(c, 1) (a settle never exceeds its block height and block 0 carries no txs), so max(cursor, 1) >= gate is "every
+# attestation that could only have landed from the gate on" — and on a fresh chain (gate 1) it covers cursor 0 too.
+# INVARIANT: every exit path reads the settled root through settlement_ops.settlement_justified; never add one that
+# reads attestations directly, or it skips this floor. Dormant (2^62) on gen 27; live from block 1 at the reroll.
+SETTLE_STAKE_FLOOR_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+SETTLE_FLOOR_NUM = 1
+SETTLE_FLOOR_DEN = 16
 
 # ONE SLASH PER OFFENCE PER BLOCK (review 2026-09-25, reproduced). The in-block uniqueness key for a slash read the
 # block-authorship proof's fields, which a double-vote proof does not carry, so it fell back to a per-txid key and two
