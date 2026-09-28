@@ -1276,6 +1276,8 @@ def reserved_uniqueness_key(tx):
         #    enrolments of one chip (distinct attestation keys) all passed inside a single block; the key is the chip's
         #    endorsement identity, sha256 of its SubjectPublicKeyInfo, the same handle the kernel's verdict names.
         from protocol import SPAM_HARDEN_HEIGHT
+        if r == "legacy_claim":
+            return ("legacy_claim", str((tx.get("data") or {}).get("legacy")))     # one claim per old address per block
         if r in ("tpm_ready", "tpm_enrol") and int(tx.get("max_block") or 0) >= SPAM_HARDEN_HEIGHT:
             if r == "tpm_ready":
                 return ("tpm_ready", tx["sender"])
@@ -1991,6 +1993,30 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                         assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
                             "register: this identity is already bound for life to another hardware wallet — use that device, " \
                             "or bind this one to a new account"
+    elif recipient == "legacy_claim":
+        # LEGACY CLAIM (protocol.LEGACY_CLAIM_HEIGHT; operator: "sign with your old key and get the coins"). An account
+        # whose key no chain ever saw was carried at its OLD address, which format 2 refuses as a sender; its owner's
+        # key K claims it from K's format-2 address (validate_origin has bound the sender to K). The claim names the
+        # old address and its EXACT balance, so apply moves a stated amount and a rollback moves exactly that back, and
+        # a second claim fails because the balance is then zero. ACCEPTED RISK, stated at the gate: a key sharing the
+        # old address's 21 bytes can claim first. INVARIANT: only ever the whole balance, only an address with no key.
+        from protocol import LEGACY_CLAIM_HEIGHT, ADDRESS_BODY, ADDRESS_PREFIX
+        from ops.address_ops import legacy_address
+        assert block_height is not None and int(block_height) >= LEGACY_CLAIM_HEIGHT, "legacy claims are not enabled on this chain"
+        assert transaction["amount"] == 0 and transaction["fee"] == 0, "legacy_claim carries no amount and no fee"
+        data = transaction.get("data")
+        assert isinstance(data, dict) and set(data) == {"legacy", "amount"}, "legacy_claim data is {legacy, amount}"
+        legacy, amt = data["legacy"], data["amount"]
+        assert isinstance(legacy, str) and len(legacy) == len(ADDRESS_PREFIX) + ADDRESS_BODY + 4, "not an old-format address"
+        assert legacy != transaction["sender"], "a legacy claim cannot name its own sender"
+        pk = transaction.get("public_key") or (get_account(transaction["sender"], create_on_error=False) or {}).get("public_key")
+        assert isinstance(pk, str) and pk, "legacy_claim needs the claimant's public key"
+        assert legacy_address(pk) == legacy, "this key's old address is not the one claimed"
+        old = get_account(legacy, create_on_error=False)
+        assert old and not old.get("public_key"), "only an old address whose key no chain ever saw can be claimed"
+        assert int(old.get("bonded", 0) or 0) == 0, "a bonded old address cannot be claimed"
+        assert isinstance(amt, int) and not isinstance(amt, bool) and amt > 0 and amt == int(old.get("balance", 0) or 0), \
+            "legacy_claim amount must be the old address's whole balance"
     elif recipient == "tpm_ready":
         # VOLUNTEERING TO BE DRAWN. Carries nothing and proves nothing: it is an operator declaring that
         # this node runs the challenger loop, so the draw can prefer addresses that have said so over

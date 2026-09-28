@@ -12,8 +12,9 @@ wallet then derives the new address from the same private key with nothing to do
 carries exactly the trust of one recorded on this chain: it is the key that first sent from that address.
 
 AN ACCOUNT WHOSE KEY NO CHAIN EVER SAW CANNOT BE RE-KEYED: a format-1 address commits to only 21 bytes that anyone can
-match. It is carried AT ITS OLD 46-CHARACTER ADDRESS, which a format-2 chain rejects by shape — so no key can ever send
-from it, the forger included — and its owner recovers it with the seed-proof claim. Any bonded stake it held is released into its balance: a bonded identity nobody can sign for
+match. It is carried AT ITS OLD 46-CHARACTER ADDRESS, which a format-2 chain rejects as a sender, and its owner's wallet
+claims it with the key it already holds (`legacy_claim`, protocol.LEGACY_CLAIM_HEIGHT — the operator accepted that a
+forger sharing the address's 21 bytes could claim first). Any bonded stake it held is released into its balance: a bonded identity nobody can sign for
 would be drawn to produce and attest and could do neither.
 
 Multisig addresses derive from their members' addresses, which all change here, and the descriptor is not on chain, so

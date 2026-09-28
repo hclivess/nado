@@ -30,6 +30,7 @@ REROLL = {
     "TPM_DRAW_UNGRINDABLE_HEIGHT": 1,              # live at 28500 on gen 27
     "EXEC_DA_DEADLINE_HEIGHT": 1,                  # exec layer: a DA op whose proof never arrives is refused, not waited on forever
     "CERT_CLOCK_HEIGHT": 1,                        # live at 29000 on gen 27: certificate validity reads agreed_time
+    "LEGACY_CLAIM_HEIGHT": 1,                      # reroll-only (2^62 on gen 27): an unconverted old address is claimed by its key
     "SETTLE_STAKE_FLOOR_HEIGHT": 1,                # dormant (2^62) on gen 27: a settled root needs 1/16 of ALL bonded stake
     "TX_HEX_CANONICAL_HEIGHT": 1,                  # reroll-only (2^62 on gen 27): txid-excluded witnesses are canonical hex
     "BLOCK_SIG_CHAIN_BIND_HEIGHT": 1,              # dormant on gen 27: block signatures name generation + genesis (slash replay)

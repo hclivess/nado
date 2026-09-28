@@ -4492,6 +4492,39 @@ async function refreshMiningChart(addr, acc, ms) {
   if (_mineData) drawMiningChart(_mineData);
 }
 
+// LEGACY CLAIM (gen 28, protocol.LEGACY_CLAIM_HEIGHT; operator: "sign with your old key and get the coins"). An account
+// whose key no chain ever saw was carried at its OLD 46-character address, which the new address format refuses as a
+// sender. This wallet holds the key, so it derives that old address (legacyAddress) and, if coins are still there, signs a
+// legacy_claim that moves the whole balance to this account's new address — no prompt: the coins only ever move from this
+// key's own old address to this key's own new one. Only from the BASE key (a rotated signer would claim for the wrong
+// key) and only when the chain runs format 2 (before it, the old address IS this account). Throttled; the chain refuses
+// a second claim, so a retry costs nothing.
+function buildLegacyClaimTx(wallet, legacy, amount, targetBlock, timestamp) {
+  const draft = {
+    sender: wallet.address, recipient: "legacy_claim", amount: 0, timestamp,
+    data: { legacy, amount }, nonce: randNonce(), public_key: wallet.publicKey,
+    max_block: targetBlock, chain_id: CHAIN_ID,
+  };
+  return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+async function claimLegacy(acc) {
+  const w = state.wallet;
+  if (ADDR_FORMAT < 2 || !w || !w.privateKey || makeAddress(w.publicKey) !== w.address) return;
+  const legacy = legacyAddress(w.publicKey);
+  if (legacy === w.address) return;
+  const at = (state._legacyClaimAt ||= {});
+  if (Date.now() - (at[legacy] || 0) < 60000) return;
+  at[legacy] = Date.now();
+  const old = await getAccount(legacy);
+  const bal = old && !old.public_key ? BigInt(old.balance || 0) : 0n;
+  if (bal <= 0n) return;
+  if (bal > BigInt(Number.MAX_SAFE_INTEGER)) return;   // a JSON number above 2^53 would lose precision (no such account exists)
+  const nado = (Number(bal) / 1e10).toString();
+  const out = await submitTransaction(buildLegacyClaimTx(w, legacy, Number(bal), await nextTargetBlock(), nowSeconds()));
+  if (out && out.data && out.data.result)
+    log("ok", i18("legacy.claiming", "Moving {n} NADO from your old address to this one — it arrives with the next blocks.", { n: nado }));
+}
+
 async function refreshDashboard() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
@@ -4504,6 +4537,7 @@ async function refreshDashboard() {
   if (!refreshDashboard._vouchedAt || Date.now() - refreshDashboard._vouchedAt > 60000) { refreshDashboard._vouchedAt = Date.now(); renderVouched().catch(() => {}); }
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
   refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
+  claimLegacy(acc).catch(() => {});                    // coins still at this key's OLD address move here (gen 28)
 
   // wallet card + send/stake panels (balances are shared across tabs)
   if (acc) {

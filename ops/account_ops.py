@@ -151,6 +151,14 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "tpm_ready" and block_height is not None and int(block_height) >= _spam_harden_height():
         return
 
+    # --- LEGACY CLAIM (protocol.LEGACY_CLAIM_HEIGHT): move the old address's whole balance, as stated in the claim and
+    #     checked by validation, to the claimant. Revert moves exactly that amount back (change_balance flips the sign).
+    if recipient == "legacy_claim":
+        amt = int((transaction.get("data") or {}).get("amount") or 0)
+        change_balance(address=str(transaction["data"]["legacy"]), amount=-amt, logger=logger, revert=revert)
+        change_balance(address=sender, amount=amt, logger=logger, revert=revert)
+        return
+
     # --- VENDOR-ENDORSED TPM ENROLMENT (gen 25's DEVICE_ATTEST_EK_HEIGHT, doc/tpm-attestation-without-a-ca.md):
     #     the four-message proof that an attestation key lives inside a vendor-certified chip. Fee-exempt, no
     #     coin movement, one consensus row per enrolment. Revert-symmetric: apply journals the WHOLE previous

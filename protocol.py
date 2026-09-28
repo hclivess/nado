@@ -187,7 +187,7 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready"})
+RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready", "legacy_claim"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -1654,6 +1654,7 @@ def split_open_block_reward(reward: int):
 #                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
 #                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1),
 #                                    SETTLE_STAKE_FLOOR_HEIGHT (-> 1; dormant 2^62 on gen 27, reroll-only)
+#   reroll-only (2^62 on gen 27)     LEGACY_CLAIM_HEIGHT (-> 1; unconverted old addresses are claimed by their key)
 #   reroll-only (2^62 on gen 27)     TX_HEX_CANONICAL_HEIGHT (-> 1; txid-excluded witnesses are canonical hex)
 #                                    BLOCK_SIG_CHAIN_BIND_HEIGHT (dormant 2^62 on gen 27 -> 1: block signatures
 #                                    name their generation + genesis, so old-chain signatures are no slash evidence)
@@ -1708,6 +1709,15 @@ DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 #   * a device moves to a DIFFERENT sender at most once per epoch (the first move stays instant).
 # Every fee a free kind now pays is burned like any fee. Height ahead of the fleet's adoption; 1 at the next reroll.
 SPAM_HARDEN_HEIGHT = 24000 if CHAIN_GENERATION == 27 else 1
+# LEGACY CLAIM (gen 28, operator 2026-09-28: "sign with your old key and get the coins"). Address format 2 hashes the
+# whole key, so the carry re-keys every account whose key some chain recorded (tools/rekey_v2.py); an account whose key
+# NO chain ever saw (it only received) is carried at its OLD 46-character address, which format 2 rejects as a sender.
+# From this height its owner's wallet claims it: a `legacy_claim` signed by key K, sent from K's format-2 address, naming
+# the old address and its exact balance, where the old address must be K's FORMAT-1 derivation. The whole balance moves
+# at once to the claimant. ACCEPTED RISK (operator's decision, measured 332 accounts / 142 NADO): a format-1 address
+# commits to only the first 21 bytes of a key, so a forger who builds a key sharing them can claim first — the same
+# exposure those accounts carried on gen 27. Reroll-only: dormant on gen 27, live from block 1 on the next chain.
+LEGACY_CLAIM_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 # THE ENROLMENT'S CHALLENGERS ARE DRAWN FROM RANDOMNESS THE CLIENT HAS NOT SEEN (audit 2026-09-27, CRIT "draw keyed on
 # client-chosen AIK enrol_id (grindable)"; doc/tpm-attestation-without-a-ca.md §"Who challenges"). Below this height the
 # k challengers are drawn AT the tpm_enrol from epoch_beacon(epoch of the enrol) keyed on the enrolment id — and that id

@@ -993,12 +993,14 @@ class MemServer:
         # reject it. Requiring capital before a participant may finish proving it owns hardware inverts
         # the point of a lane that exists for participants who have none.
         #
+        # legacy_claim JOINED IT (gen 28): the claimant's format-2 address holds nothing until the claim lands, and the
+        # claim is bounded by consensus — one per old address, only an unkeyed old address with a balance, consumed.
         # tpm_ready LEFT THIS LIST (audit 2026-09-27): an announcement from a never-funded address was the one free,
         # unbounded, account-creating message on the chain (protocol.SPAM_HARDEN_HEIGHT). Its honest sender is a node
         # that already holds an account, and from the gate a bonded one. NOTE: this check is mempool policy only —
         # consensus never runs it — so it is never the bound that makes a kind safe; validate_transaction is.
         elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
-                                                  "tpm_challenge", "tpm_commit", "tpm_reveal") \
+                                                  "tpm_challenge", "tpm_commit", "tpm_reveal", "legacy_claim") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}
