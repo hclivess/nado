@@ -2304,6 +2304,12 @@ EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
 #   * ASSET instructions settle by proof: a settle proof may carry asset io (ASEL/AMINT/ABURN/ABAL/ARENOUNCE) and an
 #             asset-valued call, bound against the pinned records pre-state (records_bind.PinnedAssets) — before it
 #             every asset-touching span could only settle by quorum (settle_proof_io_check). doc/assets.md §8.
+#   * the SETTLE CALLDATA BINDING is 4 field elements (audit 2026-09-24/25 HIGH): a settle proof's calls_commitment was
+#             ONE Goldilocks element (64-bit blake2b % P leaves, width-2/capacity-1 alghash chain), so a settler could
+#             birthday-search (~2^32) a second calldata with the same binding, land one on L1 and prove the other. From
+#             the gate the leaves are 256-bit and the chain is the alghash2 sponge (4-element digest, ~2^128 collision);
+#             a segment is keyed on its end cursor and one straddling the gate is refused (calls_commit.span_width).
+#             Native on both sides (no AIR, no Rust kernel); execsum rows are outside the L1 root.
 # Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
 # (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
 ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1

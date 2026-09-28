@@ -318,6 +318,11 @@ collapse to ONE field element (`calls_commitment` = a `merkle_node` chain over t
 fold, hence provable + foldable); the io collapses the same way (`io_commitment`, domain-separated). So the
 settlement public statement is the O(1)-shaped `(calls_commitment, io_commitment, sparse_pre_root,
 sparse_post_root)` (`settlement_sparse.public_statement_o1`). `tests/test_calls_commit.py`.
+From `ZK_HARDEN_HEIGHT` the calls commitment is NOT one element (audit 2026-09-24/25 HIGH): one Goldilocks element is a
+~2^32 birthday search for a second calldata with the same binding, and the settler submits both calldatas itself. The
+leaves are 256-bit blake2b digests and the chain is the alghash2 sponge, a 4-element commitment (~2^128 collision);
+a segment is keyed on its end cursor and one straddling the gate is refused. The binding is checked natively on both
+sides, so no AIR changed; `prove_calls_commitment` stays the narrow demonstrator. `tests/test_calldata_binding_is_wide.py`.
 
 **In-circuit statement rebuild — the STATE half + the binding primitive (built).**
   * `logup_bind.py` — LogUp multiset-equality: two lists of tuples are the same multiset inside a proof (the

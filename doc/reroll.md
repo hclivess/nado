@@ -33,7 +33,8 @@ Live gates, keyed `== 27` — live from block 1 at the next reroll: `EK_ENROL_RO
 `DIVIDEND_CARRY_EPOCH` (340: carried identities earn the dividend, their replayed fidelity starts from the carried value — see below),
 `SPAM_HARDEN_HEIGHT` (24000: no free repeatable transactions: key allowlist + size caps, msgkey first bind only, tpm_ready bonded, one enrolment per chip per block, settle/xmsg paid outside the duty, one device move per epoch — doc/security-review-2026-09-27.md),
 `ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48,
-asset instructions settle by proof),
+asset instructions settle by proof; audit 2026-09-24/25: the settle calldata binding is 4 field elements, not one —
+execnode/stark/calls_commit.py "THE BINDING IS WIDE"),
 `TPM_DRAW_UNGRINDABLE_HEIGHT` (28500: the TPM enrolment's challengers are drawn from the endorsement identity and the beacon two epochs after the enrol, never from the client-chosen enrolment id — ops/tpm_enrol "COMMIT, THEN DRAW").
 `EXEC_DA_DEADLINE_HEIGHT` (29000, activated by the operator 2026-09-27; exec layer, audit 2026-09-25 "exec stall": a DA-carried op whose proof is still unavailable once finality reaches its block + `EXEC_DA_WAIT_BLOCKS` is refused instead of stalling the exec tail forever).
 `CERT_CLOCK_HEIGHT` (29000: certificate validity is judged at `agreed_time(anchor height)` — the median of the committee's duty-tx clocks, with a one-day notBefore grace — instead of the anchor block's uncommitted `block_timestamp` — audit 2026-09-25 HIGH; re-measure `CHAIN_CLOCK_CADENCE_DS` first, since a lagging chain clock refuses certificates issued within the lag).

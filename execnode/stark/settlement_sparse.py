@@ -226,7 +226,10 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         # calldata's running commitment on-chain). Here we confirm the bundle's commitment matches its calls.
         if "calls_commitment" in bundle:
             want = CC.calls_commitment(bundle["calls"], int(bundle["cursor"]), int(bundle.get("timestamp", 0)))
-            if bundle["calls_commitment"] != want:
+            # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from ZK_HARDEN_HEIGHT `want` is
+            # the 4-element wide commitment and ALL four must match (commitment_matches); below it this is the
+            # exact `!=` it always was.
+            if not CC.commitment_matches(bundle["calls_commitment"], want):
                 return False, "calls_commitment does not match the epoch's calls", None
         depth = bundle["depth"]
         # SOUND-READ BINDING: pre_get below reads the epoch's initial storage values from the prover-supplied
@@ -333,7 +336,8 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         if not ok:
             return False, f"epoch proof invalid: {why}", None
         cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
-        if bundle["calls_commitment"] != CC.calls_commitment(bundle["calls"], cursor, ts):
+        # INVARIANT (audit 2026-09-24/25 HIGH): wide from ZK_HARDEN_HEIGHT, all four elements compared.
+        if not CC.commitment_matches(bundle["calls_commitment"], CC.calls_commitment(bundle["calls"], cursor, ts)):
             return False, "calls_commitment mismatch", None
         # cid_io must be the exec-proof-authenticated io+calls, NOT the prover's field (see verify_bound_epoch):
         # otherwise io_commitment/storage_io below bind the replay to a forged log, not the proven execution.
