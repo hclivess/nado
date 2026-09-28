@@ -14,7 +14,8 @@ Pins (tools/rekey_v2.py, tools/recover_keys.py, tools/alphanet6_carryforward.py)
   4. a keyless account nobody can re-key stays at its old address (rejected by shape on format 2), bond released;
   5. supply is conserved exactly; reserved accounts are untouched; a funded multisig is refused;
   6. device bindings, aliases, auth histories, the present set and the relay seeds move with their account, and a
-     reference to an account that cannot be re-keyed refuses the carry instead of pointing at a dead address;
+     reference to an account that cannot be re-keyed refuses the carry instead of pointing at a dead address — except a
+     relay seed that is not present, which is dropped and reported (it has no key to produce with);
   7. recover_keys refuses the running node's own database, and drops an address two generations disagree on;
   8. the carry refuses a format-2 carry without --known-keys, so the recovery step cannot be forgotten.
 
@@ -119,7 +120,11 @@ check("the present set follows its accounts", x["present"] == sorted([v2_address
 check("relay seeds follow their account", s2 == [v2_address(K[0])], s2)
 check("a binding that names an account nobody can re-key refuses the carry",
       refuses(lambda: rekey(alloc, {"devbind": [["dk3", lost, "tpm"]]}, [], known)))
-check("so does a seed that names one", refuses(lambda: rekey(alloc, {}, [lost], known)))
+_o, _x, s3, r3 = rekey(alloc, {}, [lost, keyed], known)
+check("a relay seed nobody can re-key is dropped and reported (it has no key to produce with), the rest follow",
+      s3 == [v2_address(K[0])] and r3["dropped_seeds"] == [lost], (s3, r3.get("dropped_seeds")))
+check("...but a PRESENT identity nobody can re-key still refuses the carry",
+      refuses(lambda: rekey(alloc, {"present": [lost]}, [lost], known)))
 
 # 7 recover_keys over real LMDB tables
 import lmdb

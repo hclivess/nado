@@ -2187,8 +2187,21 @@ def devbind_rows():
         out = []
         with txn.cursor(db=_dbs()["devbind"]) as cur:
             for k, raw in cur.iternext(keys=True, values=True):
+                # NOT A DEVICE: "tpmek:<identity>" is the open-enrolment marker (tpm_enrol_open_set), a packed STRING,
+                # which indexes character by character — rec[0] = "3", rec[1] = "6" — and so passed as a binding of
+                # address "3". The gen-27 carry seeded 7 such rows into genesis (2026-09-25) and the gen-28 rehearsal
+                # refused on them ("a device binding names 3"). A device row is always a list [address, epoch(, mode)].
+                # The eviction and lease-grant rows share the table too and used to be skipped only because their
+                # records happen not to decode as one; name them, so a record-shape change cannot turn them into devices.
+                # The enrolment records share a PREFIX with a real device class ("tpm:<enrol id>" vs the binding
+                # "tpm:<ek>"), so they are told apart by shape: a binding has 2 or 3 fields, an enrolment 13
+                # (_TPM_ENROL_FIELDS) — it used to be skipped only because its hex ek failed int().
+                if k.startswith((b"tpmek:", b"evict:", b"lease:")):
+                    continue
                 try:
                     rec = _unpack(raw)
+                    if not isinstance(rec, (list, tuple)) or not 2 <= len(rec) <= 3:
+                        continue
                     out.append((k.decode(), str(rec[0]), int(rec[1]), str(rec[2]) if len(rec) > 2 else "lease"))
                 except Exception:
                     continue                                   # a row we cannot decode is not a device

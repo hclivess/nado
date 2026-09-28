@@ -87,11 +87,17 @@ def rekey(alloc: list, extra: dict, seeds: list, known: dict = None):
     x["aliases"] = sorted([n, m(o, f"alias {n}")] for n, o in extra.get("aliases", []))
     x["auth_history"] = sorted([m(a, "an auth history"), ver, keys] for a, ver, keys in extra.get("auth_history", []))
     x["present"] = sorted(m(a, "the present set") for a in extra.get("present", []))
-    s2 = [m(a, "a relay seed") for a in seeds]
+    # A RELAY SEED NOBODY CAN RE-KEY IS DROPPED, not refused (2026-09-28 rehearsal: 07a8b0aa…, a genesis seed that never
+    # produced a block and whose key no chain ever saw). A seed is only "registered + a genesis lease if present", and an
+    # identity with no key cannot produce on any chain; its coins carry at its old address like every keyless account's,
+    # where its key claims them (legacy_claim). A PRESENT identity with no key still refuses, through the present set above.
+    dropped_seeds = sorted(a for a in seeds if a not in remap and a not in RESERVED_RECIPIENTS)
+    s2 = [m(a, "a relay seed") for a in seeds if a not in dropped_seeds]
     before = sum(int(r.get("balance", 0)) + int(r.get("bonded", 0)) for r in alloc)
     after = sum(int(r.get("balance", 0)) + int(r.get("bonded", 0)) for r in out)
     if before != after:
         raise SystemExit(f"re-key changed supply: {before} -> {after}")
     report = {"rekeyed": len(remap), "recovered_from_older_generations": recovered,
-              "keyless_kept_at_old_address": len(keyless), "bond_released_raw": released, "remap": remap}
+              "keyless_kept_at_old_address": len(keyless), "bond_released_raw": released, "remap": remap,
+              "dropped_seeds": dropped_seeds}
     return out, x, s2, report

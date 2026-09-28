@@ -237,8 +237,10 @@ def main():
         alloc, extra, _seeds, rep = rekey(alloc, extra, _seeds, _known)
         print(f"ADDRESS FORMAT 2: {rep['rekeyed']} accounts re-keyed ({rep['recovered_from_older_generations']} with a key "
               f"from an older generation), {rep['keyless_kept_at_old_address']} with no "
-              f"recorded key kept at their old address (claimable with a seed proof), "
+              f"recorded key kept at their old address (their key claims them: legacy_claim), "
               f"{rep['bond_released_raw']} raw of keyless bond released into balance")
+        for a in rep.get("dropped_seeds", []):
+            print(f"  relay seed {a} dropped: no chain recorded its key, so it cannot produce (its coins carry at its old address)")
     if "--write" in sys.argv:
         path = f"{get_home()}/private/genesis_alloc.dat"
         tmp = path + ".tmp"
