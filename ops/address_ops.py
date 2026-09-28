@@ -24,10 +24,16 @@ def validate_address(address: str, checksum_size: int = None, allow_reserved: bo
     # THE CHECKSUM LENGTH IS THE FORMAT'S (protocol.ADDRESS_CHECKSUM: 2 bytes in format 1, 4 in format 2), and the
     # comparison uses it — this compared the last 4 hex chars whatever `checksum_size` said, so a longer checksum was
     # never actually checked. The exact length is required too: a format-1 address on a format-2 chain is rejected.
-    from protocol import ADDRESS_CHECKSUM, ADDRESS_LENGTH
+    # A MULTISIG address has its OWN exact length: MSIG_PREFIX + body + the same checksum (54 in format 2). Requiring the
+    # key-address length alone refused every multisig sender — "Invalid sender msig…" on every M-of-N spend (bc0f8986,
+    # caught by tests/test_multisig.py in the gen-28 rehearsal before it shipped).
+    from protocol import ADDRESS_CHECKSUM, ADDRESS_LENGTH, MSIG_PREFIX, ADDRESS_BODY
     n = (ADDRESS_CHECKSUM if checksum_size is None else checksum_size) * 2
+    want = ADDRESS_LENGTH
+    if MSIG_PREFIX and isinstance(address, str) and address.startswith(MSIG_PREFIX):
+        want = len(MSIG_PREFIX) + ADDRESS_BODY + n
     if (isinstance(address, str)
-            and len(address) == (ADDRESS_LENGTH if checksum_size is None else len(address))
+            and len(address) == (want if checksum_size is None else len(address))
             and len(address) > n
             and address[-n:] == make_checksum(address[:-n], checksum_size=n // 2)):
         return True

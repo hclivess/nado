@@ -93,6 +93,10 @@ META = {"issuer": CID, "seed": 1, "name": "Token", "sym": "TOK", "dec": 0, "supp
 _saved = (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT,
           protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS, protocol.ZK_HARDEN_HEIGHT)
 try:
+    # The gate is pinned HERE, before any summary is built: block 1's calls leaves take their width from it
+    # (calls_commit.span_width), and a summary built under the tree's own value (1 on gen 28: wide) no longer
+    # matched the narrow span the checks below then judged at ZK_HARDEN_HEIGHT = BH (the gen-28 rehearsal).
+    protocol.ZK_HARDEN_HEIGHT = BH
     _fri.NUM_QUERIES = NQ
     _stark.NUM_QUERIES = NQ
     protocol.EXEC_TREE_DEPTH = D8

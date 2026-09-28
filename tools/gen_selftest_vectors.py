@@ -17,7 +17,8 @@ from protocol import ADDRESS_PREFIX, CHAIN_ID, DOMAIN_REGISTER
 
 PUB = "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3"
 FIXPUB = "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38"
-CK_BODY = "18c3afa286439e7ebcb284710dbd4ae42bdaf21b80"     # 42-hex checksum-vector body
+CK_BODY = "18c3afa286439e7ebcb284710dbd4ae42bdaf21b80"     # 42-hex body of the 2-byte blake2b vector (a pure hash vector:
+                                                          # make_checksum is 4 bytes on format 2 and the page checks size 2)
 RCPT_BODY = "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6"   # 42-hex transfer-recipient body
 
 addr = make_address(PUB)
@@ -41,7 +42,7 @@ def js(v):
     return json.dumps(v, ensure_ascii=True, separators=(", ", ": "))
 
 print(f"""  hash_register_list: {js(blake2b_hash([DOMAIN_REGISTER, ADDRESS_PREFIX + "TEST", 5]))},
-  checksum_string_size2: {js(make_checksum(ADDRESS_PREFIX + CK_BODY))},
+  checksum_string_size2: {js(blake2b_hash(ADDRESS_PREFIX + CK_BODY, 2))},
   checksum_body: {js(CK_BODY)},
   make_address_pub: {js(PUB)},
   make_address_out: {js(addr)},

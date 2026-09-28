@@ -43,6 +43,10 @@ victim_v1 = A.legacy_address(pk)
 if P.CHAIN_GENERATION == 27:
     check("gen 27 stays on format 1", P.ADDRESS_FORMAT == 1)
     check("...and make_address is byte-identical to the format-1 derivation", A.make_address(pk) == victim_v1)
+else:
+    check("gen 28 and later run format 2: a 4-byte checksum, 50 characters",
+          P.ADDRESS_FORMAT == 2 and P.ADDRESS_CHECKSUM == 4 and P.ADDRESS_LENGTH == 50)
+    check("...and the old format-1 address of a key is no address at all", not A.validate_address(victim_v1))
 
 # 2 + 3 + 4, under format 2 whatever the live generation
 _saved = P.ADDRESS_FORMAT
@@ -50,7 +54,8 @@ try:
     P.ADDRESS_FORMAT = 2
     v2 = A.make_address(pk)
     want_body = blake2b_hash([P.DOMAIN_ADDRESS_V2, pk.lower()], size=P.ADDRESS_BODY // 2)
-    check("format 2 hashes the whole key", v2[:-4] == P.ADDRESS_PREFIX + want_body, v2)
+    # the body is everything before the checksum, whatever its width (2 bytes while the live chain is format 1, 4 after)
+    check("format 2 hashes the whole key", v2[:len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY] == P.ADDRESS_PREFIX + want_body, v2)
     check("...and keeps the 42-hex body", len(v2[:-(P.ADDRESS_CHECKSUM * 2)]) == P.ADDRESS_BODY)
     check("...and one key has one address whatever the hex case", A.make_address(pk.upper()) == v2)
     P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 4, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 8
@@ -71,6 +76,14 @@ try:
     ms1 = M.multisig_address(1, members) if hasattr(M, "multisig_address") else None
     check("multisig addresses keep format 1 (their body is already a descriptor hash)", ms1 is not None and ms1 == ms2,
           (ms1, ms2))
+    # ...and on a format-2 chain a multisig address (msig + 42 + 8 = 54 chars) still VALIDATES as a sender: the exact-length
+    # rule once admitted only the 50-char key address and refused every M-of-N spend (gen-28 rehearsal)
+    P.ADDRESS_FORMAT = 2
+    ms_live = M.multisig_address(1, members) if hasattr(M, "multisig_address") else None
+    check("a multisig address validates under the 4-byte checksum (every M-of-N sender)",
+          ms_live is not None and len(ms_live) == len(P.MSIG_PREFIX) + P.ADDRESS_BODY + 8
+          and A.validate_address(ms_live, allow_reserved=False) and not A.is_address(ms_live), ms_live)
+    check("...and a multisig address of the wrong length does not", not A.validate_address(ms_live[:-2]))
 finally:
     P.ADDRESS_FORMAT = _saved
     P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = (2, 46) if _saved == 1 else (4, 50)

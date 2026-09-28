@@ -120,6 +120,19 @@ def t_exit_claims_are_bounded_from_the_gate():
 def t_settle_proofs_carry_no_pay_when_frozen_and_no_asset_io_from_the_gate():
     from ops.transaction_ops import settle_proof_io_check
     from execnode import zkvm as Z
+    import protocol as _P
+    # PROBED UNDER GEN 27's ZK_HARDEN_HEIGHT (2^62): from that gate a RECORDS-BOUND proof may carry asset io (asset
+    # instructions settle by proof — tests/test_asset_ops_settle_by_proof.py pins the admitted side), and on gen 28 the
+    # gate is 1, so "no asset io at all" is the pre-gate rule this check reproduces (gen-28 rehearsal).
+    _saved_zk = _P.ZK_HARDEN_HEIGHT
+    _P.ZK_HARDEN_HEIGHT = max(_saved_zk, 1 << 62)
+    try:
+        _no_asset_io_below_zk_harden(settle_proof_io_check, Z)
+    finally:
+        _P.ZK_HARDEN_HEIGHT = _saved_zk
+
+
+def _no_asset_io_below_zk_harden(settle_proof_io_check, Z):
     pay = {"segments": [{"io": [[Z.IO_PAY, 1, 2]]}]}
     assert _raises(AssertionError, lambda: settle_proof_io_check(pay, False, GATE - 1)), "frozen proof with a PAY"
     settle_proof_io_check(pay, True, GATE - 1)            # a records-bound proof derives the payout instead

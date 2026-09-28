@@ -15,7 +15,7 @@
 //   * DOMAIN_REGISTER is "register-v1", not "register" (interface.js:58).
 //   * JSON.parse cannot carry the >2^53 torture values -- build those objects with BigInt LITERALS, exactly
 //     as runSelfTest does, or canonicalize throws "integer > 2^53".
-import { blake2bHash, makeAddress, canonicalize, ADDR_PREFIX, ADDR_LEN, isAddress }
+import { blake2bHash, makeAddress, canonicalize, ADDR_PREFIX, ADDR_LEN, ADDR_FORMAT, isAddress }
   from "../static/nadotx.js";
 import { readFileSync } from "node:fs";
 
@@ -51,13 +51,15 @@ for (const k of ["register", "heartbeat", "transfer"]) {
   add(`${k} txid (public_key-excluded)`, createTxid(bodyOf(VEC[`${k}_tx`])), VEC[`${k}_tx`].txid);
 }
 
-// the betanet-2 address format itself
+// the address format itself: 46 characters on format 1, 50 on format 2 (a 4-byte checksum; protocol.ADDRESS_LENGTH),
+// and the vectors were generated for the format the files ship with — a stale VEC block from the other format fails here
 add("ADDR_PREFIX removed", ADDR_PREFIX, "");
-add("ADDR_LEN is 46", String(ADDR_LEN), "46");
-add("generated address is 46 chars", String(VEC.make_address_out.length), "46");
+add("ADDR_LEN matches the format", String(ADDR_LEN), ADDR_FORMAT >= 2 ? "50" : "46");
+add("generated address has that length", String(VEC.make_address_out.length), String(ADDR_LEN));
 add("isAddress accepts it", String(isAddress(VEC.make_address_out)), "true");
 add("isAddress rejects a prefixed address", String(isAddress("mldsa44" + VEC.make_address_out)), "false");
-add("vectors are betanet-2", VEC.register_tx.chain_id, "betanet-2");
+add("isAddress rejects the other format's length", String(isAddress(VEC.make_address_out.slice(0, 46))), ADDR_FORMAT >= 2 ? "false" : "true");
+add("vectors name a chain", String(/^betanet-\d+$/.test(VEC.register_tx.chain_id)), "true");
 
 console.log(`\n${fail === 0 ? "ALL PASS" : fail + " FAILURES"} — ${pass}/${pass + fail} checks`);
 process.exit(fail ? 1 : 0);

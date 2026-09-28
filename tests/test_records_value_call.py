@@ -117,7 +117,15 @@ def t_escrow_is_zero_sum():
 def t_asset_denominated_stays_non_derivable():
     """An asset-denominated value moves the ASSET ledger, not T_BRIDGE_BAL. Out of scope -> fail closed,
     rather than emitting half the effect."""
-    eff, derivable = _with_flag(True, lambda: RB.block_records_effects(_block(5_000, asset=7)))
+    # BELOW ZK_HARDEN_HEIGHT — probed at gen 27's gate (2^62): from the gate an asset call value IS a derivable effect
+    # (records_bind, tests/test_asset_settle_l1.py), and on gen 28 the gate is 1, so block 10 is above it (the gen-28
+    # rehearsal). The fail-closed rule this pins is the below-gate one, which gen-27 replay keeps.
+    old_gate = protocol.ZK_HARDEN_HEIGHT
+    protocol.ZK_HARDEN_HEIGHT = max(old_gate, 1 << 62)
+    try:
+        eff, derivable = _with_flag(True, lambda: RB.block_records_effects(_block(5_000, asset=7)))
+    finally:
+        protocol.ZK_HARDEN_HEIGHT = old_gate
     assert derivable is False and eff is None, \
         f"an asset-denominated call must stay non-derivable, got {derivable}/{eff}"
 

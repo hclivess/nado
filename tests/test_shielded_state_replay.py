@@ -46,7 +46,10 @@ def check(name, fn):
 
 CID = "d0be764f3da9c9cc6bb609280a887929"
 OTHER_CID = "230860957a7c1db403434ffb4a3969b3"
-REAL_ADDR = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
+# DERIVED FROM A GENERATED KEY (gen-28 rehearsal, ADDRESS FORMAT 2): the 46-char format-1 literal pinned here fails
+# validate_address by shape on a format-2 chain, so "a withdrawal to a real address works" tested a non-address.
+from signatures import generate_keydict
+REAL_ADDR = generate_keydict()["address"]
 ALICE = 0xA11CE
 
 print("proving one deposit (~6 s)…", flush=True)

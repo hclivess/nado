@@ -112,9 +112,12 @@ check("a fee is refused", "no fee" in (v or ""), v)
 k1 = T.reserved_uniqueness_key(claim(kd2, legacy2, 500))
 k2 = T.reserved_uniqueness_key(claim(other, legacy2, 500))
 check("one claim per old address per block (the same key, whoever sends it)", k1 == k2 == ("legacy_claim", legacy2), (k1, k2))
-P.LEGACY_CLAIM_HEIGHT = LIVE_GATE
+# probed under gen 27's dormant gate (1 << 62): on gen 28 the gate is 1 and no real height is below it
+P.LEGACY_CLAIM_HEIGHT = LIVE_GATE if LIVE_GATE > 1 else (1 << 62)
 v = verdict(claim(kd2, legacy2, 500), h=H)
 check("below the gate nothing is claimable", "not enabled" in (v or ""), v)
+check("the gate is dormant on gen 27 and live from block 1 after", LIVE_GATE == ((1 << 62) if P.CHAIN_GENERATION == 27 else 1),
+      LIVE_GATE)
 P.LEGACY_CLAIM_HEIGHT = 1
 
 # 4 ACCEPTED RISK

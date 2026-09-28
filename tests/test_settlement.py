@@ -35,6 +35,12 @@ def raises(fn):
     try: fn(); return False
     except Exception: return True
 
+def _reason(fn):
+    """The message fn raises with ('' if it does not raise) — so a refusal is pinned to the RULE a test names. Added in
+    the gen-28 rehearsal after t8/t9 were found passing on a txid mismatch from a broken re-sign."""
+    try: fn(); return ""
+    except Exception as e: return str(e) or type(e).__name__
+
 ROOT_A = "a" * 64
 ROOT_B = "b" * 64
 
@@ -93,17 +99,29 @@ def t6_non_bonded_cannot_settle():
     assert raises(lambda: validate_transaction(construct_settle_tx(poor, 500, ROOT_A, 1), logger, 1)), \
         "a non-bonded sender cannot settle"
 
+def _ns_fee(tx, kd, height):
+    """A settle OUTSIDE the default namespace pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (audit 2026-09-27, "Free
+    transactions"); below it the fee must be 0. construct_settle_tx always builds fee 0, so this sets the fee the rule
+    at `height` asks for and re-signs (the fee is inside the txid). Gen-28 rehearsal: SPAM_HARDEN_HEIGHT is 1, so the
+    free rollup settle this test built was refused; under gen 27's 24000 the height-700 settle stays free, as before."""
+    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
+    want = MIN_TX_FEE if int(height) >= SPAM_HARDEN_HEIGHT else 0
+    if tx["fee"] != want:
+        tx["fee"] = want
+        _resign(tx, kd)
+    return tx
+
 def t7_namespace_isolation():
     """Prove settlements are per-namespace: a rollup's settled root never moves another namespace's pointer
     or the default layer, and the SAME validator may settle the SAME cursor in two different namespaces
     (uniqueness is per (ns, validator, cursor))."""
-    a = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, max_block=1, ns="rollupa")
+    a = _ns_fee(construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, max_block=1, ns="rollupa"), V1, 700)
     validate_transaction(a, logger, 700); reflect_transaction(a, logger, 700)  # V1 = 4/5 > 2/3 -> settled in rollupa
     assert latest_settled("rollupa") == (700, ROOT_A), "rollupa settled"
     assert latest_settled("rollupb") == (-1, None), "a different namespace is unaffected"
     assert latest_settled()[0] != 700, "the default namespace is unaffected by a rollupa settle"
     # same validator, same cursor, DIFFERENT namespace -> allowed and independent
-    b = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, max_block=1, ns="rollupb")
+    b = _ns_fee(construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, max_block=1, ns="rollupb"), V1, 700)
     validate_transaction(b, logger, 700); reflect_transaction(b, logger, 700)
     assert latest_settled("rollupb") == (700, ROOT_B), "rollupb settles independently at the same cursor"
 
@@ -111,6 +129,10 @@ def _resign(tx, kd):
     """Recompute txid + signature after mutating tx.data (so validation fails on the RULE, not the sig)."""
     from ops.transaction_ops import create_txid
     from signatures import sign, unhex
+    # The txid preimage is the body WITHOUT txid and signature (validate_txid strips both). Hashing the dict with the
+    # stale txid/signature still inside produced a txid validation never accepts, so t8/t9 "raised" on the txid check
+    # rather than on the ns rule they name — found in the gen-28 rehearsal when t7's paid settle needed a re-sign.
+    tx.pop("txid", None); tx.pop("signature", None)
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=kd["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -121,14 +143,18 @@ def t8_non_canonical_default_ns_rejected():
     tx = construct_settle_tx(V1, exec_cursor=800, state_root=ROOT_A, max_block=1)
     tx["data"]["ns"] = DEFAULT_NS
     _resign(tx, V1)
-    assert raises(lambda: validate_transaction(tx, logger, 1)), "explicit default ns must be rejected"
+    assert "canonical form" in _reason(lambda: validate_transaction(tx, logger, 1)), \
+        "explicit default ns must be rejected (by the canonical-form rule)"
 
 def t9_bad_namespace_rejected():
     """Prove a malformed namespace id (invalid charset) is rejected, signed over the bad body."""
     bad = construct_settle_tx(V1, exec_cursor=900, state_root=ROOT_A, max_block=1, ns="rollupa")
     bad["data"]["ns"] = "BadNS!"
-    _resign(bad, V1)
-    assert raises(lambda: validate_transaction(bad, logger, 1)), "invalid ns charset must be rejected"
+    # gen-28 rehearsal: pay the non-default-namespace fee the rule at height 1 asks for (SPAM_HARDEN_HEIGHT = 1), so the
+    # refusal is the charset rule this test names and not the fee rule; _ns_fee is a no-op under gen 27's 24000
+    _resign(_ns_fee(bad, V1, 1), V1)
+    assert _reason(lambda: validate_transaction(bad, logger, 1)).find("valid namespace") >= 0, \
+        "invalid ns charset must be rejected (by the namespace rule)"
 
 def t9_inactivity_leak_dark_majority_cannot_block():
     """THE LEAK (the live alphanet failure): a bonded MAJORITY that never runs an exec+settle node

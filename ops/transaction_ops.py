@@ -1058,7 +1058,8 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block, min
 def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None,
                         proof_da=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
-    {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0). Posted by a bonded validator running an
+    {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0) in the default namespace and MIN_TX_FEE in any other
+    (SPAM_HARDEN_HEIGHT). Posted by a bonded validator running an
     exec node. `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer
     settle txs stay byte-identical to the pre-namespace format.
 
@@ -1085,11 +1086,17 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
         # root still rides the bonded quorum and this field makes the proof AVAILABLE and independently
         # checkable, which is the difference between a claim and evidence.
         d["proof_da"] = proof_da
+    # A NAMESPACE SETTLE PAYS (protocol.SPAM_HARDEN_HEIGHT): outside the default namespace validation requires
+    # fee >= MIN_TX_FEE, and this builder signed fee 0 for every namespace — so every settle an exec node posted for a
+    # NADO_EXEC_NAMESPACES namespace was refused (found 2026-09-28 by the gen-28 rehearsal). The default namespace stays
+    # fee 0, byte-identical. INVARIANT: this must charge exactly what the settle branch of validate_transaction demands.
+    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
+    fee = MIN_TX_FEE if (ns != DEFAULT_NS and int(max_block) >= SPAM_HARDEN_HEIGHT) else 0
     tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": fee}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -1171,16 +1178,20 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, max_block,
 
 
 def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, max_block):
-    """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg', fee-exempt, data carries the outbox
+    """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg' (MIN_TX_FEE from SPAM_HARDEN_HEIGHT), data carries the outbox
     `message` {seq, from, to_ns, data} + the Merkle `proof` that it is committed in from_ns's SETTLED root.
     L1 verifies that ONE proof against latest_settled(from_ns) and burns the (from_ns, seq) nullifier; the
     receiver rollup's exec node then delivers it to its inbox. Relayer-submittable — anyone can carry a
     genuinely-settled message, and the proof makes forgery impossible."""
     d = {"from_ns": from_ns, "to_ns": to_ns, "message": message, "proof": proof}
+    # PAID FROM SPAM_HARDEN_HEIGHT, exactly as validation demands (fee >= MIN_TX_FEE from the gate, == 0 below it). This
+    # builder signed fee 0 at every height, so each delivery it built was refused from the gate (gen-28 rehearsal,
+    # tests/test_namespace_settle_pays.py — the settle builder had the same defect).
+    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
     tx = {"sender": keydict["address"], "recipient": "xmsg", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": d, "nonce": create_nonce(),
           "public_key": keydict["public_key"], "max_block": int(max_block),
-          "chain_id": CHAIN_ID, "fee": 0}
+          "chain_id": CHAIN_ID, "fee": MIN_TX_FEE if int(max_block) >= SPAM_HARDEN_HEIGHT else 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -2245,7 +2256,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # permanent settle row for every (namespace, cursor) pair — any namespace name, any past cursor — for free. The
         # duty is the default namespace near the tip (honest settles trailed their block by 12..380 blocks); another
         # namespace pays MIN_TX_FEE, and a cursor more than SETTLE_MAX_LAG behind is refused.
-        # INVARIANT: never make a settle free that the settle loop does not need.
+        # INVARIANT: never make a settle free that the settle loop does not need — and construct_settle_tx must charge
+        # exactly this (it signed fee 0 for every namespace until 2026-09-28: tests/test_namespace_settle_pays.py).
         _spam = block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT
         if _spam and ns != DEFAULT_NS:
             assert transaction["fee"] >= MIN_TX_FEE, f"a settle outside the default namespace pays the minimum fee {MIN_TX_FEE}"

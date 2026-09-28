@@ -42,10 +42,14 @@ def check(name, fn):
 
 CID = "d0be764f3da9c9cc6bb609280a887929"
 NSK, NSK2 = 0xC0FFEE1234, 0xBEEF5678
-SENDER = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
+# DERIVED FROM GENERATED KEYS, never pinned (gen-28 rehearsal, ADDRESS FORMAT 2): both were 46-char format-1
+# literals, which a format-2 chain rejects by SHAPE — so DEST failed "withdrawal destination is not a spendable
+# account" for the right reason on the wrong fixture. A key-derived address is valid on whatever format is live.
+from signatures import generate_keydict
+SENDER = generate_keydict()["address"]
 # A REAL checksummed address: a withdrawal destination has to be a spendable account, because it
 # credits an exec balance directly rather than recording an exit for L1 to validate.
-DEST = "c041167affec9c9649cbf3fe72f921a7fb001ba9831ba0"
+DEST = generate_keydict()["address"]
 
 
 def _state():

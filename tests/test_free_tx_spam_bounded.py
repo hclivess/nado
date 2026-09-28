@@ -45,7 +45,14 @@ from hashing import canonical_bytes
 from signatures import generate_keydict, sign, unhex
 
 logger = logging.getLogger("freespam"); logger.addHandler(logging.NullHandler())
-H = P.SPAM_HARDEN_HEIGHT
+# GEN-28 REHEARSAL: the gate is live from block 1 on every generation after 27, so "one block below it" is height 0 —
+# below the separate enablement of the kinds themselves (tpm_ready/tpm_enrol refuse block 0), and settle cursors and
+# epochs derived from H went negative. The test therefore SETS the gate it probes to gen 27's value (the height the rules
+# were measured and shipped at) and restores the live value at the end; every rule module reads the constant at call
+# time. On gen 27 this is exactly the live value, so nothing changes there.
+LIVE_SPAM_H = P.SPAM_HARDEN_HEIGHT
+GEN27_GATE = 24000
+H = P.SPAM_HARDEN_HEIGHT = max(LIVE_SPAM_H, GEN27_GATE)
 fails = 0
 
 
@@ -301,6 +308,13 @@ check("tpm_ready is no longer in the empty-account bypass", "tpm_ready" not in b
 js = open(os.path.join(ROOT, "static", "interface.js")).read()
 check("the wallet pays MIN_TX_FEE to rotate a bound messaging key (and falls back on a pre-gate chain)",
       "acc.kem_pub ? MIN_TX_FEE : 0" in js and "fee must be 0" in js)
+
+# GEN-28 REHEARSAL: restore the live gate and pin that the rule holds at it too (from block 1 on gen 28): the same
+# unbonded announcement refused above at the probe gate is refused at the live gate.
+P.SPAM_HARDEN_HEIGHT = LIVE_SPAM_H
+r_live = T.construct_tpm_tx(poor, "tpm_ready", "", max(LIVE_SPAM_H, 1) + 10)
+check("at the LIVE gate (%d) tpm_ready from an unbonded account is refused too" % LIVE_SPAM_H,
+      "bonded" in (verdict(r_live, max(LIVE_SPAM_H, 1)) or ""), verdict(r_live, max(LIVE_SPAM_H, 1)))
 
 kv_ops.close_all()
 print("ALL PASS — no free repeatable transaction" if not fails else f"{fails} FAILURES")

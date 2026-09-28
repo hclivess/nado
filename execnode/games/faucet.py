@@ -15,7 +15,6 @@ defund(amount) — operator-only, capped at the operator's OWN donations minus w
 back (slots 7/8), so treasury money in the faucet can never be withdrawn by anyone.
 """
 from execnode import zkvmasm, runtimes
-from ops.address_ops import make_address
 
 # The game-fleet deployer key, identified by its PUBLIC-KEY BODY rather than a pinned address string.
 # This gate was previously a hardcoded "ndo…" address; the betanet-7 debrand moved the operator to
@@ -24,8 +23,13 @@ from ops.address_ops import make_address
 # the address through make_address() means a future prefix change follows the one-constant rebrand point
 # automatically instead of silently bricking payouts again. (Re-derivation is deterministic, so the
 # assembled code is stable for a given prefix.)
-OPERATOR_PUBKEY = "ebd27698662f14ee2389e509781d5ff57487f4289a"
-OPERATOR = make_address(OPERATOR_PUBKEY)
+# ADDRESS FORMAT 2 (gen 28): make_address(<42-hex body>) HASHES the body into an address nobody holds — the operator
+# check would have reverted every payout again, exactly as above. The operator is the faucet's sole fixed-cid deployer
+# (code_codec.FIXED_CIDS, remapped with every format switch), so read it from there: on gen 27 that is byte-identical to
+# make_address(OPERATOR_PUBKEY), from gen 28 it is the format-2 address of the same key.
+OPERATOR_PUBKEY = "ebd27698662f14ee2389e509781d5ff57487f4289a"   # the key's leading body (format 1: the address body)
+from execnode.code_codec import FIXED_CIDS as _FIXED_CIDS
+OPERATOR = _FIXED_CIDS["faucet"]
 OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 
 # fund(): anyone may top the prize bank up exec-side (the call's VALUE is escrowed to this contract by

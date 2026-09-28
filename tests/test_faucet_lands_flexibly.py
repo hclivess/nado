@@ -68,9 +68,11 @@ def main():
             check(f"'{r}' still lands flexibly", _lands_flexibly(tx(r)))
         # a REAL address — is_address() checks the checksum, not just the shape, so "a"*46 is not one
         # (it fails the same way a typo'd address would, which is the point of the check).
-        from signatures import make_address
+        # A GENERATED KEY'S address (gen-28 rehearsal, ADDRESS FORMAT 2): make_address(<42-hex body>) now HASHES the
+        # body into an address nobody holds, so derive from a real key — valid on whatever format is live.
+        from signatures import generate_keydict
         from ops.address_ops import is_address
-        real = make_address("ebd27698662f14ee2389e509781d5ff57487f4289a")
+        real = generate_keydict()["address"]
         check("the fixture really is a valid address", is_address(real))
         check("a plain address transfer lands flexibly", _lands_flexibly(tx(real)))
 

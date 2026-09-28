@@ -60,8 +60,14 @@ def check(name, ok):
         fails += 1
 
 
-US = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
-OTHER = "ba04cbbb7c1ffc17ed67b62e3100f25789f3738998af6b"
+# gen-28 rehearsal, ADDRESS FORMAT 2: these were 46-char format-1 literals. Derived from generated keys instead, so
+# the fixture is a real address on whatever format is live. The PROPERTY is unchanged: US is ONE key, and every
+# endpoint below that reports US is a node holding that same key (a shared key = the same address string);
+# OTHER is a distinct key. (The addresses quoted in the docstring are the 2026-08-03 incident log, left verbatim.)
+from signatures import generate_keydict
+US = generate_keydict()["address"]
+OTHER = generate_keydict()["address"]
+assert US != OTHER
 H, OURS = 3262, "4345a433e1212454"
 RIVAL = "09fad3a06d91cdaf"
 

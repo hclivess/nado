@@ -23,7 +23,7 @@ from genesis import create_indexers
 create_indexers()
 
 from execnode import zkvmasm
-from execnode.stark import settlement_sparse as SS, calls_commit as CC, alghash, field as F
+from execnode.stark import settlement_sparse as SS, calls_commit as CC, field as F
 
 fails = 0
 def check(name, ok):
@@ -48,13 +48,24 @@ def _block(h):
                                     "data": {"op": "call", "contract": CID, "method": "bump", "args": [], "ns": NS}}]}
 
 
+def _canon(cc):
+    """A commitment in comparable form: the 4-element wide list as-is, a narrow one reduced % P. Gen-28 rehearsal:
+    with ZK_HARDEN_HEIGHT = 1 every height here is wide, and `int(cc) % F.P` on the 4-list raised; under gen 27's
+    2^62 gate the narrow branch is exactly the old comparison."""
+    return list(cc) if isinstance(cc, (list, tuple)) else int(cc) % F.P
+
+
 def _l1_fold(*blocks):
-    """L1's per-block summary fold — exactly what verify_calls_bound_to_summaries computes."""
-    node = alghash.IV
+    """L1's per-block summary fold — exactly what verify_calls_bound_to_summaries computes, INCLUDING its width:
+    the segment (first-1, last] is keyed by CC.span_width on its end height (gen-28 rehearsal: wide from block 1;
+    this used to start from alghash.IV, the narrow chain, which is right only below the gate)."""
+    ok, wide = CC.span_width(int(blocks[0]["block_number"]) - 1, int(blocks[-1]["block_number"]))
+    assert ok, "test span straddles ZK_HARDEN_HEIGHT"
+    node = CC.chain_start(wide)
     for b in blocks:
         _inert, calls_by_ns = CC.block_summary(b)
         node = CC.fold_leaves(node, calls_by_ns.get(NS, []))
-    return node % F.P
+    return _canon(node)
 
 
 def main():
@@ -64,7 +75,7 @@ def main():
 
     # prove a single bound epoch over the 2-block span (span cursor = 2)
     bundle = SS.prove_bound_epoch(_pre(), span_calls, cursor=2, depth=D, num_queries=NQ)
-    prover_cc = int(bundle["calls_commitment"]) % F.P
+    prover_cc = _canon(bundle["calls_commitment"])      # gen-28 rehearsal: may be the wide 4-list
 
     check("prover calls_commitment == L1 per-block summary fold (2-block span binds)",
           prover_cc == _l1_fold(b1, b2))
@@ -73,13 +84,13 @@ def main():
 
     # CONTROL: the old behaviour (every leaf stamped with the span cursor, no per-call cursor) would NOT match
     stripped = [{k: v for k, v in c.items() if k not in ("cursor", "timestamp")} for c in bundle["calls"]]
-    old_cc = int(CC.calls_commitment(stripped, cursor=2)) % F.P
+    old_cc = _canon(CC.calls_commitment(stripped, cursor=2))   # gen-28 rehearsal: wide-aware
     check("control: span-cursor stamping does NOT match L1's per-block fold (the bug)", old_cc != _l1_fold(b1, b2))
 
     # single-block span still binds (the previously-working case)
     b3 = _block(3)
     single = SS.prove_bound_epoch(_pre(), CC.block_calls(b3, NS), cursor=3, depth=D, num_queries=NQ)
-    check("single-block span still binds", int(single["calls_commitment"]) % F.P == _l1_fold(b3))
+    check("single-block span still binds", _canon(single["calls_commitment"]) == _l1_fold(b3))
 
     # THE END-TO-END GATE: a 2-block span must pass L1's verify_calls_bound_to_summaries, both non-recursive
     # (one segment) and recursive (one block-aligned segment per block).

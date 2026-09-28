@@ -124,7 +124,8 @@ check("the shipped default is ON but SCOPED to a recipient list", () => {
   if (!dl) throw new Error("AUTO_VOTE_DEFAULT_ALLOW not found");
   const def = new Function(dl[0] + "; return AUTO_VOTE_DEFAULT_ALLOW;")();
   if (!def.length) throw new Error("an ON-by-default auto-voter MUST be scoped — an empty default list approves everything");
-  for (const a of def) if (!/^[0-9a-f]{40,64}$/.test(a)) throw new Error("default recipient is not an address: " + a);
+  // an address, or "faucet" — the one RESERVED recipient a treasury spend may pay (it cannot be claimed or redirected)
+  for (const a of def) if (!/^[0-9a-f]{40,64}$/.test(a) && a !== "faucet") throw new Error("default recipient is not an address: " + a);
 });
 
 check("an untouched wallet only approves the default recipients", () => {
@@ -134,8 +135,12 @@ check("an untouched wallet only approves the default recipients", () => {
   if (!kl) throw new Error("AUTO_VOTE_ALLOW_KEY not found");
   // Lift the KEY too. Without it the snippet throws ReferenceError, autoVoteAllow's catch returns the
   // default, and the "cleared" case appears to pass for entirely the wrong reason.
+  // ...and the earlier shipped defaults: without them the upgrade check throws, the catch returns the default, and a
+  // CLEARED list reads as the default (this test failed that way from the day "faucet" joined the default until 2026-09-28)
+  const pl = SRC.match(/const AUTO_VOTE_PREV_DEFAULTS = \[[\s\S]*?\]\];/);
+  if (!pl) throw new Error("AUTO_VOTE_PREV_DEFAULTS not found");
   const mk = (raw) => new Function("localStorage",
-    dl[0] + "\n" + kl[0] + "\n" + al[0] + "; return autoVoteAllow();")({ getItem: () => raw });
+    dl[0] + "\n" + kl[0] + "\n" + pl[0] + "\n" + al[0] + "; return autoVoteAllow();")({ getItem: () => raw });
   const def = mk(null);
   if (!def.length) throw new Error("an untouched wallet must get the shipped list");
   // and that list must actually restrict: a proposal to someone else is not auto-approved
@@ -144,6 +149,11 @@ check("an untouched wallet only approves the default recipients", () => {
   const r2 = autoVotePicks([P("b", "open", false, def[0])], true, new Set(), def);
   eq(r2.pick.length, 1, "the default list must approve its own recipient");
   eq(mk("").length, 0, "CLEARING the box means any recipient — an explicit user choice, not the default");
+  // every earlier shipped default follows forward — the gen-27 one named the operator's OLD address, which matches no
+  // proposal on a format-2 chain — while a list the user edited stays exactly as stored
+  const prevs = new Function(pl[0] + "; return AUTO_VOTE_PREV_DEFAULTS;")();
+  for (const prev of prevs) eq(JSON.stringify(mk(prev.join(","))), JSON.stringify(def), "a never-customised earlier default follows forward");
+  eq(JSON.stringify(mk("deadbeef" + "0".repeat(38))), JSON.stringify(["deadbeef" + "0".repeat(38)]), "a customised list is kept");
 });
 
 check("the recipient box is never persisted on blur alone", () => {

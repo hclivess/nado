@@ -27,6 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(os.path.join(os.environ["HOME"], "nado", "index"), exist_ok=True)
 
 from ops import kv_ops, tpm_enrol as te, attest_native, account_ops
+import protocol as _P
+# THE IMMEDIATE-DRAW REGIME, pinned at gen 27's gate: this test's heights (100..) and its challenge one block after the
+# open are the pre-TPM_DRAW_UNGRINDABLE_HEIGHT shape. On gen 28 the gate is 1 and challengers are drawn two epochs after
+# the open; that path's exact rollback (the materialising challenge) is pinned by tests/test_tpm_draw_is_not_grindable.py.
+# The marker journal this test is about is the same code in both regimes (gen-28 rehearsal).
+_P.TPM_DRAW_UNGRINDABLE_HEIGHT = max(_P.TPM_DRAW_UNGRINDABLE_HEIGHT, 28500)
 from ops.account_ops import apply_tpm_enrol_tx
 from protocol import CHAIN_ID
 

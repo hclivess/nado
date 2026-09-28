@@ -55,6 +55,9 @@ SENDER = "ab" * 23
 ANCHOR_HASH = "11" * 32                  # ONE block hash every node agrees on; only the uncommitted stamp differs
 OFF = P.POSW_ANCHOR_OFFSET
 LIVE_GATE = P.CERT_CLOCK_HEIGHT
+# gen 27's shipped gate: the "below the gate" checks reproduce the historical rule at real gen-27 heights, and must keep
+# doing so for anyone replaying that history once the tree runs gen 28 (where the gate is 1 and nothing is below it)
+GEN27_GATE = 29000
 b64 = lambda b: base64.b64encode(b).decode()
 
 
@@ -119,8 +122,10 @@ def use(lookup):
 
 def main():
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("the gate is LIVE on gen 27 at a height ahead of the fleet's adoption",
-          P.CHAIN_GENERATION == 27 and "CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1" in src, LIVE_GATE)
+    check("the gate was LIVE on gen 27 at a height ahead of the fleet's adoption, and is live from block 1 after",
+          "CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1" in src
+          and LIVE_GATE == (29000 if P.CHAIN_GENERATION == 27 else 1), LIVE_GATE)
+    P.CERT_CLOCK_HEIGHT = GEN27_GATE
 
     # ---- BEFORE: the live rule, at a real gen-27 height below the gate ---------------------------------------------
     H = 24886
@@ -210,6 +215,7 @@ def main():
         P.CERT_CLOCK_HEIGHT = LIVE_GATE
 
     # below the gate the historical rule stays byte for byte (replay of the live chain keeps every verdict)
+    P.CERT_CLOCK_HEIGHT = GEN27_GATE
     T.get_block_number = lambda n: {"block_number": n, "block_hash": ANCHOR_HASH, "block_timestamp": 1_790_400_000}
     check("below the gate the clock is still the stored anchor stamp (replay unchanged)",
           T._anchor_time({}, 5000) == 1_790_400_000)
@@ -219,6 +225,7 @@ def main():
         check("below the gate a missing anchor block is still refused", False)
     except AssertionError:
         check("below the gate a missing anchor block is still refused", True)
+    P.CERT_CLOCK_HEIGHT = LIVE_GATE
 
     print(f"\n{'ALL PASS' if not fails else f'{len(fails)} FAILED'}")
     return 1 if fails else 0

@@ -3579,8 +3579,9 @@ class CoreClient(threading.Thread):
             from protocol import SPAM_HARDEN_HEIGHT, B_MIN
             if tip + 1 >= SPAM_HARDEN_HEIGHT:
                 from ops.account_ops import get_account
-                _me = get_account(self.memserver.keydict["address"], create_on_error=False) or {}
-                if int(_me.get("bonded") or 0) < B_MIN:
+                # (not `_me`: that name is reserved for own-ip SETS, which tests/test_own_ips_and_sync_corrob.py audits)
+                _my_acct = get_account(self.memserver.keydict["address"], create_on_error=False) or {}
+                if int(_my_acct.get("bonded") or 0) < B_MIN:
                     return
             # AN INCLUSION DELAY, SIGNED (2026-09-17). tpm_ready lands FLEXIBLY (block_ops._lands_flexibly: it is
             # not in the exact-landing set), so without min_block it was eligible the instant it existed: the

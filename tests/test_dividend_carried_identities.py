@@ -51,17 +51,26 @@ R = max(G - 5, 1)                                      # the veteran renews shor
 kv_ops.recert_put(VETERAN, R)
 kv_ops.recert_put(FRESH, R)
 
-before, after = (D.weights_at_epoch(G - 1) if G >= 1 else {}), D.weights_at_epoch(G)
-check("a genesis seed earns nothing, before or after the gate", SEED not in before and SEED not in after, (before, after))
+# GEN-28 REHEARSAL: on the next generation the gate is epoch 0, so "renews shortly before the gate" cannot exist (epoch 0
+# IS the carry's lease) and R lands AFTER it (epoch 1). Judged at the gate itself, the veteran's renewal and the fresh
+# identity's first recert had not happened yet: the veteran check passed vacuously on its carried value and the fresh
+# identity was simply not present (None). So the renewal-dependent checks are judged at E, the first epoch at or after
+# the gate that has seen the renewal — E == G on gen 27 (R = G - 5), E == R == 1 on gen 28 — and the carried-identity
+# checks run both at the gate and at E.
+E = max(G, R)
+before, at_gate, after = (D.weights_at_epoch(G - 1) if G >= 1 else {}), D.weights_at_epoch(G), D.weights_at_epoch(E)
+check("a genesis seed earns nothing, before or after the gate",
+      SEED not in before and SEED not in at_gate and SEED not in after, (before, at_gate, after))
 if G >= 1:
     check("before the gate a carried identity earns nothing (committed epochs stay as they were)", CARRIED not in before, before)
-check("from the gate a carried identity earns", CARRIED in after, after)
-check("...at its carried fidelity", after.get(CARRIED) == P.dividend_weight(15, G), (after.get(CARRIED), P.dividend_weight(15, G)))
+check("from the gate a carried identity earns", CARRIED in at_gate and CARRIED in after, (at_gate, after))
+check("...at its carried fidelity", at_gate.get(CARRIED) == P.dividend_weight(15, G) and after.get(CARRIED) == P.dividend_weight(15, E),
+      (at_gate.get(CARRIED), after.get(CARRIED), P.dividend_weight(15, G)))
 live = P.fidelity_step(12, True, R - 0, R)             # what apply_register computed: continuing from the carried 12
 check("a carried veteran who renewed replays to the live apply's fidelity, not a newcomer's",
-      D.fidelity_at_epoch(VETERAN, G) == live, (D.fidelity_at_epoch(VETERAN, G), live))
-check("...and weighs accordingly", after.get(VETERAN) == P.dividend_weight(live, G), after.get(VETERAN))
-check("a fresh identity is unaffected", after.get(FRESH) == P.dividend_weight(P.fidelity_step(0, False, R + 1, R), G),
+      R <= E and D.fidelity_at_epoch(VETERAN, E) == live, (R, E, D.fidelity_at_epoch(VETERAN, E), live))
+check("...and weighs accordingly", after.get(VETERAN) == P.dividend_weight(live, E), after.get(VETERAN))
+check("a fresh identity is unaffected", after.get(FRESH) == P.dividend_weight(P.fidelity_step(0, False, R + 1, R), E),
       after.get(FRESH))
 
 kv_ops.close_all()

@@ -70,7 +70,11 @@ check("da_calls_commitment is deterministic", lambda:
 # 3) the PROVER's calls_commitment over block_calls == L1's da_calls_commitment (prover and verifier agree)
 def t_prover_matches():
     calls = CC.block_calls(BLK1, "default") + CC.block_calls(BLK2, "default")
-    return CC.calls_commitment(calls) == CC.da_calls_commitment([BLK1, BLK2])
+    # The prover passes the SEGMENT's end cursor (settlement_sparse: bundle["cursor"]), which keys the binding's
+    # width exactly as L1 keys da_calls_commitment on the last block. The default cursor=0 was the narrow regime
+    # while ZK_HARDEN_HEIGHT was gen 27's 2^62; on gen 28 (gate = 1) 101 is wide and 0 is not, so the defaulted
+    # call compared a narrow int to a wide 4-list (gen-28 rehearsal). Holds under either gate value.
+    return CC.calls_commitment(calls, cursor=101) == CC.da_calls_commitment([BLK1, BLK2])
 check("prover calls_commitment(block_calls) == L1 da_calls_commitment", t_prover_matches)
 
 # 4) BINDING: every kind of tamper changes the commitment

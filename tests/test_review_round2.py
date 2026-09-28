@@ -135,7 +135,7 @@ def t_z6_duplicate_field_note_refused_and_z4_pool_full():
     # where Z6 and Z4 apply exactly as they did on the legacy pool; the legacy pool is reachable only at height 0,
     # below every deleted gate, where the duplicate was historically admitted.
     from execnode.stark import znote as _Z
-    from execnode.shielded_wide import TREE_DEPTH as _WD
+    from execnode.shielded_wide import TREE_DEPTH as _WD, depth_at as _depth_at
     owner = _Z.to_hex(_Z.owner_of(7))
     st = fresh(GATE)
     assert st.apply_field_shield(1000, owner, 9).startswith("field-shield")
@@ -143,8 +143,23 @@ def t_z6_duplicate_field_note_refused_and_z4_pool_full():
     st_old = fresh(GATE - 1)
     assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield")
     assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield"), "height 0: the legacy pool admits the duplicate"
+    # Z4 at the depth IN FORCE at GATE (shielded_wide.depth_at): 12 while ZK_HARDEN_HEIGHT was gen 27's 2^62, 48 from it.
+    # Gen-28 rehearsal: the gate is 1, so apply_field_shield deepened the hand-filled 4,096-int depth-12 pool to 48
+    # (rebuilding its frontier over ints -> "'int' object is not iterable") and 4,096 leaves is not full at depth 48
+    # anyway. Enter the gate's depth first, then fill to THAT capacity: literally at depth 12 (exactly the old check),
+    # and at depth 48 — 2^48 leaves cannot be materialised — a list that reports the full length, which is the one
+    # quantity the Z4 line (len(commitments) >= 1 << depth) reads. Real depth-12/48 fills: tests/test_wide_pool_depth.py.
     st = fresh(GATE)
-    st.wide_pool.commitments = [i + 1 for i in range(1 << _WD)]              # a full tree
+    st.wide_enter(GATE)
+    cap = st.wide_pool.capacity()
+    assert cap == 1 << _depth_at(GATE)
+    if cap <= 1 << _WD:
+        st.wide_pool.commitments = [i + 1 for i in range(cap)]                # a full tree
+    else:
+        class _FullTree(list):
+            def __len__(self):
+                return cap
+        st.wide_pool.commitments = _FullTree()
     assert st.apply_field_shield(5, owner, 2) == "skip field-shield: the wide pool is full"
 
 

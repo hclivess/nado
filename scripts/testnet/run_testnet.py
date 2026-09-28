@@ -46,7 +46,9 @@ def seed_node(home, i, all_keys, bond_manifest):
     os.makedirs(os.path.join(base, "private"), exist_ok=True)
     os.makedirs(os.path.join(base, "peers"), exist_ok=True)
 
-    json.dump({"port": PORT, "ip": node_ip(i), "protocol": 2,
+    # auto_heal/auto_update off: a testnet child must never run the installer or fast-forward the tree it runs from
+    # (ops/self_update also refuses both under NADO_TESTNET — this is the second lock)
+    json.dump({"port": PORT, "ip": node_ip(i), "protocol": 2, "auto_heal": False, "auto_update": False,
                "server_key": secrets.token_hex(32), "min_peers": 1, "max_rollbacks": 10,
                # fast local blocks so a short run produces many blocks (LOCAL timing knob only —
                # block_time is non-consensus; every node uses the same value so tips still agree).

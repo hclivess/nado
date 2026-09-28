@@ -115,7 +115,13 @@ def t_calls_commitment_public_statement():
     assert cc == CC.calls_commitment(_BUNDLE["calls"], _BUNDLE["cursor"], _BUNDLE.get("timestamp", 0))
     assert pre == _BUNDLE["sparse_pre_root"] and post == _BUNDLE["sparse_post_root"]
     bad = copy.deepcopy(_BUNDLE)
-    bad["calls_commitment"] = (int(cc) + 1) % (2 ** 61)
+    if isinstance(cc, (list, tuple)):
+        # gen-28 rehearsal: ZK_HARDEN_HEIGHT = 1, so cursor 200 is in the WIDE regime and cc is the 4-element list
+        # (int(cc) raised). Tamper the LAST element, so the refusal also proves verify compares beyond element 0 —
+        # the ~2^32 narrow collision the widening closed. Under gen 27's 2^62 gate the narrow branch is unchanged.
+        bad["calls_commitment"] = list(cc[:-1]) + [(int(cc[-1]) + 1) % F.P]
+    else:
+        bad["calls_commitment"] = (int(cc) + 1) % (2 ** 61)
     ok, _why, _ = SS.verify_bound_epoch(bad, num_queries=NQ)
     assert not ok, "a tampered calls_commitment must be rejected"
 

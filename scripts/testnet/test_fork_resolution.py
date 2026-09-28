@@ -60,7 +60,8 @@ def seed(home, i, all_keys, bond_manifest, peer_indices, cfg_extra=None):
     base = os.path.join(home, "nado")
     os.makedirs(os.path.join(base, "private"), exist_ok=True)
     os.makedirs(os.path.join(base, "peers"), exist_ok=True)
-    cfg = {"port": PORT, "ip": node_ip(i), "protocol": 2,
+    # auto_heal/auto_update off: a testnet child must never run the installer or fast-forward the tree it runs from
+    cfg = {"port": PORT, "ip": node_ip(i), "protocol": 2, "auto_heal": False, "auto_update": False,
            "server_key": secrets.token_hex(32), "min_peers": 1,
            "max_rollbacks": MAX_ROLLBACKS, "block_time": BLOCK_TIME}
     cfg.update(cfg_extra or {})

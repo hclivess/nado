@@ -55,7 +55,10 @@ ALICE = "ndoAAAA" + "A" * 41
 COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2"),
            "add": zkvmasm.assemble("movi r1 0\n sload r2 r1\n add r2 r0\n sstore r1 r2\n ret r2")}
 GATE = 1000
-LIVE_GATE = protocol.ZK_HARDEN_HEIGHT          # gen 27's value (2^62): the narrow binding
+LIVE_GATE = protocol.ZK_HARDEN_HEIGHT          # the tree's value: 2^62 on gen 27, 1 from gen 28
+# the narrow regime is probed under gen 27's shipped gate whatever the tree runs: on gen 28 the gate is 1 and there is no
+# "below" left to look at, but the narrow formula must stay byte-identical for anyone replaying gen-27 history
+NARROW_GATE = LIVE_GATE if LIVE_GATE > 1 else (1 << 62)
 
 
 def _pre():
@@ -93,7 +96,7 @@ def _seg(cursor, cc):
 
 
 def below_the_gate():
-    protocol.ZK_HARDEN_HEIGHT = LIVE_GATE
+    protocol.ZK_HARDEN_HEIGHT = NARROW_GATE
     b = _block(500, args=[7], method="add")
     calls = CC.block_calls(b, NS)
     check("below the gate a call leaf is the legacy one-element formula (byte-identical)",

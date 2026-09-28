@@ -210,7 +210,13 @@ def t_span_with_code_events_proves_to_the_chain_root():
     assert len([u for u in ESB.vm_units(bundle["pre_contracts"], bundle["calls"], H, 0)]) == 4, "3 calls + 1 constructor"
     # the DA binding: L1's per-block summary folds to the bundle's commitment
     _inert, by_ns = CC.block_summary(_block(H, span_txs))
-    assert CC.fold_leaves(CC.alghash.IV, by_ns["default"]) == bundle["calls_commitment"]
+    # Folded from the segment's OWN chain start (CC.span_width keys it on the end height, as L1's
+    # verify_calls_bound_to_summaries does). This fold used to start from alghash.IV — the narrow chain, right only
+    # while ZK_HARDEN_HEIGHT was gen 27's 2^62; on gen 28 the gate is 1, H is wide and the bundle carries the
+    # 4-element commitment (gen-28 rehearsal). commitment_matches is the exact comparison the verifiers use.
+    okw, wide = CC.span_width(H - 1, H)
+    assert okw
+    assert CC.commitment_matches(bundle["calls_commitment"], CC.fold_leaves(CC.chain_start(wide), by_ns["default"]))
     # the lock is in the root: the transition carried a meta update for cid1 and a code+meta pair for cid2
     lead = ESB.event_updates(pre_contracts, entries, DEPTH)
     assert {k for k, _o, _n in lead} == {ESB.code_key(cid1, DEPTH), ESB.meta_key(cid1, DEPTH),

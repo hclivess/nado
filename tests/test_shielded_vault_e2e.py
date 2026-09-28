@@ -49,8 +49,11 @@ def step(name, fn):
 
 VAULT = "d0be764f3da9c9cc6bb609280a887929"
 ALICE_KEY, BOB_KEY = 0xA11CE, 0xB0B
-ALICE_L1 = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
-BOB_L1 = "c041167affec9c9649cbf3fe72f921a7fb001ba9831ba0"
+# DERIVED FROM GENERATED KEYS (gen-28 rehearsal, ADDRESS FORMAT 2): both were 46-char format-1 literals, which a
+# format-2 chain refuses by shape — BOB_L1 is a withdrawal destination and must be a spendable account.
+from signatures import generate_keydict
+ALICE_L1 = generate_keydict()["address"]
+BOB_L1 = generate_keydict()["address"]
 
 ST = ExecState(path=os.path.join(os.environ["HOME"], "vault.json"))
 ST.contracts[VAULT] = {"runtime": "zkvm", "code": {}, "storage": {}, "abi": {}}

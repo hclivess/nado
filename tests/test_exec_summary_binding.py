@@ -41,11 +41,22 @@ def block(txs, number=10, ts=1234):
 
 # ---------------------------------------------------------------- 1. equivalence
 
+def _start(lo, hi):
+    """The chain start for a segment over L1 blocks (lo, hi], in the segment's OWN width (CC.span_width keys it on the
+    end height, exactly as verify_calls_bound_to_summaries does). These folds used to start from alghash.IV, the
+    narrow chain — right only while ZK_HARDEN_HEIGHT was gen 27's 2^62. On gen 28 the gate is 1, every height here is
+    wide, and a narrow hand-built fold compared an int to the 4-element wide commitment (gen-28 rehearsal). Keyed on
+    the gate, so the same checks hold under either value."""
+    ok, wide = CC.span_width(lo, hi)
+    assert ok, f"segment ({lo}, {hi}] straddles ZK_HARDEN_HEIGHT"
+    return CC.chain_start(wide)
+
+
 def t_fold_matches_body_commitment():
     """THE load-bearing invariant: folding persisted leaves == the body-derived da_calls_commitment."""
     blk = block([call_tx(cid="a", method="foo"), call_tx(sender="ndoB", cid="b", method="bar", args=(7,))])
     _inert, calls_by_ns = CC.block_summary(blk)
-    from_summary = CC.fold_leaves(alghash.IV, calls_by_ns.get("default", []))
+    from_summary = CC.fold_leaves(_start(9, 10), calls_by_ns.get("default", []))
     from_body = CC.da_calls_commitment([blk], "default")
     assert from_summary == from_body, f"summary fold {from_summary} != body fold {from_body}"
 
@@ -54,7 +65,7 @@ def t_fold_matches_across_multiple_blocks():
     """The chain composes across blocks exactly as the body-based fold does (order-sensitive)."""
     b1 = block([call_tx(cid="a", method="one")], number=10)
     b2 = block([call_tx(cid="b", method="two")], number=11)
-    node = alghash.IV
+    node = _start(9, 11)
     for b in (b1, b2):
         node = CC.fold_leaves(node, CC.block_summary(b)[1].get("default", []))
     assert node == CC.da_calls_commitment([b1, b2], "default"), "multi-block chain must match the body fold"
@@ -64,8 +75,8 @@ def t_namespaces_are_separated():
     """A call in namespace 'x' must not enter the default namespace's chain."""
     blk = block([call_tx(cid="a", method="d"), call_tx(cid="b", method="x", ns="x")])
     _i, by_ns = CC.block_summary(blk)
-    assert CC.fold_leaves(alghash.IV, by_ns.get("default", [])) == CC.da_calls_commitment([blk], "default")
-    assert CC.fold_leaves(alghash.IV, by_ns.get("x", [])) == CC.da_calls_commitment([blk], "x")
+    assert CC.fold_leaves(_start(9, 10), by_ns.get("default", [])) == CC.da_calls_commitment([blk], "default")
+    assert CC.fold_leaves(_start(9, 10), by_ns.get("x", [])) == CC.da_calls_commitment([blk], "x")
     assert by_ns.get("default") != by_ns.get("x"), "namespaces must not share a leaf list"
 
 
@@ -120,7 +131,7 @@ def _store(blocks, lo):
 
 def _proof(store, lo, hi, ns="default"):
     """A single-segment proof whose calls_commitment is the honest fold over (lo, hi]."""
-    node = alghash.IV
+    node = _start(lo, hi)            # the segment's own width (gen-28 rehearsal: wide from block 1), not alghash.IV
     for h in range(lo + 1, hi + 1):
         node = CC.fold_leaves(node, (store[h].get("calls") or {}).get(ns, []))
     return {"segments": [{"cursor": hi, "calls_commitment": node}]}
@@ -157,7 +168,14 @@ def t_fabricated_calls_refused():
     blocks = [block([call_tx(method="real")], number=100)]
     store = _store(blocks, 100)
     proof = _proof(store, 100, 101)
-    proof["segments"][0]["calls_commitment"] = (int(proof["segments"][0]["calls_commitment"]) + 1) % F.P
+    cc = proof["segments"][0]["calls_commitment"]
+    if isinstance(cc, list):
+        # wide (gen-28 rehearsal: every height is wide once ZK_HARDEN_HEIGHT is 1): tamper the LAST element, so the
+        # refusal also proves the gate compares beyond element 0 (the ~2^32 narrow collision the widening closed)
+        cc = cc[:-1] + [(cc[-1] + 1) % F.P]
+    else:
+        cc = (int(cc) + 1) % F.P
+    proof["segments"][0]["calls_commitment"] = cc
     ok, why = CC.verify_calls_bound_to_summaries(proof, "default", 100, 101, store.get, 240)
     assert not ok and "fabricated" in why, f"a tampered commitment must be refused, got ({ok}, {why})"
 

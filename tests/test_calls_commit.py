@@ -13,6 +13,11 @@ Run: python3 tests/test_calls_commit.py
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import calls_commit as CC, membership as MB, alghash, field as F, backend as B
+import protocol
+# THE NARROW FORM, pinned: prove_calls_commitment is the one-element in-circuit demonstrator (calls_commit docstring),
+# and the settle binding is WIDE from ZK_HARDEN_HEIGHT — from block 1 on gen 28, which made cursor 200 wide here
+# (tests/test_calldata_binding_is_wide.py pins the wide form).
+protocol.ZK_HARDEN_HEIGHT = 1 << 62
 
 fails = 0
 def check(name, fn):

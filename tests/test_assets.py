@@ -14,7 +14,12 @@ What this pins down, in the order the money can go wrong:
   * the DIFFERENTIAL guarantee for the new opcodes — natively-applied call, interpreter, and the PROVEN
     call's replayed io log all agree (doc/nado-dev-approaches: money code verified 3 ways).
 
-Run: python3 tests/test_assets.py                  (~40s: includes one real proof)
+Run: python3 tests/test_assets.py
+SLOW BY NATURE, not hung (measured 2026-09-28, gen-28 rehearsal): it makes six real proofs on the blake2b backend,
+which the native arena does not implement, so every one is the Python prove body — ~630 s of CPU in total (ARENOUNCE
+~113 s, native==proven ~106 s, settle asset io ~211 s, mint+burn ~199 s; identical under CHAIN_GENERATION 27 and 28).
+On a loaded host that is 45+ min of wall time, so the suite's 900-1200 s ceiling reports it as a TIMEOUT: it belongs
+in scripts/run_tests.sh's SLOW list. (The old "~40s: one real proof" predates the four settlement-prover checks.)
 """
 import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
 _os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")

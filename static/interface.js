@@ -5206,10 +5206,21 @@ function adoptWallet(w, { needsSavePrompt }) {
   } else {
     state.wallet = w;
     persistWallet(w);
+    // AN IMPORTED WALLET IS NOT AN AUTO-CREATED ONE: the "created for you on this device" backup hint must go
+    try { localStorage.removeItem(LS_AUTO_WALLET); } catch (e) {}
     showWalletUI();
+    walletAdopted();
     log("info", i18("log.walletLoaded", "Wallet loaded: {a}", {a: w.address}));
     refreshDashboard().catch(() => {});
   }
+}
+// AFTER A WALLET IS ADOPTED IN-PAGE (restore from Settings, or the save screen's Continue). Forget stops mining and with
+// it the poll loop, and nothing restarted it: a restored wallet's dashboard froze — measured 2026-09-28 in the gen-28
+// legacy-claim walk, "0 NADO" for 5 minutes after its claimed coins had landed, until a page reload — and the person was
+// left on the Settings tab they imported from. Show them their wallet, live.
+function walletAdopted() {
+  if (!state.pollTimer) startPollLoop();                 // idempotent; the boot path starts it the same way
+  showTab("wallet");
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -9158,7 +9169,11 @@ const AUTO_VOTE_ALLOW_KEY = "nado_auto_vote_allow_v2";
 // The previous shipped default. A stored list EXACTLY equal to it was never actually customised — it is
 // the default that got written to storage (an edit, or the accidental blur write described above) — so it
 // may safely follow the default forward. Any other list is the user's own and is returned untouched.
-const AUTO_VOTE_PREV_DEFAULT = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"];
+// ONE LIST PER EARLIER SHIPPED DEFAULT. The gen-28 reroll moved the operator's address to format 2, so the gen-27 default
+// (old address + "faucet") is itself now a never-customised default that must follow forward — an old 46-char address
+// matches no proposal on a format-2 chain, and the list would silently approve only "faucet".
+const AUTO_VOTE_PREV_DEFAULTS = [["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f"],
+                                 ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f", "faucet"]];
 function autoVoteEnabled() {
   try { return (localStorage.getItem("nado_auto_vote_yes") || "1") === "1"; } catch (e) { return true; }
 }
@@ -9171,8 +9186,8 @@ function autoVoteAllow() {
     // choice, so it follows the default forward and picks up "faucet". A list the user actually edited —
     // including one they cleared, and including one they deliberately removed faucet from — is returned
     // exactly as stored. Settings are preserved; only the un-customised default moves.
-    if (list.length === AUTO_VOTE_PREV_DEFAULT.length
-        && list.every((x, i) => x === AUTO_VOTE_PREV_DEFAULT[i])) return AUTO_VOTE_DEFAULT_ALLOW.slice();
+    if (AUTO_VOTE_PREV_DEFAULTS.some(prev => list.length === prev.length && list.every((x, i) => x === prev[i])))
+      return AUTO_VOTE_DEFAULT_ALLOW.slice();
     return list;
   } catch (e) { return AUTO_VOTE_DEFAULT_ALLOW.slice(); }
 }
@@ -9970,6 +9985,7 @@ function wireEvents() {
     state.wallet = pendingWallet; pendingWallet = null;
     persistWallet(state.wallet);
     showWalletUI();
+    walletAdopted();
     log("info", i18("log.walletCreated", "New wallet created & stored: {a}", {a: state.wallet.address}));
     refreshDashboard().catch(() => {});
     // SETUP STEP: prove the device right away (one tap), so the mining page can say what this phone is

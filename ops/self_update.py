@@ -623,6 +623,12 @@ def heal(logger=None, force=False) -> dict:
     as root — writing a systemd unit needs it."""
     if _heal_attempted[0] and not force:
         return {"status": "already_attempted"}
+    # A TESTNET NODE NEVER RUNS THE INSTALLER (2026-09-28). A loopback node started as root from a worktree (branch
+    # reroll-gen28, not main) judged itself un-updatable and launched `install.sh --service --exec` on the live
+    # machine; the installer saw the live nado.service (User=nado), switched to its move-into-/srv/nado-home/nado mode
+    # and stopped only at its own "already exists — refusing" check. A testnet child is never a production install.
+    if os.environ.get("NADO_TESTNET"):
+        return {"status": "disabled", "reason": "testnet node (NADO_TESTNET): never runs the installer"}
     script = os.path.join(_REPO_DIR, "scripts", "install.sh")
     if not os.path.isfile(script):
         return {"status": "unavailable", "reason": "scripts/install.sh is missing from this directory"}

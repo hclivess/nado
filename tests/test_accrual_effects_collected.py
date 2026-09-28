@@ -64,11 +64,15 @@ def _summaries(spec):
 
 
 def _proof(lo, hi):
-    """A single segment covering (lo, hi] whose calls_commitment matches empty calldata everywhere."""
-    node = alghash.IV
+    """A single segment covering (lo, hi] whose calls_commitment matches empty calldata everywhere — in the chain's
+    OWN width (CC.span_width): narrow below ZK_HARDEN_HEIGHT, the 4-element wide chain from it (gen 28: from block 1).
+    A hand-built narrow chain here failed every span on gen 28 while the production fold was right."""
+    ok, wide = CC.span_width(lo, hi)
+    assert ok, (lo, hi)
+    node = CC.chain_start(wide)
     for _ in range(lo + 1, hi + 1):
         node = CC.fold_leaves(node, [])
-    return {"segments": [{"cursor": hi, "calls_commitment": int(node) % F.P}]}
+    return {"segments": [{"cursor": hi, "calls_commitment": list(node) if wide else int(node) % F.P}]}
 
 
 def t_an_inert_block_with_accrual_effects_IS_collected():

@@ -76,8 +76,9 @@ check(all(validate_address(a) for a in keyed),
       "...and they also pass validate_address (which alone would NOT have caught the old format)")
 
 # ---------------------------------------------------------------- the checksum is re-derived, not stripped
+CK = P.ADDRESS_CHECKSUM * 2                                      # 4 hex on format 1, 8 on format 2
 for a in keyed[:5]:
-    check(a[-4:] == make_checksum(a[:-4]),
+    check(a[-CK:] == make_checksum(a[:-CK]),
           f"{a[:10]}… carries a checksum over its OWN body (a stripped prefix would leave a stale one)")
 
 # ---------------------------------------------------------------- reserved sinks pass through untouched
@@ -86,8 +87,18 @@ check(all(not is_address(n) for n in named),
 
 # `burn` predates this change: a deliberately unspendable sink that is not in RESERVED_RECIPIENTS.
 # Pinned so it stays a known, named exception rather than quietly becoming a class of stale entries.
+# FORMAT 2 (gen 28): an account whose key no chain ever recorded cannot be re-keyed, so it carries at its OLD format-1
+# address — rejected by shape as a sender or recipient, claimable only by its own key (legacy_claim). Those, and only
+# those, may be the old length: a valid format-1 address with NO public key and nothing bonded.
+if P.ADDRESS_FORMAT >= 2:
+    from ops.address_ops import legacy_address as _la
+    by_addr = {e["address"]: e for e in entries}
+    legacy = [a for a in other if a != "burn" and len(a) == 46 and a[-4:] == make_checksum(a[:-4], 2)]
+    check(all(not by_addr[a].get("public_key") and not int(by_addr[a].get("bonded", 0) or 0) for a in legacy),
+          f"every old-format entry is keyless and unbonded — claimable only by its key ({len(legacy)} of them)")
+    other = [a for a in other if a not in legacy]
 check(set(other) <= {"burn"},
-      f"the only non-address, non-reserved allocation entry is the burn sink (got {sorted(other)})")
+      f"the only non-address, non-reserved allocation entry is the burn sink (got {sorted(other)[:5]})")
 
 # ---------------------------------------------------------------- the founder's own address
 check(not P._GENESIS_BODY.startswith("mldsa44"),

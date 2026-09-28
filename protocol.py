@@ -680,7 +680,9 @@ _GENESIS_BODY = "27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer
 # the string changed (49+4 -> 42+4). Leaving the "mldsa44" on here would have been silent and total: the
 # founder's key derives make_address(pk) = 42 hex + checksum, which can never equal a 53-char literal, so
 # the treasury's own genesis address would have belonged to nobody.
-GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
+GENESIS_ADDRESS = (_GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)) if ADDRESS_FORMAT == 1 else \
+    "b7a08de8351e3af97f6f2bbcb19f2a8c722abad81c3460caf9"   # format 2 of the same key (gen 28): a format-2 body is a hash of the
+                                                        # WHOLE key, so it cannot be derived from _GENESIS_BODY
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
 # No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
 # (doc/treasury.md §3.3). This is what makes "spendable only through the bonded-stake quorum" actually true.

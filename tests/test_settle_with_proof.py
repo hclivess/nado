@@ -91,7 +91,7 @@ def _seed_span(lo, hi):
     The binding is a pure function of committed state (kv_ops.exec_summary_get) rather than of block
     BODIES, because bodies are prunable AND are wiped wholesale by a snapshot re-anchor — reading them made
     the check fork the fleet. Empty, records-inert blocks here: no calls, so each segment's honest
-    calls_commitment is just the unextended chain start (alghash.IV)."""
+    calls_commitment is just the unextended chain start (CC.chain_start in the span's width)."""
     for h in range(int(lo) + 1, int(hi) + 1):
         kv_ops.exec_summary_put(h, True, {})
 
@@ -99,11 +99,18 @@ def _seed_span(lo, hi):
 def _proof(kv_pre, cursor, kv_post, ok=True, rec=REC_G, prev=None):
     """A stub settlement proof. `prev` (the settled cursor this extends) seeds the span's exec summaries so
     the DA binding can be satisfied honestly instead of bypassed."""
-    from execnode.stark import alghash
+    from execnode.stark import calls_commit as CC
     if prev is not None:
         _seed_span(prev, cursor)
+    # The honest commitment of an empty span is the unextended chain start IN THE SEGMENT'S OWN WIDTH (CC.span_width
+    # keys it on the end cursor, as verify_calls_bound_to_summaries does). This used to be alghash.IV, the narrow
+    # start — right only while ZK_HARDEN_HEIGHT was gen 27's 2^62. On gen 28 the gate is 1, every cursor >= 1 is
+    # wide, and the narrow IV read as "fabricated calls", so t6 never advanced the tip and t7 failed as a knock-on
+    # (gen-28 rehearsal). Proofs without `prev` are refused before the binding is reached; they key on the cursor alone.
+    okw, wide = CC.span_width(int(prev), int(cursor)) if prev is not None else (True, CC.wide_binding(int(cursor)))
+    assert okw, f"test span ({prev}, {cursor}] straddles ZK_HARDEN_HEIGHT"
     return {"cursor": int(cursor), "kv_pre": kv_pre, "kv_post": kv_post, "rec": rec,
-            "segments": [{"depth": ER.DEPTH, "cursor": int(cursor), "calls_commitment": alghash.IV}],
+            "segments": [{"depth": ER.DEPTH, "cursor": int(cursor), "calls_commitment": CC.chain_start(wide)}],
             "_verify_ok": ok}
 
 

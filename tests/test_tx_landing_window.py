@@ -15,7 +15,7 @@ _os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import TX_TARGET_MARGIN, TX_LANDING_WINDOW
-from signatures import make_address
+from signatures import generate_keydict
 from ops.block_ops import _lands_flexibly, check_target_match, match_transactions_target
 import logging
 _LOG = logging.getLogger("t"); _LOG.addHandler(logging.NullHandler())
@@ -41,7 +41,9 @@ def _tx(recipient, max_block, min_block=0, txid=None):
 # check — it calls is_address(), which validates the CHECKSUM — so a made-up literal like "abc123" is
 # classified as neither a reserved recipient nor an address and takes the exact-landing branch, exactly
 # as a typo'd address would. Derive one instead of pinning a string.
-PAYEE = make_address("ebd27698662f14ee2389e509781d5ff57487f4289a")
+# gen-28 rehearsal, ADDRESS FORMAT 2: make_address(<42-hex body>) now HASHES the body into an address nobody holds,
+# so the payee is a GENERATED KEY's address — valid on whatever format is live.
+PAYEE = generate_keydict()["address"]
 FLEX = [PAYEE, "blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth"]
 EXACT = ["bond", "unbond", "withdraw", "register", "msgkey", "attest", "commit", "reveal", "duty",
          "settle", "alias", "htlc_lock"]
