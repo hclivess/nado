@@ -1,9 +1,8 @@
 """THE ADDRESS FORMAT, AND THE DISCRIMINATOR THAT REPLACED THE PREFIX.
 
-alphanet-14 removed the "mldsa44" prefix with no backwards compatibility. An address is now 42 hex chars of
-the pubkey plus a 4-hex blake2b checksum — 46 characters. From gen 28 (address format 2) the 42-hex body is a hash of
-the whole key and the checksum is 8 hex — 50 characters (tests/test_address_format_v2.py); the checks below are
-written against the live format's constants, so they hold on either.
+alphanet-14 removed the "mldsa44" prefix with no backwards compatibility. An address was then 42 hex chars of
+the pubkey plus a 4-hex blake2b checksum — 46 characters. Since gen 28 (address format 2) the 42-hex body is a hash of
+the whole key and the checksum is 8 hex — 50 characters (tests/test_address_format_v2.py).
 
 The removal itself is easy. The dangerous part is what the prefix was quietly load-bearing for: a dozen sites
 asked `x.startswith(ADDRESS_PREFIX)` to mean "is this recipient an address rather than a reserved protocol
@@ -45,18 +44,14 @@ ADDR = make_address(PK)
 
 # ---------------------------------------------------------------- the format itself
 check(P.ADDRESS_PREFIX == "", "ADDRESS_PREFIX is empty — the prefix is gone, not merely unused")
-CK = P.ADDRESS_CHECKSUM * 2                                     # 4 hex on format 1, 8 on format 2
-check(len(ADDR) == P.ADDRESS_LENGTH == (46 if P.ADDRESS_FORMAT == 1 else 50),
-      f"an address is {P.ADDRESS_LENGTH} chars (got {len(ADDR)})")
+CK = P.ADDRESS_CHECKSUM * 2                                     # 8 hex: a 4-byte checksum
+check(CK == 8 and len(ADDR) == P.ADDRESS_LENGTH == 50, f"an address is {P.ADDRESS_LENGTH} chars (got {len(ADDR)})")
 check(not ADDR.startswith("mldsa44"), "no residual prefix on a freshly derived address")
 check(all(c in "0123456789abcdef" for c in ADDR), "an address is lowercase hex end to end")
-if P.ADDRESS_FORMAT == 1:
-    check(ADDR.startswith(PK[:P.ADDRESS_BODY]), "the body is the leading pubkey hex, unchanged")
-else:
-    from ops.address_ops import legacy_address
-    check(not ADDR.startswith(PK[:P.ADDRESS_BODY]) and len(ADDR) - CK == P.ADDRESS_BODY,
-          "format 2: the body is a hash of the key, not its leading hex (the forgery the format closes)")
-    check(not validate_address(legacy_address(PK)), "format 2: the key's format-1 address is no address")
+from ops.address_ops import legacy_address
+check(not ADDR.startswith(PK[:P.ADDRESS_BODY]) and len(ADDR) - CK == P.ADDRESS_BODY,
+      "the body is a hash of the key, not its leading hex (the forgery format 2 closed)")
+check(not validate_address(legacy_address(PK)), "the key's format-1 (legacy) address is no address")
 check(ADDR[-CK:] == make_checksum(ADDR[:-CK]), f"the trailing {CK} hex are the blake2b checksum over the rest")
 
 # ---------------------------------------------------------------- verification strength is UNCHANGED

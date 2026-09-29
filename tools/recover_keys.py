@@ -1,5 +1,8 @@
 """Recover {format-1 address: public key} from OLDER generations' account tables, for tools/rekey_v2.py.
 
+Needed only by the carry that crossed into address format 2 (gen 27 -> 28); a carry from gen 28 onward re-keys nothing
+(tools/alphanet6_carryforward.py). Kept runnable, not deleted.
+
 Usage (at the reroll, before the carry):
     python3 tools/recover_keys.py OUT.json <old index/state dir> [<old index/state dir> ...]
 e.g. the reroll backups' index/state (doc/reroll.md step "recover keys").

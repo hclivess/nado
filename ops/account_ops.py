@@ -151,7 +151,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "tpm_ready" and block_height is not None and int(block_height) >= _spam_harden_height():
         return
 
-    # --- LEGACY CLAIM (protocol.LEGACY_CLAIM_HEIGHT): move the old address's whole balance, as stated in the claim and
+    # --- LEGACY CLAIM (gen 28, transaction_ops.validate_transaction): move the old address's whole balance, as stated in the claim and
     #     checked by validation, to the claimant. Revert moves exactly that amount back (change_balance flips the sign).
     if recipient == "legacy_claim":
         amt = int((transaction.get("data") or {}).get("amount") or 0)

@@ -2005,15 +2005,19 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                             "register: this identity is already bound for life to another hardware wallet — use that device, " \
                             "or bind this one to a new account"
     elif recipient == "legacy_claim":
-        # LEGACY CLAIM (protocol.LEGACY_CLAIM_HEIGHT; operator: "sign with your old key and get the coins"). An account
-        # whose key no chain ever saw was carried at its OLD address, which format 2 refuses as a sender; its owner's
+        # LEGACY CLAIM (gen 28; operator: "sign with your old key and get the coins"). An account whose key no chain
+        # ever saw was carried at its OLD 46-character format-1 address, which format 2 refuses as a sender; its owner's
         # key K claims it from K's format-2 address (validate_origin has bound the sender to K). The claim names the
         # old address and its EXACT balance, so apply moves a stated amount and a rollback moves exactly that back, and
-        # a second claim fails because the balance is then zero. ACCEPTED RISK, stated at the gate: a key sharing the
-        # old address's 21 bytes can claim first. INVARIANT: only ever the whole balance, only an address with no key.
-        from protocol import LEGACY_CLAIM_HEIGHT, ADDRESS_BODY, ADDRESS_PREFIX
+        # a second claim fails because the balance is then zero. ACCEPTED RISK (operator's decision, 332 accounts /
+        # 142 NADO measured 2026-09-28): a key sharing the old address's 21 bytes can claim first — the exposure those
+        # accounts already carried on gen 27. INVARIANT: only ever the whole balance, only an address with no key.
+        # `>= 1` IS THE DELETED GATE'S OWN VALUE (LEGACY_CLAIM_HEIGHT was 1 from gen 28, deleted after the betanet-9
+        # reroll): mempool admission validates at the tip's height, which is 0 on a genesis tip, and a claim was
+        # refused there. Keep it; it changes no verdict on a chain with a block.
+        from protocol import ADDRESS_BODY, ADDRESS_PREFIX
         from ops.address_ops import legacy_address
-        assert block_height is not None and int(block_height) >= LEGACY_CLAIM_HEIGHT, "legacy claims are not enabled on this chain"
+        assert block_height is not None and int(block_height) >= 1, "legacy claims are not enabled on this chain"
         assert transaction["amount"] == 0 and transaction["fee"] == 0, "legacy_claim carries no amount and no fee"
         data = transaction.get("data")
         assert isinstance(data, dict) and set(data) == {"legacy", "amount"}, "legacy_claim data is {legacy, amount}"

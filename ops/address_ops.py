@@ -21,9 +21,9 @@ def validate_address(address: str, checksum_size: int = None, allow_reserved: bo
     # the sender slot so a tx can't claim to originate FROM a reserved name.
     if address in RESERVED_RECIPIENTS:
         return allow_reserved
-    # THE CHECKSUM LENGTH IS THE FORMAT'S (protocol.ADDRESS_CHECKSUM: 2 bytes in format 1, 4 in format 2), and the
-    # comparison uses it — this compared the last 4 hex chars whatever `checksum_size` said, so a longer checksum was
-    # never actually checked. The exact length is required too: a format-1 address on a format-2 chain is rejected.
+    # THE CHECKSUM LENGTH IS protocol.ADDRESS_CHECKSUM (4 bytes since format 2; format 1 had 2), and the comparison
+    # uses it — this compared the last 4 hex chars whatever `checksum_size` said, so a longer checksum was never
+    # actually checked. The exact length is required too: a 46-char format-1 address is rejected.
     # A MULTISIG address has its OWN exact length: MSIG_PREFIX + body + the same checksum (54 in format 2). Requiring the
     # key-address length alone refused every multisig sender — "Invalid sender msig…" on every M-of-N spend (bc0f8986,
     # caught by tests/test_multisig.py in the gen-28 rehearsal before it shipped).
@@ -75,7 +75,7 @@ def make_checksum(public_key: str, checksum_size: int = None) -> str:
     hash yields a wrong checksum that rejects every valid address. The in-tree JS does this correctly
     (static/interface.js: blake2bHash(body, 2) -> noble blake2b {dkLen: 2}); match that, not a slice."""
     if checksum_size is None:
-        from protocol import ADDRESS_CHECKSUM as checksum_size        # the format's (2 bytes format 1, 4 format 2)
+        from protocol import ADDRESS_CHECKSUM as checksum_size        # 4 bytes (format 1's 2: legacy_address only)
     checksum = blake2b_hash(data=public_key, size=checksum_size)
     return checksum
 
@@ -86,20 +86,22 @@ def make_address(
         checksum_size: int = None,
         prefix: str = None,
 ) -> str:
-    """Derive the canonical address: ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the public key
-    + 4-hex blake2b checksum (protocol.py owns all three — the one-constant rebrand point). Must stay
+    """Derive the canonical address: ADDRESS_PREFIX + address_body_v2(public key) + ADDRESS_CHECKSUM-byte blake2b
+    checksum (protocol.py owns all three — the one-constant rebrand point). A MULTISIG address (prefix MSIG_PREFIX)
+    passes a descriptor hash as `public_key` and keeps format 1's body rule: its first ADDRESS_BODY hex. Must stay
     DETERMINISTIC and stable — proof_sender re-derives it to bind a pubkey to its sender, so any
     change here orphans every existing address (= ships only with a CHAIN_GENERATION reroll)."""
-    from protocol import ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM, ADDRESS_FORMAT
+    from protocol import ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM
     if address_length is None:
         address_length = ADDRESS_BODY
     if checksum_size is None:
         checksum_size = ADDRESS_CHECKSUM
     if prefix is None:
         prefix = ADDRESS_PREFIX
-    # FORMAT 2 for key-derived addresses (protocol.ADDRESS_FORMAT): the body commits to the WHOLE key. A multisig
-    # address (prefix MSIG_PREFIX) is derived from a descriptor hash already and keeps format 1.
-    if ADDRESS_FORMAT >= 2 and prefix == ADDRESS_PREFIX:
+    # FORMAT 2 for key-derived addresses (gen 28, protocol.py "ADDRESS FORMAT 2"): the body commits to the WHOLE key —
+    # format 1's first 21 bytes are the key's rho, which a forger chooses. A multisig address (prefix MSIG_PREFIX) is
+    # derived from a descriptor hash already and keeps format 1's body rule; its bytes must never change.
+    if prefix == ADDRESS_PREFIX:
         body = address_body_v2(public_key, address_length)
     else:
         body = public_key[:address_length]

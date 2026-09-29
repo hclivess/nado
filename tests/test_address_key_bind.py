@@ -66,22 +66,26 @@ import contextlib
 
 @contextlib.contextmanager
 def format1():
-    """Run under ADDRESS FORMAT 1 (address = key prefix + 2-byte checksum, 46 chars) and restore the live format after.
-    GEN-28 REHEARSAL: format 2 (a hash of the whole key) is live from gen 28, so the rho-prefix forgery this file
-    reproduces no longer derives any address at all. The bind rule still stands on its own, so its checks run under
-    format 1 — where the forgery is real — and each also checks that under the LIVE format the forgery is dead."""
-    saved = (P.ADDRESS_FORMAT, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH)
-    P.ADDRESS_FORMAT, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 1, 2, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 4
+    """SIMULATE ADDRESS FORMAT 1 (address = key prefix + 2-byte checksum, 46 chars) and restore format 2 after.
+    Format 2 (a hash of the whole key) is unconditional since gen 28 (the ADDRESS_FORMAT gate was deleted after the
+    betanet-9 reroll), so the rho-prefix forgery this file reproduces no longer derives any address at all. The bind
+    rule still stands on its own — it is what refuses a colliding key — so its checks run where a collision exists: the
+    body derivation every caller reaches (address_ops.address_body_v2, looked up by make_address at call time) is
+    swapped for format 1's slice, and each check also shows that under the real format the forgery is dead."""
+    from ops import address_ops as _AO
+    saved = (_AO.address_body_v2, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH)
+    _AO.address_body_v2 = lambda public_key, address_length=None: public_key[:address_length or P.ADDRESS_BODY]
+    P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 2, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 4
     try:
         yield
     finally:
-        P.ADDRESS_FORMAT, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = saved
+        _AO.address_body_v2, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = saved
 
 
 VICTIM = generate_keydict()
 NEVER_SENT = generate_keydict()
-# The victim under BOTH formats: its format-1 address (what the forgery targets) and its live address. On gen 27 the two
-# are the same string; on gen 28 they differ and only the live one is a valid address on the chain.
+# The victim under BOTH formats: its format-1 address (what the forgery targets) and its live address. They differ, and
+# only the live one is a valid address on the chain.
 with format1():
     VICTIM_F1 = make_address(VICTIM["public_key"])
     NEVER_SENT_F1 = make_address(NEVER_SENT["public_key"])
@@ -113,27 +117,27 @@ def _raises(fn):
 
 
 def t_the_forged_key_really_derives_the_victims_address():
-    # GEN-28 REHEARSAL: the forgery is a FORMAT-1 fact, so it is reproduced under format 1 (the chain it was found on)...
+    # the forgery is a FORMAT-1 fact, so it is reproduced under (simulated) format 1, the chain it was found on...
     with format1():
         assert FORGED_PK != VICTIM["public_key"] and make_address(FORGED_PK) == VICTIM_F1
+    from ops.address_ops import legacy_address
+    assert legacy_address(FORGED_PK) == VICTIM_F1, "...and the simulation derives exactly legacy_address"
     assert signatures.verify(_sign(FORGED_SK, b"x" * 32), FORGED_PK, b"x" * 32), "and it signs validly"
 
 
 def t_under_the_live_format_the_forged_key_derives_no_victim():
-    """GEN-28 REHEARSAL: format 2 hashes the whole key, so a chosen rho prefix buys nothing — the forged key derives
-    neither the victim's live address nor its format-1 string (on gen 27 the live format IS format 1 and this check
-    only runs when the live format is 2)."""
-    if P.ADDRESS_FORMAT >= 2:
-        assert make_address(FORGED_PK) not in (VICTIM["address"], VICTIM_F1)
-        tx = _tx(FORGED_PK, FORGED_SK, VICTIM["address"])
-        assert _raises(lambda: T.validate_origin(tx, GATE - 1)), "refused even below the bind gate: it derives nothing"
-        assert _raises(lambda: T.validate_origin(tx, GATE))
-        assert not A.key_authorized(FORGED_PK, VICTIM["address"], height=GATE - 1)
-        assert not A.key_valid_at(FORGED_PK, VICTIM["address"], 10, judge_height=GATE - 1)
+    """Format 2 hashes the whole key, so a chosen rho prefix buys nothing — the forged key derives neither the
+    victim's live address nor its format-1 string."""
+    assert make_address(FORGED_PK) not in (VICTIM["address"], VICTIM_F1)
+    tx = _tx(FORGED_PK, FORGED_SK, VICTIM["address"])
+    assert _raises(lambda: T.validate_origin(tx, GATE - 1)), "refused even below the bind gate: it derives nothing"
+    assert _raises(lambda: T.validate_origin(tx, GATE))
+    assert not A.key_authorized(FORGED_PK, VICTIM["address"], height=GATE - 1)
+    assert not A.key_valid_at(FORGED_PK, VICTIM["address"], 10, judge_height=GATE - 1)
 
 
 def t_a_forged_spend_is_refused_from_the_gate_and_accepted_below_it():
-    with format1():   # GEN-28 REHEARSAL: the forgery exists only under format 1 (see format1)
+    with format1():   # the forgery exists only under format 1 (see format1)
         tx = _tx(FORGED_PK, FORGED_SK, VICTIM_F1)
         assert T.validate_origin(tx, GATE - 1), "THE FINDING: below the gate the forged key is accepted (replay unchanged)"
         assert _raises(lambda: T.validate_origin(tx, GATE)), "from the gate a forged key must be refused"
@@ -152,7 +156,7 @@ def t_the_owner_still_spends_with_or_without_carrying_the_key():
 
 def t_block_signatures_and_logins_need_the_recorded_key():
     assert A.key_authorized(VICTIM["public_key"], VICTIM["address"], height=GATE)   # the owner, under the live format
-    with format1():   # GEN-28 REHEARSAL: the forgery exists only under format 1 (see format1)
+    with format1():   # the forgery exists only under format 1 (see format1)
         assert not A.key_authorized(FORGED_PK, VICTIM_F1, height=GATE), "forged block signer"
         assert A.key_authorized(VICTIM["public_key"], VICTIM_F1, height=GATE)
         assert A.key_authorized(FORGED_PK, VICTIM_F1, height=GATE - 1), "below the gate: unchanged"
@@ -161,7 +165,7 @@ def t_block_signatures_and_logins_need_the_recorded_key():
 def t_evidence_is_judged_at_the_including_block_not_the_offence_height():
     old_offence = 10
     assert A.key_valid_at(VICTIM["public_key"], VICTIM["address"], old_offence, judge_height=GATE)   # live format
-    with format1():   # GEN-28 REHEARSAL: the forgery exists only under format 1 (see format1)
+    with format1():   # the forgery exists only under format 1 (see format1)
         assert not A.key_valid_at(FORGED_PK, VICTIM_F1, old_offence, judge_height=GATE), \
             "forged evidence naming a pre-gate offence must still be refused when judged at the gate"
         assert A.key_valid_at(VICTIM["public_key"], VICTIM_F1, old_offence, judge_height=GATE)
@@ -173,15 +177,14 @@ def t_limitation_an_address_that_never_sent_is_not_protected_by_this_rule():
     """Recorded, not fixed BY THIS RULE: with no key on chain there is nothing to compare, so whoever sends first wins.
     Only a hash-based address (a reroll) closes it — and gen 28's format 2 is that reroll. If the format-1 assertion
     ever flips, update the protocol comment and the doc."""
-    with format1():   # GEN-28 REHEARSAL: the limitation is a format-1 fact, reproduced under format 1
+    with format1():   # the limitation is a format-1 fact, reproduced under (simulated) format 1
         pk, sk = forge_key_for(NEVER_SENT_F1)
         assert make_address(pk) == NEVER_SENT_F1, "the forged key takes the never-sent format-1 address"
         assert key_bound(NEVER_SENT_F1, pk, GATE)
-    if P.ADDRESS_FORMAT >= 2:
-        # ...and under the live format it is closed by the address itself: a prefix chosen for the never-sent account's
-        # live address derives something else entirely.
-        pk2, _ = forge_key_for(NEVER_SENT["address"])
-        assert make_address(pk2) != NEVER_SENT["address"] and make_address(pk) != NEVER_SENT["address"]
+    # ...and under the real format it is closed by the address itself: a prefix chosen for the never-sent account's
+    # live address derives something else entirely.
+    pk2, _ = forge_key_for(NEVER_SENT["address"])
+    assert make_address(pk2) != NEVER_SENT["address"] and make_address(pk) != NEVER_SENT["address"]
 
 
 if __name__ == "__main__":

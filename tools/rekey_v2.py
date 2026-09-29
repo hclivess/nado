@@ -1,4 +1,7 @@
-"""Re-key a reroll carry to ADDRESS FORMAT 2 (protocol.ADDRESS_FORMAT; gen 27 -> 28). Pure: no database, no network.
+"""Re-key a reroll carry to ADDRESS FORMAT 2 (gen 27 -> 28, betanet-9). Pure: no database, no network.
+
+Used by exactly one carry: the one that crossed the format switch. Format 2 has been unconditional since the betanet-9
+gate cleanup, so a carry from gen 28 onward re-keys nothing and tools/alphanet6_carryforward.py does not call this.
 
 A format-1 address is the first 21 bytes of a public key; format 2 hashes the WHOLE key and carries a 4-byte checksum
 (50 characters), so the old format is rejected by shape. The carry therefore moves every account to the address its
@@ -13,7 +16,7 @@ carries exactly the trust of one recorded on this chain: it is the key that firs
 
 AN ACCOUNT WHOSE KEY NO CHAIN EVER SAW CANNOT BE RE-KEYED: a format-1 address commits to only 21 bytes that anyone can
 match. It is carried AT ITS OLD 46-CHARACTER ADDRESS, which a format-2 chain rejects as a sender, and its owner's wallet
-claims it with the key it already holds (`legacy_claim`, protocol.LEGACY_CLAIM_HEIGHT — the operator accepted that a
+claims it with the key it already holds (`legacy_claim`, live from block 1 of gen 28 — the operator accepted that a
 forger sharing the address's 21 bytes could claim first). Any bonded stake it held is released into its balance: a bonded identity nobody can sign for
 would be drawn to produce and attest and could do neither.
 
