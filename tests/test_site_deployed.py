@@ -16,9 +16,13 @@ shipped. The repo is not the server. Two things in particular are hand-carried a
 The repo-only checks run anywhere. The deployment checks only run where the server actually is, and say so
 rather than passing silently — a check that skips itself and reports PASS is how this got missed.
 
-NOTE for whoever syncs the lobby: /var/www/nadochain.com/index.html legitimately DIFFERS from the repo copy
-(it carries a production analytics tag the repo does not). Copy apps.html specifically; never rsync the
-directory wholesale.
+NOTE for whoever syncs the site: the served pages carry NO analytics tag or any other server-only content —
+an earlier version of this note said index.html "legitimately differs by an analytics tag", which was never
+true and let real edits made on the server (the Sep-14 universal nav, "Collect Rewards" CTA and AIK Oracles
+section) live only in /var/www for two weeks. website/ is the source: edit it here, then copy each changed
+file by name (cp website/<page> /var/www/nadochain.com/<page>). Never rsync the directory wholesale — it
+also holds nginx vhosts and a unit file that do not belong in the web root. The brand images (logo.svg,
+logo.png, wordmark.png, favicon.ico) are deployed from graphics/ as website/README.md lists.
 """
 import os
 import re
@@ -30,6 +34,8 @@ WEBSITE = os.path.join(ROOT, "website")
 STATIC = os.path.join(ROOT, "static")
 SITES_ENABLED = "/etc/nginx/sites-enabled"
 WWW = "/var/www/nadochain.com"
+# The files website/ deploys into the web root, each copied by name (never rsync: website/ also holds vhosts).
+SITE_PAGES = ("index.html", "apps.html", "emission.html", "production.html", "sitemap.xml", "robots.txt")
 
 fails = []
 notes = []
@@ -93,13 +99,17 @@ def main():
         ck(os.path.exists(os.path.join(SITES_ENABLED, f"{host}.nadochain.com")),
            f"{host}.nadochain.com vhost is INSTALLED and enabled")
 
-    served = os.path.join(WWW, "apps.html")
-    if os.path.exists(served):
-        same = open(served).read() == open(os.path.join(WEBSITE, "apps.html")).read()
-        ck(same, "the served lobby matches website/apps.html "
-                 "(cp website/apps.html /var/www/nadochain.com/apps.html)")
-    else:
-        ck(False, f"{served} exists")
+    # EVERY served page, not just the lobby: index.html was edited on the server (2026-09-14) and the repo copy
+    # went two weeks stale because only apps.html was compared. Drift in EITHER direction fails here — a page
+    # edited on the server must be brought into website/, a page edited in website/ must be copied out.
+    for page in SITE_PAGES:
+        served = os.path.join(WWW, page)
+        if os.path.exists(served):
+            same = open(served, "rb").read() == open(os.path.join(WEBSITE, page), "rb").read()
+            ck(same, f"the served {page} matches website/{page} "
+                     f"(cp website/{page} {WWW}/{page})")
+        else:
+            ck(False, f"{served} exists")
 
     # nginx must also be happy, or a reload will refuse and the vhost stays dark
     try:
