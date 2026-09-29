@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=6b8ef380";   // THE one share implementation (SDK) + the shared select picker
+import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=b74f351b";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -5964,7 +5964,7 @@ function assetsWire() {
  * see an asset's supply or mintable flag, so a declared floor is only trustworthy when the registry says
  * the asset is fixed-supply AND its live supply still equals the vault's outstanding (renderVaults).
  * ------------------------------------------------------------------------------------------------- */
-const RESERVE_CID = "bd760bd8215e8040f5b95a53d55f6031";   // execnode/games/reserve.py — the cid the exec node HOLDS
+const RESERVE_CID = "0ce22fd93ec4c803bd38cecf799a5aed";   // execnode/games/reserve.py — the cid the exec node HOLDS
                                                         // (2026-09-23: the previous constant named a contract that no
                                                         // longer existed on the exec node, so the reserve page could not work)
 const VAULT_UNIT = 100000000n;                            // reserve.UNIT — raw per stored reserve unit

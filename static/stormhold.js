@@ -6,14 +6,14 @@
 // rigged. All information is public on-chain (open-hand play); the skill is the deck-building itself.
 // This module owns ONLY the Stormhold-specific half: engine replay, the supply/hand/decision UI, and the
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
-import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P, installModes } from "./nadodapp.js?v=6b8ef380";
-import { DuelGame } from "./duelgame.js?v=15b267a7";
-import * as E from "./stormhold-engine.js?v=bd65a607";
+import { NadoDapp, $, notify, confirmingLabel, disp, randSecret, algHashn, ALG_P, installModes } from "./nadodapp.js?v=b74f351b";
+import { DuelGame } from "./duelgame.js?v=34a99302";
+import * as E from "./stormhold-engine.js?v=cf4bf820";
 import { ART } from "./stormhold-art.js?v=bb298f4c";
-import { prng, randomMove } from "./stormhold-bot.js?v=bdb7c3b3";   // powers the free practice-vs-computer mode
-import { prand } from "./practice.js?v=716edb1a";
+import { prng, randomMove } from "./stormhold-bot.js?v=7dd18c52";   // powers the free practice-vs-computer mode
+import { prand } from "./practice.js?v=602947c5";
 
-const CID = "cccc59d26d1bccc6a9da275719b4d7f8";
+const CID = "9fcfa11f570cb3b2d720e3db71c602d8";
 const dapp = new NadoDapp({ cid: CID, app: "Stormhold" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("storm." + k, d, v) : d;
 const SKIP = 4095;

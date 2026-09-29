@@ -3,13 +3,13 @@
 // pot instantly, and a full board auto-refunds both stakes. Ply-bound moves (the chess retry-race
 // lesson), resign/abort escapes, and a short ~30-min move clock. Built on the shared PvP board-game
 // scaffold (pvpgame.js) — this file is ONLY the tic-tac-toe board: its decode, its render, its move.
-import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=6b8ef380";
-import { PvpGame } from "./pvpgame.js?v=579f4efb";
-import { BoardDaily, gameModes } from "./board-daily-ui.js?v=1a97ac4f";   // shared free Daily Challenge + mode picker
-import * as RULES from "./tictactoe-rules.js?v=69b2f3bc";
-import { Practice } from "./practice.js?v=716edb1a";   // free in-browser practice vs the computer
+import { NadoDapp, rawToNado, _m, $, disp, gate, hoist } from "./nadodapp.js?v=b74f351b";
+import { PvpGame } from "./pvpgame.js?v=bb07e61a";
+import { BoardDaily, gameModes } from "./board-daily-ui.js?v=a2c35299";   // shared free Daily Challenge + mode picker
+import * as RULES from "./tictactoe-rules.js?v=7acb5d0c";
+import { Practice } from "./practice.js?v=602947c5";   // free in-browser practice vs the computer
 
-const CID = "e828a70e39747dc9c119a45e527e4042";
+const CID = "532ca2459a8685d614e9a2af5754bb7f";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });
 const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 

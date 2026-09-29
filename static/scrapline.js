@@ -6,14 +6,14 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=6b8ef380";
-import { DuelGame } from "./duelgame.js?v=15b267a7";
-import * as E from "./scrapline-engine.js?v=225f846d";
+import { NadoDapp, $, notify, confirmingLabel, disp, _m, renderTopScores, share, base , installModes } from "./nadodapp.js?v=b74f351b";
+import { DuelGame } from "./duelgame.js?v=34a99302";
+import * as E from "./scrapline-engine.js?v=bb70272d";
 import { ART } from "./scrapline-art.js?v=5dc6e120";
-import { prand, Practice } from "./practice.js?v=716edb1a";   // practice-vs-computer + solo persistence
-import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=8d15167d";   // provable daily claims (see doc/provable-practice.md)
+import { prand, Practice } from "./practice.js?v=602947c5";   // practice-vs-computer + solo persistence
+import { anchorOf as anchorVal, ensureAnchor, verifyEntries, entriesFrom, seedDaily, pendingDaily, markDaily } from "./provable.js?v=0acbe7ef";   // provable daily claims (see doc/provable-practice.md)
 
-const CID = "f5197d5d4e5bca7dc15baf8bad6fb974";
+const CID = "d624fe09b631773a607ddfaecb9e5191";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("scrap." + k, d, v) : d;
 

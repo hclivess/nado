@@ -15,7 +15,7 @@
 //   bot(state, seed, ply),              // -> the bot's move (DETERMINISTIC in state+seed+ply)
 //   margin(state),                      // -> your signed margin (reversi disc diff; 0 for the others)
 // }
-import { H, provableSeed, unpackMoves } from "./provable.js?v=8d15167d";
+import { H, provableSeed, unpackMoves } from "./provable.js?v=0acbe7ef";
 
 const WIN = 100, DRAW = 40;
 

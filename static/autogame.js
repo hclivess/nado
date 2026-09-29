@@ -16,16 +16,16 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=6b8ef380";
+} from "./nadodapp.js?v=b74f351b";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=a6a3eead";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=a6a3eead";
-import { createDaily } from "./autogame-dailyui.js?v=ef9b8fc8";
-import * as D from "./autogame-daily.js?v=51d252a7";
+import { createDaily } from "./autogame-dailyui.js?v=91b3fa6c";
+import * as D from "./autogame-daily.js?v=2ae7a9b9";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
-const CID = "96903c302fa191a70c54dd67d764b302";          // execnode/games/autogame.py (zkVM) — set by the deploy script
+const CID = "f6ccb08e979e1989516f35c4bfb7dea1";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
 const BLOCK_SECS = 6;

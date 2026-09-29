@@ -17,9 +17,9 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, 
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=6b8ef380";
+         blocksToTime } from "./nadodapp.js?v=b74f351b";
 
-const CID = "fa41d7c7f0a40ea6cf29b0ffeff6098a";
+const CID = "08b256c6278ef1f6eed766c08095b460";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
 
 const UNIT = 100000000n;              // 1e8 raw = 0.01 NADO — must match dex.UNIT
@@ -322,7 +322,7 @@ async function doSwap() {
 // ================= CROSS-CHAIN ORDER BOOK (otc contract — doc/dex-bridge.md §4) =========================
 // Same page, DIFFERENT contract: the book is its own tiny escrow contract beside the AMM (no shared state,
 // no shared upgrade surface), called through this dapp session via opts.cid. One venue, two contracts.
-const OTC_CID = "9bbed8a533b5c05596fb73fc47c13977";
+const OTC_CID = "83562ce0cf5ee023d98b366bfcbc6e57";
 let otcState = "loading";                    // loading | ok | missing | down — never a spinner forever
 const otcEmpty = (msg) => otcState === "ok" || otcSto ? `<p class="small dim">${msg}</p>`
   : otcState === "missing" ? `<p class="small warn">Order-book contract ${OTC_CID.slice(0, 10)}… is not deployed on this chain — the page needs rewiring (execnode.games.redeploy).</p>`

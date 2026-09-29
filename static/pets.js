@@ -4,12 +4,12 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=6b8ef380";
-import * as G from "./pets-genes.js?v=91476d5b";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=b74f351b";
+import * as G from "./pets-genes.js?v=cc9013bc";
 import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
-import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js?v=cde4652c";
+import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js?v=6b9ca274";
 
-const CID = "7fd0dcbc8d3bab21d5d892d7761f5c18";   // execnode/games/pets.py (zkVM, nonce "a5")
+const CID = "46490de9bfb9db59e0124fbdbef3c152";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 
 const petSlug = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, "");

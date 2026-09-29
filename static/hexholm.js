@@ -7,15 +7,15 @@
 // browser until the game is decided).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, notify, confirmingLabel, disp, share,
          renderWallet, renderScore, renderTopScores, scoreBump, scoreSort, resolveAliases, blocksToTime,
-         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=6b8ef380";
-import { DuelGame } from "./duelgame.js?v=15b267a7";
-import * as E from "./hexholm-engine.js?v=f89044c7";
+         randSecret, algHashn, ALG_P , installModes } from "./nadodapp.js?v=b74f351b";
+import { DuelGame } from "./duelgame.js?v=34a99302";
+import * as E from "./hexholm-engine.js?v=5cd7c0e1";
 import { pickMove, prng, soloReplay, soloScore, botMustAct, seedOfDay, packRun, verifyClaim,
-         MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=fc5e1eb5";
-import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js?v=8d15167d";
-import { randomSeed } from "./practice.js?v=716edb1a";
+         MAX_MY, SOLO_TURNS } from "./hexholm-bot.js?v=612bd00e";
+import { anchorOf, ensureAnchor, todayIdx, verifyEntries, seedDaily, pendingDaily } from "./provable.js?v=0acbe7ef";
+import { randomSeed } from "./practice.js?v=602947c5";
 
-const CID = "361dd1cbc9dad44b2f3ee1a603002b17";
+const CID = "00cc28b5073fe6f26ced661dc5347c6e";
 const dapp = new NadoDapp({ cid: CID, app: "Hexholm" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("hex." + k, d, v) : d;
 const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;   // shared SDK strings (practice chrome)

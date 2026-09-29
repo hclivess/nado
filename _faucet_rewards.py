@@ -25,20 +25,20 @@ BUDGET = 1_000_000_000                          # 0.1 NADO per game per day (tun
 
 # idx → (cid, kind); mirrors faucet.js FAUCET_GAMES + the live game cids
 GAMES = [
-    (0, "bc3c0d1785594d9d5ca0212517259f47", "banked"),   # dice
-    (1, "f5197d5d4e5bca7dc15baf8bad6fb974", "duel"),      # scrapline
-    (2, "cccc59d26d1bccc6a9da275719b4d7f8", "duel"),      # stormhold
-    (3, "b51fd3abc953220707f0a6ab9bb6efb0", "banked"),    # farkle
-    (4, "4616dc19de3aef6ea51f87d92c0803b7", "banked"),    # blackjack
-    (5, "8f9f15244a0a9ca94cc40841e39e5679", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
-    (6, "477b8cb1ba7c7e8ea14759e95a8e40ee", "banked"),     # slots
-    (7, "6b657648c0b12fe3e646ac87841e8b42", "banked"),     # mines
-    (8, "361dd1cbc9dad44b2f3ee1a603002b17", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
-    (9, "881bcde50fe365c2e0c506824b24600c", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
-    (10, "2ae22cfd97b6268307c3d6571a2bcc14", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)
-    (11, "82e09e6cdb985dccab6003cdd3289690", "reversi-daily"),    # reversi Daily Flip (free solo-vs-bot, replay-verified)
-    (12, "e828a70e39747dc9c119a45e527e4042", "tictactoe-daily"),  # tic-tac-toe Daily Three (free solo-vs-bot, replay-verified)
-    (13, "96903c302fa191a70c54dd67d764b302", "autogame-daily"),   # autogame Daily Gauntlet (free 124-step march, replay-verified)
+    (0, "28da34f204923d91f6486edfa4504427", "banked"),   # dice
+    (1, "d624fe09b631773a607ddfaecb9e5191", "duel"),      # scrapline
+    (2, "9fcfa11f570cb3b2d720e3db71c602d8", "duel"),      # stormhold
+    (3, "92d2e33c094528aa4cf13fd531e1bba8", "banked"),    # farkle
+    (4, "7d3d1f539b9dc228c359a52efc460c49", "banked"),    # blackjack
+    (5, "1751614b80de7257db8821c611fc5d40", "battleship-daily"),  # battleship Daily Salvo (free hunt-&-sink, replay-verified)
+    (6, "13b82a08e3278cc56f50c14b092804d4", "banked"),     # slots
+    (7, "31691dd8ff6ed950aab4440278d38351", "banked"),     # mines
+    (8, "00cc28b5073fe6f26ced661dc5347c6e", "hexholm-daily"),  # hexholm daily island (free airdrop play, replay-verified)
+    (9, "3d9b9eeb0c7116f1461bc2b6cadcfe7a", "hamster-daily"),  # hamster Daily Derby (free handicapping, replay-verified)
+    (10, "bd455ca1756f1fdfb37675b3abb0e6c5", "connect4-daily"),   # connect four Daily Drop (free solo-vs-bot, replay-verified)
+    (11, "c3e4ec9b40aa6784fcfeac6aa26eb75f", "reversi-daily"),    # reversi Daily Flip (free solo-vs-bot, replay-verified)
+    (12, "532ca2459a8685d614e9a2af5754bb7f", "tictactoe-daily"),  # tic-tac-toe Daily Three (free solo-vs-bot, replay-verified)
+    (13, "f6ccb08e979e1989516f35c4bfb7dea1", "autogame-daily"),   # autogame Daily Gauntlet (free 124-step march, replay-verified)
 ]
 # Provable free-play boards: kind -> the node replay oracle that ranks yesterday's verified claims.
 # The value is an ARGV PREFIX (cid + day are appended), so one oracle can serve several games — the three
