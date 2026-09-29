@@ -26,22 +26,33 @@ height 0 is reachable: genesis, mempool admission while the tip is genesis, the 
 own `max_block` is 0. Wherever such a caller can reach the check, the cleanup keeps `>= 1` (the gate's own value) so
 no verdict moves; only where the height is provably >= 1 does the comparison go.
 
-### The ledger (gen 27, betanet-8)
+### The ledger (gen 28, betanet-9)
 
-Live gates, keyed `== 27` — live from block 1 at the next reroll: `EK_ENROL_ROOTS_AT_HEIGHT` (1400),
-`DEVICE_BIND_CANONICAL_HEIGHT` (19800: the device binding keys on the certificate's signed part),
-`DIVIDEND_CARRY_EPOCH` (340: carried identities earn the dividend, their replayed fidelity starts from the carried value — see below),
-`SPAM_HARDEN_HEIGHT` (24000: no free repeatable transactions: key allowlist + size caps, msgkey first bind only, tpm_ready bonded, one enrolment per chip per block, settle/xmsg paid outside the duty, one device move per epoch — doc/security-review-2026-09-27.md),
-`ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48,
+Live gates, keyed `== 27`: `ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48,
 asset instructions settle by proof; audit 2026-09-24/25: the settle calldata binding is 4 field elements, not one —
-execnode/stark/calls_commit.py "THE BINDING IS WIDE"),
-`TPM_DRAW_UNGRINDABLE_HEIGHT` (28500: the TPM enrolment's challengers are drawn from the endorsement identity and the beacon two epochs after the enrol, never from the client-chosen enrolment id — ops/tpm_enrol "COMMIT, THEN DRAW").
-`EXEC_DA_DEADLINE_HEIGHT` (29000, activated by the operator 2026-09-27; exec layer, audit 2026-09-25 "exec stall": a DA-carried op whose proof is still unavailable once finality reaches its block + `EXEC_DA_WAIT_BLOCKS` is refused instead of stalling the exec tail forever).
-`CERT_CLOCK_HEIGHT` (29000: certificate validity is judged at `agreed_time(anchor height)` — the median of the committee's duty-tx clocks, with a one-day notBefore grace — instead of the anchor block's uncommitted `block_timestamp` — audit 2026-09-25 HIGH; re-measure `CHAIN_CLOCK_CADENCE_DS` first, since a lagging chain clock refuses certificates issued within the lag).
-`LEGACY_CLAIM_HEIGHT` (reroll-only, dormant `1 << 62` on gen 27: an account carried at its old format-1 address because no chain ever saw its key is claimed by that key — `legacy_claim`, the whole balance at once; ACCEPTED RISK: a forger sharing the address's 21 bytes can claim first).
-`SETTLE_STAKE_FLOOR_HEIGHT` (dormant `1 << 62` on gen 27, reroll-only: a quorum-settled exec root also needs its attesting shares above `SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN` = 1/16 of ALL bonded shares — audit 2026-09-25 HIGH "lone-settler drain": on a fresh chain, or after every other settler is silent `SETTLE_ANCHOR_LONG_CURSORS`, one 10-NADO bond was the whole quorum and paid itself the escrows through exits. **At the reroll, measure** settling stake against `total_bonded_shares` (`/mining_status`, and the settle txs of the last few hundred blocks): on 2026-09-28 it was 125 of 952 shares; the floor freezes settlement if non-settling bonded stake outgrows the settlers 16:1).
-`TX_HEX_CANONICAL_HEIGHT` (reroll-only: `(1 << 62)` on gen 27, never live there — audit 2026-09-25 MED "sig/pubkey hex re-encoding": every txid-excluded witness — `public_key`, `signature`, each signature-list entry — must be exact-length lowercase hex, entries exactly `{signature[, public_key]}`, and a list-signed tx carries no top-level `public_key`; before it a relayer could re-encode a tx into different bytes with the same txid, a mixed-case first-tx key locked its owner out, and a relayer's key added beside the entry list of a never-sent account's first tx was stored as that account's key and then spent from it — reproduced, LIVE on gen 27, not closed there by this gate. Signer re-signing, public_key strip/add, entry reorder/drop stay open — they need a witness-free block hash).
-`BLOCK_SIG_CHAIN_BIND_HEIGHT` (dormant `2^62` on gen 27 → 1: the winner's block signature names `CHAIN_GENERATION` and the genesis hash, so a signature made for any other chain is neither a valid block signature nor slash evidence — audit 2026-09-25 "cross-generation slash replay"; validator keys carry across rerolls, slash markers do not).
+execnode/stark/calls_commit.py "THE BINDING IS WIDE") — its cleanup slice is in progress.
+
+**Every other gen-27 gate is gone** (slice 3 below). The rules they switched on are unconditional; what each one is for:
+the device binding keys on the certificate's signed part (`DEVICE_BIND_CANONICAL_HEIGHT`); no free repeatable
+transaction — key allowlist + size caps, msgkey first bind only, tpm_ready bonded, one enrolment per chip per block,
+settle/xmsg paid outside the duty, one device move per epoch (`SPAM_HARDEN_HEIGHT`, doc/security-review-2026-09-27.md);
+the TPM enrolment's challengers are drawn from the endorsement identity and the beacon two epochs after the enrol
+(`TPM_DRAW_UNGRINDABLE_HEIGHT`, ops/tpm_enrol "COMMIT, THEN DRAW"); an EK certificate is judged against the roots in
+force at its height (`EK_ENROL_ROOTS_AT_HEIGHT`); a DA-carried op whose proof never arrives is refused once finality
+passes its block + `EXEC_DA_WAIT_BLOCKS` (`EXEC_DA_DEADLINE_HEIGHT`, audit "exec stall"); certificate validity is judged
+at `agreed_time(anchor height)`, never an uncommitted `block_timestamp` (`CERT_CLOCK_HEIGHT`, audit HIGH); an account
+carried at its old address because no chain saw its key is claimed by that key (`legacy_claim`; ACCEPTED RISK: a forger
+sharing the address's 21 bytes can claim first); every txid-excluded witness is exact-length lowercase hex and a
+list-signed tx carries no top-level `public_key` (`TX_HEX_CANONICAL_HEIGHT`, audit MED — signer re-signing,
+public_key strip/add and entry reorder/drop stay open: they need a witness-free block hash); the winner's block
+signature names `CHAIN_GENERATION` and the genesis hash, so another chain's signature is no slash evidence
+(`BLOCK_SIG_CHAIN_BIND_HEIGHT`); carried identities earn the dividend from their carried fidelity
+(`DIVIDEND_CARRY_EPOCH`); addresses are format 2 (`ADDRESS_FORMAT`).
+**The settle stake floor** (`SETTLE_STAKE_FLOOR_HEIGHT`, audit HIGH "lone-settler drain": a quorum-settled exec root
+also needs attesting shares above `SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN` = 1/16 of ALL bonded shares) is unconditional —
+**at every reroll, measure** settling stake against `total_bonded_shares` (`/mining_status` and the settle txs of the
+last few hundred blocks): 125 of 952 shares on 2026-09-28, ~127 of 966 at the betanet-9 reroll; the floor freezes
+settlement if non-settling bonded stake outgrows the settlers 16:1.
 `DEVICE_ATTEST_HEIGHT` is a plain `1`, not generation-keyed.
 
 **Every gen-25 gate is gone** (both cleanup slices below). Inlined as unconditional rules after the betanet-8 reroll
@@ -107,6 +118,21 @@ branch went; the rule is unconditional. What was kept, and why:
 
 Proven by replaying the live betanet-8 chain from genesis through both trees (same state root as the live blocks at
 every height) — see the slice-2 commit messages.
+
+**Slice 3, done after the betanet-9 reroll (gen 28): the gen-27 gates.** Four parallel slices (the transaction rules;
+the address format and the legacy claim; the settle floor, exec DA deadline, block-signature binding and dividend carry;
+the ZK hardening), each proven by replaying the live betanet-9 chain (blocks 1..5810) through
+`CoreClient.produce_block(remote=True)` with the slice's tree and with main: every block accepted, the rebuilt hash, the
+L1 state root and the L2 settled commitment identical at every height. Deleted paths: the `block_timestamp` certificate
+clock and `cert_verdict`'s single check, the enrol-time TPM draw, the base-set EK root check, the raw device key as the
+consensus key, the tpm_ready transfer fall-through, the pre-gate free-tx rules, the chain-less block-signature form at
+heights >= 1, the pre-carry dividend branch, the format-1 derivation of KEY addresses (Python and every JS copy).
+Kept: `>= 1` wherever height 0 reaches (see the protocol.py GATE LEDGER); the raw-bytes `device_binding_key` form and
+the legacy-row eviction while devbind rows carried from betanet-8 exist; `legacy_address()` for `legacy_claim`; the
+multisig address body; `/status` `address_format: 2` for the published TPM helper (whose Rust copy still carries a
+format switch until its next release); `tools/rekey_v2.py` / `recover_keys.py`, which the carry runs only for a
+gen-27 source (a gen-28 carry re-keys nothing and needs no `--known-keys`).
+Proof tool: the replay harness lived in scratch for this cleanup (see memory); rebuild it for the next one.
 
 Do this in a **follow-up commit after** the reroll is live and verified, never in the same one — the reroll commit
 must be reviewable as "new genesis, same rules".

@@ -338,7 +338,7 @@ years later. Concretely:
   own copy (measured 2026-09-27: one block hash, stamps 12 s apart across the fleet), so a certificate whose
   validity edge falls between two nodes' stamps is valid on one and expired on the next — a fork with no
   attacker. Agreed time is `transaction_ops.agreed_time(height)`: the median of the committee's own
-  duty-transaction clocks in committed blocks (certificate validity reads it from `CERT_CLOCK_HEIGHT`).
+  duty-transaction clocks in committed blocks (certificate validity reads it).
   `chain_clock(height)` is agreed too but only ASSUMES a cadence — it ran 12 h behind in two days.
 - **No network reads.** No revocation lists, no vendor fetches, no peer-learned trust. Roots are pinned
   constants; changing one is a gated protocol commit.

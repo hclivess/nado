@@ -1650,16 +1650,21 @@ def split_open_block_reward(reward: int):
 # those gates, and the cleanup must not change any verdict. Where the height is provably >= 1 the guard is gone.
 # DEVICE_ATTEST_HEIGHT (= 1) is a plain constant, not a generation-keyed gate; it stays.
 #
-# GEN-27 GATES (betanet-8, from 2026-09-25) are keyed `== 27` the same way:  EK_ENROL_ROOTS_AT_HEIGHT (-> 1),
-#                                    ZK_HARDEN_HEIGHT (-> 1), DEVICE_BIND_CANONICAL_HEIGHT (-> 1),
-#                                    SPAM_HARDEN_HEIGHT (-> 1), TPM_DRAW_UNGRINDABLE_HEIGHT (-> 1),
-#                                    EXEC_DA_DEADLINE_HEIGHT (-> 1; exec layer), CERT_CLOCK_HEIGHT (-> 1),
-#                                    SETTLE_STAKE_FLOOR_HEIGHT (-> 1; dormant 2^62 on gen 27, reroll-only)
-#   reroll-only (2^62 on gen 27)     LEGACY_CLAIM_HEIGHT (-> 1; unconverted old addresses are claimed by their key)
-#   reroll-only (2^62 on gen 27)     TX_HEX_CANONICAL_HEIGHT (-> 1; txid-excluded witnesses are canonical hex)
-#                                    BLOCK_SIG_CHAIN_BIND_HEIGHT (dormant 2^62 on gen 27 -> 1: block signatures
-#                                    name their generation + genesis, so old-chain signatures are no slash evidence)
-#   from an epoch                    DIVIDEND_CARRY_EPOCH (-> 0)
+# THE GEN-27 GATES ARE GONE (cleanup after the betanet-9 reroll, gen 28; each slice replayed the live betanet-9 chain
+# block for block through the node's remote-block path and matched main's hashes and roots at every height):
+#   live from block 1 (x = 1),       SPAM_HARDEN_HEIGHT, TX_HEX_CANONICAL_HEIGHT, DEVICE_BIND_CANONICAL_HEIGHT,
+#   rule inlined                     EK_ENROL_ROOTS_AT_HEIGHT, TPM_DRAW_UNGRINDABLE_HEIGHT, CERT_CLOCK_HEIGHT,
+#                                    SETTLE_STAKE_FLOOR_HEIGHT, EXEC_DA_DEADLINE_HEIGHT (exec layer),
+#                                    BLOCK_SIG_CHAIN_BIND_HEIGHT, LEGACY_CLAIM_HEIGHT
+#   from epoch 0 (x = 0 = always)    DIVIDEND_CARRY_EPOCH
+#   the address format               ADDRESS_FORMAT (`1 if == 27 else 2`): format 2 is unconditional; ADDRESS_CHECKSUM 4
+#                                    and ADDRESS_LENGTH 50 are plain constants; legacy_address() stays for legacy_claim
+# `>= 1` survives, as the deleted gate's own value, only where height 0 reaches the check: tx_shape_check,
+# excluded_witness_check and the msgkey / settle / xmsg fee rules (mempool admission on a genesis tip), the tpm_ready /
+# tpm_enrol uniqueness keys and the settle / xmsg builders (a tx's own max_block), legacy_claim validation, the exec DA
+# deadline (genesis at h = 0), and height-0 block-signature messages / slash evidence judged at 0 or None. The raw-bytes
+# device key stays for devbind rows carried from betanet-8.
+# STILL LIVE, keyed `== 27`:          ZK_HARDEN_HEIGHT (-> 1) — its slice is in progress.
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
