@@ -217,14 +217,18 @@ def build_extra():
 
 def main():
     alloc = build()
-    # ADDRESS FORMAT 2 on the chain this carry seeds (protocol.ADDRESS_FORMAT for the NEXT generation): every account and
-    # every piece of carried state moves to the format-2 address of its recorded key (tools/rekey_v2.py).
+    # INTO ADDRESS FORMAT 2 (the gen 27 -> 28 carry, betanet-9): every account and every piece of carried state moved to
+    # the format-2 address of its recorded key (tools/rekey_v2.py). That is the ONLY carry that crosses the format switch:
+    # from gen 28 on, format 2 is unconditional (protocol.ADDRESS_FORMAT deleted after the betanet-9 reroll), so a carry
+    # from gen 28 to 29 RE-KEYS NOTHING — every keyed address already is its key's format-2 address, and a keyless row
+    # still at its 46-char format-1 address carries unchanged, where legacy_claim keeps finding it. The re-key step is
+    # kept, keyed on the SOURCE generation, so the tooling that did it stays runnable and reviewable.
     from protocol import CHAIN_GENERATION as _G
-    _next_format = 1 if int(_G) + 1 == 27 else 2
+    _crosses_format_switch = int(_G) == 27
     _seeds_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "genesis_data", "genesis_open.dat")
     _seeds = json.load(open(_seeds_path)) if os.path.exists(_seeds_path) else []
     extra = None
-    if _next_format >= 2:
+    if _crosses_format_switch:
         from tools.rekey_v2 import rekey
         extra = build_extra() if "--l1-tip" in sys.argv else {}
         # KEYS FROM OLDER GENERATIONS (tools/recover_keys.py over the old backups): an account that never sent on this

@@ -7,7 +7,8 @@ and this test pins BOTH halves:
   2. the reroll value is the one the ledger documents — 1 = live from block 1 / epoch 0, 0 = never (dead code to
      delete in the cleanup pass);
   3. no gate constant is left unkeyed (a new one added without a reroll branch fails here);
-  4. the gates already cleaned up after a reroll stay DELETED — every gen-25 gate, since the betanet-8 cleanup.
+  4. the gates already cleaned up after a reroll stay DELETED — every gen-25 gate, since the betanet-8 cleanup, and the
+     gen-27 gates cleaned up after the betanet-9 reroll.
 Run: python3 tests/test_gate_reroll_transfer.py
 """
 import os
@@ -27,7 +28,6 @@ REROLL = {
     "DEVICE_ATTEST_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1,
     "DIVIDEND_CARRY_EPOCH": 0,                     # an epoch gate: 0 = from epoch 0 = always on the next chain
     "EXEC_DA_DEADLINE_HEIGHT": 1,                  # exec layer: a DA op whose proof never arrives is refused, not waited on forever
-    "LEGACY_CLAIM_HEIGHT": 1,                      # reroll-only (2^62 on gen 27): an unconverted old address is claimed by its key
     "SETTLE_STAKE_FLOOR_HEIGHT": 1,                # dormant (2^62) on gen 27: a settled root needs 1/16 of ALL bonded stake
     "BLOCK_SIG_CHAIN_BIND_HEIGHT": 1,              # dormant on gen 27: block signatures name generation + genesis (slash replay)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
@@ -56,6 +56,8 @@ DELETED = (
     # surviving only where height 0 reaches the check (mempool admission on a genesis tip, a tx's own max_block)
     "SPAM_HARDEN_HEIGHT", "TX_HEX_CANONICAL_HEIGHT", "DEVICE_BIND_CANONICAL_HEIGHT", "EK_ENROL_ROOTS_AT_HEIGHT",
     "TPM_DRAW_UNGRINDABLE_HEIGHT", "CERT_CLOCK_HEIGHT",
+    "ADDRESS_FORMAT",        # `1 if == 27 else 2`: format 2 is unconditional (ADDRESS_CHECKSUM 4 / ADDRESS_LENGTH 50 are plain)
+    "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
 )
 
 
@@ -95,6 +97,10 @@ def main():
     check("the cleaned-up gates stay deleted", not any(hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M) for n in DELETED),
           [n for n in DELETED if hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M)])
     check("no gen-25 branch is left in protocol.py", "CHAIN_GENERATION == 25" not in src)
+    # the address format's dependants are plain constants now (format 2: a 4-byte checksum, 50 characters)
+    check("ADDRESS_CHECKSUM / ADDRESS_LENGTH are format 2's plain values",
+          P.ADDRESS_CHECKSUM == 4 and P.ADDRESS_LENGTH == 50
+          and re.search(r"^ADDRESS_CHECKSUM = 4\b", src, re.M) is not None, (P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH))
 
     # 3a. the EXEC_ROOT_V2 layout stamps the prover's call context with the block being applied, which only holds
     #     once the F3 context (the cursor advanced BEFORE the block's blobs run) is in force — so the layout switch

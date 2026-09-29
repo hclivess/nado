@@ -1,19 +1,20 @@
-"""An old address whose key no chain ever saw is claimed by that key (protocol.LEGACY_CLAIM_HEIGHT; operator 2026-09-28:
-"sign with your old key and get the coins").
+"""An old address whose key no chain ever saw is claimed by that key (`legacy_claim`, live from block 1 of gen 28;
+operator 2026-09-28: "sign with your old key and get the coins").
 
 WHY. Format 2 hashes the whole key, so the gen-28 carry moves every account whose key some chain recorded; the ~332
 accounts (142 NADO, measured 2026-09-28) whose key no chain ever saw stay at their OLD 46-character address, which format 2
 refuses as a sender. Their owners' wallets claim them with the key they already hold.
 
-Pins, on real tables (throwaway HOME) with real signed transactions, address format 2 in force:
+Pins, on real tables (throwaway HOME) with real signed transactions:
   1. the owner's key claims its old address from its new one and the whole balance moves; a rollback moves it back
      exactly; a second claim is refused (nothing left);
   2. refused: another key's old address, an amount other than the whole balance, an old address that has a key on chain
      (it was re-keyed, never claimable), a bonded old address, extra data, a fee, a claim naming its own sender;
-  3. one claim per old address per block (uniqueness key); below the gate nothing is claimable;
+  3. one claim per old address per block (uniqueness key); at height 0 (mempool admission on a genesis tip) nothing is
+     claimable — the `>= 1` the deleted LEGACY_CLAIM_HEIGHT gate leaves behind — and from block 1 it is;
   4. ACCEPTED RISK, pinned so nobody mistakes it for a bug: a key built to share the old address's 21 bytes can claim
      too (the operator's decision; the exposure those accounts already carried);
-  5. the wallet claims by itself: on format 2, from the base key only, with the exact balance, and says so in 16 languages.
+  5. the wallet claims by itself: from the base key only, with the exact balance, and says so in 16 languages.
 
 Run: python3 tests/test_legacy_claim.py
 """
@@ -41,10 +42,6 @@ def check(name, ok, detail=""):
     fails += 0 if ok else 1
 
 
-# format 2 and the gate in force (their values on the next chain)
-P.ADDRESS_FORMAT, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 2, 4, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 8
-LIVE_GATE = P.LEGACY_CLAIM_HEIGHT
-P.LEGACY_CLAIM_HEIGHT = 1
 H = 1000
 
 
@@ -112,13 +109,13 @@ check("a fee is refused", "no fee" in (v or ""), v)
 k1 = T.reserved_uniqueness_key(claim(kd2, legacy2, 500))
 k2 = T.reserved_uniqueness_key(claim(other, legacy2, 500))
 check("one claim per old address per block (the same key, whoever sends it)", k1 == k2 == ("legacy_claim", legacy2), (k1, k2))
-# probed under gen 27's dormant gate (1 << 62): on gen 28 the gate is 1 and no real height is below it
-P.LEGACY_CLAIM_HEIGHT = LIVE_GATE if LIVE_GATE > 1 else (1 << 62)
-v = verdict(claim(kd2, legacy2, 500), h=H)
-check("below the gate nothing is claimable", "not enabled" in (v or ""), v)
-check("the gate is dormant on gen 27 and live from block 1 after", LIVE_GATE == ((1 << 62) if P.CHAIN_GENERATION == 27 else 1),
-      LIVE_GATE)
-P.LEGACY_CLAIM_HEIGHT = 1
+# LEGACY_CLAIM_HEIGHT (dormant 1 << 62 on gen 27, 1 on gen 28) was deleted after the betanet-9 reroll; its `>= 1` stays
+# because mempool admission validates at the tip's height, 0 on a genesis tip
+check("the gate constant is gone (the rule is unconditional)", not hasattr(P, "LEGACY_CLAIM_HEIGHT"))
+v = verdict(claim(kd2, legacy2, 500, max_block=5), h=0)
+check("at height 0 (a genesis tip) nothing is claimable", "not enabled" in (v or ""), v)
+v = verdict(claim(kd2, legacy2, 500, max_block=5), h=1)
+check("...and from block 1 the claim is valid", v is None, v)
 
 # 4 ACCEPTED RISK
 pk = kd2["public_key"]
@@ -130,7 +127,7 @@ check("ACCEPTED RISK (operator's decision): a key sharing the old address's 21 b
 js = open(os.path.join(ROOT, "static", "interface.js")).read()
 fn = js[js.index("async function claimLegacy(acc)"):js.index("async function refreshDashboard()")]
 check("the wallet claims on every dashboard cycle", "claimLegacy(acc)" in js[js.index("async function refreshDashboard()"):])
-check("...only on format 2 and only from the base key", "ADDR_FORMAT < 2" in fn and "makeAddress(w.publicKey) !== w.address" in fn)
+check("...only from the base key, with no format switch left", "ADDR_FORMAT" not in fn and "makeAddress(w.publicKey) !== w.address" in fn)
 check("...from this key's own old address, never a keyed one", "legacyAddress(w.publicKey)" in fn and "!old.public_key" in fn)
 check("...with the exact balance", "buildLegacyClaimTx(w, legacy, Number(bal)" in fn)
 i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()

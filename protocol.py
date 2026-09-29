@@ -53,8 +53,22 @@ DENOMINATION = 10_000_000_000  # 1e10
 # MSIG_PREFIX survives and is what still distinguishes policy accounts from keyed ones.
 ADDRESS_PREFIX = ""             # removed at alphanet-14; kept as a constant so the derivation stays one place
 MSIG_PREFIX = "msig"           # policy accounts (M-of-N multisig) — the 1-vs-3 split; see doc/address-format.md
-ADDRESS_BODY = 42              # hex chars of the pubkey carried in the address
-# ADDRESS_CHECKSUM and ADDRESS_LENGTH depend on the format: defined next to ADDRESS_FORMAT (after CHAIN_GENERATION).
+ADDRESS_BODY = 42              # hex chars of the address body (a hash of the key since format 2, below)
+# ADDRESS FORMAT 2 (gen 28): the body is a HASH of the whole public key, not its first 21 bytes. An ML-DSA public key
+# begins with rho, a public seed the key generator CHOOSES, so format 1 let anyone build a valid keypair whose first
+# 21 bytes equal any address and spend from it — every account that had not yet published its key (audit 2026-09-25;
+# measured 2026-09-27: ~817 NADO in never-sent accounts). Format 2 needs a second preimage of a 168-bit hash
+# (ops/address_ops.make_address). Multisig addresses are already a descriptor hash and keep format 1's body rule
+# (their first ADDRESS_BODY hex) with this checksum. The format-1 name of a key survives only as
+# address_ops.legacy_address, for the legacy_claim of accounts carried at their old address. Gen 27 ran format 1;
+# the generation gate (ADDRESS_FORMAT) was deleted after the betanet-9 reroll — format 2 is unconditional.
+DOMAIN_ADDRESS_V2 = "nado-address-v2"
+# THE OLD FORMAT IS REJECTED BY SHAPE (operator, 2026-09-27: "i expect nado to reject the old address format"). A format-2
+# address carries a 4-byte checksum, so it is 50 characters and every format-1 address (46) fails validation everywhere —
+# a payment to an address copied from the old chain cannot silently burn coins. It also makes a typo slip through one
+# time in 2^32 instead of 2^16.
+ADDRESS_CHECKSUM = 4                                                          # checksum bytes, blake2b over prefix+body
+ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 50
 
 # ---- DOMAIN-SEPARATION TAGS (consensus; brand-carrying) --------------------------------------------
 # Renamed ONLY at a CHAIN_GENERATION reroll — everything re-derives from genesis there (see
@@ -591,21 +605,6 @@ POSW_ENTRY_MULT = 32
 #   history, which no longer exists. OPERATIONAL: redeploy the game contracts in the SAME session
 #   (execnode.games.redeploy — pinned nonce => identical cids, upgradable) and re-fund the faucet.
 CHAIN_GENERATION = 28   # betanet-9: address format 2 (hash of the whole key; the old 46-char format rejected by shape), every gen-27 dormant/reroll gate live from block 1. Was 27 (betanet-8)
-# ADDRESS FORMAT 2 (gen 28): the body is a HASH of the whole public key, not its first 21 bytes. An ML-DSA public key
-# begins with rho, a public seed the key generator CHOOSES, so format 1 let anyone build a valid keypair whose first
-# 21 bytes equal any address and spend from it — every account that had not yet published its key (audit 2026-09-25;
-# measured 2026-09-27: ~817 NADO in never-sent accounts). Format 2 needs a second preimage of a 168-bit hash. Same
-# length and checksum, so every validator and UI is unchanged; multisig addresses (already a descriptor hash) keep
-# format 1. Keyed to the generation like every gate: gen 27 keeps format 1, the reroll and any later chain is format 2.
-ADDRESS_FORMAT = 1 if CHAIN_GENERATION == 27 else 2
-DOMAIN_ADDRESS_V2 = "nado-address-v2"
-# THE OLD FORMAT IS REJECTED BY SHAPE (operator, 2026-09-27: "i expect nado to reject the old address format"). A format-2
-# address carries a 4-byte checksum, so it is 50 characters and every format-1 address (46) fails validation everywhere —
-# a payment to an address copied from the old chain cannot silently burn coins. It also makes a typo slip through one
-# time in 2^32 instead of 2^16.
-ADDRESS_CHECKSUM = 2 if ADDRESS_FORMAT == 1 else 4          # checksum bytes, blake2b over prefix+body
-ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 46 (format 1) / 50 (format 2)
-
 # CHAIN CLOCK CADENCE (deciseconds per block), RE-ANCHORED AT EVERY REROLL (security review 2026-09-23, C3).
 # The clock assumed 6 s/block while the chain produced one every 6.69 s on average over gen 25 (block 1 at
 # 1788774422, block 209400 at 1790175705) and ~6.5 s over its last 10,000, so TIME fell 40.7 h behind wall
@@ -680,9 +679,9 @@ _GENESIS_BODY = "27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer
 # the string changed (49+4 -> 42+4). Leaving the "mldsa44" on here would have been silent and total: the
 # founder's key derives make_address(pk) = 42 hex + checksum, which can never equal a 53-char literal, so
 # the treasury's own genesis address would have belonged to nobody.
-GENESIS_ADDRESS = (_GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)) if ADDRESS_FORMAT == 1 else \
-    "b7a08de8351e3af97f6f2bbcb19f2a8c722abad81c3460caf9"   # format 2 of the same key (gen 28): a format-2 body is a hash of the
-                                                        # WHOLE key, so it cannot be derived from _GENESIS_BODY
+# FORMAT 2 (gen 28): the address of the same key is a hash of the WHOLE key, so it cannot be derived from _GENESIS_BODY
+# (which is now only that key's format-1 body); pinned as the literal make_address(founder key) returns.
+GENESIS_ADDRESS = "b7a08de8351e3af97f6f2bbcb19f2a8c722abad81c3460caf9"
 # The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
 # No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
 # (doc/treasury.md §3.3). This is what makes "spendable only through the bonded-stake quorum" actually true.
@@ -1714,15 +1713,6 @@ DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 # Every fee a free kind now pays is burned like any fee.
 # SPAM_HARDEN_HEIGHT: gen 27 gate at 24000; 1 from gen 28 — deleted after the betanet-9 reroll, the rule holds from block 1.
 # `>= 1` survives where height 0 reaches the check (mempool admission on a genesis tip, a tx's own max_block, a builder).
-# LEGACY CLAIM (gen 28, operator 2026-09-28: "sign with your old key and get the coins"). Address format 2 hashes the
-# whole key, so the carry re-keys every account whose key some chain recorded (tools/rekey_v2.py); an account whose key
-# NO chain ever saw (it only received) is carried at its OLD 46-character address, which format 2 rejects as a sender.
-# From this height its owner's wallet claims it: a `legacy_claim` signed by key K, sent from K's format-2 address, naming
-# the old address and its exact balance, where the old address must be K's FORMAT-1 derivation. The whole balance moves
-# at once to the claimant. ACCEPTED RISK (operator's decision, measured 332 accounts / 142 NADO): a format-1 address
-# commits to only the first 21 bytes of a key, so a forger who builds a key sharing them can claim first — the same
-# exposure those accounts carried on gen 27. Reroll-only: dormant on gen 27, live from block 1 on the next chain.
-LEGACY_CLAIM_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 # THE ENROLMENT'S CHALLENGERS ARE DRAWN FROM RANDOMNESS THE CLIENT HAS NOT SEEN (audit 2026-09-27, CRIT "draw keyed on
 # client-chosen AIK enrol_id (grindable)"; doc/tpm-attestation-without-a-ca.md §"Who challenges"). The old draw picked the
 # k challengers AT the tpm_enrol from epoch_beacon(epoch of the enrol) keyed on the enrolment id — and that id

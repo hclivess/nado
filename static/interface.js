@@ -87,13 +87,13 @@ const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
 const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
-// ADDRESS FORMAT 2 (gen 28): mirrors protocol.ADDRESS_FORMAT and static/nadotx.js (tests/test_address_format_v2.py).
-// A key-derived address commits to the WHOLE public key; a multisig address (its own prefix) keeps format 1.
-const ADDR_FORMAT = 2;
+// ADDRESS FORMAT 2 (gen 28): mirrors ops/address_ops.make_address and static/nadotx.js (tests/test_address_format_v2.py).
+// A key-derived address commits to the WHOLE public key (format 1's first 21 bytes are the key's rho, which a forger
+// chooses); a multisig address (its own prefix) keeps format 1's body rule — its descriptor hash's first 42 hex.
 const DOMAIN_ADDRESS_V2 = "nado-address-v2";
-// 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
-const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
-const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;          // 46 (format 1) / 50 (format 2)
+// a 4-byte checksum (protocol.ADDRESS_CHECKSUM; format 1 had 2): an old 46-char address is not an address here
+const ADDR_CK = 4;
+const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;          // 50
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
@@ -252,7 +252,7 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
 function makeAddress(pubHex, prefix = ADDR_PREFIX) {
-  const body = prefix + (ADDR_FORMAT >= 2 && prefix === ADDR_PREFIX
+  const body = prefix + (prefix === ADDR_PREFIX
     ? blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2)
     : pubHex.slice(0, ADDR_BODY));
   return body + blake2bHash(body, ADDR_CK);
@@ -4503,13 +4503,12 @@ async function refreshMiningChart(addr, acc, ms) {
   if (_mineData) drawMiningChart(_mineData);
 }
 
-// LEGACY CLAIM (gen 28, protocol.LEGACY_CLAIM_HEIGHT; operator: "sign with your old key and get the coins"). An account
+// LEGACY CLAIM (gen 28, recipient "legacy_claim"; operator: "sign with your old key and get the coins"). An account
 // whose key no chain ever saw was carried at its OLD 46-character address, which the new address format refuses as a
 // sender. This wallet holds the key, so it derives that old address (legacyAddress) and, if coins are still there, signs a
 // legacy_claim that moves the whole balance to this account's new address — no prompt: the coins only ever move from this
 // key's own old address to this key's own new one. Only from the BASE key (a rotated signer would claim for the wrong
-// key) and only when the chain runs format 2 (before it, the old address IS this account). Throttled; the chain refuses
-// a second claim, so a retry costs nothing.
+// key). Throttled; the chain refuses a second claim, so a retry costs nothing.
 function buildLegacyClaimTx(wallet, legacy, amount, targetBlock, timestamp) {
   const draft = {
     sender: wallet.address, recipient: "legacy_claim", amount: 0, timestamp,
@@ -4520,7 +4519,7 @@ function buildLegacyClaimTx(wallet, legacy, amount, targetBlock, timestamp) {
 }
 async function claimLegacy(acc) {
   const w = state.wallet;
-  if (ADDR_FORMAT < 2 || !w || !w.privateKey || makeAddress(w.publicKey) !== w.address) return;
+  if (!w || !w.privateKey || makeAddress(w.publicKey) !== w.address) return;
   const legacy = legacyAddress(w.publicKey);
   if (legacy === w.address) return;
   const at = (state._legacyClaimAt ||= {});

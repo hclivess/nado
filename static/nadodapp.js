@@ -29,46 +29,32 @@ const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" wi
 const PEND_TIP_TTL = 4;
 const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
-// An address is 42 hex of the pubkey + a 4-hex blake2b checksum over it. No prefix (betanet-14).
+// An address is a 42-hex hash of the pubkey (format 2, gen 28) + an 8-hex blake2b checksum over it. No prefix (betanet-14).
 export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
-// mirrors protocol.ADDRESS_FORMAT (tests/test_address_format_v2.py). A format-2 address cannot be derived from a
-// format-1 one (it hashes the whole key), so a signed-in session is keyed by the format: after the change the old
-// session is simply not read, the game shows signed-out, and the next sign-in returns the new address.
-const ADDR_FORMAT = 2;
-// 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
-const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
+// A format-2 address cannot be derived from a format-1 one (it hashes the whole key), so the signed-in session is kept
+// under a key of its own (LS_ME below): the pre-format-2 session is simply not read, and the next sign-in returns the
+// new address.
+// a 4-byte checksum (protocol.ADDRESS_CHECKSUM; format 1 had 2): an old 46-char address is not an address here
+const ADDR_CK = 4;
 const ADDR_BODY = 42;
 export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");
 export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
 
 /**
- * SELF-HEAL a signed-in session address across an address-format change (the betanet-7 debrand:
- * ndo… → mldsa44… → prefixless). Games persist only the ADDRESS from the wallet handshake, so a session established
- * before the change keeps the OLD string in localStorage forever — the game then reads balances/state for
- * an address that owns nothing and shows the player an empty account ("0 NADO", "Playing as ndo…") while
- * their funds sit under the new-format address for the very same key. A hard refresh can't fix it.
+ * NORMALISE a persisted session address. Games persist only the ADDRESS from the wallet handshake, so a session
+ * established before an address-format change keeps the OLD string in localStorage forever — the game then reads
+ * balances/state for an address that owns nothing and shows the player an empty account while their funds sit under
+ * the new-format address for the very same key. A hard refresh can't fix it.
  *
- * The pubkey body is always the 42 chars before the 4-hex checksum, so the new address is recoverable
- * from the old one WITHOUT the pubkey and without knowing the old prefix — which keeps this correct for
- * any future rename too. The old checksum is verified first; anything that isn't a well-formed address of
- * SOME generation is dropped (null) rather than guessed at, forcing a clean re-sign-in.
+ * The prefix-change debrands (ndo… → mldsa44… → prefixless) were healed here from the old string alone, because the
+ * body was the key's leading hex. A FORMAT-2 ADDRESS (gen 28) CANNOT BE HEALED FROM A FORMAT-1 ONE — it hashes the
+ * whole key — so that heal is gone: anything that is not a current address is dropped (null), forcing a clean sign-in.
  */
 export function healAddress(a) {
   if (!a || typeof a !== "string") return null;
   a = a.trim().toLowerCase();
-  if (ADDR_RE.test(a)) return a;                                  // already current — the common path
-  // A FORMAT-2 ADDRESS CANNOT BE HEALED FROM A FORMAT-1 ONE (it hashes the whole key): anything that is not a current
-  // address is dropped, forcing a clean sign-in. Only the old prefix-change heal (format 1 -> format 1) remains.
-  if (ADDR_FORMAT >= 2) return null;
-  if (!/^[a-z][a-z0-9]*[0-9a-f]{46}$/.test(a)) return null;       // not an address of any generation
-  try {
-    const tail = a.slice(0, -4);                                  // prefix + body
-    if (blake2bHash(tail, 2) !== a.slice(-4)) return null;         // failed its own checksum → junk
-    const body = tail.slice(-ADDR_BODY);                          // the pubkey body, prefix-agnostic
-    const fresh = ADDR_PREFIX + body;
-    return fresh + blake2bHash(fresh, 2);
-  } catch (e) { return null; }                                     // crypto not bound yet → retry in init()
+  return ADDR_RE.test(a) ? a : null;
 }
 
 export const base = () => location.origin.replace(/\/+$/, "");
@@ -1197,7 +1183,9 @@ export class NadoDapp {
   constructor({ cid, app, ns = "default" }) {
     this.cid = cid; this.app = app; this.ns = ns;
     const slug = app.replace(/\W+/g, "").toLowerCase();
-    this.LS_ME = "nado_" + slug + "_me" + (ADDR_FORMAT >= 2 ? "_v" + ADDR_FORMAT : ""); this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
+    // "_v2": the format-2 session key (gen 28). A LITERAL now that the format is not a switch — changing it signs every
+    // player out of every game. INVARIANT: keep it byte-identical.
+    this.LS_ME = "nado_" + slug + "_me_v2"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.LS_CLICK = "nado_" + slug + "_clickpend";   // the click-time pending registry (see busy/pending)
     this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
     this._autoTried = new Map();   // settle key -> last attempt ms (stops a rejected settle machine-gunning,

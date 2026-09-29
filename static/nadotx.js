@@ -68,21 +68,20 @@ export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonic
 // ---- keys / address ------------------------------------------------------------------------------
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
 export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
-// ADDRESS FORMAT 2 (gen 28; protocol.ADDRESS_FORMAT): the body is a hash of the WHOLE public key — format 1's first 21
-// bytes are the key's rho, which a forger chooses. MUST equal protocol.ADDRESS_FORMAT for the chain these files ship
-// with: tests/test_address_format_v2.py fails the commit that changes one without the other.
-export const ADDR_FORMAT = 2;
+// ADDRESS FORMAT 2 (gen 28; protocol.py "ADDRESS FORMAT 2"): the body is a hash of the WHOLE public key — format 1's
+// first 21 bytes are the key's rho, which a forger chooses. Byte-identical to ops/address_ops.make_address
+// (tests/test_address_format_v2.py derives both and compares).
 export const DOMAIN_ADDRESS_V2 = "nado-address-v2";
-// the checksum is 2 bytes in format 1 and 4 in format 2 (protocol.ADDRESS_CHECKSUM): a format-1 address is REJECTED by
-// shape on a format-2 chain — 46 characters is not an address there
-export const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
+// a 4-byte checksum (protocol.ADDRESS_CHECKSUM; format 1 had 2): a format-1 address is REJECTED by shape — 46
+// characters is not an address
+export const ADDR_CK = 4;
 export const ADDR_BODY = 42;                                   // hex chars of the address body
-export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;    // 46 (format 1) / 50 (format 2)
+export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;    // 50
 export const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");
 export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
 export function addressBodyV2(pubHex) { return blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2); }
 export function makeAddress(pubHex) {
-  const body = ADDR_PREFIX + (ADDR_FORMAT >= 2 ? addressBodyV2(pubHex) : pubHex.slice(0, ADDR_BODY));
+  const body = ADDR_PREFIX + addressBodyV2(pubHex);
   return body + blake2bHash(body, ADDR_CK);
 }
 // the FORMAT-1 name of a key, for recognising a format-1 account in the legacy-claim flow — never authorisation
