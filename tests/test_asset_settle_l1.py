@@ -1,9 +1,10 @@
 """ASSET SETTLEMENT, END TO END THROUGH L1 — a span running the asset instructions passes validate_transaction (the rule
-every node runs) from ZK_HARDEN_HEIGHT and becomes canon; below it, and whenever the prover steers it, it is refused.
+every node runs) and becomes canon; whenever the prover steers it, it is refused (zk audit 2026-09-26; gen 27's
+ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted — the rule is unconditional).
 
 tests/test_asset_ops_settle_by_proof.py pins the derivation (records_bind.PinnedAssets) against the real exec layer.
-This one pins the WIRING in the settle branch of ops/transaction_ops.py: settle_proof_io_check admits asset io only
-from the gate; the asset ledger is pinned from `records_pre` against the tip's records root; the moves derived from the
+This one pins the WIRING in the settle branch of ops/transaction_ops.py: settle_proof_io_check admits asset io; the
+asset ledger is pinned from `records_pre` against the tip's records root; the moves derived from the
 proven io join the records binding of a records-bound proof; a records-FROZEN proof (a span that only reads balances)
 passes only if its asset io nets to nothing; and a forged or missing metadata preimage or pre-state refuses the tx.
 
@@ -91,12 +92,8 @@ AID = str(asset_id(CID, 1))
 META = {"issuer": CID, "seed": 1, "name": "Token", "sym": "TOK", "dec": 0, "supply": 100, "mintable": True, "uri": ""}
 
 _saved = (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT,
-          protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS, protocol.ZK_HARDEN_HEIGHT)
+          protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS)
 try:
-    # The gate is pinned HERE, before any summary is built: block 1's calls leaves take their width from it
-    # (calls_commit.span_width), and a summary built under the tree's own value (1 on gen 28: wide) no longer
-    # matched the narrow span the checks below then judged at ZK_HARDEN_HEIGHT = BH (the gen-28 rehearsal).
-    protocol.ZK_HARDEN_HEIGHT = BH
     _fri.NUM_QUERIES = NQ
     _stark.NUM_QUERIES = NQ
     protocol.EXEC_TREE_DEPTH = D8
@@ -160,14 +157,6 @@ try:
         p["asset_meta_pre"] = {a: pre_st.assets[a] for a in RB.proof_asset_ids(p)[1] if a in pre_st.assets}
         return p
 
-    # Below the gate the proof is built under the rules of its landing block, as the settler does — and refused.
-    protocol.ZK_HARDEN_HEIGHT = BH + 1
-    p_old = _proof(st0, st1, calls, H, True)
-    check("BELOW ZK_HARDEN_HEIGHT an asset-carrying settle is refused (replay unchanged)",
-          raises(lambda: validate_transaction(construct_settle_tx(_settler(), H, root1, BH, ns=NS, proof=p_old),
-                                              logger, BH), "asset io"))
-
-    protocol.ZK_HARDEN_HEIGHT = BH
     proof = _proof(st0, st1, calls, H, True)
     check("the proof's composed post-root equals the exec node's real root",
           ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), SST.digest_from_hex(proof["rec_post"])) == root1)
@@ -187,7 +176,7 @@ try:
 
     V2 = _settler()
     txp = construct_settle_tx(V2, H, root1, BH, ns=NS, proof=proof)
-    check("FROM ZK_HARDEN_HEIGHT the asset span passes the FULL L1 validation", accepts(lambda: validate_transaction(txp, logger, BH)))
+    check("the asset span passes the FULL L1 validation", accepts(lambda: validate_transaction(txp, logger, BH)))
     reflect_transaction(txp, logger, block_height=BH)
     protocol.SETTLE_PROOF_TRUSTLESS = True
     check("...and it is CANON, trustlessly", settlement_justified(NS, H, root1, get_bonded_registry()))
@@ -216,9 +205,7 @@ try:
     reflect_transaction(tx2, logger, block_height=BH)
 
     # --- span 3: an ASSET-VALUED call (C sends 4 TOK into the contract), then an ABAL that must see it ---------
-    # The escrow is calldata, committed into the exec summary by block_records_effects from ZK_HARDEN_HEIGHT —
-    # judged by the exec block's own number, so the gate moves to 1 here (the proof rules at BH stay strict).
-    protocol.ZK_HARDEN_HEIGHT = 1
+    # The escrow is calldata, committed into the exec summary by block_records_effects.
     H3 = 3
     dep = {"recipient": "blob", "sender": C, "data": {"op": "call", "contract": CID, "method": "deposit", "args": [],
                                                        "value": 4, "asset": AID, "ns": NS}}
@@ -248,11 +235,7 @@ try:
     reflect_transaction(tx3, logger, block_height=BH)
     check("...and it is CANON on the exec node's real root", latest_settled(NS) == (H3, root3))
 
-    # below the gate, and for a spelling the live apply would not resolve, the block stays non-derivable (quorum)
-    protocol.ZK_HARDEN_HEIGHT = H3 + 1
-    check("BELOW ZK_HARDEN_HEIGHT an asset call value is non-derivable, as it always was",
-          RB.block_records_effects(BLOCK3) == (None, False))
-    protocol.ZK_HARDEN_HEIGHT = 1
+    # for a spelling the live apply would not resolve, the block stays non-derivable (quorum)
     odd = copy.deepcopy(BLOCK3); odd["block_transactions"][0]["data"]["asset"] = "0" + AID
     check("a non-canonical asset spelling (live resolves no asset) is non-derivable",
           RB.block_records_effects(odd) == (None, False))
@@ -261,9 +244,9 @@ try:
           raises(lambda: shadow.escrow(C, CID, AID, 4), "names no known asset"))
 finally:
     (_fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT,
-     protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS, protocol.ZK_HARDEN_HEIGHT) = _saved
+     protocol.SETTLE_PROOF_TRUSTLESS, protocol.SETTLE_PROOF_RECORDS) = _saved
 
 print()
-print("ALL PASS — asset instructions settle by proof through L1 from ZK_HARDEN_HEIGHT, and cannot be steered"
+print("ALL PASS — asset instructions settle by proof through L1, and cannot be steered"
       if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

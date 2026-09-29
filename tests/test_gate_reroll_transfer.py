@@ -24,7 +24,7 @@ _fails = []
 # gate -> value on a fresh chain. 1 = live from genesis, 0 = never (its code path is cleanup fodder).
 REROLL = {
     # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed); EK_ENROL_ROOTS_AT_HEIGHT is the gen-27 gate (1400).
-    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1, "DEVICE_BIND_CANONICAL_HEIGHT": 1,
+    "DEVICE_ATTEST_HEIGHT": 1, "EK_ENROL_ROOTS_AT_HEIGHT": 1, "DEVICE_BIND_CANONICAL_HEIGHT": 1,
     "DIVIDEND_CARRY_EPOCH": 0,                     # an epoch gate: 0 = from epoch 0 = always on the next chain
     "SPAM_HARDEN_HEIGHT": 1,
     "TPM_DRAW_UNGRINDABLE_HEIGHT": 1,              # live at 28500 on gen 27
@@ -56,6 +56,9 @@ DELETED = (
     # slice 2: reroll value 0 on an epoch comparison (from epoch 0 = always)
     "LEASE_V2_EPOCH", "DIVIDEND_ATTESTED_EPOCH", "DIVIDEND_WEIGHT_CAP_V2_EPOCH", "DIV_CARRY_METER_EPOCH",
     "lease_v2_at",
+    # after the betanet-9 reroll (gen 28): gen-27 gates at 1, inlined as unconditional rules (`>= 1` kept only where
+    # height 0 reaches the check: calls_commit.wide_binding, shielded_wide.depth_at, stark.rules_for_height)
+    "ZK_HARDEN_HEIGHT",
 )
 
 

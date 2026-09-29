@@ -183,9 +183,9 @@ def _in_block(in_block=None):
 
 
 def _nop_steps(in_block=None):
-    """NOP IS A REAL INSTRUCTION under zk_harden (ZK_HARDEN_HEIGHT; zk audit 2026-09-26, ZKVM-2). The interpreter has
+    """NOP IS A REAL INSTRUCTION under zk_harden (on from block 1; zk audit 2026-09-26, ZKVM-2). The interpreter has
     always stepped over NOP (pc + 1, nothing else), while this AIR treated every NOP row as a HALT — so a contract that
-    executed one ran on the exec layer and could never be proven. From the gate the AIR matches the interpreter: a NOP
+    executed one ran on the exec layer and could never be proven. Under zk_harden the AIR matches the interpreter: a NOP
     INSIDE a declared call block (P_IN = 1) is an ordinary step — fetched from the program table, pc + 1, registers
     held — and only a NOP OUTSIDE every block is the padding/halt marker it was built as. It rides the A2 block
     selector (P_IN), so it needs in_block; programs are also tagged from 1 (build_periodic) so the fetch table's
@@ -845,7 +845,7 @@ def build_periodic(blocks, progs, epoch_io, T, in_block=None):
         cols[PL_ACT][i] = 1
     # args table: every call's FULL argument vector, concatenated in call order (call, index, value). This is
     # what the ARG opcode's bus looks values up in — rebuilt from the public statement, never from the proof.
-    # CALLS ARE TAGGED FROM 1 under zk_harden (ZK_HARDEN_HEIGHT; zk audit 2026-09-26, ZKVM-1). Table rows past
+    # CALLS ARE TAGGED FROM 1 under zk_harden (on from block 1; zk audit 2026-09-26, ZKVM-1). Table rows past
     # args_total stay (0, 0, 0), and the table-side multiplicity MA is a free witness, so with call 0 tagged 0 that
     # padding row WAS a valid args entry (call 0, index 0, value 0): a forged proof read the first call's args[0] as 0
     # (reproduced at 320 queries). Tagging calls from 1 on BOTH sides (here and PC_CALL below — built from the public

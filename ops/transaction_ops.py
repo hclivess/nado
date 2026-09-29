@@ -1602,17 +1602,15 @@ def settle_proof_io_check(proof, records_bound, block_height):
     block_records_inert, while the proof pins one records root across the span. A records-BOUND proof derives the
     payout instead (records_bind.pay_effects_from_proof).
 
-    NO ASSET IO IN ANY SETTLE PROOF (review 2026-09-24; gen 25's PROOF_QUERY_FULL_HEIGHT): AMINT/ABURN/ASEL/ARENOUNCE move
-    the exec asset ledger exactly as PAY moves records, and an ABAL read comes from the io log with nothing tying it
-    to the settled ledger (the BHASH/BEACON hole chain_reads closes). tests/test_zk_review_2026_09_24.py drives this.
-    `block_height >= 1` is the deleted gate's value from gen 26: height 0 (mempool admission on a genesis tip) keeps the
-    verdict it always had.
-
-    ...UNTIL ZK_HARDEN_HEIGHT, where asset io is ADMITTED because it is now BOUND: records_bind.PinnedAssets re-derives
-    every asset move from the proven io against the pinned pre-state (issuer, supply cap, holdings, and each ABAL
-    read against the running balance), and the settle branch folds those moves into the records binding — or, for a
-    records-frozen proof, requires them to net to nothing (records_bind.proof_asset_ids). Before that height the
-    refusal stands exactly as it was, so replay is unchanged."""
+    ASSET IO IS ADMITTED BECAUSE IT IS BOUND. Review 2026-09-24 refused asset io in every settle proof: AMINT/ABURN/
+    ASEL/ARENOUNCE move the exec asset ledger exactly as PAY moves records, and an ABAL read came from the io log with
+    nothing tying it to the settled ledger (the BHASH/BEACON hole chain_reads closes). The zk audit 2026-09-26
+    (gen 27's ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted) bound it instead: records_bind.PinnedAssets re-derives every
+    asset move from the proven io against the pinned pre-state (issuer, supply cap, holdings, and each ABAL read
+    against the running balance), and the settle branch folds those moves into the records binding — or, for a
+    records-frozen proof, requires them to net to nothing (records_bind.proof_asset_ids). The refusal ran only at
+    heights 1 <= h < that gate, an empty window on gen 28, so it is gone at every height (height 0 never refused).
+    `block_height` stays in the signature for the callers and tests that pass it."""
     from execnode import zkvm as _zkvm
     segs = proof.get("segments") or []
     if not records_bound:
@@ -1620,11 +1618,6 @@ def settle_proof_io_check(proof, records_bound, block_height):
             for _e in (_seg.get("io") or []):
                 assert int(_e[0]) != _zkvm.IO_PAY, \
                     "settle-with-proof io contains a PAY (moves RECORDS, which the proof freezes)"
-    if 1 <= int(block_height) < _P.ZK_HARDEN_HEIGHT:
-        for _seg in segs:
-            for _e in (_seg.get("io") or []):
-                assert int(_e[0]) not in _zkvm.IO_ASSET_KINDS, \
-                    "settle-with-proof io contains asset io (unbound asset ledger moves or reads)"
 
 
 def exit_amount_check(amount, block_height):
@@ -2570,15 +2563,18 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
             # than inside verify_calls_bound_to_summaries) keeps the calldata binding a pure function of
             # committed state, with the execution-derived half added on top and clearly separable.
-            # ASSET IO, BOUND (ZK_HARDEN_HEIGHT; settle_proof_io_check refuses it below). The asset ledger is part
+            # ASSET IO, BOUND (zk audit 2026-09-26; settle_proof_io_check admits it). The asset ledger is part
             # of the records half, so what an asset call did is judged against the PINNED pre-state: records_pre
             # must hash to the tip's records root, and PinnedAssets walks the proven io through the live staging
             # rules — issuer-only mint/renounce, the supply cap, holdings, and every ABAL read against the running
             # authenticated balance. A records-bound proof folds those moves into its binding like a payout; a
             # records-FROZEN one (say, a span that only reads balances) must move nothing at all.
+            # No height guard (the gen-27 ZK_HARDEN_HEIGHT, 1 from gen 28): block_height >= 1 is proven here — the DA
+            # binding above passed, which needs a non-empty span (tip_cursor, cursor] with tip_cursor >= 0 (a real
+            # settlement) and cursor <= block_height.
             _asset_view = _asset_pin = None
             from execnode.stark import records_bind as _RBA
-            if int(block_height) >= _P.ZK_HARDEN_HEIGHT and _RBA.proof_asset_ids(proof)[0]:
+            if _RBA.proof_asset_ids(proof)[0]:
                 try:
                     _asset_pin = _RBA.pinned_pre_get(proof.get("records_pre") or {}, SST.digest_from_hex(rec_hex),
                                                      depth=_protocol.EXEC_TREE_DEPTH)

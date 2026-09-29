@@ -8,7 +8,7 @@ This file covers:
   * a node-local failure (a missing/stale native kernel, or memory) is RAISED through every verify layer, never
     returned as "invalid" — and the settle branch turns it into ProofUnavailable (defer, not reject);
   * exit claims are bounded (no amount + k*P aliasing), from PROOF_QUERY_FULL_HEIGHT;
-  * a settle proof carries no PAY when records-frozen, and no asset io at all from the gate;
+  * a settle proof carries no PAY when records-frozen (its asset io is left to the settle branch's pinned binding);
   * io attribution requires exactly one RET segment per VM unit;
   * the wide spend key is four lanes (algebra and a real proof), and the browser binds the same aux string;
   * the Rust compose kernels return NEGATIVE error codes (a positive one was read as a column id);
@@ -117,30 +117,22 @@ def t_exit_claims_are_bounded_from_the_gate():
     assert _raises(AssertionError, lambda: exit_amount_check(5 + F.P, GATE)), "amount + P must be refused"
 
 
-def t_settle_proofs_carry_no_pay_when_frozen_and_no_asset_io_from_the_gate():
+def t_settle_proofs_carry_no_pay_when_frozen_and_asset_io_is_left_to_the_binding():
     from ops.transaction_ops import settle_proof_io_check
     from execnode import zkvm as Z
-    import protocol as _P
-    # PROBED UNDER GEN 27's ZK_HARDEN_HEIGHT (2^62): from that gate a RECORDS-BOUND proof may carry asset io (asset
-    # instructions settle by proof — tests/test_asset_ops_settle_by_proof.py pins the admitted side), and on gen 28 the
-    # gate is 1, so "no asset io at all" is the pre-gate rule this check reproduces (gen-28 rehearsal).
-    _saved_zk = _P.ZK_HARDEN_HEIGHT
-    _P.ZK_HARDEN_HEIGHT = max(_saved_zk, 1 << 62)
-    try:
-        _no_asset_io_below_zk_harden(settle_proof_io_check, Z)
-    finally:
-        _P.ZK_HARDEN_HEIGHT = _saved_zk
-
-
-def _no_asset_io_below_zk_harden(settle_proof_io_check, Z):
     pay = {"segments": [{"io": [[Z.IO_PAY, 1, 2]]}]}
     assert _raises(AssertionError, lambda: settle_proof_io_check(pay, False, GATE - 1)), "frozen proof with a PAY"
-    settle_proof_io_check(pay, True, GATE - 1)            # a records-bound proof derives the payout instead
+    assert _raises(AssertionError, lambda: settle_proof_io_check(pay, False, GATE)), "frozen proof with a PAY"
+    settle_proof_io_check(pay, True, GATE)                # a records-bound proof derives the payout instead
+    # "no asset io in any settle proof" (this review) was superseded by the zk audit 2026-09-26 (gen 27's
+    # ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted): asset io is BOUND against the pinned records pre-state
+    # (records_bind.PinnedAssets) in the settle branch, and a records-frozen proof's asset io must net to nothing
+    # there — tests/test_asset_settle_l1.py pins both. The io check itself admits it at every height.
     for kind in Z.IO_ASSET_KINDS:
         prf = {"segments": [{"io": [[Z.IO_SSTORE, 1, 2], [kind, 3, 4]]}]}
-        settle_proof_io_check(prf, True, GATE - 1)        # below the gate: replay unchanged
-        assert _raises(AssertionError, lambda: settle_proof_io_check(prf, True, GATE)), f"asset io kind {kind}"
-        assert _raises(AssertionError, lambda: settle_proof_io_check(prf, False, GATE)), f"asset io kind {kind}"
+        for h in (GATE - 1, GATE):
+            settle_proof_io_check(prf, True, h)
+            settle_proof_io_check(prf, False, h)
     settle_proof_io_check({"segments": [{"io": [[Z.IO_SSTORE, 1, 2], [Z.IO_RET, 0, 0]]}]}, False, GATE)
 
 

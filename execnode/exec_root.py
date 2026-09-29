@@ -173,12 +173,12 @@ def records_projection(st):
                    blake2b_hash(["field_nfset", *sorted(str(n) for n in st.field_pool.nullifiers)]))] = 1
     # WIDE POOL (SHIELD_WIDE_HEIGHT, Z3): its root and spent set, as digests in the POSITION. EMPTY IS ABSENT —
     # the app_state rule — so a state that never held a wide note projects to the root it always did.
-    # THE ROOT ALREADY BINDS THE POOL'S DEPTH (ZK_HARDEN_HEIGHT, 12 -> 48): the depth-48 root over the same leaves is the
-    # depth-12 root folded up 36 more levels against empty subtrees, a different digest (equal only by a collision in
-    # the tree hash), so two nodes that disagree on the depth disagree on wide_root and therefore on this root. No
-    # separate depth record: one would move the root of every non-empty pool below the gate. An EMPTY pool of either
-    # depth projects to nothing, which is sound because an empty tree has no note to spend at any depth — and the first
-    # note makes wide_root, which binds the depth, appear.
+    # THE ROOT ALREADY BINDS THE POOL'S DEPTH (shielded_wide.depth_at, 12 at genesis -> 48 from block 1): the depth-48
+    # root over the same leaves is the depth-12 root folded up 36 more levels against empty subtrees, a different
+    # digest (equal only by a collision in the tree hash), so two nodes that disagree on the depth disagree on
+    # wide_root and therefore on this root. No separate depth record: one would have moved the root of every non-empty
+    # depth-12 pool. An EMPTY pool of either depth projects to nothing, which is sound because an empty tree has no
+    # note to spend at any depth — and the first note makes wide_root, which binds the depth, appear.
     wp = getattr(st, "wide_pool", None)
     if wp is not None and (wp.commitments or wp.nullifiers):
         from execnode.stark import znote as _Z

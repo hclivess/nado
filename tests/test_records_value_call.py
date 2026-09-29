@@ -114,20 +114,14 @@ def t_escrow_is_zero_sum():
 
 
 # ---- fail-closed cases ---------------------------------------------------------------------------------
-def t_asset_denominated_stays_non_derivable():
-    """An asset-denominated value moves the ASSET ledger, not T_BRIDGE_BAL. Out of scope -> fail closed,
-    rather than emitting half the effect."""
-    # BELOW ZK_HARDEN_HEIGHT — probed at gen 27's gate (2^62): from the gate an asset call value IS a derivable effect
-    # (records_bind, tests/test_asset_settle_l1.py), and on gen 28 the gate is 1, so block 10 is above it (the gen-28
-    # rehearsal). The fail-closed rule this pins is the below-gate one, which gen-27 replay keeps.
-    old_gate = protocol.ZK_HARDEN_HEIGHT
-    protocol.ZK_HARDEN_HEIGHT = max(old_gate, 1 << 62)
-    try:
-        eff, derivable = _with_flag(True, lambda: RB.block_records_effects(_block(5_000, asset=7)))
-    finally:
-        protocol.ZK_HARDEN_HEIGHT = old_gate
-    assert derivable is False and eff is None, \
-        f"an asset-denominated call must stay non-derivable, got {derivable}/{eff}"
+def t_asset_denominated_moves_the_asset_ledger_not_bridge_balance():
+    """An asset-denominated value moves the ASSET ledger, not T_BRIDGE_BAL. It used to fail closed (non-derivable)
+    below gen 27's ZK_HARDEN_HEIGHT; from block 1 on gen 28 (the gate deleted) it is derived as the two asset-ledger
+    positions the live apply moves — never as a native escrow (tests/test_asset_settle_l1.py pins it end to end)."""
+    eff, derivable = _with_flag(True, lambda: RB.block_records_effects(_block(5_000, asset=7)))
+    assert derivable is True and sorted(eff) == sorted([(ER.T_ASSET_BAL, ("7", SENDER), -5_000),
+                                                        (ER.T_ASSET_BAL, ("7", CID), 5_000)]), \
+        f"an asset-denominated call must move the asset ledger only, got {derivable}/{eff}"
 
 
 def t_missing_sender_or_contract_fails_closed():
@@ -147,7 +141,8 @@ for nm, fn in [("the flag only flips WITH a distinct genesis", t_flag_only_flips
                ("a zero-value call is derivable either way", t_zero_value_call_is_derivable_either_way),
                ("flag ON derives BOTH escrow positions", t_on_derives_both_positions),
                ("the derived escrow nets to ZERO (moves, not mints)", t_escrow_is_zero_sum),
-               ("an asset-denominated value call fails closed", t_asset_denominated_stays_non_derivable),
+               ("an asset-denominated value call moves the asset ledger, never T_BRIDGE_BAL",
+                t_asset_denominated_moves_the_asset_ledger_not_bridge_balance),
                ("a call missing sender/contract fails closed", t_missing_sender_or_contract_fails_closed)]:
     check(nm, fn)
 

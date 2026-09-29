@@ -5,7 +5,8 @@ The per-call test (test_nop_is_a_provable_step) proves through vm_circuit direct
 node proves settlements through prove_bound_epoch on the native arena, which is where "NOP is provable" has to be true.
 Pins, with the native kernels only (this test must NOT set NADO_ALLOW_PYTHON_KERNELS): a span deploying a contract and
 calling a method that executes NOPs proves under the hardened rules, verifies, and lands on exactly the chain's post
-state; under the pre-gate rules the same span stays unprovable (history unchanged).
+state. (The hardening is on from block 1 — gen 27's ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted — so the pre-gate rule
+set under which the span was unprovable no longer exists and is not pinned.)
 
 Run: python3 tests/test_nop_settles_by_proof.py            (native kernels required)
 """
@@ -78,7 +79,5 @@ if v:
     ok, why, post = v
     check("... verifies", ok is True, why)
     check("... and lands on exactly the chain's post state", post == ST.digest_hex(chain_root), (post, ST.digest_hex(chain_root)))
-(v, err) = attempt(stark.RULES_PRE_HARDEN)
-check("pre-gate rules: the same span stays unprovable (history unchanged)", err is not None or not (v and v[0] is True), (v, err))
 print("ALL PASS" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

@@ -1,11 +1,12 @@
-"""A settle proof cannot omit an in-span deploy through a phantom pre-state record, from ZK_HARDEN_HEIGHT
-(execnode/stark/settlement_sparse.py _exported_shape; zk audit 2026-09-26 SETTLE-1).
+"""A settle proof cannot omit an in-span deploy through a phantom pre-state record, from block 1
+(execnode/stark/settlement_sparse.py _exported_shape; zk audit 2026-09-26 SETTLE-1; gen 27's ZK_HARDEN_HEIGHT, 1 from
+gen 28 and deleted).
 
 sparse_projection skips any record whose runtime is not "zkvm", so a phantom record at the cid of a contract deployed
 inside the span changed no pin leaf; the verifier's own event replay then saw the cid as taken and treated the deploy
 as refused, and the proof verified to a root WITHOUT the deploy (reproduced end to end: a trustless settle omitting
-it). Pins: under the hardened rules the honest bundle verifies and the phantom one is refused; under the pre-gate rules
-behaviour is unchanged (history replays).
+it). Pins: under the hardened rules the honest bundle verifies and the phantom one is refused. The pre-gate rule set
+no longer exists, so its old (phantom-accepting) behaviour is not pinned.
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_settle_pre_contracts_exported.py
 """
@@ -83,9 +84,6 @@ def run(rules):
 (hs, fs) = run(stark.RULES_STRICT)
 check("hardened rules: the honest bundle verifies", hs[0] is True, hs)
 check("hardened rules: the phantom-record bundle is refused", fs[0] is False and "exported zkVM records" in str(fs[1]), fs)
-(hp, fp) = run(stark.RULES_PRE_HARDEN)
-check("pre-gate rules: the honest bundle verifies", hp[0] is True, hp)
-check("pre-gate rules: the old behaviour stands, so history replays", fp[0] is True, fp)
 ok, why = SS._exported_shape({cid1: {"code": {"a": [1]}, "storage": {"slots": {}}, "runtime": "zkvm",
                                      "deployer": ALICE, "upgradable": True}}, True)
 check("an exporter-shaped record passes the shape check", ok, why)

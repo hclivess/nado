@@ -2325,9 +2325,11 @@ EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
 #             the gate the leaves are 256-bit and the chain is the alghash2 sponge (4-element digest, ~2^128 collision);
 #             a segment is keyed on its end cursor and one straddling the gate is refused (calls_commit.span_width).
 #             Native on both sides (no AIR, no Rust kernel); execsum rows are outside the L1 root.
-# Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
-# (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
-ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# UNCONDITIONAL FROM BLOCK 1. ZK_HARDEN_HEIGHT was the gen-27 gate (dormant 2^62 there, 1 from gen 28); deleted after the
+# betanet-9 reroll. Proof rules carry it as stark.Rules.zk_harden (rules_for_height: on from height 1, off in the
+# RULES_LEGACY that height 0 gets). `>= 1` survives only where height 0 reaches the check — calls_commit.wide_binding (a
+# call or segment at cursor 0 keeps the narrow form) and shielded_wide.depth_at (the exec state at cursor -1 / 0 holds
+# the depth-12 pool, deepened when block 1 is applied) — so no verdict moved.
 
 # EXEC DA DEADLINE (audit 2026-09-25, HIGH "exec stall"). The exec tail resolves every DA-carried proof of a block before
 # mutating anything and, when one cannot be fetched, applies NOTHING and retries — all-or-nothing, so no node ever

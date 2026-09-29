@@ -13,11 +13,10 @@ Run: python3 tests/test_calls_commit.py
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import calls_commit as CC, membership as MB, alghash, field as F, backend as B
-import protocol
-# THE NARROW FORM, pinned: prove_calls_commitment is the one-element in-circuit demonstrator (calls_commit docstring),
-# and the settle binding is WIDE from ZK_HARDEN_HEIGHT — from block 1 on gen 28, which made cursor 200 wide here
+# THE NARROW FORM, pinned at cursor 0 — the one height it survives at (calls_commit.wide_binding): prove_calls_commitment
+# is the one-element in-circuit demonstrator (calls_commit docstring), and the settle binding is WIDE from block 1
 # (tests/test_calldata_binding_is_wide.py pins the wide form).
-protocol.ZK_HARDEN_HEIGHT = 1 << 62
+CUR = 0
 
 fails = 0
 def check(name, fn):
@@ -33,20 +32,20 @@ CALLS = [{"cid": "c" * 64, "method": "bump", "caller": "ndoAAAA" + "A" * 41, "ar
 
 
 def t_commitment_is_a_membership_fold():
-    c = CC.calls_commitment(CALLS, cursor=200, timestamp=5)
-    ls = CC.leaves(CALLS, cursor=200, timestamp=5)
+    c = CC.calls_commitment(CALLS, cursor=CUR, timestamp=5)
+    ls = CC.leaves(CALLS, cursor=CUR, timestamp=5)
     assert c == MB.merkle_root_from_path(alghash.IV, ls, [0] * len(ls)), "commitment must equal the IV→leaves fold"
 
 
 def t_order_matters():
-    a = CC.calls_commitment(CALLS, 200, 5)
-    b = CC.calls_commitment(list(reversed(CALLS)), 200, 5)
+    a = CC.calls_commitment(CALLS, CUR, 5)
+    b = CC.calls_commitment(list(reversed(CALLS)), CUR, 5)
     assert a != b, "reordering the calls must change the commitment"
 
 
 def t_in_circuit_proof_verifies():
-    proof, commit = CC.prove_calls_commitment(CALLS, cursor=200, timestamp=5, num_queries=NQ)
-    assert commit == CC.calls_commitment(CALLS, 200, 5), "proved commitment must equal the native one"
+    proof, commit = CC.prove_calls_commitment(CALLS, cursor=CUR, timestamp=5, num_queries=NQ)
+    assert commit == CC.calls_commitment(CALLS, CUR, 5), "proved commitment must equal the native one"
     ok, why = CC.verify_calls_commitment(proof, commit, len(CALLS), num_queries=NQ)
     assert ok, f"calls-commitment proof must verify: {why}"
     # soundness: wrong commitment or wrong call count rejected
@@ -55,7 +54,7 @@ def t_in_circuit_proof_verifies():
 
 
 def t_foldable_recursion_backend():
-    proof, commit = CC.prove_calls_commitment(CALLS, 200, 5, num_queries=NQ, backend=B.RECURSION)
+    proof, commit = CC.prove_calls_commitment(CALLS, CUR, 5, num_queries=NQ, backend=B.RECURSION)
     ok, why = CC.verify_calls_commitment(proof, commit, len(CALLS), num_queries=NQ, backend=B.RECURSION)
     assert ok, f"RECURSION-committed calls-commitment must verify (foldable): {why}"
 

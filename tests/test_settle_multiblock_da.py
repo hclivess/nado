@@ -49,18 +49,17 @@ def _block(h):
 
 
 def _canon(cc):
-    """A commitment in comparable form: the 4-element wide list as-is, a narrow one reduced % P. Gen-28 rehearsal:
-    with ZK_HARDEN_HEIGHT = 1 every height here is wide, and `int(cc) % F.P` on the 4-list raised; under gen 27's
-    2^62 gate the narrow branch is exactly the old comparison."""
+    """A commitment in comparable form: the 4-element wide list as-is, a narrow one (height 0 only) reduced % P.
+    Every height here is wide (from block 1), and `int(cc) % F.P` on the 4-list raised (gen-28 rehearsal)."""
     return list(cc) if isinstance(cc, (list, tuple)) else int(cc) % F.P
 
 
 def _l1_fold(*blocks):
     """L1's per-block summary fold — exactly what verify_calls_bound_to_summaries computes, INCLUDING its width:
     the segment (first-1, last] is keyed by CC.span_width on its end height (gen-28 rehearsal: wide from block 1;
-    this used to start from alghash.IV, the narrow chain, which is right only below the gate)."""
+    this used to start from alghash.IV, the narrow chain, which is right only at height 0)."""
     ok, wide = CC.span_width(int(blocks[0]["block_number"]) - 1, int(blocks[-1]["block_number"]))
-    assert ok, "test span straddles ZK_HARDEN_HEIGHT"
+    assert ok, "test span straddles block 0 and block 1"
     node = CC.chain_start(wide)
     for b in blocks:
         _inert, calls_by_ns = CC.block_summary(b)

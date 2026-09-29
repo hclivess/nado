@@ -44,11 +44,10 @@ def block(txs, number=10, ts=1234):
 def _start(lo, hi):
     """The chain start for a segment over L1 blocks (lo, hi], in the segment's OWN width (CC.span_width keys it on the
     end height, exactly as verify_calls_bound_to_summaries does). These folds used to start from alghash.IV, the
-    narrow chain — right only while ZK_HARDEN_HEIGHT was gen 27's 2^62. On gen 28 the gate is 1, every height here is
-    wide, and a narrow hand-built fold compared an int to the 4-element wide commitment (gen-28 rehearsal). Keyed on
-    the gate, so the same checks hold under either value."""
+    narrow chain — right only on gen 27. From block 1 every height here is wide, and a narrow hand-built fold compared
+    an int to the 4-element wide commitment (gen-28 rehearsal)."""
     ok, wide = CC.span_width(lo, hi)
-    assert ok, f"segment ({lo}, {hi}] straddles ZK_HARDEN_HEIGHT"
+    assert ok, f"segment ({lo}, {hi}] straddles block 0 and block 1"
     return CC.chain_start(wide)
 
 
@@ -170,7 +169,7 @@ def t_fabricated_calls_refused():
     proof = _proof(store, 100, 101)
     cc = proof["segments"][0]["calls_commitment"]
     if isinstance(cc, list):
-        # wide (gen-28 rehearsal: every height is wide once ZK_HARDEN_HEIGHT is 1): tamper the LAST element, so the
+        # wide (every height from block 1): tamper the LAST element, so the
         # refusal also proves the gate compares beyond element 0 (the ~2^32 narrow collision the widening closed)
         cc = cc[:-1] + [(cc[-1] + 1) % F.P]
     else:

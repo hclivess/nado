@@ -56,7 +56,7 @@ def verify_transfer(public, proof, root_is_known, wide_depth=None):
     if "joinsplit3" in bundle:
         from execnode.stark import joinsplit3, stark as _stk
         from execnode.shielded_wide import TREE_DEPTH, DEPTH_HARDENED
-        # D IS PINNED TO THE DEPTH IN FORCE, NEVER READ FROM THE PROOF (ZK_HARDEN_HEIGHT: 12 below, 48 from it). The exec
+        # D IS PINNED TO THE DEPTH IN FORCE, NEVER READ FROM THE PROOF (12 at height 0, 48 from block 1). The exec
         # state passes its pool's depth (ExecState.wide_enter put it at depth_at(applying height)); a caller that passes
         # none gets the depth of the proof rules in force (stark.rules_at, set by _apply_block for the block's height;
         # unset means STRICT, i.e. 48 — a caller that cannot say which block it judges refuses a depth-12 proof loudly).

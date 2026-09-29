@@ -212,7 +212,7 @@ def t_span_with_code_events_proves_to_the_chain_root():
     _inert, by_ns = CC.block_summary(_block(H, span_txs))
     # Folded from the segment's OWN chain start (CC.span_width keys it on the end height, as L1's
     # verify_calls_bound_to_summaries does). This fold used to start from alghash.IV — the narrow chain, right only
-    # while ZK_HARDEN_HEIGHT was gen 27's 2^62; on gen 28 the gate is 1, H is wide and the bundle carries the
+    # on gen 27; from block 1 H is wide and the bundle carries the
     # 4-element commitment (gen-28 rehearsal). commitment_matches is the exact comparison the verifiers use.
     okw, wide = CC.span_width(H - 1, H)
     assert okw

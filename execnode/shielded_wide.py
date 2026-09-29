@@ -11,19 +11,20 @@ from the same gate and stays only for the rerolled-away history.
 
 THE DEPTH IS A PROPERTY OF THE POOL (zk audit 2026-09-26). Depth 12 is 4,096 notes, fillable for ~0.0004 NADO of
 deposits; a spend always appends two leaves, so once the tree was full every note in it was locked for good (the spend
-is refused as "full") while deposits kept being admitted and were lost. From ZK_HARDEN_HEIGHT the pool is depth 48
-(2^48 notes). joinsplit3's trace length is next_pow2(rows(D) + RANDOM_ROWS), the same for every depth 20..48, so 48
-costs a prover exactly what 20 does. depth_at(height) is the one place the rule is written; the exec state deepens its
-pool when it applies the first block at or past the gate (ExecState.wide_enter), a snapshot carries the depth and
-ExecState._restore checks it against the snapshot's cursor, and the verifier pins a proof's D to the depth in force.
-Below the gate every root, path and anchor window is byte-identical to the depth-12 code this replaced
-(tests/test_wide_pool_depth.py pins them against a verbatim copy of the old functions).
+is refused as "full") while deposits kept being admitted and were lost. From block 1 the pool is depth 48 (2^48 notes;
+gen 27's ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted). joinsplit3's trace length is next_pow2(rows(D) + RANDOM_ROWS),
+the same for every depth 20..48, so 48 costs a prover exactly what 20 does. depth_at(height) is the one place the rule
+is written; the exec state deepens its pool when it applies block 1 (ExecState.wide_enter), a snapshot carries the
+depth and ExecState._restore checks it against the snapshot's cursor, and the verifier pins a proof's D to the depth
+in force. Height 0 — a fresh exec state at cursor -1 applying genesis — still holds the depth-12 pool, whose every
+root, path and anchor window is byte-identical to the depth-12 code this replaced (tests/test_wide_pool_depth.py pins
+them against a verbatim copy of the old functions).
 """
 from execnode.stark import field as F, znote as Z
 from execnode.stark.alghash2 import CAPACITY
 
-TREE_DEPTH = 12                                   # below ZK_HARDEN_HEIGHT (and an exec node that reports no depth)
-DEPTH_HARDENED = 48                               # from ZK_HARDEN_HEIGHT: 2^48 notes
+TREE_DEPTH = 12                                   # height 0 (and an exec node that reports no depth)
+DEPTH_HARDENED = 48                               # from block 1: 2^48 notes
 DEPTHS = (TREE_DEPTH, DEPTH_HARDENED)             # the only depths a pool, or a snapshot of one, may declare
 EMPTY_LEAF = Z.EMPTY_LEAF
 ANCHOR_WINDOW = 128
@@ -32,9 +33,10 @@ ANCHOR_WINDOW = 128
 def depth_at(height):
     """The wide tree's depth in force for the block at `height` — a pure function of height, so a replay years later
     builds the tree that was in force. Every consumer (the pool switch, the snapshot check, the verifier's D pin, the
-    depth /exec/field_leaves reports to wallets) reads it here."""
-    from protocol import ZK_HARDEN_HEIGHT
-    return DEPTH_HARDENED if int(height) >= ZK_HARDEN_HEIGHT else TREE_DEPTH
+    depth /exec/field_leaves reports to wallets) reads it here. `>= 1` is the deleted gate's value (ZK_HARDEN_HEIGHT, 1
+    from gen 28), kept because height 0 reaches it: a fresh exec state (cursor -1) and genesis application are at 0,
+    and ExecState._restore checks a cursor-0 snapshot against depth 12."""
+    return DEPTH_HARDENED if int(height) >= 1 else TREE_DEPTH
 
 
 def _check_depth(depth):
@@ -222,7 +224,7 @@ class WideShieldedPool:
         return pool
 
     def deepened(self, depth):
-        """The same leaves and spent set in a tree of `depth` (at ZK_HARDEN_HEIGHT, 12 -> 48). The anchor window is
+        """The same leaves and spent set in a tree of `depth` (at block 1, 12 -> 48). The anchor window is
         rebuilt AT THE NEW DEPTH, exactly as from_dict would build it, so it holds no depth-12 root: a proof built
         against the old tree is refused from the switch (its D is refused too — joinsplit_transfer pins D to the depth
         in force). It is the depth-48 roots of the last ANCHOR_WINDOW prefixes and not the new root alone because the
@@ -238,7 +240,7 @@ def prove_transfer2(pool, nsk, value_in, rho_in, cm_in_pos, v1, o1, r1, v2, o2, 
     digests as 64-hex — the same bundle shape the wallet's on-device prover (static/stark/joinsplit3.js)
     submits. Tests and tooling only: a node never sees a spend key (Z7)."""
     from execnode.stark import joinsplit3 as J3
-    sibs, dirs = pool.path(cm_in_pos)                  # at the POOL's depth (48 from ZK_HARDEN_HEIGHT)
+    sibs, dirs = pool.path(cm_in_pos)                  # at the POOL's depth (48 from block 1)
     proof, root, nf, cm1, cm2 = J3.prove_transfer(nsk, value_in, rho_in, sibs, dirs, v1, o1, r1, v2, o2, r2,
                                                   public_value, fee, aux=withdraw_addr)
     bundle = {"stark": {"joinsplit3": {"proof": proof, "root": Z.to_hex(root), "nf": Z.to_hex(nf),

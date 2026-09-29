@@ -226,8 +226,8 @@ def verify_bound_epoch(bundle, num_queries=None, check_exec_proof=True):
         # calldata's running commitment on-chain). Here we confirm the bundle's commitment matches its calls.
         if "calls_commitment" in bundle:
             want = CC.calls_commitment(bundle["calls"], int(bundle["cursor"]), int(bundle.get("timestamp", 0)))
-            # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from ZK_HARDEN_HEIGHT `want` is
-            # the 4-element wide commitment and ALL four must match (commitment_matches); below it this is the
+            # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from cursor 1 `want` is the
+            # 4-element wide commitment and ALL four must match (commitment_matches); at cursor 0 this is the
             # exact `!=` it always was.
             if not CC.commitment_matches(bundle["calls_commitment"], want):
                 return False, "calls_commitment does not match the epoch's calls", None
@@ -336,7 +336,7 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
         if not ok:
             return False, f"epoch proof invalid: {why}", None
         cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
-        # INVARIANT (audit 2026-09-24/25 HIGH): wide from ZK_HARDEN_HEIGHT, all four elements compared.
+        # INVARIANT (audit 2026-09-24/25 HIGH): wide from cursor 1, all four elements compared.
         if not CC.commitment_matches(bundle["calls_commitment"], CC.calls_commitment(bundle["calls"], cursor, ts)):
             return False, "calls_commitment mismatch", None
         # cid_io must be the exec-proof-authenticated io+calls, NOT the prover's field (see verify_bound_epoch):
@@ -400,7 +400,7 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     `pre_abal`/`pre_assets` are the asset ledger at the span's start (doc/assets.md §8). They gate the proof —
     an asset effect the chain would revert makes the span unprovable — and never enter the KV root; the
     records half carries what the asset calls moved (records_bind.asset_records_effects). Without them an
-    asset-touching span raises, which is the pre-ZK_HARDEN answer (L1 refuses asset io before that height)."""
+    asset-touching span raises."""
     # DEFAULT TO AN ARENA-COVERED BACKEND. stark.prove only reaches the native arena when
     # _b.name in ("recursion", "alghash2"); backend=None resolves to _backend.DEFAULT, which is BLAKE2B,
     # which the arena does NOT implement — so the whole settle prove silently ran in pure Python. Measured
@@ -471,7 +471,7 @@ def prove_settlement_sparse(pre_contracts, calls, cursor, rec_hex, timestamp=0, 
     bridge = dict(pre_bridge or {})
     # THE ASSET LEDGER ADVANCES WITH THE SEGMENTS, like `bridge`: a later block's ABAL/APAY is judged against the
     # balances the earlier blocks left. It used to be a fresh `{}` per segment ("records-frozen span ⇒ empty
-    # asset shadow is inert"), true only while L1 refused asset io outright — with it admitted (ZK_HARDEN) an
+    # asset shadow is inert"), true only while L1 refused asset io outright — with it admitted (zk audit) an
     # empty shadow would refuse every honest asset span.
     abal = {a: dict(h) for a, h in (pre_abal or {}).items()}
     assets = copy.deepcopy(pre_assets or {})
