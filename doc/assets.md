@@ -247,7 +247,10 @@ call-value escrow rather than built.
 
 ---
 
-## 8. Settlement by validity proof — bound on L1 from `ZK_HARDEN_HEIGHT`
+## 8. Settlement by validity proof — bound on L1 from block 1
+
+(`ZK_HARDEN_HEIGHT` was the gen-27 gate for this; it was inlined after the betanet-9 reroll, gen 28, so every
+"until `ZK_HARDEN_HEIGHT`" below describes gen-27 history.)
 
 **The history, because this section once said "CLOSED" while it was not.** The epoch prover has carried an
 **asset half of the shadow ledger** (`abal`/`assets`) for a long time: `settlement_proofs._run_call` escrows an
