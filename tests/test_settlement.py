@@ -100,12 +100,11 @@ def t6_non_bonded_cannot_settle():
         "a non-bonded sender cannot settle"
 
 def _ns_fee(tx, kd, height):
-    """A settle OUTSIDE the default namespace pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (audit 2026-09-27, "Free
-    transactions"); below it the fee must be 0. construct_settle_tx always builds fee 0, so this sets the fee the rule
-    at `height` asks for and re-signs (the fee is inside the txid). Gen-28 rehearsal: SPAM_HARDEN_HEIGHT is 1, so the
-    free rollup settle this test built was refused; under gen 27's 24000 the height-700 settle stays free, as before."""
-    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
-    want = MIN_TX_FEE if int(height) >= SPAM_HARDEN_HEIGHT else 0
+    """A settle OUTSIDE the default namespace pays MIN_TX_FEE from block 1 (audit 2026-09-27, "Free transactions"); at
+    height 0 (a genesis tip's mempool) the fee must be 0. This sets the fee the rule at `height` asks for and re-signs
+    (the fee is inside the txid) — the builder signs from its max_block, which these tests keep at 1."""
+    from protocol import MIN_TX_FEE
+    want = MIN_TX_FEE if int(height) >= 1 else 0
     if tx["fee"] != want:
         tx["fee"] = want
         _resign(tx, kd)
@@ -150,8 +149,8 @@ def t9_bad_namespace_rejected():
     """Prove a malformed namespace id (invalid charset) is rejected, signed over the bad body."""
     bad = construct_settle_tx(V1, exec_cursor=900, state_root=ROOT_A, max_block=1, ns="rollupa")
     bad["data"]["ns"] = "BadNS!"
-    # gen-28 rehearsal: pay the non-default-namespace fee the rule at height 1 asks for (SPAM_HARDEN_HEIGHT = 1), so the
-    # refusal is the charset rule this test names and not the fee rule; _ns_fee is a no-op under gen 27's 24000
+    # pay the non-default-namespace fee the rule at height 1 asks for, so the refusal is the charset rule this test names
+    # and not the fee rule
     _resign(_ns_fee(bad, V1, 1), V1)
     assert _reason(lambda: validate_transaction(bad, logger, 1)).find("valid namespace") >= 0, \
         "invalid ns charset must be rejected (by the namespace rule)"

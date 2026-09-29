@@ -1,7 +1,10 @@
-"""No free, repeatable transaction (protocol.SPAM_HARDEN_HEIGHT; operator 2026-09-27: "make sure it is not exploitable in
-the future (no fees empty address spam)").
+"""No free, repeatable transaction (protocol.py "NO FREE REPEATABLE TRANSACTIONS"; operator 2026-09-27: "make sure it is
+not exploitable in the future (no fees empty address spam)"). Betanet-8 shipped the rules at block 24000; betanet-9 runs
+them from block 1, and the gate (SPAM_HARDEN_HEIGHT) is deleted — so the test halves that pinned the betanet-8 behaviour
+below it went with it. What stays below the rules is height 0, which mempool admission on a genesis tip and a tx's own
+max_block can still reach: there nothing moved (the kept `>= 1`).
 
-MEASURED BEFORE THE GATE (audit + probes, doc/security-review-2026-09-27.md §"Free transactions"):
+MEASURED ON BETANET-8 BEFORE THE RULES (audit + probes, doc/security-review-2026-09-27.md §"Free transactions"):
   * tpm_ready had no fee rule and no uniqueness key, was sendable from a never-funded address, wrote the sender's account
     row (and a junk "tpm_ready" row) through the transfer fall-through, and every sender joined the challenger pool;
   * msgkey was free forever from any account that existed, even at zero balance;
@@ -10,14 +13,15 @@ MEASURED BEFORE THE GATE (audit + probes, doc/security-review-2026-09-27.md §"F
     xmsg was free; one device could hop to a fresh never-funded sender every block;
   * nothing bounded how many fee-exempt txs one sender held in the mempool.
 
-Pins, on the real tables (throwaway HOME) with real signed transactions, AT the gate and one block below it:
+Pins, on the real tables (throwaway HOME) with real signed transactions, at block 24000 (where betanet-8 measured them)
+and, for the kept `>= 1`, at height 0:
   1. shape: an unknown top-level key is refused, a key another kind carries is refused, the size caps hold (a settle's
-     proof is outside the cap, a tpm_enrol and a multisig get their own room), and below the gate nothing changes;
+     proof is outside the cap, a tpm_enrol and a multisig get their own room), and at height 0 nothing changes;
   2. msgkey: the first bind is free and refuses a fee, a rotation must pay MIN_TX_FEE, re-binding the same key and
-     carrying data are refused, and it needs an account; below the gate a rotation is still free;
-  3. tpm_ready: refused from an unbonded account, refused with a fee, accepted from a bonded one; one per sender per block;
-     and from the gate apply writes NO account for its sender (below it, replay still does);
-  4. tpm_enrol occupies one key per endorsement identity; below the gate it has none;
+     carrying data are refused, and it needs an account; at height 0 a rotation is still free;
+  3. tpm_ready: refused from an unbonded account, refused with a fee, accepted from a bonded one; one per sender per block
+     (a max_block of 0 occupies no key); and apply writes NO account for its sender;
+  4. tpm_enrol occupies one key per endorsement identity (a max_block of 0 occupies none);
   5. settle outside the default namespace must pay, a cursor more than SETTLE_MAX_LAG behind is refused;
   6. xmsg must pay;
   7. the device-hop rule refuses a second move to a different sender in the same epoch, keeps the first move instant,
@@ -45,14 +49,8 @@ from hashing import canonical_bytes
 from signatures import generate_keydict, sign, unhex
 
 logger = logging.getLogger("freespam"); logger.addHandler(logging.NullHandler())
-# GEN-28 REHEARSAL: the gate is live from block 1 on every generation after 27, so "one block below it" is height 0 —
-# below the separate enablement of the kinds themselves (tpm_ready/tpm_enrol refuse block 0), and settle cursors and
-# epochs derived from H went negative. The test therefore SETS the gate it probes to gen 27's value (the height the rules
-# were measured and shipped at) and restores the live value at the end; every rule module reads the constant at call
-# time. On gen 27 this is exactly the live value, so nothing changes there.
-LIVE_SPAM_H = P.SPAM_HARDEN_HEIGHT
-GEN27_GATE = 24000
-H = P.SPAM_HARDEN_HEIGHT = max(LIVE_SPAM_H, GEN27_GATE)
+# a real height, the one betanet-8 shipped the rules at, so settle cursors and epochs derived from it stay positive
+H = 24000
 fails = 0
 
 
@@ -84,16 +82,18 @@ def fund(kd, balance=0, bonded=0):
 
 
 KEM1, KEM2 = "aa" * 1184, "bb" * 1184
-MB = H + 10                                   # a max_block past the gate, so keyed-on-max_block rules apply
+MB = H + 10                                   # a max_block >= 1, so keyed-on-max_block rules apply
 
 # 1. shape ------------------------------------------------------------------------------------------------------------
 kd = generate_keydict(); fund(kd, balance=10 ** 12)
 base = T.construct_msgkey_tx(kd, KEM1, MB)
 padded = resign(kd, dict(base, pad="00" * 2048))
-check("an unknown top-level key is refused at the gate", "unknown transaction field" in (verdict(padded, H) or ""),
+check("an unknown top-level key is refused", "unknown transaction field" in (verdict(padded, H) or ""),
       verdict(padded, H))
-check("...and was not refused for its shape below the gate (replay unchanged)",
-      "unknown transaction field" not in (verdict(padded, H - 1) or ""), verdict(padded, H - 1))
+check("...at block 1 too (the rule holds from block 1)", "unknown transaction field" in (verdict(padded, 1) or ""),
+      verdict(padded, 1))
+check("...and at height 0 (mempool admission on a genesis tip) the shape rule is off, as it always was",
+      "unknown transaction field" not in (verdict(padded, 0) or ""), verdict(padded, 0))
 T.tx_shape_check(base, H)                                                        # the honest body passes
 wrong_kind = dict(base, recipient="tpm_ready")
 try:
@@ -136,8 +136,9 @@ paid_first = T.construct_msgkey_tx(kd, KEM1, MB, fee=P.MIN_TX_FEE)
 check("...and refuses a fee (nothing to charge for)", "fee must be 0" in (verdict(paid_first, H) or ""), verdict(paid_first, H))
 reflect_transaction(base, logger=logger, block_height=H)                         # bound
 rot_free = T.construct_msgkey_tx(kd, KEM2, MB)
-check("a free ROTATION is refused at the gate", "minimum fee" in (verdict(rot_free, H) or ""), verdict(rot_free, H))
-check("...and was free below it (replay unchanged)", verdict(rot_free, H - 1) is None, verdict(rot_free, H - 1))
+check("a free ROTATION is refused", "minimum fee" in (verdict(rot_free, H) or ""), verdict(rot_free, H))
+check("...and at height 0 (a genesis tip's mempool) it is still free, as it always was", verdict(rot_free, 0) is None,
+      verdict(rot_free, 0))
 rot_paid = T.construct_msgkey_tx(kd, KEM2, MB, fee=P.MIN_TX_FEE)
 check("a rotation that pays MIN_TX_FEE is accepted", verdict(rot_paid, H) is None, verdict(rot_paid, H))
 same = T.construct_msgkey_tx(kd, KEM1, MB, fee=P.MIN_TX_FEE)
@@ -161,7 +162,7 @@ rich = generate_keydict(); fund(rich, balance=10 ** 11, bonded=P.B_MIN)
 r_poor = T.construct_tpm_tx(poor, "tpm_ready", "", MB)
 r_rich = T.construct_tpm_tx(rich, "tpm_ready", "", MB)
 check("tpm_ready from an unbonded account is refused", "bonded" in (verdict(r_poor, H) or ""), verdict(r_poor, H))
-check("...and was accepted below the gate (replay unchanged)", verdict(r_poor, H - 1) is None, verdict(r_poor, H - 1))
+check("...at block 1 too", "bonded" in (verdict(r_poor, 1) or ""), verdict(r_poor, 1))
 check("tpm_ready from a bonded validator is accepted", verdict(r_rich, H) is None, verdict(r_rich, H))
 r_fee = resign(rich, dict(r_rich, fee=P.MIN_TX_FEE))
 check("tpm_ready with a fee is refused (a fee bought nothing, it only moved the flood)",
@@ -169,24 +170,21 @@ check("tpm_ready with a fee is refused (a fee bought nothing, it only moved the 
 r_rich2 = T.construct_tpm_tx(rich, "tpm_ready", "", MB)
 k1, k2 = T.reserved_uniqueness_key(r_rich), T.reserved_uniqueness_key(r_rich2)
 check("two announcements from one sender share a uniqueness key (one per block)", k1 == k2 and k1 is not None, (k1, k2))
-old = T.construct_tpm_tx(rich, "tpm_ready", "", H - 1)
-check("...and one whose max_block is below the gate has none (replay unchanged)", T.reserved_uniqueness_key(old) is None)
+old = T.construct_tpm_tx(rich, "tpm_ready", "", 0)
+check("...and one whose own max_block is 0 has none (the kept `>= 1`)", T.reserved_uniqueness_key(old) is None)
 never = generate_keydict()
 free_ready = T.construct_tpm_tx(never, "tpm_ready", "", MB)
-reflect_transaction(free_ready, logger=logger, block_height=H)
-check("from the gate a tpm_ready writes NO account for its sender",
-      get_account(never["address"], create_on_error=False) is None)
-before_rows = get_account("tpm_ready", create_on_error=False)
-reflect_transaction(free_ready, logger=logger, block_height=H - 1)
-check("...below it replay still takes the old fall-through (it wrote the sender's row)",
-      get_account(never["address"], create_on_error=False) is not None)
-reflect_transaction(free_ready, logger=logger, block_height=H - 1, revert=True)
+for _h in (1, H):
+    reflect_transaction(free_ready, logger=logger, block_height=_h)
+check("a tpm_ready writes NO account for its sender (at block 1 as at any height)",
+      get_account(never["address"], create_on_error=False) is None
+      and get_account("tpm_ready", create_on_error=False) is None)
 
 # 4. tpm_enrol --------------------------------------------------------------------------------------------------------
 e1 = T.construct_tpm_tx(poor, "tpm_enrol", {"ek": ["30820102"], "pub": "00"}, MB)
 e2 = T.construct_tpm_tx(rich, "tpm_enrol", {"ek": ["30820102"], "pub": "01"}, MB)
 k1, k2 = T.reserved_uniqueness_key(e1), T.reserved_uniqueness_key(e2)
-check("every tpm_enrol from the gate occupies a ('tpm_enrol', ...) key", k1[0] == "tpm_enrol" and k2[0] == "tpm_enrol", (k1, k2))
+check("every tpm_enrol occupies a ('tpm_enrol', ...) key", k1[0] == "tpm_enrol" and k2[0] == "tpm_enrol", (k1, k2))
 from unittest import mock
 with mock.patch("ops.attest_native.ek_public_der", lambda der: b"same-chip-spki"):
     k1, k2 = T.reserved_uniqueness_key(e1), T.reserved_uniqueness_key(e2)
@@ -194,8 +192,8 @@ check("two enrolments of one chip (one SubjectPublicKeyInfo) share the key, whoe
 with mock.patch("ops.attest_native.ek_public_der", lambda der: der):
     e3 = T.construct_tpm_tx(rich, "tpm_enrol", {"ek": ["30820103"], "pub": "01"}, MB)
     check("...and two chips do not", T.reserved_uniqueness_key(e1) != T.reserved_uniqueness_key(e3))
-old_e = T.construct_tpm_tx(poor, "tpm_enrol", {"ek": ["30820102"], "pub": "00"}, H - 1)
-check("an enrolment whose max_block is below the gate has no key (replay unchanged)", T.reserved_uniqueness_key(old_e) is None)
+old_e = T.construct_tpm_tx(poor, "tpm_enrol", {"ek": ["30820102"], "pub": "00"}, 0)
+check("an enrolment whose own max_block is 0 has no key (the kept `>= 1`)", T.reserved_uniqueness_key(old_e) is None)
 
 # 5. settle -----------------------------------------------------------------------------------------------------------
 def settle_tx(kd, cursor, ns=None, fee=0):
@@ -209,7 +207,8 @@ def settle_tx(kd, cursor, ns=None, fee=0):
 
 s_ns = settle_tx(rich, H - 100, ns="spamspace")
 check("a free settle outside the default namespace is refused", "minimum fee" in (verdict(s_ns, H) or ""), verdict(s_ns, H))
-check("...it was free below the gate", "minimum fee" not in (verdict(s_ns, H - 1) or ""), verdict(s_ns, H - 1))
+check("...at height 0 (a genesis tip's mempool) the fee rule is off, as it always was",
+      "minimum fee" not in (verdict(s_ns, 0) or ""), verdict(s_ns, 0))
 s_ns_paid = settle_tx(rich, H - 100, ns="spamspace", fee=P.MIN_TX_FEE)
 check("...and a paid one passes the fee rule", "fee" not in (verdict(s_ns_paid, H) or ""), verdict(s_ns_paid, H))
 s_old = settle_tx(rich, H - P.SETTLE_MAX_LAG - 1)
@@ -251,9 +250,6 @@ with mock.patch.object(T, "verify_register_device", lambda tx, anchor: None), \
         kv_ops.devbind_set(DKEY, A["address"], epoch - 1, "lease")
         v = verdict(reg(C, H), H)
         check("...and a move from a binding made in an earlier epoch is instant", "moved to another account" not in (v or ""), v)
-        kv_ops.devbind_set(DKEY, A["address"], (H - 1) // P.EPOCH_LENGTH, "lease")
-        v = verdict(reg(B, H - 1), H - 1)
-        check("...below the gate a same-epoch hop is still allowed (replay unchanged)", "moved to another account" not in (v or ""), v)
 
 # 8. mempool cap ------------------------------------------------------------------------------------------------------
 from memserver import MemServer
@@ -301,7 +297,7 @@ check("another sender is unaffected", p.offer(ftx("R", 3)))
 # 9. the clients ------------------------------------------------------------------------------------------------------
 core = open(os.path.join(ROOT, "loops", "core_loop.py")).read()
 ann = core[core.index("def maybe_tpm_ready"):core.index("def maybe_tpm_challenge")]
-check("the node's announcer stays quiet while its account is not bonded", "B_MIN" in ann and "SPAM_HARDEN_HEIGHT" in ann)
+check("the node's announcer stays quiet while its account is not bonded", "B_MIN" in ann and "_my_acct" in ann)
 mem = open(os.path.join(ROOT, "memserver.py")).read()
 byp = mem[mem.index('elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol"'):][:200]
 check("tpm_ready is no longer in the empty-account bypass", "tpm_ready" not in byp, byp)
@@ -309,12 +305,7 @@ js = open(os.path.join(ROOT, "static", "interface.js")).read()
 check("the wallet pays MIN_TX_FEE to rotate a bound messaging key (and falls back on a pre-gate chain)",
       "acc.kem_pub ? MIN_TX_FEE : 0" in js and "fee must be 0" in js)
 
-# GEN-28 REHEARSAL: restore the live gate and pin that the rule holds at it too (from block 1 on gen 28): the same
-# unbonded announcement refused above at the probe gate is refused at the live gate.
-P.SPAM_HARDEN_HEIGHT = LIVE_SPAM_H
-r_live = T.construct_tpm_tx(poor, "tpm_ready", "", max(LIVE_SPAM_H, 1) + 10)
-check("at the LIVE gate (%d) tpm_ready from an unbonded account is refused too" % LIVE_SPAM_H,
-      "bonded" in (verdict(r_live, max(LIVE_SPAM_H, 1)) or ""), verdict(r_live, max(LIVE_SPAM_H, 1)))
+check("the gate is gone: the rules hold from block 1", not hasattr(P, "SPAM_HARDEN_HEIGHT"))
 
 kv_ops.close_all()
 print("ALL PASS — no free repeatable transaction" if not fails else f"{fails} FAILURES")

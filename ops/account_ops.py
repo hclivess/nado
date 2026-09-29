@@ -26,11 +26,6 @@ def get_account(address, create_on_error=True):
     return None
 
 
-def _spam_harden_height():
-    from protocol import SPAM_HARDEN_HEIGHT
-    return SPAM_HARDEN_HEIGHT
-
-
 def reflect_transaction(transaction, logger, block_height=None, revert=False):
     """Apply — or with revert=True EXACTLY undo — one transaction's state effects. This is the
     single state-transition dispatcher, keyed on the reserved recipient name (bond/unbond/withdraw,
@@ -93,7 +88,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # bytes (validation already accepted them), so apply and revert see the same key. The device gates of gen 25
         # (DEVICE_BIND_HEIGHT, _STRICT_, _PERMANENT_, DEVICE_REBIND_INSTANT_HEIGHT) were all 1 from gen 26 and are
         # deleted: apply runs only for a block's own transactions and genesis carries none, so block_height >= 1 here
-        # and every one of them held. (block_height None raises at apply_register's epoch below, as it always did.)
+        # and every one of them held — and so did gen 27's DEVICE_BIND_CANONICAL_HEIGHT (1 from gen 28, deleted after the
+        # betanet-9 reroll). (block_height None raises at apply_register's epoch below, as it always did.)
         from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
         device_key, permanent, legacy_key = None, False, None
         # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register with NO statement is a hardware
@@ -108,16 +104,16 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             has_device = False
         elif has_device:
             from ops.device_attest import device_binding_key
-            from protocol import DEVICE_BIND_CANONICAL_HEIGHT
-            _canon = block_height >= DEVICE_BIND_CANONICAL_HEIGHT
+            # canonical: keyed on the certificate's SIGNED part (protocol.py "ONE DEVICE, ONE IDENTITY — FOR REAL")
             device_key = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS,
-                                            strict=True, canonical=_canon)   # same parse as validation
-            # THE SAME DEVICE UNDER ITS PRE-GATE KEY (DEVICE_BIND_CANONICAL_HEIGHT): a device bound before the gate sits in
-            # devbind under sha256(raw certificate). Its canonical key is new to the table, so without this lookup the
-            # switch would let every such device back one more identity. apply_register evicts what the legacy row backs.
-            if _canon:
-                _lk = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
-                legacy_key = _lk if _lk != device_key else None
+                                            strict=True, canonical=True)   # same parse as validation
+            # THE SAME DEVICE UNDER ITS OLD RAW-BYTES KEY: a device bound on betanet-8 below block 19800 sits in devbind
+            # under sha256(raw certificate), and the reroll carried those rows into betanet-9 verbatim. Its canonical key
+            # is new to the table, so without this lookup the switch would let every such device back one more identity.
+            # apply_register evicts what the legacy row backs. INVARIANT: keep this lookup while any carried raw-bytes
+            # row can exist — deleting it hands each such device a second identity.
+            _lk = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True)
+            legacy_key = _lk if _lk != device_key else None
             # permanent_classes_at(height), the same call as validation
             permanent = device_key.split(":", 1)[0] in permanent_classes_at(block_height)
         # THE CREDENTIAL, from the tx bytes: the COSE public key inside the statement's authenticator data becomes the
@@ -138,17 +134,17 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "msgkey":
         apply_msgkey(address=sender, kem_pub=transaction["kem_pub"], txid=transaction["txid"],
                      logger=logger, revert=revert)
-        if fee:        # a key ROTATION pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); a first bind, and every msgkey
-            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # before the gate, carries 0
+        if fee:        # a key ROTATION pays MIN_TX_FEE (burned); a first bind carries 0
+            change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
-    # --- CHALLENGER ANNOUNCEMENT (tpm_ready). Before SPAM_HARDEN_HEIGHT it had no branch here and fell through to the
-    #     ordinary transfer below, which wrote a zero account for a never-funded sender and a junk row named "tpm_ready"
-    #     — free account creation, which is what made msgkey's "the account must exist" bound void. From the gate it
-    #     writes nothing (validation holds its fee at 0 and requires a bonded sender, who already has an account).
-    #     Pre-gate blocks still take the fall-through, so replay is unchanged. INVARIANT: never let a fee-exempt kind
-    #     reach the transfer path — it creates accounts for free.
-    if recipient == "tpm_ready" and block_height is not None and int(block_height) >= _spam_harden_height():
+    # --- CHALLENGER ANNOUNCEMENT (tpm_ready). It used to have no branch here (betanet-8 below block 24000) and fell
+    #     through to the ordinary transfer below, which wrote a zero account for a never-funded sender and a junk row
+    #     named "tpm_ready" — free account creation, which is what made msgkey's "the account must exist" bound void.
+    #     It writes nothing (validation holds its fee at 0 and requires a bonded sender, who already has an account).
+    #     Unconditional: apply runs only for a block's own transactions, so block_height >= 1 here.
+    #     INVARIANT: never let a fee-exempt kind reach the transfer path — it creates accounts for free.
+    if recipient == "tpm_ready":
         return
 
     # --- LEGACY CLAIM (protocol.LEGACY_CLAIM_HEIGHT): move the old address's whole balance, as stated in the claim and
@@ -273,7 +269,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.settlement_put(ns, cursor, sender, root)
             if proven:
                 kv_ops.settlement_proof_put(ns, cursor, root)
-        if fee:        # outside the default namespace a settle pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned)
+        if fee:        # outside the default namespace a settle pays MIN_TX_FEE (burned)
             change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
@@ -343,7 +339,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.xmsg_nullifier_del(from_ns, seq)
         else:
             kv_ops.xmsg_nullifier_put(from_ns, seq)
-        if fee:        # xmsg pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT (burned); 0 before it
+        if fee:        # xmsg pays MIN_TX_FEE (burned)
             change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
@@ -779,7 +775,8 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
         kv_ops.lease_grant_del(address, epoch)                  # the grant this recert wrote (no-op before the gate)
         if kv_ops.recert_latest(address) < 0:
             kv_ops.account_set(address, "registered", 0)
-        # the LEGACY-ROW record (DEVICE_BIND_CANONICAL_HEIGHT) first: it was written after the main one
+        # the LEGACY-ROW record (a carried raw-bytes binding, see reflect_transaction's register branch) first: it was
+        # written after the main one
         lrec = kv_ops.devbind_revert_pop(epoch, address + "|legacy")
         if lrec is not None:
             lkey, l_addr, l_epoch, l_mode, _ldk, _lperm, l_evicted, l_prev_evict = lrec
@@ -838,8 +835,8 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             else:
                 kv_ops.devbind_revert_put(epoch, address, device_key, prev_bind, prev_devkey, perm=False, evicted=evicted, prev_evict=prev_evict)
                 kv_ops.devbind_set(device_key, address, epoch)
-            # THE PRE-GATE ROW OF THIS SAME DEVICE (DEVICE_BIND_CANONICAL_HEIGHT; transaction_ops passes it only from the
-            # gate). If it backs ANOTHER identity, that identity loses the device exactly as an instant move would: it is
+            # THE RAW-BYTES ROW OF THIS SAME DEVICE (carried from betanet-8, where it was written below block 19800;
+            # reflect_transaction passes it whenever it differs from the canonical key). If it backs ANOTHER identity, that identity loses the device exactly as an instant move would: it is
             # evicted and the legacy row removed, so neither its signature nor its statement-free renewals find a row that
             # points back at it. Journaled under "<address>|legacy" and restored first on rollback.
             if legacy_key:
@@ -919,7 +916,7 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # the SAME check validation ran, grace included (transaction_ops.cert_verdict) — or a record validated there
         # would fail to apply here
         from ops.transaction_ops import cert_verdict
-        ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=h), h, _tpm_anchor_time(h))
+        ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=h), _tpm_anchor_time(h))
         eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
     else:
         eid = str(data["id"])
@@ -964,12 +961,11 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
     prev = kv_ops.tpm_enrol_get(eid)
     kv_ops.tpm_enrol_revert_put(h, eid, prev)
     if recipient == "tpm_enrol":
-        # COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT): from the gate the record is written with NO
-        # challengers — its dice are two epochs away — and the first tpm_challenge materialises them.
-        # INVARIANT: never draw here for a delayed record; a draw at the enrol is a draw the client could predict.
-        drawn = [] if _te.draw_is_delayed(h) else _tpm_challengers_for(eid, h)
+        # COMMIT, THEN DRAW (ops/tpm_enrol, audit 2026-09-27): the record is written with NO challengers — its dice
+        # are two epochs away — and the first tpm_challenge materialises them.
+        # INVARIANT: never draw here; a draw at the enrol is a draw the client could predict.
         rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
-                             _te.aik_name_hex(pub), pub, sender, h, drawn)
+                             _te.aik_name_hex(pub), pub, sender, h, [])
     elif recipient == "tpm_challenge":
         # The journal above holds `prev` as it was — for a delayed record, with its set still empty — so a rollback
         # of the materialising challenge restores the undrawn record exactly (Rollback must be the exact inverse).
@@ -993,15 +989,11 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
 
 def _tpm_anchor_time(block_height):
     # INVARIANT: apply re-verifies the endorsement chain, so it must read the SAME clock validation read — delegate to
-    # transaction_ops._anchor_time, never a block_timestamp of its own (protocol.CERT_CLOCK_HEIGHT: that field differs
-    # between honest nodes for one block, and apply here indexes ek["identity"] without re-checking ek["ok"]).
+    # transaction_ops._anchor_time, never a block_timestamp of its own (protocol.py "CERTIFICATE VALIDITY READS AGREED
+    # TIME": that field differs between honest nodes for one block, and apply here indexes ek["identity"] without
+    # re-checking ek["ok"]).
     from ops.transaction_ops import _anchor_time
     return _anchor_time({}, block_height)
-
-
-def _tpm_challengers_for(enrol_id_hex, block_height):
-    from ops.transaction_ops import _tpm_challengers
-    return _tpm_challengers(enrol_id_hex, block_height)
 
 
 def apply_msgkey(address, kem_pub, txid, logger, revert=False):

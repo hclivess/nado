@@ -62,32 +62,35 @@ def main():
     refuses("an unrestricted signing key", lambda: E.validate_publication(ek_id, aik_pub_area_unrestricted()))
 
     # --- the challenger draw ------------------------------------------------------------------------------
-    # WEIGHTS ARE PLAIN INTEGERS. They were registry entries until the draw moved to recent block
-    # producers; the signature changed and the body did not, and every enrolment then died with
+    # COMMIT, THEN DRAW: the draw is keyed on the chip (draw_key of the endorsement identity), never on the enrolment id
+    # (the enrol-time challenger_set keyed on it was deleted after the betanet-9 reroll; tests/test_tpm_draw_is_not_
+    # grindable.py pins why). WEIGHTS ARE PLAIN INTEGERS. They were registry entries until the draw moved to recent
+    # block producers; the signature changed and the body did not, and every enrolment then died with
     # "'int' object is not subscriptable" in production. The shape is pinned here now.
+    key = E.draw_key(ek_id)
     reg = {f"addr{i:02d}": (i + 1) for i in range(12)}
-    picked = E.challenger_set(eid, reg, "beacon-a", 3)
+    picked = E.challenger_set_exact(key, reg, "beacon-a", 3)
     check("the draw yields exactly k challengers", len(picked) == 3, picked)
     check("the challengers are distinct", len(set(picked)) == 3, picked)
-    check("the draw is deterministic", E.challenger_set(eid, reg, "beacon-a", 3) == picked)
+    check("the draw is deterministic", E.challenger_set_exact(key, reg, "beacon-a", 3) == picked)
     check("a different beacon draws a different set — the client cannot wait for a set it likes",
-          E.challenger_set(eid, reg, "beacon-b", 3) != picked
-          or E.challenger_set(eid, reg, "beacon-c", 3) != picked)
-    check("a different enrolment draws independently",
-          E.challenger_set("f" * 32, reg, "beacon-a", 3) != picked
-          or E.challenger_set("e" * 32, reg, "beacon-a", 3) != picked)
-    check("an empty registry draws nobody, rather than a weaker set",
-          E.challenger_set(eid, {}, "beacon-a", 3) == [])
-    check("a set too small to seat k returns what it has, so the caller can refuse",
-          len(E.challenger_set(eid, {"solo": 10}, "beacon-a", 3)) == 1)
+          E.challenger_set_exact(key, reg, "beacon-b", 3) != picked
+          or E.challenger_set_exact(key, reg, "beacon-c", 3) != picked)
+    check("a different chip draws independently",
+          E.challenger_set_exact(E.draw_key("f" * 64), reg, "beacon-a", 3) != picked
+          or E.challenger_set_exact(E.draw_key("e" * 64), reg, "beacon-a", 3) != picked)
+    check("an empty pool draws nobody, rather than a weaker set",
+          E.challenger_set_exact(key, {}, "beacon-a", 3) == [])
+    check("a pool too small to seat k returns what it has (and pool_can_seat refuses it at the enrol)",
+          len(E.challenger_set_exact(key, {"solo": 10}, "beacon-a", 3)) == 1 and not E.pool_can_seat({"solo": 10}, 3))
     check("a zero weight is never seated", "nobody" not in
-          E.challenger_set(eid, dict(reg, nobody=0), "beacon-a", 3))
+          E.challenger_set_exact(key, dict(reg, nobody=0), "beacon-a", 3))
     # THE BUG THAT REACHED PRODUCTION: a wrong-shaped weight must be a clean rejection, because
     # validate_transaction promises AssertionError and an escaping TypeError in block verification is
     # the difference between a rejected block and a fork.
     refuses("a registry entry where an integer belongs",
-            lambda: E.challenger_set(eid, {"a": {"bonded": 5}}, "beacon-a", 3))
-    refuses("a string weight", lambda: E.challenger_set(eid, {"a": "5"}, "beacon-a", 3))
+            lambda: E.challenger_set_exact(key, {"a": {"bonded": 5}}, "beacon-a", 3))
+    refuses("a string weight", lambda: E.challenger_set_exact(key, {"a": "5"}, "beacon-a", 3))
 
     # --- the honest flow ----------------------------------------------------------------------------------
     secrets = {c: os.urandom(32) for c in picked}

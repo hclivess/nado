@@ -176,7 +176,7 @@ def verify_entries(transaction, address: str, cfg: dict) -> set:
     signers = set()
     for e in entries:
         assert isinstance(e, dict), "signature entry must be an object"
-        # the entry list is outside the txid: from TX_HEX_CANONICAL_HEIGHT its keys and hex spelling are pinned by
+        # the entry list is outside the txid: its keys and hex spelling are pinned by
         # transaction_ops.excluded_witness_check (audit 2026-09-25) — a new entry field must be added THERE too
         pk, sig = e.get("public_key"), e.get("signature")
         assert _is_hex(pk, PUBKEY_HEX) and isinstance(sig, str), "signature entry needs public_key + signature hex"

@@ -1,7 +1,9 @@
-"""A transaction has one byte string: every witness the txid does not hash is canonical hex, from TX_HEX_CANONICAL_HEIGHT
-(audit 2026-09-25, MED "sig/pubkey hex re-encoding"; protocol.TX_HEX_CANONICAL_HEIGHT, reroll-only).
+"""A transaction has one byte string: every witness the txid does not hash is canonical hex (audit 2026-09-25, MED
+"sig/pubkey hex re-encoding"; protocol.py "ONE TRANSACTION, ONE BYTE STRING"). Never live on betanet-8 (its gate,
+TX_HEX_CANONICAL_HEIGHT, was 2^62 there), from block 1 on betanet-9, where the gate is deleted — and with it the test
+halves that reproduced the finding under validation below the gate (the lockout and the takeover, by apply).
 
-THE FINDING, reproduced below the gate on the real tables (throwaway HOME) with real ML-DSA signatures:
+THE FINDING (what the rule exists for), on the real tables (throwaway HOME) with real ML-DSA signatures:
   * create_txid excludes `public_key` and validate_txid strips `signature` (a string or an entry list), but verification
     decoded both through bytes.fromhex, which takes UPPERCASE, mixed case and whitespace. A relayer re-encodes a
     signed transaction: SAME txid, still valid, DIFFERENT block hash and upcoming-block hash for the same tx set — so
@@ -12,9 +14,10 @@ THE FINDING, reproduced below the gate on the real tables (throwaway HOME) with 
   * found while fixing it: with an entry-LIST signature nothing verifies a top-level public_key, yet PUBKEY-ONCE stored
     it for a never-sent sender and the implicit auth config then authorizes it — a relayer that adds its own key to an
     account's list-signed first transaction spends from that account.
-FROM THE GATE every such variant is refused (string signature, top-level key, null/empty key, a top-level key beside an
-entry list, and each entry of an auth / multisig list: case, whitespace, extra keys, null key), honest transactions from
-every in-tree signer pass, and below the gate nothing changes (gen-27 replay is byte-identical).
+EVERY such variant is refused (string signature, top-level key, null/empty key, a top-level key beside an entry list, and
+each entry of an auth / multisig list: case, whitespace, extra keys, null key), from block 1; honest transactions from
+every in-tree signer pass; and at height 0 (mempool admission on a genesis tip, the kept `>= 1`) the rule is off, as it
+always was.
 KNOWN OPEN (pinned so the day one closes this file says so): the signer re-signing the same txid, a relayer stripping
 a public_key the account already published, reordering an entry list, dropping a surplus entry. No encoding rule can
 close those — only a block hash that stops committing witness bytes.
@@ -43,10 +46,7 @@ from signatures import generate_keydict, sign, unhex, verify
 
 logger = logging.getLogger("hexcanon"); logger.addHandler(logging.NullHandler())
 fails = 0
-LIVE_GATE = P.TX_HEX_CANONICAL_HEIGHT
-# the rule is dormant (2^62) on gen 27 and live from block 1 on gen 28; exercise it at a height past every other gate
-G = max(P.SPAM_HARDEN_HEIGHT, P.CERT_CLOCK_HEIGHT, P.TPM_DRAW_UNGRINDABLE_HEIGHT) + 100
-P.TX_HEX_CANONICAL_HEIGHT = G
+G = 29100                                      # a real height (past every betanet-8 activation this file once needed)
 
 
 def check(name, ok, detail=""):
@@ -100,60 +100,59 @@ VARIANTS = {
     "a signature with spaces between its bytes": dict(canon, signature=spaced),
     "a signature wrapped in whitespace": dict(canon, signature=f" \n{sig}\t"),
 }
-# (re-casing the KEY of an account that already published one was refused before the gate too — key_bound compares the
-#  stored string — so the key variant that matters is the FIRST transaction's, below)
+# (re-casing the KEY of an account that already published one was refused by key_bound on betanet-8 too — it compares
+#  the stored string — so the key variant that mattered there was the FIRST transaction's, below)
 recased_pk = dict(canon, public_key=OWNER["public_key"][:42] + OWNER["public_key"][42:].upper())
-check("a re-cased key of an established account was already refused by key_bound",
-      "not the key this account has on chain" in (verdict(recased_pk, G - 1) or ""), verdict(recased_pk, G - 1))
 
-# 1. THE FINDING, below the gate ---------------------------------------------------------------------------------------
-check("the honest transfer validates below the gate and at it", verdict(canon, G - 1) is None and verdict(canon, G) is None,
-      (verdict(canon, G - 1), verdict(canon, G)))
+# 1. THE FINDING --------------------------------------------------------------------------------------------------------
+check("the honest transfer validates at block 1 and at G", verdict(canon, 1) is None and verdict(canon, G) is None,
+      (verdict(canon, 1), verdict(canon, G)))
 for what, v in VARIANTS.items():
     check(f"THE FINDING: {what} keeps the txid", T.validate_txid(v, logger) and v["txid"] == canon["txid"])
-    check(f"THE FINDING: {what} still validates below the gate (replay unchanged)", verdict(v, G - 1) is None,
-          verdict(v, G - 1))
     check(f"THE FINDING: {what} changes the block hash of the same tx set", block_hash([v]) != block_hash([canon]))
     check(f"THE FINDING: {what} changes the upcoming-block hash, which the txid reconcile cannot heal",
           upcoming_hash([v]) != upcoming_hash([canon]))
 check("THE FINDING: dedup by txid keeps whichever copy arrived first",
       T.sort_transaction_pool([VARIANTS["an UPPERCASE signature"], canon])[0]["signature"] == sig.upper())
 
-# the lockout: a relayer re-cases the key on a never-sent account's FIRST tx; PUBKEY-ONCE stores it verbatim
+# the lockout: a relayer re-cases the key on a never-sent account's FIRST tx, and PUBKEY-ONCE (index_transactions) would
+# store it verbatim, after which the owner's own canonical-key transactions fail key_bound (reproduced on betanet-8)
 FRESH = generate_keydict(); fund(FRESH, with_pk=False)
-first = transfer(FRESH, max_block=G - 1)
+first = transfer(FRESH, max_block=G)
 first_recased = dict(first, public_key=FRESH["public_key"][:42] + FRESH["public_key"][42:].upper())
-check("THE FINDING: a re-cased key on a first transaction validates below the gate", verdict(first_recased, G - 1) is None,
-      verdict(first_recased, G - 1))
-with kv_ops.write_txn():
-    T.index_transactions({"block_number": G - 1}, [first_recased], logger)
-stored = kv_ops.get_account(FRESH["address"]).get("public_key")
-check("THE FINDING: PUBKEY-ONCE stored the re-cased spelling verbatim", stored == first_recased["public_key"], (stored or "")[:60])
-later = transfer(FRESH, max_block=G - 1)
-check("THE FINDING: the owner's own canonical-key transaction is then refused (account locked out)",
-      "not the key this account has on chain" in (verdict(later, G - 1) or ""), verdict(later, G - 1))
 
-# 2. FROM THE GATE ----------------------------------------------------------------------------------------------------
+# 2. THE RULE ---------------------------------------------------------------------------------------------------------
 for what, v in VARIANTS.items():
-    check(f"from the gate {what} is refused", "lowercase hex" in (verdict(v, G) or ""), verdict(v, G))
-check("from the gate a re-cased key is refused by its shape", "lowercase hex" in (verdict(recased_pk, G) or ""),
+    check(f"{what} is refused", "lowercase hex" in (verdict(v, G) or ""), verdict(v, G))
+    check(f"...from block 1", "lowercase hex" in (verdict(v, 1) or ""), verdict(v, 1))
+check("a re-cased key is refused by its shape", "lowercase hex" in (verdict(recased_pk, G) or ""),
       verdict(recased_pk, G))
-check("from the gate the re-cased first-tx key is refused, so it can never be stored",
-      "lowercase hex" in (verdict(dict(first_recased, max_block=G), G) or ""))
+check("the re-cased first-tx key is refused, so it can never be stored",
+      "lowercase hex" in (verdict(first_recased, G) or ""))
 for bad in (None, ""):
     v = dict(canon, public_key=bad)
-    check(f"from the gate a public_key of {bad!r} is refused (it re-encoded an omitted key)",
+    check(f"a public_key of {bad!r} is refused (it re-encoded an omitted key)",
           "lowercase hex" in (verdict(v, G) or ""), verdict(v, G))
-    check(f"...and below the gate public_key {bad!r} still validates (replay unchanged)", verdict(v, G - 1) is None,
-          verdict(v, G - 1))
-check("from the gate a truncated signature is refused by its shape", "lowercase hex" in (verdict(dict(canon, signature=sig[:-2]), G) or ""))
+check("a truncated signature is refused by its shape", "lowercase hex" in (verdict(dict(canon, signature=sig[:-2]), G) or ""))
+
+
+def witness_rule_off(tx, h):
+    try:
+        T.excluded_witness_check(tx, h)
+        return True
+    except AssertionError:
+        return False
+
+
+check("at height 0 and None (mempool admission on a genesis tip) the witness rule is off, as it always was",
+      all(witness_rule_off(v, h) for v in list(VARIANTS.values()) + [recased_pk, first_recased] for h in (0, None)))
 omitted = transfer(OWNER, carry_pk=False)
 check("PUBKEY-ONCE: omitting the key the account published still validates at the gate", verdict(omitted, G) is None,
       verdict(omitted, G))
 
 # entry lists: the auth path (a legacy account may sign with a one-entry list) and multisig
 listed = T.sign_entries({k: v for k, v in transfer(OWNER).items() if k not in ("txid", "signature")}, [OWNER])
-check("an honest one-entry list validates at the gate", verdict(listed, G) is None, verdict(listed, G))
+check("an honest one-entry list validates", verdict(listed, G) is None, verdict(listed, G))
 e0 = listed["signature"][0]
 ENTRY_VARIANTS = {
     "an UPPERCASE entry signature": {"public_key": e0["public_key"], "signature": e0["signature"].upper()},
@@ -165,15 +164,12 @@ ENTRY_VARIANTS = {
 for what, e in ENTRY_VARIANTS.items():
     v = dict(listed, signature=[e])
     check(f"THE FINDING: {what} keeps the txid", T.validate_txid(v, logger))
-    below = verdict(v, G - 1)
-    # the auth path already required a lowercase 2624-hex key (auth_ops._is_hex), so only the other variants were open
-    if "entry key" not in what:
-        check(f"THE FINDING: {what} validates below the gate", below is None, below)
-    check(f"from the gate {what} is refused", verdict(v, G) is not None and "signature entry" in verdict(v, G), verdict(v, G))
+    check(f"{what} is refused", verdict(v, G) is not None and "signature entry" in verdict(v, G), verdict(v, G))
 
-# the takeover (found while fixing this, reproduced): with an entry list nothing verifies a TOP-LEVEL public_key, yet
-# PUBKEY-ONCE stored it for a never-sent sender and the implicit auth config then authorizes exactly that key
-VICTIM, THIEF = generate_keydict(), generate_keydict(); fund(VICTIM, with_pk=False)
+# the takeover (found while fixing this, reproduced on betanet-8): with an entry list nothing verifies a TOP-LEVEL
+# public_key, yet PUBKEY-ONCE stored it for a never-sent sender and the implicit auth config then authorizes exactly that
+# key — a relayer that added its own key to an account's list-signed first transaction spent from that account
+THIEF = generate_keydict()
 
 
 def listed_transfer(kd_sender_addr, signer, amount, h):
@@ -182,23 +178,14 @@ def listed_transfer(kd_sender_addr, signer, amount, h):
     return T.sign_entries(body, [signer])
 
 
-v_first = listed_transfer(VICTIM["address"], VICTIM, 1000, G - 1)
-v_injected = dict(v_first, public_key=THIEF["public_key"])
-check("THE TAKEOVER: a relayer's key added to a list-signed first tx keeps the txid and validates below the gate",
-      T.validate_txid(v_injected, logger) and verdict(v_injected, G - 1) is None, verdict(v_injected, G - 1))
-with kv_ops.write_txn():
-    T.index_transactions({"block_number": G - 1}, [v_injected], logger)
-check("THE TAKEOVER: PUBKEY-ONCE stored the relayer's key as the victim's",
-      kv_ops.get_account(VICTIM["address"]).get("public_key") == THIEF["public_key"])
-theft = listed_transfer(VICTIM["address"], THIEF, 10 ** 11, G - 1)
-check("THE TAKEOVER: the relayer then spends from the victim's account below the gate", verdict(theft, G - 1) is None,
-      verdict(theft, G - 1))
-V3 = generate_keydict(); fund(V3, with_pk=False)                              # a fresh never-sent victim at the gate
+V3 = generate_keydict(); fund(V3, with_pk=False)                              # a fresh never-sent victim
 v3_injected = dict(listed_transfer(V3["address"], V3, 1000, G), public_key=THIEF["public_key"])
-check("from the gate a top-level public_key beside an entry list is refused, so the relayer's key is never stored",
+check("THE TAKEOVER: a relayer's key added to a list-signed first tx keeps the txid", T.validate_txid(v3_injected, logger))
+check("a top-level public_key beside an entry list is refused, so the relayer's key is never stored",
       "no top-level public_key" in (verdict(v3_injected, G) or ""), verdict(v3_injected, G))
+check("...from block 1", "no top-level public_key" in (verdict(v3_injected, 1) or ""), verdict(v3_injected, 1))
 V2 = generate_keydict(); fund(V2, with_pk=False)
-check("an honest list-signed first tx validates at the gate", verdict(listed_transfer(V2["address"], V2, 1000, G), G) is None,
+check("an honest list-signed first tx validates", verdict(listed_transfer(V2["address"], V2, 1000, G), G) is None,
       verdict(listed_transfer(V2["address"], V2, 1000, G), G))
 
 K1, K2, K3 = generate_keydict(), generate_keydict(), generate_keydict()
@@ -219,7 +206,7 @@ def origin_ok(tx, h):
         return False
 
 
-check("an honest 3-signature multisig passes validate_origin and the witness rule at the gate",
+check("an honest 3-signature multisig passes validate_origin and the witness rule",
       origin_ok(msig, G) and "signature entry" not in (verdict(msig, G) or ""), verdict(msig, G))
 e_m = msig["signature"][0]
 M_VARIANTS = {
@@ -229,11 +216,11 @@ M_VARIANTS = {
 }
 for what, e in M_VARIANTS.items():
     v = dict(msig, signature=[e] + msig["signature"][1:])
-    check(f"THE FINDING: {what} keeps the txid and still verifies below the gate",
-          T.validate_txid(v, logger) and origin_ok(v, G - 1))
-    check(f"from the gate {what} is refused", "signature entry" in (verdict(v, G) or ""), verdict(v, G))
+    check(f"THE FINDING: {what} keeps the txid and still verifies (the verifier alone is lenient)",
+          T.validate_txid(v, logger) and origin_ok(v, G))
+    check(f"{what} is refused", "signature entry" in (verdict(v, G) or ""), verdict(v, G))
 
-# 3. KNOWN OPEN at the gate (no encoding rule can close these; see the docstring) -----------------------------------
+# 3. KNOWN OPEN (no encoding rule can close these; see the docstring) -----------------------------------
 resigned = dict(canon, signature=sign(OWNER["private_key"], unhex(canon["txid"])))
 check("KNOWN OPEN: the signer's second signature over the same txid validates and changes the block hash",
       resigned["signature"] != sig and verdict(resigned, G) is None and block_hash([resigned]) != block_hash([canon]))
@@ -306,9 +293,8 @@ for fn in ("genesis_alloc.dat", "genesis_carry.dat", "genesis_open.dat"):
 check("every public_key the genesis carries is canonical", all(T._canonical_hex(k, P.MLDSA44_PUBKEY_HEX) for k in carried),
       [k[:20] for k in carried if not T._canonical_hex(k, P.MLDSA44_PUBKEY_HEX)][:3])
 
-# 6. the gate itself -----------------------------------------------------------------------------------------------------
-check("the rule is reroll-only: dormant on gen 27, from block 1 on the next chain",
-      LIVE_GATE == ((1 << 62) if P.CHAIN_GENERATION == 27 else 1))
+# 6. the gate is gone -----------------------------------------------------------------------------------------------------
+check("the gate is deleted: the rule holds from block 1", not hasattr(P, "TX_HEX_CANONICAL_HEIGHT"))
 
 print("ALL PASS — a transaction has one byte string" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

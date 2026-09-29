@@ -421,26 +421,20 @@ def _hex_list(v, max_items: int, cap: int, what: str) -> list:
     return [_hex_bytes(x, cap, what) for x in v]
 
 
-def _anchor_time(transaction: dict, block_height: int, anchor_block: dict = None) -> int:
+def _anchor_time(transaction: dict, block_height: int) -> int:
     """The clock a certificate's validity is judged against at `block_height` — the ONE function every consensus
     certificate check reads (tpm_enrol validation, its apply in account_ops, verify_register_device).
 
     Never wall time: that makes validity node-local, and a certificate expiring mid-block would be valid on one node
-    and expired on the next. Below protocol.CERT_CLOCK_HEIGHT it is the anchor block's block_timestamp, which turned
-    out to be node-local too — it is outside the block hash and every node stamps its own copy (protocol.py
-    CERT_CLOCK_HEIGHT carries the measurement). From the gate it is agreed_time(anchor height): the median of the
-    bonded validators' own duty-transaction clocks in committed blocks, so a pruned node, an archive node and a node
-    fed a re-stamped block by a lying peer reach the same verdict.
-    INVARIANT: at or above CERT_CLOCK_HEIGHT nothing here may read block_timestamp, time.time() or any stored block
-    field other than committed transaction bodies; a certificate verdict must be a function of agreed data alone."""
-    from protocol import POSW_ANCHOR_OFFSET, CERT_CLOCK_HEIGHT
-    anchor_h = max(0, int(block_height) - POSW_ANCHOR_OFFSET)
-    if int(block_height) >= CERT_CLOCK_HEIGHT:
-        return agreed_time(anchor_h)
-    # below the gate: the historical rule, byte for byte, so replay of the live chain keeps every verdict
-    b = anchor_block if anchor_block is not None else get_block_number(anchor_h)
-    assert b, "enrolment anchor block unavailable"
-    return int(b.get("block_timestamp") or 0)
+    and expired on the next. Nor the anchor block's block_timestamp, the clock betanet-8 used below block 29000, which
+    turned out to be node-local too — it is outside the block hash and every node stamps its own copy (protocol.py
+    "CERTIFICATE VALIDITY READS AGREED TIME" carries the measurement). It is agreed_time(anchor height): the median of
+    the bonded validators' own duty-transaction clocks in committed blocks, so a pruned node, an archive node and a
+    node fed a re-stamped block by a lying peer reach the same verdict.
+    INVARIANT: nothing here may read block_timestamp, time.time() or any stored block field other than committed
+    transaction bodies; a certificate verdict must be a function of agreed data alone."""
+    from protocol import POSW_ANCHOR_OFFSET
+    return agreed_time(max(0, int(block_height) - POSW_ANCHOR_OFFSET))
 
 
 _agreed_time_cache = {}                # {(lo, hi, hash of block hi-1): seconds}; bounded below
@@ -455,7 +449,7 @@ def agreed_time_window(height: int) -> tuple:
 
 
 def agreed_time(height: int) -> int:
-    """AGREED TIME at `height` (protocol.CERT_CLOCK_HEIGHT): the median, over distinct senders, of the timestamps the
+    """AGREED TIME at `height` (protocol.py "CERTIFICATE VALIDITY READS AGREED TIME"): the median, over distinct senders, of the timestamps the
     bonded committee signed into its own duty transactions in agreed_time_window(height).
 
     WHY THIS AND NOT THE OTHERS. block_timestamp is outside the block hash and differs node to node for one block
@@ -499,19 +493,21 @@ def agreed_time(height: int) -> int:
     return t
 
 
-def cert_verdict(verify_at, block_height: int, now: int) -> dict:
+def cert_verdict(verify_at, now: int) -> dict:
     """Run a certificate-chain check `verify_at(seconds) -> verdict` at the agreed clock, with the notBefore grace.
 
     The kernel checks notBefore <= now <= notAfter for every certificate at ONE instant. Agreed time lags real time
-    (agreed_time), so a certificate issued minutes ago looks not-yet-valid. From CERT_CLOCK_HEIGHT a chain that fails
+    (agreed_time), so a certificate issued minutes ago looks not-yet-valid. So a chain that fails
     at `now` is checked once more at now + CERT_NOT_BEFORE_GRACE and accepted if that passes: acceptance then means
     every notBefore <= now + grace and every notAfter >= now, so an EXPIRED certificate is never accepted by the
     grace (expiry is still judged at `now`). The one chain this can refuse that the ideal rule accepts is one whose
     certificates are valid together only strictly inside (now, now + grace) — a fresh certificate beside one expiring
-    within the grace. Deterministic: both instants are agreed. Below the gate: exactly one check at `now`."""
-    from protocol import CERT_CLOCK_HEIGHT, CERT_NOT_BEFORE_GRACE
+    within the grace. Deterministic: both instants are agreed. (Betanet-8 ran one check at `now` below block 29000;
+    every certificate check on betanet-9 runs at a height >= 1, where the grace always applied — protocol.py, the
+    CERT_CLOCK_HEIGHT deletion note.)"""
+    from protocol import CERT_NOT_BEFORE_GRACE
     v = verify_at(int(now))
-    if v.get("ok") or int(block_height) < CERT_CLOCK_HEIGHT:
+    if v.get("ok"):
         return v
     v2 = verify_at(int(now) + CERT_NOT_BEFORE_GRACE)
     return v2 if v2.get("ok") else v
@@ -592,7 +588,7 @@ def _proven_challengers(block_height: int) -> dict:
     node replaying this in a year derives the same set."""
     from protocol import DEVICE_ATTEST_EK_READY_WINDOW as _R
     lo, hi = proven_window(block_height)
-    # SEVERAL WINDOWS AT ONCE (COMMIT, THEN DRAW, protocol.TPM_DRAW_UNGRINDABLE_HEIGHT): a delayed enrolment is drawn
+    # SEVERAL WINDOWS AT ONCE (COMMIT, THEN DRAW, ops/tpm_enrol): a delayed enrolment is drawn
     # from the pool as of its ENROL block, read up to a few epochs after the tip's own window moved on, so a single
     # slot would thrash — two pending enrolments from different epochs meant two 6000-block rescans per block in the
     # challenger loop alone. INVARIANT: keep more than one window cached; `[0] = None` still clears it (tests do).
@@ -643,30 +639,17 @@ def _proven_challengers(block_height: int) -> dict:
     return out
 
 
-def _tpm_challengers(enrol_id_hex: str, block_height: int) -> list:
-    """The challengers drawn for an enrolment opened at `block_height`: identities that landed an FFG DUTY
-    transaction in the recent window, weighted by how many, keyed on that epoch's beacon.
-
-    Two earlier versions drew from bonded stake and then from block producers, and both measured something
-    adjacent to the property that matters. See _recent_producers for the measurements."""
-    from protocol import DEVICE_ATTEST_EK_CHALLENGERS, EPOCH_LENGTH
-    from ops.block_ops import epoch_beacon
-    from ops import tpm_enrol as _te
-    epoch = int(block_height) // EPOCH_LENGTH
-    # PROVEN CHALLENGERS FIRST, duty senders only as a fallback. Eligibility earned by acting, where
-    # acting requires being drawn, would exclude everyone on a fresh chain and after any long quiet
-    # period — so when fewer than k have proven themselves the old pool still runs the draw. Worse, but
-    # live, and it self-heals the moment k nodes have answered once.
-    # Every caller holds a tpm_* tx that passed the enrolment rule (block_height >= 1), so the proven pool is always
-    # consulted (the DEVICE_ATTEST_EK_PROVEN_HEIGHT gate was 1 from gen 26 and is deleted).
-    return _te.challenger_set(enrol_id_hex, _tpm_pool(block_height), epoch_beacon(epoch),
-                              DEVICE_ATTEST_EK_CHALLENGERS)
-
-
 def _tpm_pool(block_height: int) -> dict:
-    """{address: weight} the challenger draw for an enrolment opened at `block_height` samples from: the proven
-    challengers when at least k exist, the recent duty senders otherwise (see _tpm_challengers). ONE DEFINITION,
-    shared by the legacy draw, the delayed draw's enrol-time check and its materialisation, so the pool a delayed
+    """{address: weight} the challenger draw for an enrolment opened at `block_height` samples from: identities that
+    landed an FFG DUTY transaction in the recent window, weighted by how many (see _recent_producers for why duty and
+    not stake or production) — restricted to the PROVEN challengers when at least k exist.
+
+    PROVEN CHALLENGERS FIRST, duty senders only as a fallback. Eligibility earned by acting, where acting requires
+    being drawn, would exclude everyone on a fresh chain and after any long quiet period — so when fewer than k have
+    proven themselves the wider pool still runs the draw. Worse, but live, and it self-heals the moment k nodes have
+    answered once.
+
+    ONE DEFINITION, shared by the enrol-time check (pool_can_seat) and the materialisation of the draw, so the pool an
     enrolment was admitted against is exactly the pool it is later drawn from."""
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     weights = _recent_producers(block_height)
@@ -679,8 +662,7 @@ def _tpm_pool(block_height: int) -> dict:
 def tpm_drawn_challengers(rec: dict, block_height: int):
     """The challenger set of enrolment `rec` as a block at `block_height` sees it, or None when it is not drawn yet.
 
-    A record written with its set (every legacy record, and a delayed one once its first challenge landed) answers
-    with the stored set. A delayed record with an empty set is drawn here — COMMIT, THEN DRAW (ops/tpm_enrol):
+    A record whose first challenge landed answers with the stored set. A record with an empty set is drawn here — COMMIT, THEN DRAW (ops/tpm_enrol):
     keyed on the endorsement identity only, weighted by the pool as of the ENROL block, with the beacon of the draw
     epoch, and only from that epoch's first block on. A pure function of committed chain data, so the challenger
     loop, the relay's /tpm_enrolment and consensus all name the same set without it having been written yet.
@@ -692,7 +674,7 @@ def tpm_drawn_challengers(rec: dict, block_height: int):
     from ops.block_ops import epoch_beacon
     from ops import tpm_enrol as _te
     stored = list(rec.get("challengers") or [])
-    if stored or not _te.draw_is_delayed(rec["h"]):
+    if stored:
         return stored
     if int(block_height) < _te.draw_opens(rec["h"]):
         return None
@@ -707,7 +689,7 @@ def tpm_challengers_view(rec: dict, tip: int) -> dict:
     NEVER AN EMPTY SET FOR AN OPEN RECORD. The shipped helper (apps/nado-tpm-attest enrol.rs) reads only
     len(challengers) and compares it with len(blobs): an empty list reads as "every drawn challenger answered", so
     it would activate nothing, commit to nothing, be refused, and exit — a client that cannot be rebuilt by us
-    breaking on the gate. k placeholders keep it printing "0/3 answered" and waiting, exactly as a slow draw does."""
+    breaking on the delayed draw. k placeholders keep it printing "0/3 answered" and waiting, exactly as a slow draw does."""
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_enrol as _te
     if rec.get("state") != "open" or rec.get("challengers"):
@@ -726,7 +708,7 @@ def tpm_materialise_draw(rec: dict, block_height: int) -> dict:
     """`rec` with its challenger set filled in, for the tpm_challenge that is about to land at `block_height`.
     Validation and apply both call this before apply_challenge, so the dry run and the real transition see the same
     set; apply then STORES it, and every later message (commit, reveal, register) reads a written set exactly as it
-    did before the gate. The record it was materialised from is what the rollback journal holds, so a revert puts
+    read the enrol-time draw's records on betanet-8. The record it was materialised from is what the rollback journal holds, so a revert puts
     the empty set back byte for byte. Raises AssertionError before the draw epoch or on a short set."""
     from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_enrol as _te
@@ -876,14 +858,15 @@ def verify_register_device(transaction: dict, anchor_hash: str) -> dict:
     anchor_block = get_block_number(max(0, int(transaction["max_block"]) - POSW_ANCHOR_OFFSET))
     assert anchor_block and anchor_block.get("block_hash") == anchor_hash, "attestation anchor block unavailable"
     # THE CERTIFICATE CLOCK IS _anchor_time, never this block's own block_timestamp read inline: that field is outside
-    # the block hash and differs node to node for the same block (protocol.CERT_CLOCK_HEIGHT). `register` lands exactly
-    # at max_block, so max_block is the height the gate is judged at. The anchor block is still read above — the
-    # challenge binds its HASH, which is committed — but its timestamp must not decide validity from the gate.
-    now = _anchor_time(transaction, int(transaction["max_block"]), anchor_block=anchor_block)
+    # the block hash and differs node to node for the same block (protocol.py "CERTIFICATE VALIDITY READS AGREED
+    # TIME"). `register` lands exactly at max_block, so max_block is the height the clock is read at. The anchor block
+    # is still read above — the challenge binds its HASH, which is committed — but its timestamp must never decide
+    # validity. INVARIANT: never pass the anchor block's timestamp (or the block) into the clock.
+    now = _anchor_time(transaction, int(transaction["max_block"]))
     challenge = register_device_challenge(transaction["sender"], anchor_hash, int(transaction["max_block"]))
-    # the notBefore grace from CERT_CLOCK_HEIGHT (cert_verdict): agreed time lags, a phone's certificate may be minutes old
+    # the notBefore grace (cert_verdict): agreed time lags, a phone's certificate may be minutes old
     verdict = cert_verdict(lambda t: attest_native.verify(att, cdj, challenge, t, rp_ids=list(DEVICE_ATTEST_RP_IDS) + [rp]),
-                           int(transaction["max_block"]), now)
+                           now)
     assert verdict.get("ok"), f"device attestation rejected: {verdict.get('reason')}"
     fmt = verdict.get("fmt")
     assert fmt in DEVICE_ATTEST_FORMATS, f"device attestation format not accepted: {fmt}"
@@ -977,7 +960,7 @@ def construct_msgkey_tx(keydict, kem_pub, max_block, fee=0):
     tx = {"sender": keydict["address"], "recipient": "msgkey", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee), "kem_pub": kem_pub}   # fee: a ROTATION pays MIN_TX_FEE from SPAM_HARDEN_HEIGHT
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee), "kem_pub": kem_pub}   # fee: a ROTATION pays MIN_TX_FEE
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -1059,7 +1042,7 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
                         proof_da=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
     {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0) in the default namespace and MIN_TX_FEE in any other
-    (SPAM_HARDEN_HEIGHT). Posted by a bonded validator running an
+    (from max_block 1). Posted by a bonded validator running an
     exec node. `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer
     settle txs stay byte-identical to the pre-namespace format.
 
@@ -1086,12 +1069,13 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
         # root still rides the bonded quorum and this field makes the proof AVAILABLE and independently
         # checkable, which is the difference between a claim and evidence.
         d["proof_da"] = proof_da
-    # A NAMESPACE SETTLE PAYS (protocol.SPAM_HARDEN_HEIGHT): outside the default namespace validation requires
+    # A NAMESPACE SETTLE PAYS (protocol.py "NO FREE REPEATABLE TRANSACTIONS"): outside the default namespace validation requires
     # fee >= MIN_TX_FEE, and this builder signed fee 0 for every namespace — so every settle an exec node posted for a
     # NADO_EXEC_NAMESPACES namespace was refused (found 2026-09-28 by the gen-28 rehearsal). The default namespace stays
-    # fee 0, byte-identical. INVARIANT: this must charge exactly what the settle branch of validate_transaction demands.
-    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
-    fee = MIN_TX_FEE if (ns != DEFAULT_NS and int(max_block) >= SPAM_HARDEN_HEIGHT) else 0
+    # fee 0, byte-identical. INVARIANT: this must charge exactly what the settle branch of validate_transaction demands
+    # (`>= 1` there, gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value; a max_block of 0 can never land anyway).
+    from protocol import MIN_TX_FEE
+    fee = MIN_TX_FEE if (ns != DEFAULT_NS and int(max_block) >= 1) else 0
     tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": d,
@@ -1178,20 +1162,20 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, max_block,
 
 
 def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, max_block):
-    """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg' (MIN_TX_FEE from SPAM_HARDEN_HEIGHT), data carries the outbox
+    """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg' (MIN_TX_FEE from max_block 1), data carries the outbox
     `message` {seq, from, to_ns, data} + the Merkle `proof` that it is committed in from_ns's SETTLED root.
     L1 verifies that ONE proof against latest_settled(from_ns) and burns the (from_ns, seq) nullifier; the
     receiver rollup's exec node then delivers it to its inbox. Relayer-submittable — anyone can carry a
     genuinely-settled message, and the proof makes forgery impossible."""
     d = {"from_ns": from_ns, "to_ns": to_ns, "message": message, "proof": proof}
-    # PAID FROM SPAM_HARDEN_HEIGHT, exactly as validation demands (fee >= MIN_TX_FEE from the gate, == 0 below it). This
-    # builder signed fee 0 at every height, so each delivery it built was refused from the gate (gen-28 rehearsal,
-    # tests/test_namespace_settle_pays.py — the settle builder had the same defect).
-    from protocol import SPAM_HARDEN_HEIGHT, MIN_TX_FEE
+    # PAID, exactly as validation demands (fee >= MIN_TX_FEE from height 1, == 0 at height 0 — gen 27's
+    # SPAM_HARDEN_HEIGHT at its gen-28 value, deleted). This builder signed fee 0 at every height, so each delivery it
+    # built was refused (gen-28 rehearsal, tests/test_namespace_settle_pays.py — the settle builder had the same defect).
+    from protocol import MIN_TX_FEE
     tx = {"sender": keydict["address"], "recipient": "xmsg", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": d, "nonce": create_nonce(),
           "public_key": keydict["public_key"], "max_block": int(max_block),
-          "chain_id": CHAIN_ID, "fee": MIN_TX_FEE if int(max_block) >= SPAM_HARDEN_HEIGHT else 0}
+          "chain_id": CHAIN_ID, "fee": MIN_TX_FEE if int(max_block) >= 1 else 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -1275,21 +1259,20 @@ def reserved_uniqueness_key(tx):
         # apply. The key refuses NO block that apply did not already refuse, so it needs no height gate — only the
         # builder changes (dedupe_reserved drops the copy). tpm_enrol was deliberately absent: a second enrolment of
         # the same chip applied (it overwrote the row), so keying it changes which blocks are valid — it is keyed below,
-        # behind SPAM_HARDEN_HEIGHT.
+        # behind `max_block >= 1`.
         if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
             return (r, tx["sender"], str((tx.get("data") or {}).get("id")))
-        # FROM SPAM_HARDEN_HEIGHT (audit 2026-09-27), keyed on the tx's own max_block like `slash`, which is safe because
-        # the gate sits more than a landing window beyond the fleet's adoption (no tx carrying max_block >= the gate
-        # existed while any node ran the old rule):
+        # NO FREE REPEATS (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27; betanet-8 from block 24000),
+        # keyed on the tx's own max_block like `slash`. `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (the
+        # constant is deleted), kept because max_block is the tx's own field: a zero or missing one keeps yielding no key.
         #  * tpm_ready — one per sender per block. It had no key at all and lands flexibly, so copies with fresh nonces
-        #    all landed together (five blocks on betanet-8 carried two from one sender before the gate).
+        #    all landed together (five blocks on betanet-8 carried two from one sender before the rule).
         #  * tpm_enrol — one per CHIP per block. The one-open-enrolment-per-chip rule reads the parent record, so several
         #    enrolments of one chip (distinct attestation keys) all passed inside a single block; the key is the chip's
         #    endorsement identity, sha256 of its SubjectPublicKeyInfo, the same handle the kernel's verdict names.
-        from protocol import SPAM_HARDEN_HEIGHT
         if r == "legacy_claim":
             return ("legacy_claim", str((tx.get("data") or {}).get("legacy")))     # one claim per old address per block
-        if r in ("tpm_ready", "tpm_enrol") and int(tx.get("max_block") or 0) >= SPAM_HARDEN_HEIGHT:
+        if r in ("tpm_ready", "tpm_enrol") and int(tx.get("max_block") or 0) >= 1:
             if r == "tpm_ready":
                 return ("tpm_ready", tx["sender"])
             return ("tpm_enrol", ek_identity_of(tx))
@@ -1327,17 +1310,17 @@ def reserved_uniqueness_keys(tx) -> list:
     # the tx's own field (a malformed or zero one must keep yielding no key). A malformed statement yields no key here;
     # validation rejects it anyway.
     if tx.get("recipient") == "register":
-        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT
+        from protocol import DEVICE_BIND_MAX_CERT_SECS
         try:
             # a statement-free renewal (the permanent binding mode) binds nothing, so it occupies no device key
             if (int(tx.get("max_block", 0)) >= 1
                     and isinstance(tx.get("device"), dict) and not is_assert_device(tx.get("device"))):   # an assertion binds nothing
                 from ops.device_attest import device_binding_key
-                # the SAME key validation and apply use at this height (DEVICE_BIND_CANONICAL_HEIGHT): the signed part of the
-                # certificate, so two statements of one device with different trailing junk collide here too
+                # the SAME key validation and apply use (canonical: the signed part of the certificate — gen 27's
+                # DEVICE_BIND_CANONICAL_HEIGHT, 1 from gen 28 and deleted; the `>= 1` above already covers it), so two
+                # statements of one device with different trailing junk collide here too
                 keys.append(("devbind", device_binding_key(
-                    tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
-                    canonical=int(tx.get("max_block", 0)) >= DEVICE_BIND_CANONICAL_HEIGHT)))
+                    tx.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True, canonical=True)))
         except Exception:
             pass
     if tx.get("recipient") == "duty":
@@ -1666,13 +1649,16 @@ def field_shield_check(data, block_height):
             and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
 
 def tx_shape_check(transaction, block_height):
-    """From SPAM_HARDEN_HEIGHT: only the known top-level keys, and a body no bigger than its kind needs. Pure shape — no
-    state — so it is identical in the mempool and in block verification. Every size below is canonical bytes (the txid's
-    own encoding), measured on the tx as signed. INVARIANT: a new top-level field on any client needs its name here
-    (protocol.TX_TOP_KEYS / TX_TOP_KEYS_BY_RECIPIENT) before that client ships, or the node refuses its transactions."""
-    from protocol import (SPAM_HARDEN_HEIGHT, TX_TOP_KEYS, TX_TOP_KEYS_BY_RECIPIENT, TX_MAX_BYTES,
+    """Only the known top-level keys, and a body no bigger than its kind needs (protocol.py "NO FREE REPEATABLE
+    TRANSACTIONS"). Pure shape — no state — so it is identical in the mempool and in block verification. Every size below
+    is canonical bytes (the txid's own encoding), measured on the tx as signed. INVARIANT: a new top-level field on any
+    client needs its name here (protocol.TX_TOP_KEYS / TX_TOP_KEYS_BY_RECIPIENT) before that client ships, or the node
+    refuses its transactions.
+    Height None or 0: no rule. `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (the constant is deleted), kept
+    because validate_transaction also runs at mempool admission with the tip's height, which is 0 on a genesis tip."""
+    from protocol import (TX_TOP_KEYS, TX_TOP_KEYS_BY_RECIPIENT, TX_MAX_BYTES,
                           TX_MAX_BYTES_PER_EXTRA_SIG, TPM_ENROL_MAX_BYTES, BLOB_MAX_BYTES)
-    if block_height is None or int(block_height) < SPAM_HARDEN_HEIGHT:
+    if block_height is None or int(block_height) < 1:
         return
     recipient = transaction.get("recipient")
     allowed = TX_TOP_KEYS | TX_TOP_KEYS_BY_RECIPIENT.get(recipient, frozenset())
@@ -1705,10 +1691,11 @@ def _canonical_hex(s, n: int) -> bool:
 
 
 def excluded_witness_check(transaction, block_height):
-    """From TX_HEX_CANONICAL_HEIGHT: every witness the txid does NOT hash has exactly one byte-string spelling.
+    """Every witness the txid does NOT hash has exactly one byte-string spelling (protocol.py "ONE TRANSACTION, ONE BYTE
+    STRING"; betanet-9 from block 1, never live on betanet-8).
 
     create_txid excludes `public_key` and validate_txid strips `signature` (a string, or the auth/multisig entry list
-    with each entry's own key), but the block hash and the upcoming-block hash commit the full body. Before the gate a
+    with each entry's own key), but the block hash and the upcoming-block hash commit the full body. Without this a
     relayer could re-encode those fields (case, whitespace, an entry's extra keys or a null key) into a different body
     with the SAME txid that still validated — two nodes then held "the same" tx and built different blocks from one
     mempool, and a mixed-case key on an account's first tx became its stored PUBKEY-ONCE key, locking the owner's own
@@ -1716,8 +1703,10 @@ def excluded_witness_check(transaction, block_height):
 
     INVARIANT: a new txid-excluded field on a transaction, or a new key inside a signature entry, must be added HERE with
     its exact canonical form, or it reopens the re-encoding hole. Pure shape — no state read — so the mempool and
-    verify_block agree. Height None or below the gate: no rule (gen-27 replay is unchanged)."""
-    if block_height is None or int(block_height) < _P.TX_HEX_CANONICAL_HEIGHT:
+    verify_block agree. Height None or 0: no rule. `>= 1` is gen 27's TX_HEX_CANONICAL_HEIGHT at its gen-28 value (the
+    constant is deleted), kept because validate_transaction also runs at mempool admission with the tip's height, which
+    is 0 on a genesis tip."""
+    if block_height is None or int(block_height) < 1:
         return
     pk_n, sig_n = _P.MLDSA44_PUBKEY_HEX, _P.MLDSA44_SIG_HEX
     # PRESENT means canonical: an honest client that relies on the key it already published OMITS the field, it never
@@ -1758,11 +1747,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     Rejection is what stands between the ledger and forged, replayed, underpaid or double-claimed txs."""
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
-    # NO UNBOUNDED BODIES (protocol.SPAM_HARDEN_HEIGHT): before it, any tx could carry unlimited extra top-level keys,
-    # because the txid hashes every key and nothing listed the allowed ones — a fee-exempt message was free AND
+    # NO UNBOUNDED BODIES (protocol.py "NO FREE REPEATABLE TRANSACTIONS"): any tx used to be able to carry unlimited extra
+    # top-level keys, because the txid hashes every key and nothing listed the allowed ones — a fee-exempt message was free AND
     # unbounded in size. Checked first, before any signature or state read, so an oversized body costs one encode.
     tx_shape_check(transaction, block_height)
-    # ONE TX, ONE BYTE STRING (protocol.TX_HEX_CANONICAL_HEIGHT; audit 2026-09-25 "sig/pubkey hex re-encoding"): the
+    # ONE TX, ONE BYTE STRING (protocol.py, audit 2026-09-25 "sig/pubkey hex re-encoding"): the
     # witnesses the txid does not hash must have exactly one spelling, BEFORE validate_origin decodes them leniently.
     # INVARIANT: never move this after validate_origin or behind a branch — every tx kind, multisig and auth included.
     excluded_witness_check(transaction, block_height)
@@ -1942,7 +1931,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
         # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
         # a genuine device needs a human tap per identity per lease.
-        from protocol import DEVICE_BIND_MAX_CERT_SECS, DEVICE_BIND_CANONICAL_HEIGHT, permanent_classes_at
+        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
         epoch_now = block_height // EPOCH_LENGTH
         # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
         # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
@@ -1975,25 +1964,25 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 try:
                     # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
                     # gets bound (IndexError/ValueError alike = malformed = invalid)
-                    # canonical from DEVICE_BIND_CANONICAL_HEIGHT: keyed on the certificate's SIGNED part, trailing bytes
-                    # refused — the raw-bytes key let one device back unlimited identities (protocol.py, the gate's note)
+                    # canonical: keyed on the certificate's SIGNED part, trailing bytes refused — the raw-bytes key let
+                    # one device back unlimited identities (protocol.py "ONE DEVICE, ONE IDENTITY — FOR REAL"; gen 27's
+                    # DEVICE_BIND_CANONICAL_HEIGHT, 1 from gen 28 and deleted — this block already requires height >= 1)
                     dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
-                                              canonical=block_height >= DEVICE_BIND_CANONICAL_HEIGHT)
+                                              canonical=True)
                 except (ValueError, IndexError) as e:
                     raise AssertionError(f"register: {e}")
                 # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it
                 # replaced): a device may move to another sender in any block, because apply EVICTS the identity it leaves
                 # (its lease is voided at once), so one device backs one identity at every instant.
-                # ...BUT NOT TO A NEW SENDER EVERY BLOCK (SPAM_HARDEN_HEIGHT, audit 2026-09-27). A register needs no funds and
-                # creates its sender's account, so one device hopping to a fresh address each block was a free ~13 KB tx
-                # and a new account row per block, forever. From the gate a device moves to a DIFFERENT sender at most once
-                # per epoch (60 blocks): the first move — a lost key, a sold device, a wallet migration — is still instant,
-                # and renewals by the bound sender are unaffected. INVARIANT: keep the first move instant; bound the rest.
-                from protocol import SPAM_HARDEN_HEIGHT as _SPAM_H
-                if block_height >= _SPAM_H:
-                    _cur = kv_ops.devbind_get(dkey)
-                    assert not (_cur and _cur[0] != transaction["sender"] and int(_cur[1]) == epoch_now), \
-                        "register: this device already moved to another account this epoch — try again next epoch"
+                # ...BUT NOT TO A NEW SENDER EVERY BLOCK (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27).
+                # A register needs no funds and creates its sender's account, so one device hopping to a fresh address
+                # each block was a free ~13 KB tx and a new account row per block, forever. A device moves to a DIFFERENT
+                # sender at most once per epoch (60 blocks): the first move — a lost key, a sold device, a wallet
+                # migration — is still instant, and renewals by the bound sender are unaffected.
+                # INVARIANT: keep the first move instant; bound the rest.
+                _cur = kv_ops.devbind_get(dkey)
+                assert not (_cur and _cur[0] != transaction["sender"] and int(_cur[1]) == epoch_now), \
+                    "register: this device already moved to another account this epoch — try again next epoch"
                 if dkey.split(":", 1)[0] in permanent_classes_at(block_height):
                     # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
                     # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
@@ -2038,17 +2027,16 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert block_height >= 1, "challenger announcements are not enabled yet"
         assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
         assert not transaction.get("data"), "tpm_ready carries no data"
-        # A VOLUNTEER HAS STAKE (SPAM_HARDEN_HEIGHT, audit 2026-09-27). Before it this was the cheapest message on the
-        # chain: any fee, no uniqueness key, sendable from a never-funded address (it skips the empty-account check), and
-        # it wrote the sender's account row — free, unlimited, every block — and every sender joined the challenger pool
-        # at weight 1, so a thousand free addresses outweighed the fleet in the TPM challenger draw. From the gate it is
-        # fee-free only from a bonded sender, once per sender per block (reserved_uniqueness_key), and writes nothing.
+        # A VOLUNTEER HAS STAKE (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). This used to be the
+        # cheapest message on the chain: any fee, no uniqueness key, sendable from a never-funded address (it skips the
+        # empty-account check), and it wrote the sender's account row — free, unlimited, every block — and every sender
+        # joined the challenger pool at weight 1, so a thousand free addresses outweighed the fleet in the TPM challenger
+        # draw. It is fee-free only from a bonded sender, once per sender per block (reserved_uniqueness_key), and writes
+        # nothing. Unconditional: the `>= 1` assert above already holds (gen 27's SPAM_HARDEN_HEIGHT, deleted).
         # INVARIANT: an announcement must cost the announcer stake; never let it through from an unbonded account.
-        from protocol import SPAM_HARDEN_HEIGHT
-        if int(block_height) >= SPAM_HARDEN_HEIGHT:
-            assert transaction["fee"] == 0, "tpm_ready is fee-exempt (fee must be 0)"
-            _acc = get_account(transaction["sender"], create_on_error=False)
-            assert _acc and _acc.get("bonded", 0) >= B_MIN, "only a bonded validator can volunteer as a challenger"
+        assert transaction["fee"] == 0, "tpm_ready is fee-exempt (fee must be 0)"
+        _acc = get_account(transaction["sender"], create_on_error=False)
+        assert _acc and _acc.get("bonded", 0) >= B_MIN, "only a bonded validator can volunteer as a challenger"
 
     elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
         # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md).
@@ -2074,20 +2062,19 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # STEP 1. The chip's endorsement chain and the public area of the key it will vouch for. The
             # chain is verified by the native kernel against the PINNED vendor roots — real vendor
             # certificates are not strictly DER and no Python parser in the node's runtime reads them.
-            from protocol import DEVICE_ATTEST_EK_ROOTS
             from ops import attest_native
             chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
             pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
             # the clock is _anchor_time, and apply_tpm_enrol_tx re-runs this same call through it — validation and
             # apply must judge the chain at the SAME agreed time or a record validated here fails to apply there
             _now = _anchor_time(transaction, block_height)
-            ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=block_height), block_height, _now)
+            ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=block_height), _now)
             assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
-            from protocol import EK_ENROL_ROOTS_AT_HEIGHT, ek_roots_at
-            # the set the kernel just verified against (ek_roots_at), not the base set: below the gate the base set
-            # refused Intel V2-root chips the kernel had accepted (protocol.EK_ENROL_ROOTS_AT_HEIGHT)
-            _roots = ek_roots_at(block_height) if int(block_height) >= EK_ENROL_ROOTS_AT_HEIGHT else DEVICE_ATTEST_EK_ROOTS
-            assert ek.get("root_sha256") in _roots, \
+            from protocol import ek_roots_at
+            # the set the kernel just verified against (ek_roots_at), not the base set: the base set refused Intel
+            # V2-root chips the kernel had accepted (betanet-8 below block 1400; protocol.py "ENROLMENT TRUSTS THE
+            # ROOTS IN FORCE"). INVARIANT: the kernel's set and this one are the same call at the same height.
+            assert ek.get("root_sha256") in ek_roots_at(block_height), \
                 "endorsement certificate does not chain to a pinned silicon-vendor root"
             _te.validate_publication(str(ek["identity"]), pub)
             eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
@@ -2121,18 +2108,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     "this chip already has an enrolment in progress — finish it or wait for it to expire"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
             # bonded registry must not thereby cut the number of parties it takes to collude.
-            if _te.draw_is_delayed(block_height):
-                # COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT). The set does not exist yet — its dice
-                # are two epochs away — so what is checked here is that the pool it WILL be drawn from, frozen at
-                # this block, can seat k (exact sampling always does when it has k weighted members).
-                # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a
-                # beacon it already knows (this epoch's) — that is the grind this gate closes.
-                assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
-                    "not enough independent challengers are bonded to open an enrolment"
-            else:
-                drawn = _tpm_challengers(eid, block_height)
-                assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
-                    "not enough independent challengers are bonded to open an enrolment"
+            # COMMIT, THEN DRAW (ops/tpm_enrol; audit 2026-09-27). The set does not exist yet — its dice are two epochs
+            # away — so what is checked here is that the pool it WILL be drawn from, frozen at this block, can seat k
+            # (exact sampling always does when it has k weighted members).
+            # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a beacon
+            # it already knows (this epoch's) — that is the grind the delayed draw closes.
+            assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
+                "not enough independent challengers are bonded to open an enrolment"
         else:
             eid = data.get("id")
             assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
@@ -2169,16 +2151,17 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account).
         # THAT WAS NOT A BOUND (audit 2026-09-27): the empty-account check is mempool policy that consensus never runs,
         # an emptied account still "exists", and accounts were free to create (tpm_ready wrote one) — so msgkey was a
-        # free ~10 KB message every block, forever, from any number of accounts. From SPAM_HARDEN_HEIGHT only the FIRST
-        # bind is free (bounded by the paid transfer that created the account); a rotation pays MIN_TX_FEE, re-binding
-        # the key already bound is refused, and the tx carries no data. INVARIANT: never make a repeatable msgkey free.
-        from protocol import SPAM_HARDEN_HEIGHT
+        # free ~10 KB message every block, forever, from any number of accounts. So only the FIRST bind is free (bounded
+        # by the paid transfer that created the account); a rotation pays MIN_TX_FEE, re-binding the key already bound is
+        # refused, and the tx carries no data. INVARIANT: never make a repeatable msgkey free.
+        # `>= 1` below is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
+        # mempool admission with the tip's height, 0 on a genesis tip, where the old fee-exempt rule held.
         assert transaction["amount"] == 0, "msgkey tx must have zero amount"
         kp = transaction.get("kem_pub")
         # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
         assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
             "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
-        if block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT:
+        if block_height is not None and int(block_height) >= 1:
             assert not transaction.get("data"), "msgkey carries no data"
             _acc = get_account(transaction["sender"], create_on_error=False)
             assert _acc, "msgkey needs an account on chain"
@@ -2246,19 +2229,22 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     elif recipient == "settle":
         # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
         # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
-        from protocol import SPAM_HARDEN_HEIGHT, SETTLE_MAX_LAG
+        from protocol import SETTLE_MAX_LAG
         assert transaction["amount"] == 0, "Settle tx must have zero amount"
         data = transaction.get("data") or {}
         cursor = data.get("exec_cursor")
         root = data.get("state_root")
         ns = data.get("ns", DEFAULT_NS)
-        # FREE ONLY WHERE IT IS A DUTY (SPAM_HARDEN_HEIGHT, audit 2026-09-27). Before it one 10-NADO bond could land a
+        # FREE ONLY WHERE IT IS A DUTY (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). One 10-NADO bond
+        # used to be able to land a
         # permanent settle row for every (namespace, cursor) pair — any namespace name, any past cursor — for free. The
         # duty is the default namespace near the tip (honest settles trailed their block by 12..380 blocks); another
         # namespace pays MIN_TX_FEE, and a cursor more than SETTLE_MAX_LAG behind is refused.
         # INVARIANT: never make a settle free that the settle loop does not need — and construct_settle_tx must charge
         # exactly this (it signed fee 0 for every namespace until 2026-09-28: tests/test_namespace_settle_pays.py).
-        _spam = block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT
+        # `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at mempool
+        # admission with the tip's height, 0 on a genesis tip, where the old free-settle rule held.
+        _spam = block_height is not None and int(block_height) >= 1
         if _spam and ns != DEFAULT_NS:
             assert transaction["fee"] >= MIN_TX_FEE, f"a settle outside the default namespace pays the minimum fee {MIN_TX_FEE}"
             _sa = get_account(transaction["sender"], create_on_error=False)
@@ -2724,11 +2710,12 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         from ops.settlement_ops import latest_settled
         from execnode import exec_root as ER
         assert transaction["amount"] == 0, "xmsg carries no L1 amount"
-        # PAID FROM SPAM_HARDEN_HEIGHT (audit 2026-09-27): a lone bonded settler is quorum in a namespace nobody else
-        # settles, so it could settle a made-up root there and deliver unlimited free xmsgs against it, each a permanent
-        # nullifier row. No zero-balance claimant needs this path (unlike the exits), so it pays like any message.
-        from protocol import SPAM_HARDEN_HEIGHT
-        if block_height is not None and int(block_height) >= SPAM_HARDEN_HEIGHT:
+        # PAID (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27): a lone bonded settler is quorum in a
+        # namespace nobody else settles, so it could settle a made-up root there and deliver unlimited free xmsgs against
+        # it, each a permanent nullifier row. No zero-balance claimant needs this path (unlike the exits), so it pays like
+        # any message. `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
+        # mempool admission with the tip's height, 0 on a genesis tip, where xmsg was still fee-exempt.
+        if block_height is not None and int(block_height) >= 1:
             assert transaction["fee"] >= MIN_TX_FEE, f"xmsg pays the minimum fee {MIN_TX_FEE}"
             _xa = get_account(transaction["sender"], create_on_error=False)
             assert _xa and _xa.get("balance", 0) >= transaction["fee"], "xmsg sender cannot afford the fee"
@@ -2943,7 +2930,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
 def sort_transaction_pool(transactions: list, key="txid") -> list:
     """dedup + sort a tx list by `key` (txid). Dedup is BY TXID, not by deep content — every pooled tx
     passed validate_txid (the txid is the content hash), so txid-equality IS content-equality EXCEPT for the witnesses
-    the txid excludes (signature, public_key): those are pinned to one spelling only from TX_HEX_CANONICAL_HEIGHT, and
+    the txid excludes (signature, public_key): those are pinned to one spelling by excluded_witness_check, and
     even then a signer's re-signature or a stripped already-published key is a second valid body for one txid (audit
     2026-09-25; tests/test_excluded_hex_fields_are_canonical.py "KNOWN OPEN") — first-seen wins here; the old
     sort_list_dict deep-froze the full posw payloads (~36 KiB/tx) on a per-second consensus path, which
@@ -3411,13 +3398,14 @@ def index_transactions(block, sorted_transactions, logger):
         # PUBKEY-ONCE (#19): record the sender's pubkey on its FIRST indexed tx (the one carrying it),
         # so later txs from this sender (e.g. every-epoch heartbeats) may omit the 1312-byte key.
         # Idempotent (skip if already stored); revert is handled symmetrically in unindex_transactions.
-        # STORED VERBATIM, SO ITS SPELLING IS CONSENSUS: key_bound later compares this string exactly, and before
-        # TX_HEX_CANONICAL_HEIGHT a relayer could re-case a first tx's key (same txid, still valid) and lock the owner's
+        # STORED VERBATIM, SO ITS SPELLING IS CONSENSUS: key_bound later compares this string exactly, and
+        # without excluded_witness_check (all of betanet-8) a relayer could re-case a first tx's key (same txid, still valid) and lock the owner's
         # own lowercase-key transactions out (audit 2026-09-25). INVARIANT: never normalise here instead — rewriting
-        # the stored spelling changes the accounts root for gen-27 replay; excluded_witness_check refuses it upstream.
+        # the stored spelling changes the accounts root of blocks already applied; excluded_witness_check refuses it
+        # upstream.
         # AND ONLY AN AUTHENTICATED KEY MAY LAND HERE: with an entry-list signature nothing verifies the top-level key,
         # so storing it let a relayer install its own key as a never-sent account's authenticator (reproduced; refused
-        # from TX_HEX_CANONICAL_HEIGHT by excluded_witness_check). A new path that stores a key must store a VERIFIED one.
+        # by excluded_witness_check from block 1). A new path that stores a key must store a VERIFIED one.
         pk = transaction.get("public_key")
         if pk:
             sender_acc = get_account(transaction["sender"], create_on_error=False)

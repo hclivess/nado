@@ -1,14 +1,15 @@
 """An exec node's settle for a non-default namespace pays the fee validation demands (ops/transaction_ops.construct_settle_tx).
 
-WHY (found 2026-09-28 by the gen-28 rehearsal). From SPAM_HARDEN_HEIGHT a settle outside the default namespace must pay
+WHY (found 2026-09-28 by the gen-28 rehearsal). From block 1 a settle outside the default namespace must pay
 MIN_TX_FEE, but construct_settle_tx — the only builder, used by every exec settle loop (execnode.py: quorum settle,
 proof settle, bare retry) — always signed fee 0. The txid covers the fee, so no caller could fix it afterwards: every
 settle an exec node posted for a NADO_EXEC_NAMESPACES namespace was refused.
 
 Pins, on real tables (throwaway HOME) with a bonded validator:
   1. a default-namespace settle is still fee 0 (byte-identical) and validates;
-  2. a namespace settle from the builder carries MIN_TX_FEE and VALIDATES above the gate;
-  3. below the gate (probed at gen 27's 24000) the builder still signs fee 0, as the rule then was.
+  2. a namespace settle from the builder carries MIN_TX_FEE and VALIDATES (at block 1 too);
+  3. at a max_block of 0 — where validation keeps the free rule (height 0, a genesis tip's mempool: the kept `>= 1` of
+     gen 27's deleted SPAM_HARDEN_HEIGHT) — the builders still sign fee 0, as validation there demands.
 
 Run: python3 tests/test_namespace_settle_pays.py
 """
@@ -47,29 +48,28 @@ def verdict(tx, h):
 
 kd = generate_keys()
 create_account(kd["address"], balance=P.B_MIN, bonded=4 * P.B_MIN)
-LIVE = P.SPAM_HARDEN_HEIGHT
-H = max(LIVE, 1) + 700                                    # above the gate on either generation
+H = 701                                                   # a real height
 
 tx = construct_settle_tx(kd, exec_cursor=H, state_root="a" * 64, max_block=H + 5)
 check("a default-namespace settle is still fee 0", tx["fee"] == 0 and "ns" not in tx["data"], tx["fee"])
 check("...and validates", verdict(tx, H) is None, verdict(tx, H))
 tx = construct_settle_tx(kd, exec_cursor=H, state_root="a" * 64, max_block=H + 5, ns="rollupa")
 check("a namespace settle from the builder carries MIN_TX_FEE", tx["fee"] == P.MIN_TX_FEE, tx["fee"])
-check("...and VALIDATES above the gate (it was refused: 'pays the minimum fee')", verdict(tx, H) is None, verdict(tx, H))
+check("...and VALIDATES (it was refused: 'pays the minimum fee')", verdict(tx, H) is None, verdict(tx, H))
+tx1 = construct_settle_tx(kd, exec_cursor=1, state_root="a" * 64, max_block=1, ns="rollupa")
+check("...at block 1 too", tx1["fee"] == P.MIN_TX_FEE and verdict(tx1, 1) is None, verdict(tx1, 1))
 
 from ops.transaction_ops import construct_xmsg_tx
 xt = construct_xmsg_tx(kd, "rollupa", "rollupb", {"seq": 0}, [], max_block=H + 5)
-check("the xmsg builder also carries MIN_TX_FEE from the gate (it signed 0: every delivery refused)", xt["fee"] == P.MIN_TX_FEE,
+check("the xmsg builder also carries MIN_TX_FEE (it signed 0: every delivery refused)", xt["fee"] == P.MIN_TX_FEE,
       xt["fee"])
 
-P.SPAM_HARDEN_HEIGHT = 24000                              # gen 27's gate: below it the rule did not exist
-try:
-    tx = construct_settle_tx(kd, exec_cursor=100, state_root="a" * 64, max_block=105, ns="rollupa")
-    check("below the gate the builder signs fee 0, as the rule then was", tx["fee"] == 0, tx["fee"])
-    xt = construct_xmsg_tx(kd, "rollupa", "rollupb", {"seq": 0}, [], max_block=105)
-    check("...and so does the xmsg builder (below the gate an xmsg must be exactly fee 0)", xt["fee"] == 0, xt["fee"])
-finally:
-    P.SPAM_HARDEN_HEIGHT = LIVE
+tx0 = construct_settle_tx(kd, exec_cursor=0, state_root="a" * 64, max_block=0, ns="rollupa")
+check("at a max_block of 0 the builder signs fee 0, as validation at height 0 demands",
+      tx0["fee"] == 0 and "minimum fee" not in (verdict(tx0, 0) or ""), (tx0["fee"], verdict(tx0, 0)))
+xt0 = construct_xmsg_tx(kd, "rollupa", "rollupb", {"seq": 0}, [], max_block=0)
+check("...and so does the xmsg builder (at height 0 an xmsg must be exactly fee 0)", xt0["fee"] == 0, xt0["fee"])
+check("the gate is deleted", not hasattr(P, "SPAM_HARDEN_HEIGHT"))
 
 kv_ops.close_all()
 print("ALL PASS — a namespace settle pays what validation demands" if not fails else f"{fails} FAILURES")

@@ -9,7 +9,8 @@ The only signal that separates them is having DONE the job. Each test below is a
   - draw from proven challengers once enough exist            (else wallets keep taking slots)
   - never seat a duty-only sender once k proven exist         (the actual bug)
   - fall back when fewer than k have proven                   (else a fresh chain deadlocks forever)
-  - respect the height gate                                   (old blocks must replay under the old rule)
+The draw is the delayed one (COMMIT, THEN DRAW — the only draw since the betanet-9 cleanup deleted the enrol-time one):
+transaction_ops.tpm_drawn_challengers over the pool as of the enrol block (_tpm_pool), at the record's draw epoch.
 
 Run: python3 tests/test_tpm_proven_draw.py
 """
@@ -24,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import protocol as P                                                          # noqa: E402
 import ops.block_ops as B                                                     # noqa: E402
 import ops.transaction_ops as T                                               # noqa: E402
+from ops import tpm_enrol as E                                                # noqa: E402
 
 # The beacon is a real chain read; this test is about WHO is eligible, not about the randomness source.
 # Fixed per epoch so the draw stays deterministic, which one of the checks below relies on.
@@ -64,24 +66,30 @@ WALLETS = [f"{i:02x}" * 23 for i in range(100, 112)]  # twelve mining wallets th
 
 install(build_chain(NODES, WALLETS, HEIGHT))
 
+
+def draw(chip, h=HEIGHT):
+    """The set an enrolment of `chip` opened at `h` is drawn, once its draw epoch has come (what consensus enforces)."""
+    return T.tpm_drawn_challengers({"ek": chip, "h": h, "challengers": []}, E.draw_opens(h))
+
+
 proven = T._proven_challengers(HEIGHT)
 check("a node that has acted as challenger is eligible", set(proven) == set(NODES),
       f"got {sorted(proven)[:2]}")
 check("a mining wallet that only lands duties is not", not (set(proven) & set(WALLETS)))
 
-# THE BUG ITSELF: across many enrolment ids, no wallet may ever be seated.
+# THE BUG ITSELF: across many chips, no wallet may ever be seated.
 seated = set()
 for i in range(300):
-    seated |= set(T._tpm_challengers(f"{i:032x}", HEIGHT))
+    seated |= set(draw(f"{i:064x}"))
 check("no duty-only wallet is ever drawn once k nodes have proven",
       not (seated & set(WALLETS)), f"seated wallets: {sorted(seated & set(WALLETS))[:3]}")
 check("every seated challenger is a proven one", seated and seated <= set(NODES))
 check("a full set is always drawn", all(
-    len(T._tpm_challengers(f"{i:032x}", HEIGHT)) == P.DEVICE_ATTEST_EK_CHALLENGERS for i in range(50)))
+    len(draw(f"{i:064x}")) == P.DEVICE_ATTEST_EK_CHALLENGERS for i in range(50)))
 
 # DEADLOCK GUARD: with too few proven, the draw must still seat somebody.
 install(build_chain(NODES[:1], WALLETS, HEIGHT))
-few = T._tpm_challengers("ab" * 16, HEIGHT)
+few = draw("ab" * 32)
 check("falls back when fewer than k have proven", len(few) == P.DEVICE_ATTEST_EK_CHALLENGERS,
       f"drew {len(few)}")
 
@@ -91,9 +99,9 @@ check("the proven-draw gate stays deleted", not hasattr(P, "DEVICE_ATTEST_EK_PRO
 install(build_chain(NODES, WALLETS, HEIGHT))
 
 # DETERMINISM: the same inputs must give the same set, or nodes disagree about block validity.
-a = T._tpm_challengers("cd" * 16, HEIGHT)
+a = draw("cd" * 32)
 T._tpm_proven_cache[0] = None
-b = T._tpm_challengers("cd" * 16, HEIGHT)
+b = draw("cd" * 32)
 check("the draw is deterministic", a == b, f"{a} != {b}")
 
 print("\n" + ("ALL OK" if not FAILED else f"{len(FAILED)} FAILED: {FAILED}"))

@@ -3332,7 +3332,6 @@ class CoreClient(threading.Thread):
             return self._tpm_identity_cache or None
         from ops.tpm_linux import ek_template, aik_template, RH_ENDORSEMENT
         from ops import attest_native
-        from protocol import DEVICE_ATTEST_EK_ROOTS
         tpm = handles = None
         try:
             tpm = self._tpm_open()
@@ -3359,11 +3358,10 @@ class CoreClient(threading.Thread):
             now = int(self.memserver.latest_block.get("block_timestamp") or time.time())
             verdict = attest_native.verify_ek(chain, now)
             # the roots consensus will judge this node's enrolment by (ek_roots_at the next block) — the base set
-            # alone refused Intel V2-root chips here too (protocol.EK_ENROL_ROOTS_AT_HEIGHT)
-            from protocol import EK_ENROL_ROOTS_AT_HEIGHT, ek_roots_at
+            # alone refused Intel V2-root chips here too (protocol.py "ENROLMENT TRUSTS THE ROOTS IN FORCE")
+            from protocol import ek_roots_at
             _nxt = int(self.memserver.latest_block.get("block_number") or 0) + 1
-            _roots = ek_roots_at(_nxt) if _nxt >= EK_ENROL_ROOTS_AT_HEIGHT else DEVICE_ATTEST_EK_ROOTS
-            if not (verdict.get("ok") and verdict.get("root_sha256") in _roots):
+            if not (verdict.get("ok") and verdict.get("root_sha256") in ek_roots_at(_nxt)):
                 self.logger.warning(
                     f"endorsement certificate does not chain to a pinned vendor root "
                     f"({verdict.get('reason') or verdict.get('root_sha256')}) — this node will not enrol")
@@ -3435,7 +3433,7 @@ class CoreClient(threading.Thread):
 
             if rec["state"] == "open":
                 blobs = {b[0]: b for b in (rec.get("blobs") or [])}
-                # A DELAYED DRAW HAS NO CHALLENGERS YET (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT), and no blobs equals no
+                # A DELAYED DRAW HAS NO CHALLENGERS YET (ops/tpm_enrol "COMMIT, THEN DRAW"), and no blobs equals no
                 # challengers — without this the node would commit to nothing before anyone was drawn.
                 # INVARIANT: never commit against an empty set; consensus refuses it (tpm_enrol.apply_commit).
                 if not rec.get("challengers"):
@@ -3574,15 +3572,15 @@ class CoreClient(threading.Thread):
                 return
             if self._tpm_tx_pending("tpm_ready", ""):
                 return
-            # A VOLUNTEER HAS STAKE (protocol.SPAM_HARDEN_HEIGHT): from the gate only a bonded account may announce, so an
-            # unbonded node stays quiet instead of logging a refusal every interval. It rejoins by bonding B_MIN.
-            from protocol import SPAM_HARDEN_HEIGHT, B_MIN
-            if tip + 1 >= SPAM_HARDEN_HEIGHT:
-                from ops.account_ops import get_account
-                # (not `_me`: that name is reserved for own-ip SETS, which tests/test_own_ips_and_sync_corrob.py audits)
-                _my_acct = get_account(self.memserver.keydict["address"], create_on_error=False) or {}
-                if int(_my_acct.get("bonded") or 0) < B_MIN:
-                    return
+            # A VOLUNTEER HAS STAKE (protocol.py "NO FREE REPEATABLE TRANSACTIONS"): only a bonded account may announce,
+            # so an unbonded node stays quiet instead of logging a refusal every interval. It rejoins by bonding B_MIN.
+            # (tip >= 1 here, so the next block is >= 2: the rule always applies.)
+            from protocol import B_MIN
+            from ops.account_ops import get_account
+            # (not `_me`: that name is reserved for own-ip SETS, which tests/test_own_ips_and_sync_corrob.py audits)
+            _my_acct = get_account(self.memserver.keydict["address"], create_on_error=False) or {}
+            if int(_my_acct.get("bonded") or 0) < B_MIN:
+                return
             # AN INCLUSION DELAY, SIGNED (2026-09-17). tpm_ready lands FLEXIBLY (block_ops._lands_flexibly: it is
             # not in the exact-landing set), so without min_block it was eligible the instant it existed: the
             # canonical block at the split height carried an announcement created 1-3 s before the block —
@@ -3654,7 +3652,7 @@ class CoreClient(threading.Thread):
             from ops.transaction_ops import construct_tpm_tx
             store = self._tpm_secrets_load()
             min_block = tip + TX_INCLUSION_DELAY
-            # THE SET A RECORD NAMES MAY NOT BE WRITTEN YET. From TPM_DRAW_UNGRINDABLE_HEIGHT an enrolment is stored
+            # THE SET A RECORD NAMES MAY NOT BE WRITTEN YET. An enrolment is stored
             # with no challengers and its set is drawn from its draw epoch on — by the very challenge we are about to
             # send. So membership is asked of the draw (tpm_drawn_challengers: the stored set, or the pure draw once
             # the epoch has come), never of the stored field alone, or nobody would ever answer a delayed enrolment.

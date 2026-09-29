@@ -1883,7 +1883,7 @@ async def tpm_enrolment(request):
     expires_at = int(rec.get("h") or 0) + _win(int(rec.get("h") or 0))
     expired = rec.get("state") != "proven" and tip >= expires_at
     out = {"found": True, "id": eid, "expires_at": expires_at, "expired": expired, "tip": tip, **rec}
-    # A DELAYED DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT) is stored with no challengers until its first challenge;
+    # A DELAYED DRAW (ops/tpm_enrol "COMMIT, THEN DRAW") is stored with no challengers until its first challenge;
     # the view serves the set the chain will enforce, or k placeholders before its draw epoch — never an empty list,
     # which the shipped helper would read as "every challenger answered" (transaction_ops.tpm_challengers_view).
     out.update(tpm_challengers_view(rec, tip))

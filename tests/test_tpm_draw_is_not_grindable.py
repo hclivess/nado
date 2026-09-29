@@ -1,10 +1,12 @@
-"""The TPM enrolment's challengers cannot be aimed by the client that opens it (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT).
+"""The TPM enrolment's challengers cannot be aimed by the client that opens it (ops/tpm_enrol "COMMIT, THEN DRAW").
 
 THE HOLE (audit 2026-09-27, CRIT). The k challengers were drawn at the tpm_enrol from epoch_beacon(epoch of the
 enrol), keyed on the enrolment id — and the id hashes the attestation key's public area, whose authPolicy bytes the
 client writes freely. That beacon is fixed before the epoch starts, so a client computes the draw offline and tries
-public areas until every seat lands on pool members it runs; with every seat colluding the chip proof is forged. The
-first block below REPRODUCES that grind on the legacy rule. The rest pin the gated rule (COMMIT, THEN DRAW):
+public areas until every seat lands on pool members it runs; with every seat colluding the chip proof is forged. This
+file reproduced that grind on betanet-8 (below block 28500); betanet-9 draws every enrolment commit-then-draw from
+block 1, so the gate (TPM_DRAW_UNGRINDABLE_HEIGHT) and the enrol-time draw are deleted, and the reproduction and the
+legacy-record checks went with them. Pinned here (COMMIT, THEN DRAW):
 
   - the draw ignores every field the client writes: two attestation keys of one chip, two owners, two enrolment ids,
     any block of the same epoch — one draw;
@@ -114,33 +116,18 @@ def software_ek():
     return spki, decrypt
 
 
-GATE = 3000                                          # the gate, moved into reach for this synthetic chain
-P.TPM_DRAW_UNGRINDABLE_HEIGHT = GATE
-build(GATE + 1200, HONEST + EVIL)
+BASE = 3000                                          # a real height with a full synthetic history below it
+build(BASE + 1200, HONEST + EVIL)
 ek_spki, decrypt = software_ek()
 EK_ID = hashlib.sha256(ek_spki).hexdigest()
 
-# === 1. BELOW THE GATE THE DRAW IS GRINDABLE (the finding, reproduced) ==============================================
-H0 = GATE - L * 3 + 17                               # an enrol below the gate
-check("the legacy height is below the gate", not E.draw_is_delayed(H0))
-seen, found_at = set(), None
-for n in range(20000):
-    pub = aik_pub_area(n.to_bytes(4, "big"))
-    E.validate_publication(EK_ID, pub)               # every candidate is a valid attestation-key publication
-    eid = E.enrol_id(P.CHAIN_ID, EK_ID, E.aik_name_hex(pub))
-    drawn = T._tpm_challengers(eid, H0)
-    seen.add(tuple(sorted(drawn)))
-    if found_at is None and set(drawn) <= set(EVIL):
-        found_at = n
-check("below the gate: the draw varies with the client-chosen public area", len(seen) > 20, len(seen))
-check("below the gate: grinding the public area seats ONLY the attacker's challengers (the forgery precondition)",
-      found_at is not None, "no all-attacker draw in 20000 tries")
-print(f"      (legacy grind: an all-attacker draw after {found_at} public areas — 3 of 10 equal weights, P = 1/120)")
-
-# === 2. FROM THE GATE NO CLIENT-CHOSEN FIELD REACHES THE DRAW =======================================================
-H1 = GATE + 7 * L + 13                               # an enrol at the gate or above, epoch E1
+# === 2. NO CLIENT-CHOSEN FIELD REACHES THE DRAW =======================================================================
+H1 = BASE + 7 * L + 13                               # an enrol, epoch E1
 E1 = H1 // L
-check("an enrol from the gate is drawn commit-then-draw", E.draw_is_delayed(H1) and E.draw_is_delayed(GATE))
+check("the enrol-time draw and its gate are deleted: every enrolment is drawn commit-then-draw",
+      not hasattr(E, "draw_is_delayed") and not hasattr(E, "challenger_set") and not hasattr(T, "_tpm_challengers")
+      and not hasattr(P, "TPM_DRAW_UNGRINDABLE_HEIGHT"))
+check("an enrol at block 1 is drawn two epochs on, like any other", E.draw_opens(1) == 2 * L)
 check("its dice are anchored strictly after every block of its epoch",
       all((E.draw_epoch(h) - 1) * L > h for h in range(E1 * L, E1 * L + L)))
 opens = E.draw_opens(H1)
@@ -156,37 +143,37 @@ for n in range(300):
     owner = f"{n:046x}"
     h = E1 * L + (n % L)                             # any block of the same epoch
     draws.add(tuple(T.tpm_drawn_challengers(rec_for(pub, owner, h), opens)))
-check("from the gate: 300 public areas, owners and blocks of one epoch give ONE draw", len(draws) == 1, len(draws))
-check("from the gate: two attestation keys of the same chip get the same challengers",
+check("300 public areas, owners and blocks of one epoch give ONE draw", len(draws) == 1, len(draws))
+check("two attestation keys of the same chip get the same challengers",
       T.tpm_drawn_challengers(rec_for(aik_pub_area(b"a")), opens)
       == T.tpm_drawn_challengers(rec_for(aik_pub_area(b"b")), opens))
 the_draw = list(next(iter(draws)))
-check("from the gate: a full set of distinct challengers is drawn", len(set(the_draw)) == K, the_draw)
+check("a full set of distinct challengers is drawn", len(set(the_draw)) == K, the_draw)
 
 # the beacon the client could SEE (its own epoch's) moves nothing; the draw epoch's beacon is what decides
 before = T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens)
 BEACONS[E1] = "ab" * 32
 BEACONS[E1 + 1] = "cd" * 32
-check("from the gate: the enrol epoch's (known) beacon has no influence on the draw",
+check("the enrol epoch's (known) beacon has no influence on the draw",
       T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens) == before)
 moved = set()
 for i in range(40):
     BEACONS[E.draw_epoch(H1)] = "%064x" % (i * 7919 + 1)
     moved.add(tuple(T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens)))
 BEACONS.clear()
-check("from the gate: the draw is decided by the beacon of the draw epoch", len(moved) > 5, len(moved))
+check("the draw is decided by the beacon of the draw epoch", len(moved) > 5, len(moved))
 
 # before the draw epoch there is nothing to aim at, and nothing can be answered
-check("from the gate: no set exists before the draw epoch", T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens - 1) is None)
-check("from the gate: a challenge before the draw epoch is refused",
+check("no set exists before the draw epoch", T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens - 1) is None)
+check("a challenge before the draw epoch is refused",
       refused(lambda: T.tpm_materialise_draw(rec_for(aik_pub_area()), opens - 1)))
 
 # the pool is frozen at the enrol: an attacker who sees the dice and then piles into the pool changes nothing
 LATE = "ee" * 23
-build(GATE + 1200, HONEST + EVIL, late=((H1 + 1, LATE),))
-check("from the gate: joining the pool after the enrol does not move the draw",
+build(BASE + 1200, HONEST + EVIL, late=((H1 + 1, LATE),))
+check("joining the pool after the enrol does not move the draw",
       T.tpm_drawn_challengers(rec_for(aik_pub_area()), opens) == before)
-build(GATE + 1200, HONEST + EVIL)
+build(BASE + 1200, HONEST + EVIL)
 
 # === 3. LIVENESS: a pool that can seat k always does; a retry gets fresh dice =====================================
 check("exact sampling seats k from a heavily concentrated pool",
@@ -200,9 +187,10 @@ check("a shape error in the weights is a rejection, not a TypeError",
       refused(lambda: E.challenger_set_exact("ek:x", {"a": 1.5, "b": 1, "c": 1}, "00" * 32, 3)))
 check("a delayed record keeps the full working window after its draw opens",
       H1 + E.enrol_window(H1) == opens + P.DEVICE_ATTEST_EK_ENROL_SHORT)
-check("a legacy record keeps the short window", E.enrol_window(H0) == P.DEVICE_ATTEST_EK_ENROL_SHORT)
+check("a record opened at block 1 keeps the full working window too",
+      1 + E.enrol_window(1) == E.draw_opens(1) + P.DEVICE_ATTEST_EK_ENROL_SHORT)
 check("a retry after expiry is drawn from a later draw epoch (fresh dice)",
-      all(E.draw_epoch(h + E.enrol_window(h)) > E.draw_epoch(h) for h in range(GATE, GATE + 3 * L)))
+      all(E.draw_epoch(h + E.enrol_window(h)) > E.draw_epoch(h) for h in list(range(1, 1 + 3 * L)) + list(range(BASE, BASE + 3 * L))))
 _reads = [0]
 _get = T.get_block_number
 T.get_block_number = lambda n: (_reads.__setitem__(0, _reads[0] + 1), _get(n))[1]
@@ -235,17 +223,10 @@ def consensus_path():
         with kv_ops.write_txn():
             apply_tpm_enrol_tx(tx, h, revert=revert)
 
-    # legacy: drawn and written at the enrol
-    apply(enrol_tx, H0)
-    legacy = kv_ops.tpm_enrol_get(eid)
-    check("below the gate the enrol writes its drawn set", len(legacy["challengers"]) == K, legacy["challengers"])
-    apply(enrol_tx, H0, revert=True)
-    check("the legacy enrol rolls back", kv_ops.tpm_enrol_get(eid) is None)
-
-    # gated: written undrawn
+    # written undrawn
     apply(enrol_tx, H1)
     undrawn = kv_ops.tpm_enrol_get(eid)
-    check("from the gate the enrol writes NO challengers (the dice do not exist yet)", undrawn["challengers"] == [])
+    check("the enrol writes NO challengers (the dice do not exist yet)", undrawn["challengers"] == [])
     check("a commitment to nothing is refused cleanly (AssertionError, not max() of nothing)",
           refused(lambda: E.apply_commit(undrawn, "o" * 46, "00" * 32, opens + 1)))
     drawn = T.tpm_drawn_challengers(undrawn, opens)
@@ -282,7 +263,7 @@ def consensus_path():
         apply({"recipient": "tpm_reveal", "sender": c,
                "data": {"id": eid, "secret": secrets[c][0].hex(), "seed": secrets[c][1].hex()}}, hc + 1 + i)
     done = kv_ops.tpm_enrol_get(eid)
-    check("an honest enrolment under the gated draw completes (proven)", done["state"] == "proven", done["state"])
+    check("an honest enrolment under the delayed draw completes (proven)", done["state"] == "proven", done["state"])
     check("...within its window", done["hp"] < H1 + E.enrol_window(H1))
     return kv_ops, eid
 
@@ -320,12 +301,12 @@ def validation_path():
     kv_ops.tpm_enrol_open_set(EK_ID, None)
     enrol = {"ek": ["30" * 40], "pub": pub.hex()}
     v = verdict(signed(opener, "tpm_enrol", enrol, H1), H1)
-    check("from the gate a tpm_enrol against a pool of >= k validates (no draw at the enrol)", v == "accepted", v)
-    build(GATE + 1200, HONEST[:2])                    # a pool that cannot seat k
+    check("a tpm_enrol against a pool of >= k validates (no draw at the enrol)", v == "accepted", v)
+    build(BASE + 1200, HONEST[:2])                    # a pool that cannot seat k
     v = verdict(signed(opener, "tpm_enrol", enrol, H1), H1)
-    check("from the gate a tpm_enrol against a pool of < k is refused up front",
+    check("a tpm_enrol against a pool of < k is refused up front",
           "not enough independent challengers" in v, v)
-    build(GATE + 1200, HONEST + EVIL)
+    build(BASE + 1200, HONEST + EVIL)
 
     rec = rec_for(pub, owner=opener["address"], h=H1)
     with kv_ops.write_txn():

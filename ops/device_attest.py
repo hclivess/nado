@@ -268,7 +268,7 @@ def cert_signed_part(der: bytes) -> bytes:
     """The TBSCertificate of a DER X.509 certificate — its exact bytes as the issuer signed them. Raises ValueError on
     malformed DER or on ANY byte after the certificate.
 
-    WHY THE BINDING KEY IS THIS, NOT THE RAW BYTES (DEVICE_BIND_CANONICAL_HEIGHT). The raw-bytes key let one device back
+    WHY THE BINDING KEY IS THIS, NOT THE RAW BYTES (protocol.py "ONE DEVICE, ONE IDENTITY — FOR REAL"). The raw-bytes key let one device back
     unlimited identities: the native kernel parses the DER and ignores bytes after it, so the same chip's certificate
     with different junk appended verified every time and hashed to a new key each time (audit 2026-09-25). The signed
     part cannot vary without breaking the issuer's signature, and nothing outside it — junk, a re-encoded outer length,
@@ -299,8 +299,11 @@ def device_binding_key(device: dict, max_cert_secs: int, strict: bool = False, c
                     ENDORSEMENT key, one per chip by manufacture and impossible to re-mint: a chip that enrols
                     ten attestation keys still holds one identity, and regenerating the endorsement seed to
                     fake a new chip invalidates the vendor certificate that made it admissible.
-    `canonical` (from DEVICE_BIND_CANONICAL_HEIGHT): certificate-backed classes key on the certificate's SIGNED part
-    (cert_signed_part), not its raw bytes — see there for why. Below the gate the raw-bytes key is kept exactly.
+    `canonical`: certificate-backed classes key on the certificate's SIGNED part (cert_signed_part), not its raw bytes —
+    see there for why. Every consensus binding passes canonical=True (betanet-8 from block 19800, betanet-9 from block
+    1). The raw-bytes form (canonical=False) survives for ONE caller: apply looks up the row a device bound under it on
+    betanet-8, carried into betanet-9 by the reroll (account_ops, the register branch's legacy key). INVARIANT: keep the
+    raw-bytes form exactly as it was while such a row can exist.
     Raises ValueError with the reason (the validation turns it into the tx's rejection message). Pure parsing over
     bytes the native kernel has already verified; deterministic by construction (consensus input)."""
     _h = (lambda c: hashlib.sha256(cert_signed_part(c)).hexdigest()) if canonical \

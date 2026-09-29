@@ -15,8 +15,6 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 
 ## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
 
-- **`EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1`** (Intel V2-root chips enrol, f524cb0a): the first
-  gen-27 gate. At the next reroll it is 1 — inline it as unconditional (keep `>= 1` where height 0 reaches it).
 - **Exec-layer `>= 1` helpers keep dead legacy branches** (slice 2, 9c6bf717): the `ExecState.rules_*` helpers, the
   exec root layout and the legacy field-pool checks under `rules_r2()` still branch on height 0, which no real block
   reaches. Deletable only with a replay proving height 0 never reaches them — a cleanup, not owed by a reroll.

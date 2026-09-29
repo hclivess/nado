@@ -177,7 +177,7 @@ def main():
         refused(lambda: validate(transfer_cfg(OWNER, [EVE], 1)), "does not authorize")
         validate(transfer_cfg(OWNER, [HOT], 1, omit_key=True))            # hot is the sole signing key -> resolvable
         refused(lambda: validate(transfer_cfg(OWNER, [REC], 1, omit_key=True)))
-        forged = transfer_cfg(OWNER, [HOT], 1); forged["signature"][0]["signature"] = "ab" * 2420   # full-length, so VERIFICATION refuses it (TX_HEX_CANONICAL_HEIGHT refuses a short one by shape)
+        forged = transfer_cfg(OWNER, [HOT], 1); forged["signature"][0]["signature"] = "ab" * 2420   # full-length, so VERIFICATION refuses it (excluded_witness_check refuses a short one by shape)
         refused(lambda: validate(forged), "invalid signature")
         tampered = transfer_cfg(OWNER, [HOT], 1); tampered["amount"] = 999
         refused(lambda: validate(tampered))
