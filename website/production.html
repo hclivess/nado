@@ -107,6 +107,13 @@
   nav a.here{color:var(--txt)}
   nav a.btn{color:#04110a;padding:7px 13px;font-size:14px;border-radius:10px}
   nav a.btn:hover{color:#04110a}
+  /* PHONE NAV, SAME AS index/apps: at phone width the ten links wrap into a centred block under the brand instead of
+     a ragged left-aligned run with a 22px indent on every line (measured 2026-09-29 at 360/412). */
+  @media(max-width:560px){
+    header{justify-content:center;text-align:center}
+    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 16px}
+    nav a{margin-left:0}
+  }
 </style>
 </head>
 <body>
@@ -118,12 +125,12 @@
     <nav>
       <a href="/#what" data-i18n="nav.what">What</a>
       <a href="/#features" data-i18n="nav.features">Features</a>
-      <a href="/#build">Build</a>
-      <a class="here" href="/production">Production</a>
+      <a href="/#build" data-i18n="nav.build">Build</a>
+      <a class="here" href="/production" data-i18n="nav.production">Production</a>
       <a href="/emission" data-i18n="nav.emission">Emission</a>
       <a href="/apps" data-i18n="nav.apps">Apps</a>
       <a href="/#treasury" data-i18n="nav.treasury">Treasury</a>
-      <a href="https://forum.nadochain.com">Forum</a>
+      <a href="https://forum.nadochain.com" data-i18n="nav.forum">Forum</a>
       <a href="https://github.com/hclivess/nado">GitHub</a>
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Collect Rewards</a>
     </nav>

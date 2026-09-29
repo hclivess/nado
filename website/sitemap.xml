@@ -13,19 +13,14 @@
   </url>
   <url>
     <loc>https://nadochain.com/emission</loc>
-    <lastmod>2026-07-06</lastmod>
+    <lastmod>2026-09-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://nadochain.com/games</loc>
-    <lastmod>2026-07-14</lastmod>
+    <loc>https://nadochain.com/apps</loc>
+    <lastmod>2026-09-29</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://get.nadochain.com/</loc>
-    <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
 </urlset>

@@ -139,6 +139,17 @@
   nav a.here{color:var(--txt)}
   nav a.btn{color:#04110a;padding:7px 13px;font-size:14px;border-radius:10px}
   nav a.btn:hover{color:#04110a}
+  /* THE NAV CTA NEEDS THE BASE .btn. This page never defined it, so "Collect Rewards" rendered as dark text on the dark
+     page — present in the DOM, invisible on screen. Same definition as production.html. */
+  .btn{display:inline-block;background:linear-gradient(120deg,var(--accent),var(--accent2));color:#00110e;font-weight:700;padding:10px 16px;border-radius:12px;border:0;cursor:pointer;font-size:14px}
+  .btn:hover{text-decoration:none}
+  /* PHONE NAV, SAME AS index/apps: at phone width the ten links wrap into a centred block under the brand instead of
+     a ragged left-aligned run with a 22px indent on every line (measured 2026-09-29 at 360/412). */
+  @media(max-width:560px){
+    header{justify-content:center;text-align:center}
+    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 16px}
+    nav a{margin-left:0}
+  }
 </style>
 </head>
 <body>
@@ -150,12 +161,12 @@
     <nav>
       <a href="/#what" data-i18n="nav.what">What</a>
       <a href="/#features" data-i18n="nav.features">Features</a>
-      <a href="/#build">Build</a>
-      <a href="/production">Production</a>
+      <a href="/#build" data-i18n="nav.build">Build</a>
+      <a href="/production" data-i18n="nav.production">Production</a>
       <a class="here" href="/emission" data-i18n="nav.emission">Emission</a>
       <a href="/apps" data-i18n="nav.apps">Apps</a>
       <a href="/#treasury" data-i18n="nav.treasury">Treasury</a>
-      <a href="https://forum.nadochain.com">Forum</a>
+      <a href="https://forum.nadochain.com" data-i18n="nav.forum">Forum</a>
       <a href="https://github.com/hclivess/nado">GitHub</a>
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Collect Rewards</a>
     </nav>
@@ -174,7 +185,7 @@
       <div class="em-tip" id="emTip" hidden></div>
       <details style="margin-top:12px"><summary class="small" style="cursor:pointer;color:var(--muted)">Same numbers as a table</summary>
         <table class="em-table" id="emTable"></table></details>
-      <p class="small" style="color:var(--muted);margin:14px 0 0">Open lane: one attested device, one vote, 30 % of blocks; its producer takes 20 % of the block and 70 % goes to the dividend pool. Savings lane: stake is weight, no device, 70 % of blocks; its producer takes 50 % and 40 % goes to the dividend pool. The dividend pool — about half of all emission — is paid to every attested device by fidelity, staked or not. The treasury keeps 10 % of every block and is spent by vote.</p>
+      <p class="small" style="color:var(--muted);margin:14px 0 0">Open lane: one attested device, one slot in the draw — weighted 2 to 10 by steady presence — and 30 % of blocks; its producer takes 20 % of the block and 70 % goes to the dividend pool. Savings lane: stake is weight, no device, 70 % of blocks; its producer takes 50 % and 40 % goes to the dividend pool. The dividend pool — about half of all emission — is paid to every attested device by fidelity, staked or not. The treasury keeps 10 % of every block and is spent by vote.</p>
     </div>
   </div>
 
@@ -187,7 +198,7 @@
       <span class="badge">⏱ <b>6 s blocks</b></span>
       <span class="badge">⬆ max <b>0.1 NADO</b>/block, ever</span>
       <span class="badge">🔥 <b>100% of fees burned</b></span>
-      <span class="badge">🛡 perpetual tail ≈ <b>52k NADO/yr</b> — no security cliff</span>
+      <span class="badge">🛡 perpetual tail ≈ <b>87k NADO/yr</b> at 6 s blocks — no security cliff</span>
       <span class="badge">🎯 <b>no premine</b> — supply starts at zero</span>
     </div>
   </div>
@@ -281,8 +292,8 @@
         </tr>
         <tr class="us">
           <td>NADO</td><td>2026</td>
-          <td class="y">None — genesis mints zero coins</td>
-          <td>No cap, no cliff: max 0.1/block, shrinks as bonding rises, perpetual ~52k/yr tail; net supply falls under real usage</td>
+          <td class="y">None — genesis mints zero coins; balances carried across betanet rerolls were themselves mined as block rewards on earlier betanets</td>
+          <td>No cap, no cliff: max 0.1/block, shrinks as bonding rises, perpetual ~87k/yr tail at 6 s blocks; net supply falls under real usage</td>
           <td class="y">Anyone with a phone browser (open lane, no capital)</td>
           <td class="y">100% of every fee</td>
         </tr>
@@ -373,14 +384,17 @@
       <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
       <a href="https://twitter.com/nadochain">Twitter/X</a>
     </div>
-    <span>NADO · a phone-mineable, fair-launch, post-quantum blockchain · testnet-stage alpha · emission params are consensus-frozen for mainnet genesis</span>
+    <span>NADO · a phone-mineable, fair-launch, post-quantum blockchain · betanet (pre-mainnet) · the emission parameters are consensus constants</span>
   </div>
 </footer>
 
 <script>
 (function(){
   "use strict";
-  var BASE=0.1, M_MIN=0.1656, K=4.0, BLOCK_TIME=6;
+  // M_MIN is the curve's CONSTANT, not its floor: consensus is m(r)=0.15+0.85·e^(−4r) (protocol.BOND_ELASTIC_MULT_BPS,
+  // regenerated from exactly this formula), whose value at r=1 is 0.1656. Plugging 0.1656 in here lifted the whole
+  // modelled curve above the chain's (tests/test_site_emission_matches_consensus.py pins it).
+  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=6;
   var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
   var YEARS=20;
 
