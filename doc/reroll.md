@@ -175,4 +175,33 @@ must be reviewable as "new genesis, same rules".
    `up_to_date`, and only a node that actually UPDATED forwards the wave — and after a reroll its peer pool is empty
    anyway (every old-chain peer is refused). Kick two fleet nodes directly (`http://<ip>:9173/update?wave=true`).
 
+8. **Non-device rows carried as device bindings** (found by the gen-28 rehearsal): `kv_ops.devbind_rows` returned the
+   open-enrolment marker `tpmek:<identity>` — a packed string, indexed character by character — as a binding of address
+   `"3"`. The gen-27 carry seeded 7 of them into genesis; the gen-28 re-key refused on them. The table also holds
+   `evict:`, `lease:` and `tpm:<enrol id>` rows; devbind_rows now skips all of them by name or shape
+   (`tests/test_carry_devices_only.py`).
+9. **An address hard-coded from a 42-hex BODY survives a format switch unnoticed** (gen-28 rehearsal):
+   `protocol.GENESIS_ADDRESS` (built from `_GENESIS_BODY`) and the faucet contract's `OPERATOR`
+   (`make_address(<body>)`, which under format 2 hashes the body into an address nobody holds — every prize payout would
+   have reverted on the operator check) were missed by a sweep for full 46-char literals.
+   `tests/test_operator_addresses_follow_the_format.py` pins every hard-coded operator address to the live format and
+   fails on any unlisted 42/46-hex literal.
+10. **"Below the gate" tests at a reroll.** Every gen-27 gate becomes 1, so a test that reproduces the old rule at a real
+    gen-27 height finds no "below" left and fails. The fix keeps the property: the test sets the gate it probes to the
+    gen-27 value for its below-gate half (`GEN27_GATE`, `NARROW_GATE`) and restores the live one — never delete the check.
+
+## Gen 28 (betanet-9): address format 2
+
+Every address changes (`tools/rekey_v2.py`, `tools/recover_keys.py`). Carried 2026-09-29 at L1 tip 45872 (exec drained
+45827..45872): 137,077,938,764,879 raw, Δ = 0; 1,249 accounts, 913 re-keyed (535 with a key recovered from an older
+generation's backup), 332 keyless kept at their old address for `legacy_claim`, 4 relay seeds dropped (never produced,
+no key on any chain; their coins carry), 135 device bindings, 8 aliases, 47 present identities; 99.2 NADO of contract
+pots refunded to the operator (the faucet bank). The operator's addresses: `ebd27698…` → `3cc4c44a…` (settle anchor,
+faucet/sovereign fixed cids, faucet operator), `27f2870b…` → `b7a08de8…` (genesis address, the wallet's auto-vote
+default; the gen-27 default list follows forward). Chain clock re-anchored to 6.50 s (65 ds).
+A node whose keyfile carries `account` (written by `scripts/auth_cli.py` after a rotation) names its OLD address and must
+be re-pointed after the reroll; at the rehearsal the only rotated account (`c677679c…` → `f02d7729…`) was no fleet node.
+Wallets need nothing: an account address is always derived from the base HD key, and the signer child is re-found by
+scanning against the carried auth config.
+
 Verify unification by comparing a block hash at a **common height**, never by comparing tips.

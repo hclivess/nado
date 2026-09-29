@@ -71,7 +71,7 @@ export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatib
 // ADDRESS FORMAT 2 (gen 28; protocol.ADDRESS_FORMAT): the body is a hash of the WHOLE public key — format 1's first 21
 // bytes are the key's rho, which a forger chooses. MUST equal protocol.ADDRESS_FORMAT for the chain these files ship
 // with: tests/test_address_format_v2.py fails the commit that changes one without the other.
-export const ADDR_FORMAT = 1;
+export const ADDR_FORMAT = 2;
 export const DOMAIN_ADDRESS_V2 = "nado-address-v2";
 // the checksum is 2 bytes in format 1 and 4 in format 2 (protocol.ADDRESS_CHECKSUM): a format-1 address is REJECTED by
 // shape on a format-2 chain — 46 characters is not an address there

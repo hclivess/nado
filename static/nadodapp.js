@@ -34,7 +34,7 @@ export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatib
 // mirrors protocol.ADDRESS_FORMAT (tests/test_address_format_v2.py). A format-2 address cannot be derived from a
 // format-1 one (it hashes the whole key), so a signed-in session is keyed by the format: after the change the old
 // session is simply not read, the game shows signed-out, and the next sign-in returns the new address.
-const ADDR_FORMAT = 1;
+const ADDR_FORMAT = 2;
 // 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
 const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
 const ADDR_BODY = 42;

@@ -39,7 +39,7 @@ import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=
 // literal had not been touched since betanet-2).
 const LS_CHAIN_ID = "nado_chain_id";
 const CHAIN_ID_SAVED = (() => { try { return localStorage.getItem(LS_CHAIN_ID) || ""; } catch (e) { return ""; } })();
-let CHAIN_ID = CHAIN_ID_SAVED || "betanet-6";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = CHAIN_ID_SAVED || "betanet-9";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 let netAdopted = false;                          // true once a relay's /status has confirmed CHAIN_ID THIS session
 const EPOCH_LENGTH = 60;
 let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
@@ -89,7 +89,7 @@ const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
 // ADDRESS FORMAT 2 (gen 28): mirrors protocol.ADDRESS_FORMAT and static/nadotx.js (tests/test_address_format_v2.py).
 // A key-derived address commits to the WHOLE public key; a multisig address (its own prefix) keeps format 1.
-const ADDR_FORMAT = 1;
+const ADDR_FORMAT = 2;
 const DOMAIN_ADDRESS_V2 = "nado-address-v2";
 // 2-byte checksum in format 1, 4 in format 2 (protocol.ADDRESS_CHECKSUM): an old 46-char address is not an address here
 const ADDR_CK = ADDR_FORMAT >= 2 ? 4 : 2;
@@ -5232,7 +5232,7 @@ const VEC = {
   checksum_string_size2: "f962",
   checksum_body: "18c3afa286439e7ebcb284710dbd4ae42bdaf21b80",
   make_address_pub: "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3",
-  make_address_out: "96381e3725f85cfe0ab8de17623957b4565ca9b04d9e7e",
+  make_address_out: "b0e88ff36b8f854399837798697113f59078b55bcbf4ec9a6b",
   hash_link_a_b: "d803f13f94cb4546f8f9d50368dfbb44ea46aa3db56fecfa2570a3ebf90f3a13",
   torture_canonical: "{\"a\":\"h\\u00e9llo \\\"x\\\"\\n\\t/end\",\"m\":[3,2,{\"big\":12345678901234567890,\"k\":true}],\"n\":null,\"unicode_key_\\u00fc\":\"\\u2603 snowman\",\"z\":1}",
   torture_hash: "69029840259d7c85d5c3e61f09abc352d0554c9b4320ef7d59bb6942647b840c",
@@ -5241,12 +5241,12 @@ const VEC = {
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
   // Tx vectors carry NO signature (ML-DSA is hedged); only txid/canonical are comparable.
   // REGENERATE via tools/gen_selftest_vectors.py after ANY field/format/tag/chain_id change.
-  register_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 0, "recipient": "register", "txid": "b991adb926f9614dd9c87a78aff8a9bc237c882676df64281140cc1da97bf289"},
-  register_canonical: "{\"amount\":0,\"chain_id\":\"betanet-2\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  heartbeat_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "b69c1057b15cddba9ff3dc41782dc86bd1c013f5de5ba7103f9881794332d7f0"},
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"betanet-2\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
-  transfer_tx: {"sender": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-2", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498", "txid": "0104634445420f97b275f4c8083ddf729cc04d9f2050d61842c349f0dc47ebe4"},
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"betanet-2\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c498\",\"sender\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b5401\",\"timestamp\":1700000000}",
+  register_tx: {"sender": "f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-9", "fee": 0, "recipient": "register", "txid": "a91135068ba8940ce1e57ad34d485de16704622f9cd1c3ba89e7e1de76f4342a"},
+  register_canonical: "{\"amount\":0,\"chain_id\":\"betanet-9\",\"data\":\"\",\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd\",\"timestamp\":1700000000}",
+  heartbeat_tx: {"sender": "f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd", "amount": 0, "timestamp": 1700000000, "data": "", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-9", "fee": 0, "recipient": "heartbeat", "epoch": 205, "txid": "71f6a274c3b728940c4c3cd46a20626e5ee5394d7489a8b9160bdb6271d7b870"},
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"betanet-9\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd\",\"timestamp\":1700000000}",
+  transfer_tx: {"sender": "f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd", "amount": 123456, "timestamp": 1700000000, "data": "hello world", "nonce": "fixednonc", "public_key": "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", "max_block": 12345, "chain_id": "betanet-9", "fee": 1000, "recipient": "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c2ad7b3e", "txid": "99ef7e971b40d28739b5f78d7ddf9f4f791ee7f51522c49279bc558fd38b5a16"},
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"betanet-9\",\"data\":\"hello world\",\"fee\":1000,\"max_block\":12345,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"6a7a7a6d26040d8d53ce66343a47347c9b79e814c6c2ad7b3e\",\"sender\":\"f2565151bc281b6c03b5de04be1396f44333e033b4c07935bd\",\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
@@ -9155,7 +9155,7 @@ let _autoVoting = false;
 // and it is a RESERVED name, not an address anyone can claim, so it cannot be squatted or redirected.
 // (The chain already treats it as the single reserved recipient a treasury spend may pay; account_ops
 // routes it through BRIDGE_ESCROW so the coins have a real exit path.)
-const AUTO_VOTE_DEFAULT_ALLOW = ["27f2870bb2969a4d2b9d4eea303bedea996b9ccc93479f", "faucet"];
+const AUTO_VOTE_DEFAULT_ALLOW = ["b7a08de8351e3af97f6f2bbcb19f2a8c722abad81c3460caf9", "faucet"];
 // KEY IS VERSIONED, and that is not cosmetic. The first cut of this box wired `ta.onchange = ta.onblur`,
 // and BLUR FIRES WITHOUT AN EDIT — so merely opening the Quorum tab and clicking away wrote "" to storage.
 // Since "" legitimately means "the user cleared the list, approve any recipient", every wallet that had

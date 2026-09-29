@@ -46,7 +46,7 @@ def t1_anchored_pair_extraction():
 
 
 def t2_pin_guards():
-    assert 'SETTLE_ANCHOR = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"' in _SRC
+    assert 'SETTLE_ANCHOR = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f"' in _SRC   # format 2 of ebd27698… (gen 28)
     assert "st.cursor - settled_cur < ANCHOR_STALL_CURSORS" in _FN, "must require a FROZEN quorum"
     assert "snap_cur > finalized" in _FN and "stranded" in _FN, \
         "must never adopt above local finality (reset-to-genesis hazard)"

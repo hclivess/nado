@@ -3261,7 +3261,7 @@ def _observe_settles(block, our_attested):
 # never adopts. After every divergent attester converges onto the anchor lineage, the next settles agree,
 # the quorum justifies, and the ordinary machinery (self-disqualify + repair-bootstrap against JUSTIFIED
 # checkpoints) guards everything thereafter.
-SETTLE_ANCHOR = "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"
+SETTLE_ANCHOR = "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f"   # format 2 of ebd27698… (gen 28)
 ANCHOR_STALL_CURSORS = 2880          # settled tip this many cursors behind ours = the quorum is frozen
 ANCHOR_ADOPT_EVERY = 1800.0          # seconds between adoption attempts
 _anchor_last = 0.0

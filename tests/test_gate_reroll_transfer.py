@@ -68,7 +68,7 @@ def check(name, cond, detail=""):
 def main():
     import protocol as P
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("this test tracks the live generation (gen 27 since the betanet-8 reroll)", P.CHAIN_GENERATION == 27, P.CHAIN_GENERATION)
+    check("this test tracks the live generation (gen 28 since the betanet-9 reroll)", P.CHAIN_GENERATION == 28, P.CHAIN_GENERATION)
 
     for name, want in sorted(REROLL.items()):
         m = re.search(r"^" + name + r" = ([^#\n]+)", src, re.M)
@@ -109,10 +109,10 @@ def main():
     check("the F3 call context switches at height 1", bool(cv) and cv.group(1) == "1", cv and cv.group(1))
     check("the root layout never precedes the call context", bool(rv and cv) and int(rv.group(1)) >= int(cv.group(1)))
 
-    # 3b. the chain clock cadence is re-anchored at every reroll (C3, 2026-09-23): gen 25 ran 60 ds; the reroll set
-    #     the measured 6.41 s, and the gen-25 branch was collapsed after the betanet-8 reroll
-    check("CHAIN_CLOCK_CADENCE_DS: the measured 6.41 s (64 ds)", P.CHAIN_CLOCK_CADENCE_DS == 64)
-    check("chain_clock runs at 6.4 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 64 // 10 for h in (0, 1, 7, 209400, 2**40)))
+    # 3b. the chain clock cadence is re-anchored at every reroll (C3, 2026-09-23): gen 25 ran 60 ds, gen 27 64 ds; the
+    #     betanet-9 reroll set gen 27's measured 6.50 s over its last 10,000 blocks
+    check("CHAIN_CLOCK_CADENCE_DS: the measured 6.50 s (65 ds)", P.CHAIN_CLOCK_CADENCE_DS == 65)
+    check("chain_clock runs at 6.5 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 65 // 10 for h in (0, 1, 7, 209400, 2**40)))
 
     # 4. the ledger comment exists and names the cleanup
     check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "THE SAVINGS LANE IS PLAIN STAKE" in src)

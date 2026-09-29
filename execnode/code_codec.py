@@ -17,8 +17,8 @@ CONTRACT_CODE_MAX_BYTES = 4 * 1024 * 1024
 # derived hash, so the L1 reserved recipient, the exec ledger key and the contract address are all the same
 # word. Allowlisted per name to a sole deployer — deterministic on every exec node, and the reserved-name
 # namespace can't be squatted.
-FIXED_CIDS = {"faucet": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67",
-              "sovereign": "ebd27698662f14ee2389e509781d5ff57487f4289a4d67"}
+FIXED_CIDS = {"faucet": "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f",        # format 2 of ebd27698… (gen 28)
+              "sovereign": "3cc4c44a94a900f79716dc6d3822a81603b1ce7862ce03572f"}
 
 
 def bounded_unzstd(body, cap):

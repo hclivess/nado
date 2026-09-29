@@ -238,6 +238,7 @@ def t_malformed_height_fails_quietly():
 GENERATION_IDS = {
     26: ("betanet-8", 1790328896),
     27: ("betanet-8", 1790328896),
+    28: ("betanet-9", 1790668583),
 }
 
 
