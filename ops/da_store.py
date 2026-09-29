@@ -67,7 +67,7 @@ class DaStore:
     # THE EVICTION ROUTE TO THE EXEC STALL (audit 2026-09-25). The window above is a COUNT over every object, and
     # /da/publish and /da/announce are open (the relay proxies /da/ publicly): 24 junk publishes pushed a field
     # transfer's proof out of every store before a lagging exec node had applied its block, and that node then
-    # stalled on it for good — or, under the exec DA deadline (protocol.EXEC_DA_DEADLINE_HEIGHT), refused an op the
+    # stalled on it for good — or, under the exec DA deadline (execnode._da_deadline_passed), refused an op the
     # rest of the fleet had applied. So the exec tail PINS every proof it resolves for an on-chain op, until its own
     # cursor passes the op's height + a window; sweep() never counts or evicts a pinned object. Pins are bounded
     # (`cap`, oldest-expiring dropped first) so a flood of on-chain references cannot hold unbounded disk. Storage

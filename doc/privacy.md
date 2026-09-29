@@ -189,7 +189,7 @@ shards), rejected at L1 inclusion if missing; or (b) a **deterministic expiry** 
 availability attestation quorum (the skip decision reads the same settled record on every node). Tracked as
 the DA layer's blocking item for a non-alpha launch.
 
-**The bounded wait (audit 2026-09-25, `EXEC_DA_DEADLINE_HEIGHT`, live from block 29000 — the operator chose the bounded wait over the free freeze).**
+**The bounded wait (audit 2026-09-25, `EXEC_DA_DEADLINE_HEIGHT`, live from block 29000 on gen 27 and from block 1 since gen 28, where the gate was deleted — the operator chose the bounded wait over the free freeze).**
 The freeze was reproduced (`tests/test_exec_never_stalls_on_unheld_proof.py`): one blob, 1,000 retries, cursor
 frozen, the honest deposit in the same block never credited — and the rolling DA window (`DA_RETAIN`, a count over
 an open `/da/publish`) could evict an honest proof into the same state for any node that had not fetched it yet.

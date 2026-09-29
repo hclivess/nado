@@ -26,10 +26,6 @@ _fails = []
 REROLL = {
     # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed).
     "DEVICE_ATTEST_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1,
-    "DIVIDEND_CARRY_EPOCH": 0,                     # an epoch gate: 0 = from epoch 0 = always on the next chain
-    "EXEC_DA_DEADLINE_HEIGHT": 1,                  # exec layer: a DA op whose proof never arrives is refused, not waited on forever
-    "SETTLE_STAKE_FLOOR_HEIGHT": 1,                # dormant (2^62) on gen 27: a settled root needs 1/16 of ALL bonded stake
-    "BLOCK_SIG_CHAIN_BIND_HEIGHT": 1,              # dormant on gen 27: block signatures name generation + genesis (slash replay)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
@@ -53,9 +49,11 @@ DELETED = (
     "LEASE_V2_EPOCH", "DIVIDEND_ATTESTED_EPOCH", "DIVIDEND_WEIGHT_CAP_V2_EPOCH", "DIV_CARRY_METER_EPOCH",
     "lease_v2_at",
     # after the betanet-9 reroll (gen 28): gen-27 gates whose reroll value was 1 — the rule is unconditional, `>= 1`
-    # surviving only where height 0 reaches the check (mempool admission on a genesis tip, a tx's own max_block)
+    # surviving only where height 0 reaches the check (mempool admission on a genesis tip, a tx's own max_block, the exec
+    # DA deadline at genesis, height-0 block-signature messages and slash evidence)
     "SPAM_HARDEN_HEIGHT", "TX_HEX_CANONICAL_HEIGHT", "DEVICE_BIND_CANONICAL_HEIGHT", "EK_ENROL_ROOTS_AT_HEIGHT",
     "TPM_DRAW_UNGRINDABLE_HEIGHT", "CERT_CLOCK_HEIGHT",
+    "SETTLE_STAKE_FLOOR_HEIGHT", "EXEC_DA_DEADLINE_HEIGHT", "BLOCK_SIG_CHAIN_BIND_HEIGHT", "DIVIDEND_CARRY_EPOCH",
     "ADDRESS_FORMAT",        # `1 if == 27 else 2`: format 2 is unconditional (ADDRESS_CHECKSUM 4 / ADDRESS_LENGTH 50 are plain)
     "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
 )

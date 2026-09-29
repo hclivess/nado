@@ -10,9 +10,9 @@ justified TWO ways, both pure functions of committed on-chain state (so every no
     every node verified DETERMINISTICALLY at block-validation, recording the on-chain marker
     kv_ops.settlement_proven(ns, cursor, root). One proven root justifies with NO quorum.
   • BONDED QUORUM (Phase-2a, liveness floor): bonded shares attesting the same (cursor, root) exceed
-    SETTLE_NUM/SETTLE_DEN of the ACTIVE settler shares (the participation-windowed inactivity leak) AND, from
-    protocol.SETTLE_STAKE_FLOOR_HEIGHT, SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN of ALL bonded shares (the stake floor that
-    closes the lone-settler drain: an empty or silent active set can no longer make one small bond the quorum).
+    SETTLE_NUM/SETTLE_DEN of the ACTIVE settler shares (the participation-windowed inactivity leak) AND
+    protocol.SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN of ALL bonded shares (the stake floor that closes the lone-settler
+    drain: an empty or silent active set can no longer make one small bond the quorum).
 The proof path is checked first (cheapest + trustless); the quorum path keeps settlement live when no proof
 has landed yet. The old node-local verifier callback is GONE — proof authority now lives on-chain, where
 transaction-validation reads (cross-msg / dividend / unshield / bridge exit) stay deterministic by construction.
@@ -66,8 +66,8 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
     denominator was ALL bonded stake, which froze settlement, and with it every dividend/bridge/unshield
     claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
     state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM).
-    From SETTLE_STAKE_FLOOR_HEIGHT (judged at max(cursor, 1)) the attesting shares must ALSO exceed
-    SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN of total_bonded_shares — see the comment at the check.
+    The attesting shares must ALSO exceed SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN of total_bonded_shares, at every
+    cursor — see the comment at the check.
 
     TRUSTLESS PROOF: gated on protocol.SETTLE_PROOF_TRUSTLESS (FALSE on betanet-10 -> quorum-only, so this
     is byte-identical to the pre-flag behaviour; a proof still verifies and records its marker but the marker
@@ -94,16 +94,15 @@ def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry:
             attesting += selection_shares(bonded_registry[validator]["bonded"])
     if not attesting * SETTLE_DEN > total * SETTLE_NUM:
         return False
-    # STAKE FLOOR (protocol.SETTLE_STAKE_FLOOR_HEIGHT; audit 2026-09-25 HIGH, the lone-settler drain). `total` above is
+    # STAKE FLOOR (protocol.SETTLE_FLOOR_NUM/DEN; audit 2026-09-25 HIGH, the lone-settler drain). `total` above is
     # the stake that attested RECENTLY, which is empty on a fresh chain or namespace and after the other settlers have
     # been silent for SETTLE_ANCHOR_LONG_CURSORS — then the first bonded account to settle was its own 2/3 and paid
     # itself the escrows through exits proven against its root. The floor is measured against ALL bonded stake, which
     # silence cannot shrink. INVARIANT: keep this AFTER the active-quorum test and never divide it by `total` — the
-    # floor exists precisely because `total` can be made as small as the attacker.
-    from protocol import SETTLE_STAKE_FLOOR_HEIGHT, SETTLE_FLOOR_NUM, SETTLE_FLOOR_DEN
-    if max(int(cursor), 1) >= SETTLE_STAKE_FLOOR_HEIGHT:
-        return attesting * SETTLE_FLOOR_DEN > total_bonded_shares(bonded_registry) * SETTLE_FLOOR_NUM
-    return True
+    # floor exists precisely because `total` can be made as small as the attacker. Unconditional, cursor 0 included:
+    # gen 27's SETTLE_STAKE_FLOOR_HEIGHT (1 from gen 28, deleted) was judged at max(cursor, 1), which every cursor meets.
+    from protocol import SETTLE_FLOOR_NUM, SETTLE_FLOOR_DEN
+    return attesting * SETTLE_FLOOR_DEN > total_bonded_shares(bonded_registry) * SETTLE_FLOOR_NUM
 
 
 # latest_settled cache: one ((env_path, write_generation, ns), result) tuple, same single-reference,

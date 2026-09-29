@@ -78,7 +78,7 @@ DOMAIN_MSIG = "msig-v2"                       # multisig virtual-pubkey derivati
 DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW binding (ops/mining_ops)
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)
 DOMAIN_RANDAO_BEACON = "randao-beacon-v1"     # RANDAO beacon-fold preimage tag (ops/mining_ops)
-DOMAIN_BLOCKSIG = "blocksig-v2"               # chain-bound block-authorship signature (ops/block_ops, BLOCK_SIG_CHAIN_BIND_HEIGHT)
+DOMAIN_BLOCKSIG = "blocksig-v2"               # chain-bound block-authorship signature (ops/block_ops._block_sig_message_fields)
 
 GENESIS_TIMESTAMP = 1790668583  # betanet-9 (gen 28): the account-security reroll (2026-09-29T07:56:23Z). Was 1790328896 = betanet-8 (gen 26): the carry-everything reroll (2026-09-25T09:34:56Z). Was 1788772790 = betanet-7 (gen 25): the REAL-DEVICE reroll (2026-09-07T09:19:50Z). Was 1788269732 = betanet-6 (gen 24): the sybil-rules + account-auth reroll (2026-09-01T13:35:32Z). New DISTINCT
                                 # timestamp so no prior-generation block links in.
@@ -267,8 +267,8 @@ SETTLE_DEN = 3
 # for the whole window (~2.4h at 6s blocks; systemd restarts make that an outage, not an accident).
 # That sentence did not hold where the window is EMPTY — a fresh chain, a fresh namespace, or every other settler silent
 # past SETTLE_ANCHOR_LONG_CURSORS — where one B_MIN bond was the whole quorum (audit 2026-09-25, the lone-settler drain).
-# SETTLE_STAKE_FLOOR_HEIGHT adds a floor of ALL bonded stake that no silence can shrink. INVARIANT: never let the
-# denominator shrink without that floor behind it.
+# The stake floor (SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN below, settlement_ops.settlement_justified) adds a floor of ALL bonded
+# stake that no silence can shrink. INVARIANT: never let the denominator shrink without that floor behind it.
 # The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
 SETTLE_ACTIVITY_CURSORS = 1440
 
@@ -1692,9 +1692,10 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # identity with a recert at epoch 0 — the very marker the dividend rule uses to exclude never-attested genesis seeds —
 # so every carried identity was present, produced blocks, and earned no dividend until it re-registered; and the replay
 # behind the committed weights rebuilt fidelity from gen-27 recerts only, so carried veterans who did renew weighed like
-# newcomers. From this EPOCH: an identity the carry named as present counts as attested, and its replayed fidelity starts
-# from its carried value (ops/dividend_ops). Epochs before it are committed and stay as they were.
-DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
+# newcomers. The rule (ops/dividend_ops): an identity the carry named as present counts as attested, and its replayed
+# fidelity starts from its carried value.
+# DIVIDEND_CARRY_EPOCH: gen 27 gate at epoch 340; 0 from gen 28 — deleted after the betanet-9 reroll, the rule holds from
+# epoch 0.
 # NO FREE REPEATABLE TRANSACTIONS (2026-09-27, operator: "make sure it is not exploitable in the future (no fees empty
 # address spam)"). Measured on betanet-8 before the gate (audit + probes, doc/security-review-2026-09-27.md §"Free
 # transactions"): tpm_ready carried no fee rule and no uniqueness key, so a never-funded address could land any number of
@@ -2186,7 +2187,7 @@ SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall 
 # bond (10 NADO) justified any root it liked, and dividend_withdraw / unshield / bridge_withdraw proven against that root
 # paid DIVIDEND_POOL, SHIELD_ESCROW and BRIDGE_ESCROW out to it. At a reroll every settler starts from zero at once,
 # so the gap opens at block 1 (on betanet-8 the honest settlers' first attestations landed in block 12).
-# From this height a quorum-justified root ALSO needs its attesting shares to exceed SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN
+# So a quorum-justified root ALSO needs its attesting shares to exceed SETTLE_FLOOR_NUM/SETTLE_FLOOR_DEN
 # of ALL bonded shares — a quantity going silent cannot shrink (only unbonding moves it). Validity-proven roots are
 # untouched: they need no quorum.
 # THE FRACTION IS MEASURED, NOT CHOSEN (2026-09-28, live betanet-8 at tip 27777): 67 bonded validators, 952 shares, and
@@ -2196,12 +2197,11 @@ SETTLE_ANCHOR_LONG_CURSORS = 100_800               # ~7 days of blocks: a stall 
 # exit on the live chain — the alphanet failure the inactivity leak was built to end. A freeze returns if non-settling
 # bonded stake grows past 16x the settling stake (~2.1x today) without a settler joining: WATCH THAT RATIO at a reroll.
 # Counting DISTINCT settlers was rejected: a second 10-NADO key costs nothing (per-key rules are void); stake is the
-# only dial an attacker cannot split around. Judged on the settled cursor: a block carrying cursor c has height >=
-# max(c, 1) (a settle never exceeds its block height and block 0 carries no txs), so max(cursor, 1) >= gate is "every
-# attestation that could only have landed from the gate on" — and on a fresh chain (gate 1) it covers cursor 0 too.
+# only dial an attacker cannot split around. The floor covers every settled cursor, cursor 0 included.
 # INVARIANT: every exit path reads the settled root through settlement_ops.settlement_justified; never add one that
-# reads attestations directly, or it skips this floor. Dormant (2^62) on gen 27; live from block 1 at the reroll.
-SETTLE_STAKE_FLOOR_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# reads attestations directly, or it skips this floor.
+# SETTLE_STAKE_FLOOR_HEIGHT: gen 27 gate at 2^62 (never on gen 27); 1 from gen 28 — deleted after the betanet-9 reroll.
+# It was judged at max(cursor, 1), which is >= 1 for every cursor, so the floor is unconditional.
 SETTLE_FLOOR_NUM = 1
 SETTLE_FLOOR_DEN = 16
 
@@ -2329,9 +2329,9 @@ ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 # half-applies a block. With no bound that retry was forever: one MIN_TX_FEE blob {op: field_transfer, proof_da: <a
 # commitment nobody holds>} froze the exec cursor on every exec node for good (every game, asset and exit with it), and
 # so did an honest proof evicted from every DaStore (DA_RETAIN) before a lagging node fetched it. Reproduced in
-# tests/test_exec_never_stalls_on_unheld_proof.py. From this height a DA-carried op in block h whose proof this node
-# still cannot resolve once L1 finality has reached h + EXEC_DA_WAIT_BLOCKS is REFUSED (never dispatched, nothing moves)
-# and the rest of the block applies; before that point the block stalls exactly as it always did.
+# tests/test_exec_never_stalls_on_unheld_proof.py. Now a DA-carried op in block h >= 1 whose proof this node still
+# cannot resolve once L1 finality has reached h + EXEC_DA_WAIT_BLOCKS is REFUSED (never dispatched, nothing moves) and
+# the rest of the block applies; before that point the block stalls exactly as it always did.
 #   WHAT IS AND IS NOT A PURE FUNCTION. The deadline — WHEN the node stops waiting — is (h, finalized height), agreed
 #   data, never a wall clock. The verdict at the deadline is "held or not", and availability is NOT agreed data
 #   (doc/privacy.md "availability-halt griefing"): a proof nobody holds is refused identically everywhere (the attack),
@@ -2341,9 +2341,10 @@ ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 #   which the root pool reports (CRITICAL "EXEC ROOT OUT OF MAJORITY"). The sound end state makes availability an
 #   on-chain fact (an attestation quorum the deadline reads); until then this trades a free, permanent, fleet-wide freeze
 #   for a bounded lag (<= EXEC_DA_WAIT_BLOCKS behind finality while under attack). Exec-layer consensus (it moves the exec
-#   state root the settle quorum signs), so it waits for the exec fleet to run the release; then a height ahead of the
-#   exec fleet's adoption (rule 3). An exec node on older code keeps stalling where this one refuses.
-EXEC_DA_DEADLINE_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1   # activated 2026-09-27 (operator: "should you? yes.")
+#   state root the settle quorum signs).
+# EXEC_DA_DEADLINE_HEIGHT: gen 27 gate at 29000 (activated 2026-09-27, operator: "should you? yes."); 1 from gen 28 —
+# deleted after the betanet-9 reroll. `>= 1` survives in execnode._da_deadline_passed: the exec node applies genesis
+# (h = 0) from cursor -1, which was below the gate.
 # ~9.6 min at 6.4 s. The tail first reaches block h at finality (~FINALITY_DEPTH = 45 behind the tip) and the provisional
 # tail has already tried the fetch before that, so an honest proof has been retried for well over five minutes when the
 # deadline falls. A literal, not 2 * FINALITY_DEPTH: tuning finality must never silently move an exec verdict.
@@ -2382,16 +2383,16 @@ CERT_NOT_BEFORE_GRACE = 86400           # a certificate may be up to a day "earl
 #   * a reroll that reuses the genesis (gens 7-9 reused alphanet-8's; gens 26 and 27 share CHAIN_ID and
 #     GENESIS_TIMESTAMP) makes every block-1 winner's honest old-generation signature and its honest new one a valid
 #     "equivocation" at the same parent: anyone holding the old block can burn the bond.
-# FROM THIS HEIGHT the signed message is blake2b(DOMAIN_BLOCKSIG, CHAIN_GENERATION, genesis hash, height, parent_hash,
-# block_hash) (block_ops._block_sig_message_fields), so a signature made for any other generation or genesis does not
-# verify here at all — neither as a block signature nor as slash evidence — and evidence below this height is refused
-# once the rule is live. Bound to the GENERATION and the genesis hash, never to the CHAIN_ID label: those two are fixed
+# The signed message is blake2b(DOMAIN_BLOCKSIG, CHAIN_GENERATION, genesis hash, height, parent_hash, block_hash)
+# (block_ops._block_sig_message_fields), so a signature made for any other generation or genesis does not verify here
+# at all — neither as a block signature nor as slash evidence — and evidence for height 0 is refused when judged at a
+# block. Bound to the GENERATION and the genesis hash, never to the CHAIN_ID label: those two are fixed
 # for a chain's whole life (a different value is a different chain and purges), while a CHAIN_ID rename must never
 # change a signature's bytes (tests/test_genesis_sync_invariant: the relaunch-3 -> alphanet-1 rename wedged sync).
 # The signature is DETACHED (outside the block hash), so block hashes, fork choice and the state root are unchanged;
-# what moves is which signature bytes verify_block_signature accepts. Dormant on gen 27 (its signatures and every slash
-# replay byte-identically); live from block 1 on the next chain, where every node runs this code from genesis.
-BLOCK_SIG_CHAIN_BIND_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# what moves is which signature bytes verify_block_signature accepts.
+# BLOCK_SIG_CHAIN_BIND_HEIGHT: gen 27 gate at 2^62 (never on gen 27); 1 from gen 28 — deleted after the betanet-9 reroll.
+# The chain-less form survives only below height 1 (block 0 has no winner signature), so no verdict moved.
 
 
 def ek_roots_at(height) -> frozenset:

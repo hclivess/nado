@@ -2625,7 +2625,7 @@ PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if thi
 # ONE TABLE, not two branches, because the all-or-nothing stall in _apply_block is what keeps every node
 # applying the identical bundle: a per-op difference there is a fork. Adding an op here is all it takes to
 # give it those semantics — INCLUDING the bounded wait (_da_deadline_passed): an op added here can never stall
-# the tail past EXEC_DA_DEADLINE_HEIGHT's rule, so never give one its own resolver that waits unboundedly.
+# the tail past the exec DA deadline, so never give one its own resolver that waits unboundedly.
 _DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
 
 
@@ -2650,15 +2650,17 @@ _DA_MISS_SINCE = {}          # commitment -> time.monotonic() of this node's fir
 
 def _da_deadline_passed(h, finalized):
     """True when a DA-carried op in block h whose proof this node cannot resolve is REFUSED instead of stalling the
-    block: from protocol.EXEC_DA_DEADLINE_HEIGHT, once L1 finality has reached h + EXEC_DA_WAIT_BLOCKS (audit
-    2026-09-25, HIGH "exec stall" — see the protocol comment for what is and is not a pure function here).
+    block: for h >= 1, once L1 finality has reached h + protocol.EXEC_DA_WAIT_BLOCKS (audit 2026-09-25, HIGH "exec
+    stall" — see the protocol comment for what is and is not a pure function here).
 
     A function of (h, finalized) only — block heights, never a wall clock — so every exec node stops waiting at the
     same point of the L1 chain. `finalized` is None on the PROVISIONAL tail: a speculative view never refuses (it is
     rebuilt from the finalized state every poll and must not run ahead of the finalized verdict).
-    Read from protocol at call time, so a test can move the gate."""
+    Read from protocol at call time, so a test can move the wait."""
     import protocol as _p
-    if finalized is None or int(h) < int(_p.EXEC_DA_DEADLINE_HEIGHT):
+    # `< 1`: gen 27's EXEC_DA_DEADLINE_HEIGHT, 1 from gen 28 (deleted). The exec node applies genesis (h = 0) from
+    # cursor -1, which was below that gate, and keeps the stall it always had there.
+    if finalized is None or int(h) < 1:
         return False
     return int(finalized) >= int(h) + int(_p.EXEC_DA_WAIT_BLOCKS)
 

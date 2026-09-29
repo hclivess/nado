@@ -187,5 +187,6 @@ paid out: from a per-block jackpot to a fidelity-weighted, off-L1, withdraw-when
 - The files are read once, the same way `genesis.py` resolves them (`dividend_ops.carried_identities`).
 - Committed epochs before 340 stay as they were; making the underpaid identities whole is a separate decision for the operator.
 - Test: `tests/test_dividend_carried_identities.py`.
+- Since gen 28 (betanet-9) the gate is deleted and the rule holds from epoch 0.
 
 **For every future reroll:** a carried identity must not be marked like an unattested seed. The carry names the present set, and both the dividend rule and the fidelity replay must read it.

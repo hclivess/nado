@@ -257,7 +257,7 @@ The property that table protects is **all-or-nothing**: `_apply_block` resolves 
 block BEFORE mutating anything, and an unavailable proof stalls the block in L1 order rather than
 half-applying it. Every honest node fetches the identical bundle by commitment, so all of them apply the
 same thing or none of it. A per-op difference there would be a fork, which is precisely why there is one
-table and not two branches. The stall is bounded from `EXEC_DA_DEADLINE_HEIGHT` (audit 2026-09-25): past
+table and not two branches. The stall is bounded (audit 2026-09-25; `EXEC_DA_DEADLINE_HEIGHT` on gen 27, unconditional from gen 28): past
 finality at the op's block + `EXEC_DA_WAIT_BLOCKS` an op whose proof is still unavailable is refused whole and
 the rest of the block applies — the trade this makes is spelled out in [privacy.md](privacy.md).
 

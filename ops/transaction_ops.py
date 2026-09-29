@@ -2688,7 +2688,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # WINDOWED like dividend_withdraw (same bug class): an exit proven against the newest root died
         # at the next settle; the (ns, addr, nonce) nullifier still guarantees at-most-once release.
         # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_STAKE_FLOOR_HEIGHT) is what stops one fresh 10-NADO bond settling a made-up root and
+        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
         # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
         from ops.settlement_ops import recent_settled_roots
         _window = recent_settled_roots(ns, k=3)
@@ -2704,7 +2704,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # exit releases nothing. Even a captured namespace can only reclaim its own deposits. Independent of
         # the (attacker-influenced) settled root, so it holds regardless of quorum capture. It does NOT cover the
         # DEFAULT namespace, which holds every deposit (and which dividend_withdraw / unshield always read): there
-        # the stake floor in settlement_justified (SETTLE_STAKE_FLOOR_HEIGHT, lone-settler drain) is the guard.
+        # the stake floor in settlement_justified (SETTLE_FLOOR_NUM/DEN, lone-settler drain) is the guard.
         assert kv_ops.bridge_escrow_ns(ns) >= amount, "namespace bridge escrow underfunded"
     elif recipient == "xmsg":
         # CROSS-ROLLUP MESSAGE DELIVERY: verify the outbox message is committed in from_ns's SETTLED root,
@@ -2736,7 +2736,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # WINDOWED like dividend/bridge claims (same bug class); the (from_ns, seq) nullifier still
         # guarantees at-most-once delivery.
         # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_STAKE_FLOOR_HEIGHT) is what stops one fresh 10-NADO bond settling a made-up root and
+        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
         # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
         from ops.settlement_ops import recent_settled_roots
         _window = recent_settled_roots(from_ns, k=3)
@@ -2766,7 +2766,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # NULLIFIER below still guarantees at-most-once payout. Deterministic: the window is a pure
         # read of on-chain attestations (see settlement_ops.recent_settled_roots).
         # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_STAKE_FLOOR_HEIGHT) is what stops one fresh 10-NADO bond settling a made-up root and
+        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
         # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
         from ops.settlement_ops import recent_settled_roots
         _window = recent_settled_roots(k=3)
@@ -2908,7 +2908,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # WINDOWED like the other settlement-proven claims (same bug class); the (addr, nonce)
         # nullifier still guarantees at-most-once release.
         # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_STAKE_FLOOR_HEIGHT) is what stops one fresh 10-NADO bond settling a made-up root and
+        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
         # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
         from ops.settlement_ops import recent_settled_roots
         _window = recent_settled_roots(k=3)

@@ -58,13 +58,14 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     `epoch` (uncapped — dividend_weight() applies the FIDELITY_CAP saturation, matching the live path)."""
     fid = 0
     prev = -1
-    from protocol import DIVIDEND_CARRY_EPOCH
-    carried = carried_identities() if epoch >= DIVIDEND_CARRY_EPOCH else {}
+    # Every epoch: gen 27's DIVIDEND_CARRY_EPOCH was 0 from gen 28 (deleted). A negative epoch holds no recert, so the
+    # loop below never reads the carry there.
+    carried = carried_identities()
     for r in kv_ops.recert_epochs(address, upto_epoch=epoch):    # ascending, only recerts <= epoch
         if r == 0 and address in carried:
-            # THE CARRY'S LEASE (DIVIDEND_CARRY_EPOCH): the epoch-0 recert of a carried identity continues its previous
-            # generation — its fidelity starts at the carried value, exactly as the live apply continued from the
-            # carried account field. Replaying it as a fresh first recert reset every carried veteran to a newcomer.
+            # THE CARRY'S LEASE (our reroll commit 302215f2): the epoch-0 recert of a carried identity continues its
+            # previous generation — its fidelity starts at the carried value, exactly as the live apply continued from
+            # the carried account field. Replaying it as a fresh first recert reset every carried veteran to a newcomer.
             fid, prev = int(carried[address]), 0
             continue
         # continuity by the PREVIOUS recert's own grant (kv_ops.lease_of; pre-gate recerts read POSW_LEASE_EPOCHS) —
@@ -113,10 +114,10 @@ def weights_at_epoch(epoch: int) -> dict:
         # present address has a recert <= epoch, so `epoch >= 0` always held here.
         recs = kv_ops.recert_epochs(addr, upto_epoch=epoch)
         if not recs or recs[-1] <= 0:
-            # ...EXCEPT AN IDENTITY THE CARRY NAMED AS PRESENT (DIVIDEND_CARRY_EPOCH): it attested on the previous chain
-            # and was leased at epoch 0 for exactly that reason; the exclusion is for genesis seeds that never did.
-            from protocol import DIVIDEND_CARRY_EPOCH
-            if not (recs and recs[-1] == 0 and epoch >= DIVIDEND_CARRY_EPOCH and addr in carried_identities()):
+            # ...EXCEPT AN IDENTITY THE CARRY NAMED AS PRESENT (our reroll commit 302215f2): it attested on the previous
+            # chain and was leased at epoch 0 for exactly that reason; the exclusion is for genesis seeds that never did.
+            # Every epoch: gen 27's DIVIDEND_CARRY_EPOCH was 0 from gen 28 (deleted), and `recs[-1] == 0` means epoch >= 0.
+            if not (recs and recs[-1] == 0 and addr in carried_identities()):
                 continue
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
         if w > 0:
