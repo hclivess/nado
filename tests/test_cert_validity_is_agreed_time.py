@@ -1,5 +1,5 @@
 """Certificate validity is judged at an AGREED time: two nodes holding the same anchor block with different
-block_timestamps reach the same verdict (protocol.CERT_CLOCK_HEIGHT, audit 2026-09-25 HIGH).
+block_timestamps reach the same verdict (protocol.py "CERTIFICATE VALIDITY READS AGREED TIME", audit 2026-09-25 HIGH).
 
 block_timestamp is outside the block-hash preimage and, under leaderless assembly, every node stamps its own copy of
 every block — measured on eight fleet nodes 2026-09-27: one hash per block, timestamps up to 12 s apart — and nothing
@@ -8,18 +8,19 @@ read the anchor block's block_timestamp, so a certificate whose validity edge fe
 on one and not the other: a fork.
 
 The statement here is a real apple-format attestation over an openssl chain whose leaf is issued NOW (the test root is
-pinned for the run), verified by the real native kernel. Pins:
-  * below the gate (the live gen-27 rule, unchanged): the two honest nodes 12 s apart DISAGREE about the same register
-    tx, and a node fed a block stamped 0 disagrees with both — the finding reproduced;
-  * from the gate: every node — the two honest ones and the re-stamped one — reaches the same verdict, judged at
+pinned for the run), verified by the real native kernel. (Betanet-8 judged by the anchor stamp below block 29000; the
+gate, CERT_CLOCK_HEIGHT, was 1 on betanet-9 and is deleted with that clock, so the test half that reproduced the
+disagreement under the old clock went with it.) Pins:
+  * every node — two honest ones 12 s apart and one fed a block re-stamped to 0 — reaches the same verdict, judged at
     agreed_time(anchor): the median of the committee's own duty-tx clocks in committed blocks;
   * a certificate issued AFTER agreed time (agreed time lags ~30 min) is accepted through CERT_NOT_BEFORE_GRACE on every
     node, and an EXPIRED one is refused on every node — the grace never reaches expiry;
   * agreed_time: one sample per sender (its latest), the median (a minority of liars cannot move it out of the honest
     range), junk timestamps ignored, too few senders -> chain_clock, a missing block DEFERS (WindowUnavailable), and the
     cache follows a reorg of the window;
-  * the tpm_enrol clock (validation) and its apply (account_ops) read the same value from the gate;
-  * the gate is live on gen 27 (29000) and 1 at the next reroll.
+  * the tpm_enrol clock (validation) and its apply (account_ops) read the same value;
+  * no stored block field is read: at height 0 the clock is chain_clock(0) = GENESIS_TIMESTAMP (genesis's own stamp)
+    with no block held at all.
 Run: python3 tests/test_cert_validity_is_agreed_time.py
 """
 import os
@@ -54,10 +55,6 @@ def check(name, ok, detail=""):
 SENDER = "ab" * 23
 ANCHOR_HASH = "11" * 32                  # ONE block hash every node agrees on; only the uncommitted stamp differs
 OFF = P.POSW_ANCHOR_OFFSET
-LIVE_GATE = P.CERT_CLOCK_HEIGHT
-# gen 27's shipped gate: the "below the gate" checks reproduce the historical rule at real gen-27 heights, and must keep
-# doing so for anyone replaying that history once the tree runs gen 28 (where the gate is 1 and nothing is below it)
-GEN27_GATE = 29000
 b64 = lambda b: base64.b64encode(b).decode()
 
 
@@ -121,111 +118,81 @@ def use(lookup):
 
 
 def main():
-    src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("the gate was LIVE on gen 27 at a height ahead of the fleet's adoption, and is live from block 1 after",
-          "CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1" in src
-          and LIVE_GATE == (29000 if P.CHAIN_GENERATION == 27 else 1), LIVE_GATE)
-    P.CERT_CLOCK_HEIGHT = GEN27_GATE
+    check("the gate is gone: the clock is agreed time at every height", not hasattr(P, "CERT_CLOCK_HEIGHT"))
+    h = 30000
+    ANCHOR_N[0] = h - OFF
+    lo, hi = T.agreed_time_window(ANCHOR_N[0])
+    tx, t_lo, t_hi = statement(h)
 
-    # ---- BEFORE: the live rule, at a real gen-27 height below the gate ---------------------------------------------
-    H = 24886
-    tx, t_lo, t_hi = statement(H)
-    before = {name: verdict(tx, lk) for name, lk in nodes(t_lo, t_hi).items() if name != "pruned"}
-    for k, v in before.items():
-        print(f"      below the gate  {k:14} {v}")
-    check("below the gate two honest nodes DISAGREE about one register tx (the finding, reproduced)",
-          before["honest_early"] != before["honest_late"]
-          and "outside validity" in before["honest_early"] and before["honest_late"] == "accepted:apple", before)
-    check("below the gate a same-hash block re-stamped to 0 by a peer flips the verdict",
-          before["restamped_0"] != before["honest_late"], before)
+    def window(med, liars=()):
+        """11 honest senders around `med` (one duty each, some twice), plus liars with absurd clocks."""
+        txs = {}
+        for i in range(11):
+            txs.setdefault(lo + i, []).append(duty(f"v{i:02d}", med - 300 + i * 60))
+            if i % 3 == 0:                                 # an earlier duty of the same sender: only its latest counts
+                txs.setdefault(lo + 60 + i, []).append(duty(f"v{i:02d}", med - 5000))
+        for j, ts in enumerate(liars):
+            txs.setdefault(lo + 100 + j, []).append(duty(f"liar{j}", ts))
+        return txs
 
-    # ---- AFTER: the gate in force --------------------------------------------------------------------------------
-    P.CERT_CLOCK_HEIGHT = 1
+    def all_nodes(txs):
+        out = {}
+        for name, ts in (("honest_early", t_lo - 6), ("honest_late", t_hi + 6), ("restamped_0", 0)):
+            use(chain_view(ts, txs))
+            out[name] = verdict(tx, T.get_block_number)
+        return out
+
+    after = all_nodes(window(t_hi + 60))
+    for k, v in after.items():
+        print(f"      agreed clock    {k:14} {v}")
+    check("every node reaches ONE verdict (honest skew, a block a peer re-stamped to 0)",
+          len(set(after.values())) == 1 and after["honest_early"] == "accepted:apple", after)
+
+    lagging = all_nodes(window(t_lo - 3600))
+    check("a certificate issued an hour AFTER agreed time is accepted on every node (the notBefore grace)",
+          len(set(lagging.values())) == 1 and lagging["honest_late"] == "accepted:apple", lagging)
+    future = all_nodes(window(t_hi + 40 * 365 * 86400))
+    check("an EXPIRED certificate is refused on every node — the grace never reaches expiry",
+          len(set(future.values())) == 1 and "outside validity" in future["honest_late"], future)
+
+    # agreed_time itself
+    med = 1_790_000_000
+    use(chain_view(0, window(med)))
+    honest = sorted(med - 300 + i * 60 for i in range(11))
+    check("agreed time is the median of distinct senders' LATEST duty clocks",
+          T.agreed_time(ANCHOR_N[0]) == honest[5], (T.agreed_time(ANCHOR_N[0]), honest[5]))
+    use(chain_view(0, window(med, liars=[med + 10 ** 7] * 5)))
+    t5 = T.agreed_time(ANCHOR_N[0])
+    check("five liars far in the future (a minority of 16) cannot move it outside the honest range",
+          honest[0] <= t5 <= honest[-1], t5)
+    use(chain_view(0, window(med, liars=[True, 1.5, "x", 5, 2 ** 50])))
+    check("junk timestamps (bool, float, string, pre-2020, far future) are ignored",
+          T.agreed_time(ANCHOR_N[0]) == honest[5])
+    use(chain_view(0, {lo: [duty("a", med), duty("b", med)]}))
+    check("fewer than CERT_CLOCK_MIN_SAMPLES senders falls back to chain_clock (agreed as well)",
+          T.agreed_time(ANCHOR_N[0]) == P.chain_clock(hi))
+    use(lambda n: None)
     try:
-        h = 30000
-        ANCHOR_N[0] = h - OFF
-        lo, hi = T.agreed_time_window(ANCHOR_N[0])
-        tx, t_lo, t_hi = statement(h)
+        T.agreed_time(ANCHOR_N[0])
+        check("a missing window block DEFERS (WindowUnavailable), never guesses", False)
+    except T.WindowUnavailable:
+        check("a missing window block DEFERS (WindowUnavailable), never guesses", True)
+    use(chain_view(0, window(med)))
+    first = T.agreed_time(ANCHOR_N[0])
+    T.get_block_number = chain_view(0, window(med + 999))
+    WIN_HASH[0] = "33" * 32                                   # a reorg rewrote the window: its last hash changed
+    check("the cache follows a reorg of the window (keyed on its last block hash)",
+          T.agreed_time(ANCHOR_N[0]) != first)
 
-        def window(med, liars=()):
-            """11 honest senders around `med` (one duty each, some twice), plus liars with absurd clocks."""
-            txs = {}
-            for i in range(11):
-                txs.setdefault(lo + i, []).append(duty(f"v{i:02d}", med - 300 + i * 60))
-                if i % 3 == 0:                                 # an earlier duty of the same sender: only its latest counts
-                    txs.setdefault(lo + 60 + i, []).append(duty(f"v{i:02d}", med - 5000))
-            for j, ts in enumerate(liars):
-                txs.setdefault(lo + 100 + j, []).append(duty(f"liar{j}", ts))
-            return txs
+    # the tpm_enrol clock: validation (_anchor_time) and apply (account_ops) agree
+    use(chain_view(0, window(med)))
+    got_v, got_a = T._anchor_time({}, h), A._tpm_anchor_time(h)
+    check("tpm_enrol validation and apply read the same agreed clock", got_v == got_a == honest[5], (got_v, got_a))
 
-        def all_nodes(txs):
-            out = {}
-            for name, ts in (("honest_early", t_lo - 6), ("honest_late", t_hi + 6), ("restamped_0", 0)):
-                use(chain_view(ts, txs))
-                out[name] = verdict(tx, T.get_block_number)
-            return out
-
-        after = all_nodes(window(t_hi + 60))
-        for k, v in after.items():
-            print(f"      from the gate   {k:14} {v}")
-        check("from the gate every node reaches ONE verdict (honest skew, a block a peer re-stamped to 0)",
-              len(set(after.values())) == 1 and after["honest_early"] == "accepted:apple", after)
-
-        lagging = all_nodes(window(t_lo - 3600))
-        check("a certificate issued an hour AFTER agreed time is accepted on every node (the notBefore grace)",
-              len(set(lagging.values())) == 1 and lagging["honest_late"] == "accepted:apple", lagging)
-        future = all_nodes(window(t_hi + 40 * 365 * 86400))
-        check("an EXPIRED certificate is refused on every node — the grace never reaches expiry",
-              len(set(future.values())) == 1 and "outside validity" in future["honest_late"], future)
-
-        # agreed_time itself
-        med = 1_790_000_000
-        use(chain_view(0, window(med)))
-        honest = sorted(med - 300 + i * 60 for i in range(11))
-        check("agreed time is the median of distinct senders' LATEST duty clocks",
-              T.agreed_time(ANCHOR_N[0]) == honest[5], (T.agreed_time(ANCHOR_N[0]), honest[5]))
-        use(chain_view(0, window(med, liars=[med + 10 ** 7] * 5)))
-        t5 = T.agreed_time(ANCHOR_N[0])
-        check("five liars far in the future (a minority of 16) cannot move it outside the honest range",
-              honest[0] <= t5 <= honest[-1], t5)
-        use(chain_view(0, window(med, liars=[True, 1.5, "x", 5, 2 ** 50])))
-        check("junk timestamps (bool, float, string, pre-2020, far future) are ignored",
-              T.agreed_time(ANCHOR_N[0]) == honest[5])
-        use(chain_view(0, {lo: [duty("a", med), duty("b", med)]}))
-        check("fewer than CERT_CLOCK_MIN_SAMPLES senders falls back to chain_clock (agreed as well)",
-              T.agreed_time(ANCHOR_N[0]) == P.chain_clock(hi))
-        use(lambda n: None)
-        try:
-            T.agreed_time(ANCHOR_N[0])
-            check("a missing window block DEFERS (WindowUnavailable), never guesses", False)
-        except T.WindowUnavailable:
-            check("a missing window block DEFERS (WindowUnavailable), never guesses", True)
-        use(chain_view(0, window(med)))
-        first = T.agreed_time(ANCHOR_N[0])
-        T.get_block_number = chain_view(0, window(med + 999))
-        WIN_HASH[0] = "33" * 32                                   # a reorg rewrote the window: its last hash changed
-        check("the cache follows a reorg of the window (keyed on its last block hash)",
-              T.agreed_time(ANCHOR_N[0]) != first)
-
-        # the tpm_enrol clock: validation (_anchor_time) and apply (account_ops) agree
-        use(chain_view(0, window(med)))
-        got_v, got_a = T._anchor_time({}, h), A._tpm_anchor_time(h)
-        check("tpm_enrol validation and apply read the same agreed clock", got_v == got_a == honest[5], (got_v, got_a))
-    finally:
-        P.CERT_CLOCK_HEIGHT = LIVE_GATE
-
-    # below the gate the historical rule stays byte for byte (replay of the live chain keeps every verdict)
-    P.CERT_CLOCK_HEIGHT = GEN27_GATE
-    T.get_block_number = lambda n: {"block_number": n, "block_hash": ANCHOR_HASH, "block_timestamp": 1_790_400_000}
-    check("below the gate the clock is still the stored anchor stamp (replay unchanged)",
-          T._anchor_time({}, 5000) == 1_790_400_000)
-    T.get_block_number = lambda n: None
-    try:
-        T._anchor_time({}, 5000)
-        check("below the gate a missing anchor block is still refused", False)
-    except AssertionError:
-        check("below the gate a missing anchor block is still refused", True)
-    P.CERT_CLOCK_HEIGHT = LIVE_GATE
+    # no stored field is read, even where no block exists: height 0 reads chain_clock(0), genesis's own stamp
+    use(lambda n: None)
+    check("at height 0 the clock is GENESIS_TIMESTAMP with no block held (no block_timestamp is ever read)",
+          T._anchor_time({}, 0) == P.chain_clock(0) == P.GENESIS_TIMESTAMP)
 
     print(f"\n{'ALL PASS' if not fails else f'{len(fails)} FAILED'}")
     return 1 if fails else 0

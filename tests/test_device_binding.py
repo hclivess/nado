@@ -170,11 +170,9 @@ def t_strict_binding():
     tx_at = {"recipient": "register", "sender": "a" * 46, "max_block": 1, "device": {"att": v["att"]}}
     tx_before = {**tx_at, "max_block": 0}
     keys_at, keys_before = TO.reserved_uniqueness_keys(tx_at), TO.reserved_uniqueness_keys(tx_before)
-    # GEN-28 REHEARSAL: the block key is the one validation and apply derive AT THAT HEIGHT. DEVICE_BIND_CANONICAL_HEIGHT
-    # is 19800 on gen 27 (block 1 keys on the raw certificate, = real_key) and 1 on gen 28 (block 1 keys on the certificate's
-    # signed part), so the expected key follows the gate instead of assuming the raw-bytes form.
-    key_at_1 = device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS, strict=True,
-                                  canonical=1 >= P.DEVICE_BIND_CANONICAL_HEIGHT)
+    # the block key is the one validation and apply derive: the certificate's signed part from block 1 (gen 27's
+    # DEVICE_BIND_CANONICAL_HEIGHT, 1 from gen 28, deleted)
+    key_at_1 = device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS, strict=True, canonical=True)
     check("in-block uniqueness: a register from block 1 occupies ('devbind', key)", ("devbind", key_at_1) in keys_at and ("register", "a" * 46) in keys_at, keys_at)
     check("a max_block of 0 keeps only the per-sender key (as below the deleted gate)", keys_before == [("register", "a" * 46)], keys_before)
     tx_b = {**tx_at, "sender": "b" * 46}
@@ -183,7 +181,7 @@ def t_strict_binding():
     except ValueError as e:
         check("two senders, one device, one block -> refused", "devbind" in str(e), e)
     src = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
-    check("apply parses with the same strictness as validation", "strict=True, canonical=_canon)   # same parse as validation" in src)
+    check("apply parses with the same strictness as validation", "strict=True, canonical=True)   # same parse as validation" in src)
 
 
 def t_binding_modes():

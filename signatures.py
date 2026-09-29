@@ -62,7 +62,7 @@ def unhex(hexed):
     # LENIENT BY DESIGN, NOT A SPELLING CHECK (audit 2026-09-25 "sig/pubkey hex re-encoding"): fromhex takes uppercase,
     # mixed case and whitespace, so many strings decode to one key or signature. A transaction's signature/public_key
     # are outside its txid, so that freedom let a relayer re-encode a tx without changing its id; consensus pins their
-    # spelling in ops/transaction_ops.excluded_witness_check (protocol.TX_HEX_CANONICAL_HEIGHT). INVARIANT: a new
+    # spelling in ops/transaction_ops.excluded_witness_check (protocol.py "ONE TRANSACTION, ONE BYTE STRING"). INVARIANT: a new
     # consensus path that decodes a txid-excluded hex field must run behind that check, never rely on this decoder.
     return b"".fromhex(hexed)
 

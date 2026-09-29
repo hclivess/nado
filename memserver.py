@@ -996,8 +996,8 @@ class MemServer:
         # legacy_claim JOINED IT (gen 28): the claimant's format-2 address holds nothing until the claim lands, and the
         # claim is bounded by consensus — one per old address, only an unkeyed old address with a balance, consumed.
         # tpm_ready LEFT THIS LIST (audit 2026-09-27): an announcement from a never-funded address was the one free,
-        # unbounded, account-creating message on the chain (protocol.SPAM_HARDEN_HEIGHT). Its honest sender is a node
-        # that already holds an account, and from the gate a bonded one. NOTE: this check is mempool policy only —
+        # unbounded, account-creating message on the chain (protocol.py "NO FREE REPEATABLE TRANSACTIONS"). Its honest
+        # sender is a node that already holds an account, and a bonded one. NOTE: this check is mempool policy only —
         # consensus never runs it — so it is never the bound that makes a kind safe; validate_transaction is.
         elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
                                                   "tpm_challenge", "tpm_commit", "tpm_reveal", "legacy_claim") \
@@ -1023,7 +1023,7 @@ class MemServer:
             # thread can have added this txid since that fast path ran.
             # NOT THE CONVERSE: one txid is not one body — the signature/public_key are outside the txid, so a second
             # spelling of a pooled tx lands here as "Already present" and the first-seen copy stays, on each node its
-            # own (audit 2026-09-25; TX_HEX_CANONICAL_HEIGHT pins the hex spelling, the "KNOWN OPEN" variants remain).
+            # own (audit 2026-09-25; excluded_witness_check pins the hex spelling, the "KNOWN OPEN" variants remain).
             if transaction.get("txid") in self._pool_txid_set():
                 # Idempotent: already pooled (e.g. a re-gossiped heartbeat) — a benign success, not an
                 # error (matches the "already present" handling clients now expect).

@@ -1,4 +1,6 @@
-"""One device backs one identity — even when its certificate is sent with junk after it (DEVICE_BIND_CANONICAL_HEIGHT).
+"""One device backs one identity — even when its certificate is sent with junk after it (protocol.py "ONE DEVICE, ONE
+IDENTITY — FOR REAL"; betanet-8 from block 19800, betanet-9 from block 1 — the gate, DEVICE_BIND_CANONICAL_HEIGHT, is
+deleted, but the raw-bytes key is not: devbind rows written under it on betanet-8 were carried into betanet-9).
 
 THE HOLE (audit 2026-09-25, fixed 2026-09-27). The binding key was sha256(raw certificate bytes), while the native
 kernel parses the DER and ignores anything after it. So the same chip's certificate with different trailing junk verified
@@ -6,13 +8,14 @@ every time and hashed to a new key every time: one device, unlimited identities.
 registration existed on betanet-8.)
 
 Pins, on the real Android vector's per-device certificate:
-  1. below the gate the key is exactly the old raw-bytes key (replay unchanged) — and junk changes it (the hole);
-  2. from the gate the key is the certificate's SIGNED part: a certificate with trailing bytes is refused, and an outer
+  1. the raw-bytes form (canonical=False) is exactly the old key, which a carried row is found by — and junk changes it
+     (the hole);
+  2. the consensus key is the certificate's SIGNED part: a certificate with trailing bytes is refused, and an outer
      re-encoding (long-form length) that the signature does not cover yields the SAME key;
-  3. the switch-over: a device bound BEFORE the gate (raw-bytes row) that registers for another identity after it
-     evicts the identity its old row backs — the switch hands no device a second identity — and a rollback restores the
-     old row, its mode and the eviction list exactly;
-  4. validation, the one-device-per-block key and apply all derive the key at the same height with the same flag.
+  3. the switch-over: a device bound under its raw-bytes key (a carried betanet-8 row) that registers for another
+     identity evicts the identity its old row backs — the switch hands no device a second identity — and a rollback
+     restores the old row, its mode and the eviction list exactly;
+  4. validation, the one-device-per-block key and apply all derive the canonical key, and apply passes the legacy key.
 
 Run: python3 tests/test_one_device_one_identity.py
 """
@@ -86,12 +89,13 @@ reenc = bytes([0x30, 0x84]) + n.to_bytes(4, "big") + cert[h:]
 
 key = lambda c, canon: DA.device_binding_key(statement(c), MAXS, strict=True, canonical=canon)
 k0 = key(cert, False)
-check("below the gate the key is the raw-bytes key, exactly as before", k0 == DA.device_binding_key({"att": v["att"]}, MAXS))
+check("the raw-bytes form is the old key, exactly as before (what a carried row is keyed by)",
+      k0 == DA.device_binding_key({"att": v["att"]}, MAXS))
 check("...and junk after the certificate gives a NEW key (the hole: one device, many identities)",
       len({key(cert, False), key(junk1, False), key(junk2, False)}) == 3)
 
 kc = key(cert, True)
-check("from the gate the key is the certificate's SIGNED part", kc == "android-key:" + __import__("hashlib").sha256(DA.cert_signed_part(cert)).hexdigest())
+check("the consensus key is the certificate's SIGNED part", kc == "android-key:" + __import__("hashlib").sha256(DA.cert_signed_part(cert)).hexdigest())
 check("a certificate with trailing bytes is REFUSED", raises(lambda: key(junk1, True)) and raises(lambda: key(junk2, True)))
 check("an outer re-encoding the signature does not cover yields the SAME key", key(reenc, True) == kc)
 check("the canonical key is not the raw one (so the switch-over is needed)", kc != k0)
@@ -101,28 +105,29 @@ A, B = "a" * 46, "b" * 46
 E0, E1 = 10, 11
 with kv_ops.write_txn():
     pass
-apply_register(A, E0, logger, device_key=k0)                       # bound BEFORE the gate, under the raw-bytes key
-check("setup: the device's pre-gate row backs A", (kv_ops.devbind_get(k0) or [None])[0] == A)
+apply_register(A, E0, logger, device_key=k0)                       # a carried row, under the raw-bytes key
+check("setup: the device's raw-bytes row backs A", (kv_ops.devbind_get(k0) or [None])[0] == A)
 snapshot = (kv_ops.devbind_get(k0), kv_ops.devbind_get(kc), kv_ops.devevict_get(A))
-apply_register(B, E1, logger, device_key=kc, legacy_key=k0)        # the SAME device registers B after the gate
+apply_register(B, E1, logger, device_key=kc, legacy_key=k0)        # the SAME device registers B
 check("the device now backs B under its canonical key", (kv_ops.devbind_get(kc) or [None])[0] == B)
-check("its pre-gate row is gone, so A finds no row pointing back at it", kv_ops.devbind_get(k0) is None)
+check("its raw-bytes row is gone, so A finds no row pointing back at it", kv_ops.devbind_get(k0) is None)
 ev = kv_ops.devevict_get(A)
 check("A is EVICTED in this very block (the switch hands the device no second identity)",
       len(ev) == len(snapshot[2]) + 1 and ev[-1][0] == E1, ev)
 apply_register(B, E1, logger, revert=True, device_key=kc, legacy_key=k0)
-check("rollback restores the pre-gate row exactly", kv_ops.devbind_get(k0) == snapshot[0], (kv_ops.devbind_get(k0), snapshot[0]))
+check("rollback restores the raw-bytes row exactly", kv_ops.devbind_get(k0) == snapshot[0], (kv_ops.devbind_get(k0), snapshot[0]))
 check("...removes the canonical row", kv_ops.devbind_get(kc) == snapshot[1])
 check("...and A's eviction list", kv_ops.devevict_get(A) == snapshot[2])
 
-# --- one height, one flag, everywhere -------------------------------------------------------------------------------
+# --- one key, everywhere --------------------------------------------------------------------------------------------
 to = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
 ac = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
-check("validation keys canonically from the gate", "canonical=block_height >= DEVICE_BIND_CANONICAL_HEIGHT)" in to)
+check("validation keys canonically", "DEVICE_BIND_MAX_CERT_SECS, strict=True,\n                                              canonical=True)" in to)
 check("the one-device-per-block key too (register lands at max_block)",
-      "canonical=int(tx.get(\"max_block\", 0)) >= DEVICE_BIND_CANONICAL_HEIGHT)" in to)
-check("apply too, and passes the legacy key", "_canon = block_height >= DEVICE_BIND_CANONICAL_HEIGHT" in ac and "legacy_key=legacy_key)" in ac)
-check("the gate carries its reroll branch", P.DEVICE_BIND_CANONICAL_HEIGHT >= 1)
+      "tx.get(\"device\") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True, canonical=True)))" in to)
+check("apply too, and passes the legacy key",
+      "strict=True, canonical=True)   # same parse as validation" in ac and "legacy_key=legacy_key)" in ac)
+check("the gate is deleted", not hasattr(P, "DEVICE_BIND_CANONICAL_HEIGHT"))
 
 kv_ops.close_all()
 print("ALL PASS — one device backs one identity" if not fails else f"{fails} FAILURES")

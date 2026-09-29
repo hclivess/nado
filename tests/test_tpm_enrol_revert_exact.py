@@ -26,13 +26,11 @@ import sys, hashlib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(os.path.join(os.environ["HOME"], "nado", "index"), exist_ok=True)
 
-from ops import kv_ops, tpm_enrol as te, attest_native, account_ops
+from ops import kv_ops, tpm_enrol as te, attest_native, account_ops, transaction_ops, block_ops
 import protocol as _P
-# THE IMMEDIATE-DRAW REGIME, pinned at gen 27's gate: this test's heights (100..) and its challenge one block after the
-# open are the pre-TPM_DRAW_UNGRINDABLE_HEIGHT shape. On gen 28 the gate is 1 and challengers are drawn two epochs after
-# the open; that path's exact rollback (the materialising challenge) is pinned by tests/test_tpm_draw_is_not_grindable.py.
-# The marker journal this test is about is the same code in both regimes (gen-28 rehearsal).
-_P.TPM_DRAW_UNGRINDABLE_HEIGHT = max(_P.TPM_DRAW_UNGRINDABLE_HEIGHT, 28500)
+# COMMIT, THEN DRAW (the only draw since the betanet-9 cleanup deleted TPM_DRAW_UNGRINDABLE_HEIGHT and the enrol-time
+# draw): an enrolment is stored with NO challengers and its first challenge, from draw_opens(h) on, materialises the set.
+# The marker journal this test is about is the same code either way; the challenges below land at the draw epoch.
 from ops.account_ops import apply_tpm_enrol_tx
 from protocol import CHAIN_ID
 
@@ -55,13 +53,16 @@ attest_native.verify_ek = lambda chain, now, roots=None, height=None: {"ok": Tru
 attest_native.ek_public_der = lambda der: b"\x30\x03" + der[:3]
 A, B, C = "a" * 46, "b" * 46, "c" * 46
 account_ops._tpm_anchor_time = lambda h: 0
-account_ops._tpm_challengers_for = lambda eid, h: [A, B, C]
+# the pool as of the enrol block (it reads committed blocks this temp chain does not hold) and the draw epoch's beacon:
+# exactly k weighted members, so exact sampling seats all three
+assert _P.DEVICE_ATTEST_EK_CHALLENGERS == 3
+transaction_ops._tpm_pool = lambda h: {A: 1, B: 1, C: 1}
+block_ops.epoch_beacon = lambda epoch: "beacon-%d" % epoch
 
 CERT_X = b"chip-X-endorsement-certificate"
 X = _identity(CERT_X)
 AIK1, AIK2, AIK3, AIK4 = (b"\x00\x01aik-" + bytes([i]) for i in (1, 2, 3, 4))
 OWNER = "o" * 46
-W = te.enrol_window(1)
 
 
 def eid_of(aik):
@@ -102,14 +103,14 @@ def diff(a, b):
 
 EA, EB, E3, E4 = eid_of(AIK1), eid_of(AIK2), eid_of(AIK3), eid_of(AIK4)
 H1 = 100
-H2 = H1 + W          # A expired: B may open for the same chip
-H3 = H2 + W          # B expired: the chip re-publishes AIK1, superseding A's expired record under the SAME id
-H4 = H3 + W          # the re-opened A expired: two enrolments of X land in ONE block (each validates vs the parent)
+H2 = H1 + te.enrol_window(H1)    # A expired: B may open for the same chip
+H3 = H2 + te.enrol_window(H2)    # B expired: the chip re-publishes AIK1, superseding A's expired record under the SAME id
+H4 = H3 + te.enrol_window(H3)    # the re-opened A expired: two enrolments of X land in ONE block (each validates vs the parent)
 blocks = [
     ("open A for chip X", H1, [enrol(AIK1)]),
-    ("challenge A", H1 + 1, [challenge(A, EA)]),
+    ("challenge A (materialises the draw)", te.draw_opens(H1), [challenge(A, EA)]),
     ("open B for chip X after A expired", H2, [enrol(AIK2)]),
-    ("challenge B", H2 + 1, [challenge(B, EB)]),
+    ("challenge B (materialises the draw)", te.draw_opens(H2), [challenge(B, EB)]),
     ("re-open A's key, superseding A's expired record", H3, [enrol(AIK1)]),
     ("two enrolments of chip X in one block", H4, [enrol(AIK3), enrol(AIK4)]),
 ]

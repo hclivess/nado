@@ -23,16 +23,16 @@ Collapse any adjacent pair and the proof evaporates. That is why this is on-chai
 handshake against a relay: block height is the only ordering every node agrees on.
 
 WHO CHALLENGES. Not whoever the client asks — a client that picks its own challengers picks parties that
-will leak S to it. The set is DRAWN from the bonded registry by the epoch beacon keyed on the enrolment id
-(the same grind-resistant randomness as producer selection), and the client must recover EVERY drawn
-challenger's secret. Forging then requires all DEVICE_ATTEST_EK_CHALLENGERS of them to collude, which is a
+will leak S to it. The set is DRAWN from the challenger pool by an epoch beacon (below: COMMIT, THEN DRAW),
+and the client must recover EVERY drawn challenger's secret. Forging then requires all DEVICE_ATTEST_EK_CHALLENGERS of them to collude, which is a
 property consensus can observe, rather than a key someone promises to guard.
 
-COMMIT, THEN DRAW (protocol.TPM_DRAW_UNGRINDABLE_HEIGHT, audit 2026-09-27). "Keyed on the enrolment id" was the
-hole: the id hashes the attestation key's public area, which the CLIENT writes, and the beacon of the enrol's
-own epoch is public before the enrol is built. So a client could compute the draw offline and grind public
-areas until every seat fell on a pool member it controls — and with every seat colluding the challengers hand
-it the secrets and no chip is involved at all. From the gate an enrolment opened at h (epoch E) is drawn from:
+COMMIT, THEN DRAW (audit 2026-09-27; betanet-8 from block 28500, betanet-9 from block 1). The draw used to be
+made AT the enrol, keyed on the enrolment id, and that was the hole: the id hashes the attestation key's public
+area, which the CLIENT writes, and the beacon of the enrol's own epoch is public before the enrol is built. So a
+client could compute the draw offline and grind public areas until every seat fell on a pool member it controls
+— and with every seat colluding the challengers hand it the secrets and no chip is involved at all. An
+enrolment opened at h (epoch E) is therefore drawn from:
 
     key      the ENDORSEMENT identity             one per chip, fixed by manufacture — nothing the client writes
     weights  the challenger pool as of block h    frozen before the dice exist, so nobody can join it to aim
@@ -64,68 +64,6 @@ def enrol_id(chain_id: str, ek_identity: str, aik_name_hex: str) -> str:
     return blake2b_hash([str(chain_id), str(ek_identity), str(aik_name_hex)])[:32]
 
 
-def challenger_set(enrol_id_hex: str, weights: dict, beacon: str, k: int) -> list:
-    """The `k` challengers for one enrolment: a stake-weighted draw WITHOUT replacement, keyed on the
-    beacon and the enrolment id — mining_ops.duty_committee's discipline, and deterministic from committed
-    parent state for exactly the same reason.
-
-    Without replacement because the whole point is INDEPENDENT parties: seating one validator twice would
-    let it hold two of the k secrets and cut the collusion it takes to forge. Stake-weighted because an
-    unweighted draw over the bonded set is a Sybil target — cheap identities would crowd the ballot.
-
-    Returns fewer than k (possibly none) when the registry cannot supply k distinct weighted entries. The
-    caller must refuse an enrolment whose set is short: a smaller set is a weaker proof, and an attacker
-    who can shrink the registry must not thereby weaken what it takes to forge.
-    """
-    cumulative, total = [], 0
-    for address in sorted(weights):
-        # WEIGHTS ARE PLAIN INTEGERS, not registry entries. This took the value of `bonded_registry[a]["bonded"]`
-        # until the draw moved to recent block producers, and the signature change without the body change
-        # meant every enrolment died with "'int' object is not subscriptable" — a TypeError escaping a
-        # function whose contract is to raise AssertionError, which in block verification is the difference
-        # between a rejected block and a fork.
-        raw = weights[address]
-        # A SHAPE ERROR MUST BE A REJECTION, NOT A TypeError. validate_transaction's contract is to raise
-        # AssertionError on the first violation, and it runs in block verification as well as the mempool —
-        # an unexpected exception type there is the difference between a cleanly rejected block and nodes
-        # disagreeing on block validity. This assert is what the previous signature/body mismatch needed.
-        assert isinstance(raw, int) and not isinstance(raw, bool), \
-            f"challenger weight for {address} must be an integer, got {type(raw).__name__}"
-        w = int(raw)
-        if w > 0:
-            total += w
-            cumulative.append((total, address))
-    if total == 0:
-        return []
-    picked, seen = [], set()
-    # Bounded attempts: a heavily concentrated weight distribution re-draws the same large holder over and
-    # over, and this must terminate identically on every node rather than loop until it happens to succeed.
-    for i in range(k * 16):
-        if len(picked) >= k:
-            break
-        draw = int(blake2b_hash([str(beacon), f"tpmenrol:{enrol_id_hex}:{i}"]), 16) % total
-        lo, hi = 0, len(cumulative) - 1
-        while lo < hi:                                   # first band with cumulative > draw
-            mid = (lo + hi) // 2
-            if draw < cumulative[mid][0]:
-                hi = mid
-            else:
-                lo = mid + 1
-        addr = cumulative[lo][1]
-        if addr not in seen:
-            seen.add(addr)
-            picked.append(addr)
-    return picked
-
-
-def draw_is_delayed(created_height: int) -> bool:
-    """True when an enrolment opened at `created_height` is drawn COMMIT-THEN-DRAW (see the module docstring).
-    A pure function of the record's own height, so a record's rule never changes under it and a replay of an
-    old block reaches the verdict it had."""
-    from protocol import TPM_DRAW_UNGRINDABLE_HEIGHT
-    return int(created_height) >= TPM_DRAW_UNGRINDABLE_HEIGHT
-
-
 def draw_epoch(created_height: int) -> int:
     """The epoch whose beacon draws a delayed enrolment's challengers. INVARIANT: its anchor block
     ((draw_epoch - 1) * EPOCH_LENGTH) must lie STRICTLY AFTER created_height, or the client knows the dice when it
@@ -152,15 +90,21 @@ def draw_key(ek_identity: str) -> str:
 
 def challenger_set_exact(key: str, weights: dict, beacon: str, k: int) -> list:
     """The delayed draw: `k` distinct challengers by weighted sampling WITHOUT replacement — each pick removes its
-    band and the next draw runs over what is left. The same distribution challenger_set's redraw-on-duplicate
-    reaches when it succeeds, minus its attempt cap, so a pool with >= k positively weighted members ALWAYS seats k.
-    That matters here and not there: the enrol is checked against the pool up front, and the set only exists two
-    epochs later, so a short set could not be refused any more — it would silently waste the whole window.
+    band and the next draw runs over what is left, so a pool with >= k positively weighted members ALWAYS seats k.
+    (The enrol-time draw it replaced redrew on duplicates under an attempt cap and could come up short; that was
+    tolerable only while a short set could be refused at the enrol.) Here the enrol is checked against the pool up
+    front, and the set only exists two epochs later, so a short set could not be refused any more — it would silently
+    waste the whole window.
+    Without replacement because the whole point is INDEPENDENT parties: seating one validator twice would let it hold
+    two of the k secrets and cut the collusion it takes to forge. Weighted because an unweighted draw is a Sybil target.
     Deterministic: sorted addresses, integer weights, the draw hashed from (beacon, key, round)."""
     pool = []
     for address in sorted(weights):
         raw = weights[address]
-        # same shape rule as challenger_set: a non-integer weight is a REJECTION (AssertionError), never a TypeError
+        # A SHAPE ERROR MUST BE A REJECTION, NOT A TypeError. validate_transaction's contract is to raise AssertionError
+        # on the first violation, and it runs in block verification as well as the mempool — an unexpected exception
+        # type there is the difference between a cleanly rejected block and nodes disagreeing on block validity (the
+        # enrol-time draw once took registry dicts as weights and died with "'int' object is not subscriptable").
         assert isinstance(raw, int) and not isinstance(raw, bool), \
             f"challenger weight for {address} must be an integer, got {type(raw).__name__}"
         if raw > 0:
@@ -228,8 +172,8 @@ def apply_commit(rec: dict, sender: str, commitment: str, height: int) -> dict:
     assert sender == rec["owner"], "only the identity that opened an enrolment may answer it"
     # A DELAYED DRAW STARTS WITH NO CHALLENGERS (COMMIT, THEN DRAW), and an empty set equals an empty set of blobs:
     # without this a commitment to nothing would pass the check below and then die on max() of nothing — a
-    # ValueError, not a rejection. INVARIANT: a commitment needs a drawn, non-empty set; every pre-gate record was
-    # written with k challengers, so this moves no verdict for them.
+    # ValueError, not a rejection. INVARIANT: a commitment needs a drawn, non-empty set; the enrol-time draw of
+    # betanet-8 wrote its records with k challengers, so this moved no verdict for them.
     assert rec.get("challengers"), "the challengers for this enrolment have not been drawn yet"
     blobs = _pairs(rec, "blobs")
     assert set(blobs) == set(rec["challengers"]), "not every drawn challenger has issued its challenge"
@@ -284,8 +228,9 @@ def enrol_window(created_height: int) -> int:
     moment, and a supersede valid on one node and invalid on the next, which is a fork over block
     validity rather than a disagreement about a timer.
 
-    Every record is created by a tpm_enrol in a block >= 1 (genesis carries no transactions), and gen 25's
-    DEVICE_ATTEST_EK_SHORT_HEIGHT was 1 from gen 26 (deleted), so every record takes the short window.
+    Every record is created by a tpm_enrol in a block >= 1 (genesis carries no transactions, and the reroll carries
+    no enrolment), so every record takes the short window (gen 25's DEVICE_ATTEST_EK_SHORT_HEIGHT, deleted) and is
+    drawn commit-then-draw (gen 27's TPM_DRAW_UNGRINDABLE_HEIGHT, deleted).
 
     A DELAYED DRAW GETS THE SAME WORKING TIME, counted from when its challengers exist: the wait for the draw epoch
     (61..120 blocks) plus the short window. Counting from the enrol instead would leave 60..119 blocks for three
@@ -293,9 +238,7 @@ def enrol_window(created_height: int) -> int:
     identically everywhere; and a superseding enrol lands after draw_opens(h) + SHORT, in a later draw epoch, so
     the retry is always drawn from fresh dice (AN EXPIRED ATTEMPT MUST BE RETRYABLE, transaction_ops)."""
     from protocol import DEVICE_ATTEST_EK_ENROL_SHORT
-    if draw_is_delayed(created_height):
-        return draw_opens(created_height) - int(created_height) + DEVICE_ATTEST_EK_ENROL_SHORT
-    return DEVICE_ATTEST_EK_ENROL_SHORT
+    return draw_opens(created_height) - int(created_height) + DEVICE_ATTEST_EK_ENROL_SHORT
 
 
 def _is_hex(s: str) -> bool:

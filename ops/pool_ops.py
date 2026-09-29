@@ -10,7 +10,7 @@ FEE_EXEMPT_RECIPIENTS = frozenset({
     "settle", "bridge_withdraw", "dividend_withdraw",
     # msgkey (bind ML-KEM messaging pubkey to the account) is zero-value. The empty-account check was once named as its
     # anti-spam bound; it is not one (mempool policy only, and accounts were free to create). The bounds are consensus
-    # — only the FIRST bind is free, a rotation pays MIN_TX_FEE (protocol.SPAM_HARDEN_HEIGHT) — plus the per-sender cap
+    # — only the FIRST bind is free, a rotation pays MIN_TX_FEE (protocol.py "NO FREE REPEATABLE TRANSACTIONS") — plus the per-sender cap
     # on pooled fee-exempt txs (memserver._free_pool_admit), which is what keeps protecting it from the cull safe.
     "msgkey",
     # The four enrolment messages (doc/tpm-attestation-without-a-ca.md) are fee-exempt and zero-value.

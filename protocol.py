@@ -1682,11 +1682,13 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # DEVICE_BIND_STRICT_HEIGHT: gen 25 gate at 1700; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 # ONE DEVICE, ONE IDENTITY — FOR REAL (audit 2026-09-25, fixed 2026-09-27). The binding key hashed the certificate's RAW
 # bytes while the native kernel ignores bytes after the DER, so one chip's certificate with different junk appended bound
-# a new identity each time: unlimited identities per device. From this height the key is the certificate's SIGNED part
+# a new identity each time: unlimited identities per device. The key is the certificate's SIGNED part
 # (ops/device_attest.cert_signed_part — it cannot vary without breaking the issuer's signature), certificates with
-# trailing bytes are refused, and a device's pre-gate (raw-bytes) binding counts as the same device, so the switch hands
-# no device a second identity. Measured before the gate: no trailing-byte certificate had been registered on betanet-8.
-DEVICE_BIND_CANONICAL_HEIGHT = 19800 if CHAIN_GENERATION == 27 else 1
+# trailing bytes are refused, and a device's older raw-bytes binding (a devbind row written on betanet-8 below block
+# 19800 and carried into betanet-9 by the reroll) counts as the same device, so the switch hands no device a second
+# identity. Measured before the fix: no trailing-byte certificate had been registered on betanet-8.
+# DEVICE_BIND_CANONICAL_HEIGHT: gen 27 gate at 19800; 1 from gen 28 — deleted after the betanet-9 reroll, the rule holds
+# from block 1 (every caller derives the key at a block's height, or at a register's own max_block behind `>= 1`).
 # CARRIED IDENTITIES EARN THE DIVIDEND (2026-09-27; our reroll commit 302215f2). The betanet-8 carry leased every carried
 # identity with a recert at epoch 0 — the very marker the dividend rule uses to exclude never-attested genesis seeds —
 # so every carried identity was present, produced blocks, and earned no dividend until it re-registered; and the replay
@@ -1701,7 +1703,7 @@ DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 # from any account that existed, even at zero balance; any transaction could carry unlimited extra top-level keys (the
 # txid hashes them all), so a fee-exempt message was unbounded in size; one chip could open several enrolments in one
 # block; a single 10-NADO bond could land permanent settle rows in unlimited namespaces for free; xmsg was free; and one
-# device could hop to a fresh never-funded sender every block. From this height:
+# device could hop to a fresh never-funded sender every block. So (betanet-8 from block 24000, betanet-9 from block 1):
 #   * a transaction carries only TX_TOP_KEYS (plus TX_TOP_KEYS_BY_RECIPIENT) and fits TX_MAX_BYTES (+ per extra signature);
 #   * msgkey is free only for the FIRST bind; a rotation pays MIN_TX_FEE, re-binding the same key is refused, no data;
 #   * tpm_ready is fee-free only from a bonded sender (B_MIN), once per sender per block, and writes no account;
@@ -1709,8 +1711,9 @@ DIVIDEND_CARRY_EPOCH = 340 if CHAIN_GENERATION == 27 else 0
 #   * settle is free only in the default namespace and no more than SETTLE_MAX_LAG behind the block; other namespaces pay;
 #   * xmsg pays MIN_TX_FEE;
 #   * a device moves to a DIFFERENT sender at most once per epoch (the first move stays instant).
-# Every fee a free kind now pays is burned like any fee. Height ahead of the fleet's adoption; 1 at the next reroll.
-SPAM_HARDEN_HEIGHT = 24000 if CHAIN_GENERATION == 27 else 1
+# Every fee a free kind now pays is burned like any fee.
+# SPAM_HARDEN_HEIGHT: gen 27 gate at 24000; 1 from gen 28 — deleted after the betanet-9 reroll, the rule holds from block 1.
+# `>= 1` survives where height 0 reaches the check (mempool admission on a genesis tip, a tx's own max_block, a builder).
 # LEGACY CLAIM (gen 28, operator 2026-09-28: "sign with your old key and get the coins"). Address format 2 hashes the
 # whole key, so the carry re-keys every account whose key some chain recorded (tools/rekey_v2.py); an account whose key
 # NO chain ever saw (it only received) is carried at its OLD 46-character address, which format 2 rejects as a sender.
@@ -1721,12 +1724,12 @@ SPAM_HARDEN_HEIGHT = 24000 if CHAIN_GENERATION == 27 else 1
 # exposure those accounts carried on gen 27. Reroll-only: dormant on gen 27, live from block 1 on the next chain.
 LEGACY_CLAIM_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 # THE ENROLMENT'S CHALLENGERS ARE DRAWN FROM RANDOMNESS THE CLIENT HAS NOT SEEN (audit 2026-09-27, CRIT "draw keyed on
-# client-chosen AIK enrol_id (grindable)"; doc/tpm-attestation-without-a-ca.md §"Who challenges"). Below this height the
-# k challengers are drawn AT the tpm_enrol from epoch_beacon(epoch of the enrol) keyed on the enrolment id — and that id
+# client-chosen AIK enrol_id (grindable)"; doc/tpm-attestation-without-a-ca.md §"Who challenges"). The old draw picked the
+# k challengers AT the tpm_enrol from epoch_beacon(epoch of the enrol) keyed on the enrolment id — and that id
 # hashes the attestation key's public area, which the client writes (authPolicy and the modulus are free bytes). That
 # beacon is fixed from block (E-1)*EPOCH_LENGTH on, so a client computes the whole draw offline and grinds public areas
 # until all k seats land on pool members it controls; with every seat colluding the chip proof is forged outright (the
-# challengers hand it S, no TPM is ever touched). From this height (ops/tpm_enrol "COMMIT, THEN DRAW"):
+# challengers hand it S, no TPM is ever touched). So (ops/tpm_enrol "COMMIT, THEN DRAW"):
 #   * the draw is keyed on the ENDORSEMENT identity (fixed per chip by manufacture), never on the enrolment id or any
 #     other field the client writes;
 #   * its randomness is epoch_beacon(E + TPM_DRAW_DELAY_EPOCHS) for an enrol landing in epoch E, whose anchor block
@@ -1737,8 +1740,9 @@ LEGACY_CLAIM_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
 #   * the record is written with no challengers, and the first tpm_challenge from the draw epoch on materialises them
 #     into it; the record lives TPM_DRAW_DELAY_EPOCHS' wait plus the usual DEVICE_ATTEST_EK_ENROL_SHORT.
 # The client (apps/nado-tpm-attest) needs no change: /tpm_enrolment serves k placeholders while the draw is pending.
-# Live at 28500 (set 2026-09-27 at tip 26776, ~3.5 h ahead of the push for the update wave); 1 at the next reroll.
-TPM_DRAW_UNGRINDABLE_HEIGHT = 28500 if CHAIN_GENERATION == 27 else 1
+# TPM_DRAW_UNGRINDABLE_HEIGHT: gen 27 gate at 28500; 1 from gen 28 — deleted after the betanet-9 reroll with the
+# enrol-time draw it replaced: every enrolment record is created by a tpm_enrol in a block >= 1 (genesis carries no
+# transactions and the reroll carries no enrolment), so every record is drawn commit-then-draw.
 # Two, not one: epoch E+1's beacon is anchored on block E*EPOCH_LENGTH, which is at or BEFORE any enrol in epoch E —
 # the client would know it. E+2's anchor (E+1)*EPOCH_LENGTH is the first one strictly after every enrol of epoch E.
 # INVARIANT: never lower this below 2, or the draw is predictable when the enrolment is built.
@@ -1755,22 +1759,23 @@ TX_TOP_KEYS_BY_RECIPIENT = {"msgkey": frozenset(("kem_pub",)), "register": froze
 # that is a fork driver), the pre-assembly reconcile could not heal it (it compares txids, which agree), dedup-by-txid
 # kept whichever copy came first — and a mixed-case key on an account's FIRST tx was stored verbatim as its PUBKEY-ONCE
 # key, after which the owner's own lowercase-key transactions failed key_bound (a relayer could lock an account out).
-# From this height every txid-excluded witness must be canonical: `public_key`, when the key is present, exactly
+# So every txid-excluded witness must be canonical: `public_key`, when the key is present, exactly
 # MLDSA44_PUBKEY_HEX lowercase hex; `signature` exactly MLDSA44_SIG_HEX lowercase hex, or a list of entries each exactly
 # {"signature"[, "public_key"]} with both canonical (ops/transaction_ops.excluded_witness_check). Honest clients already
 # emit this (Python .hex(), noble bytesToHex, Rust {:02x}).
-# ALSO FROM THIS HEIGHT (found while fixing the above, reproduced in the same test): a tx signed with an entry LIST
+# AND (found while fixing the above, reproduced in the same test): a tx signed with an entry LIST
 # carries NO top-level public_key. Nothing verifies that key when the signature is a list, yet PUBKEY-ONCE stored it as
 # the sender's key when none was stored, and the implicit auth config then authorizes it: a relayer adding its own key
-# to an account's list-signed FIRST tx took the account over. Live on gen 27 for any account whose first tx is a
-# list-signed one that does not install an auth config; this reroll-only gate does NOT close it on the live chain.
+# to an account's list-signed FIRST tx took the account over. It stayed open on gen 27 (a live flip would have refused
+# txs some nodes admitted, so the rule waited for the reroll) and is closed from block 1 of gen 28.
 # NOT CLOSED by this rule, because no encoding rule can close it: the SIGNER can mint any number of valid signatures over
 # one txid (ML-DSA signing is hedged), and a relayer can still strip/add a public_key the account already published
 # (top-level, or a sole authenticator's entry key), reorder an entry list, or drop surplus entries. Only a block hash
 # that stops committing witness bytes closes those (tests/test_excluded_hex_fields_are_canonical.py pins them as known
 # open, so the day one closes the test says so).
-# Reroll-only: a live flip would refuse txs some nodes admitted; (1 << 62) on gen 27, from block 1 on gen 28.
-TX_HEX_CANONICAL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# TX_HEX_CANONICAL_HEIGHT: reroll-only gen 27 gate ((1 << 62), never live there); 1 from gen 28 — deleted after the
+# betanet-9 reroll. `>= 1` survives in excluded_witness_check: validate_transaction also runs at mempool admission with the
+# tip's height, which is 0 on a genesis tip, where the rule was off.
 MLDSA44_PUBKEY_HEX = 2 * 1312            # ML-DSA-44 public key (FIPS 204 Table 2), hex chars
 MLDSA44_SIG_HEX = 2 * 2420               # ML-DSA-44 signature, hex chars
 TX_MAX_BYTES = 64 * 1024                 # canonical bytes; the largest honest non-proof tx on betanet-8 was 16.5 KB
@@ -2301,9 +2306,9 @@ DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
 # ENROLMENT TRUSTS THE ROOTS IN FORCE (2026-09-25). The kernel verified a tpm_enrol chain against ek_roots_at(height)
 # (V2 included), and the next line re-checked the root against the BASE set only, so an Intel chip whose endorsement
 # certificate walks to the V2 root passed the kernel and was refused anyway — while the wallet's pre-flight (every
-# pinned root) told its owner the chip was fine. From this height validation checks the same set the kernel used.
-# Accepting what was refused is a consensus change: gated at the fleet's adoption block (rule 3), 1 at the next reroll.
-EK_ENROL_ROOTS_AT_HEIGHT = 1400 if CHAIN_GENERATION == 27 else 1
+# pinned root) told its owner the chip was fine. So validation checks the same set the kernel used (ek_roots_at).
+# EK_ENROL_ROOTS_AT_HEIGHT: gen 27 gate at 1400; 1 from gen 28 — deleted after the betanet-9 reroll, the rule holds from
+# block 1 (the tpm_enrol rule itself refuses height 0, so no height below it reaches the root check).
 
 # ZK HARDENING (zk audit 2026-09-26). One activation height for the consensus-changing fixes the audit found:
 #   * ZKVM-1  the exec AIR's ARG bus: calls are tagged from 1, so an args-table padding row (0,0,0) can no longer stand
@@ -2362,16 +2367,19 @@ EXEC_DA_WAIT_BLOCKS = 90
 # it from below either, so a peer serving sync can hand out a same-hash block stamped 0 or years back. A certificate whose
 # validity edge fell inside that spread was valid on one node and invalid on the next — a fork with no attacker — and a
 # relay could pick the edge at will.
-# FROM THIS HEIGHT the clock is transaction_ops.agreed_time(anchor height): the MEDIAN over distinct senders of the
+# SO the clock is transaction_ops.agreed_time(anchor height): the MEDIAN over distinct senders of the
 # timestamps the bonded committee signed into its own duty transactions in the CERT_CLOCK_WINDOW blocks before the anchor's
 # epoch — committed bodies every node reads identically, written by validators' real clocks. chain_clock(height) was the
 # first candidate and was REJECTED: it assumes a cadence and ran 11.8 h behind after 2.3 days (8.1 s real vs 6.4 s
 # assumed), which would have refused every freshly issued certificate. Measured on betanet-8 (2026-09-27, heights 19086,
 # 25086, 27086): 11 senders per window, spread 2-10 min, median 26-31 min behind real time. That lag is absorbed by
 # CERT_NOT_BEFORE_GRACE on notBefore only (transaction_ops.cert_verdict) — expiry is still judged at agreed time, so the
-# grace never accepts an expired certificate. Live height ahead of the fleet's adoption; 1 at the next reroll.
-# INVARIANT: no consensus certificate check may read block_timestamp or wall time at or above this height.
-CERT_CLOCK_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1
+# grace never accepts an expired certificate.
+# CERT_CLOCK_HEIGHT: gen 27 gate at 29000; 1 from gen 28 — deleted after the betanet-9 reroll with the block_timestamp
+# clock it replaced: every certificate check runs at a height >= 1 (a block's own, a register's max_block, which the
+# mempool admits only above the tip, or behind the tpm_enrol rule's own `>= 1`), and at 0 agreed_time is chain_clock(0)
+# = GENESIS_TIMESTAMP, the genesis block's own stamp.
+# INVARIANT: no consensus certificate check may read block_timestamp or wall time.
 CERT_CLOCK_WINDOW = 120                 # blocks (2 epochs): ~11 committee senders on betanet-8
 CERT_CLOCK_MIN_SAMPLES = 3              # fewer distinct senders (a newborn chain) -> chain_clock, agreed as well
 CERT_NOT_BEFORE_GRACE = 86400           # a certificate may be up to a day "early" (agreed time lags ~30 min; CA skew)
