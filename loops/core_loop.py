@@ -814,7 +814,7 @@ class CoreClient(threading.Thread):
                             # catch-up copy) leaves it unsigned — still valid (win-offline). Not signing a
                             # fast-forward copy avoids any same-height authorship edge case while behind.
                             # INVARIANT (audit 2026-09-25 cross-generation slash replay): sign ONLY through
-                            # sign_block — from BLOCK_SIG_CHAIN_BIND_HEIGHT its message names this chain, and a
+                            # sign_block — its message names this chain (generation + genesis), and a
                             # hand-built message here would be refused by every peer (and be slashable elsewhere).
                             if (not _peer_ahead
                                     and self.memserver.address == block_candidate["block_creator"]

@@ -1,4 +1,4 @@
-"""Carried identities earn the dividend, at their carried fidelity (protocol.DIVIDEND_CARRY_EPOCH; ops/dividend_ops).
+"""Carried identities earn the dividend, at their carried fidelity (ops/dividend_ops).
 
 OUR BUG (reroll commit 302215f2, betanet-8). The carry leased every carried identity with a recert at epoch 0 — the
 marker the dividend rule uses to exclude never-attested genesis seeds — so every carried identity was present,
@@ -6,10 +6,13 @@ produced, and earned NO dividend until it re-registered (measured 2026-09-27: al
 re-registered were missing from every committed weight set). And the replay behind the committed weights rebuilt
 fidelity from gen-27 recerts only, so a carried veteran who renewed weighed like a newcomer.
 
+Gen 27 fixed it from DIVIDEND_CARRY_EPOCH = 340; it held from epoch 0 on gen 28 and the gate was deleted after the
+betanet-9 reroll, so the rule is exercised from epoch 0 (the carry's own lease) on.
+
 Pins, on the real tables (throwaway HOME) with a scripted carry:
-  1. a genesis SEED (epoch-0 recert, not in the carry) earns nothing, before and after the gate;
-  2. a CARRIED identity (epoch-0 recert, named present by the carry) earns nothing before the gate — committed epochs
-     stay as they were — and earns from the gate, weighted by its carried fidelity;
+  1. a genesis SEED (epoch-0 recert, not in the carry) earns nothing, at epoch 0 or later;
+  2. a CARRIED identity (epoch-0 recert, named present by the carry) earns from epoch 0, weighted by its carried
+     fidelity;
   3. a carried identity that renewed replays to the SAME fidelity the live apply computed (continuing from the carried
      value), not to a newcomer's;
   4. a fresh identity is unaffected.
@@ -43,29 +46,23 @@ def check(name, ok, detail=""):
     fails += 0 if ok else 1
 
 
-G = P.DIVIDEND_CARRY_EPOCH
-check("the gate is a real epoch on this generation, and 0 on the next", G >= 0)
+check("the carry rule has no gate left", not hasattr(P, "DIVIDEND_CARRY_EPOCH"))
 for a in (SEED, CARRIED, VETERAN):
-    kv_ops.recert_put(a, 0)
-R = max(G - 5, 1)                                      # the veteran renews shortly before the gate
+    kv_ops.recert_put(a, 0)                            # the carry's lease (and a seed's genesis recert)
+R = 1                                                  # the veteran renews, and a fresh identity registers, at epoch 1
 kv_ops.recert_put(VETERAN, R)
 kv_ops.recert_put(FRESH, R)
 
-# GEN-28 REHEARSAL: on the next generation the gate is epoch 0, so "renews shortly before the gate" cannot exist (epoch 0
-# IS the carry's lease) and R lands AFTER it (epoch 1). Judged at the gate itself, the veteran's renewal and the fresh
-# identity's first recert had not happened yet: the veteran check passed vacuously on its carried value and the fresh
-# identity was simply not present (None). So the renewal-dependent checks are judged at E, the first epoch at or after
-# the gate that has seen the renewal — E == G on gen 27 (R = G - 5), E == R == 1 on gen 28 — and the carried-identity
-# checks run both at the gate and at E.
-E = max(G, R)
-before, at_gate, after = (D.weights_at_epoch(G - 1) if G >= 1 else {}), D.weights_at_epoch(G), D.weights_at_epoch(E)
-check("a genesis seed earns nothing, before or after the gate",
-      SEED not in before and SEED not in at_gate and SEED not in after, (before, at_gate, after))
-if G >= 1:
-    check("before the gate a carried identity earns nothing (committed epochs stay as they were)", CARRIED not in before, before)
-check("from the gate a carried identity earns", CARRIED in at_gate and CARRIED in after, (at_gate, after))
-check("...at its carried fidelity", at_gate.get(CARRIED) == P.dividend_weight(15, G) and after.get(CARRIED) == P.dividend_weight(15, E),
-      (at_gate.get(CARRIED), after.get(CARRIED), P.dividend_weight(15, G)))
+# Judged at epoch 0 the veteran's renewal and the fresh identity's first recert have not happened yet, so the
+# renewal-dependent checks are judged at E = R, the first epoch that has seen the renewal; the carried-identity checks
+# run at both.
+E = R
+at_zero, after = D.weights_at_epoch(0), D.weights_at_epoch(E)
+check("a genesis seed earns nothing, at epoch 0 or later", SEED not in at_zero and SEED not in after, (at_zero, after))
+check("a carried identity earns from epoch 0", CARRIED in at_zero and CARRIED in after, (at_zero, after))
+check("...at its carried fidelity", at_zero.get(CARRIED) == P.dividend_weight(15, 0) and after.get(CARRIED) == P.dividend_weight(15, E),
+      (at_zero.get(CARRIED), after.get(CARRIED), P.dividend_weight(15, 0)))
+check("a carried veteran is carried at epoch 0 too", D.fidelity_at_epoch(VETERAN, 0) == 12, D.fidelity_at_epoch(VETERAN, 0))
 live = P.fidelity_step(12, True, R - 0, R)             # what apply_register computed: continuing from the carried 12
 check("a carried veteran who renewed replays to the live apply's fidelity, not a newcomer's",
       R <= E and D.fidelity_at_epoch(VETERAN, E) == live, (R, E, D.fidelity_at_epoch(VETERAN, E), live))

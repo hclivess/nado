@@ -28,13 +28,17 @@ REG = {"honest1": {"bonded": 600 * B_MIN}, "honest2": {"bonded": 400 * B_MIN}, "
 FAKE, GOOD = "ff" * 32, "aa" * 32
 
 
-def justified(att, cursor, root):
+def stub(att):
     kv_ops.settlement_max_cursor = lambda ns: max(c for c, _, _ in att)
     kv_ops.settlement_validators_since = lambda ns, f: {v for c, v, _ in att if c >= f}
     kv_ops.settlement_last_cursors = lambda ns, f: {v: max(c for c, vv, _ in att if vv == v and c >= f)
                                                     for v in {vv for c, vv, _ in att if c >= f}}
     kv_ops.settlements_for_cursor = lambda ns, c: [(v, r) for cc, v, r in att if cc == c]
     kv_ops.settlement_proven = lambda *x: False
+
+
+def justified(att, cursor, root):
+    stub(att)
     return SO.settlement_justified("default", cursor, root, REG)
 
 
@@ -53,17 +57,15 @@ leak = ([(c, "honest1", GOOD) for c in range(STALL, STALL + 3 * W, 60)] + [(STAL
 check("the leak still works: honest2 goes dark, honest1 (60% of stake) alone justifies later cursors",
       justified(leak, STALL + 3 * W - 60, GOOD))
 far = STALL + P.SETTLE_ANCHOR_LONG_CURSORS + W + 10
-_gate = P.SETTLE_STAKE_FLOOR_HEIGHT
-P.SETTLE_STAKE_FLOOR_HEIGHT = 1 << 62                   # the gen-27 rule: no stake floor
-check("gen 27: a committee silent past SETTLE_ANCHOR_LONG_CURSORS no longer blocks (the documented bound)",
-      justified(honest + [(far, "attacker", FAKE)], far, FAKE))
-# THE LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): that bound handed the whole quorum to one B_MIN bond. From
-# SETTLE_STAKE_FLOOR_HEIGHT (1 at the reroll) the attester also needs 1/16 of ALL bonded stake, which silence cannot
-# shrink — tests/test_lone_settler_cannot_settle.py is the end-to-end reproduction.
-P.SETTLE_STAKE_FLOOR_HEIGHT = 1
-check("from the stake floor: the lone bond past the long silence is refused",
+stub(honest + [(far, "attacker", FAKE)])
+check("a committee silent past SETTLE_ANCHOR_LONG_CURSORS leaves the active set (the documented bound)",
+      SO.active_settler_shares("default", REG) == SO.selection_shares(B_MIN))
+# THE LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): that bound handed the whole quorum to one B_MIN bond. The attester
+# also needs 1/16 of ALL bonded stake (protocol.SETTLE_FLOOR_NUM/DEN), which silence cannot shrink —
+# tests/test_lone_settler_cannot_settle.py is the end-to-end reproduction.
+check("the stake floor has no gate left", not hasattr(P, "SETTLE_STAKE_FLOOR_HEIGHT"))
+check("the stake floor: the lone bond past the long silence is refused",
       not justified(honest + [(far, "attacker", FAKE)], far, FAKE))
-check("from the stake floor: the honest committee still justifies", justified(honest, STALL, GOOD))
-P.SETTLE_STAKE_FLOOR_HEIGHT = _gate
+check("the stake floor: the honest committee still justifies", justified(honest, STALL, GOOD))
 print("ALL PASS" if not fails else f"{len(fails)} FAILURES")
 sys.exit(1 if fails else 0)

@@ -9,10 +9,10 @@ COUNT of objects (DA_RETAIN = 24) over an open /da/publish, so junk publishes ev
 lagging exec node had fetched it.
 
 Properties pinned here (no network: the DA fetch is stubbed to fail deterministically, or served from a temp store):
-  * REPRODUCTION — below EXEC_DA_DEADLINE_HEIGHT (the live rule until block 29000) the block stalls on every
-    retry however far finality runs ahead: cursor frozen, the bridge deposit in the same block never credited;
-  * from the gate, a merely SLOW proof still stalls the whole block until finality reaches h + EXEC_DA_WAIT_BLOCKS
-    (all-or-nothing is kept — nothing half-applies);
+  * a merely SLOW proof still stalls the whole block until finality reaches h + EXEC_DA_WAIT_BLOCKS
+    (all-or-nothing is kept — nothing half-applies). Gen 27 gated the bound at EXEC_DA_DEADLINE_HEIGHT (29000); it
+    held from block 1 on gen 28 and the gate was deleted after the betanet-9 reroll, so the unbounded stall below it
+    is history — only genesis (h = 0, applied from cursor -1) keeps it;
   * at the deadline the unresolvable op is REFUSED and the rest of the block applies: the state equals a node that
     applied the same block without that op (nothing moved, nothing credited or refunded), and the cursor advances;
   * the verdict is the same on a node that reaches the block live at the deadline and on one catching up far past it;
@@ -87,39 +87,23 @@ async def _unavailable(session, commitment):
     return None                          # the whole reachable network cannot supply k shards
 
 
-class _Gate:
-    """Move the (dormant, 2^62) gate for one property, the fetch stub and the local grace with it."""
-    def __init__(self, height, fetch=_unavailable, grace=0.0):
-        self.height, self.fetch, self.grace = height, fetch, grace
+class _Stub:
+    """Swap in the fetch stub and the local grace for one property."""
+    def __init__(self, fetch=_unavailable, grace=0.0):
+        self.fetch, self.grace = fetch, grace
 
     def __enter__(self):
-        self._saved = (protocol.EXEC_DA_DEADLINE_HEIGHT, EN.da_fetch, EN.DA_SKIP_GRACE_S)
-        protocol.EXEC_DA_DEADLINE_HEIGHT, EN.da_fetch, EN.DA_SKIP_GRACE_S = self.height, self.fetch, self.grace
+        self._saved = (EN.da_fetch, EN.DA_SKIP_GRACE_S)
+        EN.da_fetch, EN.DA_SKIP_GRACE_S = self.fetch, self.grace
         EN._DA_MISS_SINCE.clear()
 
     def __exit__(self, *a):
-        protocol.EXEC_DA_DEADLINE_HEIGHT, EN.da_fetch, EN.DA_SKIP_GRACE_S = self._saved
+        EN.da_fetch, EN.DA_SKIP_GRACE_S = self._saved
         EN._DA_MISS_SINCE.clear()
 
 
-def t_reproduction_below_the_gate_an_unheld_proof_freezes_the_tail_forever():
-    # The finding, reproduced on the code path the live chain runs while the gate is dormant: no retry and no amount
-    # of finality ever gets past the block, and the honest deposit sharing it is never credited.
-    with _Gate(H + 1):
-        st = _state()
-        st.cursor = H - 1
-        before = st.state_root()
-        blk = _block(H, [_bridge_tx(), _ft_tx()])
-        for fin in (H, H + W, H + 10 * W, H + 10 ** 6):
-            for _ in range(5):
-                assert _apply(st, blk, finalized=fin) is False, "the block applied although its proof is unavailable"
-        assert st.cursor == H - 1, f"cursor moved to {st.cursor} on a stalled block"
-        assert st.bridge.get(ALICE) is None, "the deposit in the stalled block was credited"
-        assert st.state_root() == before, "a stalled block changed the state"
-
-
 def t_before_the_deadline_a_slow_proof_still_stalls_the_whole_block():
-    with _Gate(H):
+    with _Stub():
         st = _state()
         st.cursor = H - 1
         before = st.state_root()
@@ -131,7 +115,7 @@ def t_before_the_deadline_a_slow_proof_still_stalls_the_whole_block():
 
 
 def t_at_the_deadline_the_op_is_refused_and_the_rest_of_the_block_applies():
-    with _Gate(H):
+    with _Stub():
         st, ref = _state(), _state()
         st.cursor = ref.cursor = H - 1
         dep = _bridge_tx()
@@ -146,7 +130,7 @@ def t_at_the_deadline_the_op_is_refused_and_the_rest_of_the_block_applies():
 
 
 def t_a_live_node_and_a_catching_up_node_reach_the_same_verdict():
-    with _Gate(H):
+    with _Stub():
         live, late = _state(), _state()
         live.cursor = late.cursor = H - 1
         blk = _block(H, [_bridge_tx(), _ft_tx(), _bridge_tx(7)])
@@ -161,13 +145,14 @@ def t_a_live_node_and_a_catching_up_node_reach_the_same_verdict():
 
 
 def t_the_deadline_is_a_function_of_height_and_finality_only():
-    with _Gate(H):
-        assert not EN._da_deadline_passed(H - 1, 10 ** 9), "a block below the gate was refused"
+    with _Stub():
+        assert not EN._da_deadline_passed(0, 10 ** 9), "genesis (h = 0, below gen 27's gate at 1) was refused"
+        assert EN._da_deadline_passed(1, 1 + W) and not EN._da_deadline_passed(1, W), "block 1 is not bounded"
         assert not EN._da_deadline_passed(H, H + W - 1)
         assert EN._da_deadline_passed(H, H + W)
         assert EN._da_deadline_passed(H + 5, H + 5 + W) and not EN._da_deadline_passed(H + 5, H + 4 + W)
         assert not EN._da_deadline_passed(H, None), "the provisional tail (no finalized height) refused"
-    with _Gate(H):
+    with _Stub():
         st = _state()
         st.cursor = H - 1
         assert _apply(st, _block(H, [_ft_tx()]), finalized=None) is False, "a provisional view refused the op"
@@ -178,7 +163,7 @@ def t_a_refused_op_is_never_dispatched_even_with_an_inline_bundle():
     orig = ExecState.apply_field_transfer
     ExecState.apply_field_transfer = lambda self, bundle: seen.append(bundle) or "applied"
     try:
-        with _Gate(H):
+        with _Stub():
             st = _state()
             st.cursor = H - 1
             assert _apply(st, _block(H, [_ft_tx(bundle={"x": 1})]), finalized=H + W) is True
@@ -196,7 +181,7 @@ def t_a_held_proof_still_applies_past_the_deadline_and_is_pinned():
     try:
         meta = EN.DA.put(json.dumps({"proof": "p", "n": 1}).encode(), 2, 4)
         c = meta["commitment"]
-        with _Gate(H, fetch=EN.da_fetch):              # the real resolver: local store first, no network needed
+        with _Stub(fetch=EN.da_fetch):              # the real resolver: local store first, no network needed
             st = _state()
             st.cursor = H - 1
             assert _apply(st, _block(H, [_ft_tx(proof_da=c)]), finalized=H + 10 * W) is True
@@ -208,7 +193,7 @@ def t_a_held_proof_still_applies_past_the_deadline_and_is_pinned():
 
 
 def t_a_catching_up_node_retries_for_its_grace_before_refusing():
-    with _Gate(H, grace=3600.0):
+    with _Stub(grace=3600.0):
         st = _state()
         st.cursor = H - 1
         blk = _block(H, [_ft_tx()])
@@ -225,7 +210,7 @@ def t_a_private_call_is_still_refused_without_any_fetch():
     async def _count(session, c):
         calls.append(c)
         return None
-    with _Gate(1 << 62, fetch=_count):
+    with _Stub(fetch=_count):
         st = _state()
         st.cursor = H - 1
         tx = {"recipient": "blob", "sender": ALICE, "txid": "pc1", "data": {"op": "private_call", "proof_da": UNHELD}}
@@ -274,7 +259,7 @@ def t_the_finalized_tail_bounds_the_stall_and_the_provisional_one_does_not():
     prov = src[src.index("async def _refresh_provisional"):src.index("async def tail_loop")]
     assert "finalized=" not in "".join(l for l in prov.splitlines() if "_apply_block(" in l), \
         "a provisional tail passes finalized — a speculative view would refuse ahead of the finalized verdict"
-    assert "EXEC_DA_DEADLINE_HEIGHT = 29000 if CHAIN_GENERATION == 27 else 1" in open(protocol.__file__).read()   # activated 2026-09-27
+    assert not hasattr(protocol, "EXEC_DA_DEADLINE_HEIGHT"), "the deleted gate came back"
 
 
 for _name, _fn in list(globals().items()):

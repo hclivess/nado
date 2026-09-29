@@ -18,7 +18,7 @@ from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPO
 
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
 from protocol import ADDRESS_PREFIX
-from protocol import BLOCK_SIG_CHAIN_BIND_HEIGHT, CHAIN_GENERATION, GENESIS_TIMESTAMP, DOMAIN_BLOCKSIG
+from protocol import CHAIN_GENERATION, GENESIS_TIMESTAMP, DOMAIN_BLOCKSIG
 import zstandard as zstd
 
 # Block bodies are stored as zstd(codec(block)) (#14) — ops/codec.py is a compact portable JSON
@@ -1135,13 +1135,17 @@ def _block_sig_message_fields(block_number, parent_hash, block_hash) -> bytes:
     """The exact bytes a winner signs to authenticate a block. Field-based so an equivocation proof can reconstruct
     it without a full block dict — which is also why it must name the chain by itself: a proof carries no block.
 
-    Below BLOCK_SIG_CHAIN_BIND_HEIGHT: blake2b(height, parent_hash, block_hash) — gen 27's form, kept byte-identical
-    for its replay. It names no chain, and verify_equivocation_proof never checks the proof's parent is ours, so a
-    double-sign from ANY chain the key ever signed on (every earlier generation — keys carry across rerolls, slash
-    markers do not — or one that reused this genesis, as gens 7-9 and 26/27 did) slashes the carried bond here
-    (audit 2026-09-25 "cross-generation slash replay", tests/test_slash_evidence_is_this_chain_only.py).
+    blake2b(DOMAIN_BLOCKSIG, CHAIN_GENERATION, genesis hash, height, parent_hash, block_hash). The chain-less form
+    blake2b(height, parent_hash, block_hash) (gen 27's) named no chain, and verify_equivocation_proof never checks the
+    proof's parent is ours, so a double-sign from ANY chain the key ever signed on (every earlier generation — keys
+    carry across rerolls, slash markers do not — or one that reused this genesis, as gens 7-9 and 26/27 did) slashed
+    the carried bond here (audit 2026-09-25 "cross-generation slash replay",
+    tests/test_slash_evidence_is_this_chain_only.py).
 
-    From the gate: blake2b(DOMAIN_BLOCKSIG, CHAIN_GENERATION, genesis hash, height, parent_hash, block_hash).
+    The chain-less form survives ONLY for a height that is not an int >= 1 — gen 27's BLOCK_SIG_CHAIN_BIND_HEIGHT,
+    1 from gen 28 (deleted). No winner signs block 0 and sign_block only ever signs tip + 1, so no signature this
+    chain makes uses it; it is kept so a height-0 or malformed height is judged exactly as it was under the gate
+    (verify_equivocation_proof refuses height-0 evidence judged at any block; see there).
     INVARIANT: sign_block, verify_block_signature and verify_equivocation_proof all reach the signed bytes through
     THIS function and nothing else; a second spelling of the message is a place where a foreign-chain signature
     verifies again. Never bind the CHAIN_ID label here: a CHAIN_ID rename must not change a signature's bytes
@@ -1149,8 +1153,7 @@ def _block_sig_message_fields(block_number, parent_hash, block_hash) -> bytes:
     cannot change without the chain changing."""
     # isinstance, not a bare comparison: a malformed height must fail verification exactly as it did before the gate,
     # never raise from here (verify_block_signature runs before the rebuild that would refuse it).
-    if isinstance(block_number, int) and not isinstance(block_number, bool) \
-            and block_number >= BLOCK_SIG_CHAIN_BIND_HEIGHT:
+    if isinstance(block_number, int) and not isinstance(block_number, bool) and block_number >= 1:
         return _unhex(blake2b_hash([DOMAIN_BLOCKSIG, CHAIN_GENERATION, _GENESIS_HASH,
                                     block_number, parent_hash, block_hash]))
     return _unhex(blake2b_hash([block_number, parent_hash, block_hash]))
@@ -1158,8 +1161,7 @@ def _block_sig_message_fields(block_number, parent_hash, block_hash) -> bytes:
 
 def block_signature_message(block) -> bytes:
     """Bytes the winner signs over its block; binds the block's identity so a signature cannot be
-    replayed onto another block — and, from BLOCK_SIG_CHAIN_BIND_HEIGHT, onto another chain (see
-    _block_sig_message_fields). Hex/int only."""
+    replayed onto another block or onto another chain (see _block_sig_message_fields). Hex/int only."""
     return _block_sig_message_fields(block["block_number"], block["parent_hash"], block["block_hash"])
 
 
@@ -1194,12 +1196,13 @@ def verify_equivocation_proof(proof, judge_height=None) -> tuple:
         if ha == hb:
             return None  # not conflicting — same block
         # THIS CHAIN ONLY (audit 2026-09-25 "cross-generation slash replay"): the signatures below are checked over
-        # _block_sig_message_fields, which from BLOCK_SIG_CHAIN_BIND_HEIGHT names this generation and genesis, so a
-        # pair signed for another chain does not verify. Evidence for a height BELOW the gate would be checked in the
-        # chain-less form, so once the rule is live at the judging block it is refused outright (on a fresh chain
-        # that is height 0, which no winner signs; on gen 27 the gate is 2^62 and this never fires).
+        # _block_sig_message_fields, which names this generation and genesis for every height >= 1, so a pair signed
+        # for another chain does not verify. Height-0 evidence (which no winner signs) would be checked in the
+        # chain-less form, so it is refused outright when judged at a block. `>= 1` / `< 1` are gen 27's
+        # BLOCK_SIG_CHAIN_BIND_HEIGHT, 1 from gen 28 (deleted): judging height 0 (mempool admission on a genesis tip)
+        # or None (the in-block uniqueness key, the watchtower) was below the gate and keeps its verdict.
         # INVARIANT: never verify evidence through any message other than _block_sig_message_fields.
-        if judge_height is not None and judge_height >= BLOCK_SIG_CHAIN_BIND_HEIGHT and bn < BLOCK_SIG_CHAIN_BIND_HEIGHT:
+        if judge_height is not None and judge_height >= 1 and bn < 1:
             return None
         for bh, sig in ((ha, proof.get("signature_a")), (hb, proof.get("signature_b"))):
             if not sig or not _verify_message(signed=sig, public_key=pk,
