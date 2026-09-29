@@ -743,7 +743,7 @@ BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~1,440 
 # net-deflationary under real usage, while a perpetual tail (m never reaches 0) means block production is
 # ALWAYS incentivised — no hard cap, no security cliff (Monero reasoning).
 #   m(r) = M_MIN + (1-M_MIN)*exp(-k*r),  M_MIN=0.15, k=4,  applied uniformly to BOTH lanes.
-# TUNED (final): M_MIN=0.15 gives a credible perpetual security tail (~0.0166 NADO/block ≈ 8,700 NADO/yr
+# TUNED (final): M_MIN=0.15 gives a credible perpetual security tail (~0.0166 NADO/block ≈ 87,000 NADO/yr at 6 s blocks
 # forever, never zero) while k=4 makes emission at the ~40% self-limiting equilibrium ~0.033/block (hard),
 # with a responsive-but-not-violent early curve (10% bonded -> ~28% emission cut). MAX emission = BASE (m=1
 # at r=0). CONSENSUS-SAFE: hardcoded INTEGER table in basis points, indexed by the bonded ratio in whole

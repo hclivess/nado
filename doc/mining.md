@@ -61,8 +61,8 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
    **before** the epoch beacon is revealed (kills just-in-time bond grinding).
 4. **Mobile/browser participation** is outbound-only and **passive**. On the **bonded** lane a
    phone bonds once and then does nothing online at all: there is **no heartbeat, no PoW/PoSW, no
-   online requirement** — the winner is credited by address and an always-on relay builds the
-   block, so the reward lands on-chain with no inbound connectivity and a browser closing
+   online requirement** — the winner is credited by address and every node builds the block
+   itself (there is no proposer), so the reward lands on-chain with no inbound connectivity and a browser closing
    mid-epoch is **never slashed**. On the **open** lane the only recurring action is renewing the
    **PoSW recert lease** — one `register` with a fresh sequential proof roughly once per
    `POSW_LEASE_EPOCHS` (≈ 1 day), *not* a per-epoch heartbeat. (The original per-epoch heartbeat
