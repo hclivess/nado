@@ -1076,7 +1076,11 @@ function _pickCss() {
   const s = document.createElement("style");
   s.id = "nadoPickCSS";
   s.textContent = `
-  .pick{position:relative;display:inline-block;min-width:0}
+  .pick{position:relative;display:inline-block;min-width:0;max-width:100%}
+  /* A PHONE-WIDTH HEADER WRAPS (2026-09-29 page walk: 8 game pages 7-66 px wider than a 412 px screen). Every game
+     docks the language picker and the wallet button into one non-wrapping flex header beside the logo, title and
+     "All apps"; at phone width they ran off the right edge. They take a second row instead. */
+  header:has(.pick),header:has(#hdrWallet){flex-wrap:wrap;row-gap:8px}
   .seg{position:relative}
   select.enhanced{position:absolute!important;opacity:0!important;pointer-events:none!important;
     width:100%;height:100%;left:0;top:0;margin:0;padding:0;border:0}
@@ -1085,7 +1089,7 @@ function _pickCss() {
     border-radius:11px;padding:10px 12px;font-weight:700;font-size:13.5px;cursor:pointer;text-align:left}
   .pickbtn:hover{border-color:var(--accent,#00ad93)}
   .pickbtn .car{color:var(--faint,#5d6b7a);font-size:10px;flex:0 0 auto}
-  .pickbtn .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickbtn .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .pickpanel{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:min(320px,86vw);max-width:calc(100vw - 24px);
     background:var(--elev2,#1a232e);border:1px solid var(--border,#243140);border-radius:12px;
     box-shadow:0 16px 40px rgba(0,0,0,.55);padding:8px}
