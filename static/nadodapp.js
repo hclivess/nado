@@ -1155,6 +1155,19 @@ export function autoEnhanceSelects() {
   const run = () => { try { enhanceSelects(); } catch (e) {} };
   run();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+  // NO NATIVE FLASH (operator 2026-09-29: the wallet's account selector "switching basic to advanced style, very
+  // distracting"). A select built after load showed its operating-system look until the 1.2 s sweep below caught it —
+  // and the account bar is rebuilt on every wallet refresh, so it flickered basic -> styled each time. A
+  // MutationObserver callback runs before the next paint, so a select (or the options a fetch fills in) is enhanced
+  // before anyone sees it. The sweep stays as the fallback for anything the observer cannot see.
+  try {
+    const touchesSelect = (n) => n && n.nodeType === 1 && (n.tagName === "SELECT" || n.tagName === "OPTION" || (n.querySelector && n.querySelector("select")));
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.target && (m.target.tagName === "SELECT" || [...m.addedNodes].some(touchesSelect))) { run(); return; }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) {}
   _pickSweep = setInterval(run, 1200);
 }
 

@@ -305,6 +305,13 @@ function switchAccount(i) {
   const master = masterSeedOf();
   if (master == null) return;
   i = Math.max(0, Math.min(hdCount(), i | 0));
+  // THE COLLECTING LOOP FOLLOWS THE ACCOUNT (operator 2026-09-29: "when i switch to Account 2 and back to Main, it
+  // wrongly shows 'start collecting'"). The loop runs for ONE address; on an unregistered account it halts for
+  // registration, and switching back never restarted it, so a registered, collecting Main sat on the idle button.
+  // Pause it for the old account (the persisted intent survives, exactly as a lock does) and resume it below for the
+  // new one: a registered account goes straight back to Collecting, an unregistered one shows Register.
+  const resume = localStorage.getItem(LS_MINING) === "1";
+  if (state.mining || state.starting) pauseMining();
   const kp = accountKeypair(master, i);
   state.masterSeed = master;              // preserve the master; state.wallet becomes the derived signer
   state.wallet = kp;
@@ -314,6 +321,8 @@ function switchAccount(i) {
   state.authAcct = null;
   showWalletUI();
   refreshDashboard().catch(() => {});
+  if (resume) startMining();
+  else if (!state.pollTimer) startPollLoop();            // else at least keep the dashboard live
 }
 function addAccount() {
   const n = hdCount() + 1;
@@ -324,6 +333,11 @@ function renderAccountBar() {
   const bar = $("accountBar");
   if (!bar || !state.wallet) return;
   const count = hdCount(), active = state.activeIdx || 0;
+  // REBUILD ONLY ON A CHANGE: this runs on every wallet refresh (showWalletUI, then again after authSync), and tearing
+  // the picker down each time made it flicker for no reason (operator 2026-09-29).
+  const sig = JSON.stringify([count, active, Array.from({ length: count + 1 }, (_, i) => accountLabel(i)), i18("acct.label", "Account")]);
+  if (bar.dataset.sig === sig && bar.childElementCount) return;
+  bar.dataset.sig = sig;
   bar.textContent = "";
   bar.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap";
   const lbl = document.createElement("span");
