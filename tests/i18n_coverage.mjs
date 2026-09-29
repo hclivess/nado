@@ -46,8 +46,29 @@ for (const f of fs.readdirSync("static")) {
     collect(txt, pm ? pm[1] + "." : "");
   }
 }
-const undef_ = [...refs].filter((k) => !en.has(k) && !k.endsWith(".") && !k.endsWith("_") && !k.includes("${"));
-if (undef_.length) { fails++; console.error(`FAIL: ${undef_.length} referenced key(s) in NO table (English-only fallbacks): ${undef_.slice(0, 10).join(", ")}`); }
+// THE LOBBY TOO (website/apps.html, served at nadochain.com/apps with THIS i18n.js). It lives outside static/, so
+// this guard never read it, and 61 of its keys — nav, hero, footer, the DEX/Lend/Pool/Sovereign/Scrapline/Hexholm/
+// Stormhold entries — rendered English in every language until 2026-09-29. Its game keys are built at runtime
+// ("games." + slug + ".name"), so they are derived here from the GAMES table itself: a new entry without its
+// translations fails this test instead of shipping English to fifteen locales.
+{
+  const a = fs.readFileSync("website/apps.html", "utf8");
+  collect(a, "");
+  for (const m of a.matchAll(/(?<![\w.])T\(\s*"([a-zA-Z0-9_.\-]+)"/g)) refs.add(m[1]);
+  let n = 0;
+  for (const m of a.matchAll(/\{ svg:SVG\.\w+,([\s\S]*?)\] \},?\n/g)) {
+    const b = m[1], slug = (b.match(/slug:"([^"]+)"/) || [])[1];
+    if (!slug) continue;
+    n++;
+    refs.add(`games.${slug}.name`); refs.add(`games.${slug}.blurb`);
+    const meta = b.match(/meta:\[([^\]]*)/);
+    if (meta) JSON.parse("[" + meta[1] + "]").forEach((_, i) => refs.add(`games.${slug}.m${i}`));
+    if (/kind:"(?!game")/.test(b)) refs.add(`apps.kind.${slug}`);
+  }
+  if (!n) { fails++; console.error("FAIL: parsed no entries out of website/apps.html GAMES — this guard's parser is stale"); }
+}
+const undef_ =[...refs].filter((k) => !en.has(k) && !k.endsWith(".") && !k.endsWith("_") && !k.includes("${"));
+if (undef_.length) { fails++; console.error(`FAIL: ${undef_.length} referenced key(s) in NO table (English-only fallbacks): ${undef_.slice(0, process.env.ALL ? 999 : 10).join(", ")}`); }
 
 if (fails) process.exit(1);
 console.log(`OK: ${Object.keys(T).length} languages x ${en.size} keys, every referenced key defined`);

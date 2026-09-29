@@ -4,9 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Apps — on-chain games, betting and lending</title>
-<script src="/static/i18n.js?v=536a85ce"></script>
+<script src="/static/i18n.js?v=f22a6511"></script>
 <meta name="description" content="Apps on the NADO execution layer — provably-fair games settled by future block hashes, parimutuel betting, and peer-to-peer collateralised lending. Post-quantum wallet, no install.">
-<link rel="icon" href="/favicon.ico">
+<meta name="robots" content="index, follow" />
+<meta name="theme-color" content="#0b0f14" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://nadochain.com/apps" />
+<link rel="icon" type="image/svg+xml" href="/logo.svg" />
+<link rel="icon" sizes="any" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/logo.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="NADO" />
+<meta property="og:url" content="https://nadochain.com/apps" />
+<meta property="og:title" content="NADO Apps — on-chain games, betting, trading and lending" />
+<meta property="og:description" content="Provably-fair games settled by future block hashes, parimutuel betting, a DEX and peer-to-peer lending — ordinary on-chain contracts on NADO's execution layer. Post-quantum wallet, no install." />
+<meta property="og:image" content="https://nadochain.com/og-image.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="NADO Apps" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@nadochain" />
+<meta name="twitter:image" content="https://nadochain.com/og-image.png" />
 <style>
   :root{
     --bg:#0b0f14; --panel:#111823; --line:#1c2530; --txt:#e6edf3; --muted:#8b9bab; --faint:#5c6b7a;
@@ -58,7 +77,7 @@
   footer a{color:var(--muted);margin:0 10px}
   @media(max-width:560px){
     header{justify-content:center;text-align:center}
-    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px}
+    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 16px}
     nav a{margin-left:0}
   }
   /* UNIVERSAL NAV (2026-09-13): the same links on every page; the wallet CTA is a small button. */
@@ -75,12 +94,12 @@
     <nav>
       <a href="/#what" data-i18n="nav.what">What</a>
       <a href="/#features" data-i18n="nav.features">Features</a>
-      <a href="/#build">Build</a>
-      <a href="/production">Production</a>
+      <a href="/#build" data-i18n="nav.build">Build</a>
+      <a href="/production" data-i18n="nav.production">Production</a>
       <a href="/emission" data-i18n="nav.emission">Emission</a>
       <a class="here" href="/apps" data-i18n="nav.apps">Apps</a>
       <a href="/#treasury" data-i18n="nav.treasury">Treasury</a>
-      <a href="https://forum.nadochain.com">Forum</a>
+      <a href="https://forum.nadochain.com" data-i18n="nav.forum">Forum</a>
       <a href="https://github.com/hclivess/nado">GitHub</a>
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Collect Rewards</a>
     </nav>
@@ -104,7 +123,7 @@
   </div>
 
   <footer>
-    <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a><a href="https://doi.org/10.5281/zenodo.22749219">Paper</a>
+    <a href="/" data-i18n="foot.home">Home</a><a href="https://get.nadochain.com/" data-i18n="foot.wallet">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a><a href="https://doi.org/10.5281/zenodo.22749219" data-i18n="foot.paper">Paper</a>
     <div style="margin-top:12px" data-i18n="apps.responsible">Play responsibly — the games here are real-value games of chance. Lending is not a game: a missed deadline means the collateral changes hands.</div>
   </footer>
 </div>
@@ -364,21 +383,24 @@ function renderGames() {
     // be described in game words: "Play Lend" reads as a casino, which is exactly the wrong expectation to
     // set for a contract that takes real collateral and keeps it on a missed deadline.
     const isGame = (g.kind || "game") === "game";
-    const meta = (isGame ? "" : `<span class="pill" style="border-color:#e3b341;color:#e3b341">${
-        T("apps.kind." + (g.kind || "game"), g.kindLabel || "not a game")}</span>`)
-      + g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
-      + (g.faucet ? `<span class="pill" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "airdrop play")}</span>` : "");
+    const meta = (isGame ? "" : `<span class="pill" dir="auto" style="border-color:#e3b341;color:#e3b341">${
+        T("apps.kind." + g.slug, g.kindLabel || "not a game")}</span>`)
+      + g.meta.map((m, i) => `<span class="pill" dir="auto">${T("games." + g.slug + ".m" + i, m)}</span>`).join("")
+      + (g.faucet ? `<span class="pill" dir="auto" style="border-color:#3fb950;color:#3fb950">${T("games.faucetPill", "airdrop play")}</span>` : "");
+    // RTL (2026-09-29): a Latin-script string inside the Arabic page — a proper name, an English fallback — took the page's
+    // direction and its trailing punctuation jumped to the wrong end ("+Android 12", ".read"). dir="auto" gives each text
+    // block its own direction; the title uses <bdi> instead so it stays aligned with the page while its text is isolated.
     const cta = g.live
-      ? `<a class="btn" href="${g.url}">${isGame ? T("games.play", "Play {name} →", { name })
+      ? `<a class="btn" dir="auto" href="${g.url}">${isGame ? T("games.play", "Play {name} →", { name })
                                                  : T("apps.open", "Open {name} →", { name })}</a>`
       : `<span class="btn disabled">${T("games.soon", "Coming soon")}</span>`;
     return `
   <div class="game${g.live ? " live" : ""}">
     <div class="ico">${g.svg}</div>
     <div class="tag${g.live ? "" : " soon"}">${tag}</div>
-    <h3>${name}</h3>
-    <p>${blurb}</p>
-    <button type="button" class="morelink" onclick="this.closest('.game').classList.toggle('open')">${T("apps.more", "How it works")}</button>
+    <h3><bdi>${name}</bdi></h3>
+    <p dir="auto">${blurb}</p>
+    <button type="button" class="morelink" dir="auto" onclick="this.closest('.game').classList.toggle('open')">${T("apps.more", "How it works")}</button>
     <div class="meta">${meta}</div>
     ${cta}
   </div>`;

@@ -1124,7 +1124,7 @@ function renderDeviceStatus() {
   if (st.reason === "apple" || st.reason === "unsupported") {
     el.textContent = st.reason === "apple"
       ? i18("device.mineApple", "An iPhone, iPad or Mac cannot vouch for itself — Apple passkeys carry no attestation, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, or Attest from another device.")
-      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows PC with a TPM, or Attest from another device.");
+      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows or Linux PC with a TPM 2.0 through the enrolment helper, or Attest from another device.");
     el.className = "small mt warn";
     if (state.lastMs && state.lastMs.bonded_producing)
       el.textContent += " " + i18("device.savingsNote", "Your savings are already collecting on their own — a device only adds the free lane and the dividend.");
@@ -1136,7 +1136,7 @@ function renderDeviceStatus() {
     return;
   }
   el.textContent = st.reason === "unsupported"
-    ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device.")
+    ? i18("device.mineUnsupported", "Real device: this browser cannot attest hardware. Use an Android phone (12+), a Windows or Linux PC with a TPM 2.0 through the enrolment helper, a Ledger or Trezor — or Attest from another device.")
     : i18("device.mineFailed", "Real device: attestation failed ({e}). The free lane and the dividend need an Android phone (12+), a Windows PC with a TPM, a Ledger or Trezor — or Attest from another device. Savings collecting needs no device at all: bond NADO and you produce blocks without one.", { e: st.reason || "" });
   if (state.lastMs && state.lastMs.bonded_producing)
     el.textContent += " " + i18("device.savingsNote", "Your savings are already collecting on their own — a device only adds the free lane and the dividend.");
@@ -1361,7 +1361,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
     setDeviceStatus({ ok: false, fmt: "none", x5c: 0, reason: _verdict });
     log("err", _verdict === "apple"
       ? i18("device.mineApple", "An iPhone, iPad or Mac cannot vouch for itself — Apple passkeys carry no attestation, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, or Attest from another device.")
-      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows PC with a TPM, or Attest from another device."));
+      : i18("device.noPlatformAuth", "This browser has no built-in secure hardware to attest with, so no prompt is shown. Use a Ledger or Trezor Safe in Chrome, Edge or Brave, an Android phone (12+), a Windows or Linux PC with a TPM 2.0 through the enrolment helper, or Attest from another device."));
     return null;
   }
   try {
