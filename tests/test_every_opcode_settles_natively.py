@@ -6,7 +6,7 @@ node refuses; this runs the same programs (tests/opcode_programs.py) the way the
 only. NOTHING IS EXCLUDED. The opcodes that cannot run in THIS span — a records-frozen KV-half proof — settle by proof
 in their own shipped-path tests, and this test asserts each of those exists and runs the instruction (ELSEWHERE):
 PAY, BHASH and BEACON records-bound and chain-bound (test_pay_and_chain_reads_settle_natively.py), and the five asset
-ops through the pinned asset ledger from ZK_HARDEN_HEIGHT (test_asset_ops_settle_by_proof.py, and end to end through
+ops through the pinned asset ledger (test_asset_ops_settle_by_proof.py, and end to end through
 L1's validate_transaction in test_asset_settle_l1.py). CTX's `value` needs an escrow; CTX itself is covered here.
 
 Run: python3 tests/test_every_opcode_settles_natively.py            (native kernels required)

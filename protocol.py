@@ -1664,7 +1664,10 @@ def split_open_block_reward(reward: int):
 # tpm_enrol uniqueness keys and the settle / xmsg builders (a tx's own max_block), legacy_claim validation, the exec DA
 # deadline (genesis at h = 0), and height-0 block-signature messages / slash evidence judged at 0 or None. The raw-bytes
 # device key stays for devbind rows carried from betanet-8.
-# STILL LIVE, keyed `== 27`:          ZK_HARDEN_HEIGHT (-> 1) — its slice is in progress.
+#   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
+#                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
+#                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
+# No generation-keyed gate is live on gen 28: the next gate added is keyed `== 28`.
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2325,9 +2328,11 @@ DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
 #             the gate the leaves are 256-bit and the chain is the alghash2 sponge (4-element digest, ~2^128 collision);
 #             a segment is keyed on its end cursor and one straddling the gate is refused (calls_commit.span_width).
 #             Native on both sides (no AIR, no Rust kernel); execsum rows are outside the L1 root.
-# Proof rules carry it as stark.Rules.zk_harden (rules_for_height), exec rules read the applying height. Dormant
-# (2^62) until the fleet runs the release; then set to a height ahead of the fleet's adoption (rule 3).
-ZK_HARDEN_HEIGHT = (1 << 62) if CHAIN_GENERATION == 27 else 1
+# UNCONDITIONAL FROM BLOCK 1. ZK_HARDEN_HEIGHT was the gen-27 gate (dormant 2^62 there, 1 from gen 28); deleted after the
+# betanet-9 reroll. Proof rules carry it as stark.Rules.zk_harden (rules_for_height: on from height 1, off in the
+# RULES_LEGACY that height 0 gets). `>= 1` survives only where height 0 reaches the check — calls_commit.wide_binding (a
+# call or segment at cursor 0 keeps the narrow form) and shielded_wide.depth_at (the exec state at cursor -1 / 0 holds
+# the depth-12 pool, deepened when block 1 is applied) — so no verdict moved.
 
 # EXEC DA DEADLINE (audit 2026-09-25, HIGH "exec stall"). The exec tail resolves every DA-carried proof of a block before
 # mutating anything and, when one cannot be fetched, applies NOTHING and retries — all-or-nothing, so no node ever

@@ -24,8 +24,8 @@ _fails = []
 
 # gate -> value on a fresh chain. 1 = live from genesis, 0 = never (its code path is cleanup fodder).
 REROLL = {
-    # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed).
-    "DEVICE_ATTEST_HEIGHT": 1, "ZK_HARDEN_HEIGHT": 1,
+    # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed). Every gen-27 gate is gone (see DELETED).
+    "DEVICE_ATTEST_HEIGHT": 1,
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
@@ -56,6 +56,8 @@ DELETED = (
     "SETTLE_STAKE_FLOOR_HEIGHT", "EXEC_DA_DEADLINE_HEIGHT", "BLOCK_SIG_CHAIN_BIND_HEIGHT", "DIVIDEND_CARRY_EPOCH",
     "ADDRESS_FORMAT",        # `1 if == 27 else 2`: format 2 is unconditional (ADDRESS_CHECKSUM 4 / ADDRESS_LENGTH 50 are plain)
     "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
+    "ZK_HARDEN_HEIGHT",      # `>= 1` kept where height 0 reaches: calls_commit.wide_binding, shielded_wide.depth_at,
+                             # stark.rules_for_height
 )
 
 

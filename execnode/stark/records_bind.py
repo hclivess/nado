@@ -96,13 +96,6 @@ def _VALUE_CALL_ESCROW():
         return False
 
 
-def _asset_escrow_derivable(block):
-    """An asset-denominated call value is a derivable records effect from ZK_HARDEN_HEIGHT (block_records_effects).
-    Read at CALL time, like _VALUE_CALL_ESCROW, so a test can move the gate."""
-    import protocol
-    return int(block.get("block_number") or 0) >= int(protocol.ZK_HARDEN_HEIGHT)
-
-
 class Unbindable(Exception):
     """A span carries a records effect this module cannot derive from committed data. NOT an error in the
     span — the correct response is to decline the proof path and settle by bonded quorum."""
@@ -278,17 +271,15 @@ def block_records_effects(block):
                 if _asset:
                     # An asset-denominated call value moves the ASSET ledger, not T_BRIDGE_BAL: the live apply
                     # escrows `value` of that asset from the caller's row to the contract's (execnode/state.py).
-                    # Below ZK_HARDEN_HEIGHT that ledger was not bound by any settle proof, so the block stays
-                    # non-derivable exactly as before — this list is committed into the exec summary, i.e. the L1
-                    # state root, so the gate is load-bearing. From the gate the escrow is derived like the native
-                    # one ("the proof is the verdict"), and records_bind.PinnedAssets replays it into the asset
-                    # shadow before the call's VM effects so the span's running holdings are right.
+                    # The escrow is derived like the native one ("the proof is the verdict"), and
+                    # records_bind.PinnedAssets replays it into the asset shadow before the call's VM effects so
+                    # the span's running holdings are right. This list is committed into the exec summary, i.e.
+                    # the L1 state root. No height guard: gen 27's ZK_HARDEN_HEIGHT (1 from gen 28, deleted) kept
+                    # the block non-derivable below it, and a transaction is never in block 0 (genesis is empty).
                     #
                     # KEYED EXACTLY AS THE LIVE APPLY KEYS IT: str(payload asset). A non-canonical spelling
                     # ("0123", " 123") names no asset live (the call is skipped) while the proof path reads it
                     # as an int, so such a block stays non-derivable rather than binding two different keys.
-                    if not _asset_escrow_derivable(block):
-                        return None, False
                     _aid = str(d.get("asset"))
                     if _aid != str(_asset):
                         return None, False
@@ -423,7 +414,7 @@ def proof_asset_ids(proof):
     """(carries_asset_io, {asset id}) over a settle proof's segment io logs AND its asset-valued calls (which move
     the ledger before any io). The ids are those an op or a call NAMES —
     ASEL/ABURN/ABAL/ARENOUNCE carry the asset in their first word (AMINT and a paired PAY name the recipient;
-    their asset is the preceding ASEL's). From ZK_HARDEN_HEIGHT a proof with asset io carries `records_pre` and
+    their asset is the preceding ASEL's). A proof with asset io carries `records_pre` and
     `asset_meta_pre` for these ids; the exec prover and L1 both ask this one function."""
     from execnode import zkvm as _z
     named = (_z.IO_ASEL, _z.IO_ABURN, _z.IO_ABAL, _z.IO_ARENOUNCE)
@@ -475,8 +466,8 @@ def pay_effects_from_segment(seg, reg=None, assets=None):
     the call count — that equality is the check that the split is real and not a coincidence.
 
     ASSET effects (ASEL-paired PAY, AMINT, ABURN, ABAL, ARENOUNCE) are derived through `assets`, a
-    PinnedAssets over the pinned pre-state (ZK_HARDEN_HEIGHT: settle_proof_io_check admits asset io only from
-    there). Without one they refuse the span, as they always did — half-deriving the asset ledger would let a
+    PinnedAssets over the pinned pre-state (zk audit 2026-09-26: settle_proof_io_check admits asset io because this
+    binds it). Without one they refuse the span, as they always did — half-deriving the asset ledger would let a
     prover settle a root that silently omits the rest.
 
     `reg` is the digest→address registry, SHARED across a proof's segments by pay_effects_from_proof. It is

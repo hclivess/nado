@@ -65,7 +65,7 @@ def _summaries(spec):
 
 def _proof(lo, hi):
     """A single segment covering (lo, hi] whose calls_commitment matches empty calldata everywhere — in the chain's
-    OWN width (CC.span_width): narrow below ZK_HARDEN_HEIGHT, the 4-element wide chain from it (gen 28: from block 1).
+    OWN width (CC.span_width): the 4-element wide chain from block 1 (narrow only at height 0).
     A hand-built narrow chain here failed every span on gen 28 while the production fold was right."""
     ok, wide = CC.span_width(lo, hi)
     assert ok, (lo, hi)

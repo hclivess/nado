@@ -425,11 +425,12 @@ class ExecState:
         self.uw_nonce = _floor(d.get("uw_nonce", 0), d.get("unshield_withdrawals"))
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
         from execnode.shielded_wide import WideShieldedPool, depth_at as _wide_depth_at
-        # THE WIDE POOL'S DEPTH IS CHECKED AGAINST THE CURSOR, NEVER TAKEN FROM THE SNAPSHOT (ZK_HARDEN_HEIGHT). After
-        # block c is applied the pool is depth_at(c): a snapshot claiming depth 12 past the gate (or 48 before it) is a
-        # tree the protocol never put there — a donor's, or a node that crossed the gate on old code — and adopting it
-        # would verify spends at the wrong D against the wrong roots. Refused loudly, like a legacy outbox shape. An empty
-        # pool is absent from the snapshot (empty is absent) and takes the depth the cursor says.
+        # THE WIDE POOL'S DEPTH IS CHECKED AGAINST THE CURSOR, NEVER TAKEN FROM THE SNAPSHOT (zk audit 2026-09-26).
+        # After block c is applied the pool is depth_at(c): a snapshot claiming depth 12 at cursor >= 1 (or 48 at
+        # cursor -1 / 0) is a tree the protocol never put there — a donor's, or a node that crossed block 1 on old
+        # code — and adopting it would verify spends at the wrong D against the wrong roots. Refused loudly, like a
+        # legacy outbox shape. An empty pool is absent from the snapshot (empty is absent) and takes the depth the
+        # cursor says.
         _want = _wide_depth_at(self.cursor) if int(self.cursor) >= 0 else _wide_depth_at(0)
         self.wide_pool = WideShieldedPool.from_dict(d["wide_pool"]) if "wide_pool" in d else WideShieldedPool(depth=_want)
         if self.wide_pool.depth != _want:
@@ -1014,7 +1015,7 @@ class ExecState:
             self.wide_enter(self.applying_height())       # idempotent: the pool at the depth in force (see wide_enter)
             if self.wide_pool.position(cm) is not None:
                 return "skip field-shield: duplicate note commitment"
-            # Z4 at the POOL's depth (2^12 below ZK_HARDEN_HEIGHT, 2^48 from it) — never the module's legacy constant
+            # Z4 at the POOL's depth (2^12 at genesis, 2^48 from block 1) — never the module's legacy constant
             if len(self.wide_pool.commitments) >= (1 << self.wide_pool.depth):
                 return "skip field-shield: the wide pool is full"
             self.wide_pool.append(cm)
@@ -1045,7 +1046,7 @@ class ExecState:
             return "skip field-transfer: public_value/fee out of range"
         public = {"root": js["root"], "nullifiers": [js["nf"]], "out_commitments": [js["cm_out1"], js["cm_out2"]],
                   "public_value": pv, "fee": fee}
-        # THE PROOF'S DEPTH IS THE POOL'S, AND THE POOL'S IS THE HEIGHT'S (ZK_HARDEN_HEIGHT): wide_enter puts the pool at
+        # THE PROOF'S DEPTH IS THE POOL'S, AND THE POOL'S IS THE HEIGHT'S (depth_at): wide_enter puts the pool at
         # depth_at(applying height) first, then the verifier pins D to that depth — read from here, never from the proof.
         with self._mutate_lock:
             self.wide_enter(self.applying_height())
@@ -1264,14 +1265,15 @@ class ExecState:
         return self.applying_height() >= 1
 
     def wide_enter(self, height):
-        """Put the wide pool at the depth in force for block `height` (shielded_wide.depth_at): at the first block at
-        or past ZK_HARDEN_HEIGHT the depth-12 pool becomes a depth-48 pool over the SAME leaves and spent set — a new
-        root, the anchor window rebuilt at the new depth (no depth-12 root survives it). Idempotent; a no-op below the
-        gate, so nothing moves there. Returns the pool it replaced (None if none), so a caller that un-applies the block
-        (_apply_block's DA stall) can put the old one back exactly. Called by _apply_block for EVERY block, whether or
-        not it touches the pool, so a snapshot's depth always matches its cursor (_restore checks exactly that), and by
-        the wide shield/transfer paths so a state driven without _apply_block (tests, tooling) is judged the same.
-        Never shrinks a pool: a depth-48 pool below the gate is a state _restore refuses, not one to repair here."""
+        """Put the wide pool at the depth in force for block `height` (shielded_wide.depth_at): at block 1 the
+        depth-12 pool a fresh state (cursor -1, genesis applied at 0) holds becomes a depth-48 pool over the SAME
+        leaves and spent set — a new root, the anchor window rebuilt at the new depth (no depth-12 root survives it).
+        Idempotent; a no-op at height 0, so nothing moves there. Returns the pool it replaced (None if none), so a
+        caller that un-applies the block (_apply_block's DA stall) can put the old one back exactly. Called by
+        _apply_block for EVERY block, whether or not it touches the pool, so a snapshot's depth always matches its
+        cursor (_restore checks exactly that), and by the wide shield/transfer paths so a state driven without
+        _apply_block (tests, tooling) is judged the same. Never shrinks a pool: a depth-48 pool at height 0 is a state
+        _restore refuses, not one to repair here."""
         from execnode.shielded_wide import depth_at
         want = depth_at(height)
         wp = self.wide_pool

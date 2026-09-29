@@ -1285,8 +1285,8 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
         # through one reader (runtimes.split_io) rather than two implementations that have to agree.
         if calls:
             try:
-                # ...AND THE ASSET MOVES (ZK_HARDEN_HEIGHT): pre_abal/pre_assets are passed only when the proof
-                # lands at or past the gate; without them an asset call raises here, as it always did.
+                # ...AND THE ASSET MOVES (zk audit 2026-09-26): pre_abal/pre_assets are the asset ledgers at the
+                # span's start; without them an asset call raises here.
                 effects.extend(SP.span_payout_effects(
                     pre_contracts or {}, calls, cursor=cur, beacons=beacons, block_hashes=bhashes,
                     pre_bridge=pre_bridge, pre_abal=pre_abal, pre_assets=pre_assets))
@@ -1596,13 +1596,11 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # composed with the records half AT sc. It only happened to be safe to write digest_hex(rec_root) here
     # while the two were forced equal by the skip below.
     rec_hex = SST.digest_hex(rec_pre_root)
-    # ASSET CALLS SETTLE BY PROOF FROM ZK_HARDEN_HEIGHT (records_bind.PinnedAssets binds them on L1). Below it L1
-    # refuses asset io, so the ledgers are withheld and an asset-touching span stays unprovable here exactly as
-    # before. Asked of the landing block (tip + 1), the same authority the proof's rules come from below.
-    from protocol import ZK_HARDEN_HEIGHT as _ZKH
-    _assets_on = (await _settle_landing_height(session, cur)) >= _ZKH
-    _pre_abal = (snap.get("state") or {}).get("abal") if _assets_on else None
-    _pre_assets = (snap.get("state") or {}).get("assets") if _assets_on else None
+    # ASSET CALLS SETTLE BY PROOF (zk audit 2026-09-26; records_bind.PinnedAssets binds them on L1), so the asset
+    # ledgers at the span's start ride the prove. No landing-height check: gen 27's ZK_HARDEN_HEIGHT (1 from gen 28,
+    # deleted) withheld them below the gate, and a settle always lands at tip + 1 >= 1 (_settle_landing_height).
+    _pre_abal = (snap.get("state") or {}).get("abal")
+    _pre_assets = (snap.get("state") or {}).get("assets")
     _records_half = None
     if rec_pre_root != rec_root:
         # THE RECORDS HALF MOVED — which used to end the span here. It no longer has to: the prover can
@@ -1854,15 +1852,14 @@ async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=No
     # 6a'. ASSET IO is bound on L1 against the pinned pre-state (records_bind.PinnedAssets): ship the metadata
     # preimages of the assets the io names, and — for a records-FROZEN proof, whose asset io must net to nothing
     # (e.g. a span that only reads balances) — the pre projection the reads are checked against.
-    if _assets_on:
-        from execnode.stark import records_bind as _RBa
-        _has_aio, _aids = _RBa.proof_asset_ids(proof)
-        if _has_aio:
-            _pa = _pre_assets or {}
-            proof["asset_meta_pre"] = {a: _pa[a] for a in sorted(_aids) if a in _pa}
-            if "records_pre" not in proof:
-                proof["records_pre"] = await asyncio.to_thread(
-                    lambda: ER.records_projection(type(st).snapshot_view(snap["state"])))
+    from execnode.stark import records_bind as _RBa
+    _has_aio, _aids = _RBa.proof_asset_ids(proof)
+    if _has_aio:
+        _pa = _pre_assets or {}
+        proof["asset_meta_pre"] = {a: _pa[a] for a in sorted(_aids) if a in _pa}
+        if "records_pre" not in proof:
+            proof["records_pre"] = await asyncio.to_thread(
+                lambda: ER.records_projection(type(st).snapshot_view(snap["state"])))
     # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
     # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
     if proof.get("recursive") is not None:
@@ -2705,9 +2702,10 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
             # prover replays — not the previous one. `>= 1`: gen 25's EXEC_CTX_CURRENT_HEIGHT, 1 from gen 26
             # (deleted); genesis (h = 0, applied from cursor -1) keeps the order it always had.
             _st.cursor, _st.block_ts = h, _cc(h)
-    # THE WIDE POOL'S DEPTH FOLLOWS THE BLOCK (ZK_HARDEN_HEIGHT: 12 -> 48), for every block and in step with the cursor
-    # above, so no await below ever exposes a state whose cursor is past the gate and whose pool is not (a snapshot
-    # taken then would be refused by _restore). The replaced pool is kept so a DA stall puts it back with the cursor.
+    # THE WIDE POOL'S DEPTH FOLLOWS THE BLOCK (shielded_wide.depth_at: 12 at genesis, 48 from block 1), for every block
+    # and in step with the cursor above, so no await below ever exposes a state whose cursor is at 1 and whose pool is
+    # not deepened (a snapshot taken then would be refused by _restore). The replaced pool is kept so a DA stall puts
+    # it back with the cursor.
     _prev_wide = {id(_st): _st.wide_enter(h) for _st in states_map.values() if hasattr(_st, "wide_enter")}
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
@@ -2751,7 +2749,7 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                         print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
                     for _st in states_map.values():           # EXEC-2: nothing of block h applied, so h is NOT done
                         _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
-                        if _prev_wide.get(id(_st)) is not None:    # ...and so is the pool it deepened (ZK_HARDEN)
+                        if _prev_wide.get(id(_st)) is not None:    # ...and so is the pool it deepened (block 1)
                             _st.wide_restore(_prev_wide[id(_st)])
                     return False
                 _DA_MISS_SINCE.pop(str(d["proof_da"]), None)
@@ -3716,7 +3714,7 @@ async def tail_loop():
                         # attestations until a quorum-verified bootstrap replaces the state.
                         state.replay_gap = True
                         state.cursor = h
-                        state.wide_enter(h)        # ZK_HARDEN_HEIGHT: the pool's depth follows the cursor, body or not
+                        state.wide_enter(h)        # depth_at: the pool's depth follows the cursor, body or not
                         continue
                     _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
                     # `finalized` IS WHAT BOUNDS THE DA STALL (audit 2026-09-25): without it _apply_block waits for an
@@ -4719,10 +4717,10 @@ def _shield_wide_now():
 
 def _wide_depth_next():
     """The wide tree depth a wallet must build its path and proof at: the depth in force for the NEXT block (the tip+1
-    rule of _shield_wide_now), shielded_wide.depth_at. Below ZK_HARDEN_HEIGHT that is the pool's own depth, 12. From the
-    block before the gate it is 48 while the pool is still 12 — correct for the proof, which can only land at or past the
-    gate, where the pool is deepened over the same leaves and a depth-48 root over them is an anchor. The wallet reads
-    this and never hard-codes a depth; a response without it means an exec node from before the field (depth 12)."""
+    rule of _shield_wide_now), shielded_wide.depth_at: 48 from block 1. At genesis (cursor 0) it is 48 while the pool is
+    still 12 — correct for the proof, which can only land at block 1 or later, where the pool is deepened over the same
+    leaves and a depth-48 root over them is an anchor. The wallet reads this and never hard-codes a depth; a response
+    without it means an exec node from before the field (depth 12)."""
     from execnode.shielded_wide import depth_at
     return max(state.wide_pool.depth, depth_at(int(state.cursor) + 1))
 
@@ -4799,7 +4797,7 @@ async def h_field_leaves(request):
     # ON-DEVICE (the node never sees the witness). Big ints as strings.
     if _shield_wide_now():
         from execnode.stark import znote as _Z
-        # "depth": the tree the wallet must build its path and proof at (ZK_HARDEN_HEIGHT: 12 -> 48); see _wide_depth_next
+        # "depth": the tree the wallet must build its path and proof at (48 from block 1); see _wide_depth_next
         return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True,
                                   "depth": _wide_depth_next()})
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})

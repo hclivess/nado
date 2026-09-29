@@ -13,22 +13,22 @@ against the on-chain calldata's running commitment (O(1)) instead of processing 
 alghash merkle_node so it folds in the recursion layer. Binding the commitment to the exec proof's calls (so the
 proof is FOR the committed calls) + proving the statement rebuild in-circuit is the remaining succinctness step.
 
-THE BINDING IS WIDE FROM ZK_HARDEN_HEIGHT (audit 2026-09-24/25 HIGH, "settle calldata binding is ONE field
-element"). Everything above describes the NARROW form, which is what gen 27 runs below the gate and stays
-byte-identical there: a leaf is blake2b % P (64 bits) and the chain is width-2 / capacity-1 alghash, whose
+THE BINDING IS WIDE FROM BLOCK 1 (audit 2026-09-24/25 HIGH, "settle calldata binding is ONE field element"; gen
+27's ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted). Everything above describes the NARROW form, which survives only
+for height 0 (wide_binding): a leaf is blake2b % P (64 bits) and the chain is width-2 / capacity-1 alghash, whose
 digest is ONE Goldilocks element. A second call sequence with the same commitment therefore costs a birthday
 search over 64 bits — ~2^32 hash evaluations, minutes on one core — at EITHER level: two call payloads whose
 leaves collide (the cheapest: blake2b, no algebra), or two chains whose final alghash nodes collide. The
 settler submits the calldata itself, so it controls both sides of the collision: it lands call A on L1, every
 exec node executes A, and it proves call B, whose commitment equals A's; L1 then settles B's storage transition
-as the namespace's root. From the gate:
+as the namespace's root. From height 1:
   * a leaf is the full 256-bit blake2b digest of the same payload (domain-tagged "wide"), consumed as FOUR
     field elements (its little-endian 64-bit words, each % P) — ~2^128 collision;
   * the chain is the alghash2 sponge (width 12, capacity 4 = 256 bits, the recursion-layer hash) over
     [DOM_CALLS_WIDE, node(4), leaf(4)] from a 4-element IV — a 4-element (~256-bit) commitment, ~2^128 collision;
   * the regime of a commitment is keyed on the SEGMENT's end cursor (an L1 height, agreed data), never on
-    anything a prover writes into a call, and a segment that straddles the gate is refused (it falls back to
-    the bonded quorum), so a span never mixes widths.
+    anything a prover writes into a call, and a segment that straddles block 0 and block 1 is refused (it falls
+    back to the bonded quorum), so a span never mixes widths.
 The binding is a NATIVE check on both sides (settlement_sparse recomputes it from the bundle's calls, L1 folds
 the persisted summary leaves); no AIR and no Rust kernel commits to it, so the widening touches no circuit and
 no native crate. prove_calls_commitment below is the narrow in-circuit demonstrator only.
@@ -37,7 +37,7 @@ from execnode.stark import field as F, alghash, alghash2, membership
 from hashing import blake2b_hash
 
 
-# --- WIDE BINDING (ZK_HARDEN_HEIGHT; see the module docstring) ---------------------------------------------
+# --- WIDE BINDING (from height 1; see the module docstring) -----------------------------------------------
 WIDE = alghash2.DIGEST                       # 4 field elements (256 bits)
 # Nothing-up-my-sleeve domain tag + chain start for the wide chain, derived like alghash2's own constants
 # (blake2b of labels) so they collide with no DOM_* small tag and no other chain's IV. Plain blake2b, not
@@ -49,14 +49,15 @@ IV_WIDE = tuple(int(blake2b_hash(["alghash2", "calls-wide-iv", i]), 16) % F.P fo
 
 def wide_binding(height):
     """True iff the calls binding at L1 height `height` is the wide (4-element) form. A pure function of the
-    height; read at call time so a test (or a later gate edit) that moves ZK_HARDEN_HEIGHT is seen at once."""
-    from protocol import ZK_HARDEN_HEIGHT
-    return int(height) >= ZK_HARDEN_HEIGHT
+    height. `>= 1` is the deleted gate's value (ZK_HARDEN_HEIGHT, 1 from gen 28), kept because height 0 reaches
+    it: a call or event with no cursor defaults to 0 (call_leaf, event_leaf), calls_commitment defaults
+    cursor=0, and da_calls_commitment over no blocks answers narrow — each answers exactly what it did."""
+    return int(height) >= 1
 
 
 def _leaf_value(payload, wide):
     """A leaf's stored value. Narrow: blake2b % P (ONE field element — the audited ~2^32 collision, kept
-    byte-identical below the gate). Wide: the WHOLE 256-bit blake2b digest as one int (the codec stores ints of
+    byte-identical for height 0). Wide: the WHOLE 256-bit blake2b digest as one int (the codec stores ints of
     any width), which the wide fold consumes as four field elements (_leaf_limbs). The "wide" tag keeps a wide
     leaf from ever equalling the narrow digest of the same payload."""
     if not wide:
@@ -114,7 +115,7 @@ def call_leaf(call, cursor=0, timestamp=0, wide=None):
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
                str(call.get("caller", "epoch")), [_arg_field(a) for a in call.get("args", [])],
                int(call.get("value", 0)), cur, ts, _asset_field(call.get("asset", 0))]
-    # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from ZK_HARDEN_HEIGHT this leaf is the
+    # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from height 1 this leaf is the
     # full 256-bit digest. Never reduce a wide leaf % P or truncate it — a 64-bit leaf is a ~2^32 birthday
     # search for a second calldata with the same binding.
     return _leaf_value(payload, wide_binding(cur) if wide is None else bool(wide))
@@ -138,7 +139,7 @@ def event_leaf(ev, wide=None):
                str(ev.get("at") or ""), str(ev.get("nonce") or ""), int(cc),
                "" if rt is None else str(rt), 1 if ev.get("upgradable", True) else 0, str(ev.get("to") or ""),
                int(ev.get("cursor", 0)), int(ev.get("timestamp", 0))]
-    # INVARIANT (audit 2026-09-24/25 HIGH): wide from ZK_HARDEN_HEIGHT, exactly as call_leaf — an event leaf
+    # INVARIANT (audit 2026-09-24/25 HIGH): wide from height 1, exactly as call_leaf — an event leaf
     # rides the same chain, so a 64-bit event leaf would reopen the same collision.
     return _leaf_value(payload, wide_binding(int(ev.get("cursor", 0))) if wide is None else bool(wide))
 
@@ -358,10 +359,9 @@ def block_summary(block):
             continue                                   # unhashable ns -> not a real namespace; skip (admission rejects it too)
         calls_by_ns.setdefault(_ns, [])
     for ns in list(calls_by_ns):
-        # Width keyed on each entry's own cursor, which block_calls stamps as THIS block's height — so a block
-        # at or above ZK_HARDEN_HEIGHT persists 256-bit leaves (audit 2026-09-24/25 HIGH; the settle gate folds
-        # them wide) and one below persists the narrow leaves it always did. execsum rows are excluded from the
-        # L1 state root, so the width change moves no root.
+        # Width keyed on each entry's own cursor, which block_calls stamps as THIS block's height — so every
+        # block from 1 persists 256-bit leaves (audit 2026-09-24/25 HIGH; the settle gate folds them wide).
+        # Genesis carries no transactions, so it persists no leaves of either width.
         calls_by_ns[ns] = [entry_leaf(c) for c in block_calls(block, ns)]
     return block_records_inert(block), calls_by_ns
 
@@ -390,8 +390,10 @@ def fold_leaves(node, leaves):
 
 def span_width(lo, hi):
     """(ok, wide) for a segment covering L1 blocks (lo, hi]: the binding width is keyed on the segment's END
-    height; a segment whose blocks straddle ZK_HARDEN_HEIGHT is (False, None) — its summaries would mix leaf
-    widths, so it is refused and that span settles by the bonded quorum instead (one span, once)."""
+    height; a segment whose blocks straddle the widening (block 0 narrow, block 1 wide: lo < 0 < hi) is
+    (False, None) — its summaries would mix leaf widths, so it is refused and that span settles by the bonded
+    quorum instead. Kept exact for every (lo, hi): the L1 settle path never passes lo < 0 (a proof extends a
+    real settlement), but this is a pure helper and its answers did not move."""
     wide = wide_binding(hi)
     if wide and not wide_binding(int(lo) + 1):
         return False, None
@@ -436,7 +438,7 @@ def verify_calls_bound_to_da(proof, ns, prev_cursor, cursor, get_block):
             blocks.append(blk)
         okw, wide = span_width(lo, seg_end)
         if not okw:
-            return False, f"segment {j} ({lo}, {seg_end}] straddles the calls-binding widening (ZK_HARDEN_HEIGHT)"
+            return False, f"segment {j} ({lo}, {seg_end}] straddles the calls-binding widening (block 0 -> 1)"
         if wide:
             # INVARIANT (audit 2026-09-24/25 HIGH): all four elements are compared, exactly — never element 0.
             if wide_commitment(cc) != da_calls_commitment(blocks, ns, wide=True):
@@ -480,13 +482,13 @@ def verify_calls_bound_to_summaries(proof, ns, prev_cursor, cursor, get_summary,
         seg_end = int(seg.get("cursor", hi))
         if not (lo < seg_end <= hi):
             return False, f"segment {j} cursor {seg_end} is outside the settled span ({lo}, {hi}]"
-        # THE WIDTH IS THE SEGMENT'S (audit 2026-09-24/25 HIGH, one-element calldata binding): from
-        # ZK_HARDEN_HEIGHT the persisted leaves are 256-bit and the chain is the 4-element alghash2 fold; a
-        # segment straddling the gate is refused rather than folded across two widths. Below the gate this is
-        # alghash.IV and the loop below is the narrow fold, byte-for-byte what it always was.
+        # THE WIDTH IS THE SEGMENT'S (audit 2026-09-24/25 HIGH, one-element calldata binding): from height 1
+        # the persisted leaves are 256-bit and the chain is the 4-element alghash2 fold. On the settle path lo
+        # is a real settlement's cursor (>= 0), so seg_end >= 1 and every segment is wide; the narrow branch
+        # below answers only a segment ending at 0, exactly as it always did.
         okw, wide = span_width(lo, seg_end)
         if not okw:
-            return False, f"segment {j} ({lo}, {seg_end}] straddles the calls-binding widening (ZK_HARDEN_HEIGHT)"
+            return False, f"segment {j} ({lo}, {seg_end}] straddles the calls-binding widening (block 0 -> 1)"
         node = chain_start(wide)
         for h in range(lo + 1, seg_end + 1):
             summary = get_summary(h)
@@ -583,7 +585,7 @@ def calls_commitment(calls, cursor=0, timestamp=0):
     """The epoch's ordered calls as ONE field element: fold IV through merkle_node(node, leaf_i). Equal to
     membership.merkle_root_from_path(IV, leaves, [0]*K), hence provable + foldable via prove_calls_commitment.
 
-    FROM ZK_HARDEN_HEIGHT (keyed on `cursor`, the segment's end — the same key L1's span_width uses) it is the
+    FROM HEIGHT 1 (keyed on `cursor`, the segment's end — the same key L1's span_width uses) it is the
     WIDE commitment instead: a list of 4 field elements, the alghash2 fold of 256-bit leaves from IV_WIDE. The
     width is the segment's, never a call's own cursor field, so a prover cannot narrow one leaf by rewriting it."""
     wide = wide_binding(cursor)
@@ -599,7 +601,7 @@ def calls_commitment(calls, cursor=0, timestamp=0):
 
 def commitment_matches(got, want):
     """The bundle-side check that a carried calls_commitment is the one recomputed from its calls. Narrow: the
-    exact `!=` the verifiers always used (unchanged below the gate). Wide: a canonical 4-element list, all four
+    exact `!=` the verifiers always used (cursor 0). Wide: a canonical 4-element list, all four
     equal (wide_commitment)."""
     if isinstance(want, (list, tuple)):
         return wide_commitment(got) == list(want)
@@ -613,7 +615,7 @@ def prove_calls_commitment(calls, cursor=0, timestamp=0, num_queries=membership.
     succinctness integration.)
 
     NARROW ONLY: this proves the width-1 alghash chain (membership's AIR), which is NOT the settle binding from
-    ZK_HARDEN_HEIGHT (calls_commitment is wide there). No production path calls it; an in-circuit wide chain
+    height 1 (calls_commitment is wide there). No production path calls it; an in-circuit wide chain
     would need the alghash2 hash-block AIR of the recursion layer."""
     ls = leaves(calls, cursor, timestamp, wide=False)
     if not ls:

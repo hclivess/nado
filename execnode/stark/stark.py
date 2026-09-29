@@ -57,13 +57,13 @@ from contextlib import contextmanager as _cm
 #                   sum_c beta^(c+1) f_c(x) with beta drawn after the alphas; the verifier adds the same term at
 #                   every query point. Defaults to False so a four-field Rules(...) written before the gate still
 #                   constructs (it names the pre-gate format); RULES_STRICT carries it on.
-#   zk_harden       ZK_HARDEN_HEIGHT (zk audit 2026-09-26): the exec AIR tags calls from 1 on the ARG bus, a settle
-#                   proof's pre_contracts must be exactly the exporter's records, and the wide pool is depth 48.
-#                   Defaults to False, so every Rules(...) written with six fields names the pre-gate format.
+#   zk_harden       zk audit 2026-09-26 (the gen-27 ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted): the exec AIR tags
+#                   calls from 1 on the ARG bus, a settle proof's pre_contracts must be exactly the exporter's
+#                   records, and the wide pool is depth 48. Defaults to False, so every Rules(...) written with six
+#                   fields names the unhardened format (RULES_LEGACY, height 0).
 Rules = _nt("Rules", "pin_fri_domain bind_statement in_block_selector round2 trace_ldt full_query zk_harden",
             defaults=(False, False, False))
 RULES_STRICT = Rules(True, True, True, True, True, True, True)    # every pin on: the default when nothing set them
-RULES_PRE_HARDEN = Rules(True, True, True, True, True, True, False)   # from block 1 until ZK_HARDEN_HEIGHT
 RULES_LEGACY = Rules(False, False, False, False, False, False)   # below every gate: what every node accepted before 2026-09-23
 _RULES = _cv.ContextVar("nado_proof_rules", default=None)
 
@@ -73,18 +73,14 @@ def rules_for_height(height):
     `None` (no height known) is STRICT: a caller that cannot say which block it is judging gets the new rules,
     which reject an honest old-format proof visibly instead of accepting a forged one invisibly.
 
-    EVERY PIN IS ON FROM HEIGHT 1. The six fields were gen-25 gates (PROOF_BIND_HEIGHT for the first two,
+    EVERY PIN IS ON FROM HEIGHT 1. The first six fields were gen-25 gates (PROOF_BIND_HEIGHT for the first two,
     PROOF_BLOCK_SELECTOR_HEIGHT, REVIEW_R2_HEIGHT, PROOF_TRACE_LDT_HEIGHT, PROOF_QUERY_FULL_HEIGHT), each 1 from gen
-    26; the constants are deleted. The plumbing (Rules, rules_at, with_rules, the child-process hand-off) is KEPT:
-    height 0 — genesis, applied by the exec node from cursor -1 — was below every gate and still gets RULES_LEGACY,
-    and the prover/verifier branches on each field are exercised by the tests that construct Rules explicitly."""
-    if height is None:
+    26, and zk_harden the gen-27 ZK_HARDEN_HEIGHT, 1 from gen 28; the constants are deleted. The plumbing (Rules,
+    rules_at, with_rules, the child-process hand-off) is KEPT: height 0 — genesis, applied by the exec node from
+    cursor -1 — was below every gate and still gets RULES_LEGACY, and the prover/verifier branches on each field are
+    exercised by the tests that construct Rules explicitly."""
+    if height is None or int(height) >= 1:
         return RULES_STRICT
-    from protocol import ZK_HARDEN_HEIGHT
-    if int(height) >= ZK_HARDEN_HEIGHT:
-        return RULES_STRICT
-    if int(height) >= 1:
-        return RULES_PRE_HARDEN
     return RULES_LEGACY
 
 

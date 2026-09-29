@@ -6,8 +6,8 @@ peer's snapshot used to take the donor's anchors on faith: the root of a fake tr
 (zk audit 2026-09-26 F2, reproduced: forged note, pool_value negative, a forged exit). Pins: after any number of appends,
 save+load reproduces the live anchor window exactly (an honest restart changes nothing); an injected fake root is
 dropped; and an exit counter below a pending record's key is floored so the next exit cannot overwrite it.
-The wide pool is pinned at both of its depths (12 below ZK_HARDEN_HEIGHT, 48 from it): the snapshot carries the depth, a
-pool deepened at the gate holds exactly the window a restart rebuilds, and the depth-48 rebuild is O(n) tree hashes
+The wide pool is pinned at both of its depths (12 at height 0, 48 from block 1): the snapshot carries the depth, a
+pool deepened at block 1 holds exactly the window a restart rebuilds, and the depth-48 rebuild is O(n) tree hashes
 (through the incremental frontier), not one tree per window prefix.
 
 Run: python3 tests/test_snapshot_anchors_rebuilt.py
@@ -35,7 +35,7 @@ def check(name, ok, detail=""):
 
 rnd = random.Random(7)
 wide_cm = lambda: tuple(rnd.randrange(1, 2**63) for _ in range(4))
-# at BOTH depths the wide pool can have (12 below ZK_HARDEN_HEIGHT, 48 from it): the snapshot carries the depth, and the
+# at BOTH depths the wide pool can have (12 at height 0, 48 from block 1): the snapshot carries the depth, and the
 # window is rebuilt at it
 for depth in (12, 48):
     for n in (0, 1, 5, ANCHOR_WINDOW - 1, ANCHOR_WINDOW, ANCHOR_WINDOW + 7):

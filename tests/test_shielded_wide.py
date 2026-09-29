@@ -103,8 +103,8 @@ def t_deposit_lands_in_the_wide_pool():
     st = _state()
     cm = _deposit(st, NSK_A, 1000, 7)
     assert not st.field_pool.commitments and st.pool_value == 1000
-    # at the depth in force for the deposit's block (SW.depth_at): 48 from ZK_HARDEN_HEIGHT — block 1 on gen 28 —
-    # and 12 below it; the default depth is the below-gate one (gen-28 rehearsal)
+    # at the depth in force for the deposit's block (SW.depth_at): 48 from block 1 and 12 at height 0; the default
+    # depth (a fresh pool) is the height-0 one
     assert st.wide_pool.root() == SW.tree_root([cm], SW.depth_at(H))
     # the root now carries the wide records, and the snapshot round-trips them
     assert st.state_root() != ER.state_root_hex({}, _state())

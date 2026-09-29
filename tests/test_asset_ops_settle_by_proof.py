@@ -1,7 +1,8 @@
-"""The asset instructions settle by proof on the SHIPPED path from ZK_HARDEN_HEIGHT — ASEL+PAY, ASEL+AMINT, ABURN,
-ABAL and ARENOUNCE — records-bound, landing on the exec node's real root.
+"""The asset instructions settle by proof on the SHIPPED path — ASEL+PAY, ASEL+AMINT, ABURN, ABAL and ARENOUNCE —
+records-bound, landing on the exec node's real root (zk audit 2026-09-26; gen 27's ZK_HARDEN_HEIGHT, 1 from gen 28
+and deleted — the rule is unconditional).
 
-Until then every settle proof refused asset io (review 2026-09-24): an asset op moves the asset ledger, which lives in
+Before it every settle proof refused asset io (review 2026-09-24): an asset op moves the asset ledger, which lives in
 the RECORDS half, and an ABAL read came from the io log with nothing tying it to that ledger. So a span that touched an
 asset could only ever settle by quorum. records_bind.PinnedAssets now re-derives each move from the proven io against
 the pinned pre-state, with the live staging rules (state.stage_asset_effects_pure): issuer-only mint/renounce, the
@@ -16,7 +17,7 @@ Pins, native kernels only, under the zk_harden rules:
   * a forged or omitted metadata preimage, a tampered ABAL read, a tampered records_pre and a missing asset view are
     all refused;
   * a records-FROZEN span that only reads a balance proves too, and its asset io nets to nothing;
-  * settle_proof_io_check refuses asset io below ZK_HARDEN_HEIGHT (replay unchanged) and admits it from there.
+  * settle_proof_io_check admits asset io in a records-bound proof at every height.
 
 Run: python3 tests/test_asset_ops_settle_by_proof.py            (native kernels required)
 """
@@ -29,7 +30,6 @@ os.environ.pop("NADO_ALLOW_PYTHON_KERNELS", None)         # the SHIPPED path
 import sys, copy, asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.environ["HOME"])
-import protocol
 from execnode import zkvm, zkvmasm, exec_root as ER, settlement_proofs as SP
 from execnode.code_codec import contract_id
 from execnode.state import ExecState, asset_id
@@ -169,14 +169,8 @@ with stark.with_rules(stark.RULES_STRICT):
                 return True
             except AssertionError:
                 return False
-        _gate = protocol.ZK_HARDEN_HEIGHT
-        try:
-            protocol.ZK_HARDEN_HEIGHT = 5000
-            check("below ZK_HARDEN_HEIGHT asset io is refused, as it always was", not io_ok(True, 4999))
-            check("from ZK_HARDEN_HEIGHT a records-bound proof may carry asset io", io_ok(True, 5000))
-            check("height 0 keeps the verdict it always had", io_ok(True, 0))
-        finally:
-            protocol.ZK_HARDEN_HEIGHT = _gate
+        check("a records-bound proof may carry asset io", io_ok(True, 1) and io_ok(True, 5000))
+        check("height 0 keeps the verdict it always had", io_ok(True, 0))
 
     # --- a records-FROZEN span: only a balance read ---
     st1 = st.clone()

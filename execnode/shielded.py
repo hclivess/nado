@@ -249,7 +249,7 @@ def verify_transfer(public: dict, proof: dict, root_is_known, wide_depth=None) -
     below stays authoritative for real spends until then. The signature of THIS function does not change."""
     if isinstance(proof, dict) and proof.get("stark"):
         from execnode.stark import joinsplit_transfer
-        # wide_depth: the WIDE pool's depth in force for the block being judged (ZK_HARDEN_HEIGHT), from the pool
+        # wide_depth: the WIDE pool's depth in force for the block being judged (shielded_wide.depth_at), from the pool
         return joinsplit_transfer.verify_transfer(public, proof, root_is_known, wide_depth=wide_depth)
     try:
         root = public["root"]

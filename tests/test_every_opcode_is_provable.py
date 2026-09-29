@@ -5,7 +5,7 @@ NOP was accepted by the deploy gate and run by the interpreter while the AIR tre
 it could never be proven (zk audit 2026-09-26, ZKVM-2) — an instruction that exists but cannot be settled by proof. The
 operator's rule since: no instruction may be a dummy. For EVERY opcode in zkvm.OPS this runs a program that executes it
 (both branches where it branches, edge values where it wraps) and requires, under the rules in force from
-ZK_HARDEN_HEIGHT: the interpreter completes, the proof verifies, and the proven io log equals the interpreter's. The
+block 1: the interpreter completes, the proof verifies, and the proven io log equals the interpreter's. The
 last check fails the day an opcode is added without a program here.
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_every_opcode_is_provable.py

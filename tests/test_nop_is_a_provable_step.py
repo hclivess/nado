@@ -1,12 +1,11 @@
-"""NOP is a real, provable instruction from ZK_HARDEN_HEIGHT (execnode/stark/vm_circuit.py _nop_steps; zk audit
-2026-09-26 ZKVM-2).
+"""NOP is a real, provable instruction from block 1 (execnode/stark/vm_circuit.py _nop_steps; zk audit 2026-09-26
+ZKVM-2; gen 27's ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted).
 
 The interpreter has always stepped over NOP (pc + 1), while the AIR treated every NOP as a halt, so a contract that
 executed one ran on the exec layer and could never be proven — every settle span containing it fell back to the
 quorum. Pins: under the hardened rules a program executing NOPs (in a row, before a jump target, before RET) proves
-and verifies with exactly the interpreter's io; the same program is unprovable under the pre-gate rules (history
-unchanged); a program without NOP proves under both; and the fetch table's padding can no longer pose as a fetched
-instruction (program ids start at 1 in the table and on every execution row).
+and verifies with exactly the interpreter's io; a program without NOP proves too; and the fetch table's padding can no
+longer pose as a fetched instruction (program ids start at 1 in the table and on every execution row).
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_nop_is_a_provable_step.py
 """
@@ -60,13 +59,8 @@ io, v = prove_verify(NOPPY, stark.RULES_STRICT)
 check("hardened rules: a program executing NOPs proves and verifies", isinstance(v, tuple) and v[0] is True, v)
 check("... with exactly the interpreter's io", io is not None and list(io) == list(io_i), (io, io_i))
 
-io, v = prove_verify(NOPPY, stark.RULES_PRE_HARDEN)
-check("pre-gate rules: the same program stays unprovable (history unchanged)",
-      io is None or not (isinstance(v, tuple) and v[0] is True), v)
-
-for rules, name in ((stark.RULES_STRICT, "hardened"), (stark.RULES_PRE_HARDEN, "pre-gate")):
-    io, v = prove_verify(PLAIN, rules)
-    check(f"{name} rules: a program without NOP proves and verifies", isinstance(v, tuple) and v[0] is True, v)
+io, v = prove_verify(PLAIN, stark.RULES_STRICT)
+check("hardened rules: a program without NOP proves and verifies", isinstance(v, tuple) and v[0] is True, v)
 
 with stark.with_rules(stark.RULES_STRICT):
     trace, T, blocks, progs, epoch_io, _per = VC.build_epoch_trace([call(PLAIN)])

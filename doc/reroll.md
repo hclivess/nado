@@ -28,11 +28,9 @@ no verdict moves; only where the height is provably >= 1 does the comparison go.
 
 ### The ledger (gen 28, betanet-9)
 
-Live gates, keyed `== 27`: `ZK_HARDEN_HEIGHT` (zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48,
-asset instructions settle by proof; audit 2026-09-24/25: the settle calldata binding is 4 field elements, not one —
-execnode/stark/calls_commit.py "THE BINDING IS WIDE") — its cleanup slice is in progress.
+No generation-keyed gate is live on gen 28; the next one added is keyed `== 28`. ZK hardening (`ZK_HARDEN_HEIGHT`, zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48, asset instructions settle by proof, the 4-element settle calldata binding — execnode/stark/calls_commit.py "THE BINDING IS WIDE") is unconditional from block 1; the narrow binding answers only at cursor 0.
 
-**Every other gen-27 gate is gone** (slice 3 below). The rules they switched on are unconditional; what each one is for:
+**Every gen-27 gate is gone** (slice 3 below). The rules they switched on are unconditional; what each one is for:
 the device binding keys on the certificate's signed part (`DEVICE_BIND_CANONICAL_HEIGHT`); no free repeatable
 transaction — key allowlist + size caps, msgkey first bind only, tpm_ready bonded, one enrolment per chip per block,
 settle/xmsg paid outside the duty, one device move per epoch (`SPAM_HARDEN_HEIGHT`, doc/security-review-2026-09-27.md);
@@ -121,7 +119,7 @@ every height) — see the slice-2 commit messages.
 
 **Slice 3, done after the betanet-9 reroll (gen 28): the gen-27 gates.** Four parallel slices (the transaction rules;
 the address format and the legacy claim; the settle floor, exec DA deadline, block-signature binding and dividend carry;
-the ZK hardening), each proven by replaying the live betanet-9 chain (blocks 1..5810) through
+the ZK hardening: the asset-io refusal, the landing-height guards on the pinned asset binding, `records_bind._asset_escrow_derivable`, `stark.RULES_PRE_HARDEN`), each proven by replaying the live betanet-9 chain (blocks 1..5810) through
 `CoreClient.produce_block(remote=True)` with the slice's tree and with main: every block accepted, the rebuilt hash, the
 L1 state root and the L2 settled commitment identical at every height. Deleted paths: the `block_timestamp` certificate
 clock and `cert_verdict`'s single check, the enrol-time TPM draw, the base-set EK root check, the raw device key as the
