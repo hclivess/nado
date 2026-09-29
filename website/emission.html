@@ -393,7 +393,7 @@
   "use strict";
   // M_MIN is the curve's CONSTANT, not its floor: consensus is m(r)=0.15+0.85·e^(−4r) (protocol.BOND_ELASTIC_MULT_BPS,
   // regenerated from exactly this formula), whose value at r=1 is 0.1656. Plugging 0.1656 in here lifted the whole
-  // modelled curve above the chain's (tests/test_site_emission_matches_consensus.py pins it).
+  // modelled curve above the chain's (tests/test_site_claims_match_code.py pins it).
   var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=6;
   var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
   var YEARS=20;
