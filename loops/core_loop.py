@@ -3736,12 +3736,10 @@ class CoreClient(threading.Thread):
         EXPIRED counts as gone: an incomplete row is never collected from the chain, so "still open/commit"
         alone kept an expired enrolment's secret forever. With `tip`, an open/commit record past its window
         (tip >= h + enrol_window(h), as tpm_enrols_live) is pruned too."""
-        from ops.tpm_enrol import enrol_window
-
         def _wanted(rec):
             if (rec or {}).get("state") not in ("open", "commit"):
                 return False
-            return tip is None or int(tip) < int(rec["h"]) + enrol_window(int(rec["h"]))
+            return tip is None or int(tip) < int(rec["h"]) + _te_window(int(rec["h"]))
         try:
             store = self._tpm_secrets_load()
             if not store:
