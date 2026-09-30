@@ -130,7 +130,8 @@ the legacy-row eviction while devbind rows carried from betanet-8 exist; `legacy
 multisig address body; `/status` `address_format: 2` for the published TPM helper (whose Rust copy still carries a
 format switch until its next release); `tools/rekey_v2.py` / `recover_keys.py`, which the carry runs only for a
 gen-27 source (a gen-28 carry re-keys nothing and needs no `--known-keys`).
-Proof tool: the replay harness lived in scratch for this cleanup (see memory); rebuild it for the next one.
+Proof tool: `tools/replay_chain.py` (fetch the chain once, replay main and the candidate from worktrees, compare) —
+its docstring is the procedure.
 
 Do this in a **follow-up commit after** the reroll is live and verified, never in the same one — the reroll commit
 must be reviewable as "new genesis, same rules".
