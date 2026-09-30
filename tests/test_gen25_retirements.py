@@ -22,7 +22,7 @@ def main():
     assert P.DEVICE_ATTEST_HEIGHT == 1, "the device rule is unconditional from block 1"
     assert P.on_probation(0, 5) is False and P.on_probation(1, 5) is False, "probation retired"
     assert P.dividend_weight(1, 5) == 1, "an attested identity earns from its first lease"
-    assert P.POSW_ENTRY_COUNT_HEIGHT == 0 and not hasattr(P, "DIV_CARRY_METER_EPOCH"), "gen-24 gates retired"
+    assert not hasattr(P, "POSW_ENTRY_COUNT_HEIGHT") and not hasattr(P, "DIV_CARRY_METER_EPOCH"), "gen-24 gates retired"
     assert not hasattr(ratelimit, "allow_registration") and not hasattr(ratelimit, "allow_identity"), "per-IP budgets retired"
     assert hasattr(ratelimit, "allow"), "the plain API rate limiter stays"
     tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()

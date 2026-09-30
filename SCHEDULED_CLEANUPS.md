@@ -48,22 +48,12 @@ Owed before the refusal may go, IN THIS ORDER:
    in the GATE LEDGER.
 Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
 
-## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): delete at the gen-25 reroll — STILL OWED
+## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): DELETED 2026-09-30 (branch q-dead)
 
-**Status 2026-09-26:** the gate is dead (`protocol.POSW_ENTRY_COUNT_HEIGHT = 0` since gen 25, pinned by
-tests/test_gen25_retirements.py) but the NAME is still imported by `ops/reg_difficulty.py`, and tests/test_posw_rule_gate.py
-no longer exists. Owed: delete the constant, `entries_only_at`, the `entries_only` parameters and this entry together.
-
-`protocol.POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0`, read by
-`ops/reg_difficulty.entries_only_at(landing_height)`. The entries-only flood counting (84d122f3) was pushed at
-17:12 UTC on 2026-09-01 with betanet-6 already 1600 blocks old and NO gate; every registration the fleet had
-validated before its update carries a proof for the OLD all-register-txs rule (block 871: 160M = 5x32 under
-the old rule vs 128M = 4x32 under the new), so a from-genesis replay under the new rule rejected block 871 and
-no fresh node could sync (this box, 2026-09-02 12:14 UTC). Replaying blocks 0..3600 against the proofs: the
-last old-rule registration landed at 1608 (17:13:17 UTC), the first new-rule one at 1636 (17:16:37); the gate
-sits at the first proven new-rule block. **Cannot go early**: it is what makes gen-24 history replayable.
-Pinned by tests/test_posw_rule_gate.py. At the gen-25 reroll the expression is 0 and the old branch is dead —
-delete the constant, `entries_only_at`, the `entries_only` parameters and this entry together.
+The constant, `reg_difficulty.entries_only_at`, the `entries_only` parameters and `required_posw_t`'s
+`landing_height` went together. The expression was `0` on every chain since gen 25, so `entries_only_at` answered
+True for every height a block can have: behaviour-neutral. `tests/test_gen25_retirements.py` now asserts the name
+is gone. Nothing scheduled.
 
 ## 2026-09-01 — gen-23 SYBIL RULES gate: RETIRED at the betanet-6 (gen 24) reroll (2026-09-01)
 
