@@ -16,6 +16,10 @@
    the dirty-files check never saw it, and the list rode only in the /update reply that periodic and peer-hinted
    checks discard: /status never named it.
 
+4. A RENAME COUNTS BOTH PATHS. git's default rename detection makes `diff --name-only` print only the NEW path:
+   moving a code file into doc/ read as documentation-only (no restart), and an upstream rename A -> B did not
+   move a local edit to A aside, so the merge refused and the node answered `blocked`.
+
 Real git repositories and a stand-in `cargo` on PATH that records which Cargo.lock it was handed.
 """
 import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
@@ -132,6 +136,31 @@ def warnings_case():
     check("...as a warning, never a block", not any("local-" in b for b in r["blocking"]), r["blocking"])
 
 
+def rename_case():
+    body = "".join(f"line {i}\n" for i in range(200))   # long enough for git to call the move a rename
+    d = tempfile.mkdtemp(prefix="nado-su-rename-")
+    write(d, "ops/x.py", body); write(d, "ops/a.py", body + "a\n")
+    git(d, "init", "-q", "-b", "main"); git(d, "add", "."); git(d, "commit", "-qm", "v1")
+    old = git(d, "rev-parse", "HEAD")
+    os.makedirs(os.path.join(d, "doc"))
+    git(d, "mv", "ops/x.py", "doc/x.py"); git(d, "commit", "-qm", "move code into doc/")
+    new = git(d, "rev-parse", "HEAD")
+    SU._REPO_DIR = d
+    check("git itself reports only the new path by default (the premise)",
+          git(d, "diff", "--name-only", old, new) == "doc/x.py")
+    check("moving a code file into doc/ still restarts", SU._restart_needed(old, new) is True)
+    git(d, "checkout", "-q", old)                         # a node one commit behind, with a local edit
+    git(d, "checkout", "-q", "-b", "node")
+    git(d, "mv", "ops/a.py", "ops/b.py"); git(d, "commit", "-qm", "upstream rename")   # stand-in for origin
+    upstream = git(d, "rev-parse", "HEAD")
+    git(d, "checkout", "-q", old)
+    write(d, "ops/a.py", body + "a LOCAL EDIT\n")
+    moved = SU._move_aside_dirty_conflicts(upstream)
+    check("a local edit to a path upstream renames away is moved aside", moved == ["ops/a.py"], moved)
+    r = subprocess.run(["git", "merge", "--ff-only", "--quiet", upstream], cwd=d, capture_output=True, text=True)
+    check("...so the fast-forward lands", r.returncode == 0, r.stderr)
+
+
 def main():
     saved = (SU._REPO_DIR, SU._CRATES, os.environ.get("PATH", ""))
     bindir = tempfile.mkdtemp(prefix="nado-su-bin-")
@@ -143,6 +172,7 @@ def main():
         tracked_lock_case(bindir, record)
         rollback_case()
         warnings_case()
+        rename_case()
     finally:
         SU._REPO_DIR, SU._CRATES = saved[0], saved[1]
         os.environ["PATH"] = saved[2]

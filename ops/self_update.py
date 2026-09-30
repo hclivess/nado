@@ -77,7 +77,9 @@ def _restart_needed(local: str, remote: str) -> bool:
     """Does the code that RUNS differ between these two commits? Any doubt — an unreadable diff, no paths at
     all — answers True, because a MISSED restart is the dangerous direction."""
     try:
-        changed = _git("diff", "--name-only", f"{local}..{remote}", timeout=30).splitlines()
+        # --no-renames EVERYWHERE A PATH LIST DECIDES SOMETHING: git's default rename detection prints only the NEW
+        # path, so moving a code file into doc/ read as a documentation-only update (no restart).
+        changed = _git("diff", "--no-renames", "--name-only", f"{local}..{remote}", timeout=30).splitlines()
     except Exception as e:
         _log().warning(f"update: could not diff {local[:12]}..{remote[:12]} ({e}) — restarting to be safe")
         return True
@@ -1185,9 +1187,11 @@ def _move_aside_dirty_conflicts(remote):
     COMMITS still block (they are deliberate, and the is-ancestor check above catches them). Never raises;
     on any git error returns [] and the fast-forward fails loudly as before."""
     try:
-        incoming = set(_git("diff", "--name-only", "HEAD", remote, timeout=30).splitlines())
-        dirty = set((_git("diff", "--name-only", timeout=30) + "\n"
-                     + _git("diff", "--cached", "--name-only", timeout=30)).splitlines())
+        # --no-renames: with rename detection an upstream rename A -> B lists only B, so a local edit to A was not
+        # moved aside and the merge refused ("local changes would be overwritten") — a node answering `blocked`.
+        incoming = set(_git("diff", "--no-renames", "--name-only", "HEAD", remote, timeout=30).splitlines())
+        dirty = set((_git("diff", "--no-renames", "--name-only", timeout=30) + "\n"
+                     + _git("diff", "--no-renames", "--cached", "--name-only", timeout=30)).splitlines())
     except Exception:
         return []
     conflicts = sorted(p for p in (dirty & incoming) if p)
@@ -1250,7 +1254,7 @@ def _rebuild_native_if_changed(old, new):
     live money node right before the restart."""
     report = {}
     try:
-        changed = _git("diff", "--name-only", old, new, timeout=30)
+        changed = _git("diff", "--no-renames", "--name-only", old, new, timeout=30)   # both sides of a rename
     except Exception:
         changed = None                                   # diff unavailable → be conservative, treat all as touched
     # service-account installs get a per-user rustup under $HOME/.cargo which is NOT on systemd's PATH
