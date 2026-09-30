@@ -111,7 +111,6 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/exec/shielded` · `/exec/shielded_note` | `?ns=&…` | Zerocash-style pool (root + notes) |
 | GET | `/exec/unshields` · `/exec/unshield_proof` | `?ns=&address=` / `?nonce=` | unshield exits + proofs |
 | GET | `/exec/field_shielded` · `/exec/field_leaves` | `?ns=` | Phase-2 STARK-friendly pool |
-| POST | `/exec/prove_transfer` | witness body | **delegated prover** → join-split STARK bundle |
 
 ### Cross-domain messaging
 | Method | Path | Params | Returns |

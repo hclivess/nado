@@ -498,7 +498,6 @@ must be read from the **finalized** state for a valid claim.
 | `/exec/field_leaves` | full field-pool commitment list (build a Merkle path on-device) | — |
 | `/exec/examples` | starter contract library (`contract_lib.LIBRARY`) | — |
 | `/exec/runtimes` | available runtimes + default | — |
-| `/exec/prove_transfer`, `/exec/prove_transfer2` | **POST** delegated STARK provers (return `bundle_json`; never apply) | POST body = secret witness |
 
 (There is also a `/da/*` data-availability API — publish/fetch erasure-coded proof objects by commitment.)
 

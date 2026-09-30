@@ -54,7 +54,7 @@ windows) or proof capacity, never taste (`tests/test_zkvm_args.py` covers the so
 A blob payload is JSON:
 - deploy: `{"op":"deploy","runtime":"zkvm","code":{…}|"codez":…,"abi":{…},"nonce":"…"}` → cid = `blake2b(["deploy",deployer,code,nonce])[:32]`
 - call: `{"op":"call","contract":"<cid>","method":"<m>","args":[…],"value":<raw>}`
-- proven: `/exec/prove_call` returns a STARK; `/exec/verify_call` verifies + applies a call without re-executing it.
+- proven: `/exec/verify_call` verifies a proven call (the prover runs where the caller is; the node's `/exec/prove_call` was removed with the delegated provers, security review 2026-09-23 Z7).
 
 ## Run it
 
@@ -72,7 +72,6 @@ HOME=/root/nado python execnode/submit_blob.py call <cid> open '[12345]'
 # 4) query the execution node (read-only) — /exec/contract returns the decode_view'd named maps
 curl localhost:9273/exec/root
 curl 'localhost:9273/exec/contract?cid=<cid>'
-curl -X POST localhost:9273/exec/prove_call -d '{"cid":"<cid>","method":"open","args":[12345]}'   # STARK a call
 ```
 
 ## Phase 2 — settlement + bridge (built)

@@ -165,7 +165,7 @@ shrinks the on-chain verify from O(K) to O(1) and the proof small enough to sit 
   The row-mode composition **already binds** the Merkle-authenticated trace rows to the AIR composition at
   verifier-derived FS positions (`recursive_verify.py` module docstring), so the per-segment exec `stark.verify`
   is genuinely dropped — the SCOPE caveat in `settlement_proofs.py:240-247` applied to the *FRI-only*
-  `prove_settlement_recursive`, not to `verify_settlement_o1`/this K→1 path. Proven: `test_settle_sparse_fold.py`.
+  `prove_settlement_recursive` (deleted 2026-09-30, never called), not to `verify_settlement_o1`/this K→1 path. Proven: `test_settle_sparse_fold.py`.
   Remaining fold increment (separate): also fold the K sparse **state-transition** proofs (a second bundle over
   the transition AIR) — today they stay per-segment (the lighter half).
 - **2.2 In-circuit Fiat–Shamir keystone** · major (real crypto) · Move FS challenge/position derivation
