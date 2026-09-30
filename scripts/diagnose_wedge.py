@@ -74,6 +74,13 @@ def main():
     peers = get(f"http://{a.host}:{a.port}/peers").get("peers", [])
     with ThreadPoolExecutor(8) as ex:
         pst = dict(zip(peers, ex.map(lambda p: status(p, a.port), peers)))
+    # NEVER COUNT OURSELVES AS A PEER. /peers is me_to(peers): it always appends this node's own public IP, so
+    # the local node answered as a "peer" AND as __local__ below — two votes for our chain, which turned a 1-1
+    # split into "we are on the MAJORITY chain" (exit 0) and could even pick ourselves as the reference. A peer
+    # whose /status names our own address is us, whatever IP it was reached on.
+    _my_addr = me.get("address")
+    if _my_addr:
+        pst = {p: s for p, s in pst.items() if s.get("address") != _my_addr}
 
     ours = int(me["latest_block_height"])
     live = {p: int(s["latest_block_height"]) for p, s in pst.items()
@@ -124,6 +131,12 @@ def main():
             tag = " (us)" if "__local__" in who else ""
             print(f"     {h}  {len(who)} node(s){tag}: {', '.join(w for w in who if w != '__local__') or 'local only'}")
     majority = max(groups.values(), key=len) if groups else []
+    # A TIE IS REPORTED, NOT BROKEN. max() returns whichever group /peers happened to list first, so a 2-2 split
+    # read as a majority — and when that group held us, the script said "run this THERE" and exited 0.
+    if len(groups) > 1 and sum(1 for g in groups.values() if len(g) == len(majority)) > 1:
+        print(f"\n!! TIE: no chain holds a majority at height {probe_h} ({len(majority)} node(s) each) — this tool")
+        print("cannot pick a reference. Compare the tied groups' cumulative weight (/status latest_block_weight).")
+        return 2
     on_majority = "__local__" in majority
     ref_peers = [w for w in majority if w != "__local__"]
     if len(groups) > 1 and on_majority:

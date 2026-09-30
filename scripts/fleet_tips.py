@@ -30,6 +30,9 @@ TIMEOUT = 8
 # A node that has not moved between two samples is frozen; one whose height DROPS is worse than frozen
 # and gets its own label, because a receding tip means rollback without re-sync.
 FROZEN, BEHIND, OK, RECEDING = "FROZEN", "behind", "ok", "RECEDING"
+# fork_point's answer when a probe FAILED (timeout, 403, pruned body): no verdict, as opposed to None, which
+# means "they already disagree at lo".
+UNKNOWN = "unknown"
 
 
 def _get(ip, path, timeout=TIMEOUT):
@@ -80,16 +83,31 @@ def fork_point(ip_a, ip_b, lo, hi):
     Returns `hi` when they agree there (no fork, just lag), or None when they already disagree at `lo` —
     the divergence is deeper than the window, which is itself the answer: widen it, or the node is far
     enough gone that the floor comparison is what counts.
+
+    A FAILED PROBE IS NOT A DISAGREEMENT. block_hash answers None for a timeout, an error body or a pruned
+    height; read as "the hashes differ", one transient timeout at `lo` printed "only a purge moves it" for a
+    merely frozen node, and one inside the search moved the fork point down and invented a REORG (None == None
+    at `lo` was, the other way round, read as agreement). Any missing hash returns UNKNOWN: no verdict.
     """
-    ha, hb = block_hash(ip_a, hi), block_hash(ip_b, hi)
-    if ha and hb and ha == hb:
+    def pair(h):
+        return block_hash(ip_a, h), block_hash(ip_b, h)
+
+    ha, hb = pair(hi)
+    if ha is None or hb is None:
+        return UNKNOWN
+    if ha == hb:
         return hi                                  # agreed at the top: BEHIND, not forked
-    if block_hash(ip_a, lo) != block_hash(ip_b, lo):
+    ha, hb = pair(lo)
+    if ha is None or hb is None:
+        return UNKNOWN
+    if ha != hb:
         return None
     while lo + 1 < hi:
         mid = (lo + hi) // 2
-        ha, hb = block_hash(ip_a, mid), block_hash(ip_b, mid)
-        if ha and hb and ha == hb:
+        ha, hb = pair(mid)
+        if ha is None or hb is None:
+            return UNKNOWN
+        if ha == hb:
             lo = mid
         else:
             hi = mid
@@ -144,6 +162,10 @@ def main():
         if row["state"] in (FROZEN, RECEDING) and ip != canonical:
             floor = int(s.get("hard_finality") or 0)
             anc = fork_point(canonical, ip, max(floor, 1), h)
+            if anc == UNKNOWN:
+                row["verdict"] = "no verdict: a /get_block probe failed (timeout, error or pruned height) — re-run"
+                report["nodes"].append(row)
+                continue
             row["fork_after"] = anc
             row["above_floor"] = (anc is not None and anc >= floor)
             # WHY IT IS STUCK, not just where. A hash comparison cannot see a STATE divergence: the node
