@@ -34,6 +34,7 @@ def main():
     assert "construct_register_tx" not in body, "nodes do not self-register in the open lane"
     nd = open(os.path.join(ROOT, "nado.py")).read()
     assert "allow_identity(" not in nd and "allow_registration(" not in nd
+    assert "_ip_registration_rejection" not in nd, "the always-None per-IP register hook is gone, not stubbed"
     cfg = open(os.path.join(ROOT, "config.py")).read()
     assert "max_registrations_per_ip" not in cfg and "max_identities_per_ip" not in cfg
     js = open(os.path.join(ROOT, "static", "interface.js")).read()
