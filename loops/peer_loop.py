@@ -4,7 +4,7 @@ import time
 import traceback
 
 from compounder import compound_get_status_pool
-from config import get_timestamp_seconds
+from config import get_timestamp_seconds, get_config
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, pool_warm_ready
 from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok, own_ips
@@ -46,6 +46,26 @@ class PeerClient(threading.Thread):
         self.duration = 0
         self.heavy_refresh_timer = 0
         self._last_peerless_reload = 0   # backoff timer for the "no peers, reload from drive" retry (anti-spam)
+
+    def _refresh_own_ip(self):
+        """Heavy-refresh step: pick the public address that ANSWERS, write it, and probe it for can_mine.
+
+        Which of our addresses to advertise is decided by which one ANSWERS, not by which family it belongs to: a
+        CGNAT'd v4 is globally routable and completely undialable (#86). Probing before writing is also what makes
+        a hand-pinned address stick.
+
+        memserver.ip FOLLOWS THE CONFIG. update_local_ip rewrites private/config.json, but memserver.ip was read
+        once at boot and never again, so after the switch the can_mine probe, announce_me and the /relays self row
+        kept using the DEAD address until a restart — exactly the #86 node, reported "ports closed" and announcing
+        an address nobody can dial. Re-read it from the config (which honours a pinned "auto_ip": false)."""
+        _cands = asyncio.run(get_public_ips(logger=self.logger))
+        _best = pick_reachable_ip(_cands, self.memserver.port, self.logger, current=self.memserver.ip)
+        update_local_ip(ip=_best, logger=self.logger)
+        _ip = get_config().get("ip")
+        if _ip and _ip != self.memserver.ip:
+            self.logger.info(f"Advertising {_ip} from now on (was {self.memserver.ip})")
+            self.memserver.ip = _ip
+        self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
     def _announce_self_to_new_peers(self):
         """GET /announce_peer?ip=<us> on every linked peer we have not told about ourselves yet (one attempt
@@ -259,15 +279,7 @@ class PeerClient(threading.Thread):
                                      fails=self.memserver.purge_peers_list,
                                      unreachable=self.memserver.unreachable)
 
-                    # Which of our addresses to advertise is decided by which one ANSWERS, not by which
-                    # family it belongs to: a CGNAT'd v4 is globally routable and completely undialable
-                    # (#86). Probing before writing is also what makes a hand-pinned address stick.
-                    _cands = asyncio.run(get_public_ips(logger=self.logger))
-                    _best = pick_reachable_ip(_cands, self.memserver.port, self.logger,
-                                              current=self.memserver.ip)
-                    update_local_ip(ip=_best, logger=self.logger)
-
-                    self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
+                    self._refresh_own_ip()
 
                 candidates = asyncio.run(
                     compound_get_status_pool(
