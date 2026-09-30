@@ -59,7 +59,9 @@ jobs:
         with: { python-version: "3.12", cache: pip }
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
-      - run: pip install -r requirements.txt
+      # cryptography is a TEST ORACLE only (the TPM tests check the node's own parser against it); the node never
+      # imports it (requirements.txt), so it is installed here and not there
+      - run: pip install -r requirements.txt cryptography
       - name: test suite (Python kernels; tests/ci_exclude.txt moved to the native job)
         run: |
           set -o pipefail
@@ -92,7 +94,7 @@ jobs:
             native/starkprove
             native/starkcompose
             wasm/goldilocks
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt cryptography
       - name: build the Rust kernels where the node loads them
         run: |
           for d in native/mldsa44 native/attest native/alghash2 native/starkprove native/starkcompose wasm/goldilocks; do

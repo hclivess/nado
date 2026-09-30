@@ -28,7 +28,9 @@ def main():
     # multiplier reads the registry through get_bonded_registry's own per-write-generation cache. That read is not the
     # lane memo this test pins (and is cached in production), so it is stubbed out of the count.
     block_ops.get_block_reward = lambda: 10 ** 9
-    kv_ops.env_path = lambda home=None: "/x"
+    # a path INSIDE this test's throwaway HOME: the stub used to be the literal "/x", so as root every run created an
+    # LMDB env at the filesystem root (found 2026-09-30 when CI, unprivileged, got PermissionError: '/x')
+    kv_ops.env_path = lambda home=None: _os.path.join(_os.environ["HOME"], "memo-env")
     kv_ops.write_generation = lambda: GEN[0]
     block_ops._ms_lanes_cache[0] = None
 

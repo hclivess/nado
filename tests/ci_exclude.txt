@@ -94,3 +94,4 @@ test_zkvm_arg_tag_from_one                   proves in Python kernels: over 5 mi
 test_zkvm_args                               proves in Python kernels: over 5 minutes
 test_zkvm_circuit                            proves in Python kernels: over 5 minutes
 test_zkvm_epoch                              proves in Python kernels: over 5 minutes
+test_updatability                            judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box
