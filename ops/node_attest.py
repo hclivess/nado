@@ -367,7 +367,6 @@ class NodeAttestPoller:
         self._last = 0.0
         self._thread = None
         self._rr = 0
-        self.last_state: dict = {}
         self.refused: dict = {}      # "max_block:sha256(att)" -> refused-at tip — never rebuild a statement the mempool refused
 
     def tick(self):
@@ -385,7 +384,6 @@ class NodeAttestPoller:
             st = lease_state(self.memserver.address, tip)
         except Exception:
             return
-        self.last_state = st
         if not st["wants"] or _own_register_pending(self.memserver):
             return
         # BOUND FOR LIFE (doc/device-attestation.md §"Binding modes"): the operator attested this node once with a

@@ -56,14 +56,3 @@ def get_logger(logger_name, max_detail=False, file="log.log"):
 
     coloredlogs.install(level="DEBUG", logger=logger, fmt=format)
     return logger
-
-
-if __name__ == "__main__":
-    # Some examples.
-    logger = get_logger(logger_name="demo_logger", file=f"demo.log")
-
-    logger.debug("this is a debugging message")
-    logger.info("this is an informational message")
-    logger.warning("this is a warning message")
-    logger.error("this is an error message")
-    logger.critical("this is a critical message")

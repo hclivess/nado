@@ -65,7 +65,7 @@ failure never disrupts consensus). Each runs at most **once per epoch**:
 |---|---|---|---|---|
 | **Auto-bond** | **on (80%)** | `auto_bond_percent` (0–100) | `NADO_AUTO_BOND_PERCENT` | Bonds this % of *newly-mined* spendable earnings into the bonded lane; stops at the whale cap; accrues below a dust floor instead of emitting fee-dominated txs. |
 | **Auto-collect** | **on** | `auto_collect_dividend` | `NADO_AUTO_COLLECT` | Sweeps the accrued **presence dividend**. Skipped unless the node is an **open-lane member** (bonded-only nodes accrue none, so it never burns a wasted fee). |
-| **Auto-register** | **off** | `auto_register` | `NADO_AUTO_REGISTER` | Keeps the open-lane **PoSW lease** alive: registers when absent, renews inside the lease tail. **Opt-in** so a headless node doesn't silently join (and Sybil-load) the open lane. The ~1–2 s sequential PoSW is computed inline. |
+| **Auto-register** | **retired** (gen 25) | — | — | PoSW registration is gone: an identity is an attested device. The `auto_register` key and `NADO_AUTO_REGISTER` are ignored; a node bound once to a hardware wallet renews its lease statement-free (`ops/node_attest.py`). |
 
 Config lives in `private/config.json`; env vars take precedence (handy for systemd). Example headless
 open-lane miner that also compounds and self-collects:

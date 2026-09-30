@@ -68,12 +68,6 @@ async def read_capped(response, cap):
     return b"".join(parts)
 
 
-def unpack_peer(body):
-    """Decode a peer control message (status / peers / snapshot manifest / block) via the JSON codec
-    (ops/codec.py). The caller is responsible for bounding `body` first (read_capped / MAX_PEER_BODY)."""
-    return codec.unpack(body)
-
-
 def bounded_zstd_decompress(body, cap):
     """Decompress a zstd frame to AT MOST `cap` bytes, raising if it would exceed it — the anti-bomb
     primitive for every untrusted zstd download.

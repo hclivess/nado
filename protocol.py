@@ -1342,9 +1342,6 @@ FFG_DEN = 3
 # NO auto-bond faucet: free presence must NEVER mint bonded stake (that pipe lets a Sybil swarm
 # reach stake majority for ~0 capital — it broke the rejected fronted/faucet designs). The only
 # free->capital path is the block reward an open-lane miner actually earns (itself OPEN_BPS-capped).
-REGISTER_POW_BITS = 16             # one-time light registration puzzle (~1s in pure-JS blake2b on a phone;
-                                   # 22 bits took tens of seconds in-browser). NOT the Sybil defense —
-                                   # the lane cap is — this only throttles trivial mempool spam.
 OPEN_BASE_FLOOR = 2                # every registered+present identity's minimum open weight (never 0). Raised
                                    # 1->2 so a genuine newcomer earns 2/10 = 20% of a mature miner's rate on
                                    # day one (was 10%) — fairer to new phones, while keeping a 5x loyalty premium.
@@ -1859,7 +1856,6 @@ DEVICE_ATTEST_FIDO_ROOT_FINGERPRINTS = frozenset(r["sha256"] for r in _FIDO["roo
 # AAGUID -> the root fingerprints of THAT authenticator model: a packed statement must chain to one of them,
 # never merely to some root in the set (vendor A's key could otherwise claim vendor B's AAGUID).
 DEVICE_ATTEST_FIDO_AAGUID_ROOTS = {a: frozenset(v["roots"]) for a, v in _FIDO["aaguids"].items()}
-DEVICE_ATTEST_FIDO_AAGUIDS = frozenset(DEVICE_ATTEST_FIDO_AAGUID_ROOTS)
 del _FIDO
 # accepted statement formats: apple (iPhone/iPad), android-key (Android, TEE/StrongBox), tpm (Windows Hello on a
 # physical TPM), packed (FIDO2 security keys). Rejected: none, packed self-attestation, android-safetynet, fido-u2f.

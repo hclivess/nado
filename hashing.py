@@ -165,8 +165,3 @@ def treasury_proposal_id(recipient, amount, memo, nonce, expiry) -> str:
     or replayed past its deadline. `nonce` lets the same spend be re-proposed later; `expiry` is the last block at
     which it may execute. Domain-tagged ('treasury_spend') so it cannot collide with any other id/leaf."""
     return blake2b_hash(["treasury_spend", recipient, int(amount), memo, nonce, int(expiry)])
-
-
-if __name__ == "__main__":
-    blake2b_hash_link("test_old", "test_new")
-    print(base64encode("b64test"))

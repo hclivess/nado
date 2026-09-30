@@ -314,19 +314,6 @@ def fetch_block_by_hash(peer, block_hash, port=9173, timeout=6):
         return None
 
 
-def _peer_finalized_height(peer, port=9173, timeout=6):
-    """A peer's own finalized height from its /status, or None. Used only to pick a comparison height a
-    BEHIND peer can actually answer — never as a fork-choice input."""
-    import json as _json, urllib.request as _rq
-    try:
-        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
-            d = _json.loads(r.read(1_000_000))
-        h = d.get("finalized_height") if isinstance(d, dict) else None
-        return int(h) if isinstance(h, int) and h >= 0 else None
-    except Exception:
-        return None
-
-
 def peer_tip_weight(peer, port=9173, timeout=6):
     """A peer's advertised cumulative tip weight from its /status, or None.
 
@@ -959,15 +946,6 @@ def qualifies_to_sync(peer, peer_protocol, memserver_protocol,
                 "flag": "Peer protocol too low"}
 
     return {"result": True}
-
-
-if __name__ == "__main__":
-    print(load_ips())
-    # save_peer(ip="1.1.1.1", port=0, address="haha")
-    # delete_peers(["1.1.1.1"])
-    # save_peer(ip="1.1.2", port=0, address="haha2")
-    # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
-    # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
 
 
 def pool_warm_ready(status_pool, hash_pool, elder_s=None):

@@ -502,11 +502,10 @@ disrupting consensus):
   > dividend but never collects it** — the accrual just grows. Either install with `--exec`, or open the
   > same address in the browser wallet, which claims for you. Nothing is lost by collecting late: the
   > accrual is on-chain state, not something the node holds.
-- **Auto-register the open lane** — **opt-in** (`auto_register` / `NADO_AUTO_REGISTER=1`): keeps the
-  presence lease alive (renews inside the lease tail), so a server can mine 24/7 unattended. A node cannot
-  attest itself: bind it to a Ledger or Trezor once from the wallet's Mining page (*Attest a node you run*)
-  and it renews statement-free from then on; a phone or TPM has to re-attest it every 36 h. Off by default so a headless node never silently joins — and Sybil-loads — the open
-  lane. Full reference: **[doc/cli.md](doc/cli.md)**.
+- **Keep the open-lane lease alive** — a node cannot attest itself: bind it to a Ledger or Trezor once from the
+  wallet's Mining page (*Attest a node you run*) and it renews statement-free from then on; a phone or TPM has to
+  re-attest it every 36 h. (The old `auto_register` / `NADO_AUTO_REGISTER` setting drove the PoSW registration
+  retired at gen 25 and is ignored.) Full reference: **[doc/cli.md](doc/cli.md)**.
 
 ### Local multi-node testnet
 

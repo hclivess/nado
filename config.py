@@ -330,7 +330,3 @@ def create_config(ip: str, config_path: str = None):
     if not os.path.exists(config_path):
         with open(config_path, "w") as outfile:
             json.dump(config_contents, outfile)
-
-
-if __name__ == "__main__":
-    pass

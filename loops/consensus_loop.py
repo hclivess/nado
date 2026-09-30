@@ -93,7 +93,6 @@ class ConsensusClient(threading.Thread):
         # loop us into emergency-mode/rollback. Auto-cleared periodically so a transiently-unreachable
         # REAL heavier tip is retried.
         self.rejected_tips = set()
-        self._reject_clear_counter = 0
         # BACKOFF state for benched tips. A tip we repeatedly fail to obtain is one nothing can serve; the
         # flat ~12s bench meant the node spent every window chasing it and never synced the best chain it
         # COULD reach. Observed live: a single-node fork stayed heaviest while a four-node chain was kept
