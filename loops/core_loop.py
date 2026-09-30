@@ -3627,7 +3627,9 @@ class CoreClient(threading.Thread):
             # skipped every enrolment on a node that had been drawn as a PRODUCER without being bonded.
             # The first real enrolment on this chain sat with zero challenges for 107 blocks because of
             # it: the draw named three producers and the loop asked a different question.
-            live = kv_ops.tpm_enrols_live()
+            # tip=: EXPIRED incomplete rows are never collected, and counted against the scan's limit they hid
+            # fresh enrolments from every challenger (kv_ops.tpm_enrols_live). Keep the tip here.
+            live = kv_ops.tpm_enrols_live(tip=tip)
             # WHAT THIS DUTY LAST DID, READABLE FROM OUTSIDE. A duty that catches its own exceptions so it
             # cannot stop block production is a duty that fails invisibly, and the only place the reason
             # lands is a log file on a machine somebody else operates. The first real enrolment on this
@@ -3637,7 +3639,7 @@ class CoreClient(threading.Thread):
             if not live:
                 # No enrolment is in progress, so every secret we are still holding belongs to one that
                 # finished or expired. This is the only moment that fact is knowable for free.
-                self.maybe_tpm_prune_secrets()
+                self.maybe_tpm_prune_secrets(tip)
                 return
             from ops.tpm_aik import make_credential
             from ops.transaction_ops import construct_tpm_tx
@@ -3728,15 +3730,23 @@ class CoreClient(threading.Thread):
             self.logger.error(f"TPM challenge duty failed: {type(e).__name__}: {e}\n"
                               + traceback.format_exc())
 
-    def maybe_tpm_prune_secrets(self):
+    def maybe_tpm_prune_secrets(self, tip=None):
         """Forget the secrets of enrolments that are finished or gone. A challenger's secret is worthless
-        once revealed, but keeping every one forever turns a small private file into an unbounded one."""
+        once revealed, but keeping every one forever turns a small private file into an unbounded one.
+        EXPIRED counts as gone: an incomplete row is never collected from the chain, so "still open/commit"
+        alone kept an expired enrolment's secret forever. With `tip`, an open/commit record past its window
+        (tip >= h + enrol_window(h), as tpm_enrols_live) is pruned too."""
+        from ops.tpm_enrol import enrol_window
+
+        def _wanted(rec):
+            if (rec or {}).get("state") not in ("open", "commit"):
+                return False
+            return tip is None or int(tip) < int(rec["h"]) + enrol_window(int(rec["h"]))
         try:
             store = self._tpm_secrets_load()
             if not store:
                 return
-            keep = {eid: v for eid, v in store.items()
-                    if (kv_ops.tpm_enrol_get(eid) or {}).get("state") in ("open", "commit")}
+            keep = {eid: v for eid, v in store.items() if _wanted(kv_ops.tpm_enrol_get(eid))}
             if len(keep) != len(store):
                 self._tpm_secrets_save(keep)
         except Exception as e:

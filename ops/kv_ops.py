@@ -2458,10 +2458,18 @@ def tpm_enrol_revert_pop(height: int, enrol_id: str):
     return _write(_do)
 
 
-def tpm_enrols_live(limit: int = 64):
+def tpm_enrols_live(limit: int = 64, tip: int = None):
     """(id, record) for every enrolment still in progress — the challenger loop's work list. A PROVEN
     record is skipped: it needs nothing from anyone, and the loop must not keep re-reading it forever.
-    Bounded, because this runs once per block on every node."""
+    Bounded, because this runs once per block on every node.
+
+    With `tip`, an EXPIRED incomplete record (tip >= h + enrol_window(h), the same edge /tpm_enrol_status calls
+    expired) is skipped too. Incomplete rows are never collected (tpm_enrols_expired has no caller), so they
+    accumulate for the life of the chain; counted against `limit` in key order, 64 dead rows sorting before a
+    fresh enrolment id hid it from every challenger, and the enrolment expired unanswered. The skip happens
+    BEFORE the limit, so the limit bounds live work only. A node-local read: nothing consensus calls this."""
+    from ops.tpm_enrol import enrol_window    # local: tpm_enrol is a leaf, but keep kv_ops' import graph flat
+
     def _do(txn):
         out = []
         with txn.cursor(db=_dbs()["devbind"]) as cur:
@@ -2472,9 +2480,12 @@ def tpm_enrols_live(limit: int = 64):
                     rec = _unpack(v)
                     if not _is_enrol_record(rec):
                         continue             # a device binding sharing the "tpm:" prefix
-                    if rec[0] != "proven":
-                        out.append((k[4:].decode(),
-                                    {f: rec[i] for i, f in enumerate(_TPM_ENROL_FIELDS)}))
+                    if rec[0] == "proven":
+                        continue
+                    h = int(rec[6])          # rec[6] is "h" — keep in step with _TPM_ENROL_FIELDS
+                    if tip is not None and int(tip) >= h + enrol_window(h):
+                        continue             # expired: nobody can answer it any more (see docstring)
+                    out.append((k[4:].decode(), {f: rec[i] for i, f in enumerate(_TPM_ENROL_FIELDS)}))
         return out
     return _read(_do)
 
