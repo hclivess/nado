@@ -9,7 +9,7 @@ from config import get_timestamp_seconds, get_config, hostport
 from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
 from signatures import sign as _sign_message, verify as _verify_message, unhex as _unhex
-from .address_ops import proof_sender, make_address
+from .address_ops import make_address
 from . import kv_ops
 from . import segment_store
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
@@ -17,7 +17,6 @@ from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_be
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
 
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
-from protocol import ADDRESS_PREFIX
 from protocol import CHAIN_GENERATION, GENESIS_TIMESTAMP, DOMAIN_BLOCKSIG
 import zstandard as zstd
 

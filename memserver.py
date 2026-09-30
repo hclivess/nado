@@ -7,7 +7,7 @@ from config import get_protocol, get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import get_block_ends_info
-from ops.data_ops import sort_list_dict, get_home
+from ops.data_ops import get_home
 from ops.key_ops import load_keys
 from ops.message_pool import MessagePool
 from ops.transaction_ops import (
@@ -802,7 +802,6 @@ class MemServer:
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
-        from protocol import TX_LANDING_WINDOW
         # AUDIT FIX: a malicious peer can serve a /transaction_pool list with a malformed entry; the
         # pre-validation field accesses below (sender, max_block) would KeyError/TypeError and abort
         # the whole merge batch. Reject malformed txs up front so the rest of the batch still merges.
@@ -864,12 +863,12 @@ class MemServer:
         # "Success", could never be mined, and silently aged out — reject it up front instead.
         if transaction["max_block"] <= self.latest_block["block_number"]:
             msg = {"result": False,
-                   "message": f"Target block too low"}
+                   "message": "Target block too low"}
             return msg
 
         elif transaction["max_block"] > self.latest_block["block_number"] + TX_LANDING_WINDOW:
             msg = {"result": False,
-                   "message": f"Target block too high"}
+                   "message": "Target block too high"}
             return msg
 
         # USER-ORIGIN PROPAGATION GUARD (door-level, so it can never diverge pools: a tx refused at its
@@ -1003,12 +1002,12 @@ class MemServer:
                                                   "tpm_challenge", "tpm_commit", "tpm_reveal", "legacy_claim") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
-                   "message": f"Empty account"}
+                   "message": "Empty account"}
             return msg
 
         elif not validate_txid(transaction, logger=self.logger):  # always enforced (compat gate gone)
             msg = {"result": False,
-                   "message": f"Invalid txid"}
+                   "message": "Invalid txid"}
             return msg
         # NOTE: the old byte-size validate_base_fee gate is removed: get_byte_size is
         # sys.getsizeof(repr(...)) and is non-deterministic, so it is unsafe as a fee rule.

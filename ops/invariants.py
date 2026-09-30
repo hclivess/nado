@@ -30,7 +30,7 @@ not (the property Zcash's turnstile relies on). ExecState tracks it as pool_valu
 unbacked mint — a transfer blob with public_value > 0 minting notes with no escrow behind them — would have
 tripped check_shielded in the block it landed, with no review and no reasoning about join-splits.
 """
-from protocol import (TREASURY_GENESIS, BRIDGE_ESCROW, SHIELD_ESCROW, DIVIDEND_POOL, HTLC_ESCROW)
+from protocol import (TREASURY_GENESIS, BRIDGE_ESCROW, SHIELD_ESCROW, DIVIDEND_POOL)
 
 
 # Severity by DIRECTION — the distinction that keeps these checks worth reading.

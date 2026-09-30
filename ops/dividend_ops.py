@@ -14,7 +14,7 @@ immutable, revert-safe recert history — so we replay the exact ramp `apply_reg
 `fidelity_at_epoch` MUST stay byte-identical to that ramp (ops/account_ops.apply_register) — a fraud proof
 that miscomputes it would false-slash honest settlers. test_dividend_fidelity.py pins the two together.
 """
-from protocol import POSW_LEASE_EPOCHS, LEASE_EPOCHS_MAX, fidelity_step, dividend_weight
+from protocol import LEASE_EPOCHS_MAX, fidelity_step, dividend_weight
 from ops import kv_ops
 
 _CARRIED = [None]

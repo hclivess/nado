@@ -14,7 +14,6 @@ faucet.fund is chosen because it takes no args, cannot revert for a funded sende
 tops up the faucet prize bank rather than being burned.
 """
 import json
-import os
 import sys
 import time
 import urllib.request

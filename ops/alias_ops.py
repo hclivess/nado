@@ -19,7 +19,7 @@ from ops.address_ops import validate_address
 from protocol import (RESERVED_RECIPIENTS, ALIAS_MIN_LEN, ALIAS_MAX_LEN,
 
                       ALIAS_REGISTRATION_FEE, MIN_TX_FEE)
-from protocol import ADDRESS_PREFIX, MSIG_PREFIX
+from protocol import MSIG_PREFIX
 
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 

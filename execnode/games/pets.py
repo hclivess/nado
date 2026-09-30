@@ -738,7 +738,7 @@ def _res_take(kind, amt_reg):
     """REQUIRE the caller holds `amt` of resource `kind`, and spend it. Reverts the whole call when short —
     so a half-paid upgrade is impossible. Clobbers r2/r4/r5/r6."""
     return (["ctx r5 caller", f"movi r6 {kind}"] + _res_slot("r2", "r5", "r6")
-            + ["sload r4 r2", f"mov r5 r4", f"lt r5 {amt_reg}", "notb r5", "require r5",
+            + ["sload r4 r2", "mov r5 r4", f"lt r5 {amt_reg}", "notb r5", "require r5",
                f"sub r4 {amt_reg}", "sstore r2 r4"])
 
 

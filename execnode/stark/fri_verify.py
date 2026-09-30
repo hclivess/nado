@@ -158,7 +158,8 @@ def _witness_of(fri_proof, num_queries, mk_transcript=None):
     from a full FRI proof. Returns [[per-layer (lo_val, lo_path, hi_val, hi_path)]] (query-major) or None if the
     proof's declared indices disagree with Fiat-Shamir. `mk_transcript` as in _canonical_public."""
     b = backend.RECURSION
-    N, off, blowup = fri_proof["N"], fri_proof["offset"], fri_proof["blowup"]
+    N, off = fri_proof["N"], fri_proof["offset"]
+    fri_proof["blowup"]     # READ FOR ITS REFUSAL: a proof missing its blowup raises here, as it always has. Keep it.
     roots, final, queries = fri_proof["roots"], fri_proof["final"], fri_proof["queries"]
     # The transcript must be replayed in the proof's OWN challenge field, exactly as _canonical_public and
     # fri.verify do — a base-field replay of an ext proof draws different challenges, so the FS query index

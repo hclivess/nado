@@ -34,7 +34,7 @@ python3 scripts/nado_cli.py [--node URL] [--keys PATH] <command> [args]
 |---|---|---|
 | `info` | Print address, spendable balance, bonded stake, open/bonded lane status | `nado_cli.py info` |
 | `send <to> <amount>` | Transfer NADO (`--memo`, `--fee`) | `nado_cli.py send ndo… 12.5` |
-| `register` | Join/renew the **OPEN lane** — computes the ~1 s sequential **PoSW** and submits (fee-exempt) | `nado_cli.py register` |
+| `register` | **Retired at gen 25** — refuses at once (an open-lane identity is a hardware-attested device: use the wallet on a phone, a TPM PC or a security key; nodes earn in the bonded lane) | — |
 | `bond <amount>` | Move spendable → **bonded** stake (bonded lane) | `nado_cli.py bond 100` |
 | `unbond <amount>` | Move bonded → spendable (**free**; unlocks after the delay) | `nado_cli.py unbond 50` |
 | `alias <op> <name>` | `register` / `transfer` / `unregister` a human-readable alias (`--to`) | `nado_cli.py alias register alice` |

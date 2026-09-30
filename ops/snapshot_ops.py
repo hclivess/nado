@@ -29,7 +29,6 @@ from protocol import INDEX_RETENTION_NUM, INDEX_RETENTION_HASH, EPOCHW_ROOT_WIND
 
 from ops.data_ops import get_home
 from ops import kv_ops
-from ops import segment_store
 
 # how many state entries (db, key, value triples) go into one transferable chunk
 CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
@@ -523,7 +522,7 @@ def _inc_leaves_for(txn, dbs, name, k, floor):
 
 def _inc_rebuild(home):
     """full walk -> fresh structure (one MVCC snapshot); returns the structure"""
-    import bisect  # noqa: F401  (documenting the sorted-list contract; insort is used in _root_from_inc)
+    # the per-DB key lists built here are SORTED: _root_from_inc keeps them so with bisect.insort
     keys, leaves = {}, {}
     names = [n for n in kv_ops.SNAPSHOT_DBS if n not in ROOT_EXCLUDED_DBS]
     for n in names:

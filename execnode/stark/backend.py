@@ -13,7 +13,6 @@ Digests are opaque to the callers: a hex string for blake2b, a CAPACITY-tuple of
 verifier.
 """
 from hashlib import blake2b as _blake2b
-from hashing import blake2b_hash
 from execnode.stark import field as F, alghash2
 
 # The STARK's Merkle leaf/node hash is called MILLIONS of times per proof and is PURELY INTERNAL to a proof

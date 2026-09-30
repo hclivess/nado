@@ -102,7 +102,7 @@ class MessageClient(threading.Thread):
         .duration fields and pools feed the periodic health/status lines; nothing is mutated."""
         threading.Thread.__init__(self)
         self.logger = logger
-        self.logger.info(f"Starting Message Client")
+        self.logger.info("Starting Message Client")
         self.memserver = memserver
         self.consensus = consensus
         self.core = core

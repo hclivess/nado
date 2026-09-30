@@ -11,7 +11,7 @@ The 12-lane state does NOT fit the VM's 8 registers, so it lives in SCRATCH STOR
 hold the sponge state s, slots 12..23 the per-round sbox outputs t. Everything is straight-line field
 arithmetic (add / mul; x^7 as 4 muls; the MDS mix as 12x12 constant multiply-accumulate) — no VM change.
 """
-from execnode.stark import alghash2 as a2, field as F
+from execnode.stark import alghash2 as a2
 
 SC = 100                      # scratch storage field for the sponge state (avoid a game's field range)
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.CAPACITY

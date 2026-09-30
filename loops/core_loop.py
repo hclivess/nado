@@ -56,7 +56,7 @@ from ops.transaction_ops import (construct_duty_tx,
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
-from protocol import DEVICE_ATTEST_EK_ENROL_BLOCKS, TX_LANDING_WINDOW  # noqa: F401 (docs reference)
+from protocol import TX_LANDING_WINDOW
 from ops.tpm_enrol import enrol_window as _te_window
 
 # How long one direct seed-genesis probe answers for (_seeds_answering); the healthy path pays nothing.
@@ -359,7 +359,7 @@ class CoreClient(threading.Thread):
         threading.Thread.__init__(self)
         self.duration = 0
         self.logger = logger
-        self.logger.info(f"Starting Core")
+        self.logger.info("Starting Core")
         self.memserver = memserver
         self.consensus = consensus
         self.run_interval = 1
@@ -1592,9 +1592,8 @@ class CoreClient(threading.Thread):
             # matters (_fresh_ancestor_for_adoption).
             if cached and now - cached[0] < FORK_STATE_TTL_S:
                 return cached[1]["state"]
-            from ops.peer_ops import seed_peers, probe_block_hash_signed
+            from ops.peer_ops import seed_peers
             from ops.block_ops import get_block_hash_by_number
-            from ops.account_ops import get_finalized_height
             # SEEDS FIRST. The verdict here is a per-IP headcount (fork_resolution.majority_hash), and it
             # gates the re-anchor path — so if attacker-held slots crowd the operator seeds out of the [:8]
             # window they dictate the verdict. memserver.peers came first, so on a node with >=8 peers the
@@ -3405,10 +3404,9 @@ class CoreClient(threading.Thread):
 
         Best-effort; never raises."""
         try:
-            from protocol import DEVICE_ATTEST_EK_CHALLENGERS, CHAIN_ID, POSW_LEASE_EPOCHS, POSW_ANCHOR_OFFSET
+            from protocol import CHAIN_ID, POSW_ANCHOR_OFFSET
             from ops import tpm_enrol as _te, tpm_aik
-            from ops.transaction_ops import (construct_tpm_tx, construct_register_tx,
-                                             register_device_challenge)
+            from ops.transaction_ops import construct_tpm_tx, register_device_challenge
             tip = self.memserver.latest_block["block_number"]
             if tip < 1:                     # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT)
                 return
@@ -3625,7 +3623,6 @@ class CoreClient(threading.Thread):
 
         Best-effort; never raises."""
         try:
-            from protocol import DEVICE_ATTEST_EK_CHALLENGERS
             tip = self.memserver.latest_block["block_number"]
             if tip < 1:                     # the enrolment rule holds from block 1 (gen 25's DEVICE_ATTEST_EK_HEIGHT)
                 return
@@ -3833,7 +3830,7 @@ class CoreClient(threading.Thread):
             self.logger.warning(f"Block {block['block_hash']} already incorporated; skipping (idempotent)")
             return
 
-        self.logger.warning(f"Producing block")
+        self.logger.warning("Producing block")
 
         # Body write FIRST (idempotent, safe to redo on replay): the fsynced segment record +
         # locator must exist before block_index references it. The parent's child pointer is no
@@ -4770,7 +4767,6 @@ class CoreClient(threading.Thread):
                 return                                  # already auto-bonded this epoch
             acc = get_account(self.memserver.address)
             balance = int(acc.get("balance", 0)) if acc else 0
-            bonded = int(acc.get("bonded", 0)) if acc else 0
             mined = int(acc.get("produced", 0)) if acc else 0
             if self.auto_bond_baseline is None:
                 self.auto_bond_baseline = mined         # first observation: only FUTURE mining bonds
@@ -5236,7 +5232,7 @@ class CoreClient(threading.Thread):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
-            self.logger.warning(f"Preparing block")
+            self.logger.warning("Preparing block")
 
             if not valid_block_timestamp(new_block=block):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
@@ -5289,7 +5285,9 @@ class CoreClient(threading.Thread):
             our_state_root = l1_state_root()   # consensus subset only — block storage excluded (determinism)
             # (betanet-3's h10047-16000 repair window was deleted at the gen-22 reroll: equality is
             # enforced at every height of this generation.)
-            _bn = int(block.get("block_number") or 0)
+            # EVALUATED FOR ITS REFUSAL (the value was once the repair-window bound, deleted at gen 22): in verify_block a
+            # block_number int() cannot parse raises and rejects the block, as it always has. Keep the evaluation.
+            int(block.get("block_number") or 0)
             if block.get("state_root") != our_state_root:
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
@@ -5429,7 +5427,7 @@ class CoreClient(threading.Thread):
 
             # the producer is identified by the winner ADDRESS (block_creator) alone
             if self.memserver.address == block['block_creator'] and block['block_reward'] > 0:
-                self.logger.warning(f"$$$ Congratulations! You won! $$$")
+                self.logger.warning("$$$ Congratulations! You won! $$$")
 
             self.logger.warning(f"Block hash: {block['block_hash']}")
             self.logger.warning(f"Block number: {block['block_number']}")

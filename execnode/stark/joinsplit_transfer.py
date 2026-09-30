@@ -55,13 +55,16 @@ def verify_transfer(public, proof, root_is_known, wide_depth=None):
     # root_is_known must be the WIDE pool's (state._apply_wide_transfer passes it); public digests ride as 64-hex.
     if "joinsplit3" in bundle:
         from execnode.stark import joinsplit3, stark as _stk
-        from execnode.shielded_wide import TREE_DEPTH, DEPTH_HARDENED
+        # ITS OWN NAME: the wide pool's depth used to be imported as TREE_DEPTH, shadowing the FIELD pool's TREE_DEPTH
+        # above for this branch only — correct (the branch always returns) but one moved line away from checking a
+        # joinsplit2 proof against the wide depth. joinsplit2/joinsplit below read the field pool's TREE_DEPTH.
+        from execnode.shielded_wide import TREE_DEPTH as WIDE_TREE_DEPTH, DEPTH_HARDENED
         # D IS PINNED TO THE DEPTH IN FORCE, NEVER READ FROM THE PROOF (12 at height 0, 48 from block 1). The exec
         # state passes its pool's depth (ExecState.wide_enter put it at depth_at(applying height)); a caller that passes
         # none gets the depth of the proof rules in force (stark.rules_at, set by _apply_block for the block's height;
         # unset means STRICT, i.e. 48 — a caller that cannot say which block it judges refuses a depth-12 proof loudly).
         if wide_depth is None:
-            wide_depth = DEPTH_HARDENED if _stk.current_rules().zk_harden else TREE_DEPTH
+            wide_depth = DEPTH_HARDENED if _stk.current_rules().zk_harden else WIDE_TREE_DEPTH
         b = bundle["joinsplit3"]
         try:
             if b["proof"].get("D") != wide_depth:

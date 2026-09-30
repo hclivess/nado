@@ -17,7 +17,7 @@ Pure, deterministic, integer-only over committed state.
 """
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
-from ops.mining_ops import total_bonded_shares, selection_shares
+from ops.mining_ops import total_bonded_shares
 from protocol import FFG_NUM, FFG_DEN, EPOCH_LENGTH, INACTIVITY_WINDOW
 
 # how many epochs back to scan for a finalizable checkpoint (finality is fresh; a small window suffices)

@@ -18,7 +18,7 @@ very large epochs split across a few proofs until recursion lands.
 """
 from hashing import canonical_bytes, merkle_root
 from execnode import runtimes, zkvm
-from execnode.stark import vm_circuit, field as F, stark
+from execnode.stark import vm_circuit, stark
 
 
 def zkvm_leaves(contracts):

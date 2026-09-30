@@ -51,7 +51,7 @@ def _settle():
           "slot r4 11 r0", "sload r2 r4", "bhash r3 r2", "movi r6 1", "add r2 r6", "bhash r5 r2",
           "add r3 r5", "add r3 r0", "mov r1 r3"]
     for i in range(3):
-        L += [f"mov r2 r1", f"movi r3 {i}", "add r2 r3", "hash r2 <- r2", "lo32 r2", "movi r3 64", "divmod r2 r3"]
+        L += ["mov r2 r1", f"movi r3 {i}", "add r2 r3", "hash r2 <- r2", "lo32 r2", "movi r3 64", "divmod r2 r3"]
         L += [f"movi r4 {(SC << 32) + i}", "sstore r4 r7"]                    # SC[i] = stop
         L += ["movi r6 0"]
         for t in THRESH:
@@ -91,7 +91,7 @@ def _settle():
     L += [f"movi r4 {(SC << 32) + 7}", "sload r6 r4"]                          # r6 = t2
     L += ["mul r6 r5"]                                               # tr*t2
     L += ["movi r4 1", "sub r4 r5", "mul r2 r4", "add r6 r2"]        # + (1-tr)*partial ; r6 = m2
-    L += [f"slot r4 13 r0", "sstore r4 r6"]                          # gw[g] = m2
+    L += ["slot r4 13 r0", "sstore r4 r6"]                          # gw[g] = m2
     L += [f"movi r4 {(SC << 32) + 10}", "sstore r4 r6"]                        # SC[10] = m2
     # pay = gs*m2/2
     L += ["slot r4 9 r0", "sload r5 r4"]                             # r5 = gs

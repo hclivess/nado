@@ -19,7 +19,8 @@ can afford to execute it — which is exactly the property the heavy-gated paths
 
 Scope is deliberately narrow: ONLY pyflakes' "undefined name" class, which is a real bug in every instance
 and never a matter of taste. Unused imports, shadowing and line length are not checked and are not this
-file's business.
+file's business — tests/test_pyflakes_clean.py holds the tree to ZERO pyflakes findings of every class (from
+2026-09-30), so this file's failure message stays the specific one for the class that is always a crash.
 """
 import os
 import subprocess

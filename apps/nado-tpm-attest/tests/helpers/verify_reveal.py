@@ -12,7 +12,7 @@ import sys
 
 _here = os.path.abspath(__file__)
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(_here), "..", "..", "..", "..")))
-from ops.tpm_aik import credential_commitment, verify_credential_reveal  # noqa: E402
+from ops.tpm_aik import verify_credential_reveal  # noqa: E402
 from make_credential import spki_from_pub_area  # noqa: E402
 
 

@@ -33,7 +33,7 @@ def wait(cond, label, timeout=600):
     while time.time() - t0 < timeout:
         try:
             if cond(): print("  [ok]", label, flush=True); return True
-        except Exception as e: pass
+        except Exception: pass
         time.sleep(10)
     print("  [TIMEOUT]", label, flush=True); sys.exit(1)
 FAILS = []

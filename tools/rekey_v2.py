@@ -28,7 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.address_ops import address_body_v2, make_checksum, legacy_address
-from protocol import RESERVED_RECIPIENTS, MSIG_PREFIX, DOMAIN_ADDRESS_V2  # noqa: F401  (the domain is the address's)
+from protocol import RESERVED_RECIPIENTS, MSIG_PREFIX      # DOMAIN_ADDRESS_V2 is applied inside address_body_v2
 
 
 def v2_address(public_key: str) -> str:

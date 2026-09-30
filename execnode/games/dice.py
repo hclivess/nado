@@ -13,7 +13,6 @@ Methods: open(t)[bankroll] · bet(g,t,target)[stake] · settle(g) · close(t) ·
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.games._lib import TA, TK, TP, TC, TZ
 
 GG, GM, GS, GA, GH, GR, GW, GD = 7, 8, 9, 10, 11, 12, 13, 14
 TLIST, GLIST = 15, 16

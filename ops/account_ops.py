@@ -1,7 +1,7 @@
 import threading
 
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, FIDELITY_MIN_GAP_EPOCHS, fidelity_step, lease_epochs_for, LEASE_EPOCHS_MAX, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, fidelity_step, lease_epochs_for, LEASE_EPOCHS_MAX, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with

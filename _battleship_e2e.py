@@ -17,7 +17,7 @@ def post(tx):
     try: return json.load(urllib.request.urlopen(r, timeout=15))
     except urllib.error.HTTPError as e: return {"result": False, "message": e.read().decode()[:200]}
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
-def sto(): return j(EX + f"/exec/contract?ns=default&cid=a6c3c02696e9cce9a380ceaa86d0127b&provisional=1").get("storage", {})
+def sto(): return j(EX + "/exec/contract?ns=default&cid=a6c3c02696e9cce9a380ceaa86d0127b&provisional=1").get("storage", {})
 def cursor(): return int(j(EX + "/exec/root?ns=default&provisional=1").get("cursor", 0))
 K = load_keys(); K["address"] = make_address(K["public_key"]); ME = K["address"]
 def call(method, args, value=0):
@@ -33,7 +33,7 @@ def wait(cond, label, timeout=600):
     while time.time() - t0 < timeout:
         try:
             if cond(): print("  [ok]", label, flush=True); return True
-        except Exception as e: pass
+        except Exception: pass
         time.sleep(10)
     print("  [TIMEOUT]", label, flush=True); sys.exit(1)
 FAILS = []
