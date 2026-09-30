@@ -8,6 +8,9 @@
 #   PY_ORACLE           interpreter for tests that use `cryptography` as a TEST ORACLE (default python3). The node's
 #                       venv deliberately has no such dependency (ops/tpm_aik.py), so those tests run where it exists.
 #   NADO_TEST_JOBS      parallel jobs (default 2; every job gets its own HOME)
+#   NADO_TEST_EXCLUDE   a file of "<test name>  <reason>" lines (e.g. tests/ci_exclude.txt): each is listed as
+#                       EXCLUDED with its reason — never silently dropped — and not run. CI uses it for the tests
+#                       that need the Rust kernels or hours of proving; everything else runs on every push.
 set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-nado_venv/bin/python}
@@ -31,6 +34,10 @@ LIVE="test_otc_swap_e2e"
 run_one() {
   t=$1; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; h="$OUT/home-$n"; mkdir -p "$h"
   case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac
+  if [ -n "${NADO_TEST_EXCLUDE:-}" ]; then
+    why=$(awk -v n="$n" '$1 == n { $1 = ""; sub(/^ +/, ""); print; exit }' "$NADO_TEST_EXCLUDE")
+    if [ -n "$why" ]; then printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "EXCLUDED" "-" "-" "-" "$n ($why)"; return; fi
+  fi
   run=("$PY" "$t"); case "$t" in *.mjs) run=(node "$t");; esac
   case "$t" in *.py)
     if grep -qE "^[[:space:]]*(from|import) cryptography" "$t" && ! "$PY" -c "import cryptography" 2>/dev/null \
@@ -46,7 +53,7 @@ run_one() {
   st=OK; [ "$rc" = 124 ] && st=TIMEOUT; { [ "$rc" != 0 ] || [ "$fails" != 0 ]; } && [ "$st" = OK ] && st=FAIL
   printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "$st" "$rc" "$fails" "$skips" "$n"
 }
-export -f run_one; export OUT PY PY_ORACLE TMO STMO SLOW NATIVE_ONLY LIVE
+export -f run_one; export OUT PY PY_ORACLE TMO STMO SLOW NATIVE_ONLY LIVE NADO_TEST_EXCLUDE
 ls $PAT | xargs -P "$JOBS" -I{} bash -c 'run_one {}' | tee "$OUT/summary.txt"
 bad=$(grep -c -E '^(FAIL|TIMEOUT)' "$OUT/summary.txt")
 # A GREEN RUN LEAVES NOTHING BEHIND: the homes, the temp dirs and the logs go together. A run with a
