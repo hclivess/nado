@@ -437,15 +437,6 @@ def load_col(values):
     return cid
 
 
-def col_len(col):
-    """Length of a retained column (FRI layers shrink by half each fold)."""
-    _guard()
-    n = _LIB.sp_col_len(int(col))
-    if n < 0:
-        raise RuntimeError("sp_col_len: bad column")
-    return int(n)
-
-
 def fold(col, offset, alpha):
     """One FRI fold of a retained column → a new (half-length) arena column; returns its id. Bit-identical to
     fri._fold(evals, F.domain(m, offset), alpha)."""

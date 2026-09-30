@@ -9,8 +9,7 @@ A `Backend` supplies both. Two exist:
     field arithmetic and can therefore be verified INSIDE a STARK (recursion).
 
 Digests are opaque to the callers: a hex string for blake2b, a CAPACITY-tuple of field elements for alghash2.
-`==` works for both; `to_field_elements` flattens a digest to field lanes for the transcript / an in-circuit
-verifier.
+`==` works for both.
 """
 from hashlib import blake2b as _blake2b
 from hashing import blake2b_hash
@@ -80,11 +79,6 @@ class _Blake2b:
 
     def t_grind_hash(self, state, nonce):
         return int(_b2b32(b"G", bytes.fromhex(state), (int(nonce) % F.P).to_bytes(8, "little")), 16)
-
-    def to_field_elements(self, digest):
-        # a blake2b digest is a 256-bit hex string → four 64-bit field lanes (for uniformity only)
-        v = int(digest, 16)
-        return [(v >> (64 * i)) & 0xFFFFFFFFFFFFFFFF for i in range(4)]
 
 
 class _Alghash2:
@@ -163,9 +157,6 @@ class _Alghash2:
         except Exception:
             pass
         return alghash2.grind(state, alghash2.DOM_GRIND, bits)
-
-    def to_field_elements(self, digest):
-        return [int(e) % F.P for e in digest]
 
 
 class _Recursion(_Alghash2):

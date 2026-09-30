@@ -35,12 +35,6 @@ def _next_pow2(x):
     return p
 
 
-def verify_inner(proof, transitions, boundaries, **kw):
-    """The accept/reject oracle for an alghash2-backed inner STARK — stark.verify with the alghash2 backend.
-    A recursion fold proves THIS returned True for its inner proof(s)."""
-    return stark.verify(proof, transitions, boundaries, backend=backend.ALGHASH2, **kw)
-
-
 def _round_transitions():
     """12 constraints (one per lane): on an active row, S_next[i] = Σ_j MDS[i][j]·(S[j]+RC_row[j])^7.
     Periodic layout: per[0.._W-1] = RC for this row's round; per[_W] = active selector (1 round / 0 pad)."""

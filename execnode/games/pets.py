@@ -104,13 +104,6 @@ def ref_train_ok(roll, cur, sp):
     return roll * (k + cur) < 100 * k
 
 
-def ref_same_species(gene_a, sp_a, gene_b, sp_b):
-    # two pets are the same species iff same tier AND same species-roll within that tier's band
-    if sp_a != sp_b:
-        return False
-    return roll32(gene_a + 777) % TIER_COUNT[sp_a] == roll32(gene_b + 777) % TIER_COUNT[sp_b]
-
-
 def ref_combine_stat(gene_keep, gene_consume):
     # which of the 10 stats gets +1 when two duplicates are combined (deterministic from both genes)
     return roll32(gene_keep + gene_consume + COMBINE_SALT) % 10
