@@ -110,6 +110,11 @@ def serialize(output, name=None, compress=None):
 # pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
 # --------------------------------------------------------------------------------------------------
 from ops.net_ops import client_ip_from, unpack_tx
+from ops.outbound_guard import install_redirect_guard
+# NO urlopen IN THIS PROCESS FOLLOWS A REDIRECT TO A NON-PUBLIC ADDRESS (bandit B310 triage, 2026-09-30): a peer
+# answering 302 -> http://127.0.0.1:9173/terminate made the node GET its own loopback-authorized endpoint. Installed
+# before any loop starts; ops/outbound_guard.py has the whole story. Never remove this line.
+install_redirect_guard()
 from protocol import POSW_LEASE_EPOCHS, FIDELITY_MIN_GAP_EPOCHS, LEASE_EPOCHS_BY_CLASS, LEASE_ASSERT_CLASSES
 
 try:
@@ -807,7 +812,7 @@ _large_inflight = 0
 def _work_submit(body, ip):
     """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
     try:
-        transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
+        transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/outbound_guard.py)
         rej = _ip_registration_rejection(ip, transaction)
         if rej:
             return rej, 429
@@ -1688,7 +1693,6 @@ def _fetch_der(url: str):
     """One certificate over plain HTTP. TLS buys nothing here: the object is verified by signature to a
     pinned root, so a substituted response fails exactly as a corrupt one does, and the certificate is
     public by construction. Refuses anything that is not a plausible DER certificate."""
-    import urllib.request as _u
     try:
         if url.startswith("https://"):
             url = "http://" + url[len("https://"):]
@@ -1704,16 +1708,15 @@ def _fetch_der(url: str):
             return None
         # SSRF GUARD: this URL comes from a caller-supplied certificate, so it must never be a way to make
         # this node probe its own network. Only public hosts, and only what parses as a certificate.
-        host = url[len("http://"):].split("/", 1)[0].split(":", 1)[0]
-        import ipaddress, socket
-        try:
-            for fam, _t, _p, _c, sa in socket.getaddrinfo(host, 80, proto=socket.IPPROTO_TCP):
-                ip = ipaddress.ip_address(sa[0])
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    return None
-        except Exception:
-            return None
-        with _u.urlopen(url, timeout=_AIA_TIMEOUT) as r:
+        # CHECKED ON EVERY HOP, AT CONNECT TIME (bandit B310 triage, 2026-09-30). The guard used to resolve the
+        # host once here and then call urlopen, which (a) FOLLOWED REDIRECTS unchecked — a public AIA host
+        # answering `302 http://127.0.0.1:9173/terminate` made this node GET its own loopback-authorized
+        # /terminate, because a loopback socket with a loopback Host header is what _is_local_request trusts —
+        # and (b) resolved the name a second time to connect (DNS rebinding). public_only_opener() dials only the
+        # address it checked, on the first hop and on every redirect. Never go back to a pre-flight check
+        # followed by a bare urlopen here (tests/test_outbound_never_follows_redirect_to_loopback.py).
+        from ops.outbound_guard import public_only_opener
+        with public_only_opener().open(url, timeout=_AIA_TIMEOUT) as r:
             b = r.read(_AIA_MAX_BYTES + 1)
         if 256 < len(b) <= _AIA_MAX_BYTES and b[0] == 0x30 and b[1] == 0x82 and _tbs_name(b, 1):
             return b
@@ -1999,8 +2002,9 @@ async def _forward_drop(fwd: dict):
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4)) as s:
             for peer in list(memserver.peers)[:32]:
                 try:
+                    # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                     await s.post(f"http://{hostport(peer, memserver.port)}/node_attest_drop", data=body,
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json"}, allow_redirects=False)
                 except Exception:
                     continue
     except Exception as e:
@@ -2407,7 +2411,7 @@ def _geo_fetch(ips):
         try:
             req = urllib.request.Request(GEO_API, data=body, method="POST",
                                          headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with urllib.request.urlopen(req, timeout=15) as r:  # nosec B310 # constant http URL; redirects guarded process-wide (ops/outbound_guard.py)
                 arr = _json.loads(r.read().decode("utf-8"))
             for rec in arr:
                 if rec.get("status") == "success" and rec.get("query"):
@@ -3261,7 +3265,8 @@ async def update_node(request):
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as s:
                     async def _one(p):
                         try:
-                            async with s.get(f"http://{hostport(p, get_config()['port'])}/update?wave=1"):
+                            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                            async with s.get(f"http://{hostport(p, get_config()['port'])}/update?wave=1", allow_redirects=False):
                                 pass
                         except Exception:
                             pass
@@ -3287,7 +3292,8 @@ async def update_peer(request):
     try:
         import aiohttp
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
-            async with s.get(f"http://{hostport(target, get_config()['port'])}/update?wave=0") as r:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with s.get(f"http://{hostport(target, get_config()['port'])}/update?wave=0", allow_redirects=False) as r:
                 return _resp(await r.json())
     except Exception as e:
         return _resp({"status": "unreachable", "error": str(e)[:120]}, status=502)
@@ -3324,7 +3330,8 @@ async def da_proxy(request):
     try:
         import aiohttp
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
-            async with s.get(url, params=dict(request.query)) as r:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with s.get(url, params=dict(request.query), allow_redirects=False) as r:
                 out = web.StreamResponse(status=r.status,
                                          headers={"Content-Type": r.headers.get("Content-Type",
                                                                                 "application/octet-stream")})
@@ -3510,7 +3517,7 @@ async def make_app(port):
         # them separate (rather than one dual-stack "::" socket) means v4 clients arrive as plain 1.2.3.4
         # on the v4 socket instead of ::ffff:1.2.3.4 — so client_ip_from / rate-limiting see real v4 keys.
         # The v6 listener is best-effort: a host with no IPv6 just skips it (v4 keeps working).
-        await web.TCPSite(runner, host="0.0.0.0", port=port).start()
+        await web.TCPSite(runner, host="0.0.0.0", port=port).start()  # nosec B104 # the node IS the public P2P/API endpoint: it must listen on every interface
         # ALSO SERVE ON PORT 80, because the node's own port is the one that gets blocked. A prover on a
         # filtered home or office network — or behind a host firewall deciding what an unsigned download
         # may do — reaches 80 and not 9173, and an enrolment needs a relay it can actually talk to. The
@@ -3527,7 +3534,7 @@ async def make_app(port):
         _relay_port = int(get_config().get("relay_port", 80) or 0)
         if _relay_port and _relay_port != port:
             try:
-                await web.TCPSite(runner, host="0.0.0.0", port=_relay_port).start()
+                await web.TCPSite(runner, host="0.0.0.0", port=_relay_port).start()  # nosec B104 # the node IS the public P2P/API endpoint: it must listen on every interface
                 logger.info(f"Also listening on 0.0.0.0:{_relay_port} (reachable where {port} is filtered)")
             except Exception as e:
                 logger.info(f"Not listening on {_relay_port} ({type(e).__name__}) — "

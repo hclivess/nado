@@ -76,7 +76,7 @@ SKIP = ("bet", "reserve", "sovereign", "faucet")
 
 def j(u, t=45):
     try:
-        return json.load(urllib.request.urlopen(u, timeout=t))
+        return json.load(urllib.request.urlopen(u, timeout=t))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except Exception:
         return None
 
@@ -95,7 +95,7 @@ def send(tx):
     req = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(),
                                  headers={"Content-Type": "application/json"})
     try:
-        return bool(json.load(urllib.request.urlopen(req, timeout=25)).get("result"))
+        return bool(json.load(urllib.request.urlopen(req, timeout=25)).get("result"))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except Exception:
         return False
 

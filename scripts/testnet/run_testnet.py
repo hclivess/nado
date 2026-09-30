@@ -75,7 +75,7 @@ def seed_node(home, i, all_keys, bond_manifest):
 def status(i, timeout=4):
     """GET node i's /status; returns {"error": ...} instead of raising so poll loops tolerate down nodes."""
     try:
-        with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/status", timeout=timeout) as r:
+        with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/status", timeout=timeout) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
             return json.loads(r.read().decode())
     except Exception as e:
         return {"error": str(e)}
@@ -144,7 +144,7 @@ def main():
                 maj = max(counts, key=counts.get)
                 try:
                     i = next(k for k, s in enumerate(sts) if "error" not in s and s["latest_block_hash"] == maj)
-                    with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/get_block?hash={maj}", timeout=4) as r:
+                    with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/get_block?hash={maj}", timeout=4) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
                         blk = json.loads(r.read().decode()); blk = blk.get("block") or blk
                     if (tips - {maj}) == {blk.get("parent_hash")}:
                         tips = {maj}

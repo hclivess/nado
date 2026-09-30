@@ -4827,7 +4827,7 @@ class CoreClient(threading.Thread):
         import urllib.request as _rq
         try:
             port = int(_os.environ.get("NADO_EXEC_PORT", "9273"))
-            with _rq.urlopen(f"http://127.0.0.1:{port}{path}", timeout=3) as r:
+            with _rq.urlopen(f"http://127.0.0.1:{port}{path}", timeout=3) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
                 return _json.loads(r.read(1_000_000))
         except Exception:
             return None

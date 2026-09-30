@@ -851,7 +851,7 @@ AR = {
  "verifiedOk": "✓ تم التحقق من كل المخطوطات.",
  "deadlinePassed": "نفدت ساعة النقلات — يمكن لأي لاعب حل الطاولة باسترداد متساوٍ.",
  "moveClock": "ساعة النقلة: استرداد بعد {t} إذا تجمدت الطاولة",
- "shareText": "انضم إلى طاولتي في Hexholm ‏#{id} على NADO — استوطن الجزيرة، والفائز يأخذ الوعاء!",
+ "shareText": "انضم إلى طاولتي في Hexholm \u200f#{id} على NADO — استوطن الجزيرة، والفائز يأخذ الوعاء!",  # \u200f (RLM) stays an ESCAPE: a raw bidi control in source is invisible to review (bandit B613)
  "inviteTitle": "أنت مدعو إلى طاولة Hexholm", "inviteBody": "راهن بـ {amt} NADO واجلس وسابق إلى 10 نقاط.",
  "inviteBodySignin": "سجّل الدخول للانضمام.", "inviteJoin": "سجّل الدخول وانضم",
  "cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل.",

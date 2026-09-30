@@ -23,14 +23,14 @@ CID = target_cids()["autogame"]   # derived, never pasted: a pasted cid dies at 
 
 
 def j(u):
-    return json.load(urllib.request.urlopen(u, timeout=15))
+    return json.load(urllib.request.urlopen(u, timeout=15))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 
 
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(),
                                headers={"Content-Type": "application/json"})
     try:
-        return json.load(urllib.request.urlopen(r, timeout=20))
+        return json.load(urllib.request.urlopen(r, timeout=20))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except urllib.error.HTTPError as e:
         return {"result": False, "message": e.read().decode()[:200]}
 

@@ -37,7 +37,7 @@ def ck(name, cond, extra=""):
 
 
 def j(u):
-    with urllib.request.urlopen(u, timeout=15) as r:
+    with urllib.request.urlopen(u, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 
@@ -52,7 +52,7 @@ def tip():
 def post_tx(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(),
                                headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(r, timeout=20) as x:
+    with urllib.request.urlopen(r, timeout=20) as x:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(x.read().decode())
 
 

@@ -305,7 +305,7 @@ def poll_peers(address: str, peers, port: int, timeout: float = 4.0, limit: int 
     skip = skip or set()
     for peer in list(peers)[:limit]:
         try:
-            with _rq.urlopen(f"http://{hostport(peer, port)}/node_attest_pickup?sender={address}", timeout=timeout) as r:
+            with _rq.urlopen(f"http://{hostport(peer, port)}/node_attest_pickup?sender={address}", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
                 d = json.loads(r.read().decode())
             cands = d.get("drops") if isinstance(d, dict) and isinstance(d.get("drops"), list) else ([d.get("drop")] if isinstance(d, dict) else [])
             for b in reversed(cands):

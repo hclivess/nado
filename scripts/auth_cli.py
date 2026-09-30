@@ -35,7 +35,7 @@ from ops.data_ops import get_home                                 # noqa: E402
 
 
 def _get(l1, path):
-    with urllib.request.urlopen(l1 + path, timeout=15) as r:
+    with urllib.request.urlopen(l1 + path, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 
@@ -43,7 +43,7 @@ def _post(l1, path, body):
     req = urllib.request.Request(l1 + path, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         return {"result": False, "message": e.read().decode()[:300]}

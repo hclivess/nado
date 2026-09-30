@@ -1,5 +1,5 @@
 import json
-import random
+import secrets
 import string
 from base64 import b64encode
 from hashlib import blake2b
@@ -11,10 +11,18 @@ DOMAIN_EMPTY_MERKLE = b"empty-merkle-v1"
 
 
 def create_nonce(length: int = 8):
-    """Random lowercase-ASCII string for node-local identifiers (and the config server_key at
-    length 64). Uses `random`, NOT a CSPRNG — fine for nonces/ids, not for key material."""
+    """Random lowercase-ASCII string for node-local identifiers, tx nonces, and the config server_key at
+    length 64.
+
+    CSPRNG, ALWAYS (bandit B311 triage, 2026-09-30; audit M-12 of 2026-07-02, never landed until now). This
+    used `random.choice` — the Mersenne Twister — while ALSO minting the server_key that authorizes
+    /terminate and /force_sync. The same process stream stamps a nonce into every transaction the node
+    signs, which publishes its outputs on chain; MT state is recoverable from enough of them and MT runs
+    backwards, so the key was derivable from public data. `secrets.choice` keeps the alphabet, length and
+    distribution identical (nothing reads a nonce but the txid hash). Never go back to `random` here:
+    tests/test_nonces_and_server_key_come_from_the_os_csprng.py."""
     letters = string.ascii_lowercase
-    return "".join(random.choice(letters) for i in range(length))
+    return "".join(secrets.choice(letters) for i in range(length))
 
 
 def base64encode(data: str) -> str:

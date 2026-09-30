@@ -78,7 +78,7 @@ def bust_pages():
     import hashlib, re as _re
 
     def h8(path):
-        return hashlib.md5(open(path, "rb").read()).hexdigest()[:8]
+        return hashlib.md5(open(path, "rb").read(), usedforsecurity=False).hexdigest()[:8]
 
     h = h8(I18N)
     stamped = 0
@@ -111,7 +111,7 @@ def bust_module_imports():
             for p in glob.glob(os.path.join(HERE, "..", "*.js"))}
     imp = _re.compile(r'(from\s+["\'])\./([A-Za-z0-9_.-]+?\.js)(?:\?v=[^"\']*)?(["\'])')
     for _round in range(12):
-        hashes = {os.path.basename(p): hashlib.md5(s.encode()).hexdigest()[:8] for p, s in mods.items()}
+        hashes = {os.path.basename(p): hashlib.md5(s.encode(), usedforsecurity=False).hexdigest()[:8] for p, s in mods.items()}
         changed = False
         for p, s in mods.items():
             me = os.path.basename(p)

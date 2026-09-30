@@ -95,7 +95,7 @@ def stamp(text):
     UNSTAMPED href means a palette change — or a fix to the shared toggle now living in here — reaches
     nobody for four hours, and reaches each visitor at a different moment in between. nadodapp.js is itself
     stamped by merge_games.bust_module_imports(), so bumping the href here propagates to all 24 pages."""
-    h = hashlib.md5(text.encode()).hexdigest()[:8]
+    h = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:8]
     sdk = os.path.join(ROOT, "static", "nadodapp.js")
     src = open(sdk, encoding="utf8").read()
     out = re.sub(r'"/static/theme\.css(?:\?v=[^"]*)?"', '"/static/theme.css?v=%s"' % h, src)
@@ -106,7 +106,7 @@ def stamp(text):
 
 
 def check_stamp(text):
-    h = hashlib.md5(text.encode()).hexdigest()[:8]
+    h = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:8]
     src = open(os.path.join(ROOT, "static", "nadodapp.js"), encoding="utf8").read()
     if f"/static/theme.css?v={h}" not in src:
         sys.exit(f"nadodapp.js links a STALE theme.css stamp (want ?v={h}) — run: python3 tools/gen_theme_tokens.py")

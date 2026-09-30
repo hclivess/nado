@@ -52,10 +52,10 @@ DAILY_VERIFY = {"hexholm-daily": ["tests/hexholm_daily_verify.mjs"],
                 "autogame-daily": ["tests/autogame_daily_verify.mjs"]}
 SHIPS = 17
 
-def j(u): return json.load(urllib.request.urlopen(u, timeout=12))
+def j(u): return json.load(urllib.request.urlopen(u, timeout=12))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(r, timeout=15))
+    return json.load(urllib.request.urlopen(r, timeout=15))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
 def view(cid): return j(EX + f"/exec/contract?ns=default&cid={cid}&provisional=1").get("storage", {})
 def faucet_balance(): return int(j(EX + "/exec/bridge?ns=default&provisional=1").get("balances", {}).get("faucet", 0))

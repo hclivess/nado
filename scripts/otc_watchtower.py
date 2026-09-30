@@ -45,14 +45,14 @@ LIMB_BITS, LIMBS = 52, 5                                           # must match 
 
 
 def _get(url, timeout=15):
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; nado-watchtower/1)"}), timeout=timeout) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; nado-watchtower/1)"}), timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
         return json.loads(r.read().decode())
 
 
 def _post(url, body, timeout=20):
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; nado-watchtower/1)"}, method="POST")   # public RPCs 403 a bare urllib UA
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
         return json.loads(r.read().decode())
 
 
@@ -421,6 +421,10 @@ def one_pass(a, state):
 
 
 def main():
+    # THIRD-PARTY FEEDS MUST NOT STEER A LOOPBACK GET (bandit B310 triage, 2026-09-30): this job runs on a node host and
+    # fetches public ETH/BTC RPC endpoints; a 302 from it to http://127.0.0.1:9173/terminate would arrive as the operator's own curl.
+    from ops.outbound_guard import install_redirect_guard
+    install_redirect_guard()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["scan"])
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))

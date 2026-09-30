@@ -1330,7 +1330,8 @@ async def knows_block(target_peer, port, hash, number, logger):
         url_construct = f"http://{hostport(target_peer, port)}/get_block?number={int(number)}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 if response.status != 200:
                     return None
                 data = await response.json(content_type=None)
@@ -1354,7 +1355,8 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60, connect=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 code = response.status
 
                 if code == 200 and compress == "zstd":
@@ -1377,7 +1379,8 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60, connect=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 code = response.status
 
                 if code == 200 and compress == "zstd":
@@ -1401,7 +1404,8 @@ async def get_from_single_target(key, target_peer, logger) -> list:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/{key}?compress=zstd"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 if response.status == 200:
                     fetched = unpack_zstd_peer(await read_capped(response, MAX_PEER_BODY))
                     return fetched if isinstance(fetched, list) else []

@@ -62,7 +62,7 @@ class PeerClient(threading.Thread):
                 continue
             done.add(peer)
             try:
-                with _rq.urlopen(f"http://{peer}:{self.memserver.port}/announce_peer?ip={me}", timeout=3) as r:
+                with _rq.urlopen(f"http://{peer}:{self.memserver.port}/announce_peer?ip={me}", timeout=3) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
                     r.read(4096)
             except Exception:
                 pass                                   # best effort; the next dial or gossip round retries

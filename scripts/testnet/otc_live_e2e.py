@@ -37,7 +37,7 @@ def ok(c, m):
 
 
 def get(u):
-    with urllib.request.urlopen(u, timeout=10) as r:
+    with urllib.request.urlopen(u, timeout=10) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
         return json.loads(r.read().decode())
 
 
@@ -45,7 +45,7 @@ def post_json(u, body):
     req = urllib.request.Request(u, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         return {"result": False, "message": e.read().decode()[:200]}

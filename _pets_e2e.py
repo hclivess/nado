@@ -17,11 +17,11 @@ L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
 CID = target_cids()["pets"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
 NADO = 10**10; MINT_FEE = NADO; TRAIN_FEE = 5 * 10**9
 
-def j(u): return json.load(urllib.request.urlopen(u, timeout=8))
+def j(u): return json.load(urllib.request.urlopen(u, timeout=8))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
     try:
-        return json.load(urllib.request.urlopen(r, timeout=12))
+        return json.load(urllib.request.urlopen(r, timeout=12))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:200]
         print(f"  [reject {e.code}] {body}", flush=True)

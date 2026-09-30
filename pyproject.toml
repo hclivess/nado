@@ -1,0 +1,8 @@
+# Bandit (the Python security linter) — 2026-09-30, operator: add bandit. The gate is tests/test_bandit_clean.py:
+# zero unsuppressed MEDIUM/HIGH findings over the production tree (every tracked .py outside tests/). No test id is
+# skipped tree-wide: a finding that does not apply is suppressed on its own line as `# nosec BXXX # <reason>`.
+# CI:  pip install "bandit==1.9.4"  &&  bandit -c pyproject.toml -r . --severity-level medium -q
+[tool.bandit]
+# substring matches against "./<path>" under `-r .`: the unit tests, the node's venv, the Rust crates (and their
+# symlink in worktrees), JS dependencies. "./tests/" deliberately does not match apps/*/tests/.
+exclude_dirs = ["./tests/", "./nado_venv/", "./native/", "/node_modules/"]

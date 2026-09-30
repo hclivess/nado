@@ -24,13 +24,13 @@ OTC = "1652698f36b2741fa622e1973fe1b157"
 
 
 def get(u):
-    with urllib.request.urlopen(u, timeout=15) as r:
+    with urllib.request.urlopen(u, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 
 def post_json(u, body):
     rq = urllib.request.Request(u, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(rq, timeout=25) as r:
+    with urllib.request.urlopen(rq, timeout=25) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 

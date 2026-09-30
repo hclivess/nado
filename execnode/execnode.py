@@ -2091,8 +2091,9 @@ async def maybe_settle(session):
                         for _pip in _peers:
                             # aiohttp, NOT urllib: this runs on the event loop, and a blocking fetch here
                             # would stall the exec node for seconds per peer.
+                            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                             async with session.get(f"http://{_pip}:9173/transaction_pool",
-                                                   timeout=aiohttp.ClientTimeout(total=4)) as _r2:
+                                                   timeout=aiohttp.ClientTimeout(total=4), allow_redirects=False) as _r2:
                                 if _r2.status != 200:
                                     continue
                                 _pp = json.loads(await _r2.text())
@@ -2163,9 +2164,10 @@ async def maybe_settle(session):
                             # Posted inline rather than through _submit(), which is defined further down
                             # this loop body. Same generous budget: L1 verifies a proof-carrying settle
                             # INLINE before it answers, so a short timeout would drop a good submit.
+                            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                             async with session.post(L1 + "/submit_transaction", json=_rtx,
                                                     timeout=aiohttp.ClientTimeout(
-                                                        total=SETTLE_SUBMIT_TIMEOUT_PROOF)) as _rr:
+                                                        total=SETTLE_SUBMIT_TIMEOUT_PROOF), allow_redirects=False) as _rr:
                                 _rb = await _rr.text()
                                 try:
                                     _rout = json.loads(_rb) if _rb.strip() else None
@@ -2460,9 +2462,10 @@ async def maybe_settle(session):
                           f"({len(_payload) / 1048576:.2f} MiB) — POSTing", flush=True)
                 _t_sub = time.time()
                 try:
+                    # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                     async with session.post(L1 + "/submit_transaction", data=_payload,
                                             headers={"Content-Type": "application/json"},
-                                            timeout=aiohttp.ClientTimeout(total=_budget)) as r:
+                                            timeout=aiohttp.ClientTimeout(total=_budget), allow_redirects=False) as r:
                         _body = await r.text()
                         if _carries_proof:
                             print(f"[execnode] settle submit took {time.time() - _t_sub:.1f}s "
@@ -2603,7 +2606,8 @@ async def maybe_settle(session):
 
 async def _get_json(session, path):
     """GET an L1 endpoint and decode the JSON body regardless of content-type, with a 15s timeout."""
-    async with session.get(L1 + path, timeout=aiohttp.ClientTimeout(total=15)) as r:
+    # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+    async with session.get(L1 + path, timeout=aiohttp.ClientTimeout(total=15), allow_redirects=False) as r:
         return await r.json(content_type=None)
 
 
@@ -3064,8 +3068,9 @@ async def _maybe_bootstrap(session):
             continue                                   # existing state — never overwrite
         for attempt in range(12):
             try:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"{BOOTSTRAP}/exec/state_snapshot?ns={ns}",
-                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=30), allow_redirects=False) as r:
                     snap = await r.json(content_type=None)
                 if not isinstance(snap, dict) or "state" not in snap:
                     raise ValueError(f"donor has no snapshot: {snap}")
@@ -3137,8 +3142,9 @@ async def _repair_bootstrap(session):
             continue                       # nothing justified for this ns — nothing to verify against
         for donor in donors:
             try:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"{donor}/exec/state_snapshot?ns={ns}",
-                                       timeout=aiohttp.ClientTimeout(total=20)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=20), allow_redirects=False) as r:
                     snap = await r.json(content_type=None)
                 if not isinstance(snap, dict) or "state" not in snap:
                     continue
@@ -3326,8 +3332,9 @@ async def _anchor_adopt(session, finalized):
         adopted = False
         for donor, want in ((d, c) for c in wanted for d in donors):
             try:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"{donor}/exec/state_snapshot?ns={ns}&cursor={want}",
-                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=30), allow_redirects=False) as r:
                     snap = await r.json(content_type=None)
                 if not isinstance(snap, dict) or "state" not in snap:
                     continue
@@ -3401,8 +3408,9 @@ async def _root_pool_probe(session):
         for ip in peers:
             host = f"[{ip}]" if (":" in ip and not ip.startswith("[")) else ip
             try:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"http://{host}:{PORT}/exec/roots?ns={ns}",
-                                       timeout=aiohttp.ClientTimeout(total=8)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=8), allow_redirects=False) as r:
                     pj = await r.json(content_type=None)
                 if not isinstance(pj, dict) or not isinstance(pj.get("boundary_roots"), dict):
                     continue
@@ -3463,8 +3471,9 @@ async def _peer_batch(session, parent_hash, finalized, want=100):
                   f"{len(_peer_cache[1])} cached peers", flush=True)
     for peer in _peer_cache[1]:
         try:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
             async with session.get(f"http://{peer}:9173/get_blocks_after?hash={parent_hash}&count={want}",
-                                   timeout=aiohttp.ClientTimeout(total=20)) as r:
+                                   timeout=aiohttp.ClientTimeout(total=20), allow_redirects=False) as r:
                 d = await r.json(content_type=None)
             out = {}
             expect = parent_hash
@@ -3649,8 +3658,9 @@ async def tail_loop():
                                 # wait only delays the peer fallback — measured 2026-08-20 11:09-11:15:
                                 # one poll burned 60s local batch + peer miss + 15s single fetch for
                                 # ZERO blocks while finality ran 168 cursors ahead.
+                                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                                 async with session.get(f"{L1}/get_blocks_after?hash={_ph}&count=100",
-                                                       timeout=aiohttp.ClientTimeout(total=20)) as _resp:
+                                                       timeout=aiohttp.ClientTimeout(total=20), allow_redirects=False) as _resp:
                                     _r = await _resp.json(content_type=None)
                                 for _b in (_r.get("blocks_after") or []) if isinstance(_r, dict) else []:
                                     if isinstance(_b, dict) and isinstance(_b.get("block_number"), int) \
@@ -4008,8 +4018,9 @@ async def da_announce(session, commitment, budget_s=20.0):
 
     async def _tell(u):
         try:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
             async with session.post(f"{u}/da/announce", json={"commitment": commitment},
-                                    timeout=aiohttp.ClientTimeout(total=budget_s)) as r:
+                                    timeout=aiohttp.ClientTimeout(total=budget_s), allow_redirects=False) as r:
                 return 1 if r.status == 200 else 0
         except Exception:
             return 0                                        # unreachable / no such endpoint / timeout
@@ -4023,7 +4034,8 @@ async def _da_sources(session):
     NADO_DA_URL seed. Availability rides the peer network, so any node that holds a shard can serve it."""
     out, seen = [], set()
     try:
-        async with session.get(L1 + "/peers", timeout=aiohttp.ClientTimeout(total=10)) as r:
+        # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+        async with session.get(L1 + "/peers", timeout=aiohttp.ClientTimeout(total=10), allow_redirects=False) as r:
             peers = await r.json() if r.status == 200 else []
     except Exception:
         peers = []
@@ -4062,8 +4074,9 @@ async def da_fetch(session, commitment):
     for src in await _da_sources(session):
         try:
             if meta is None:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"{src}/da/meta?c={commitment}",
-                                       timeout=aiohttp.ClientTimeout(total=10)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=10), allow_redirects=False) as r:
                     meta = await r.json() if r.status == 200 else None
                 # meta is UNTRUSTED (from a peer). Bound k/n before iterating so a lied manifest can't drive
                 # an unbounded fetch loop; the definitive check is the commitment round-trip after reconstruct.
@@ -4075,8 +4088,9 @@ async def da_fetch(session, commitment):
             for i in range(int(meta["n"])):
                 if i in pairs:
                     continue
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
                 async with session.get(f"{src}/da/shard?c={commitment}&i={i}",
-                                       timeout=aiohttp.ClientTimeout(total=10)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=10), allow_redirects=False) as r:
                     if r.status != 200:
                         continue
                     jj = await r.json()
@@ -5049,7 +5063,7 @@ async def main():
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, BIND, PORT).start()
-    if BIND == "0.0.0.0":
+    if BIND == "0.0.0.0":  # nosec B104 # a comparison with the operator's NADO_EXEC_BIND, not a bind
         # DUAL-STACK: same approach as nado.py's L1 listener — a SEPARATE IPv6 socket with IPV6_V6ONLY=1,
         # so v4 clients keep arriving as plain v4 addresses on the v4 socket instead of ::ffff:-mapped
         # ones (rate-limit keys stay real v4). Best-effort: a host with no IPv6 just skips it. Without
@@ -5065,10 +5079,15 @@ async def main():
         except Exception as e:
             print(f"[execnode] IPv6 listener not started (no IPv6 on this host?): {e}", flush=True)
     print(f"[execnode] query API on {BIND}:{PORT}"
-          + ("" if BIND != "0.0.0.0" else "  (PUBLIC — mutating /exec POSTs are unauthenticated; bounded by size cap + in-flight limit)"),
+          + ("" if BIND != "0.0.0.0" else "  (PUBLIC — mutating /exec POSTs are unauthenticated; bounded by size cap + in-flight limit)"),  # nosec B104 # a comparison with the operator's NADO_EXEC_BIND, not a bind
           flush=True)
     await tail_loop()
 
 
 if __name__ == "__main__":
+    # NO urlopen IN THE EXEC NODE FOLLOWS A REDIRECT TO A NON-PUBLIC ADDRESS (bandit B310 triage, 2026-09-30): it imports
+    # ops code that polls peers, and a peer's 302 -> http://127.0.0.1:9173/terminate would reach the L1 node beside it
+    # as a loopback-authorized GET. Its own aiohttp calls pass allow_redirects=False. See ops/outbound_guard.py.
+    from ops.outbound_guard import install_redirect_guard
+    install_redirect_guard()
     asyncio.run(main())

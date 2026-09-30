@@ -328,7 +328,7 @@ def _pref_aliases(con, addrs):
         return {}
     q = ",".join("?" * len(addrs))
     return {r["address"]: r["alias"] for r in
-            con.execute(f"SELECT address, alias FROM users WHERE address IN ({q})", list(addrs))}
+            con.execute(f"SELECT address, alias FROM users WHERE address IN ({q})", list(addrs))}  # nosec B608 # only '?' placeholders are interpolated; every value is a bound parameter
 
 async def authors_meta(con, addresses):
     """Display metadata for a set of author addresses: {addr: {"alias": effective display alias
@@ -487,7 +487,7 @@ async def api_threads(request):
         con.close(); return jerr("no such board", 404)
     mod = _is_mod(request, con)
     rows = con.execute(
-        "SELECT t.*, (SELECT COUNT(*) FROM posts p WHERE p.thread_id=t.id AND p.deleted=0) AS replies "
+        "SELECT t.*, (SELECT COUNT(*) FROM posts p WHERE p.thread_id=t.id AND p.deleted=0) AS replies "  # nosec B608 # the concatenated fragment is a constant; every value is a bound parameter
         "FROM threads t WHERE t.board_id=?" + ("" if mod else " AND t.deleted=0") +
         " ORDER BY t.pinned DESC, t.bumped_at DESC LIMIT 100", (b["id"],)).fetchall()
     authors = await authors_meta(con, (r["author"] for r in rows))
@@ -507,7 +507,7 @@ async def api_thread(request):
     mod = _is_mod(request, con)
     if not t or (t["deleted"] and not mod):
         con.close(); return jerr("no such thread", 404)
-    posts = con.execute("SELECT * FROM posts WHERE thread_id=?" + ("" if mod else " AND deleted=0") +
+    posts = con.execute("SELECT * FROM posts WHERE thread_id=?" + ("" if mod else " AND deleted=0") +  # nosec B608 # the concatenated fragment is a constant; every value is a bound parameter
                         " ORDER BY created_at", (tid,)).fetchall()
     b = con.execute("SELECT * FROM boards WHERE id=?", (t["board_id"],)).fetchone()
     authors = await authors_meta(con, [t["author"]] + [p["author"] for p in posts])
@@ -653,7 +653,7 @@ async def api_mod(request):
     try:
         if action in _THREAD_ACTIONS:
             col, val = _THREAD_ACTIONS[action]
-            cur = con.execute(f"UPDATE threads SET {col}=? WHERE id=?", (val, int(data.get("thread_id", 0))))
+            cur = con.execute(f"UPDATE threads SET {col}=? WHERE id=?", (val, int(data.get("thread_id", 0))))  # nosec B608 # column name comes from the fixed _THREAD_ACTIONS allowlist, never from the request
             if cur.rowcount == 0:
                 return jerr("no such thread", 404)
 

@@ -34,13 +34,14 @@ tests/test_fresh_node_boots.py for what that once cost).
 """
 import argparse
 import json
+import os
 import sys
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 
 def get(url, timeout=12):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    with urllib.request.urlopen(url, timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
         return json.load(r)
 
 
@@ -62,6 +63,12 @@ def block_hash(host, n, port=9173):
 
 
 def main():
+    # A FLEET PEER MUST NOT STEER A LOOPBACK GET (bandit B310 triage, 2026-09-30): this polls every IP in peers.dat,
+    # and a hostile one answering 302 -> http://127.0.0.1:9173/terminate would shut down the node being diagnosed.
+    # ops/outbound_guard.py is stdlib-only and imports nothing of the node, so this tool stays read-only.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from ops.outbound_guard import install_redirect_guard
+    install_redirect_guard()
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=9173)

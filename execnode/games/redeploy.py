@@ -62,7 +62,7 @@ WAVE_RETRIES = 3
 
 def _get(url, timeout=10):
     try:
-        return json.load(urllib.request.urlopen(url, timeout=timeout))
+        return json.load(urllib.request.urlopen(url, timeout=timeout))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except Exception:
         return None
 

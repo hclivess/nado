@@ -40,7 +40,8 @@ async def get_recommneded_fee(target, port, base_fee, logger):
         url_construct = f"http://{hostport(target, port)}/get_recommended_fee"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 result = json.loads(await response.text())
                 return result['fee'] + base_fee
     except Exception as e:
@@ -54,7 +55,8 @@ async def get_max_block(target, port, logger):
         url_construct = f"http://{hostport(target, port)}/get_latest_block"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 result = json.loads(await response.text())
                 return result['block_number'] + 2
     except Exception as e:
@@ -1434,7 +1436,7 @@ def _fetch_da_proof(commitment, timeout=8):
     #    when it has the blob; on a node that runs no exec layer this fails immediately (connection refused)
     #    and costs nothing.
     try:
-        with _rq.urlopen(f"http://127.0.0.1:{DA_PORT}/da/get?c={_c}", timeout=timeout) as r:
+        with _rq.urlopen(f"http://127.0.0.1:{DA_PORT}/da/get?c={_c}", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             if r.status == 200:
                 return r.read()
     except Exception:
@@ -1465,7 +1467,7 @@ def _fetch_da_proof(commitment, timeout=8):
             break
         _left = max(0.5, _deadline - _t.time())
         try:
-            with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/meta?c={_c}", timeout=min(3.0, _left)) as r:
+            with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/meta?c={_c}", timeout=min(3.0, _left)) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
                 if r.status != 200:
                     continue
                 _meta = json.loads(r.read().decode())
@@ -1483,7 +1485,7 @@ def _fetch_da_proof(commitment, timeout=8):
                     break
                 _left = max(0.5, _deadline - _t.time())
                 try:
-                    with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/shard?c={_c}&i={_i}", timeout=_left) as r:
+                    with _rq.urlopen(f"http://{_ip}:{DA_PORT}/da/shard?c={_c}&i={_i}", timeout=_left) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
                         if r.status != 200:
                             continue
                         _j = json.loads(r.read().decode())

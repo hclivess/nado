@@ -13,12 +13,12 @@ NADO = 10 ** 10
 AMT = int(float(sys.argv[1]) * NADO) if len(sys.argv) > 1 else 50 * NADO
 
 def j(u):
-    with urllib.request.urlopen(u, timeout=15) as r: return json.loads(r.read().decode())
+    with urllib.request.urlopen(u, timeout=15) as r: return json.loads(r.read().decode())  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(tx):
     req = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=20) as r: return json.loads(r.read().decode())
+        with urllib.request.urlopen(req, timeout=20) as r: return json.loads(r.read().decode())  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except urllib.error.HTTPError as e: return {"result": False, "message": e.read().decode()[:160]}
 def tip(): return int(j(L1 + "/get_latest_block")["block_number"])
 def exbal(a):

@@ -61,14 +61,14 @@ DEFAULT_LEAGUES = [
 
 
 def _get(url, timeout=15):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    with urllib.request.urlopen(url, timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
         return json.loads(r.read().decode())
 
 
 def _post(url, body, timeout=15):
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
         return json.loads(r.read().decode())
 
 
@@ -364,6 +364,10 @@ def sportsdb_next_norm(league, key):
 
 def main():
     global BET_CID
+    # THIRD-PARTY FEEDS MUST NOT STEER A LOOPBACK GET (bandit B310 triage, 2026-09-30): this job runs on a node host and
+    # fetches thesportsdb.com; a 302 from it to http://127.0.0.1:9173/terminate would arrive as the operator's own curl.
+    from ops.outbound_guard import install_redirect_guard
+    install_redirect_guard()
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["list", "fill", "resolve", "void"])
     ap.add_argument("rest", nargs="*")

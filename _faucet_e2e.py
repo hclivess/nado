@@ -19,10 +19,10 @@ def ck(n, c):
     global ok_all
     print(("  PASS " if c else "  FAIL ") + n, flush=True)
     if not c: ok_all = False
-def j(u): return json.load(urllib.request.urlopen(u, timeout=10))
+def j(u): return json.load(urllib.request.urlopen(u, timeout=10))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(r, timeout=15))
+    return json.load(urllib.request.urlopen(r, timeout=15))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
 def exbal(a): return int(j(EX + "/exec/bridge?ns=default&provisional=1").get("balances", {}).get(a, 0))
 def wait(cond, what, tries=40):

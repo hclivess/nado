@@ -157,7 +157,8 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:
         url_construct = f"http://{hostport(target_peer, get_port())}/status?compress=zstd"
 
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(url_construct) as response:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url_construct, allow_redirects=False) as response:
                 if response.status == 200:
                     # anti-OOM: cap the untrusted body like every other peer fetcher (compressed side),
                     # and unpack_zstd_peer caps the decompressed side against a zstd bomb.
@@ -254,7 +255,7 @@ def probe_block_hash_signed(peer, height, port=9173, timeout=6, tip_hint=0, self
     import json as _json, urllib.request as _rq
     from protocol import EPOCH_LENGTH
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/hash_attest?height={int(height)}", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/hash_attest?height={int(height)}", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(1_000_000))
         h = d.get("block_hash") if isinstance(d, dict) else None
         if not (isinstance(h, str) and len(h) == 64):
@@ -291,7 +292,7 @@ def probe_block_hash(peer, height, port=9173, timeout=6):
     that independence is the whole point."""
     import json as _json, urllib.request as _rq
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/get_block?number={int(height)}", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/get_block?number={int(height)}", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(1_000_000))
         h = d.get("block_hash") if isinstance(d, dict) else None
         return h if isinstance(h, str) and len(h) == 64 else None
@@ -307,7 +308,7 @@ def fetch_block_by_hash(peer, block_hash, port=9173, timeout=6):
     try:
         if not isinstance(block_hash, str) or len(block_hash) != 64:
             return None
-        with _rq.urlopen(f"http://{hostport(peer, port)}/get_block?hash={block_hash}", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{hostport(peer, port)}/get_block?hash={block_hash}", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(MAX_PEER_BODY))
         return d if isinstance(d, dict) and d.get("block_hash") == block_hash else None
     except Exception:
@@ -319,7 +320,7 @@ def _peer_finalized_height(peer, port=9173, timeout=6):
     BEHIND peer can actually answer — never as a fork-choice input."""
     import json as _json, urllib.request as _rq
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(1_000_000))
         h = d.get("finalized_height") if isinstance(d, dict) else None
         return int(h) if isinstance(h, int) and h >= 0 else None
@@ -337,7 +338,7 @@ def peer_tip_weight(peer, port=9173, timeout=6):
     — and None (unreachable, malformed) must therefore read as "not heavier", i.e. nobody purges."""
     import json as _json, urllib.request as _rq
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(1_000_000))
         w = d.get("latest_block_weight") if isinstance(d, dict) else None
         return int(w) if isinstance(w, int) and w >= 0 else None
@@ -350,7 +351,7 @@ def _peer_heights(peer, port=9173, timeout=6):
     Used only to pick a comparison height — never as a fork-choice input."""
     import json as _json, urllib.request as _rq
     try:
-        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:
+        with _rq.urlopen(f"http://{peer}:{port}/status", timeout=timeout) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
             d = _json.loads(r.read(1_000_000))
         if not isinstance(d, dict):
             return None, None
@@ -884,7 +885,8 @@ async def get_public_ips(logger):
     for url_construct in urls:
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     ip = (await response.text()).strip()
                     if not ip:
                         continue

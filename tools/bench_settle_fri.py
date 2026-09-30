@@ -54,7 +54,7 @@ def peak_mib():
 
 
 def fetch_block(node, n):
-    with urllib.request.urlopen(f"{node}/get_block?number={n}", timeout=15) as r:
+    with urllib.request.urlopen(f"{node}/get_block?number={n}", timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.load(r)
 
 

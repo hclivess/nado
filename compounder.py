@@ -23,7 +23,8 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
         async with semaphore:
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     body = await read_capped(response, MAX_CONTROL_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
                         fetched = unpack_zstd_peer(body, cap=MAX_CONTROL_BODY)                # bomb-capped zstd(msgpack) wire
@@ -71,7 +72,8 @@ async def get_tx_ids_of(peer, port, logger, fail_storage, semaphore):
     try:
         async with semaphore:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     if response.status != 200:
                         raise ValueError(f"HTTP {response.status}")
                     body = await read_capped(response, MAX_CONTROL_BODY)
@@ -95,7 +97,8 @@ async def get_next_block_txids_of(peer, port, logger, semaphore, timeout=1.5):
     try:
         async with semaphore:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     if response.status != 200:
                         return None
                     body = await read_capped(response, MAX_CONTROL_BODY)
@@ -133,7 +136,8 @@ async def post_txs_by_id(peer, port, txids, logger, fail_storage, semaphore):
             # inline settle proof at ~120 MiB. With both paths timing out, a proof-carrying settle could
             # reach a peer by neither route. read_capped already bounds the body at MAX_PEER_BODY.
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
-                async with session.post(url_construct, data=codec.pack(list(txids))) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.post(url_construct, data=codec.pack(list(txids)), allow_redirects=False) as response:
                     if response.status != 200:
                         return []
                     body = await read_capped(response, MAX_PEER_BODY)
@@ -167,7 +171,8 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     try:
         async with semaphore:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=_timeout)) as session:
-                async with session.post(url_construct, data=_body) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.post(url_construct, data=_body, allow_redirects=False) as response:
                     body = await response.json(content_type=None)
                     return peer, (body.get("message") if isinstance(body, dict) else body)
     except Exception as e:
@@ -204,7 +209,8 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
         async with semaphore:
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     body = await read_capped(response, MAX_CONTROL_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
                         fetched = unpack_zstd_peer(body, cap=MAX_CONTROL_BODY)                # bomb-capped zstd(msgpack) wire
@@ -245,7 +251,8 @@ async def announce_self(peer, port, my_ip, fail_storage, semaphore):
         async with semaphore:
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
+                # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                async with session.get(url_construct, allow_redirects=False) as response:
                     fetched = await response.text()
                     return fetched
 

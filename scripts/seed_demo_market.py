@@ -14,11 +14,11 @@ CID = "7e97163299583191d40d8676f43d5cfe"
 UNIT = 10 ** 8
 kd = load_keys(); OP = kd["address"]
 def get(u):
-    with urllib.request.urlopen(u, timeout=10) as r: return json.loads(r.read().decode())
+    with urllib.request.urlopen(u, timeout=10) as r: return json.loads(r.read().decode())  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(u, b):
     rq = urllib.request.Request(u, data=json.dumps(b).encode(), headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(rq, timeout=20) as r: return json.loads(r.read().decode())
+        with urllib.request.urlopen(rq, timeout=20) as r: return json.loads(r.read().decode())  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
     except urllib.error.HTTPError as e: return {"result": False, "message": e.read().decode()[:200]}
 def tip(): return int(get(L1 + "/get_latest_block")["block_number"])
 def bridge(a): return int(get(EX + "/exec/bridge?ns=default&provisional=1").get("balances", {}).get(a, 0))

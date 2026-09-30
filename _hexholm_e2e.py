@@ -28,12 +28,12 @@ def ck(n, c):
     global ok_all
     print(("  PASS " if c else "  FAIL ") + n, flush=True)
     if not c: ok_all = False
-def j(u): return json.load(urllib.request.urlopen(u, timeout=8))
+def j(u): return json.load(urllib.request.urlopen(u, timeout=8))  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
     for attempt in range(4):                                   # transient connection drops during block bursts
         try:
-            out = json.load(urllib.request.urlopen(r, timeout=12)); break
+            out = json.load(urllib.request.urlopen(r, timeout=12)); break  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         except urllib.error.HTTPError as e:
             out = {"result": False, "message": e.read().decode()[:200]}; break
         except Exception as e:                                 # RemoteDisconnected / timeout / conn refused

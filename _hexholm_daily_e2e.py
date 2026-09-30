@@ -24,7 +24,7 @@ PY = sys.executable
 
 
 def j(url):
-    with urllib.request.urlopen(url, timeout=15) as r:
+    with urllib.request.urlopen(url, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 

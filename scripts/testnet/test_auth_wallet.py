@@ -36,7 +36,7 @@ def url(i, path):
 
 
 def get(i, path, timeout=6):
-    with urllib.request.urlopen(url(i, path), timeout=timeout) as r:
+    with urllib.request.urlopen(url(i, path), timeout=timeout) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
         return json.loads(r.read().decode())
 
 
@@ -44,7 +44,7 @@ def post(i, path, body):
     req = urllib.request.Request(url(i, path), data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         return {"result": False, "message": e.read().decode()[:300]}

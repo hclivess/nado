@@ -46,7 +46,7 @@ def _get(node, path):
     (e.g. /update answering 403 "disabled" on an opted-out node) is returned as that body — the node's
     verdict IS the answer, not a transport failure worth a traceback."""
     try:
-        with urllib.request.urlopen(node + path, timeout=20) as r:
+        with urllib.request.urlopen(node + path, timeout=20) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
             return json.load(r)
     except urllib.error.HTTPError as e:
         return json.load(e)
@@ -58,7 +58,7 @@ def _submit(node, tx):
     data = json.dumps(tx).encode()
     req = urllib.request.Request(node + "/submit_transaction", data=data,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=90) as r:
+    with urllib.request.urlopen(req, timeout=90) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         out = json.load(r)
     ok = bool(out.get("result")) if isinstance(out, dict) else False
     print(("✓ " if ok else "✗ ") + json.dumps(out)[:300])

@@ -20,6 +20,7 @@ Exit status is 0 when the fleet agrees, 1 when any node is frozen or forked — 
 """
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -34,7 +35,7 @@ FROZEN, BEHIND, OK, RECEDING = "FROZEN", "behind", "ok", "RECEDING"
 
 def _get(ip, path, timeout=TIMEOUT):
     try:
-        with urllib.request.urlopen(f"http://{ip}:{PORT}{path}", timeout=timeout) as r:
+        with urllib.request.urlopen(f"http://{ip}:{PORT}{path}", timeout=timeout) as r:  # nosec B310 # http(s) URL from a constant or operator flag; redirects guarded by install_redirect_guard() in main
             return json.loads(r.read())
     except Exception:
         return None
@@ -107,6 +108,12 @@ def classify_node(prev, now):
 
 
 def main():
+    # A FLEET PEER MUST NOT STEER A LOOPBACK GET (bandit B310 triage, 2026-09-30): this polls every IP in peers.dat,
+    # and a hostile one answering 302 -> http://127.0.0.1:9173/terminate would shut down the node being diagnosed.
+    # ops/outbound_guard.py is stdlib-only and imports nothing of the node, so this tool stays read-only.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from ops.outbound_guard import install_redirect_guard
+    install_redirect_guard()
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", type=int, default=0, metavar="SECONDS",
                     help="sample twice this far apart, to tell a wedge from propagation")

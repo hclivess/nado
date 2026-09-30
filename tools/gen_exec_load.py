@@ -31,14 +31,14 @@ GAP = float(sys.argv[2]) if len(sys.argv) > 2 else 2.0
 
 
 def get(p):
-    with urllib.request.urlopen(L1 + p, timeout=15) as r:
+    with urllib.request.urlopen(L1 + p, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 
 def post(p, body):
     req = urllib.request.Request(L1 + p, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with urllib.request.urlopen(req, timeout=15) as r:  # nosec B310 # operator CLI: the operator's own node URL (literal http:// default or their flag), never peer input
         return json.loads(r.read().decode())
 
 

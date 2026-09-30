@@ -1040,7 +1040,8 @@ async def fetch_block(target, port, block_hash, timeout=15):
     url = f"http://{hostport(target, port)}/get_block?hash={block_hash}&compress=zstd"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-            async with session.get(url) as r:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(url, allow_redirects=False) as r:
                 if r.status != 200:
                     return None
                 block = unpack_zstd_peer(await read_capped(r, MAX_PEER_BODY))   # bomb-capped zstd wire
@@ -1058,7 +1059,8 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
     base = f"http://{hostport(target, port)}"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-            async with session.get(f"{base}/get_snapshot_manifest?compress=zstd") as r:
+            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+            async with session.get(f"{base}/get_snapshot_manifest?compress=zstd", allow_redirects=False) as r:
                 if r.status != 200:
                     _log(logger, "info", f"No snapshot manifest from {target} (HTTP {r.status})")
                     return None, None
@@ -1100,7 +1102,8 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                 """fetch chunk `cid` under the concurrency semaphore, read-capped to chunk_meta[cid]['bytes']
                 (trusted because the manifest passed its self-hash) — the donor can't over-feed us"""
                 async with sem:
-                    async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}") as cr:
+                    # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
+                    async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}", allow_redirects=False) as cr:
                         if cr.status != 200:
                             raise IOError(f"chunk {cid} HTTP {cr.status}")
                         # chunk_meta[cid]['bytes'] is NOT self-hash-covered, but the per-read cap + the total

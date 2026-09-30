@@ -39,7 +39,7 @@ def contract_ids():
 
 
 def _sto(cid):
-    with urllib.request.urlopen(f"{EX}/exec/contract?ns=default&cid={cid}&provisional=1", timeout=10) as r:
+    with urllib.request.urlopen(f"{EX}/exec/contract?ns=default&cid={cid}&provisional=1", timeout=10) as r:  # nosec B310 # literal http:// to a peer/loopback host; redirects guarded process-wide (ops/outbound_guard.py)
         return json.loads(r.read().decode()).get("storage") or {}
 
 

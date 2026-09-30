@@ -43,7 +43,7 @@ PORT = int(os.environ.get("NADO_TESTNET_PORT", "19173"))
 
 def status(i, timeout=4):
     try:
-        with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/status", timeout=timeout) as r:
+        with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/status", timeout=timeout) as r:  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
             return json.loads(r.read().decode())
     except Exception as e:
         return {"error": str(e)}
@@ -171,7 +171,7 @@ def wait_converged(n, deadline_s, tol=2):
                 agree = True
                 for i in snap:
                     try:
-                        with urllib.request.urlopen(
+                        with urllib.request.urlopen(  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
                                 f"http://{node_ip(i)}:{PORT}/get_block?number={hmin}&hash_only=1",
                                 timeout=4) as r:
                             bh = json.loads(r.read().decode()).get("block_hash")
@@ -196,7 +196,7 @@ def announce(to_i, ip):
     """One /announce_peer call; the node's REPLY is tallied (printed by the scenarios), because an announcement
     the node answers "known or invalid" links nothing — 2026-09-16: twelve such replies hid a broken heal."""
     try:
-        body = urllib.request.urlopen(f"http://{node_ip(to_i)}:{PORT}/announce_peer?ip={ip}", timeout=4).read()
+        body = urllib.request.urlopen(f"http://{node_ip(to_i)}:{PORT}/announce_peer?ip={ip}", timeout=4).read()  # nosec B310 # loopback testnet harness: literal http:// to its own 127.0.0.x nodes
         reply = body.decode(errors="replace")[:60]
         _announce_replies[reply] = _announce_replies.get(reply, 0) + 1
         return True
@@ -217,7 +217,7 @@ def clean():
             env = open(f"/proc/{pid}/environ", "rb").read().decode(errors="ignore")
         except Exception:
             continue
-        if "/tmp/nado-forknet-" in env and "NADO_TESTNET=1" in env:
+        if "/tmp/nado-forknet-" in env and "NADO_TESTNET=1" in env:  # nosec B108 # matches the harness's own mkdtemp prefix in /proc environ; creates no file
             try:
                 os.kill(int(pid), signal.SIGKILL)
                 killed += 1
@@ -225,7 +225,7 @@ def clean():
                 pass
     time.sleep(1)
     removed = 0
-    for d in glob.glob("/tmp/nado-forknet-*"):
+    for d in glob.glob("/tmp/nado-forknet-*"):  # nosec B108 # harness cleanup of its OWN mkdtemp(prefix='nado-forknet-') dirs; rm -rf on a planted symlink removes the link, not its target
         subprocess.run(["rm", "-rf", d], check=False)
         removed += 1
     print(f"[clean] killed {killed} node(s), removed {removed} dir(s)")
