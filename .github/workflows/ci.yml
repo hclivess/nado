@@ -110,7 +110,8 @@ jobs:
       - name: the tests the suite job excludes, with the kernels
         run: |
           set -o pipefail
-          pat=$(grep -v '^#' tests/ci_exclude.txt | awk 'NF {print "tests/" $1 ".py"}' | tr '\n' ' ')
+          # every excluded test except the [box] ones (they judge the machine they run on: tests/ci_exclude.txt)
+          pat=$(grep -v '^#' tests/ci_exclude.txt | awk 'NF && $2 != "[box]" {print "tests/" $1 ".py"}' | tr '\n' ' ')
           PY=python NADO_TEST_JOBS=4 NADO_TEST_TIMEOUT=7200 NADO_TEST_SLOW_TIMEOUT=14400 \
             bash scripts/run_tests.sh "$pat" | tee native.txt
       - name: keep the logs of a failed run

@@ -29,7 +29,11 @@ check("no test is excluded twice", len({r[0] for r in rows}) == len(rows))
 
 wf = open(os.path.join(ROOT, ".github", "workflows", "ci.yml")).read()
 check("the per-push suite uses the exclusion list", "NADO_TEST_EXCLUDE=tests/ci_exclude.txt" in wf)
-check("the native job runs exactly the excluded tests", "grep -v '^#' tests/ci_exclude.txt" in wf and "cargo build --release" in wf)
+check("the native job runs exactly the excluded tests but the [box] ones",
+      "grep -v '^#' tests/ci_exclude.txt" in wf and '$2 != "[box]"' in wf and "cargo build --release" in wf)
+box = [r[0] for r in rows if r[1].startswith("[box]")]
+check("only tests that judge the machine they run on are [box] (timing, the node's own install)",
+      set(box) <= {"test_da_encode_matrix", "test_updatability"}, box)
 
 # the runner prints an exclusion with its reason and does not run the test
 d = tempfile.mkdtemp(prefix="nado-test-ciex-")
