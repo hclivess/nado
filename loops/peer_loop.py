@@ -7,7 +7,7 @@ from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, pool_warm_ready
-from ops.peer_ops import get_public_ip, get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok, own_ips
+from ops.peer_ops import get_public_ips, pick_reachable_ip, update_local_ip, check_ip, subnet_diversity_ok, own_ips
 from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from ops import self_update
 from protocol import CHAIN_ID, GENESIS_TIMESTAMP, BLOCK_TIME
@@ -40,7 +40,7 @@ class PeerClient(threading.Thread):
         pass immediately runs a heavy refresh and (if peerless) a seed/drive reload."""
         threading.Thread.__init__(self)
         self.logger = logger
-        self.logger.info(f"Starting Peer Client")
+        self.logger.info("Starting Peer Client")
         self.memserver = memserver
         self.consensus = consensus
         self.duration = 0

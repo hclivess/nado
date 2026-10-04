@@ -11,7 +11,7 @@ import sys
 # tests/helpers -> tests -> nado-tpm-attest -> apps -> the repo root, where ops/ lives
 _here = os.path.abspath(__file__)
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(_here), "..", "..", "..", "..")))
-from ops.tpm_aik import make_credential, rsa_public_numbers_from_spki  # noqa: E402
+from ops.tpm_aik import make_credential  # noqa: E402
 
 
 def spki_from_pub_area(pa: bytes) -> bytes:

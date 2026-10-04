@@ -93,9 +93,16 @@ def main():
         # bonded lane), so core_loop no longer computes a PoSW target at all — pin that it stays out.
         core = open(os.path.join(root, "loops", "core_loop.py")).read()
         check("the node no longer auto-registers with a PoSW target", "+ POSW_TARGET_MARGIN" not in core)
+        # The CLI's `register` is retired too (gen 25). It used to compute the whole sequential proof and only
+        # then raise "retired" — minutes of CPU for a proof nothing submits (2026-09-30). Pin that it refuses
+        # before any work: no PoSW prove and no PoSW target anywhere in the CLI.
         cli = open(os.path.join(root, "scripts", "nado_cli.py")).read()
-        check("the CLI's register targets tip + POSW_TARGET_MARGIN",
-              "_tip(node) + POSW_TARGET_MARGIN" in cli)
+        _reg = cli[cli.index("def c_register("):cli.index("\ndef ", cli.index("def c_register(") + 1)]
+        check("the CLI's retired register refuses before doing any work",
+              "posw.prove(" not in cli and "+ POSW_TARGET_MARGIN" not in cli
+              and _reg.split('"""')[-1].strip().splitlines()[-1].strip().startswith("raise SystemExit(")
+              and sum(1 for ln in _reg.split('"""')[-1].splitlines()
+                      if ln.strip() and not ln.strip().startswith("#")) == 1)
         js = open(os.path.join(root, "static", "interface.js")).read()
         # the wallet carries its own copies of both constants; they must track protocol.py exactly
         m_off = re.search(r"POSW_ANCHOR_OFFSET\s*=\s*(\d+)", js)

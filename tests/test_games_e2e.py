@@ -16,6 +16,14 @@ from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
                             battleship as bs, pets as ptz, holdem as hd, stormhold as sh, scrapline as sc,
                             pool as pl)
+from execnode.games import _lib as games_lib
+
+
+def _tf(mod):
+    """The module holding a banked game's table-field constants (TP, TC). dice keeps none of its own: its table
+    layout IS execnode.games._lib's (it used to re-import TA/TK/TP/TC/TZ from there unused, and this test read them
+    THROUGH dice — removed as unused imports, 2026-09-30). roulette declares its own."""
+    return games_lib if mod is dice else mod
 
 fails = 0
 def check(name, fn):
@@ -79,14 +87,14 @@ def _banked(mod, betargs, winnable):
     st.credit_deposit(A, 100_000_000); st.credit_deposit(B, 2_000_000)
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 50_000_000}, A, "1")
     st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": betargs, "value": 100_000}, B, "2")
-    assert rd(mod.TC, 3) == winnable and rd(mod.TP, 3) == 50_100_000
+    assert rd(_tf(mod).TC, 3) == winnable and rd(_tf(mod).TP, 3) == 50_100_000
     st.block_hashes[102] = 0x1234; st.block_hashes[103] = 0x5678; st.cursor = 104
     st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [88]}, B, "3")
-    assert rd(mod.GD, 88) == 1 and rd(mod.TC, 3) == 0
-    assert st.bridge.get(cid, 0) == rd(mod.TP, 3)                      # escrow == withdrawable
+    assert rd(mod.GD, 88) == 1 and rd(_tf(mod).TC, 3) == 0
+    assert st.bridge.get(cid, 0) == rd(_tf(mod).TP, 3)                      # escrow == withdrawable
     b0 = st.bridge.get(A, 0)
     st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "4")
-    assert st.bridge.get(A, 0) - b0 == rd(mod.TP, 3) or st.bridge.get(cid, 0) == 0
+    assert st.bridge.get(A, 0) - b0 == rd(_tf(mod).TP, 3) or st.bridge.get(cid, 0) == 0
     v = st.decode_view(st.contracts[cid])
     assert v["ta"]["3"] == A and set(v["gg"]) == {"88"}
 
@@ -103,10 +111,10 @@ def t_dice_overbet_reverts():
     st.credit_deposit(A, 100_000_000)
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 70}, A, "1")
     r = st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [88, 3, 25], "value": 20}, A, "2")
-    assert "revert" not in r and rd(dice.TP, 3) == 90 and rd(dice.TC, 3) == 20 * 99 // 25   # full payout 79 reserved
+    assert "revert" not in r and rd(games_lib.TP, 3) == 90 and rd(games_lib.TC, 3) == 20 * 99 // 25   # full payout 79 reserved
     r2 = st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [89, 3, 25], "value": 20}, A, "3")
     assert "revert" in r2, "over-bet past the pot must revert"                 # tc 158 > tp 110
-    assert rd(dice.TP, 3) == 90 and rd(dice.TC, 3) == 79                        # state unchanged by the reverted bet
+    assert rd(games_lib.TP, 3) == 90 and rd(games_lib.TC, 3) == 79                        # state unchanged by the reverted bet
     rc = st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "4")
     assert "revert" in rc, "close with an open bet (tc>0) must revert"
 
@@ -1091,13 +1099,13 @@ def _banked_reclaim(mod, betargs, reserve, refund_field="reclaim"):
     st.credit_deposit(A, 100_000_000); st.credit_deposit(B, 2_000_000)
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 50_000_000}, A, "1")
     st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": betargs, "value": 100_000}, B, "2")
-    assert rd(mod.TC, 3) == reserve
+    assert rd(_tf(mod).TC, 3) == reserve
     b0 = st.bridge.get(B, 0)
     r = st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "e")
     assert "revert" in str(r).lower(), "reclaim inside the settle window must revert"
     st.cursor = 102 + 18001                                         # gh was cursor(100)+2; age past horizon
     st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "r")
-    assert rd(mod.GD, betargs[0]) == 1 and rd(mod.TC, 3) == 0 and rd(mod.TP, 3) == 50_000_000
+    assert rd(mod.GD, betargs[0]) == 1 and rd(_tf(mod).TC, 3) == 0 and rd(_tf(mod).TP, 3) == 50_000_000
     assert st.bridge.get(B, 0) == b0 + 100_000, "stake not refunded"
     st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "c")   # tc==0 now unblocks
 

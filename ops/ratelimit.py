@@ -5,7 +5,6 @@ buying extra block share — but a flood could still bloat the mempool/state and
 This bounds the submission rate per source IP. Called from the single-threaded Tornado IOLoop
 (async get/post), so no lock is needed. Memory is bounded by an opportunistic sweep.
 """
-import ipaddress
 import time
 from collections import deque, defaultdict
 

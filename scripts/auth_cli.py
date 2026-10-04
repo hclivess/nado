@@ -175,7 +175,7 @@ def cmd_adopt(a):
     acc = account(a.l1, address)
     if not A.key_authorized(nk["public_key"], address, height=tip(a.l1), acc=acc):
         p = acc.get("auth_pending")
-        sys.exit(f"the new key is not effective yet" + (f" (pending until block {p['eff']}, tip {tip(a.l1)})" if p else " — was it cancelled?"))
+        sys.exit("the new key is not effective yet" + (f" (pending until block {p['eff']}, tip {tip(a.l1)})" if p else " — was it cancelled?"))
     _swap(next_path)
 
 

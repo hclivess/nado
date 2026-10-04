@@ -10,13 +10,13 @@ checkpoint and tail-sync to the donor's tip.
 Run:  NADO_SNAPSHOT_INTERVAL is forced small so a checkpoint is crossed + finalized quickly.
       python scripts/testnet/test_snapshot_sync.py
 """
-import json, os, subprocess, sys, tempfile, time
+import os, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, REPO)
 sys.path.insert(0, HERE)
-from run_testnet import seed_node, node_ip, status, PORT        # noqa: E402
+from run_testnet import seed_node, node_ip, status              # noqa: E402
 from signatures import generate_keydict                          # noqa: E402
 from protocol import B_MIN                                       # noqa: E402
 

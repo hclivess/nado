@@ -14,7 +14,7 @@ each root by EQUALITY to an already-committed column (`exec_roots` = the exec AI
 `replay_roots` = the replay's io roots). This binding proof is itself RECURSION-committable, so it folds into the
 settlement bundle via recursive_verify_hetero.
 """
-from execnode.stark import field as F, deep_eval as DE, fri, backend as _backend, extf as _ext
+from execnode.stark import deep_eval as DE, fri, backend as _backend, extf as _ext
 from execnode.stark.transcript import Transcript
 from execnode.stark.stark import OFF as DEFAULT_OFF
 

@@ -97,7 +97,7 @@ CREATE = "\n".join(
      "movi r1 2", "arg r5 r1",                                       # lock again
      "lt r5 r3", "require r5"]                                       # lock < deadline
     # store nout/lk/dl/ds/so/ev (each: arg -> slot store)
-    + sum(([f"movi r1 {idx}", f"arg r5 r1"] + _sl(f) + ["sstore r4 r5"]
+    + sum(([f"movi r1 {idx}", "arg r5 r1"] + _sl(f) + ["sstore r4 r5"]
            for idx, f in ((1, NO), (2, LK), (3, DL), (4, DS), (5, SO), (6, EV))), [])
     # nout <= MAX_OUT (checked after store; revert discards)
     + ["movi r1 1", "arg r2 r1", f"movi r3 {MAX_OUT + 1}", "lt r2 r3", "require r2",

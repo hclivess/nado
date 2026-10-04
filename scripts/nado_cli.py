@@ -20,16 +20,13 @@ from decimal import Decimal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.key_ops import load_keys, keyfile_found
 from ops import transaction_ops as T
-from ops import posw
 from config import get_timestamp_seconds
 from hashing import create_nonce
-from protocol import (CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN,
-                      TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE)
+from protocol import CHAIN_ID, MIN_TX_FEE, TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE
 
 DEC = 10 ** 10  # NADO has 10 decimals
 # max_block headroom. EXACT-landing txs (bond/unbond/alias/governance — must land at exactly max_block) use a
-# SMALL margin so the wait is short. `register` is the exception: it uses POSW_TARGET_MARGIN, the budget the
-# protocol sizes for a proof that can run for minutes (see protocol.POSW_ANCHOR_OFFSET).
+# SMALL margin so the wait is short.
 # FLEXIBLY-landing txs (value send, blob/collect, bridge, dividend_withdraw — land anywhere in the window) use
 # the GENEROUS TX_TARGET_MARGIN so they don't expire before inclusion and re-gossip-flood "Target block too low".
 MARGIN = 6
@@ -152,33 +149,12 @@ def c_collect(kd, node, a):
 
 
 def c_register(kd, node, a):
-    """One-time open-lane mining registration: fetch the PoSW anchor block (max_block - 30) and the
-    node's current required T, compute the sequential proof locally (can take a while), then submit.
-    The anchor must be settled by submission time — MARGIN keeps it inside an already-final range."""
-    # POSW_TARGET_MARGIN, not the generic exact-landing MARGIN: this is the one tx whose max_block has to
-    # cover a proof that can run for minutes, and the protocol sizes that budget (see POSW_ANCHOR_OFFSET).
-    tb = _tip(node) + POSW_TARGET_MARGIN
-    anchor_num = max(0, tb - POSW_ANCHOR_OFFSET)
-    anchor = _get(node, "/get_block?number=%d" % anchor_num).get("block_hash")
-    if not anchor:
-        sys.exit("no anchor block %d yet" % anchor_num)
-    # ASK FOR *THIS* ADDRESS, AT *THIS* max_block. required_t folds in two multipliers and both depend on
-    # arguments the bare call cannot know: the ENTRY multiplier is a function of the sender's own recert
-    # history (a first/lapsed registration owes POSW_ENTRY_MULT× more), and the rate multiplier is read at
-    # the anchor epoch max_block-POSW_ANCHOR_OFFSET, not at some default the endpoint picks. Calling it
-    # bare under-worked every first CLI registration by 32× and every node rejected the proof — posw.verify
-    # is EXACT-T, so proving too little and proving too much fail identically.
-    req_t = POSW_T
-    try:
-        d = _get(node, "/posw_difficulty?address=%s&max_block=%d" % (kd["address"], tb))
-        req_t = int(d.get("required_t", POSW_T))
-        if int(d.get("entry_multiplier", 1)) > 1:
-            print("first (or post-lapse) registration for this address — entry multiplier ×%d"
-                  % int(d["entry_multiplier"]))
-    except Exception:
-        pass
-    print("proving PoSW (T=%d, ~sequential) …" % req_t)
-    proof = posw.prove(posw.challenge_bytes(kd["address"], anchor), T=req_t, S=POSW_S, k=POSW_K)
+    """Open-lane mining registration — RETIRED at gen 25: an open-lane identity is a hardware-attested device
+    now, and a node earns in the bonded lane."""
+    # REFUSE FIRST. This command used to fetch the anchor, ask the node for its required T and run the full
+    # sequential PoSW proof (minutes of CPU) — and only THEN raise "retired", so the user waited out a proof
+    # that nothing would ever submit (found by pyflakes as an unused `proof`, 2026-09-30). Nothing may run
+    # before this raise; tests/test_posw_prove_window.py pins that the CLI computes no proof.
     raise SystemExit("register: retired at gen 25 — open-lane registration needs a hardware-attested device; use the wallet on a phone, a TPM PC or a security key. Nodes earn in the bonded lane.")
 
 

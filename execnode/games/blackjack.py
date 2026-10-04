@@ -97,7 +97,7 @@ def _player_total(php_reg, pac_reg, out):
             "movi r4 10", "mul r5 r4", f"add {out} r5"]
 
 
-REVEAL = f"""
+REVEAL = """
     slot r4 14 r0
     sload r5 r4
     nez r5
@@ -151,7 +151,7 @@ REVEAL = f"""
 """FILLED"""
 
 
-SETTLE = f"""
+SETTLE = """
     slot r4 14 r0
     sload r5 r4
     nez r5
@@ -227,7 +227,7 @@ SETTLE = f"""
        # 14.2M out, a co-resident banker 12M short) and bricked close() on any table that had ever resolved.
        "slot r4 3 r1", "sload r6 r4", "sub r6 r2", "sstore r4 r6",          # tp -= payout
        "slot r4 14 r0", "movi r5 1", "sstore r4 r5",                        # gd=1
-       "slot r4 15 r0", f"movi r5 1", "sstore r4 r5", "ret r0"])            # gw=1 (resolved)
+       "slot r4 15 r0", "movi r5 1", "sstore r4 r5", "ret r0"])            # gw=1 (resolved)
 """FILLED"""
 
 

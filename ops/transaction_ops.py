@@ -12,7 +12,7 @@ from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
 from config import hostport
-from ops.data_ops import sort_list_dict, get_byte_size
+from ops.data_ops import get_byte_size
 from hashing import create_nonce, blake2b_hash, canonical_bytes
 from ops.key_ops import load_keys
 from ops.log_ops import get_logger
@@ -22,9 +22,9 @@ import protocol as _P
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
 
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
-                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_LEASE_EPOCHS, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
+                      POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
                       HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
-from protocol import ADDRESS_PREFIX, ADDRESS_LENGTH
+from protocol import ADDRESS_PREFIX
 
 
 def _is_hex(s) -> bool:
@@ -2047,7 +2047,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # certified chip. It is `register` that consumes it, with a FRESH TPM2_Certify over that block's own
         # challenge, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation keys in one
         # chip yields one identity, not ten. Anyone may spend blocks on enrolments that buy them nothing.
-        from protocol import DEVICE_ATTEST_EK_CHALLENGERS, DEVICE_ATTEST_EK_ENROL_BLOCKS
+        from protocol import DEVICE_ATTEST_EK_CHALLENGERS
         from ops import tpm_enrol as _te
         # gen 25's DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on a
         # genesis tip) fell below it, and keeps its verdict.
@@ -2596,7 +2596,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 # THE RECORDS BINDING. The effects come from THIS node's committed summaries — never from
                 # the proof — so a prover cannot choose what it is proving. The transition must advance the
                 # records half from the tip's rec_hex to the claimed rec_post over exactly that set.
-                from execnode.stark import records_bind as _RB, records_transition as _RT
+                from execnode.stark import records_bind as _RB
                 _pre_rec = SST.digest_from_hex(rec_hex)
                 _post_rec = SST.digest_from_hex(rec_post_hex)
                 _eff = [(int(t), tuple(str(p) for p in parts), int(dv)) for (t, parts, dv) in _rec_effects]

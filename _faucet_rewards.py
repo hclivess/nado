@@ -121,7 +121,6 @@ def leaderboard(cid, kind):
 
 def main():
     keys = load_keys()
-    ex_cur = int(j(EX + "/exec/root").get("cursor", tip())) if False else tip()
     day = tip() // DAY_BLOCKS
     bal = faucet_balance()
     print(f"faucet balance {bal} · rewarding day {day}", flush=True)

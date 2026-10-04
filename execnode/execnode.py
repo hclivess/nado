@@ -436,7 +436,6 @@ async def _recover_from_revert(session, status, reason):
 # so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
 # NADO_DA_URL is a peer DA node to fetch a proof from by commitment when we don't hold it locally.
 from ops.da_store import DaStore, reconstruct_from
-from ops import da as _da
 DA_DIR = os.environ.get("NADO_EXEC_DA", "exec_da")
 DA_N_MAX = 64          # bound attacker-supplied meta.n so a lied manifest can't drive an unbounded fetch loop
 DA_URL = os.environ.get("NADO_DA_URL", "").rstrip("/")
@@ -2109,7 +2108,7 @@ async def maybe_settle(session):
                                   f"settle within its validation budget, so no landing block can help. "
                                   f"Releasing the tip instead of holding settlement for nothing.", flush=True)
                             continue
-                    except Exception as _pe:
+                    except Exception:
                         pass                              # a failed probe must never stall settlement
                 if _sc_now >= int(_pend["cursor"]):
                     # SAY SO. This pop released the tip silently, so a prove starting right afterwards

@@ -209,7 +209,7 @@ def _roll32(src, out):
 def _max_into(best, val):
     """best = max(best, val) branchless (clobbers r4/r5... uses r6/r7)."""
     return [f"mov r6 {best}", f"lt r6 {val}", f"mov r7 {val}", f"sub r7 {best}",
-            f"mul r7 r6", f"add {best} r7"]
+            "mul r7 r6", f"add {best} r7"]
 
 
 def _park(sc_field, reg, key="r0"):

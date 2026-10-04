@@ -232,7 +232,6 @@ def device_histogram(rows, epoch_now: int, present) -> dict:
     present. "total" counts every binding the chain has ever recorded under that class, live or not, so the
     two numbers together say both what the network runs on today and what it has seen. Pure — no reads,
     no clock — so it can be tested with a list."""
-    from protocol import POSW_LEASE_EPOCHS
     out = {}
     present = set(present or ())
     for key, address, epoch, mode in rows:
@@ -298,7 +297,6 @@ def poll_peers(address: str, peers, port: int, timeout: float = 4.0, limit: int 
     """Ask up to `limit` peers for drops addressed to `address`; the first peer holding one the node has not already
     refused (`skip`: set of "max_block:sha256(att)") wins. Plain urllib — call it from a helper thread, never from
     the peer loop itself (a blocking probe there starved block sync on 2026-09-07)."""
-    import hashlib
     import json
     import urllib.request as _rq
     from config import hostport

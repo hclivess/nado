@@ -265,7 +265,7 @@ def main():
                              "genesis_data", "genesis_carry.dat")
         with open(xpath, "w") as f:
             json.dump(extra, f, indent=0, sort_keys=True)
-        print(f"WROTE genesis_data/genesis_carry.dat")
+        print("WROTE genesis_data/genesis_carry.dat")
     else:
         print("\n(dry run — pass --write to persist genesis_alloc.dat)")
 

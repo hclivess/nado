@@ -52,7 +52,7 @@ def attribute_pot(cid, contract, pot):
         if addr and amt:
             refunds[addr] = refunds.get(addr, 0) + int(amt)
 
-    tp, tk, ta = sto.get("tp", {}), sto.get("tk", {}), sto.get("ta", {})
+    tp, ta = sto.get("tp", {}), sto.get("ta", {})
     ga, gs, gd, gg = sto.get("ga", {}), sto.get("gs", {}), sto.get("gd", {}), sto.get("gg", {})
     if tp:                                              # banked game — tp = open-table pots
         for table, tpot in tp.items():

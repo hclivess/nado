@@ -63,7 +63,7 @@ def tip():
 
 
 def bridge():
-    return get(EX + f"/exec/bridge?ns=default&provisional=1").get("balances", {})
+    return get(EX + "/exec/bridge?ns=default&provisional=1").get("balances", {})
 
 
 def sto():

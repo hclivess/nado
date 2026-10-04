@@ -65,7 +65,7 @@ class ConsensusClient(threading.Thread):
         self.duration = 0
         self.logger = logger
 
-        self.logger.info(f"Starting Consensus Manager")
+        self.logger.info("Starting Consensus Manager")
 
         self.memserver = memserver
 

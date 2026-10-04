@@ -39,7 +39,7 @@ from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry, get_hard_finality as _ghf, get_finalized_height
-from ops.address_ops import proof_sender, is_address
+from ops.address_ops import is_address
 from signatures import (verify as _mldsa_verify, unhex as _mldsa_unhex,
                         backend_name as _pq_backend_name,
                         backend_degraded_reason as _pq_backend_reason)
@@ -54,7 +54,7 @@ from ops import snapshot_ops
 from ops import mining_history
 import protocol as _proto
 from protocol import (GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID,
-                      ADDRESS_PREFIX, FINALITY_DEPTH, EPOCH_LENGTH)
+                      FINALITY_DEPTH, EPOCH_LENGTH)
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
@@ -2212,7 +2212,6 @@ async def get_richest(request):
     # pile" visual. O(accounts) scan, cached per block height so it runs at most once per block.
     def _work():
         """Cached-per-height O(accounts) max scan (worker thread)."""
-        from ops import kv_ops
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
@@ -2600,7 +2599,6 @@ async def get_rich_list(request):
     # O(accounts) scan, cached per block height (top 100 kept, sliced to n) so it runs at most once/block.
     def _work():
         """Cached-per-height O(accounts) top-100 scan (worker thread)."""
-        from ops import kv_ops
         try:
             h = memserver.latest_block["block_number"]
         except Exception:
@@ -2641,7 +2639,7 @@ async def get_open_weights(request):
     q_epoch = request.query.get("epoch")
     def _work():
         """Read the open-lane weights (worker thread)."""
-        from ops.mining_ops import open_shares, epoch_of
+        from ops.mining_ops import epoch_of
         if q_epoch is not None:
             from ops.dividend_ops import weights_at_epoch
             try:

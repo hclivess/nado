@@ -31,10 +31,10 @@ stark._composition evaluates) over the carried openings, so it is generic over t
 W=106 execution AIR share this code path — only W and the program differ.
 """
 from execnode.stark import alghash2 as a2, field as F, stark, backend, extf as ext2
-from execnode.stark.recursion import _permute_snapshots, _blocks_for, rmerkle_commit, rmerkle_path
+from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _fill_path, _junk_absorb, _B
 from execnode.stark import air_ir
-from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
+from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
 
@@ -245,7 +245,7 @@ def _transitions(prog, W, boundaries, L):
     """Round + absorb-mux (membership, witness directions) + index-accumulator + holds + per-carry leaf selector
     + the generic composition check."""
     ops, consts, outputs = prog["ops"], prog["consts"], prog["outputs"]
-    nt, nb = len(outputs), len(boundaries)
+    nt = len(outputs)
     nper, nchal = prog["P"], prog["C"]
     cons = []
 

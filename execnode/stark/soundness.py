@@ -323,7 +323,7 @@ def report():
     print(f"  {'DEEP / Schwartz-Zippel':<26} {a['deep']:>9.1f}   (not on the main path)")
     print(f"  {('constraint alphas (GF(p^2))' if _ext_alphas() else 'constraint alphas (BASE fld)'):<26} {a['alphas']:>9.1f}")
     print(f"  {('LogUp aux bus (GF(p^2))' if _ext_challenges() else 'LogUp aux bus (BASE fld)'):<26} {a['aux']:>9.1f}   (aux_spec circuits only)")
-    print(f"      (that is nc = 1; the term is log2(q) - log2(nc), so a circuit")
+    print("      (that is nc = 1; the term is log2(q) - log2(nc), so a circuit")
     print(f"       with 100 constraints sits at {alphas_bits(100):.1f} and one with")
     print(f"       3412 at {alphas_bits(3412):.1f}. Pass num_constraints to achieved().)")
     print("  " + "-" * 36)

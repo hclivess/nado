@@ -12,7 +12,6 @@ _autogame_daily_e2e.py — LIVE end-to-end of the Autogame DAILY GAUNTLET on the
 Run: HOME=/root python3 _autogame_daily_e2e.py
 """
 import json
-import os
 import subprocess
 import sys
 import time

@@ -14,7 +14,6 @@ import json
 import os
 import threading
 
-from hashing import blake2b_hash, canonical_bytes
 from execnode.zkvm import ZkVMError
 from execnode import zkvm                 # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
@@ -30,8 +29,6 @@ from ops.address_ops import validate_address
 _BEACON_RETENTION_EPOCHS = 4000     # advance_beacons keeps beacons for [cur_epoch - this, cur_epoch]
 _BLOCKHASH_RING = 20000             # record_block_hash keeps the most recent this-many finalized L1 heights
 _GENESIS_BEACON_FLOOR = 2           # the beacon_floor a from-genesis node sets (epoch 0 first advance -> 0+2)
-import base64
-import zstandard as _zstd
 
 # Contract code may arrive zstd-compressed as `codez` (base64 of a zstd frame) instead of raw `code`. The
 # verbose JSON-opcode format is ~16-26x compressible, so a big verifier fits a small blob (battleship 110K->4.3K).
@@ -40,8 +37,7 @@ import zstandard as _zstd
 # The decoder, the cid derivation and the fixed-name allowlist moved to execnode/code_codec.py (2026-09-23,
 # S1): L1's block summary and the settlement verifier's event replay need them too, and must not import this
 # module to get them. These names stay as aliases for the callers that grew up with them.
-from execnode.code_codec import (CONTRACT_CODE_MAX_BYTES, FIXED_CIDS, bounded_unzstd as _bounded_unzstd,
-                                 decode_code as _decode_code, contract_id as _contract_id)
+from execnode.code_codec import (FIXED_CIDS, decode_code as _decode_code, contract_id as _contract_id)
 
 # Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
 # join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
@@ -1032,7 +1028,10 @@ class ExecState:
         from execnode.stark import znote as _Z
         js = (bundle.get("stark") or {}).get("joinsplit3") or {}
         try:
-            root, nf = _Z.from_hex(js["root"]), _Z.from_hex(js["nf"])
+            # js["root"] is PARSED FOR ITS REFUSAL, not its value (the verifier reads the hex itself): a bundle whose
+            # root is not a digest is refused here as malformed, before any proof work. Keep the parse.
+            _Z.from_hex(js["root"])
+            nf = _Z.from_hex(js["nf"])
             cm_outs = [_Z.from_hex(js["cm_out1"]), _Z.from_hex(js["cm_out2"])]
             pv, fee = int(js["public_value"]), int(js["fee"])
         except Exception as e:
@@ -1874,7 +1873,7 @@ class ExecState:
                     if _stk is not None and not (isinstance(_stk, dict) and ("joinsplit" in _stk or "joinsplit2" in _stk)):
                         return "skip shielded_transfer: stark bundle carries no join-split proof"
                     if pv < 0 and not (-pv < MAX_EXIT_VALUE):
-                        return f"skip shielded_transfer: exit exceeds MAX_EXIT_VALUE"
+                        return "skip shielded_transfer: exit exceeds MAX_EXIT_VALUE"
                 # Validate the exit destination BEFORE any mutation. apply_transfer records the nullifier and
                 # appends the output commitments, so a missing withdraw_addr checked AFTERWARDS burned the note
                 # for a malformed unshield with no exit recorded — the exact ordering apply_field_transfer was

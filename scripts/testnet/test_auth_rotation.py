@@ -36,8 +36,7 @@ import run_testnet as RT                                            # noqa: E402
 RT.PORT = int(os.environ.get("NADO_AUTHNET_PORT", "9373"))
 from signatures import generate_keydict                             # noqa: E402
 from ops.transaction_ops import construct_auth_tx, auth_pop, sign_entries, draft_transaction  # noqa: E402
-from ops import auth_ops as A                                       # noqa: E402
-from protocol import B_MIN, MIN_TX_FEE, CHAIN_ID, TX_INCLUSION_DELAY, AUTH_DELAY  # noqa: E402
+from protocol import B_MIN, MIN_TX_FEE, TX_INCLUSION_DELAY, AUTH_DELAY  # noqa: E402
 
 PORT = RT.PORT
 fails = 0

@@ -246,7 +246,7 @@ def cmd_compare(a):
             notes.append(h)
     both_ok = all(r["accepted"] for r in A["blocks"]) and all(r["accepted"] for r in B["blocks"])
     print(f"IDENTICAL through height {top}" + ("" if both_ok else " (both sides reject at the same height)")
-          + f" — accepted, rebuilt hash, L1 state root, L2 settled commitment and error text agree at every height")
+          + " — accepted, rebuilt hash, L1 state root, L2 settled commitment and error text agree at every height")
     if notes:
         print(f"  note: node-local diagnostics (ERROR log lines / blocked net attempts / inc-root mismatches) "
               f"differ at {len(notes)} height(s), first {notes[:10]} — not consensus outputs, but read them")

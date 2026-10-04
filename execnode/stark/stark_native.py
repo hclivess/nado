@@ -495,7 +495,7 @@ def fri_prove_native(col_ids, offset, blowup, num_queries, transcript, hash_mode
     buf = (ctypes.c_uint64 * size)()
     if int(lib.sp_fri_serialize(ctypes.cast(buf, ctypes.c_void_p))) != size:
         return None
-    n_layers = int(buf[0]); n0 = int(buf[1]); deg = int(buf[3]); ext0 = bool(buf[4])
+    n_layers = int(buf[0]); n0 = int(buf[1]); ext0 = bool(buf[4])
     pow_nonce = int(buf[5]); nq = int(buf[6]); final_limbs = int(buf[7])
     o = 8
     sizes = [int(buf[o + i]) for i in range(n_layers)]; o += n_layers
@@ -538,7 +538,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     Rust u64 buffers; only the transcript (a handful of hashes) and the two-phase aux BUILDER — an AIR-specific
     Python callback over small T-length columns — run in Python. Byte-identical proof dict to stark.prove;
     tests/test_starkprove.py gates it field-for-field end-to-end + verifies under stark.verify."""
-    from execnode.stark import stark, air_ir, backend as _B, fri
+    from execnode.stark import stark, air_ir, backend as _B
     from execnode.stark.transcript import Transcript, DOMAIN_STARK
     periodic = periodic or []
     if num_queries is None:

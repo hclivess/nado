@@ -229,7 +229,6 @@ ALIAS_TTL = 300
 
 def _http():
     """Return the shared aiohttp ClientSession created at app startup (_on_start)."""
-    global _HTTP
     return _HTTP
 
 def _bound(cache, cap=50000):

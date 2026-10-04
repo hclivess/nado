@@ -5,11 +5,8 @@ import sys, json, time, urllib.request, random
 sys.path.insert(0, "/root/nado")
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
-from ops.transaction_ops import create_txid, construct_blob_tx, construct_bridge_deposit_tx
-from signatures import sign, unhex
-from hashing import create_nonce
-from config import get_timestamp_seconds
-from protocol import MIN_TX_FEE, CHAIN_ID
+from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx
+from protocol import MIN_TX_FEE
 import hashlib
 # reference formulas inlined (importing tests/test_slots_contract.py would EXECUTE the whole test)
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")

@@ -22,7 +22,7 @@ witness. Supports per-point roots (K→1 across proofs) and two-phase groups (ma
 from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir, extf as ext2
 from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _junk_absorb, _B
-from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
+from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
 
@@ -344,7 +344,7 @@ def _fill_trace(W, n_aux, points, T, segs, chk_rows):
 def _transitions(prog, W, n_aux, boundaries, L):
     """Rounds + node-mux absorb + direction/IACC + holds + leaf-absorption ties + the composition check."""
     ops, consts, outputs = prog["ops"], prog["consts"], prog["outputs"]
-    nt, nb = len(outputs), len(boundaries)
+    nt = len(outputs)
     nper, nchal = prog["P"], prog["C"]
     shapes = _path_shapes(W, n_aux, [1] * len(_groups_of(W, n_aux)))
     cons = []

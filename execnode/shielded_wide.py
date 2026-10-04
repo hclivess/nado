@@ -20,8 +20,7 @@ in force. Height 0 — a fresh exec state at cursor -1 applying genesis — stil
 root, path and anchor window is byte-identical to the depth-12 code this replaced (tests/test_wide_pool_depth.py pins
 them against a verbatim copy of the old functions).
 """
-from execnode.stark import field as F, znote as Z
-from execnode.stark.alghash2 import CAPACITY
+from execnode.stark import znote as Z
 
 TREE_DEPTH = 12                                   # height 0 (and an exec node that reports no depth)
 DEPTH_HARDENED = 48                               # from block 1: 2^48 notes

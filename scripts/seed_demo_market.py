@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
-from execnode.state import ExecState, asset_id
+from execnode.state import asset_id
 
 L1, EX = "http://127.0.0.1:9173", "http://127.0.0.1:9273"
 CID = "7e97163299583191d40d8676f43d5cfe"
