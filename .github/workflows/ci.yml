@@ -2,7 +2,7 @@
 # an outage, not a failed build — this runs the checks BEFORE anyone depends on them. It never talks to a node and
 # holds no secrets: every test isolates its HOME (CLAUDE.md rule 4) and runs against its own throwaway tables.
 #
-#   checks  every push / PR  — static checks that catch whole bug classes in seconds (pyflakes, the gate ledger,
+#   checks  every push / PR  — static checks that catch whole bug classes in seconds (pyflakes, bandit, the gate ledger,
 #                              16-language i18n coverage, the wallet's byte-parity vectors)
 #   suite   every push / PR  — scripts/run_tests.sh minus tests/ci_exclude.txt (each excluded test says why)
 #   native  weekly + by hand — builds the Rust kernels and runs exactly the tests the suite job excludes
@@ -42,6 +42,12 @@ jobs:
       - run: pip install -r requirements.txt
       - name: pyflakes (undefined names — the bug class unit tests miss)
         run: python tests/test_no_undefined_names.py
+      - name: pyflakes, every class, zero findings
+        run: python tests/test_pyflakes_clean.py
+      - name: bandit (security lint) — zero unsuppressed MEDIUM/HIGH, every nosec names its id and reason
+        run: |
+          pip install "bandit==1.9.4"
+          python tests/test_bandit_clean.py
       - name: every consensus gate keyed on the generation (GATE LEDGER)
         run: python tests/test_gate_reroll_transfer.py
       - name: the wallet speaks 16 languages
