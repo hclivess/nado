@@ -77,7 +77,9 @@ def _restart_needed(local: str, remote: str) -> bool:
     """Does the code that RUNS differ between these two commits? Any doubt — an unreadable diff, no paths at
     all — answers True, because a MISSED restart is the dangerous direction."""
     try:
-        changed = _git("diff", "--name-only", f"{local}..{remote}", timeout=30).splitlines()
+        # --no-renames EVERYWHERE A PATH LIST DECIDES SOMETHING: git's default rename detection prints only the NEW
+        # path, so moving a code file into doc/ read as a documentation-only update (no restart).
+        changed = _git("diff", "--no-renames", "--name-only", f"{local}..{remote}", timeout=30).splitlines()
     except Exception as e:
         _log().warning(f"update: could not diff {local[:12]}..{remote[:12]} ({e}) — restarting to be safe")
         return True
@@ -518,6 +520,20 @@ def updatability(probe_remote=True) -> dict:
                                     f"<file>.local-<time> only if it changes that file; commit or discard them")
             except Exception:
                 checks["dirty_files"] = None
+            # AND NAME WHAT AN UPDATE MOVED ASIDE. The move itself restores HEAD's copy, so the path is clean again
+            # and the check above never sees it; the list rode only in the /update reply, which the periodic and
+            # peer-hinted checks discard. CLAUDE.md promises a moved-aside file is "named in the reply and under
+            # update_warnings" — this is the /status half. The copies are untracked `<file>.local-<unix time>`.
+            try:
+                aside = sorted(ln.strip() for ln in _git("ls-files", "--others", "--exclude-standard").splitlines()
+                               if re.search(r"\.local-\d+$", ln.strip()))
+                checks["moved_aside"] = aside
+                if aside:
+                    shown = ", ".join(aside[:6]) + (f" (+{len(aside) - 6} more)" if len(aside) > 6 else "")
+                    warnings.append(f"moved aside by an update (the local copy, never deleted): {shown} — "
+                                    f"merge anything you still need, then delete them")
+            except Exception:
+                checks["moved_aside"] = None
 
     # FREE DISK. This is the failure that actually stranded four nodes on betanet-3, and NOTHING here
     # detected it: they answered /status with capable=true, blocking=[], remote_reachable=true while every
@@ -853,14 +869,7 @@ def check_and_update(trigger: str) -> dict:
             _git("merge", "--ff-only", "--quiet", f"origin/{_BRANCH}", timeout=60)
         except Exception as e:
             # the ff failed for another reason: put the moved files back so nothing changed on this box
-            for rel in moved_aside:
-                for name in sorted(os.listdir(os.path.dirname(os.path.join(_REPO_DIR, rel)) or _REPO_DIR)):
-                    if name.startswith(os.path.basename(rel) + ".local-"):
-                        try:
-                            os.replace(os.path.join(os.path.dirname(os.path.join(_REPO_DIR, rel)), name), os.path.join(_REPO_DIR, rel))
-                        except OSError:
-                            pass
-                        break
+            _restore_moved_aside(moved_aside)
             return _blocked(f"fast-forward to {remote[:12]} failed — left on {local[:12]}: {e}")
 
         native = _rebuild_native_if_changed(local, remote)
@@ -1140,6 +1149,25 @@ def _move_aside(rels):
     return moved
 
 
+def _restore_moved_aside(rels):
+    """Undo _move_aside for `rels` after a fast-forward that did not land: put back the copy THIS update moved.
+
+    THE NEWEST `.local-<time>`, NOT THE FIRST ONE LISTED. A path can already carry an older copy from an earlier
+    update (they are never deleted). The loop this replaced took sorted(listdir)'s first match — the OLDEST — so a
+    failed fast-forward restored a previous edit over the current one and left the current one aside, while the
+    reply said "left on <HEAD>" as if nothing had changed. Never raises."""
+    for rel in rels:
+        src = os.path.join(_REPO_DIR, rel)
+        d, prefix = os.path.dirname(src) or _REPO_DIR, os.path.basename(rel) + ".local-"
+        try:
+            stamps = [int(n[len(prefix):]) for n in os.listdir(d)
+                      if n.startswith(prefix) and n[len(prefix):].isdigit()]
+            if stamps:
+                os.replace(os.path.join(d, f"{prefix}{max(stamps)}"), src)
+        except OSError:
+            pass
+
+
 def _move_aside_dirty_conflicts(remote):
     """Local edits to TRACKED files that the fast-forward to `remote` would change: move each aside, restore
     HEAD's copy so git sees a clean path, and return the list. Edits to files the update does not touch are
@@ -1159,9 +1187,11 @@ def _move_aside_dirty_conflicts(remote):
     COMMITS still block (they are deliberate, and the is-ancestor check above catches them). Never raises;
     on any git error returns [] and the fast-forward fails loudly as before."""
     try:
-        incoming = set(_git("diff", "--name-only", "HEAD", remote, timeout=30).splitlines())
-        dirty = set((_git("diff", "--name-only", timeout=30) + "\n"
-                     + _git("diff", "--cached", "--name-only", timeout=30)).splitlines())
+        # --no-renames: with rename detection an upstream rename A -> B lists only B, so a local edit to A was not
+        # moved aside and the merge refused ("local changes would be overwritten") — a node answering `blocked`.
+        incoming = set(_git("diff", "--no-renames", "--name-only", "HEAD", remote, timeout=30).splitlines())
+        dirty = set((_git("diff", "--no-renames", "--name-only", timeout=30) + "\n"
+                     + _git("diff", "--no-renames", "--cached", "--name-only", timeout=30)).splitlines())
     except Exception:
         return []
     conflicts = sorted(p for p in (dirty & incoming) if p)
@@ -1224,7 +1254,7 @@ def _rebuild_native_if_changed(old, new):
     live money node right before the restart."""
     report = {}
     try:
-        changed = _git("diff", "--name-only", old, new, timeout=30)
+        changed = _git("diff", "--no-renames", "--name-only", old, new, timeout=30)   # both sides of a rename
     except Exception:
         changed = None                                   # diff unavailable → be conservative, treat all as touched
     # service-account installs get a per-user rustup under $HOME/.cargo which is NOT on systemd's PATH
@@ -1249,14 +1279,13 @@ def _rebuild_native_if_changed(old, new):
         # proof has ever landed on betanet-15, underneath every transport problem.
         if not touched and _has_shared_lib(path):
             continue                                     # unchanged AND already built → its .so is still valid
-        ok = False
-        if have_cargo:
-            try:
-                r = subprocess.run([cargo, "build", "--release"], cwd=path, timeout=600,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                ok = (r.returncode == 0)
-            except Exception:
-                ok = False
+        # ONE BUILD PATH: _build_crates, never a bare `cargo build`. The bare call here skipped all three things
+        # _build_crates does around cargo — copy Cargo.lock.pinned in (so a commit that changed ONLY the pinned
+        # lock, which `touched` deliberately matches, rebuilt against the node's OLD untracked Cargo.lock and
+        # reported "built" while running the old dependency set, and nothing ever corrected it: is_stale compares
+        # against Cargo.lock, not .pinned), restore a tracked Cargo.lock cargo rewrote (a dirty tracked lock
+        # refuses every later update), and refresh the .so mtime after a certified-current build.
+        ok = have_cargo and _build_crates([crate]).get(crate) == "built"
         if ok:
             report[crate] = "built"
         elif _purge_shared_libs(path):

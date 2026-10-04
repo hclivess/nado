@@ -68,7 +68,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   | `/exec/contracts`, `/exec/contract`, `/exec/view` | deployed contracts (+ runtime) + storage + read-only calls |
   | `/exec/examples`, `/exec/runtimes` | the starter contract library + the pluggable runtimes this node can run |
   | `/exec/bridge`, `/exec/withdrawal_proof` | bridge credit view + the Merkle exit proof (tunnels, §7) |
-  | `/exec/shielded*`, `/exec/prove_transfer*`, `/exec/unshield*` | shielded pool + delegated **prove-only** proving |
+  | `/exec/shielded*`, `/exec/field_leaves`, `/exec/unshield*` | shielded pool (the wallet proves on-device; no delegated prover) |
   | `/exec/dividend*` | presence-dividend accrual + exit proof |
   | `/da/publish`, `/da/meta`, `/da/shard`, `/da/get`, `/da/accept` | erasure-coded DA store/serving (§3a) |
 
@@ -318,7 +318,7 @@ root. NADO has three built, one designed.
 ### 7.2 Shielded-pool tunnels (privacy: transparent ⇄ shielded) — **BUILT**
 `shield` (transparent → shielded notes) and `unshield` (shielded → transparent, exit proven against the settled
 exec root) move value in/out of the private pool; transfers inside prove on-device with the FRI/STARK prover
-(`privacy.md`, `execnode/shielded.py`, `/exec/prove_transfer*`). The unshield exit uses the **same
+(`privacy.md`, `execnode/shielded.py`, `/exec/field_leaves`). The unshield exit uses the **same
 settled-root Merkle-proof pattern** as the bridge.
 
 ### 7.3 Dividend tunnel (presence dividend: pool → miner) — **BUILT**

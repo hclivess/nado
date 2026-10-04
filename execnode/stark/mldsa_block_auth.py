@@ -120,16 +120,11 @@ def auth_root(entries):
 def auth_commitments(block):
     """(auth_root, auth_count) for a block — what the block CORE carries and the native verifier recomputes.
 
-    auth_count is the number of authorization ENTRIES; the number of SIGNATURE CHECKS is sig_checks(), which
-    differs once a multisig entry is present. The header pins the entry count because that is what indexes
+    auth_count is the number of authorization ENTRIES; the number of SIGNATURE CHECKS is the sum of the entries'
+    sig_count, which differs once a multisig entry is present. The header pins the entry count because that is what indexes
     the root; the check count rides inside each leaf and so is pinned too."""
     entries = auth_entries(block)
     return auth_root(entries), len(entries)
-
-
-def sig_checks(block):
-    """Total ML-DSA verifications a block demands — the number an aggregate proof must cover."""
-    return sum(int(e["sig_count"]) for e in auth_entries(block))
 
 
 # ---- detached evidence ------------------------------------------------------------------------------

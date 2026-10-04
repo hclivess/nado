@@ -127,15 +127,6 @@ def legacy_address(public_key: str) -> str:
     return body + make_checksum(body, checksum_size=2)             # format 1's 2-byte checksum, always
 
 
-if __name__ == "__main__":
-    public_key = "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3"
-
-    print(make_address(public_key))
-    print(
-        validate_address(make_address(public_key, address_length=42, checksum_size=2))
-    )
-
-
 def key_bound(address, public_key, height=None, account=None):
     """THE ADDRESS IS BOUND TO ITS PUBLISHED KEY: may `public_key` act for `address` given the key the account already
     has on chain? make_address only binds the first 21 bytes of the key's rho, which a forger CHOOSES (review

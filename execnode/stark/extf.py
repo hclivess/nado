@@ -101,12 +101,6 @@ def is_base(v):
     return all(limb == 0 for limb in lift(v)[1:])
 
 
-def to_base(v):
-    """The base-field value, or None if the element is genuinely extension-valued."""
-    e = lift(v)
-    return e[0] if is_base(e) else None
-
-
 def add(u, v):
     a, b = lift(u), lift(v)
     return tuple((a[i] + b[i]) % P for i in range(DEGREE))
@@ -351,10 +345,3 @@ def flatten(vals):
     for v in vals:
         out.extend(lift(v))
     return out
-
-
-def unflatten(xs):
-    """Inverse of flatten."""
-    if len(xs) % DEGREE:
-        raise ValueError(f"limb count {len(xs)} is not a multiple of the degree {DEGREE}")
-    return [tuple(xs[i:i + DEGREE]) for i in range(0, len(xs), DEGREE)]

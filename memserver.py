@@ -244,26 +244,6 @@ class MemServer:
         # Latest self-update capability diagnosis (ops/self_update.ensure_updatable), refreshed at boot and
         # daily, advertised in /status as update_capable so a lagging/unfixable node is visible fleet-wide.
         self.updatability = None
-        # Optional exec-layer view for the escrow invariants. A node with no exec side leaves this None and
-        # only the L1 supply invariant runs.
-        self.exec_state_view = None
-        # AUTO-REGISTER + renew the open-lane PoSW lease, unattended — DEFAULT ON.
-        #
-        # It was opt-in ("a headless node should not silently join, and Sybil-load, the open lane"), and the
-        # cost of that default was measured on betanet-2: of 8 fleet nodes, TWO were running, validating and
-        # relaying for the whole life of the chain while earning EXACTLY ZERO — 0.00 produced, fidelity 0,
-        # registered 0 — purely because nobody had set an environment variable on them. Running a node and
-        # getting nothing is not a safe default, it is a silent misconfiguration that looks like working.
-        #
-        # The Sybil worry the old default guarded against is now handled where it belongs, in consensus
-        # rather than in a flag: POSW_ENTRY_MULT makes creating an identity cost 32x a renewal, and
-        # FIDELITY_MIN_GAP_EPOCHS stops the continuity ramp being farmed. Neither existed when this default
-        # was chosen. Note also that auto-register was never the Sybil lever anyway — it registers ONE
-        # identity, this node's own key; a Sybil does not need it.
-        #
-        # NADO_AUTO_REGISTER=0 (or config auto_register:false) opts a node out.
-        self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", True)
-
         # AUTO-VOTE on treasury proposals paying a WHITELISTED recipient — DEFAULT ON, whitelist-restricted.
         #
         # WHY THIS EXISTS AT ALL: the browser wallet has auto-voted since the feature shipped, but treasury
@@ -1091,13 +1071,6 @@ class MemServer:
             return True, worst
         return False, None
 
-    def merge_transactions(self, transactions, user_origin=False) -> None:
-        """Merge a whole remote batch one tx at a time through merge_transaction, which contains its
-        own failures — so a single malformed/invalid entry from a malicious peer can never abort the
-        rest of the batch. Per-tx results are deliberately discarded (gossip is best-effort)."""
-        for transaction in transactions:
-            self.merge_transaction(transaction, user_origin)
-
     def enqueue_gossip(self, transaction, exclude_ip=None) -> None:
         """Queue a NEWLY-accepted tx for push-fan-out to peers (nado._gossip_worker), skipping the
         peer it came from (exclude_ip) so it never echoes straight back. Best-effort: a full queue
@@ -1108,13 +1081,3 @@ class MemServer:
             self.gossip_queue.put_nowait((transaction, exclude_ip))
         except queue.Full:
             pass
-
-    def purge_txs_of_sender(self, sender) -> None:
-        """remove all transactions of sender to prevent possible double spending attempt"""
-        """of sender sending different txs to different nodes both exhausting balance"""
-        # AUDIT FIX: was `for tx in pool: pool.remove(tx)` — removing while iterating shifts the
-        # index and SKIPS the element after every hit, so adjacent same-sender txs (the exact
-        # double-spend shape this guard exists for) half-survived the purge. Rebuild the pool under
-        # the mempool lock instead.
-        with self.mempool_lock:
-            self.transaction_pool = [t for t in self.transaction_pool if t["sender"] != sender]

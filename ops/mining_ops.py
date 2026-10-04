@@ -21,9 +21,9 @@ Design (from the red-teamed "Option A" hybrid):
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash
-from protocol import DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON
+from protocol import DOMAIN_RANDAO_COMMIT, DOMAIN_RANDAO_BEACON
 from protocol import (B_MIN, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
-                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
+                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS)
 
 
 def epoch_of(block_number: int) -> int:
@@ -313,38 +313,3 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         # branch exists to prevent, on a no-premine chain's first bonded slot or an all-withheld RANDAO epoch.
         return _weighted_draw(open_draw, _open_weight(slot // EPOCH_LENGTH), beacon, slot)
     return None                                                  # stake exists but draw failed -> skip (no leak)
-
-
-# --- open-lane registration proof-of-work (one-time, fee-substitute, phone-doable) -----------
-
-def registration_pow_target() -> int:
-    """Fixed difficulty: a valid hash must be below 2**(256 - REGISTER_POW_BITS)."""
-    return 1 << (256 - REGISTER_POW_BITS)
-
-
-def registration_pow_hash(address: str, nonce) -> int:
-    """Domain-separated (DOMAIN_REGISTER) blake2b of (address, nonce) as an integer, compared
-    against registration_pow_target(). Binding the ADDRESS into the pre-image makes solutions
-    non-transferable — a solved nonce registers exactly one identity."""
-    return int(blake2b_hash([DOMAIN_REGISTER, address, nonce]), 16)
-
-
-def verify_registration_pow(address: str, nonce) -> bool:
-    """A fresh, zero-balance address proves a one-time light PoW INSTEAD of paying the fee it
-    cannot afford. Fixed difficulty (REGISTER_POW_BITS): a few seconds on a phone, ONCE ever. This
-    is NOT an ongoing mining race — the lane cap, not this puzzle, is what bounds Sybils; the PoW
-    only throttles free-registration bursts and substitutes for the unaffordable fee."""
-    return registration_pow_hash(address, nonce) < registration_pow_target()
-
-
-def solve_registration_pow(address: str, start: int = 0, limit: int = 1 << 30):
-    """Helper for the wallet / browser light-miner and tests: find an integer nonce satisfying the
-    registration PoW. Deterministic. Returns the nonce, or None if none found within `limit`."""
-    target = registration_pow_target()
-    nonce = start
-    end = start + limit
-    while nonce < end:
-        if registration_pow_hash(address, nonce) < target:
-            return nonce
-        nonce += 1
-    return None

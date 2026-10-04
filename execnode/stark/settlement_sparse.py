@@ -59,11 +59,6 @@ def root_hex(root):
     return ST.digest_hex(root)
 
 
-def root_from_hex(h):
-    """Inverse of root_hex (storage_tree.digest_from_hex)."""
-    return ST.digest_from_hex(h)
-
-
 def sparse_root_hex(contracts, depth=DEFAULT_DEPTH, v2=False):
     """The settled sparse root as 64-hex — what a settle tx / state_root carries on-chain."""
     return root_hex(sparse_root(contracts, depth, v2=v2))

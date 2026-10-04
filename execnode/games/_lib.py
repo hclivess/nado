@@ -170,14 +170,6 @@ def close_table():
     """
 
 
-def index_append(cnt_slot, list_field):
-    """asm lines that append the id in r0 to an enumeration index: list[count]=r0 ; count++.
-    Uses r3/r4/r5 as scratch (matches the hand-written game code). `cnt_slot` is a bare slot number, not a
-    field*2^32 address; `list_field` is a field id (keyed by the running count)."""
-    return [f"movi r4 {cnt_slot}", "sload r5 r4", f"slot r6 {list_field} r5", "sstore r6 r0",
-            "movi r3 1", "add r5 r3", "sstore r4 r5"]
-
-
 def view_table_maps(index="tables"):
     """The five banked-table _view map entries (ta/tk/tp/tc/tz), all keyed by the given index name."""
     return {"ta": {"field": TA, "index": index}, "tk": {"field": TK, "index": index},

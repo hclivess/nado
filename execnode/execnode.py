@@ -4669,11 +4669,11 @@ async def _cors(request, handler):
     # The light-miner page is served by the L1 node on a DIFFERENT port (:9173), so every /exec/* fetch from
     # the browser is cross-origin — without these headers the browser silently blocks the response (curl
     # doesn't, which is why it worked in tests but not in the wallet). Allow any origin. NOTE: the /exec/*
-    # routes are read-only or compute-only — the /exec/prove_transfer[2] delegated provers PROVE and RETURN a
-    # proof, they don't mutate (DA-only: transfers apply solely via the L1-ordered blob stream). They are
-    # UNAUTHENTICATED — safe to expose because (a) the exec node binds loopback unless NADO_EXEC_BIND is opened,
-    # (b) the STARK size bound rejects oversized inputs before allocation, and (c) an in-flight semaphore caps
-    # concurrent proving. /da/publish is likewise size-capped + semaphore-bounded. Also answer the CORS preflight.
+    # routes are read-only or compute-only — /exec/verify_call VERIFIES and returns a verdict, it doesn't mutate
+    # (DA-only: calls and transfers apply solely via the L1-ordered blob stream). They are UNAUTHENTICATED — safe
+    # to expose because (a) the exec node binds loopback unless NADO_EXEC_BIND is opened, (b) the STARK size bound
+    # rejects oversized inputs before allocation, and (c) an in-flight semaphore caps concurrent work.
+    # /da/publish is likewise size-capped + semaphore-bounded. Also answer the CORS preflight.
     if request.method == "OPTIONS":
         resp = web.Response(status=204)
     else:
@@ -4760,49 +4760,6 @@ async def h_private_state(request):
         "tree_depth": _appstate.TREE_DEPTH, "kinds": sorted(_appstate.PREDICATES)})
 
 
-async def h_prove_transfer(request):
-    """Delegated prover, 1-output (DA-only): the wallet POSTs its SECRET witness (nsk, note opening, output,
-    amounts); we build the Merkle path and prove the join-split STARK off the event loop, then RETURN the
-    proof as bundle_json. The caller publishes it to /da/publish + submits the commitment blob; we NEVER apply
-    out-of-band. Semaphore-bounded (H-7); UNAUTHENTICATED, hence the loopback-by-default bind."""
-    # DELEGATED PROVER: the wallet POSTs its secret witness; we build the Merkle path from the field pool and
-    # produce the full join-split STARK proof. Returns the bundle as an opaque JSON string (big field ints).
-    try:
-        w = await request.json()
-    except Exception:
-        return web.json_response({"error": "bad json"}, status=400)
-    fp = state.field_pool
-    try:
-        pos = fp.position(int(w["cm"]))
-        if pos is None:
-            return web.json_response({"error": "note not in the field pool"}, status=404)
-        from execnode import shielded_field as SFP
-
-        def _prove():
-            """Blocking STARK prove, run in a worker thread via asyncio.to_thread."""
-            return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
-                                      int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
-                                      int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        async with _sem():                                 # H-7: bound concurrent proving
-            bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
-            if w.get("withdraw_addr"):
-                bundle["withdraw_addr"] = w["withdraw_addr"]
-        # DA-ONLY (betanet, no legacy single-operator apply): the delegated prover RETURNS the proof; the
-        # caller publishes it to /da/publish and submits an L1 blob carrying only the commitment, so every
-        # exec node applies it in L1 order. The exec node NEVER applies a transfer out-of-band. The bundle
-        # rides as an opaque JSON STRING (its big field ints survive re-parse).
-        return web.json_response({
-            "bundle_json": json.dumps(bundle),
-            "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
-            "cm_out": str(public["out_commitments"][0]),
-            "public_value": public["public_value"], "fee": public["fee"],
-        })
-    except KeyError as e:
-        return web.json_response({"error": f"missing witness field {e}"}, status=400)
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
-
-
 async def h_field_leaves(request):
     """The field pool's full commitment list (public; big ints as strings) so a browser can build its own
     Merkle path and prove ON-DEVICE — the witness never reaches this node."""
@@ -4814,44 +4771,6 @@ async def h_field_leaves(request):
         return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True,
                                   "depth": _wide_depth_next()})
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})
-
-
-async def h_prove_transfer2(request):
-    """Delegated prover, 2-output (send v1 to recipient + keep v2 change) — otherwise identical to
-    h_prove_transfer: prove off-loop, then RETURN bundle_json for the caller to DA-publish + blob (no apply)."""
-    # DELEGATED PROVER, 2-output: send v1 to a recipient + keep v2 change. Proves -> verifies -> applies.
-    try:
-        w = await request.json()
-    except Exception:
-        return web.json_response({"error": "bad json"}, status=400)
-    fp = state.field_pool
-    try:
-        pos = fp.position(int(w["cm"]))
-        if pos is None:
-            return web.json_response({"error": "note not in the field pool"}, status=404)
-        from execnode import shielded_field as SFP
-
-        def _prove():
-            """Blocking 2-output STARK prove, run in a worker thread via asyncio.to_thread."""
-            return SFP.prove_transfer2(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
-                                       int(w["v1"]), int(w["o1"]), int(w["r1"]),
-                                       int(w["v2"]), int(w["o2"]), int(w["r2"]),
-                                       int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        async with _sem():                                 # H-7: bound concurrent proving
-            bundle, public = await asyncio.to_thread(_prove)
-            if w.get("withdraw_addr"):
-                bundle["withdraw_addr"] = w["withdraw_addr"]
-        # DA-ONLY: return the proof; the caller publishes it to DA + submits the commitment blob (see
-        # h_prove_transfer). No out-of-band apply.
-        return web.json_response({
-            "bundle_json": json.dumps(bundle),
-            "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
-            "cm_out1": str(public["out_commitments"][0]), "cm_out2": str(public["out_commitments"][1]),
-        })
-    except KeyError as e:
-        return web.json_response({"error": f"missing witness field {e}"}, status=400)
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
 
 
 async def h_shielded_note(request):
@@ -4902,61 +4821,6 @@ def _zkvm_contract(st, cid):
     if c.get("runtime") != "zkvm":
         return None, web.json_response({"error": "contract is not on the zkvm runtime"}, status=400)
     return c, None
-
-
-async def h_prove_call(request):
-    """PROVEN EXECUTION (doc/zk-execution-proofs.md): execute one zkvm call against the CURRENT finalized
-    state and return a STARK proof + the public I/O log. Any other node verifies with /exec/verify_call
-    and applies the call via the log — never executing the contract. Body: {cid, method, caller, args,
-    value?}. Returns {bundle_json, ret, cursor} — bundle_json is the self-contained proven-call bundle
-    (stringified: its field ints don't survive JS JSON)."""
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "bad json"}, status=400)
-    st = _state_for(request)
-    if st is None:
-        return _NS404()
-    from execnode import runtimes as _rt
-    from execnode.stark import vm_circuit, field as _F
-    try:
-        cid, method = body["cid"], body["method"]
-        caller = body.get("caller", "prover")
-        args = body.get("args", [])
-        value = int(body.get("value", 0))
-        c, err = _zkvm_contract(st, cid)
-        if err:
-            return err
-        reg = dict(st.zk_addrs)                         # read-only path: never mutate state on a query
-        cf, fargs = _rt.zkvm_statement(caller, args, reg)
-        slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-        cursor, ts = st.cursor, st.block_ts
-        beacons = {e: v % _F.P for e, v in st.beacons.items()}
-        bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
-
-        # ASSET CONTEXT (doc/assets.md): `asset` names the currency of `value`; `selfd` is DERIVED from the
-        # cid on both sides, so it is never something the requester gets to choose.
-        in_asset = int(body.get("asset") or 0)
-        selfd = _rt.zkvm_addr_digest(cid)
-        abal = st.holder_assets(cid)
-
-        def _prove():
-            """Blocking STARK prove (~tens of seconds), run in a worker thread via asyncio.to_thread."""
-            return vm_circuit.prove_call(c["code"], method, cf, fargs, slots, value=value, cursor=cursor,
-                                         timestamp=ts, beacons=beacons, block_hashes=bhashes,
-                                         asset=in_asset, selfd=selfd, abal=abal)
-        async with _sem():                               # H-7: bound concurrent proving
-            proof, io, ret, _new = await asyncio.to_thread(_prove)
-        bundle = {"cid": cid, "method": method, "caller": caller, "args": args, "value": value,
-                  "asset": in_asset,
-                  "cursor": cursor, "timestamp": ts, "io": [list(e) for e in io], "proof": proof}
-        return web.json_response({"bundle_json": json.dumps(bundle), "ret": str(ret), "cursor": cursor})
-    except KeyError as e:
-        return web.json_response({"error": f"missing field {e}"}, status=400)
-    except ValueError as e:
-        return web.json_response({"error": str(e)}, status=400)   # incl. "call reverted — nothing to prove"
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
 
 
 async def h_verify_call(request):
@@ -5029,8 +4893,9 @@ async def main():
                     web.get("/exec/field_leaves", h_field_leaves),
                     # Z7 (security review 2026-09-23): the delegated provers took the wallet's SPENDING KEY over
                     # HTTP. The wallet has proven on-device since interface.js proveTransfer2 (WASM), so these
-                    # routes only remained as a way to hand a secret to a server. Unrouted for good; the handlers
-                    # stay only until the next cleanup pass. A private key is never sent anywhere (CLAUDE.md §8).
+                    # routes only remained as a way to hand a secret to a server. Unrouted for good and the
+                    # handlers deleted (h_prove_transfer, h_prove_transfer2, h_prove_call): never re-add a route
+                    # that takes a spending key or a note witness. A private key is never sent anywhere (CLAUDE.md §8).
                     web.post("/exec/verify_call", h_verify_call),
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),

@@ -174,19 +174,6 @@ def eval7_ref(cards):
     return pack(0, hk[0], hk[1], hk[2], hk[3], hk[4])
 
 
-def closes_ref(td, sc_forced):
-    b0 = td + F0
-    cs = [b0]
-    for k in range(1, 5):
-        f = sc_forced.get(k, 0) if isinstance(sc_forced, dict) else 0
-        cs.append(f if f else cs[-1] + S)
-    return cs
-
-
-CAT_NAMES = ["High card", "Pair", "Two pair", "Trips", "Straight", "Flush", "Full house", "Quads",
-             "Straight flush"]
-
-
 # ---- asm building blocks -------------------------------------------------------------------------------
 def _sl(field, key="r0"):
     return [f"slot r4 {field} {key}"]

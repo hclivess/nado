@@ -22,7 +22,7 @@ def main():
     assert P.DEVICE_ATTEST_HEIGHT == 1, "the device rule is unconditional from block 1"
     assert P.on_probation(0, 5) is False and P.on_probation(1, 5) is False, "probation retired"
     assert P.dividend_weight(1, 5) == 1, "an attested identity earns from its first lease"
-    assert P.POSW_ENTRY_COUNT_HEIGHT == 0 and not hasattr(P, "DIV_CARRY_METER_EPOCH"), "gen-24 gates retired"
+    assert not hasattr(P, "POSW_ENTRY_COUNT_HEIGHT") and not hasattr(P, "DIV_CARRY_METER_EPOCH"), "gen-24 gates retired"
     assert not hasattr(ratelimit, "allow_registration") and not hasattr(ratelimit, "allow_identity"), "per-IP budgets retired"
     assert hasattr(ratelimit, "allow"), "the plain API rate limiter stays"
     tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
@@ -34,6 +34,7 @@ def main():
     assert "construct_register_tx" not in body, "nodes do not self-register in the open lane"
     nd = open(os.path.join(ROOT, "nado.py")).read()
     assert "allow_identity(" not in nd and "allow_registration(" not in nd
+    assert "_ip_registration_rejection" not in nd, "the always-None per-IP register hook is gone, not stubbed"
     cfg = open(os.path.join(ROOT, "config.py")).read()
     assert "max_registrations_per_ip" not in cfg and "max_identities_per_ip" not in cfg
     js = open(os.path.join(ROOT, "static", "interface.js")).read()

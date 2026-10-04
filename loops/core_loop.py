@@ -381,7 +381,6 @@ class CoreClient(threading.Thread):
         # AUTO-COLLECT (default on) + AUTO-REGISTER (opt-in): sweep the presence dividend, and keep the open-lane
         # PoSW lease alive, hands-free. Throttled to one of each per epoch (see maybe_auto_collect/register).
         self.last_auto_collect_epoch = -1
-        self.last_auto_register_epoch = -1
         self.last_auto_vote_epoch = -1
         # anti-spam backoff for the emergency-mode "Could not find a syncable peer" retry (fires every ~1s
         # while no donor is reachable — a persistent normal state on a lone/bootstrap node).
@@ -395,7 +394,11 @@ class CoreClient(threading.Thread):
         # While the donor still advertises the current heaviest hash, it is re-verified with one
         # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
         self._sync_donor = (None, None)
-        self._last_sync_donor_ip = None   # donor dialled for THIS attempt; cleared when none qualifies
+        # The donor most recently SELECTED by get_peer_to_sync_from. It is NOT cleared when a later pass finds no
+        # donor (a _clear_sync_donor helper written for that, 3dcd6be2, was never called and was deleted): a
+        # no-donor _reject_heaviest_tip() then passes this ip, and reject_tip strikes it only if it still
+        # advertises the failed tip — a stale ip that does not is filtered out, so nobody is struck either way.
+        self._last_sync_donor_ip = None
         self._minority_since = None       # first pass we saw a better-but-unheld tip (grace window)
         # LOG-ONCE guard for _candidate_pool: txids already surfaced as "Candidate excludes…" so the
         # same lingering pool tx (chiefly stale/duplicate RANDAO commit-reveal + attest txs that sit in
@@ -949,13 +952,6 @@ class CoreClient(threading.Thread):
                                  unreachable_list=self.memserver.unreachable.keys(),
                                  peer_hash=source_pool.get(peer),
                                  required_hash=required_hash)["result"]
-
-    def _clear_sync_donor(self):
-        """Forget the donor we dialled. MUST run whenever selection yields none, or _last_sync_donor_ip
-        keeps a STALE ip from an earlier cycle: reject_tip would then filter holders to a peer that does
-        not hold the current tip, holders becomes empty, and NOBODY is struck — silently reintroducing the
-        wedge where a lone stale forker owns the donor pool and never accumulates strikes."""
-        self._last_sync_donor_ip = None
 
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
@@ -3302,11 +3298,6 @@ class CoreClient(threading.Thread):
     # pays for one recomputation.
     _tpm_identity_cache = None
 
-    @staticmethod
-    def _te_window_impl(created_height):
-        from ops.tpm_enrol import enrol_window
-        return enrol_window(created_height)
-
     def _tpm_open(self):
         """This machine's TPM, or None if it has none. The node has exactly ONE place that decides both
         questions, so there is exactly one thing for a test to substitute — tests/test_tpm_self_enrol.py
@@ -3633,7 +3624,9 @@ class CoreClient(threading.Thread):
             # skipped every enrolment on a node that had been drawn as a PRODUCER without being bonded.
             # The first real enrolment on this chain sat with zero challenges for 107 blocks because of
             # it: the draw named three producers and the loop asked a different question.
-            live = kv_ops.tpm_enrols_live()
+            # tip=: EXPIRED incomplete rows are never collected, and counted against the scan's limit they hid
+            # fresh enrolments from every challenger (kv_ops.tpm_enrols_live). Keep the tip here.
+            live = kv_ops.tpm_enrols_live(tip=tip)
             # WHAT THIS DUTY LAST DID, READABLE FROM OUTSIDE. A duty that catches its own exceptions so it
             # cannot stop block production is a duty that fails invisibly, and the only place the reason
             # lands is a log file on a machine somebody else operates. The first real enrolment on this
@@ -3643,7 +3636,7 @@ class CoreClient(threading.Thread):
             if not live:
                 # No enrolment is in progress, so every secret we are still holding belongs to one that
                 # finished or expired. This is the only moment that fact is knowable for free.
-                self.maybe_tpm_prune_secrets()
+                self.maybe_tpm_prune_secrets(tip)
                 return
             from ops.tpm_aik import make_credential
             from ops.transaction_ops import construct_tpm_tx
@@ -3734,15 +3727,21 @@ class CoreClient(threading.Thread):
             self.logger.error(f"TPM challenge duty failed: {type(e).__name__}: {e}\n"
                               + traceback.format_exc())
 
-    def maybe_tpm_prune_secrets(self):
+    def maybe_tpm_prune_secrets(self, tip=None):
         """Forget the secrets of enrolments that are finished or gone. A challenger's secret is worthless
-        once revealed, but keeping every one forever turns a small private file into an unbounded one."""
+        once revealed, but keeping every one forever turns a small private file into an unbounded one.
+        EXPIRED counts as gone: an incomplete row is never collected from the chain, so "still open/commit"
+        alone kept an expired enrolment's secret forever. With `tip`, an open/commit record past its window
+        (tip >= h + enrol_window(h), as tpm_enrols_live) is pruned too."""
+        def _wanted(rec):
+            if (rec or {}).get("state") not in ("open", "commit"):
+                return False
+            return tip is None or int(tip) < int(rec["h"]) + _te_window(int(rec["h"]))
         try:
             store = self._tpm_secrets_load()
             if not store:
                 return
-            keep = {eid: v for eid, v in store.items()
-                    if (kv_ops.tpm_enrol_get(eid) or {}).get("state") in ("open", "commit")}
+            keep = {eid: v for eid, v in store.items() if _wanted(kv_ops.tpm_enrol_get(eid))}
             if len(keep) != len(store):
                 self._tpm_secrets_save(keep)
         except Exception as e:
@@ -4869,7 +4868,6 @@ class CoreClient(threading.Thread):
             # letting a bare ok=true imply they passed.
             acct = self._exec_get("/exec/accounting")
             exec_state = self._ExecView(acct) if acct else None
-            self.memserver.exec_state_view = exec_state
             ok, results = invariants.check_all(kv_ops.iter_accounts, kv_ops.totals_get(),
                                                get_account, exec_state)
             self.memserver.invariant_report = {"height": height, "ok": ok, "checks": results}

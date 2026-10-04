@@ -61,10 +61,6 @@ def _carry(base, i):
     return _EXTRA0 + which * (ext2.DEGREE - 1) + (i - 1)
 
 
-def _carry_all(base):
-    return tuple(_carry(base, i) for i in range(ext2.DEGREE))
-
-
 def _wtot(ext):
     return (_EXTRA0 + 3 * (ext2.DEGREE - 1)) if ext else _WTOT
 
@@ -222,10 +218,6 @@ def _pal(i):
 
 def _pfin(i):
     return _PFIN if i == 0 else _PAL_X0 + (ext2.DEGREE - 1) + (i - 1)
-
-
-def _nper(ext):
-    return (_W + 14 + 2 * (ext2.DEGREE - 1)) if ext else _NPER
 
 
 def _schedule_periodic_boundaries(schedule, seam_lo0=None, ext=False, ext0=False):

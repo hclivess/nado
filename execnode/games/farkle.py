@@ -52,19 +52,6 @@ def score_counts(counts, straight):
     return s
 
 
-def keep_valid(keep, rolled_counts, dice_left):
-    """Whether `keep` (per-face) is a legal set-aside against the rolled counts."""
-    for f in (2, 3, 4, 6):
-        if not (keep[f] == 0 or keep[f] >= 3):
-            return False
-    for f in range(1, 7):
-        if keep[f] > rolled_counts[f]:
-            return False
-    ksum = sum(keep[f] for f in range(1, 7))
-    straight = dice_left == 6 and all(keep[f] == 1 for f in range(1, 7))
-    return ksum >= 1 and (score_counts(keep, straight) > 0)
-
-
 # ------- asm generators -------
 def _sc(i):
     return (SC << 32) | i

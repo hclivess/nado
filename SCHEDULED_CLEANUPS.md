@@ -18,16 +18,28 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 - **Exec-layer `>= 1` helpers keep dead legacy branches** (slice 2, 9c6bf717): the `ExecState.rules_*` helpers, the
   exec root layout and the legacy field-pool checks under `rules_r2()` still branch on height 0, which no real block
   reaches. Deletable only with a replay proving height 0 never reaches them — a cleanup, not owed by a reroll.
+  **Left 2026-09-30 (dead-code pass), not safe as a plain deletion:** height 0 IS reached — a fresh ExecState applies
+  genesis at applying_height 0, and `exec_state_bind.root_v2(0)` is False, so the exec genesis root at cursor -1/0 is
+  the v1 layout and "reaches the exec summaries in L1 `meta`" (root_v2's own docstring). Collapsing the helpers to
+  True changes that root. tests/test_privacy_pause, test_shielded_wide, test_exec_rules_v2 and test_review_round2
+  pin the height-0 answer. Only at a reroll, with the genesis exec root re-derived, or with a replay proving the
+  cursor-0 root is never compared.
 - **A settle proof whose span starts at exec cursor 0 may not match the settled genesis root**: the exec genesis root at
   cursor 0 is the v1 layout, a proof starting there uses v2 (found by the slice-2 agent; same on the old code; betanet-8
   is past cursor 0, so it bites only the first settle after the NEXT reroll). Investigate before that reroll.
-- **Two tests fail identically on old and new code, unrelated to the gates**: autogame_model (run path) and
-  test_settle_fold_tree (times out at the default ceiling; the reroll branch's runner gives it the slow one). Fix or
-  delete each; a red test nobody reads is how the lend page stayed broken from 2026-08-02 to 2026-09-26. (test_auto_bond,
-  test_emergency_rollback_gating, test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and test_pay_binding were
-  stale on correct code and are fixed, 5e5d48ad.)
+  **Status 2026-09-30:** that reroll happened (betanet-9, gen 28). Measured read-only on the relay: `/exec/settlement`
+  cursor 19690, last_settled_cursor 19681 — settlement advances on betanet-9. NOT checked: whether the first span
+  (from cursor 0) carried a proof or degraded to a bare attestation; that needs the exec log of the first settle.
+- ~~**Two tests fail identically on old and new code**~~ — **closed 2026-09-30.** test_settle_fold_tree is on
+  scripts/run_tests.sh's SLOW list (10800 s ceiling; measured 2 h 28 min to ALL PASS). autogame_model does not
+  reproduce: `python tests/autogame_model.py` exits 0 and tests/autogame_contract_test.py, which drives the model
+  against the contract and the browser engine, is ALL PASS on this tree. (test_auto_bond, test_emergency_rollback_gating,
+  test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and test_pay_binding were stale on correct code and are
+  fixed, 5e5d48ad.)
 - **install.sh's root→account migration branch** says to delete it by mainnet; it is also what install-timers.sh
   undid (doc/jobs.md). Delete with the next installer pass once no root install remains.
+  **Left 2026-09-30:** whether any fleet node still runs a root install cannot be measured from here (fleet operators
+  give us no root); the branch stays until someone confirms it.
 
 ## 2026-09-24 — the K->1 fold stays REFUSED: SETTLE_PROOF_RECURSIVE is already True, so lifting the refusal is live
 
@@ -48,22 +60,12 @@ Owed before the refusal may go, IN THIS ORDER:
    in the GATE LEDGER.
 Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
 
-## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): delete at the gen-25 reroll — STILL OWED
+## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): DELETED 2026-09-30 (branch q-dead)
 
-**Status 2026-09-26:** the gate is dead (`protocol.POSW_ENTRY_COUNT_HEIGHT = 0` since gen 25, pinned by
-tests/test_gen25_retirements.py) but the NAME is still imported by `ops/reg_difficulty.py`, and tests/test_posw_rule_gate.py
-no longer exists. Owed: delete the constant, `entries_only_at`, the `entries_only` parameters and this entry together.
-
-`protocol.POSW_ENTRY_COUNT_HEIGHT = 1636 if CHAIN_GENERATION == 24 else 0`, read by
-`ops/reg_difficulty.entries_only_at(landing_height)`. The entries-only flood counting (84d122f3) was pushed at
-17:12 UTC on 2026-09-01 with betanet-6 already 1600 blocks old and NO gate; every registration the fleet had
-validated before its update carries a proof for the OLD all-register-txs rule (block 871: 160M = 5x32 under
-the old rule vs 128M = 4x32 under the new), so a from-genesis replay under the new rule rejected block 871 and
-no fresh node could sync (this box, 2026-09-02 12:14 UTC). Replaying blocks 0..3600 against the proofs: the
-last old-rule registration landed at 1608 (17:13:17 UTC), the first new-rule one at 1636 (17:16:37); the gate
-sits at the first proven new-rule block. **Cannot go early**: it is what makes gen-24 history replayable.
-Pinned by tests/test_posw_rule_gate.py. At the gen-25 reroll the expression is 0 and the old branch is dead —
-delete the constant, `entries_only_at`, the `entries_only` parameters and this entry together.
+The constant, `reg_difficulty.entries_only_at`, the `entries_only` parameters and `required_posw_t`'s
+`landing_height` went together. The expression was `0` on every chain since gen 25, so `entries_only_at` answered
+True for every height a block can have: behaviour-neutral. `tests/test_gen25_retirements.py` now asserts the name
+is gone. Nothing scheduled.
 
 ## 2026-09-01 — gen-23 SYBIL RULES gate: RETIRED at the betanet-6 (gen 24) reroll (2026-09-01)
 
@@ -92,4 +94,4 @@ the reroll commit; `tests/test_dividend_rules.py` asserts no such gate exists. N
 `protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24 or NADO_AUTH_FORCE`. It is an expression, not a gate: on gen 23 the
 `auth` recipient is refused and no account can hold a config; on gen 24+ it is live from block 0. After the gen-24
 reroll the `>= 24` half is a tautology and MAY be simplified to `True` — optional, cosmetic. Never set
-`NADO_AUTH_FORCE` on a validator.
+`NADO_AUTH_FORCE` on a validator. (Left as is 2026-09-30: cosmetic, and tests still drive the NADO_AUTH_FORCE recipe.)

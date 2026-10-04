@@ -1,4 +1,3 @@
-import asyncio
 import time as _time
 import json
 
@@ -8,15 +7,8 @@ from ops.account_ops import get_account, reflect_transaction
 from ops.address_ops import proof_sender, make_address, is_address
 from ops.address_ops import validate_address
 from ops.block_ops import get_block_number
-from compounder import compound_send_transaction
-from config import get_config
 from config import get_timestamp_seconds
-from config import hostport
-from ops.data_ops import get_byte_size
 from hashing import create_nonce, blake2b_hash, canonical_bytes
-from ops.key_ops import load_keys
-from ops.log_ops import get_logger
-from ops.peer_ops import load_ips
 from ops import kv_ops
 import protocol as _P
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
@@ -24,43 +16,11 @@ from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
                       HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
-from protocol import ADDRESS_PREFIX
 
 
 def _is_hex(s) -> bool:
     """non-empty, even-length (byte-aligned) hex string check"""
     return isinstance(s, str) and len(s) % 2 == 0 and len(s) > 0 and all(c in "0123456789abcdefABCDEF" for c in s)
-import aiohttp
-
-
-async def get_recommneded_fee(target, port, base_fee, logger):
-    """Client-side helper: fetch a peer's congestion fee component and add the local size-based
-    base_fee to get a fee that should clear the pool. None (logged warning) on failure."""
-    try:
-        url_construct = f"http://{hostport(target, port)}/get_recommended_fee"
-
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
-            async with session.get(url_construct, allow_redirects=False) as response:
-                result = json.loads(await response.text())
-                return result['fee'] + base_fee
-    except Exception as e:
-        logger.warning(f"Failed to get recommended fee: {e}")
-
-
-async def get_max_block(target, port, logger):
-    """Client-side helper: ask a peer for its latest block and aim the new tx two blocks ahead, so it
-    lands inside the acceptance window despite propagation lag. None (logged warning) on failure."""
-    try:
-        url_construct = f"http://{hostport(target, port)}/get_latest_block"
-
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            # allow_redirects=False: a peer's 302 to 127.0.0.1 would be a loopback-authorized GET here (ops/outbound_guard.py)
-            async with session.get(url_construct, allow_redirects=False) as response:
-                result = json.loads(await response.text())
-                return result['block_number'] + 2
-    except Exception as e:
-        logger.warning(f"Failed to get target block: {e}")
 
 
 def remove_outdated_transactions(transaction_list, block_number):
@@ -327,32 +287,6 @@ def construct_auth_tx(sender, signer_keydicts, data, fee, max_block, min_block=0
     msg = unhex(tx["txid"])
     tx["signature"] = [{"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg)}
                        for kd in signer_keydicts]
-    return tx
-
-
-def construct_commit_tx(keydict, target_epoch, commitment, max_block):
-    """Build a SIGNED RANDAO commit tx (#7): a bonded validator publishes a secret's commitment for
-    target_epoch's beacon (submitted in epoch E-2). Fee-exempt, zero-amount."""
-    tx = {"sender": keydict["address"], "recipient": "commit", "amount": 0,
-          "timestamp": get_timestamp_seconds(),
-          "data": {"target_epoch": int(target_epoch), "commitment": commitment},
-          "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
-    return tx
-
-
-def construct_reveal_tx(keydict, target_epoch, secret, max_block):
-    """Build a SIGNED RANDAO reveal tx (#7): opens the validator's prior commitment, contributing the
-    secret to target_epoch's beacon (submitted in epoch E-1's finalized window). Fee-exempt."""
-    tx = {"sender": keydict["address"], "recipient": "reveal", "amount": 0,
-          "timestamp": get_timestamp_seconds(),
-          "data": {"target_epoch": int(target_epoch), "secret": secret},
-          "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
@@ -1127,18 +1061,6 @@ def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, max_b
 def construct_bridge_deposit_tx(keydict, amount, max_block, fee):
     """Build a SIGNED bridge DEPOSIT: recipient 'bridge', amount locked into escrow; exec node credits it."""
     tx = {"sender": keydict["address"], "recipient": "bridge", "amount": int(amount),
-          "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
-          "public_key": keydict["public_key"], "max_block": int(max_block),
-          "chain_id": CHAIN_ID, "fee": int(fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
-    return tx
-
-
-def construct_faucet_tx(keydict, amount, max_block, fee):
-    """Build a SIGNED faucet DONATION: recipient 'faucet', amount locked into the faucet escrow; the exec
-    layer credits it to the faucet contract (doc/faucet.md). Anyone can fund the faucet from any wallet."""
-    tx = {"sender": keydict["address"], "recipient": "faucet", "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
           "public_key": keydict["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": int(fee)}
@@ -2996,21 +2918,6 @@ def to_raw_amount(amount: [int, float]) -> int:
     return int(float(amount) * 10000000000)
 
 
-def check_balance(account, amount, fee):
-    """for single transaction, check if the fee and the amount spend are allowable"""
-    balance = get_account(account)["balance"]
-    assert (
-            balance - amount - fee > 0 <= amount
-    ), f"{account} spending more than owned in a single transaction"
-    return True
-
-
-def get_senders(transaction_pool: list) -> list:
-    """unique senders in a transaction pool, first-seen order preserved (deterministic iteration).
-    dict.fromkeys gives insertion-ordered dedup in O(n); the old `if x not in list` form was O(n^2)."""
-    return list(dict.fromkeys(t["sender"] for t in transaction_pool))
-
-
 def _spend_costs(tx):
     """(spendable-balance cost, bonded-stake cost) of a tx for overspend checks.
     An `unbond` draws its `amount` from bonded stake (only the fee leaves balance); every
@@ -3218,40 +3125,6 @@ def validate_origin(transaction: dict, block_height=None):
     return True
 
 
-def get_base_fee(transaction):
-    """Minimum fee for a tx = its serialized byte size, so a tx pays for the block/storage space it
-    consumes. False (not raise) on failure so callers treat an unmeasurable tx as unpayable."""
-    try:
-        tx_copy = transaction.copy()
-        base_fee = get_byte_size(tx_copy)
-        return base_fee
-
-    except Exception as e:
-        logger.info(f'Failed to calculate base fee: {e}')
-        return False
-
-
-def validate_base_fee(transaction, logger):
-    """Size-proportional anti-spam floor: the declared fee must cover get_base_fee of the tx WITHOUT
-    its fee/signature/txid fields (those aren't part of what the sender drafted against, and the fee
-    must not price its own bytes). Returns False (never raises) on shortfall or malformed input."""
-    try:
-        tx_copy = transaction.copy()
-        fee = tx_copy["fee"]
-        tx_copy.pop("fee")
-        tx_copy.pop("signature")
-        tx_copy.pop("txid")
-
-        if fee >= get_base_fee(tx_copy):
-            return True
-        else:
-            return False
-
-    except Exception as e:
-        logger.info(f'Failed to validate base fee: {e}')
-        return False
-
-
 def validate_txid(transaction, logger):
     """CONSENSUS: recompute the canonical txid from the body (txid + signature stripped) and require
     an EXACT match. The signature covers only the txid, so this is what binds it to the full body —
@@ -3306,30 +3179,6 @@ def draft_transaction(sender, recipient, amount, public_key, timestamp, data, ma
         "chain_id": CHAIN_ID,
     }
 
-    return transaction_message
-
-
-def draft_open_lane_transaction(sender, recipient, public_key, timestamp, max_block,
-                                pow_nonce=None, epoch=None):
-    """Draft a FEE-EXEMPT open-lane mining tx (recipient 'register' or 'heartbeat'): amount 0, and
-    create_transaction will set fee 0. Carries pow_nonce (register) or epoch (heartbeat) in the
-    SIGNED body so both are committed by the txid. The browser light-miner builds the identical
-    structure (canonical_bytes reproducibility)."""
-    transaction_message = {
-        "sender": sender,
-        "recipient": recipient,
-        "amount": 0,
-        "timestamp": timestamp,
-        "data": "",
-        "nonce": create_nonce(),
-        "public_key": public_key,
-        "max_block": max_block,
-        "chain_id": CHAIN_ID,
-    }
-    if pow_nonce is not None:
-        transaction_message["pow_nonce"] = pow_nonce
-    if epoch is not None:
-        transaction_message["epoch"] = epoch
     return transaction_message
 
 
@@ -3417,77 +3266,3 @@ def index_transactions(block, sorted_transactions, logger):
                 # exactly when THIS apply set it — never by inference from pruned history. See the
                 # matching pop in unindex_transactions. (Re-applies reverted-at-reroll 942f41f1.)
                 kv_ops.pubkey_revert_put(transaction["txid"])
-
-
-if __name__ == "__main__":
-    logger = get_logger(file="transactions.log", logger_name="transactions_logger")
-    # print(get_account("noob23"))
-    LOCAL = False
-
-    key_dict = load_keys()
-    address = key_dict["address"]
-    from ops.address_ops import make_checksum as _mc
-    recipient = ADDRESS_PREFIX + "6a7a7a6d26040d8d53ce66343a47347c9b79e814c6"
-    recipient = recipient + _mc(recipient)
-    private_key = key_dict["private_key"]
-    public_key = key_dict["public_key"]
-    amount = to_raw_amount(0)
-    data = {"data_id": "seek_id", "data_content": "some_actual_content"}
-
-    config = get_config()
-    ip = config["ip"]
-
-    port = config["port"]
-
-    if LOCAL:
-        ips = ["127.0.0.1"]
-    else:
-        ips = asyncio.run(load_ips(logger=logger,
-                                   fail_storage=[],
-                                   unreachable={},
-                                   port=port))
-
-    for x in range(0, 50000):
-        try:
-            draft = draft_transaction(sender=address,
-                                      recipient=recipient,
-                                      amount=to_raw_amount(amount),
-                                      data=data,
-                                      public_key=public_key,
-                                      timestamp=get_timestamp_seconds(),
-                                      max_block=asyncio.run(get_max_block(target=ips[0],
-                                                                                port=port,
-                                                                                logger=logger)))
-            fee = asyncio.run(get_recommneded_fee(
-                target=ips[0],
-                port=port,
-                base_fee=get_base_fee(transaction=draft),
-                logger=logger))
-
-            if fee > 500:
-                fee = 500
-
-            transaction = create_transaction(draft=draft,
-                                             private_key=private_key,
-                                             fee=fee
-                                             )
-
-            print(transaction)
-            print(validate_transaction(transaction, logger=logger, block_height=111112))
-
-            fails = []
-            results = asyncio.run(compound_send_transaction(ips=ips,
-                                                            port=port,
-                                                            fail_storage=fails,
-                                                            logger=logger,
-                                                            transaction=transaction,
-                                                            semaphore=asyncio.Semaphore(50)))
-
-            print(f"Submitted to {len(results)} nodes successfully")
-
-            # time.sleep(5)
-        except Exception as e:
-            print(e)
-            raise
-
-    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)

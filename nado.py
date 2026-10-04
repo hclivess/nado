@@ -758,8 +758,8 @@ async def submit_transaction(request):
     oversized/malformed payload can't balloon memory) and merge it into the pool. Serves BOTH user
     submissions and peer PUSH-GOSSIP (a peer relaying a tx it just accepted). On a first-sight accept
     the tx is re-pushed to our other peers, so one submit floods the mesh in ~one hop per edge; a dup
-    returns "Already present" and never re-floods, which terminates the epidemic. `register` txs also
-    pass the per-source-IP anti-Sybil budget. 200 on accept, 403 on reject, 429 over the rate limit."""
+    returns "Already present" and never re-floods, which terminates the epidemic (the per-source-IP register
+    budget was retired at gen 25). 200 on accept, 403 on reject, 429 over the rate limit."""
     ip = _ip(request)
     # RATE LIMIT. A large (proof-carrying) submit is expensive to admit, so it is strict-limited for
     # EVERYONE — a linked peer must NOT be able to amplify the 192 MiB body-cap DoS by relaying oversized
@@ -810,12 +810,9 @@ _large_inflight = 0
 
 
 def _work_submit(body, ip):
-    """Decode, anti-Sybil check, pool-merge, and (on a first-sight accept) queue push-gossip."""
+    """Decode, pool-merge, and (on a first-sight accept) queue push-gossip."""
     try:
-        transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/outbound_guard.py)
-        rej = _ip_registration_rejection(ip, transaction)
-        if rej:
-            return rej, 429
+        transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
         output = memserver.merge_transaction(transaction, user_origin=True)
         if should_gossip(output):       # newly accepted -> fan out to peers, minus the sender
             memserver.enqueue_gossip(transaction, exclude_ip=ip)
@@ -829,12 +826,6 @@ def _work_submit(body, ip):
         return output, (200 if output.get("result") else 403)
     except Exception as e:
         return f"Error: {e}", 403
-
-
-def _ip_registration_rejection(ip, transaction):
-    """RETIRED at gen 25: the per-IP entry budget and identity cap keyed on client IPs; identities now cost an
-    attested device (doc/device-attestation.md), and IP keys penalised CGNAT households. Always None."""
-    return None
 
 
 async def health(request):

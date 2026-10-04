@@ -9,7 +9,7 @@ tested end-to-end:
 | zkVM — field-native provable register VM + assembler | `execnode/zkvm.py`, `execnode/zkvmasm.py` | ✅ (`tests/test_zkvm.py`) |
 | zkVM execution AIR (101 columns, 94 constraints, 5 LogUp buses) | `execnode/stark/vm_circuit.py` | ✅ (`tests/test_zkvm_circuit.py` — adversarial suite) |
 | exec-layer runtime `"zkvm"` + digest registry + slot storage | `execnode/runtimes.py`, `state.py` | ✅ (`tests/test_zkvm_runtime.py` — 3-way differential) |
-| proven-execution endpoints | `/exec/prove_call`, `/exec/verify_call` | ✅ |
+| proven-execution endpoints | `/exec/verify_call` (`/exec/prove_call` unrouted and deleted, review 2026-09-23 Z7) | ✅ |
 | **epoch settlement proof** — binds `pre_root → post_root`, installs into the settlement seam | `execnode/settlement_proofs.py` | ✅ (`tests/test_settlement_proof.py` — incl. real `ops.settlement_ops` seam) |
 
 Measured (this host, Python + native Goldilocks): a real contract call (blockhash randomness → LO32 →
