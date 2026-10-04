@@ -1,0 +1,97 @@
+# Tests the per-push CI job does not run (scripts/run_tests.sh NADO_TEST_EXCLUDE), each with its reason.
+# Measured 2026-09-30 in a bare clone with only requirements.txt (no Rust kernels), 5-minute cap per test.
+# Every test listed here runs in the NATIVE job (.github/workflows/ci.yml: Rust kernels built, long caps), so
+# nothing is dropped — it is moved. Remove a line when its test runs without the kernels in under 5 minutes.
+test_appnote_circuit                         needs the Rust kernels (native/, wasm/goldilocks)
+test_appnote_deposit_vin                     needs the Rust kernels (native/, wasm/goldilocks)
+test_arena_ext_identity                      needs the Rust kernels (native/, wasm/goldilocks)
+test_asset_ops_settle_by_proof               needs the Rust kernels (native/, wasm/goldilocks)
+test_asset_settle_l1                         needs the Rust kernels (native/, wasm/goldilocks)
+test_attest_kernel_contract                  needs the Rust kernels (native/, wasm/goldilocks)
+test_aux_ext_challenges                      needs the Rust kernels (native/, wasm/goldilocks)
+test_calldata_binding_is_wide                needs the Rust kernels (native/, wasm/goldilocks)
+test_calls_commit                            needs the Rust kernels (native/, wasm/goldilocks)
+test_cert_validity_is_agreed_time            needs the Rust kernels (native/, wasm/goldilocks)
+test_comp_verify                             needs the Rust kernels (native/, wasm/goldilocks)
+test_da_encode_matrix                        timing benchmark (20x faster than a baseline): meaningless on a shared runner
+test_device_attest_formats_pc                needs the Rust kernels (native/, wasm/goldilocks)
+test_device_attest_hw                        needs the Rust kernels (native/, wasm/goldilocks)
+test_device_attest_kernel                    needs the Rust kernels (native/, wasm/goldilocks)
+test_device_attest_real_vector               needs the Rust kernels (native/, wasm/goldilocks)
+test_device_attest_rule                      needs the Rust kernels (native/, wasm/goldilocks)
+test_every_opcode_settles_natively           needs the Rust kernels (native/, wasm/goldilocks)
+test_exec_root_v2                            needs the Rust kernels (native/, wasm/goldilocks)
+test_exec_state_bind                         needs the Rust kernels (native/, wasm/goldilocks)
+test_ext_merkle_native                       needs the Rust kernels (native/, wasm/goldilocks)
+test_fold_cache_persist                      needs the Rust kernels (native/, wasm/goldilocks)
+test_fri_blowup2_parity                      needs the Rust kernels (native/, wasm/goldilocks)
+test_fs_chain                                needs the Rust kernels (native/, wasm/goldilocks)
+test_fs_incircuit                            needs the Rust kernels (native/, wasm/goldilocks)
+test_fs_step                                 needs the Rust kernels (native/, wasm/goldilocks)
+test_io_replay                               needs the Rust kernels (native/, wasm/goldilocks)
+test_logup_bind                              needs the Rust kernels (native/, wasm/goldilocks)
+test_merkle_update                           needs the Rust kernels (native/, wasm/goldilocks)
+test_merkle_update_batch                     needs the Rust kernels (native/, wasm/goldilocks)
+test_merkle_update_row_commit                needs the Rust kernels (native/, wasm/goldilocks)
+test_nop_settles_by_proof                    needs the Rust kernels (native/, wasm/goldilocks)
+test_offchain_batch_canon                    needs the Rust kernels (native/, wasm/goldilocks)
+test_offchain_bulk_reuptake                  needs the Rust kernels (native/, wasm/goldilocks)
+test_pay_and_chain_reads_settle_natively     needs the Rust kernels (native/, wasm/goldilocks)
+test_periodic_lde_equivalence                needs the Rust kernels (native/, wasm/goldilocks)
+test_proof_bind_gate                         needs the Rust kernels (native/, wasm/goldilocks)
+test_proof_block_selector                    needs the Rust kernels (native/, wasm/goldilocks)
+test_proof_query_full                        needs the Rust kernels (native/, wasm/goldilocks)
+test_records_bind                            needs the Rust kernels (native/, wasm/goldilocks)
+test_records_bound_settle                    needs the Rust kernels (native/, wasm/goldilocks)
+test_records_transition                      needs the Rust kernels (native/, wasm/goldilocks)
+test_recursion_authdepth                     needs the Rust kernels (native/, wasm/goldilocks)
+test_recursive_row                           needs the Rust kernels (native/, wasm/goldilocks)
+test_recursive_verify                        needs the Rust kernels (native/, wasm/goldilocks)
+test_recursive_verify_hetero                 needs the Rust kernels (native/, wasm/goldilocks)
+test_rowcomp_verify                          needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_cid_io_binding                   needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_depth_gate                       needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_fold_tree                        needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_multiblock_da                    needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_pre_contracts_exported           needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_proof_live_state_shape           needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_prover_sim                       needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_recursive_gate                   needs the Rust kernels (native/, wasm/goldilocks)
+test_settle_sparse_fold                      needs the Rust kernels (native/, wasm/goldilocks)
+test_settlement_o1                           needs the Rust kernels (native/, wasm/goldilocks)
+test_settlement_sparse                       needs the Rust kernels (native/, wasm/goldilocks)
+test_shielded_state_da                       needs the Rust kernels (native/, wasm/goldilocks)
+test_shielded_state_replay                   needs the Rust kernels (native/, wasm/goldilocks)
+test_shielded_state_seam                     needs the Rust kernels (native/, wasm/goldilocks)
+test_shielded_vault_e2e                      needs the Rust kernels (native/, wasm/goldilocks)
+test_slot_key_air                            needs the Rust kernels (native/, wasm/goldilocks)
+test_stark_periodic                          needs the Rust kernels (native/, wasm/goldilocks)
+test_state_io_tie                            needs the Rust kernels (native/, wasm/goldilocks)
+test_state_merge                             needs the Rust kernels (native/, wasm/goldilocks)
+test_state_transition                        needs the Rust kernels (native/, wasm/goldilocks)
+test_state_transition_batched                needs the Rust kernels (native/, wasm/goldilocks)
+test_assets                                  proves in Python kernels: over 5 minutes
+test_every_opcode_is_provable                proves in Python kernels: over 5 minutes
+test_exec_commit_periodic                    proves in Python kernels: over 5 minutes
+test_fold_hardening                          proves in Python kernels: over 5 minutes
+test_fri_verify                              proves in Python kernels: over 5 minutes
+test_games_e2e                               proves in Python kernels: over 5 minutes
+test_io_fingerprint                          proves in Python kernels: over 5 minutes
+test_m10_h7                                  proves in Python kernels: over 5 minutes
+test_native_prover_verifies                  proves in Python kernels: over 5 minutes
+test_recursion                               proves in Python kernels: over 5 minutes
+test_recursion_depth                         proves in Python kernels: over 5 minutes
+test_recursion_ext                           proves in Python kernels: over 5 minutes
+test_settlement_proof                        proves in Python kernels: over 5 minutes
+test_shielded_field                          proves in Python kernels: over 5 minutes
+test_shielded_wide                           proves in Python kernels: over 5 minutes
+test_snapshot_anchors_rebuilt                proves in Python kernels: over 5 minutes
+test_stark_joinsplit2                        proves in Python kernels: over 5 minutes
+test_stark_joinsplit_circuit                 proves in Python kernels: over 5 minutes
+test_wide_pool_depth                         proves in Python kernels: over 5 minutes
+test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes
+test_zkvm_arg_tag_from_one                   proves in Python kernels: over 5 minutes
+test_zkvm_args                               proves in Python kernels: over 5 minutes
+test_zkvm_circuit                            proves in Python kernels: over 5 minutes
+test_zkvm_epoch                              proves in Python kernels: over 5 minutes
+test_updatability                            judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box

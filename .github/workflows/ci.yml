@@ -1,0 +1,115 @@
+# NADO CI (operator 2026-09-30: "work on github actions"). Pushing main restarts the live fleet, so a broken commit is
+# an outage, not a failed build — this runs the checks BEFORE anyone depends on them. It never talks to a node and
+# holds no secrets: every test isolates its HOME (CLAUDE.md rule 4) and runs against its own throwaway tables.
+#
+#   checks  every push / PR  — static checks that catch whole bug classes in seconds (pyflakes, the gate ledger,
+#                              16-language i18n coverage, the wallet's byte-parity vectors)
+#   suite   every push / PR  — scripts/run_tests.sh minus tests/ci_exclude.txt (each excluded test says why)
+#   native  weekly + by hand — builds the Rust kernels and runs exactly the tests the suite job excludes
+# Not here, on purpose: the loopback testnet (CLAUDE.md rule 1 — run it on the box before committing loops/ops code)
+# and tools/replay_chain.py (needs the live chain; the proof for consensus-neutral changes, doc/reroll.md).
+name: ci
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"          # native job, weekly
+  workflow_dispatch:
+    inputs:
+      native:
+        description: "run the native job too"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: pip install -r requirements.txt
+      - name: pyflakes (undefined names — the bug class unit tests miss)
+        run: python tests/test_no_undefined_names.py
+      - name: every consensus gate keyed on the generation (GATE LEDGER)
+        run: python tests/test_gate_reroll_transfer.py
+      - name: the wallet speaks 16 languages
+        run: node tests/i18n_coverage.mjs
+      - name: browser <-> node byte parity (self-test vectors)
+        run: node tests/selftest_vectors_crosscheck.mjs
+
+  suite:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      # cryptography is a TEST ORACLE only (the TPM tests check the node's own parser against it); the node never
+      # imports it (requirements.txt), so it is installed here and not there
+      - run: pip install -r requirements.txt cryptography
+      - name: test suite (Python kernels; tests/ci_exclude.txt moved to the native job)
+        run: |
+          set -o pipefail
+          NADO_TEST_EXCLUDE=tests/ci_exclude.txt PY=python NADO_TEST_JOBS=4 NADO_TEST_TIMEOUT=600 \
+            bash scripts/run_tests.sh | tee suite.txt
+      - name: keep the logs of a failed run
+        if: failure()
+        run: mkdir -p logs && cp -r /tmp/nado-tests.*/*.log logs/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: suite-logs, path: "logs/\nsuite.txt", retention-days: 14 }
+
+  native:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.native)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/mldsa44
+            native/attest
+            native/alghash2
+            native/starkprove
+            native/starkcompose
+            wasm/goldilocks
+      - run: pip install -r requirements.txt cryptography
+      - name: build the Rust kernels where the node loads them
+        run: |
+          for d in native/mldsa44 native/attest native/alghash2 native/starkprove native/starkcompose wasm/goldilocks; do
+            (cd "$d" && cargo build --release)
+          done
+          cp native/mldsa44/target/release/libnado_mldsa44.so native/mldsa44/   # scripts/install.sh does the same
+      - name: the tests the suite job excludes, with the kernels
+        run: |
+          set -o pipefail
+          pat=$(grep -v '^#' tests/ci_exclude.txt | awk 'NF {print "tests/" $1 ".py"}' | tr '\n' ' ')
+          PY=python NADO_TEST_JOBS=4 NADO_TEST_TIMEOUT=7200 NADO_TEST_SLOW_TIMEOUT=14400 \
+            bash scripts/run_tests.sh "$pat" | tee native.txt
+      - name: keep the logs of a failed run
+        if: failure()
+        run: mkdir -p logs && cp -r /tmp/nado-tests.*/*.log logs/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: native-logs, path: "logs/\nnative.txt", retention-days: 14 }
