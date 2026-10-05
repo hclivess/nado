@@ -532,6 +532,11 @@ def _proven_challengers(block_height: int) -> dict:
     if (lo, hi) in entry:
         return dict(entry[(lo, hi)])
     acted, duties = set(), {}
+    # ONLY A CHALLENGER'S OWN ACTS (protocol.TPM_POOL_CHALLENGER_ACTS_HEIGHT): tpm_commit is the ENROLLEE's message, so
+    # counting it let anyone buy a free seat by opening an enrolment and committing garbage. Keyed on `hi` (the draw's
+    # window), never on the scanned block, so one window has one rule. INVARIANT: never count an enrollee's tx here.
+    from protocol import TPM_POOL_CHALLENGER_ACTS_HEIGHT
+    _acts_only = hi >= TPM_POOL_CHALLENGER_ACTS_HEIGHT
     for h in range(lo, hi):
         block = get_block_number(h)
         if not block:
@@ -555,7 +560,7 @@ def _proven_challengers(block_height: int) -> dict:
             r, who = t.get("recipient"), t.get("sender")
             if not who:
                 continue
-            if r in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
+            if r in ("tpm_challenge", "tpm_reveal") or (r == "tpm_commit" and not _acts_only):
                 # ACTED. Having answered a challenge proves the loop was running, and it counts for the
                 # full window because a challenger only acts when it is drawn — a node willing for hours
                 # may simply not have been picked.

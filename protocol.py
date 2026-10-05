@@ -1655,7 +1655,8 @@ def split_open_block_reward(reward: int):
 #   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
 #                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
-# No generation-keyed gate is live on gen 28: the next gate added is keyed `== 28`.
+# GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
+#                                    only challengers' own acts, never the enrollee's tpm_commit)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2009,6 +2010,15 @@ DEVICE_ATTEST_EK_ENROL_SHORT = 180
 # are perfectly willing and simply have not been picked lately — measured: four nodes answered within one
 # evening but only one fell inside a 1,500-block window.
 DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
+# ONLY A CHALLENGER'S OWN ACTS EARN A SEAT (2026-10-05, operator: "make sure there is no way to exploit it"). The line
+# above names tpm_commit as "having done the job", but the commit is sent by the ENROLLEE (apply_commit: sender ==
+# owner), and any well-formed 64-hex commitment lands. So opening an enrolment with a copied endorsement certificate and
+# committing garbage put the enrollee into the challenger pool for this whole window: no bond, no node, no challenge
+# answered. Each such seat weighs 1 against ~100 for a node, but costs nothing, so enough of them dilute the pool — dead
+# draws that fail honest enrolments, and, held often enough, all three seats of one enrolment (a forged identity).
+# From this height the pool counts tpm_challenge and tpm_reveal (sent only by DRAWN challengers) and the bonded
+# tpm_ready; never the enrollee's commit. Keyed on the window the draw reads, so a replay keeps every earlier verdict.
+TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
 
 # AND A FALLBACK, OR A FRESH CHAIN DEADLOCKS. Eligibility earned by acting, where acting requires being
 # drawn, excludes everyone at genesis and after any long quiet period. When fewer than

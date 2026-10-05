@@ -28,7 +28,9 @@ no verdict moves; only where the height is provably >= 1 does the comparison go.
 
 ### The ledger (gen 28, betanet-9)
 
-No generation-keyed gate is live on gen 28; the next one added is keyed `== 28`. ZK hardening (`ZK_HARDEN_HEIGHT`, zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48, asset instructions settle by proof, the 4-element settle calldata binding — execnode/stark/calls_commit.py "THE BINDING IS WIDE") is unconditional from block 1; the narrow binding answers only at cursor 0.
+Live gates, keyed `== 28` — live from block 1 at the next reroll: `TPM_POOL_CHALLENGER_ACTS_HEIGHT` (92000, 2026-10-05: the TPM challenger pool counts only a challenger's own acts — `tpm_challenge`, `tpm_reveal`, the bonded `tpm_ready` — never the enrollee's `tpm_commit`, which let anyone take a free seat by opening an enrolment and committing garbage).
+
+ZK hardening (`ZK_HARDEN_HEIGHT`, zk audit 2026-09-26: ARG-bus tags, settle pre_contracts shape, NOP provable, wide pool depth 48, asset instructions settle by proof, the 4-element settle calldata binding — execnode/stark/calls_commit.py "THE BINDING IS WIDE") is unconditional from block 1; the narrow binding answers only at cursor 0.
 
 **Every gen-27 gate is gone** (slice 3 below). The rules they switched on are unconditional; what each one is for:
 the device binding keys on the certificate's signed part (`DEVICE_BIND_CANONICAL_HEIGHT`); no free repeatable
