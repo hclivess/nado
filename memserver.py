@@ -1007,10 +1007,20 @@ class MemServer:
                 # Idempotent: already pooled (e.g. a re-gossiped heartbeat) — a benign success, not an
                 # error (matches the "already present" handling clients now expect).
                 return {"message": "Already present", "result": True}
+            # THE ENROLMENT MESSAGES ARE JUDGED WHERE THEY CAN FIRST LAND (2026-10-06, found by the wallet-challenger walk).
+            # tpm_challenge / tpm_commit / tpm_reveal each "must land in a later block" than the message they answer, and
+            # none can land before tip + 1 (nor before its own min_block). Judged at the tip, a commit sent while the last
+            # challenge was still the tip was REFUSED — the shipped TPM helper exits on that refusal — although it could
+            # only ever land after it. Judging at the earliest landing height admits exactly what the block will accept;
+            # every block still re-validates each tx at its real height, so this is mempool policy, not consensus.
+            # INVARIANT: only these three — never widen it to a recipient whose rules read "the current state at tip".
+            _vh = self.latest_block["block_number"]
+            if transaction.get("recipient") in ("tpm_challenge", "tpm_commit", "tpm_reveal"):
+                _vh = max(int(_vh) + 1, int(transaction.get("min_block") or 0))
             try:
                 validate_transaction(transaction=transaction,
                                      logger=self.logger,
-                                     block_height=self.latest_block["block_number"])
+                                     block_height=_vh)
             except Exception as e:
                 msg = {"result": False,
                        "message": f"Could not merge remote transaction: {e}"}
