@@ -684,3 +684,12 @@ button.opt:hover:not(:disabled) { border-color: var(--accent); }
 /* THE WAY BACK TO THE PROJECT (2026-09-13): a small link under the title, on every screen. */
 header.app .site-link { display:block; margin-top:2px; text-decoration:none; }
 header.app .site-link:hover { text-decoration:underline; }
+
+/* FUNDED INVITES (interface.js "FUNDED INVITE LINKS"): the banner's one button wraps under its sentence on a phone,
+   and a list row keeps its action button at its natural width beside the text. */
+#inviteBanner { flex-wrap: wrap; }
+#inviteBanner > span { flex: 1 1 220px; }
+#inviteBanner > button { flex: 0 0 auto; }
+#inviteList .ex-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+#inviteList .ex-row > div:last-child { flex: 0 1 auto; text-align: right; }
+#inviteList .inv-who { flex: 0 0 auto; white-space: nowrap; }   /* an address never breaks mid-word; its status wraps instead */

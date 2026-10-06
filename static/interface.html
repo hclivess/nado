@@ -218,6 +218,11 @@
     <a class="tab" href="https://nadochain.com/apps" target="_blank" rel="noopener" data-i18n="tab.apps">Apps</a>
   </nav>
 
+  <!-- A PENDING INVITE (#invite=<seed>, interface.js "FUNDED INVITE LINKS"): who invited you, what is waiting, and the
+       one next step. Outside every tab on purpose — it stays until the gift has landed, whatever page is open.
+       Filled by renderInviteBanner(). -->
+  <div id="inviteBanner" class="hint-banner hidden" role="status" aria-live="polite"></div>
+
   <!-- WALLET -->
   <div id="wallet" class="card hidden" data-tab="wallet">
     <h2 data-i18n="wallet.title">Wallet <span class="pill"><span id="walBadge" class="badge idle">—</span></span></h2>
@@ -464,6 +469,37 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <!-- shown only when the chain credits more than this node can still break down by day -->
       <div id="mineMissing" class="mine-note warn hidden"></div>
     </div>
+  </div>
+
+  <!-- INVITE A FRIEND (protocol.py "FUNDED INVITE LINKS" + "REFERRALS"). Hidden until the chain accepts invites
+       (/referrals active_from) unless this wallet already has invites or referrals to show. One primary action;
+       the expiry and the list sit behind captioned disclosures. -->
+  <div id="inviteCard" class="card hidden" data-tab="wallet">
+    <h2 data-i18n="invite.title">Invite a friend</h2>
+    <p class="small dim" id="inviteDeal"></p>
+    <div id="inviteCreate" class="hidden">
+      <label for="inviteAmount" data-i18n="invite.amountLbl">Gift (NADO)</label>
+      <div class="row">
+        <input id="inviteAmount" placeholder="1" inputmode="decimal" autocomplete="off" />
+        <button id="btnInviteCreate" class="primary" style="flex:0 0 auto" data-i18n="invite.create">Create link</button>
+      </div>
+      <details class="disc" id="inviteMore">
+        <summary id="inviteExpirySum">7</summary>
+        <label class="small" for="inviteDays" data-i18n="invite.daysLbl">Days before you can take an unclaimed gift back (1–30)</label>
+        <input id="inviteDays" type="number" min="1" max="30" value="7" inputmode="numeric" />
+      </details>
+      <div id="inviteMsg" class="small mt faint"></div>
+      <div id="inviteLinkBox" class="mt hidden">
+        <div class="addr-box"><span class="a" id="inviteLinkText"></span>
+          <button class="copy" data-copy="inviteLinkText" data-i18n="btn.copy">Copy</button></div>
+        <button id="btnInviteShare" class="accent mt" style="width:100%" data-i18n="invite.share">Share link</button>
+        <div class="small faint mt" data-i18n="invite.linkNote">Anyone who opens this link can claim the gift — send it to one person.</div>
+      </div>
+    </div>
+    <details class="disc mt hidden" id="inviteListWrap">
+      <summary><span><span data-i18n="invite.yours">Your invites and referrals</span> <span id="inviteListCount" class="faint"></span></span></summary>
+      <div id="inviteList" class="ex-rows mt"></div>
+    </details>
   </div>
 
   <!-- LANE SPLIT -->

@@ -609,7 +609,10 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp, device) {
     recipient: "register",
     amount: 0,
     timestamp,
-    data: "",
+    // "" — or {"referrer": <the pending invite's sender>} (registerData). EVERY register this wallet builds goes
+    // through here (first registration, renewal, helper hand-back, another device's statement), so the referrer can
+    // not be missed on whichever path lands first. INVARIANT: never name this wallet itself (consensus refuses it).
+    data: registerData(wallet.address),
     nonce: randNonce(),
     public_key: wallet.publicKey,
     max_block: targetBlock,
@@ -3870,6 +3873,11 @@ async function pollOnce() {
 
   // refresh dashboard
   try { await refreshDashboard(); } catch (e) { /* non-fatal */ }
+  // FUNDED INVITES: claim a pending invite once this identity is a present device identity, and keep "Your invites"
+  // current. Not awaited and not inside the mining branch below: that branch returns early while a registration is
+  // landing, and an identity that registered elsewhere (another tab, a phone) must still receive its gift.
+  maybeInviteClaim().catch(() => {});
+  inviteTick().catch(() => {});
 
   if (state.mining) {
     // NOTHING IN FLIGHT MEANS NOTHING ON SCREEN. Every path that raises the progress widget can die
@@ -5198,6 +5206,7 @@ function showWalletUI() {
   msgInitBackground().catch(() => {});   // derive identity + poll so the Messages badge works anywhere
   resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
+  renderInviteBanner(); // a pending #invite link: say what is waiting and the next step (claimed from pollOnce)
   resumePendingForumLogin(); // if the forum bounced us here to sign a login challenge, prompt + sign now
   resumePendingExecSign();   // if a dApp (e.g. coinflip) bounced us here to sign a contract call, prompt + sign
 }
@@ -7039,9 +7048,448 @@ function resumePendingClaim() {
   if (req.code && req.code.startsWith("zbill")) applyClaimRequest(req);
 }
 
+/* ==== FUNDED INVITE LINKS + REFERRALS (protocol.py "FUNDED INVITE LINKS" and "REFERRALS", gate REFERRAL_HEIGHT) ====
+ *
+ * The referrer escrows NADO under a THROWAWAY ML-DSA-44 key generated here from a fresh random 32-byte seed for that
+ * one link — never derived from, or related to, the wallet's own key (CLAUDE.md rule 8). The seed travels in the
+ * link's #fragment, which a browser never sends to a server. The newcomer's wallet keeps it until it has registered a
+ * device, then signs (chain, invite id, ITS OWN ADDRESS) with the link key in a fee-exempt invite_claim. The first
+ * registration also names the referrer (register data {"referrer"}), which is what earns the referrer a slice of the
+ * newcomer's dividend for the referral window.
+ *
+ * The functions inviteKeyOf / inviteIdOf / inviteClaimSig are what tests/test_invite_link_js_matches_python.py runs
+ * against ops/transaction_ops.invite_id_of / invite_claim_message, and the flow below is what
+ * tests/test_wallet_invite_flow.mjs drives with stubs — both LIFT this block from the file, so keep it contiguous
+ * between the two marker lines. */
+const LS_PENDING_INVITE = "nado_pending_invite";   // localStorage: an invite link opened here, kept until it is claimed
+const INVITE_MIN_TIMELOCK = 1440;                  // protocol.INVITE_MIN_TIMELOCK
+const INVITE_MAX_TIMELOCK = 432000;                // protocol.INVITE_MAX_TIMELOCK
+const INVITE_BLOCKS_PER_DAY = 14400;               // 6 s blocks
+const INVITE_DEFAULT_DAYS = 7;
+const INVITE_LAND_AHEAD = 8;                       // exact-landing reserved txs land at tip + 8 (as htlc_lock does)
+// A link opened within a minute of being made can be read before its lock has landed: /invite answers null then. Only
+// a null that persists this long means the link is not (or no longer) on this chain.
+const INVITE_NULL_GRACE = 120;
+// Claim refusals that no retry can fix (ops/transaction_ops.validate_invite). Everything else — "only a registered
+// device identity can claim" while a registration is still landing, a relay blip, a target-block race — is retried.
+const DEAD_INVITE_RE = /no OPEN invite|invite has expired|cannot claim their own|key does not match the invite|does not name this claimant|bad invite id/i;
+
+function inviteSeedOk(s) { return typeof s === "string" && /^[0-9a-f]{64}$/.test(s); }
+const _inviteKeyMemo = new Map();
+function inviteKeyOf(seedHex) {                    // the link's ML-DSA-44 public key (hex, 2624 chars)
+  let k = _inviteKeyMemo.get(seedHex);
+  if (!k) { k = bytesToHex(ml_dsa44.keygen(hexToBytes(seedHex)).publicKey); _inviteKeyMemo.set(seedHex, k); }
+  return k;
+}
+// == transaction_ops.invite_id_of: blake2b(["invite-id-v1", CHAIN_ID, key_hex]). Chain-scoped, so read CHAIN_ID only
+// once the relay's chain is adopted (netAdopted).
+function inviteIdOf(keyHex) { return blake2bHash(["invite-id-v1", CHAIN_ID, keyHex]); }
+// == transaction_ops.invite_claim_message: the link key signs bytes(blake2b(["invite-claim-v1", CHAIN_ID, id,
+// claimant])). Naming the claimant is the point — a claim copied out of the mempool cannot be re-pointed.
+function inviteClaimSig(seedHex, id, claimant) {
+  return mldsaSignHex(seedHex, hexToBytes(blake2bHash(["invite-claim-v1", CHAIN_ID, id, claimant]))).signature;
+}
+function inviteLink(seedHex) { return `${location.origin}${location.pathname}#invite=${seedHex}`; }
+function parseInviteHash() {
+  const m = /^#invite=([0-9a-fA-F]{64})$/.exec(location.hash || "");
+  return m ? m[1].toLowerCase() : null;
+}
+
+function pendingInviteLoad() {
+  try { const p = JSON.parse(localStorage.getItem(LS_PENDING_INVITE) || "null"); return p && inviteSeedOk(p.seed) ? p : null; }
+  catch (e) { return null; }
+}
+function pendingInviteSave(p) {
+  try { if (p) localStorage.setItem(LS_PENDING_INVITE, JSON.stringify(p)); else localStorage.removeItem(LS_PENDING_INVITE); }
+  catch (e) {}
+}
+
+// THE REGISTER'S `data` (buildRegisterTx). A pending invite whose sender the chain has confirmed names that sender as
+// the referrer — never this wallet itself (consensus refuses a self-referral, and that would cost the user their
+// registration). Consensus writes the link only on the identity's FIRST attested registration and ignores it on a
+// renewal, so sending it while an invite is pending is always safe; with no pending invite, data stays "".
+function registerData(address) {
+  const p = pendingInviteLoad();
+  const ref = p && typeof p.sender === "string" ? p.sender : "";
+  return (ref && ref !== address && validateAddress(ref)) ? { referrer: ref } : "";
+}
+
+// What the chain says about the pending invite, as one word. Pure: tests pin it.
+function inviteVerdict(inv, tip, me, p) {
+  if (!inv) return (p && p.nullSince != null && tip - p.nullSince > INVITE_NULL_GRACE) ? "gone" : "wait";
+  if (inv.status === "claimed") return (me && inv.claimant === me) ? "mine" : "taken";
+  if (inv.status === "refunded") return "refunded";
+  if (inv.status !== "open") return "gone";
+  if (tip >= Number(inv.expiry)) return "expired";
+  if (me && inv.sender === me) return "own";
+  return "open";
+}
+
+// Re-read the pending invite from the chain, keep or drop it, and repaint the banner. Returns the pending record
+// (null once dropped). A relay that cannot answer changes nothing — the chain overrules stored state, not a blip.
+async function inviteRefreshPending() {
+  let p = pendingInviteLoad();
+  if (!p || !netAdopted) { renderInviteBanner(p); return p; }
+  const id = inviteIdOf(inviteKeyOf(p.seed));
+  let d = null;
+  try {
+    const r = await fetch(relayBase() + "/invite?id=" + encodeURIComponent(id), { cache: "no-store" });
+    if (r.ok) d = await r.json();
+  } catch (e) { d = null; }
+  const tip = d ? Number(d.tip) : NaN;
+  if (!d || !Number.isInteger(tip) || d.id !== id) { renderInviteBanner(p); return p; }
+  const inv = d.invite && typeof d.invite === "object" ? d.invite : null;
+  const me = state.wallet ? state.wallet.address : null;
+  p = pendingInviteLoad();                       // FRESH: another tab may have cleared or replaced it meanwhile
+  if (!p || inviteIdOf(inviteKeyOf(p.seed)) !== id) { renderInviteBanner(p); return p; }
+  const v = inviteVerdict(inv, tip, me, p);
+  const amt = inv ? rawToNado(bnum(inv.amount)) : "";
+  if (v === "wait" || v === "open") {
+    if (inv) Object.assign(p, { id, sender: String(inv.sender || ""), amount: String(bnum(inv.amount)), expiry: num(inv.expiry), status: "open", nullSince: null, tip });
+    else Object.assign(p, { id, nullSince: p.nullSince != null ? p.nullSince : tip, tip });
+    pendingInviteSave(p);
+    renderInviteBanner(p);
+    return p;
+  }
+  pendingInviteSave(null);
+  if (v === "mine") {
+    log("ok", i18("invite.received", "Your invite gift of {a} NADO has arrived ✓", { a: amt }));
+    toast(i18("invite.received", "Your invite gift of {a} NADO has arrived ✓", { a: amt }), "ok", 7000);
+  } else {
+    const why = v === "taken" ? i18("invite.taken", "This invite link was already claimed by someone else.")
+      : v === "refunded" ? i18("invite.refunded", "This invite was taken back by the person who sent it.")
+      : v === "expired" ? i18("invite.expired", "This invite link has expired.")
+      : v === "own" ? i18("invite.own", "This is your own invite link — send it to a friend instead.")
+      : i18("invite.gone", "This invite link is not valid on this network.");
+    log("err", why);
+    toast(why, "err", 8000);
+  }
+  renderInviteBanner(null);
+  return null;
+}
+
+// #invite=<seed> — the funded-invite twin of #claim. Stored in localStorage (not sessionStorage): it must survive
+// wallet creation, a device registration that can take a while, and reloads, until the gift has landed.
+function consumeInviteRequest() {
+  const seed = parseInviteHash();
+  if (!seed) return false;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}   // the seed leaves the address bar
+  const prev = pendingInviteLoad();
+  if (!prev || prev.seed !== seed) pendingInviteSave({ seed, at: Date.now() });
+  log("info", i18("invite.opened", "Invite link opened — checking what is waiting for you…"));
+  inviteRefreshPending().catch(() => {});
+  return true;
+}
+
+function inviteReadyToClaim(acc) {
+  return !!(acc && acc.registered === 1) && !!(state.lastMs && state.lastMs.registered_present === true);
+}
+
+let _inviteClaimBusy = false;
+const _inviteNoted = new Set();                    // say each refusal once, not once per poll
+// AUTO-CLAIM (pollOnce). Receiving moves nothing out of this wallet, so there is no confirm — but it is logged. Sent
+// only once this identity is a registered, present device identity (consensus refuses anyone else), one at a time,
+// and never again while the last one's landing block is still ahead (exact landing: it lands at max_block or never).
+async function maybeInviteClaim() {
+  if (_inviteClaimBusy || !netAdopted || !pendingInviteLoad()) return;
+  _inviteClaimBusy = true;
+  try {
+    let p = await inviteRefreshPending();            // the banner follows the chain even while the wallet is locked
+    if (!p || p.status !== "open" || !p.id || !state.wallet || state.locked || state.latest == null) return;
+    const me = state.wallet.address;
+    if (!me) return;
+    const acc = await getAccount(me);
+    if (!inviteReadyToClaim(acc)) return;
+    const tip = Math.max(Number(state.latest) || 0, Number(p.tip) || 0);
+    if (p.pend && p.pend.addr === me && tip <= Number(p.pend.max)) return;          // IN FLIGHT: wait for it
+    const key = inviteKeyOf(p.seed);
+    const id = inviteIdOf(key);
+    if (id !== p.id) return;                                                        // chain changed under us
+    const target = tip + INVITE_LAND_AHEAD;
+    const tx = buildTransferTx(state.wallet, "invite_claim", 0n, 0, target, { id, key, sig: inviteClaimSig(p.seed, id, me) },
+                               nowSeconds(), !pubkeyEstablished(acc));
+    let res;
+    try { res = await submitTransaction(tx); }
+    catch (e) { if (isTransient(e)) return; throw e; }
+    const msg = String((res && res.data && res.data.message) || "");
+    if (res && res.data && res.data.result) {
+      p = pendingInviteLoad();
+      if (p) { p.pend = { txid: tx.txid, max: target, addr: me }; pendingInviteSave(p); }
+      log("ok", i18("invite.claiming", "Receiving your invite gift — the claim is on its way into a block."));
+      renderInviteBanner(p);
+      return;
+    }
+    if (DEAD_INVITE_RE.test(msg)) {
+      // THE CHAIN DECIDES, NOT THE REFUSAL: "no OPEN invite" is also what a second tab hears after the first tab's
+      // claim landed. Re-read it; only an invite that is still not ours is dropped.
+      const still = await inviteRefreshPending();
+      if (still) {
+        pendingInviteSave(null);
+        renderInviteBanner(null);
+        log("err", i18("invite.claimDead", "This invite cannot be claimed: {m}", { m: msg.replace(/^Could not merge remote transaction:\s*/i, "").slice(0, 120) }));
+      }
+      return;
+    }
+    if (msg && !_inviteNoted.has(msg)) {
+      _inviteNoted.add(msg);
+      log("warn", i18("invite.claimRetry", "Invite claim not accepted yet ({m}) — retrying.", { m: msg.replace(/^Could not merge remote transaction:\s*/i, "").slice(0, 120) }));
+    }
+  } catch (e) { /* best-effort; never break the poll loop */ }
+  finally { _inviteClaimBusy = false; }
+}
+
+// ---- the newcomer's banner -------------------------------------------------------------------------------------
+function renderInviteBanner(p) {
+  const el = $("inviteBanner");
+  if (!el) return;
+  if (p === undefined) p = pendingInviteLoad();
+  if (!p) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  const who = p.sender ? (_abAlias[p.sender] || _abShort(p.sender)) : "";
+  let head, next = "", btn = "";
+  if (!p.sender) {
+    head = i18("invite.checking", "You opened an invite link. Checking it — the gift may still be confirming on the network.");
+  } else {
+    head = i18("invite.head", "{who} invited you and left you {a} NADO.", { who, a: rawToNado(bnum(p.amount)) });
+    const ready = !!(state.lastMs && state.lastMs.registered_present === true);
+    if (!state.wallet) next = i18("invite.nextUnlock", "Unlock your wallet, then register this device to receive it.");
+    else if (ready || p.pend) next = i18("invite.nextClaiming", "Receiving it now — it arrives in your balance within a minute or two.");
+    else {
+      next = i18("invite.nextRegister", "Register this device to receive it — it arrives right after.");
+      if (!state.mining) btn = `<button type="button" class="primary" id="btnInviteRegister">${escapeHtml(i18("invite.registerBtn", "Register this device"))}</button>`;
+    }
+    const left = Number(p.expiry) - Number(state.latest || p.tip || 0);
+    if (left > 0) next += " " + i18("invite.expiresIn", "Expires in {t}.", { t: blocksToEta(left) });
+  }
+  el.innerHTML = `<span>🎁 ${escapeHtml(head)}${next ? " " + escapeHtml(next) : ""}</span>${btn}`;
+  el.classList.remove("hidden");
+  const b = $("btnInviteRegister");
+  if (b) b.onclick = () => { showTab("wallet"); if (!state.mining && $("btnMine")) $("btnMine").click(); };
+  if (p.sender && !(p.sender in _abAlias)) abResolveAliases([p.sender]).then(() => renderInviteBanner()).catch(() => {});
+}
+
+// ---- the referrer's side: create, list, reclaim ----------------------------------------------------------------
+function inviteSeedsKey(addr) { return "nado_invite_seeds:" + CHAIN_ID + ":" + addr; }
+function inviteSeedsLoad(addr) { try { return JSON.parse(localStorage.getItem(inviteSeedsKey(addr)) || "{}") || {}; } catch (e) { return {}; } }
+function inviteSeedsSave(addr, m) { try { localStorage.setItem(inviteSeedsKey(addr), JSON.stringify(m)); return true; } catch (e) { return false; } }
+
+// What the card shows. Pure: tests pin it. Invite creation is OFFERED only once the chain accepts invites
+// (tip >= active_from, protocol.REFERRAL_HEIGHT) — never something the chain refuses — and the list only when
+// there is something in it.
+function inviteUiState(ref, invites) {
+  const from = ref ? Number(ref.active_from) : NaN, tip = ref ? Number(ref.tip) : NaN;
+  const canCreate = Number.isFinite(from) && Number.isFinite(tip) && tip >= from;
+  const nInv = invites && typeof invites === "object" ? Object.keys(invites).length : 0;
+  const hasRef = !!(ref && (ref.referrer || (Array.isArray(ref.referred) && ref.referred.length)));
+  return { canCreate, showList: nInv > 0 || hasRef, showCard: canCreate || nInv > 0 || hasRef };
+}
+// Why a referred identity is or is not earning its referrer a slice right now. Pure: tests pin it.
+function referralStatus(r, selfPresent) {
+  if (!r || !r.in_window) return "window";
+  if (!r.present) return "absent";
+  if (!selfPresent) return "selfAbsent";
+  return "earning";
+}
+
+let _invRef = null, _invList = null, _invAddr = null, _invTickAt = 0, _invTickBusy = false;
+function _applyInviteVisibility() {
+  const card = $("inviteCard");
+  if (!card) return;
+  const ui = inviteUiState(_invAddr === (state.wallet && state.wallet.address) ? _invRef : null, _invList);
+  card.classList.toggle("hidden", !ui.showCard || (state.activeTab || "wallet") !== "wallet");
+}
+// Reads /referrals (rate-limited 30/min per IP; it reads the open registry) and, once invites exist on this chain,
+// /invites — only while the Wallet tab is on screen, at most once a minute, or at once when forced (after creating or
+// reclaiming). Nobody sees the card on another tab or in a background tab, so the relay is not asked for it.
+async function inviteTick(force) {
+  if (!state.wallet || _invTickBusy) return;
+  if (!force && ((state.activeTab || "wallet") !== "wallet" || document.visibilityState === "hidden")) return;
+  if (!force && Date.now() - _invTickAt < 60000) return;
+  _invTickBusy = true; _invTickAt = Date.now();
+  try {
+    const me = state.wallet.address;
+    let ref = null;
+    try { const r = await fetch(relayBase() + "/referrals?address=" + encodeURIComponent(me), { cache: "no-store" }); if (r.ok) ref = await r.json(); }
+    catch (e) { ref = null; }
+    if (!state.wallet || state.wallet.address !== me) return;
+    if (ref && typeof ref === "object" && !ref.error) {
+      if (_invAddr !== me) _invList = null;
+      _invRef = ref; _invAddr = me;
+    } else if (_invAddr !== me) return;                    // nothing known for this account yet: stay hidden
+    const ui = inviteUiState(_invRef, null);
+    const seeds = inviteSeedsLoad(me);
+    if (ui.canCreate || Object.keys(seeds).length) {
+      try {
+        const r = await fetch(relayBase() + "/invites?address=" + encodeURIComponent(me), { cache: "no-store" });
+        if (r.ok) {
+          const d = await r.json();
+          if (state.wallet && state.wallet.address === me && d && d.invites && typeof d.invites === "object") {
+            _invList = d.invites;
+            // A seed is kept only while its link can still be used: drop it once the invite is settled, or when its
+            // lock never landed (absent a day after it was made).
+            let changed = false;
+            for (const id of Object.keys(seeds)) {
+              const inv = _invList[id];
+              if ((inv && inv.status !== "open") || (!inv && Date.now() - Number(seeds[id].at || 0) > 86400000)) { delete seeds[id]; changed = true; }
+            }
+            if (changed) inviteSeedsSave(me, seeds);
+          }
+        }
+      } catch (e) { /* keep the last list */ }
+    }
+    renderInviteCard();
+  } finally { _invTickBusy = false; }
+}
+
+function renderInviteCard() {
+  if (!$("inviteCard") || !state.wallet) return;
+  const me = state.wallet.address;
+  const ref = _invAddr === me ? _invRef : null;
+  const ui = inviteUiState(ref, _invList);
+  _applyInviteVisibility();
+  show("inviteCreate", ui.canCreate);
+  const share = ref && Array.isArray(ref.share) && ref.share.length === 2 ? ref.share : [1, 10];
+  const p = Math.round(100 * Number(share[0]) / Number(share[1])) || 10;
+  const days = Math.round(Number((ref && ref.window_epochs) || 7200) * EPOCH_LENGTH / INVITE_BLOCKS_PER_DAY) || 30;
+  if ($("inviteDeal")) $("inviteDeal").textContent = i18("invite.deal", "You earn {p} % of each friend's dividend for {d} days while you are both present; they keep {q} % and get your gift.", { p, q: 100 - p, d: days });
+  renderInviteExpiry();
+  const wrap = $("inviteListWrap");
+  if (wrap) wrap.classList.toggle("hidden", !ui.showList);
+  const box = $("inviteList");
+  if (!box || !ui.showList) return;
+  const tip = Number((ref && ref.tip) || state.latest || 0);
+  const seeds = inviteSeedsLoad(me);
+  let html = "";
+  // REFERRALS: who referred me, and whom I referred — with why each one is (not) earning right now.
+  if (ref && ref.referrer && ref.referrer.address) {
+    html += `<div class="small mt">${escapeHtml(i18("invite.invitedBy", "You were invited by"))} ${exLink("a", ref.referrer.address, exShort(ref.referrer.address, 6))}</div>`;
+  }
+  const referred = ref && Array.isArray(ref.referred) ? ref.referred : [];
+  if (referred.length) {
+    html += `<div class="small mt"><b>${escapeHtml(i18("invite.referred", "Friends you referred"))}</b></div>`;
+    for (const r of referred) {
+      const st = referralStatus(r, !!ref.self_present);
+      const label = st === "earning" ? i18("invite.stEarning", "earning now")
+        : st === "window" ? i18("invite.stWindow", "the {d}-day window is over", { d: days })
+        : st === "absent" ? i18("invite.stAbsent", "not present right now — you earn while they are")
+        : i18("invite.stSelfAbsent", "you are not present — you earn only while you are");
+      html += `<div class="ex-row"><div class="inv-who">${exLink("a", String(r.address || ""), exShort(String(r.address || ""), 6))}</div>`
+        + `<div class="small ${st === "earning" ? "msg-ok" : "faint"}">${escapeHtml(label)}</div></div>`;
+    }
+  }
+  const ids = _invList ? Object.keys(_invList) : [];
+  ids.sort((a, b) => num(_invList[b].expiry) - num(_invList[a].expiry));
+  let reclaimable = false;
+  if (ids.length) html += `<div class="small mt"><b>${escapeHtml(i18("invite.yourLinks", "Your invite links"))}</b></div>`;
+  for (const id of ids) {
+    const inv = _invList[id] || {};
+    const amt = rawToNado(bnum(inv.amount)) + " NADO";
+    let status, action = "";
+    if (inv.status === "open" && tip < num(inv.expiry)) {
+      status = i18("invite.stOpen", "waiting to be claimed · expires in {t}", { t: blocksToEta(num(inv.expiry) - tip) });
+      if (seeds[id] && inviteSeedOk(seeds[id].seed)) action = `<button type="button" class="copy" data-invcopy="${exEsc(id)}">${escapeHtml(i18("invite.copyLink", "Copy link"))}</button>`;
+    } else if (inv.status === "open") {
+      status = i18("invite.stExpired", "expired — you can take it back");
+      action = `<button type="button" class="ghost" data-invrefund="${exEsc(id)}">${escapeHtml(i18("invite.reclaim", "Reclaim"))}</button>`;
+      reclaimable = true;
+    } else if (inv.status === "claimed") {
+      status = i18("invite.stClaimed", "claimed by {who}", { who: exShort(String(inv.claimant || ""), 6) });
+    } else {
+      status = i18("invite.stRefunded", "taken back");
+    }
+    html += `<div class="ex-row"><div><div class="mono small">${escapeHtml(amt)}</div><div class="faint small">${escapeHtml(status)}</div></div><div>${action}</div></div>`;
+  }
+  html += `<div id="inviteListMsg" class="small mt faint"></div>`;
+  box.innerHTML = html;
+  if (reclaimable && wrap && !wrap.open) wrap.open = true;     // something to do: do not hide it behind a disclosure
+  if ($("inviteListCount")) $("inviteListCount").textContent = (ids.length + referred.length) ? "(" + (ids.length + referred.length) + ")" : "";
+  box.querySelectorAll("[data-invcopy]").forEach((b) => {
+    b.onclick = async () => {
+      const s = inviteSeedsLoad(me)[b.dataset.invcopy];
+      if (!s) return;
+      const ok = await copyToClipboard(inviteLink(s.seed));
+      b.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy");
+      setTimeout(() => (b.textContent = i18("invite.copyLink", "Copy link")), 1400);
+    };
+  });
+  box.querySelectorAll("[data-invrefund]").forEach((b) => { b.onclick = () => inviteRefund(b.dataset.invrefund).catch(() => {}); });
+}
+
+function inviteDaysValue() {
+  return Math.min(30, Math.max(1, parseInt(($("inviteDays") && $("inviteDays").value) || INVITE_DEFAULT_DAYS, 10) || INVITE_DEFAULT_DAYS));
+}
+function renderInviteExpiry() {
+  if ($("inviteExpirySum")) $("inviteExpirySum").textContent = i18("invite.expirySum", "Expires after {n} days", { n: inviteDaysValue() });
+}
+
+async function createInvite() {
+  if (!state.wallet || state.locked) return;
+  const msgId = "inviteMsg";
+  let amt;
+  try { amt = nadoToRaw($("inviteAmount").value || "0"); } catch (e) { setMsg(msgId, i18("invite.badAmount", "Enter how much NADO to give."), "err"); return; }
+  if (amt <= 0n) { setMsg(msgId, i18("invite.badAmount", "Enter how much NADO to give."), "err"); return; }
+  const days = inviteDaysValue();
+  const blocks = Math.min(INVITE_MAX_TIMELOCK, Math.max(INVITE_MIN_TIMELOCK, days * INVITE_BLOCKS_PER_DAY));
+  const me = state.wallet.address;
+  const acc = await getAccount(me);
+  if (!acc) { setMsg(msgId, i18("rollup.relayDown", "Relay unavailable."), "err"); return; }
+  const fee = await currentFeeRaw();
+  if (amt + BigInt(fee) > bnum(acc.balance)) { setMsg(msgId, i18("invite.noFunds", "Not enough NADO for the gift plus the network fee."), "err"); return; }
+  const label = i18("invite.dlgTitle", "Create an invite link");
+  if (!await uiConfirm({ title: label, rows: [
+      { k: i18("invite.gift", "Gift"), v: rawToNado(amt) + " NADO" },
+      { k: i18("dlg.fee", "Network fee"), v: rawToNado(fee) + " NADO" },
+      { k: i18("invite.expiry", "You can take it back after"), v: blocksToEta(blocks) }],
+      note: i18("invite.dlgNote", "Whoever opens the link and registers a device receives the gift. Send it to one person.") })) {
+    setMsg(msgId, i18("msg.cancelled", "Cancelled."), null); return;
+  }
+  const latest = await getLatestBlock();
+  if (!latest) { setMsg(msgId, i18("rollup.relayDown", "Relay unavailable."), "err"); return; }
+  await refreshNetIdentity();                                   // the id is chain-scoped: sign for the relay's chain
+  if (!state.wallet || state.wallet.address !== me) return;
+  const target = latest.block_number + INVITE_LAND_AHEAD;
+  const expiry = target + blocks;
+  const seed = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));   // a THROWAWAY key for this one link
+  const key = inviteKeyOf(seed), id = inviteIdOf(key);
+  // STORE THE SEED BEFORE BROADCASTING: a lock whose link was never kept can only be reclaimed after expiry.
+  const seeds = inviteSeedsLoad(me);
+  seeds[id] = { seed, amount: amt.toString(), expiry, at: Date.now() };
+  if (!inviteSeedsSave(me, seeds)) { setMsg(msgId, i18("invite.storeFail", "This browser cannot store the invite link (site data blocked) — nothing was sent."), "err"); return; }
+  const tx = buildTransferTx(state.wallet, "invite_lock", amt, fee, target, { key, expiry }, nowSeconds(), !pubkeyEstablished(acc));
+  const ok = await submitAndReport(tx, label, msgId);
+  if (!ok) { const s = inviteSeedsLoad(me); delete s[id]; inviteSeedsSave(me, s); return; }
+  $("inviteAmount").value = "";
+  if ($("inviteLinkText")) $("inviteLinkText").textContent = inviteLink(seed);
+  show("inviteLinkBox", true);
+  setTimeout(() => inviteTick(true).catch(() => {}), 60000);   // the lock lands at tip + 8: list it once it has
+}
+
+async function shareInviteLink() {
+  const url = ($("inviteLinkText") && $("inviteLinkText").textContent) || "";
+  if (!url) return;
+  sdkShare(url, i18("invite.shareMsg", "I left you some NADO — open this link to get it:"), $("btnInviteShare"), "NADO invite");
+}
+
+async function inviteRefund(id) {
+  if (!state.wallet || state.locked || !_invList || !_invList[id]) return;
+  const inv = _invList[id], me = state.wallet.address;
+  const label = i18("invite.reclaimTitle", "Take back an unclaimed invite");
+  if (!await uiConfirm({ title: label, rows: [
+      { k: i18("invite.back", "Returns to you"), v: rawToNado(bnum(inv.amount)) + " NADO" },
+      { k: i18("dlg.fee", "Network fee"), v: "0 NADO" }],
+      note: i18("invite.reclaimNote", "The link stops working once this lands.") })) {
+    setMsg("inviteListMsg", i18("msg.cancelled", "Cancelled."), null); return;
+  }
+  const latest = await getLatestBlock();
+  if (!latest) { setMsg("inviteListMsg", i18("rollup.relayDown", "Relay unavailable."), "err"); return; }
+  const acc = await getAccount(me);
+  const tx = buildTransferTx(state.wallet, "invite_refund", 0n, 0, latest.block_number + INVITE_LAND_AHEAD, { id }, nowSeconds(), !pubkeyEstablished(acc));
+  if (await submitAndReport(tx, label, "inviteListMsg")) setTimeout(() => inviteTick(true).catch(() => {}), 60000);
+}
+/* ==== end FUNDED INVITE LINKS + REFERRALS ==== */
+
 /* Transaction history: classify each tx relative to the wallet and show a signed amount. */
 const HIST_ICON = { send: "↑", receive: "↓", bond: "🔒", unbond: "🔓", register: "✦", heartbeat: "♥",
-  dividend: "💰", bridge: "🌉", swap: "🔀", blob: "▧", protocol: "•" };
+  dividend: "💰", bridge: "🌉", swap: "🔀", blob: "▧", protocol: "•", invite: "🎁" };
 function histClassify(tx, addr) {
   // `amt` (raw) overrides tx.amount for reserved txs whose value is carried in `data`, not the amount field —
   // notably the presence DIVIDEND collection (dividend_withdraw), which otherwise shows as "0 NADO".
@@ -7058,6 +7506,10 @@ function histClassify(tx, addr) {
   if (r === "htlc_lock") return { type: "swap", sign: -1, cp: i18("hist.cpSwapLock", "→ atomic-swap lock") };
   if (r === "htlc_claim") return { type: "swap", sign: 0, cp: i18("hist.cpSwapClaim", "atomic-swap claim") };
   if (r === "htlc_refund") return { type: "swap", sign: 0, cp: i18("hist.cpSwapRefund", "atomic-swap refund") };
+  // FUNDED INVITES: the lock moves the gift into escrow; a claim / refund carries no amount of its own (the escrow pays)
+  if (r === "invite_lock") return { type: "invite", sign: -1, cp: i18("hist.cpInviteLock", "→ invite link") };
+  if (r === "invite_claim") return { type: "invite", sign: 0, cp: i18("hist.cpInviteClaim", "invite gift received") };
+  if (r === "invite_refund") return { type: "invite", sign: 0, cp: i18("hist.cpInviteRefund", "invite taken back") };
   if (r === "blob") return { type: "blob", sign: 0, cp: (d.op === "collect_dividend") ? i18("hist.cpDivCollect", "dividend collect (requested)") : i18("hist.cpBlob", "data blob") };
   if (["attest", "commit", "reveal", "settle", "slash", "alias"].includes(r)) return { type: "protocol", sign: 0, cp: i18("hist.cp." + r, r) };
   if (tx.sender === addr) return { type: "send", sign: -1, cp: i18("hist.to", "to"), cpAddr: r };
@@ -7117,7 +7569,8 @@ async function loadHistory() {
 // badge instead of a dead account link — block rows, tx views and mempool rows all go through this.
 const EX_RESERVED = new Set(["bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit",
   "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw",
-  "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote",
+  "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "invite", "invite_lock", "invite_claim", "invite_refund",
+  "shield", "unshield", "treasury", "treasury_vote",
   "treasury_execute", "msgkey", "xmsg", "faucet"]);
 async function exGetJSON(path) {
   const r = await fetch(relayBase() + path, { cache: "no-store" });
@@ -8337,6 +8790,7 @@ function showTab(name) {
   document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
   document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
   _applyMineVisibility();   // the mining card also depends on whether there is anything to show
+  _applyInviteVisibility(); // so does the invite card (hidden until the chain accepts invites, or you have some)
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
@@ -8346,6 +8800,7 @@ function showTab(name) {
   else if (name === "rich") loadRichList().catch(() => {});
   else if (name === "stats") renderStats().catch(() => {});
   else if (name === "swap") renderSwaps().catch(() => {});
+  else if (name === "wallet") inviteTick().catch(() => {});
   else if (name === "shield") renderShield().catch(() => {});
   else if (name === "settlement") renderSettlement().catch(() => {});
   else if (name === "rollup") renderRollup().catch(() => {});
@@ -10277,6 +10732,10 @@ function wireEvents() {
   try { if (localStorage.getItem("nado_attest_via") === "remote") state.attestVia = "remote"; } catch (e) {}
   if ($("btnHwNone")) $("btnHwNone").onclick = () => { state.hwDevice = null; state.attestVia = "platform"; state.tapArmed = false; try { localStorage.removeItem("nado_attest_via"); } catch (e) {} log("info", i18("hw.useThis", "This device's own hardware will attest again.")); };
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
+  if ($("inviteDays")) $("inviteDays").oninput = () => renderInviteExpiry();
+  if ($("btnInviteCreate")) $("btnInviteCreate").onclick = () => createInvite().catch((e) => setMsg("inviteMsg", e.message, "err"));
+  // Share only where the platform has a share sheet; Copy (data-copy) is always beside it.
+  if ($("btnInviteShare")) { $("btnInviteShare").classList.toggle("hidden", !navigator.share); $("btnInviteShare").onclick = () => shareInviteLink(); }
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
   if ($("exGo")) $("exGo").onclick = () => exSearch();
@@ -10617,6 +11076,9 @@ async function boot() {
   // and resume after onboarding. Never auto-submits — the user still reviews + confirms.
   try { consumePayRequest(); } catch (e) { log("err", "Pay-link error: " + e.message); }
   try { consumeClaimRequest(); } catch (e) { log("err", "Claim-link error: " + e.message); }
+  try { consumeInviteRequest() || renderInviteBanner(); } catch (e) { log("err", "Invite-link error: " + e.message); }
+  // An invite link opened in a tab that already shows the wallet changes only the #fragment — no reload, no boot.
+  window.addEventListener("hashchange", () => { try { consumeInviteRequest(); } catch (e) {} });
 
   // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
   if (!resumedMining) pollOnce().catch(() => setConn(false));
