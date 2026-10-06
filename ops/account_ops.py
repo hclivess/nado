@@ -964,8 +964,21 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # COMMIT, THEN DRAW (ops/tpm_enrol, audit 2026-09-27): the record is written with NO challengers — its dice
         # are two epochs away — and the first tpm_challenge materialises them.
         # INVARIANT: never draw here; a draw at the enrol is a draw the client could predict.
-        rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
-                             _te.aik_name_hex(pub), pub, sender, h, [])
+        from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
+        if h >= TPM_POOL_V2_HEIGHT:
+            # TPM POOL v2: the POOL is frozen here (the dice are still two epochs away) and stored in the record with
+            # its k, so the draw reads this snapshot and nothing later can move it; and the misses of the expired
+            # record this one supersedes (same chip, same key, same id) are carried, or a retry would erase them.
+            # INVARIANT: tpm_pool_v2 is the function validation checked pool_can_seat against; the journal above
+            # holds `prev` whole, so a rollback restores the superseded record and its fields exactly.
+            from ops.transaction_ops import tpm_pool_v2, tpm_carry_misses
+            rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
+                                 _te.aik_name_hex(pub), pub, sender, h, [],
+                                 pool=sorted(tpm_pool_v2(h).items()), k=DEVICE_ATTEST_EK_CHALLENGERS_V2,
+                                 missed=tpm_carry_misses(prev, h))
+        else:
+            rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
+                                 _te.aik_name_hex(pub), pub, sender, h, [])
     elif recipient == "tpm_challenge":
         # The journal above holds `prev` as it was — for a delayed record, with its set still empty — so a rollback
         # of the materialising challenge restores the undrawn record exactly (Rollback must be the exact inverse).

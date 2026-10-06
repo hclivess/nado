@@ -600,6 +600,132 @@ def _tpm_pool(block_height: int) -> dict:
     return weights
 
 
+_tpm_presence_cache = [None]           # [{(lo, hi): {address: distinct epochs}}], or [None] when cleared
+
+
+def _duty_presence(block_height: int) -> dict:
+    """{address: DISTINCT EPOCHS with a landed FFG duty tx} over proven_window(block_height) — the presence half of
+    the v2 challenger pool (protocol.TPM_POOL_V2_HEIGHT).
+
+    EPOCHS, NOT TRANSACTIONS. A count of duty txs rewards whoever lands the most of them; a distinct-epoch count asks
+    the only question the pool needs — was this validator's loop running, epoch after epoch — and a burst cannot buy
+    what steady presence earns. The epoch of a duty is the epoch of the block it landed in.
+
+    THE SAME WINDOW AS _proven_challengers (proven_window: quantised to the epoch, ending at the start of the enrol
+    block's epoch), so the production gate that fills that window (core_loop._rules_evaluable_at_tip) covers this
+    scan too. A block of the window this node does not hold DEFERS (WindowUnavailable), never guesses: the pool
+    enters the record, so a guess is a state-root split (the 2026-09-13 lesson). Cached per window, several at once,
+    for the reason _proven_challengers gives."""
+    from protocol import EPOCH_LENGTH
+    lo, hi = proven_window(block_height)
+    entry = _tpm_presence_cache[0] or {}
+    if (lo, hi) in entry:
+        return dict(entry[(lo, hi)])
+    seen = {}
+    for h in range(lo, hi):
+        block = get_block_number(h)
+        if not block:
+            # INVARIANT: a block we cannot read is not an empty block — see _proven_challengers
+            raise WindowUnavailable(
+                f"challenger pool needs block {h} of the window [{lo},{hi}) and this node does not have "
+                f"it — cannot evaluate the enrolment rule without it (sync the gap, do not guess)", lo, hi)
+        for t in (block.get("block_transactions") or []):
+            if t.get("recipient") in _DUTY_RECIPIENTS:
+                who = t.get("sender")
+                if who:
+                    seen.setdefault(who, set()).add(h // EPOCH_LENGTH)
+    out = {a: len(e) for a, e in seen.items()}
+    kept = dict(_tpm_presence_cache[0] or {})
+    kept[(lo, hi)] = dict(out)
+    _tpm_presence_cache[0] = dict(sorted(kept.items())[-_TPM_PROVEN_CACHE_WINDOWS:])
+    return out
+
+
+def tpm_record_faults(rec: dict) -> list:
+    """The challengers at fault for v2 record `rec` once expired (ops/tpm_enrol.faults), its drawn set read from the
+    record — the stored set, or the pure draw from its OWN snapshot when no challenge ever materialised it."""
+    from ops import tpm_enrol as _te
+    if not _te.is_v2(rec) or rec.get("state") == _te.STATE_PROVEN:
+        return []
+    drawn = None
+    if rec.get("state") == _te.STATE_OPEN:
+        try:
+            drawn = tpm_drawn_challengers(rec, _te.expiry(rec))
+        except ValueError as e:
+            # epoch_beacon raises ValueError when its anchor block is missing locally: DEFER like a window gap, never
+            # treat it as "nobody was drawn" (that would let a missing block decide who is excluded)
+            a = (_te.draw_epoch(rec["h"]) - 1) * _P.EPOCH_LENGTH
+            raise WindowUnavailable(f"challenger exclusion needs the beacon anchor block {a}: {e}", a, a + 1)
+    return _te.faults(rec, drawn)
+
+
+def _tpm_excluded(block_height: int) -> set:
+    """Addresses left out of a v2 pool built at `block_height`: every challenger at fault (tpm_record_faults) for a v2
+    record whose expiry lies in (block_height - TPM_MISS_EXCLUDE_BLOCKS, block_height], plus the misses a record carried
+    over from the expired record it superseded ("missed", same window).
+
+    THE CARRY IS WHAT MAKES THIS HOLD. A chip retries with the same attestation key, so its retry derives the same
+    enrolment id and SUPERSEDES the expired record in place — the record that names the miss is overwritten exactly
+    when the miss matters. apply_tpm_enrol_tx therefore copies the faults into the new record (tpm_carry_misses), and
+    the scan reads them there. It also keeps validation (parent state) and apply (mid-block) in agreement when a
+    supersede lands earlier in the same block. Reads state only; an expired record never changes again except by
+    that supersede, so the answer is a pure function of the chain."""
+    from protocol import TPM_MISS_EXCLUDE_BLOCKS
+    from ops import tpm_enrol as _te
+    h = int(block_height)
+    out = set()
+    for _eid, rec in kv_ops.tpm_enrols_all():
+        if not _te.is_v2(rec):
+            continue                                  # legacy records fault nobody (rule 6: old records unchanged)
+        for e, a in (rec.get("missed") or []):
+            if h - TPM_MISS_EXCLUDE_BLOCKS < int(e) <= h:
+                out.add(str(a))
+        exp = _te.expiry(rec)
+        if h - TPM_MISS_EXCLUDE_BLOCKS < exp <= h:
+            out.update(tpm_record_faults(rec))
+    return out
+
+
+def tpm_carry_misses(prev, block_height: int) -> list:
+    """The [expiry, address] misses a v2 record superseding `prev` at `block_height` must carry: prev's own faults
+    and the misses prev itself carried, kept only while they can still exclude someone (expiry > block_height -
+    TPM_MISS_EXCLUDE_BLOCKS), so the list is bounded by one exclusion period of retries."""
+    from protocol import TPM_MISS_EXCLUDE_BLOCKS
+    from ops import tpm_enrol as _te
+    if not prev or not _te.is_v2(prev):
+        return []
+    floor = int(block_height) - TPM_MISS_EXCLUDE_BLOCKS
+    out = {(int(e), str(a)) for e, a in (prev.get("missed") or []) if int(e) > floor}
+    exp = _te.expiry(prev)
+    if exp > floor:
+        out.update((exp, a) for a in tpm_record_faults(prev))
+    return [[e, a] for e, a in sorted(out)]
+
+
+def tpm_pool_v2(block_height: int) -> dict:
+    """{address: weight} a v2 enrolment opened at `block_height` is drawn from (protocol.TPM_POOL_V2_HEIGHT): ONLINE
+    STAKE — bonded >= B_MIN now, an FFG duty landed in >= TPM_POOL_PRESENCE_MIN distinct epochs of the proven window,
+    not excluded for a recent miss — weighted bonded // B_MIN.
+
+    STAKE PRICES THE SEAT. Weighting by duty count let thin accounts earn seats cheaply; weighting by bonded stake
+    makes a seat cost the capital it represents, and the presence floor keeps that stake to validators whose loop is
+    actually running. Computed ONCE per enrolment, at its enrol block, and STORED in the record (ops/tpm_enrol
+    new_record): the draw reads that snapshot, never this function at another height.
+    INVARIANT: validation (pool_can_seat) and apply (the stored snapshot) call this one function."""
+    from protocol import TPM_POOL_PRESENCE_MIN
+    presence = _duty_presence(block_height)
+    excluded = _tpm_excluded(block_height)
+    out = {}
+    for a in sorted(presence):
+        if presence[a] < TPM_POOL_PRESENCE_MIN or a in excluded:
+            continue
+        acc = get_account(a, create_on_error=False)
+        bonded = int((acc or {}).get("bonded", 0) or 0)
+        if bonded >= B_MIN:
+            out[a] = bonded // B_MIN
+    return out
+
+
 def tpm_drawn_challengers(rec: dict, block_height: int):
     """The challenger set of enrolment `rec` as a block at `block_height` sees it, or None when it is not drawn yet.
 
@@ -619,6 +745,12 @@ def tpm_drawn_challengers(rec: dict, block_height: int):
         return stored
     if int(block_height) < _te.draw_opens(rec["h"]):
         return None
+    if _te.is_v2(rec):
+        # TPM POOL v2: the pool and k are the record's own SNAPSHOT, taken at the enrol block before the dice existed.
+        # INVARIANT: never recompute the pool here — a recomputation at any other height is a pool that can be joined
+        # (or bonded into) after the beacon is known.
+        return _te.challenger_set_exact(_te.draw_key(rec["ek"]), _te.pool_weights(rec),
+                                        epoch_beacon(_te.draw_epoch(rec["h"])), _te.record_k(rec))
     return _te.challenger_set_exact(_te.draw_key(rec["ek"]), _tpm_pool(int(rec["h"])),
                                     epoch_beacon(_te.draw_epoch(rec["h"])), DEVICE_ATTEST_EK_CHALLENGERS)
 
@@ -631,7 +763,6 @@ def tpm_challengers_view(rec: dict, tip: int) -> dict:
     len(challengers) and compares it with len(blobs): an empty list reads as "every drawn challenger answered", so
     it would activate nothing, commit to nothing, be refused, and exit — a client that cannot be rebuilt by us
     breaking on the delayed draw. k placeholders keep it printing "0/3 answered" and waiting, exactly as a slow draw does."""
-    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_enrol as _te
     if rec.get("state") != "open" or rec.get("challengers"):
         return {}
@@ -640,8 +771,9 @@ def tpm_challengers_view(rec: dict, tip: int) -> dict:
         drawn = tpm_drawn_challengers(rec, tip)
     except Exception:
         drawn = None                         # this node cannot evaluate the draw yet; the placeholders still say "wait"
-    full = bool(drawn) and len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS
-    return {"challengers": sorted(drawn) if full else [f"(drawn at block {at})"] * DEVICE_ATTEST_EK_CHALLENGERS,
+    k = _te.record_k(rec)                    # 5 for a v2 record: the helper then waits for "0/5 answered"
+    full = bool(drawn) and len(drawn) == k
+    return {"challengers": sorted(drawn) if full else [f"(drawn at block {at})"] * k,
             "draw_at": at, "draw_pending": not full}
 
 
@@ -651,7 +783,6 @@ def tpm_materialise_draw(rec: dict, block_height: int) -> dict:
     set; apply then STORES it, and every later message (commit, reveal, register) reads a written set exactly as it
     read the enrol-time draw's records on betanet-8. The record it was materialised from is what the rollback journal holds, so a revert puts
     the empty set back byte for byte. Raises AssertionError before the draw epoch or on a short set."""
-    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_enrol as _te
     if rec.get("challengers"):
         return rec
@@ -660,10 +791,60 @@ def tpm_materialise_draw(rec: dict, block_height: int) -> dict:
         f"this enrolment's challengers are drawn at block {_te.draw_opens(rec['h'])} — a challenge cannot land before"
     # Cannot be short for a record the enrol check admitted (same pool, exact sampling), but a short set is a weaker
     # proof, so it is never written: the record then simply expires and the chip re-enrols.
-    assert len(drawn) == DEVICE_ATTEST_EK_CHALLENGERS, \
+    assert len(drawn) == _te.record_k(rec), \
         "not enough independent challengers were in the pool this enrolment was opened against"
     out = dict(rec)
     out["challengers"] = sorted(str(a) for a in drawn)
+    return out
+
+
+def tpm_duty_bounds(rec: dict, tip: int) -> tuple:
+    """(min_block, max_block) for a challenger's next message on `rec` sent at `tip` — ONE DEFINITION for the node's
+    own challenger loop (core_loop.maybe_tpm_challenge) and the wallets' /tpm_duty, so a wallet is told exactly the
+    window a node would use. THE DEADLINE IS THE ENROLMENT'S, THE WINDOW IS THE MEMPOOL'S: the last block the record
+    accepts a message (expiry - 1), clamped to what the mempool admits with a margin to wait for inclusion. When
+    min_block > max_block nothing sent now could land: the caller skips the duty."""
+    from protocol import TX_INCLUSION_DELAY, TX_LANDING_WINDOW, RESERVED_TX_MARGIN
+    from ops import tpm_enrol as _te
+    tip = int(tip)
+    return tip + TX_INCLUSION_DELAY, min(_te.expiry(rec) - 1, tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
+
+
+def tpm_pending_duties(tip: int, live) -> dict:
+    """{address: [duty, ...]} for every LIVE enrolment (`live`: kv_ops.tpm_enrols_live(tip=tip)) whose drawn
+    challenger still owes a message — the index /tpm_duty serves, so a challenger that is a WALLET rather than a node
+    learns it was drawn (v2 draws from online stake, and a wallet can hold that stake).
+
+      "challenge"  the record is open and the address is drawn and has published no challenge;
+      "reveal"     the record is in commit and the address has a challenge on chain and no reveal.
+    Each duty is {"id", "action", "ekpub", "name", "min_block", "max_block"}, the bounds from tpm_duty_bounds; a duty
+    whose window cannot fit is omitted, as the node's loop skips it. Membership is asked of the draw at the tip
+    (tpm_drawn_challengers), exactly as the loop asks it — a record whose draw epoch has not come names nobody yet.
+    Read-only; a record this node cannot evaluate yet is skipped, never guessed."""
+    from ops import tpm_enrol as _te
+    out = {}
+    for eid, rec in live:
+        state = rec.get("state")
+        if state not in (_te.STATE_OPEN, _te.STATE_COMMITTED):
+            continue
+        try:
+            drawn = tpm_drawn_challengers(rec, tip) or []
+        except Exception:
+            continue                                 # a window or beacon this node does not hold yet
+        lo, hi = tpm_duty_bounds(rec, tip)
+        if lo > hi:
+            continue
+        blobs = {b[0] for b in (rec.get("blobs") or [])}
+        reveals = {r[0] for r in (rec.get("reveals") or [])}
+        if state == _te.STATE_OPEN:
+            owed = [(a, "challenge") for a in drawn if a not in blobs]
+        else:
+            owed = [(a, "reveal") for a in drawn if a in blobs and a not in reveals]
+        for a, action in owed:
+            out.setdefault(str(a), []).append({"id": str(eid), "action": action, "ekpub": rec["ekpub"],
+                                               "name": rec["name"], "min_block": int(lo), "max_block": int(hi)})
+    for duties in out.values():
+        duties.sort(key=lambda d: d["id"])
     return out
 
 
@@ -746,8 +927,8 @@ def verify_register_device_ek(transaction: dict, anchor_hash: str) -> dict:
     below is the ENDORSEMENT identity, which is one per chip by manufacture — so a machine that enrols ten
     attestation keys, or whose owner changes, still holds exactly one identity at a time.
     """
-    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
     from ops import tpm_aik
+    from ops.tpm_enrol import record_k
     dev = transaction.get("device") or {}
     height = int(transaction.get("max_block") or 0)      # `register` lands EXACTLY at max_block
     # DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted): only a max_block of 0 — block 0 is genesis, which carries
@@ -762,7 +943,8 @@ def verify_register_device_ek(transaction: dict, anchor_hash: str) -> dict:
     # bytes, exactly like every other device class: apply and revert then derive the same key with no DB read,
     # and a record that changed underneath could never move a binding.
     assert dev.get("ek") == rec["ek"], "the declared endorsement identity is not this enrolment's"
-    assert len(rec["challengers"]) == DEVICE_ATTEST_EK_CHALLENGERS, \
+    # the record's OWN k: 3 for a legacy record (unchanged), 5 for a v2 one (protocol.TPM_POOL_V2_HEIGHT)
+    assert len(rec["challengers"]) == record_k(rec), \
         "this enrolment was proved against the wrong number of challengers"
     cert_info = _hex_bytes(dev.get("certinfo"), 2048, "certInfo")
     sig = _hex_bytes(dev.get("sig"), 1024, "certify signature")
@@ -2039,8 +2221,15 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             # (exact sampling always does when it has k weighted members).
             # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a beacon
             # it already knows (this epoch's) — that is the grind the delayed draw closes.
-            assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
-                "not enough independent challengers are bonded to open an enrolment"
+            from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
+            if block_height >= TPM_POOL_V2_HEIGHT:
+                # TPM POOL v2: the pool this enrolment will be drawn from is the snapshot apply stores (tpm_pool_v2,
+                # the same function), and it must seat k = 5. INVARIANT: the same call here and in apply.
+                assert _te.pool_can_seat(tpm_pool_v2(block_height), DEVICE_ATTEST_EK_CHALLENGERS_V2), \
+                    "not enough independent challengers are bonded and online to open an enrolment"
+            else:
+                assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
+                    "not enough independent challengers are bonded to open an enrolment"
         else:
             eid = data.get("id")
             assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"

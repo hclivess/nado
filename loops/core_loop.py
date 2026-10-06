@@ -3641,13 +3641,12 @@ class CoreClient(threading.Thread):
             from ops.tpm_aik import make_credential
             from ops.transaction_ops import construct_tpm_tx
             store = self._tpm_secrets_load()
-            min_block = tip + TX_INCLUSION_DELAY
             # THE SET A RECORD NAMES MAY NOT BE WRITTEN YET. An enrolment is stored
             # with no challengers and its set is drawn from its draw epoch on — by the very challenge we are about to
             # send. So membership is asked of the draw (tpm_drawn_challengers: the stored set, or the pure draw once
             # the epoch has come), never of the stored field alone, or nobody would ever answer a delayed enrolment.
             # INVARIANT: ask at the TIP, the height the mempool admits at; the challenge then lands after draw_opens.
-            from ops.transaction_ops import tpm_drawn_challengers
+            from ops.transaction_ops import tpm_drawn_challengers, tpm_duty_bounds
 
             def _drawn(r):
                 try:
@@ -3666,8 +3665,9 @@ class CoreClient(threading.Thread):
                 # challenger's answer was rejected with "Target block too high" and the enrolment sat at
                 # 0/3 looking exactly like nobody had been drawn. Clamp to the window, keeping a margin
                 # so the tx does not expire while it waits for inclusion.
-                expiry = int(rec["h"]) + _te_window(rec["h"]) - 1
-                max_block = min(expiry, tip + TX_LANDING_WINDOW - RESERVED_TX_MARGIN)
+                # ONE DEFINITION (transaction_ops.tpm_duty_bounds): /tpm_duty tells a wallet challenger the same
+                # window. INVARIANT: never re-inline this arithmetic here — two copies drift.
+                min_block, max_block = tpm_duty_bounds(rec, tip)
                 if min_block > max_block:
                     continue                # this enrolment expires before anything we send could land
                 mine = store.get(eid)

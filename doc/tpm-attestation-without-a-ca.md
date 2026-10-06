@@ -235,6 +235,40 @@ participant can try to steer it with its own transactions and its effect on the 
 producer selection) and RANDAO reveals (one bit of withholding per revealer). That is the chain's standard
 beacon quality, and far from the free, offline, unbounded grind it replaces.
 
+## Challenger pool v2: online stake, k = 5, misses excluded (2026-10-06)
+
+From `protocol.TPM_POOL_V2_HEIGHT` an enrolment is a **v2 record** (`tpm_enrol.is_v2`: it carries `k`). Older
+records keep the draw above byte for byte, so a replay moves nothing.
+
+| | v2 rule | where |
+|---|---|---|
+| eligible | bonded >= `B_MIN` at the enrol block, AND an FFG duty tx in >= `TPM_POOL_PRESENCE_MIN` (50) DISTINCT epochs of the 100 the proven window covers, AND not excluded | `transaction_ops.tpm_pool_v2`, `_duty_presence` |
+| weight | `bonded // B_MIN` — a seat costs the stake it stands for, not a duty count a thin account can accrue | same |
+| snapshot | the record stores `pool` (sorted `[address, weight]`), `k` = `DEVICE_ATTEST_EK_CHALLENGERS_V2` (5) and `missed`; the draw reads them and never recomputes | `account_ops.apply_tpm_enrol_tx`, `tpm_drawn_challengers` |
+| refusal | the enrol is refused unless that pool seats 5 | validation, `pool_can_seat` |
+| exclusion | a drawn challenger that left a v2 record `open` without its challenge, or `commit` without its reveal, is out of every v2 pool for `TPM_MISS_EXCLUDE_BLOCKS` (one day) from that record's expiry | `_tpm_excluded`, `tpm_enrol.faults` |
+
+**Who is NOT at fault.** A record whose challengers all challenged and whose client never committed faults nobody
+(the client walked away). Neither does a commit that landed within `TPM_REVEAL_GRACE` blocks of expiry: the commit is
+the client's message, and a client holding a copied certificate could otherwise collect five honest challenges, commit
+in the last block, and get five honest validators excluded for a day at no cost. A snapshot that could not seat k
+(stake moved inside the enrol block between validation and apply) was never anyone's duty either.
+
+**The retry carries the miss.** A chip retries with the same attestation key, so its retry has the same enrolment
+id and overwrites the expired record in place — exactly when the miss matters. Apply therefore copies the faults
+of the superseded record into the new one (`missed`, `[expiry, address]`, pruned to the exclusion window), and the
+exclusion scan reads both. This also keeps validation (parent state) and apply (mid-block, after a supersede in the
+same block) in agreement.
+
+**Wallets can be drawn.** Online stake includes a wallet that bonds and lands its duties, and a drawn wallet that
+does not answer is excluded like a node. `GET /tpm_duty?address=` lists what an address owes — `{"tip", "duties":
+[{"id", "action": "challenge"|"reveal", "ekpub", "name", "min_block", "max_block"}]}` — with the node loop's own
+bounds (`transaction_ops.tpm_duty_bounds`). `/tpm_enrolment` states `k` and `v2` for every record.
+
+**A fresh chain waits 50 epochs** (~5.4 h at 6.5 s) before anyone has the presence to be eligible, so no v2
+enrolment can open in that time. It self-heals without any enrolment happening (duties alone earn presence); there
+is no fallback pool, by design — a fallback is the cheap seat this rule removes.
+
 ## The two proof shapes are not symmetric
 
 There is ONE consensus entry point for granting an attested identity — `verify_register_device`, called

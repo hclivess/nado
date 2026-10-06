@@ -2194,7 +2194,7 @@ def devbind_rows():
                 # The eviction and lease-grant rows share the table too and used to be skipped only because their
                 # records happen not to decode as one; name them, so a record-shape change cannot turn them into devices.
                 # The enrolment records share a PREFIX with a real device class ("tpm:<enrol id>" vs the binding
-                # "tpm:<ek>"), so they are told apart by shape: a binding has 2 or 3 fields, an enrolment 13
+                # "tpm:<ek>"), so they are told apart by shape: a binding has 2 or 3 fields, an enrolment 13 (16 for v2)
                 # (_TPM_ENROL_FIELDS) — it used to be skipped only because its hex ek failed int().
                 if k.startswith((b"tpmek:", b"evict:", b"lease:")):
                     continue
@@ -2310,6 +2310,23 @@ def devbind_revert_pop(epoch: int, address: str):
 # wire format: append to it, never reorder it.
 _TPM_ENROL_FIELDS = ("state", "ek", "ekpub", "name", "pub", "owner", "h", "challengers", "blobs",
                      "commit", "hc", "reveals", "hp")
+# A v2 RECORD (protocol.TPM_POOL_V2_HEIGHT, ops/tpm_enrol.is_v2) APPENDS three fields: the pool it is drawn from
+# ("pool": sorted [address, weight] pairs), its k, and the misses it carried from the expired record it superseded
+# ("missed": sorted [expiry, address] pairs). APPENDED, so every record written before the gate keeps its 13-field
+# bytes — and the state root of every block before it — exactly. INVARIANT: a row is 13 fields (legacy) or 16 (v2),
+# chosen by whether the record carries "k"; never write a legacy record in the long form or a v2 record in the short.
+_TPM_ENROL_FIELDS_V2 = _TPM_ENROL_FIELDS + ("pool", "k", "missed")
+
+
+def _tpm_enrol_row(rec: dict) -> list:
+    """The positional row for an enrolment record — the legacy 13 fields, or the v2 16 when it carries "k"."""
+    fields = _TPM_ENROL_FIELDS_V2 if "k" in rec else _TPM_ENROL_FIELDS
+    return [rec[k] for k in fields]
+
+
+def _tpm_enrol_from_row(row) -> dict:
+    fields = _TPM_ENROL_FIELDS_V2 if len(row) == len(_TPM_ENROL_FIELDS_V2) else _TPM_ENROL_FIELDS
+    return {k: row[i] for i, k in enumerate(fields)}
 
 
 def _tpm_enrol_key(enrol_id: str) -> bytes:
@@ -2329,8 +2346,9 @@ def _is_enrol_record(rec) -> bool:
     Renaming the prefix would be the obvious fix and is the WRONG one: these rows are in the state root,
     so a node replaying the chain would write them under a different key than the nodes that applied
     those blocks live, and the two would disagree on the root. Telling them apart by SHAPE changes no
-    stored byte. A binding is 2 or 3 elements; an enrolment is exactly as many as _TPM_ENROL_FIELDS."""
-    return isinstance(rec, (list, tuple)) and len(rec) == len(_TPM_ENROL_FIELDS)
+    stored byte. A binding is 2 or 3 elements; an enrolment is exactly as many as _TPM_ENROL_FIELDS, or as
+    _TPM_ENROL_FIELDS_V2 for a record opened from protocol.TPM_POOL_V2_HEIGHT."""
+    return isinstance(rec, (list, tuple)) and len(rec) in (len(_TPM_ENROL_FIELDS), len(_TPM_ENROL_FIELDS_V2))
 
 
 def tpm_enrol_get(enrol_id: str):
@@ -2342,14 +2360,13 @@ def tpm_enrol_get(enrol_id: str):
         rec = _unpack(raw)
         if not _is_enrol_record(rec):
             return None                      # a device binding that happens to share the prefix
-        return {k: rec[i] for i, k in enumerate(_TPM_ENROL_FIELDS)}
+        return _tpm_enrol_from_row(rec)
     return _read(_do)
 
 
 def tpm_enrol_set(enrol_id: str, rec: dict):
     def _do(txn):
-        txn.put(_tpm_enrol_key(enrol_id), _pack([rec[k] for k in _TPM_ENROL_FIELDS]),
-                db=_dbs()["devbind"])
+        txn.put(_tpm_enrol_key(enrol_id), _pack(_tpm_enrol_row(rec)), db=_dbs()["devbind"])
     _write(_do)
 
 
@@ -2440,7 +2457,7 @@ def tpm_enrol_revert_put(height: int, enrol_id: str, prev):
         k = be8(int(height)) + _tpm_enrol_key(enrol_id)
         if txn.get(k, db=_dbs()["devbind_revert"]) is not None:
             return
-        rec = [prev[k2] for k2 in _TPM_ENROL_FIELDS] if prev else None
+        rec = _tpm_enrol_row(prev) if prev else None   # the v2 fields too: a revert restores the record exactly
         txn.put(k, _pack(rec), db=_dbs()["devbind_revert"])
     _write(_do)
 
@@ -2454,7 +2471,7 @@ def tpm_enrol_revert_pop(height: int, enrol_id: str):
             return False, None
         txn.delete(k, db=_dbs()["devbind_revert"])
         rec = _unpack(raw)
-        return True, ({k2: rec[i] for i, k2 in enumerate(_TPM_ENROL_FIELDS)} if rec is not None else None)
+        return True, (_tpm_enrol_from_row(rec) if rec is not None else None)
     return _write(_do)
 
 
@@ -2485,7 +2502,27 @@ def tpm_enrols_live(limit: int = 64, tip: int = None):
                     h = int(rec[6])          # rec[6] is "h" — keep in step with _TPM_ENROL_FIELDS
                     if tip is not None and int(tip) >= h + enrol_window(h):
                         continue             # expired: nobody can answer it any more (see docstring)
-                    out.append((k[4:].decode(), {f: rec[i] for i, f in enumerate(_TPM_ENROL_FIELDS)}))
+                    out.append((k[4:].decode(), _tpm_enrol_from_row(rec)))
+        return out
+    return _read(_do)
+
+
+def tpm_enrols_all():
+    """(id, record) for EVERY enrolment row, in key order, unbounded — the v2 pool's exclusion scan
+    (transaction_ops._tpm_excluded) must see every record whose expiry falls in its window, and a bound would make
+    the answer depend on how many dead rows sort before the one that matters (the tpm_enrols_live lesson). A
+    consensus read: inside a block's write txn it sees the block's own writes, like every other kv read."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["devbind"]) as cur:
+            if cur.set_range(b"tpm:"):
+                for k, v in cur:
+                    if not k.startswith(b"tpm:"):
+                        break
+                    rec = _unpack(v)
+                    if not _is_enrol_record(rec):
+                        continue             # a device binding sharing the "tpm:" prefix
+                    out.append((k[4:].decode(), _tpm_enrol_from_row(rec)))
         return out
     return _read(_do)
 

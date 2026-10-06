@@ -1883,7 +1883,46 @@ async def tpm_enrolment(request):
     # the view serves the set the chain will enforce, or k placeholders before its draw epoch — never an empty list,
     # which the shipped helper would read as "every challenger answered" (transaction_ops.tpm_challengers_view).
     out.update(tpm_challengers_view(rec, tip))
+    # TPM POOL v2 (protocol.TPM_POOL_V2_HEIGHT): a v2 record already serves its stored "pool" / "k" / "missed" through
+    # **rec; "k" and "v2" are stated for EVERY record so a client reads how many challengers to wait for instead of
+    # assuming 3 (a legacy record answers k = 3, v2 = false).
+    from ops.tpm_enrol import is_v2 as _is_v2, record_k as _record_k
+    out["k"], out["v2"] = _record_k(rec), _is_v2(rec)
     return _resp(out)
+
+
+_tpm_duty_cache = {"tip": None, "index": {}}
+
+
+async def tpm_duty(request):
+    """GET /tpm_duty?address=<addr> -> {"tip": n, "duties": [{"id", "action", "ekpub", "name", "min_block",
+    "max_block"}, ...]} — every live TPM enrolment where `address` is a DRAWN challenger that still owes a message:
+    "challenge" while the record is open and the address has published none, "reveal" while it is in commit and the
+    address has a challenge on chain and no reveal.
+
+    WHY A WALLET NEEDS THIS. The v2 challenger pool is online stake (protocol.TPM_POOL_V2_HEIGHT), and a wallet that
+    bonds and lands its duties holds that stake — so a wallet can be drawn, and a drawn party that does not answer is
+    excluded from the pool for a day. A node finds its duties in its own loop (core_loop.maybe_tpm_challenge); a wallet
+    asks here. min_block / max_block are the node loop's own (transaction_ops.tpm_duty_bounds) and a duty whose window
+    cannot fit is omitted. The wallet keeps its own secret and seed; nothing here is a secret.
+
+    PUBLIC, READ-ONLY, CHEAP: one index of every drawn address is built per tip and served from memory until the tip
+    moves (transaction_ops.tpm_pending_duties)."""
+    if _rate_limited(request, 120):
+        return _RL()
+    address = str(request.query.get("address", ""))
+    if not (0 < len(address) <= 128 and address.isalnum()):
+        return _resp({"error": "malformed address"}, status=400)
+    tip = int((memserver.latest_block or {}).get("block_number") or 0)
+    if _tpm_duty_cache["tip"] != tip:
+        from ops import kv_ops as _kv
+        from ops.transaction_ops import tpm_pending_duties
+        try:
+            index = tpm_pending_duties(tip, _kv.tpm_enrols_live(limit=256, tip=tip))
+        except Exception as e:
+            return _resp({"error": f"duties unavailable: {str(e)[:160]}"}, status=503)
+        _tpm_duty_cache.update(tip=tip, index=index)
+    return _resp({"tip": tip, "duties": list(_tpm_duty_cache["index"].get(address, []))})
 
 
 async def tpm_enrol_challenge(request):
@@ -3423,6 +3462,7 @@ async def make_app(port):
         web.post("/tpm_proof_drop", tpm_proof_drop),
         web.get("/tpm_proof_pickup", tpm_proof_pickup),
         web.get("/tpm_enrolment", tpm_enrolment),
+        web.get("/tpm_duty", tpm_duty),
         web.post("/tpm_enrol_id", tpm_enrol_id),
         web.post("/register_challenge", register_challenge),
         web.post("/tpm_enrol_challenge", tpm_enrol_challenge),

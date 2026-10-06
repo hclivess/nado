@@ -131,16 +131,81 @@ def pool_can_seat(weights: dict, k: int) -> bool:
 
 
 def new_record(ek_identity: str, ek_spki: bytes, aik_name_hex: str, aik_pub: bytes, owner: str,
-               height: int, challengers: list) -> dict:
+               height: int, challengers: list, pool=None, k=None, missed=None) -> dict:
     """The endorsement PUBLIC KEY is stored, not just its digest: every node has to re-derive the credential
     blob from the revealed (secret, seed) at step 4, and MakeCredential needs the key itself. Keeping it in
     the record also means the reveal check never re-parses a certificate — the kernel read it once, when the
-    vendor signature was verified, and consensus reads the same bytes forever after."""
-    return {"state": STATE_OPEN, "ek": str(ek_identity), "ekpub": ek_spki.hex(),
-            "name": str(aik_name_hex),
-            "pub": aik_pub.hex(), "owner": str(owner), "h": int(height),
-            "challengers": sorted(str(a) for a in challengers),
-            "blobs": [], "commit": "", "hc": -1, "reveals": [], "hp": -1}
+    vendor signature was verified, and consensus reads the same bytes forever after.
+
+    A v2 RECORD (protocol.TPM_POOL_V2_HEIGHT) also carries its frozen pool, its k and the misses it inherited
+    (`pool` / `k` / `missed`, all given together). Without them the record is the legacy 13-field one, byte for byte —
+    INVARIANT: a record opened below the gate never carries "k" (kv_ops packs it in the short form by that test)."""
+    rec = {"state": STATE_OPEN, "ek": str(ek_identity), "ekpub": ek_spki.hex(),
+           "name": str(aik_name_hex),
+           "pub": aik_pub.hex(), "owner": str(owner), "h": int(height),
+           "challengers": sorted(str(a) for a in challengers),
+           "blobs": [], "commit": "", "hc": -1, "reveals": [], "hp": -1}
+    if k is not None:
+        # sorted pairs, never a dict: msgpack/JSON keep insertion order, and a dict built in another order on another
+        # node is other bytes for the same state (a root split). Lists, not tuples, so the record compares equal to
+        # its own decoded row (the rollback check is record == record).
+        rec["pool"] = [[str(a), int(w)] for a, w in sorted((str(a), int(w)) for a, w in (pool or []))]
+        rec["k"] = int(k)
+        rec["missed"] = [[int(e), str(a)] for e, a in sorted({(int(e), str(a)) for e, a in (missed or [])})]
+    return rec
+
+
+def is_v2(rec: dict) -> bool:
+    """Whether `rec` is drawn from its own stored pool (TPM challenger pool v2). The record says so itself — a v2
+    record carries "k" — so no caller has to know the height of the gate it was opened under."""
+    return isinstance(rec, dict) and "k" in rec
+
+
+def record_k(rec: dict) -> int:
+    """How many challengers `rec` needs: its own k for a v2 record, DEVICE_ATTEST_EK_CHALLENGERS for a legacy one."""
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
+    return int(rec["k"]) if is_v2(rec) else DEVICE_ATTEST_EK_CHALLENGERS
+
+
+def pool_weights(rec: dict) -> dict:
+    """A v2 record's frozen pool as challenger_set_exact's {address: weight}."""
+    return {str(p[0]): int(p[1]) for p in (rec.get("pool") or [])}
+
+
+def expiry(rec: dict) -> int:
+    """The first block at which `rec` is expired (no message may land at or after it)."""
+    return int(rec["h"]) + enrol_window(int(rec["h"]))
+
+
+def faults(rec: dict, drawn) -> list:
+    """The challengers at fault for a v2 record that EXPIRED unproven, given its drawn set (stored, or recomputed from
+    its own snapshot when no challenge ever materialised it). Sorted addresses.
+
+      open at expiry     every drawn challenger that published no challenge (it was the one holding the record up);
+      commit at expiry   every challenger with a challenge on chain but no reveal (the client did its part) —
+                         provided the commit left them TPM_REVEAL_GRACE blocks to reveal in;
+      proven / legacy    nobody.
+    A record whose challengers ALL challenged and whose client never committed is open with no missing blob: nobody.
+    A pool that could never seat k (validation and apply read state at different points of the block) faults nobody:
+    a set that could not be drawn was never anyone's duty.
+    INVARIANT: only a party who could have acted and did not is at fault — never the client's abandonment."""
+    if not is_v2(rec) or rec.get("state") == STATE_PROVEN:
+        return []
+    if rec.get("state") == STATE_COMMITTED:
+        # A COMMIT THAT LEFT NO TIME TO REVEAL FAULTS NOBODY. The commit is the CLIENT's message and lands whenever the
+        # client sends it; a reveal must land strictly after it and before expiry. Without this a client holding a
+        # copied certificate could collect five honest challenges, commit in the record's last block, and have five
+        # honest validators excluded for a day — for free, once per chip per window, until the pool was its own.
+        # INVARIANT: a challenger is at fault only for a window it actually had (protocol.TPM_REVEAL_GRACE).
+        from protocol import TPM_REVEAL_GRACE
+        if expiry(rec) - int(rec.get("hc", -1)) <= TPM_REVEAL_GRACE:
+            return []
+        revealed = set(_pairs(rec, "reveals"))
+        return sorted(a for a in _pairs(rec, "blobs") if a not in revealed)
+    if rec.get("state") != STATE_OPEN or not drawn or len(drawn) != record_k(rec):
+        return []
+    answered = set(_pairs(rec, "blobs"))
+    return sorted(str(a) for a in drawn if a not in answered)
 
 
 def _pairs(rec: dict, field: str) -> dict:

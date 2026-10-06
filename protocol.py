@@ -1656,7 +1656,9 @@ def split_open_block_reward(reward: int):
 #                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
 # GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
-#                                    only challengers' own acts, never the enrollee's tpm_commit)
+#                                    only challengers' own acts, never the enrollee's tpm_commit),
+#                                    TPM_POOL_V2_HEIGHT ((1 << 62) placeholder -> 1: the TPM challenger pool is online
+#                                    stake, k = 5, a challenger that failed a draw sits out a day)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2025,6 +2027,32 @@ TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
 # DEVICE_ATTEST_EK_CHALLENGERS proven challengers exist, the draw falls back to the duty senders it used
 # before — worse, but live, and it self-heals the moment k nodes have answered once.
 # DEVICE_ATTEST_EK_PROVEN_HEIGHT: gen 25 gate at 59400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
+
+# TPM CHALLENGER POOL v2 (operator-approved 2026-10-06): ONLINE STAKE, k = 5, MISSES EXCLUDED.
+# An enrolment opened at h >= TPM_POOL_V2_HEIGHT is a "v2" record (ops/tpm_enrol.is_v2); every older record keeps
+# exactly the draw above (_tpm_pool, including TPM_POOL_CHALLENGER_ACTS_HEIGHT), so a replay moves no verdict.
+#   POOL      an account is eligible when it holds bonded >= B_MIN at the enrol block AND landed an FFG duty tx in at
+#             least TPM_POOL_PRESENCE_MIN DISTINCT epochs of the DEVICE_ATTEST_EK_PROVEN_WINDOW / EPOCH_LENGTH epochs
+#             before the enrol block's epoch (transaction_ops._duty_presence) AND is not excluded. Weight = bonded //
+#             B_MIN. Seats are priced in stake that is online, not in duty-tx counts a cheap account can accrue.
+#   SNAPSHOT  the v2 record STORES its pool ("pool": sorted [address, weight] pairs) and its k ("k"), and the delayed
+#             draw reads them — never a recomputation at another height. Frozen before the dice, as COMMIT, THEN DRAW
+#             requires. The enrol is refused unless that pool can seat DEVICE_ATTEST_EK_CHALLENGERS_V2.
+#   PENALTY   a challenger drawn for a v2 record that failed it — open at expiry without its challenge, or in commit at
+#             expiry without its reveal — is left out of every v2 pool built within TPM_MISS_EXCLUDE_BLOCKS of that
+#             record's expiry (transaction_ops._tpm_excluded). Read from state only; no new transaction type. A record
+#             whose challengers all answered and whose CLIENT never committed faults nobody, and neither does a commit
+#             that landed within TPM_REVEAL_GRACE of expiry (the client picks when to commit; nobody can reveal after).
+# Placeholder height on gen 28: the operator sets the real one at ship time (CLAUDE.md rule 3).
+TPM_POOL_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+DEVICE_ATTEST_EK_CHALLENGERS_V2 = 5      # k for a v2 record: forging needs all five drawn parties to collude
+TPM_POOL_PRESENCE_MIN = 50               # distinct epochs (of the 100 the proven window covers) with a landed duty tx
+TPM_MISS_EXCLUDE_BLOCKS = 14400          # one day: how long a failed challenger stays out of the v2 pool
+# A reveal can only land after the client's commit, and the client chooses when to commit — so a commit landing within
+# this many blocks of the record's expiry faults NO challenger (a commit in the last block would otherwise get every
+# honest challenger excluded at the client's whim). One epoch: a running challenger reveals ~10-20 blocks after the
+# commit it answers (TX_INCLUSION_DELAY plus inclusion), and an honest client commits as soon as its challenges land.
+TPM_REVEAL_GRACE = 60
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at
