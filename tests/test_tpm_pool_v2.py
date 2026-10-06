@@ -523,7 +523,7 @@ wipe()
 P.TPM_POOL_V2_HEIGHT = LIVE_GATE
 src = open(os.path.join(ROOT, "protocol.py")).read()
 check("the gate is keyed on the live generation, live from block 1 at the reroll",
-      "TPM_POOL_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1" in src and P.CHAIN_GENERATION == 28)
+      "TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1" in src and P.CHAIN_GENERATION == 28)
 check("the v2 constants: k = 5, presence 50 epochs, one day out, one epoch of reveal grace",
       (P.DEVICE_ATTEST_EK_CHALLENGERS_V2, P.TPM_POOL_PRESENCE_MIN, P.TPM_MISS_EXCLUDE_BLOCKS, P.TPM_REVEAL_GRACE)
       == (5, 50, 14400, 60))

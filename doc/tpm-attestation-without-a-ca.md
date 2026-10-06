@@ -237,7 +237,7 @@ beacon quality, and far from the free, offline, unbounded grind it replaces.
 
 ## Challenger pool v2: online stake, k = 5, misses excluded (2026-10-06)
 
-From `protocol.TPM_POOL_V2_HEIGHT` an enrolment is a **v2 record** (`tpm_enrol.is_v2`: it carries `k`). Older
+From `protocol.TPM_POOL_V2_HEIGHT` (block 100000 on the live generation) an enrolment is a **v2 record** (`tpm_enrol.is_v2`: it carries `k`). Older
 records keep the draw above byte for byte, so a replay moves nothing.
 
 | | v2 rule | where |

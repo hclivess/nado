@@ -1657,7 +1657,7 @@ def split_open_block_reward(reward: int):
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
 # GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
 #                                    only challengers' own acts, never the enrollee's tpm_commit),
-#                                    TPM_POOL_V2_HEIGHT ((1 << 62) placeholder -> 1: the TPM challenger pool is online
+#                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
 #                                    stake, k = 5, a challenger that failed a draw sits out a day)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2043,8 +2043,9 @@ TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
 #             record's expiry (transaction_ops._tpm_excluded). Read from state only; no new transaction type. A record
 #             whose challengers all answered and whose CLIENT never committed faults nobody, and neither does a commit
 #             that landed within TPM_REVEAL_GRACE of expiry (the client picks when to commit; nobody can reveal after).
-# Placeholder height on gen 28: the operator sets the real one at ship time (CLAUDE.md rule 3).
-TPM_POOL_V2_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# 100000 on gen 28: shipped at tip ~96980 (7.5 s blocks, ~6 h of /update wave); measured then: 10 eligible accounts,
+# total weight 272, so k = 5 seats (an enrol is refused when it cannot).
+TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1
 DEVICE_ATTEST_EK_CHALLENGERS_V2 = 5      # k for a v2 record: forging needs all five drawn parties to collude
 TPM_POOL_PRESENCE_MIN = 50               # distinct epochs (of the 100 the proven window covers) with a landed duty tx
 TPM_MISS_EXCLUDE_BLOCKS = 14400          # one day: how long a failed challenger stays out of the v2 pool
