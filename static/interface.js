@@ -28,7 +28,7 @@ import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
-import { makeCredential as tpmMakeCredential, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js";   // TPM challenger duty (maybeTpmChallenge); unstamped on purpose: the server stamps it with the JS epoch
+import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js";   // TPM challenger duty (maybeTpmChallenge); unstamped on purpose: the server stamps it with the JS epoch
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
@@ -6608,10 +6608,12 @@ async function tpmChallengePass(addr) {
     if (!state.wallet || state.wallet.address !== addr || state.locked) return;   // switched account / locked meanwhile
   }
   const handled = new Set();
+  const expOf = {};                                                    // id -> the enrolment's expiry (d.expires_at)
   try {
     for (const d of duties) {
       if (!tpmDutyOk(d) || handled.has(d.id)) continue;
       handled.add(d.id);                                               // ONE MESSAGE PER ENROLMENT PER PASS
+      if (Number.isInteger(d.expires_at)) expOf[d.id] = d.expires_at;
       let ent = tpmSecretsLoad(addr)[d.id];                            // FRESH: another tab may have written since
       if (ent && ent.dead === d.action) continue;                      // refused for good; never resend
       if (ent && ent.pend && ent.pend.action === d.action && tip <= ent.pend.max) continue;   // IN FLIGHT for this id
@@ -6645,7 +6647,15 @@ async function tpmChallengePass(addr) {
         data = { id: d.id, blob: tpmToHex(cred.blob), enc: tpmToHex(cred.enc) };
       } else {
         // REVEAL ONLY ON THE RELAY'S "reveal": it says so only once the client's commitment is on chain.
-        if (!ent || !ent.secret || !ent.seed) {
+        // ONLY THE SECRET THAT REPRODUCES OUR PUBLISHED CHALLENGE. With this wallet open on two devices both challenge,
+        // one is refused as a duplicate, and its stored secret is NOT the one on chain: revealing it is refused, and
+        // here it must not even be tried — the other device holds the right one (the relay sends our blob as d.blob).
+        let mine = !!(ent && ent.secret && ent.seed);
+        if (mine && d.blob) {
+          try { mine = tpmToHex(tpmCredentialBlob(tpmHex(d.name), tpmHex(ent.secret), tpmHex(ent.seed))) === String(d.blob).toLowerCase(); }
+          catch (e) { mine = false; }
+        }
+        if (!mine) {
           if (!_tpmNoted.has(d.id + ":nosecret")) { _tpmNoted.add(d.id + ":nosecret");
             log("warn", i18("log.tpmNoSecret", "Cannot reveal for TPM enrolment {id}…: this browser does not hold its challenge secret (it was challenged from another device, or site data was cleared).", { id: d.id.slice(0, 12) })); }
           continue;
@@ -6686,10 +6696,12 @@ async function tpmChallengePass(addr) {
       tpmSecretsUpdate(addr, (m) => {
         for (const id of Object.keys(m)) {
           const ent = m[id] || {};
-          if (handled.has(id)) { ent.seen = tip; continue; }
+          if (handled.has(id)) { ent.seen = tip; if (expOf[id] != null) ent.exp = expOf[id]; continue; }
           const spent = ent.revealed != null && !(ent.pend && tip <= Number(ent.pend.max));
           const lastSeen = Number(ent.seen ?? ent.at ?? tip);
-          if (spent || tip - lastSeen > TPM_SECRET_KEEP_BLOCKS) delete m[id];
+          // the enrolment's own expiry when the relay told us (d.expires_at): past it nothing can land for this id
+          const expired = ent.exp != null && tip > Number(ent.exp);
+          if (spent || expired || tip - lastSeen > TPM_SECRET_KEEP_BLOCKS) delete m[id];
         }
       });
     }

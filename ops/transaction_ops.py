@@ -817,7 +817,8 @@ def tpm_pending_duties(tip: int, live) -> dict:
 
       "challenge"  the record is open and the address is drawn and has published no challenge;
       "reveal"     the record is in commit and the address has a challenge on chain and no reveal.
-    Each duty is {"id", "action", "ekpub", "name", "min_block", "max_block"}, the bounds from tpm_duty_bounds; a duty
+    Each duty is {"id", "action", "ekpub", "name", "min_block", "max_block", "expires_at"} (+ "blob", the address's own
+    published challenge, on a reveal), the bounds from tpm_duty_bounds; a duty
     whose window cannot fit is omitted, as the node's loop skips it. Membership is asked of the draw at the tip
     (tpm_drawn_challengers), exactly as the loop asks it — a record whose draw epoch has not come names nobody yet.
     Read-only; a record this node cannot evaluate yet is skipped, never guessed."""
@@ -834,15 +835,21 @@ def tpm_pending_duties(tip: int, live) -> dict:
         lo, hi = tpm_duty_bounds(rec, tip)
         if lo > hi:
             continue
-        blobs = {b[0] for b in (rec.get("blobs") or [])}
+        blob_of = {b[0]: b[1] for b in (rec.get("blobs") or [])}
         reveals = {r[0] for r in (rec.get("reveals") or [])}
         if state == _te.STATE_OPEN:
-            owed = [(a, "challenge") for a in drawn if a not in blobs]
+            owed = [(a, "challenge") for a in drawn if a not in blob_of]
         else:
-            owed = [(a, "reveal") for a in drawn if a in blobs and a not in reveals]
+            owed = [(a, "reveal") for a in drawn if a in blob_of and a not in reveals]
+        expires_at = int(rec["h"]) + _te.enrol_window(int(rec["h"]))
         for a, action in owed:
-            out.setdefault(str(a), []).append({"id": str(eid), "action": action, "ekpub": rec["ekpub"],
-                                               "name": rec["name"], "min_block": int(lo), "max_block": int(hi)})
+            duty = {"id": str(eid), "action": action, "ekpub": rec["ekpub"], "name": rec["name"],
+                    "min_block": int(lo), "max_block": int(hi), "expires_at": expires_at}
+            if action == "reveal":
+                # THE CHALLENGE THIS ADDRESS PUBLISHED, so a wallet open on two devices reveals only from the device whose
+                # secret reproduces it (the other device's challenge was refused as a duplicate and its secret is wrong).
+                duty["blob"] = blob_of[a]
+            out.setdefault(str(a), []).append(duty)
     for duties in out.values():
         duties.sort(key=lambda d: d["id"])
     return out

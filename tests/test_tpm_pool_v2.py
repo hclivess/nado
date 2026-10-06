@@ -421,9 +421,9 @@ want_lo = tip + P.TX_INCLUSION_DELAY
 want_hi = min(EXP - 1, tip + P.TX_LANDING_WINDOW - P.RESERVED_TX_MARGIN)
 check("every drawn challenger owes a challenge on an open record, nobody else", set(idx) == set(drawn), sorted(idx))
 d0 = idx[drawn[0]][0]
-check("a duty is {id, action, ekpub, name, min_block, max_block}",
-      set(d0) == {"id", "action", "ekpub", "name", "min_block", "max_block"} and d0["action"] == "challenge"
-      and d0["id"] == EID and d0["ekpub"] == rec["ekpub"] and d0["name"] == rec["name"])
+check("a duty is {id, action, ekpub, name, min_block, max_block, expires_at}",
+      set(d0) == {"id", "action", "ekpub", "name", "min_block", "max_block", "expires_at"} and d0["action"] == "challenge"
+      and d0["id"] == EID and d0["ekpub"] == rec["ekpub"] and d0["name"] == rec["name"] and d0["expires_at"] == EXP)
 check("min_block / max_block are the node loop's (tip + TX_INCLUSION_DELAY; min(expiry - 1, tip + window - margin))",
       (d0["min_block"], d0["max_block"]) == (want_lo, want_hi) == T.tpm_duty_bounds(rec, tip), (d0, want_lo, want_hi))
 check("no duty exists before the draw epoch (nobody is drawn yet)",
@@ -441,6 +441,9 @@ with kv_ops.write_txn():                              # two reveals landed (the 
 idx = T.tpm_pending_duties(opens + 12, kv_ops.tpm_enrols_live(tip=opens + 12))
 check("in commit, exactly the challengers without a reveal owe a reveal",
       set(idx) == set(drawn[2:]) and all(ds[0]["action"] == "reveal" for ds in idx.values()), idx)
+_pub = {b[0]: b[1] for b in (kv_ops.tpm_enrol_get(EID).get("blobs") or [])}
+check("a reveal duty carries the address's OWN published challenge (a second device reveals only if its secret matches)",
+      all(ds[0].get("blob") == _pub.get(a) for a, ds in idx.items()), {a: ds[0].get("blob", "")[:12] for a, ds in idx.items()})
 
 
 def load_handler():
