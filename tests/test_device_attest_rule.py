@@ -1,6 +1,6 @@
 """transaction_ops.verify_register_device — the consensus attestation rule behind DEVICE_ATTEST_HEIGHT: a
 register tx must carry a hardware attestation over blake2b([chain_id, sender, anchor_hash, max_block]) whose
-chain ends at a pinned root, evaluated at the ANCHOR block's timestamp. Uses the real native kernel with a
+chain ends at a pinned root, evaluated at agreed time (_anchor_time). Uses the real native kernel with a
 synthetic chain and a test root injected as the pinned set."""
 import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
 _os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
@@ -33,6 +33,10 @@ def main():
     P.DEVICE_ATTEST_ROOT_FINGERPRINTS = frozenset(P.DEVICE_ATTEST_ROOT_FINGERPRINTS | {hashlib.sha256(root_der).hexdigest()})
     now = int(time.time()) + 120
     TO.get_block_number = lambda n: {"block_number": n, "block_hash": anchor_hash, "block_timestamp": now}
+    # the certificate clock is agreed time (transaction_ops._anchor_time), never the anchor block_timestamp above, which
+    # is node-local; this temp chain holds no duty clocks, so the clock is pinned here (the stamp alone left the
+    # test judging a fresh certificate at an empty chain's time: "x5c[0] outside validity")
+    TO._anchor_time = lambda tx_, h: now
     b64 = lambda b: base64.b64encode(b).decode()
     tx = {"sender": sender, "max_block": max_block, "device": {"att": b64(att), "cdj": b64(cdj), "rp": "get.nadochain.com"}}
     v = TO.verify_register_device(tx, anchor_hash)
