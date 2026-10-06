@@ -122,4 +122,33 @@ def weights_at_epoch(epoch: int) -> dict:
         w = dividend_weight(fidelity_at_epoch(addr, epoch), epoch)
         if w > 0:
             out[addr] = w
+    return referral_split(out, epoch)
+
+
+def referral_split(weights: dict, epoch: int) -> dict:
+    """The dividend weights of `epoch` with the referral slice applied (protocol.py "REFERRALS") — ONE function for the
+    committed epoch weights, the exec accrual (both via weights_at_epoch) and the live /get_open_weights.
+
+    From the gate's epoch (REFERRAL_HEIGHT // EPOCH_LENGTH) every weight is scaled by REFERRAL_SCALE; a newcomer inside its REFERRAL_EPOCHS window whose
+    referrer is itself in this epoch's set pays REFERRAL_SHARE * w of its scaled weight to that referrer. Integer, and
+    the total is exactly REFERRAL_SCALE * the unscaled total, so every identity outside a referral keeps its share.
+    The slice is cut from the newcomer's OWN base weight `w`, never from what another referral moved, so a chain
+    A <- B <- C pays one level each and a ring of identities that all refer each other nets exactly zero.
+    The link is read from state but judged by the epoch it was made in, so a link written after `epoch` never touches
+    it: a past epoch reconstructs identically whenever it is recomputed. Before the gate's epoch: `weights` unchanged."""
+    from protocol import REFERRAL_HEIGHT, REFERRAL_EPOCHS, REFERRAL_SCALE, REFERRAL_SHARE, EPOCH_LENGTH
+    if int(epoch) < REFERRAL_HEIGHT // EPOCH_LENGTH:
+        return weights
+    out = {a: REFERRAL_SCALE * int(w) for a, w in weights.items()}
+    for newcomer in sorted(weights):
+        link = kv_ops.referral_get(newcomer)
+        if link is None:
+            continue
+        referrer, height = link
+        start = int(height) // EPOCH_LENGTH
+        if not (start <= int(epoch) < start + REFERRAL_EPOCHS) or referrer == newcomer or referrer not in weights:
+            continue                                  # outside the window, or the referrer is not present to earn it
+        cut = REFERRAL_SHARE * int(weights[newcomer])
+        out[newcomer] -= cut
+        out[referrer] += cut
     return out

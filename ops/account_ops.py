@@ -123,8 +123,19 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         if device_key and not revert:
             from ops.device_attest import credential_public_key
             cred_pub = credential_public_key(transaction.get("device") or {})
+        # REFERRAL LINK (protocol.REFERRAL_HEIGHT): judged BEFORE apply_register writes the recert and stamps the device,
+        # because "first" is a statement about the state this tx found. Revert deletes the row only when it was written
+        # by THIS block (the stored height names it), so a rollback is the exact inverse.
+        if revert:
+            _link = kv_ops.referral_get(sender)
+            if _link is not None and _link[1] == int(block_height):
+                kv_ops.referral_del(sender)
+        else:
+            _ref = referral_to_write(transaction, block_height, device_key, legacy_key)
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
                        device_key=device_key, permanent=permanent, cred_pub=cred_pub, legacy_key=legacy_key)
+        if not revert and _ref:
+            kv_ops.referral_set(sender, _ref, int(block_height))
         return
 
     # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
@@ -403,6 +414,36 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         change_balance(address=doc["sender"], amount=amt, logger=logger, revert=revert)
         doc["status"] = "open" if revert else "refunded"
         kv_ops.htlc_put(data["htlc_id"], doc)
+        return
+
+    # --- FUNDED INVITES (protocol.py "FUNDED INVITE LINKS"). Validation checked the gate, the key, the window and,
+    # for a claim, the attested claimant and the link key's signature naming it. The record is a list, mutated in
+    # place and restored exactly on revert (kv_ops.invite_put). ---
+    if recipient == "invite_lock":
+        from protocol import INVITE_ESCROW
+        from ops.transaction_ops import invite_id_of
+        data = transaction.get("data") or {}
+        iid = invite_id_of(data["key"])
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_balance(address=INVITE_ESCROW, amount=amount, logger=logger, revert=revert)
+        if revert:
+            kv_ops.invite_del(iid)
+        else:
+            kv_ops.invite_put(iid, [sender, int(amount), int(data["expiry"]), "open", ""])
+        return
+    if recipient in ("invite_claim", "invite_refund"):
+        from protocol import INVITE_ESCROW
+        iid = (transaction.get("data") or {})["id"]
+        rec = kv_ops.invite_get(iid)
+        referrer, amt, expiry = rec[0], int(rec[1]), int(rec[2])
+        payee = sender if recipient == "invite_claim" else referrer
+        change_balance(address=INVITE_ESCROW, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=payee, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.invite_put(iid, [referrer, amt, expiry, "open", ""])
+        else:
+            kv_ops.invite_put(iid, [referrer, amt, expiry, "claimed" if recipient == "invite_claim" else "refunded",
+                                    sender if recipient == "invite_claim" else ""])
         return
 
     # --- DIVIDEND COLLECTION (doc/presence-dividend.md): release `amount` from the DIVIDEND_POOL to the proven
@@ -750,6 +791,32 @@ def get_open_registry(current_epoch: int):
                 entry = (key, _compute())
                 _open_reg_cache[0] = entry
     return {addr: dict(info) for addr, info in entry[1].items()}
+
+
+def referral_to_write(transaction: dict, block_height: int, device_key, legacy_key):
+    """The referrer to link for this register, or None — only on the identity's FIRST attested registration
+    (protocol.py "REFERRALS"). First means all of: past REFERRAL_HEIGHT; the tx names a referrer; it carries a real
+    device statement (device_key set — not a signature or statement-free renewal); the sender never recerted; its
+    account carries no device stamp; no link exists yet; and the DEVICE is fresh — bound to no identity under its
+    canonical or its carried raw-bytes key. A device moving to a new address is a move, not a newcomer: counting it
+    would let one phone mint a new "newcomer" (and a new slice for someone) every time it re-registered elsewhere.
+    Read against the state before this tx applies — call it BEFORE apply_register."""
+    from protocol import REFERRAL_HEIGHT
+    from ops.transaction_ops import register_referrer
+    if int(block_height) < REFERRAL_HEIGHT or not device_key:
+        return None
+    ref = register_referrer(transaction)
+    if not ref:
+        return None
+    sender = transaction["sender"]
+    if kv_ops.recert_latest(sender) >= 0 or kv_ops.referral_get(sender) is not None:
+        return None
+    acc = kv_ops.get_account(sender) or {}
+    if isinstance(acc.get("devkey"), str) and acc.get("devkey"):
+        return None
+    if kv_ops.devbind_get(device_key) is not None or (legacy_key and kv_ops.devbind_get(legacy_key) is not None):
+        return None
+    return ref
 
 
 def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, cred_pub=None,

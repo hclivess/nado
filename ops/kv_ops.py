@@ -1682,6 +1682,11 @@ def bond_since_revert_pop(txid: str):
 # refunded), which is revert-symmetric: the doc is self-describing so rollback restores the prior status.
 def htlc_get(htlc_id: str):
     """The HTLC doc for `htlc_id` (the lock tx's txid), or None if no such lock."""
+    # INVARIANT: an id is client-supplied (htlc_claim / htlc_refund data), and the invite rows share this DB under
+    # "invite:<id>" — never answer one as a swap, or an htlc_claim naming it would read an invite record as an HTLC.
+    # (No such row exists before protocol.REFERRAL_HEIGHT, so this answers exactly as before on every older block.)
+    if str(htlc_id).encode().startswith(_INVITE_PREFIX):
+        return None
     def _do(txn):
         raw = txn.get(htlc_id.encode(), db=_dbs()["htlcs"])
         return _unpack(raw) if raw is not None else None
@@ -1710,7 +1715,53 @@ def htlc_all():
         out = {}
         with txn.cursor(db=_dbs()["htlcs"]) as cur:
             for k, v in cur:
+                if k.startswith(_INVITE_PREFIX):
+                    continue          # an invite (below) shares this DB; it is not a swap and has no swap fields
                 out[k.decode()] = _unpack(v)
+        return out
+    return _read(_do)
+
+
+# --- INVITES (protocol.REFERRAL_HEIGHT; doc/referrals.md): "invite:<id>" in the htlcs DB -> msgpack LIST
+# [sender, amount, expiry, status, claimant]. A list, never a dict: two nodes building the record in a different key
+# order would commit two byte strings for one state. Mutated in place by claim/refund (status "open" -> "claimed" /
+# "refunded", claimant "" -> address) and restored exactly on revert, like an HTLC doc. Same DB as the HTLCs so no new
+# sub-DB enters the state root; htlc_all skips the prefix.
+_INVITE_PREFIX = b"invite:"
+
+
+def invite_get(invite_id: str):
+    """[sender, amount, expiry, status, claimant] for invite `invite_id`, or None."""
+    def _do(txn):
+        raw = txn.get(_INVITE_PREFIX + str(invite_id).encode(), db=_dbs()["htlcs"])
+        return None if raw is None else list(_unpack(raw))
+    return _read(_do)
+
+
+def invite_put(invite_id: str, rec):
+    sender, amount, expiry, status, claimant = rec
+    def _do(txn):
+        txn.put(_INVITE_PREFIX + str(invite_id).encode(),
+                _pack([str(sender), int(amount), int(expiry), str(status), str(claimant)]), db=_dbs()["htlcs"])
+    _write(_do)
+
+
+def invite_del(invite_id: str):
+    def _do(txn):
+        txn.delete(_INVITE_PREFIX + str(invite_id).encode(), db=_dbs()["htlcs"])
+    _write(_do)
+
+
+def invite_all():
+    """{id: [sender, amount, expiry, status, claimant]} for every invite (read-only: /invites, the reroll refund)."""
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["htlcs"]) as cur:
+            if cur.set_range(_INVITE_PREFIX):
+                for k, v in cur:
+                    if not k.startswith(_INVITE_PREFIX):
+                        break
+                    out[k[len(_INVITE_PREFIX):].decode()] = list(_unpack(v))
         return out
     return _read(_do)
 
@@ -2196,7 +2247,9 @@ def devbind_rows():
                 # The enrolment records share a PREFIX with a real device class ("tpm:<enrol id>" vs the binding
                 # "tpm:<ek>"), so they are told apart by shape: a binding has 2 or 3 fields, an enrolment 13 (16 for v2)
                 # (_TPM_ENROL_FIELDS) — it used to be skipped only because its hex ek failed int().
-                if k.startswith((b"tpmek:", b"evict:", b"lease:")):
+                # A REFERRAL LINK ("referral:<newcomer>" -> [referrer, height]) is two fields and WOULD decode as a binding
+                # of the referrer: skipped by name, so a referral can never be carried or counted as a device.
+                if k.startswith((b"tpmek:", b"evict:", b"lease:", _REFERRAL_PREFIX)):
                     continue
                 try:
                     rec = _unpack(raw)
@@ -2222,6 +2275,52 @@ def devbind_del(key: str):
     def _do(txn):
         txn.delete(key.encode(), db=_dbs()["devbind"])
     _write(_do)
+
+
+# --- REFERRAL LINKS (protocol.REFERRAL_HEIGHT): "referral:<newcomer>" in the devbind DB -> msgpack [referrer, height].
+# Written once, by the newcomer's FIRST attested registration (account_ops), never changed; deleted only by the
+# rollback of that same block (the stored height names it). Consensus state like every devbind row. devbind_rows skips
+# the prefix — a two-field record would otherwise read as a device binding of the referrer.
+_REFERRAL_PREFIX = b"referral:"
+
+
+def referral_get(newcomer: str):
+    """(referrer, height) the newcomer named at its first registration, or None."""
+    def _do(txn):
+        raw = txn.get(_REFERRAL_PREFIX + str(newcomer).encode(), db=_dbs()["devbind"])
+        if raw is None:
+            return None
+        rec = _unpack(raw)
+        return str(rec[0]), int(rec[1])
+    return _read(_do)
+
+
+def referral_set(newcomer: str, referrer: str, height: int):
+    def _do(txn):
+        txn.put(_REFERRAL_PREFIX + str(newcomer).encode(), _pack([str(referrer), int(height)]), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def referral_del(newcomer: str):
+    def _do(txn):
+        txn.delete(_REFERRAL_PREFIX + str(newcomer).encode(), db=_dbs()["devbind"])
+    _write(_do)
+
+
+def referrals_by(referrer: str) -> list:
+    """[(newcomer, height)] that named `referrer`, sorted — a cursor walk of the link rows (read-only: /referrals)."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["devbind"]) as cur:
+            if cur.set_range(_REFERRAL_PREFIX):
+                for k, v in cur:
+                    if not k.startswith(_REFERRAL_PREFIX):
+                        break
+                    rec = _unpack(v)
+                    if str(rec[0]) == referrer:
+                        out.append((k[len(_REFERRAL_PREFIX):].decode(), int(rec[1])))
+        return sorted(out)
+    return _read(_do)
 
 
 # EVICTION ROWS (DEVICE_REBIND_INSTANT_HEIGHT) live in the devbind DB under "evict:<address>" — a msgpack list of

@@ -45,6 +45,23 @@ def pot_refunds_for(cid, contract, pot, zk_addrs):
 EXEC_STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exec_state.json")
 
 
+def open_escrow_refunds(invites: dict, htlcs: dict):
+    """({funder: raw}, {escrow account: raw}) for every OPEN invite (kv_ops.invite_all rows [sender, amount, expiry,
+    status, claimant]) and OPEN HTLC lock (kv_ops.htlc_all docs): each goes back to whoever funded it, debited from its
+    escrow. The records themselves do not survive a reroll, so without this the coins would carry as the escrow
+    account's balance with nothing left that could ever release them."""
+    refunds, out = {}, {"invite": 0, "htlc": 0}
+    for _iid, rec in sorted(invites.items()):
+        if rec[3] == "open" and _num(rec[1]) > 0:
+            refunds[rec[0]] = refunds.get(rec[0], 0) + _num(rec[1])
+            out["invite"] += _num(rec[1])
+    for _hid, doc in sorted(htlcs.items()):
+        if doc.get("status") == "open" and _num(doc.get("amount")) > 0:
+            refunds[doc["sender"]] = refunds.get(doc["sender"], 0) + _num(doc["amount"])
+            out["htlc"] += _num(doc["amount"])
+    return refunds, out
+
+
 def build():
     kv_ops.init_env()
     d = json.load(open(EXEC_STATE))
@@ -133,6 +150,14 @@ def build():
     for _n, w in uws.items():
         credit(w["addr"], _num(w["amount"]))
 
+    # 5b) OPEN INVITES AND HTLC LOCKS go back to whoever funded them (their records do not carry)
+    esc_refunds, esc_out = open_escrow_refunds(kv_ops.invite_all(), kv_ops.htlc_all())
+    for a, v in esc_refunds.items():
+        credit(a, v)
+    for acct, v in esc_out.items():
+        if v:
+            debit_reserved(acct, v)
+
     # 6) debit the escrow reserved accounts by exactly what was folded (conserve supply)
     bridge_out = sum(user_bridge.values()) + sum(pot_bridge.values()) + sum(_num(w["amount"]) for w in bws.values())
     dividend_out = sum(_num(v) for v in dividend.values()) + sum(_num(w["amount"]) for w in dws.values())
@@ -151,6 +176,7 @@ def build():
     print(f"  folded dividend withdrawals (pending):{sum(_num(w['amount']) for w in dws.values()):>18} raw -> users, -dividend pool")
     print(f"  folded bridge withdrawals (pending):  {sum(_num(w['amount']) for w in bws.values()):>18} raw -> users, -bridge escrow")
     print(f"  folded unshield withdrawals (pending):{shield_out:>18} raw -> users, -shield escrow")
+    print(f"  refunded open invites / HTLC locks:   {esc_out['invite'] + esc_out['htlc']:>18} raw -> funders, -invite/-htlc escrow")
     print(f"carried total after folds:              {carried:>18} raw")
     print(f"CONSERVATION: {'OK' if carried == l1_total else 'FAIL'} (Δ={carried - l1_total})")
     print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")

@@ -201,7 +201,7 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready", "legacy_claim"})
+RESERVED_RECIPIENTS = frozenset({"auth", "bond", "unbond", "withdraw", "register", "pool", "delegate", "undelegate", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "invite", "invite_lock", "invite_claim", "invite_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet", "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready", "legacy_claim"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -1659,6 +1659,9 @@ def split_open_block_reward(reward: int):
 #                                    only challengers' own acts, never the enrollee's tpm_commit),
 #                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
 #                                    stake, k = 5, a challenger that failed a draw sits out a day)
+#                                    REFERRAL_HEIGHT ((1 << 62) placeholder -> 1: a first registration may name a
+#                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
+#                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2054,6 +2057,45 @@ TPM_MISS_EXCLUDE_BLOCKS = 14400          # one day: how long a failed challenger
 # honest challenger excluded at the client's whim). One epoch: a running challenger reveals ~10-20 blocks after the
 # commit it answers (TX_INCLUSION_DELAY plus inclusion), and an honest client commits as soon as its challenges land.
 TPM_REVEAL_GRACE = 60
+
+# REFERRALS: A SLICE OF THE NEWCOMER'S OWN DIVIDEND, NEVER A BONUS FROM THE POOL (operator-approved 2026-10-06).
+# The operator's first idea was a fidelity bump for whoever onboards someone. Any reward paid from the shared pool per
+# onboarded identity is a per-identity rule, and per-identity rules are linear (doc/device-attestation.md): N attested
+# devices refer each other in a ring and EVERY one collects the bump, so the pool moves from honest non-referrers to
+# farms. So the referrer's reward comes out of the newcomer's weight instead:
+#   LINK      a register tx from REFERRAL_HEIGHT may carry data {"referrer": <address>}. It is written only on the
+#             identity's FIRST attested registration (no recert ever, no device stamp on the account, a fresh device),
+#             immutable, one level (transaction_ops validates the shape; account_ops writes devbind "referral:<newcomer>").
+#   SPLIT     for REFERRAL_EPOCHS epochs from the link, the newcomer's dividend weight w is paid as
+#             (REFERRAL_SCALE - REFERRAL_SHARE) * w to the newcomer and REFERRAL_SHARE * w to the referrer; every other
+#             weight is REFERRAL_SCALE * w. Integer, and the scaled total equals REFERRAL_SCALE * the unscaled total, so
+#             nobody else's share moves. Only while the referrer is itself in the epoch's weight set (present, attested);
+#             otherwise the newcomer keeps the whole of it. The slice is cut from the newcomer's OWN weight, never from
+#             what someone else's referral moved, so it never chains.
+#   FARM RING a ring of N identities each gives REFERRAL_SHARE * w and receives one slice: net zero by construction.
+# One function applies it (dividend_ops.referral_split) for the committed epoch weights, the exec accrual and the live
+# /get_open_weights. Placeholder height on gen 28: the operator sets the real one at ship (CLAUDE.md rule 3).
+REFERRAL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+REFERRAL_EPOCHS = 7200                   # 30 days at 240 epochs/day: how long a referrer earns from one newcomer
+REFERRAL_SCALE = 10                      # weights are scaled by this from the gate's epoch so a 10 % slice is an integer
+REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCALE units of the newcomer's weight (10 %)
+
+# FUNDED INVITE LINKS (same gate, REFERRAL_HEIGHT; doc/referrals.md). A newcomer starts with nothing — not even the fee
+# for a first transfer — so the referrer pays the start:
+#   "invite_lock"   the referrer escrows `amount` in INVITE_ESCROW under a THROWAWAY ML-DSA-44 key the wallet generates
+#                   for this one link (data {"key": pubkey hex, "expiry": height}); the invite id is blake2b(pubkey).
+#                   The link carries that key's 32-byte seed in its #fragment, which a browser never sends to a server.
+#   "invite_claim"  fee-exempt, from an ATTESTED identity (an account stamped with a device): carries the link key's
+#                   signature over (chain, id, CLAIMANT). Binding the claimant is what a hashlock cannot do — a secret
+#                   revealed in the mempool can be copied into a rival claim; a signature naming one address cannot
+#                   be re-pointed at another.
+#   "invite_refund" fee-exempt, the referrer takes back an unclaimed invite from its expiry.
+# Not a farm target: nothing is minted — every coin a claim pays out is one the referrer put in, for a link they chose
+# to hand out. The claim carries no referral by itself; the newcomer's first register names the referrer (above).
+INVITE_ESCROW = "invite"                 # reserved escrow pseudo-account holding every unclaimed invite
+INVITE_MIN_TIMELOCK = 1_440              # >= ~2.4 h: room to install a wallet, attest a device and claim
+INVITE_MAX_TIMELOCK = 432_000            # <= ~30 days: bounds how long a forgotten link keeps coins in escrow
+INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at

@@ -1225,7 +1225,7 @@ def _account_mempool_summary(addr):
                     eo += _si(data.get("amount"))
             elif recipient in ("bridge_withdraw", "unshield", "unbond", "register", "heartbeat",
                                "msgkey", "attest", "commit", "reveal", "settle", "slash",
-                               "xmsg", "htlc_claim"):
+                               "xmsg", "htlc_claim", "invite_claim", "invite_refund"):
                 pass                               # fee-exempt / no spendable movement (exit credits handled above)
             else:                                  # plain send, bond, shield, alias, htlc_lock, ...
                 fo += amount + fee
@@ -2709,7 +2709,10 @@ async def get_open_weights(request):
             w = dividend_weight(info.get("fidelity", 0), epoch)
             if w > 0:                                   # probation = absent (protocol.dividend_weight)
                 weights[addr] = w
-        return {"epoch": epoch, "weights": weights}
+        # the referral slice and scale (protocol.py "REFERRALS"), through the SAME function the committed weights use,
+        # so the live numbers a wallet shows are cut the way the epoch will be paid
+        from ops.dividend_ops import referral_split
+        return {"epoch": epoch, "weights": referral_split(weights, epoch)}
     out = await asyncio.to_thread(_work)
     # error dicts were answered 200 (the comment above says "410-style" and meant it): 400 on a bad
     # epoch, 410 when the recert history behind it is gone
@@ -2834,6 +2837,60 @@ async def htlcs(request):
     if addr:
         allh = {i: d for i, d in allh.items() if d.get("sender") == addr or d.get("claimant") == addr}
     return _resp({"htlcs": allh})
+
+
+async def get_invite(request):
+    """GET /invite?id=: one funded invite (protocol.py "FUNDED INVITE LINKS") — {id, invite: {sender, amount, expiry,
+    status, claimant} | null, tip}. The newcomer's wallet reads it to say who invited them and what is waiting."""
+    from ops import kv_ops
+    iid = _q(request, "id", "")
+    rec = await asyncio.to_thread(kv_ops.invite_get, iid) if iid else None
+    doc = None if rec is None else dict(zip(("sender", "amount", "expiry", "status", "claimant"), rec))
+    return _resp({"id": iid, "invite": doc, "tip": memserver.latest_block["block_number"]})
+
+
+async def invites(request):
+    """GET /invites?address=: the invites `address` funded (its "your invites" list, and the refunds its wallet owes
+    itself after expiry). Full-set read — rate-limited 60/min per IP."""
+    if _rate_limited(request, 60):
+        return _RL()
+    from ops import kv_ops
+    addr = _q(request, "address")
+    allv = await asyncio.to_thread(kv_ops.invite_all)
+    out = {i: dict(zip(("sender", "amount", "expiry", "status", "claimant"), r)) for i, r in allv.items()
+           if not addr or r[0] == addr}
+    return _resp({"invites": out, "tip": memserver.latest_block["block_number"]})
+
+
+async def referrals(request):
+    """GET /referrals?address=: who `address` named as its referrer ({address, since_height} or null) and the
+    identities that named it — each with its window (until_epoch) and whether it is inside it and present now, which
+    is when the referrer earns REFERRAL_SHARE / REFERRAL_SCALE of its dividend weight (protocol.py "REFERRALS").
+    Rate-limited 30/min per IP (it reads the open registry)."""
+    if _rate_limited(request, 30):
+        return _RL()
+    addr = _q(request, "address")
+    if not addr:
+        return _resp({"error": "address required"}, status=400)
+    def _work():
+        from ops import kv_ops
+        from ops.mining_ops import epoch_of
+        from ops.account_ops import get_open_registry
+        from protocol import REFERRAL_EPOCHS, REFERRAL_SCALE, REFERRAL_SHARE, REFERRAL_HEIGHT, EPOCH_LENGTH
+        tip = memserver.latest_block["block_number"]
+        epoch = epoch_of(tip)
+        mine = kv_ops.referral_get(addr)
+        rows = kv_ops.referrals_by(addr)
+        present = set(get_open_registry(epoch))
+        referred = []
+        for who, h in rows:
+            start = int(h) // EPOCH_LENGTH
+            referred.append({"address": who, "since_height": int(h), "until_epoch": start + REFERRAL_EPOCHS,
+                             "in_window": start <= epoch < start + REFERRAL_EPOCHS, "present": who in present})
+        return {"address": addr, "referrer": None if mine is None else {"address": mine[0], "since_height": mine[1]},
+                "referred": referred, "share": [REFERRAL_SHARE, REFERRAL_SCALE], "window_epochs": REFERRAL_EPOCHS,
+                "active_from": REFERRAL_HEIGHT, "tip": tip, "epoch": epoch, "self_present": addr in present}
+    return _resp(await asyncio.to_thread(_work))
 
 
 # HTML pages are served with their /static/<asset> references stamped ?v=<file mtime>. The stamped URL
@@ -3523,6 +3580,9 @@ async def make_app(port):
         web.get("/msig_address", msig_address),
         web.get("/get_htlc", get_htlc),
         web.get("/htlcs", htlcs),
+        web.get("/invite", get_invite),
+        web.get("/invites", invites),
+        web.get("/referrals", referrals),
         web.get("/get_aliases_of", aliases_of),
         web.get("/terminate", terminate),
         web.get("/health", health),

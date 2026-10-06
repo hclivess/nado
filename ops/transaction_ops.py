@@ -1364,6 +1364,12 @@ def reserved_uniqueness_key(tx):
             return ("dividend_withdraw", d.get("addr"), d.get("nonce"))                  # one dividend claim per (addr, nonce)
         if r in ("htlc_claim", "htlc_refund"):
             return ("htlc_settle", (tx.get("data") or {}).get("htlc_id"))               # one claim OR refund per HTLC per block
+        if r in ("invite_claim", "invite_refund"):
+            return ("invite_settle", (tx.get("data") or {}).get("id"))                  # one claim OR refund per invite per block
+        if r == "invite_lock":
+            # two locks under ONE key in one block would both pass validation against the parent state (no row yet) and
+            # the second would overwrite the first's escrow record — one lock per key per block
+            return ("invite_lock", (tx.get("data") or {}).get("key"))
         if r == "unshield":
             d = tx.get("data") or {}
             return ("unshield", d.get("addr"), d.get("nonce"))                          # one unshield exit per (addr, nonce)
@@ -2032,6 +2038,7 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     elif recipient == "register":
         assert transaction["amount"] == 0, "register tx must have zero amount"
         assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
+        validate_register_referrer(transaction, block_height)
         from ops.block_ops import get_block_hash_by_number
         anchor = get_block_hash_by_number(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET))
         assert anchor, "registration anchor block not found"
@@ -3005,6 +3012,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
         assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
         assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
+    elif recipient in ("invite", "invite_lock", "invite_claim", "invite_refund"):
+        validate_invite(transaction, block_height)
     elif recipient == "shield":
         # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitment(s).
         assert transaction["amount"] > 0, "shield amount must be positive"
@@ -3050,6 +3059,94 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     return True
 
 
+
+
+def register_referrer(transaction: dict):
+    """The referrer a register tx names (data {"referrer": address}), or None. Shape is validated separately."""
+    d = transaction.get("data")
+    return d.get("referrer") if isinstance(d, dict) else None
+
+
+def validate_register_referrer(transaction: dict, block_height: int):
+    """REFERRALS (protocol.REFERRAL_HEIGHT): from the gate a register's `data` is "" or exactly {"referrer": <keyed
+    address other than the sender>}. Before it, `data` is left as it always was (nothing read it), so every older block
+    validates byte for byte as before. Whether the link is WRITTEN is apply's call (first attested registration only);
+    a renewal naming a referrer is accepted and simply writes nothing, so a wallet that retries is never stuck."""
+    from protocol import REFERRAL_HEIGHT
+    if int(block_height) < REFERRAL_HEIGHT:
+        return
+    d = transaction.get("data")
+    if d in ("", None):
+        return
+    assert isinstance(d, dict) and set(d) == {"referrer"}, 'register data must be "" or {"referrer": <address>}'
+    ref = d["referrer"]
+    assert isinstance(ref, str) and is_address(ref), "register referrer must be a keyed address"
+    assert ref != transaction["sender"], "an identity cannot name itself as its referrer"
+
+
+def invite_id_of(key_hex: str) -> str:
+    """An invite's id: a domain-tagged hash of its throwaway public key (the wallet computes the same)."""
+    from protocol import CHAIN_ID
+    return blake2b_hash(["invite-id-v1", CHAIN_ID, key_hex])
+
+
+def invite_claim_message(invite_id: str, claimant: str) -> bytes:
+    """What the link key signs: (chain, invite, CLAIMANT). Naming the claimant is the point — a copied claim cannot be
+    re-pointed at another address, which a revealed hashlock secret could."""
+    from protocol import CHAIN_ID
+    return bytes.fromhex(blake2b_hash(["invite-claim-v1", CHAIN_ID, invite_id, claimant]))
+
+
+def validate_invite(transaction: dict, block_height: int):
+    """invite_lock / invite_claim / invite_refund (protocol.py "FUNDED INVITE LINKS"). Raises AssertionError.
+
+    BEFORE REFERRAL_HEIGHT EVERY ONE IS REFUSED, and "invite" (the escrow) always is: these names became reserved with
+    the gate, and a reserved name with no branch falls through to the ordinary-transfer path — which would ACCEPT a
+    send to "invite" that an older node refuses as an unknown alias. INVARIANT: keep the refusal first."""
+    from protocol import (REFERRAL_HEIGHT, INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, INVITE_KEY_HEX)
+    from signatures import verify
+    recipient = transaction["recipient"]
+    assert recipient != "invite", "the invite escrow cannot be paid directly — use invite_lock"
+    assert int(block_height) >= REFERRAL_HEIGHT, "invites are not enabled yet"
+    data = transaction.get("data") or {}
+    assert isinstance(data, dict), "invite data must be an object"
+    h = transaction["max_block"]                          # deterministic landing height (mempool == build)
+    if recipient == "invite_lock":
+        assert set(data) == {"key", "expiry"}, "invite_lock data must be {key, expiry}"
+        assert transaction["amount"] > 0, "an invite must carry a positive amount"
+        assert transaction["fee"] >= MIN_TX_FEE, f"invite_lock fee below minimum {MIN_TX_FEE}"
+        key, expiry = data["key"], data["expiry"]
+        assert _is_hex(key) and len(key) == INVITE_KEY_HEX, "invite key must be an ML-DSA-44 public key (hex)"
+        assert isinstance(expiry, int) and not isinstance(expiry, bool), "invite expiry must be an int block height"
+        assert h + INVITE_MIN_TIMELOCK <= expiry <= h + INVITE_MAX_TIMELOCK, "invite expiry outside the allowed window"
+        assert kv_ops.invite_get(invite_id_of(key)) is None, "an invite with this key already exists"
+        return
+    assert transaction["amount"] == 0, f"{recipient} carries no amount"
+    assert transaction["fee"] == 0, f"{recipient} is fee-exempt"
+    iid = data.get("id")
+    assert isinstance(iid, str) and len(iid) == 64 and _is_hex(iid), "bad invite id"
+    rec = kv_ops.invite_get(iid)
+    assert rec is not None and rec[3] == "open", "no OPEN invite with that id"
+    sender, _amount, expiry, _status, _claimant = rec
+    if recipient == "invite_claim":
+        assert set(data) == {"id", "key", "sig"}, "invite_claim data must be {id, key, sig}"
+        assert h < int(expiry), "this invite has expired"
+        claimant = transaction["sender"]
+        assert claimant != sender, "the referrer cannot claim their own invite"
+        # AN ATTESTED IDENTITY: a device statement landed for it (every statement stamps `devkey`) and it holds a
+        # recert. The gift is for onboarding a person with a device, not for any address that holds the link.
+        acc = get_account(claimant, create_on_error=False) or {}
+        assert isinstance(acc.get("devkey"), str) and acc.get("devkey") and kv_ops.recert_latest(claimant) >= 0, \
+            "only a registered device identity can claim an invite — register this wallet first"
+        key, sig = data["key"], data["sig"]
+        assert _is_hex(key) and len(key) == INVITE_KEY_HEX and invite_id_of(key) == iid, "invite key does not match the invite"
+        assert _is_hex(sig) and verify(sig, key, invite_claim_message(iid, claimant)), \
+            "the invite link's signature does not name this claimant"
+        return
+    assert recipient == "invite_refund"
+    assert set(data) == {"id"}, "invite_refund data must be {id}"
+    assert transaction["sender"] == sender, "only the referrer may refund this invite"
+    assert h >= int(expiry), "this invite has not expired yet"
 
 
 def sort_transaction_pool(transactions: list, key="txid") -> list:
@@ -3174,6 +3271,10 @@ def _escrow_release(tx):
     if r in ("htlc_claim", "htlc_refund"):
         doc = kv_ops.htlc_get(d.get("htlc_id")) or {}
         return (HTLC_ESCROW, int(doc.get("amount", 0) or 0), None)
+    if r in ("invite_claim", "invite_refund"):
+        from protocol import INVITE_ESCROW
+        rec = kv_ops.invite_get(d.get("id")) if isinstance(d.get("id"), str) else None
+        return (INVITE_ESCROW, int(rec[1]) if rec else 0, None)
     return None
 
 
