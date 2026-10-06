@@ -28,6 +28,7 @@ import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
+import { makeCredential as tpmMakeCredential, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js";   // TPM challenger duty (maybeTpmChallenge); unstamped on purpose: the server stamps it with the JS epoch
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
@@ -3942,6 +3943,10 @@ async function pollOnce() {
   // epoch it didn't reveal for (mandatory RANDAO), so any unlocked wallet holding >= B_MIN bonded
   // participates while the tab is open. No-op for everyone else (one cheap /get_account check).
   try { await maybeRandao(); } catch (e) { /* best-effort */ }
+  // TPM CHALLENGER DUTY — the same population as the epoch duty (an unlocked wallet holding >= B_MIN bonded): a
+  // bonded wallet can be DRAWN to challenge a stranger's TPM enrolment, and an enrolment whose drawn challenger
+  // never answers expires unproven. One /tpm_duty fetch per poll; a no-op for everyone else.
+  try { await maybeTpmChallenge(); } catch (e) { /* best-effort */ }
 }
 
 function startPollLoop() {
@@ -6507,6 +6512,188 @@ async function maybeRandao() {
     }
   } catch (e) { /* best-effort; never break the poll loop */ }
   finally { _randaoBusy = false; }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * TPM CHALLENGER DUTY (doc/tpm-attestation-without-a-ca.md) — the wallet twin of the node's maybe_tpm_challenge
+ * (loops/core_loop.py). A machine proves it holds a vendor-certified TPM by opening credentials that DRAWN
+ * challengers seal to its endorsement key; forging one needs every drawn challenger to collude. A bonded wallet
+ * can be drawn, and a drawn challenger that never answers kills the enrolment: the stranger's chip did nothing
+ * wrong and has to start over. So a bonded wallet answers, automatically, like its epoch duty.
+ *
+ * The relay names the work (GET /tpm_duty?address=): per enrolment one action, "challenge" or "reveal".
+ *   challenge  fresh 32-byte secret + seed, PERSISTED HERE FIRST, then tpm_challenge {id, blob, enc}
+ *   reveal     tpm_reveal {id, secret, seed} with the stored pair — only when the relay says "reveal", which it
+ *              does only once the client's tpm_commit is ON CHAIN (consensus also refuses an early reveal, but a
+ *              reveal broadcast before the commit lands hands the client the secret off the mempool)
+ * INVARIANTS (tests/test_wallet_tpm_challenger_duty.mjs pins each one):
+ *   - the secret is written to localStorage, and read back, BEFORE the challenge is broadcast; a challenger
+ *     that publishes a blob and then loses (secret, seed) can never reveal, and nothing else can;
+ *   - an existing secret for an id is NEVER replaced: the blob on chain may already be sealed under it;
+ *   - one message per enrolment per pass, and never a second while one is in flight for that id (the node's
+ *     _tpm_tx_pending: a duplicate fails inside later block candidates);
+ *   - a refusal that can never change (DEAD_TPM_RE) is not resent.
+ * -------------------------------------------------------------------------------------------- */
+const TPM_SECRET_KEEP_BLOCKS = 720;   // an UNREVEALED secret outlives any enrolment it could open: the longest window is
+                                      // the draw wait (<= 2 epochs = 120) + DEVICE_ATTEST_EK_ENROL_SHORT (180) = 300 blocks
+// Refusals that are the same on every retry, anchored to the node's own assertion text (ops/tpm_enrol.apply_challenge /
+// apply_reveal, ops/transaction_ops). If those strings move, this must too — the test reads both files.
+const DEAD_TPM_RE = /no longer accepting challenges|not a drawn challenger|already challenged this enrolment|already revealed|nothing to reveal for this enrolment|do not reproduce the published challenge|enrolment has expired/i;
+// Per chain AND per account: a reroll's enrolment ids are a different chain's, and two accounts on one browser are
+// two challengers. Not lsChainGet — that DELETES a mismatching chain's entry, and a stale CHAIN_ID read before the
+// relay answered must never be able to erase a secret an enrolment is waiting on.
+function tpmSecretsKey(addr) { return "nado_tpm_chal_v1:" + CHAIN_ID + ":" + addr; }
+function tpmSecretsLoad(addr) {
+  try {
+    const m = JSON.parse(localStorage.getItem(tpmSecretsKey(addr)) || "{}");
+    return (m && typeof m === "object" && !Array.isArray(m)) ? m : {};
+  } catch (e) { return {}; }
+}
+// EVERY WRITE IS A READ-MODIFY-WRITE OF WHAT IS STORED NOW, never a pass-start snapshot written back: two tabs of one
+// wallet both run this duty, and a snapshot written over the other tab's fresh secret is a published blob nobody can
+// reveal. `fn` mutates the current map and returns what the caller wants back. Returns null unless the write is READ
+// BACK identical: a quota error, a private window or blocked site data must stop the challenge, not surface at the reveal.
+function tpmSecretsUpdate(addr, fn) {
+  try {
+    const k = tpmSecretsKey(addr), m = tpmSecretsLoad(addr);
+    const out = fn(m);
+    const v = JSON.stringify(m);
+    localStorage.setItem(k, v);
+    return localStorage.getItem(k) === v ? (out === undefined ? true : out) : null;
+  } catch (e) { return null; }
+}
+function tpmDutyOk(d) {
+  return d && typeof d.id === "string" && /^[0-9a-f]{32}$/.test(d.id)
+    && (d.action === "challenge" || d.action === "reveal")
+    && Number.isInteger(d.min_block) && Number.isInteger(d.max_block)
+    && (d.action !== "challenge" || (typeof d.ekpub === "string" && /^([0-9a-fA-F]{2})+$/.test(d.ekpub)
+        && typeof d.name === "string" && /^([0-9a-fA-F]{2})+$/.test(d.name)));
+}
+let _tpmBusy = false;
+const _tpmNoted = new Set();          // "<id>:<what>" — say each problem once, not once per poll
+
+async function maybeTpmChallenge() {
+  if (_tpmBusy || !state.wallet || state.locked || state.latest == null || !netAdopted) return;
+  _tpmBusy = true;
+  try {
+    const addr = state.wallet.address;
+    // ONE TAB AT A TIME: two tabs of one wallet would otherwise both see "challenge" and both broadcast. Where the Web
+    // Locks API exists (every secure context) a tab that finds the lock held skips this pass; elsewhere the fresh
+    // per-id reads and merge-writes below keep the secret safe, and a duplicate is refused by consensus.
+    const locks = globalThis.navigator && navigator.locks;
+    if (locks && typeof locks.request === "function") {
+      await locks.request("nado_tpm_duty:" + addr, { ifAvailable: true }, (lock) => (lock ? tpmChallengePass(addr) : null));
+    } else {
+      await tpmChallengePass(addr);
+    }
+  } catch (e) { /* best-effort; never break the poll loop */ }
+  finally { _tpmBusy = false; }
+}
+
+async function tpmChallengePass(addr) {
+  const acc = await getAccount(addr);
+  if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;            // only a bonded account can be drawn
+  let resp = null;
+  try {                                                                // ONE /tpm_duty fetch per pass
+    const r = await fetch(relayBase() + "/tpm_duty?address=" + encodeURIComponent(addr), { cache: "no-store" });
+    if (!r.ok) return;                                                 // a relay without the endpoint: nothing to do
+    resp = await r.json();
+  } catch (e) { return; }                                              // relay hiccup — next poll
+  const tip = Number(resp && resp.tip);
+  const duties = resp && Array.isArray(resp.duties) ? resp.duties : null;
+  if (!Number.isInteger(tip) || !duties) return;
+  if (duties.length) {
+    // Bind to the relay's CURRENT chain before reading the chain-scoped store or signing (see refreshNetIdentity).
+    await refreshNetIdentity();
+    if (!state.wallet || state.wallet.address !== addr || state.locked) return;   // switched account / locked meanwhile
+  }
+  const handled = new Set();
+  try {
+    for (const d of duties) {
+      if (!tpmDutyOk(d) || handled.has(d.id)) continue;
+      handled.add(d.id);                                               // ONE MESSAGE PER ENROLMENT PER PASS
+      let ent = tpmSecretsLoad(addr)[d.id];                            // FRESH: another tab may have written since
+      if (ent && ent.dead === d.action) continue;                      // refused for good; never resend
+      if (ent && ent.pend && ent.pend.action === d.action && tip <= ent.pend.max) continue;   // IN FLIGHT for this id
+      if (d.min_block > d.max_block || d.max_block <= tip) continue;   // cannot land any more
+      let data;
+      if (d.action === "challenge") {
+        if (!ent || !ent.secret || !ent.seed) {
+          // NEVER REPLACE AN EXISTING SECRET: if an earlier challenge already landed under it, a new one would leave
+          // the published blob unrevealable. Generate only when none is stored, and STORE BEFORE BROADCASTING — the
+          // claim keeps whatever secret is there by the time it writes, so a racing tab's secret wins, not ours.
+          const fresh = { secret: tpmToHex(crypto.getRandomValues(new Uint8Array(32))),
+                          seed: tpmToHex(crypto.getRandomValues(new Uint8Array(32))), at: tip, seen: tip };
+          ent = tpmSecretsUpdate(addr, (m) => {
+            if (!(m[d.id] && m[d.id].secret && m[d.id].seed)) m[d.id] = fresh;
+            return m[d.id];
+          });
+          if (!ent) {
+            if (!_tpmNoted.has("store")) { _tpmNoted.add("store");
+              log("err", i18("log.tpmStoreFail", "This browser cannot store the TPM challenge secret (site data blocked or storage full) — not challenging, so no enrolment is left waiting on a secret that was never kept.")); }
+            return;
+          }
+        }
+        let cred;
+        try {
+          cred = tpmMakeCredential(tpmHex(d.ekpub), tpmHex(d.name), tpmHex(ent.secret), tpmHex(ent.seed));
+        } catch (e) {
+          if (!_tpmNoted.has(d.id + ":key")) { _tpmNoted.add(d.id + ":key");
+            log("warn", i18("log.tpmBadKey", "TPM enrolment {id}…: its endorsement key cannot be used ({m}) — skipping it.", { id: d.id.slice(0, 12), m: String(e.message || e).slice(0, 60) })); }
+          continue;
+        }
+        data = { id: d.id, blob: tpmToHex(cred.blob), enc: tpmToHex(cred.enc) };
+      } else {
+        // REVEAL ONLY ON THE RELAY'S "reveal": it says so only once the client's commitment is on chain.
+        if (!ent || !ent.secret || !ent.seed) {
+          if (!_tpmNoted.has(d.id + ":nosecret")) { _tpmNoted.add(d.id + ":nosecret");
+            log("warn", i18("log.tpmNoSecret", "Cannot reveal for TPM enrolment {id}…: this browser does not hold its challenge secret (it was challenged from another device, or site data was cleared).", { id: d.id.slice(0, 12) })); }
+          continue;
+        }
+        data = { id: d.id, secret: ent.secret, seed: ent.seed };
+      }
+      if (!state.wallet || state.wallet.address !== addr || state.locked) return;   // never sign one account's duty as another
+      const tx = buildTransferTx(state.wallet, "tpm_" + d.action, 0n, 0, d.max_block, data, nowSeconds(),
+                                 !pubkeyEstablished(acc), d.min_block);
+      let res;
+      try { res = await submitTransaction(tx); }
+      catch (e) { if (isTransient(e)) { setConn(false); return; } throw e; }
+      const msg = String((res && res.data && res.data.message) || "");
+      if (res && res.data && res.data.result) {
+        // IN FLIGHT, PERSISTED AT ONCE (not at the end of the pass, which an early return would skip): the next pass,
+        // a reload or another tab must all see it, or each mints a duplicate with a new nonce.
+        tpmSecretsUpdate(addr, (m) => {
+          if (!m[d.id]) return;
+          m[d.id].pend = { action: d.action, txid: tx.txid, max: d.max_block };
+          if (d.action === "reveal") m[d.id].revealed = tip;
+        });
+        log("ok", d.action === "challenge"
+          ? i18("log.tpmChallenge", "Challenging a TPM enrolment you were drawn for ({id}…).", { id: d.id.slice(0, 12) })
+          : i18("log.tpmRevealed", "Revealed your TPM challenge for enrolment {id}… — its proof can now complete.", { id: d.id.slice(0, 12) }));
+      } else {
+        if (DEAD_TPM_RE.test(msg)) tpmSecretsUpdate(addr, (m) => { if (m[d.id]) m[d.id].dead = d.action; });
+        const note = d.id + ":" + d.action + ":" + msg;
+        if (msg && !_tpmNoted.has(note)) { _tpmNoted.add(note);
+          log("err", i18("log.tpmRefused", "TPM challenger message refused: {m}", { m: msg.replace(/^Could not merge remote transaction:\s*/i, "").slice(0, 120) })); }
+      }
+    }
+  } finally {
+    // PRUNE: a secret goes once its id is no longer returned AND it is spent (its reveal was accepted and that tx's
+    // window has closed) — or, never revealed, once it has gone unseen longer than any enrolment can live. A gap
+    // between our challenge and the client's commit returns nothing for the id, which is why "not returned" alone
+    // is never enough. Runs on the CURRENT store (merge-write), and only when there is something stored.
+    if (Object.keys(tpmSecretsLoad(addr)).length) {
+      tpmSecretsUpdate(addr, (m) => {
+        for (const id of Object.keys(m)) {
+          const ent = m[id] || {};
+          if (handled.has(id)) { ent.seen = tip; continue; }
+          const spent = ent.revealed != null && !(ent.pend && tip <= Number(ent.pend.max));
+          const lastSeen = Number(ent.seen ?? ent.at ?? tip);
+          if (spent || tip - lastSeen > TPM_SECRET_KEEP_BLOCKS) delete m[id];
+        }
+      });
+    }
+  }
 }
 
 /* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
