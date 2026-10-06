@@ -28,7 +28,7 @@ REROLL = {
     "DEVICE_ATTEST_HEIGHT": 1,
     "TPM_POOL_CHALLENGER_ACTS_HEIGHT": 1,      # live at 92000 on gen 28: the challenger pool counts challengers' own acts
     "TPM_POOL_V2_HEIGHT": 1,                   # 100000 on gen 28: online-stake pool, k = 5, misses excluded
-    "REFERRAL_HEIGHT": 1,                      # placeholder 2^62 on gen 28: referral links, the 10 % slice, funded invites
+    "REFERRAL_HEIGHT": 1,                      # 103000 on gen 28: referral links, the 10 % slice, funded invites
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

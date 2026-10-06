@@ -1,6 +1,6 @@
 # Referrals and funded invite links
 
-Live from `protocol.REFERRAL_HEIGHT` (one gate for both halves). Operator-approved 2026-10-06.
+Live from `protocol.REFERRAL_HEIGHT` — block 103000 on betanet-9 (one gate for both halves). Operator-approved 2026-10-06.
 
 ## What a user sees
 

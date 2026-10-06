@@ -1659,7 +1659,7 @@ def split_open_block_reward(reward: int):
 #                                    only challengers' own acts, never the enrollee's tpm_commit),
 #                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
 #                                    stake, k = 5, a challenger that failed a draw sits out a day)
-#                                    REFERRAL_HEIGHT ((1 << 62) placeholder -> 1: a first registration may name a
+#                                    REFERRAL_HEIGHT (103000 -> 1: a first registration may name a
 #                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
 #                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
 # ---------------------------------------------------------------------------------------------------------------
@@ -2074,8 +2074,8 @@ TPM_REVEAL_GRACE = 60
 #             what someone else's referral moved, so it never chains.
 #   FARM RING a ring of N identities each gives REFERRAL_SHARE * w and receives one slice: net zero by construction.
 # One function applies it (dividend_ops.referral_split) for the committed epoch weights, the exec accrual and the live
-# /get_open_weights. Placeholder height on gen 28: the operator sets the real one at ship (CLAUDE.md rule 3).
-REFERRAL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# /get_open_weights. 103000 on gen 28: shipped at tip ~100150 with ~6.3 s blocks — about five hours for the /update wave.
+REFERRAL_HEIGHT = 103000 if CHAIN_GENERATION == 28 else 1
 REFERRAL_EPOCHS = 7200                   # 30 days at 240 epochs/day: how long a referrer earns from one newcomer
 REFERRAL_SCALE = 10                      # weights are scaled by this from the gate's epoch so a 10 % slice is an integer
 REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCALE units of the newcomer's weight (10 %)
