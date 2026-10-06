@@ -2,6 +2,8 @@
 # Measured 2026-09-30 in a bare clone with only requirements.txt (no Rust kernels), 5-minute cap per test.
 # Every test listed here runs in the NATIVE job (.github/workflows/ci.yml: Rust kernels built, long caps), so
 # nothing is dropped — it is moved. Remove a line when its test runs without the kernels in under 5 minutes.
+# A reason starting with [box] means the test judges the machine it runs on (timing, the node's own install), so it
+# runs in NEITHER CI job — only on a node's own box (scripts/run_tests.sh there runs everything).
 test_appnote_circuit                         needs the Rust kernels (native/, wasm/goldilocks)
 test_appnote_deposit_vin                     needs the Rust kernels (native/, wasm/goldilocks)
 test_arena_ext_identity                      needs the Rust kernels (native/, wasm/goldilocks)
@@ -13,7 +15,7 @@ test_calldata_binding_is_wide                needs the Rust kernels (native/, wa
 test_calls_commit                            needs the Rust kernels (native/, wasm/goldilocks)
 test_cert_validity_is_agreed_time            needs the Rust kernels (native/, wasm/goldilocks)
 test_comp_verify                             needs the Rust kernels (native/, wasm/goldilocks)
-test_da_encode_matrix                        timing benchmark (20x faster than a baseline): meaningless on a shared runner
+test_da_encode_matrix                        [box] timing benchmark (20x faster than a baseline): meaningless on a shared runner
 test_device_attest_formats_pc                needs the Rust kernels (native/, wasm/goldilocks)
 test_device_attest_hw                        needs the Rust kernels (native/, wasm/goldilocks)
 test_device_attest_kernel                    needs the Rust kernels (native/, wasm/goldilocks)
@@ -94,4 +96,4 @@ test_zkvm_arg_tag_from_one                   proves in Python kernels: over 5 mi
 test_zkvm_args                               proves in Python kernels: over 5 minutes
 test_zkvm_circuit                            proves in Python kernels: over 5 minutes
 test_zkvm_epoch                              proves in Python kernels: over 5 minutes
-test_updatability                            judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box
+test_updatability                            [box] judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box
