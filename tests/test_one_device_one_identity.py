@@ -126,7 +126,7 @@ check("validation keys canonically", "DEVICE_BIND_MAX_CERT_SECS, strict=True,\n 
 check("the one-device-per-block key too (register lands at max_block)",
       "tx.get(\"device\") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True, canonical=True)))" in to)
 check("apply too, and passes the legacy key",
-      "strict=True, canonical=True)   # same parse as validation" in ac and "legacy_key=legacy_key)" in ac)
+      "strict=True, canonical=True)   # same parse as validation" in ac and "legacy_key=legacy_key,\n                       height=block_height)" in ac)
 check("the gate is deleted", not hasattr(P, "DEVICE_BIND_CANONICAL_HEIGHT"))
 
 kv_ops.close_all()
