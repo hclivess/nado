@@ -300,6 +300,15 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
         // chip could never escape one bad attempt, because the enrolment id is derived and identical
         // every time.
         let rec = match rec {
+            // A FAILED RECORD THAT HAS EXPIRED IS NOT "EXPIRED" TO ITS OWNER, it is a failure: say which, then try
+            // again. If the chain's retry spacing has not run out yet the relay refuses the fresh enrolment and
+            // names the block (submit_built, retry_refusal) — the program stops there instead of looping.
+            Some(ref r) if r.get("expired").and_then(|v| v.as_bool()) == Some(true)
+                && r.get("state").and_then(|v| v.as_str()) == Some("failed") => {
+                println!("  {}", warn(".. the previous attempt failed (its answer did not match its \
+                                       challengers); starting a fresh one"));
+                None
+            }
             Some(ref r) if r.get("expired").and_then(|v| v.as_bool()) == Some(true) => {
                 println!("  {}", warn(".. the previous attempt expired; starting a fresh one"));
                 None
@@ -397,6 +406,21 @@ fn enrol_with(relay: &Relay, keys: &tx::Keys, signer: &str, vouch_for: &str) -> 
                             println!("  to confirm it, because only that wallet can sign it.\n");
                         }
                         return Ok(());
+                    }
+                    // ops/tpm_enrol.STATE_FAILED (live from TPM_ENROL_V3_HEIGHT): every challenger revealed, and
+                    // the commitment this program sent did not match the secrets they had sealed. The chain
+                    // will never prove this record, so waiting on it waits forever — and SAYING NOTHING TRUE
+                    // IS NOT AN OPTION: an earlier build printed `unexpected enrolment state "failed"`, which
+                    // tells the owner neither that nothing was registered nor when the chip may try again.
+                    // INVARIANT: never print a success line on this branch, and always exit non-zero.
+                    "failed" => {
+                        let lines = failed_lines(&rec);
+                        println!();
+                        for (i, l) in lines.iter().enumerate() {
+                            if i == 0 { println!("{}", bad(l)); } else { println!("{l}"); }
+                        }
+                        return Err("this enrolment failed; nothing was registered. Run this program \
+                                    again after the waiting period described above.".into());
                     }
                     other => return Err(format!("unexpected enrolment state {other:?}")),
                 }
@@ -580,7 +604,21 @@ fn submit_built(relay: &Relay, keys: &tx::Keys, mut t: Map<String, Value>,
     t.insert("signature".into(), json!(signature));
 
     let body = serde_json::to_string(&Value::Object(t)).map_err(|e| e.to_string())?;
-    let reply = relay.post_json("/submit_transaction", &body)?;
+    // THE CHAIN'S RETRY SPACING IS AN ANSWER, NOT AN ERROR TO RETRY. A chip whose last enrolment its client did not
+    // complete must wait (ops/transaction_ops, ops/tpm_enrol.retry_ready_at), and the relay refuses with HTTP 403
+    // and the exact block. Say that block and the rough wait, then STOP: resubmitting is refused identically until
+    // then, so a loop would only spend the relay's rate limit. Every other refusal is passed through unchanged.
+    let reply = match relay.post_json("/submit_transaction", &body) {
+        Ok(r) => r,
+        Err(e) => match retry_block(&e) {
+            Some(n) => return Err(retry_refusal(relay, n)),
+            None => return Err(e),
+        },
+    };
+    if let Some(n) = retry_block(&reply) {
+        println!("  !! the relay refused it: {}", reply.trim());
+        return Err(retry_refusal(relay, n));
+    }
     if reply.contains("\"result\": true") || reply.contains("\"result\":true") {
         // ACCEPTED IS NOT LANDED. `result: true` means one relay put it in its MEMPOOL — it says nothing
         // about whether any block ever carried it. A relay that is not producing (wedged, or far behind)
@@ -596,6 +634,104 @@ fn submit_built(relay: &Relay, keys: &tx::Keys, mut t: Map<String, Value>,
         println!("  !! the relay refused it: {}", reply.trim());
         Err(format!("the relay refused the transaction: {}", reply.trim()))
     }
+}
+
+/// The block a retry-spacing refusal names, if `text` is one. The node's message is "this chip's last enrolment was
+/// not completed by its client — it can enrol again from block N" (ops/transaction_ops); the dash arrives JSON-escaped,
+/// so this keys on the words after it. INVARIANT: if that message changes on the node, change this and its test.
+pub fn retry_block(text: &str) -> Option<i64> {
+    const MARK: &str = "can enrol again from block ";
+    let at = text.find(MARK)? + MARK.len();
+    let digits: String = text[at..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+/// A rough duration for `blocks` blocks. ROUGH ON PURPOSE: block pacing is each node's local choice and not
+/// consensus (CLAUDE.md "How a block gets made"), so this says "about" and uses the measured ~6.5 s cadence.
+pub fn approx_wait(blocks: i64) -> String {
+    if blocks <= 0 {
+        return "now".into();
+    }
+    let secs = blocks * 13 / 2;
+    let mins = (secs + 59) / 60;
+    if mins < 2 {
+        "about a minute".into()
+    } else if mins < 120 {
+        format!("about {mins} minutes")
+    } else if mins < 48 * 60 {
+        format!("about {} hours", (mins + 30) / 60)
+    } else {
+        format!("about {} days", (mins + 12 * 60) / (24 * 60))
+    }
+}
+
+/// What to tell the owner when the relay refuses a fresh enrolment because the chip must still wait. Prints the
+/// explanation and returns the one-line error main() shows on exit.
+fn retry_refusal(relay: &Relay, ready: i64) -> String {
+    let tip = relay.get("/status").ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("latest_block_height").and_then(|x| x.as_i64()));
+    for (i, l) in retry_lines(ready, tip).iter().enumerate() {
+        if i == 0 { println!("{}", bad(l)); } else { println!("{l}"); }
+    }
+    format!("this chip can enrol again from block {ready}; run this program again after that")
+}
+
+/// The text of retry_refusal, separated so it can be tested without a relay.
+pub fn retry_lines(ready: i64, tip: Option<i64>) -> Vec<String> {
+    let mut out = vec![
+        "  !! This chip has to wait before it can enrol again.".to_string(),
+        "     Its last enrolment was not completed by its client, so the chain spaces out the next try.".to_string(),
+    ];
+    match tip {
+        Some(t) if t < ready => out.push(format!(
+            "     It can enrol again from block {ready}. The chain is at block {t}: {} blocks to go, {}.",
+            ready - t, approx_wait(ready - t))),
+        _ => out.push(format!("     It can enrol again from block {ready}.")),
+    }
+    out.push("     Nothing was registered by this run. Run this program again once that block is reached.".to_string());
+    out
+}
+
+/// What to tell the owner about a FAILED enrolment record (ops/tpm_enrol.STATE_FAILED).
+///
+/// THE EXACT RETRY BLOCK COMES FROM THE RELAY, never from a copy of the rule: a relay that serves `retry_ready_at`
+/// (transaction_ops.tpm_retry_view — the block validation accepts the next enrolment at) is quoted exactly. An older
+/// relay serves only `expires_at`, a true lower bound, so then say "not before" that; the relay names the exact block
+/// when asked too early either way. Copying the node's constants here would be a second copy of a consensus rule.
+pub fn failed_lines(rec: &Map<String, Value>) -> Vec<String> {
+    let ready = rec.get("retry_ready_at").and_then(|v| v.as_i64());
+    let expires = rec.get("expires_at").and_then(|v| v.as_i64());
+    let tip = rec.get("tip").and_then(|v| v.as_i64());
+    let mut out = vec![
+        "  !! This enrolment did NOT complete.".to_string(),
+        "     The answer this machine sent its challengers did not match the secrets they had sealed to".to_string(),
+        "     this chip, so the chain marked the enrolment failed. Nothing was registered, and no".to_string(),
+        "     identity gained anything from this attempt.".to_string(),
+    ];
+    match (expires, tip) {
+        _ if ready.is_some() => {
+            let r = ready.unwrap_or(0);
+            match tip {
+                Some(t) if t < r => out.push(format!(
+                    "     This chip can start a new enrolment from block {r} (the chain is at block {t}, so {});\n     \
+                     each failed attempt makes the wait longer.", approx_wait(r - t))),
+                _ => out.push(format!("     This chip can start a new enrolment now (from block {r}).")),
+            }
+        }
+        (Some(e), Some(t)) if t < e => out.push(format!(
+            "     This chip can start a new enrolment after a waiting period that ends no earlier than\n     \
+             block {e} (the chain is at block {t}, so at least {}); each failed attempt makes the\n     \
+             wait longer.", approx_wait(e - t))),
+        (Some(e), _) => out.push(format!(
+            "     This chip can start a new enrolment after a waiting period that ends no earlier than\n     \
+             block {e}; each failed attempt makes the wait longer.")),
+        _ => out.push("     This chip can start a new enrolment after a waiting period; each failed attempt \
+                       makes the wait longer.".to_string()),
+    }
+    out.push("     To retry, run this program again later. If it is still too early, the relay refuses and".to_string());
+    out.push("     this program prints the exact block it can enrol from.".to_string());
+    out
 }
 
 /// Leave the finished device proof where the wallet will find it. The wallet signs the registration,
@@ -904,4 +1040,67 @@ pub fn run_interactive() -> Result<(), String> {
     println!("  the one before it, and that ordering is what makes the proof a proof.");
     println!();
     run_auto(&pick_relay(), None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(v: Value) -> Map<String, Value> {
+        v.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn a_failed_enrolment_says_nothing_was_registered_and_never_claims_success() {
+        let lines = failed_lines(&rec(json!({"state": "failed", "expires_at": 132500, "tip": 132400})));
+        let all = lines.join("\n");
+        assert!(all.contains("did NOT complete"));
+        assert!(all.contains("Nothing was registered"));
+        assert!(all.contains("no earlier than\n     block 132500"));
+        assert!(all.contains("run this program again"));
+        assert!(!all.contains("DONE"), "a failed enrolment must never print a success line");
+    }
+
+    #[test]
+    fn a_failed_enrolment_quotes_the_relays_exact_retry_block() {
+        let all = failed_lines(&rec(json!({"state": "failed", "expires_at": 132500, "retry_ready_at": 133100,
+                                           "tip": 132400}))).join("\n");
+        assert!(all.contains("from block 133100"), "{all}");
+        assert!(!all.contains("no earlier than"), "an exact block is not a lower bound: {all}");
+        assert!(!all.contains("DONE"));
+    }
+
+    #[test]
+    fn a_failed_enrolment_without_an_expiry_gives_no_invented_block() {
+        let all = failed_lines(&rec(json!({"state": "failed"}))).join("\n");
+        assert!(all.contains("after a waiting period"));
+        assert!(!all.contains("block 0"));
+    }
+
+    #[test]
+    fn the_retry_block_is_read_from_the_relays_refusal_as_it_arrives() {
+        // as main() sees it: post_json's HTTP-403 error, with the dash JSON-escaped by aiohttp
+        let e = "relay returned HTTP 403: {\"result\": false, \"message\": \"this chip's last enrolment was not \
+                 completed by its client \\u2014 it can enrol again from block 133100\"}";
+        assert_eq!(retry_block(e), Some(133100));
+        assert_eq!(retry_block("it can enrol again from block 42"), Some(42));
+        assert_eq!(retry_block("this chip already has an enrolment in progress"), None);
+        assert_eq!(retry_block("can enrol again from block x"), None);
+    }
+
+    #[test]
+    fn the_retry_refusal_names_the_block_and_a_rough_wait() {
+        let all = retry_lines(133100, Some(132800)).join("\n");
+        assert!(all.contains("from block 133100"));
+        assert!(all.contains("300 blocks to go, about 33 minutes"));
+        assert!(!retry_lines(133100, None).join("\n").contains("to go"));
+    }
+
+    #[test]
+    fn rough_waits_read_naturally() {
+        assert_eq!(approx_wait(0), "now");
+        assert_eq!(approx_wait(5), "about a minute");
+        assert_eq!(approx_wait(300), "about 33 minutes");
+        assert_eq!(approx_wait(76800), "about 6 days");
+    }
 }
