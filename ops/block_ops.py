@@ -280,7 +280,7 @@ def get_block_candidate(
     epoch = epoch_of(block_number)
     beacon = epoch_beacon(epoch)
     open_registry = get_open_registry(epoch)
-    bonded_registry = get_bonded_registry()
+    bonded_registry = bonded_registry_for_epoch(epoch)   # frozen at the epoch's anchor from REGISTRY_SNAPSHOT_HEIGHT
     # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional). The full
     # registry always backs block_fork_weight below (withholding must not move fork-choice).
     eligible_bonded = randao_eligible_bonded(bonded_registry, epoch)
@@ -625,6 +625,24 @@ def epoch_beacon(epoch):
     return compute_beacon(GENESIS_BEACON, [anchor] + secrets)
 
 
+def bonded_registry_for_epoch(epoch: int) -> dict:
+    """The bonded registry epoch `epoch`'s producer draw and duty committee read. From protocol.REGISTRY_SNAPSHOT_HEIGHT
+    it is the registry FROZEN by the epoch's anchor block (epoch - 1) * EPOCH_LENGTH (kv_ops.regsnap_put, written in
+    incorporate_block) — the same block the epoch's beacon is anchored on — so a bond landing after the anchor cannot
+    move that epoch's draw. Below the gate (and for epochs 0-1) it is the live registry, as before.
+    FAIL-LOUD like epoch_beacon: a missing row past the gate means this node has not applied the anchor block, and
+    substituting the live registry would draw a different set than synced nodes.
+    INVARIANT: block production, block verification and the duty committee all read the registry through this."""
+    from protocol import REGISTRY_SNAPSHOT_HEIGHT
+    e = int(epoch)
+    if e < 2 or (e - 1) * EPOCH_LENGTH < REGISTRY_SNAPSHOT_HEIGHT:
+        return get_bonded_registry()
+    snap = kv_ops.regsnap_get(e)
+    if snap is None:
+        raise RuntimeError(f"registry snapshot for epoch {e} missing (anchor block {(e - 1) * EPOCH_LENGTH} not applied)")
+    return snap
+
+
 # memo for randao_eligible_bonded: {(epoch, sorted-secrets-tuple): {opened commitments}} — reveals
 # for an epoch are FINALIZED before its first slot (reveal window ends EPOCH_LENGTH*E - FINALITY_DEPTH - 1),
 # so during epoch E the set is immutable; keying by the secret tuple makes the memo self-correcting
@@ -676,11 +694,11 @@ def duty_committee_for_epoch(epoch: int) -> dict:
     generation + epoch."""
     from ops.mining_ops import duty_committee
     if kv_ops.in_write_txn():
-        return duty_committee(get_bonded_registry(), epoch_beacon(epoch), epoch)
+        return duty_committee(bonded_registry_for_epoch(epoch), epoch_beacon(epoch), epoch)
     key = (kv_ops.env_path(), kv_ops.write_generation(), int(epoch))
     entry = _duty_committee_cache[0]
     if entry is None or entry[0] != key:
-        entry = (key, duty_committee(get_bonded_registry(), epoch_beacon(epoch), epoch))
+        entry = (key, duty_committee(bonded_registry_for_epoch(epoch), epoch_beacon(epoch), epoch))
         _duty_committee_cache[0] = entry
     return dict(entry[1])
 
@@ -717,7 +735,7 @@ def _mining_status_lanes(epoch):
                 # registry functions the consensus draw calls (mining_ops.bonded_producer_registry /
                 # open_lane_draw_registry), never a re-derivation at this call site.
                 from .mining_ops import bonded_producer_registry
-                bonded_reg = bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)
+                bonded_reg = bonded_producer_registry(bonded_registry_for_epoch(epoch), open_reg, epoch * EPOCH_LENGTH)
                 from .mining_ops import open_lane_draw_registry
                 open_draw = open_lane_draw_registry(open_reg, epoch * EPOCH_LENGTH)
                 total_open = sum(open_shares(i.get("fidelity"), epoch) for i in open_draw.values())

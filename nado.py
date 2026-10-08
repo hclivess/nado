@@ -1888,6 +1888,11 @@ async def tpm_enrolment(request):
     # assuming 3 (a legacy record answers k = 3, v2 = false).
     from ops.tpm_enrol import is_v2 as _is_v2, record_k as _record_k
     out["k"], out["v2"] = _record_k(rec), _is_v2(rec)
+    # RETRY SPACING (protocol.TPM_ENROL_V3_HEIGHT): the first block this chip may open a new enrolment at, computed by
+    # the function validation enforces (tpm_enrol.retry_ready_at over the chip's stored count), so the helper can name
+    # the exact block instead of a lower bound. "client_failed" says whether the spacing applies to this record.
+    from ops.transaction_ops import tpm_retry_view
+    out.update(tpm_retry_view(rec, tip))
     return _resp(out)
 
 

@@ -6537,6 +6537,17 @@ function dutyWindow(latest, X, revealPossible) {
   return { minBlock, tb: hi, revealHi };
 }
 
+/* A seatless REVEAL-ONLY duty (protocol.REVEAL_SEATLESS_HEIGHT): a wallet without a seat in epoch X still reveals the
+ * secret it committed for X+1 — committed from epoch X-1, so only when it was seated in X-1 — as long as the landing
+ * window lies inside the reveal window. The node refuses this form before the gate ("no seat"), which ends the epoch's
+ * attempt; from the gate it lands. Pure, so tests/test_duty_seatless_reveal.mjs can lift it. Returns the duty data
+ * (reveal section ONLY: an unseated attest or commit is refused) or null. */
+function seatlessRevealData(X, seatedPrev, revealPossible, win, secretFor) {
+  if (!seatedPrev || !revealPossible) return null;
+  if (win.minBlock > win.tb || win.tb > win.revealHi) return null;
+  return { reveal: { target_epoch: X + 1, secret: secretFor(X + 1) } };
+}
+
 async function maybeRandao() {
   if (_randaoBusy || !state.wallet || state.locked || state.latest == null) return;
   _randaoBusy = true;
@@ -6556,7 +6567,32 @@ async function maybeRandao() {
       const r = await fetch(relayBase() + "/duty_committee?epoch=" + X + "&address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
       inCommittee = !!(await r.json()).in_committee;
     } catch (e) { return; }                                    // relay hiccup — try next poll
-    if (!inCommittee) return;                                   // not our epoch to post; wait for a seat
+    if (!inCommittee) {
+      // NO SEAT THIS EPOCH: still reveal the secret committed while seated (seatlessRevealData). One attempt per
+      // epoch: accepted, refused as seatless (before REVEAL_SEATLESS_HEIGHT) or dead, the epoch is done.
+      let seatedPrev = false;
+      try {
+        const r0 = await fetch(relayBase() + "/duty_committee?epoch=" + (X - 1) + "&address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
+        seatedPrev = !!(await r0.json()).in_committee;
+      } catch (e) { return; }
+      const revealPossible0 = !_randaoDead.has(X + 1);
+      const data0 = seatlessRevealData(X, seatedPrev, revealPossible0, dutyWindow(latest, X, revealPossible0), randaoSecretFor);
+      if (!data0) return;                                       // nothing of ours to reveal this epoch
+      await refreshNetIdentity();
+      const w0 = dutyWindow(latest, X, true);
+      const tx0 = buildTransferTx(state.wallet, "duty", 0n, 0, w0.tb, data0, nowSeconds(), !pubkeyEstablished(acc), w0.minBlock);
+      const res0 = await submitTransaction(tx0);
+      const msg0 = String(res0.data && (res0.data.message || ""));
+      if (res0.data && res0.data.result) {
+        _dutyDone[X] = true;
+        log("ok", i18("log.dutyRevealOnly", "RANDAO reveal submitted for epoch {e} (no committee seat this epoch) ✓", {e: X + 1}));
+      } else if (DEAD_REVEAL_RE.test(msg0)) {
+        _randaoDead.add(X + 1); _dutyDone[X] = true;
+      } else if (/already|no seat/i.test(msg0)) {
+        _dutyDone[X] = true;
+      }
+      return;
+    }
 
     // Bind the duty tx to the relay's CURRENT chain_id AND finality_depth before computing the reveal
     // window / signing — a reroll or a finality-depth change mid-session would otherwise sign against

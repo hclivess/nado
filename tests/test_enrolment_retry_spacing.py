@@ -189,7 +189,11 @@ v = verdict(ready - 1)
 check("validation refuses a re-enrol one block before retry_ready_at", "can enrol again from block %d" % ready in v, v)
 v = verdict(ready)
 check("validation accepts it at retry_ready_at", v == "accepted", v)
+view = T.tpm_retry_view(old6, ready - 10)
+check("/tpm_enrolment serves the block validation accepts (tpm_retry_view)",
+      view == {"client_failed": True, "retry_ready_at": ready}, view)
 P.TPM_ENROL_V3_HEIGHT = 1 << 62
+check("before the gate it serves the plain expiry", T.tpm_retry_view(old6, ready - 10)["retry_ready_at"] == E.expiry(old6))
 v = verdict(E.expiry(old6))
 check("before the gate validation applies no spacing (expiry is enough)", v == "accepted", v)
 P.TPM_ENROL_V3_HEIGHT = GATE

@@ -3783,7 +3783,8 @@ class CoreClient(threading.Thread):
         parent = self.memserver.latest_block
         block_number = parent["block_number"] + 1
         _epoch = epoch_of(block_number)
-        bonded_registry = get_bonded_registry()  # as-of-parent (tip == parent here)
+        from ops.block_ops import bonded_registry_for_epoch
+        bonded_registry = bonded_registry_for_epoch(_epoch)  # as-of-parent below REGISTRY_SNAPSHOT_HEIGHT, frozen from it
         # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional); the FULL
         # registry always feeds block_fork_weight below (withholding must not move fork-choice).
         winner = select_producer_two_lane(get_open_registry(_epoch),
@@ -3943,6 +3944,12 @@ class CoreClient(threading.Thread):
                 from ops.dividend_ops import weights_at_epoch
                 _E = _bn // EPOCH_LENGTH - 1
                 kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))
+                # REGISTRY SNAPSHOT (protocol.REGISTRY_SNAPSHOT_HEIGHT): this block anchors the NEXT epoch's beacon,
+                # so it also freezes the bonded registry that epoch's draw and committee read — after this block's
+                # own bonds applied (in-txn read). rollback_one_block deletes it; re-apply rewrites the same bytes.
+                from protocol import REGISTRY_SNAPSHOT_HEIGHT
+                if _bn >= REGISTRY_SNAPSHOT_HEIGHT:
+                    kv_ops.regsnap_put(_bn // EPOCH_LENGTH + 1, get_bonded_registry())
 
             totals = get_totals(block=block)  # produced = full reward = total emission
             index_totals(produced=totals["produced"],
@@ -4127,8 +4134,13 @@ class CoreClient(threading.Thread):
             latest = self.memserver.latest_block
             X = epoch_of(latest["block_number"])
             from ops.block_ops import duty_committee_for_epoch
-            if me not in duty_committee_for_epoch(X):
-                return  # no seat this epoch — the committee is resampled from beacon(X+1) next epoch
+            # REVEAL_SEATLESS_HEIGHT: without a seat this epoch, a commitment made while seated is still revealed by
+            # a reveal-only duty. INVARIANT: the seatless tx carries no attest/commit section (validation refuses one).
+            seated = me in duty_committee_for_epoch(X)
+            if not seated:
+                from protocol import REVEAL_SEATLESS_HEIGHT
+                if latest["block_number"] + TX_INCLUSION_DELAY < REVEAL_SEATLESS_HEIGHT:
+                    return  # no seat this epoch — the committee is resampled from beacon(X+1) next epoch
             if self._reserved_tx_pending("duty", X):
                 return  # our duty tx is already in flight — don't mint a duplicate every loop
             kd = self.memserver.keydict
@@ -4165,7 +4177,7 @@ class CoreClient(threading.Thread):
                 return  # epoch tail — duties resume next epoch
 
             attest = commit = reveal = None
-            if X >= 1 and not kv_ops.attestation_exists(X, me):
+            if seated and X >= 1 and not kv_ops.attestation_exists(X, me):
                 checkpoint_hash = get_block_hash_by_number(X * EPOCH_LENGTH)
                 if checkpoint_hash:
                     # EQUIVOCATION SELF-PROTECTION. target_hash is re-read from the local tip on every
@@ -4192,7 +4204,7 @@ class CoreClient(threading.Thread):
                             kv_ops.attest_memo_put(X, checkpoint_hash)
                         attest = {"target_epoch": X, "target_hash": checkpoint_hash}
             e_commit = X + 2
-            if kv_ops.commit_get(me, e_commit) is None:
+            if seated and kv_ops.commit_get(me, e_commit) is None:
                 secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
                 self.memserver.randao_secrets[e_commit] = secret
                 commit = {"target_epoch": e_commit, "commitment": beacon_commitment(secret)}
@@ -5194,8 +5206,9 @@ class CoreClient(threading.Thread):
         epoch = epoch_of(block_number)
         # RANDAO gate (consensus): verification draws over the same eligible set production uses
         # (the full registry while RANDAO_ENFORCED is off; the revealed-for-epoch subset when on).
+        from ops.block_ops import bonded_registry_for_epoch
         winner = select_producer_two_lane(get_open_registry(epoch),
-                                          randao_eligible_bonded(get_bonded_registry(), epoch),
+                                          randao_eligible_bonded(bonded_registry_for_epoch(epoch), epoch),
                                           epoch_beacon(epoch),
                                           slot=block_number)
         if winner is None:

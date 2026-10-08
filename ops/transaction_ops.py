@@ -702,6 +702,27 @@ def tpm_carry_misses(prev, block_height: int) -> list:
     return [[e, a] for e, a in sorted(out)]
 
 
+def _randao_unrevealed(block_height: int, candidates) -> set:
+    """The `candidates` whose RANDAO commitment for the epoch of `block_height` was not revealed (protocol.RANDAO_MISS_POOL_HEIGHT;
+    empty below it). The reveal window for epoch E closes at E*EPOCH_LENGTH - FINALITY_DEPTH - 1, inside E-1, so at any
+    block of E both the commitments and the reveals for E are committed and final.
+    INVARIANT: a pure function of committed rows for one epoch, identical at every block of that epoch."""
+    from protocol import RANDAO_MISS_POOL_HEIGHT
+    from ops.mining_ops import beacon_commitment
+    if int(block_height) < RANDAO_MISS_POOL_HEIGHT:
+        return set()
+    E = int(block_height) // EPOCH_LENGTH
+    if E < 2:
+        return set()
+    revealed = {beacon_commitment(sec) for sec in kv_ops.reveals_for_epoch(E)}
+    out = set()
+    for a in sorted(candidates):                      # point reads: commits is keyed sender|epoch
+        c = kv_ops.commit_get(a, E)
+        if c is not None and c not in revealed:
+            out.add(a)
+    return out
+
+
 def tpm_pool_v2(block_height: int) -> dict:
     """{address: weight} a v2 enrolment opened at `block_height` is drawn from (protocol.TPM_POOL_V2_HEIGHT): ONLINE
     STAKE — bonded >= B_MIN now, an FFG duty landed in >= TPM_POOL_PRESENCE_MIN distinct epochs of the proven window,
@@ -714,7 +735,7 @@ def tpm_pool_v2(block_height: int) -> dict:
     INVARIANT: validation (pool_can_seat) and apply (the stored snapshot) call this one function."""
     from protocol import TPM_POOL_PRESENCE_MIN
     presence = _duty_presence(block_height)
-    excluded = _tpm_excluded(block_height)
+    excluded = _tpm_excluded(block_height) | _randao_unrevealed(block_height, presence)
     out = {}
     for a in sorted(presence):
         if presence[a] < TPM_POOL_PRESENCE_MIN or a in excluded:
@@ -753,6 +774,19 @@ def tpm_drawn_challengers(rec: dict, block_height: int):
                                         epoch_beacon(_te.draw_epoch(rec["h"])), _te.record_k(rec))
     return _te.challenger_set_exact(_te.draw_key(rec["ek"]), _tpm_pool(int(rec["h"])),
                                     epoch_beacon(_te.draw_epoch(rec["h"])), DEVICE_ATTEST_EK_CHALLENGERS)
+
+
+def tpm_retry_view(rec: dict, tip: int) -> dict:
+    """The retry fields /tpm_enrolment serves (protocol.TPM_ENROL_V3_HEIGHT): {"client_failed", "retry_ready_at"} — the
+    first block a new enrolment of this chip validates at, by the SAME rule validate_transaction enforces (the record's
+    expiry, plus the spacing when its client failed it, from the gate on).
+    INVARIANT: a client told retry_ready_at = N is accepted at N and refused at N - 1."""
+    from protocol import TPM_ENROL_V3_HEIGHT
+    from ops import tpm_enrol as _te
+    failed = bool(_te.client_failed(rec))
+    if int(tip) + 1 < TPM_ENROL_V3_HEIGHT:
+        return {"client_failed": failed, "retry_ready_at": int(_te.expiry(rec))}
+    return {"client_failed": failed, "retry_ready_at": int(_te.retry_ready_at(rec, kv_ops.tpm_retry_get(str(rec.get("ek") or ""))))}
 
 
 def tpm_challengers_view(rec: dict, tip: int) -> dict:
@@ -2001,8 +2035,12 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         X = epoch_of(tb)
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Duty sender is not a bonded validator"
-        committee = duty_committee_for_epoch(X)
-        assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
+        # REVEAL_SEATLESS_HEIGHT: a reveal-only duty opens a commitment the sender made while seated, so it needs no
+        # seat of its own. INVARIANT: every other section still requires the landing epoch's seat.
+        from protocol import REVEAL_SEATLESS_HEIGHT
+        if not (set(sections) == {"reveal"} and tb >= REVEAL_SEATLESS_HEIGHT):
+            committee = duty_committee_for_epoch(X)
+            assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
         if "attest" in sections:
             a = sections["attest"]
             assert isinstance(a, dict) and a.get("target_epoch") == X, "Duty attest must target the landing epoch"

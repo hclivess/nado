@@ -215,7 +215,9 @@ ROOT_RETENTION_EPOCHS = 60
 ROOT_WINDOWED_DBS = frozenset(("commits", "reveals", "attestations", "settlements", "recert_by_epoch"))
 # gen 24+: the per-epoch weight rows and their accumulator join the window (protocol.EPOCHW_ROOT_WINDOWED —
 # an expression, so on gen 23 this tuple is byte-for-byte the old one and the root is unchanged).
-ROOT_WINDOWED_META_PREFIXES = ((b"att:", b"divnull:", b"settle:")
+# regsnap:<E> (protocol.REGISTRY_SNAPSHOT_HEIGHT) grows one row per epoch like epochw and joins the window; no row exists
+# below its gate, so adding the prefix moves no existing root.
+ROOT_WINDOWED_META_PREFIXES = ((b"att:", b"divnull:", b"settle:", b"regsnap:")
                                + ((b"epochw:", b"epochwacc:") if EPOCHW_ROOT_WINDOWED else ()))
 _EPOCHW_PREFIX = b"epochw:"
 
@@ -235,7 +237,7 @@ def _row_epoch(name, key):
         if name == "settlements":
             return int.from_bytes(key[-8:], "big") // EPOCH_LENGTH if len(key) > 8 else None
         if name == "meta":
-            if key.startswith((b"att:", b"divnull:", b"epochw:", b"epochwacc:")):
+            if key.startswith((b"att:", b"divnull:", b"epochw:", b"epochwacc:", b"regsnap:")):
                 return int(key.rsplit(b":", 1)[1])
             if key.startswith(b"settle:"):
                 return int(key.rsplit(b":", 1)[1]) // EPOCH_LENGTH

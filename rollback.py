@@ -79,6 +79,11 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
         from protocol import EPOCH_LENGTH as _EL
         if block["block_number"] % _EL == 0:   # ungated since gen 22 (mirror of incorporate)
             kv_ops.epoch_weights_commit(block["block_number"] // _EL - 1, revert=True)
+            # EXACT INVERSE of incorporate_block's registry snapshot (protocol.REGISTRY_SNAPSHOT_HEIGHT): same test,
+            # row deleted.
+            from protocol import REGISTRY_SNAPSHOT_HEIGHT
+            if block["block_number"] >= REGISTRY_SNAPSHOT_HEIGHT:
+                kv_ops.regsnap_del(block["block_number"] // _EL + 1)
 
         totals = get_totals(block=block, revert=True)
         index_totals(produced=totals["produced"], fees=totals["fees"])

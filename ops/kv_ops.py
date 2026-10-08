@@ -756,6 +756,28 @@ def epoch_weights_commit(epoch: int, weights: dict = None, revert: bool = False)
     _write(_do)
 
 
+def regsnap_put(epoch: int, registry: dict):
+    """Freeze the bonded registry an epoch's producer draw and duty committee read (protocol.REGISTRY_SNAPSHOT_HEIGHT):
+    meta regsnap:<epoch>, canonical JSON (sort_keys, no spaces), written by the epoch's anchor block
+    (epoch - 1) * EPOCH_LENGTH. INVARIANT: the stored bytes are independent of dict order, so the root is too."""
+    blob = json.dumps({str(a): dict(i) for a, i in (registry or {}).items()},
+                      sort_keys=True, separators=(",", ":")).encode()
+    _write(lambda txn: txn.put(f"regsnap:{int(epoch)}".encode(), blob, db=_dbs()["meta"]))
+
+
+def regsnap_del(epoch: int):
+    """Exact inverse of regsnap_put: rolling back the anchor block DELETES the row (canonical-absent, as epochw)."""
+    _write(lambda txn: txn.delete(f"regsnap:{int(epoch)}".encode(), db=_dbs()["meta"]))
+
+
+def regsnap_get(epoch: int):
+    """The frozen bonded registry for `epoch` as {address: info}, or None when no row is committed."""
+    def _do(txn):
+        raw = txn.get(f"regsnap:{int(epoch)}".encode(), db=_dbs()["meta"])
+        return None if raw is None else json.loads(bytes(raw))
+    return _read(_do)
+
+
 def epoch_weights_acc(epoch: int):
     """The 32-byte epochw accumulator committed for `epoch` (gen 24+), or None."""
     return _read(lambda txn: txn.get(f"epochwacc:{int(epoch)}".encode(), db=_dbs()["meta"]))
