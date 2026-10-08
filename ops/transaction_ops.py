@@ -2228,6 +2228,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                 assert not (_prev and _prev.get("state") != "proven"
                             and block_height < int(_prev["h"]) + _te.enrol_window(_prev["h"])), \
                     "this chip already has an enrolment in progress — finish it or wait for it to expire"
+                from protocol import TPM_ENROL_V3_HEIGHT
+                if _prev and block_height >= TPM_ENROL_V3_HEIGHT:
+                    _ready = _te.retry_ready_at(_prev, kv_ops.tpm_retry_get(str(ek["identity"])))
+                    assert block_height >= _ready, \
+                        f"this chip's last enrolment was not completed by its client — it can enrol again from block {_ready}"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
             # bonded registry must not thereby cut the number of parties it takes to collude.
             # COMMIT, THEN DRAW (ops/tpm_enrol; audit 2026-09-27). The set does not exist yet — its dice are two epochs
@@ -2263,8 +2268,10 @@ def validate_transaction(transaction, logger, block_height, deep=False):
             elif recipient == "tpm_commit":
                 _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)
             else:
+                from protocol import TPM_ENROL_V3_HEIGHT
                 _te.apply_reveal(rec, sender, _hex_bytes(data.get("secret"), 64, "secret"),
-                                 _hex_bytes(data.get("seed"), 64, "seed"), block_height)
+                                 _hex_bytes(data.get("seed"), 64, "seed"), block_height,
+                                 fail_on_mismatch=int(block_height) >= TPM_ENROL_V3_HEIGHT)
     elif recipient in ("pool", "delegate", "undelegate"):
         # STAKING POOLS NEVER RAN FROM GENERATION 26 ON (protocol.py "THE SAVINGS LANE IS PLAIN STAKE"): the gen-25 branch
         # opened with `assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"` and

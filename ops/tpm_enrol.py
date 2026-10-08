@@ -54,6 +54,7 @@ from ops.tpm_aik import aik_name, credential_commitment, make_credential, valida
 STATE_OPEN = "open"          # published, waiting for its challengers
 STATE_COMMITTED = "commit"   # the client answered; waiting for the reveals
 STATE_PROVEN = "proven"      # every secret reproduced its blob and the commitment holds
+STATE_FAILED = "failed"      # every secret reproduced its blob but the commitment did not match (TPM_ENROL_V3_HEIGHT)
 
 
 def enrol_id(chain_id: str, ek_identity: str, aik_name_hex: str) -> str:
@@ -189,7 +190,7 @@ def faults(rec: dict, drawn) -> list:
     A pool that could never seat k (validation and apply read state at different points of the block) faults nobody:
     a set that could not be drawn was never anyone's duty.
     INVARIANT: only a party who could have acted and did not is at fault — never the client's abandonment."""
-    if not is_v2(rec) or rec.get("state") == STATE_PROVEN:
+    if not is_v2(rec) or rec.get("state") in (STATE_PROVEN, STATE_FAILED):
         return []
     if rec.get("state") == STATE_COMMITTED:
         # A COMMIT THAT LEFT NO TIME TO REVEAL FAULTS NOBODY. The commit is the CLIENT's message and lands whenever the
@@ -250,7 +251,7 @@ def apply_commit(rec: dict, sender: str, commitment: str, height: int) -> dict:
     return rec
 
 
-def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, height: int) -> dict:
+def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, height: int, fail_on_mismatch=False) -> dict:
     """Step 4. A challenger opens its own challenge and every node re-derives the blob from (S, R). This is
     where the challenger is held to what it published: it cannot reveal a different secret than the one it
     sealed, because MakeCredential is deterministic in (seed, name, secret) and the blob is already on
@@ -272,6 +273,12 @@ def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, height:
         # would let the client answer the challengers it managed to open and abandon the rest, which is
         # exactly the k-of-k requirement dissolving into 1-of-k.
         joined = b"".join(bytes.fromhex(r[1]) for r in rec["reveals"])
+        if credential_commitment(joined) != rec["commit"] and fail_on_mismatch:
+            # TPM_ENROL_V3_HEIGHT: the last reveal is accepted like every other one and the RECORD fails — the
+            # commitment is the client's message, so the mismatch is the client's, never the last challenger's.
+            # INVARIANT: validation and apply take this same branch, so a reveal never passes one and raises in the other.
+            rec["state"], rec["hp"] = STATE_FAILED, int(height)
+            return rec
         assert credential_commitment(joined) == rec["commit"], \
             "the client's commitment is not to the secrets its challengers sealed"
         rec["state"], rec["hp"] = STATE_PROVEN, int(height)
@@ -329,3 +336,25 @@ def validate_publication(ek_identity: str, aik_pub: bytes) -> str:
 
 def aik_name_hex(aik_pub: bytes) -> str:
     return aik_name(aik_pub).hex()
+
+
+def client_failed(rec: dict) -> bool:
+    """True when an enrolment ended without proof through its CLIENT (TPM_ENROL_V3_HEIGHT retry cooldown): its commitment
+    did not match, or every drawn challenger answered and the client never committed. An enrolment held up by a
+    challenger is not the client's failure and retries at no cost."""
+    if not rec:
+        return False
+    if rec.get("state") == STATE_FAILED:
+        return True
+    return (rec.get("state") == STATE_OPEN and is_v2(rec) and bool(rec.get("challengers"))
+            and len(_pairs(rec, "blobs")) == len(rec.get("challengers") or []))
+
+
+def retry_ready_at(rec: dict, failures: int) -> int:
+    """The first height a chip may enrol again after `rec` (TPM_ENROL_V3_HEIGHT): the record's expiry, plus
+    TPM_RETRY_COOLDOWN_BASE * 2^failures (capped) when the client failed it."""
+    from protocol import TPM_RETRY_COOLDOWN_BASE, TPM_RETRY_COOLDOWN_MAX_EXP
+    end = expiry(rec)
+    if not client_failed(rec):
+        return end
+    return end + TPM_RETRY_COOLDOWN_BASE * (1 << min(int(failures), TPM_RETRY_COOLDOWN_MAX_EXP))

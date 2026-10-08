@@ -349,7 +349,7 @@ def t_instant_rebind():
     check("rule: no cooldown — the move is legal in any block because apply evicts", "NO COOLDOWN" in seg and "if not instant and bound" not in seg)
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply: an instant move evicts the previous holder and journals its eviction list",
-          "kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])" in acc and "kv_ops.devevict_set(evicted, prev_evict)" in acc)
+          "kv_ops.devevict_set(evicted, prev_evict + [(epoch, _evict_voids(evicted, epoch, height))])" in acc and "kv_ops.devevict_set(evicted, prev_evict)" in acc)
     check("registry + reconstruction share the eviction rule", "devevict_voided(address, current_epoch)" in acc and "devevict_voided(addr, epoch)" in open(os.path.join(ROOT, "ops", "dividend_ops.py")).read())
     check("relay: /devbind_lookup reports movable now", '"evicts": True' in open(os.path.join(ROOT, "nado.py")).read())
 

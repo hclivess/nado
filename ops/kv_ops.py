@@ -2249,7 +2249,7 @@ def devbind_rows():
                 # (_TPM_ENROL_FIELDS) — it used to be skipped only because its hex ek failed int().
                 # A REFERRAL LINK ("referral:<newcomer>" -> [referrer, height]) is two fields and WOULD decode as a binding
                 # of the referrer: skipped by name, so a referral can never be carried or counted as a device.
-                if k.startswith((b"tpmek:", b"evict:", b"lease:", _REFERRAL_PREFIX)):
+                if k.startswith((b"tpmek:", b"evict:", b"lease:", b"tpmretry:", _REFERRAL_PREFIX)):
                     continue
                 try:
                     rec = _unpack(raw)
@@ -2968,4 +2968,46 @@ def auth_revert_pop(txid: str):
         txn.delete(key, db=_dbs()["auth_revert"])
         a, p, f, h = _unpack(raw)
         return (True, a, p, f, h)
+    return _write(_do)
+
+
+# --- TPM RETRY COUNT (protocol.TPM_ENROL_V3_HEIGHT): "tpmretry:<ek identity>" in the devbind DB -> msgpack [n], the
+# chip's client-failed enrolments, counted. Consensus state; devbind_rows skips the prefix.
+def tpm_retry_get(ek_identity: str) -> int:
+    def _do(txn):
+        raw = txn.get(("tpmretry:" + str(ek_identity)).encode(), db=_dbs()["devbind"])
+        return 0 if raw is None else int(_unpack(raw)[0])
+    return _read(_do)
+
+
+def tpm_retry_set(ek_identity: str, n: int):
+    def _do(txn):
+        k = ("tpmretry:" + str(ek_identity)).encode()
+        if int(n) > 0:
+            txn.put(k, _pack([int(n)]), db=_dbs()["devbind"])
+        else:
+            txn.delete(k, db=_dbs()["devbind"])
+    _write(_do)
+
+
+def tpm_retry_revert_put(height: int, ek_identity: str, prev: int):
+    """Journal the chip's retry count as it stood BEFORE the block (first write wins, node-local devbind_revert).
+    INVARIANT: revert restores this value; it never re-derives the count from the records."""
+    def _do(txn):
+        k = be8(int(height)) + ("tpmretry:" + str(ek_identity)).encode()
+        if txn.get(k, db=_dbs()["devbind_revert"]) is not None:
+            return
+        txn.put(k, _pack([int(prev)]), db=_dbs()["devbind_revert"])
+    _write(_do)
+
+
+def tpm_retry_revert_pop(height: int, ek_identity: str):
+    """Read + DELETE the retry-count journal for (height, chip): (found, previous count)."""
+    def _do(txn):
+        k = be8(int(height)) + ("tpmretry:" + str(ek_identity)).encode()
+        raw = txn.get(k, db=_dbs()["devbind_revert"])
+        if raw is None:
+            return False, 0
+        txn.delete(k, db=_dbs()["devbind_revert"])
+        return True, int(_unpack(raw)[0])
     return _write(_do)

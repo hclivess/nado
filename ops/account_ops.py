@@ -133,7 +133,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         else:
             _ref = referral_to_write(transaction, block_height, device_key, legacy_key)
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert,
-                       device_key=device_key, permanent=permanent, cred_pub=cred_pub, legacy_key=legacy_key)
+                       device_key=device_key, permanent=permanent, cred_pub=cred_pub, legacy_key=legacy_key,
+                       height=block_height)
         if not revert and _ref:
             kv_ops.referral_set(sender, _ref, int(block_height))
         return
@@ -819,8 +820,20 @@ def referral_to_write(transaction: dict, block_height: int, device_key, legacy_k
     return ref
 
 
+def _evict_voids(evicted: str, epoch: int, height) -> int:
+    """The recert epoch an eviction voids (protocol.EVICT_VOIDS_EPOCH_HEIGHT): from the gate, EVERY recert of the evicted
+    identity up to and including this epoch. Before it, only its latest recert as the parent block left it — which a
+    renewal of the evicted identity applied later in the SAME block (renewals bind no device, so they share a block
+    with the move) slipped past, keeping it present for a whole lease while another identity held the device.
+    INVARIANT: an identity a device left counts again only with a register in a LATER epoch."""
+    from protocol import EVICT_VOIDS_EPOCH_HEIGHT
+    if height is not None and int(height) >= EVICT_VOIDS_EPOCH_HEIGHT:
+        return int(epoch)
+    return kv_ops.recert_latest(evicted)
+
+
 def apply_register(address: str, epoch: int, logger, revert=False, device_key=None, permanent=False, cred_pub=None,
-                   legacy_key=None):
+                   legacy_key=None, height=None):
     """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
     validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
     this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
@@ -892,7 +905,7 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
             if prev_bind and prev_bind[0] != address:
                 evicted = prev_bind[0]
                 prev_evict = kv_ops.devevict_get(evicted)
-                kv_ops.devevict_set(evicted, prev_evict + [(epoch, kv_ops.recert_latest(evicted))])
+                kv_ops.devevict_set(evicted, prev_evict + [(epoch, _evict_voids(evicted, epoch, height))])
             acc0 = kv_ops.get_account(address) or {}
             prev_devkey = acc0.get("devkey") if isinstance(acc0.get("devkey"), str) else None
             if permanent:
@@ -913,7 +926,7 @@ def apply_register(address: str, epoch: int, logger, revert=False, device_key=No
                     if lb[0] != evicted:
                         l_ev = lb[0]
                         l_prev_ev = kv_ops.devevict_get(l_ev)
-                        kv_ops.devevict_set(l_ev, l_prev_ev + [(epoch, kv_ops.recert_latest(l_ev))])
+                        kv_ops.devevict_set(l_ev, l_prev_ev + [(epoch, _evict_voids(l_ev, epoch, height))])
                     # perm=True keeps the row's MODE in the record whatever it was ("perm" or "lease"): rollback restores
                     # the row exactly (the short record would restore a permanent binding as a lease)
                     kv_ops.devbind_revert_put(epoch, address + "|legacy", legacy_key, lb, None, perm=True,
@@ -1013,6 +1026,11 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # same id left the marker on that id instead of the one it replaced. The marker is in devbind, so in the
         # L1 root: a state-root split from a one-block reorg. INVARIANT: revert restores what apply journaled
         # (kv_ops.tpm_enrol_open_revert_put); it never re-derives a prior value.
+        # INVARIANT: the retry count (TPM_ENROL_V3_HEIGHT) is restored from its own journal, popped by the first
+        # revert of this block to reach the chip, because apply journaled the value before the block changed it.
+        rfound, rprev = kv_ops.tpm_retry_revert_pop(h, ek_id)
+        if rfound:
+            kv_ops.tpm_retry_set(ek_id, rprev)
         mfound, mprev = kv_ops.tpm_enrol_open_revert_pop(h, ek_id)
         if mfound:
             # popped by the FIRST revert of this block to reach the chip (first-write-wins journal), so it restores
@@ -1056,14 +1074,26 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
     elif recipient == "tpm_commit":
         rec = _te.apply_commit(prev, sender, str(data["commit"]), h)
     else:
-        rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h)
+        from protocol import TPM_ENROL_V3_HEIGHT
+        rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h,
+                               fail_on_mismatch=h >= TPM_ENROL_V3_HEIGHT)
     kv_ops.tpm_enrol_set(eid, rec)
     if recipient == "tpm_enrol":
         # INVARIANT: journal the marker this overwrites BEFORE overwriting it — revert restores exactly that value
         # (audit 2026-09-25, HIGH: the revert used to delete the marker, splitting the root after a reorg of a
         # chip's second enrolment). Node-local journal; the devbind write below is unchanged.
         _ek_id = str(ek["identity"])
-        kv_ops.tpm_enrol_open_revert_put(h, _ek_id, kv_ops.tpm_enrol_open_for_ek(_ek_id))
+        _old = kv_ops.tpm_enrol_open_for_ek(_ek_id)
+        # TPM_ENROL_V3_HEIGHT: a chip enrolling again after its CLIENT failed the last enrolment counts one more failure
+        # (validation already held it to retry_ready_at). The prior count is journaled; revert restores it.
+        from protocol import TPM_ENROL_V3_HEIGHT
+        if h >= TPM_ENROL_V3_HEIGHT and _old:
+            _old_rec = prev if str(_old) == eid else kv_ops.tpm_enrol_get(str(_old))
+            if _te.client_failed(_old_rec):
+                _n = kv_ops.tpm_retry_get(_ek_id)
+                kv_ops.tpm_retry_revert_put(h, _ek_id, _n)
+                kv_ops.tpm_retry_set(_ek_id, _n + 1)
+        kv_ops.tpm_enrol_open_revert_put(h, _ek_id, _old)
         kv_ops.tpm_enrol_open_set(_ek_id, eid)   # this chip's slot is taken until it expires
 
 

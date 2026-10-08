@@ -1662,6 +1662,9 @@ def split_open_block_reward(reward: int):
 #                                    REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
 #                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
 #                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
+#                                    EVICT_VOIDS_EPOCH_HEIGHT ((1 << 62) placeholder -> 1: a device move voids the
+#                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT ((1 << 62)
+#                                    placeholder -> 1: a wrong commitment fails the enrolment; client-failed retries cool down)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2097,6 +2100,15 @@ INVITE_ESCROW = "invite"                 # reserved escrow pseudo-account holdin
 INVITE_MIN_TIMELOCK = 1_440              # >= ~2.4 h: room to install a wallet, attest a device and claim
 INVITE_MAX_TIMELOCK = 432_000            # <= ~30 days: bounds how long a forgotten link keeps coins in escrow
 INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
+
+# DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
+# evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
+# wrong client commitment fails the record instead of refusing the last reveal, and a chip whose enrolment failed by
+# its own client waits a growing cooldown before enrolling again. Placeholder heights: set at ship (CLAUDE.md rule 3).
+EVICT_VOIDS_EPOCH_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+TPM_ENROL_V3_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+TPM_RETRY_COOLDOWN_BASE = 300            # blocks; doubles per consecutive client-failed enrolment of one chip
+TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6.3 s)
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at
