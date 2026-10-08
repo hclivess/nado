@@ -51,6 +51,9 @@ cp, cr = contract_id(A, PAYC, "p"), contract_id(A, READS, "r")
 st = ExecState(os.path.join(os.environ["HOME"], "chain.json"))
 loop = asyncio.new_event_loop()
 run = lambda b: loop.run_until_complete(_apply_block(None, {"default": st}, st, b, verbose=bool(os.environ.get("VERBOSE"))))
+# the beacon epoch carries a RANDAO reveal: from protocol.BEACON_EXTEND_HEIGHT an epoch with none waits for a later
+# epoch's reveals (ExecState.exec_beacon_at), and this test is about PAY and the chain reads, not about empty epochs
+st.record_reveal(E0, "pay-and-chain-reads-reveal")
 for _e in (E0 - 2, E0 - 1, E0):                  # witness whole epochs first: a node that starts mid-flight marks
     run(blk(_e * 60, []))                          # earlier beacons unavailable (ExecState.advance_beacons, beacon_floor)
 run(blk(H - 2, [{"recipient": "bridge", "sender": B, "txid": "dep", "amount": 1000, "data": {}}]))
