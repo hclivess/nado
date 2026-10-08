@@ -1301,6 +1301,13 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="row mt">
       <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">Download key file (JSON)</button>
     </div>
+    <!-- IMPORT WITHOUT FORGETTING FIRST (2026-10-08): the wallet creates one for a newcomer, so a person who already owns a
+         wallet arrives holding a second one — and the only way in used to be Forget wallet, i.e. destroy the auto-created
+         wallet before the old one was even typed in. This opens the SAME import fields (#importBox is moved here, so
+         btnImport / importKeyFile run unchanged); confirmReplaceWallet() decides, at the moment of replacing, whether
+         the wallet being replaced needs its backup first. -->
+    <button id="btnImportExisting" class="ghost mt" style="width:100%" data-i18n="import.existing">Import an existing wallet</button>
+    <div id="importMountSettings"></div>
 
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
     <div class="label" data-i18n="sec.title">Wallet security</div>
@@ -1386,7 +1393,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=d4128e02"></script>
-<script type="module" src="/static/interface.js?v=28c5c192"></script>
+<script defer src="/static/i18n.js?v=f6c5687b"></script>
+<script type="module" src="/static/interface.js?v=b17d8bab"></script>
 </body>
 </html>

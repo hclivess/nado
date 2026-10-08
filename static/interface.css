@@ -284,6 +284,9 @@ a { color: var(--accent-2); }
    here un-hid that text, so "Savings APY" showed TWO icons (user report 2026-09-07). Same drawn icon everywhere. */
 .hint-banner .hint { color: inherit; cursor: default; font-size: 0; margin: 0; font-weight: 400; }
 .hint-banner b { color: var(--txt); }
+/* The first-run note is a sentence followed by two links; as a flex row each link became its own squeezed column
+   ("I / already / have a / wallet" at 412 px). Block flow keeps it one paragraph. */
+#autoWalletNote { display: block; }
 /* staged status banner state variants (registration confirmed / failed) */
 .hint-banner.ok { background: rgba(63,185,80,.10); border-color: rgba(63,185,80,.4); color: #8be39a; }
 .hint-banner.warn { background: rgba(248,81,73,.10); border-color: rgba(248,81,73,.4); color: #ffb4ae; }
@@ -326,7 +329,10 @@ a { color: var(--accent-2); }
 .modal-backdrop.hidden { display:none; }
 .modal { max-width:400px; width:100%; margin:0; animation:modalPop .16s cubic-bezier(.2,.9,.3,1.15); }
 .modal-title { margin:0 0 12px; font-size:16px; font-weight:700; color:var(--txt); }
-.modal-body { color:var(--txt-dim); font-size:14px; margin-bottom:14px; white-space:pre-line; }
+.modal-body { color:var(--txt-dim); font-size:14px; margin-bottom:14px; white-space:pre-line; overflow-wrap:anywhere; }
+/* overflow-wrap: a dialog that names an address (the replace-wallet confirm, 2026-10-08) ran 50 unbroken hex characters
+   off the right edge at 412 px; the checkbox label carries one too. */
+.modal-check span { overflow-wrap:anywhere; min-width:0; }
 .modal-rows { display:flex; flex-direction:column; gap:9px; margin-bottom:16px; }
 .modal-rows.hidden, .modal-body.hidden, .modal-warn.hidden, .modal-note.hidden, .modal-input.hidden { display:none; }
 .modal-row { display:flex; justify-content:space-between; gap:14px; font-size:14px; align-items:baseline; }

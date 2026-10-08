@@ -5157,7 +5157,12 @@ function renderAutoWalletNote() {
   if (!auto || seen) { show("autoWalletNote", false); return; }
   el.innerHTML = escapeHtml(i18("onboard.autoNote",
       "This wallet was created for you on this device. Back up its recovery phrase before it earns anything you would miss."))
-    + ' <a href="#" id="autoWalletBackup">' + escapeHtml(i18("onboard.autoNoteLink", "Show backup")) + '</a>';
+    + ' <a href="#" id="autoWalletBackup">' + escapeHtml(i18("onboard.autoNoteLink", "Show backup")) + '</a>'
+    // THE FIRST-RUN DOOR TO IMPORT: a person who already owns a wallet lands HERE holding an auto-created one. Without
+    // this link their only way to their own key was Settings -> Forget wallet (destroy this one first).
+    + ' · <a href="#" id="autoWalletImport">' + escapeHtml(i18("onboard.autoNoteImport", "I already have a wallet")) + '</a>';
+  const imp = $("autoWalletImport");
+  if (imp) imp.onclick = (e) => { e.preventDefault(); openImportExisting(); };
   const a = $("autoWalletBackup");
   if (a) a.onclick = (e) => {
     e.preventDefault();
@@ -5432,6 +5437,9 @@ async function importEncryptedBlob(blob) {
   try {
     const seed = await decryptSeed(blob, pw);
     const w = keypairFromPriv(seed);
+    // REPLACE GUARD (every import path): the wallet already on this device may hold coins — it is not overwritten
+    // until confirmReplaceWallet() has had its backup taken (funded) or one confirm (empty).
+    if (!(await clearToReplaceWith(w))) return;
     localStorage.setItem(LS_WALLET, JSON.stringify(blob));   // keep it encrypted at rest here too
     state.wallet = w; state.locked = false;
     show("importBox", false); show("onboard", false); show("unlockCard", false);
@@ -5458,6 +5466,104 @@ function downloadEncryptedWallet() {
   log("ok", i18("sec.dlEncOk", "Encrypted backup downloaded — it needs your password to restore."));
 }
 
+/* IMPORTING OVER A WALLET THAT ALREADY EXISTS (2026-10-08). The wallet creates one for every newcomer, so a person who
+ * owns a wallet arrives holding a second one, and Import used to be reachable only after Forget wallet. Import is now
+ * offered from the first-run note and Settings while the current wallet stays put; it is replaced only at the moment
+ * the new key is actually in hand, and only past this guard:
+ *   - EMPTY (every account of this seed — Main and each derived one — is unknown to the chain): one confirm.
+ *   - ANYTHING ELSE — a balance, a stake, a registration, any history, or a relay that could not answer — the owner
+ *     downloads this wallet's key file first (the existing downloadKeyFile, master seed + phrase) and then confirms,
+ *     ticking that the backup is saved. "Could not check" is treated as funded: a silent replace of a wallet holding
+ *     real coins is the one outcome this must never produce.
+ * The keys never leave this browser: the only network reads are public /get_account lookups by ADDRESS. */
+async function walletReplaceRisk() {
+  const master = masterSeedOf();
+  if (!master) return "empty";
+  let risk = "empty";
+  try {
+    for (let i = 0; i <= hdCount() && risk !== "funded"; i++) {
+      const addr = accountKeypair(master, i).address;
+      const r = await rpcJSON("/get_account?address=" + encodeURIComponent(addr));
+      // The relay answers HTTP 404 {"address": "Not found"} for an address no block has ever touched — a 404, so r.ok
+      // is FALSE for the empty case (measured against the live relay 2026-10-08; reading `ok` as "exists" made every
+      // never-used wallet look funded). A 200 record, even one with a zero balance, is history (a registration, a
+      // spent balance, a stake) and needs the backup. Any other answer is "could not check", never "empty".
+      const d = r && r.data;
+      if (d && typeof d === "object" && d.address === "Not found") continue;
+      if (r && r.ok && d && typeof d === "object" && d.address) { risk = "funded"; break; }
+      risk = "unknown";
+    }
+    return risk;
+  } catch (e) { return "unknown"; }
+}
+async function confirmReplaceWallet(next) {
+  const cur = state.wallet;
+  if (!cur) return true;
+  const master = masterSeedOf();
+  const curAddr = master ? accountKeypair(master, 0).address : cur.address;
+  const risk = await walletReplaceRisk();
+  const vars = { a: curAddr, b: next.address };
+  if (risk === "empty") {
+    return !!(await uiConfirm({
+      title: i18("import.replaceTitle", "Replace this wallet?"),
+      body: i18("import.replaceEmptyBody", "The wallet on this device ({a}) is empty and has never been used. {b} will take its place.", vars),
+      confirmText: i18("import.replaceGo", "Replace wallet"),
+    }));
+  }
+  // STEP 1 — the backup, through the SAME export the wallet already offers. Cancel here replaces nothing.
+  const wantBackup = await uiConfirm({
+    title: i18("import.backupFirstTitle", "Back up this wallet first"),
+    body: risk === "unknown"
+      ? i18("import.backupUnknownBody", "The balance of {a} could not be checked right now, so treat it as holding coins. Download its key file before replacing it — it is the only way back to this wallet.", vars)
+      : i18("import.backupFundedBody", "{a} holds coins or has history on the chain. Download its key file before replacing it — it is the only way back to this wallet.", vars),
+    confirmText: i18("import.backupDl", "Download key file"),
+  });
+  if (!wantBackup) return false;
+  await downloadKeyFile();
+  markBackupSeen();
+  // STEP 2 — an explicit confirm that names both addresses and requires the backup to be acknowledged.
+  const ok = await uiConfirm({
+    title: i18("import.replaceTitle", "Replace this wallet?"),
+    body: i18("import.replaceFundedBody", "{b} becomes the wallet on this device and {a} is removed from it. Its coins stay on the chain, and only its key file opens them again.", vars),
+    checkbox: { label: i18("import.replaceAck", "The key file of {a} is saved somewhere safe", vars) },
+    confirmText: i18("import.replaceGo", "Replace wallet"), danger: true,
+  });
+  if (!ok) return false;
+  if (!modalCheckValue()) {
+    uiAlert(i18("import.replaceNeedAck", "Nothing was replaced. Tick the box once the key file is saved."));
+    return false;
+  }
+  return true;
+}
+// The gate every import path passes before it overwrites the stored wallet. Re-importing the wallet already here is not
+// a replacement. On a real replacement the old wallet's collecting loop stops first, exactly as Forget wallet stops it,
+// so nothing keeps renewing a lease for an address this device no longer holds.
+async function clearToReplaceWith(next) {
+  if (!state.wallet) return true;
+  const master = masterSeedOf();
+  if (master && next && accountKeypair(master, 0).address === next.address) return true;
+  if (!(await confirmReplaceWallet(next))) {
+    log("info", i18("log.importCancelled", "Import cancelled — this wallet was kept."));
+    return false;
+  }
+  stopMining();
+  return true;
+}
+// Open the import fields WITHOUT forgetting the current wallet: the one #importBox (paste + key file) moves into
+// Settings, so btnImport / importKeyFile and their encrypted-file handling stay a single code path.
+function openImportExisting() {
+  showTab("settings");
+  const box = $("importBox"), mount = $("importMountSettings");
+  if (box && mount && box.parentNode !== mount) mount.appendChild(box);
+  show("importBox", true);
+  // AFTER the tab switch has painted (showTab resets the scroll): scrolling in the same tick left the person at the
+  // bottom of Settings with the fields off-screen (headless walk at 412 px, 2026-10-08).
+  setTimeout(() => {
+    if (box && box.scrollIntoView) box.scrollIntoView({ block: "center" });
+    const k = $("importKey"); if (k && k.focus) k.focus({ preventScroll: true });
+  }, 120);
+}
+
 /* Import a wallet from a key FILE (the mirror of downloadKeyFile): reads the JSON produced by
  * downloadKeyFile and adopts the wallet from its private_key. Also tolerates a plain-hex-only file. */
 function importKeyFile(file) {
@@ -5478,7 +5584,10 @@ function importKeyFile(file) {
           priv = bytesToHex(await mnemonicToSeed(String(obj.mnemonic).trim()));
         }
         if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
-        adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
+        const kp = keypairFromPriv(String(priv).trim());
+        if (!(await clearToReplaceWith(kp))) return;      // REPLACE GUARD — see confirmReplaceWallet
+        adoptWallet(kp, { needsSavePrompt: false });
+        show("importBox", false);
         log("info", i18("log.keyImported", "Imported key from file."));
       } catch (e) {
         uiAlert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
@@ -10614,6 +10723,8 @@ function enterOnboarding() {
   show("settingsCard", false);
   show("logCard", false);
   show("savePrompt", false);
+  // The import fields may have been moved into Settings by openImportExisting(); onboarding's Import key needs them back.
+  { const box = $("importBox"), ob = $("onboard"); if (box && ob && box.parentNode !== ob) ob.appendChild(box); }
   show("onboard", true);
   const adv = $("onboardAdvanced");
   if (adv && !adv.dataset.wired) { adv.dataset.wired = "1"; adv.onclick = (e) => { e.preventDefault();
@@ -10634,9 +10745,14 @@ function wireEvents() {
       const raw = $("importKey").value.trim();
       // accept EITHER a 64-hex seed OR a 24-word recovery phrase
       const priv = looksLikeMnemonic(raw) ? _hex(await mnemonicToSeed(raw)) : raw;
-      adoptWallet(keypairFromPriv(priv), { needsSavePrompt: false });
+      const kp = keypairFromPriv(priv);
+      if (!(await clearToReplaceWith(kp))) return;      // REPLACE GUARD — never overwrite a wallet without its backup
+      adoptWallet(kp, { needsSavePrompt: false });
+      $("importKey").value = "";                        // the pasted secret must not linger in a Settings field
+      show("importBox", false);
     } catch (e) { uiAlert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
   };
+  if ($("btnImportExisting")) $("btnImportExisting").onclick = () => openImportExisting();
   // ONBOARDING PULSE HANDOFF: the save screen guides the eye through its steps — the Download button
   // pulses first (static pulse-ready class in the HTML); downloading hands the pulse to the ack toggle;
   // acking hands it to Continue (whose own pulse-ready arms via :not(:disabled) the moment it enables).
