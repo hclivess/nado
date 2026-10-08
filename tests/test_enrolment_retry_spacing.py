@@ -142,6 +142,58 @@ kv_ops.tpm_enrol_open_set(EK5, eid_of(EK5, "x"))
 A.apply_tpm_enrol_tx(enrol_tx("y"), E.expiry(old5) + 1)
 check("before the gate nothing is counted", kv_ops.tpm_retry_get(EK5) == 0)
 
+# --- validation: a signed tpm_enrol through validate_transaction -----------------------------------------------------
+import logging as _lg                                                  # noqa: E402
+import struct                                                          # noqa: E402
+import ops.transaction_ops as T                                        # noqa: E402
+from signatures import generate_keydict, sign, unhex                   # noqa: E402
+
+T._anchor_time = lambda tx, h: 1_800_000_000
+T._tpm_pool = lambda h: {f"pool{i:02d}" + "q" * 44: 5 for i in range(12)}
+_ROOT = sorted(P.DEVICE_ATTEST_EK_ROOTS)[0]
+attest_native.verify_ek = lambda chain, t, roots=None, height=None: {"ok": True, "root_sha256": _ROOT,
+                                                                     "identity": CUR["ek"], "ek_identity": CUR["ek"]}
+
+
+def aik_area(policy):
+    b = struct.pack(">HHI", 0x0001, 0x000B, 0x00050472) + struct.pack(">H", len(policy)) + policy
+    b += struct.pack(">H", 0x0010) + struct.pack(">HH", 0x0014, 0x000B) + struct.pack(">H", 2048) + struct.pack(">I", 0)
+    return b + b"\x00\x00"
+
+
+opener = generate_keydict()
+
+
+def verdict(h):
+    tx = {"sender": opener["address"], "recipient": "tpm_enrol", "amount": 0, "fee": 0, "timestamp": 1,
+          "data": {"ek": ["30" * 40], "pub": aik_area(b"retry").hex()}, "nonce": f"n{h}",
+          "public_key": opener["public_key"], "max_block": h, "chain_id": P.CHAIN_ID}
+    tx["txid"] = T.create_txid(tx)
+    tx["signature"] = sign(private_key=opener["private_key"], message=unhex(tx["txid"]))
+    try:
+        T.validate_transaction(tx, _lg.getLogger("t"), block_height=h)
+        return "accepted"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+
+EK6 = "e6" * 32
+CUR["ek"] = EK6
+old6 = v2(EK6, GATE + 10, tag="x")                    # client-failed: every challenge posted, no commit
+kv_ops.tpm_enrol_set(eid_of(EK6, "x"), old6)
+kv_ops.tpm_enrol_open_set(EK6, eid_of(EK6, "x"))
+kv_ops.tpm_retry_set(EK6, 2)
+ready = E.retry_ready_at(old6, 2)
+check("retry_ready_at with a count of 2 is expiry + 4 * BASE", ready == E.expiry(old6) + 4 * BASE)
+v = verdict(ready - 1)
+check("validation refuses a re-enrol one block before retry_ready_at", "can enrol again from block %d" % ready in v, v)
+v = verdict(ready)
+check("validation accepts it at retry_ready_at", v == "accepted", v)
+P.TPM_ENROL_V3_HEIGHT = 1 << 62
+v = verdict(E.expiry(old6))
+check("before the gate validation applies no spacing (expiry is enough)", v == "accepted", v)
+P.TPM_ENROL_V3_HEIGHT = GATE
+
 kv_ops.tpm_retry_set(EK1, 2)
 check("the count row is never read as a device binding",
       kv_ops.tpm_retry_get(EK1) == 2 and not any("tpmretry" in str(row[0]) or EK1 in str(row[0])
