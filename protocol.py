@@ -1662,10 +1662,10 @@ def split_open_block_reward(reward: int):
 #                                    REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
 #                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
 #                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
-#                                    EVICT_VOIDS_EPOCH_HEIGHT ((1 << 62) placeholder -> 1: a device move voids the
-#                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT ((1 << 62)
-#                                    placeholder -> 1: a wrong commitment fails the enrolment; client-failed retries cool down)
-#                                    BEACON_EXTEND_HEIGHT ((1 << 62) placeholder -> 1: the exec BEACON of an
+#                                    EVICT_VOIDS_EPOCH_HEIGHT (132000 -> 1: a device move voids the
+#                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT (132000 ->
+#                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
+#                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
 #                                    epoch with no reveals takes the next revealed epoch's reveals)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2089,8 +2089,8 @@ REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCA
 # EXEC BEACON OF A REVEAL-LESS EPOCH (execnode/state.ExecState.exec_beacon_at): from this height, the BEACON value of
 # an epoch with no RANDAO reveals is computed from the reveals of the first later epoch that has some (at most
 # BEACON_EXTEND_MAX epochs ahead) and is final once that epoch is. Read by the exec node and by the settle-proof
-# chain-read check alike. Placeholder height: set at ship (CLAUDE.md rule 3).
-BEACON_EXTEND_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# chain-read check alike. Live at 132000 (2026-10-08).
+BEACON_EXTEND_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
 BEACON_EXTEND_MAX = 8                    # epochs searched ahead; beyond them the plain value stands
 
 # FUNDED INVITE LINKS (same gate, REFERRAL_HEIGHT; doc/referrals.md). A newcomer starts with nothing — not even the fee
@@ -2113,9 +2113,9 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
 # wrong client commitment fails the record instead of refusing the last reveal, and a chip whose enrolment failed by
-# its own client waits a growing cooldown before enrolling again. Placeholder heights: set at ship (CLAUDE.md rule 3).
-EVICT_VOIDS_EPOCH_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
-TPM_ENROL_V3_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# its own client waits a growing cooldown before enrolling again. Live at 132000 (2026-10-08, tip 128965 + ~5 h for the update wave).
+EVICT_VOIDS_EPOCH_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
+TPM_ENROL_V3_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
 TPM_RETRY_COOLDOWN_BASE = 300            # blocks; doubles per consecutive client-failed enrolment of one chip
 TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6.3 s)
 
