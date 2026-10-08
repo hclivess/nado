@@ -821,6 +821,9 @@ FUSE_TIMBER, FUSE_STONE, FUSE_ORE, FUSE_ESSENCE = 20, 20, 20, 25   # per tier to
 # starts. At these values the same simulated players land at 1.07x and 1.08x — the currency is no worse off,
 # and a casual with one base still gets a real subsidy (0.72x) because they cannot afford to chase rolls.
 REROLL_FEE = 5 * 10**8        # 0.05 NADO, burned
+REROLL_STALE_EPOCHS = 3900    # a reroll pin this many epochs old may be re-pinned by a paid reroll. Inside
+                              # the exec state's 4000-epoch beacon retention (state._BEACON_RETENTION_EPOCHS),
+                              # so the item can always be freed before its pinned beacon is pruned.
 FUSE_FEE = 10 * 10**8         # 0.10 NADO, burned
 
 
@@ -1093,10 +1096,19 @@ SCRAP = "\n".join(
 #            salt BEACON(irp) + irp + itemId and irp is cleared.
 # A reroll call while the pin is still in the future reverts, so it neither moves the pin nor charges twice;
 # equip and fuse refuse an item with a pending reroll, so the rolled points can never land on a worn item.
+# STALE PIN: a pin left unresolved until cursor >= (irp + REROLL_STALE_EPOCHS) * EPOCH_LENGTH may name a beacon
+#   that is about to age out of (or has left) the exec state's beacon retention, which would leave the item
+#   stuck with a reroll nobody can resolve. A PAID call (value = REROLL_FEE) on such a pin runs phase 1 again —
+#   owner, unworn, full essence + materials + fee, new irp = epoch(cursor) + 2 — exactly as a fresh reroll.
+#   A value-0 call still goes to phase 2, and a paid call on a younger pin still reverts, as before.
 # INVARIANT: the owner cannot choose a reroll's result, because the paid pin names a beacon that does not exist
-# yet and phase 2 always resolves from that same beacon (any caller may resolve it; no call can re-pin it).
+# yet and phase 2 always resolves from that same beacon (any caller may resolve it). The stale re-pin keeps
+# this: it only ever names a new FUTURE beacon, it costs exactly a fresh reroll (so it is never a free re-roll),
+# and by the time it is allowed the old beacon has been public for REROLL_STALE_EPOCHS epochs — skipping a bad
+# public result that way is the same choice as resolving it and paying for another reroll.
 REROLL = "\n".join(
-    [f"slot r4 {IRP} r0", "sload r3 r4", "mov r6 r3", "nez r6", "jnz r6 @rr_resolve"]
+    [f"slot r4 {IRP} r0", "sload r3 r4", "mov r6 r3", "nez r6", "jnz r6 @rr_pending"]
+    + ["rr_pin:"]
     + [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
     + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # r5 = rarity (kept)
@@ -1107,6 +1119,11 @@ REROLL = "\n".join(
     + ["ctx r5 value", f"movi r6 {REROLL_FEE}", "eq r5 r6", "require r5"]
     + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {REROLL_FEE}", "add r5 r6", "sstore r4 r5"]
     + _pin_epoch(IRP) + ["ret r5"]                                              # phase 1 returns the pin
+    + ["rr_pending:"]                                                           # r3 = irp (non-zero)
+    + ["ctx r5 value", "nez r5", "notb r5", "jnz r5 @rr_resolve"]               # value 0 -> phase 2
+    + ["mov r5 r3", f"movi r6 {REROLL_STALE_EPOCHS}", "add r5 r6", f"movi r6 {_lib.EPOCH_LENGTH}", "mul r5 r6",
+       "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]                   # paid: only a STALE pin re-pins
+    + ["movi r6 1", "jnz r6 @rr_pin"]                                           # ... at full phase-1 cost
     + ["rr_resolve:"]
     + ["ctx r5 value", "nez r5", "notb r5", "require r5"]                       # phase 2 carries no value
     + [f"slot r4 {IO} r0", "sload r5 r4", "require r5"]                         # the item still exists

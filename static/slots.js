@@ -85,8 +85,11 @@ const settleSpin = (g, m2, stake) => { if (dapp.busy("settle", "seat", g)) retur
 // claim(g) is the TIMEOUT op: after 18000 blocks an unsettled spin resolves to the BANK and pays nobody, so the
 // page never calls it for the player (and offers no "refund" button). A spin past the window is shown as
 // expired; settling a win is always possible inside the window — auto-collect does it the moment it resolves.
+// Only the BANK is offered the manual release (as in dice/roulette/mines/blackjack), so it can free the 149x
+// cover a timed-out spin still reserves and close the machine.
 const HORIZON = 18000;                   // must match slots.HORIZON in execnode/games/slots.py
 const expired = (s) => !s.settled && !!s.gh && dapp.cursor != null && dapp.cursor > s.gh + HORIZON;
+const releaseSpin = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("claim", [g], null, window.t("slots.callRelease", "release timed-out spin #{g} to the bank", { g }), { table: bg.active, seat: g, phase: "settle" }); };
 function fundMachine() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("slots.enterFund", "Enter how much NADO to add to the bank."));
@@ -247,6 +250,15 @@ var render = function render() {
   }).join("");
   $("mySpins").querySelectorAll("[data-collect]").forEach((b) => b.onclick = () =>
     settleSpin(parseInt(b.dataset.collect, 10), parseInt(b.dataset.m2, 10), b.dataset.stake));
+  // the bank releases spins nobody settled inside the window (their stakes stay in its pot) so the machine can close
+  // INVARIANT: claim is offered only to the bank and never auto-fired, because it pays the bank and returns nothing
+  // to the player; a player's win stays settleable (auto-collect) for the whole window before claim opens.
+  const wrap = $("releaseRow"); wrap.innerHTML = "";
+  if (iAmBank && !mc.closed) for (const s of mySpins.filter(expired).slice(0, 8)) {
+    const b = document.createElement("button"); b.style.flex = "1 1 auto"; b.className = "ghost";
+    b.textContent = window.t("slots.releaseSpin", "↩ Release timed-out spin #{g} ({amt}) to the bank", { g: s.g, amt: rawToNado(s.stake) });
+    b.onclick = () => releaseSpin(s.g); wrap.appendChild(b);
+  }
 }
 
 // ---- boot ------------------------------------------------------------------------------------------

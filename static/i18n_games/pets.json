@@ -391,7 +391,9 @@
   "pets.yourOpenOffer": "عرضك المفتوح:",
   "pets.yours": "لك",
   "pets.hitsFor": " يصيب بـ ",
-  "pets.critsFor": " ضربة حرجة 💥 بـ "
+  "pets.critsFor": " ضربة حرجة 💥 بـ ",
+  "pets.rerollAgain": "🎲 أعد الرمي مجددًا (انتهت صلاحية الرمية المعلّقة) · {n} ✨",
+  "pets.rerollExpired": "🎲 انتظرت إعادة الرمي هذه طويلًا وتوشك منارتها على الانتهاء — أعد الرمي مجددًا (بالتكلفة الكاملة) لتحرير العنصر."
  },
  "cs": {
   "pets.aStat": "k vlastnosti",
@@ -785,7 +787,9 @@
   "pets.yourOpenOffer": "Tvoje otevřená nabídka:",
   "pets.yours": "tvůj",
   "pets.hitsFor": " zasáhne za ",
-  "pets.critsFor": " KRITICKY 💥 za "
+  "pets.critsFor": " KRITICKY 💥 za ",
+  "pets.rerollAgain": "🎲 Přehodit znovu (čekající hod vypršel) · {n} ✨",
+  "pets.rerollExpired": "🎲 Toto přehození čekalo příliš dlouho a jeho beacon vyprší — přehoď znovu (plná cena) a předmět uvolníš."
  },
  "de": {
   "pets.aStat": "einen Wert",
@@ -1179,7 +1183,9 @@
   "pets.yourOpenOffer": "Dein offenes Angebot:",
   "pets.yours": "deins",
   "pets.hitsFor": " trifft für ",
-  "pets.critsFor": " KRITISCH 💥 für "
+  "pets.critsFor": " KRITISCH 💥 für ",
+  "pets.rerollAgain": "🎲 Erneut würfeln (der ausstehende Wurf ist abgelaufen) · {n} ✨",
+  "pets.rerollExpired": "🎲 Dieser Neuwurf hat zu lange gewartet und sein Beacon läuft ab — würfle erneut (voller Preis), um den Gegenstand freizugeben."
  },
  "en": {
   "pets.aStat": "to a stat",
@@ -1573,7 +1579,9 @@
   "pets.yourOpenOffer": "Your open offer:",
   "pets.yours": "yours",
   "pets.hitsFor": " hits for ",
-  "pets.critsFor": " CRITS 💥 for "
+  "pets.critsFor": " CRITS 💥 for ",
+  "pets.rerollAgain": "🎲 Re-roll again (the pending roll expired) · {n} ✨",
+  "pets.rerollExpired": "🎲 This re-roll waited too long and its beacon is expiring — re-roll again (full cost) to free the item."
  },
  "es": {
   "pets.aStat": "a una estadística",
@@ -1967,7 +1975,9 @@
   "pets.yourOpenOffer": "Tu oferta abierta:",
   "pets.yours": "tuya",
   "pets.hitsFor": " golpea por ",
-  "pets.critsFor": " CRÍTICO 💥 por "
+  "pets.critsFor": " CRÍTICO 💥 por ",
+  "pets.rerollAgain": "🎲 Volver a tirar (la tirada pendiente caducó) · {n} ✨",
+  "pets.rerollExpired": "🎲 Esta tirada esperó demasiado y su beacon está caducando: vuelve a tirar (coste completo) para liberar el objeto."
  },
  "fr": {
   "pets.aStat": "à une stat",
@@ -2361,7 +2371,9 @@
   "pets.yourOpenOffer": "Votre offre ouverte :",
   "pets.yours": "à vous",
   "pets.hitsFor": " frappe pour ",
-  "pets.critsFor": " CRITIQUE 💥 pour "
+  "pets.critsFor": " CRITIQUE 💥 pour ",
+  "pets.rerollAgain": "🎲 Relancer à nouveau (le lancer en attente a expiré) · {n} ✨",
+  "pets.rerollExpired": "🎲 Cette relance a trop attendu et son beacon expire — relancez à nouveau (coût complet) pour libérer l'objet."
  },
  "hi": {
   "pets.aStat": "किसी स्टैट में",
@@ -2755,7 +2767,9 @@
   "pets.yourOpenOffer": "आपका खुला प्रस्ताव:",
   "pets.yours": "आपका",
   "pets.hitsFor": " वार करता है: ",
-  "pets.critsFor": " क्रिटिकल 💥: "
+  "pets.critsFor": " क्रिटिकल 💥: ",
+  "pets.rerollAgain": "🎲 फिर से रोल करें (लंबित रोल की अवधि समाप्त) · {n} ✨",
+  "pets.rerollExpired": "🎲 यह री-रोल बहुत देर तक रुका रहा और इसका बीकन समाप्त हो रहा है — आइटम मुक्त करने के लिए फिर से रोल करें (पूरी लागत)।"
  },
  "id": {
   "pets.aStat": "ke sebuah stat",
@@ -3149,7 +3163,9 @@
   "pets.yourOpenOffer": "Penawaran terbukamu:",
   "pets.yours": "milikmu",
   "pets.hitsFor": " menyerang sebesar ",
-  "pets.critsFor": " KRITIS 💥 sebesar "
+  "pets.critsFor": " KRITIS 💥 sebesar ",
+  "pets.rerollAgain": "🎲 Gulung ulang lagi (gulungan tertunda kedaluwarsa) · {n} ✨",
+  "pets.rerollExpired": "🎲 Gulungan ulang ini menunggu terlalu lama dan beacon-nya akan kedaluwarsa — gulung ulang lagi (biaya penuh) untuk membebaskan item."
  },
  "it": {
   "pets.aStat": "a una statistica",
@@ -3543,7 +3559,9 @@
   "pets.yourOpenOffer": "La tua offerta aperta:",
   "pets.yours": "tuo",
   "pets.hitsFor": " colpisce per ",
-  "pets.critsFor": " CRITICO 💥 per "
+  "pets.critsFor": " CRITICO 💥 per ",
+  "pets.rerollAgain": "🎲 Rilancia di nuovo (il lancio in sospeso è scaduto) · {n} ✨",
+  "pets.rerollExpired": "🎲 Questo rilancio ha atteso troppo e il suo beacon sta scadendo — rilancia di nuovo (costo pieno) per liberare l'oggetto."
  },
  "ja": {
   "pets.aStat": "ステータス",
@@ -3937,7 +3955,9 @@
   "pets.yourOpenOffer": "あなたの有効なオファー：",
   "pets.yours": "あなたのもの",
   "pets.hitsFor": " の攻撃、ダメージ ",
-  "pets.critsFor": " のクリティカル 💥 ダメージ "
+  "pets.critsFor": " のクリティカル 💥 ダメージ ",
+  "pets.rerollAgain": "🎲 もう一度振り直す（保留中の振り直しが期限切れ）· {n} ✨",
+  "pets.rerollExpired": "🎲 この振り直しは待ち時間が長すぎ、ビーコンの期限が切れかけています — もう一度振り直す（全額）とアイテムが解放されます。"
  },
  "ko": {
   "pets.aStat": "어떤 스탯",
@@ -4331,7 +4351,9 @@
   "pets.yourOpenOffer": "내 진행 중인 제안:",
   "pets.yours": "내 것",
   "pets.hitsFor": " 명중, 피해 ",
-  "pets.critsFor": " 치명타 💥 피해 "
+  "pets.critsFor": " 치명타 💥 피해 ",
+  "pets.rerollAgain": "🎲 다시 굴리기 (대기 중인 굴림이 만료됨) · {n} ✨",
+  "pets.rerollExpired": "🎲 이 굴림은 너무 오래 기다려 비콘이 만료되고 있습니다 — 다시 굴려(전체 비용) 아이템을 풀어 주세요."
  },
  "pt": {
   "pets.aStat": "em um atributo",
@@ -4725,7 +4747,9 @@
   "pets.yourOpenOffer": "Sua oferta em aberto:",
   "pets.yours": "seu",
   "pets.hitsFor": " acerta por ",
-  "pets.critsFor": " CRÍTICO 💥 por "
+  "pets.critsFor": " CRÍTICO 💥 por ",
+  "pets.rerollAgain": "🎲 Rolar de novo (a rolagem pendente expirou) · {n} ✨",
+  "pets.rerollExpired": "🎲 Esta rolagem esperou demais e o seu beacon está expirando — role de novo (custo total) para liberar o item."
  },
  "ru": {
   "pets.aStat": "к характеристике",
@@ -5119,7 +5143,9 @@
   "pets.yourOpenOffer": "Ваше открытое предложение:",
   "pets.yours": "ваш",
   "pets.hitsFor": " бьёт на ",
-  "pets.critsFor": " КРИТ 💥 на "
+  "pets.critsFor": " КРИТ 💥 на ",
+  "pets.rerollAgain": "🎲 Перебросить заново (ожидавший бросок истёк) · {n} ✨",
+  "pets.rerollExpired": "🎲 Этот переброс ждал слишком долго, и его маяк истекает — перебросьте заново (полная цена), чтобы освободить предмет."
  },
  "tr": {
   "pets.aStat": "bir stata",
@@ -5513,7 +5539,9 @@
   "pets.yourOpenOffer": "Açık teklifin:",
   "pets.yours": "senin",
   "pets.hitsFor": " vurdu: ",
-  "pets.critsFor": " KRİTİK 💥: "
+  "pets.critsFor": " KRİTİK 💥: ",
+  "pets.rerollAgain": "🎲 Tekrar yeniden at (bekleyen atışın süresi doldu) · {n} ✨",
+  "pets.rerollExpired": "🎲 Bu yeniden atış çok bekledi ve beacon'ının süresi doluyor — eşyayı serbest bırakmak için tekrar at (tam ücret)."
  },
  "vi": {
   "pets.aStat": "cho một chỉ số",
@@ -5907,7 +5935,9 @@
   "pets.yourOpenOffer": "Đề nghị đang mở của bạn:",
   "pets.yours": "của bạn",
   "pets.hitsFor": " đánh trúng ",
-  "pets.critsFor": " CHÍ MẠNG 💥 "
+  "pets.critsFor": " CHÍ MẠNG 💥 ",
+  "pets.rerollAgain": "🎲 Gieo lại lần nữa (lượt gieo đang chờ đã hết hạn) · {n} ✨",
+  "pets.rerollExpired": "🎲 Lượt gieo lại này đã chờ quá lâu và beacon của nó sắp hết hạn — hãy gieo lại lần nữa (đủ phí) để giải phóng vật phẩm."
  },
  "zh": {
   "pets.aStat": "某项属性",
@@ -6301,6 +6331,8 @@
   "pets.yourOpenOffer": "你的未成交出价：",
   "pets.yours": "你的",
   "pets.hitsFor": " 命中，造成 ",
-  "pets.critsFor": " 暴击 💥 造成 "
+  "pets.critsFor": " 暴击 💥 造成 ",
+  "pets.rerollAgain": "🎲 再次重新生成（待定的生成已过期）· {n} ✨",
+  "pets.rerollExpired": "🎲 此次重新生成等待太久，其信标即将过期——再次重新生成（全额费用）以释放该物品。"
  }
 }

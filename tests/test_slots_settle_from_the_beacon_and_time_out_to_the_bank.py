@@ -8,6 +8,8 @@ settled inside its window resolves to the bank (execnode/games/slots.py, Release
   * claim (timeout) pays NOBODY: the stake stays in the pot, the 149x cover is released, the bankroll keeps the
     stake, the spin is marked settled with no win; it is refused inside the window;
   * a winning spin settles (pays) anywhere inside the window, including its last block, by anyone.
+  * the page gives the BANK (only) a button that sends claim for a spin past the window, like dice/roulette/mines/
+    blackjack, and never auto-fires it.
 
 Run: python3 tests/test_slots_settle_from_the_beacon_and_time_out_to_the_bank.py
 """
@@ -229,6 +231,24 @@ for k in range(64):
     won = True
     break
 check("found a winning beacon spin to test", won)
+
+# ---- the BANK's release button: the page offers claim to the bank for a timed-out spin, as the other banked games do
+st5, cid5 = fresh()
+g = 5000
+call(st5, cid5, PLAYER, "spin", [g, T], STAKE)
+st5.cursor = rd(st5, cid5, slots.GH, g) + slots.HORIZON + 1
+call(st5, cid5, BANK, "claim", [g])
+check("the bank itself can release a timed-out spin (what its button sends)",
+      rd(st5, cid5, slots.GD, g) == 1 and rd(st5, cid5, 4, T) == 0)
+html = open(os.path.join(ROOT, "static", "slots.html")).read()
+check("slots.js HORIZON equals the contract's window", f"const HORIZON = {slots.HORIZON};" in src)
+check("slots.js sends the contract's timeout op (claim) from the release button",
+      'dapp.call("claim", [g], null' in src and "releaseSpin(s.g)" in src)
+check("the release button is offered only to the bank, only for spins past the window",
+      "if (iAmBank && !mc.closed) for (const s of mySpins.filter(expired)" in src)
+check("slots.html has the release row the button renders into", 'id="releaseRow"' in html)
+check("auto-collect never fires claim for the player (it returns them nothing)",
+      "autoCollect" in src and "releaseSpin" not in src[src.index("function maybeAutoSettle"):src.index("function readyWins")])
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

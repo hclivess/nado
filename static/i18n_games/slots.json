@@ -90,7 +90,9 @@
   "slots.winsCount": "{c} فوز · ",
   "slots.withdraw": "سحب",
   "slots.you": "أنت",
-  "slots.youLower": "أنت"
+  "slots.youLower": "أنت",
+  "slots.releaseSpin": "↩ حرّر الدورة المنتهية #{g} ({amt}) لصالح البنك",
+  "slots.callRelease": "حرّر الدورة المنتهية #{g} لصالح البنك"
  },
  "cs": {
   "slots.allApps": "🎮 Všechny aplikace",
@@ -183,7 +185,9 @@
   "slots.winsCount": "{c} výher · ",
   "slots.withdraw": "Vybrat",
   "slots.you": "TY",
-  "slots.youLower": "ty"
+  "slots.youLower": "ty",
+  "slots.releaseSpin": "↩ Uvolnit propadlou otočku #{g} ({amt}) bance",
+  "slots.callRelease": "uvolnit propadlou otočku #{g} bance"
  },
  "de": {
   "slots.allApps": "🎮 Alle Apps",
@@ -276,7 +280,9 @@
   "slots.winsCount": "{c} Gewinne · ",
   "slots.withdraw": "Auszahlen",
   "slots.you": "DU",
-  "slots.youLower": "du"
+  "slots.youLower": "du",
+  "slots.releaseSpin": "↩ Abgelaufenen Dreh #{g} ({amt}) an die Bank freigeben",
+  "slots.callRelease": "abgelaufenen Dreh #{g} an die Bank freigeben"
  },
  "en": {
   "slots.allApps": "🎮 All apps",
@@ -369,7 +375,9 @@
   "slots.winsCount": "{c} wins · ",
   "slots.withdraw": "Withdraw",
   "slots.you": "YOU",
-  "slots.youLower": "you"
+  "slots.youLower": "you",
+  "slots.releaseSpin": "↩ Release timed-out spin #{g} ({amt}) to the bank",
+  "slots.callRelease": "release timed-out spin #{g} to the bank"
  },
  "es": {
   "slots.allApps": "🎮 Todas las apps",
@@ -462,7 +470,9 @@
   "slots.winsCount": "{c} premios · ",
   "slots.withdraw": "Retirar",
   "slots.you": "TÚ",
-  "slots.youLower": "tú"
+  "slots.youLower": "tú",
+  "slots.releaseSpin": "↩ Liberar a la banca el giro caducado #{g} ({amt})",
+  "slots.callRelease": "liberar a la banca el giro caducado #{g}"
  },
  "fr": {
   "slots.allApps": "🎮 Toutes les apps",
@@ -555,7 +565,9 @@
   "slots.winsCount": "{c} gains · ",
   "slots.withdraw": "Retirer",
   "slots.you": "VOUS",
-  "slots.youLower": "vous"
+  "slots.youLower": "vous",
+  "slots.releaseSpin": "↩ Céder à la banque le tour expiré #{g} ({amt})",
+  "slots.callRelease": "céder à la banque le tour expiré #{g}"
  },
  "hi": {
   "slots.allApps": "🎮 सभी ऐप्स",
@@ -648,7 +660,9 @@
   "slots.winsCount": "{c} जीत · ",
   "slots.withdraw": "निकालें",
   "slots.you": "आप",
-  "slots.youLower": "आप"
+  "slots.youLower": "आप",
+  "slots.releaseSpin": "↩ समय-सीमा पार स्पिन #{g} ({amt}) बैंक को छोड़ें",
+  "slots.callRelease": "समय-सीमा पार स्पिन #{g} बैंक को छोड़ें"
  },
  "id": {
   "slots.allApps": "🎮 Semua aplikasi",
@@ -741,7 +755,9 @@
   "slots.winsCount": "{c} menang · ",
   "slots.withdraw": "Tarik",
   "slots.you": "ANDA",
-  "slots.youLower": "anda"
+  "slots.youLower": "anda",
+  "slots.releaseSpin": "↩ Lepaskan putaran kedaluwarsa #{g} ({amt}) ke bandar",
+  "slots.callRelease": "lepaskan putaran kedaluwarsa #{g} ke bandar"
  },
  "it": {
   "slots.allApps": "🎮 Tutte le app",
@@ -834,7 +850,9 @@
   "slots.winsCount": "{c} vincite · ",
   "slots.withdraw": "Preleva",
   "slots.you": "TU",
-  "slots.youLower": "tu"
+  "slots.youLower": "tu",
+  "slots.releaseSpin": "↩ Cedi al banco il giro scaduto #{g} ({amt})",
+  "slots.callRelease": "cedi al banco il giro scaduto #{g}"
  },
  "ja": {
   "slots.allApps": "🎮 すべてのアプリ",
@@ -927,7 +945,9 @@
   "slots.winsCount": "{c} 勝 · ",
   "slots.withdraw": "引き出し",
   "slots.you": "あなた",
-  "slots.youLower": "あなた"
+  "slots.youLower": "あなた",
+  "slots.releaseSpin": "↩ 期限切れのスピン #{g}（{amt}）を胴元に解放",
+  "slots.callRelease": "期限切れのスピン #{g} を胴元に解放"
  },
  "ko": {
   "slots.allApps": "🎮 모든 앱",
@@ -1020,7 +1040,9 @@
   "slots.winsCount": "{c}회 당첨 · ",
   "slots.withdraw": "출금",
   "slots.you": "나",
-  "slots.youLower": "나"
+  "slots.youLower": "나",
+  "slots.releaseSpin": "↩ 시간 초과된 스핀 #{g}({amt})을(를) 뱅크로 해제",
+  "slots.callRelease": "시간 초과된 스핀 #{g}을(를) 뱅크로 해제"
  },
  "pt": {
   "slots.allApps": "🎮 Todos os apps",
@@ -1113,7 +1135,9 @@
   "slots.winsCount": "{c} vitórias · ",
   "slots.withdraw": "Sacar",
   "slots.you": "VOCÊ",
-  "slots.youLower": "você"
+  "slots.youLower": "você",
+  "slots.releaseSpin": "↩ Liberar para a banca o giro expirado #{g} ({amt})",
+  "slots.callRelease": "liberar para a banca o giro expirado #{g}"
  },
  "ru": {
   "slots.allApps": "🎮 Все приложения",
@@ -1206,7 +1230,9 @@
   "slots.winsCount": "{c} выигрышей · ",
   "slots.withdraw": "Вывести",
   "slots.you": "ВЫ",
-  "slots.youLower": "вы"
+  "slots.youLower": "вы",
+  "slots.releaseSpin": "↩ Передать банку просроченный спин #{g} ({amt})",
+  "slots.callRelease": "передать банку просроченный спин #{g}"
  },
  "tr": {
   "slots.allApps": "🎮 Tüm uygulamalar",
@@ -1299,7 +1325,9 @@
   "slots.winsCount": "{c} kazanç · ",
   "slots.withdraw": "Çek",
   "slots.you": "SEN",
-  "slots.youLower": "sen"
+  "slots.youLower": "sen",
+  "slots.releaseSpin": "↩ Süresi dolan #{g} dönüşünü ({amt}) kasaya bırak",
+  "slots.callRelease": "süresi dolan #{g} dönüşünü kasaya bırak"
  },
  "vi": {
   "slots.allApps": "🎮 Tất cả ứng dụng",
@@ -1392,7 +1420,9 @@
   "slots.winsCount": "{c} lần thắng · ",
   "slots.withdraw": "Rút",
   "slots.you": "BẠN",
-  "slots.youLower": "bạn"
+  "slots.youLower": "bạn",
+  "slots.releaseSpin": "↩ Giải phóng lượt quay quá hạn #{g} ({amt}) cho nhà cái",
+  "slots.callRelease": "giải phóng lượt quay quá hạn #{g} cho nhà cái"
  },
  "zh": {
   "slots.allApps": "🎮 所有应用",
@@ -1485,6 +1515,8 @@
   "slots.winsCount": "{c} 次赢 · ",
   "slots.withdraw": "提现",
   "slots.you": "你",
-  "slots.youLower": "你"
+  "slots.youLower": "你",
+  "slots.releaseSpin": "↩ 将超时旋转 #{g}（{amt}）释放给庄家",
+  "slots.callRelease": "将超时旋转 #{g} 释放给庄家"
  }
 }

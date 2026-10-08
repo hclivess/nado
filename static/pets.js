@@ -679,6 +679,8 @@ const REROLL_ESSENCE = 10, REROLL_TIMBER = 10, REROLL_STONE = 10, REROLL_ORE = 1
 const FUSE_TIMBER = 20, FUSE_STONE = 20, FUSE_ORE = 20, FUSE_ESSENCE = 25;
 const FUSE_MAX_TIER = 4;
 const REROLL_FEE = 500000000n, FUSE_FEE = 1000000000n;   // burned — the sink that replaces the food burn
+// = pets.py REROLL_STALE_EPOCHS: a pin this old may be re-pinned by a PAID reroll (its beacon nears pruning)
+const REROLL_STALE_EPOCHS = 3900;
 const BUILD_FEE = 5000000000n;                 // 0.5 NADO per level — mirrors the contract
 const RES = [
   { k: "fodder", icon: "🌾", name: () => window.t("pets.resFodder", "Fodder") },
@@ -902,12 +904,16 @@ const scrapItem = (iid) => { if (dapp.busy("scrap", "iid", iid)) return notify(c
 // A beacon pin is ready once the exec cursor enters its epoch (the contract's own gate).
 const pinReady = (pin) => !!pin && dapp.cursor != null && dapp.cursor >= pin * EPOCH_LENGTH;
 const pinWait = (pin) => blocksToTime(Math.max(0, pin * EPOCH_LENGTH - (dapp.cursor || 0)));
+// INVARIANT: pinStale matches the contract's re-pin gate (cursor >= (irp + REROLL_STALE_EPOCHS) * EPOCH_LENGTH),
+// because the reroll button only offers the paid re-pin when the contract would accept it.
+const pinStale = (pin) => !!pin && dapp.cursor != null && dapp.cursor >= (pin + REROLL_STALE_EPOCHS) * EPOCH_LENGTH;
 // RE-ROLL is two calls: this one PAYS and pins a later epoch beacon (the affixes do not change yet); once that
 // beacon exists, resolveReroll (value-free, anyone may send it) rolls the affixes from it.
 function rerollItem(iid) {
   const it = ITEMS[iid];
   if (!it || dapp.busy("reroll", "iid", iid)) return notify(confirmingLabel());
-  if (it.pin) return pinReady(it.pin) ? resolveReroll(iid) : notify(window.t("pets.rerollPendingN", "🎲 Re-roll pending — decided by the epoch {e} beacon (~{time})", { e: it.pin, time: pinWait(it.pin) }));
+  // a STALE pin (its beacon may already be pruned) is re-pinned by a fresh, fully paid reroll below
+  if (it.pin && !pinStale(it.pin)) return pinReady(it.pin) ? resolveReroll(iid) : notify(window.t("pets.rerollPendingN", "🎲 Re-roll pending — decided by the epoch {e} beacon (~{time})", { e: it.pin, time: pinWait(it.pin) }));
   const cost = it.rarity * REROLL_ESSENCE;
   const mt = it.rarity * REROLL_TIMBER, ms = it.rarity * REROLL_STONE, mo = it.rarity * REROLL_ORE;
   if (RESOURCES[4] < cost || RESOURCES[1] < mt || RESOURCES[2] < ms || RESOURCES[3] < mo)
@@ -915,13 +921,14 @@ function rerollItem(iid) {
       { e: cost, t: mt, s: ms, o: mo, f: rawToNado(REROLL_FEE) }));
   if (!canPay(dapp, REROLL_FEE, window.t("pets.thisReroll", "This re-roll"))) return;
   dapp.call("reroll", [Number(iid)], REROLL_FEE,
-    window.t("pets.callReroll", "re-roll item #{id}", { id: iid }), { iid, phase: "reroll" });
+    window.t("pets.callReroll", "re-roll item #{id}", { id: iid }), { iid, phase: "reroll", pin0: it.pin || 0 });
 }
 const resolveReroll = (iid) => { if (dapp.busy("rerollres", "iid", iid)) return;
   dapp.call("reroll", [Number(iid)], null, window.t("pets.callRerollRes", "reveal the re-roll of item #{id}", { id: iid }), { iid, phase: "rerollres" }); };
 // a re-roll whose beacon exists resolves itself (value-free -> signs in the background), one per tick
 function maybeAutoRerollResolve() {
-  const ready = myItems().filter((it) => it.pin && pinReady(it.pin));
+  // a stale pin is left to its owner's paid re-roll: its beacon may be pruned, and phase 2 would only revert
+  const ready = myItems().filter((it) => it.pin && pinReady(it.pin) && !pinStale(it.pin));
   dapp.autoCollect(ready, (it) => resolveReroll(it.id), { phase: "rerollres", key: (it) => "rr:" + it.id + ":" + it.pin });
 }
 
@@ -1131,7 +1138,8 @@ async function refreshAll() {
         || (f.phase === "equip" && ITEMS[f.iid] && ITEMS[f.iid].worn)
         || (f.phase === "unequip" && ITEMS[f.iid] && !ITEMS[f.iid].worn)
         || (f.phase === "scrap" && !ITEMS[f.iid])
-        || (f.phase === "reroll" && ITEMS[f.iid] && !!ITEMS[f.iid].pin)
+        // pin0 = the pin the call replaced (a stale re-pin): the call landed once the pin is a different one
+        || (f.phase === "reroll" && ITEMS[f.iid] && !!ITEMS[f.iid].pin && ITEMS[f.iid].pin !== (f.pin0 || 0))
         || (f.phase === "rerollres" && (!ITEMS[f.iid] || !ITEMS[f.iid].pin))
         || (f.phase === "revealb" && b && (f.side === "a" ? !!b.wr1 : !!b.wr2))
         || (f.phase === "fuse" && ITEMS[f.iid] && ITEMS[f.iid].rarity > (f.r0 || 0));
@@ -1743,12 +1751,19 @@ function renderBag() {
         '<div class="aff">+' + a.points + " " + esc(G.STAT_NAMES[a.stat] || "?") + "</div>").join("")
     + "</div>"
     + (worn ? '<div class="small dim mt">' + window.t("pets.wornBy", "worn by {pet}", { pet: esc(worn.label) }) + "</div>" : "")
-    + (it.pin ? '<div class="small mt" style="color:var(--gold)">' + (pinReady(it.pin)
+    + (it.pin ? '<div class="small mt" style="color:var(--gold)">' + (pinStale(it.pin)
+        ? window.t("pets.rerollExpired", "🎲 This re-roll waited too long and its beacon is expiring — re-roll again (full cost) to free the item.")
+        : pinReady(it.pin)
         ? window.t("pets.rerollReady", "🎲 Its beacon is out — revealing the re-roll…")
         : window.t("pets.rerollPendingN", "🎲 Re-roll pending — decided by the epoch {e} beacon (~{time})", { e: it.pin, time: pinWait(it.pin) }))
         + " " + window.t("pets.rerollPendingNote", "It can't be worn or fused until then.") + "</div>" : "")
     + '<div class="rowb">'
-    + (it.pin
+    + (it.pin && pinStale(it.pin)
+        ? '<button class="ghost" id="btnReroll"' + (RESOURCES[4] >= it.rarity * REROLL_ESSENCE ? "" : " disabled") + ">"
+          + (dapp.busy("reroll", "iid", it.id) ? confirmingLabel()
+             : window.t("pets.rerollAgain", "🎲 Re-roll again (the pending roll expired) · {n} ✨", { n: it.rarity * REROLL_ESSENCE })) + "</button>"
+          + '<button class="ghost" id="btnScrap">' + (dapp.busy("scrap", "iid", it.id) ? confirmingLabel() : window.t("pets.scrap", "♻ Scrap")) + "</button>"
+        : it.pin
         ? '<button class="ghost" id="btnReroll"' + (pinReady(it.pin) ? "" : " disabled") + ">"
           + (dapp.busy("rerollres", "iid", it.id) ? confirmingLabel() : window.t("pets.rerollReveal", "🎲 Reveal the re-roll")) + "</button>"
           + '<button class="ghost" id="btnScrap">' + (dapp.busy("scrap", "iid", it.id) ? confirmingLabel() : window.t("pets.scrap", "♻ Scrap")) + "</button>"

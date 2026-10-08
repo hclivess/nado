@@ -8,6 +8,14 @@ representative method per game (the whole point — a call is provable). Reverts
 Run: python3 tests/test_games_e2e.py        (~2-3 min: several real proofs at reduced query count)
 """
 import os, sys, tempfile, traceback
+import atexit, shutil
+
+# INVARIANT: this test never reads or writes the live node's files, because HOME and the exec node's CWD-relative
+# state/DA paths are assigned (never setdefault) to a throwaway directory before any project import.
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-games-e2e-")
+atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode import runtimes
