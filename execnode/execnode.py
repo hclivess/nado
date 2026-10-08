@@ -4351,6 +4351,23 @@ async def h_blockhash(request):
     return web.json_response({"cursor": st.cursor, "hashes": out})
 
 
+async def h_beacon(request):
+    """Epoch beacons for the BEACON randomness (?epochs=E1,E2,…). Returns {cursor, beacons: {epoch: hex|null}} —
+    null while the epoch is not final here or outside the node's window. FINALIZED state only: the value a banked
+    game settles from, so a client derives the same outcome the contract will."""
+    st = states.get(request.query.get("ns", "default"))
+    if st is None:
+        return _NS404()
+    out = {}
+    for e in (request.query.get("epochs") or "").split(",")[:64]:
+        try:
+            ei = int(e); v = st.beacons.get(ei)
+            out[str(ei)] = (format(v, "x") if v is not None else None)
+        except Exception:
+            pass
+    return web.json_response({"cursor": st.cursor, "beacons": out})
+
+
 async def h_outbox(request):
     """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
     st = _state_for(request)
@@ -4906,6 +4923,7 @@ async def main():
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
                     web.get("/exec/blockhash", h_blockhash),
+                    web.get("/exec/beacon", h_beacon),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),

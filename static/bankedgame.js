@@ -11,7 +11,7 @@
 //   bg.track(sto);  const tb = bg.read(sto, bg.active);
 //   bg.lobby($("lobbyList"), sto, (tb) => "…chip text…", select, sortFn);
 //   bg.recent($("recent"), select, tagFn);
-import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel, scoreBump, scoreSort } from "./nadodapp.js?v=b74f351b";
+import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel, scoreBump, scoreSort, EPOCH_LENGTH } from "./nadodapp.js?v=42226f9f";
 
 export class BankedGame {
   constructor(dapp, { icon = "🎯", bankIcon = "🏦" } = {}) {
@@ -116,7 +116,9 @@ export class BankedGame {
     for (const g of Object.keys(gg)) {
       if (String(gg[g]) !== String(t)) continue;
       const gh = _m(sto, "gh")[g] || 0, settled = !!_m(sto, "gd")[g];
-      const base = { g: Number(g), table: Number(t), gh, settled,
+      // gb: the beacon epoch a seat settles from (0 = a seat placed under the block-hash rule); gh = gb*EPOCH-1
+      // for a beacon seat, so "ready at gh+1" holds for both
+      const base = { g: Number(g), table: Number(t), gh, gb: _m(sto, "gb")[g] || 0, settled,
         addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
         ready: !settled && !!gh && cur != null && cur >= gh + 1,
         phase: settled ? "settled" : (!!gh && cur != null && cur >= gh + 1) ? "ready" : "pending" };
@@ -171,6 +173,17 @@ export class BankedGame {
       if (gh && cur != null && cur >= gh + 1) need.push(gh, gh + 1);
     }
     if (need.length) await this.dapp.blockHashes(need.slice(0, 30), { fast: true });
+  }
+  // prefetchBeacons(sto, epochOf): the same for beacon seats — the beacon epoch (gb by default) of every live seat
+  // of this table whose epoch has begun. A beacon is fetched finalized only (/exec/beacon), so it never moves.
+  async prefetchBeacons(sto, epochOf) {
+    const cur = this.dapp.cursor, need = [];
+    for (const g of Object.keys(_m(sto, "gg"))) {
+      if (String(_m(sto, "gg")[g]) !== String(this.active) || _m(sto, "gd")[g]) continue;
+      const gb = epochOf ? epochOf(g) : (_m(sto, "gb")[g] || 0);
+      if (gb && cur != null && cur >= gb * EPOCH_LENGTH) need.push(gb);
+    }
+    if (need.length) await this.dapp.beacons(need.slice(0, 30));
   }
   /**
    * The per-player profit scoreboard every banked game shows. All four of them (dice, roulette, mines,

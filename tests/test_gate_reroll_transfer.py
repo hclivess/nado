@@ -30,6 +30,7 @@ REROLL = {
     "TPM_POOL_V2_HEIGHT": 1,                   # 100000 on gen 28: online-stake pool, k = 5, misses excluded
     "EVICT_VOIDS_EPOCH_HEIGHT": 1,             # placeholder 2^62 on gen 28: a device move voids through the epoch
     "TPM_ENROL_V3_HEIGHT": 1,                  # placeholder 2^62 on gen 28: failed commitments, retry cooldown
+    "BEACON_EXTEND_HEIGHT": 1,                 # placeholder 2^62 on gen 28: a reveal-less epoch's beacon waits for reveals
     "REFERRAL_HEIGHT": 1,                      # 107000 on gen 28: referral links, the 10 % slice, funded invites
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)

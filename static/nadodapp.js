@@ -13,7 +13,7 @@
 //   dapp.call("bet", [g, t, ...args], stakeRaw, "human label", { table: t, phase: "bet" });
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
-import { loadCrypto, blake2bHash } from "./nadotx.js?v=6b9ca274";
+import { loadCrypto, blake2bHash } from "./nadotx.js?v=02122c27";
 import * as alghash from "./alghash.js?v=849f345a";
 export { loadCrypto, blake2bHash };
 
@@ -223,6 +223,9 @@ export function chainResult(shHex, sh1Hex, salt, mod) {
   const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt);
   return Number(BigInt("0x" + blake2bHash(seed)) % BigInt(mod));
 }
+// EPOCH_LENGTH: protocol.EPOCH_LENGTH, the beacon epoch. A beacon seat bound to epoch gb settles once the exec
+// cursor reaches gb * EPOCH_LENGTH (its gh is that height minus one).
+export const EPOCH_LENGTH = 60;
 // chainResultAlg: the zkVM-era beacon result, byte-matching the ported contracts' in-VM alghash HASH +
 // LO32 window. The contract computes ws = alghash.hashn([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod P])'s low
 // 32 bits % mod. BLOCKHASH enters the VM reduced mod P, so the client reduces each block hash mod P too.
@@ -1050,7 +1053,8 @@ export function enhanceSelect(sel, { searchPlaceholder = "Search", icon = true }
   _pickers.push(api); label();
   return api;
 }
-document.addEventListener("click", (e) => {              // click-away closes whichever panel is open
+// INVARIANT: the SDK imports without a DOM (node tests import it), so page-only wiring is guarded like _pickCss
+if (typeof document !== "undefined") document.addEventListener("click", (e) => {   // click-away closes whichever panel is open
   _pickers.forEach((p) => { if (!p.el.contains(e.target)) p.close(); });
 });
 
@@ -1211,6 +1215,7 @@ export class NadoDapp {
     this._onReturn = null;
     this._bh = {};        // height -> block hash hex (BLOCKHASH randomness cache; provisional or finalized)
     this._bhFinal = {};   // height -> 1 once its FINALIZED hash is cached (a frozen value; provisional stays re-checkable)
+    this._bc = {};        // epoch -> exec BEACON hex (finalized only; frozen once cached)
     this.inflight = null;   // a submitted-but-not-yet-confirmed action (see busy())
     // Sign-in must work the INSTANT the page shows the button — it's a pure wallet redirect, no crypto
     // needed. Games wire the rest post-init(); if this ran only there, the button is dead for the whole
@@ -1242,6 +1247,22 @@ export class NadoDapp {
     return this._bh;
   }
   bh(h) { return this._bh[h]; }
+  // beacons(epochs): fetch + CACHE the exec BEACON of these epochs (from /exec/beacon, finalized only — a beacon
+  // never changes once final), so a banked game derives the outcome its contract will: a seat bound to beacon epoch
+  // gb resolves from chainResultAlg(dapp.bc(gb), "0", salt, mod) == the VM's HASH(BEACON(gb) + salt). bc(e) reads
+  // the cache (hex|undefined).
+  async beacons(epochs) {
+    const need = [...new Set(epochs)].filter((e) => e && this._bc[e] === undefined);
+    if (need.length) {
+      try {
+        const url = base() + "/exec/beacon?ns=" + this.ns + "&epochs=" + need.slice(0, 64).join(",");
+        const j = await (await fetch(url, { cache: "no-store" })).json();
+        for (const e of need) { const v = j.beacons && j.beacons[String(e)]; if (v) this._bc[e] = v; }
+      } catch {}
+    }
+    return this._bc;
+  }
+  bc(e) { return this._bc[e]; }
   /**
    * horizonVerdict(pin, horizon) -> "settle" | "refund" | "wait" — for a stake whose outcome is pinned to
    * block `pin`, in a contract that accepts a permissionless refund once `pin + horizon < cursor`.

@@ -2542,8 +2542,11 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
                 elif _kind == _zkvm.IO_BEACON:
                     assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
-                    assert _ExecState.exec_beacon_int(_key, kv_ops.reveals_for_epoch(_key)) % _F.P == _val, \
-                        "Settle proof BEACON does not match the finalized chain"
+                    # INVARIANT: the same function the exec node computes BEACON with (ExecState.exec_beacon_at,
+                    # protocol.BEACON_EXTEND_HEIGHT), read at this block's finalized position
+                    _bv = _ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)
+                    assert _bv is not None, "Settle proof BEACON epoch is not finalized"
+                    assert _bv % _F.P == _val, "Settle proof BEACON does not match the finalized chain"
                 else:
                     raise AssertionError("unknown chain-read kind in settle proof")
             # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,

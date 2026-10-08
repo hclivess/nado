@@ -340,3 +340,57 @@ repin:
     movi r5 1
     ret r5
 """
+
+
+# --- EPOCH-BEACON OUTCOMES (banked games) --------------------------------------------------------------------------
+# A seat placed from the beacon rule settles from BEACON(gb), gb = epoch(landing cursor) + 2: that epoch's reveals
+# land during the NEXT epoch, after the seat is on chain. gh = gb * EPOCH_LENGTH - 1 keeps every "settle at gh + 1"
+# gate, horizon and client readiness rule unchanged. A seat with gb == 0 was placed under the block-hash rule and
+# keeps settling from BHASH(gh) + BHASH(gh + 1).
+# INVARIANT: the beacon seed is the block-hash seed with (BHASH(gh) + BHASH(gh+1)) replaced by BEACON(gb) — the
+# client derives it as chainResultAlg(bc(gb), "0", salt, mod).
+EPOCH_LENGTH = 60          # protocol.EPOCH_LENGTH (tests/test_banked_games_settle_from_the_epoch_beacon.py pins it)
+
+
+def beacon_bind(gh_field, gb_field, key="r0"):
+    """Bind the seat `key` to its beacon epoch: gb = cursor // EPOCH_LENGTH + 2, gh = gb * EPOCH_LENGTH - 1.
+    Clobbers r4, r5, r6, r7 (DIVMOD's remainder)."""
+    return f"""
+        ctx r5 cursor
+        movi r6 {EPOCH_LENGTH}
+        divmod r5 r6
+        movi r6 2
+        add r5 r6
+        slot r4 {gb_field} {key}
+        sstore r4 r5
+        movi r6 {EPOCH_LENGTH}
+        mul r5 r6
+        movi r6 1
+        sub r5 r6
+        slot r4 {gh_field} {key}
+        sstore r4 r5
+    """
+
+
+def seed_q(gh_field, gb_field, out="r3", key="r0", tag="sq"):
+    """out = the seat's randomness base: BEACON(gb) for a beacon seat, BHASH(gh) + BHASH(gh + 1) for a seat placed
+    before the beacon rule (gb == 0). Callers add their salt exactly as before. Clobbers r4, r5, r6 (and `out`);
+    `tag` keeps the labels unique when a method expands this more than once."""
+    return f"""
+        slot r4 {gb_field} {key}
+        sload r5 r4
+        mov r6 r5
+        nez r6
+        jnz r6 @{tag}_beacon
+        slot r4 {gh_field} {key}
+        sload r5 r4
+        bhash {out} r5
+        movi r6 1
+        add r5 r6
+        bhash r6 r5
+        add {out} r6
+        jmp @{tag}_done
+        {tag}_beacon:
+        beacon {out} r5
+        {tag}_done:
+    """

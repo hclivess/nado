@@ -1665,6 +1665,8 @@ def split_open_block_reward(reward: int):
 #                                    EVICT_VOIDS_EPOCH_HEIGHT ((1 << 62) placeholder -> 1: a device move voids the
 #                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT ((1 << 62)
 #                                    placeholder -> 1: a wrong commitment fails the enrolment; client-failed retries cool down)
+#                                    BEACON_EXTEND_HEIGHT ((1 << 62) placeholder -> 1: the exec BEACON of an
+#                                    epoch with no reveals takes the next revealed epoch's reveals)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2083,6 +2085,13 @@ REFERRAL_HEIGHT = 107000 if CHAIN_GENERATION == 28 else 1
 REFERRAL_EPOCHS = 7200                   # 30 days at 240 epochs/day: how long a referrer earns from one newcomer
 REFERRAL_SCALE = 10                      # weights are scaled by this from the gate's epoch so a 10 % slice is an integer
 REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCALE units of the newcomer's weight (10 %)
+
+# EXEC BEACON OF A REVEAL-LESS EPOCH (execnode/state.ExecState.exec_beacon_at): from this height, the BEACON value of
+# an epoch with no RANDAO reveals is computed from the reveals of the first later epoch that has some (at most
+# BEACON_EXTEND_MAX epochs ahead) and is final once that epoch is. Read by the exec node and by the settle-proof
+# chain-read check alike. Placeholder height: set at ship (CLAUDE.md rule 3).
+BEACON_EXTEND_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+BEACON_EXTEND_MAX = 8                    # epochs searched ahead; beyond them the plain value stands
 
 # FUNDED INVITE LINKS (same gate, REFERRAL_HEIGHT; doc/referrals.md). A newcomer starts with nothing — not even the fee
 # for a first transfer — so the referrer pays the start:
