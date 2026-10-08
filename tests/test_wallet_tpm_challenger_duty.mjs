@@ -271,7 +271,7 @@ const reveal = (id, extra = {}) => ({ id, action: "reveal", ekpub: EKPUB, name: 
   const poll = js.slice(js.indexOf("async function pollOnce()"), js.indexOf("function startPollLoop()"));
   const iR = poll.indexOf("await maybeRandao()"), iT = poll.indexOf("await maybeTpmChallenge()");
   check("pollOnce runs maybeTpmChallenge, after the epoch duty", iR > 0 && iT > iR);
-  check("interface.js imports the credential module", /from "\.\/tpmcred\.js"/.test(js));
+  check("interface.js imports the credential module", /from "\.\/tpmcred\.js(\?v=[^"]*)?"/.test(js));
   global.window = {};
   global.document = { readyState: "loading", addEventListener() {}, getElementById() { return null; }, querySelector() { return null; } };
   Object.defineProperty(global, "navigator", { value: { languages: ["en"] }, configurable: true });

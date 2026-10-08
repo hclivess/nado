@@ -28,7 +28,7 @@ import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
-import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js?v=66edc4a0";   // TPM challenger duty (maybeTpmChallenge); unstamped on purpose: the server stamps it with the JS epoch
+import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js?v=66edc4a0";   // TPM challenger duty (maybeTpmChallenge); merge_games.py content-stamps it and the server re-stamps it with the JS epoch
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
