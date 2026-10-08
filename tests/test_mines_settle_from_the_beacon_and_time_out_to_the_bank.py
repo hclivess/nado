@@ -9,7 +9,7 @@
     a round is pending, gv otherwise) is released, gd = 2, no hit; resolve / cashout after a reap revert;
   * the view exposes the beacon epoch as "gb" and the hit as "gx"; tc returns to 0 once every game is settled.
 
-Offline: a throwaway ExecState, the old contract taken from git HEAD and upgraded in place to the new one.
+Offline: a throwaway ExecState, the old contract taken from git (PRE_RELEASE) and upgraded in place to the new one.
 Run: python3 tests/test_mines_settle_from_the_beacon_and_time_out_to_the_bank.py
 """
 import os
@@ -21,6 +21,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# the last commit before the beacon / commit-reveal release: HEAD stops being "the old code" once it lands, and
+# main only ever fast-forwards, so this commit stays readable
+PRE_RELEASE = "29dfdc7e"
 sys.path.insert(0, ROOT)
 
 import importlib.util                                                  # noqa: E402
@@ -43,11 +46,11 @@ def check(name, cond, detail=""):
 # exercises everything but the legacy-round case through the old code path)
 def _old_module():
     try:
-        src = subprocess.run(["git", "-C", ROOT, "show", "HEAD:execnode/games/mines.py"], capture_output=True,
+        src = subprocess.run(["git", "-C", ROOT, "show", PRE_RELEASE + ":execnode/games/mines.py"], capture_output=True,
                              text=True, check=True).stdout
     except Exception:
         return None
-    if "beacon_bind" in src:          # HEAD already carries the new rule: no old code to replay
+    if "beacon_bind" in src:          # that commit already carries the new rule: no old code to replay
         return None
     path = os.path.join(os.environ["HOME"], "mines_old.py")
     with open(path, "w") as f:
