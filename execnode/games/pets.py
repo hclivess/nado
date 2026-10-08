@@ -14,23 +14,28 @@ Chain-random formulas (field-native; the browser mirrors them via alghash.js —
     species si = TIER_BASE[sp] + roll(gene+777) % TIER_COUNT[sp]
     stat_i  = roll(gene+1000+i) % 60 + 1 + (sp-1)*6           i = 0..9, locked at hatch
     train   = roll(bh(th)+bh(th+1)+pid*16+i) % 100 ;  success ⟺ roll·(K+cur) < 100·K,  K = 10+30·sp
-    battle  = the turn-based v2 duel (see _resolve_battle) over q = bh(wh)+bh(wh+1)+bid·8 — every stat
+    battle  = the turn-based v2 duel (see _resolve_battle) over q = seed + bid·8, seed = H(s1 + s2 + bid)
+              from the two owners' committed secrets (wm == 1; a battle issued before that upgrade keeps
+              seed = bh(wh) + bh(wh+1)) — every stat
               fights: str damage · agi dodge · vit HP · int accuracy · wis mitigation · cha intimidation ·
               loy regen · luck crit · spd turn-share · app bulk+bite. Winner = higher remaining HP FRACTION
               (integer cross-multiply, tie -> defender); the loser dies iff roll(q+999999) % 100 < 10.
+              A side that does not reveal by wrd forfeits (no death roll); no reveal at all = void.
+    find    = roll(BEACON(bdp) + bdp + bid), bdp pinned at the previous collect (epoch + 2) — see _item_drop
+    reroll  = affixes salted BEACON(irp) + irp + itemId, irp pinned by the paid reroll call — see REROLL
 
 Pet fields (key = pid < 2^32): 1(slot: global burn tally) · 2 ow 3 bh 4 gn 5 gl 6 gh (gene + its lo/hi
   32-bit halves — JS floats can't hold a field element) 7 sp 8 si 9 ap 10 pw 11 fu 12 tf 13 ex 14 nm
   15 th 16 ti 17 tr 18 mp 19 wins 20 loss. Trained bonus per stat: field 30+i (i 0..9) keyed pid.
 Offers (key = offerId): 40 ob 41 op 42 ov 43 os. Battles (key = bid): 50 wa 51 wb 52 ws 53 wp 54 wh
-  55 wn 56 ww 57 wd. Indexes: pets (cnt slot 0, list field 60) · offers (cnt slot 2, list field 61) ·
+  55 wn 56 ww 57 wd 44 wx1 45 wx2 46 wr1 47 wr2 48 wm 49 wrd 58 wc1 59 wc2 (commit-reveal). Indexes: pets (cnt slot 0, list field 60) · offers (cnt slot 2, list field 61) ·
   battles (cnt slot 3, list field 62). Battle scratch: 950+i keyed bid (scrubbed on success; a failed
   call reverts to a no-op).
-Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid) · feed(pid)[meal] · transfer(pid,to) ·
+Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid)[0.1 NADO] · feed(pid)[meal] · transfer(pid,to) ·
   name(pid,name) · list(pid,price) · unlist(pid) · buy(pid)[price] · offer(oid,pid)[bid] ·
   accept_offer(oid) · cancel_offer(oid) · train(pid,stat)[0.5 NADO] · train_resolve(pid) ·
-  challenge(bid,myPet,theirPet)[stake] · accept(bid)[stake] · resolve_battle(bid) · cancel_battle(bid) ·
-  refund_battle(bid).
+  challenge(bid,myPet,theirPet,commit)[stake] · accept(bid,commit)[stake] · reveal_battle(bid,secret) ·
+  resolve_battle(bid) · cancel_battle(bid) · refund_battle(bid).
 """
 from execnode import zkvmasm
 from execnode.games import _lib
@@ -60,6 +65,16 @@ TH, TI, TR, MP, WINS, LOSS = 15, 16, 17, 18, 19, 20
 TB_BASE = 30
 OB, OP_, OV, OS = 40, 41, 42, 43
 WA, WB, WS, WP, WH, WN, WW, WD = 50, 51, 52, 53, 54, 55, 56, 57
+# Commit-reveal battles (Release B, game fairness). A battle stored with wm == 1 settles from the two owners'
+# secrets; wm == 0 (every battle issued before the upgrade) keeps the block-hash rule. Fields keyed by bid:
+#   44 wx1 / 45 wx2 — the revealed secrets · 46 wr1 / 47 wr2 — revealed flags (a secret may be 0)
+#   48 wm — mode (1 = commit-reveal) · 49 wrd — reveal deadline (accept cursor + REVEAL_WINDOW)
+#   58 wc1 / 59 wc2 — the challenger's / accepter's commitment HASH(secret)
+WX1, WX2, WR1, WR2, WM, WRD = 44, 45, 46, 47, 48, 49
+WC1, WC2 = 58, 59
+REVEAL_WINDOW = 1200          # blocks after acceptance in which BOTH sides reveal (~2 h at 6 s); a side that
+                              # misses it forfeits, and when neither reveals the battle is void (stakes back)
+REBIRTH_FEE = 10**9           # 0.1 NADO per rebirth, burned into the slot-1 tally like every other pets fee
 PLIST, OLIST, WLIST = 60, 61, 62
 OCNT_SLOT, WCNT_SLOT = 2, 3
 SC = 950
@@ -142,6 +157,30 @@ def ref_battle_turns(bh0, bh1, bid, eff_a, eff_b):
     a_wins = max(h0, 0) * hb > max(h1, 0) * ha
     dies = roll32(q + 999999) % 100 < DIE_PCT
     return a_wins, dies, h0, h1, log
+
+
+def ref_battle_seed(s1, s2, bid):
+    """The commit-reveal battle seed HASH(s1 + s2 + bid). It takes the place of the block-hash pair:
+    ref_battle_turns(ref_battle_seed(s1, s2, bid), 0, bid, ...) is the duel of a wm == 1 battle.
+    INVARIANT: neither owner can steer it alone, because each secret is committed (HASH(secret)) before the
+    other side's commitment exists on chain, and a withheld reveal forfeits rather than voids."""
+    return alghash.hashn([(s1 % F.P + s2 % F.P + bid) % F.P])
+
+
+def ref_find_roll(beacon, pin, bid):
+    """The building-find roll of a pinned collect: LO32(H(BEACON(pin) + pin + bid)). A find happens iff
+    roll % DROP_ONE_IN == 0 and the rarity recorded at pin time is > 0; the roll then salts the gear slot
+    (roll % GEAR_SLOTS) and the affixes, exactly as the pre-beacon find did."""
+    return roll32((beacon % F.P + pin + bid) % F.P)
+
+
+def ref_affixes(salt, rarity):
+    """The three packed affixes _roll_affixes writes for (salt, rarity): stat * AFFIX_MUL + points."""
+    out = []
+    for k in range(3):
+        r = roll32((salt + 5000 + k) % F.P)
+        out.append((r % 10) * AFFIX_MUL + r % (AFFIX_CAP * rarity) + 1)
+    return out
 
 
 # ---- asm helpers -------------------------------------------------------------------------------------
@@ -227,12 +266,19 @@ def _hatch():
     return L
 
 
+# rebirth(pid)[REBIRTH_FEE]: re-pin an egg whose gene blocks were pruned. It costs REBIRTH_FEE, burned into the
+# slot-1 tally exactly like mint/train/build fees.
+# INVARIANT: a rebirth is never free, because the call reverts unless value == REBIRTH_FEE — an egg can no longer
+# be re-pinned at no cost again and again until a pleasing gene block comes up.
 REBIRTH = "\n".join(
-    ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "require r6"]
+    ["ctx r3 value", f"movi r5 {REBIRTH_FEE}", "eq r3 r5", "require r3"]
+    + ["ctx r5 caller"] + _sl(OW) + ["sload r6 r4", "eq r6 r5", "require r6"]
     + _sl(GN) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
     + _alive_pid("r0")
     + _sl(BH) + ["sload r5 r4", f"movi r6 {STALE}", "add r5 r6",
                  "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]           # gene block pruned
+    + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {REBIRTH_FEE}", "add r5 r6", "sstore r4 r5"]   # burn
+    + _sl(TF) + ["sload r5 r4", f"movi r6 {REBIRTH_FEE}", "add r5 r6", "sstore r4 r5"]
     + _sl(BH) + ["ctx r5 cursor", f"movi r6 {HATCH_DELAY}", "add r5 r6", "sstore r4 r5", "ret r0"])
 
 FEED = "\n".join(
@@ -430,9 +476,15 @@ RELEASE = "\n".join(
     + _sl(OW) + ["movi r5 0", "sstore r4 r5"]
     + _sl(MP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
 
+# challenge(bid, myPet, theirPet, commit)[stake]: issue a COMMIT-REVEAL battle. `commit` = HASH(secret), the
+# challenger's half of the battle seed (static/pets.js: algHashn([secret]), the same in-VM HASH holdem uses).
+# INVARIANT: every battle issued from this code is wm == 1 with a nonzero commitment, because the call reverts on
+# commit == 0 — a new battle can never fall back to the block-hash seed a block producer could choose.
 CHALLENGE = "\n".join(
-    ["movi r3 0", "lt r3 r0", "require r3",
-     f"movi r3 {_2_32}", "mov r5 r0", "lt r5 r3", "require r5"]
+    ["mov r5 r3", "nez r5", "require r5"]                                        # a real commitment
+    + _sl(WC1) + ["sstore r4 r3"] + _sl(WM) + ["movi r5 1", "sstore r4 r5"]      # (reverted with the call)
+    + ["movi r3 0", "lt r3 r0", "require r3",
+       f"movi r3 {_2_32}", "mov r5 r0", "lt r5 r3", "require r5"]
     + _sl(WN) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
     + [f"slot r4 {GN} r1", "sload r5 r4", "require r5",                          # both hatched
        f"slot r4 {GN} r2", "sload r5 r4", "require r5"]
@@ -447,8 +499,19 @@ CHALLENGE = "\n".join(
     + [f"movi r4 {WCNT_SLOT}", "sload r5 r4", f"slot r6 {WLIST} r5", "sstore r6 r0",
        "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
 
+# accept(bid, commit)[stake]. A wm == 1 battle takes the accepter's commitment (nonzero, and not a copy of the
+# challenger's) and opens the reveal window: wrd = cursor + REVEAL_WINDOW. A challenge issued before the
+# upgrade (wm == 0) is accepted exactly as before and settles from the block-hash pair; its commit arg is ignored.
+# The fighters' rest lock (EX) also covers the reveal window, so neither pet can be sold or transferred while
+# its battle is still undecided.
 ACCEPT = "\n".join(
-    _sl(WN) + ["sload r5 r4", "movi r6 1", "eq r5 r6", "require r5"]
+    _sl(WM) + ["sload r5 r4", "nez r5", "notb r5", "jnz r5 @acc_legacy"]
+    + ["mov r5 r1", "nez r5", "require r5"]                                      # a real commitment
+    + _sl(WC1) + ["sload r5 r4", "mov r6 r1", "eq r6 r5", "notb r6", "require r6"]   # not the challenger's copy
+    + _sl(WC2) + ["sstore r4 r1"]
+    + _sl(WRD) + ["ctx r5 cursor", f"movi r6 {REVEAL_WINDOW}", "add r5 r6", "sstore r4 r5"]
+    + ["acc_legacy:"]
+    + _sl(WN) + ["sload r5 r4", "movi r6 1", "eq r5 r6", "require r5"]
     + _sl(WB) + ["sload r1 r4"] + _sl(WA) + ["sload r2 r4"]
     + ["ctx r5 caller", f"slot r4 {OW} r1", "sload r6 r4", "eq r6 r5", "require r6"]   # defender consents
     + ["ctx r3 value"] + _sl(WS) + ["sload r5 r4", "eq r5 r3", "require r5"]
@@ -457,9 +520,28 @@ ACCEPT = "\n".join(
        f"slot r4 {EX} r2", "sload r5 r4", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     + _sl(WP) + ["sload r5 r4", "add r5 r3", "sstore r4 r5"]
     + _sl(WH) + ["ctx r5 cursor", f"movi r6 {HATCH_DELAY}", "add r5 r6", "sstore r4 r5"]
-    + [f"slot r4 {EX} r1", "ctx r5 cursor", f"movi r6 {HATCH_DELAY + EXHAUST}", "add r5 r6", "sstore r4 r5",
-       f"slot r4 {EX} r2", "ctx r5 cursor", f"movi r6 {HATCH_DELAY + EXHAUST}", "add r5 r6", "sstore r4 r5"]
+    # rest lock = cursor + HATCH_DELAY + EXHAUST (+ REVEAL_WINDOW for a commit-reveal battle: wm * window)
+    + [op for pr in ("r1", "r2") for op in
+       [f"slot r4 {EX} {pr}", "ctx r5 cursor", f"movi r6 {HATCH_DELAY + EXHAUST}", "add r5 r6",
+        f"slot r6 {WM} r0", "sload r6 r6", f"movi r7 {REVEAL_WINDOW}", "mul r6 r7", "add r5 r6", "sstore r4 r5"]]
     + _sl(WN) + ["movi r5 2", "sstore r4 r5", "ret r0"])
+
+# reveal_battle(bid, secret): open one side's commitment. Permissionless (whoever holds the secret may reveal),
+# accepted battles only, and only up to the deadline wrd. The side is the commitment the secret hashes to.
+# INVARIANT: a side's secret is written once, because a revealed side (wrN == 1) is never matched again — a later
+# reveal cannot replace a secret the other side has already seen.
+REVEAL_BATTLE = "\n".join(
+    _sl(WN) + ["sload r5 r4", "movi r6 2", "eq r5 r6", "require r5"]
+    + _sl(WM) + ["sload r5 r4", "require r5"]
+    + _sl(WRD) + ["sload r5 r4", "ctx r6 cursor", "lt r5 r6", "notb r5", "require r5"]   # cursor <= wrd
+    + ["hash r3 <- r1"]
+    + _sl(WC1) + ["sload r5 r4", "mov r6 r3", "eq r6 r5"]
+    + _sl(WR1) + ["sload r5 r4", "notb r5", "mul r6 r5", "jnz r6 @rv_a"]
+    + _sl(WC2) + ["sload r5 r4", "mov r6 r3", "eq r6 r5", "require r6"]
+    + _sl(WR2) + ["sload r5 r4", "notb r5", "require r5"]
+    + _sl(WX2) + ["sstore r4 r1"] + _sl(WR2) + ["movi r5 1", "sstore r4 r5", "movi r5 2", "ret r5"]
+    + ["rv_a:"]
+    + _sl(WX1) + ["sstore r4 r1"] + _sl(WR1) + ["movi r5 1", "sstore r4 r5", "ret r5"])
 
 
 # battle scratch slots (keyed by bid): 0..9 effA · 10..19 effB · then the combat registers
@@ -470,16 +552,75 @@ def _bsl(i):
     return (SC << 32) | i
 
 
+def _award(death):
+    """Settle a decided battle: r2 = a_wins (1 -> the challenger's pet won). Writes ww, the win/loss records,
+    hands the loser pet to the winner's owner, pays the pot to the winner's owner, closes the battle (wn = 3).
+    `death` adds the loser's death roll off the scratch q (a fought duel); a forfeit carries no roll (wd = 0).
+    Clobbers r1..r6."""
+    # ww = wa·a + wb·(1-a) ; lo = wa+wb-ww
+    L = _sl(WA) + ["sload r5 r4", "mul r5 r2", "mov r3 r5"]
+    L += ["mov r5 r2", "notb r5"] + _sl(WB) + ["sload r6 r4", "mul r6 r5", "add r3 r6"]
+    L += _sl(WW) + ["sstore r4 r3"]
+    L += _sl(WA) + ["sload r1 r4"] + _sl(WB) + ["sload r5 r4", "add r1 r5", "sub r1 r3"]   # r1 = loser
+    # records
+    L += [f"slot r4 {WINS} r3", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5",
+          f"slot r4 {LOSS} r1", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5"]
+    # CLAIM: loser pet -> the winner's owner; clears its listing
+    L += [f"slot r4 {OW} r3", "sload r5 r4", f"slot r4 {OW} r1", "sstore r4 r5",
+          f"slot r4 {MP} r1", "movi r5 0", "sstore r4 r5"]
+    if death:
+        # death: dies = roll32(q+999999)%100 < DIE_PCT ; fu[loser] = dies ? 1 : fu
+        L += [f"movi r4 {_bsl(_Q)}", "sload r5 r4", "movi r6 999999", "add r5 r6"]
+        L += _roll32("r5", "r5") + ["movi r6 100", "rem r5 r6",
+                                    f"movi r6 {DIE_PCT}", "lt r5 r6"]                 # r5 = dies
+        L += [f"slot r4 {FU} r1", "sload r6 r4", "mov r2 r5", "notb r2", "mul r6 r2", "add r6 r5",
+              "sstore r4 r6"]
+        L += ["mul r5 r1"] + _sl(WD) + ["sstore r4 r5"]                               # wd = dies·loser
+    # pot -> the winner pet's owner
+    L += [f"slot r4 {OW} r3", "sload r5 r4"] + _sl(WP) + ["sload r6 r4", "pay r5 r6"]
+    L += _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5"]
+    return L
+
+
+def _refund_stakes():
+    """Void an accepted battle: each side's stake back to its pet's owner (challenger ws, accepter wp - ws),
+    wn = 3, pot cleared. Shared by refund_battle and the no-reveal path of resolve_battle. Clobbers r1, r3..r6."""
+    return (_sl(WA) + ["sload r1 r4", f"slot r4 {OW} r1", "sload r5 r4"]
+            + _sl(WS) + ["sload r6 r4", "pay r5 r6"]                                 # stake back to challenger
+            + _sl(WB) + ["sload r1 r4", f"slot r4 {OW} r1", "sload r5 r4"]
+            + _sl(WP) + ["sload r6 r4"] + _sl(WS) + ["sload r3 r4", "sub r6 r3", "pay r5 r6"]
+            + _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5"])
+
+
 def _resolve_battle():
-    """resolve_battle(bid): permissionless once wh, wh+1 are finalized — replays the whole 12-turn duel
-    from the beacon, mirroring ref_battle_turns exactly (HP shifted +1024 for field-positive math)."""
+    """resolve_battle(bid): permissionless. Replays the whole 12-turn duel from the battle seed, mirroring
+    ref_battle_turns exactly (HP shifted +1024 for field-positive math).
+      wm == 0 (issued before the commit-reveal upgrade): seed pair bh(wh), bh(wh+1), once wh+1 is final.
+      wm == 1, both revealed: q = HASH(wx1 + wx2 + bid) + bid*8 — at any time, no deadline wait.
+      wm == 1, one revealed, cursor > wrd: the revealer's pet wins by forfeit (claim + pot; no death roll).
+      wm == 1, none revealed, cursor > wrd: void — each side's own stake back (the refund_battle accounting).
+    INVARIANT: withholding a reveal never improves a side's result, because a missing reveal past wrd LOSES the
+    battle to the side that revealed; only a battle neither side revealed is void."""
     L = _sl(WN) + ["sload r5 r4", "movi r6 2", "eq r5 r6", "require r5"]
+    L += _sl(WM) + ["sload r5 r4", "jnz r5 @cr"]
     L += _sl(WH) + ["sload r5 r4", "movi r6 1", "add r5 r6",
                     "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     # q = bh(wh)+bh(wh+1)+bid*8 -> scratch
     L += _sl(WH) + ["sload r5 r4", "bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5", "add r3 r6",
                     "mov r5 r0", "movi r6 8", "mul r5 r6", "add r3 r5",
-                    f"movi r4 {_bsl(_Q)}", "sstore r4 r3"]
+                    f"movi r4 {_bsl(_Q)}", "sstore r4 r3", "jmp @duel"]
+    L += ["cr:"]
+    L += _sl(WR1) + ["sload r1 r4"] + _sl(WR2) + ["sload r2 r4", "mov r3 r1", "mul r3 r2", "jnz r3 @cr_both"]
+    L += _sl(WRD) + ["sload r5 r4", "ctx r6 cursor", "lt r5 r6", "require r5"]      # past the deadline
+    L += ["mov r3 r1", "add r3 r2", "nez r3", "notb r3", "jnz r3 @cr_void"]
+    L += ["mov r2 r1"] + _award(death=False) + ["ret r0"]                            # forfeit: revealer wins
+    L += ["cr_void:"] + _refund_stakes() + ["ret r0"]
+    L += ["cr_both:"]
+    # q = HASH(wx1 + wx2 + bid) + 0 + bid*8 — the block-hash pair replaced by the combined secret seed
+    L += _sl(WX1) + ["sload r3 r4"] + _sl(WX2) + ["sload r5 r4", "add r3 r5", "add r3 r0", "hash r3 <- r3",
+                                                  "mov r5 r0", "movi r6 8", "mul r5 r6", "add r3 r5",
+                                                  f"movi r4 {_bsl(_Q)}", "sstore r4 r3"]
+    L += ["duel:"]
     # the 20 effective stats -> scratch 0..19 (loop i over a scratch index)
     for side, (pid_field, base) in enumerate(((WA, 0), (WB, 10))):
         L += [f"slot r4 {pid_field} r0", "sload r1 r4"]                          # r1 = pid
@@ -583,27 +724,7 @@ def _resolve_battle():
     L += [f"movi r4 {_bsl(_M1)}", "sload r5 r4", "mul r1 r5",
           f"movi r4 {_bsl(_M0)}", "sload r5 r4", "mul r2 r5",
           "lt r2 r1"]                                                                 # r2 = a_wins
-    # ww = wa·a + wb·(1-a) ; lo = wa+wb-ww
-    L += _sl(WA) + ["sload r5 r4", "mul r5 r2", "mov r3 r5"]
-    L += ["mov r5 r2", "notb r5"] + _sl(WB) + ["sload r6 r4", "mul r6 r5", "add r3 r6"]
-    L += _sl(WW) + ["sstore r4 r3"]
-    L += _sl(WA) + ["sload r1 r4"] + _sl(WB) + ["sload r5 r4", "add r1 r5", "sub r1 r3"]   # r1 = loser
-    # records
-    L += [f"slot r4 {WINS} r3", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5",
-          f"slot r4 {LOSS} r1", "sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5"]
-    # CLAIM: loser pet -> the winner's owner; clears its listing
-    L += [f"slot r4 {OW} r3", "sload r5 r4", f"slot r4 {OW} r1", "sstore r4 r5",
-          f"slot r4 {MP} r1", "movi r5 0", "sstore r4 r5"]
-    # death: dies = roll32(q+999999)%100 < DIE_PCT ; fu[loser] = dies ? 1 : fu
-    L += [f"movi r4 {_bsl(_Q)}", "sload r5 r4", "movi r6 999999", "add r5 r6"]
-    L += _roll32("r5", "r5") + ["movi r6 100", "rem r5 r6",
-                                f"movi r6 {DIE_PCT}", "lt r5 r6"]                     # r5 = dies
-    L += [f"slot r4 {FU} r1", "sload r6 r4", "mov r2 r5", "notb r2", "mul r6 r2", "add r6 r5",
-          "sstore r4 r6"]
-    L += ["mul r5 r1"] + _sl(WD) + ["sstore r4 r5"]                                   # wd = dies·loser
-    # pot -> the winner pet's owner
-    L += [f"slot r4 {OW} r3", "sload r5 r4"] + _sl(WP) + ["sload r6 r4", "pay r5 r6"]
-    L += _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5"]
+    L += _award(death=True)
     if DEBUG_PROBE:                                   # test-only: persist the combat scratch for inspection
         for i in list(range(20)) + [_Q, _M0, _M1, _H0, _H1, _SA, _SPAN]:
             L += [f"movi r4 {_bsl(i)}", "sload r5 r4", f"movi r4 {(990 << 32) + i}", "sstore r4 r5"]
@@ -621,15 +742,19 @@ CANCEL_BATTLE = "\n".join(
     + [f"slot r4 {OW} r1", "sload r5 r4"] + _sl(WP) + ["sload r6 r4", "pay r5 r6"]
     + _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
 
+# refund_battle(bid): void an accepted battle nobody settled. wm == 0: past wh + STALE (its seed blocks are
+# gone). wm == 1: past the reveal deadline with NEITHER side revealed — a battle with one reveal is a forfeit
+# and settles through resolve_battle instead, so the revealer can never be refunded out of a win.
 REFUND_BATTLE = "\n".join(
     _sl(WN) + ["sload r5 r4", "movi r6 2", "eq r5 r6", "require r5"]
+    + _sl(WM) + ["sload r5 r4", "jnz r5 @rf_cr"]
     + _sl(WH) + ["sload r5 r4", f"movi r6 {STALE}", "add r5 r6",
-                 "ctx r6 cursor", "lt r5 r6", "require r5"]                      # cursor > wh + STALE
-    + _sl(WA) + ["sload r1 r4", f"slot r4 {OW} r1", "sload r5 r4"]
-    + _sl(WS) + ["sload r6 r4", "pay r5 r6"]                                     # stake back to challenger
-    + _sl(WB) + ["sload r1 r4", f"slot r4 {OW} r1", "sload r5 r4"]
-    + _sl(WP) + ["sload r6 r4"] + _sl(WS) + ["sload r3 r4", "sub r6 r3", "pay r5 r6"]
-    + _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
+                 "ctx r6 cursor", "lt r5 r6", "require r5", "jmp @rf_pay"]       # cursor > wh + STALE
+    + ["rf_cr:"]
+    + _sl(WRD) + ["sload r5 r4", "ctx r6 cursor", "lt r5 r6", "require r5"]      # cursor > wrd
+    + _sl(WR1) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + _sl(WR2) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + ["rf_pay:"] + _refund_stakes() + ["ret r0"])
 
 # ==== HOMESTEAD: trades, base building, resources and gear =========================================
 # The tamagotchi loop only ever ran DOWN: every pet costs NADO to feed and dies without it. Homestead is
@@ -649,6 +774,8 @@ GB_BASE = 70                  # 70..79: GEAR bonus per stat index, keyed pid (pa
 BO, BT, BL, BP, BSI = 80, 81, 82, 83, 84    # building: owner · trade · level · operator pid · since-block
 IO, IT, IR, IE = 90, 91, 92, 93             # item: owner · gear slot · rarity · equipped pid (0 = in the bag)
 IA_BASE = 94                                # 94..96: three affixes, each = stat_index * AFFIX_MUL + points
+BDP, BDR = 85, 86             # building: pending find — pinned beacon epoch · the operator's rarity at pin time
+IRP = 97                      # item: pending reroll — pinned beacon epoch (0 = none pending)
 BLIST, ILIST = 63, 64                       # index lists (mirrors PLIST/OLIST/WLIST)
 BCNT_SLOT, ICNT_SLOT = 4, 5                 # their counters (field 0, like OCNT_SLOT/WCNT_SLOT)
 TG_RES = 700                  # per-owner resource balance: HASH(TG_RES, owner, kind)
@@ -785,15 +912,41 @@ def _roll_affixes(iid_reg, rarity_reg, salt_reg):
     return L
 
 
+def _pin_epoch(field, key="r0"):
+    """Phase 1 of a pinned roll: field[key] = epoch(cursor) + 2, a beacon epoch whose reveals are not on chain
+    yet (they land during the epoch before it). Clobbers r4, r5, r6, r7. Leaves the pin in r5."""
+    return ["ctx r5 cursor", f"movi r6 {_lib.EPOCH_LENGTH}", "divmod r5 r6", "movi r6 2", "add r5 r6",
+            f"slot r4 {field} {key}", "sstore r4 r5"]
+
+
 def _item_drop():
-    """Roll for a find and, on a hit, mint an item owned by the building's owner. The roll is the previous
-    block's hash mixed with the building id and its clock — public, replayable, and not choosable by the
-    caller (the block hash is fixed before collect() can be sent). Clobbers r1..r7."""
-    L = ["ctx r5 cursor", "movi r6 1", "sub r5 r6", "bhash r2 r5"]          # r2 = last block hash
-    L += _sl(BSI) + ["sload r5 r4", "add r2 r5", "mov r5 r0", "add r2 r5"]
-    L += _roll32("r2", "r2")
-    L += ["mov r3 r2", f"movi r5 {DROP_ONE_IN}", "divmod r3 r5", "mov r3 r7", "nez r3", "notb r3"]
-    L += ["jnz r3 @drop", "ret r0", "drop:"]                                # r3 == 1 -> a find
+    """The find roll of collect(bid), TWO-PHASE on the epoch beacon (the _lib.daily_anchor pattern):
+      phase 1 (no pin): bdp = epoch(cursor) + 2 and bdr = the operator's tier now; nothing is found yet.
+      phase 2 (any collect once cursor >= bdp * EPOCH_LENGTH): roll = LO32(H(BEACON(bdp) + bdp + bid)); a find
+               iff roll % DROP_ONE_IN == 0 and bdr > 0, minted to the base's owner at rarity bdr with gear slot
+               roll % GEAR_SLOTS and affixes salted by roll. The same call then pins the next find (phase 1).
+    A collect while the pin is still in the future leaves it where it is, so the find is decided by a beacon
+    that did not exist when the pin was written. A pin left unresolved past STALE blocks is re-pinned (that
+    find lapses) so a long-idle base never reads a beacon that has aged out of retention.
+    INVARIANT: no caller can choose a find, because the pin is fixed before its beacon exists, the pin never moves
+    while pending, and the rarity is recorded at pin time (re-staffing a rarer pet after the beacon is public
+    changes nothing). Emits the ret. Clobbers r1..r7."""
+    L = _sl(BDP) + ["sload r3 r4", "mov r6 r3", "nez r6", "jnz r6 @dp_pinned"]
+    L += ["dp_pin:"] + _pin_epoch(BDP)
+    L += _sl(BP) + ["sload r6 r4", f"slot r4 {SP} r6", "sload r5 r4"] + _sl(BDR) + ["sstore r4 r5", "ret r0"]
+    L += ["dp_pinned:"]
+    L += ["mov r5 r3", f"movi r6 {_lib.EPOCH_LENGTH}", "mul r5 r6",
+          "ctx r6 cursor", "lt r6 r5", "jnz r6 @dp_wait"]                            # beacon epoch not reached
+    L += ["mov r5 r3", f"movi r6 {_lib.EPOCH_LENGTH}", "mul r5 r6", f"movi r6 {STALE}", "add r5 r6",
+          "ctx r6 cursor", "lt r5 r6", "jnz r5 @dp_pin"]                             # stale -> re-pin
+    # phase 2: r2 = the roll, r1 = the rarity recorded at pin time; then pin the next find
+    L += ["beacon r2 r3", "add r2 r3", "add r2 r0"] + _roll32("r2", "r2")
+    L += _sl(BDR) + ["sload r1 r4"]
+    L += _pin_epoch(BDP)
+    L += _sl(BP) + ["sload r6 r4", f"slot r4 {SP} r6", "sload r5 r4"] + _sl(BDR) + ["sstore r4 r5"]
+    L += ["mov r3 r2", f"movi r5 {DROP_ONE_IN}", "divmod r3 r5", "mov r3 r7", "nez r3", "notb r3",
+          "mov r5 r1", "nez r5", "mul r3 r5"]                                        # hit AND a staffed pin
+    L += ["jnz r3 @drop", "ret r0", "drop:", "mov r3 r1"]                           # r3 = rarity
     # item id = the next counter value, appended 0-INDEXED like every other list here (offers/battles) —
     # the storage view enumerates list[0..cnt-1], so an off-by-one hides the newest item from the client.
     # Ids themselves start at 1, because 0 is "no item" everywhere else in this contract.
@@ -801,16 +954,17 @@ def _item_drop():
           "mov r1 r5", "movi r6 1", "add r1 r6", "sstore r4 r1"]            # r1 = iid = old + 1
     L += [f"slot r4 {ILIST} r5", "sstore r4 r1"]
     L += _sl(BO) + ["sload r5 r4", f"slot r4 {IO} r1", "sstore r4 r5"]      # owner = the base's owner
-    # gear slot = roll % GEAR_SLOTS ; rarity = the OPERATOR's tier (a rare pet finds rare things)
+    # gear slot = roll % GEAR_SLOTS ; rarity = the operator's tier recorded at pin time (a rare pet finds rare things)
     L += ["mov r5 r2", f"movi r6 {GEAR_SLOTS}", "divmod r5 r6", f"slot r4 {IT} r1", "sstore r4 r7"]
-    L += _sl(BP) + ["sload r6 r4", f"slot r4 {SP} r6", "sload r5 r4",
-                    f"slot r4 {IR} r1", "sstore r4 r5"]                     # r5 = rarity
+    L += ["mov r5 r3", f"slot r4 {IR} r1", "sstore r4 r5"]                  # r5 = rarity
     L += [f"slot r4 {IE} r1", "movi r6 0", "sstore r4 r6"]                  # not equipped
     L += _roll_affixes("r1", "r5", "r2")
     # RET the new item id. Without this the drop path ran off the end of the program, which the VM treats
     # as a revert — so every collect that actually FOUND something silently failed and paid nothing, while
     # the (far more common) no-drop path returned fine and looked healthy.
-    return L + ["ret r1"]
+    L += ["ret r1"]
+    L += ["dp_wait:", "ret r0"]
+    return L
 # ---- methods -------------------------------------------------------------------------------------
 # build(bid, trade, builderPid)[value]: raise a building of `trade`. It costs NADO (burned, like minting)
 # AND a pet born to that trade to raise it — a base is something you commit to, not something you spam.
@@ -892,6 +1046,7 @@ PROVISION = "\n".join(
 EQUIP = "\n".join(
     [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]    # not already worn
+    + [f"slot r4 {IRP} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]   # no reroll pending (see REROLL)
     + _owned_alive("r1")
     + [f"slot r4 {IT} r0", "sload r2 r4"]                                       # r2 = gear slot
     + [f"movi r4 {TG_GEAR}", "hash r3 <- r4 r1 r2", "sload r5 r3", "nez r5", "notb r5", "require r5"]
@@ -932,8 +1087,17 @@ SCRAP = "\n".join(
 # or a bag of near-misses is just clutter; this is also the only sink essence has, which is what gives
 # Shrines and scrapping a point. The item keeps its slot and rarity — you are re-rolling the affixes, not
 # gambling for a better item — and it must be off the pet, so the gear board can never drift.
+# TWO-PHASE on the epoch beacon (the _lib.daily_anchor pattern):
+#   phase 1 (irp == 0, owner, unworn, costs paid): irp = epoch(cursor) + 2. The affixes are NOT touched.
+#   phase 2 (irp != 0, any caller, value 0, once cursor >= irp * EPOCH_LENGTH): the affixes are rolled from
+#            salt BEACON(irp) + irp + itemId and irp is cleared.
+# A reroll call while the pin is still in the future reverts, so it neither moves the pin nor charges twice;
+# equip and fuse refuse an item with a pending reroll, so the rolled points can never land on a worn item.
+# INVARIANT: the owner cannot choose a reroll's result, because the paid pin names a beacon that does not exist
+# yet and phase 2 always resolves from that same beacon (any caller may resolve it; no call can re-pin it).
 REROLL = "\n".join(
-    [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
+    [f"slot r4 {IRP} r0", "sload r3 r4", "mov r6 r3", "nez r6", "jnz r6 @rr_resolve"]
+    + [f"slot r4 {IO} r0", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
     + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # r5 = rarity (kept)
     + ["mov r1 r5", f"movi r6 {REROLL_ESSENCE}", "mul r1 r6"] + _res_take(4, "r1")
@@ -942,12 +1106,16 @@ REROLL = "\n".join(
     + [f"slot r4 {IR} r0", "sload r5 r4", "mov r1 r5", f"movi r6 {REROLL_ORE}", "mul r1 r6"] + _res_take(3, "r1")
     + ["ctx r5 value", f"movi r6 {REROLL_FEE}", "eq r5 r6", "require r5"]
     + [f"movi r4 {BURN_SLOT}", "sload r5 r4", f"movi r6 {REROLL_FEE}", "add r5 r6", "sstore r4 r5"]
-    + [f"slot r4 {IR} r0", "sload r5 r4"]                                       # reload: _res_take clobbers r5
-    # fresh entropy: last block's hash, mixed with the item and the block it is being rerolled in
-    + ["ctx r2 cursor", "movi r6 1", "sub r2 r6", "bhash r2 r2",
-       "mov r6 r0", "add r2 r6", "ctx r6 cursor", "add r2 r6"]
+    + _pin_epoch(IRP) + ["ret r5"]                                              # phase 1 returns the pin
+    + ["rr_resolve:"]
+    + ["ctx r5 value", "nez r5", "notb r5", "require r5"]                       # phase 2 carries no value
+    + [f"slot r4 {IO} r0", "sload r5 r4", "require r5"]                         # the item still exists
+    + ["mov r5 r3", f"movi r6 {_lib.EPOCH_LENGTH}", "mul r5 r6",
+       "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]                   # cursor >= irp * EPOCH_LENGTH
+    + ["beacon r2 r3", "add r2 r3", "mov r6 r0", "add r2 r6"]                  # salt = BEACON(irp) + irp + item
+    + [f"slot r4 {IR} r0", "sload r5 r4"]
     + _roll_affixes("r0", "r5", "r2")
-    + ["ret r0"])
+    + [f"slot r4 {IRP} r0", "movi r5 0", "sstore r4 r5", "ret r0"])
 
 # fuse(targetId, foodId): destroy one item to lift another's rarity by a tier. This is what the flood of
 # common gear is FOR. An item economy with unbounded supply and bounded demand (four slots per pet) ends
@@ -960,6 +1128,9 @@ FUSE = "\n".join(
     + [f"slot r4 {IO} r1", "sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     + [f"slot r4 {IE} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]    # neither is being worn
     + [f"slot r4 {IE} r1", "sload r5 r4", "nez r5", "notb r5", "require r5"]
+    # neither has a reroll pending: its cost was priced at the current tier, so a fuse must not lift it first
+    + [f"slot r4 {IRP} r0", "sload r5 r4", "nez r5", "notb r5", "require r5"]
+    + [f"slot r4 {IRP} r1", "sload r5 r4", "nez r5", "notb r5", "require r5"]
     + [f"slot r4 {IT} r0", "sload r5 r4", f"slot r4 {IT} r1", "sload r6 r4",
        "eq r5 r6", "require r5"]                                                # same gear slot
     + [f"slot r4 {IR} r0", "sload r3 r4", f"movi r5 {FUSE_MAX_TIER}",
@@ -986,6 +1157,7 @@ SRC = {"mint": MINT, "rebirth": REBIRTH, "feed": FEED, "transfer": TRANSFER, "na
        "list": LIST_, "unlist": UNLIST, "buy": BUY, "offer": OFFER, "accept_offer": ACCEPT_OFFER,
        "cancel_offer": CANCEL_OFFER, "train": TRAIN, "challenge": CHALLENGE, "accept": ACCEPT,
        "cancel_battle": CANCEL_BATTLE, "refund_battle": REFUND_BATTLE, "release": RELEASE,
+       "reveal_battle": REVEAL_BATTLE,
        # homestead
        "build": BUILD, "upgrade": UPGRADE_B, "staff": STAFF, "collect": COLLECT, "provision": PROVISION,
        "equip": EQUIP, "unequip": UNEQUIP, "scrap": SCRAP, "reroll": REROLL, "fuse": FUSE,
@@ -994,7 +1166,7 @@ SRC = {"mint": MINT, "rebirth": REBIRTH, "feed": FEED, "transfer": TRANSFER, "na
 ABI = {
     "mint": {"args": ["petId"], "value": True},
     "hatch": {"args": ["petId"]},
-    "rebirth": {"args": ["petId"]},
+    "rebirth": {"args": ["petId"], "value": True},
     "feed": {"args": ["petId"], "value": True},
     "transfer": {"args": ["petId", "to"]},
     "name": {"args": ["petId", "name"]},
@@ -1006,8 +1178,9 @@ ABI = {
     "cancel_offer": {"args": ["offerId"]},
     "train": {"args": ["petId", "statIdx"], "value": True},
     "train_resolve": {"args": ["petId"]},
-    "challenge": {"args": ["battleId", "myPet", "theirPet"], "value": True},
-    "accept": {"args": ["battleId"], "value": True},
+    "challenge": {"args": ["battleId", "myPet", "theirPet", "commit"], "value": True},
+    "accept": {"args": ["battleId", "commit"], "value": True},
+    "reveal_battle": {"args": ["battleId", "secret"]},
     "resolve_battle": {"args": ["battleId"]},
     "cancel_battle": {"args": ["battleId"]},
     "refund_battle": {"args": ["battleId"]},
@@ -1042,12 +1215,19 @@ ABI = {
                  "bo": {"field": BO, "index": "bases"}, "bt": {"field": BT, "index": "bases"},
                  "bl": {"field": BL, "index": "bases"}, "bp": {"field": BP, "index": "bases"},
                  "bsi": {"field": BSI, "index": "bases"},
+                 "bdp": {"field": BDP, "index": "bases"}, "bdr": {"field": BDR, "index": "bases"},
                  "io": {"field": IO, "index": "items"}, "it": {"field": IT, "index": "items"},
                  "ir": {"field": IR, "index": "items"}, "ie": {"field": IE, "index": "items"},
+                 "irp": {"field": IRP, "index": "items"},
                  "wa": {"field": WA, "index": "battles"}, "wb": {"field": WB, "index": "battles"},
                  "ws": {"field": WS, "index": "battles"}, "wp": {"field": WP, "index": "battles"},
                  "wh": {"field": WH, "index": "battles"}, "wn": {"field": WN, "index": "battles"},
-                 "ww": {"field": WW, "index": "battles"}, "wd": {"field": WD, "index": "battles"}},
+                 "ww": {"field": WW, "index": "battles"}, "wd": {"field": WD, "index": "battles"},
+                 # commit-reveal battles (wm == 1): commitments, revealed secrets + flags, deadline
+                 "wm": {"field": WM, "index": "battles"}, "wrd": {"field": WRD, "index": "battles"},
+                 "wc1": {"field": WC1, "index": "battles"}, "wc2": {"field": WC2, "index": "battles"},
+                 "wx1": {"field": WX1, "index": "battles"}, "wx2": {"field": WX2, "index": "battles"},
+                 "wr1": {"field": WR1, "index": "battles"}, "wr2": {"field": WR2, "index": "battles"}},
         "indexes": {"pets": {"cnt": 0, "list": PLIST}, "offers": {"cnt": OCNT_SLOT, "list": OLIST},
                     "bases": {"cnt": BCNT_SLOT, "list": BLIST}, "items": {"cnt": ICNT_SLOT, "list": ILIST},
                     "battles": {"cnt": WCNT_SLOT, "list": WLIST}},
@@ -1068,5 +1248,5 @@ def build():
     src["combine"] = "\n".join(_combine())
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
-    ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
+    ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "reveal_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))

@@ -31,9 +31,17 @@ for (const l of Object.keys(T)) {
 
 const refs = new Set();
 const collect = (txt, prefix) => {
-  for (const m of txt.matchAll(/(?<![\w.])(?:t|i18)\(\s*["']([a-zA-Z0-9_.\-]+)["']/g)) {
+  // window.t(…) is how every game client calls it: the lookbehind alone refused "window.t(", so no game JS key was ever
+  // checked until the ternary case below exposed it
+  // a literal followed by + is a key PREFIX ("poker.rank" + cat + "name"), not a key: (?!\s*\+) leaves it out
+  for (const m of txt.matchAll(/(?<![\w.])(?:window\.)?(?:t|i18)\(\s*["']([a-zA-Z0-9_.\-]+)["'](?!\s*\+)/g)) {
     const k = m[1];
     refs.add(prefix && !k.includes(".") ? prefix + k : k);
+  }
+  // a key chosen by a ternary, t(cond ? "a.x" : "a.y", …): both branches are referenced (pets.critsFor / hitsFor
+  // shipped untranslated in every language because only a literal first argument was read)
+  for (const m of txt.matchAll(/(?<![\w.])(?:window\.)?(?:t|i18)\(\s*[^,()"']*\?\s*["']([a-zA-Z0-9_.\-]+)["']\s*:\s*["']([a-zA-Z0-9_.\-]+)["']/g)) {
+    for (const k of [m[1], m[2]]) refs.add(prefix && !k.includes(".") ? prefix + k : k);
   }
   for (const m of txt.matchAll(/data-i18n(?:-ph|-title)?="([^"]+)"/g)) refs.add(m[1]);
 };

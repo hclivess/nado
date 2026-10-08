@@ -1,25 +1,30 @@
 // poker.js — NADO Texas Hold'em: real MULTIPLAYER hold'em on the execution layer, built on the shared SDK
 // (nadodapp.js). No house, no dealer, no turn order — the chain runs the whole hand:
 //   · your HOLE CARDS come from a secret only your browser knows (committed as HASH(secret) when you sit
-//     down — the "draw"), mixed with a future block hash, so nobody (including us) can see them;
-//   · the FLOP / TURN / RIVER come from later block hashes that don't exist while you bet on them;
+//     down — the "draw"), mixed with a future EPOCH BEACON (BEACON(tg), tg = epoch of the deal + 2), so
+//     nobody (including us) can see them;
+//   · the FLOP / TURN / RIVER come from later epoch beacons (street k's close c_k pins p_k = c_k//60 + 2) that
+//     don't exist while you bet on them — the next street opens only once that beacon is final (p_k*60);
+//   · tables dealt before the beacon rule (tg == 0) keep the old block-hash derivation and timeline;
 //   · each betting street has a deadline: match the street's highest bet to stay in, raise to push others,
 //     do nothing to check — miss the price and you're folded (your chips stay in the pot);
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, confirmingLabel, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=b74f351b";
-import { BankedGame } from "./bankedgame.js?v=c6e4d044";   // the ONE banked-table reader — hold'em overlays its street phases
-import { Practice } from "./practice.js?v=602947c5";       // free in-browser practice (play chips, no chain)
+//     A seat that does not reveal by the showdown deadline cannot win any pot layer (settle values it at 0).
+import { NadoDapp, EPOCH_LENGTH, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, confirmingLabel, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
+import { BankedGame } from "./bankedgame.js?v=66957686";   // the ONE banked-table reader — hold'em overlays its street phases
+import { Practice } from "./practice.js?v=482139c0";       // free in-browser practice (play chips, no chain)
 
 const CID = "52aa9beb6dc0a187a0ae3ee59de9f3e1";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
 const bg = new BankedGame(dapp, { icon: GICON, bankIcon: GICON });   // shared reader for existence + ta/tp/tn/tz; streets overlaid below
 const F0 = 14, S = 20, GRACE = 5, R = 60;         // MUST match the contract (tests/test_holdem_contract.py)
-// NO seating timer: the HOST controls the start — start(t) binds the deal to two future blocks (td).
-// b0 = td+F0: the SHUFFLE — betting opens only once hole cards are finalized (no blind pre-flop).
-// Streets are CEILINGS: the host may close_street() the moment nobody owes a call (c_k = sc[t*8+k]).
+// NO seating timer: the HOST controls the start — start(t) binds the deal to the epoch beacon tg (legacy: two
+// future blocks td, td+1). b0 = tg*60 (legacy td+F0): the SHUFFLE — betting opens only once hole cards are final.
+// Streets are CEILINGS: the host may close_street() the moment nobody owes a call (c_k = sc[t*8+k]); on a beacon
+// table street k+1 then opens at a_k = p_k*60 (the "dealing" phase in between) — timeline_ref in holdem.py.
 
 // table records keep poker's own {ante, ts} shape (bg.open's {bankroll} doesn't fit — the host SITS, it
 // doesn't bank); the key equals bg.LS_T so bg.track/recent/tableRec see them. Seat records live in bg.
@@ -42,15 +47,22 @@ function holeCards(bhA, bhB, secret) {
   const hs = seedOf(bhA, bhB, secret); if (hs == null) return null;
   const h0 = drawCard(hs, 0, []); return [h0, drawCard(hs, 1, [h0])];
 }
-function boardCards(t, closes) {                     // as many streets as have hashes; seeds = ACTUAL close blocks
+// street k's randomness base, exactly as the contract's reveal reads it: BEACON(p_k) + "0" on a beacon table
+// (== the VM's HASH(BEACON(p_k) + t)), bh(c_k) + bh(c_k+1) on a legacy one (tg == 0).
+const streetBase = (tb, k) => tb.tg ? [dapp.bc(tb.pins[k]), "0"] : [dapp.bh(tb.closes[k]), dapp.bh(tb.closes[k] + 1)];
+// the deal's base: BEACON(tg) + "0" (== HASH(BEACON(tg) + x)), legacy bh(d0) + bh(d0+1)
+const holeBase = (tb) => tb.tg ? [dapp.bc(tb.tg), "0"] : [dapp.bh(tb.d0), dapp.bh(tb.d0 + 1)];
+// only a street that has OPENED shows its cards (a beacon is public once final, but the UI waits for the street)
+const streetDealt = (tb, k) => dapp.cursor != null && dapp.cursor >= tb.opens[k + 1];
+function boardCards(t, tb) {                         // as many streets as have randomness; seeds = ACTUAL closes
   const out = [];
-  const e1 = seedOf(dapp.bh(closes[1]), dapp.bh(closes[1] + 1), t);
+  const e1 = streetDealt(tb, 1) ? seedOf(...streetBase(tb, 1), t) : null;
   if (e1 == null) return out;
   out.push(drawCard(e1, 0, [])); out.push(drawCard(e1, 1, out.slice())); out.push(drawCard(e1, 2, out.slice()));
-  const e2 = seedOf(dapp.bh(closes[2]), dapp.bh(closes[2] + 1), t);
+  const e2 = streetDealt(tb, 2) ? seedOf(...streetBase(tb, 2), t) : null;
   if (e2 == null) return out;
   out.push(drawCard(e2, 3, out.slice()));
-  const e3 = seedOf(dapp.bh(closes[3]), dapp.bh(closes[3] + 1), t);
+  const e3 = streetDealt(tb, 3) ? seedOf(...streetBase(tb, 3), t) : null;
   if (e3 == null) return out;
   out.push(drawCard(e3, 4, out.slice()));
   return out;
@@ -104,18 +116,29 @@ function tableFrom(sto, t) {
     best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: b.closed };
   tb.td = _m(sto, "td")[t] || 0;                   // deal anchor — 0 until the HOST deals
   tb.d0 = tb.td;
+  tb.tg = _m(sto, "tg")[t] || 0;                   // the deal's beacon epoch — 0 on a legacy (block-hash) table
   tb.price = (k) => _m(sto, "ms")[String(Number(t) * 8 + k)] || 0;
-  // betting timeline: b0 = td+F0 (the shuffle ends, cards visible), c_k = forced close or c_{k-1}+S
-  tb.b0 = tb.td ? tb.td + F0 : 0;
-  tb.closes = [tb.b0, 0, 0, 0, 0];
-  for (let k = 1; k <= 4; k++) tb.closes[k] = (_m(sto, "sc")[String(Number(t) * 8 + k)] || 0) || tb.closes[k - 1] + S;
+  // betting timeline — MUST mirror holdem.timeline_ref / _closes: b0 = tg*60 (legacy td+F0); street k opens at
+  // opens[k] (b0, then a_{k-1}) and closes at c_k = forced or opens[k]+S; street k's beacon p_k = c_k//60 + 2 and
+  // a_k = p_k*60 on a beacon table, a_k = c_k and no pin on a legacy one.
+  tb.b0 = !tb.td ? 0 : tb.tg ? tb.tg * EPOCH_LENGTH : tb.td + F0;
+  tb.closes = [tb.b0, 0, 0, 0, 0]; tb.opens = [0, tb.b0, 0, 0, 0]; tb.pins = [0, 0, 0, 0];
+  for (let k = 1; k <= 4; k++) {
+    tb.closes[k] = (_m(sto, "sc")[String(Number(t) * 8 + k)] || 0) || tb.opens[k] + S;
+    if (k < 4) {
+      tb.pins[k] = tb.tg ? Math.floor(tb.closes[k] / EPOCH_LENGTH) + 2 : 0;
+      tb.opens[k + 1] = tb.tg ? tb.pins[k] * EPOCH_LENGTH : tb.closes[k];
+    }
+  }
   const cur = dapp.cursor;
   if (cur != null) {
     if (!tb.td) tb.phase = "join";                                       // seating open — host hasn't dealt
     else if (cur < tb.b0) { tb.phase = "shuffle"; tb.left = tb.b0 - cur; }
     else if (cur < tb.closes[4]) {
       tb.street = 1 + (cur >= tb.closes[1]) + (cur >= tb.closes[2]) + (cur >= tb.closes[3]);
-      tb.phase = "street"; tb.left = tb.closes[tb.street] - cur;
+      // between c_{k-1} and a_{k-1} the contract refuses bets and closes: the street's beacon is not final yet
+      if (cur < tb.opens[tb.street]) { tb.phase = "dealing"; tb.left = tb.opens[tb.street] - cur; }
+      else { tb.phase = "street"; tb.left = tb.closes[tb.street] - cur; }
     }
     else if (cur < tb.closes[4] + R) { tb.phase = "showdown"; tb.left = tb.closes[4] + R - cur; }
     else tb.phase = "over";
@@ -141,7 +164,7 @@ function seatsOfTable(sto, t) {
 // folded = below a CLOSED street's price while still holding chips (all-in players are never folded)
 function foldedAt(s, tb) {
   if (!tb.exists || tb.phase === "join" || tb.phase === "shuffle" || dapp.cursor == null) return 0;
-  const closed = tb.phase === "street" ? tb.street - 1 : 4;
+  const closed = tb.phase === "street" || tb.phase === "dealing" ? tb.street - 1 : 4;
   for (let k = 1; k <= closed; k++) if (s.cs[k] !== tb.price(k) && s.stack > 0) return k;
   return 0;
 }
@@ -238,7 +261,7 @@ function maybeAutoSettle() {
 }
 const reclaimTable = () => { if (dapp.busy("reclaim", "table", activeTable)) return notify(confirmingLabel()); dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "void the hand — refund every seat · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" }); };
 const cancelTable = () => { if (dapp.busy("cancel", "table", activeTable)) return notify(confirmingLabel()); dapp.call("cancel", [activeTable], null, window.t("poker.cancelDesc", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" }); };
-// the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
+// the HOST deals: binds the hand to an epoch beacon that doesn't exist yet (tg) — nobody can know the cards
 const startTable = () => { if (dapp.busy("start", "table", activeTable)) return notify(confirmingLabel()); dapp.call("start", [activeTable], null, window.t("poker.startDesc", "🃏 deal now · table #{t}", { t: activeTable }), { table: activeTable, phase: "start" }); };
 // the HOST fast-forwards a street once nobody owes a call — a checked-around street ends NOW
 const closeStreet = () => { if (dapp.busy("closest", "table", activeTable)) return notify(confirmingLabel()); dapp.call("close_street", [activeTable], null, window.t("poker.closeDesc", "⏩ close the {street} · table #{t}", { street: streetName((lastTable && lastTable.street) || 1), t: activeTable }),
@@ -268,9 +291,14 @@ async function refreshActive() {
     });
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
-      if (lastTable.exists && lastTable.td && dapp.cursor != null) {
+      if (lastTable.exists && lastTable.td && dapp.cursor != null && lastTable.tg) {
+        // BEACON table: the deal (tg) and each OPENED street's pin p_k — /exec/beacon serves finalized beacons only
+        const ep = [lastTable.tg];
+        for (let k = 1; k <= 3; k++) if (dapp.cursor >= lastTable.opens[k + 1]) ep.push(lastTable.pins[k]);
+        await dapp.beacons(ep);
+      } else if (lastTable.exists && lastTable.td && dapp.cursor != null) {
         const d0 = lastTable.d0, pub = [];
-        // HOLE-CARD seeds (d0, d0+1) stay FINALIZED — hidden info; a provisional reorg would silently
+        // LEGACY table. HOLE-CARD seeds (d0, d0+1) stay FINALIZED — hidden info; a provisional reorg would silently
         // change your hand at showdown. The COMMUNITY streets are public -> provisional (fast) is safe.
         if (dapp.cursor >= d0 + 1) await dapp.blockHashes([d0, d0 + 1]);
         for (const h of [lastTable.closes[1], lastTable.closes[2], lastTable.closes[3]]) if (dapp.cursor >= h + 1) pub.push(h, h + 1);
@@ -291,7 +319,7 @@ async function refreshActive() {
         okBar({ open: window.t("poker.doneOpen", "✓ Table confirmed — you're seated. Share the link below to fill it."),
           join: window.t("poker.doneJoin", "✓ Seat confirmed — you're in the hand."), bet: window.t("poker.doneBet", "✓ Bet confirmed on-chain."),
           reveal: window.t("poker.doneReveal", "✓ Your hand is shown on-chain."), settle: window.t("poker.doneSettle", "✓ Pot paid out."),
-          start: window.t("poker.doneStart", "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize."),
+          start: window.t("poker.doneStart", "✓ Dealt! Your hole cards lock to the next epoch beacon — they appear once it is final."),
           closest: window.t("poker.doneClose", "✓ Street closed — the next card is locking in now."),
           leave: window.t("poker.doneLeave", "✓ You left the table — buy-in refunded in full.") }[watch.phase]);
         watch = null;
@@ -420,7 +448,7 @@ var render = function render() {
     if (!lastSto) return;
     const tb = tableFrom(lastSto, x.id);
     if (!tb.exists) return;
-    return tb.closed ? window.t("poker.tagFinished", "finished ✓") : tb.phase === "join" ? window.t("poker.tagSeating", "seating") : tb.phase === "street" ? streetName(tb.street) : tb.phase === "showdown" ? window.t("poker.tagShowdown", "SHOWDOWN") : window.t("poker.tagSettle", "settle!");
+    return tb.closed ? window.t("poker.tagFinished", "finished ✓") : tb.phase === "join" ? window.t("poker.tagSeating", "seating") : tb.phase === "street" || tb.phase === "dealing" ? streetName(tb.street) : tb.phase === "showdown" ? window.t("poker.tagShowdown", "SHOWDOWN") : window.t("poker.tagSettle", "settle!");
   });
   renderActive();
 }
@@ -448,6 +476,7 @@ function renderActive() {
     if (tb.closed) phaseTxt = window.t("poker.phaseOver", "hand over — settled ✓");
     else if (tb.phase === "join") phaseTxt = window.t("poker.phaseSeating", "🟢 seating open — {players} · {who}", { players, who: tb.host === dapp.me ? window.t("poker.youDeal", "YOU deal when ready") : window.t("poker.hostDeals", "the host deals when ready") });
     else if (tb.phase === "shuffle") phaseTxt = window.t("poker.phaseShuffle", "🂠 shuffling — your cards land in {time} (betting opens with cards visible)", { time: blocksToTime(tb.left) });
+    else if (tb.phase === "dealing") phaseTxt = window.t("poker.phaseDealing", "🂠 dealing the {street} — its cards land in {time}, then betting opens", { street: streetName(tb.street).toUpperCase(), time: blocksToTime(tb.left) });
     else if (tb.phase === "street") phaseTxt = window.t("poker.phaseStreet", "▶ {street} betting — closes in {time} (or when the host fast-forwards)", { street: streetName(tb.street).toUpperCase(), time: blocksToTime(tb.left) });
     else if (tb.phase === "showdown") phaseTxt = window.t("poker.phaseShowdown", "🃏 SHOWDOWN — show your cards within {time} · {n} shown", { time: blocksToTime(tb.left), n: tb.revealCount });
     else phaseTxt = window.t("poker.phaseFinished", "🏁 hand finished — pay out below");
@@ -455,10 +484,13 @@ function renderActive() {
   $("gStatus").textContent = phaseTxt;
 
   // the felt: community + my hole cards
-  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb.closes) : [];
+  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb) : [];
   $("community").innerHTML = handHTML(board, 5, false);
   $("communityNote").textContent = !tb.exists ? "" :
     tb.phase === "join" ? window.t("poker.boardDealsLater", "the board deals street by street once the host deals") :
+    tb.tg ? (board.length === 0 ? window.t("poker.flopPendingBeacon", "the flop lands when its epoch beacon is final…") :
+      board.length === 3 ? window.t("poker.turnPendingBeacon", "the turn comes from a future epoch beacon") :
+      board.length === 4 ? window.t("poker.riverPendingBeacon", "the river comes from a future epoch beacon") : "") :
     board.length === 0 ? window.t("poker.flopPending", "flop lands when its block finalizes…") :
     board.length === 3 ? window.t("poker.turnPending", "turn card is still in future blocks") :
     board.length === 4 ? window.t("poker.riverPending", "river card is still in future blocks") : "";
@@ -466,9 +498,10 @@ function renderActive() {
   const fk = me && tb.exists ? foldedAt(me, tb) : 0;
   if (me && tb.exists && tb.td) {
     const rec = bg.seatRec(me.g);
-    if (rec && rec.secret) hole = holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(rec.secret));
+    if (rec && rec.secret) hole = holeCards(...holeBase(tb), BigInt(rec.secret));
     holeTxt = !rec || !rec.secret ? window.t("poker.secretElsewhere", "your secret lives in the browser you joined with — open this page there to see your cards")
-      : !hole ? window.t("poker.holePending", "your hole cards land when the deal blocks finalize…") : "";
+      : !hole ? (tb.tg ? window.t("poker.holePendingBeacon", "your hole cards land when the deal's epoch beacon is final…")
+                       : window.t("poker.holePending", "your hole cards land when the deal blocks finalize…")) : "";
   } else if (me) holeTxt = tb.host === dapp.me ? window.t("poker.hostHitDeal", "hit 🃏 Deal now below when everyone's seated") : window.t("poker.holeAfterStart", "your hole cards deal when the host starts the hand");
   $("holeWrap").classList.toggle("hidden", !me);
   $("hole").innerHTML = handHTML(hole, 2, true);
@@ -488,7 +521,7 @@ function renderActive() {
     const f = tb.exists ? foldedAt(s, tb) : 0;
     let tag;
     if (s.revealed) {
-      const oppHole = s.secret != null ? holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(s.secret)) : null;
+      const oppHole = s.secret != null ? holeCards(...holeBase(tb), BigInt(s.secret)) : null;
       const nm = oppHole && board.length === 5 ? eval7(board.concat(oppHole)).name : window.t("poker.shown", "shown");
       tag = '<span class="minihand">' + (oppHole ? handHTML(oppHole, 2, false) : "") + '</span> <span class="b ' + (tb.leader === s.g ? 'ok">👑 ' : 'dimb">') + nm + "</span>";
     }
@@ -535,7 +568,9 @@ function renderActive() {
     }
     if (tb.phase === "shuffle") {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
-      note.textContent = window.t("poker.shufflingNote", "🂠 Shuffling — your hole cards lock to blocks {a}–{b} and appear once final; betting opens right after.", { a: tb.d0, b: tb.d0 + 1 });
+      note.textContent = tb.tg
+        ? window.t("poker.shufflingNoteBeacon", "🂠 Shuffling — your hole cards lock to epoch beacon {e} (final at block {h}); betting opens right after.", { e: tb.tg, h: tb.b0 })
+        : window.t("poker.shufflingNote", "🂠 Shuffling — your hole cards lock to blocks {a}–{b} and appear once final; betting opens right after.", { a: tb.d0, b: tb.d0 + 1 });
       wrap.appendChild(note);
     }
     const rec = me ? (bg.seatRec(me.g) || {}) : {};

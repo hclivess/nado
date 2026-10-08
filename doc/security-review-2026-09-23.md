@@ -84,6 +84,8 @@ amount already paid out. Sovereign's single global ply counter is cheaply denied
   the player settles, so a loser waits ~34 h and gets the stake back — a free option. The tests
   (`t_dice_reclaim`, `t_roulette_reclaim`, `t_blackjack_reap`) pin the refund as correct. Decide: forfeit to
   the pot on the player-must-act states, or make a non-player settler a hard requirement.
+  **Closed 2026-10-08 (games release):** every banked game's timeout op now resolves to the bank (stake stays in
+  the pot, reservation released, nobody paid); the player keeps the full 18,000-block window to settle a win.
 - OTC `bind(o, any-non-zero)` returns the taker's bond immediately and makes `release` impossible
   (`otc.py:341-360`); a taker locks a maker's foreign funds for two fees. Return the bond at settle/expire.
 - DEX: no minimum seed liquidity (`dex.py:146-161`), first-provider share inflation against later joiners;

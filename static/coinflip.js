@@ -1,13 +1,16 @@
 // coinflip.js — NADO Coin Flip: a fair, STAKED 2-player game on the execution layer, built on the shared game
-// SDK (nadodapp.js). No secrets, no reveal, no signing dance: both players just stake. When the second player
-// joins, the game binds to a settle height; once that block is finalized the coin is decided BY THE CHAIN:
-//   result = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + gameId ) % 2   (0 -> heads/p1, 1 -> tails/p2)
-// Those block hashes don't exist yet when either player stakes, so nobody can predict or steer the flip. settle
-// is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
-// CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
-// the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=b74f351b";
-import { Practice } from "./practice.js?v=602947c5";      // free in-browser practice (play chips, no chain)
+// SDK (nadodapp.js). COMMIT-REVEAL (execnode/games/coinflip.py): each player's browser draws a secret with the
+// CSPRNG, stores it locally, and stakes with the commitment C = HASH(secret). Once both are in, each browser
+// reveals its secret automatically and the coin is
+//   result = HASH( s1 + s2 + gameId ) LO32 % 2   (0 -> heads/p1, 1 -> tails/p2)   == chainResultAlg(s1, s2, g, 2)
+// Neither secret is known to the other player when they commit, so nobody can steer the sum. The reveal window
+// closes REVEAL_WINDOW blocks after the join: a lone revealer then takes the whole pot (withholding a losing
+// reveal gains nothing), and if nobody revealed both stakes are refunded. settle is permissionless.
+// Games opened by the previous code (md == 0, no commitments) still resolve from BLOCKHASH(sh) + BLOCKHASH(sh+1).
+// The stake is escrowed as call VALUE and paid by the contract's PAY. Login + every signature is delegated to
+// the NADO wallet; the key never touches this origin.
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
+import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
 
 const CID = "dd84238f53bcefcc69f965fced5ea856";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';
@@ -19,6 +22,27 @@ const gamesLoad = () => lsLoad(LS_G);
 const gamesSave = (g) => lsSave(LS_G, g);
 let active = null, lastGame = null;
 const stageCache = {};     // gid -> {settled, ncom, stake}
+
+// ---- the per-game secret (commit-reveal) ------------------------------------------------------------
+// INVARIANT: a commitment is only ever submitted for a secret that is already in localStorage, because bet()
+// writes it and READS IT BACK before calling open/join — a commitment whose secret was lost can never be
+// revealed, and an unrevealed player forfeits the pot at the deadline.
+// Keyed by game AND address, so two wallets in one browser never share (or overwrite) a secret.
+const REVEAL_WINDOW = 600;               // must match execnode/games/coinflip.py REVEAL_WINDOW (display only)
+const SKEY = (g) => "nado_coinflip_secret_" + g + "_" + (dapp.me || "");
+function storedSecret(g) {
+  try { const s = localStorage.getItem(SKEY(g)); return s ? BigInt(s) : null; } catch { return null; }
+}
+function ensureSecret(g) {               // existing secret (a retried open/join reuses it) or a fresh CSPRNG one
+  let s = storedSecret(g);
+  if (s == null) {
+    s = randSecret() % ALG_P();          // a field element, exactly what the VM hashes (randSecret = crypto.getRandomValues)
+    try { localStorage.setItem(SKEY(g), s.toString()); } catch {}
+  }
+  return storedSecret(g) === s ? s : null;   // null: this browser could not keep it — do not commit
+}
+const commitOf = (s) => algHashn([s]);   // == the contract's `hash r3 <- r1` (tests/test_coinflip_commit_reveal_...)
+const hex = (v) => BigInt(v).toString(16);
 
 const shortfallMsg = (need, have) => window.t("coinflip.shortfall",
   "Not enough NADO to join — this game stakes {need}, but your exec balance is {have}. Deposit at least {more} more NADO below, then join.",
@@ -36,6 +60,24 @@ function gameFrom(sto, gid) {
   const g = { exists: true, stake: _m(sto, "st")[gid] || 0, pot: _m(sto, "pt")[gid] || 0, settled,
               ncom: nn, sh: _m(sto, "sh")[gid] || 0, players, id: Number(gid) };
   const cur = dapp.cursor;
+  if (_m(sto, "md")[gid]) {             // commit-reveal game
+    g.cr = true; g.dl = _m(sto, "dl")[gid] || 0;
+    g.commits = { 1: _m(sto, "c1")[gid] || null, 2: _m(sto, "c2")[gid] || null };
+    g.revealed = { 1: !!_m(sto, "v1")[gid], 2: !!_m(sto, "v2")[gid] };
+    const s1 = _m(sto, "s1")[gid] || 0, s2 = _m(sto, "s2")[gid] || 0;
+    const both = g.revealed[1] && g.revealed[2];
+    const coin = both ? chainResultAlg(hex(s1), hex(s2), gid, 2) : null;
+    if (settled) {
+      if (ws) { g.winner_slot = ws; if (coin != null) g.result = coin; else g.forfeit = true; }
+      else g.refunded = true;
+    } else if (nn === 2 && both && coin != null) { g.result = coin; g.winner_slot = coin === 0 ? 1 : 2; g.ready = true; }
+    else if (nn === 2 && cur != null && cur >= g.dl) {
+      g.ready = true;
+      if (g.revealed[1] || g.revealed[2]) { g.winner_slot = g.revealed[1] ? 1 : 2; g.forfeit = true; }
+      else g.refunded = true;
+    } else if (nn === 2 && cur != null) { g.revealOpen = true; g.revealIn = g.dl - cur; }
+    return g;
+  }
   if (settled && ws) { g.winner_slot = ws; g.result = ws === 1 ? 0 : 1; }
   else if (nn === 2 && cur != null && cur >= g.sh + 1) { const r = chainResultAlg(dapp.bh(g.sh), dapp.bh(g.sh + 1), gid, 2); if (r != null) { g.result = r; g.winner_slot = r === 0 ? 1 : 2; g.ready = true; } }
   else if (nn === 2 && cur != null) g.flipsIn = g.sh + 1 - cur;
@@ -64,13 +106,17 @@ async function fetchGame(gid) { const sto = await dapp.storage(); return sto ? g
 // ---- actions -------------------------------------------------------------------------------------
 function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" (slot 2)
   if (dapp.busy("bet", "gameId", gameId)) return notify(confirmingLabel());   // this open/join is already confirming
+  if (!dapp.me) return dapp.signIn();   // the secret is keyed by address — it needs one first
+  // the secret is stored (and read back) BEFORE the commitment leaves this page — see ensureSecret
+  const secret = ensureSecret(gameId);
+  if (secret == null) return alertBar(window.t("coinflip.noStorage", "This browser cannot store your game secret (private mode or storage blocked). Without it you could not reveal and would forfeit — use a normal window."));
   const g = gamesLoad();
   g[gameId] = { role: method, ts: Date.now(), bet: (g[gameId] || {}).bet, stake: stakeRaw.toString() }; gamesSave(g);
   active = gameId; render();
   const betDesc = method === "open"
     ? window.t("coinflip.openDesc", "open game #{id} · {amt} NADO", { id: gameId, amt: rawToNado(stakeRaw) })
     : window.t("coinflip.joinDesc", "join game #{id} · {amt} NADO", { id: gameId, amt: rawToNado(stakeRaw) });
-  dapp.call(method, [gameId], stakeRaw, betDesc, { gameId, phase: "bet" });
+  dapp.call(method, [gameId, commitOf(secret)], stakeRaw, betDesc, { gameId, phase: "bet" });
 }
 async function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
@@ -111,13 +157,37 @@ const settle = () => { if (dapp.busy("settle", "gameId", active)) return; dapp.c
 // pays no one.
 const HORIZON = 18000;                   // must match the gate in execnode/games/coinflip.py
 const reclaimGame = () => { if (dapp.busy("settle", "gameId", active)) return; dapp.call("reclaim", [active], null, window.t("coinflip.reclaimDesc", "void stuck game #{id} — refund both stakes", { id: active }), { gameId: active, phase: "settle" }); };
+// reveal(): disclose MY secret for the active commit-reveal game. Fired automatically once both players are in
+// (maybeAutoReveal) and offered as a button; refused locally when this browser's secret does not open my
+// commitment (it would only revert on chain).
+function reveal() {
+  const lg = lastGame, mine = lg && (lg.players || {})[dapp.me], s = storedSecret(active);
+  if (!lg || !lg.cr || !mine || s == null) return;
+  if (dapp.busy("reveal", "gameId", active)) return;
+  if (String(commitOf(s)) !== String(lg.commits[mine.slot])) return alertBar(window.t("coinflip.secretMismatch", "The secret saved in this browser does not match your commitment for game #{id}. Reveal from the browser you staked with.", { id: active }));
+  dapp.call("reveal", [active, s], null, window.t("coinflip.revealDesc", "reveal your secret · game #{id}", { id: active }), { gameId: active, phase: "reveal" });
+}
+// AUTO-REVEAL: not gated by the auto-collect opt-out — a reveal that does not land by the deadline forfeits the
+// pot, so it fires whenever it is mine to do, retried every 45 s while it is still missing on chain.
+const revealTried = new Map();
+function maybeAutoReveal() {
+  const lg = lastGame;
+  if (active == null || !lg || !lg.cr || lg.settled || lg.ncom !== 2 || !lg.revealOpen) return;
+  const mine = (lg.players || {})[dapp.me];
+  if (!mine || lg.revealed[mine.slot] || storedSecret(active) == null || dapp.busy("reveal", "gameId", active)) return;
+  const at = revealTried.get(active);
+  if (at != null && Date.now() - at < 45000) return;
+  revealTried.set(active, Date.now());
+  reveal();
+}
 // AUTO-COLLECT the WINNER's pot once the flip is decided (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   if (active == null) return;
   const lg = lastGame;
   if (!lg || !lg.exists || lg.settled || lg.ncom !== 2 || !lg.ready) return;
   const mine = (lg.players || {})[dapp.me];
-  if (!mine || lg.winner_slot !== mine.slot) return;   // only auto-collect MY winnings
+  // only auto-collect MY winnings — or, past the deadline with no reveal at all, my refunded stake
+  if (!mine || (lg.winner_slot !== mine.slot && !lg.refunded)) return;
   // phase-scoped — see dice.js: only another settle may hold this one.
   dapp.autoCollect([{ g: active }], () => settle(), { phase: "settle" });
 }
@@ -141,22 +211,24 @@ async function refreshActive() {
       const g = String(f.gameId);
       if (f.phase === "bet") return _m(sto, "p1")[g] === dapp.me || _m(sto, "p2")[g] === dapp.me;
       if (f.phase === "settle") return !!_m(sto, "sd")[g];
+      if (f.phase === "reveal") { const me = dapp.me; return !!_m(sto, "sd")[g] || (_m(sto, "p1")[g] === me ? !!_m(sto, "v1")[g] : !!_m(sto, "v2")[g]); }
       if (f.phase === "cancel") return !_m(sto, "p1")[g] || !!_m(sto, "sd")[g];
       return false;
     });
     for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
-    // fetch block hashes to resolve the active game's flip client-side
+    // fetch block hashes to resolve a LEGACY game's flip client-side (a commit-reveal game needs none)
     if (active != null) {
       const nn = _m(sto, "nn")[String(active)] || 0, sh = _m(sto, "sh")[String(active)] || 0, cur = dapp.cursor;
+      const legacy = !_m(sto, "md")[String(active)];
       // FAST (provisional) hashes: the flip is PUBLIC randomness the settle re-validates on-chain, so a
       // reorg can only revert the settling tx visibly — never flip a coin silently. Result shows in one
       // block (~6-18s) instead of waiting ~90s for finality (same rule Farkle's dice use).
-      if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1], { fast: true });
+      if (legacy && nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1], { fast: true });
       lastGame = gameFrom(sto, active);
       // Only ask about a flip that is BOTH unresolvable here and past the contract's gate — the SDK makes
       // the final call and refuses to say "refund" on a transient miss.
       stuckGame = false;
-      if (lastGame && lastGame.exists && !lastGame.settled && lastGame.ncom === 2 && !lastGame.ready
+      if (lastGame && lastGame.exists && !lastGame.cr && !lastGame.settled && lastGame.ncom === 2 && !lastGame.ready
           && lastGame.sh && dapp.cursor != null && dapp.cursor - lastGame.sh > HORIZON) {
         stuckGame = (await dapp.horizonVerdict(lastGame.sh, HORIZON)) === "refund";
       }
@@ -168,6 +240,7 @@ async function refreshActive() {
   }
   await resolveAliases([dapp.me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
+  maybeAutoReveal();
   maybeAutoSettle();
 }
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("coinflip.noFinished", "No finished games yet — be the first on the board."));
@@ -190,6 +263,7 @@ function wireUI() {
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();
   $("btnSettle").onclick = settle;
+  $("btnReveal").onclick = reveal;
   dapp.wireAutoCollect();
   $("btnShare").onclick = () => {
     const forPart = (lastGame && lastGame.exists) ? window.t("coinflip.shareFor", "for {amt} NADO ", { amt: rawToNado(lastGame.stake) }) : "";
@@ -204,6 +278,8 @@ const badge = (s) => s === "confirmed" ? '<span class="b ok">' + window.t("coinf
 var render = function render() {
   dapp.reflectUrl("game", active);   // address bar = the shareable link to the selected game
   dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
+  const rn = $("revealNote");   // re-set every render so a language switch re-localizes it
+  if (rn) rn.textContent = window.t("coinflip.revealNote", "Your browser keeps a secret for each game and reveals it automatically once both players are in. Keep this browser until it has revealed: the reveal window is {t}, and a player who does not reveal in time forfeits the pot.", { t: blocksToTime(REVEAL_WINDOW) });
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankroll: signedIn, activeGame: active != null });
   const jid = ($("joinId").value || "").trim();
@@ -241,7 +317,7 @@ function renderActive() {
   shareInvite("game", active, window.t("coinflip.inviteText", "Flip me on NADO — join coin flip #{id}:", { id: active }));
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
-  $("gStatus").textContent = lg.exists ? (window.t("coinflip.inCount", "{n}/2 in", { n: lg.ncom }) + (lg.settled ? window.t("coinflip.stSettled", " · settled") : lg.ncom === 2 ? window.t("coinflip.stFlipping", " · ⚡ flipping") : window.t("coinflip.stWaiting", " · waiting"))) : dapp.whereIs("game", active, local.ts);
+  $("gStatus").textContent = lg.exists ? (window.t("coinflip.inCount", "{n}/2 in", { n: lg.ncom }) + (lg.settled ? window.t("coinflip.stSettled", " · settled") : lg.ncom === 2 ? (lg.cr ? window.t("coinflip.stRevealing", " · revealing") : window.t("coinflip.stFlipping", " · ⚡ flipping")) : window.t("coinflip.stWaiting", " · waiting"))) : dapp.whereIs("game", active, local.ts);
   const pl = lg.players || {};
   const byslot = Object.keys(pl).sort((a, b) => pl[a].slot - pl[b].slot);
   let playersHtml = byslot.map((a) => '<span class="chip">' + (a === dapp.me ? window.t("coinflip.you", "you ") : "") + disp(a) + window.t("coinflip.slotN", " · slot {n}", { n: pl[a].slot }) + "</span>").join(" ");
@@ -250,12 +326,13 @@ function renderActive() {
   $("players").innerHTML = playersHtml || '<span class="dim">' + window.t("coinflip.noPlayers", "no players yet") + '</span>';
   const showMine = !!mine || (local.bet === "pending" && !lg.settled);
   $("myBet").classList.toggle("hidden", !showMine);
-  $("myReveal").classList.add("hidden");   // no reveal step in the beacon model
+  renderReveal(lg, mine);
   if (!mine && local.bet === "pending" && lg.exists && lg.ncom >= 2)
     $("myBet").innerHTML = window.t("coinflip.yourBet", "Your bet:") + ' <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">' + window.t("coinflip.betDidntLand", "didn't land — game filled first (your stake is safe)") + '</span>';
   else $("myBet").innerHTML = window.t("coinflip.yourBet", "Your bet:") + " " + badge(mine ? "confirmed" : local.bet);
   // actions
   const resolved = lg.result === 0 || lg.result === 1;
+  const forfeit = !resolved && lg.forfeit && lg.winner_slot, refund = !resolved && lg.refunded;
   $("btnSettle").classList.toggle("hidden", !(lg.exists && !lg.settled && lg.ncom === 2 && lg.ready));
   // The stuck-flip escape appears ONLY once the coin is provably unreadable (see reclaimGame): while
   // lg.ready holds, the flip still settles and someone still wins, so the refund must stay out of sight.
@@ -267,7 +344,8 @@ function renderActive() {
       rb.onclick = reclaimGame;
     }
   }
-  if (lg.ready) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? window.t("coinflip.collectPot", "💰 Collect the pot") : window.t("coinflip.payWinner", "Pay out the winner");
+  if (lg.ready) $("btnSettle").textContent = lg.refunded ? window.t("coinflip.refundBoth", "Refund both stakes")
+    : (mine && lg.winner_slot === mine.slot) ? window.t("coinflip.collectPot", "💰 Collect the pot") : window.t("coinflip.payWinner", "Pay out the winner");
   $("btnCancel").classList.toggle("hidden", !(dapp.me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));
   if (mine) dapp.clearInflight();                              // our seat is on-chain now — stop "confirming…"
   const joining = dapp.busy("bet", "gameId", active);          // just clicked join/open, not yet confirmed
@@ -291,11 +369,42 @@ function renderActive() {
       : window.t("coinflip.slotWon", "slot {n} won", { n: lg.winner_slot });
     const tail = lg.settled ? "" : window.t("coinflip.collectBelow", " · collect below");
     $("result").textContent = face + " — " + outcome + tail;
+  } else if (forfeit || refund) {
+    coin.className = "coin"; coin.textContent = "–";
+    const iWon = forfeit && mine && lg.winner_slot === mine.slot;
+    const msg = refund ? window.t("coinflip.noReveals", "Nobody revealed in time — both stakes are refunded")
+      : mine ? (iWon ? window.t("coinflip.wonForfeit", "Your opponent did not reveal in time — you WON {amt} NADO", { amt: rawToNado(BigInt(lg.stake) * 2n) })
+                     : window.t("coinflip.lostForfeit", "You did not reveal in time — the pot went to your opponent"))
+      : window.t("coinflip.slotWonForfeit", "slot {n} won — the other player did not reveal", { n: lg.winner_slot });
+    $("result").textContent = msg + (lg.settled ? "" : window.t("coinflip.collectBelow", " · collect below"));
   } else {
     coin.className = "coin spin"; coin.textContent = "?";
-    $("result").textContent = lg.ncom === 2 ? window.t("coinflip.bothInFlips", "Both in — the chain flips in {t}", { t: lg.flipsIn != null ? blocksToTime(lg.flipsIn) : "…" })
+    $("result").textContent = (lg.ncom === 2 && lg.cr) ? window.t("coinflip.bothInReveal", "Both in — revealing secrets ({n}/2 revealed)", { n: (lg.revealed[1] ? 1 : 0) + (lg.revealed[2] ? 1 : 0) })
+      : lg.ncom === 2 ? window.t("coinflip.bothInFlips", "Both in — the chain flips in {t}", { t: lg.flipsIn != null ? blocksToTime(lg.flipsIn) : "…" })
       : myJoinPending ? window.t("coinflip.joinConfirming", "Your join is confirming on-chain (~1 min)…") : window.t("coinflip.waitingSecond", "Waiting for a second player…");
   }
+}
+
+// the reveal panel: my reveal state, the deadline, and the forfeit rule — always visible while it matters
+function renderReveal(lg, mine) {
+  const el = $("myReveal"), btn = $("btnReveal");
+  const live = !!(lg.cr && lg.ncom === 2 && !lg.settled);
+  el.classList.toggle("hidden", !live);
+  const myTurn = live && lg.revealOpen && mine && !lg.revealed[mine.slot];
+  const revealing = dapp.busy("reveal", "gameId", active);
+  btn.classList.toggle("hidden", !myTurn);
+  btn.disabled = revealing || storedSecret(active) == null;
+  btn.textContent = revealing ? window.t("coinflip.revealing", "Revealing — confirming on-chain…") : window.t("coinflip.revealBtn", "Reveal my secret");
+  if (!live) { el.innerHTML = ""; return; }
+  const st = (n) => lg.revealed[n] ? window.t("coinflip.revDone", "revealed") : window.t("coinflip.revWaiting", "not yet");
+  let html = window.t("coinflip.revState", "Reveals — slot 1: {a} · slot 2: {b}", { a: st(1), b: st(2) });
+  html += "<br>" + (lg.revealOpen
+    ? window.t("coinflip.revDeadline", "Reveal window closes in {t} (block {dl}).", { t: blocksToTime(lg.revealIn), dl: lg.dl })
+    : window.t("coinflip.revClosed", "The reveal window closed at block {dl}.", { dl: lg.dl }));
+  html += "<br>" + window.t("coinflip.forfeitRule", "If only one player reveals in time, that player takes the whole pot. If neither does, both stakes are refunded.");
+  if (mine && !lg.revealed[mine.slot] && lg.revealOpen && storedSecret(active) == null)
+    html += '<br><span class="warn">' + window.t("coinflip.noSecretHere", "This browser does not hold your secret for game #{id} — reveal from the browser you staked with before the window closes, or your opponent takes the pot.", { id: active }) + "</span>";
+  el.innerHTML = html;
 }
 
 // ---- boot ----------------------------------------------------------------------------------------

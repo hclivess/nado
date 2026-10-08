@@ -25,6 +25,7 @@ from execnode.games.pets import (
     ref_gene as _ref_gene,
     ref_train_roll as _ref_train_roll,
     ref_battle_turns as _ref_battle_turns,
+    ref_battle_seed,
 )
 from execnode.stark import alghash
 from execnode.stark import field as F
@@ -47,6 +48,11 @@ def ref_train_roll(bh, th, pid, i):
 
 def ref_battle_turns(bh, wh, bid, eff_a, eff_b):
     return _ref_battle_turns(bh[wh], bh[wh + 1], bid, eff_a, eff_b)
+
+
+def ref_battle_turns_cr(s1, s2, bid, eff_a, eff_b):
+    """A commit-reveal battle (wm == 1): the duel over seed HASH(s1 + s2 + bid) in place of the block-hash pair."""
+    return _ref_battle_turns(ref_battle_seed(s1, s2, bid), 0, bid, eff_a, eff_b)
 
 
 def ref_species(gene):

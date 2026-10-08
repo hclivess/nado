@@ -10,9 +10,13 @@ and work, that changing a building's terms banks the old terms first, that produ
 the OWNER rather than the caller, that fodder is actually spent, and that equip/unequip is exactly
 reversible (a drifting gear board would permanently inflate or wreck a pet).
 
-Run: HOME=/root python tests/pets_homestead_test.py
+Run: python tests/pets_homestead_test.py
 """
-import os, sys, tempfile, time
+import os, sys, tempfile, time, shutil
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-pets-homestead-")   # never the live database (assign, not setdefault)
+import atexit; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode.games import pets as P
@@ -36,6 +40,8 @@ def fresh():
     st.block_ts = int(time.time())
     # deterministic block hashes for hatch / item rolls
     st.block_hashes = {h: (h * 1_000_003 + 7) for h in range(0, 200000)}
+    # epoch beacons for the two-phase find / reroll rolls (a pin resolves from BEACON(pin) — see _item_drop)
+    st.beacons = {e: (e * 7_919_993 + 11) for e in range(0, 200000 // 60 + 10)}
     code = P.build()
     st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": P.ABI, "nonce": "n"}, A, "d")
     cid = st.contract_id(A, code, "n")
@@ -341,8 +347,10 @@ def test_reroll_costs_essence_keeps_the_item_and_only_off_the_pet():
     ok([rd(P.IA_BASE + k, iid) for k in range(3)] == before, "cannot reroll gear that is being worn")
     call(st, cid, A, "unequip", [iid])
 
-    st.cursor += 1                                   # fresh block -> fresh entropy
-    call(st, cid, A, "reroll", [iid], P.REROLL_FEE, tag="ok")
+    call(st, cid, A, "reroll", [iid], P.REROLL_FEE, tag="ok")    # phase 1: pays, pins a later beacon
+    ok([rd(P.IA_BASE + k, iid) for k in range(3)] == before, "the paid call only pins — the affixes wait")
+    st.cursor = rd(P.IRP, iid) * 60                  # the pinned beacon epoch
+    call(st, cid, A, "reroll", [iid], tag="resolve")                 # phase 2: rolls from BEACON(pin)
     after = [rd(P.IA_BASE + k, iid) for k in range(3)]
     ok(after != before, "with essence and off the pet, the affixes change")
     ok(rd(P.IT, iid) == kind and rd(P.IR, iid) == rar, "the item keeps its slot and rarity")
@@ -424,8 +432,9 @@ def test_reroll_also_spends_materials():
     ok([rd(P.IA_BASE + k, 12) for k in range(3)] == before, "essence alone is not enough any more")
     ok(view("res_of", [A, 4]) == 1000, "and the essence was NOT taken on the failed attempt")
     grant(st, cid, A, 1, 1000); grant(st, cid, A, 2, 1000); grant(st, cid, A, 3, 1000)
-    st.cursor += 1
     call(st, cid, A, "reroll", [12], P.REROLL_FEE, tag="mat")
+    st.cursor = rd(P.IRP, 12) * 60                   # two-phase: resolve once the pinned beacon exists
+    call(st, cid, A, "reroll", [12], tag="matres")
     ok([rd(P.IA_BASE + k, 12) for k in range(3)] != before, "with materials it rerolls")
     ok(view("res_of", [A, 1]) < 1000 and view("res_of", [A, 2]) < 1000, "timber and stone are spent")
 

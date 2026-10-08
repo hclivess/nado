@@ -8,8 +8,14 @@ turn order.
 THE DEAL (dealer-less; roll32(x) = LO32(alghash(x)) is the shared window):
     cards are ints 0..51: rank = c % 13 (0=deuce…12=ace), suit = c // 13
     draw(seed, slot, excl): a = 0,1,2,…  c = roll32(seed + slot*4096 + a) % 52, first c ∉ excl
-    HOLE  hs = H(bh(d0)+bh(d0+1)+x)  -> h0 = draw(hs,0,{}), h1 = draw(hs,1,{h0})       x = your SECRET
-    FLOP  e1 = H(bh(c1)+bh(c1+1)+t)  -> b0,b1,b2 · TURN e2(c2) -> b3 (∉ flop) · RIVER e3(c3) -> b4
+    HOLE  hs = H(BEACON(tg)+x)  -> h0 = draw(hs,0,{}), h1 = draw(hs,1,{h0})              x = your SECRET
+    FLOP  e1 = H(BEACON(p1)+t)  -> b0,b1,b2 · TURN e2 = H(BEACON(p2)+t) -> b3 (∉ flop) · RIVER e3(p3) -> b4
+    EPOCH BEACON PINS: the deal pins tg = cursor//60 + 2 at start(); street k's cards pin p_k = c_k//60 + 2
+    at its close c_k, and street k+1 opens only at a_k = p_k*60 (the first block whose epoch has that
+    beacon final). INVARIANT: no player can know a card before betting on it closes, because every pin is
+    an epoch at least one full epoch past the height that fixed it, and an epoch beacon is unknown until the
+    cursor enters that epoch. LEGACY TABLES (tg == 0 — started under the block-hash rule, before this
+    upgrade) keep it exactly: hs = H(bh(d0)+bh(d0+1)+x), e_k = H(bh(c_k)+bh(c_k+1)+t), a_k = c_k.
     MULTI-DECK RULE: the board and each player's hand draw from INDEPENDENT decks — exact duplicates
     across groups are legal and counted naturally; the only sound dealer-less hidden-card model.
     Commit: gc = H(x) — verified at reveal.
@@ -18,12 +24,13 @@ HAND VALUE PACKING (base 14, ranks as rank+1 so 0 = unused; any revealed hand > 
     value = cat·14^5 + t1·14^4 + … + t5 · cat: 8 SF · 7 quads · 6 boat · 5 flush · 4 straight ·
     3 trips · 2 two pair · 1 pair · 0 high card
 
-STREETS: b0 = d0 + F0 (the shuffle — cards visible before any bet), street k closes at its host-forced
-height sc[k] or c_{k-1}+S; close_street only when nobody owes a call; raises blocked in the last GRACE
+STREETS: b0 = tg*60 (legacy d0 + F0) — the shuffle: cards visible before any bet; street 1 closes at its
+host-forced height sc[1] or b0+S, street k>1 opens at a_{k-1} and closes at sc[k] or a_{k-1}+S; close_street only when nobody owes a call; raises blocked in the last GRACE
 blocks; showdown window (c4, c4+R]; settle = layered side pots (uncovered single-contributor layer refunds
 — the uncalled-bet rule; uncovered multi-way layer -> best revealed hand) + every unspent stack refunded.
 
-Table fields (key = t): 1 ta 2 t0 3 td 4 ts(ante) 5 tp 6 tn 7 tx 8 tw 9 tb 10 tz · street price 20+k ·
+Table fields (key = t): 1 ta 2 t0 3 td 4 ts(ante) 5 tp 6 tn 7 tx 8 tw 9 tb 10 tz 18 tg(deal beacon
+  epoch; 0 = legacy block-hash table) · street price 20+k ·
   forced close 25+k · seat ids 40+i (join order, i 0..8). Seat fields (key = g): 11 gg 12 ga 13 gc 14 gk
   15 gd 16 gsc 17 gr · street contribution 30+k. Indexes: tables (cnt 0, list 70) · seats (cnt 2, list 71).
 Scratch: reveal/eval 800..899 keyed g · timeline/settle 900..999 keyed t (scrubbed on success; a failed
@@ -41,6 +48,11 @@ B14 = 14
 
 TA, T0, TD, TS, TP, TN, TX, TW, TB, TZ = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 GG, GA, GC, GK, GD, GSC, GR = 11, 12, 13, 14, 15, 16, 17
+# tg: the deal's beacon epoch, written by start(). Field 18 was never written by any earlier version of this
+# contract, so every table already in storage reads tg == 0 and keeps the block-hash rule (INVARIANT: the
+# mode of a hand cannot change mid-hand, because tg is written once, at the deal, and never again).
+TG = 18
+EPOCH_LENGTH = _lib.EPOCH_LENGTH
 MS_BASE, SCL_BASE, CS_BASE, TI_BASE = 20, 25, 30, 40
 TLIST, SLIST = 70, 71
 SCNT_SLOT = 2
@@ -59,12 +71,16 @@ EV_SCRUB = (list(range(800, 807)) + [810] + list(range(820, 833)) + list(range(8
 # timeline/settle (fields 900+, keyed t): 900 b0 · 901..904 c1..c4 · 905 k · 906 mk · 907 n · 908 i ·
 #   909 tmp · 910+i C_i · 920+i V_i · 930+i pay_i · 940+i seat_i · 950 prev 951 act 952 L 953 cnt
 #   954 best 955 wins 956 share 957 rem 958 rf 959 ob 960 fst 961 obv 962 obi 963 lc
+#   964..966 a1..a3 (street k+1 opens) · 967..969 p1..p3 (street k's beacon epoch; 0 on a legacy table)
 TL_B0, TL_C1, TL_K, TL_MK, TL_N, TL_I, TL_TMP = 900, 901, 905, 906, 907, 908, 909
 TL_C, TL_V, TL_PAY, TL_SID = 910, 920, 930, 940
 TL_PREV, TL_ACT, TL_L, TL_CNT, TL_BEST, TL_WINS, TL_SHARE, TL_REM = 950, 951, 952, 953, 954, 955, 956, 957
 TL_RF, TL_OB, TL_FST, TL_OBV, TL_OBI, TL_LC = 958, 959, 960, 961, 962, 963
+TL_A1, TL_P1 = 964, 967
+# everything _closes parks — every method that calls _closes scrubs exactly this list (or a superset)
+TL_TIMELINE = [TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3] + list(range(TL_A1, TL_A1 + 3)) + list(range(TL_P1, TL_P1 + 3))
 TL_SCRUB = ([TL_B0] + list(range(901, 910)) + list(range(910, 949))
-            + list(range(950, 964)))
+            + list(range(950, 970)))
 
 
 # ---- python reference (mirrored by static/poker.js; the E2E differentially verifies the bytecode) ----
@@ -87,14 +103,45 @@ def hole_ref(bh0, bh1, x):
     return [h0, draw(hs, 1, (h0,))]
 
 
-def board_ref(bhmap, c1, c2, c3, t):
-    e1 = alghash.hashn([(bhmap[c1] % F.P + bhmap[c1 + 1] % F.P + t) % F.P])
+def _board_from(base1, base2, base3, t):
+    """The board from each street's randomness base (already reduced mod P by the caller's convention)."""
+    e1 = alghash.hashn([(base1 + t) % F.P])
     b0 = draw(e1, 0, ()); b1 = draw(e1, 1, (b0,)); b2 = draw(e1, 2, (b0, b1))
-    e2 = alghash.hashn([(bhmap[c2] % F.P + bhmap[c2 + 1] % F.P + t) % F.P])
+    e2 = alghash.hashn([(base2 + t) % F.P])
     b3 = draw(e2, 3, (b0, b1, b2))
-    e3 = alghash.hashn([(bhmap[c3] % F.P + bhmap[c3 + 1] % F.P + t) % F.P])
+    e3 = alghash.hashn([(base3 + t) % F.P])
     b4 = draw(e3, 4, (b0, b1, b2, b3))
     return [b0, b1, b2, b3, b4]
+
+
+def board_ref(bhmap, c1, c2, c3, t):
+    """LEGACY (tg == 0) board: street k's base is bh(c_k) + bh(c_k+1)."""
+    return _board_from(*((bhmap[c] % F.P + bhmap[c + 1] % F.P) % F.P for c in (c1, c2, c3)), t)
+
+
+def board_ref_beacon(beacons, p1, p2, p3, t):
+    """BEACON board: street k's base is BEACON(p_k), p_k = c_k // 60 + 2. Same draw/exclusion mechanics."""
+    return _board_from(*(beacons[p] % F.P for p in (p1, p2, p3)), t)
+
+
+def hole_ref_beacon(beacon, x):
+    """BEACON hole cards: hs = H(BEACON(tg) + x) == hole_ref(BEACON(tg), 0, x)."""
+    return hole_ref(beacon, 0, x)
+
+
+def timeline_ref(td, tg, sc=(0, 0, 0, 0)):
+    """Python mirror of _closes: (b0, [c1..c4], [a1..a3], [p1..p3]). sc = the forced closes sc[1..4]
+    (0 = not forced). A legacy table (tg == 0) has a_k = c_k and p_k = 0."""
+    b0 = tg * EPOCH_LENGTH if tg else td + F0
+    o, cs, as_, ps = b0, [], [], []
+    for k in range(4):
+        c = sc[k] or o + S
+        cs.append(c)
+        if k < 3:
+            p = (c // EPOCH_LENGTH + 2) if tg else 0
+            o = p * EPOCH_LENGTH if tg else c
+            as_.append(o); ps.append(p)
+    return b0, cs, as_, ps
 
 
 def _sth(pres):
@@ -215,8 +262,16 @@ def _scrub(fields, key="r0"):
 
 
 def _closes(t_reg="r0"):
-    """Timeline into TL scratch keyed t: TL_B0 = td+F0, TL_C1..+3 = c1..c4 (forced or scheduled)."""
-    L = _fx(TD, t_reg) + ["sload r3 r4", f"movi r5 {F0}", "add r3 r5"]
+    """Timeline into TL scratch keyed t (see timeline_ref, its python mirror): TL_B0 = b0, TL_C1..+3 =
+    c1..c4 (forced or scheduled), TL_A1..+2 = a1..a3 (when street k+1 opens), TL_P1..+2 = p1..p3 (street
+    k's beacon epoch). Uses r3..r7 only — r0..r2 survive.
+    INVARIANT: a beacon table (tg != 0) never opens a street before its cards exist, because street k+1's
+    schedule starts at a_k = p_k*60 — the first height whose epoch carries BEACON(p_k) — not at c_k.
+    INVARIANT: a legacy table (tg == 0) gets b0 = td+F0, a_k = c_k, p_k = 0 — the old timeline exactly."""
+    L = _fx(TG, t_reg) + ["sload r6 r4"]                                          # r6 = tg
+    L += _fx(TD, t_reg) + ["sload r3 r4", f"movi r5 {F0}", "add r3 r5"]          # r3 = td+F0 (legacy b0)
+    L += ["mov r7 r6", "nez r7", "notb r7", "mul r3 r7",                         # beacon: b0 = tg*60
+          f"movi r5 {EPOCH_LENGTH}", "mul r6 r5", "add r3 r6"]
     L += _park(TL_B0, "r3", t_reg)
     for k in range(1, 5):
         L += _fx(SCL_BASE + k, t_reg) + ["sload r5 r4", "mov r6 r5", "nez r6",   # r6 = forced?
@@ -224,7 +279,25 @@ def _closes(t_reg="r0"):
               f"movi r7 {S}", "add r3 r7", "mov r7 r6", "notb r7", "mul r3 r7",
               "add r3 r5"]                                                       # r3 = c_k
         L += _park(TL_C1 + k - 1, "r3", t_reg)
+        if k < 4:
+            # p_k = (c_k // 60 + 2)·beacon ; r3 = a_k = c_k·!beacon + p_k·60
+            L += ["mov r5 r3", f"movi r6 {EPOCH_LENGTH}", "divmod r5 r6", "movi r6 2", "add r5 r6"]
+            L += _fx(TG, t_reg) + ["sload r6 r4", "nez r6", "mul r5 r6"]
+            L += _park(TL_P1 + k - 1, "r5", t_reg)
+            L += ["notb r6", "mul r3 r6", f"movi r7 {EPOCH_LENGTH}", "mul r5 r7", "add r3 r5"]
+            L += _park(TL_A1 + k - 1, "r3", t_reg)
     return L
+
+
+def _open_gate(k_reg, t_reg="r0"):
+    """require cursor >= o_k, the height street k opens: b0 for k == 1, a_{k-1} after. Uses r4..r7.
+    INVARIANT: nobody bets on, or force-closes, a street whose cards are not yet drawable, because both
+    bet and close_street run this gate (on a legacy table o_k = c_{k-1} <= cursor, so it never bites)."""
+    L = _load(TL_B0, "r6", t_reg) + ["movi r4 1", f"mov r7 {k_reg}", "eq r7 r4", "mul r6 r7"]
+    for j in range(2, 5):
+        L += _load(TL_A1 + j - 2, "r5", t_reg) + [f"movi r4 {j}", f"mov r7 {k_reg}", "eq r7 r4",
+                                                  "mul r5 r7", "add r6 r5"]
+    return L + ["ctx r5 cursor", "lt r5 r6", "notb r5", "require r5"]
 
 
 def _cur_street(out, t_reg="r0"):
@@ -311,7 +384,11 @@ START = "\n".join(
     ["ctx r5 caller"] + _sl(TA) + ["sload r6 r4", "eq r6 r5", "require r6"]
     + _sl(TZ) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]
     + _sl(TD) + ["sload r5 r4", "nez r5", "notb r5", "require r5",
-                 "ctx r5 cursor", "movi r6 2", "add r5 r6", "sstore r4 r5", "ret r0"])
+                 "ctx r5 cursor", "movi r6 2", "add r5 r6", "sstore r4 r5",
+                 # BEACON DEAL: tg = cursor//60 + 2 pins the hole cards (and marks the table beacon-mode).
+                 # INVARIANT: BEACON(tg) is unknown at the deal, because tg is at least one full epoch ahead.
+                 "ctx r5 cursor", f"movi r6 {EPOCH_LENGTH}", "divmod r5 r6", "movi r6 2", "add r5 r6"]
+    + _sl(TG) + ["sstore r4 r5", "ret r0"])
 
 
 def _leave():
@@ -354,6 +431,7 @@ def _bet():
     L += _load(TL_B0, "r5", "r2") + ["ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     L += _load(TL_C1 + 3, "r5", "r2") + ["ctx r6 cursor", "lt r6 r5", "require r6"]
     L += _cur_street("r3", "r2")                                                 # r3 = k
+    L += _open_gate("r3", "r2")                                                  # street k's cards exist
     # closed streets j < k must be matched
     for j in range(1, 4):
         L += [f"slot r4 {CS_BASE + j} r0", "sload r5 r4",
@@ -376,7 +454,7 @@ def _bet():
     L += _fd(MS_BASE, "r3", "r2") + ["mov r7 r4"]
     L += _load(TL_TMP, "r5", "r2")
     L += ["sload r6 r7", "sub r5 r6", "mul r5 r1", "add r6 r5", "sstore r7 r6"]
-    L += _scrub([TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3, TL_TMP], "r2") + ["ret r0"]
+    L += _scrub(TL_TIMELINE + [TL_TMP], "r2") + ["ret r0"]
     return L
 
 
@@ -388,6 +466,7 @@ def _close_street():
     L += _load(TL_B0, "r5") + ["ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     L += _load(TL_C1 + 3, "r5") + ["ctx r6 cursor", "lt r6 r5", "require r6"]
     L += _cur_street("r3")
+    L += _open_gate("r3")                                                        # no close before it opens
     L += _fd(SCL_BASE, "r3") + ["sload r5 r4", "nez r5", "notb r5", "require r5"]        # not already forced
     L += _ck_select("r6", "r3") + ["ctx r5 cursor", "movi r7 2", "add r5 r7", "lt r5 r6", "require r5"]
     # every seat: matched ms[k] OR all-in OR folded earlier
@@ -413,7 +492,7 @@ def _close_street():
             L += [f"movi r7 {j}", "lt r7 r3", "mul r6 r7", "add r5 r6"]
         L += ["nez r5", "require r5", f"cskip{i}:"]
     L += _fd(SCL_BASE, "r3") + ["ctx r5 cursor", "movi r6 2", "add r5 r6", "sstore r4 r5"]
-    L += _scrub([TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3, TL_MK]) + ["ret r0"]
+    L += _scrub(TL_TIMELINE + [TL_MK]) + ["ret r0"]
     return L
 
 
@@ -568,19 +647,26 @@ def _reveal():
               f"slot r4 {MS_BASE + j} r2", "sload r6 r4", "eq r5 r6",
               f"slot r4 {GK} r0", "sload r6 r4", "nez r6", "notb r6",
               "add r5 r6", "nez r5", "require r5"]
-    # hole seed hs = H(bh(d0)+bh(d0+1)+x)
+    # hole seed: beacon table hs = H(BEACON(tg)+x); legacy (tg == 0) hs = H(bh(d0)+bh(d0+1)+x).
+    # INVARIANT: the player's secret x stays in both derivations, so nobody but the player can see the hole
+    # cards before the reveal, and the player cannot steer them, because x is committed before tg is final.
+    L += _fx(TG, "r2") + ["sload r5 r4", "jnz r5 @hole_bc"]
     L += _fx(TD, "r2") + ["sload r5 r4", "bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5",
-                          "add r3 r6", "add r3 r1", "hash r3 <- r3"]
+                          "add r3 r6", "jmp @hole_seed", "hole_bc:", "beacon r3 r5", "hole_seed:",
+                          "add r3 r1", "hash r3 <- r3"]
     L += _park(EV_SEED, "r3")
     L += _draw_card(0, 0, 0, 0, "h0")
     L += _draw_card(1, 1, 0, 1, "h1")
-    # board: e1 from c1 -> b0,b1,b2 · e2 from c2 -> b3 · e3 from c3 -> b4.
-    # _draw_card clobbers r1/r2/r3, so t is RELOADED from gg before each street's seed.
+    # board: e1 from street 1's close -> b0,b1,b2 · e2 from street 2's -> b3 · e3 from street 3's -> b4.
+    # Beacon table: base = BEACON(p_k) (p_k parked by _closes, nonzero exactly on a beacon table); legacy:
+    # base = bh(c_k)+bh(c_k+1). _draw_card clobbers r1/r2/r3, so t is RELOADED from gg before each seed.
     for street, (slots_, tag) in enumerate((((0, 1, 2), "f"), ((3,), "t"), ((4,), "rv"))):
         c_idx = TL_C1 + street
         L += _sl(GG) + ["sload r2 r4"]                                           # r2 = t (fresh)
+        L += _load(TL_P1 + street, "r5", "r2") + [f"jnz r5 @{tag}_bc"]
         L += _load(c_idx, "r5", "r2") + ["bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5",
-                                         "add r3 r6", "add r3 r2", "hash r3 <- r3"]
+                                         "add r3 r6", f"jmp @{tag}_seed", f"{tag}_bc:", "beacon r3 r5",
+                                         f"{tag}_seed:", "add r3 r2", "hash r3 <- r3"]
         L += _park(EV_SEED, "r3")
         for sl_ in slots_:
             # board exclusions: all PRIOR board cards (EV cards 2..2+drawn-1)
@@ -596,7 +682,7 @@ def _reveal():
     L += ["mov r7 r3", "sub r7 r5", "mul r7 r6", "add r5 r7", "sstore r4 r5"]
     L += _fx(TB, "r2") + ["sload r5 r4", "mov r7 r0", "sub r7 r5", "mul r7 r6", "add r5 r7", "sstore r4 r5"]
     L += _scrub(EV_SCRUB)
-    L += _scrub([TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3], "r2") + ["ret r3"]
+    L += _scrub(TL_TIMELINE, "r2") + ["ret r3"]
     return L
 
 
@@ -764,7 +850,7 @@ def _reclaim():
               f"slot r4 {GK} r1", "movi r5 0", "sstore r4 r5",
               f"rs{i}:"]
     L += _sl(TZ) + ["movi r5 1", "sstore r4 r5"] + _sl(TP) + ["movi r5 0", "sstore r4 r5"]
-    L += _scrub([TL_B0, TL_C1, TL_C1 + 1, TL_C1 + 2, TL_C1 + 3]) + ["ret r0"]
+    L += _scrub(TL_TIMELINE) + ["ret r0"]
     return L
 
 
@@ -800,7 +886,8 @@ ABI = {
                  "gg": {"field": GG, "index": "seats"}, "ga": {"field": GA, "index": "seats"},
                  "gc": {"field": GC, "index": "seats"}, "gk": {"field": GK, "index": "seats"},
                  "gd": {"field": GD, "index": "seats"}, "gsc": {"field": GSC, "index": "seats"},
-                 "gr": {"field": GR, "index": "seats"}},
+                 "gr": {"field": GR, "index": "seats"},
+                 "tg": {"field": TG, "index": "tables"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "seats": {"cnt": SCNT_SLOT, "list": SLIST}},
         "addr": ["ta", "ga"],
         "board": {"name": "ms", "base": MS_BASE, "cells": 5, "stride": 8, "index": "tables"},

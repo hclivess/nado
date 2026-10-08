@@ -1,9 +1,9 @@
 // pets-genes.js — the PURE derivation core of NADO Pets, shared by the dapp (pets.js). Every formula here
 // MUST stay byte-identical to the zkVM contract bytecode and its Python reference (execnode/games/pets.py:
-// ref_gene / ref_tier / ref_si / ref_stat / ref_train_* / ref_battle_turns) — this module decides what
+// ref_gene / ref_tier / ref_si / ref_stat / ref_train_* / ref_battle_turns / ref_battle_seed) — this module decides what
 // animal a player sees, its stats, training odds and battle outcomes, so it is differentially verified
 // against that reference. Field-native: every roll is roll32(x) = LO32(alghash(x)). No DOM, no fetch.
-import { algHashn, ALG_P } from "./nadodapp.js?v=b74f351b";
+import { algHashn, ALG_P } from "./nadodapp.js?v=42226f9f";
 
 // ---- constants (mirror tests/test_pets_contract.py) ------------------------------------------------
 export const MINT_FEE    = 10n ** 10n;        // 1 NADO adopts an egg
@@ -1231,10 +1231,24 @@ export const trainOk = (roll, cur, sp) => roll * (trainK(sp) + cur) < 100 * trai
 // str damage, agi dodge, vit HP(x3), int accuracy, wis mitigation, cha intimidation, loy regen,
 // luck crit(x2), spd turn-share, app bulk+bite. Winner = higher remaining FRACTION of HP (tie -> defender).
 export const CAP_BATTLE = 12;   // MUST equal CAP_BATTLE in the contract + pets_ref.py
+// battleOf: a battle issued before the commit-reveal upgrade (wm == 0) — q = bh(wh) + bh(wh+1) + bid*8.
 export function battleOf(bh0Hex, bh1Hex, bid, effA, effB) {
   if (!bh0Hex || !bh1Hex) return null;
   const p = ALG_P();
-  const q = (hexInt(bh0Hex) % p + hexInt(bh1Hex) % p + BigInt(bid) * 8n) % p;
+  return _duel((hexInt(bh0Hex) % p + hexInt(bh1Hex) % p + BigInt(bid) * 8n) % p, effA, effB);
+}
+// Commit-reveal battle (wm == 1): seed = HASH(s1 + s2 + bid) from the two revealed secrets, and the duel runs
+// over q = seed + bid*8 — the block-hash pair replaced by the seed (pets.py ref_battle_seed / resolve_battle).
+export const battleSeedOf = (s1, s2, bid) => algHashn([BigInt(s1) + BigInt(s2) + BigInt(bid)]);
+export function battleOfSeed(seed, bid, effA, effB) {
+  if (seed == null) return null;
+  const p = ALG_P();
+  return _duel((BigInt(seed) % p + BigInt(bid) * 8n) % p, effA, effB);
+}
+export const REVEAL_WINDOW = 1200;   // blocks after acceptance to reveal (MUST equal pets.py REVEAL_WINDOW)
+export const REBIRTH_FEE = 10n ** 9n;   // 0.1 NADO per rebirth (MUST equal pets.py REBIRTH_FEE)
+const HP_OFF = 1024;                 // the contract caps one hit at its +HP_OFF shift (pets.py HP_OFF)
+function _duel(q, effA, effB) {
   const hA = 20 + effA[2] * 3 + effA[9], hB = 20 + effB[2] * 3 + effB[9];
   let h0 = hA, h1 = hB;
   const span = effA[8] + effB[8] + 120, thrA = effA[8] + 60;
@@ -1250,6 +1264,7 @@ export function battleOf(bh0Hex, bh1Hex, bid, effA, effB) {
     dmg += crit * dmg;
     dmg = Math.floor(dmg * 90 / (90 + B[4]));
     dmg = Math.max(1, dmg - Math.floor(B[5] / 2));
+    dmg = Math.min(HP_OFF, dmg);        // the contract's cap (a lethal hit never underflows its shifted HP)
     dmg = dmg * hit * alive;
     if (cur === 0) h1 -= dmg; else h0 -= dmg;
     h0 = Math.min(hA, h0 + alive * Math.floor(effA[6] / 4));

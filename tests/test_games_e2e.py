@@ -55,21 +55,25 @@ def _prove(code, method, caller, args, slots, **kw):
 
 # ---- coinflip ----------------------------------------------------------------------------------
 def t_coinflip():
+    # commit-reveal (Release B): each player commits HASH(secret), both reveal, settle pays HASH(s1+s2+g) parity
+    from execnode.stark import alghash, field as F
     st, code, cid, rd = _fresh(coinflip)
     st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
-    G = 12345
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 500}, A, "1")
-    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 500}, B, "2")
+    G, s1, s2 = 12345, 0xABC, 0xDEF
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G, alghash.hashn([s1])], "value": 500}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G, alghash.hashn([s2])], "value": 500}, B, "2")
     assert rd(coinflip.NN, G) == 2 and st.bridge[cid] == 1000
-    st.block_hashes[102] = 0xABC; st.block_hashes[103] = 0xDEF; st.cursor = 104
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G, s1]}, A, "r1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G, s2]}, B, "r2")
     st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [G]}, A, "3")
     ws = rd(coinflip.WS, G); winner = A if ws == 1 else B
+    assert ws == (alghash.hashn([(s1 + s2 + G) % F.P]) & 0xFFFFFFFF) % 2 + 1
     assert rd(coinflip.SD, G) == 1 and st.bridge.get(cid, 0) == 0
     assert st.bridge[winner] == 1_000_000 - 500 + 1000
     v = st.decode_view(st.contracts[cid])
     assert v["p1"][str(G)] == A and v["p2"][str(G)] == B
     # cancel refunds
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [9], "value": 300}, A, "4")
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [9, 77], "value": 300}, A, "4")
     st.apply_blob({"op": "call", "contract": cid, "method": "cancel", "args": [9]}, A, "5")
     assert st.bridge.get(cid, 0) == 0
 
@@ -78,7 +82,10 @@ def t_coinflip_prove():
     S = lambda f, k: f * (1 << 32) + k
     slots = {S(1, 1): 2, S(2, 1): 500, S(7, 1): 102,
              S(4, 1): runtimes.zkvm_addr_digest(A), S(5, 1): runtimes.zkvm_addr_digest(B)}
-    _prove(code, "settle", A, [1], slots, cursor=104, block_hashes={102: 1, 103: 2})
+    _prove(code, "settle", A, [1], slots, cursor=104, block_hashes={102: 1, 103: 2})     # a legacy (md == 0) game
+    cr = {S(1, 2): 2, S(2, 2): 500, S(3, 2): 1000, S(12, 2): 1, S(13, 2): 700, S(14, 2): 0xABC, S(15, 2): 0xDEF,
+          S(16, 2): 1, S(17, 2): 1, S(4, 2): runtimes.zkvm_addr_digest(A), S(5, 2): runtimes.zkvm_addr_digest(B)}
+    _prove(code, "settle", A, [2], cr, cursor=104)                                       # commit-reveal, both revealed
 
 
 # ---- dice / roulette (banked) ------------------------------------------------------------------
@@ -88,7 +95,9 @@ def _banked(mod, betargs, winnable):
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 50_000_000}, A, "1")
     st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": betargs, "value": 100_000}, B, "2")
     assert rd(_tf(mod).TC, 3) == winnable and rd(_tf(mod).TP, 3) == 50_100_000
-    st.block_hashes[102] = 0x1234; st.block_hashes[103] = 0x5678; st.cursor = 104
+    # Release B: the bet at cursor 100 binds beacon epoch 100//60 + 2 = 3 (gh = 3*60 - 1 = 179); settle reads BEACON(3)
+    assert rd(mod.GB, 88) == 3 and rd(mod.GH, 88) == 179
+    st.beacons[3] = 0x1234; st.cursor = 180
     st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [88]}, B, "3")
     assert rd(mod.GD, 88) == 1 and rd(_tf(mod).TC, 3) == 0
     assert st.bridge.get(cid, 0) == rd(_tf(mod).TP, 3)                      # escrow == withdrawable
@@ -122,6 +131,11 @@ def t_dice_prove():
     code = dice.build(); S = lambda f, k: f * (1 << 32) + k
     slots = {S(1, 3): runtimes.zkvm_addr_digest(A), S(2, 3): 50_000_000, S(3, 3): 50_000_000}
     _prove(code, "bet", B, [88, 3, 50], slots, value=100_000, cursor=100)
+    # Release B: a beacon seat's settle (seed_q -> BEACON(gb)) proves too — gb 3, gh 179, the bet's reservation in tc
+    st = {**slots, S(2, 3): 50_000_000, S(3, 3): 50_100_000, S(4, 3): 100_000 * 99 // 50,
+          S(dice.GG, 88): 3, S(dice.GM, 88): 50, S(dice.GS, 88): 100_000, S(dice.GA, 88): runtimes.zkvm_addr_digest(B),
+          S(dice.GH, 88): 179, S(dice.GB, 88): 3}
+    _prove(code, "settle", B, [88], st, cursor=180, beacons={3: 0xBEAC0})
 
 
 # ---- tictactoe / connect4 (PvP board) ----------------------------------------------------------
@@ -172,11 +186,15 @@ def t_slots():
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "1")
     g = 1000
     st.apply_blob({"op": "call", "contract": cid, "method": "spin", "args": [g, 5], "value": 10_000}, B, "2")
-    gh = rd(slots.GH, g); st.block_hashes[gh] = 0x1234567; st.block_hashes[gh + 1] = 0x89abcde; st.cursor = gh + 2
+    # a spin binds to the epoch beacon gb (gh = gb*60 - 1); settle draws from BEACON(gb)
+    gb, gh = rd(slots.GB, g), rd(slots.GH, g)
+    assert gb and gh == gb * 60 - 1, "spin binds the epoch beacon"
+    st.beacons[gb] = 0x1234567 << 100 | 0x89abcde; st.cursor = gh + 2
     pbefore = st.bridge.get(B, 0)
     st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, "3")
     gr = rd(slots.GR, g); gw = rd(slots.GW, g)
     stops = [(gr - 1) % 64, ((gr - 1) // 64) % 64, ((gr - 1) // 4096) % 64]
+    assert stops == slots.stops_of(slots.seed_of(gb, gh, beacon=st.beacons[gb]), g), "reels must match reference"
     assert gw == slots.m2_of(stops), "paytable must match reference"
     assert st.bridge.get(B, 0) - pbefore == 10_000 * gw // 2 and rd(slots.GD, g) == 1
 
@@ -188,11 +206,12 @@ def t_mines():
     st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [g, 5, 3], "value": 100_000}, B, "2")
     st.apply_blob({"op": "call", "contract": cid, "method": "pick", "args": [g, 2]}, B, "3")
     assert rd(mines.GQ, g) == mines.multiplier(100_000, 0, 3, 2)
-    gh = rd(mines.GH, g); st.block_hashes[gh] = 0xBEEF; st.block_hashes[gh + 1] = 0xCAFE; st.cursor = gh + 2
-    from execnode.stark.field import P
-    q = (0xBEEF % P + 0xCAFE % P + g) % P
+    # a pick binds the round to its beacon epoch gb (gh = gb*60 - 1); resolve draws from BEACON(gb) + g
+    gh, gb = rd(mines.GH, g), rd(mines.GB, g); assert gb and gh == gb * games_lib.EPOCH_LENGTH - 1
+    st.beacons[gb] = 0xBEEFCAFE; st.cursor = gh + 2
+    q = mines.round_seed(g, beacon=0xBEEFCAFE)
     st.apply_blob({"op": "call", "contract": cid, "method": "resolve", "args": [g]}, B, "4")
-    assert rd(mines.GB, g) == mines.resolve_hit(q, 0, 3, 2)
+    assert rd(mines.GX, g) == mines.resolve_hit(q, 0, 3, 2)
 
 # ---- reversi (PvP flip) + chess (record/agree) -------------------------------------------------
 def t_reversi():
@@ -482,6 +501,17 @@ def t_farkle():
 
 
 # ---- blackjack (banked, dealer S17, ace-soft) --------------------------------------------------
+def _bj_land(st, rd, g, rnd):
+    """Publish the randomness of hand g's pending step and move the cursor to where it resolves. Returns the
+    (bh0, bh1) pair the reference functions take: (BEACON(gb), 0) for a beacon step, (bh(gh), bh(gh+1)) for a
+    step bound before the beacon rule (gb == 0)."""
+    gb, gh = rd(bj.GB, g), rd(bj.GH, g)
+    if gb:
+        b = rnd(); st.beacons[gb] = b; st.cursor = max(st.cursor, gh + 1)
+        return b, 0
+    h0, h1 = rnd(), rnd(); st.block_hashes[gh] = h0; st.block_hashes[gh + 1] = h1; st.cursor = gh + 2
+    return h0, h1
+
 def t_blackjack():
     import random as _r
     st, code, cid, rd = _fresh(bj, deployer=A)
@@ -491,8 +521,7 @@ def t_blackjack():
     for trial in range(30):
         g = 100 + trial; st.cursor = 200 + trial * 60
         st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": stake}, B, "d")
-        gh = rd(bj.GH, g); h0 = _r.randint(1, 2**60); h1 = _r.randint(1, 2**60)
-        st.block_hashes[gh] = h0; st.block_hashes[gh + 1] = h1; st.cursor = gh + 2
+        h0, h1 = _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
         up = bj.card_at(h0, h1, g * 64, 16)
         c0 = bj.card_at(h0, h1, g * 64, 0); c1 = bj.card_at(h0, h1, g * 64, 1)
         ptot, _, _, natural = bj.hand_total([c0, c1])
@@ -504,8 +533,7 @@ def t_blackjack():
             assert rd(bj.GD, g) == 1 and st.bridge.get(B, 0) - pb == stake * 5 // 2, "natural pays 5:2"
             continue
         st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, "s")
-        gh2 = rd(bj.GH, g); h2 = _r.randint(1, 2**60); h3 = _r.randint(1, 2**60)
-        st.block_hashes[gh2] = h2; st.block_hashes[gh2 + 1] = h3; st.cursor = gh2 + 2
+        h2, h3 = _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
         pb = st.bridge.get(B, 0)
         st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, "e")
         dtot = bj.dealer_play(h2, h3, g, up)
@@ -526,13 +554,13 @@ def t_blackjack_hit_bust():
     for g in range(900, 990):
         st.cursor = (g + 1) * 100
         st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 100_000}, B, "d")
-        gh = rd(bj.GH, g); st.block_hashes[gh] = _r.randint(1, 2**60); st.block_hashes[gh + 1] = _r.randint(1, 2**60); st.cursor = gh + 2
+        _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
         st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
         if rd(bj.GD, g):
             continue
         pb = st.bridge.get(B, 0)
         st.apply_blob({"op": "call", "contract": cid, "method": "hit", "args": [g]}, B, "h")
-        gh2 = rd(bj.GH, g); st.block_hashes[gh2] = _r.randint(1, 2**60); st.block_hashes[gh2 + 1] = _r.randint(1, 2**60); st.cursor = gh2 + 2
+        _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
         st.apply_blob({"op": "call", "contract": cid, "method": "draw", "args": [g]}, B, "w")
         if rd(bj.GD, g) == 1 and rd(bj.GW, g) == 2:
             busted += 1
@@ -548,14 +576,15 @@ def t_blackjack_prove():
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "o")
     _r.seed(3); g = 100; st.cursor = 500
     st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 100_000}, B, "d")
-    gh = rd(bj.GH, g); st.block_hashes[gh] = _r.randint(1, 2**60); st.block_hashes[gh + 1] = _r.randint(1, 2**60); st.cursor = gh + 2
+    _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
     st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
     assert not rd(bj.GD, g)
     st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, "s")
-    gh2 = rd(bj.GH, g); st.block_hashes[gh2] = _r.randint(1, 2**60); st.block_hashes[gh2 + 1] = _r.randint(1, 2**60); st.cursor = gh2 + 2
+    _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
     slots = {int(k): int(vv) for k, vv in st.contracts[cid]["storage"]["slots"].items()}
     cf, fa = runtimes.zkvm_statement(B, [g], {})
-    proof, io, ret, ns = V.prove_call(code, "settle", cf, fa, slots, num_queries=NQ, cursor=st.cursor, block_hashes=st.block_hashes)
+    proof, io, ret, ns = V.prove_call(code, "settle", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
+                                      beacons=st.beacons, block_hashes=st.block_hashes)
     ok, why = V.verify_call(proof, code, "settle", cf, fa, io, num_queries=NQ, cursor=st.cursor)
     assert ok, f"settle proof: {why}"
 
@@ -816,6 +845,7 @@ def t_battleship_answer_proves():
 # ---- pets (tamagotchi NFTs: gene/tier/stats, feeding, training, battles, marketplace) -------------
 def t_pets():
     import random as _r
+    from execnode.stark import alghash as _alg
     st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
     code = ptz.build()
     st.credit_deposit(A, 10**13); st.credit_deposit(B, 10**13)
@@ -858,7 +888,7 @@ def t_pets():
     # battles: several fights, each turn-engine result differentially checked vs ref_battle_turns
     fights = 0
     for bid in range(100, 108):
-        st.cursor += ptz.EXHAUST + 10
+        st.cursor += ptz.EXHAUST + ptz.REVEAL_WINDOW + 10      # the rest lock covers the reveal window
         alive = lambda p_: rd(ptz.FU, p_) > st.cursor
         mine = {p_: st.zk_addrs.get(str(rd(ptz.OW, p_))) for p_ in (1, 2, 3, 4)}
         a_p = [p_ for p_, o in mine.items() if o == A and alive(p_)]
@@ -867,16 +897,17 @@ def t_pets():
             continue
         pa, pb = a_p[0], b_p[0]
         call("feed", [pa], 5 * 10**9, A); call("feed", [pb], 5 * 10**9, B)
-        if "revert" in call("challenge", [bid, pa, pb], 1000, A):
+        # commit-reveal battle (Release B): each owner commits HASH(secret); both reveal; the duel runs over
+        # HASH(s1 + s2 + bid) in place of the block-hash pair
+        s1, s2 = _r.randint(1, 2**60), _r.randint(1, 2**60)
+        if "revert" in call("challenge", [bid, pa, pb, _alg.hashn([s1])], 1000, A):
             continue
-        if "revert" in call("accept", [bid], 1000, B):
+        if "revert" in call("accept", [bid, _alg.hashn([s2])], 1000, B):
             continue
-        wh = rd(ptz.WH, bid)
-        h0, h1 = _r.randint(1, 2**60), _r.randint(1, 2**60)
-        st.block_hashes[wh] = h0; st.block_hashes[wh + 1] = h1; st.cursor = max(st.cursor, wh + 2)
+        assert "ok" in call("reveal_battle", [bid, s1], None, A) and "ok" in call("reveal_battle", [bid, s2], None, B)
         effA = [ptz.ref_stat(*genes[pa], i) + rd(ptz.TB_BASE + i, pa) for i in range(10)]
         effB = [ptz.ref_stat(*genes[pb], i) + rd(ptz.TB_BASE + i, pb) for i in range(10)]
-        a_wins, dies, _h0, _h1, _log = ptz.ref_battle_turns(h0, h1, bid, effA, effB)
+        a_wins, dies, _h0, _h1, _log = ptz.ref_battle_turns(ptz.ref_battle_seed(s1, s2, bid), 0, bid, effA, effB)
         assert "ok" in call("resolve_battle", [bid], None, B)
         assert rd(ptz.WW, bid) == (pa if a_wins else pb), "battle winner differential"
         loser = pb if a_wins else pa
@@ -1019,11 +1050,12 @@ def t_holdem_full():
     assert "ok" in call("join", [T, G3, alghash.hashn([xb])], 3000, Y)
     assert "revert" in call("join", [T, 999, alghash.hashn([1])], 3000, Y), "one seat per address"
     assert "ok" in call("start", [T], None, H)
-    d0 = rd(hd.TD, T)
-    h0d, h1d = _r.randint(1, 2**60), _r.randint(1, 2**60)
-    st.block_hashes[d0] = h0d; st.block_hashes[d0 + 1] = h1d
+    d0, tg = rd(hd.TD, T), rd(hd.TG, T)
+    assert tg == 100 // 60 + 2, "the deal pins the beacon epoch two ahead"
+    hbc = _r.randint(1, 2**60)
+    st.beacons[tg] = hbc                                     # hole cards draw from BEACON(tg)
     assert "revert" in call("bet", [G1, 100], None, H), "no betting before the shuffle"
-    st.cursor = d0 + hd.F0 + 1
+    st.cursor = tg * 60 + 1
     assert "ok" in call("bet", [G1, 500], None, H)
     assert "ok" in call("bet", [G2, 500], None, X)
     assert "ok" in call("bet", [G3, 2000], None, Y)          # all-in raise
@@ -1031,24 +1063,23 @@ def t_holdem_full():
     assert "ok" in call("bet", [G1, 1500], None, H)
     assert "ok" in call("bet", [G2, 1500], None, X)
     assert "ok" in call("close_street", [T], None, H)
-    cs = [rd(hd.SCL_BASE + k, T) for k in range(1, 5)]
+    sc = [rd(hd.SCL_BASE + k, T) for k in range(1, 5)]
     for k in range(1, 4):
-        c = cs[k - 1]
-        st.block_hashes[c] = _r.randint(1, 2**60); st.block_hashes[c + 1] = _r.randint(1, 2**60)
-        st.cursor = c + 1
+        _b0, cs, opens, pins = hd.timeline_ref(d0, tg, sc)
+        st.beacons[pins[k - 1]] = _r.randint(1, 2**60)       # street k+1's cards: BEACON(p_k)
+        st.cursor = opens[k - 1] + 1
         if k == 3:
             assert "ok" in call("bet", [G1, 1000], None, H)
             assert "revert" in call("close_street", [T], None, H), "a pending call blocks the close"
             assert "ok" in call("bet", [G2, 1000], None, X)
         assert "ok" in call("close_street", [T], None, H)
-        cs = [rd(hd.SCL_BASE + kk, T) for kk in range(1, 5)]
-    c4 = cs[3]
-    st.block_hashes[c4] = _r.randint(1, 2**60); st.block_hashes[c4 + 1] = _r.randint(1, 2**60)
-    st.cursor = c4 + 1
-    board = hd.board_ref(st.block_hashes, cs[0], cs[1], cs[2], T)
+        sc = [rd(hd.SCL_BASE + kk, T) for kk in range(1, 5)]
+    _b0, cs, opens, pins = hd.timeline_ref(d0, tg, sc)
+    st.cursor = cs[3] + 1
+    board = hd.board_ref_beacon(st.beacons, pins[0], pins[1], pins[2], T)
     vals = {}
     for g, (who, x) in ((G1, (H, xh)), (G2, (X, xa)), (G3, (Y, xb))):
-        ref = hd.eval7_ref(hd.hole_ref(h0d, h1d, x) + board)
+        ref = hd.eval7_ref(hd.hole_ref_beacon(hbc, x) + board)
         assert "ok" in call("reveal", [g, x], None, who)
         assert rd(hd.GSC, g) == ref, "showdown hand value differential"
         vals[g] = ref
@@ -1093,7 +1124,8 @@ def t_holdem_open_proves():
 # reverts), so each game gets a bhash-free refund gated on pinned_height + 18000 < cursor. Without it the
 # stake is locked forever and tc>0 pins the table open (the "mists" fund-lock class, mirroring slots.claim /
 # mines.reap). Each test: stake, prove reclaim reverts inside the window, age past the horizon, reclaim,
-# assert refund + accounting cleared + close unblocked. ------------------------------------------------
+# assert the outcome + accounting cleared + close unblocked. dice/roulette (Release B): the timed-out stake goes
+# to the BANK (stays in tp), the player is paid nothing. -------------------------------------------------------
 def _banked_reclaim(mod, betargs, reserve, refund_field="reclaim"):
     st, code, cid, rd = _fresh(mod, deployer=A)
     st.credit_deposit(A, 100_000_000); st.credit_deposit(B, 2_000_000)
@@ -1103,10 +1135,11 @@ def _banked_reclaim(mod, betargs, reserve, refund_field="reclaim"):
     b0 = st.bridge.get(B, 0)
     r = st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "e")
     assert "revert" in str(r).lower(), "reclaim inside the settle window must revert"
-    st.cursor = 102 + 18001                                         # gh was cursor(100)+2; age past horizon
+    st.cursor = rd(mod.GH, betargs[0]) + 18001                       # age gh (the beacon-bound 179) past the window
     st.apply_blob({"op": "call", "contract": cid, "method": refund_field, "args": [betargs[0]]}, B, "r")
-    assert rd(mod.GD, betargs[0]) == 1 and rd(_tf(mod).TC, 3) == 0 and rd(_tf(mod).TP, 3) == 50_000_000
-    assert st.bridge.get(B, 0) == b0 + 100_000, "stake not refunded"
+    # Release B timeout -> bank: the stake stays in the pot, the reservation is released, the player gets nothing
+    assert rd(mod.GD, betargs[0]) == 1 and rd(_tf(mod).TC, 3) == 0 and rd(_tf(mod).TP, 3) == 50_100_000
+    assert rd(mod.GW, betargs[0]) == 0 and st.bridge.get(B, 0) == b0, "a timed-out bet pays the player nothing"
     st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "c")   # tc==0 now unblocks
 
 def t_dice_reclaim():
@@ -1125,16 +1158,21 @@ def t_blackjack_reap():
     assert "revert" in str(r).lower(), "reap inside the window must revert"
     st.cursor = 100 + 18001                                          # age ge past the horizon
     st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [88]}, B, "r")
-    assert rd(bj.GD, 88) == 1 and rd(bj.TC, 3) == 0 and rd(bj.TP, 3) == 50_000_000
-    assert st.bridge.get(B, 0) == b0 + 100_000, "stake not refunded"
+    # the timeout resolves to the bank: the stake stays in the pot (tp) and joins the bankroll (tk)
+    assert rd(bj.GD, 88) == 1 and rd(bj.TC, 3) == 0 and rd(bj.TP, 3) == 50_000_000 + 100_000
+    assert rd(bj.TK, 3) == 50_000_000 + 100_000 and st.bridge.get(B, 0) == b0, "a timed-out hand pays the player nothing"
     st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "c")
 
 def t_coinflip_reclaim():
     st, code, cid, rd = _fresh(coinflip)
     st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
     G = 12345
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 500}, A, "1")
-    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 500}, B, "2")
+    # a game the PRE-commit-reveal code opened + joined (md == 0, sh = join cursor + 2): reclaim is its escape
+    sl = st.contracts[cid]["storage"].setdefault("slots", {})
+    S = lambda f: str(f * (1 << 32) + G)
+    sl[S(1)] = 2; sl[S(2)] = 500; sl[S(3)] = 1000; sl[S(7)] = 102
+    sl[S(4)] = runtimes.zkvm_addr_digest(A); sl[S(5)] = runtimes.zkvm_addr_digest(B)
+    st.bridge[A] -= 500; st.bridge[B] -= 500; st.bridge[cid] = st.bridge.get(cid, 0) + 1000
     a0, b0 = st.bridge.get(A, 0), st.bridge.get(B, 0)
     r = st.apply_blob({"op": "call", "contract": cid, "method": "reclaim", "args": [G]}, A, "e")
     assert "revert" in str(r).lower(), "reclaim inside the window must revert"
@@ -1235,13 +1273,11 @@ def t_blackjack_pot_tracks_escrow():
         st.cursor += 3
         r = st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 200_000}, B, f"d{g}")
         if "revert" in str(r).lower(): continue
-        for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0xABCD * (g + 1) + h
-        st.cursor += 4
+        gb = rd(bj.GB, g); st.beacons[gb] = 0xABCD * (g + 1) + gb; st.cursor = gb * 60
         st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, f"rv{g}")
         if rd(bj.GF, g) == 2:
             st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, f"sd{g}")
-            for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0x1111 * (g + 2) + h
-            st.cursor += 4
+            gb = rd(bj.GB, g); st.beacons[gb] = 0x1111 * (g + 2) + gb; st.cursor = gb * 60
             st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, f"st{g}")
     assert rd(bj.TP, 5) == st.bridge.get(cid, 0), \
         f"pot {rd(bj.TP, 5)} drifted from escrow {st.bridge.get(cid, 0)}"
@@ -1250,19 +1286,20 @@ def t_blackjack_pot_tracks_escrow():
     assert st.bridge.get(cid, 0) == 0, "closing the only table must drain the escrow exactly"
 
 def t_blackjack_reap_forfeits_a_player_stall():
-    """Who gets the stake depends on who stalled.
+    """The timeout resolves to the bank in EVERY phase.
 
-    At gf==2 the hand waits on the PLAYER and the bank has no resolution path at all, so a blanket refund
-    would be a free option: deal, reveal, see both your cards and the up-card, then abandon every bad hand
-    and reap the stake back. That phase forfeits; a hand waiting on a pruned block hash still refunds.
+    At gf==2 the hand waits on the PLAYER and the bank has no resolution path at all, so a refund would be a free
+    option: deal, reveal, see both your cards and the up-card, then abandon every bad hand and reap the stake back.
+    A hand still awaiting its reveal resolves the same way — reveal is permissionless and its beacon outlives the
+    window, so the player had 18000 blocks to land it. (tests/test_blackjack_settles_from_the_beacon_and_times_out_
+    to_the_bank.py covers phases 1-4.)
     """
     st, code, cid, rd = _fresh(bj, deployer=A)
     st.credit_deposit(A, 500_000_000); st.credit_deposit(B, 50_000_000)
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 100_000_000}, A, "o")
     st.cursor += 3
     st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [900, 5], "value": 1_000_000}, B, "d")
-    for h in (st.cursor + 2, st.cursor + 3): st.block_hashes[h] = 0x777 * h
-    st.cursor += 4
+    gb = rd(bj.GB, 900); st.beacons[gb] = 0x777 * gb; st.cursor = gb * 60
     st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [900]}, B, "rv")
     assert rd(bj.GF, 900) == 2, "expected the hand to be waiting on the player"
     b0 = st.bridge.get(B, 0)
@@ -1270,13 +1307,14 @@ def t_blackjack_reap_forfeits_a_player_stall():
     st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [900]}, B, "rp")
     assert st.bridge.get(B, 0) == b0, "a player who abandoned their own turn must forfeit, not be refunded"
     assert rd(bj.TC, 5) == 0 and rd(bj.GD, 900) == 1, "the cover must still be released and the hand closed"
-    # but a hand stranded on a pruned hash (still awaiting reveal) is nobody's fault — refund
+    # a hand nobody revealed resolves to the bank too
     st.cursor += 3
     st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [901, 5], "value": 1_000_000}, B, "d2")
     b1 = st.bridge.get(B, 0)
     st.cursor = rd(bj.GE, 901) + 18001
     st.apply_blob({"op": "call", "contract": cid, "method": "reap", "args": [901]}, B, "rp2")
-    assert st.bridge.get(B, 0) == b1 + 1_000_000, "a hash-stranded hand must refund the stake"
+    assert st.bridge.get(B, 0) == b1 and rd(bj.GD, 901) == 1, "an unrevealed hand times out to the bank"
+    assert rd(bj.TP, 5) == st.bridge.get(cid, 0), "the pot still equals the escrow"
 
 def t_farkle_reclaim():
     st, code, cid, rd = _fresh(fk)
@@ -1335,15 +1373,15 @@ if __name__ == "__main__":
     check("holdem: layered side pots, ties, uncalled bets, fold refunds", t_holdem_sidepots)
     check("holdem: full table-stakes hand, showdown differential, settle", t_holdem_full)
     check("holdem: open proves (representative call)", t_holdem_open_proves)
-    check("dice: horizon reclaim voids a stale bet, refunds, unblocks close", t_dice_reclaim)
-    check("roulette: horizon reclaim voids a stale bet, refunds, unblocks close", t_roulette_reclaim)
-    check("blackjack: horizon reap voids a stale hand, refunds, releases cover", t_blackjack_reap)
+    check("dice: a bet unsettled past its window goes to the bank and unblocks close", t_dice_reclaim)
+    check("roulette: a bet unsettled past its window goes to the bank and unblocks close", t_roulette_reclaim)
+    check("blackjack: horizon reap closes a stale hand for the bank, releases cover", t_blackjack_reap)
     check("coinflip: horizon reclaim refunds both stakes on a stranded flip", t_coinflip_reclaim)
     check("farkle: horizon reclaim refunds each seat's ante on an abandoned table", t_farkle_reclaim)
     check("farkle: settle pays the WINNER, not seat #1's owner (nez clobber)", t_farkle_settle_pays_the_winner)
     check("farkle: a reclaimed seat id is consumed, never recycled with its score", t_farkle_reclaim_consumes_the_seat)
     check("farkle: reclaim spares an active seat; a decided table takes no antes", t_farkle_reclaim_spares_an_active_seat)
     check("blackjack: the pot never drifts above escrow (close stays solvent)", t_blackjack_pot_tracks_escrow)
-    check("blackjack: reap forfeits a player's own stall, refunds a hash strand", t_blackjack_reap_forfeits_a_player_stall)
+    check("blackjack: reap resolves to the bank in every phase", t_blackjack_reap_forfeits_a_player_stall)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

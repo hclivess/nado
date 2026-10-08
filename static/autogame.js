@@ -16,13 +16,13 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=b74f351b";
+} from "./nadodapp.js?v=42226f9f";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=a6a3eead";
 import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=a6a3eead";
-import { createDaily } from "./autogame-dailyui.js?v=91b3fa6c";
-import * as D from "./autogame-daily.js?v=2ae7a9b9";
+import { createDaily } from "./autogame-dailyui.js?v=b3ec53ec";
+import * as D from "./autogame-daily.js?v=e4cbf510";
 import { createAudio } from "./autogame-audio.js?v=afd7538c";
 
 const CID = "f6ccb08e979e1989516f35c4bfb7dea1";          // execnode/games/autogame.py (zkVM) — set by the deploy script

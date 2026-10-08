@@ -48,7 +48,7 @@ K = load_keys(); K["address"] = make_address(K["public_key"])
 # game -> (method, args, value), from each contract's shipped ABI. A drift between this table and the
 # deployed ABI is itself a finding: it means the frontend is calling something the contract does not have.
 CALLS = {
-    "coinflip":   lambda i: ("open", [i], S),
+    "coinflip":   lambda i: ("open", [i, 12345678], S),   # (gameId, commitment): a zero commitment reverts
     "dice":       lambda i: ("open", [i], S * 20),
     "roulette":   lambda i: ("open", [i], S * 20),
     "mines":      lambda i: ("open", [i], S * 20),

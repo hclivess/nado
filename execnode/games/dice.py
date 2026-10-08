@@ -1,20 +1,24 @@
 """
 Dice — zkVM port (doc/zk-execution-proofs.md). A banked roll-under game: a banker opens a table with a
 bankroll, players bet a stake on "roll under target" (2..98) for a 99/target payout (1% house edge), and
-each bet settles from L1 BLOCKHASH randomness. Ported from the deleted stackvm contract with identical
-economics, over the composite-integer slot model (slot = field*2^32 + id).
+each bet settles from the epoch BEACON its seat was bound to at bet time (_lib.beacon_bind / seed_q; bets placed
+before that rule keep the L1 BLOCKHASH rule). A bet not settled within 18,000 blocks of gh goes to the bank.
+Ported from the deleted stackvm contract with identical economics, over the composite-integer slot model (slot = field*2^32 + id).
 
 Table fields:  1 ta(banker)  2 tk(bankroll)  3 tp(pot=banker withdrawable)  4 tc(committed/at-risk)  6 tz(closed)
 Game fields:   7 gg(table)  8 gm(target)  9 gs(stake)  10 ga(player)  11 gh(settle height)  12 gr(roll)
-               13 gw(win)  14 gd(settled)
+               13 gw(win)  14 gd(settled)  17 gb(beacon epoch; 0 = legacy block-hash seat)
 Index:  slot 0 = table count, field 15 = table list;  slot 1 = game count, field 16 = game list.
 
-Methods: open(t)[bankroll] · bet(g,t,target)[stake] · settle(g) · close(t) · fund(t)[value].
+Methods: open(t)[bankroll] · bet(g,t,target)[stake] · settle(g) · reclaim(g) · close(t) · fund(t)[value].
 """
 from execnode import zkvmasm
 from execnode.games import _lib
 
 GG, GM, GS, GA, GH, GR, GW, GD = 7, 8, 9, 10, 11, 12, 13, 14
+# 17 gb (beacon epoch): added at an unused field for the in-place upgrade. gb == 0 marks a bet placed before the
+# beacon rule, which keeps settling from BHASH(gh) + BHASH(gh + 1) (_lib.seed_q).
+GB = 17
 TLIST, GLIST = 15, 16
 
 SRC = {
@@ -75,11 +79,7 @@ SRC = {
         ctx r6 caller
         slot r4 10 r0
         sstore r4 r6
-        slot r4 11 r0
-        ctx r6 cursor
-        movi r5 2
-        add r6 r5
-        sstore r4 r6
+""" + _lib.beacon_bind(GH, GB) + """
         movi r4 1
         sload r5 r4
         slot r6 16 r5
@@ -106,13 +106,7 @@ SRC = {
         lt r6 r5
         notb r6
         require r6
-        slot r4 11 r0
-        sload r2 r4
-        bhash r3 r2
-        movi r6 1
-        add r2 r6
-        bhash r5 r2
-        add r3 r5
+""" + _lib.seed_q(GH, GB) + """
         add r3 r0
         hash r3 <- r3
         lo32 r3
@@ -162,11 +156,14 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
-    # reclaim(g): a bet whose settle height has aged past the block-hash horizon can NEVER settle — bhash(gh)
-    # reverts once the height leaves state's ~20000 ring (execnode/state.py). Rather than lock the player's
-    # stake and pin tc>0 forever (which also blocks close_table), void the bet: refund the stake, reverse the
-    # pot credit and the at-risk reservation, mark it settled. Permissionless and bhash-free, mirroring
-    # slots.claim / mines.reap. Gated on gh + 18000 < cursor so a live bet inside the settle window is untouched.
+    # reclaim(g): TIMEOUT -> BANK. A bet nobody settled within its window resolves in favour of the bank: the
+    # stake stays in the pot (tp, credited at bet time), the at-risk reservation stake*99//target is released from
+    # tc, the bet is marked settled with no win (gw stays 0) and nobody is paid. Permissionless and randomness-free,
+    # mirroring blackjack.reap / mines.reap, so tc can never be pinned >0 forever (which would block close_table).
+    # INVARIANT: a winning bet is never timed out to the bank while it can still settle, because reclaim requires
+    # gh + 18000 < cursor and settle (permissionless) is open from gh + 1 for the whole 18,000-block window.
+    # INVARIANT: the table balances after a reclaim, because bet added stake to tp and stake*99//target to tc, and
+    # reclaim removes exactly that tc term and leaves tp alone — identical to a settled losing roll.
     "reclaim": """
         slot r4 7 r0
         sload r1 r4
@@ -183,15 +180,6 @@ SRC = {
         ctx r6 cursor
         lt r5 r6
         require r5
-        slot r4 9 r0
-        sload r3 r4
-        slot r4 10 r0
-        sload r6 r4
-        pay r6 r3
-        slot r4 3 r1
-        sload r5 r4
-        sub r5 r3
-        sstore r4 r5
         slot r4 9 r0
         sload r3 r4
         movi r6 99
@@ -224,7 +212,8 @@ ABI = {
                  "gg": {"field": GG, "index": "games"}, "gm": {"field": GM, "index": "games"},
                  "gs": {"field": GS, "index": "games"}, "ga": {"field": GA, "index": "games"},
                  "gh": {"field": GH, "index": "games"}, "gr": {"field": GR, "index": "games"},
-                 "gw": {"field": GW, "index": "games"}, "gd": {"field": GD, "index": "games"}},
+                 "gw": {"field": GW, "index": "games"}, "gd": {"field": GD, "index": "games"},
+                 "gb": {"field": GB, "index": "games"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "games": {"cnt": 1, "list": GLIST}},
         "addr": ["ta", "ga"],
     },

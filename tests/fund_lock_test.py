@@ -76,8 +76,8 @@ def t_holdem_reclaim_without_host():
     escrowed = st.bridge[cid]
     assert escrowed == 2 * BUYIN, f"contract holds both buy-ins, got {escrowed}"
 
-    # timeline: b0 = td+F0, then four unforced streets at +S each -> c4 = td+F0+4S
-    c4 = td + hd.F0 + 4 * hd.S
+    # timeline: four unforced streets on the beacon schedule (hd.timeline_ref mirrors the contract's _closes)
+    c4 = hd.timeline_ref(td, rd(hd.TG, T))[1][3]
     st.cursor = c4 + hd.R + 1                      # showdown window fully lapsed
     assert rd(hd.TB, T) == 0, "nobody revealed"
 
@@ -105,7 +105,8 @@ def t_holdem_reclaim_refunds_unequal_bets():
     call(C, "join", [T, GC_, 0xCCCC], BUYIN)
     call(A, "start", [T])
     td = rd(hd.TD, T)
-    st.cursor = td + hd.F0                         # first betting street is open
+    b0, cs_, _a, _p = hd.timeline_ref(td, rd(hd.TG, T))
+    st.cursor = b0                                 # first betting street is open
     call(A, "bet", [GA_, 300])
     call(B, "bet", [GB_, 300])
     call(C, "bet", [GC_, 50])                      # C is short and never covers
@@ -113,7 +114,7 @@ def t_holdem_reclaim_refunds_unequal_bets():
     assert pot == 3 * ANTE + 650, f"pot tracks every contribution, got {pot}"
     assert st.bridge[cid] == 3 * BUYIN, "escrow is still the three buy-ins"
 
-    st.cursor = td + hd.F0 + 4 * hd.S + hd.R + 1
+    st.cursor = cs_[3] + hd.R + 1
     assert rd(hd.TB, T) == 0, "nobody revealed"
     call(C, "reclaim", [T])
     assert rd(hd.TZ, T) == 1 and rd(hd.TP, T) == 0
@@ -130,7 +131,7 @@ def t_holdem_reclaim_gates_still_hold():
     call(B, "join", [T, GB_, 0xBBBB], 1000)
     call(A, "start", [T])
     td = rd(hd.TD, T)
-    c4 = td + hd.F0 + 4 * hd.S
+    c4 = hd.timeline_ref(td, rd(hd.TG, T))[1][3]
 
     st.cursor = c4 + hd.R - 1                      # window not yet closed (opens AT c4+R, as settle does)
     call(C, "reclaim", [T])
@@ -156,7 +157,7 @@ def t_holdem_reclaim_blocked_when_revealed():
     call(A, "start", [T])
     st.contracts[cid]["storage"]["slots"][str(hd.TB * (1 << 32) + T)] = 1   # someone showed
     td = rd(hd.TD, T)
-    st.cursor = td + hd.F0 + 4 * hd.S + hd.R + 1
+    st.cursor = hd.timeline_ref(td, rd(hd.TG, T))[1][3] + hd.R + 1
     call(B, "reclaim", [T])
     assert rd(hd.TZ, T) == 0, "reclaim must stay closed once a hand is revealed — settle owns that path"
 

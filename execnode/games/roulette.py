@@ -1,7 +1,9 @@
 """
 Roulette — zkVM port (doc/zk-execution-proofs.md). A banked wheel: a banker opens a table with a bankroll,
-players bet a stake covering a set of the 37 numbers (0..36), and each bet settles from L1 BLOCKHASH
-randomness paying 36/coverage on a hit (single number = 36×). Ported from the deleted stackvm contract.
+players bet a stake covering a set of the 37 numbers (0..36), and each bet settles from the epoch BEACON its
+seat was bound to at bet time (bets placed before that rule keep the L1 BLOCKHASH rule), paying 36/coverage on a
+hit (single number = 36×). The spin is salted with the SEAT (game) id. A bet not settled within 18,000 blocks of
+gh goes to the bank (reclaim). Ported from the deleted stackvm contract.
 
 ARG-PACKING (the >8-arg rework): the old contract took up to 18 number slots as separate args, which
 overflows the zkVM's 8-register arg limit. Here the coverage is a single 37-bit MASK arg (bit n = covering
@@ -9,8 +11,9 @@ number n). The contract counts the bits in-VM (popcount, a bounded loop) for the
 settle extracts bit `roll` of the mask with a bounded shift loop — no VM change, and fewer bytes on-chain.
 
 Table fields:  1 ta  2 tk  3 tp  4 tc  6 tz          Game: 7 gg  8 gmask  9 gs  10 ga  11 gh  12 gr  13 gw
-               14 gd  15 gc(coverage count).   Index: slot 0 = table count / field 16 list; slot 1 = game / 17.
-Methods: open(t)[bankroll] · bet(g,t,mask)[stake] · settle(g) · close(t) · fund(t)[value].
+               14 gd  15 gc(coverage count)  18 gb(beacon epoch; 0 = legacy block-hash seat).
+Index: slot 0 = table count / field 16 list; slot 1 = game / 17.
+Methods: open(t)[bankroll] · bet(g,t,mask)[stake] · settle(g) · reclaim(g) · close(t) · fund(t)[value].
 """
 from execnode import zkvmasm
 from execnode.games import _lib
@@ -18,6 +21,9 @@ from execnode.games import _lib
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 GG, GMASK, GS, GA, GH, GR, GW, GD, GC = 7, 8, 9, 10, 11, 12, 13, 14, 15
 TLIST, GLIST = 16, 17
+# 18 gb (beacon epoch): added at an unused field for the in-place upgrade. gb == 0 marks a bet placed before the
+# beacon rule, which keeps settling from BHASH(gh) + BHASH(gh + 1) (_lib.seed_q).
+GB = 18
 
 SRC = {
     "open": _lib.open_table(TLIST),
@@ -91,11 +97,7 @@ SRC = {
         ctx r6 caller
         slot r4 10 r0
         sstore r4 r6
-        slot r4 11 r0
-        ctx r6 cursor
-        movi r5 2
-        add r6 r5
-        sstore r4 r6
+""" + _lib.beacon_bind(GH, GB) + """
         movi r4 1
         sload r5 r4
         slot r6 17 r5
@@ -122,13 +124,7 @@ SRC = {
         lt r6 r5
         notb r6
         require r6
-        slot r4 11 r0
-        sload r2 r4
-        bhash r3 r2
-        movi r6 1
-        add r2 r6
-        bhash r5 r2
-        add r3 r5
+""" + _lib.seed_q(GH, GB) + """
         add r3 r0
         hash r3 <- r3
         lo32 r3
@@ -191,10 +187,14 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
-    # reclaim(g): a bet whose settle height has aged past the block-hash horizon can NEVER settle — bhash(gh)
-    # reverts once the height leaves state's ~20000 ring. Void it: refund the stake, reverse the pot credit and
-    # the at-risk reservation (stake*36//gc), mark it settled. Permissionless + bhash-free, gated on gh+18000 <
-    # cursor so a live bet is untouched. Mirror of dice.reclaim; the reservation divisor is gc (slot 15), not target.
+    # reclaim(g): TIMEOUT -> BANK. A bet nobody settled within its window resolves in favour of the bank: the
+    # stake stays in the pot (tp), the at-risk reservation stake*36//gc is released from tc, the bet is marked
+    # settled with no win and nobody is paid. Permissionless + randomness-free. Mirror of dice.reclaim; the
+    # reservation divisor is gc (slot 15), not target.
+    # INVARIANT: a winning bet is never timed out to the bank while it can still settle, because reclaim requires
+    # gh + 18000 < cursor and settle (permissionless) is open from gh + 1 for the whole 18,000-block window.
+    # INVARIANT: the table balances after a reclaim, because bet added stake to tp and stake*36//gc to tc, and
+    # reclaim removes exactly that tc term and leaves tp alone — identical to a settled losing spin.
     "reclaim": """
         slot r4 7 r0
         sload r1 r4
@@ -211,15 +211,6 @@ SRC = {
         ctx r6 cursor
         lt r5 r6
         require r5
-        slot r4 9 r0
-        sload r3 r4
-        slot r4 10 r0
-        sload r6 r4
-        pay r6 r3
-        slot r4 3 r1
-        sload r5 r4
-        sub r5 r3
-        sstore r4 r5
         slot r4 9 r0
         sload r3 r4
         movi r6 36
@@ -253,7 +244,7 @@ ABI = {
                  "gs": {"field": GS, "index": "games"}, "ga": {"field": GA, "index": "games"},
                  "gh": {"field": GH, "index": "games"}, "gr": {"field": GR, "index": "games"},
                  "gw": {"field": GW, "index": "games"}, "gd": {"field": GD, "index": "games"},
-                 "gc": {"field": GC, "index": "games"}},
+                 "gc": {"field": GC, "index": "games"}, "gb": {"field": GB, "index": "games"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "games": {"cnt": 1, "list": GLIST}},
         "addr": ["ta", "ga"],
     },

@@ -1,12 +1,15 @@
 """
 Mines — zkVM port (doc/zk-execution-proofs.md). Banked provably-fair mines: a player bets on a machine that
 hides `n` mines among 25 tiles, blind-picks tiles in rounds (each safe reveal multiplies the payout), then
-`resolve` draws the mine layout from L1 BLOCKHASH and checks the round's picks. Cash out any time before a
-resolve; a stalled game is reaped. Ported from the deleted stackvm contract with identical math (multiplier
+`resolve` draws the mine layout from the epoch BEACON the round was bound to at pick time (_lib.beacon_bind /
+seed_q; a round picked before that rule keeps the L1 BLOCKHASH rule) and checks the round's picks. Cash out any
+time no round is pending; a game idle for 18,000 blocks is reaped TO THE BANK (the stake stays in the pot, nobody
+is paid). Ported from the deleted stackvm contract with identical math (multiplier
 uses a 1% edge: each of the `count` reveals multiplies by rem·99 / ((rem−n)·100), rem = tiles left).
 
-Table: 1 ta 2 tk 3 tp 4 tc 6 tz 15 tn 16 tx.  Game: 7 gg 9 gs 10 ga 11 gh 14 gd 17 gn(mines) 18 gv(value)
-  19 gp(picked) 20 gc(round count) 21 gq(potential) 22 gb(hit) 23 ge(last activity).  Scratch field 30.
+Table: 1 ta 2 tk 3 tp 4 tc 6 tz 15 tn 16 tx.  Game: 7 gg 9 gs 10 ga 11 gh 12 gb(beacon epoch; 0 = legacy
+  block-hash round) 14 gd(1 settled, 2 timed out to the bank) 17 gn(mines) 18 gv(value) 19 gp(picked)
+  20 gc(round count) 21 gq(potential) 22 gx(hit) 23 ge(last activity).  Scratch field 30.
 Index: slot0/field24 tables, slot1/25 games.
 Methods: open(t)[bank] · bet(g,t,n)[stake] · pick(g,count) · resolve(g) · cashout(g) · reap(g) · fund/close.
 """
@@ -15,7 +18,12 @@ from execnode.games import _lib
 from execnode.stark import alghash, field as F
 
 TA, TK, TP, TC, TZ, TN, TX = 1, 2, 3, 4, 6, 15, 16
-GG, GS, GA, GH, GD, GN, GV, GP, GC, GQ, GB, GE = 7, 9, 10, 11, 14, 17, 18, 19, 20, 21, 22, 23
+GG, GS, GA, GH, GD, GN, GV, GP, GC, GQ, GX, GE = 7, 9, 10, 11, 14, 17, 18, 19, 20, 21, 22, 23
+# 12 gb (beacon epoch of the pending round): added at an unused field for the in-place upgrade. gb == 0 marks a
+# round picked before the beacon rule, which keeps resolving from BHASH(gh) + BHASH(gh + 1) (_lib.seed_q). The
+# hit index (field 22) was exposed as "gb" before; its view name is now "gx" so "gb" means the beacon epoch in every
+# banked game (bankedgame.js reads it).
+GB = 12
 SC = 30
 TLIST, GLIST = 24, 25
 
@@ -29,9 +37,17 @@ def multiplier(gv, gp, gn, count):
     return nv
 
 
+def round_seed(g, beacon=None, bh0=None, bh1=None):
+    """In-clear q for resolve_hit: BEACON(gb) + g for a beacon round, BHASH(gh) + BHASH(gh+1) + g for a round
+    picked before the beacon rule (gb == 0) — what RESOLVE stores at scratch 2 via _lib.seed_q + `add r3 r0`."""
+    base = beacon % F.P if beacon is not None else (bh0 % F.P + bh1 % F.P)
+    return (base + g) % F.P
+
+
 def resolve_hit(q, gp, gn, gc):
     """In-clear: b = the 1-based pick index that hit a mine among this round's gc picks, else 0 (stops at the
-    first hit). Mine at pick i iff alghash([q + gp + i]) % (25 - gp - i) < gn."""
+    first hit). Mine at pick i iff alghash([q + gp + i]) % (25 - gp - i) < gn. q = round_seed(...): the draws of
+    one round are kept distinct by the pick index gp + i, exactly as before the beacon rule."""
     b = 0
     for i in range(gc):
         if b:
@@ -46,6 +62,10 @@ def _sc(i):
     return (SC << 32) + i
 
 
+# pick(g, count): lock `count` blind reveals and bind the round to its beacon epoch (_lib.beacon_bind: gb =
+# epoch(cursor) + 2, gh = gb * EPOCH_LENGTH - 1). Every pick re-binds, so each round draws from its own epoch.
+# INVARIANT: a round's layout is unknown when it is picked, because BEACON(gb) is revealed during epoch gb - 1, after
+# the pick has landed in epoch gb - 2, and resolve's "cursor >= gh + 1" gate is exactly "epoch gb has begun".
 PICK = f"""
     slot r4 7 r0
     sload r5 r4
@@ -141,18 +161,18 @@ pk_done:
     sstore r4 r5
     slot r4 20 r0
     sstore r4 r1
-    slot r4 11 r0
-    ctx r5 cursor
-    movi r6 2
-    add r5 r6
-    sstore r4 r5
+""" + _lib.beacon_bind(GH, GB) + """
     slot r4 23 r0
     ctx r5 cursor
     sstore r4 r5
     ret r0
 """
 
-RESOLVE = f"""
+# resolve(g): q = seed_q (BEACON(gb), or BHASH(gh) + BHASH(gh + 1) for a round picked before the beacon rule) + g;
+# draw i of the round is alghash(q + gp + i) % (25 - gp - i) < gn (reference: round_seed / resolve_hit).
+# INVARIANT: a round picked before the upgrade still resolves on its old rule, because it carries gb == 0 and seed_q
+# falls back to the block-hash seed exactly as the old code computed it.
+RESOLVE = """
     slot r4 7 r0
     sload r1 r4
     require r1
@@ -170,13 +190,7 @@ RESOLVE = f"""
     lt r6 r5
     notb r6
     require r6
-    slot r4 11 r0
-    sload r2 r4
-    bhash r3 r2
-    movi r6 1
-    add r2 r6
-    bhash r5 r2
-    add r3 r5
+""" + _lib.seed_q(GH, GB) + f"""
     add r3 r0
     movi r4 {_sc(2)}
     sstore r4 r3
@@ -398,7 +412,16 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
-    # reap(g): a long-stalled game refunds the current value to the player
+    # reap(g): TIMEOUT -> BANK. A game idle for 18,000 blocks (ge = its last bet/pick/resolve) resolves in favour of
+    # the bank, exactly like a bust: the stake stays in the pot (tp, credited at bet time) and joins the bankroll
+    # (tk += gs), the at-risk reservation is released (tc -= gq while a round is pending, gv otherwise), the game is
+    # marked gd = 2 (timed out) with no hit, and nobody is paid. Permissionless and randomness-free, so tc can never
+    # be pinned >0 forever (which would block close_table).
+    # INVARIANT: a player is never timed out while they can still act, because reap requires ge + 18000 < cursor,
+    # and cashout (no round pending) and resolve (permissionless, open from gh + 1 <= ge + 2 * EPOCH_LENGTH) stay
+    # available for that whole window.
+    # INVARIANT: the table balances after a reap, because bet/pick added gs to tp and the current exposure to tc,
+    # and reap removes exactly that tc term and leaves tp alone — identical to the resolve `lost` path.
     "reap": """
         slot r4 7 r0
         sload r1 r4
@@ -417,13 +440,6 @@ SRC = {
         require r5
         slot r4 18 r0
         sload r5 r4
-        slot r4 10 r0
-        sload r6 r4
-        pay r6 r5
-        slot r4 3 r1
-        sload r6 r4
-        sub r6 r5
-        sstore r4 r6
         slot r4 11 r0
         sload r6 r4
         nez r6
@@ -436,18 +452,14 @@ SRC = {
         sload r6 r4
         sub r6 r5
         sstore r4 r6
+        slot r4 9 r0
+        sload r5 r4
         slot r4 2 r1
         sload r6 r4
-        slot r4 9 r0
-        sload r3 r4
-        add r6 r3
-        slot r4 18 r0
-        sload r3 r4
-        sub r6 r3
-        slot r4 2 r1
+        add r6 r5
         sstore r4 r6
         slot r4 14 r0
-        movi r5 1
+        movi r5 2
         sstore r4 r5
         ret r0
     """,
@@ -471,7 +483,8 @@ ABI = {
                  "gd": {"field": GD, "index": "games"}, "gn": {"field": GN, "index": "games"},
                  "gv": {"field": GV, "index": "games"}, "gp": {"field": GP, "index": "games"},
                  "gc": {"field": GC, "index": "games"}, "gq": {"field": GQ, "index": "games"},
-                 "gb": {"field": GB, "index": "games"}, "ge": {"field": GE, "index": "games"}},
+                 "gx": {"field": GX, "index": "games"}, "ge": {"field": GE, "index": "games"},
+                 "gb": {"field": GB, "index": "games"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "games": {"cnt": 1, "list": GLIST}},
         "addr": ["ta", "ga"],
     },

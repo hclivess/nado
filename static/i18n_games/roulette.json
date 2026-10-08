@@ -47,9 +47,9 @@
   "roul.scanHint": "or scan the code to bet at this table",
   "roul.qrUnavail": "QR generator unavailable — copy the link above.",
   "roul.fairHead": "Provably fair — no house spin, no secrets",
-  "roul.sub": "A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. Each table <b>spins itself automatically every ~2 minutes</b> — nobody has to reveal or spin. Bet on any numbers; the result is fixed by a <b>future L1 block hash</b> nobody can predict while betting is open, so the wheel is honest by construction. A win pays the true <span class=\"mono\">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.",
+  "roul.sub": "A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. Each table <b>spins itself automatically every beacon epoch (~6 minutes)</b> — nobody has to reveal or spin. Bet on any numbers; the result is fixed by a <b>future epoch beacon</b> nobody can predict while betting is open, so the wheel is honest by construction. A win pays the true <span class=\"mono\">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.",
   "roul.walletHelp": "Signed by your <a href=\"https://get.nadochain.com/\">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Deposit NADO to play, withdraw winnings any time.",
-  "roul.fairBody": "One shared wheel per table, resolved entirely by the chain: <br>• <b>Every ~2 minutes the wheel spins itself.</b> Each bet is bound to a future settle block; the winning number is <span class=\"mono\">HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37</span>. Those block hashes don't exist yet when you bet, so <b>nobody — not you, not the bank, not the block producer — can know or steer the result</b> while betting is open. Two consecutive blocks are mixed so no single collector can grind it. <br>• <b>No one has to spin.</b> There's no reveal and no secret. Once your settle block is finalized, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can never rob you, because there's nothing for the bank to withhold. <br>• <b>A win pays the true <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Losing stakes fold into the bankroll, so the table keeps spinning round after round. <br>• <b>House money is withdrawable.</b> Each bank escrows only its own table's bankroll and reclaims it (± results) with one close — no shared pool, no trust.",
+  "roul.fairBody": "Every seat's spin is resolved entirely by the chain: <br>• <b>Every beacon epoch (~6 minutes) the wheel spins itself.</b> Each bet is bound to a future epoch beacon; its winning number is <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. The beacon mixes the secrets revealed on L1 during that epoch and doesn't exist yet when you bet, so <b>nobody — not you, not the bank, not a block producer — can know or steer the result</b> while betting is open. <br>• <b>No one has to spin.</b> There's no reveal and no secret. Once the beacon is final, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can never rob you. <br>• <b>Collect within 18,000 blocks (~1.5 days).</b> A seat nobody settles in that window goes to the bank; this page collects a win for you while it is open. <br>• <b>A win pays the true <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Losing stakes fold into the bankroll, so the table keeps spinning round after round. <br>• <b>House money is withdrawable.</b> Each bank escrows only its own table's bankroll and reclaims it (± results) with one close — no shared pool, no trust. Bets placed before the beacon upgrade keep their block-hash result.",
   "roul.footer": "Runs on <a href=\"https://get.nadochain.com/\">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes). <a href=\"https://get.nadochain.com/rollup\">See the contract</a>.",
   "roul.tableIdPh": "table ID",
   "roul.bankrollPh": "bankroll (NADO)",
@@ -114,7 +114,10 @@
   "roul.yourTablesLegend": "· 🏦 you bank · 🎯 you bet",
   "roul.openForBets": "🟢 open for bets",
   "roul.showMore": "Show more",
-  "roul.showMoreN": "Show more ({n} more)"
+  "roul.showMoreN": "Show more ({n} more)",
+  "roul.callReclaim": "release timed-out seat #{g} to the bank",
+  "roul.releaseSeat": "↩ Release timed-out seat #{g} ({amt}) to the bank",
+  "roul.timedOut": "timed out — stake goes to the bank"
  },
  "cs": {
   "roul.walletHead": "Peněženka",
@@ -164,9 +167,9 @@
   "roul.scanHint": "nebo naskenujte kód a vsaďte u tohoto stolu",
   "roul.qrUnavail": "Generátor QR není dostupný — zkopírujte odkaz výše.",
   "roul.fairHead": "Prokazatelně férové — žádné roztočení kasinem, žádná tajemství",
-  "roul.sub": "Prokazatelně férová, peer-banked multiplayerová evropská ruleta na exekuční vrstvě NADO. Každý stůl se automaticky roztočí sám každé ~2 minuty — nikdo nemusí nic odhalovat ani roztáčet. Sázejte na jakákoli čísla; výsledek je pevně dán budoucím hashem bloku L1, který nikdo nedokáže předpovědět, dokud jsou sázky otevřené, takže je kolo poctivé už z podstaty. Výhra vyplácí skutečných 36 ÷ pokrytá čísla (výhoda 2,70 % u jedné nuly). Postkvantová peněženka, bez instalace.",
+  "roul.sub": "Prokazatelně férová, <b>peer-banked multiplayerová</b> evropská ruleta na exekuční vrstvě NADO. Každý stůl se <b>roztočí sám každou epochu beaconu (~6 minut)</b> — nikdo nemusí nic odhalovat ani roztáčet. Sázejte na jakákoli čísla; výsledek určuje <b>budoucí beacon epochy</b>, který nikdo nedokáže předpovědět, dokud jsou sázky otevřené, takže je kolo poctivé už z podstaty. Výhra vyplácí skutečných <span class=\"mono\">36 ÷ numbers-covered</span> (výhoda 2,70 % u jedné nuly). Postkvantová peněženka, bez instalace.",
   "roul.walletHelp": "Podepsáno vaší peněženkou <a href=\"https://get.nadochain.com/\">NADO</a> — potvrďte tam každý krok a vraťte se zpět; váš klíč se nikdy nedotkne tohoto webu. Vložte NADO pro hru, výhry vyberte kdykoli.",
-  "roul.fairBody": "Jedno sdílené kolo na stůl, plně vyřešené řetězcem:\n      • Každé ~2 minuty se kolo roztočí samo. Každá sázka je vázána na budoucí vyrovnávací blok; výherní číslo je HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Tyto hashe bloků při sázení ještě neexistují, takže nikdo — ani vy, ani bank, ani producent bloku — nemůže znát ani ovlivnit výsledek, dokud jsou sázky otevřené. Míchají se dva po sobě jdoucí bloky, aby žádný jediný těžař nemohl výsledek vydolovat.\n      • Nikdo nemusí roztáčet. Není žádné odhalení a žádné tajemství. Jakmile je váš vyrovnávací blok finalizován, kdokoli může vaše místo vyrovnat a řetězec výhru vyplatí automaticky — zdržující se bank vás nikdy nemůže okrást, protože nemá co zadržovat.\n      • Výhra vyplácí skutečných 36 ÷ pokrytá čísla. Prohrané sázky se přelévají do bankrollu, takže se stůl točí kolo za kolem.\n      • Peníze kasina jsou vybíratelné. Každý bank drží v úschově pouze bankroll svého vlastního stolu a získává jej zpět (± výsledky) jedním uzavřením — žádný sdílený pool, žádná důvěra.",
+  "roul.fairBody": "Točení každého místa vyřeší výhradně řetězec: <br>• <b>Každou epochu beaconu (~6 minut) se kolo roztočí samo.</b> Každá sázka je vázána na budoucí beacon epochy; její výherní číslo je <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Beacon mísí tajemství odhalená na L1 během dané epochy a při sázce ještě neexistuje, takže <b>nikdo — ani vy, ani bank, ani producent bloku — nemůže znát ani ovlivnit výsledek</b>, dokud jsou sázky otevřené. <br>• <b>Nikdo nemusí roztáčet.</b> Žádné odhalení, žádné tajemství. Jakmile je beacon finální, <b>kdokoli</b> může vaše místo vyrovnat a řetězec výhru vyplatí automaticky — zdržující se bank vás nikdy nemůže okrást. <br>• <b>Vyberte do 18 000 bloků (~1,5 dne).</b> Místo, které v tomto okně nikdo nevyrovná, připadne bance; tato stránka vám výhru vybere, dokud je otevřená. <br>• <b>Výhra vyplácí skutečných <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Prohrané sázky se přelévají do bankrollu, takže se stůl točí kolo za kolem. <br>• <b>Peníze kasina jsou vybíratelné.</b> Každý bank drží v úschově jen bankroll svého stolu a získá jej zpět (± výsledky) jedním uzavřením — žádný sdílený pool, žádná důvěra. Sázky podané před přechodem na beacon si ponechávají výsledek z hashů bloků.",
   "roul.footer": "Běží na <a href=\"https://get.nadochain.com/\">NADO</a> · volání kontraktu jedou po L1 jako uspořádané bloby a aplikují se při finalizaci (několik minut).\n    Viz kontrakt.",
   "roul.tableIdPh": "ID stolu",
   "roul.bankrollPh": "bankroll (NADO)",
@@ -231,7 +234,10 @@
   "roul.yourTablesLegend": "· 🏦 vaše banka · 🎯 vaše sázka",
   "roul.openForBets": "🟢 otevřeno pro sázky",
   "roul.showMore": "Zobrazit více",
-  "roul.showMoreN": "Zobrazit více (ještě {n})"
+  "roul.showMoreN": "Zobrazit více (ještě {n})",
+  "roul.callReclaim": "uvolnit propadlé místo #{g} bance",
+  "roul.releaseSeat": "↩ Uvolnit propadlé místo #{g} ({amt}) bance",
+  "roul.timedOut": "vypršelo — sázka připadá bance"
  },
  "es": {
   "roul.walletHead": "Cartera",
@@ -281,9 +287,9 @@
   "roul.scanHint": "o escanea el código para apostar en esta mesa",
   "roul.qrUnavail": "Generador de QR no disponible — copia el enlace de arriba.",
   "roul.fairHead": "Demostrablemente justo — sin giro de la casa, sin secretos",
-  "roul.sub": "Una ruleta europea multijugador de banca entre pares, demostrablemente justa, en la capa de ejecución de NADO. Cada mesa gira sola automáticamente cada ~2 minutos — nadie tiene que revelar ni girar. Apuesta a cualquier número; el resultado queda fijado por un futuro hash de bloque L1 que nadie puede predecir mientras las apuestas están abiertas, así que la rueda es honesta por construcción. Una victoria paga los verdaderos 36 ÷ números cubiertos (ventaja del 2,70 % con cero único). Cartera poscuántica, sin instalación.",
+  "roul.sub": "Una ruleta europea <b>multijugador de banca entre pares</b>, demostrablemente justa, en la capa de ejecución de NADO. Cada mesa <b>gira sola en cada época del beacon (~6 minutos)</b> — nadie tiene que revelar ni girar. Apuesta a cualquier número; el resultado lo fija un <b>beacon de época futuro</b> que nadie puede predecir mientras las apuestas están abiertas, así que la rueda es honesta por construcción. Una victoria paga los verdaderos <span class=\"mono\">36 ÷ numbers-covered</span> (ventaja del 2,70 % con cero único). Cartera poscuántica, sin instalación.",
   "roul.walletHelp": "Firmado por tu cartera <a href=\"https://get.nadochain.com/\">NADO</a> — confirma cada movimiento allí y vuelve; tu clave nunca toca este sitio. Deposita NADO para jugar, retira las ganancias cuando quieras.",
-  "roul.fairBody": "Una sola rueda compartida por mesa, resuelta íntegramente por la cadena:\n      • Cada ~2 minutos la rueda gira sola. Cada apuesta se vincula a un futuro bloque de liquidación; el número ganador es HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Esos hashes de bloque aún no existen cuando apuestas, así que nadie — ni tú, ni la banca, ni el productor del bloque — puede conocer ni dirigir el resultado mientras las apuestas están abiertas. Se mezclan dos bloques consecutivos para que ningún minero por sí solo pueda manipularlo.\n      • Nadie tiene que girar. No hay revelación ni secreto. Una vez finalizado tu bloque de liquidación, cualquiera puede liquidar tu asiento y la cadena paga una victoria automáticamente — una banca que se demora nunca puede robarte, porque no hay nada que la banca pueda retener.\n      • Una victoria paga los verdaderos 36 ÷ números cubiertos. Las apuestas perdidas pasan al bankroll, así que la mesa sigue girando ronda tras ronda.\n      • El dinero de la casa es retirable. Cada banca deposita en garantía solo el bankroll de su propia mesa y lo recupera (± resultados) con un cierre — sin fondo compartido, sin confianza.",
+  "roul.fairBody": "El giro de cada asiento lo resuelve íntegramente la cadena: <br>• <b>En cada época del beacon (~6 minutos) la rueda gira sola.</b> Cada apuesta se vincula a un beacon de época futuro; su número ganador es <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. El beacon mezcla los secretos revelados en L1 durante esa época y aún no existe cuando apuestas, así que <b>nadie — ni tú, ni la banca, ni un productor de bloques — puede conocer ni dirigir el resultado</b> mientras las apuestas están abiertas. <br>• <b>Nadie tiene que girar.</b> No hay revelación ni secreto. Cuando el beacon es final, <b>cualquiera</b> puede liquidar tu asiento y la cadena paga la victoria automáticamente — una banca que se demora nunca puede robarte. <br>• <b>Cobra dentro de 18.000 bloques (~1,5 días).</b> Un asiento que nadie liquida en ese plazo pasa a la banca; esta página cobra tu victoria mientras está abierta. <br>• <b>Una victoria paga los verdaderos <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Las apuestas perdidas pasan al bankroll, así que la mesa sigue girando ronda tras ronda. <br>• <b>El dinero de la casa es retirable.</b> Cada banca deposita solo el bankroll de su propia mesa y lo recupera (± resultados) con un cierre — sin fondo compartido, sin confianza. Las apuestas hechas antes de la actualización al beacon conservan su resultado por hash de bloque.",
   "roul.footer": "Funciona sobre <a href=\"https://get.nadochain.com/\">NADO</a> · las llamadas al contrato viajan por L1 como blobs ordenados y se aplican al finalizar (unos minutos).\n    Ver el contrato.",
   "roul.tableIdPh": "ID de la mesa",
   "roul.bankrollPh": "bankroll (NADO)",
@@ -348,7 +354,10 @@
   "roul.yourTablesLegend": "· 🏦 tú bancas · 🎯 tú apuestas",
   "roul.openForBets": "🟢 abierta a apuestas",
   "roul.showMore": "Mostrar más",
-  "roul.showMoreN": "Mostrar más ({n} más)"
+  "roul.showMoreN": "Mostrar más ({n} más)",
+  "roul.callReclaim": "liberar a la banca el asiento caducado #{g}",
+  "roul.releaseSeat": "↩ Liberar a la banca el asiento caducado #{g} ({amt})",
+  "roul.timedOut": "caducado — la apuesta pasa a la banca"
  },
  "pt": {
   "roul.walletHead": "Carteira",
@@ -398,9 +407,9 @@
   "roul.scanHint": "ou escaneie o código para apostar nesta mesa",
   "roul.qrUnavail": "Gerador de QR indisponível — copie o link acima.",
   "roul.fairHead": "Comprovadamente justo — sem giro da casa, sem segredos",
-  "roul.sub": "Uma roleta europeia multijogador de banca entre pares, comprovadamente justa, na camada de execução da NADO. Cada mesa gira sozinha automaticamente a cada ~2 minutos — ninguém precisa revelar nem girar. Aposte em quaisquer números; o resultado é fixado por um futuro hash de bloco L1 que ninguém pode prever enquanto as apostas estão abertas, então a roda é honesta por construção. Uma vitória paga os verdadeiros 36 ÷ números cobertos (vantagem de 2,70 % com zero único). Carteira pós-quântica, sem instalação.",
+  "roul.sub": "Uma roleta europeia <b>multijogador de banca entre pares</b>, comprovadamente justa, na camada de execução da NADO. Cada mesa <b>gira sozinha a cada época do beacon (~6 minutos)</b> — ninguém precisa revelar nem girar. Aposte em quaisquer números; o resultado é fixado por um <b>beacon de época futuro</b> que ninguém pode prever enquanto as apostas estão abertas, então a roda é honesta por construção. Uma vitória paga os verdadeiros <span class=\"mono\">36 ÷ numbers-covered</span> (vantagem de 2,70 % com zero único). Carteira pós-quântica, sem instalação.",
   "roul.walletHelp": "Assinado pela sua carteira <a href=\"https://get.nadochain.com/\">NADO</a> — confirme cada ação lá e volte; sua chave nunca toca este site. Deposite NADO para jogar, saque os ganhos quando quiser.",
-  "roul.fairBody": "Uma única roda compartilhada por mesa, resolvida inteiramente pela cadeia:\n      • A cada ~2 minutos a roda gira sozinha. Cada aposta é vinculada a um futuro bloco de liquidação; o número vencedor é HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Esses hashes de bloco ainda não existem quando você aposta, então ninguém — nem você, nem a banca, nem o produtor do bloco — pode saber ou direcionar o resultado enquanto as apostas estão abertas. Dois blocos consecutivos são misturados para que nenhum minerador sozinho consiga manipulá-lo.\n      • Ninguém precisa girar. Não há revelação nem segredo. Assim que seu bloco de liquidação é finalizado, qualquer um pode liquidar seu lugar e a cadeia paga uma vitória automaticamente — uma banca que enrola nunca pode roubá-lo, porque não há nada que a banca possa reter.\n      • Uma vitória paga os verdadeiros 36 ÷ números cobertos. As apostas perdidas entram no bankroll, então a mesa continua girando rodada após rodada.\n      • O dinheiro da casa é sacável. Cada banca deposita em garantia apenas o bankroll da própria mesa e o recupera (± resultados) com um fechamento — sem fundo compartilhado, sem confiança.",
+  "roul.fairBody": "O giro de cada lugar é resolvido inteiramente pela cadeia: <br>• <b>A cada época do beacon (~6 minutos) a roda gira sozinha.</b> Cada aposta é vinculada a um beacon de época futuro; seu número vencedor é <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. O beacon mistura os segredos revelados na L1 durante essa época e ainda não existe quando você aposta, então <b>ninguém — nem você, nem a banca, nem um produtor de blocos — pode saber ou direcionar o resultado</b> enquanto as apostas estão abertas. <br>• <b>Ninguém precisa girar.</b> Não há revelação nem segredo. Quando o beacon é final, <b>qualquer um</b> pode liquidar seu lugar e a cadeia paga a vitória automaticamente — uma banca que enrola nunca pode roubá-lo. <br>• <b>Resgate em até 18.000 blocos (~1,5 dia).</b> Um lugar que ninguém liquida nesse prazo vai para a banca; esta página resgata sua vitória enquanto estiver aberta. <br>• <b>Uma vitória paga os verdadeiros <span class=\"mono\">36 ÷ numbers-covered</span>.</b> As apostas perdidas entram no bankroll, então a mesa continua girando rodada após rodada. <br>• <b>O dinheiro da casa é sacável.</b> Cada banca deposita apenas o bankroll da própria mesa e o recupera (± resultados) com um fechamento — sem fundo compartilhado, sem confiança. Apostas feitas antes da atualização para o beacon mantêm o resultado por hash de bloco.",
   "roul.footer": "Roda na <a href=\"https://get.nadochain.com/\">NADO</a> · chamadas de contrato viajam pela L1 como blobs ordenados e aplicam-se na finalização (alguns minutos).\n    Ver o contrato.",
   "roul.tableIdPh": "ID da mesa",
   "roul.bankrollPh": "bankroll (NADO)",
@@ -465,7 +474,10 @@
   "roul.yourTablesLegend": "· 🏦 você banca · 🎯 você aposta",
   "roul.openForBets": "🟢 aberta a apostas",
   "roul.showMore": "Mostrar mais",
-  "roul.showMoreN": "Mostrar mais (mais {n})"
+  "roul.showMoreN": "Mostrar mais (mais {n})",
+  "roul.callReclaim": "liberar para a banca o lugar expirado #{g}",
+  "roul.releaseSeat": "↩ Liberar para a banca o lugar expirado #{g} ({amt})",
+  "roul.timedOut": "expirado — a aposta vai para a banca"
  },
  "fr": {
   "roul.walletHead": "Portefeuille",
@@ -515,9 +527,9 @@
   "roul.scanHint": "ou scannez le code pour miser à cette table",
   "roul.qrUnavail": "Générateur de QR indisponible — copiez le lien ci-dessus.",
   "roul.fairHead": "Prouvablement équitable — pas de tour de la maison, pas de secrets",
-  "roul.sub": "Une roulette européenne multijoueur à banque entre pairs, prouvablement équitable, sur la couche d'exécution NADO. Chaque table tourne d'elle-même automatiquement toutes les ~2 minutes — personne n'a à révéler ni à faire tourner. Misez sur n'importe quels numéros ; le résultat est fixé par un futur hash de bloc L1 que personne ne peut prédire tant que les paris sont ouverts, donc la roue est honnête par construction. Un gain paie les vrais 36 ÷ numéros couverts (avantage de 2,70 % avec zéro unique). Portefeuille post-quantique, sans installation.",
+  "roul.sub": "Une roulette européenne <b>multijoueur à banque entre pairs</b>, prouvablement équitable, sur la couche d'exécution NADO. Chaque table <b>tourne d'elle-même à chaque époque du beacon (~6 minutes)</b> — personne n'a à révéler ni à lancer. Misez sur n'importe quels numéros ; le résultat est fixé par un <b>futur beacon d'époque</b> que personne ne peut prédire tant que les paris sont ouverts, donc la roue est honnête par construction. Un gain paie les vrais <span class=\"mono\">36 ÷ numbers-covered</span> (avantage de 2,70 % avec zéro unique). Portefeuille post-quantique, sans installation.",
   "roul.walletHelp": "Signé par votre portefeuille <a href=\"https://get.nadochain.com/\">NADO</a> — confirmez-y chaque action puis revenez ; votre clé ne touche jamais ce site. Déposez du NADO pour jouer, retirez vos gains quand vous voulez.",
-  "roul.fairBody": "Une seule roue partagée par table, résolue entièrement par la chaîne :\n      • Toutes les ~2 minutes, la roue tourne d'elle-même. Chaque mise est liée à un futur bloc de règlement ; le numéro gagnant est HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Ces hashs de bloc n'existent pas encore quand vous misez, donc personne — ni vous, ni la banque, ni le producteur du bloc — ne peut connaître ou orienter le résultat tant que les paris sont ouverts. Deux blocs consécutifs sont mélangés pour qu'aucun mineur seul ne puisse le forcer.\n      • Personne n'a à faire tourner. Il n'y a ni révélation ni secret. Une fois votre bloc de règlement finalisé, n'importe qui peut régler votre place et la chaîne paie un gain automatiquement — une banque qui traîne ne peut jamais vous voler, car elle n'a rien à retenir.\n      • Un gain paie les vrais 36 ÷ numéros couverts. Les mises perdues rejoignent le bankroll, donc la table continue de tourner tour après tour.\n      • L'argent de la maison est retirable. Chaque banque ne met en séquestre que le bankroll de sa propre table et le récupère (± résultats) d'une seule fermeture — pas de pool partagé, pas de confiance.",
+  "roul.fairBody": "Le tirage de chaque place est résolu entièrement par la chaîne : <br>• <b>À chaque époque du beacon (~6 minutes), la roue tourne d'elle-même.</b> Chaque mise est liée à un futur beacon d'époque ; son numéro gagnant est <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Le beacon mélange les secrets révélés sur L1 pendant cette époque et n'existe pas encore quand vous misez, donc <b>personne — ni vous, ni la banque, ni un producteur de blocs — ne peut connaître ou orienter le résultat</b> tant que les paris sont ouverts. <br>• <b>Personne n'a à lancer.</b> Ni révélation ni secret. Une fois le beacon final, <b>n'importe qui</b> peut régler votre place et la chaîne paie le gain automatiquement — une banque qui traîne ne peut jamais vous voler. <br>• <b>Encaissez sous 18 000 blocs (~1,5 jour).</b> Une place que personne ne règle dans ce délai revient à la banque ; cette page encaisse votre gain tant qu'elle est ouverte. <br>• <b>Un gain paie les vrais <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Les mises perdues rejoignent le bankroll, donc la table continue de tourner tour après tour. <br>• <b>L'argent de la maison est retirable.</b> Chaque banque ne met en séquestre que le bankroll de sa propre table et le récupère (± résultats) d'une seule fermeture — pas de pool partagé, pas de confiance. Les paris placés avant le passage au beacon gardent leur résultat par hash de bloc.",
   "roul.footer": "Fonctionne sur <a href=\"https://get.nadochain.com/\">NADO</a> · les appels de contrat circulent sur L1 sous forme de blobs ordonnés et s'appliquent à la finalisation (quelques minutes).\n    Voir le contrat.",
   "roul.tableIdPh": "ID de table",
   "roul.bankrollPh": "bankroll (NADO)",
@@ -582,7 +594,10 @@
   "roul.yourTablesLegend": "· 🏦 vous banquez · 🎯 vous misez",
   "roul.openForBets": "🟢 ouverte aux paris",
   "roul.showMore": "Afficher plus",
-  "roul.showMoreN": "Afficher plus (encore {n})"
+  "roul.showMoreN": "Afficher plus (encore {n})",
+  "roul.callReclaim": "céder à la banque la place expirée #{g}",
+  "roul.releaseSeat": "↩ Céder à la banque la place expirée #{g} ({amt})",
+  "roul.timedOut": "expiré — la mise revient à la banque"
  },
  "de": {
   "roul.walletHead": "Wallet",
@@ -632,9 +647,9 @@
   "roul.scanHint": "oder scannen Sie den Code, um an diesem Tisch zu wetten",
   "roul.qrUnavail": "QR-Generator nicht verfügbar — kopieren Sie den Link oben.",
   "roul.fairHead": "Beweisbar fair — keine Drehung durch das Haus, keine Geheimnisse",
-  "roul.sub": "Ein beweisbar faires, peer-banked Multiplayer-Roulette (europäisch) auf der NADO-Ausführungsschicht. Jeder Tisch dreht sich alle ~2 Minuten automatisch selbst — niemand muss aufdecken oder drehen. Wetten Sie auf beliebige Zahlen; das Ergebnis wird durch einen künftigen L1-Blockhash festgelegt, den niemand vorhersagen kann, solange die Wetten offen sind, sodass das Rad von Natur aus ehrlich ist. Ein Gewinn zahlt die echten 36 ÷ gedeckte Zahlen (2,70 % Vorteil bei einfacher Null). Post-Quanten-Wallet, keine Installation.",
+  "roul.sub": "Ein nachweislich faires, <b>von Spielern finanziertes Multiplayer</b>-Roulette (europäisch) auf der NADO-Ausführungsschicht. Jeder Tisch <b>dreht sich in jeder Beacon-Epoche (~6 Minuten) von selbst</b> — niemand muss etwas enthüllen oder drehen. Setze auf beliebige Zahlen; das Ergebnis legt ein <b>zukünftiger Epochen-Beacon</b> fest, den niemand vorhersagen kann, solange gewettet wird — das Rad ist von Grund auf ehrlich. Ein Gewinn zahlt echte <span class=\"mono\">36 ÷ numbers-covered</span> (2,70 % Vorteil bei einer Null). Post-Quanten-Wallet, keine Installation.",
   "roul.walletHelp": "Signiert durch Ihre <a href=\"https://get.nadochain.com/\">NADO</a>-Wallet — bestätigen Sie dort jede Aktion und kehren Sie zurück; Ihr Schlüssel berührt diese Website nie. Zahlen Sie NADO ein, um zu spielen, und heben Sie Gewinne jederzeit ab.",
-  "roul.fairBody": "Ein gemeinsames Rad pro Tisch, vollständig durch die Kette aufgelöst:\n      • Alle ~2 Minuten dreht sich das Rad selbst. Jede Wette ist an einen künftigen Abrechnungsblock gebunden; die Gewinnzahl ist HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Diese Blockhashes existieren beim Wetten noch nicht, sodass niemand — weder Sie noch die Bank noch der Blockproduzent — das Ergebnis kennen oder steuern kann, solange die Wetten offen sind. Zwei aufeinanderfolgende Blöcke werden gemischt, damit kein einzelner Miner es erzwingen kann.\n      • Niemand muss drehen. Es gibt keine Aufdeckung und kein Geheimnis. Sobald Ihr Abrechnungsblock finalisiert ist, kann jeder Ihren Platz abrechnen, und die Kette zahlt einen Gewinn automatisch aus — eine zögernde Bank kann Sie nie bestehlen, weil sie nichts zurückhalten kann.\n      • Ein Gewinn zahlt die echten 36 ÷ gedeckte Zahlen. Verlorene Einsätze fließen in die Bankroll, sodass sich der Tisch Runde für Runde weiterdreht.\n      • Das Geld des Hauses ist abhebbar. Jede Bank hinterlegt nur die Bankroll ihres eigenen Tisches und holt sie (± Ergebnisse) mit einem einzigen Schließen zurück — kein gemeinsamer Pool, kein Vertrauen nötig.",
+  "roul.fairBody": "Den Dreh jedes Platzes entscheidet allein die Chain: <br>• <b>In jeder Beacon-Epoche (~6 Minuten) dreht sich das Rad von selbst.</b> Jede Wette ist an einen zukünftigen Epochen-Beacon gebunden; ihre Gewinnzahl ist <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Der Beacon mischt die in dieser Epoche auf L1 offengelegten Geheimnisse und existiert beim Setzen noch nicht, also <b>kann niemand — weder du noch die Bank noch ein Blockproduzent — das Ergebnis kennen oder steuern</b>, solange gewettet wird. <br>• <b>Niemand muss drehen.</b> Keine Enthüllung, kein Geheimnis. Sobald der Beacon final ist, kann <b>jeder</b> deinen Platz abrechnen und die Chain zahlt einen Gewinn automatisch aus — eine zögernde Bank kann dich nie berauben. <br>• <b>Innerhalb von 18.000 Blöcken (~1,5 Tage) einlösen.</b> Ein Platz, den in diesem Fenster niemand abrechnet, geht an die Bank; diese Seite löst deinen Gewinn ein, solange sie offen ist. <br>• <b>Ein Gewinn zahlt echte <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Verlorene Einsätze fließen in die Bankroll, damit sich der Tisch Runde um Runde weiterdreht. <br>• <b>Hausgeld ist abhebbar.</b> Jede Bank hinterlegt nur die Bankroll ihres eigenen Tisches und holt sie (± Ergebnisse) mit einem Schließen zurück — kein gemeinsamer Pool, kein Vertrauen nötig. Wetten von vor der Beacon-Umstellung behalten ihr Blockhash-Ergebnis.",
   "roul.footer": "Läuft auf <a href=\"https://get.nadochain.com/\">NADO</a> · Vertragsaufrufe reisen als geordnete Blobs über L1 und werden bei Finalität angewendet (einige Minuten).\n    Siehe den Vertrag.",
   "roul.tableIdPh": "Tisch-ID",
   "roul.bankrollPh": "Bankroll (NADO)",
@@ -699,7 +714,10 @@
   "roul.yourTablesLegend": "· 🏦 Sie bankieren · 🎯 Sie wetten",
   "roul.openForBets": "🟢 offen für Wetten",
   "roul.showMore": "Mehr anzeigen",
-  "roul.showMoreN": "Mehr anzeigen (noch {n})"
+  "roul.showMoreN": "Mehr anzeigen (noch {n})",
+  "roul.callReclaim": "abgelaufenen Platz #{g} an die Bank freigeben",
+  "roul.releaseSeat": "↩ Abgelaufenen Platz #{g} ({amt}) an die Bank freigeben",
+  "roul.timedOut": "abgelaufen — der Einsatz geht an die Bank"
  },
  "it": {
   "roul.walletHead": "Portafoglio",
@@ -749,9 +767,9 @@
   "roul.scanHint": "oppure scansiona il codice per scommettere a questo tavolo",
   "roul.qrUnavail": "Generatore QR non disponibile — copia il link qui sopra.",
   "roul.fairHead": "Equità dimostrabile — nessun giro del banco, nessun segreto",
-  "roul.sub": "Una roulette europea multigiocatore, con equità dimostrabile e banca tra pari, sul livello di esecuzione di NADO. Ogni tavolo si gira da solo automaticamente ogni ~2 minuti — nessuno deve rivelare né girare. Punta su qualsiasi numero; il risultato è fissato da un futuro hash di blocco L1 che nessuno può prevedere mentre le puntate sono aperte, quindi la ruota è onesta per costruzione. Una vincita paga il vero 36 ÷ numeri-coperti (vantaggio del 2,70% con zero singolo). Portafoglio post-quantistico, nessuna installazione.",
+  "roul.sub": "Una roulette europea <b>multigiocatore con banca tra pari</b>, a equità dimostrabile, sul livello di esecuzione NADO. Ogni tavolo <b>gira da solo a ogni epoca del beacon (~6 minuti)</b> — nessuno deve rivelare o far girare. Punta su qualsiasi numero; il risultato è fissato da un <b>futuro beacon d'epoca</b> che nessuno può prevedere mentre le puntate sono aperte, quindi la ruota è onesta per costruzione. Una vincita paga i veri <span class=\"mono\">36 ÷ numbers-covered</span> (vantaggio del 2,70 % con zero singolo). Portafoglio post-quantistico, nessuna installazione.",
   "roul.walletHelp": "Firmato dal tuo portafoglio <a href=\"https://get.nadochain.com/\">NADO</a> — conferma lì ogni mossa, poi torna qui; la tua chiave non tocca mai questo sito. Deposita NADO per giocare, preleva le vincite quando vuoi.",
-  "roul.fairBody": "Una sola ruota condivisa per tavolo, risolta interamente dalla catena:\n      • Ogni ~2 minuti la ruota si gira da sola. Ogni scommessa è vincolata a un futuro blocco di liquidazione; il numero vincente è HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Quegli hash di blocco non esistono ancora quando scommetti, quindi nessuno — né tu, né la banca, né il produttore del blocco — può conoscere o pilotare il risultato mentre le puntate sono aperte. Due blocchi consecutivi vengono mescolati, così nessun singolo miner può manipolarlo.\n      • Nessuno deve girare. Non c'è rivelazione né segreto. Una volta finalizzato il tuo blocco di liquidazione, chiunque può liquidare il tuo posto e la catena paga la vincita automaticamente — una banca che tergiversa non può mai derubarti, perché non c'è nulla che la banca possa trattenere.\n      • Una vincita paga il vero 36 ÷ numeri-coperti. Le puntate perse confluiscono nel fondo cassa, così il tavolo continua a girare round dopo round.\n      • Il denaro del banco è prelevabile. Ogni banca vincola in garanzia solo il fondo cassa del proprio tavolo e lo recupera (± risultati) con una sola chiusura — nessun fondo comune, nessuna fiducia richiesta.",
+  "roul.fairBody": "Il giro di ogni posto è risolto interamente dalla catena: <br>• <b>A ogni epoca del beacon (~6 minuti) la ruota gira da sola.</b> Ogni puntata è legata a un futuro beacon d'epoca; il suo numero vincente è <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Il beacon mescola i segreti rivelati su L1 durante quell'epoca e non esiste ancora quando punti, quindi <b>nessuno — né tu, né il banco, né un produttore di blocchi — può conoscere o pilotare il risultato</b> mentre le puntate sono aperte. <br>• <b>Nessuno deve far girare.</b> Nessuna rivelazione, nessun segreto. Quando il beacon è finale, <b>chiunque</b> può liquidare il tuo posto e la catena paga la vincita automaticamente — un banco che temporeggia non può mai derubarti. <br>• <b>Riscuoti entro 18.000 blocchi (~1,5 giorni).</b> Un posto che nessuno liquida in quel periodo va al banco; questa pagina riscuote la tua vincita finché è aperta. <br>• <b>Una vincita paga i veri <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Le puntate perse confluiscono nel bankroll, così il tavolo continua a girare giro dopo giro. <br>• <b>Il denaro della casa è prelevabile.</b> Ogni banco deposita solo il bankroll del proprio tavolo e lo recupera (± risultati) con una chiusura — nessun fondo condiviso, nessuna fiducia. Le puntate piazzate prima del passaggio al beacon mantengono il risultato da hash di blocco.",
   "roul.footer": "Gira su <a href=\"https://get.nadochain.com/\">NADO</a> · le chiamate al contratto viaggiano su L1 come blob ordinati, si applicano alla finalità (pochi minuti).\n    Vedi il contratto.",
   "roul.tableIdPh": "ID tavolo",
   "roul.bankrollPh": "fondo cassa (NADO)",
@@ -816,7 +834,10 @@
   "roul.yourTablesLegend": "· 🏦 tu banchi · 🎯 tu scommetti",
   "roul.openForBets": "🟢 aperto alle puntate",
   "roul.showMore": "Mostra altri",
-  "roul.showMoreN": "Mostra altri ({n} in più)"
+  "roul.showMoreN": "Mostra altri ({n} in più)",
+  "roul.callReclaim": "cedi al banco il posto scaduto #{g}",
+  "roul.releaseSeat": "↩ Cedi al banco il posto scaduto #{g} ({amt})",
+  "roul.timedOut": "scaduto — la puntata va al banco"
  },
  "ru": {
   "roul.walletHead": "Кошелёк",
@@ -866,9 +887,9 @@
   "roul.scanHint": "или отсканируйте код, чтобы делать ставки за этим столом",
   "roul.qrUnavail": "Генератор QR недоступен — скопируйте ссылку выше.",
   "roul.fairHead": "Доказуемо честно — нет спина заведения, нет секретов",
-  "roul.sub": "Доказуемо честная европейская рулетка для нескольких игроков с банком между равными на слое исполнения NADO. Каждый стол крутится сам автоматически каждые ~2 минуты — никому не нужно раскрывать или крутить. Ставьте на любые числа; результат фиксируется будущим хешем блока L1, который никто не может предсказать, пока приём ставок открыт, поэтому колесо честно по построению. Выигрыш платит настоящие 36 ÷ покрытые-числа (преимущество 2,70% при одиночном зеро). Постквантовый кошелёк, без установки.",
+  "roul.sub": "Доказуемо честная <b>многопользовательская европейская рулетка с банком от игроков</b> на исполнительном слое NADO. Каждый стол <b>крутится сам каждую эпоху маяка (~6 минут)</b> — никому не нужно ничего раскрывать или крутить. Ставьте на любые числа; результат задаёт <b>будущий маяк эпохи</b>, который никто не может предсказать, пока ставки открыты, поэтому колесо честно по своей конструкции. Выигрыш платит честные <span class=\"mono\">36 ÷ numbers-covered</span> (преимущество 2,70 % с одним зеро). Постквантовый кошелёк, без установки.",
   "roul.walletHelp": "Подписано вашим кошельком <a href=\"https://get.nadochain.com/\">NADO</a> — подтвердите каждый шаг там, затем вернитесь; ваш ключ никогда не касается этого сайта. Внесите NADO, чтобы играть, выводите выигрыш в любое время.",
-  "roul.fairBody": "Одно общее колесо на стол, разрешаемое целиком цепью:\n      • Каждые ~2 минуты колесо крутится само. Каждая ставка привязана к будущему блоку расчёта; выигрышное число — HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Этих хешей блоков ещё не существует, когда вы ставите, поэтому никто — ни вы, ни банк, ни производитель блока — не может знать или направлять результат, пока приём ставок открыт. Два подряд идущих блока смешиваются, так что ни один майнер не может его подобрать.\n      • Никому не нужно крутить. Нет раскрытия и нет секрета. Как только ваш блок расчёта финализирован, любой может рассчитать ваше место, и цепь платит выигрыш автоматически — тянущий время банк никогда не сможет вас обокрасть, потому что банку нечего удерживать.\n      • Выигрыш платит настоящие 36 ÷ покрытые-числа. Проигранные ставки уходят в банкролл, так что стол продолжает крутиться раунд за раундом.\n      • Деньги заведения можно вывести. Каждый банк вносит в эскроу только банкролл своего стола и забирает его (± результаты) одним закрытием — никакого общего пула, никакого доверия.",
+  "roul.fairBody": "Вращение каждого места целиком определяет цепочка: <br>• <b>Каждую эпоху маяка (~6 минут) колесо крутится само.</b> Каждая ставка привязана к будущему маяку эпохи; её выигрышное число — <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Маяк смешивает секреты, раскрытые на L1 за эту эпоху, и при ставке ещё не существует, поэтому <b>никто — ни вы, ни банк, ни производитель блоков — не может узнать или повлиять на результат</b>, пока ставки открыты. <br>• <b>Никому не нужно крутить.</b> Ни раскрытий, ни секретов. Когда маяк финализирован, <b>любой</b> может рассчитать ваше место, и цепочка выплатит выигрыш автоматически — медлящий банк никогда не сможет вас обокрасть. <br>• <b>Заберите выигрыш в течение 18 000 блоков (~1,5 дня).</b> Место, которое никто не рассчитал за это время, уходит банку; эта страница забирает выигрыш за вас, пока открыта. <br>• <b>Выигрыш платит честные <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Проигранные ставки уходят в банкролл, и стол крутится раунд за раундом. <br>• <b>Деньги заведения можно вывести.</b> Каждый банк депонирует только банкролл своего стола и забирает его (± результаты) одним закрытием — без общего пула, без доверия. Ставки, сделанные до перехода на маяк, сохраняют результат по хешам блоков.",
   "roul.footer": "Работает на <a href=\"https://get.nadochain.com/\">NADO</a> · вызовы контракта идут по L1 как упорядоченные блобы, применяются при финализации (несколько минут).\n    Смотрите контракт.",
   "roul.tableIdPh": "ID стола",
   "roul.bankrollPh": "банкролл (NADO)",
@@ -933,7 +954,10 @@
   "roul.yourTablesLegend": "· 🏦 вы банк · 🎯 вы ставите",
   "roul.openForBets": "🟢 открыт для ставок",
   "roul.showMore": "Показать ещё",
-  "roul.showMoreN": "Показать ещё (ещё {n})"
+  "roul.showMoreN": "Показать ещё (ещё {n})",
+  "roul.callReclaim": "передать банку просроченное место #{g}",
+  "roul.releaseSeat": "↩ Передать банку просроченное место #{g} ({amt})",
+  "roul.timedOut": "время вышло — ставка уходит банку"
  },
  "zh": {
   "roul.walletHead": "钱包",
@@ -983,9 +1007,9 @@
   "roul.scanHint": "或扫描二维码在此牌桌下注",
   "roul.qrUnavail": "二维码生成器不可用——请复制上方链接。",
   "roul.fairHead": "可证明公平——没有庄家旋转，没有秘密",
-  "roul.sub": "一款运行于 NADO 执行层、可证明公平、玩家互为庄家的多人欧式轮盘。每张牌桌每隔约 2 分钟自动自转一次——无需任何人揭示或旋转。下注任意数字；结果由一个未来的 L1 区块哈希决定，在下注开放期间无人能预测，因此转盘从构造上就是诚实的。获胜按真实的 36 ÷ 覆盖数字 赔付（单零 2.70% 优势）。抗量子钱包，无需安装。",
+  "roul.sub": "NADO 执行层上一款可证明公平、<b>由玩家坐庄的多人</b>欧式轮盘。每张桌<b>每个信标周期（约 6 分钟）自动旋转</b>——无需任何人揭示或转动。押注任意号码；结果由投注期间无人能预测的<b>未来周期信标</b>决定，因此轮盘天生诚实。赢时按真实的 <span class=\"mono\">36 ÷ numbers-covered</span> 赔付（单零 2.70% 优势）。抗量子钱包，无需安装。",
   "roul.walletHelp": "由你的 <a href=\"https://get.nadochain.com/\">NADO</a> 钱包签名——在钱包中确认每一步操作后返回；你的密钥绝不接触本网站。存入 NADO 即可下注，随时提取奖金。",
-  "roul.fairBody": "每张牌桌一个共享转盘，完全由链上结算：\n      • 每隔约 2 分钟转盘自行旋转。每笔下注都绑定到一个未来的结算区块；获胜数字为 HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37。你下注时这些区块哈希尚不存在，因此无人——无论是你、庄家还是区块生产者——都无法在下注开放期间得知或操纵结果。混合两个连续区块，因此任何单个矿工都无法暴力操纵。\n      • 无需任何人旋转。没有揭示，也没有秘密。一旦你的结算区块被最终确认，任何人都可以结算你的座位，链上自动赔付赢注——拖延的庄家永远无法夺走你的奖金，因为庄家没有任何东西可以扣留。\n      • 获胜按真实的 36 ÷ 覆盖数字 赔付。输掉的注金并入本金，因此牌桌一轮又一轮地持续旋转。\n      • 庄家资金可提取。每个庄家只托管自己牌桌的本金，并通过一次关闭取回（± 结果）——没有共享资金池，无需信任。",
+  "roul.fairBody": "每个座位的旋转结果完全由链决定：<br>• <b>每个信标周期（约 6 分钟）轮盘自动旋转。</b>每笔投注都绑定到一个未来的周期信标；其中奖号码为 <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>。信标混合了该周期内在 L1 上揭示的秘密，投注时尚不存在，因此在投注期间<b>没有人——无论是你、庄家还是出块者——能知道或操纵结果</b>。<br>• <b>无需任何人转动。</b>没有揭示，没有秘密。信标最终确定后，<b>任何人</b>都可以结算你的座位，链会自动支付赢利——拖延的庄家永远无法抢走你的钱。<br>• <b>请在 18,000 个区块（约 1.5 天）内领取。</b>在此期间无人结算的座位归庄家；页面打开期间会自动为你领取赢利。<br>• <b>赢时按真实的 <span class=\"mono\">36 ÷ numbers-covered</span> 赔付。</b>输掉的本金并入资金池，桌子一轮接一轮地旋转。<br>• <b>庄家资金可提取。</b>每个庄家只托管自己桌的资金，一次关闭即可取回（± 输赢）——没有共享池，无需信任。信标升级前下的注仍按区块哈希出结果。",
   "roul.footer": "运行于 <a href=\"https://get.nadochain.com/\">NADO</a> · 合约调用以有序 blob 的形式搭载 L1，在最终确认时生效（几分钟）。\n    查看合约。",
   "roul.tableIdPh": "牌桌 ID",
   "roul.bankrollPh": "本金（NADO）",
@@ -1050,7 +1074,10 @@
   "roul.yourTablesLegend": "· 🏦 你做庄 · 🎯 你下注",
   "roul.openForBets": "🟢 开放下注",
   "roul.showMore": "显示更多",
-  "roul.showMoreN": "显示更多（还有 {n} 个）"
+  "roul.showMoreN": "显示更多（还有 {n} 个）",
+  "roul.callReclaim": "将超时座位 #{g} 释放给庄家",
+  "roul.releaseSeat": "↩ 将超时座位 #{g}（{amt}）释放给庄家",
+  "roul.timedOut": "已超时 — 本金归庄家"
  },
  "ja": {
   "roul.walletHead": "ウォレット",
@@ -1100,9 +1127,9 @@
   "roul.scanHint": "またはコードをスキャンしてこのテーブルでベット",
   "roul.qrUnavail": "QR ジェネレーターが利用できません——上のリンクをコピーしてください。",
   "roul.fairHead": "証明可能な公平性——胴元のスピンなし、秘密なし",
-  "roul.sub": "NADO 実行レイヤー上の、証明可能に公平でプレイヤー同士がバンクを務めるマルチプレイヤー欧州式ルーレットです。各テーブルは約2分ごとに自動で回ります——誰も開示やスピンをする必要はありません。任意の数字にベットしてください。結果は、ベット受付中は誰も予測できない未来の L1 ブロックハッシュで確定するため、ホイールは構造上公正です。勝利は真の 36 ÷ カバーした数字 を支払います（シングルゼロで 2.70% のエッジ）。ポスト量子ウォレット、インストール不要。",
+  "roul.sub": "NADO 実行レイヤー上の、証明可能に公正な<b>プレイヤーが胴元のマルチプレイヤー</b>ヨーロピアンルーレット。各テーブルは<b>ビーコンのエポックごと（約 6 分）に自動で回ります</b> — 誰も公開や回転をする必要はありません。好きな数字に賭けてください。結果はベット受付中は誰にも予測できない<b>未来のエポックビーコン</b>で決まるため、ホイールは構造上公正です。勝ちは本来の <span class=\"mono\">36 ÷ numbers-covered</span> を支払います（シングルゼロで 2.70% のエッジ）。耐量子ウォレット、インストール不要。",
   "roul.walletHelp": "あなたの <a href=\"https://get.nadochain.com/\">NADO</a> ウォレットで署名——各操作をそこで確認してから戻ってください。あなたの鍵がこのサイトに触れることは決してありません。プレイするには NADO を入金し、勝利金はいつでも出金できます。",
-  "roul.fairBody": "テーブルごとに共有ホイールが1つ、完全にチェーンが決着させます：\n      • 約2分ごとにホイールが自動で回ります。各ベットは未来の決済ブロックに紐づき、勝利数字は HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37 です。ベット時点でそれらのブロックハッシュはまだ存在しないため、誰も——あなたも、バンクも、ブロック生成者も——ベット受付中に結果を知ったり操作したりできません。連続する2つのブロックを混ぜるので、単一のマイナーが総当たりで操作することはできません。\n      • 誰もスピンする必要はありません。開示も秘密もありません。あなたの決済ブロックが確定すれば、誰でもあなたのシートを決済でき、チェーンが自動で勝利金を支払います——引き延ばすバンクがあなたから奪うことは決してできません。バンクが差し止められるものが何もないからです。\n      • 勝利は真の 36 ÷ カバーした数字 を支払います。負けたステークはバンクロールに組み込まれ、テーブルはラウンドごとに回り続けます。\n      • 胴元の資金は出金可能です。各バンクは自分のテーブルのバンクロールのみをエスクローし、1回のクローズで（± 結果とともに）回収します——共有プールも信頼も不要です。",
+  "roul.fairBody": "各席のスピンはすべてチェーンが決定します：<br>• <b>ビーコンのエポックごと（約 6 分）にホイールが自動で回ります。</b>各ベットは未来のエポックビーコンに紐づき、当たり番号は <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span> です。ビーコンはそのエポック中に L1 で公開されたシークレットを混ぜたもので、ベット時にはまだ存在しないため、ベット受付中は<b>誰も — あなたもバンクもブロック生成者も — 結果を知ることも操作することもできません</b>。<br>• <b>誰も回す必要はありません。</b>公開も秘密もありません。ビーコンが確定すれば<b>誰でも</b>あなたの席を精算でき、勝ちはチェーンが自動で支払います — 引き延ばすバンクがあなたから奪うことは決してできません。<br>• <b>18,000 ブロック（約 1.5 日）以内に受け取ってください。</b>その期間内に誰も精算しない席はバンクのものになります。このページは開いている間、勝ちを自動で受け取ります。<br>• <b>勝ちは本来の <span class=\"mono\">36 ÷ numbers-covered</span> を支払います。</b>負けた賭け金はバンクロールに入り、テーブルはラウンドごとに回り続けます。<br>• <b>ハウスの資金は引き出せます。</b>各バンクは自分のテーブルのバンクロールだけを預け、1 回のクローズで（± 結果込みで）回収します — 共有プールなし、信頼不要。ビーコン移行前のベットはブロックハッシュでの結果のままです。",
   "roul.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> 上で動作 · コントラクト呼び出しは順序付き blob として L1 に乗り、確定時に適用されます（数分）。\n    コントラクトを見る。",
   "roul.tableIdPh": "テーブル ID",
   "roul.bankrollPh": "バンクロール（NADO）",
@@ -1167,7 +1194,10 @@
   "roul.yourTablesLegend": "· 🏦 あなたがバンク · 🎯 あなたがベット",
   "roul.openForBets": "🟢 ベット受付中",
   "roul.showMore": "もっと見る",
-  "roul.showMoreN": "もっと見る（あと {n} 件）"
+  "roul.showMoreN": "もっと見る（あと {n} 件）",
+  "roul.callReclaim": "期限切れの席 #{g} をバンクに解放",
+  "roul.releaseSeat": "↩ 期限切れの席 #{g}（{amt}）をバンクに解放",
+  "roul.timedOut": "期限切れ — 賭け金はバンクへ"
  },
  "ko": {
   "roul.walletHead": "지갑",
@@ -1217,9 +1247,9 @@
   "roul.scanHint": "또는 코드를 스캔하여 이 테이블에서 베팅하세요",
   "roul.qrUnavail": "QR 생성기를 사용할 수 없습니다 — 위 링크를 복사하세요.",
   "roul.fairHead": "증명 가능한 공정성 — 하우스 스핀 없음, 비밀 없음",
-  "roul.sub": "NADO 실행 레이어에서 동작하는, 증명 가능하게 공정하고 플레이어가 서로 뱅크를 맡는 멀티플레이어 유럽식 룰렛입니다. 각 테이블은 약 2분마다 자동으로 스스로 돕니다 — 누구도 공개하거나 돌릴 필요가 없습니다. 아무 숫자에나 베팅하세요. 결과는 베팅이 열려 있는 동안 누구도 예측할 수 없는 미래의 L1 블록 해시로 확정되므로, 휠은 구조적으로 정직합니다. 승리는 진짜 36 ÷ 커버한 숫자 를 지급합니다(싱글 제로 2.70% 엣지). 포스트 양자 지갑, 설치 불필요.",
+  "roul.sub": "NADO 실행 레이어 위의 증명 가능하게 공정한 <b>플레이어 뱅크 멀티플레이어</b> 유럽식 룰렛. 각 테이블은 <b>비컨 에포크마다(약 6분) 자동으로 돕니다</b> — 누구도 공개하거나 돌릴 필요가 없습니다. 원하는 숫자에 베팅하세요. 결과는 베팅이 열려 있는 동안 누구도 예측할 수 없는 <b>미래 에포크 비컨</b>이 정하므로 휠은 구조적으로 정직합니다. 승리 시 실제 <span class=\"mono\">36 ÷ numbers-covered</span>를 지급합니다(싱글 제로 2.70% 엣지). 양자 내성 지갑, 설치 불필요.",
   "roul.walletHelp": "당신의 <a href=\"https://get.nadochain.com/\">NADO</a> 지갑으로 서명 — 각 동작을 거기서 확인한 뒤 돌아오세요. 당신의 키는 결코 이 사이트에 닿지 않습니다. 플레이하려면 NADO를 입금하고, 상금은 언제든 출금하세요.",
-  "roul.fairBody": "테이블당 하나의 공유 휠, 전적으로 체인이 결정합니다:\n      • 약 2분마다 휠이 스스로 돕니다. 각 베팅은 미래의 정산 블록에 묶이며, 당첨 숫자는 HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37 입니다. 당신이 베팅할 때 그 블록 해시들은 아직 존재하지 않으므로, 누구도 — 당신도, 뱅크도, 블록 생산자도 — 베팅이 열려 있는 동안 결과를 알거나 조종할 수 없습니다. 연속된 두 블록을 섞으므로 어떤 단일 채굴자도 이를 갈아 맞출 수 없습니다.\n      • 누구도 돌릴 필요가 없습니다. 공개도 비밀도 없습니다. 당신의 정산 블록이 최종 확정되면 누구나 당신의 좌석을 정산할 수 있고 체인이 자동으로 승리금을 지급합니다 — 지연시키는 뱅크는 결코 당신에게서 빼앗을 수 없습니다. 뱅크가 보류할 것이 아무것도 없기 때문입니다.\n      • 승리는 진짜 36 ÷ 커버한 숫자 를 지급합니다. 잃은 스테이크는 뱅크롤로 흡수되어, 테이블은 라운드마다 계속 돕니다.\n      • 하우스 자금은 출금 가능합니다. 각 뱅크는 자기 테이블의 뱅크롤만 에스크로하고 한 번의 종료로(± 결과와 함께) 회수합니다 — 공유 풀도, 신뢰도 필요 없습니다.",
+  "roul.fairBody": "각 좌석의 스핀은 전적으로 체인이 결정합니다: <br>• <b>비컨 에포크마다(약 6분) 휠이 스스로 돕니다.</b> 각 베팅은 미래 에포크 비컨에 묶이며 당첨 번호는 <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>입니다. 비컨은 그 에포크 동안 L1에 공개된 비밀들을 섞은 값이고 베팅 시점에는 아직 존재하지 않으므로, 베팅이 열려 있는 동안 <b>누구도 — 당신도, 뱅크도, 블록 생산자도 — 결과를 알거나 조작할 수 없습니다</b>. <br>• <b>아무도 돌릴 필요가 없습니다.</b> 공개도 비밀도 없습니다. 비컨이 확정되면 <b>누구나</b> 당신의 좌석을 정산할 수 있고 체인이 승리금을 자동 지급합니다 — 시간을 끄는 뱅크도 절대 당신 몫을 빼앗을 수 없습니다. <br>• <b>18,000 블록(약 1.5일) 안에 수령하세요.</b> 그 기간 안에 아무도 정산하지 않은 좌석은 뱅크로 갑니다. 이 페이지가 열려 있는 동안 승리금을 자동으로 수령합니다. <br>• <b>승리 시 실제 <span class=\"mono\">36 ÷ numbers-covered</span>를 지급합니다.</b> 잃은 판돈은 뱅크롤에 합쳐져 테이블이 라운드마다 계속 돕니다. <br>• <b>하우스 자금은 인출할 수 있습니다.</b> 각 뱅크는 자기 테이블의 뱅크롤만 예치하고 한 번의 마감으로(± 결과 포함) 회수합니다 — 공유 풀 없음, 신뢰 불필요. 비컨 업그레이드 이전의 베팅은 블록 해시 결과를 유지합니다.",
   "roul.footer": "<a href=\"https://get.nadochain.com/\">NADO</a>에서 실행 · 계약 호출은 정렬된 blob으로 L1에 실려 최종 확정 시 적용됩니다(몇 분).\n    계약을 보세요.",
   "roul.tableIdPh": "테이블 ID",
   "roul.bankrollPh": "뱅크롤(NADO)",
@@ -1284,7 +1314,10 @@
   "roul.yourTablesLegend": "· 🏦 당신이 뱅크 · 🎯 당신이 베팅",
   "roul.openForBets": "🟢 베팅 가능",
   "roul.showMore": "더 보기",
-  "roul.showMoreN": "더 보기 ({n}개 더)"
+  "roul.showMoreN": "더 보기 ({n}개 더)",
+  "roul.callReclaim": "시간 초과된 좌석 #{g}을(를) 뱅크로 해제",
+  "roul.releaseSeat": "↩ 시간 초과된 좌석 #{g}({amt})을(를) 뱅크로 해제",
+  "roul.timedOut": "시간 초과 — 판돈은 뱅크로 갑니다"
  },
  "ar": {
   "roul.walletHead": "المحفظة",
@@ -1334,9 +1367,9 @@
   "roul.scanHint": "أو امسح الرمز للمراهنة على هذه الطاولة",
   "roul.qrUnavail": "مولّد رمز QR غير متاح — انسخ الرابط أعلاه.",
   "roul.fairHead": "عادلة بإثبات — لا دوران للكازينو ولا أسرار",
-  "roul.sub": "روليت أوروبية متعددة اللاعبين، عادلة بإثبات ومموّلة من الأقران، على طبقة تنفيذ NADO. كل طاولة تدور بنفسها تلقائيًا كل ~دقيقتين — لا أحد مضطر للكشف أو الدوران. راهن على أي أرقام؛ النتيجة تُحدَّد بهاش كتلة L1 مستقبلية لا يمكن لأحد التنبؤ بها أثناء فتح الرهان، فتكون العجلة نزيهة بالتصميم. الفوز يدفع القيمة الحقيقية 36 ÷ الأرقام المغطاة (حافة صفر واحد 2.70%). محفظة ما بعد الكم، بلا تثبيت.",
+  "roul.sub": "روليت أوروبية عادلة بشكل قابل للإثبات <b>متعددة اللاعبين يموّلها اللاعبون</b> على طبقة التنفيذ في NADO. كل طاولة <b>تدور تلقائيًا كل حقبة منارة (~6 دقائق)</b> — لا أحد يحتاج إلى الكشف أو التدوير. راهن على أي أرقام؛ تحدد النتيجة <b>منارة حقبة مستقبلية</b> لا يمكن لأحد توقعها ما دام الرهان مفتوحًا، فالعجلة نزيهة بطبيعتها. يدفع الفوز <span class=\"mono\">36 ÷ numbers-covered</span> الحقيقية (أفضلية 2.70% بصفر واحد). محفظة مقاومة للحوسبة الكمومية، بلا تثبيت.",
   "roul.walletHelp": "مُوقّع بمحفظة <a href=\"https://get.nadochain.com/\">NADO</a> خاصتك — أكّد كل خطوة هناك ثم عُد؛ مفتاحك لا يلمس هذا الموقع أبدًا. أودع NADO للعب، واسحب الأرباح في أي وقت.",
-  "roul.fairBody": "عجلة مشتركة واحدة لكل طاولة، تُحسم بالكامل عبر السلسلة:\n      • كل ~دقيقتين تدور العجلة بنفسها. كل رهان مرتبط بكتلة تسوية مستقبلية؛ الرقم الفائز هو HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. هذه الهاشات لا توجد بعد حين تراهن، فلا أحد — لا أنت ولا البنك ولا منتج الكتلة — يمكنه معرفة النتيجة أو توجيهها أثناء فتح الرهان. تُمزج كتلتان متتاليتان كي لا يستطيع أي مُعدّن بمفرده التلاعب بها.\n      • لا أحد مضطر للدوران. لا كشف ولا سرّ. حالما تُنهى كتلة تسويتك، يمكن لأي شخص تسوية مقعدك وتدفع السلسلة الفوز تلقائيًا — بنك متلكّئ لا يمكنه سرقتك أبدًا، لأنه لا يوجد ما يحجبه البنك.\n      • الفوز يدفع القيمة الحقيقية 36 ÷ الأرقام المغطاة. الرهانات الخاسرة تنضم إلى الرصيد، فتظل الطاولة تدور جولة بعد جولة.\n      • أموال الكازينو قابلة للسحب. كل بنك يودع رصيد طاولته فقط ويستردّه (± النتائج) بإغلاق واحد — لا صندوق مشترك ولا ثقة.",
+  "roul.fairBody": "تحسم السلسلة وحدها دوران كل مقعد: <br>• <b>كل حقبة منارة (~6 دقائق) تدور العجلة بنفسها.</b> كل رهان مرتبط بمنارة حقبة مستقبلية؛ ورقمه الفائز هو <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. تمزج المنارة الأسرار المكشوفة على L1 خلال تلك الحقبة ولا وجود لها بعد عند الرهان، لذا <b>لا أحد — لا أنت ولا البنك ولا منتج الكتل — يستطيع معرفة النتيجة أو توجيهها</b> ما دام الرهان مفتوحًا. <br>• <b>لا أحد يحتاج إلى التدوير.</b> لا كشف ولا سر. حين تصبح المنارة نهائية يستطيع <b>أي شخص</b> تسوية مقعدك وتدفع السلسلة الربح تلقائيًا — لا يستطيع بنك مماطل أن يسلبك أبدًا. <br>• <b>اجمع ربحك خلال 18,000 كتلة (~يوم ونصف).</b> المقعد الذي لا يسوّيه أحد في هذه المهلة يذهب إلى البنك؛ تجمع هذه الصفحة ربحك ما دامت مفتوحة. <br>• <b>يدفع الفوز <span class=\"mono\">36 ÷ numbers-covered</span> الحقيقية.</b> الرهانات الخاسرة تنضم إلى رصيد البنك فتستمر الطاولة بالدوران جولة بعد جولة. <br>• <b>أموال البيت قابلة للسحب.</b> كل بنك يودع رصيد طاولته فقط ويستردّه (± النتائج) بإغلاق واحد — بلا مجمّع مشترك وبلا ثقة. الرهانات الموضوعة قبل الترقية إلى المنارة تحتفظ بنتيجتها من تجزئة الكتل.",
   "roul.footer": "يعمل على <a href=\"https://get.nadochain.com/\">NADO</a> · استدعاءات العقد تركب L1 ككُتل مرتّبة، وتُطبَّق عند النهائية (بضع دقائق).\n    انظر العقد.",
   "roul.tableIdPh": "معرّف الطاولة",
   "roul.bankrollPh": "الرصيد (NADO)",
@@ -1401,7 +1434,10 @@
   "roul.yourTablesLegend": "· 🏦 أنت تموّل · 🎯 أنت تراهن",
   "roul.openForBets": "🟢 مفتوحة للرهان",
   "roul.showMore": "عرض المزيد",
-  "roul.showMoreN": "عرض المزيد ({n} أخرى)"
+  "roul.showMoreN": "عرض المزيد ({n} أخرى)",
+  "roul.callReclaim": "حرّر المقعد المنتهي #{g} لصالح البنك",
+  "roul.releaseSeat": "↩ حرّر المقعد المنتهي #{g} ({amt}) لصالح البنك",
+  "roul.timedOut": "انتهت المهلة — يذهب الرهان إلى البنك"
  },
  "hi": {
   "roul.walletHead": "वॉलेट",
@@ -1451,9 +1487,9 @@
   "roul.scanHint": "या इस टेबल पर दांव लगाने के लिए कोड स्कैन करें",
   "roul.qrUnavail": "QR जनरेटर अनुपलब्ध — ऊपर का लिंक कॉपी करें।",
   "roul.fairHead": "प्रमाणित रूप से निष्पक्ष — कोई हाउस स्पिन नहीं, कोई राज़ नहीं",
-  "roul.sub": "NADO निष्पादन परत पर एक प्रमाणित-निष्पक्ष, पीयर-बैंक्ड मल्टीप्लेयर यूरोपीय रूलेट। हर टेबल हर ~2 मिनट में खुद-ब-खुद घूमती है — किसी को खुलासा या स्पिन नहीं करना पड़ता। किसी भी संख्या पर दांव लगाएँ; परिणाम एक भविष्य के L1 ब्लॉक हैश से तय होता है जिसका दांव खुला रहते कोई अनुमान नहीं लगा सकता, इसलिए पहिया रचना से ही ईमानदार है। जीत असली 36 ÷ कवर की गई संख्याएँ चुकाती है (2.70% सिंगल-ज़ीरो बढ़त)। पोस्ट-क्वांटम वॉलेट, कोई इंस्टॉल नहीं।",
+  "roul.sub": "NADO एक्ज़ीक्यूशन लेयर पर एक सिद्ध-निष्पक्ष, <b>खिलाड़ियों द्वारा बैंक किया गया मल्टीप्लेयर</b> यूरोपीय रूलेट। हर टेबल <b>हर बीकन युग (~6 मिनट) में अपने आप घूमती है</b> — किसी को खुलासा करने या घुमाने की ज़रूरत नहीं। किसी भी नंबर पर दांव लगाएँ; परिणाम एक <b>भविष्य के युग बीकन</b> से तय होता है जिसका बेटिंग खुली रहते कोई अनुमान नहीं लगा सकता, इसलिए पहिया बनावट से ही ईमानदार है। जीत असली <span class=\"mono\">36 ÷ numbers-covered</span> चुकाती है (सिंगल-ज़ीरो 2.70% बढ़त)। पोस्ट-क्वांटम वॉलेट, कोई इंस्टॉल नहीं।",
   "roul.walletHelp": "आपके <a href=\"https://get.nadochain.com/\">NADO</a> वॉलेट द्वारा हस्ताक्षरित — वहीं हर कदम की पुष्टि करें, फिर वापस लौटें; आपकी कुंजी इस साइट को कभी नहीं छूती। खेलने के लिए NADO जमा करें, जीत कभी भी निकालें।",
-  "roul.fairBody": "प्रति टेबल एक साझा पहिया, पूरी तरह श्रृंखला द्वारा निपटाया गया:\n      • हर ~2 मिनट में पहिया खुद घूमता है। हर दांव एक भविष्य के निपटान ब्लॉक से बंधा होता है; जीतने वाली संख्या HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37 है। ये ब्लॉक हैश तब तक मौजूद ही नहीं होते जब आप दांव लगाते हैं, इसलिए कोई भी — न आप, न बैंक, न ब्लॉक उत्पादक — दांव खुला रहते परिणाम जान या मोड़ नहीं सकता। दो लगातार ब्लॉक मिलाए जाते हैं ताकि कोई अकेला माइनर इसे न साध सके।\n      • किसी को घुमाना नहीं पड़ता। कोई खुलासा नहीं, कोई राज़ नहीं। आपका निपटान ब्लॉक अंतिम होते ही, कोई भी आपकी सीट निपटा सकता है और श्रृंखला जीत स्वतः चुका देती है — एक टालमटोल करता बैंक आपको कभी नहीं लूट सकता, क्योंकि बैंक के पास रोकने को कुछ है ही नहीं।\n      • जीत असली 36 ÷ कवर की गई संख्याएँ चुकाती है। हारने वाले दांव बैंकरोल में मिल जाते हैं, इसलिए टेबल राउंड-दर-राउंड घूमती रहती है।\n      • हाउस का पैसा निकाला जा सकता है। हर बैंक केवल अपनी टेबल का बैंकरोल एस्क्रो करता है और एक बंद से उसे (± परिणाम) वापस पाता है — कोई साझा पूल नहीं, कोई भरोसा नहीं।",
+  "roul.fairBody": "हर सीट का स्पिन पूरी तरह चेन तय करती है: <br>• <b>हर बीकन युग (~6 मिनट) में पहिया अपने आप घूमता है।</b> हर दांव एक भविष्य के युग बीकन से बँधा है; उसका विजेता नंबर <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span> है। बीकन उस युग में L1 पर खोले गए रहस्यों को मिलाता है और दांव लगाते समय अभी मौजूद नहीं होता, इसलिए बेटिंग खुली रहते <b>कोई भी — न आप, न बैंक, न कोई ब्लॉक उत्पादक — परिणाम जान या मोड़ नहीं सकता</b>। <br>• <b>किसी को घुमाना नहीं पड़ता।</b> न खुलासा, न रहस्य। बीकन अंतिम होते ही <b>कोई भी</b> आपकी सीट सेटल कर सकता है और चेन जीत अपने आप चुकाती है — टालमटोल करता बैंक आपको कभी लूट नहीं सकता। <br>• <b>18,000 ब्लॉक (~1.5 दिन) के भीतर लें।</b> जिस सीट को उस अवधि में कोई सेटल नहीं करता वह बैंक को जाती है; यह पेज खुला रहते आपकी जीत ले लेता है। <br>• <b>जीत असली <span class=\"mono\">36 ÷ numbers-covered</span> चुकाती है।</b> हारे दांव बैंकरोल में जुड़ते हैं, इसलिए टेबल राउंड-दर-राउंड घूमती रहती है। <br>• <b>हाउस का पैसा निकाला जा सकता है।</b> हर बैंक सिर्फ़ अपनी टेबल का बैंकरोल एस्क्रो करता है और एक क्लोज़ से (± नतीजे) वापस लेता है — कोई साझा पूल नहीं, भरोसे की ज़रूरत नहीं। बीकन अपग्रेड से पहले लगे दांव ब्लॉक-हैश वाला परिणाम ही रखते हैं।",
   "roul.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> पर चलता है · कॉन्ट्रैक्ट कॉल L1 पर क्रमबद्ध ब्लॉब्स के रूप में सवार होती हैं, अंतिमता पर लागू होती हैं (कुछ मिनट)।\n    कॉन्ट्रैक्ट देखें।",
   "roul.tableIdPh": "टेबल आईडी",
   "roul.bankrollPh": "बैंकरोल (NADO)",
@@ -1518,7 +1554,10 @@
   "roul.yourTablesLegend": "· 🏦 आप बैंक हैं · 🎯 आप दांव लगाते हैं",
   "roul.openForBets": "🟢 दांव के लिए खुला",
   "roul.showMore": "और दिखाएं",
-  "roul.showMoreN": "और दिखाएँ ({n} और)"
+  "roul.showMoreN": "और दिखाएँ ({n} और)",
+  "roul.callReclaim": "समय-सीमा पार सीट #{g} बैंक को छोड़ें",
+  "roul.releaseSeat": "↩ समय-सीमा पार सीट #{g} ({amt}) बैंक को छोड़ें",
+  "roul.timedOut": "समय समाप्त — दांव बैंक को जाता है"
  },
  "tr": {
   "roul.walletHead": "Cüzdan",
@@ -1568,9 +1607,9 @@
   "roul.scanHint": "ya da bu masada bahis yapmak için kodu tara",
   "roul.qrUnavail": "QR oluşturucu kullanılamıyor — yukarıdaki bağlantıyı kopyala.",
   "roul.fairHead": "Kanıtlanabilir şekilde adil — ev dönüşü yok, sır yok",
-  "roul.sub": "NADO yürütme katmanı üzerinde kanıtlanabilir adil, eş-finansmanlı çok oyunculu Avrupa ruleti. Her masa yaklaşık her ~2 dakikada kendi kendine döner — kimsenin açıklaması ya da döndürmesi gerekmez. Herhangi bir sayıya bahis yap; sonuç, bahis açıkken kimsenin tahmin edemeyeceği gelecekteki bir L1 blok hash'iyle belirlenir, böylece çark yapısı gereği dürüsttür. Kazanç, gerçek 36 ÷ kapsanan-sayı öder (%2,70 tek-sıfır avantajı). Post-kuantum cüzdan, kurulum yok.",
+  "roul.sub": "NADO yürütme katmanında kanıtlanabilir adil, <b>oyuncuların kasa olduğu çok oyunculu</b> Avrupa ruleti. Her masa <b>her beacon döneminde (~6 dakika) kendiliğinden döner</b> — kimsenin ifşa etmesi ya da çevirmesi gerekmez. İstediğin sayılara oyna; sonucu, bahisler açıkken kimsenin tahmin edemeyeceği <b>gelecekteki bir dönem beacon’u</b> belirler, yani çark yapısı gereği dürüsttür. Kazanç gerçek <span class=\"mono\">36 ÷ numbers-covered</span> öder (tek sıfırda %2,70 avantaj). Kuantum sonrası cüzdan, kurulum yok.",
   "roul.walletHelp": "<a href=\"https://get.nadochain.com/\">NADO</a> cüzdanınla imzalanır — her adımı orada onayla, sonra geri dön; anahtarın bu siteye asla dokunmaz. Oynamak için NADO yatır, kazançları istediğin zaman çek.",
-  "roul.fairBody": "Masa başına tek bir paylaşımlı çark, tamamen zincir tarafından çözülür:\n      • Yaklaşık her ~2 dakikada çark kendi kendine döner. Her bahis gelecekteki bir çözüm bloğuna bağlıdır; kazanan sayı HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37'dir. Bu blok hash'leri sen bahis yaptığında henüz yoktur, bu yüzden kimse — ne sen, ne kasa, ne blok üreticisi — bahis açıkken sonucu bilemez ya da yönlendiremez. Tek bir madencinin manipüle edememesi için iki ardışık blok karıştırılır.\n      • Kimsenin döndürmesi gerekmez. Açıklama yok, sır yok. Çözüm bloğun kesinleşince, herkes koltuğunu çözebilir ve zincir kazancı otomatik öder — oyalayan bir kasa seni asla soyamaz, çünkü kasanın alıkoyacağı hiçbir şey yoktur.\n      • Kazanç, gerçek 36 ÷ kapsanan-sayı öder. Kaybeden bahisler kasaya katılır, böylece masa tur tur dönmeye devam eder.\n      • Ev parası çekilebilir. Her kasa yalnızca kendi masasının parasını emanete koyar ve tek bir kapatmayla (± sonuçlar) geri alır — ortak havuz yok, güven gerekmez.",
+  "roul.fairBody": "Her koltuğun dönüşünü tamamen zincir belirler: <br>• <b>Her beacon döneminde (~6 dakika) çark kendiliğinden döner.</b> Her bahis gelecekteki bir dönem beacon’una bağlanır; kazanan sayısı <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span> olur. Beacon o dönemde L1’de açıklanan sırları karıştırır ve bahis anında henüz yoktur, bu yüzden bahisler açıkken <b>kimse — ne sen, ne kasa, ne bir blok üreticisi — sonucu bilemez ya da yönlendiremez</b>. <br>• <b>Kimsenin çevirmesi gerekmez.</b> İfşa yok, sır yok. Beacon kesinleşince <b>herkes</b> koltuğunu kapatabilir ve zincir kazancı otomatik öder — oyalanan bir kasa seni asla soyamaz. <br>• <b>18.000 blok (~1,5 gün) içinde tahsil et.</b> Bu sürede kimsenin kapatmadığı koltuk kasaya kalır; bu sayfa açıkken kazancını senin için tahsil eder. <br>• <b>Kazanç gerçek <span class=\"mono\">36 ÷ numbers-covered</span> öder.</b> Kaybeden bahisler kasaya katılır, böylece masa tur tur dönmeye devam eder. <br>• <b>Kasa parası çekilebilir.</b> Her kasa yalnızca kendi masasının sermayesini emanete koyar ve tek bir kapatmayla (± sonuçlarla) geri alır — ortak havuz yok, güven gerekmez. Beacon yükseltmesinden önce verilen bahisler blok hash sonucunu korur.",
   "roul.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> üzerinde çalışır · sözleşme çağrıları L1'e sıralı bloblar olarak biner, kesinlikte uygulanır (birkaç dakika).\n    Sözleşmeye bak.",
   "roul.tableIdPh": "masa kimliği",
   "roul.bankrollPh": "kasa (NADO)",
@@ -1635,7 +1674,10 @@
   "roul.yourTablesLegend": "· 🏦 sen finanse ediyorsun · 🎯 sen bahis yapıyorsun",
   "roul.openForBets": "🟢 bahse açık",
   "roul.showMore": "Daha fazla göster",
-  "roul.showMoreN": "Daha fazla göster ({n} daha)"
+  "roul.showMoreN": "Daha fazla göster ({n} daha)",
+  "roul.callReclaim": "süresi dolan #{g} koltuğunu kasaya bırak",
+  "roul.releaseSeat": "↩ Süresi dolan #{g} koltuğunu ({amt}) kasaya bırak",
+  "roul.timedOut": "süre doldu — bahis kasaya geçer"
  },
  "id": {
   "roul.walletHead": "Dompet",
@@ -1685,9 +1727,9 @@
   "roul.scanHint": "atau pindai kode untuk bertaruh di meja ini",
   "roul.qrUnavail": "Pembuat QR tidak tersedia — salin tautan di atas.",
   "roul.fairHead": "Adil terbukti — tanpa putaran bandar, tanpa rahasia",
-  "roul.sub": "Rolet Eropa multipemain yang adil-terbukti dan didanai antarpengguna di lapisan eksekusi NADO. Setiap meja berputar sendiri otomatis setiap ~2 menit — tak seorang pun harus mengungkap atau memutar. Bertaruh pada angka mana pun; hasilnya ditetapkan oleh hash blok L1 masa depan yang tak bisa diprediksi siapa pun selama taruhan terbuka, sehingga roda jujur secara rancangan. Menang membayar 36 ÷ angka-yang-ditanggung sebenarnya (keunggulan nol-tunggal 2,70%). Dompet pasca-kuantum, tanpa instalasi.",
+  "roul.sub": "Roulette Eropa <b>multipemain yang dibandari sesama pemain</b>, adil dan dapat dibuktikan, di lapisan eksekusi NADO. Setiap meja <b>berputar sendiri setiap epoch beacon (~6 menit)</b> — tak ada yang perlu mengungkap atau memutar. Pasang di angka mana saja; hasilnya ditentukan oleh <b>beacon epoch mendatang</b> yang tak bisa diprediksi siapa pun selama taruhan dibuka, jadi roda jujur sejak rancangannya. Kemenangan membayar <span class=\"mono\">36 ÷ numbers-covered</span> yang sebenarnya (keunggulan 2,70% satu nol). Dompet pasca-kuantum, tanpa instalasi.",
   "roul.walletHelp": "Ditandatangani oleh dompet <a href=\"https://get.nadochain.com/\">NADO</a> Anda — konfirmasi setiap langkah di sana, lalu kembali; kunci Anda tak pernah menyentuh situs ini. Setor NADO untuk bermain, tarik kemenangan kapan saja.",
-  "roul.fairBody": "Satu roda bersama per meja, diselesaikan sepenuhnya oleh rantai:\n      • Setiap ~2 menit roda berputar sendiri. Setiap taruhan terikat pada blok penyelesaian masa depan; angka menang adalah HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Hash blok itu belum ada saat Anda bertaruh, jadi tak seorang pun — bukan Anda, bukan bank, bukan produsen blok — bisa tahu atau mengarahkan hasil selama taruhan terbuka. Dua blok berurutan dicampur agar tak ada penambang tunggal yang bisa memanipulasinya.\n      • Tak seorang pun harus memutar. Tak ada pengungkapan, tak ada rahasia. Begitu blok penyelesaian Anda final, siapa pun bisa menyelesaikan kursi Anda dan rantai membayar kemenangan otomatis — bank yang mengulur waktu tak akan pernah bisa merampok Anda, karena tak ada yang bisa ditahan bank.\n      • Menang membayar 36 ÷ angka-yang-ditanggung sebenarnya. Taruhan yang kalah melebur ke modal, jadi meja terus berputar ronde demi ronde.\n      • Uang bandar bisa ditarik. Setiap bank hanya mengeskro modal mejanya sendiri dan mengambilnya kembali (± hasil) dengan sekali tutup — tanpa kumpulan bersama, tanpa kepercayaan.",
+  "roul.fairBody": "Putaran setiap kursi ditentukan sepenuhnya oleh rantai: <br>• <b>Setiap epoch beacon (~6 menit) roda berputar sendiri.</b> Setiap taruhan terikat pada beacon epoch mendatang; angka pemenangnya adalah <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Beacon mencampur rahasia yang diungkap di L1 selama epoch itu dan belum ada saat kamu bertaruh, jadi <b>tak seorang pun — bukan kamu, bukan bandar, bukan produsen blok — dapat mengetahui atau mengarahkan hasilnya</b> selama taruhan dibuka. <br>• <b>Tak ada yang perlu memutar.</b> Tanpa pengungkapan, tanpa rahasia. Setelah beacon final, <b>siapa pun</b> dapat menyelesaikan kursimu dan rantai membayar kemenangan otomatis — bandar yang mengulur waktu tak akan pernah bisa merampokmu. <br>• <b>Klaim dalam 18.000 blok (~1,5 hari).</b> Kursi yang tidak diselesaikan siapa pun dalam rentang itu menjadi milik bandar; halaman ini mengklaim kemenanganmu selama terbuka. <br>• <b>Kemenangan membayar <span class=\"mono\">36 ÷ numbers-covered</span> yang sebenarnya.</b> Taruhan kalah masuk ke bankroll, jadi meja terus berputar dari ronde ke ronde. <br>• <b>Uang bandar bisa ditarik.</b> Setiap bandar hanya menitipkan bankroll mejanya sendiri dan mengambilnya kembali (± hasil) dengan sekali tutup — tanpa pool bersama, tanpa kepercayaan. Taruhan yang dipasang sebelum peningkatan beacon tetap memakai hasil hash blok.",
   "roul.footer": "Berjalan di <a href=\"https://get.nadochain.com/\">NADO</a> · panggilan kontrak menumpang L1 sebagai blob terurut, berlaku saat finalitas (beberapa menit).\n    Lihat kontraknya.",
   "roul.tableIdPh": "ID meja",
   "roul.bankrollPh": "modal (NADO)",
@@ -1752,7 +1794,10 @@
   "roul.yourTablesLegend": "· 🏦 Anda mendanai · 🎯 Anda bertaruh",
   "roul.openForBets": "🟢 terbuka untuk taruhan",
   "roul.showMore": "Tampilkan lebih",
-  "roul.showMoreN": "Tampilkan lagi ({n} lagi)"
+  "roul.showMoreN": "Tampilkan lagi ({n} lagi)",
+  "roul.callReclaim": "lepaskan kursi kedaluwarsa #{g} ke bandar",
+  "roul.releaseSeat": "↩ Lepaskan kursi kedaluwarsa #{g} ({amt}) ke bandar",
+  "roul.timedOut": "kedaluwarsa — taruhan masuk ke bandar"
  },
  "vi": {
   "roul.walletHead": "Ví",
@@ -1802,9 +1847,9 @@
   "roul.scanHint": "hoặc quét mã để cược tại bàn này",
   "roul.qrUnavail": "Trình tạo QR không khả dụng — sao chép liên kết ở trên.",
   "roul.fairHead": "Công bằng có thể chứng minh — không nhà cái quay, không bí mật",
-  "roul.sub": "Một trò roulette châu Âu nhiều người chơi, công bằng-có-thể-chứng-minh và cấp vốn ngang hàng trên lớp thực thi NADO. Mỗi bàn tự quay tự động mỗi ~2 phút — không ai phải tiết lộ hay quay. Cược vào bất kỳ số nào; kết quả được ấn định bởi một hash khối L1 tương lai mà không ai đoán được khi cược còn mở, nên bánh xe trung thực theo thiết kế. Thắng trả đúng 36 ÷ số-được-bao (lợi thế số-không-đơn 2,70%). Ví hậu-lượng-tử, không cần cài đặt.",
+  "roul.sub": "Roulette châu Âu <b>nhiều người chơi do người chơi làm nhà cái</b>, công bằng có thể chứng minh, trên lớp thực thi NADO. Mỗi bàn <b>tự quay mỗi kỳ beacon (~6 phút)</b> — không ai phải tiết lộ hay quay. Đặt cược vào bất kỳ số nào; kết quả do một <b>beacon kỳ tương lai</b> quyết định mà không ai đoán trước được khi cược còn mở, nên vòng quay trung thực ngay từ thiết kế. Thắng trả đúng <span class=\"mono\">36 ÷ numbers-covered</span> (lợi thế 2,70% với một số 0). Ví hậu lượng tử, không cần cài đặt.",
   "roul.walletHelp": "Được ký bằng ví <a href=\"https://get.nadochain.com/\">NADO</a> của bạn — xác nhận mỗi bước ở đó, rồi quay lại; khóa của bạn không bao giờ chạm vào trang này. Nạp NADO để chơi, rút tiền thắng bất cứ lúc nào.",
-  "roul.fairBody": "Một bánh xe chung cho mỗi bàn, được giải quyết hoàn toàn bởi chuỗi:\n      • Mỗi ~2 phút bánh xe tự quay. Mỗi khoản cược gắn với một khối giải quyết tương lai; số thắng là HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37. Các hash khối đó chưa tồn tại khi bạn cược, nên không ai — không phải bạn, không phải nhà cái, không phải người tạo khối — có thể biết hay điều khiển kết quả khi cược còn mở. Hai khối liên tiếp được trộn để không thợ đào đơn lẻ nào có thể thao túng.\n      • Không ai phải quay. Không tiết lộ, không bí mật. Một khi khối giải quyết của bạn được chốt, bất kỳ ai cũng có thể giải quyết ghế của bạn và chuỗi tự trả tiền thắng — một nhà cái chây ì không bao giờ cướp được của bạn, vì nhà cái chẳng có gì để giữ lại.\n      • Thắng trả đúng 36 ÷ số-được-bao. Các khoản cược thua nhập vào vốn, nên bàn cứ quay vòng này qua vòng khác.\n      • Tiền nhà cái có thể rút. Mỗi nhà cái chỉ ký quỹ vốn của bàn mình và lấy lại (± kết quả) bằng một lần đóng — không quỹ chung, không cần tin tưởng.",
+  "roul.fairBody": "Lượt quay của mỗi ghế do chuỗi quyết định hoàn toàn: <br>• <b>Mỗi kỳ beacon (~6 phút) vòng quay tự quay.</b> Mỗi cược được gắn với một beacon kỳ tương lai; số thắng của nó là <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 37</span>. Beacon trộn các bí mật được tiết lộ trên L1 trong kỳ đó và chưa tồn tại khi bạn đặt cược, nên <b>không ai — không phải bạn, nhà cái hay người tạo khối — có thể biết hoặc điều khiển kết quả</b> khi cược còn mở. <br>• <b>Không ai phải quay.</b> Không tiết lộ, không bí mật. Khi beacon đã chốt, <b>bất kỳ ai</b> cũng có thể tất toán ghế của bạn và chuỗi tự động trả thưởng — nhà cái trì hoãn không bao giờ cướp được của bạn. <br>• <b>Nhận thưởng trong vòng 18.000 khối (~1,5 ngày).</b> Ghế không ai tất toán trong khoảng đó thuộc về nhà cái; trang này tự nhận thưởng cho bạn khi đang mở. <br>• <b>Thắng trả đúng <span class=\"mono\">36 ÷ numbers-covered</span>.</b> Tiền cược thua nhập vào quỹ, nên bàn tiếp tục quay vòng này qua vòng khác. <br>• <b>Tiền nhà cái có thể rút.</b> Mỗi nhà cái chỉ ký quỹ vốn của bàn mình và lấy lại (± kết quả) bằng một lần đóng — không quỹ chung, không cần tin tưởng. Các cược đặt trước khi nâng cấp beacon vẫn giữ kết quả theo hash khối.",
   "roul.footer": "Chạy trên <a href=\"https://get.nadochain.com/\">NADO</a> · các lệnh gọi hợp đồng đi trên L1 dưới dạng blob có thứ tự, áp dụng khi hoàn tất (vài phút).\n    Xem hợp đồng.",
   "roul.tableIdPh": "ID bàn",
   "roul.bankrollPh": "vốn (NADO)",
@@ -1869,6 +1914,9 @@
   "roul.yourTablesLegend": "· 🏦 bạn cấp vốn · 🎯 bạn cược",
   "roul.openForBets": "🟢 mở để cược",
   "roul.showMore": "Xem thêm",
-  "roul.showMoreN": "Hiện thêm (còn {n})"
+  "roul.showMoreN": "Hiện thêm (còn {n})",
+  "roul.callReclaim": "giải phóng ghế quá hạn #{g} cho nhà cái",
+  "roul.releaseSeat": "↩ Giải phóng ghế quá hạn #{g} ({amt}) cho nhà cái",
+  "roul.timedOut": "quá hạn — tiền cược thuộc về nhà cái"
  }
 }

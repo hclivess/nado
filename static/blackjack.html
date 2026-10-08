@@ -31,7 +31,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Blackjack", "url": "https://blackjack.nadochain.com/", "description": "Blackjack on the NADO blockchain — provably fair cards dealt from chain randomness, transparent odds and on-chain settlement. Play in your browser, no install.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%228%22%20width%3D%2220%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23e6edf3%22%20transform%3D%22rotate(-8%2016%2023)%22/%3E%3Crect%20x%3D%2222%22%20y%3D%228%22%20width%3D%2220%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23fff%22%20stroke%3D%22%23243140%22%20transform%3D%22rotate(8%2032%2023)%22/%3E%3Ctext%20x%3D%2212%22%20y%3D%2222%22%20font-size%3D%2211%22%20font-weight%3D%22900%22%20fill%3D%22%23d0362b%22%20transform%3D%22rotate(-8%2016%2023)%22%3EA%3C/text%3E%3Ctext%20x%3D%2228%22%20y%3D%2222%22%20font-size%3D%2211%22%20font-weight%3D%22900%22%20fill%3D%22%2320272f%22%20transform%3D%22rotate(8%2032%2023)%22%3EJ%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=19e08fd8"></script>
+<script src="/static/i18n.js?v=d4128e02"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;--gold:#e3b341;
@@ -97,7 +97,7 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🃏</span><h1>NADO <span class="a">Blackjack</span></h1><a class="hub" href="https://nadochain.com/apps" data-i18n="bj.allApps">🎮 All apps</a></header>
-  <p class="sub" data-i18n-html="bj.sub">Blackjack with <b>literally no dealer to trust</b>: the house plays a fixed on-chain strategy (stands on 17), and its cards are drawn from <b>future L1 block hashes bound after you stand</b> — nothing to peek at, nothing to rig. Hit or stand as usual; win pays 2×, blackjack pays 5:2. Every card is verifiable on-chain. Post-quantum wallet, no install.</p>
+  <p class="sub" data-i18n-html="bj.sub">Blackjack with <b>literally no dealer to trust</b>: the house plays a fixed on-chain strategy (stands on 17), and its cards are drawn from <b>the chain's epoch beacon, bound after you stand</b> — nothing to peek at, nothing to rig. Hit or stand as usual; win pays 2×, blackjack pays 5:2. Every card is verifiable on-chain. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
@@ -210,7 +210,7 @@
   <div class="card-p">
     <h2 data-i18n="bj.fairH">Provably fair — the dealer is an algorithm</h2>
     <p class="small dim" style="line-height:1.6" data-i18n-html="bj.fairText">
-      Your cards bind to <b>two future L1 block hashes</b> the moment you bet or hit — <span class="mono">card = HASH(blockhash(H) ‖ blockhash(H+1) ‖ hand ‖ n) mod 52</span> — and the dealer's hole card and hits are drawn the same way from blocks bound <b>only after you stand</b>. Nobody can peek, stack the deck, or grind the result (two blocks are mixed). The dealer must stand on 17 — a fixed strategy enforced by the contract, which also stores every card on-chain and pays wins (2×), pushes (refund) and naturals (5:2) automatically. Cards draw from an infinite shoe (each card independent), the one provably fair way to deal without a dealer.
+      Every deal, hit and stand binds its cards to a <b>future epoch beacon</b> — the chain's randomness, mixed from validator reveals every 60 blocks, which does not exist yet when you act: <span class="mono">card = HASH(beacon(E) ‖ hand ‖ n) mod 52</span>, so a card lands one to two epochs (60–120 blocks) after you act. The dealer's hole card and hits are bound <b>only after you stand</b>. Nobody — you, the bank or a block producer — can peek, stack the deck, or grind the result. The dealer must stand on 17 — a fixed strategy enforced by the contract, which also stores every card on-chain and pays wins (2×), pushes (refund) and naturals (5:2). Cards draw from an infinite shoe (each card independent), the one provably fair way to deal without a dealer. <b>Finish each hand within 18,000 blocks (~1.5 days) of your last move:</b> anyone can land your cards until then (this page does it for you while open); a hand left unfinished after that goes to the bank. Hands bound before the beacon upgrade keep drawing from block hashes.
     </p>
   </div>
 
@@ -235,6 +235,6 @@
 
   <footer data-i18n-html="bj.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="https://nadochain.com/apps">more apps</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
-<script type="module" src="/static/blackjack.js?v=7d6cbece"></script>
+<script type="module" src="/static/blackjack.js?v=3fdbc9fd"></script>
 </body>
 </html>

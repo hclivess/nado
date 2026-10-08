@@ -1,16 +1,30 @@
 """
 Blackjack — zkVM port (doc/zk-execution-proofs.md). Banked, dealer-less: a machine's bank covers a 5:2
 natural, a player deals a hand, hits/stands, then the DEALER PLAYS ITSELF on-chain (stand on 17, "S17")
-from L1 BLOCKHASH randomness — so the whole hand reconstructs from chain state with no house to trust.
+from the epoch beacon — so the whole hand reconstructs from chain state with no house to trust.
 Win pays 2×, push refunds, a natural (2 cards = 21) pays 5:2. Ported from the deleted stackvm contract with
-identical rules; the card model matches static/cards.js:
+identical rules; the card model matches static/blackjack.js cardsAt (nadodapp chainResultAlg) — card rank/suit
+convention as static/cards.js:
 
-  card c ∈ 0..51 = alghash([bh(gh)+bh(gh+1) + g*64 + offset + i]) % 52 ; rank r = c%13 ; value r≤8→r+2,
+  card c ∈ 0..51 = alghash([seed(step) + g*64 + offset + i]) % 52 ; rank r = c%13 ; value r≤8→r+2,
   9≤r≤11→10 (J/Q/K), r=12→1 (ace, counts 11 when hard+10≤21). offsets: player 0, dealer up 16, hit gn,
   dealer draws 32+j. Cards persist as value+1 in pc[g*16+k] / dk[g*16+j] (per-index board fields).
 
+  seed(step): every step that draws (deal→reveal, hit→draw, stand→settle) binds afresh with _lib.beacon_bind:
+  gb = epoch(cursor) + 2, gh = gb*60 - 1, and the draw reads seed = BEACON(gb) (_lib.seed_q). A hand whose
+  current step was bound before the beacon rule (gb == 0) keeps seed = bh(gh) + bh(gh+1). The Python reference
+  (card_at / dealer_play) takes (bh0, bh1): bh0 = BEACON(gb), bh1 = 0 for a beacon step.
+  INVARIANT: no step's seed is knowable when the step is bound, because gb = epoch(cursor) + 2 names a beacon
+  mixed from reveals that land after the bind (_lib.beacon_bind), and every resolving method gates on
+  cursor >= gh + 1 = gb*60 (BEACON reverts while the value is not final).
+
+  TIMEOUT: a hand not resolved within 18000 blocks of its last move (GE) resolves to the BANK via reap, in every
+  phase. Every resolving method (reveal/draw/settle) is permissionless and the beacon outlives the window, so
+  the player always holds a resolution path for the whole window.
+
 Seat: 7 gg 9 gs 10 ga 11 gh 12 gf(phase 1 dealt·2 acting·3 hit·4 settle) 13 gn 14 gd 15 gw 16 gr(dealer best)
-  17 du(up+1) 18 php(player hard) 19 pac(player aces) 20 ge.  Table: 1 ta 2 tk 3 tp 4 tc 6 tz.
+  17 du(up+1) 18 php(player hard) 19 pac(player aces) 20 ge 23 gb(beacon epoch of the pending step; 0 =
+  block-hash rule).  Table: 1 ta 2 tk 3 tp 4 tc 6 tz.
 Board: PC_BASE(40)+k player cards, DK_BASE(60)+j dealer cards, keyed by g.  Scratch 30.  Index 0/21,1/22.
 Methods: open(t)[bank] · deal(g,t)[stake] · reveal(g) · hit(g) · draw(g) · stand(g) · settle(g) · reap(g) · fund/close.
 """
@@ -20,11 +34,13 @@ from execnode.stark import alghash, field as F
 
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 GG, GS, GA, GH, GF, GN, GD, GW, GR, DU, PHP, PAC, GE = 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+GB = 23          # beacon epoch of the pending step (field 23 was unused; 21/22 are the table/game index lists)
 PC_BASE, DK_BASE, SC = 40, 60, 30
 TLIST, GLIST = 21, 22
 
 
 def card_at(bh0, bh1, salt, i):
+    """The contract's card draw. Block-hash step: (bh(gh), bh(gh+1)). Beacon step: (BEACON(gb), 0)."""
     return (alghash.hashn([(bh0 % F.P + bh1 % F.P + salt + i) % F.P]) & 0xFFFFFFFF) % 52
 
 
@@ -72,9 +88,9 @@ def _card_val_asm(c_reg, val_out, ace_out):
     return L
 
 
-def _seed_q():
-    """q = bh(gh)+bh(gh+1)+g*64 -> SC0 (g in r0)."""
-    return ["slot r4 11 r0", "sload r5 r4", "bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5", "add r3 r6",
+def _seed_q(tag="bjq"):
+    """q = seed + g*64 -> SC0 (g in r0); seed = BEACON(gb) for a beacon step, bh(gh)+bh(gh+1) when gb == 0."""
+    return [_lib.seed_q(GH, GB, out="r3", key="r0", tag=tag),
             "mov r5 r0", "movi r6 64", "mul r5 r6", "add r3 r5", f"movi r4 {_s(0)}", "sstore r4 r3"]
 
 
@@ -171,8 +187,9 @@ SETTLE = """
     notb r6
     require r6
 """ + "\n".join(
-    # dq = bh(gh)+bh(gh+1)+g*64+32 -> SC0 ; dealer hard(SC1)=val(up), aces(SC2)=ace(up), j(SC3)=0
-    ["slot r4 11 r0", "sload r5 r4", "bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5", "add r3 r6",
+    # dq = seed+g*64+32 -> SC0 (seed = BEACON(gb), or bh(gh)+bh(gh+1) for a gb == 0 stand) ;
+    # dealer hard(SC1)=val(up), aces(SC2)=ace(up), j(SC3)=0
+    [_lib.seed_q(GH, GB, out="r3", key="r0", tag="bjd"),
      "mov r5 r0", "movi r6 64", "mul r5 r6", "add r3 r5", "movi r6 32", "add r3 r6", f"movi r4 {_s(0)}", "sstore r4 r3"]
     + ["slot r4 17 r0", "sload r3 r4", "movi r5 1", "sub r3 r5"]            # up card = du-1 -> r3
     + _card_val_asm("r3", "r1", "r2")
@@ -231,9 +248,16 @@ SETTLE = """
 """FILLED"""
 
 
+# _BIND: every step that draws (deal, hit, stand) binds its pending draw to a future epoch beacon — gb at field 23,
+# gh = gb*60 - 1 — where the block-hash rule stamped gh = cursor + 2. Clobbers r4-r7; each caller only writes after.
+# INVARIANT: a step bound before the beacon rule has gb == 0 and still resolves from bh(gh) + bh(gh+1), because
+# _seed_q / SETTLE read the seed through _lib.seed_q, which branches on gb.
+_BIND = _lib.beacon_bind(GH, GB, key="r0")
+
+
 SRC = {
     "open": _lib.open_table(TLIST),
-    # deal(g, t)[stake]: reserve a 5:2 cover (tc += stake*3/2), start the hand awaiting the reveal blocks
+    # deal(g, t)[stake]: reserve a 5:2 cover (tc += stake*3/2), start the hand awaiting its beacon epoch
     "deal": """
         ctx r3 value
         movi r4 0
@@ -288,11 +312,7 @@ SRC = {
         slot r4 13 r0
         movi r5 0
         sstore r4 r5
-        slot r4 11 r0
-        ctx r5 cursor
-        movi r6 2
-        add r5 r6
-        sstore r4 r5
+""" + _BIND + """
         slot r4 20 r0
         ctx r5 cursor
         sstore r4 r5
@@ -321,11 +341,7 @@ SRC = {
         slot r4 12 r0
         movi r5 3
         sstore r4 r5
-        slot r4 11 r0
-        ctx r5 cursor
-        movi r6 2
-        add r5 r6
-        sstore r4 r5
+""" + _BIND + """
         slot r4 20 r0
         ctx r5 cursor
         sstore r4 r5
@@ -346,30 +362,28 @@ SRC = {
         slot r4 12 r0
         movi r5 4
         sstore r4 r5
-        slot r4 11 r0
-        ctx r5 cursor
-        movi r6 2
-        add r5 r6
-        sstore r4 r5
+""" + _BIND + """
         slot r4 20 r0
         ctx r5 cursor
         sstore r4 r5
         ret r0
     """,
     "settle": SETTLE,
-    # reap(g): a hand that can never resolve locks the player's stake and pins tc>0 forever (which also blocks
-    # close_table). Release the bank's cover (stake*3/2, the natural-payout reservation) and mark it settled.
-    # Gated on GE (slot 20, re-stamped by deal/hit/stand — the last time the hand actually moved) + 18000 <
-    # cursor. Permissionless + bhash-free, mirroring mines.reap / dice.reclaim.
+    # reap(g): a hand nobody resolved within its window. Gated on GE (slot 20, re-stamped by deal/hit/stand — the
+    # last time the hand actually moved) + 18000 < cursor. Permissionless + randomness-free, mirroring
+    # mines.reap / dice.reclaim. It releases the bank's cover (stake*3/2, the natural-payout reservation) and marks
+    # the hand settled (gd=1, gw stays 0 = timed out).
     #
-    # WHO GETS THE STAKE DEPENDS ON WHO STALLED — the reason this is not a plain refund. At gf==2 the hand is
-    # waiting on the PLAYER to hit or stand, and the bank has NO resolution path at all (settle needs gf==4,
-    # draw needs gf==3, hit/stand are caller-gated to the player). A blanket refund there would hand the player
-    # a free option: deal, reveal, see both your cards AND the dealer up-card, then walk away from every
-    # unfavourable hand and reap the stake back 18000 blocks later — strictly +EV, so the bank loses on every
-    # table. So a gf==2 hand FORFEITS (bank keeps the stake, exactly like a bust), and every other phase — where
-    # the hand is waiting on a block hash that the prune took away, nobody's fault — refunds. Branchless:
-    # keep = stake*(gf==2), refund = stake - keep.
+    # THE TIMEOUT RESOLVES TO THE BANK IN EVERY PHASE — the stake stays in the pot (deal already credited tp), tk
+    # gains it exactly like a bust, and nobody is paid. One rule for every phase is what keeps the game fair to the
+    # bank: at gf==2 the bank has no move at all (hit/stand are the player's), so a refund there was a free option
+    # (see both cards and the up-card, abandon every bad hand, reap the stake back); and at gf==1/3/4 the outcome
+    # is already fixed by the bound seed, so a refund there let a player skip resolving a hand they can compute is
+    # lost. The player loses nothing they were owed: reveal/draw/settle are permissionless and their seed (the
+    # epoch beacon, or the bound block hashes) is available for the whole 18000-block window, so a winning hand
+    # is always settleable before reap opens.
+    # INVARIANT: reap never pays out, because every hand it can reach was the player's to resolve for 18000 blocks.
+    # INVARIANT: tp == escrow is preserved, because reap only moves tc (-cover) and tk (+stake), like a bust.
     "reap": """
         slot r4 7 r0
         sload r1 r4
@@ -397,24 +411,10 @@ SRC = {
         sload r6 r4
         sub r6 r5
         sstore r4 r6
-        slot r4 12 r0
-        sload r5 r4
-        movi r6 2
-        eq r5 r6
-        mov r2 r3
-        mul r2 r5
         slot r4 2 r1
         sload r6 r4
-        add r6 r2
+        add r6 r3
         sstore r4 r6
-        sub r3 r2
-        slot r4 3 r1
-        sload r6 r4
-        sub r6 r3
-        sstore r4 r6
-        slot r4 10 r0
-        sload r6 r4
-        pay r6 r3
         slot r4 14 r0
         movi r5 1
         sstore r4 r5
@@ -476,7 +476,7 @@ ABI = {
                  "gf": {"field": GF, "index": "games"}, "gn": {"field": GN, "index": "games"},
                  "gd": {"field": GD, "index": "games"}, "gw": {"field": GW, "index": "games"},
                  "gr": {"field": GR, "index": "games"}, "du": {"field": DU, "index": "games"},
-                 "ge": {"field": GE, "index": "games"}},
+                 "ge": {"field": GE, "index": "games"}, "gb": {"field": GB, "index": "games"}},
         "indexes": {"tables": {"cnt": 0, "list": TLIST}, "games": {"cnt": 1, "list": GLIST}},
         "addr": ["ta", "ga"],
         "board": {"name": "pc", "base": PC_BASE, "cells": 16, "stride": 16, "index": "games"},

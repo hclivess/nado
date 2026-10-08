@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# _cf_e2e.py — LIVE end-to-end of the deployed Coin Flip contract. Two real keys stake real (tiny) NADO,
-# the flip settles out of two L1 block hashes, and the winner is recomputed HERE from those hashes rather
-# than read back off the chain. Also covers cancel (an unjoined game refunds its opener) and finality
-# (a settled game cannot be re-settled).
+# _cf_e2e.py — LIVE end-to-end of the deployed Coin Flip contract. Two real keys stake real (tiny) NADO with
+# commitments HASH(secret), both reveal, and the winner HASH(s1 + s2 + g) LO32 % 2 is recomputed HERE from the
+# two secrets rather than read back off the chain. Also covers cancel (an unjoined game refunds its opener) and
+# finality (a settled game cannot be re-settled). The forfeit/refund paths need REVEAL_WINDOW blocks of waiting
+# and are pinned offline by tests/test_coinflip_commit_reveal_forfeits_a_missing_reveal.py instead.
 #
 # Run: HOME=/root python3 _cf_e2e.py
 #
@@ -12,6 +13,7 @@
 # failed in ONE SECOND and had done for months, so coinflip looked covered while having no live coverage at
 # all. tests/test_e2e_scripts.py now catches that class of rot; this file is the repair.
 import json
+import secrets
 import sys
 import time
 import urllib.error
@@ -149,21 +151,21 @@ def transfer(kd, to, amount):
     return post(create_transaction(draft, kd["private_key"], MIN_TX_FEE))
 
 
-def blockhash(h):
-    """The value BHASH(h) hands the VM: the L1 block hash as an integer, reduced into the field."""
-    return int(j(L1 + f"/get_block?number={h}&hash_only=1")["block_hash"], 16) % F.P
+def H(x):
+    """The VM's `hash r <- x` of one field element — the commitment the contract stores."""
+    return alghash.hashn([x % F.P])
 
 
-def expected_winner(g, sh):
-    """The winner, derived here exactly as the SETTLE assembly derives it:
+def expected_winner(g, s1, s2):
+    """The winner, derived here exactly as the SETTLE assembly derives it for a commit-reveal game:
 
-        w = 1 + lo32(alghash.hashn([ BHASH(sh) + BHASH(sh+1) + gameId ])) % 2
+        w = 1 + lo32(alghash.hashn([ s1 + s2 + gameId ])) % 2
 
     Computing it independently is the entire point of this test. Asserting that `ws` is 1 or 2 would pass a
     contract that flipped a constant coin, and asserting that it equals whatever the chain stored would pass
     a contract that flipped nothing at all.
     """
-    x = F.add(F.add(blockhash(sh), blockhash(sh + 1)), g % F.P)
+    x = F.add(F.add(s1 % F.P, s2 % F.P), g % F.P)
     return 1 + ((alghash.hashn([x]) & 0xFFFFFFFF) % 2)
 
 
@@ -189,35 +191,39 @@ wait(lambda: exbal(A2) >= 2 * STAKE, "p2 bridged tokens into the exec layer")
 # ── 1. open ─────────────────────────────────────────────────────────────────────────────────────────
 G = int(time.time()) % 900000000 + 1000                      # a gameId nobody else is using, < 2^32
 print(f"\n1. p1 opens game {G} for {STAKE} raw", flush=True)
-call(P1, "open", [G], STAKE, applied=lambda: num("nn", G) == 1)
+S1 = secrets.randbelow(F.P - 1) + 1
+S2 = secrets.randbelow(F.P - 1) + 1
+call(P1, "open", [G, H(S1)], STAKE, applied=lambda: num("nn", G) == 1)
 wait(lambda: num("nn", G) == 1, "game is open and waiting")
+ck("it is a commit-reveal game holding p1's commitment", num("md", G) == 1 and num("c1", G) == H(S1))
 ck("the stake is recorded", num("st", G) == STAKE, f"st={num('st', G)}")
 ck("the pot holds exactly one stake", num("pt", G) == STAKE, f"pt={num('pt', G)}")
 ck("p1 is the opener", str(fld("p1", G)) == A1, str(fld("p1", G))[:20])
-ck("no settle height is armed yet", num("sh", G) == 0, f"sh={num('sh', G)}")
+ck("no reveal deadline is armed yet", num("dl", G) == 0, f"dl={num('dl', G)}")
 
 # ── 2. join ─────────────────────────────────────────────────────────────────────────────────────────
 print("\n2. p2 joins", flush=True)
 bal1, bal2 = exbal(A1), exbal(A2)
 cur_at_join = cursor()
-call(P2, "join", [G], STAKE, applied=lambda: num("nn", G) == 2)
+call(P2, "join", [G, H(S2)], STAKE, applied=lambda: num("nn", G) == 2)
 wait(lambda: num("nn", G) == 2, "game is joined")
-sh = num("sh", G)
+dl = num("dl", G)
 ck("the pot holds both stakes", num("pt", G) == 2 * STAKE, f"pt={num('pt', G)}")
 ck("p2 is the joiner", str(fld("p2", G)) == A2, str(fld("p2", G))[:20])
-# the settle height must be UNMINED at join time, or the joiner could have picked a side knowing the answer
-ck("the settle height was still in the future when the stakes went in", sh > cur_at_join,
-   f"sh={sh} cursor@join={cur_at_join}")
+ck("p2's commitment is recorded", num("c2", G) == H(S2))
+ck("the reveal deadline is in the future", dl > cur_at_join, f"dl={dl} cursor@join={cur_at_join}")
 
-# ── 3. settle — and check the flip against an independent derivation ────────────────────────────────
-print(f"\n3. wait for heights {sh} and {sh + 1}, then settle", flush=True)
-wait(lambda: cursor() >= sh + 1, f"the exec cursor reached {sh + 1}", 900)
-want = expected_winner(G, sh)
+# ── 3. reveal both, settle — and check the flip against an independent derivation ───────────────────
+print("\n3. both reveal, then settle", flush=True)
+call(P1, "reveal", [G, S1], applied=lambda: num("v1", G) == 1)
+call(P2, "reveal", [G, S2], applied=lambda: num("v2", G) == 1)
+wait(lambda: num("v1", G) == 1 and num("v2", G) == 1, "both secrets revealed")
+want = expected_winner(G, S1, S2)
 call(P1, "settle", [G], applied=lambda: num("sd", G) == 1)
 wait(lambda: num("sd", G) == 1, "settled")
 got = num("ws", G)
 ck("a winner was chosen", got in (1, 2), f"ws={got}")
-ck("the winner matches an INDEPENDENT derivation from the two block hashes", got == want,
+ck("the winner matches an INDEPENDENT derivation from the two secrets", got == want,
    f"chain={got} derived={want}")
 
 winner, loser = (A1, A2) if got == 1 else (A2, A1)
@@ -232,7 +238,7 @@ ck("nothing was minted — the pot is emptied", num("pt", G) == 0, f"pt={num('pt
 G2 = G + 1
 print(f"\n4. p1 opens game {G2} and cancels it", flush=True)
 before = exbal(A1)
-call(P1, "open", [G2], STAKE, applied=lambda: num("nn", G2) == 1)
+call(P1, "open", [G2, H(secrets.randbelow(F.P - 1) + 1)], STAKE, applied=lambda: num("nn", G2) == 1)
 wait(lambda: num("nn", G2) == 1, "second game is open")
 ck("opening escrowed the stake", exbal(A1) <= before - STAKE, f"{exbal(A1)} was {before}")
 call(P1, "cancel", [G2], applied=lambda: num("sd", G2) == 1)

@@ -30,7 +30,7 @@
   "dice.enterStakeHint": "أدخل رهانًا (NADO) واضبط فرصة فوزك، ثم ضع الرمية — يمكنك الرهان في طاولتك أيضًا.",
   "dice.enterTableId": "أدخل معرّف طاولة، أو اختر واحدة من الردهة.",
   "dice.fairH": "عدالة قابلة للإثبات — لا رمية للبيت، لا أسرار",
-  "dice.fairText": "كل ~دقيقتين ترمي الطاولة بنفسها. كل رهان مربوط بكتلة تسوية مستقبلية؛ رميتك هي HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. هذه هاشات الكتل غير موجودة بعد عندما تراهن، لذا لا أحد — لا أنت، ولا البنك، ولا منتج الكتلة — يستطيع معرفة أو توجيه رميتك والرهان مفتوح (تُمزج كتلتان كي لا يستطيع أي منقّب منفرد التلاعب بها). بمجرد أن تصبح كتلة تسويتك نهائية، يمكن لأي شخص تسوية مقعدك وتدفع السلسلة الفوز تلقائيًا — بنك يماطل لا يستطيع سرقتك. الفوز يدفع 99 ÷ الهدف (هامش 1%)؛ الرهانات الخاسرة تنضم إلى رصيد البنك لتظل الطاولة ترمي.",
+  "dice.fairText": "كل حقبة منارة (~6 دقائق) ترمي الطاولة بنفسها. كل رهان مرتبط بمنارة حقبة مستقبلية؛ رميتك هي <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. تمزج المنارة الأسرار المكشوفة على L1 خلال تلك الحقبة ولا وجود لها بعد عند الرهان، لذا <b>لا أحد — لا أنت ولا البنك ولا منتج الكتل — يستطيع معرفة رميتك أو توجيهها</b> ما دام الرهان مفتوحًا. حين تصبح المنارة نهائية يستطيع <b>أي شخص</b> تسوية مقعدك وتدفع السلسلة الربح تلقائيًا — لا يستطيع بنك مماطل أن يسلبك. يدفع الفوز <span class=\"mono\">99 ÷ target</span> (أفضلية 1%)؛ والرهانات الخاسرة تنضم إلى رصيد البنك فتستمر الطاولة بالرمي. <b>اجمع ربحك خلال 18,000 كتلة (~يوم ونصف):</b> المقعد الذي لا يسوّيه أحد في هذه المهلة يذهب إلى البنك (تجمع هذه الصفحة ربحك ما دامت مفتوحة). الرهانات الموضوعة قبل الترقية إلى المنارة تحتفظ برميتها من تجزئة الكتل.",
   "dice.findTableH": "🎲 ابحث عن طاولة",
   "dice.findTableHelp": "اختر طاولة من الردهة أدناه، أو افتح واحدة عبر المعرّف — ثم تُفتح أدوات الرمي لتلك الطاولة.",
   "dice.footer": "يعمل على <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">مزيد من الألعاب</a> · <a href=\"https://get.nadochain.com/rollup\">اطّلع على العقد</a>.",
@@ -79,7 +79,7 @@
   "dice.signIn": "سجّل الدخول بمحفظة NADO",
   "dice.stakePh": "الرهان (NADO)",
   "dice.statusK": "الحالة",
-  "dice.sub": "نرد متعدد اللاعبين عادل بشكل قابل للإثبات، بتمويل من الأقران، على طبقة تنفيذ NADO. حرّك فرصة فوزك؛ يتوسّع العائد تلقائيًا (99 ÷ الهدف، هامش ثابت 1%). كل طاولة ترمي بنفسها كل ~دقيقتين — لا كشف للبنك، لا أسرار. تأتي رميتك من هاش كتلة L1 مستقبلية لا يستطيع أحد التنبؤ بها والرهان مفتوح: HASH(blockhash ‖ seatId) mod 100. محفظة ما بعد الكم، بدون تثبيت.",
+  "dice.sub": "نرد متعدد اللاعبين عادل بشكل قابل للإثبات <b>يموّله اللاعبون</b> على طبقة التنفيذ في NADO. حرّك فرصة فوزك؛ يتعدّل العائد تلقائيًا (<span class=\"mono\">99 ÷ target</span>، أفضلية ثابتة 1%). كل طاولة <b>ترمي بنفسها كل حقبة منارة (~6 دقائق)</b> — بلا كشف من البنك ولا أسرار. رميتك تأتي من <b>منارة حقبة مستقبلية</b> لا يمكن لأحد توقعها ما دام الرهان مفتوحًا: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. محفظة مقاومة للحوسبة الكمومية، بلا تثبيت.",
   "dice.tableClosed": "تلك الطاولة مغلقة.",
   "dice.tableClosedN": "الطاولة #{t} مغلقة.",
   "dice.tableH": "الطاولة",
@@ -101,7 +101,10 @@
   "dice.won": "ربح {amt}",
   "dice.wonCollect": "ربح {amt} — اجمع",
   "dice.you": "أنت",
-  "dice.yourTables": "طاولاتك · 🏦 أنت البنك · 🎲 أنت ترمي"
+  "dice.yourTables": "طاولاتك · 🏦 أنت البنك · 🎲 أنت ترمي",
+  "dice.callReclaim": "حرّر المقعد المنتهي #{g} لصالح البنك",
+  "dice.releaseSeat": "↩ حرّر المقعد المنتهي #{g} ({amt}) لصالح البنك",
+  "dice.timedOut": "انتهت المهلة — يذهب الرهان إلى البنك"
  },
  "cs": {
   "dice.allApps": "🎮 Všechny aplikace",
@@ -134,7 +137,7 @@
   "dice.enterStakeHint": "Zadejte sázku (NADO) a nastavte šanci na výhru, pak Vsadit hod — sázet můžete i u vlastního stolu.",
   "dice.enterTableId": "Zadejte ID stolu, nebo vyberte jeden z lobby.",
   "dice.fairH": "Prokazatelně férové — žádný hod kasina, žádná tajemství",
-  "dice.fairText": "Každé ~2 minuty si stůl hodí sám. Každá sázka je vázána na budoucí vyrovnávací blok; váš hod je HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Tyto hashe bloků při sázení ještě neexistují, takže nikdo — ani vy, ani banka, ani producent bloku — nemůže znát ani ovlivnit váš hod, dokud jsou sázky otevřené (míchají se dva bloky, aby to žádný jednotlivý těžař nemohl vynutit). Jakmile je váš vyrovnávací blok finální, kdokoli může vaše místo vyrovnat a řetězec výhru vyplatí automaticky — otálející banka vás nemůže okrást. Výhra platí 99 ÷ cíl (1% výhoda); prohrané sázky se sčítají do bankrollu, aby stůl házel dál.",
+  "dice.fairText": "Každou epochu beaconu (~6 minut) si stůl hodí sám. Každá sázka je vázána na budoucí beacon epochy; váš hod je <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Beacon mísí tajemství odhalená na L1 během dané epochy a při sázce ještě neexistuje, takže <b>nikdo — ani vy, ani bank, ani producent bloku — nemůže znát ani ovlivnit váš hod</b>, dokud jsou sázky otevřené. Jakmile je beacon finální, <b>kdokoli</b> může vaše místo vyrovnat a řetězec výhru vyplatí automaticky — zdržující se bank vás nemůže okrást. Výhra vyplácí <span class=\"mono\">99 ÷ target</span> (výhoda 1 %); prohrané sázky se přelévají do bankrollu, takže stůl hází dál. <b>Vyberte do 18 000 bloků (~1,5 dne):</b> místo, které v tomto okně nikdo nevyrovná, připadne bance (tato stránka vám výhru vybere, dokud je otevřená). Sázky podané před přechodem na beacon si ponechávají hod z hashů bloků.",
   "dice.findTableH": "🎲 Najít stůl",
   "dice.findTableHelp": "Vyberte stůl z lobby níže, nebo jej otevřete podle ID — pak se pro daný stůl otevřou ovládací prvky hodu.",
   "dice.footer": "Běží na <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">další hry</a> · <a href=\"https://get.nadochain.com/rollup\">zobrazit kontrakt</a>.",
@@ -183,7 +186,7 @@
   "dice.signIn": "Přihlásit se peněženkou NADO",
   "dice.stakePh": "sázka (NADO)",
   "dice.statusK": "Stav",
-  "dice.sub": "Prokazatelně férové multiplayerové kostky s bankrollem od hráčů na exekuční vrstvě NADO. Posuňte svou šanci na výhru; výplata se automaticky škáluje (99 ÷ cíl, pevná 1% výhoda). Každý stůl si hází sám každé ~2 minuty — žádné odhalení banky, žádná tajemství. Váš hod pochází z budoucího hashe bloku L1, který nikdo nemůže předpovědět, dokud jsou sázky otevřené: HASH(blockhash ‖ seatId) mod 100. Postkvantová peněženka, bez instalace.",
+  "dice.sub": "Prokazatelně férové <b>multiplayerové kostky s bankrollem od hráčů</b> na exekuční vrstvě NADO. Posuňte šanci na výhru; výplata se přizpůsobí sama (<span class=\"mono\">99 ÷ target</span>, plochá výhoda 1 %). Každý stůl <b>si hodí sám každou epochu beaconu (~6 minut)</b> — žádné odhalování banku, žádná tajemství. Váš hod pochází z <b>budoucího beaconu epochy</b>, který nikdo nedokáže předpovědět, dokud jsou sázky otevřené: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Postkvantová peněženka, bez instalace.",
   "dice.tableClosed": "Tento stůl je zavřený.",
   "dice.tableClosedN": "Stůl #{t} je zavřený.",
   "dice.tableH": "Stůl",
@@ -205,7 +208,10 @@
   "dice.won": "výhra {amt}",
   "dice.wonCollect": "výhra {amt} — vybrat",
   "dice.you": "vy",
-  "dice.yourTables": "Vaše stoly · 🏦 vy jste banka · 🎲 vy sázíte"
+  "dice.yourTables": "Vaše stoly · 🏦 vy jste banka · 🎲 vy sázíte",
+  "dice.callReclaim": "uvolnit propadlé místo #{g} bance",
+  "dice.releaseSeat": "↩ Uvolnit propadlé místo #{g} ({amt}) bance",
+  "dice.timedOut": "vypršelo — sázka připadá bance"
  },
  "de": {
   "dice.allApps": "🎮 Alle Apps",
@@ -238,7 +244,7 @@
   "dice.enterStakeHint": "Gib einen Einsatz ein (NADO) und stelle deine Gewinnchance ein, dann Wurf setzen — du kannst auch an deinem eigenen Tisch wetten.",
   "dice.enterTableId": "Gib eine Tisch-ID ein, oder wähle eine aus der Lobby.",
   "dice.fairH": "Beweisbar fair — kein Wurf der Bank, keine Geheimnisse",
-  "dice.fairText": "Alle ~2 Minuten würfelt sich der Tisch selbst. Jede Wette ist an einen künftigen Abrechnungsblock gebunden; dein Wurf ist HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Diese Block-Hashes existieren beim Wetten noch nicht, also kann niemand — weder du, noch die Bank, noch der Blockproduzent — deinen Wurf kennen oder steuern, solange Wetten offen sind (zwei Blöcke werden gemischt, damit kein einzelner Miner ihn erzwingen kann). Sobald dein Abrechnungsblock final ist, kann jeder deinen Platz abrechnen und die Kette zahlt einen Gewinn automatisch aus — eine zögernde Bank kann dich nicht berauben. Ein Gewinn zahlt 99 ÷ Ziel (1%-Marge); verlorene Einsätze fließen ins Bankroll, damit der Tisch weiterwürfelt.",
+  "dice.fairText": "In jeder Beacon-Epoche (~6 Minuten) würfelt der Tisch selbst. Jede Wette ist an einen zukünftigen Epochen-Beacon gebunden; dein Wurf ist <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Der Beacon mischt die in dieser Epoche auf L1 offengelegten Geheimnisse und existiert beim Setzen noch nicht, also <b>kann niemand — weder du noch die Bank noch ein Blockproduzent — deinen Wurf kennen oder steuern</b>, solange gewettet wird. Sobald der Beacon final ist, kann <b>jeder</b> deinen Platz abrechnen und die Chain zahlt einen Gewinn automatisch aus — eine zögernde Bank kann dich nicht berauben. Ein Gewinn zahlt <span class=\"mono\">99 ÷ target</span> (1 % Vorteil); verlorene Einsätze fließen in die Bankroll, damit der Tisch weiterwürfelt. <b>Innerhalb von 18.000 Blöcken (~1,5 Tage) einlösen:</b> ein Platz, den in diesem Fenster niemand abrechnet, geht an die Bank (diese Seite löst deinen Gewinn ein, solange sie offen ist). Wetten von vor der Beacon-Umstellung behalten ihren Blockhash-Wurf.",
   "dice.findTableH": "🎲 Tisch finden",
   "dice.findTableHelp": "Wähle einen Tisch aus der Lobby unten, oder öffne einen per ID — dann öffnen sich die Wurf-Regler für diesen Tisch.",
   "dice.footer": "Läuft auf <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">mehr Spiele</a> · <a href=\"https://get.nadochain.com/rollup\">Vertrag ansehen</a>.",
@@ -287,7 +293,7 @@
   "dice.signIn": "Mit NADO-Wallet anmelden",
   "dice.stakePh": "Einsatz (NADO)",
   "dice.statusK": "Status",
-  "dice.sub": "Ein beweisbar faires Mehrspieler-Würfelspiel mit Peer-Bankroll auf der NADO-Ausführungsschicht. Schiebe deine Gewinnchance; die Auszahlung skaliert sich selbst (99 ÷ Ziel, pauschale 1%-Marge). Jeder Tisch würfelt sich alle ~2 Minuten selbst — keine Bank-Offenlegung, keine Geheimnisse. Dein Wurf stammt aus dem Hash eines künftigen L1-Blocks, den niemand vorhersagen kann, solange Wetten offen sind: HASH(blockhash ‖ seatId) mod 100. Post-quanten-Wallet, keine Installation.",
+  "dice.sub": "Ein nachweislich faires, <b>von Spielern finanziertes Multiplayer</b>-Würfelspiel auf der NADO-Ausführungsschicht. Stelle deine Gewinnchance ein; die Auszahlung passt sich an (<span class=\"mono\">99 ÷ target</span>, flacher Vorteil von 1 %). Jeder Tisch <b>würfelt selbst in jeder Beacon-Epoche (~6 Minuten)</b> — keine Bank-Enthüllung, keine Geheimnisse. Dein Wurf stammt aus einem <b>zukünftigen Epochen-Beacon</b>, den niemand vorhersagen kann, solange gewettet wird: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Post-Quanten-Wallet, keine Installation.",
   "dice.tableClosed": "Dieser Tisch ist geschlossen.",
   "dice.tableClosedN": "Tisch #{t} ist geschlossen.",
   "dice.tableH": "Tisch",
@@ -309,7 +315,10 @@
   "dice.won": "gewonnen {amt}",
   "dice.wonCollect": "gewonnen {amt} — einziehen",
   "dice.you": "du",
-  "dice.yourTables": "Deine Tische · 🏦 du bist Bank · 🎲 du würfelst"
+  "dice.yourTables": "Deine Tische · 🏦 du bist Bank · 🎲 du würfelst",
+  "dice.callReclaim": "abgelaufenen Platz #{g} an die Bank freigeben",
+  "dice.releaseSeat": "↩ Abgelaufenen Platz #{g} ({amt}) an die Bank freigeben",
+  "dice.timedOut": "abgelaufen — der Einsatz geht an die Bank"
  },
  "en": {
   "dice.allApps": "🎮 All apps",
@@ -342,7 +351,7 @@
   "dice.enterStakeHint": "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.",
   "dice.enterTableId": "Enter a table ID, or pick one from the lobby.",
   "dice.fairH": "Provably fair — no house roll, no secrets",
-  "dice.fairText": "Every ~2 minutes the table rolls itself. Each bet is bound to a future settle block; your roll is <span class=\"mono\">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100</span>. Those block hashes don't exist yet when you bet, so <b>nobody — not you, not the bank, not the block producer — can know or steer your roll</b> while betting is open (two blocks are mixed so no single collector can grind it). Once your settle block is final, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can't rob you. A win pays <span class=\"mono\">99 ÷ target</span> (1% edge); losing stakes fold into the bankroll so the table keeps rolling.",
+  "dice.fairText": "Every beacon epoch (~6 minutes) the table rolls itself. Each bet is bound to a future epoch beacon; your roll is <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. The beacon mixes the secrets revealed on L1 during that epoch and doesn't exist yet when you bet, so <b>nobody — not you, not the bank, not a block producer — can know or steer your roll</b> while betting is open. Once the beacon is final, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can't rob you. A win pays <span class=\"mono\">99 ÷ target</span> (1% edge); losing stakes fold into the bankroll so the table keeps rolling. <b>Collect within 18,000 blocks (~1.5 days):</b> a seat nobody settles in that window goes to the bank (this page collects a win for you while it is open). Bets placed before the beacon upgrade keep their block-hash roll.",
   "dice.findTableH": "🎲 Find a table",
   "dice.findTableHelp": "Pick a table from the lobby below, or open one by ID — then the roll controls open for that table.",
   "dice.footer": "Runs on <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">more games</a> · <a href=\"https://get.nadochain.com/rollup\">see the contract</a>.",
@@ -391,7 +400,7 @@
   "dice.signIn": "Sign in with NADO wallet",
   "dice.stakePh": "stake (NADO)",
   "dice.statusK": "Status",
-  "dice.sub": "A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class=\"mono\">99 ÷ target</span>, a flat 1% edge). Each table <b>rolls itself every ~2 minutes</b> — no bank reveal, no secrets. Your roll comes from a <b>future L1 block hash</b> nobody can predict while betting is open: <span class=\"mono\">HASH(blockhash ‖ seatId) mod 100</span>. Post-quantum wallet, no install.",
+  "dice.sub": "A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class=\"mono\">99 ÷ target</span>, a flat 1% edge). Each table <b>rolls itself every beacon epoch (~6 minutes)</b> — no bank reveal, no secrets. Your roll comes from a <b>future epoch beacon</b> nobody can predict while betting is open: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Post-quantum wallet, no install.",
   "dice.tableClosed": "That table is closed.",
   "dice.tableClosedN": "Table #{t} is closed.",
   "dice.tableH": "Table",
@@ -413,7 +422,10 @@
   "dice.won": "won {amt}",
   "dice.wonCollect": "won {amt} — collect",
   "dice.you": "you",
-  "dice.yourTables": "Your tables <span style=\"opacity:.7\">· 🏦 you bank · 🎲 you roll</span>"
+  "dice.yourTables": "Your tables <span style=\"opacity:.7\">· 🏦 you bank · 🎲 you roll</span>",
+  "dice.callReclaim": "release timed-out seat #{g} to the bank",
+  "dice.releaseSeat": "↩ Release timed-out seat #{g} ({amt}) to the bank",
+  "dice.timedOut": "timed out — stake goes to the bank"
  },
  "es": {
   "dice.allApps": "🎮 Todas las apps",
@@ -446,7 +458,7 @@
   "dice.enterStakeHint": "Introduce una apuesta (NADO) y ajusta tu probabilidad de ganar, luego Apostar tirada — también puedes apostar en tu propia mesa.",
   "dice.enterTableId": "Introduce un ID de mesa, o elige una del lobby.",
   "dice.fairH": "Demostrablemente justo — sin tirada de la casa, sin secretos",
-  "dice.fairText": "Cada ~2 minutos la mesa tira sola. Cada apuesta se vincula a un bloque de liquidación futuro; tu tirada es HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Esos hashes de bloque aún no existen cuando apuestas, así que nadie — ni tú, ni la banca, ni el productor del bloque — puede conocer ni manipular tu tirada mientras las apuestas están abiertas (se mezclan dos bloques para que ningún minero pueda forzarlo). Una vez que tu bloque de liquidación es final, cualquiera puede liquidar tu asiento y la cadena paga la victoria automáticamente — una banca que se demora no puede robarte. Una victoria paga 99 ÷ objetivo (margen 1%); las apuestas perdidas se suman a la banca para que la mesa siga tirando.",
+  "dice.fairText": "En cada época del beacon (~6 minutos) la mesa tira sola. Cada apuesta se vincula a un beacon de época futuro; tu tirada es <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. El beacon mezcla los secretos revelados en L1 durante esa época y aún no existe cuando apuestas, así que <b>nadie — ni tú, ni la banca, ni un productor de bloques — puede conocer ni dirigir tu tirada</b> mientras las apuestas están abiertas. Cuando el beacon es final, <b>cualquiera</b> puede liquidar tu asiento y la cadena paga la victoria automáticamente — una banca que se demora no puede robarte. Una victoria paga <span class=\"mono\">99 ÷ target</span> (ventaja del 1 %); las apuestas perdidas pasan al bankroll y la mesa sigue tirando. <b>Cobra dentro de 18.000 bloques (~1,5 días):</b> un asiento que nadie liquida en ese plazo pasa a la banca (esta página cobra tu victoria mientras está abierta). Las apuestas hechas antes de la actualización al beacon conservan su tirada por hash de bloque.",
   "dice.findTableH": "🎲 Buscar una mesa",
   "dice.findTableHelp": "Elige una mesa del lobby de abajo, o abre una por ID — luego se abren los controles de tirada para esa mesa.",
   "dice.footer": "Funciona sobre <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">más juegos</a> · <a href=\"https://get.nadochain.com/rollup\">ver el contrato</a>.",
@@ -495,7 +507,7 @@
   "dice.signIn": "Inicia sesión con la cartera NADO",
   "dice.stakePh": "apuesta (NADO)",
   "dice.statusK": "Estado",
-  "dice.sub": "Dados multijugador demostrablemente justos, con banca entre pares, en la capa de ejecución de NADO. Desliza tu probabilidad de ganar; el pago se escala solo (99 ÷ objetivo, un margen fijo del 1%). Cada mesa tira sola cada ~2 minutos — sin revelar la banca, sin secretos. Tu tirada sale del hash de un bloque L1 futuro que nadie puede predecir mientras las apuestas están abiertas: HASH(blockhash ‖ seatId) mod 100. Cartera poscuántica, sin instalación.",
+  "dice.sub": "Dados multijugador demostrablemente justos, <b>con banca entre pares</b>, en la capa de ejecución de NADO. Desliza tu probabilidad de ganar; el pago se ajusta solo (<span class=\"mono\">99 ÷ target</span>, ventaja fija del 1 %). Cada mesa <b>tira sola en cada época del beacon (~6 minutos)</b> — sin revelación de la banca, sin secretos. Tu tirada sale de un <b>beacon de época futuro</b> que nadie puede predecir mientras las apuestas están abiertas: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Cartera poscuántica, sin instalación.",
   "dice.tableClosed": "Esa mesa está cerrada.",
   "dice.tableClosedN": "La mesa #{t} está cerrada.",
   "dice.tableH": "Mesa",
@@ -517,7 +529,10 @@
   "dice.won": "ganó {amt}",
   "dice.wonCollect": "ganó {amt} — cobrar",
   "dice.you": "tú",
-  "dice.yourTables": "Tus mesas · 🏦 tú eres la banca · 🎲 tú tiras"
+  "dice.yourTables": "Tus mesas · 🏦 tú eres la banca · 🎲 tú tiras",
+  "dice.callReclaim": "liberar a la banca el asiento caducado #{g}",
+  "dice.releaseSeat": "↩ Liberar a la banca el asiento caducado #{g} ({amt})",
+  "dice.timedOut": "caducado — la apuesta pasa a la banca"
  },
  "fr": {
   "dice.allApps": "🎮 Toutes les apps",
@@ -550,7 +565,7 @@
   "dice.enterStakeHint": "Saisissez une mise (NADO) et réglez votre chance de gain, puis Placer le lancer — vous pouvez aussi parier à votre propre table.",
   "dice.enterTableId": "Saisissez un ID de table, ou choisissez-en une dans le lobby.",
   "dice.fairH": "Équité prouvable — pas de lancer de la maison, pas de secrets",
-  "dice.fairText": "Toutes les ~2 minutes, la table se lance seule. Chaque pari est lié à un futur bloc de règlement ; votre lancer est HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Ces hashs de bloc n'existent pas encore quand vous pariez, donc personne — ni vous, ni la banque, ni le producteur de bloc — ne peut connaître ou orienter votre lancer tant que les paris sont ouverts (deux blocs sont mélangés pour qu'aucun mineur seul ne puisse le forcer). Une fois votre bloc de règlement final, n'importe qui peut régler votre siège et la chaîne paie un gain automatiquement — une banque qui traîne ne peut pas vous voler. Un gain paie 99 ÷ cible (marge 1 %) ; les mises perdues rejoignent la banque pour que la table continue de tourner.",
+  "dice.fairText": "À chaque époque du beacon (~6 minutes), la table se lance d'elle-même. Chaque pari est lié à un futur beacon d'époque ; votre lancer est <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Le beacon mélange les secrets révélés sur L1 pendant cette époque et n'existe pas encore quand vous pariez, donc <b>personne — ni vous, ni la banque, ni un producteur de blocs — ne peut connaître ou orienter votre lancer</b> tant que les paris sont ouverts. Une fois le beacon final, <b>n'importe qui</b> peut régler votre place et la chaîne paie le gain automatiquement — une banque qui traîne ne peut pas vous voler. Un gain paie <span class=\"mono\">99 ÷ target</span> (avantage de 1 %) ; les mises perdues rejoignent le bankroll et la table continue de lancer. <b>Encaissez sous 18 000 blocs (~1,5 jour) :</b> une place que personne ne règle dans ce délai revient à la banque (cette page encaisse votre gain tant qu'elle est ouverte). Les paris placés avant le passage au beacon gardent leur lancer par hash de bloc.",
   "dice.findTableH": "🎲 Trouver une table",
   "dice.findTableHelp": "Choisissez une table dans le lobby ci-dessous, ou ouvrez-en une par ID — les commandes de lancer s'ouvrent alors pour cette table.",
   "dice.footer": "Fonctionne sur <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">plus de jeux</a> · <a href=\"https://get.nadochain.com/rollup\">voir le contrat</a>.",
@@ -599,7 +614,7 @@
   "dice.signIn": "Se connecter avec le portefeuille NADO",
   "dice.stakePh": "mise (NADO)",
   "dice.statusK": "Statut",
-  "dice.sub": "Un jeu de dés multijoueur à l'équité prouvable, banqué entre pairs, sur la couche d'exécution NADO. Faites glisser votre chance de gain ; le gain s'ajuste seul (99 ÷ cible, une marge fixe de 1 %). Chaque table se lance seule toutes les ~2 minutes — pas de révélation de la banque, pas de secrets. Votre lancer provient du hash d'un futur bloc L1 que personne ne peut prédire tant que les paris sont ouverts : HASH(blockhash ‖ seatId) mod 100. Portefeuille post-quantique, sans installation.",
+  "dice.sub": "Un jeu de dés multijoueur à l'équité prouvable, <b>banqué entre pairs</b>, sur la couche d'exécution NADO. Réglez votre chance de gain ; le paiement s'ajuste tout seul (<span class=\"mono\">99 ÷ target</span>, avantage fixe de 1 %). Chaque table <b>se lance d'elle-même à chaque époque du beacon (~6 minutes)</b> — pas de révélation de la banque, pas de secret. Votre lancer vient d'un <b>futur beacon d'époque</b> que personne ne peut prédire tant que les paris sont ouverts : <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Portefeuille post-quantique, sans installation.",
   "dice.tableClosed": "Cette table est fermée.",
   "dice.tableClosedN": "La table #{t} est fermée.",
   "dice.tableH": "Table",
@@ -621,7 +636,10 @@
   "dice.won": "gagné {amt}",
   "dice.wonCollect": "gagné {amt} — encaisser",
   "dice.you": "vous",
-  "dice.yourTables": "Vos tables · 🏦 vous banquez · 🎲 vous lancez"
+  "dice.yourTables": "Vos tables · 🏦 vous banquez · 🎲 vous lancez",
+  "dice.callReclaim": "céder à la banque la place expirée #{g}",
+  "dice.releaseSeat": "↩ Céder à la banque la place expirée #{g} ({amt})",
+  "dice.timedOut": "expiré — la mise revient à la banque"
  },
  "hi": {
   "dice.allApps": "🎮 सभी ऐप्स",
@@ -654,7 +672,7 @@
   "dice.enterStakeHint": "एक दांव (NADO) दर्ज करें और जीत का मौका सेट करें, फिर रोल लगाएँ — आप अपनी खुद की टेबल पर भी दांव लगा सकते हैं।",
   "dice.enterTableId": "एक टेबल ID दर्ज करें, या लॉबी से एक चुनें।",
   "dice.fairH": "प्रमाणित रूप से निष्पक्ष — हाउस का कोई रोल नहीं, कोई राज़ नहीं",
-  "dice.fairText": "हर ~2 मिनट में टेबल खुद रोल करती है। हर दांव एक भविष्य के निपटान ब्लॉक से बंधा होता है; आपका रोल HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100 है। दांव लगाते समय ये ब्लॉक हैश अभी मौजूद नहीं होते, इसलिए दांव खुले रहते हुए कोई भी — न आप, न बैंक, न ब्लॉक प्रोड्यूसर — आपके रोल को जान या मोड़ नहीं सकता (दो ब्लॉक मिलाए जाते हैं ताकि कोई अकेला माइनर इसे साध न सके)। एक बार आपका निपटान ब्लॉक अंतिम हो जाए, तो कोई भी आपकी सीट निपटा सकता है और चेन जीत अपने-आप भुगतान करती है — टालमटोल करता बैंक आपको लूट नहीं सकता। जीत 99 ÷ लक्ष्य भुगतान करती है (1% एज); हारे हुए दांव बैंकरोल में जुड़ जाते हैं ताकि टेबल रोल करती रहे।",
+  "dice.fairText": "हर बीकन युग (~6 मिनट) में टेबल खुद पासा फेंकती है। हर दांव एक भविष्य के युग बीकन से बँधा है; आपका अंक <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span> है। बीकन उस युग में L1 पर खोले गए रहस्यों को मिलाता है और दांव लगाते समय अभी मौजूद नहीं होता, इसलिए बेटिंग खुली रहते <b>कोई भी — न आप, न बैंक, न कोई ब्लॉक उत्पादक — आपका अंक जान या मोड़ नहीं सकता</b>। बीकन अंतिम होते ही <b>कोई भी</b> आपकी सीट सेटल कर सकता है और चेन जीत अपने आप चुकाती है — टालमटोल करता बैंक आपको लूट नहीं सकता। जीत <span class=\"mono\">99 ÷ target</span> चुकाती है (1% बढ़त); हारे दांव बैंकरोल में जुड़ते हैं ताकि टेबल चलती रहे। <b>18,000 ब्लॉक (~1.5 दिन) के भीतर लें:</b> जिस सीट को उस अवधि में कोई सेटल नहीं करता वह बैंक को जाती है (यह पेज खुला रहते आपकी जीत ले लेता है)। बीकन अपग्रेड से पहले लगे दांव ब्लॉक-हैश वाला अंक ही रखते हैं।",
   "dice.findTableH": "🎲 टेबल खोजें",
   "dice.findTableHelp": "नीचे लॉबी से एक टेबल चुनें, या ID से एक खोलें — फिर उस टेबल के लिए रोल कंट्रोल खुल जाते हैं।",
   "dice.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> पर चलता है · <a href=\"/games\">और गेम</a> · <a href=\"https://get.nadochain.com/rollup\">कॉन्ट्रैक्ट देखें।</a>",
@@ -703,7 +721,7 @@
   "dice.signIn": "NADO वॉलेट से साइन इन करें",
   "dice.stakePh": "दांव (NADO)",
   "dice.statusK": "स्थिति",
-  "dice.sub": "NADO निष्पादन परत पर एक प्रमाणित रूप से निष्पक्ष, साथी-बैंक्ड मल्टीप्लेयर डाइस। अपनी जीत की संभावना स्लाइड करें; भुगतान अपने-आप स्केल होता है (99 ÷ लक्ष्य, सपाट 1% एज)। हर टेबल हर ~2 मिनट में खुद रोल करती है — कोई बैंक खुलासा नहीं, कोई राज़ नहीं। आपका रोल एक भविष्य के L1 ब्लॉक हैश से आता है जिसे दांव खुले रहते हुए कोई अनुमान नहीं लगा सकता: HASH(blockhash ‖ seatId) mod 100। पोस्ट-क्वांटम वॉलेट, कोई इंस्टॉल नहीं।",
+  "dice.sub": "NADO एक्ज़ीक्यूशन लेयर पर एक सिद्ध-निष्पक्ष, <b>खिलाड़ियों द्वारा बैंक किया गया मल्टीप्लेयर</b> पासा। अपनी जीत की संभावना सरकाएँ; भुगतान अपने आप बदलता है (<span class=\"mono\">99 ÷ target</span>, सपाट 1% बढ़त)। हर टेबल <b>हर बीकन युग (~6 मिनट) में खुद पासा फेंकती है</b> — न बैंक का खुलासा, न कोई रहस्य। आपका अंक एक <b>भविष्य के युग बीकन</b> से आता है जिसका बेटिंग खुली रहते कोई अनुमान नहीं लगा सकता: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>। पोस्ट-क्वांटम वॉलेट, कोई इंस्टॉल नहीं।",
   "dice.tableClosed": "वह टेबल बंद है।",
   "dice.tableClosedN": "टेबल #{t} बंद है।",
   "dice.tableH": "टेबल",
@@ -725,7 +743,10 @@
   "dice.won": "जीते {amt}",
   "dice.wonCollect": "जीते {amt} — जमा करें",
   "dice.you": "आप",
-  "dice.yourTables": "आपकी टेबल · 🏦 आप बैंक हैं · 🎲 आप रोल करते हैं"
+  "dice.yourTables": "आपकी टेबल · 🏦 आप बैंक हैं · 🎲 आप रोल करते हैं",
+  "dice.callReclaim": "समय-सीमा पार सीट #{g} बैंक को छोड़ें",
+  "dice.releaseSeat": "↩ समय-सीमा पार सीट #{g} ({amt}) बैंक को छोड़ें",
+  "dice.timedOut": "समय समाप्त — दांव बैंक को जाता है"
  },
  "id": {
   "dice.allApps": "🎮 Semua aplikasi",
@@ -758,7 +779,7 @@
   "dice.enterStakeHint": "Masukkan taruhan (NADO) dan atur peluang menangmu, lalu Pasang gulir — kamu juga bisa bertaruh di mejamu sendiri.",
   "dice.enterTableId": "Masukkan ID meja, atau pilih satu dari lobi.",
   "dice.fairH": "Terbukti adil — tak ada gulir bandar, tak ada rahasia",
-  "dice.fairText": "Tiap ~2 menit meja menggulir sendiri. Setiap taruhan terikat pada blok penyelesaian masa depan; gulirmu adalah HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Hash blok itu belum ada saat kamu bertaruh, jadi tak seorang pun — bukan kamu, bukan bank, bukan produsen blok — bisa tahu atau mengarahkan gulirmu saat taruhan terbuka (dua blok dicampur agar tak ada penambang tunggal yang bisa memaksanya). Begitu blok penyelesaianmu final, siapa pun bisa menyelesaikan kursimu dan rantai membayar kemenangan otomatis — bank yang mengulur waktu tak bisa merampokmu. Kemenangan membayar 99 ÷ target (margin 1%); taruhan yang kalah masuk ke bankroll agar meja terus menggulir.",
+  "dice.fairText": "Setiap epoch beacon (~6 menit) meja melempar sendiri. Setiap taruhan terikat pada beacon epoch mendatang; lemparanmu adalah <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Beacon mencampur rahasia yang diungkap di L1 selama epoch itu dan belum ada saat kamu bertaruh, jadi <b>tak seorang pun — bukan kamu, bukan bandar, bukan produsen blok — dapat mengetahui atau mengarahkan lemparanmu</b> selama taruhan dibuka. Setelah beacon final, <b>siapa pun</b> dapat menyelesaikan kursimu dan rantai membayar kemenangan secara otomatis — bandar yang mengulur waktu tak bisa merampokmu. Kemenangan membayar <span class=\"mono\">99 ÷ target</span> (keunggulan 1%); taruhan kalah masuk ke bankroll sehingga meja terus melempar. <b>Klaim dalam 18.000 blok (~1,5 hari):</b> kursi yang tidak diselesaikan siapa pun dalam rentang itu menjadi milik bandar (halaman ini mengklaim kemenanganmu selama terbuka). Taruhan yang dipasang sebelum peningkatan beacon tetap memakai lemparan hash blok.",
   "dice.findTableH": "🎲 Cari meja",
   "dice.findTableHelp": "Pilih meja dari lobi di bawah, atau buka satu lewat ID — lalu kontrol gulir terbuka untuk meja itu.",
   "dice.footer": "Berjalan di <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">lebih banyak game</a> · <a href=\"https://get.nadochain.com/rollup\">lihat kontrak</a>.",
@@ -807,7 +828,7 @@
   "dice.signIn": "Masuk dengan dompet NADO",
   "dice.stakePh": "taruhan (NADO)",
   "dice.statusK": "Status",
-  "dice.sub": "Dadu multipemain yang terbukti adil, dengan bankroll antar pemain, di lapisan eksekusi NADO. Geser peluang menangmu; pembayaran menskala sendiri (99 ÷ target, margin tetap 1%). Setiap meja menggulir sendiri tiap ~2 menit — tak ada pengungkapan bank, tak ada rahasia. Gulirmu berasal dari hash blok L1 masa depan yang tak bisa diprediksi siapa pun saat taruhan terbuka: HASH(blockhash ‖ seatId) mod 100. Dompet pasca-kuantum, tanpa instal.",
+  "dice.sub": "Dadu multipemain yang adil dan dapat dibuktikan, <b>dibandari sesama pemain</b>, di lapisan eksekusi NADO. Geser peluang menangmu; pembayaran menyesuaikan otomatis (<span class=\"mono\">99 ÷ target</span>, keunggulan tetap 1%). Setiap meja <b>melempar sendiri setiap epoch beacon (~6 menit)</b> — tanpa pengungkapan bandar, tanpa rahasia. Lemparanmu berasal dari <b>beacon epoch mendatang</b> yang tak bisa diprediksi siapa pun selama taruhan dibuka: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Dompet pasca-kuantum, tanpa instalasi.",
   "dice.tableClosed": "Meja itu ditutup.",
   "dice.tableClosedN": "Meja #{t} ditutup.",
   "dice.tableH": "Meja",
@@ -829,7 +850,10 @@
   "dice.won": "menang {amt}",
   "dice.wonCollect": "menang {amt} — kumpulkan",
   "dice.you": "kamu",
-  "dice.yourTables": "Meja kamu · 🏦 kamu bandar · 🎲 kamu menggulir"
+  "dice.yourTables": "Meja kamu · 🏦 kamu bandar · 🎲 kamu menggulir",
+  "dice.callReclaim": "lepaskan kursi kedaluwarsa #{g} ke bandar",
+  "dice.releaseSeat": "↩ Lepaskan kursi kedaluwarsa #{g} ({amt}) ke bandar",
+  "dice.timedOut": "kedaluwarsa — taruhan masuk ke bandar"
  },
  "it": {
   "dice.allApps": "🎮 Tutte le app",
@@ -862,7 +886,7 @@
   "dice.enterStakeHint": "Inserisci una puntata (NADO) e imposta la probabilità di vincita, poi Piazza il lancio — puoi scommettere anche al tuo tavolo.",
   "dice.enterTableId": "Inserisci un ID tavolo, o scegline uno dalla lobby.",
   "dice.fairH": "Equità dimostrabile — nessun lancio del banco, nessun segreto",
-  "dice.fairText": "Ogni ~2 minuti il tavolo si lancia da solo. Ogni scommessa è legata a un futuro blocco di liquidazione; il tuo lancio è HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Quegli hash di blocco non esistono ancora quando scommetti, quindi nessuno — né tu, né il banco, né il produttore del blocco — può conoscere o pilotare il tuo lancio mentre le scommesse sono aperte (si mescolano due blocchi così nessun singolo miner può forzarlo). Una volta che il tuo blocco di liquidazione è definitivo, chiunque può liquidare il tuo posto e la catena paga la vincita automaticamente — un banco che temporeggia non può derubarti. Una vincita paga 99 ÷ obiettivo (margine 1%); le puntate perse confluiscono nella banca così il tavolo continua a lanciare.",
+  "dice.fairText": "A ogni epoca del beacon (~6 minuti) il tavolo si lancia da solo. Ogni puntata è legata a un futuro beacon d'epoca; il tuo lancio è <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Il beacon mescola i segreti rivelati su L1 durante quell'epoca e non esiste ancora quando punti, quindi <b>nessuno — né tu, né il banco, né un produttore di blocchi — può conoscere o pilotare il tuo lancio</b> mentre le puntate sono aperte. Quando il beacon è finale, <b>chiunque</b> può liquidare il tuo posto e la catena paga la vincita automaticamente — un banco che temporeggia non può derubarti. Una vincita paga <span class=\"mono\">99 ÷ target</span> (vantaggio dell'1 %); le puntate perse confluiscono nel bankroll e il tavolo continua a lanciare. <b>Riscuoti entro 18.000 blocchi (~1,5 giorni):</b> un posto che nessuno liquida in quel periodo va al banco (questa pagina riscuote la tua vincita finché è aperta). Le puntate piazzate prima del passaggio al beacon mantengono il lancio da hash di blocco.",
   "dice.findTableH": "🎲 Trova un tavolo",
   "dice.findTableHelp": "Scegli un tavolo dalla lobby qui sotto, o aprine uno tramite ID — poi si aprono i comandi di lancio per quel tavolo.",
   "dice.footer": "Gira su <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">altri giochi</a> · <a href=\"https://get.nadochain.com/rollup\">vedi il contratto</a>.",
@@ -911,7 +935,7 @@
   "dice.signIn": "Accedi con il portafoglio NADO",
   "dice.stakePh": "puntata (NADO)",
   "dice.statusK": "Stato",
-  "dice.sub": "Un dado multigiocatore a equità dimostrabile, con banca tra pari, sul livello di esecuzione NADO. Scorri la tua probabilità di vincita; la vincita si scala da sola (99 ÷ obiettivo, margine fisso dell'1%). Ogni tavolo si lancia da solo ogni ~2 minuti — nessuna rivelazione del banco, nessun segreto. Il tuo lancio deriva dall'hash di un futuro blocco L1 che nessuno può prevedere mentre le scommesse sono aperte: HASH(blockhash ‖ seatId) mod 100. Portafoglio post-quantistico, nessuna installazione.",
+  "dice.sub": "Un dado multigiocatore a equità dimostrabile, <b>con banca tra pari</b>, sul livello di esecuzione NADO. Scorri la tua probabilità di vincita; la vincita si adatta da sola (<span class=\"mono\">99 ÷ target</span>, vantaggio fisso dell'1 %). Ogni tavolo <b>si lancia da solo a ogni epoca del beacon (~6 minuti)</b> — nessuna rivelazione del banco, nessun segreto. Il tuo lancio viene da un <b>futuro beacon d'epoca</b> che nessuno può prevedere mentre le puntate sono aperte: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Portafoglio post-quantistico, nessuna installazione.",
   "dice.tableClosed": "Quel tavolo è chiuso.",
   "dice.tableClosedN": "Il tavolo #{t} è chiuso.",
   "dice.tableH": "Tavolo",
@@ -933,7 +957,10 @@
   "dice.won": "vinto {amt}",
   "dice.wonCollect": "vinto {amt} — incassa",
   "dice.you": "tu",
-  "dice.yourTables": "I tuoi tavoli · 🏦 fai il banco · 🎲 lanci tu"
+  "dice.yourTables": "I tuoi tavoli · 🏦 fai il banco · 🎲 lanci tu",
+  "dice.callReclaim": "cedi al banco il posto scaduto #{g}",
+  "dice.releaseSeat": "↩ Cedi al banco il posto scaduto #{g} ({amt})",
+  "dice.timedOut": "scaduto — la puntata va al banco"
  },
  "ja": {
   "dice.allApps": "🎮 すべてのアプリ",
@@ -966,7 +993,7 @@
   "dice.enterStakeHint": "ベット額 (NADO) を入力し勝率を設定して、ロールをベット — 自分のテーブルでもベットできます。",
   "dice.enterTableId": "テーブル ID を入力するか、ロビーから選んでください。",
   "dice.fairH": "証明可能に公正 — 胴元のロールなし、秘密なし",
-  "dice.fairText": "約 2 分ごとにテーブルが自動ロールします。各ベットは将来の決済ブロックに紐づき、あなたのロールは HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100 です。ベット時点でこれらのブロックハッシュはまだ存在しないため、ベット受付中は誰も — あなたも、バンクも、ブロック生成者も — あなたのロールを知ることも操作することもできません（2 つのブロックを混ぜるので単一のマイナーがこじ開けることはできません）。決済ブロックが確定すれば誰でもあなたのシートを決済でき、チェーンが勝ちを自動で支払います — 引き延ばす胴元があなたから奪うことはできません。勝ちは 99 ÷ 目標を支払い（1% エッジ）、負けたベットはバンクロールに繰り込まれ、テーブルはロールを続けます。",
+  "dice.fairText": "ビーコンのエポックごと（約 6 分）にテーブルが自動でロールします。各ベットは未来のエポックビーコンに紐づき、出目は <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span> です。ビーコンはそのエポック中に L1 で公開されたシークレットを混ぜたもので、ベット時にはまだ存在しないため、ベット受付中は<b>誰も — あなたもバンクもブロック生成者も — 出目を知ることも操作することもできません</b>。ビーコンが確定すれば<b>誰でも</b>あなたの席を精算でき、勝ちはチェーンが自動で支払います — 引き延ばすバンクがあなたから奪うことはできません。勝ちは <span class=\"mono\">99 ÷ target</span> を支払い（1% のエッジ）、負けた賭け金はバンクロールに入りテーブルはロールを続けます。<b>18,000 ブロック（約 1.5 日）以内に受け取ってください：</b>その期間内に誰も精算しない席はバンクのものになります（このページは開いている間、勝ちを自動で受け取ります）。ビーコン移行前のベットはブロックハッシュでの出目のままです。",
   "dice.findTableH": "🎲 テーブルを探す",
   "dice.findTableHelp": "下のロビーからテーブルを選ぶか、ID で開いてください — するとそのテーブルのロール操作が開きます。",
   "dice.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> で動作 · <a href=\"/games\">他のゲーム</a> · <a href=\"https://get.nadochain.com/rollup\">コントラクトを見る。</a>",
@@ -1015,7 +1042,7 @@
   "dice.signIn": "NADO ウォレットでサインイン",
   "dice.stakePh": "ベット額 (NADO)",
   "dice.statusK": "ステータス",
-  "dice.sub": "NADO 実行レイヤー上の、証明可能に公正でピアがバンクを持つマルチプレイヤーのダイス。勝率をスライドすると配当が自動でスケールします（99 ÷ 目標、一律 1% エッジ）。各テーブルは約 2 分ごとに自動ロール — バンクの公開なし、秘密なし。あなたのロールは、ベット受付中は誰も予測できない将来の L1 ブロックハッシュ由来です：HASH(blockhash ‖ seatId) mod 100。耐量子ウォレット、インストール不要。",
+  "dice.sub": "NADO 実行レイヤー上の、証明可能に公正な<b>プレイヤーが胴元のマルチプレイヤー</b>ダイス。勝率をスライドすると配当が自動調整されます（<span class=\"mono\">99 ÷ target</span>、一律 1% のエッジ）。各テーブルは<b>ビーコンのエポックごと（約 6 分）に自動でロール</b>します — バンクの公開も秘密もありません。あなたの出目は、ベット受付中は誰にも予測できない<b>未来のエポックビーコン</b>から決まります：<span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>。耐量子ウォレット、インストール不要。",
   "dice.tableClosed": "そのテーブルは閉じています。",
   "dice.tableClosedN": "テーブル #{t} は閉じています。",
   "dice.tableH": "テーブル",
@@ -1037,7 +1064,10 @@
   "dice.won": "{amt} 獲得",
   "dice.wonCollect": "{amt} 獲得 — 回収",
   "dice.you": "あなた",
-  "dice.yourTables": "あなたのテーブル · 🏦 あなたが胴元 · 🎲 あなたがロール"
+  "dice.yourTables": "あなたのテーブル · 🏦 あなたが胴元 · 🎲 あなたがロール",
+  "dice.callReclaim": "期限切れの席 #{g} をバンクに解放",
+  "dice.releaseSeat": "↩ 期限切れの席 #{g}（{amt}）をバンクに解放",
+  "dice.timedOut": "期限切れ — 賭け金はバンクへ"
  },
  "ko": {
   "dice.allApps": "🎮 모든 앱",
@@ -1070,7 +1100,7 @@
   "dice.enterStakeHint": "베팅액 (NADO)을 입력하고 승률을 설정한 뒤 굴림 베팅 — 자기 테이블에서도 베팅할 수 있습니다.",
   "dice.enterTableId": "테이블 ID를 입력하거나 로비에서 하나 고르세요.",
   "dice.fairH": "증명 가능하게 공정 — 하우스 굴림 없음, 비밀 없음",
-  "dice.fairText": "약 2분마다 테이블이 스스로 굴립니다. 각 베팅은 미래의 정산 블록에 묶이며, 당신의 굴림은 HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100 입니다. 베팅 시점에 이 블록 해시들은 아직 존재하지 않으므로, 베팅이 열려 있는 동안 누구도 — 당신도, 뱅크도, 블록 생성자도 — 당신의 굴림을 알거나 조종할 수 없습니다(두 블록을 섞어 단일 채굴자가 갈아낼 수 없게 합니다). 정산 블록이 확정되면 누구나 당신의 좌석을 정산할 수 있고 체인이 승리를 자동 지급합니다 — 지연시키는 뱅크가 당신을 털 수 없습니다. 승리는 99 ÷ 목표를 지급하며(1% 에지), 진 베팅은 뱅크롤에 합쳐져 테이블이 계속 굴러갑니다.",
+  "dice.fairText": "비컨 에포크마다(약 6분) 테이블이 스스로 굴립니다. 각 베팅은 미래 에포크 비컨에 묶이며 결과는 <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>입니다. 비컨은 그 에포크 동안 L1에 공개된 비밀들을 섞은 값이고 베팅 시점에는 아직 존재하지 않으므로, 베팅이 열려 있는 동안 <b>누구도 — 당신도, 뱅크도, 블록 생산자도 — 결과를 알거나 조작할 수 없습니다</b>. 비컨이 확정되면 <b>누구나</b> 당신의 좌석을 정산할 수 있고 체인이 승리금을 자동 지급합니다 — 시간을 끄는 뱅크도 당신 몫을 빼앗을 수 없습니다. 승리는 <span class=\"mono\">99 ÷ target</span>를 지급하며(1% 엣지), 잃은 판돈은 뱅크롤에 합쳐져 테이블이 계속 굴러갑니다. <b>18,000 블록(약 1.5일) 안에 수령하세요:</b> 그 기간 안에 아무도 정산하지 않은 좌석은 뱅크로 갑니다(이 페이지가 열려 있는 동안 승리금을 자동으로 수령합니다). 비컨 업그레이드 이전의 베팅은 블록 해시 결과를 유지합니다.",
   "dice.findTableH": "🎲 테이블 찾기",
   "dice.findTableHelp": "아래 로비에서 테이블을 고르거나 ID로 열어보세요 — 그러면 해당 테이블의 굴림 컨트롤이 열립니다.",
   "dice.footer": "<a href=\"https://get.nadochain.com/\">NADO</a>에서 실행 · <a href=\"/games\">더 많은 게임</a> · <a href=\"https://get.nadochain.com/rollup\">컨트랙트 보기</a>.",
@@ -1119,7 +1149,7 @@
   "dice.signIn": "NADO 지갑으로 로그인",
   "dice.stakePh": "베팅액 (NADO)",
   "dice.statusK": "상태",
-  "dice.sub": "NADO 실행 레이어 위의, 증명 가능하게 공정하고 참가자가 뱅크를 맡는 멀티플레이어 주사위. 승률을 슬라이드하면 배당이 자동으로 스케일됩니다(99 ÷ 목표, 고정 1% 에지). 각 테이블은 약 2분마다 스스로 굴립니다 — 뱅크 공개 없음, 비밀 없음. 당신의 굴림은 베팅이 열려 있는 동안 아무도 예측할 수 없는 미래 L1 블록 해시에서 나옵니다: HASH(blockhash ‖ seatId) mod 100. 포스트양자 지갑, 설치 불필요.",
+  "dice.sub": "NADO 실행 레이어 위의 증명 가능하게 공정한 <b>플레이어 뱅크 멀티플레이어</b> 주사위. 승률을 조절하면 배당이 자동으로 맞춰집니다(<span class=\"mono\">99 ÷ target</span>, 고정 1% 엣지). 각 테이블은 <b>비컨 에포크마다(약 6분) 스스로 굴립니다</b> — 뱅크 공개도, 비밀도 없습니다. 결과는 베팅이 열려 있는 동안 누구도 예측할 수 없는 <b>미래 에포크 비컨</b>에서 나옵니다: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. 양자 내성 지갑, 설치 불필요.",
   "dice.tableClosed": "그 테이블은 닫혔습니다.",
   "dice.tableClosedN": "테이블 #{t}은 닫혔습니다.",
   "dice.tableH": "테이블",
@@ -1141,7 +1171,10 @@
   "dice.won": "{amt} 획득",
   "dice.wonCollect": "{amt} 획득 — 수령",
   "dice.you": "당신",
-  "dice.yourTables": "내 테이블 · 🏦 내가 뱅크 · 🎲 내가 굴림"
+  "dice.yourTables": "내 테이블 · 🏦 내가 뱅크 · 🎲 내가 굴림",
+  "dice.callReclaim": "시간 초과된 좌석 #{g}을(를) 뱅크로 해제",
+  "dice.releaseSeat": "↩ 시간 초과된 좌석 #{g}({amt})을(를) 뱅크로 해제",
+  "dice.timedOut": "시간 초과 — 판돈은 뱅크로 갑니다"
  },
  "pt": {
   "dice.allApps": "🎮 Todos os apps",
@@ -1174,7 +1207,7 @@
   "dice.enterStakeHint": "Insira uma aposta (NADO) e defina sua chance de ganhar, depois Apostar rolagem — você também pode apostar na sua própria mesa.",
   "dice.enterTableId": "Insira um ID de mesa, ou escolha uma do lobby.",
   "dice.fairH": "Comprovadamente justo — sem rolagem da casa, sem segredos",
-  "dice.fairText": "A cada ~2 minutos a mesa rola sozinha. Cada aposta é vinculada a um bloco de liquidação futuro; sua rolagem é HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Esses hashes de bloco ainda não existem quando você aposta, então ninguém — nem você, nem a banca, nem o produtor do bloco — pode saber ou manipular sua rolagem enquanto as apostas estão abertas (dois blocos são misturados para que nenhum minerador sozinho possa forçá-la). Assim que seu bloco de liquidação é final, qualquer um pode liquidar seu assento e a cadeia paga a vitória automaticamente — uma banca que enrola não pode te roubar. Uma vitória paga 99 ÷ alvo (margem 1%); as apostas perdidas somam-se à banca para que a mesa continue rolando.",
+  "dice.fairText": "A cada época do beacon (~6 minutos) a mesa rola sozinha. Cada aposta é vinculada a um beacon de época futuro; sua rolagem é <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. O beacon mistura os segredos revelados na L1 durante essa época e ainda não existe quando você aposta, então <b>ninguém — nem você, nem a banca, nem um produtor de blocos — pode saber ou direcionar sua rolagem</b> enquanto as apostas estão abertas. Quando o beacon é final, <b>qualquer um</b> pode liquidar seu lugar e a cadeia paga a vitória automaticamente — uma banca que enrola não pode roubá-lo. Uma vitória paga <span class=\"mono\">99 ÷ target</span> (vantagem de 1 %); apostas perdidas entram no bankroll e a mesa continua rolando. <b>Resgate em até 18.000 blocos (~1,5 dia):</b> um lugar que ninguém liquida nesse prazo vai para a banca (esta página resgata sua vitória enquanto estiver aberta). Apostas feitas antes da atualização para o beacon mantêm a rolagem por hash de bloco.",
   "dice.findTableH": "🎲 Encontrar uma mesa",
   "dice.findTableHelp": "Escolha uma mesa no lobby abaixo, ou abra uma pelo ID — então os controles de rolagem abrem para essa mesa.",
   "dice.footer": "Roda no <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">mais jogos</a> · <a href=\"https://get.nadochain.com/rollup\">ver o contrato</a>.",
@@ -1223,7 +1256,7 @@
   "dice.signIn": "Entrar com a carteira NADO",
   "dice.stakePh": "aposta (NADO)",
   "dice.statusK": "Status",
-  "dice.sub": "Dados multijogador comprovadamente justos, com banca entre pares, na camada de execução NADO. Deslize sua chance de ganhar; o pagamento escala sozinho (99 ÷ alvo, margem fixa de 1%). Cada mesa rola sozinha a cada ~2 minutos — sem revelar a banca, sem segredos. Sua rolagem vem do hash de um bloco L1 futuro que ninguém pode prever enquanto as apostas estão abertas: HASH(blockhash ‖ seatId) mod 100. Carteira pós-quântica, sem instalação.",
+  "dice.sub": "Dados multijogador comprovadamente justos, <b>com banca entre pares</b>, na camada de execução NADO. Deslize sua chance de ganhar; o pagamento se ajusta sozinho (<span class=\"mono\">99 ÷ target</span>, vantagem fixa de 1 %). Cada mesa <b>rola sozinha a cada época do beacon (~6 minutos)</b> — sem revelação da banca, sem segredos. Sua rolagem vem de um <b>beacon de época futuro</b> que ninguém pode prever enquanto as apostas estão abertas: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Carteira pós-quântica, sem instalação.",
   "dice.tableClosed": "Essa mesa está fechada.",
   "dice.tableClosedN": "A mesa #{t} está fechada.",
   "dice.tableH": "Mesa",
@@ -1245,7 +1278,10 @@
   "dice.won": "ganhou {amt}",
   "dice.wonCollect": "ganhou {amt} — coletar",
   "dice.you": "você",
-  "dice.yourTables": "Suas mesas · 🏦 você banca · 🎲 você rola"
+  "dice.yourTables": "Suas mesas · 🏦 você banca · 🎲 você rola",
+  "dice.callReclaim": "liberar para a banca o lugar expirado #{g}",
+  "dice.releaseSeat": "↩ Liberar para a banca o lugar expirado #{g} ({amt})",
+  "dice.timedOut": "expirado — a aposta vai para a banca"
  },
  "ru": {
   "dice.allApps": "🎮 Все приложения",
@@ -1278,7 +1314,7 @@
   "dice.enterStakeHint": "Введите ставку (NADO) и задайте шанс выигрыша, затем Сделать бросок — вы можете ставить и за своим столом.",
   "dice.enterTableId": "Введите ID стола или выберите один из лобби.",
   "dice.fairH": "Доказуемо честно — казино не бросает, никаких секретов",
-  "dice.fairText": "Каждые ~2 минуты стол бросает сам. Каждая ставка привязана к будущему расчётному блоку; ваш бросок — HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Этих хэшей блоков ещё нет, когда вы ставите, поэтому никто — ни вы, ни банк, ни производитель блока — не может знать или направлять ваш бросок, пока ставки открыты (смешиваются два блока, чтобы ни один майнер не мог его подобрать). Как только ваш расчётный блок финализирован, любой может рассчитать ваше место, и цепь выплачивает выигрыш автоматически — тянущий время банк не сможет вас обокрасть. Выигрыш платит 99 ÷ цель (комиссия 1%); проигранные ставки уходят в банк, чтобы стол продолжал бросать.",
+  "dice.fairText": "Каждую эпоху маяка (~6 минут) стол бросает сам. Каждая ставка привязана к будущему маяку эпохи; ваш бросок — <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Маяк смешивает секреты, раскрытые на L1 за эту эпоху, и при ставке ещё не существует, поэтому <b>никто — ни вы, ни банк, ни производитель блоков — не может узнать или повлиять на ваш бросок</b>, пока ставки открыты. Когда маяк финализирован, <b>любой</b> может рассчитать ваше место, и цепочка выплатит выигрыш автоматически — медлящий банк не сможет вас обокрасть. Выигрыш платит <span class=\"mono\">99 ÷ target</span> (преимущество 1 %); проигранные ставки уходят в банкролл, и стол продолжает бросать. <b>Заберите выигрыш в течение 18 000 блоков (~1,5 дня):</b> место, которое никто не рассчитал за это время, уходит банку (эта страница забирает выигрыш за вас, пока открыта). Ставки, сделанные до перехода на маяк, сохраняют бросок по хешам блоков.",
   "dice.findTableH": "🎲 Найти стол",
   "dice.findTableHelp": "Выберите стол из лобби ниже или откройте его по ID — тогда для этого стола откроются элементы управления броском.",
   "dice.footer": "Работает на <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">больше игр</a> · <a href=\"https://get.nadochain.com/rollup\">смотреть контракт</a>.",
@@ -1327,7 +1363,7 @@
   "dice.signIn": "Войти через кошелёк NADO",
   "dice.stakePh": "ставка (NADO)",
   "dice.statusK": "Статус",
-  "dice.sub": "Доказуемо честные многопользовательские кости с банком от игроков на слое исполнения NADO. Двигайте свой шанс выигрыша; выплата масштабируется сама (99 ÷ цель, фиксированная комиссия 1%). Каждый стол бросает сам каждые ~2 минуты — без раскрытия банка, без секретов. Ваш бросок берётся из хэша будущего блока L1, который никто не может предсказать, пока ставки открыты: HASH(blockhash ‖ seatId) mod 100. Постквантовый кошелёк, без установки.",
+  "dice.sub": "Доказуемо честные <b>многопользовательские кости с банком от игроков</b> на исполнительном слое NADO. Выберите шанс выигрыша; выплата подстраивается сама (<span class=\"mono\">99 ÷ target</span>, фиксированное преимущество 1 %). Каждый стол <b>бросает сам каждую эпоху маяка (~6 минут)</b> — никаких раскрытий банка, никаких секретов. Ваш бросок берётся из <b>будущего маяка эпохи</b>, который никто не может предсказать, пока ставки открыты: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Постквантовый кошелёк, без установки.",
   "dice.tableClosed": "Этот стол закрыт.",
   "dice.tableClosedN": "Стол #{t} закрыт.",
   "dice.tableH": "Стол",
@@ -1349,7 +1385,10 @@
   "dice.won": "выиграно {amt}",
   "dice.wonCollect": "выиграно {amt} — забрать",
   "dice.you": "вы",
-  "dice.yourTables": "Ваши столы · 🏦 вы банк · 🎲 вы бросаете"
+  "dice.yourTables": "Ваши столы · 🏦 вы банк · 🎲 вы бросаете",
+  "dice.callReclaim": "передать банку просроченное место #{g}",
+  "dice.releaseSeat": "↩ Передать банку просроченное место #{g} ({amt})",
+  "dice.timedOut": "время вышло — ставка уходит банку"
  },
  "tr": {
   "dice.allApps": "🎮 Tüm uygulamalar",
@@ -1382,7 +1421,7 @@
   "dice.enterStakeHint": "Bir bahis (NADO) gir ve kazanma şansını ayarla, sonra Atışı koy — kendi masanda da bahis yapabilirsin.",
   "dice.enterTableId": "Bir masa ID gir ya da lobiden birini seç.",
   "dice.fairH": "Kanıtlanabilir adil — evin atışı yok, sır yok",
-  "dice.fairText": "Yaklaşık her 2 dakikada bir masa kendi kendine atar. Her bahis gelecekteki bir kapanış bloğuna bağlıdır; atışın HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100'dür. Bahis koyarken bu blok hash'leri henüz yok, bu yüzden bahisler açıkken kimse — ne sen, ne kasa, ne de blok üreticisi — atışını bilemez ya da yönlendiremez (iki blok karıştırılır ki tek bir madenci onu zorlayamasın). Kapanış bloğun kesinleştiğinde herkes koltuğunu kapatabilir ve zincir kazancı otomatik öder — oyalayan bir kasa seni soyamaz. Kazanç 99 ÷ hedef öder (%1 avantaj); kaybedilen bahisler kasaya katılır, böylece masa atmaya devam eder.",
+  "dice.fairText": "Her beacon döneminde (~6 dakika) masa kendi atar. Her bahis gelecekteki bir dönem beacon’una bağlanır; atışın <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span> olur. Beacon o dönemde L1’de açıklanan sırları karıştırır ve bahis anında henüz yoktur, bu yüzden bahisler açıkken <b>kimse — ne sen, ne kasa, ne bir blok üreticisi — atışını bilemez ya da yönlendiremez</b>. Beacon kesinleşince <b>herkes</b> koltuğunu kapatabilir ve zincir kazancı otomatik öder — oyalanan bir kasa seni soyamaz. Kazanç <span class=\"mono\">99 ÷ target</span> öder (%1 avantaj); kaybeden bahisler kasaya katılır ve masa atmaya devam eder. <b>18.000 blok (~1,5 gün) içinde tahsil et:</b> bu sürede kimsenin kapatmadığı koltuk kasaya kalır (bu sayfa açıkken kazancını senin için tahsil eder). Beacon yükseltmesinden önce verilen bahisler blok hash atışını korur.",
   "dice.findTableH": "🎲 Masa bul",
   "dice.findTableHelp": "Aşağıdaki lobiden bir masa seç ya da ID ile aç — sonra o masa için atış kontrolleri açılır.",
   "dice.footer": "<a href=\"https://get.nadochain.com/\">NADO</a> üzerinde çalışır · <a href=\"/games\">daha fazla oyun</a> · <a href=\"https://get.nadochain.com/rollup\">sözleşmeye bak</a>.",
@@ -1431,7 +1470,7 @@
   "dice.signIn": "NADO cüzdanıyla giriş yap",
   "dice.stakePh": "bahis (NADO)",
   "dice.statusK": "Durum",
-  "dice.sub": "NADO yürütme katmanında, kanıtlanabilir adil, oyuncuların kasa tuttuğu çok oyunculu zar. Kazanma şansını kaydır; ödeme kendiliğinden ölçeklenir (99 ÷ hedef, sabit %1 avantaj). Her masa yaklaşık her 2 dakikada bir kendi kendine atar — kasa ifşası yok, sır yok. Atışın, bahisler açıkken kimsenin tahmin edemeyeceği gelecekteki bir L1 blok hash'inden gelir: HASH(blockhash ‖ seatId) mod 100. Post-kuantum cüzdan, kurulum yok.",
+  "dice.sub": "NADO yürütme katmanında kanıtlanabilir adil, <b>oyuncuların kasa olduğu çok oyunculu</b> zar. Kazanma şansını kaydır; ödeme kendiliğinden ayarlanır (<span class=\"mono\">99 ÷ target</span>, sabit %1 avantaj). Her masa <b>her beacon döneminde (~6 dakika) kendi atar</b> — kasa ifşası yok, sır yok. Atışın, bahisler açıkken kimsenin tahmin edemeyeceği <b>gelecekteki bir dönem beacon’undan</b> gelir: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Kuantum sonrası cüzdan, kurulum yok.",
   "dice.tableClosed": "O masa kapalı.",
   "dice.tableClosedN": "Masa #{t} kapalı.",
   "dice.tableH": "Masa",
@@ -1453,7 +1492,10 @@
   "dice.won": "{amt} kazandı",
   "dice.wonCollect": "{amt} kazandı — topla",
   "dice.you": "sen",
-  "dice.yourTables": "Masaların · 🏦 kasa sensin · 🎲 sen atıyorsun"
+  "dice.yourTables": "Masaların · 🏦 kasa sensin · 🎲 sen atıyorsun",
+  "dice.callReclaim": "süresi dolan #{g} koltuğunu kasaya bırak",
+  "dice.releaseSeat": "↩ Süresi dolan #{g} koltuğunu ({amt}) kasaya bırak",
+  "dice.timedOut": "süre doldu — bahis kasaya geçer"
  },
  "vi": {
   "dice.allApps": "🎮 Tất cả ứng dụng",
@@ -1486,7 +1528,7 @@
   "dice.enterStakeHint": "Nhập tiền cược (NADO) và đặt cơ hội thắng, rồi Đặt lượt tung — bạn cũng có thể cược tại bàn của chính mình.",
   "dice.enterTableId": "Nhập ID bàn, hoặc chọn một bàn từ sảnh.",
   "dice.fairH": "Công bằng chứng minh được — nhà cái không tung, không bí mật",
-  "dice.fairText": "Mỗi khoảng 2 phút bàn tự tung. Mỗi lượt cược gắn với một khối quyết toán tương lai; lượt tung của bạn là HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100. Các hash khối đó chưa tồn tại khi bạn cược, nên không ai — không phải bạn, không phải nhà cái, không phải người tạo khối — có thể biết hay điều khiển lượt tung của bạn khi cược còn mở (hai khối được trộn để không thợ đào đơn lẻ nào mài ra được). Một khi khối quyết toán của bạn thành chung cuộc, bất kỳ ai cũng có thể quyết toán ghế của bạn và chuỗi tự trả tiền thắng — nhà cái câu giờ không thể cướp của bạn. Thắng trả 99 ÷ mục tiêu (mức lời 1%); các khoản cược thua gộp vào vốn nhà cái để bàn tiếp tục tung.",
+  "dice.fairText": "Mỗi kỳ beacon (~6 phút) bàn tự lắc. Mỗi cược được gắn với một beacon kỳ tương lai; kết quả của bạn là <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>. Beacon trộn các bí mật được tiết lộ trên L1 trong kỳ đó và chưa tồn tại khi bạn đặt cược, nên <b>không ai — không phải bạn, nhà cái hay người tạo khối — có thể biết hoặc điều khiển kết quả</b> khi cược còn mở. Khi beacon đã chốt, <b>bất kỳ ai</b> cũng có thể tất toán ghế của bạn và chuỗi tự động trả thưởng — nhà cái trì hoãn cũng không thể cướp của bạn. Thắng trả <span class=\"mono\">99 ÷ target</span> (lợi thế 1%); tiền cược thua nhập vào quỹ để bàn tiếp tục lắc. <b>Nhận thưởng trong vòng 18.000 khối (~1,5 ngày):</b> ghế không ai tất toán trong khoảng đó thuộc về nhà cái (trang này tự nhận thưởng cho bạn khi đang mở). Các cược đặt trước khi nâng cấp beacon vẫn giữ kết quả theo hash khối.",
   "dice.findTableH": "🎲 Tìm một bàn",
   "dice.findTableHelp": "Chọn một bàn từ sảnh bên dưới, hoặc mở một bàn bằng ID — rồi các nút điều khiển tung mở ra cho bàn đó.",
   "dice.footer": "Chạy trên <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">thêm trò chơi</a> · <a href=\"https://get.nadochain.com/rollup\">xem hợp đồng</a>.",
@@ -1535,7 +1577,7 @@
   "dice.signIn": "Đăng nhập bằng ví NADO",
   "dice.stakePh": "tiền cược (NADO)",
   "dice.statusK": "Trạng thái",
-  "dice.sub": "Xúc xắc nhiều người chơi, công bằng chứng minh được, vốn do người chơi làm nhà cái, trên lớp thực thi NADO. Trượt cơ hội thắng của bạn; tiền thắng tự co giãn (99 ÷ mục tiêu, mức lời cố định 1%). Mỗi bàn tự tung khoảng mỗi 2 phút — không lộ quỹ nhà cái, không bí mật. Lượt tung của bạn đến từ hash của một khối L1 tương lai mà không ai đoán được khi cược còn mở: HASH(blockhash ‖ seatId) mod 100. Ví hậu lượng tử, không cần cài đặt.",
+  "dice.sub": "Xúc xắc nhiều người chơi công bằng có thể chứng minh, <b>do người chơi làm nhà cái</b>, trên lớp thực thi NADO. Kéo tỉ lệ thắng; tiền thưởng tự điều chỉnh (<span class=\"mono\">99 ÷ target</span>, lợi thế cố định 1%). Mỗi bàn <b>tự lắc mỗi kỳ beacon (~6 phút)</b> — nhà cái không cần tiết lộ, không có bí mật. Kết quả của bạn đến từ một <b>beacon kỳ tương lai</b> mà không ai đoán trước được khi cược còn mở: <span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>. Ví hậu lượng tử, không cần cài đặt.",
   "dice.tableClosed": "Bàn đó đã đóng.",
   "dice.tableClosedN": "Bàn #{t} đã đóng.",
   "dice.tableH": "Bàn",
@@ -1557,7 +1599,10 @@
   "dice.won": "thắng {amt}",
   "dice.wonCollect": "thắng {amt} — thu",
   "dice.you": "bạn",
-  "dice.yourTables": "Bàn của bạn · 🏦 bạn làm cái · 🎲 bạn tung"
+  "dice.yourTables": "Bàn của bạn · 🏦 bạn làm cái · 🎲 bạn tung",
+  "dice.callReclaim": "giải phóng ghế quá hạn #{g} cho nhà cái",
+  "dice.releaseSeat": "↩ Giải phóng ghế quá hạn #{g} ({amt}) cho nhà cái",
+  "dice.timedOut": "quá hạn — tiền cược thuộc về nhà cái"
  },
  "zh": {
   "dice.allApps": "🎮 所有应用",
@@ -1590,7 +1635,7 @@
   "dice.enterStakeHint": "请输入赌注 (NADO) 并设置胜率，然后下注开骰 — 你也可以在自己的桌子下注。",
   "dice.enterTableId": "请输入桌子 ID，或从大厅选一张。",
   "dice.fairH": "可证明公平 — 庄家不开骰、无秘密",
-  "dice.fairText": "每约 2 分钟桌子自己开一次骰。每一注都绑定到一个未来的结算区块；你的开骰是 HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100。下注时这些区块哈希尚不存在，所以在下注开放期间无人 — 不管是你、庄家还是出块者 — 能知道或操纵你的开骰（混入两个区块，任何单个矿工都无法碾磨）。你的结算区块一旦最终确定，任何人都可结算你的座位，链会自动支付赢注 — 拖延的庄家无法赖账。赢注赔付 99 ÷ 目标（1% 抽水）；输掉的赌注并入庄家资金，让桌子继续开骰。",
+  "dice.fairText": "每个信标周期（约 6 分钟）桌子自动掷骰。每笔投注都绑定到一个未来的周期信标；你的点数是 <span class=\"mono\">HASH(beacon(E) ‖ seatId) mod 100</span>。信标混合了该周期内在 L1 上揭示的秘密，投注时尚不存在，因此在投注期间<b>没有人——无论是你、庄家还是出块者——能知道或操纵你的点数</b>。信标最终确定后，<b>任何人</b>都可以结算你的座位，链会自动支付赢利——拖延的庄家无法抢走你的钱。赢时赔付 <span class=\"mono\">99 ÷ target</span>（1% 优势）；输掉的本金并入资金池，桌子继续掷骰。<b>请在 18,000 个区块（约 1.5 天）内领取：</b>在此期间无人结算的座位归庄家（页面打开期间会自动为你领取赢利）。信标升级前下的注仍按区块哈希掷骰。",
   "dice.findTableH": "🎲 找一张桌子",
   "dice.findTableHelp": "从下方大厅选一张桌子，或按 ID 打开一张 — 然后该桌的开骰控件会打开。",
   "dice.footer": "运行于 <a href=\"https://get.nadochain.com/\">NADO</a> · <a href=\"/games\">更多游戏</a> · <a href=\"https://get.nadochain.com/rollup\">查看合约。</a>",
@@ -1639,7 +1684,7 @@
   "dice.signIn": "使用 NADO 钱包登录",
   "dice.stakePh": "赌注 (NADO)",
   "dice.statusK": "状态",
-  "dice.sub": "在 NADO 执行层上、可证明公平、由玩家做庄的多人骰子。滑动你的胜率；赔付自动缩放（99 ÷ 目标，固定 1% 抽水）。每张桌子约每 2 分钟自己开一次骰 — 无需庄家揭示、无秘密。你的开骰来自一个未来的 L1 区块哈希，在下注开放期间无人能预测：HASH(blockhash ‖ seatId) mod 100。抗量子钱包，无需安装。",
+  "dice.sub": "NADO 执行层上一款可证明公平、<b>由玩家坐庄的多人</b>骰子游戏。滑动选择胜率，赔付自动调整（<span class=\"mono\">99 ÷ target</span>，固定 1% 优势）。每张桌<b>每个信标周期（约 6 分钟）自动掷骰</b>——庄家无需揭示，没有秘密。你的点数来自投注期间无人能预测的<b>未来周期信标</b>：<span class=\"mono\">HASH(beacon ‖ seatId) mod 100</span>。抗量子钱包，无需安装。",
   "dice.tableClosed": "那张桌子已关闭。",
   "dice.tableClosedN": "桌子 #{t} 已关闭。",
   "dice.tableH": "桌子",
@@ -1661,6 +1706,9 @@
   "dice.won": "赢 {amt}",
   "dice.wonCollect": "赢 {amt} — 领取",
   "dice.you": "你",
-  "dice.yourTables": "你的桌子 · 🏦 你做庄 · 🎲 你下注"
+  "dice.yourTables": "你的桌子 · 🏦 你做庄 · 🎲 你下注",
+  "dice.callReclaim": "将超时座位 #{g} 释放给庄家",
+  "dice.releaseSeat": "↩ 将超时座位 #{g}（{amt}）释放给庄家",
+  "dice.timedOut": "已超时 — 本金归庄家"
  }
 }

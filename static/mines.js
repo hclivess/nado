@@ -1,29 +1,34 @@
 // mines.js — NADO Mines: the crypto-casino classic, dealer-less, built on the shared game SDK
 // (nadodapp.js + bankedgame.js). A 5x5 field hides N mines you choose; reveal tiles — every safe
 // reveal multiplies your payout ×(tilesLeft·99)/((tilesLeft−N)·100) — and CASH OUT any time; one mine
-// loses the stake. The tile POSITIONS are theater; the ODDS are provable: each reveal batch binds to
-// two FUTURE L1 block hashes when you pick, and draw_i = HASH(bh(gh)+bh(gh+1)+seat·100 + picks+i) mod
-// tilesLeft is a mine iff < N. Resolve is permissionless; reap() frees abandoned seats. See
-// tests/test_mines_contract.py — the contract enforces exactly this math.
-import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=b74f351b";
-import { BankedGame } from "./bankedgame.js?v=c6e4d044";
-import { Practice } from "./practice.js?v=602947c5";      // free in-browser practice (play chips, no chain)
+// loses the stake. The tile POSITIONS are theater; the ODDS are provable: each reveal batch binds to the
+// epoch BEACON of a future epoch gb when you pick (gh = gb·60 − 1), and draw_i = HASH(BEACON(gb) + seat +
+// picks + i) mod tilesLeft is a mine iff < N (a batch picked before the beacon rule, gb = 0, keeps
+// bh(gh) + bh(gh+1) in place of the beacon). Resolve is permissionless; reap() times an 18,000-block idle
+// game out TO THE BANK (the player gets nothing back), so this client never reaps for the player. See
+// tests/test_mines_settle_from_the_beacon_and_time_out_to_the_bank.py — the contract enforces exactly this math.
+import { NadoDapp, chainResultAlg, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
+import { BankedGame } from "./bankedgame.js?v=66957686";
+import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
 
 const CID = "31691dd8ff6ed950aab4440278d38351";
-const T = 25, NMIN = 1, NMAX = 24, PICK_D = 2, REAP = 1200;
+const T = 25, NMIN = 1, NMAX = 24, REAP = 18000;   // REAP = the contract's idle window (ge + 18000 < cursor)
 const dapp = new NadoDapp({ cid: CID, app: "Mines" });
 const bg = new BankedGame(dapp, { icon: "💣" });
 
 let lastSto = null, mySeat = null, mines = 3, sel = [], watch = null;
 
 // ---- derivation (mirror of the contract — display only; resolve recomputes it on-chain) -------------
-const H = (v) => BigInt("0x" + blake2bHash(v));
-function batchDraws(bh0, bh1, g, gp, count, N) {
-  if (!bh0 || !bh1) return null;
-  const q = BigInt("0x" + bh0) + BigInt("0x" + bh1) + BigInt(g) * 100n;
+// RESOLVE: q = seed + g (seed = BEACON(gb), or BHASH(gh) + BHASH(gh+1) for gb == 0), draw_i = LO32(alghash(q +
+// gp + i)) % (25 − gp − i). chainResultAlg(h0, h1, salt, mod) is exactly that with salt = g + gp + i; a beacon
+// seat passes the beacon hex as h0 and "0" as h1.
+// INVARIANT: this preview equals the contract's outcome for both seat kinds, because it is the same alghash over
+// the same field sum (mines.round_seed / resolve_hit is the Python reference).
+function batchDraws(h0, h1, g, gp, count, N) {
+  if (!h0 || !h1) return null;
   const draws = [];
   for (let i = 0; i < count; i++) {
-    const d = Number(H(q + BigInt(gp + i)) % BigInt(T - gp - i));
+    const d = chainResultAlg(h0, h1, BigInt(g) + BigInt(gp + i), T - gp - i);
     draws.push(d);
     if (d < N) return { bust: i + 1, draws };
   }
@@ -43,11 +48,13 @@ function seatFrom(sto, g) {
   if (!t) return { exists: false, g: Number(g) };
   const s = { exists: true, g: Number(g), table: Number(t), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
     N: _m(sto, "gn")[g] || 0, gp: _m(sto, "gp")[g] || 0, gv: _m(sto, "gv")[g] || 0, gq: _m(sto, "gq")[g] || 0,
-    gc: _m(sto, "gc")[g] || 0, gh: _m(sto, "gh")[g] || 0, ge: _m(sto, "ge")[g] || 0,
-    done: !!_m(sto, "gd")[g], bust: _m(sto, "gb")[g] || 0, gw: _m(sto, "gw")[g] || 0 };
+    gc: _m(sto, "gc")[g] || 0, gh: _m(sto, "gh")[g] || 0, ge: _m(sto, "ge")[g] || 0, gb: _m(sto, "gb")[g] || 0,
+    // gd 1 = settled (bust or cash-out), 2 = timed out to the bank; gx = the 1-based pick that hit a mine
+    done: !!_m(sto, "gd")[g], timedOut: Number(_m(sto, "gd")[g] || 0) === 2, bust: _m(sto, "gx")[g] || 0 };
   if (!s.done && s.gh) {
     if (dapp.cursor != null && dapp.cursor >= s.gh + 1) {
-      s.result = batchDraws(dapp.bh(s.gh), dapp.bh(s.gh + 1), s.g, s.gp, s.gc, s.N);
+      s.result = s.gb ? batchDraws(dapp.bc(s.gb), "0", s.g, s.gp, s.gc, s.N)
+        : batchDraws(dapp.bh(s.gh), dapp.bh(s.gh + 1), s.g, s.gp, s.gc, s.N);
       if (s.result) s.ready = true; else s.waiting = true;
     } else s.waiting = true;
   }
@@ -117,7 +124,9 @@ function fundTable() {
 const closeTable = () => bg.close(window.t("mines.callClose", "close field #{t}", { t: bg.active }), { confirm: 1 });
 
 // AUTO-RESOLVE (the shared SDK tick): my pending batches the chain has already decided — and, as the
-// bank, ANY ready or stale seat (frees the cover; busts fold into my bankroll).
+// bank, ANY ready or stale seat (frees the cover; busts and timeouts fold into my bankroll).
+// INVARIANT: a player's client never reaps on its own owner's behalf, because a reap now forfeits the stake to
+// the bank — only the bank's own client auto-reaps a stale seat (s.stale && iAmBank).
 function maybeAutoResolve(seats) {
   const tb = lastTable(); if (!tb || !tb.exists) return;
   const iAmBank = tb.bank === dapp.me;
@@ -128,7 +137,7 @@ function maybeAutoResolve(seats) {
 // ---- refresh -----------------------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
-  const sto = await dapp.storage({ append: ["gd", "gb", "gw", "gp"] });
+  const sto = await dapp.storage({ append: ["gd", "gx", "gb", "gp"] });
   if (sto) {
     lastSto = sto;
     bg.track(sto);
@@ -141,7 +150,12 @@ async function refreshAll() {
       if (f.phase === "cashout") return !!_m(sto, "gd")[g];
       return bg.landed(f, sto);   // open / fund / close
     });
-    if (bg.active != null) await bg.prefetchHashes(sto);
+    // a legacy batch (gb == 0) needs bh(gh), bh(gh+1); a beacon batch needs BEACON(gb) — only while one is pending
+    if (bg.active != null) {
+      const pend = (g) => !!_m(sto, "gh")[g];
+      await bg.prefetchHashes(sto, (g) => pend(g) && !_m(sto, "gb")[g] ? _m(sto, "gh")[g] : 0);
+      await bg.prefetchBeacons(sto, (g) => pend(g) ? (_m(sto, "gb")[g] || 0) : 0);
+    }
     if (watch) {
       const g = String(watch.seat), t = String(watch.table);
       const done =
@@ -154,7 +168,7 @@ async function refreshAll() {
       if (done) {
         dapp.clearInflight();
         const okMsg = { open: window.t("mines.stOpen", "✓ Field is live — share it and earn the edge."),
-          bet: window.t("mines.stBet", "✓ Round started — tap tiles to reveal."), pick: window.t("mines.stPick", "✓ Reveal locked to the next blocks…"),
+          bet: window.t("mines.stBet", "✓ Round started — tap tiles to reveal."), pick: window.t("mines.stPick", "✓ Reveal locked to the next epoch beacon…"),
           resolve: window.t("mines.stResolve", "✓ Resolved on-chain."), cashout: window.t("mines.stCash", "✓ Cashed out — tokens are in your balance."),
           fund: window.t("mines.stFund", "✓ Bankroll topped up."), close: window.t("mines.stClose", "✓ Field closed — pool reclaimed.") }[watch.phase];
         if (okMsg) notify(okMsg);
@@ -171,9 +185,9 @@ async function refreshAll() {
   render();
 }
 // the shared banked-game scoreboard walk; this game supplies only its own payout rule
-// (cashed out or reaped pays gv; a bust loses the stake)
+// (a cash-out pays gv; a bust (gx) or a timeout to the bank (gd 2) loses the stake)
 const boardFrom = (sto) => bg.scoreboard(sto, (g, stake) =>
-  _m(sto, "gw")[g] ? Number(_m(sto, "gv")[g] || 0) - stake : -stake);
+  (_m(sto, "gx")[g] || Number(_m(sto, "gd")[g]) === 2) ? -stake : Number(_m(sto, "gv")[g] || 0) - stake);
 function selectTable(id) {
   bg.active = id; mySeat = null; sel = [];
   $("joinId").value = String(id);
@@ -273,13 +287,19 @@ var render = function render() {
   let v = "";
   if (s.done) {
     v = s.bust ? '<span class="lose">' + window.t("mines.boom", "💥 BOOM — the mine got you. Stake goes to the bank.") + "</span>"
-      : s.gw === 2 ? window.t("mines.reaped", "Seat released after inactivity — {amt} NADO returned.", { amt: rawToNado(s.gv) })
+      : s.timedOut ? '<span class="lose">' + window.t("mines.reaped", "Timed out after 18,000 idle blocks — the stake went to the bank.") + "</span>"
       : '<span class="win">' + window.t("mines.cashed", "💰 Cashed out {amt} NADO (×{m}).", { amt: rawToNado(s.gv), m: (Number(BigInt(s.gv) * 100n / BigInt(s.stake)) / 100).toFixed(2) }) + "</span>";
   } else if (s.ready) {
     v = s.result.bust ? '<span class="lose">' + window.t("mines.boomPending", "💥 A mine — confirming the bust on-chain…") + "</span>"
       : '<span class="win">' + window.t("mines.safePending", "💎 All safe! Banking ×{m} on-chain…", { m: (Number(valueAfter(BigInt(s.gv), s.gp, s.N, s.gc) * 100n / BigInt(s.stake)) / 100).toFixed(2) }) + "</span>";
-  } else if (s.waiting) v = window.t("mines.waiting", "⏳ The chain is drawing your tiles ({n} pending)…", { n: s.gc });
-  else if (sel.length) v = window.t("mines.selN", "{n} tiles selected — Reveal to lock them to the next blocks.", { n: sel.length });
+  } else if (s.waiting) {
+    // honest wait: a beacon batch resolves once the cursor reaches gh + 1 = the first block of epoch gb
+    // (up to ~2 epochs of 60 blocks after the pick), then once that beacon is final
+    const left = dapp.cursor != null ? s.gh + 1 - dapp.cursor : null;
+    v = left != null && left > 0 ? window.t("mines.waiting", "⏳ Drawing your {n} tiles — resolves in {b} blocks…", { n: s.gc, b: left })
+      : window.t("mines.waitingFinal", "⏳ Drawing your {n} tiles — waiting for the randomness to finalize…", { n: s.gc });
+  }
+  else if (sel.length) v = window.t("mines.selN", "{n} tiles selected — Reveal to lock them to the next epoch beacon.", { n: sel.length });
   else v = window.t("mines.tapTiles", "Tap tiles to reveal ({left} safe left) — next tile pays ×{m} — or cash out.", { left: (T - s.N - s.gp), m: nextMult.toFixed(3) });
   $("verdict").innerHTML = v;
   const acts = $("roundActions"); acts.innerHTML = "";
@@ -324,10 +344,12 @@ function renderSeats() {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("mines.you", "you") + "</b> " : "";
     let out = window.t("mines.seatInfo", "{m} mines · {p} revealed", { m: s.N, p: s.gp });
     if (s.done) out += " → " + (s.bust ? '<span class="b dimb">' + window.t("mines.seatBust", "💥 bust") + "</span>"
+      : s.timedOut ? '<span class="b dimb">' + window.t("mines.seatTimedOut", "⏱ timed out to the bank") + "</span>"
       : '<span class="b ok">' + window.t("mines.seatCashed", "cashed {amt}", { amt: rawToNado(s.gv) }) + "</span>");
     else if (s.waiting || s.ready) out += ' <span class="b pend">' + window.t("mines.seatRevealing", "revealing…") + "</span>";
     else out += ' <span class="b pend">' + window.t("mines.seatLive", "live · worth {amt}", { amt: rawToNado(s.gv) }) + "</span>";
-    const reapB = s.stale && (iAmBank || s.addr === dapp.me) ? ' <button class="ghost" style="padding:2px 8px;font-size:11px" data-reap="' + s.g + '">' + window.t("mines.releaseSeat", "release") + "</button>" : "";
+    // only the BANK gets a release button: a reap times the seat out to the bank, so it is never offered to the player
+    const reapB = s.stale && iAmBank ? ' <button class="ghost" style="padding:2px 8px;font-size:11px" data-reap="' + s.g + '">' + window.t("mines.releaseSeat", "release") + "</button>" : "";
     return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + reapB + "</div>";
   }).join("") : '<span class="dim">' + window.t("mines.noRounds", "No rounds yet — start the first one.") + "</span>";
   el.querySelectorAll("[data-reap]").forEach((b) => b.onclick = () => reapSeat(parseInt(b.dataset.reap, 10)));
@@ -339,7 +361,7 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.seat != null && pend.phase !== "resolve") mySeat = pend.seat;
   if (ok && pend && ["open", "bet", "pick", "resolve", "cashout", "fund", "close"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
   dapp.showReturn(pend, ok, err, {
-    bet: window.t("mines.pendBet", "Round starting — confirming…"), pick: window.t("mines.pendPick", "Reveal locking to the next blocks…"),
+    bet: window.t("mines.pendBet", "Round starting — confirming…"), pick: window.t("mines.pendPick", "Reveal locking to the next epoch beacon…"),
     resolve: window.t("mines.pendResolve", "Resolving…"), cashout: window.t("mines.pendCash", "💰 Cashing out — confirming…") });
 });
 function wireUI() {

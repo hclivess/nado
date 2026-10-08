@@ -31,7 +31,7 @@
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Pets", "url": "https://pets.nadochain.com/", "description": "NADO Pets — collectible on-chain tamagotchi NFTs you hatch, train and battle. 1000+ animals, real genetics, true ownership on a post-quantum blockchain. Plays in your browser.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cellipse%20cx%3D%2224%22%20cy%3D%2226%22%20rx%3D%2214%22%20ry%3D%2217%22%20fill%3D%22%23f5e9d0%22%20stroke%3D%22%23c8a96a%22%20stroke-width%3D%222%22/%3E%3Ccircle%20cx%3D%2219%22%20cy%3D%2220%22%20r%3D%222.2%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2229%22%20cy%3D%2230%22%20r%3D%222.8%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2213%22%20r%3D%221.8%22%20fill%3D%22%23c8a96a%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
-<script src="/static/i18n.js?v=19e08fd8"></script>
+<script src="/static/i18n.js?v=d4128e02"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;--purp:#c86bfa;
@@ -376,7 +376,7 @@
     <div class="mt hidden" id="hatchRow">
       <button class="primary" id="btnHatch" style="width:100%" data-i18n="pets.hatchEgg">🐣 Hatch the egg</button>
       <p class="small dim mt" id="hatchHint"></p>
-      <button class="ghost hidden mt" id="btnRebirth" data-i18n="pets.rerollEgg">♻ Re-roll the egg (its gene block was pruned)</button>
+      <button class="ghost hidden mt" id="btnRebirth">♻ Re-roll the egg · 0.1 NADO (its gene block was pruned)</button>
     </div>
 
     <!-- feed -->
@@ -417,7 +417,7 @@
         <input id="stakeAmt" value="1" placeholder="stake (NADO, 0 ok)" data-i18n-ph="pets.stakePh" inputmode="decimal" autocomplete="off">
         <button class="primary" id="btnChallenge" data-i18n="pets.challenge">⚔ Challenge</button>
       </div>
-      <p class="small dim" id="challengeHint" data-i18n-html="pets.challengeHint">A turn-based duel decided by a <b>future block hash</b> where <b>every stat fights</b>: 💪 damage · 🤸 dodge · ❤️ HP · 🧠 accuracy · 🦉 mitigation · ✨ intimidation · 🤝 regen · 🍀 crits · ⚡ turn share · 🍖 bulk — Monte-Carlo balanced so <b>power is a true score</b> (equal power ≈ 50/50, any +12 stat points ≈ +4-7% win). The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead. Both fighters are then <b>exhausted for 6 hours</b> — no back-to-back battles.</p>
+      <p class="small dim" id="challengeHint" data-i18n-html="pets.challengeHint">A turn-based duel decided by <b>both owners' sealed secrets</b> where <b>every stat fights</b>: 💪 damage · 🤸 dodge · ❤️ HP · 🧠 accuracy · 🦉 mitigation · ✨ intimidation · 🤝 regen · 🍀 crits · ⚡ turn share · 🍖 bulk — Monte-Carlo balanced so <b>power is a true score</b> (equal power ≈ 50/50, any +12 stat points ≈ +4-7% win). The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead. Both fighters are then <b>exhausted for 6 hours</b> — no back-to-back battles. Each browser commits its secret when it challenges or accepts and reveals it automatically; a side that doesn't reveal within ~2 hours <b>forfeits</b>.</p>
     </div>
 
     <!-- buy (someone else's listed pet) -->
@@ -494,6 +494,7 @@
     <div id="arenaVerdict"></div>
     <div id="arenaLog" class="small dim" style="text-align:center;min-height:16px;margin-top:4px"></div>
     <div class="row mt">
+      <button class="primary hidden" id="btnRevealBattle" data-i18n="pets.revealSecret">🔓 Reveal my secret</button>
       <button class="primary hidden" id="btnResolve" data-i18n="pets.settleBattle">⚔ Settle the battle on-chain</button>
       <button class="ghost hidden" id="btnCancelBattle" data-i18n="pets.withdrawChallenge">Withdraw challenge</button>
       <button class="ghost hidden" id="btnRefundBattle" data-i18n="pets.reclaimStakes">Reclaim stale stakes</button>
@@ -595,11 +596,11 @@
   <!-- HOW IT WORKS -->
   <div class="card">
     <h2 data-i18n="pets.fairHead">How it's provably fair</h2>
-    <p class="small dim" data-i18n-html="pets.fairNote">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the animal (<span class="mono">gene % 100</span> picks one of the 100 species), its rarity tier, coat and all 10 base stats forever. Training and battles bind to future block hashes the same way; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Adoption, food and training fees are <b>burned</b> — paid to a dead key no wallet can ever control — so playing shrinks the supply; there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
+    <p class="small dim" data-i18n-html="pets.fairNote">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the animal (<span class="mono">gene % 100</span> picks one of the 100 species), its rarity tier, coat and all 10 base stats forever. Training binds to future block hashes the same way. Battles are decided by <b>both owners' committed secrets</b> (each commits HASH(secret) before seeing the other's; a side that doesn't reveal in time forfeits), and gear finds and re-rolls by an <b>epoch beacon that doesn't exist yet</b> when you collect or pay; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Adoption, food and training fees are <b>burned</b> — paid to a dead key no wallet can ever control — so playing shrinks the supply; there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
   </div>
 
   <footer data-i18n="pets.footer">NADO Pets · on-chain tamagotchi NFTs · post-quantum signatures · no house</footer>
 </div>
-<script type="module" src="/static/pets.js?v=712493ab"></script>
+<script type="module" src="/static/pets.js?v=d3a1f1a3"></script>
 </body>
 </html>

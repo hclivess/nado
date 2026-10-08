@@ -1,41 +1,83 @@
 // blackjack.js — NADO Blackjack: fully provable, with NO dealer to trust, built on the shared game SDK
 // (nadodapp.js + bankedgame.js + cards.js). The "dealer" is a fixed on-chain strategy (stands on 17,
-// soft or hard) whose cards come from block hashes bound AFTER you stand — nothing to peek at, nothing
-// to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
-// so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
-// 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=b74f351b";
-import { BankedGame } from "./bankedgame.js?v=c6e4d044";
-import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=4aa22ec9";
-import { Practice } from "./practice.js?v=602947c5";      // free in-browser practice (play chips, no chain)
+// soft or hard) whose cards come from the epoch beacon bound AFTER you stand — nothing to peek at, nothing
+// to rig. Each step (deal, hit, stand) binds its cards to the beacon of epoch gb = epoch(cursor) + 2 and
+// lands once that epoch begins (up to ~2 epochs of 60 blocks); a step bound before the beacon rule (gb == 0)
+// still draws from bh(gh) + bh(gh+1). Every card is stored on-chain (pc/dk maps) so the exact hand
+// reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack 5:2; European
+// no-hole-card timing. A hand nobody finishes within 18000 blocks of its last move goes to the bank.
+// See tests/test_blackjack_settles_from_the_beacon_and_times_out_to_the_bank.py.
+import { NadoDapp, chainResultAlg, blocksToTime, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
+import { BankedGame } from "./bankedgame.js?v=66957686";
+import { cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=687b2fe8";
+import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
 
 const CID = "7d3d1f539b9dc228c359a52efc460c49";
-const REAP = 1200;
+// REAP: the contract's timeout (reap gates on ge + 18000 < cursor). After it the hand resolves to the BANK, so
+// only the bank's page ever offers or auto-sends reap — it returns nothing to the player.
+const REAP = 18000;
 const dapp = new NadoDapp({ cid: CID, app: "Blackjack" });
 const bg = new BankedGame(dapp, { icon: "🃏" });
 
 let lastSto = null, myHand = null, watch = null;
 
 // ---- reads (blackjack seat schema; cards live on-chain in pc/dk) ------------------------------------
+// cardsAt(bh0, bh1, salt, n): the contract's card draw, card_i = LO32(alghash([bh0 + bh1 + salt + i] mod P)) % 52
+// (blackjack.card_at). A beacon step passes (BEACON(gb), "0"); a block-hash step (bh(gh), bh(gh+1)).
+// INVARIANT: the preview equals the landed cards because both reduce through chainResultAlg's exact VM formula
+// (cards.js chainCards hashes with blake2b and does not match the zkVM contract).
+function cardsAt(bh0, bh1, salt, n) {
+  if (!bh0 || !bh1) return null;
+  return Array.from({ length: n }, (_, i) => chainResultAlg(bh0, bh1, salt + i, 52));
+}
+// stepSeed(s): the (bh0, bh1) pair the pending step draws from, or null while it is not available yet.
+function stepSeed(s) {
+  if (s.gb) { const b = dapp.bc(s.gb); return b ? [b, "0"] : null; }
+  const h0 = dapp.bh(s.gh), h1 = dapp.bh(s.gh + 1);
+  return h0 && h1 ? [h0, h1] : null;
+}
+// handResult(sto, g): the outcome shown for a settled hand, from what the contract stores. gw is 3 for a natural
+// (paid at reveal), 2 for a bust (at draw), 1 for every hand settle resolved (win, push AND loss — the verdict is
+// gr vs the player's total) and 0 for a hand that timed out to the bank (reap). Returns the RES_TEXT code.
+function handResult(sto, g) {
+  g = String(g);
+  const gw = _m(sto, "gw")[g] || 0;
+  if (gw === 3) return 3;
+  if (gw === 2) return 5;
+  if (gw === 0) return 6;
+  const cards = []; const n = _m(sto, "gn")[g] || 0;
+  for (let k = 0; k < n; k++) { const c = _m(sto, "pc")[String(Number(g) * 16 + k)]; if (c) cards.push(c - 1); }
+  const p = bjTotal(cards).total, d = _m(sto, "gr")[g] || 0;
+  return d > 21 || p > d ? 1 : p === d ? 2 : 4;
+}
 function handFrom(sto, g) {
   g = String(g); const t = _m(sto, "gg")[g];
   if (!t) return { exists: false, g: Number(g) };
   const s = { exists: true, g: Number(g), table: Number(t), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
     gf: _m(sto, "gf")[g] || 0, gh: _m(sto, "gh")[g] || 0, gn: _m(sto, "gn")[g] || 0, ge: _m(sto, "ge")[g] || 0,
-    du: _m(sto, "du")[g] || 0, done: !!_m(sto, "gd")[g], res: _m(sto, "gw")[g] || 0, dealerBest: _m(sto, "gr")[g] || 0 };
+    gb: _m(sto, "gb")[g] || 0, du: _m(sto, "du")[g] || 0, done: !!_m(sto, "gd")[g], dealerBest: _m(sto, "gr")[g] || 0 };
+  s.res = s.done ? handResult(sto, g) : 0;
   s.cards = []; for (let k = 0; k < s.gn; k++) { const c = _m(sto, "pc")[String(s.g * 16 + k)]; if (c) s.cards.push(c - 1); }
   s.dealer = []; for (let j = 0; j < 16; j++) { const c = _m(sto, "dk")[String(s.g * 16 + j)]; if (!c) break; s.dealer.push(c - 1); }
   s.total = bjTotal(s.cards);
-  // a pending binding whose blocks already exist -> PREVIEW the outcome from fast provisional hashes
+  // a pending binding whose randomness already exists -> PREVIEW the outcome: the finalized beacon for a beacon
+  // step (gb), fast provisional hashes for a step bound before the beacon rule
   if (!s.done && s.gh && dapp.cursor != null && dapp.cursor >= s.gh + 1) {
-    const bh0 = dapp.bh(s.gh), bh1 = dapp.bh(s.gh + 1);
-    if (s.gf === 1) { const cs = chainCards(bh0, bh1, s.g * 64, 2), up = chainCards(bh0, bh1, s.g * 64 + 16, 1); if (cs && up) s.preview = { cards: cs, up: up[0] }; }
-    else if (s.gf === 3) { const c = chainCards(bh0, bh1, s.g * 64 + s.gn, 1); if (c) s.preview = { card: c[0] }; }
-    else if (s.gf === 4) { const d = previewDealer(bh0, bh1, s.g, s.du - 1); if (d) s.preview = d; }
+    const seed = stepSeed(s);
+    if (seed) {
+      const [bh0, bh1] = seed;
+      if (s.gf === 1) { const cs = cardsAt(bh0, bh1, s.g * 64, 2), up = cardsAt(bh0, bh1, s.g * 64 + 16, 1); if (cs && up) s.preview = { cards: cs, up: up[0] }; }
+      else if (s.gf === 3) { const c = cardsAt(bh0, bh1, s.g * 64 + s.gn, 1); if (c) s.preview = { card: c[0] }; }
+      else if (s.gf === 4) { const d = previewDealer(bh0, bh1, s.g, s.du - 1); if (d) s.preview = d; }
+    }
     s.ready = !!s.preview;
   }
   s.waiting = !s.done && s.gh && !s.ready;
+  // blocks until the pending step's randomness exists: gh + 1 is the beacon epoch's first block (gb * 60) — up to
+  // ~2 epochs after the action — or the second bound block for a block-hash step. <= 0 = due, awaiting the value.
+  s.waitBlocks = s.waiting && dapp.cursor != null ? s.gh + 1 - dapp.cursor : null;
   s.stale = !s.done && dapp.cursor != null && s.ge && dapp.cursor > s.ge + REAP;
+  s.left = !s.done && dapp.cursor != null && s.ge ? s.ge + REAP - dapp.cursor : null;   // blocks until the bank may reap
   return s;
 }
 // simulate the dealer exactly as the contract will (S17): draw dk cards until best >= 17
@@ -44,7 +86,7 @@ function previewDealer(bh0, bh1, g, up) {
   const cards = [];
   const hand = () => bjTotal([up].concat(cards));
   for (let j = 0; j < 16; j++) {
-    const c = chainCards(bh0, bh1, g * 64 + 32 + j, 1); if (!c) return null;
+    const c = cardsAt(bh0, bh1, g * 64 + 32 + j, 1); if (!c) return null;
     cards.push(c[0]);
     if (bjTotal([up].concat(cards)).total >= 17) break;
   }
@@ -90,7 +132,7 @@ const stand = () => { const s = myHandObj(); if (s && !dapp.busy("stand", "seat"
 const RESOLVE_METHOD = { 1: "reveal", 3: "draw", 4: "settle" };
 const resolveHand = (s) => { if (dapp.busy("resolve", "seat", s.g)) return; dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve", gf: s.gf }); };
 // reap leaves gf alone (it only sets gd), so its baseline is the phase it found — the gd test below is what
-// actually releases it.
+// actually releases it. Reap resolves the hand to the BANK, so only the bank is ever offered it.
 const reapHand = (g) => { if (dapp.busy("resolve", "seat", g)) return; dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve", gf: _m(lastSto, "gf")[String(g)] || 0 }); };
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
@@ -99,11 +141,13 @@ function fundTable() {
   bg.fund(raw, window.t("bj.callFund", "top up table #{t} · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
 }
 const closeTable = () => bg.close(window.t("bj.callClose", "close table #{t}", { t: bg.active }), { confirm: 1 });
+// Auto-land: the player's page lands its own ready hands (reveal/draw/settle never expire). Only the BANK's page
+// reaps a timed-out hand — reap pays the player nothing, so it is never sent on the player's behalf.
 function maybeAutoResolve(hands) {
   const tb = lastTable(); if (!tb || !tb.exists) return;
   const iAmBank = tb.bank === dapp.me;
-  dapp.autoCollect(hands.filter((s) => !s.done && (s.ready && (iAmBank || s.addr === dapp.me) || (iAmBank && s.stale && !s.ready))),
-    (s) => s.ready ? resolveHand(s) : reapHand(s.g), { blocked: watch });
+  dapp.autoCollect(hands.filter((s) => !s.done && ((iAmBank && s.stale) || (s.ready && (iAmBank || s.addr === dapp.me)))),
+    (s) => (iAmBank && s.stale) ? reapHand(s.g) : resolveHand(s), { blocked: watch });
 }
 
 // ---- refresh -----------------------------------------------------------------------------------------
@@ -122,7 +166,11 @@ async function refreshAll() {
       if (f.phase === "resolve") return (f.gf != null && gf !== f.gf) || !!_m(sto, "gd")[g];
       return bg.landed(f, sto);   // open / fund / close
     });
-    if (bg.active != null) await bg.prefetchHashes(sto, (g) => (!_m(sto, "gd")[g] && _m(sto, "gf")[g]) ? _m(sto, "gh")[g] || 0 : 0);
+    if (bg.active != null) {
+      // a step bound before the beacon rule (gb == 0) reads block hashes; a beacon step reads its epoch beacon
+      await bg.prefetchHashes(sto, (g) => (!_m(sto, "gd")[g] && _m(sto, "gf")[g] && !_m(sto, "gb")[g]) ? _m(sto, "gh")[g] || 0 : 0);
+      await bg.prefetchBeacons(sto, (g) => _m(sto, "gh")[g] ? _m(sto, "gb")[g] || 0 : 0);
+    }
     if (watch) {
       const g = String(watch.seat), t = String(watch.table), gf = _m(sto, "gf")[g] || 0;
       const done =
@@ -134,8 +182,8 @@ async function refreshAll() {
         watch.phase === "close" ? !!_m(sto, "tz")[t] : true;
       if (done) {
         dapp.clearInflight();
-        const okMsg = { open: window.t("bj.stOpen", "✓ Table is live — share it and earn the edge."), deal: window.t("bj.stDeal", "✓ Hand dealt to the next blocks…"),
-          hit: window.t("bj.stHit", "✓ Card bound — landing…"), stand: window.t("bj.stStand", "✓ Standing — the dealer draws from the next blocks…"),
+        const okMsg = { open: window.t("bj.stOpen", "✓ Table is live — share it and earn the edge."), deal: window.t("bj.stDeal", "✓ Hand dealt — the cards land with the next epoch beacon…"),
+          hit: window.t("bj.stHit", "✓ Card bound — landing…"), stand: window.t("bj.stStand", "✓ Standing — the dealer draws from the next epoch beacon…"),
           resolve: window.t("bj.stResolve", "✓ Cards landed."), fund: window.t("bj.stFund", "✓ Bankroll topped up."), close: window.t("bj.stClose", "✓ Table closed — pool reclaimed.") }[watch.phase];
         if (okMsg) notify(okMsg);
         watch = null;
@@ -151,9 +199,9 @@ async function refreshAll() {
   render();
 }
 // the shared banked-game scoreboard walk; this game supplies only its own payout rule
-// (1 = win pays 2x, 2 = push returns the stake, 3 = blackjack pays 5:2)
+// (handResult: 1 = win pays 2x, 2 = push returns the stake, 3 = blackjack pays 5:2, else the stake is lost)
 const boardFrom = (sto) => bg.scoreboard(sto, (g, stake) => {
-  const res = _m(sto, "gw")[g] || 0;
+  const res = handResult(sto, g);
   const pay = res === 1 ? 2 * stake : res === 2 ? stake : res === 3 ? Math.floor(stake * 5 / 2) : 0;
   return pay - stake;
 });
@@ -181,7 +229,7 @@ const RES_TEXT = () => ({
   3: '<span class="win">' + window.t("bj.resBJ", "🂡 BLACKJACK! Paid 5:2.") + "</span>",
   4: '<span class="lose">' + window.t("bj.resLose", "Dealer wins this one.") + "</span>",
   5: '<span class="lose">' + window.t("bj.resBust", "💥 Bust — over 21.") + "</span>",
-  6: window.t("bj.resForfeit", "Hand released after inactivity."),
+  6: '<span class="lose">' + window.t("bj.resForfeit", "⌛ Timed out — the stake went to the bank.") + "</span>",
 });
 var render = function render() {
   dapp.reflectUrl("table", bg.active);
@@ -224,7 +272,7 @@ var render = function render() {
   if (s.du) dealerCards.push(s.du - 1);
   if (s.done && s.dealer.length) { dealerCards.push(...s.dealer); dealerNote = window.t("bj.dealerShows", "dealer: {n}", { n: s.dealerBest }); }
   else if (s.gf === 4 && s.preview) { dealerCards.push(...s.preview.dealer); dealerNote = window.t("bj.dealerDrawing", "dealer draws {n} — confirming…", { n: s.preview.best }); }
-  else if (s.gf === 4) { dealerCards.push(null); dealerNote = window.t("bj.dealerWaits", "dealer's cards are locking to the next blocks…"); }
+  else if (s.gf === 4) { dealerCards.push(null); dealerNote = window.t("bj.dealerWaits", "dealer's cards are locking to the next epoch beacon…"); }
   else if (s.du) { dealerCards.push(null); dealerNote = window.t("bj.dealerHole", "hole card is drawn after you stand"); }
   $("dealerRow").innerHTML = dealerCards.length ? dealerCards.map((c) => cardHTML(c)).join("") : cardHTML(null) + cardHTML(null);
   $("dealerNote").textContent = dealerNote;
@@ -238,12 +286,21 @@ var render = function render() {
   // verdict
   let v = "";
   if (s.done) v = RES_TEXT()[s.res] || "";
-  else if (s.gf === 1) v = s.preview ? window.t("bj.dealLanding", "Your cards are in — confirming on-chain…") : window.t("bj.dealing", "🂠 Dealing from the next blocks…");
+  else if (s.gf === 1) v = s.preview ? window.t("bj.dealLanding", "Your cards are in — confirming on-chain…") : window.t("bj.dealing", "🂠 Dealing from the next epoch beacon…");
   else if (s.gf === 3) v = s.preview ? window.t("bj.cardLanding", "Card drawn — confirming…") : window.t("bj.drawing", "🂠 Drawing your card…");
-  else if (s.gf === 4) v = s.preview ? (s.preview.bust ? '<span class="win">' + window.t("bj.dealerBusting", "Dealer BUSTS with {n} — confirming your win…", { n: s.preview.best }) + "</span>" : window.t("bj.dealerLanded", "Dealer stands on {n} — settling…", { n: s.preview.best })) : window.t("bj.dealerThinking", "Dealer draws from the next blocks…");
+  else if (s.gf === 4) v = s.preview ? (s.preview.bust ? '<span class="win">' + window.t("bj.dealerBusting", "Dealer BUSTS with {n} — confirming your win…", { n: s.preview.best }) + "</span>" : window.t("bj.dealerLanded", "Dealer stands on {n} — settling…", { n: s.preview.best })) : window.t("bj.dealerThinking", "Dealer draws from the next epoch beacon…");
   else if (pt.bust) v = window.t("bj.busting", "Over 21 — confirming…");
   else if (pt.natural) v = '<span class="win">' + window.t("bj.natural", "🂡 Blackjack! Stand to collect 5:2.") + "</span>";
   else v = window.t("bj.yourMove", "Your move: hit for another card, or stand on {n}.", { n: pt.total });
+  // honest countdown: a beacon step lands at its epoch's first block (up to ~2 epochs after the action)
+  if (!s.done && s.waiting && s.waitBlocks != null)
+    v += ' <span class="dim small">· ' + (s.waitBlocks > 0
+      ? window.t("bj.cardIn", "next card in {n} blocks (~{time})", { n: s.waitBlocks, time: blocksToTime(s.waitBlocks) })
+      : s.gb ? window.t("bj.beaconWait", "waiting for the epoch beacon…") : "") + "</span>";
+  if (!s.done && s.addr === dapp.me && s.left != null)
+    v += '<br><span class="dim small">' + (s.stale
+      ? window.t("bj.timedOut", "This hand timed out — the bank can now close it and keep the stake.")
+      : s.left <= 3000 ? window.t("bj.timeoutNote", "Finish this hand within ~{time} — after that the stake goes to the bank.", { time: blocksToTime(s.left) }) : "") + "</span>";
   $("verdict").innerHTML = v;
   // actions
   const acts = $("handActions"); acts.innerHTML = "";
@@ -261,13 +318,13 @@ function renderHands() {
   const el = $("seats"); if (!el || !lastSto || bg.active == null) return;
   const tb = lastTable(); const iAmBank = tb && tb.exists && tb.bank === dapp.me;
   const hands = handsOfTable(lastSto, bg.active).slice(0, 30);
-  const resShort = { 1: window.t("bj.sWin", "won 2×"), 2: window.t("bj.sPush", "push"), 3: window.t("bj.sBJ", "BLACKJACK 5:2"), 4: window.t("bj.sLose", "lost"), 5: window.t("bj.sBust", "bust"), 6: window.t("bj.sVoid", "released") };
+  const resShort = { 1: window.t("bj.sWin", "won 2×"), 2: window.t("bj.sPush", "push"), 3: window.t("bj.sBJ", "BLACKJACK 5:2"), 4: window.t("bj.sLose", "lost"), 5: window.t("bj.sBust", "bust"), 6: window.t("bj.sVoid", "timed out") };
   el.innerHTML = hands.length ? hands.map((s) => {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("bj.you", "you") + "</b> " : "";
     let out = s.done
       ? (s.res === 1 || s.res === 3 ? '<span class="b ok">' : '<span class="b dimb">') + (resShort[s.res] || "—") + "</span>"
       : '<span class="b pend">' + (s.gf === 2 ? window.t("bj.sPlaying", "{n} showing", { n: s.total.total }) : window.t("bj.sDrawing", "drawing…")) + "</span>";
-    const reapB = s.stale && !s.ready && (iAmBank || s.addr === dapp.me) ? ' <button class="ghost" style="padding:2px 8px;font-size:11px" data-reap="' + s.g + '">' + window.t("bj.releaseSeat", "release") + "</button>" : "";
+    const reapB = s.stale && iAmBank ? ' <button class="ghost" style="padding:2px 8px;font-size:11px" data-reap="' + s.g + '">' + window.t("bj.releaseSeat", "release") + "</button>" : "";
     return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + reapB + "</div>";
   }).join("") : '<span class="dim">' + window.t("bj.noHands", "No hands yet — deal the first one.") + "</span>";
   el.querySelectorAll("[data-reap]").forEach((b) => b.onclick = () => reapHand(parseInt(b.dataset.reap, 10)));
@@ -282,7 +339,7 @@ dapp.onReturn((pend, ok, err) => {
     if (lastSto && pend.seat != null) { watch.gn = _m(lastSto, "gn")[String(pend.seat)] || 2; watch.gf = _m(lastSto, "gf")[String(pend.seat)] || 0; }
   }
   dapp.showReturn(pend, ok, err, {
-    deal: window.t("bj.pendDeal", "🃏 Dealing — the cards lock to the next blocks…"), hit: window.t("bj.pendHit", "Hit — your card locks to the next blocks…"),
+    deal: window.t("bj.pendDeal", "🃏 Dealing — the cards lock to the next epoch beacon…"), hit: window.t("bj.pendHit", "Hit — your card locks to the next epoch beacon…"),
     stand: window.t("bj.pendStand", "Standing — the dealer draws next…"), resolve: window.t("bj.pendResolve", "Landing the cards…") });
 });
 function wireUI() {

@@ -29,7 +29,7 @@
 <meta name="twitter:title" content="NADO Slots — player-banked slot machines, provably fair">
 <meta name="twitter:image" content="https://nadochain.com/og-image.png">
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Slots", "url": "https://slots.nadochain.com/", "description": "Slots on the NADO blockchain — provably fair reels from chain randomness, a transparent paytable and on-chain settlement. No house secrets, no install, post-quantum secure.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
-<script src="/static/i18n.js?v=19e08fd8"></script>
+<script src="/static/i18n.js?v=d4128e02"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%2210%22%20width%3D%2236%22%20height%3D%2228%22%20rx%3D%226%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Crect%20x%3D%2211%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23d0362b%22/%3E%3Crect%20x%3D%2220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%2300ad93%22/%3E%3Crect%20x%3D%2229%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23e3b341%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <style>
@@ -102,7 +102,7 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🎰</span><h1>NADO <span class="a">Slots</span></h1><a class="hub" href="https://nadochain.com/apps" data-i18n="slots.allApps">🎮 All apps</a></header>
-  <p class="sub" data-i18n-html="slots.sub">Classic 3-reel slots where <b>players own the machines</b>. Anyone can open a machine and bank it — the bank earns the published <b>4.2% edge</b>; spinners win up to <b>150×</b> on triple 7️⃣. Every spin is decided by <b>two future block hashes</b> nobody can know when you pull the lever — no house secrets, no waiting: results land in seconds. Exact RTP <b>95.80%</b>, proven by full enumeration of the reels, enforced on-chain.</p>
+  <p class="sub" data-i18n-html="slots.sub">Classic 3-reel slots where <b>players own the machines</b>. Anyone can open a machine and bank it — the bank earns the published <b>4.2% edge</b>; spinners win up to <b>150×</b> on triple 7️⃣. Every spin is decided by the chain's <b>epoch beacon</b>, a random value nobody can know when you pull the lever — no house secrets: the reels stop within a few minutes. Exact RTP <b>95.80%</b>, proven by full enumeration of the reels, enforced on-chain.</p>
 
   <div id="status"></div>
 
@@ -128,7 +128,6 @@
       <div class="kv"><span class="k" id="stakeSliderVal"></span><span class="mono" id="btnMaxBet" style="cursor:pointer;color:var(--gold)" data-i18n="slots.max">Max: <span id="maxBetVal"></span></span></div>
     </div>
     <button class="primary hidden mt" id="btnCollect" style="width:100%"></button>
-    <button class="ghost hidden mt" id="btnRefundStuck" style="width:100%"></button>
     <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="slots.autoCollect">Auto-collect my spins — settles for me the moment a spin resolves</span></label>
     <div class="spins mt" id="mySpins"></div>
     <!-- bank owner tools -->
@@ -210,7 +209,7 @@
   <!-- FAIRNESS -->
   <div class="card">
     <h2 data-i18n="slots.fairTitle">How it's provably fair</h2>
-    <p class="small dim" data-i18n-html="slots.fairBody">A spin that lands in block <span class="mono">B</span> is decided by <span class="mono">HASH(blockhash(B+2) ‖ blockhash(B+3) ‖ spinId)</span> — two blocks that <b>don't exist yet</b> when you sign, mixed so no single producer can steer them. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
+    <p class="small dim" data-i18n-html="slots.fairBody">A spin that lands during epoch <span class="mono">E</span> is decided by <span class="mono">HASH(beacon(E+2) ‖ spinId)</span> — the chain's epoch beacon, mixed from the validators' reveals, which <b>doesn't exist yet</b> when you sign, so no single producer can steer it. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. Anyone can settle a spin for 18,000 blocks (your wins are auto-collected); a spin nobody settles in that window goes to the bank. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
   </div>
 
   <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
@@ -232,6 +231,6 @@
 
   <footer data-i18n="slots.footer">NADO Slots · player-banked machines · post-quantum signatures · no house</footer>
 </div>
-<script type="module" src="/static/slots.js?v=54eea0a3"></script>
+<script type="module" src="/static/slots.js?v=95f491b6"></script>
 </body>
 </html>

@@ -1,17 +1,18 @@
 // dice.js — NADO Dice: a provably-fair, peer-banked MULTIPLAYER "roll under" dice on the execution layer, built
 // on the shared game SDK (nadodapp.js). Slide your win chance, the payout auto-scales (99 ÷ target → a flat 1%
-// edge). A table SPINS ITSELF every ROUND blocks — no bank reveal, no secrets. Each seat gets its OWN roll from
-// FINALIZED L1 block hashes nobody can predict while betting is open:
-//     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
-// Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
-// bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=b74f351b";
-import { BankedGame } from "./bankedgame.js?v=c6e4d044";
-import { Practice } from "./practice.js?v=602947c5";      // free in-browser practice (play chips, no chain)
+// edge). A table SPINS ITSELF every beacon epoch (ROUND blocks) — no bank reveal, no secrets. Each seat gets its OWN roll from
+// the FINALIZED epoch beacon its bet was bound to (gb), which nobody can predict while betting is open:
+//     roll_g = HASH( BEACON(gb) + seatId ) % 100
+// (a seat placed before the beacon rule has gb == 0 and keeps HASH(BLOCKHASH(gh) + BLOCKHASH(gh+1) + seatId)).
+// Once the beacon is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the bankroll
+// so the table keeps rolling. A seat nobody settles within HORIZON blocks of gh goes to the bank (reclaim).
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes, EPOCH_LENGTH } from "./nadodapp.js?v=42226f9f";
+import { BankedGame } from "./bankedgame.js?v=66957686";
+import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
 
 const CID = "28da34f204923d91f6486edfa4504427";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
-const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
+const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = EPOCH_LENGTH;   // a bet binds to the beacon epoch after next, so seats resolve once per epoch (_lib.beacon_bind)
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
 const bg = new BankedGame(dapp, { icon: "🎲" });   // shared table reader/actions/lobby/tracking (bg.active = selected table)
 
@@ -25,14 +26,18 @@ const returnRaw = (stake, M) => BigInt(stake) * BigInt(EDGE) / BigInt(M);
 // ---- reads (dice-specific storage schema) --------------------------------------------------------
 const tableFrom = (sto, t) => bg.read(sto, t);
 // bg.seats walks the seats + sorts newest-first by bound block height; we add the dice fields (target, roll, win)
+// rollOf: the contract's settle, byte for byte — seed_q gives BEACON(gb) for a beacon seat (gb != 0) and
+// BHASH(gh) + BHASH(gh+1) for a seat placed before that rule; settle then adds the SEAT id g as the salt.
+// INVARIANT: the preview equals the paid roll because both branches mirror _lib.seed_q + `add r3 r0` exactly.
+const rollOf = (s, g) => s.gb ? chainResultAlg(dapp.bc(s.gb), "0", g, PN) : chainResultAlg(dapp.bh(s.gh), dapp.bh(s.gh + 1), g, PN);
 const seatsOfTable = (sto, t) => bg.seats(sto, t, (g, s) => {
   s.M = _m(sto, "gm")[g] || 0;
   if (s.settled) { const gr = _m(sto, "gr")[g] || 0; s.roll = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
-  else if (s.ready) { s.roll = chainResultAlg(dapp.bh(s.gh), dapp.bh(s.gh + 1), g, PN); s.win = s.roll != null ? s.roll < s.M : null; }
+  else if (s.ready) { s.roll = rollOf(s, g); s.win = s.roll != null ? s.roll < s.M : null; }
   else { s.pending = true; s.spinsIn = dapp.cursor != null ? s.gh - dapp.cursor : null; }
   return s;
 });
-async function fetchTable(t) { const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] }); return sto ? tableFrom(sto, t) : null; }
+async function fetchTable(t) { const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd", "gb"] }); return sto ? tableFrom(sto, t) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function openTable(t, bankrollRaw) {
@@ -79,25 +84,13 @@ function fundTable() {
   bg.fund(raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
 }
 const settleSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
-// THE STUCK-SEAT REFUND. A seat resolves from BHASH(gh) and BHASH(gh+1); once gh leaves the node's hash
-// ring the roll can never be derived and the stake — plus the bank's at-risk reservation, which is what
-// keeps the table from closing — would be locked forever. reclaim is the permissionless refund for exactly
-// that seat. WHICH seats qualify is NOT decided here: dapp.horizonVerdict() owns that rule, because the
-// contract's 18000-block gate opens ~2000 blocks BEFORE the hash actually prunes, and anything that offers
-// a refund on the contract gate alone hands back the stake on a bet that would still have PAID.
-const HORIZON = 18000;                   // must match the gate in execnode/games/dice.py
-const reclaimSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("reclaim", [g], null, window.t("dice.callReclaim", "refund stuck seat #{g}", { g }), { table: bg.active, seat: g, phase: "settle" }); };
-/** Stamp s.stuck on seats the chain can no longer resolve. Only ever consulted for a MANUAL button: the
- *  refund is irreversible and a settle is always the better outcome when one is still possible, so it is
- *  never auto-fired the way a win is. */
-async function markStuck(seats) {
-  for (const s of seats) {
-    s.stuck = false;
-    if (s.settled || s.ready || !s.gh) continue;                       // resolvable, or already resolved
-    if (dapp.cursor == null || dapp.cursor - s.gh <= HORIZON) continue; // not even eligible yet
-    s.stuck = (await dapp.horizonVerdict(s.gh, HORIZON)) === "refund";
-  }
-}
+// TIMEOUT -> BANK. A seat nobody settles within HORIZON blocks of gh resolves in favour of the bank: reclaim
+// keeps the stake in the pot, releases the bank's at-risk reservation (so the table can close) and pays nobody.
+// It returns NOTHING to the player, so this client never fires it for the player's own seat — a winning seat is
+// auto-collected inside the window instead. Only the BANK is offered the manual release, for seats past the window.
+const HORIZON = 18000;                   // must match the gate in execnode/games/dice.py (gh + 18000 < cursor)
+const timedOut = (s) => !s.settled && !!s.gh && dapp.cursor != null && dapp.cursor > s.gh + HORIZON;
+const reclaimSeat = (g) => { if (dapp.busy("settle", "seat", g)) return; dapp.call("reclaim", [g], null, window.t("dice.callReclaim", "release timed-out seat #{g} to the bank", { g }), { table: bg.active, seat: g, phase: "settle" }); };
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
@@ -111,7 +104,7 @@ const closeTable = () => bg.close(window.t("dice.callClose", "close table #{t}",
 
 async function refreshActive() {
   await dapp.refresh();
-  const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] });
+  const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd", "gb"] });
   if (sto) {
     lastSto = sto;
     bg.track(sto);
@@ -122,11 +115,12 @@ async function refreshActive() {
       lastTable = tableFrom(sto, bg.active);
       const cur = dapp.cursor, need = [];
       for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(bg.active)) {
+        if (_m(sto, "gb")[g]) continue;   // beacon seats resolve from the beacon (prefetchBeacons below), not block hashes
         const gh = _m(sto, "gh")[g] || 0; if (!_m(sto, "gd")[g] && cur != null && cur >= gh + 1) need.push(gh, gh + 1);
       }
-      if (need.length) await dapp.blockHashes(need, { fast: true });   // dice rolls: PUBLIC + on-chain-validated -> provisional (fast) is safe; results show ~one block after the roll instead of waiting out finality
+      if (need.length) await dapp.blockHashes(need, { fast: true });   // legacy dice rolls: PUBLIC + on-chain-validated -> provisional (fast) is safe; results show ~one block after the roll instead of waiting out finality
+      await bg.prefetchBeacons(sto);   // beacon seats: the finalized epoch beacon each seat is bound to (map gb)
       lastSeats = seatsOfTable(sto, bg.active);
-      await markStuck(lastSeats);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -262,6 +256,7 @@ function renderActive() {
         + (s.settled ? (s.win ? '<span class="b ok">' + window.t("dice.won", "won {amt}", { amt: rawToNado(returnRaw(s.stake, s.M)) }) + "</span>" : '<span class="b dimb">' + window.t("dice.noWin", "no win") + "</span>")
                      : (s.win ? '<span class="b pend">' + window.t("dice.wonCollect", "won {amt} — collect", { amt: rawToNado(returnRaw(s.stake, s.M)) }) + "</span>" : '<span class="b dimb">' + window.t("dice.lost", "lost") + "</span>"));
     else out += ' <span class="b pend">' + window.t("dice.rollsIn", "rolls in {time}", { time: s.spinsIn != null ? blocksToTime(s.spinsIn) : "…" }) + "</span>";
+    if (timedOut(s)) out += ' <span class="b dimb">' + window.t("dice.timedOut", "timed out — stake goes to the bank") + "</span>";
     return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + "</div>";
   };
   // render only a capped slice — a busy table accrues unboundedly many seats over its life
@@ -275,17 +270,18 @@ function renderActive() {
   for (const s of mySeats) {
     if (s.settled) continue;
     const b = document.createElement("button"); b.style.flex = "1 1 auto";
-    // A stuck seat gets the refund and nothing else — its roll is unrecoverable, so there is no Collect to
-    // offer. Every other seat keeps the settle path untouched.
-    if (s.stuck) {
-      b.className = "ghost";
-      b.textContent = window.t("dice.refundSeat", "↩ Refund stuck seat #{g} ({amt})", { g: s.g, amt: rawToNado(s.stake) });
-      b.onclick = () => reclaimSeat(s.g); wrap.appendChild(b); continue;
-    }
+    // INVARIANT: the player is never offered (or auto-fired) reclaim on their own seat, because reclaim pays the
+    // bank and returns nothing to them; the settle path below stays open for a win until someone reclaims it.
     if (!s.ready) continue;
     b.className = "primary";
     b.textContent = s.win ? window.t("dice.collectSeat", "💰 Collect {amt} (seat #{g})", { amt: rawToNado(returnRaw(s.stake, s.M)), g: s.g }) : window.t("dice.closeOutSeat", "Close out seat #{g}", { g: s.g });
     b.onclick = () => settleSeat(s.g); if (s.win || iAmBank) wrap.appendChild(b);
+  }
+  // the bank releases seats nobody settled inside the window (their stakes stay in its pot) so the table can close
+  if (iAmBank) for (const s of lastSeats.filter(timedOut).slice(0, 8)) {
+    const b = document.createElement("button"); b.style.flex = "1 1 auto"; b.className = "ghost";
+    b.textContent = window.t("dice.releaseSeat", "↩ Release timed-out seat #{g} ({amt}) to the bank", { g: s.g, amt: rawToNado(s.stake) });
+    b.onclick = () => reclaimSeat(s.g); wrap.appendChild(b);
   }
   $("btnClose").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed && tb.settledCount >= tb.seatCount));
   $("btnClose").textContent = tb.seatCount === 0 ? window.t("dice.cancelReclaim", "Cancel — reclaim bankroll") : window.t("dice.closeReclaim", "Close table — reclaim {amt}", { amt: rawToNado(tb.pool) });
