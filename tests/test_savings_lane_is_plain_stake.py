@@ -113,7 +113,7 @@ def main():
     bo = open(os.path.join(ROOT, "ops", "block_ops.py")).read()
     check("mining_status still answers the fields wallets read, at their gen-27 values",
           '"bond_attest_required": False' in bo and '"bond_plain": True' in bo and '"open_excluded_bonded"' in bo
-          and "bonded_producer_registry(get_bonded_registry(), open_reg, epoch * EPOCH_LENGTH)" in bo)
+          and "bonded_producer_registry(bonded_registry_for_epoch(epoch), open_reg, epoch * EPOCH_LENGTH)" in bo)
 
 
 if __name__ == "__main__":
