@@ -309,7 +309,10 @@ def get_block_candidate(
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
         chain_id=CHAIN_ID,   # informational label on new blocks (not hashed); a rename shows up here
-        block_weight=block_fork_weight(bonded_registry, block_number),  # as-of-parent (registry read above)
+        # INVARIANT: fork weight reads the LIVE as-of-parent registry, exactly as verify_block recomputes it — never the
+        # epoch's frozen draw registry (REGISTRY_SNAPSHOT_HEIGHT): the two differ once a bond lands after the anchor, and
+        # a weight from the snapshot is refused by every verifier (halted the chain at 135625, 2026-10-09).
+        block_weight=block_fork_weight(get_bonded_registry(), block_number),
     )
     return block
 

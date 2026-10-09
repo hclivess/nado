@@ -105,5 +105,14 @@ check("production and verification draw through bonded_registry_for_epoch",
       cl.count("bonded_registry_for_epoch(") >= 2 and "bonded_registry = bonded_registry_for_epoch(epoch)" in
       open(os.path.join(ROOT, "ops", "block_ops.py")).read())
 
+# FORK WEIGHT IS NOT A DRAW INPUT: production, rebuild and verification must all weigh a block from the LIVE as-of-parent
+# registry. Construction once weighed it from the frozen draw registry while verify_block used the live one; they
+# differed by 2 shares after a bond landed past the anchor and every node refused block 135625 (2026-10-09).
+import re as _re
+_bo = open(os.path.join(ROOT, "ops", "block_ops.py")).read()
+_calls = _re.findall(r"block_fork_weight\(([^,]+),", _bo + cl)
+check("every block_fork_weight call weighs from the live registry (production, rebuild, verification)",
+      len(_calls) >= 3 and all(c.strip() == "get_bonded_registry()" for c in _calls), _calls)
+
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

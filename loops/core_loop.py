@@ -3806,7 +3806,8 @@ class CoreClient(threading.Thread):
             block_reward=get_block_reward(),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
-            block_weight=block_fork_weight(bonded_registry, block_number),
+            # INVARIANT: the LIVE as-of-parent registry, as the verify path below — never the draw snapshot (see block_ops)
+            block_weight=block_fork_weight(get_bonded_registry(), block_number),
             # preserve the REMOTE block's own chain_id label (informational, not hashed) so the rebuilt
             # block stays byte-identical to what the peer sent; the hash is chain_id-invariant either way.
             chain_id=block.get("chain_id", CHAIN_ID),
