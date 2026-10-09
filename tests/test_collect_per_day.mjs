@@ -1,6 +1,8 @@
-/* The Collecting card's per-day estimate (static/interface.js collectPerDay) is the brief's formula, on fixed inputs.
+/* The Collecting card's ONE "Earning" figure (static/interface.js collectPerDay), on fixed inputs:
  *   blocks   = 86400 / block_time × k_open / epoch_length × my_open / total_open × avg reward × OPEN_TIP_BPS / 10000
  *   dividend = mean(inflow) × 86400 / (block_time × epoch_length) × my_weight / Σ weights
+ *   savings  = 86400 / block_time × (epoch_length − k_open) / epoch_length × my_bonded / total_bonded × bonded cut
+ * and the savings tile no longer shows a second per-day figure for the same money.
  * Lifted from the wallet source (never restated). Inputs are the live values of block 135625 and epoch 2100's inflow.
  * Run: node tests/test_collect_per_day.mjs */
 import { readFileSync } from 'node:fs';
@@ -48,7 +50,15 @@ const r2 = collectPerDay({ ...base, inflowsRaw: [4e9, 6e9, 5e9, 5e9] });
 check('the dividend averages the inflows', near(r2.dividend, 5e9 * 240 * (10 / 236)));
 const r3 = collectPerDay({ ...base, myWeight: 100, sumWeights: 2360 });
 check('weights ×10 since block 107000 leave the ratio unchanged', near(r3.dividend, r.dividend));
-check('not present: no estimate (the card shows —)', collectPerDay({ ...base, present: false }) === null);
+check('not present and not producing: no estimate (the card shows —)', collectPerDay({ ...base, present: false }) === null);
+check('a collector without stake has no savings part', r.savings === null);
+const sv = { bondedProducing: true, myBondedShares: 59, totalBondedShares: 1199, bondedCutRaw: 97900000 };
+const wantSave = 14400 * (42 / 60) * (59 / 1199) * 97900000;
+const r4 = collectPerDay({ ...base, ...sv });
+check('savings per day (each lane its own share, never the combined win time)', near(r4.savings, wantSave), `${r4.savings} vs ${wantSave}`);
+check('the total adds all three parts', near(r4.total, wantBlocks + wantDiv + wantSave));
+const r5 = collectPerDay({ ...base, present: false, ...sv });
+check('a saver who is not present: savings only', r5 && r5.blocks === null && r5.dividend === null && near(r5.total, wantSave));
 check('no open weight: zero block rewards, never NaN', collectPerDay({ ...base, totalOpenWeight: 0 }).blocks === 0);
 check('no inflow data: zero dividend, never NaN', collectPerDay({ ...base, inflowsRaw: [] }).dividend === 0);
 
@@ -56,6 +66,9 @@ const html = readFileSync(join(ROOT, 'static', 'interface.html'), 'utf8');
 check('the tile sits beside Expected time to collect', html.indexOf('id="minePerDay"') > html.indexOf('id="mineEta"')
   && /data-i18n-title="tip\.perDay"/.test(html));
 check('it renders where #mineEta is rendered', /\$\("mineEta"\)\.textContent = [^\n]*\n\s*refreshCollectPerDay\(ms\)/.test(js));
-check('it shows only for a present identity', /if \(!ms \|\| !ms\.registered_present \|\| !addr\) \{ val\.textContent = "—"/.test(js));
+check('it shows for a present or producing identity only', /if \(!ms \|\| \(!ms\.registered_present && !ms\.bonded_producing\) \|\| !addr\) \{ val\.textContent = "—"/.test(js));
+const deleg = lift('renderDelegationLine');
+check('the savings tile shows its stake, not a second per-day figure', deleg && !/\/day|perDayOf/.test(deleg) && /ovw\.producingStake/.test(deleg));
+check('the tile is labelled Earning', /data-i18n="mine\.earn">Earning</.test(html));
 console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
 process.exit(fails ? 1 : 0);

@@ -2525,22 +2525,35 @@ async function estimateSavingsApy() {
   }
 }
 
-/* PER-DAY ESTIMATE for the Collecting card (#minePerDay). Pure, so tests/test_collect_per_day.mjs can lift it.
- * Raw units in, raw units out (1 NADO = 10^10 raw); null when the identity is not present.
+/* EARNING PER DAY — ONE figure for everything the identity earns, on the Collecting card (#minePerDay): collecting
+ * (open-lane block rewards), the dividend, and savings (bonded-lane production). The savings tile no longer shows its own
+ * per-day figure, so the same money is never shown twice. Pure, so tests/test_collect_per_day.mjs can lift it.
+ * Raw units in, raw units out (1 NADO = 10^10 raw); a part the identity does not earn is null; null overall when it
+ * earns none (not present and not producing).
  *   blocks   = 86400 / blockTime × kOpen / epochLength × myOpenWeight / totalOpenWeight × avgReward × tipBps / 10000
  *   dividend = mean(inflows) × 86400 / (blockTime × epochLength) × myWeight / sumWeights
+ *   savings  = 86400 / blockTime × (epochLength − kOpen) / epochLength × myBondedShares / totalBondedShares × bondedCut
+ * Each lane uses its OWN share (never the combined expected time between wins, which would count a collector-saver twice).
  * The committed weights are ×10 since block 107000 (REFERRAL_SCALE); only the ratio is used, so that cancels. */
 function collectPerDay(inp) {
-  if (!inp || !inp.present) return null;
+  if (!inp || (!inp.present && !inp.bondedProducing)) return null;
   const bt = Number(inp.blockTime) || 0, el = Number(inp.epochLength) || 0;
   if (bt <= 0 || el <= 0) return null;
   const share = (a, b) => (Number(b) > 0 ? Number(a) / Number(b) : 0);
-  const blocks = (86400 / bt) * (Number(inp.kOpen) / el) * share(inp.myOpenWeight, inp.totalOpenWeight)
-    * Number(inp.avgRewardRaw) * Number(inp.tipBps) / 10000;
-  const inflows = (inp.inflowsRaw || []).map(Number).filter((x) => Number.isFinite(x));
-  const meanInflow = inflows.length ? inflows.reduce((a, b) => a + b, 0) / inflows.length : 0;
-  const dividend = meanInflow * (86400 / (bt * el)) * share(inp.myWeight, inp.sumWeights);
-  return { blocks, dividend, total: blocks + dividend };
+  const blocksPerDay = 86400 / bt;
+  let blocks = null, dividend = null, savings = null;
+  if (inp.present) {
+    blocks = blocksPerDay * (Number(inp.kOpen) / el) * share(inp.myOpenWeight, inp.totalOpenWeight)
+      * Number(inp.avgRewardRaw) * Number(inp.tipBps) / 10000;
+    const inflows = (inp.inflowsRaw || []).map(Number).filter((x) => Number.isFinite(x));
+    const meanInflow = inflows.length ? inflows.reduce((x, y) => x + y, 0) / inflows.length : 0;
+    dividend = meanInflow * (86400 / (bt * el)) * share(inp.myWeight, inp.sumWeights);
+  }
+  if (inp.bondedProducing) {
+    savings = blocksPerDay * ((el - Number(inp.kOpen)) / el) * share(inp.myBondedShares, inp.totalBondedShares)
+      * Number(inp.bondedCutRaw);
+  }
+  return { blocks, dividend, savings, total: (blocks || 0) + (dividend || 0) + (savings || 0) };
 }
 const fmtPerDay = (raw) => { const x = Number(raw) / 1e10; return x >= 1 ? x.toFixed(2) : x.toFixed(4); };   // as renderDelegationLine
 
@@ -2549,7 +2562,7 @@ async function refreshCollectPerDay(ms) {
   const val = $("minePerDay"), split = $("minePerDaySplit");
   if (!val) return;
   const addr = state.wallet && state.wallet.address;
-  if (!ms || !ms.registered_present || !addr) { val.textContent = "—"; if (split) split.textContent = ""; return; }
+  if (!ms || (!ms.registered_present && !ms.bonded_producing) || !addr) { val.textContent = "—"; if (split) split.textContent = ""; return; }
   try {
     // average block_reward of recent blocks, as estimateSavingsApy does — refetched at most every 5 minutes
     if (_perDayCache.reward == null || Date.now() - _perDayCache.rewardAt > 300000) {
@@ -2579,7 +2592,9 @@ async function refreshCollectPerDay(ms) {
       }
     }
     const r = collectPerDay({
-      present: true, blockTime: num(ms.block_time) || state.blockTime, epochLength: num(ms.epoch_length) || EPOCH_LENGTH,
+      present: !!ms.registered_present, bondedProducing: !!ms.bonded_producing,
+      myBondedShares: num(ms.my_bonded_shares), totalBondedShares: num(ms.total_bonded_shares), bondedCutRaw: num(ms.bonded_producer_cut),
+      blockTime: num(ms.block_time) || state.blockTime, epochLength: num(ms.epoch_length) || EPOCH_LENGTH,
       kOpen: num(ms.k_open), myOpenWeight: num(ms.my_open_weight), totalOpenWeight: num(ms.total_open_weight),
       avgRewardRaw: _perDayCache.reward, tipBps: OPEN_TIP_BPS,
       inflowsRaw: eps.map((e) => _perDayCache.inflows[e]).filter((x) => x != null),
@@ -2587,7 +2602,13 @@ async function refreshCollectPerDay(ms) {
     });
     if (!r) { val.textContent = "—"; if (split) split.textContent = ""; return; }
     val.textContent = i18("mine.perDayValue", "≈ {x} NADO/day", { x: fmtPerDay(r.total) });
-    if (split) split.textContent = i18("mine.perDaySplit", "blocks ≈ {b} · dividend ≈ {d}", { b: fmtPerDay(r.blocks), d: fmtPerDay(r.dividend) });
+    if (split) {
+      const parts = [];
+      if (r.blocks != null) parts.push(i18("mine.earnCollect", "collecting {x}", { x: fmtPerDay(r.blocks) }));
+      if (r.dividend != null) parts.push(i18("mine.earnDividend", "dividend {x}", { x: fmtPerDay(r.dividend) }));
+      if (r.savings != null) parts.push(i18("mine.earnSavings", "savings {x}", { x: fmtPerDay(r.savings) }));
+      split.textContent = parts.join(" · ");
+    }
   } catch (e) {
     val.textContent = "—"; if (split) split.textContent = "";
   }
@@ -3480,13 +3501,11 @@ function renderDelegationLine(acc, ms) {
   const bonded = BigInt((acc && acc.bonded) || 0);
   if (!acc || bonded <= 0n) { show("walDelegStat", false); return; }
   show("walDelegStat", true);
-  const cut = Number((ms && ms.bonded_producer_cut) || 0) / 1e10;
-  const perDayOf = (secs) => (86400 / Number(secs)) * cut;
-  const fmt = (x) => x >= 1 ? x.toFixed(2) : x.toFixed(4);
   const badge = (cls, txt) => { val.innerHTML = `<span class="badge ${cls}">${escapeHtml(txt)}</span>`; };
   if (ms && ms.bonded_producing && ms.expected_seconds_between_wins) {
     badge("ok", i18("ovw.producing", "Producing"));
-    el.textContent = i18("ovw.producingDetail", "{e} NADO counting · ≈{x}/day", { e: nadoShort(ms.my_bonded_effective), x: fmt(perDayOf(ms.expected_seconds_between_wins)) });
+    // the per-day figure lives in ONE place, the Collecting card's Earning total (collectPerDay)
+    el.textContent = i18("ovw.producingStake", "{e} NADO counting", { e: nadoShort(ms.my_bonded_effective) });
     return;
   }
   badge("no", i18("ovw.idle", "Idle"));

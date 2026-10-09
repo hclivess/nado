@@ -402,8 +402,8 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
         <div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO COLLECT — a rough average wait until you win a block, from your share of the open lane (if attested) and of the savings lane (your stake). A statistical average, not a countdown.">
         <div class="label" data-i18n="mine.eta">Expected time to collect</div><div class="value sm" id="mineEta">—</div></div>
-      <div class="stat" data-i18n-title="tip.perDay" title="ESTIMATED PER DAY — what you would collect in a day at the rate of recent blocks: your share of the open lane's block rewards plus your share of the dividend, from the latest committed epoch. An estimate from recent blocks, not a promise.">
-        <div class="label" data-i18n="mine.perDay">Estimated per day</div><div class="value sm" id="minePerDay">—</div>
+      <div class="stat" data-i18n-title="tip.perDay" title="EARNING — what you would earn in a day at the rate of recent blocks: collecting (your share of open-lane block rewards), the dividend (your share, from the latest committed epoch) and savings (your bonded stake's share of savings-lane blocks). An estimate from recent blocks, not a promise.">
+        <div class="label" data-i18n="mine.earn">Earning</div><div class="value sm" id="minePerDay">—</div>
         <div class="small faint" id="minePerDaySplit"></div></div>
       <div class="stat" data-i18n-title="tip.locked" title="COLLECTING WHILE LOCKED — the device lease lives on chain, so a locked or sleeping phone keeps collecting until its lease lapses. Renewals need the wallet open; a hardware-bound identity renews without a prompt.">
         <div class="label" data-i18n="mine.locked">Collecting while locked</div><div class="value sm" id="mineLocked">—</div></div>
@@ -1396,7 +1396,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=e8d42ddb"></script>
-<script type="module" src="/static/interface.js?v=dfe990bf"></script>
+<script defer src="/static/i18n.js?v=63e25f1e"></script>
+<script type="module" src="/static/interface.js?v=ceb7fa17"></script>
 </body>
 </html>
