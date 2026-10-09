@@ -1667,10 +1667,10 @@ def split_open_block_reward(reward: int):
 #                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
 #                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
 #                                    epoch with no reveals takes the next revealed epoch's reveals)
-#                                    REVEAL_SEATLESS_HEIGHT ((1 << 62) placeholder -> 1: a reveal-only duty needs
-#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT ((1 << 62) placeholder -> 1: an
+#                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
+#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT (164100 -> 1: an
 #                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
-#                                    REGISTRY_SNAPSHOT_HEIGHT ((1 << 62) placeholder -> 1: the producer draw and the
+#                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
@@ -2127,9 +2127,11 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 #                             registry of the NEXT epoch (whose beacon is anchored at that block): regsnap:<E> is
 #                             written by block (E-1)*EPOCH_LENGTH, and the producer draw and duty committee for E read
 #                             it (block_ops.bonded_registry_for_epoch) instead of the live registry.
-REVEAL_SEATLESS_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
-RANDAO_MISS_POOL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
-REGISTRY_SNAPSHOT_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# Live: REVEAL_SEATLESS_HEIGHT and REGISTRY_SNAPSHOT_HEIGHT at 135300 (tip 132206 + ~5 h, 2026-10-09); RANDAO_MISS_POOL_HEIGHT
+# at 164100 (~2 days later) — re-measure the reveal miss rate under the seatless rule before it fires, move it if needed.
+REVEAL_SEATLESS_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
+RANDAO_MISS_POOL_HEIGHT = 164100 if CHAIN_GENERATION == 28 else 1
+REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
