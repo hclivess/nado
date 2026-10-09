@@ -2525,6 +2525,74 @@ async function estimateSavingsApy() {
   }
 }
 
+/* PER-DAY ESTIMATE for the Collecting card (#minePerDay). Pure, so tests/test_collect_per_day.mjs can lift it.
+ * Raw units in, raw units out (1 NADO = 10^10 raw); null when the identity is not present.
+ *   blocks   = 86400 / blockTime × kOpen / epochLength × myOpenWeight / totalOpenWeight × avgReward × tipBps / 10000
+ *   dividend = mean(inflows) × 86400 / (blockTime × epochLength) × myWeight / sumWeights
+ * The committed weights are ×10 since block 107000 (REFERRAL_SCALE); only the ratio is used, so that cancels. */
+function collectPerDay(inp) {
+  if (!inp || !inp.present) return null;
+  const bt = Number(inp.blockTime) || 0, el = Number(inp.epochLength) || 0;
+  if (bt <= 0 || el <= 0) return null;
+  const share = (a, b) => (Number(b) > 0 ? Number(a) / Number(b) : 0);
+  const blocks = (86400 / bt) * (Number(inp.kOpen) / el) * share(inp.myOpenWeight, inp.totalOpenWeight)
+    * Number(inp.avgRewardRaw) * Number(inp.tipBps) / 10000;
+  const inflows = (inp.inflowsRaw || []).map(Number).filter((x) => Number.isFinite(x));
+  const meanInflow = inflows.length ? inflows.reduce((a, b) => a + b, 0) / inflows.length : 0;
+  const dividend = meanInflow * (86400 / (bt * el)) * share(inp.myWeight, inp.sumWeights);
+  return { blocks, dividend, total: blocks + dividend };
+}
+const fmtPerDay = (raw) => { const x = Number(raw) / 1e10; return x >= 1 ? x.toFixed(2) : x.toFixed(4); };   // as renderDelegationLine
+
+const _perDayCache = { reward: null, rewardAt: 0, weightsEpoch: null, weights: null, inflows: {} };
+async function refreshCollectPerDay(ms) {
+  const val = $("minePerDay"), split = $("minePerDaySplit");
+  if (!val) return;
+  const addr = state.wallet && state.wallet.address;
+  if (!ms || !ms.registered_present || !addr) { val.textContent = "—"; if (split) split.textContent = ""; return; }
+  try {
+    // average block_reward of recent blocks, as estimateSavingsApy does — refetched at most every 5 minutes
+    if (_perDayCache.reward == null || Date.now() - _perDayCache.rewardAt > 300000) {
+      const tip = (await rpcJSON("/get_latest_block")).data || {};
+      const n = num(tip.block_number), nums = [];
+      for (let i = 0; i < 30 && n - i > 0; i++) nums.push(n - i);
+      const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block?number=" + x).then((r) => r.data).catch(() => null)));
+      const rewards = blks.filter(Boolean).map((b) => { try { return BigInt(b.block_reward || 0); } catch { return 0n; } }).filter((r) => r > 0n);
+      _perDayCache.reward = rewards.length ? Number(rewards.reduce((a, b) => a + b, 0n) / BigInt(rewards.length)) : Number(BASE_SUBSIDY_RAW);
+      _perDayCache.rewardAt = Date.now();
+    }
+    // the latest COMMITTED epoch's weights (the first block of epoch ms.epoch commits epoch ms.epoch - 1), once per epoch
+    const E = num(ms.epoch) - 1;
+    if (_perDayCache.weightsEpoch !== E) {
+      const w = (await rpcJSON("/get_open_weights?epoch=" + E)).data || {};
+      _perDayCache.weights = w.weights || {};
+      _perDayCache.weightsEpoch = E;
+    }
+    const weights = _perDayCache.weights;
+    const sumW = Object.values(weights).reduce((a, b) => a + Number(b || 0), 0);
+    // mean dividend inflow over the last few committed epochs (each epoch fetched once)
+    const eps = [E, E - 1, E - 2, E - 3].filter((e) => e >= 0);
+    for (const e of eps) {
+      if (_perDayCache.inflows[e] === undefined) {
+        const d = (await rpcJSON("/get_dividend_inflow?epoch=" + e)).data || {};
+        _perDayCache.inflows[e] = d.inflow != null ? Number(d.inflow) : null;
+      }
+    }
+    const r = collectPerDay({
+      present: true, blockTime: num(ms.block_time) || state.blockTime, epochLength: num(ms.epoch_length) || EPOCH_LENGTH,
+      kOpen: num(ms.k_open), myOpenWeight: num(ms.my_open_weight), totalOpenWeight: num(ms.total_open_weight),
+      avgRewardRaw: _perDayCache.reward, tipBps: OPEN_TIP_BPS,
+      inflowsRaw: eps.map((e) => _perDayCache.inflows[e]).filter((x) => x != null),
+      myWeight: Number(weights[addr] || 0), sumWeights: sumW,
+    });
+    if (!r) { val.textContent = "—"; if (split) split.textContent = ""; return; }
+    val.textContent = i18("mine.perDayValue", "≈ {x} NADO/day", { x: fmtPerDay(r.total) });
+    if (split) split.textContent = i18("mine.perDaySplit", "blocks ≈ {b} · dividend ≈ {d}", { b: fmtPerDay(r.blocks), d: fmtPerDay(r.dividend) });
+  } catch (e) {
+    val.textContent = "—"; if (split) split.textContent = "";
+  }
+}
+
 /* ----------------------------------------------------------------------------------------------
  * Wallet persistence
  * -------------------------------------------------------------------------------------------- */
@@ -4612,6 +4680,7 @@ async function refreshDashboard() {
 
     $("mineEpoch").textContent = ms.epoch;
     $("mineEta").textContent = humanizeSeconds(ms.expected_seconds_between_wins);
+    refreshCollectPerDay(ms).catch(() => {});
 
     // How long a LOCKED phone keeps mining before you must reopen the app: the PoSW lease itself (one
     // recert = a full lease of eligibility, no relay/heartbeats). Reopen before this and it auto-renews.
@@ -4628,6 +4697,7 @@ async function refreshDashboard() {
     // visibility of the lanes card is owned by the tab system (it lives on the Wallet tab)
   } else {
     $("walPresent").textContent = "—";
+    if ($("minePerDay")) { $("minePerDay").textContent = "—"; $("minePerDaySplit").textContent = ""; }
   }
 }
 
