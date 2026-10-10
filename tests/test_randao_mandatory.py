@@ -115,10 +115,15 @@ def t5_weight_sites_use_full_registry():
         for line in src.splitlines():
             if "block_fork_weight(" in line and "def block_fork_weight" not in line:
                 assert "eligible" not in line, f"{path}: fork weight fed a filtered registry: {line.strip()}"
-    # and both producer-selection sites in core_loop draw over the filtered set
+    # the producer draw happens in ONE place (block_ops.derive_header) over the filtered set, and production, rebuild
+    # and verification all call it
+    with open(os.path.join(root, "ops/block_ops.py")) as f:
+        bo = f.read()
+    dh = bo[bo.index("def derive_header("):bo.index("def get_block_candidate(")]
+    assert "randao_eligible_bonded(" in dh, "derive_header lost the RANDAO filter"
     with open(os.path.join(root, "loops/core_loop.py")) as f:
         core = f.read()
-    assert core.count("randao_eligible_bonded(") >= 2, "core_loop selection sites lost the filter"
+    assert core.count("derive_header(") >= 3 and "derive_header(latest_block" in bo, "a selection site bypasses derive_header"
 check("fork weight stays on the FULL registry; selection sites keep the filter", t5_weight_sites_use_full_registry)
 
 

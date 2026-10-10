@@ -259,6 +259,30 @@ def match_transactions_target(transaction_list, block_number, logger):
         return False
 
 
+def derive_header(parent: dict, block_number: int) -> dict:
+    """THE header fields every node derives for block `block_number` on top of `parent`, from committed parent state:
+    {"creator", "reward", "block_weight", "lane", "open_n", "bonded_n", "eligible_n"}. creator is None when no lane has an
+    eligible producer.
+
+    ONE function for production (get_block_candidate), rebuild (CoreClient.rebuild_block) and verification
+    (verify_block / validate_block_producer). Three hand-kept copies of this derivation halted the chain at 135625
+    (2026-10-09): the draw input was switched to the epoch's frozen registry and the same variable fed the fork weight at
+    production while verification weighed from the live registry.
+    INVARIANT: the producer DRAW reads the registry frozen at the epoch's anchor (bonded_registry_for_epoch, behind the
+    RANDAO gate); the fork WEIGHT reads the LIVE as-of-parent registry (withholding and the snapshot must not move
+    fork-choice); the reward is get_block_reward(). Nothing else derives these."""
+    epoch = epoch_of(block_number)
+    beacon = epoch_beacon(epoch)
+    open_registry = get_open_registry(epoch)
+    bonded_registry = bonded_registry_for_epoch(epoch)
+    eligible_bonded = randao_eligible_bonded(bonded_registry, epoch)
+    creator = select_producer_two_lane(open_registry, eligible_bonded, beacon, slot=block_number)
+    return {"creator": creator, "reward": get_block_reward(),
+            "block_weight": block_fork_weight(get_bonded_registry(), block_number),
+            "lane": lane_of(block_number, beacon), "open_n": len(open_registry),
+            "bonded_n": len(bonded_registry), "eligible_n": len(eligible_bonded)}
+
+
 def get_block_candidate(
         transaction_pool, logger, latest_block
 ):
@@ -277,19 +301,13 @@ def get_block_candidate(
     # of identity count (Sybil bound). Every node computes the SAME winner deterministically from
     # committed parent state and builds the identical block crediting the winner ADDRESS. block_ip
     # is set to the winner address so the hashed body is identical per node.
-    epoch = epoch_of(block_number)
-    beacon = epoch_beacon(epoch)
-    open_registry = get_open_registry(epoch)
-    bonded_registry = bonded_registry_for_epoch(epoch)   # frozen at the epoch's anchor from REGISTRY_SNAPSHOT_HEIGHT
-    # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional). The full
-    # registry always backs block_fork_weight below (withholding must not move fork-choice).
-    eligible_bonded = randao_eligible_bonded(bonded_registry, epoch)
-    winner = select_producer_two_lane(open_registry, eligible_bonded, beacon, slot=block_number)
+    hdr = derive_header(latest_block, block_number)
+    winner = hdr["creator"]
     if winner is None:
         logger.error("No eligible producer (open+bonded empty / bonded slot skipped); skipping block")
         return None
-    logger.info(f"Block {block_number} producer [{lane_of(block_number, beacon)} lane]: {winner} "
-                f"(open:{len(open_registry)} bonded:{len(eligible_bonded)}/{len(bonded_registry)})")
+    logger.info(f"Block {block_number} producer [{hdr['lane']} lane]: {winner} "
+                f"(open:{hdr['open_n']} bonded:{hdr['eligible_n']}/{hdr['bonded_n']})")
 
     targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
                                                       block_number=block_number,
@@ -305,14 +323,11 @@ def get_block_candidate(
         parent_hash=latest_block["block_hash"],
         creator=winner,
         transaction_pool=targeted_transactions,
-        block_reward=get_block_reward(),
+        block_reward=hdr["reward"],
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
         chain_id=CHAIN_ID,   # informational label on new blocks (not hashed); a rename shows up here
-        # INVARIANT: fork weight reads the LIVE as-of-parent registry, exactly as verify_block recomputes it — never the
-        # epoch's frozen draw registry (REGISTRY_SNAPSHOT_HEIGHT): the two differ once a bond lands after the anchor, and
-        # a weight from the snapshot is refused by every verifier (halted the chain at 135625, 2026-10-09).
-        block_weight=block_fork_weight(get_bonded_registry(), block_number),
+        block_weight=hdr["block_weight"],   # as derive_header: the LIVE as-of-parent registry, never the draw snapshot
     )
     return block
 

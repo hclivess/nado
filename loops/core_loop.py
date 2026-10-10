@@ -7,7 +7,7 @@ import time
 import traceback
 
 from config import get_timestamp_seconds, get_config
-from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_hard_finality, set_hard_finality, get_account
+from ops.account_ops import get_totals, index_totals, get_bonded_registry, set_finalized_height, get_finalized_height, get_hard_finality, set_hard_finality, get_account
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -18,8 +18,6 @@ from ops.block_ops import (
     set_earliest_block_info,
     get_block,
     construct_block,
-    get_block_reward,
-    epoch_beacon,
     check_target_match,
     valid_block_timestamp,
     block_already_indexed,
@@ -30,9 +28,8 @@ from ops.block_ops import (
     get_block_hash_by_number,
     prune_block_bodies,
     prune_tx_history_window,
-    randao_eligible_bonded,
 )
-from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
+from ops.mining_ops import epoch_of
 from ops import kv_ops
 from ops import fork_resolution
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
@@ -3793,14 +3790,9 @@ class CoreClient(threading.Thread):
         # fork-choice + finality + an offline-win/relay-delegation decision. See #15/#16/#17.)
         parent = self.memserver.latest_block
         block_number = parent["block_number"] + 1
-        _epoch = epoch_of(block_number)
-        from ops.block_ops import bonded_registry_for_epoch
-        bonded_registry = bonded_registry_for_epoch(_epoch)  # as-of-parent below REGISTRY_SNAPSHOT_HEIGHT, frozen from it
-        # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional); the FULL
-        # registry always feeds block_fork_weight below (withholding must not move fork-choice).
-        winner = select_producer_two_lane(get_open_registry(_epoch),
-                                          randao_eligible_bonded(bonded_registry, _epoch),
-                                          epoch_beacon(_epoch), slot=block_number)
+        from ops.block_ops import derive_header
+        hdr = derive_header(parent, block_number)   # the ONE derivation production and verification share
+        winner = hdr["creator"]
         return construct_block(
             # CRITICAL: use the INCOMING block's OWN timestamp, NOT our wall-clock. rebuild_block
             # deterministically reconstructs a REMOTE block to re-derive the winner/reward/weight (anti-forgery),
@@ -3814,11 +3806,10 @@ class CoreClient(threading.Thread):
             parent_hash=parent["block_hash"],
             creator=winner,
             transaction_pool=block["block_transactions"],
-            block_reward=get_block_reward(),
+            block_reward=hdr["reward"],
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
-            # INVARIANT: the LIVE as-of-parent registry, as the verify path below — never the draw snapshot (see block_ops)
-            block_weight=block_fork_weight(get_bonded_registry(), block_number),
+            block_weight=hdr["block_weight"],
             # preserve the REMOTE block's own chain_id label (informational, not hashed) so the rebuilt
             # block stays byte-identical to what the peer sent; the hash is chain_id-invariant either way.
             chain_id=block.get("chain_id", CHAIN_ID),
@@ -5215,14 +5206,9 @@ class CoreClient(threading.Thread):
         chain; once bond txs land, the rollback/snapshot re-verify path must reset the tip to the
         block's parent before calling this (else it would read post-apply state)."""
         block_number = block["block_number"]
-        epoch = epoch_of(block_number)
-        # RANDAO gate (consensus): verification draws over the same eligible set production uses
-        # (the full registry while RANDAO_ENFORCED is off; the revealed-for-epoch subset when on).
-        from ops.block_ops import bonded_registry_for_epoch
-        winner = select_producer_two_lane(get_open_registry(epoch),
-                                          randao_eligible_bonded(bonded_registry_for_epoch(epoch), epoch),
-                                          epoch_beacon(epoch),
-                                          slot=block_number)
+        # the same derivation production used (block_ops.derive_header: draw from the frozen registry, RANDAO-gated)
+        from ops.block_ops import derive_header
+        winner = derive_header(self.memserver.latest_block, block_number)["creator"]
         if winner is None:
             raise ValueError("No eligible producer for this block (fail-closed)")
         if block.get("block_creator") != winner:
@@ -5275,7 +5261,9 @@ class CoreClient(threading.Thread):
             # before change_balance; the exact-match check below is the real validation.
             if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > BASE_SUBSIDY:
                 raise ValueError(f"Invalid block reward {reward!r}")
-            expected_reward = get_block_reward()
+            from ops.block_ops import derive_header
+            _hdr = derive_header(self.memserver.latest_block, block["block_number"])   # the shared derivation
+            expected_reward = _hdr["reward"]
             if reward != expected_reward:
                 raise ValueError(f"Block reward {reward} != deterministic {expected_reward}")
 
@@ -5289,8 +5277,7 @@ class CoreClient(threading.Thread):
             # in-block bond txs land, the rollback/snapshot re-verify path must reset the tip to the
             # block's parent before this runs.)
             parent_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-            expected_weight = parent_weight + block_fork_weight(get_bonded_registry(),
-                                                                block["block_number"])
+            expected_weight = parent_weight + _hdr["block_weight"]
             if block.get("cumulative_weight") != expected_weight:
                 raise ValueError(
                     f"Block cumulative_weight {block.get('cumulative_weight')} != deterministic "

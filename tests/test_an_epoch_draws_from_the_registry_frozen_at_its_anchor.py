@@ -101,18 +101,35 @@ check("incorporate_block writes regsnap:(h // L + 1) at an epoch's first block f
 check("rollback_one_block deletes exactly that row under the same test",
       'if block["block_number"] >= REGISTRY_SNAPSHOT_HEIGHT:\n                kv_ops.regsnap_del(block["block_number"] // _EL + 1)' in rb
       and rb.index('if block["block_number"] % _EL == 0:') < rb.index("kv_ops.regsnap_del("))
-check("production and verification draw through bonded_registry_for_epoch",
-      cl.count("bonded_registry_for_epoch(") >= 2 and "bonded_registry = bonded_registry_for_epoch(epoch)" in
-      open(os.path.join(ROOT, "ops", "block_ops.py")).read())
+check("the producer draw reads bonded_registry_for_epoch (inside derive_header)",
+      "bonded_registry = bonded_registry_for_epoch(epoch)" in open(os.path.join(ROOT, "ops", "block_ops.py")).read())
 
-# FORK WEIGHT IS NOT A DRAW INPUT: production, rebuild and verification must all weigh a block from the LIVE as-of-parent
-# registry. Construction once weighed it from the frozen draw registry while verify_block used the live one; they
-# differed by 2 shares after a bond landed past the anchor and every node refused block 135625 (2026-10-09).
+# FORK WEIGHT IS NOT A DRAW INPUT, and the header is derived in ONE place. Construction once weighed a block from the
+# frozen draw registry while verify_block used the live one; they differed by 2 shares after a bond landed past the
+# anchor and every node refused block 135625 (2026-10-09). block_ops.derive_header is now the only derivation.
 import re as _re
 _bo = open(os.path.join(ROOT, "ops", "block_ops.py")).read()
-_calls = _re.findall(r"block_fork_weight\(([^,]+),", _bo + cl)
-check("every block_fork_weight call weighs from the live registry (production, rebuild, verification)",
-      len(_calls) >= 3 and all(c.strip() == "get_bonded_registry()" for c in _calls), _calls)
+_dh = _bo[_bo.index("def derive_header("):_bo.index("def get_block_candidate(")]
+check("derive_header weighs from the live registry and draws from the frozen one",
+      "block_fork_weight(get_bonded_registry(), block_number)" in _dh and "bonded_registry_for_epoch(epoch)" in _dh)
+_outside = (_bo.replace(_dh, "") + cl)
+check("nothing outside derive_header draws a producer or weighs a block",
+      not _re.search(r"(?<!def )\bselect_producer_two_lane\(", _outside) and not _re.search(r"(?<!def )\bblock_fork_weight\(", _outside),
+      _re.findall(r".{0,40}(?:select_producer_two_lane|block_fork_weight)\(.{0,30}", _outside))
+check("production, rebuild and verification all call derive_header",
+      "derive_header(latest_block, block_number)" in _bo and cl.count("derive_header(") >= 3)
+
+# behaviour: with a bond after the anchor, the draw input and the weight input differ, and derive_header keeps them apart
+B.get_open_registry = lambda e: {}
+kv_ops.regsnap_put(E, live0)
+kv_ops.account_set(VALS[5], "bonded", P.B_MIN * 7)            # lands after the anchor: live registry only
+hdr = B.derive_header({"cumulative_weight": 0}, E * L + 3)
+from ops.mining_ops import block_fork_weight as _bfw
+check("derive_header's weight is the live registry's, not the snapshot's",
+      hdr["block_weight"] == _bfw(get_bonded_registry(), E * L + 3) and hdr["block_weight"] != _bfw(live0, E * L + 3),
+      (hdr["block_weight"], _bfw(live0, E * L + 3)))
+check("derive_header's draw comes from the snapshot (a post-anchor bonder is never the creator)",
+      hdr["creator"] in live0 and hdr["eligible_n"] == len(live0), hdr)
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)
