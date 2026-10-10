@@ -10,14 +10,14 @@
 //    in ONE place here (toUnits/fromUnits) so no other line has to remember the scale.
 //  * The quote recomputes out = RT·dxf/(RN+dxf), dxf = dx·9970/10000, EXACTLY as the contract does, in
 //    BigInt. A float quote would drift from the chain and mis-set minOut, turning a good swap into a revert.
-import { htlcScript, p2wshAddress } from "./btcleg.js?v=93bc368e";
-import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js?v=dc3d1162";
-import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js?v=b35591fc";
+import { htlcScript, p2wshAddress } from "./btcleg.js";
+import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js";
+import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR, isAddress,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
-         blocksToTime } from "./nadodapp.js?v=1d249c14";
+         blocksToTime } from "./nadodapp.js";
 
 const CID = "08b256c6278ef1f6eed766c08095b460";
 const dapp = new NadoDapp({ cid: CID, app: "Dex" });
@@ -691,7 +691,7 @@ async function ethFoundSecret(od) {
     const htlc = ethHtlcFor(od);
     if (!htlc) return null;
     const logs = await ethReq("eth_getLogs", [{ address: htlc, fromBlock: "earliest", toBlock: "latest",
-      topics: ["0x" + (await (async () => { const { keccak_256 } = await import("./vendor/noble-sha3.js?v=1");
+      topics: ["0x" + (await (async () => { const { keccak_256 } = await import("./vendor/noble-sha3.js");
         return Array.from(keccak_256(new TextEncoder().encode("Claimed(bytes32,bytes32)")), (x) => x.toString(16).padStart(2, "0")).join(""); })())] }]);
     for (const lg of logs) { const s = (lg.data || "").slice(-64); if (/^[0-9a-f]{64}$/.test(s) && (await sha256Hex(s)) === od.hsha) return s; }
   } catch (e) {}
@@ -710,7 +710,7 @@ function ethCliHint(od) {
 // fee: the browser path uses the visitor's own wallet (as the Ethereum leg uses MetaMask) and falls back
 // to the headless CLI on the row when no wallet is installed.
 let SOL = null;
-const solMod = async () => (SOL || (SOL = await import("./solsign.js?v=6f9e1078")));
+const solMod = async () => (SOL || (SOL = await import("./solsign.js")));
 const solProgramOf = (od) => (netOf(od) || {}).program || "";
 const solRpcOf = (od) => (netOf(od) || {}).rpc || "";
 const solAddrOf = (field) => { const a = String(field || "").split("|")[0]; return isB58Addr(a) ? a : ""; };
@@ -1034,7 +1034,7 @@ async function ethFoundSecretRpc(od, rpc, htlc) {
   // Public RPCs cap eth_getLogs at ~100 blocks, so walk back from the tip in chunks — a swap's whole
   // window is a few thousand blocks, and the scan stops at the first match.
   try {
-    const { keccak_256 } = await import("./vendor/noble-sha3.js?v=1");
+    const { keccak_256 } = await import("./vendor/noble-sha3.js");
     const topic = "0x" + Array.from(keccak_256(new TextEncoder().encode("Claimed(bytes32,bytes32)")), (x) => x.toString(16).padStart(2, "0")).join("");
     const tip = Number(await ethBlockNumber(rpc)), CH = 100, MAX = 2500;
     for (let hi = tip; hi > tip - MAX; hi -= CH) {

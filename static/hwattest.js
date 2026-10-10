@@ -14,7 +14,7 @@
 // fmt "ledger"/"trezor"; clientData type "nado.hw"), so the transaction shape and the node's kernel path are shared.
 // Nothing here touches coins: the hardware wallet only vouches for the wallet address, it does not hold its key.
 
-import * as secp from "./vendor/noble-secp256k1.js?v=1";
+import * as secp from "./vendor/noble-secp256k1.js";
 
 const te = new TextEncoder();
 const b64 = (u8) => btoa(String.fromCharCode(...u8));

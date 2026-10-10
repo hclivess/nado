@@ -4,8 +4,7 @@ WHY THIS EXISTS. A CHAIN_GENERATION reroll wipes the exec state: every deployed 
 every hardcoded CID in the frontend then points at nothing. The failure is SILENT — you click "Set out" in
 autogame, or anything in any other game, and nothing happens at all, because the call goes to an address
 that does not exist. Recovering by hand means deploying 23 contracts, hunting every CID reference across 21
-frontends plus the faucet-reward table plus the e2e harnesses, and remembering to restamp the cache-bust
-hashes. Missing any one of those leaves a game dead. This does all of it in one command, and verifies it.
+frontends plus the faucet-reward table plus the e2e harnesses. Missing any one of those leaves a game dead. This does all of it in one command, and verifies it.
 
 TWO THINGS THAT MAKE THE NAIVE VERSION FAIL, both learned the hard way:
 
@@ -13,17 +12,18 @@ TWO THINGS THAT MAKE THE NAIVE VERSION FAIL, both learned the hard way:
     blob tx expires 20 blocks after submission. The tail of the batch therefore expires unincluded and
     vanishes from the pool — silently, since submission itself returned "Success". We deploy in small
     batches and WAIT for each to land, resubmitting anything that expired.
-  * Browsers cache the game JS by its `?v=` stamp. Repointing a CID without restamping means the browser
-    keeps serving the old file with the dead CID, and the game stays broken even though the repo is right.
+  * Browsers cache the game JS by its `?v=` stamp. The stamp is now the file's CONTENT hash, computed by the
+    node when it serves the page (ops/static_versions.py), so a repointed CID changes the URL by itself; the
+    old step that rewrote md5 stamps into the sources (merge_games.py bust_*) is gone.
 
 A CID is H(deployer, code, nonce), so the target address of every game is computable BEFORE deploying —
 that is what lets this be idempotent: anything already live at its target CID is left alone, and a game
 whose code changed is redeployed because its target moved.
 
 Run:
-    python3 -m execnode.games.redeploy              # deploy what's missing, rewire, restamp, verify
+    python3 -m execnode.games.redeploy              # deploy what's missing, rewire, rebake i18n, verify
     python3 -m execnode.games.redeploy --check      # report only; touch nothing
-    python3 -m execnode.games.redeploy --wire-only  # skip deploying; just repoint + restamp + verify
+    python3 -m execnode.games.redeploy --wire-only  # skip deploying; just repoint + rebake i18n + verify
 """
 import argparse
 import glob
@@ -197,10 +197,11 @@ def wire(targets):
 
 
 def restamp():
-    """Rebake i18n + bump every ?v= cache-bust stamp, so browsers actually fetch the repointed files."""
+    """Rebake static/i18n.js from its JSON sources. (Cache-busting needs no step: the node versions every served
+    reference by content, so the repointed files get new URLs on their own.)"""
     mg = os.path.join(STATIC, "i18n_games", "merge_games.py")
     if not os.path.exists(mg):
-        print("  ! merge_games.py not found — stamps NOT refreshed; browsers may serve the old CID")
+        print("  ! merge_games.py not found — i18n.js NOT rebuilt")
         return
     r = subprocess.run([sys.executable, mg], capture_output=True, text=True,
                        cwd=os.path.join(STATIC, "i18n_games"))
@@ -244,7 +245,7 @@ def main():
     ap.add_argument("--ex", default=os.environ.get("NADO_EX_URL", "http://127.0.0.1:9273").rstrip("/"))
     ap.add_argument("--fee", type=int, default=D.MIN_TX_FEE)
     ap.add_argument("--check", action="store_true", help="report only; change nothing")
-    ap.add_argument("--wire-only", action="store_true", help="skip deploying; repoint + restamp + verify")
+    ap.add_argument("--wire-only", action="store_true", help="skip deploying; repoint + rebake i18n + verify")
     a = ap.parse_args()
 
     if a.check:
@@ -266,7 +267,7 @@ def main():
         print(f"  {c}")
     if not changes:
         print("  every reference was already current")
-    print("\n== restamp ==")
+    print("\n== i18n ==")
     restamp()
     print("\n== verify ==")
     ok = verify(targets, a.ex)

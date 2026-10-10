@@ -16,14 +16,14 @@ import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
   confirmingLabel,
-} from "./nadodapp.js?v=1d249c14";
-import * as E from "./autogame-engine.js?v=8a997c33";
-import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
-import * as ART from "./autogame-art.js?v=a6a3eead";
-import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js?v=a6a3eead";
-import { createDaily } from "./autogame-dailyui.js?v=4c3e64ac";
-import * as D from "./autogame-daily.js?v=c5e66e8e";
-import { createAudio } from "./autogame-audio.js?v=afd7538c";
+} from "./nadodapp.js";
+import * as E from "./autogame-engine.js";
+import { ACTS_FOR } from "./autogame-rules.js";
+import * as ART from "./autogame-art.js";
+import { drawWarrior, unpackItem, FRAME_W, FRAME_H } from "./autogame-art.js";
+import { createDaily } from "./autogame-dailyui.js";
+import * as D from "./autogame-daily.js";
+import { createAudio } from "./autogame-audio.js";
 
 const CID = "f6ccb08e979e1989516f35c4bfb7dea1";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });

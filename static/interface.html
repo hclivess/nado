@@ -30,7 +30,7 @@
 <meta name="twitter:title" content="NADO Interface — wallet, miner & explorer" />
 <meta name="twitter:description" content="Your NADO wallet, miner, explorer and shielded pool in one page — no install, no signup." />
 <meta name="twitter:image" content="https://raw.githubusercontent.com/hclivess/nado/main/graphics/bauhaus.png" />
-<link rel="stylesheet" href="/static/interface.css?v=58cf72f0" />
+<link rel="stylesheet" href="/static/interface.css" />
 <style>
 .spin{display:inline-block;animation:nadospin 1s linear infinite}
 @keyframes nadospin{to{transform:rotate(360deg)}}
@@ -1408,7 +1408,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=b9c169b6"></script>
-<script type="module" src="/static/interface.js?v=c89bf318"></script>
+<script defer src="/static/i18n.js"></script>
+<script type="module" src="/static/interface.js"></script>
 </body>
 </html>

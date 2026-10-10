@@ -1,8 +1,8 @@
 // ethsign.js — in-browser Ethereum leg for the OTC swap (doc/dex-bridge.md §6.5, HtlcEth.sol).
 // Legacy (EIP-155) transaction signing with the SAME vendored secp256k1 the Bitcoin leg uses, keccak from
 // the vendored @noble/hashes. Talks to a public RPC; per-swap keys are page-generated like the BTC leg.
-import * as secp from "./vendor/noble-secp256k1.js?v=1";
-import { keccak_256 } from "./vendor/noble-sha3.js?v=1";
+import * as secp from "./vendor/noble-secp256k1.js";
+import { keccak_256 } from "./vendor/noble-sha3.js";
 
 const hexToBytes = (h) => new Uint8Array(((h.startsWith("0x") ? h.slice(2) : h).match(/../g) || []).map((x) => parseInt(x, 16)));
 const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");

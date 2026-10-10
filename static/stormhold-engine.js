@@ -40,7 +40,7 @@
 //   wsh  Foundry    gain card id ≤4
 //   moat Windbreak  (defender) 1 = reveal (immune to the attack) · 0 = take the hit
 //   tr2  (auto — Echo's second play; resolves itself, never needs input)
-import { blake2bHash } from "./nadotx.js?v=02122c27";
+import { blake2bHash } from "./nadotx.js";
 
 // blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
 // nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
