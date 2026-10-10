@@ -74,13 +74,31 @@ def pre_getter(st):
 
 
 # ---- derivation ------------------------------------------------------------------------------------
+def derive(txs, accruals=(), div_carry=0):
+    """A span's records effects the way PRODUCTION derives them: per block via block_records_effects (what
+    calls_commit.block_summary commits and L1 concatenates), then each epoch's accrual through
+    dividend_accrual_effects with the carry chained. (records_bind.span_effects, which these tests used to
+    call, was deleted: nothing in production called it, and it derived value-call escrows as [] where
+    block_records_effects does not — see execnode._build_records_half.) A non-derivable block raises
+    Unbindable, which is how a span that cannot be bound is refused."""
+    eff, ok = RB.block_records_effects({"block_transactions": list(txs or ())})
+    if not ok:
+        raise RB.Unbindable("block not derivable")
+    eff = list(eff)
+    carry = int(div_carry)
+    for inflow, weights in accruals or ():
+        e, carry = RB.dividend_accrual_effects(inflow, weights, carry)
+        eff.extend(e)
+    return eff
+
+
 def t_bridge_deposit_derives():
-    eff = RB.span_effects([{"recipient": "bridge", "sender": "alice", "amount": 500}])
+    eff = derive([{"recipient": "bridge", "sender": "alice", "amount": 500}])
     assert eff == [(ER.T_BRIDGE_BAL, ("alice",), 500)], eff
 
 
 def t_faucet_and_treasury_credit_the_faucet_cid():
-    eff = RB.span_effects([
+    eff = derive([
         {"recipient": "faucet", "sender": "donor", "amount": 70},
         {"recipient": "treasury_execute", "data": {"spend": {"recipient": "faucet", "amount": 30}}},
     ])
@@ -90,7 +108,7 @@ def t_faucet_and_treasury_credit_the_faucet_cid():
 def t_treasury_execute_elsewhere_moves_nothing():
     """A treasury payout to any other recipient provably leaves records untouched — it must contribute no
     effect, NOT an Unbindable, or every governance payout would block the proof path."""
-    eff = RB.span_effects([{"recipient": "treasury_execute",
+    eff = derive([{"recipient": "treasury_execute",
                             "data": {"spend": {"recipient": "somebody", "amount": 999}}}])
     assert eff == [], eff
 
@@ -98,14 +116,14 @@ def t_treasury_execute_elsewhere_moves_nothing():
 def t_unknown_records_mover_fails_closed():
     for r in ("shield", "unshield", "xmsg", "bridge_withdraw", "dividend_withdraw"):
         try:
-            RB.span_effects([{"recipient": r, "sender": "a", "amount": 1}])
+            derive([{"recipient": r, "sender": "a", "amount": 1}])
         except RB.Unbindable:
             continue
         raise AssertionError(f"'{r}' moves records but was not refused")
 
 
 def t_non_records_tx_contributes_nothing():
-    eff = RB.span_effects([{"recipient": "ndoBob", "sender": "alice", "amount": 5},
+    eff = derive([{"recipient": "ndoBob", "sender": "alice", "amount": 5},
                            {"recipient": "duty", "sender": "v"}])
     assert eff == [], eff
 
@@ -149,7 +167,7 @@ def t_dividend_carry_chains_across_epochs():
     st._accrue_dividend_epoch_inner(7, {"a": 1, "b": 1, "c": 1})
     want = {a: v for a, v in st.dividend.items() if v}
 
-    eff = RB.span_effects([], accruals=[(7, {"a": 1, "b": 1, "c": 1}),
+    eff = derive([], accruals=[(7, {"a": 1, "b": 1, "c": 1}),
                                         (7, {"a": 1, "b": 1, "c": 1})], div_carry=0)
     got = {}
     for (_tag, parts, delta) in eff:
@@ -160,7 +178,7 @@ def t_dividend_carry_chains_across_epochs():
 # ---- net update folding ----------------------------------------------------------------------------
 def t_updates_are_net_and_sorted():
     st = FakeState(bridge={"alice": 100})
-    eff = RB.span_effects([{"recipient": "bridge", "sender": "alice", "amount": 10},
+    eff = derive([{"recipient": "bridge", "sender": "alice", "amount": 10},
                            {"recipient": "bridge", "sender": "alice", "amount": 5},
                            {"recipient": "bridge", "sender": "bob", "amount": 1}])
     ups = RB.net_records_updates(pre_getter(st), eff)
@@ -191,7 +209,7 @@ def _honest_case():
 def t_honest_span_binds():
     pre, txs, tr, pre_root, post_root = _honest_case()
     ok, why = RB.bind_and_verify_records(tr, pre_root, post_root, pre_getter(pre),
-                                         RB.span_effects(txs), depth=DEPTH, num_queries=NQ)
+                                         derive(txs), depth=DEPTH, num_queries=NQ)
     assert ok, why
 
 
@@ -205,7 +223,7 @@ def t_transition_moving_an_underived_record_is_refused():
     post_root = tuple(tr["roots"][-1])
     ok, why = RB.bind_and_verify_records(tr, pre_root, post_root,
                                          pre_getter(FakeState(bridge={"alice": 100})),
-                                         RB.span_effects(txs), depth=DEPTH, num_queries=NQ)
+                                         derive(txs), depth=DEPTH, num_queries=NQ)
     assert not ok, "a transition crediting an unauthorised address must be refused"
     assert "do not match" in why, why
 
@@ -214,7 +232,7 @@ def t_wrong_amount_is_refused():
     pre, _txs, tr, pre_root, post_root = _honest_case()
     lying = [{"recipient": "bridge", "sender": "alice", "amount": 31}]   # span claims 31, proof did 30
     ok, why = RB.bind_and_verify_records(tr, pre_root, post_root, pre_getter(pre),
-                                         RB.span_effects(lying), depth=DEPTH, num_queries=NQ)
+                                         derive(lying), depth=DEPTH, num_queries=NQ)
     assert not ok, "a derived amount that disagrees with the proven transition must be refused"
 
 
@@ -231,7 +249,7 @@ def t_unbindable_surfaces_as_refusal_not_a_crash():
     def boom(_tag, _parts):
         raise RB.Unbindable("synthetic")
     ok, why = RB.bind_and_verify_records(tr, pre_root, post_root, boom,
-                                         RB.span_effects([{"recipient": "bridge", "sender": "a",
+                                         derive([{"recipient": "bridge", "sender": "a",
                                                            "amount": 1}]), depth=DEPTH, num_queries=NQ)
     assert not ok and "underivable" in why, why
 

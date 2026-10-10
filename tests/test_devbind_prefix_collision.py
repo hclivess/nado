@@ -79,10 +79,10 @@ def main():
     except Exception as e:
         check("the live scan returns only the enrolment", False, f"{type(e).__name__}: {e}")
     try:
-        check("the expiry sweep survives the mixed prefix",
-              kv_ops.tpm_enrols_expired(10 ** 9) == ["cc" * 16])
+        check("the consensus full scan survives the mixed prefix",
+              [e[0] for e in kv_ops.tpm_enrols_all()] == ["cc" * 16])
     except Exception as e:
-        check("the expiry sweep survives the mixed prefix", False, f"{type(e).__name__}: {e}")
+        check("the consensus full scan survives the mixed prefix", False, f"{type(e).__name__}: {e}")
 
     # A THREE-ELEMENT (permanent-mode) BINDING TOO, since that is a different length again.
     perm = "tpm:" + hashlib.sha256(b"another").hexdigest()

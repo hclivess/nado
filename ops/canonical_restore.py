@@ -55,13 +55,6 @@ class RestorePlan:
     kept: int = 0                             # local bodies confirmed canonical
     notes: List[str] = field(default_factory=list)
 
-    def is_fork_body(self, height: int, block_hash: str) -> bool:
-        """A local body is a FORK body — safe to unreference — iff we can NAME the canonical block at its
-        height and it is a different one. A body at a height we cannot name is kept: it may be deep
-        canonical history older than any index we hold, and deleting it on the strength of "I can't
-        prove it" is the failure this module exists to end."""
-        return height in self.canonical and self.canonical[height] != block_hash
-
 
 def fork_point(old_index: Dict[int, str], new_index: Dict[int, str]) -> Optional[int]:
     """Highest height at which our old chain and the adopted chain carry the SAME hash, or None.
