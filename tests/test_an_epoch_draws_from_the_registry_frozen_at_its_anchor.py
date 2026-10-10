@@ -131,5 +131,33 @@ check("derive_header's weight is the live registry's, not the snapshot's",
 check("derive_header's draw comes from the snapshot (a post-anchor bonder is never the creator)",
       hdr["creator"] in live0 and hdr["eligible_n"] == len(live0), hdr)
 
+# FINALITY READS THE EPOCH'S OWN REGISTRY: a committee member who unbonds after the anchor must not retroactively
+# un-justify a checkpoint it attested (the live-registry filter let two nodes refreshing at different moments disagree)
+from ops.attestation_ops import checkpoint_justified
+kv_ops.regsnap_put(E, live0)
+B._duty_committee_cache[0] = None
+_com = B.duty_committee_for_epoch(E)
+_ck = "ef" * 32
+from protocol import FFG_NUM, FFG_DEN
+for _v in _com:
+    kv_ops.attestation_put(E - 1, _v, "11" * 32)               # every member active in the inactivity window
+_total = sum(_com.values())
+_U = max(sorted(_com), key=lambda v: _com[v])                # the member who unbonds after the anchor: the most seats
+# attesters for epoch E: _U plus the fewest others that clear 2/3 WITH it, so that WITHOUT it they do not
+_others = sorted((v for v in _com if v != _U), key=lambda v: _com[v])
+_att = [_U]
+for _v in _others:
+    if sum(_com[a] for a in _att) * FFG_DEN > _total * FFG_NUM:
+        break
+    _att.append(_v)
+_decisive = (sum(_com[a] for a in _att) * FFG_DEN > _total * FFG_NUM
+             and sum(_com[a] for a in _att if a != _U) * FFG_DEN <= _total * FFG_NUM)
+for _v in _att:
+    kv_ops.attestation_put(E, _v, _ck)
+kv_ops.account_set(_U, "bonded", 0)                          # unbonded after the anchor (live registry only)
+check("a committee member that unbonded after the anchor still counts toward its epoch's justification",
+      _decisive and _U not in get_bonded_registry() and checkpoint_justified(E, _ck, get_bonded_registry()),
+      (_decisive, _att, dict(_com)))
+
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

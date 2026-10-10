@@ -53,8 +53,18 @@ def checkpoint_justified(epoch: int, checkpoint_hash: str, bonded_registry: dict
     total = sum(seats for v, seats in committee.items() if v in active)   # leaked denominator
     if total == 0:
         return False
+    # THE EPOCH'S OWN REGISTRY, not the live one: from REGISTRY_SNAPSHOT_HEIGHT the committee is drawn from the registry
+    # frozen at the epoch's anchor, and filtering by the LIVE registry let a later unbond retroactively un-justify an old
+    # checkpoint — two nodes refreshing at different moments derived different finality floors.
+    # INVARIANT: justification of epoch E reads only data fixed for E (bonded_registry_for_epoch falls back to the
+    # live registry for epochs before the snapshot gate, so their verdicts are unchanged).
+    from ops.block_ops import bonded_registry_for_epoch
+    try:
+        reg_e = bonded_registry_for_epoch(epoch)
+    except Exception:
+        return False                        # the epoch's frozen registry is not held here -> cannot justify (fail closed)
     attested = {v for v, h in kv_ops.attestations_for_epoch(epoch)
-                if h == checkpoint_hash and v in bonded_registry and v in committee}
+                if h == checkpoint_hash and v in reg_e and v in committee}
     attesting = sum(committee[v] for v in attested)
     return attesting * FFG_DEN > total * FFG_NUM
 
