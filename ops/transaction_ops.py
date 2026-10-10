@@ -452,6 +452,16 @@ def cert_verdict(verify_at, now: int) -> dict:
 # Recent-producer weights, memoised on the window they cover. The window only moves when the tip does, and
 # an enrolment message is validated by every node, so recomputing a 120-block scan per validation would be
 # paid over and over for an answer that cannot have changed.
+def _window_key(lo: int, hi: int) -> tuple:
+    """Cache key for a scan over blocks [lo, hi): the bounds AND the hash of block hi-1. Block hashes chain, so that hash
+    names every block of the window — a reorg reaching into the window (up to FINALITY_DEPTH blocks, inside one epoch)
+    gives a new key instead of an answer computed from the replaced blocks. "" when the block is not held (the scan
+    itself then defers).
+    INVARIANT: every window cache whose answer can reach the state root keys on this, as _agreed_time does."""
+    from ops.block_ops import get_block_hash_by_number
+    return (int(lo), int(hi), (get_block_hash_by_number(hi - 1) or "") if hi > lo else "")
+
+
 _tpm_producer_cache = [None]
 
 
@@ -478,8 +488,9 @@ def _recent_producers(block_height: int) -> dict:
     from protocol import DEVICE_ATTEST_EK_PRODUCER_WINDOW as _W
     hi = int(block_height)
     lo = max(1, hi - _W)
+    wkey = _window_key(lo, hi)
     entry = _tpm_producer_cache[0]
-    if entry is not None and entry[0] == (lo, hi):
+    if entry is not None and entry[0] == wkey:
         return dict(entry[1])
     weights = {}
     for h in range(lo, hi):
@@ -491,11 +502,11 @@ def _recent_producers(block_height: int) -> dict:
                 who = t.get("sender")
                 if who:
                     weights[who] = weights.get(who, 0) + 1
-    _tpm_producer_cache[0] = ((lo, hi), dict(weights))
+    _tpm_producer_cache[0] = (wkey, dict(weights))
     return weights
 
 
-_tpm_proven_cache = [None]              # [{(lo, hi): {address: weight}}], or [None] when cleared
+_tpm_proven_cache = [None]              # [{(lo, hi, hash of block hi-1): {address: weight}}], or [None] when cleared
 _TPM_PROVEN_CACHE_WINDOWS = 8          # a delayed draw reads a window at most ~5 epochs behind the tip's
 
 
@@ -528,9 +539,10 @@ def _proven_challengers(block_height: int) -> dict:
     # from the pool as of its ENROL block, read up to a few epochs after the tip's own window moved on, so a single
     # slot would thrash — two pending enrolments from different epochs meant two 6000-block rescans per block in the
     # challenger loop alone. INVARIANT: keep more than one window cached; `[0] = None` still clears it (tests do).
+    wkey = _window_key(lo, hi)
     entry = _tpm_proven_cache[0] or {}
-    if (lo, hi) in entry:
-        return dict(entry[(lo, hi)])
+    if wkey in entry:
+        return dict(entry[wkey])
     acted, duties = set(), {}
     # ONLY A CHALLENGER'S OWN ACTS (protocol.TPM_POOL_CHALLENGER_ACTS_HEIGHT): tpm_commit is the ENROLLEE's message, so
     # counting it let anyone buy a free seat by opening an enrolment and committing garbage. Keyed on `hi` (the draw's
@@ -575,7 +587,7 @@ def _proven_challengers(block_height: int) -> dict:
                 duties[who] = duties.get(who, 0) + 1
     out = {a: max(1, duties.get(a, 0)) for a in acted}
     kept = dict(_tpm_proven_cache[0] or {})
-    kept[(lo, hi)] = dict(out)
+    kept[wkey] = dict(out)
     _tpm_proven_cache[0] = dict(sorted(kept.items())[-_TPM_PROVEN_CACHE_WINDOWS:])   # the newest windows
     return out
 
@@ -600,7 +612,7 @@ def _tpm_pool(block_height: int) -> dict:
     return weights
 
 
-_tpm_presence_cache = [None]           # [{(lo, hi): {address: distinct epochs}}], or [None] when cleared
+_tpm_presence_cache = [None]           # [{(lo, hi, hash of block hi-1): {address: distinct epochs}}], or [None] when cleared
 
 
 def _duty_presence(block_height: int) -> dict:
@@ -618,9 +630,10 @@ def _duty_presence(block_height: int) -> dict:
     for the reason _proven_challengers gives."""
     from protocol import EPOCH_LENGTH
     lo, hi = proven_window(block_height)
+    wkey = _window_key(lo, hi)
     entry = _tpm_presence_cache[0] or {}
-    if (lo, hi) in entry:
-        return dict(entry[(lo, hi)])
+    if wkey in entry:
+        return dict(entry[wkey])
     seen = {}
     for h in range(lo, hi):
         block = get_block_number(h)
@@ -636,7 +649,7 @@ def _duty_presence(block_height: int) -> dict:
                     seen.setdefault(who, set()).add(h // EPOCH_LENGTH)
     out = {a: len(e) for a, e in seen.items()}
     kept = dict(_tpm_presence_cache[0] or {})
-    kept[(lo, hi)] = dict(out)
+    kept[wkey] = dict(out)
     _tpm_presence_cache[0] = dict(sorted(kept.items())[-_TPM_PROVEN_CACHE_WINDOWS:])
     return out
 
