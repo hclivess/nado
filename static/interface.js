@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=a192d4c0";   // THE one share implementation (SDK) + the shared select picker
+import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=1d249c14";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -2135,8 +2135,139 @@ async function cashOutExec() {
     else
       log("err", i18("exec.cashOutRejected", "Cash-out rejected: {m}", { m: (res && res.data && (res.data.message || "")) || "" }));
   } catch (e) { log("err", i18("exec.cashOutFailed", "Cash-out failed: {m}", { m: e.message })); }
-  finally { state._cashingOut = false; if (btn) btn.disabled = false; }
+  finally { state._cashingOut = false; if (btn) btn.disabled = false; refreshCashOuts().catch(() => {}); }
 }
+
+/* ==== CASH-OUT CLAIM (exec -> L1, the second half) ====
+ *
+ * A cash-out blob only DEBITS the playable balance and records a withdrawal on the exec layer. The coins reach L1
+ * when an L1 `bridge_withdraw` tx proves that record against a SETTLED exec root (ops/transaction_ops.py, recipient
+ * "bridge_withdraw"). Nothing in the product ever built that tx: every cash-out from the wallet and from every game
+ * stopped halfway, and on 2026-10-10 four of them (10.06 NADO) sat debited and unpaid while the confirm dialog
+ * promised "it lands automatically". This finishes them: /exec/withdrawals lists this address's records with a proof
+ * once L1's settled root covers them, and each is claimed AUTOMATICALLY — from the wallet's poll, and from a game page
+ * through the background signer (resumePendingExecSign, call.bridge_claim). The claim is fee-exempt and must be
+ * self-claimed (sender == addr), so it can only ever pay this wallet: no confirm, nothing to decide.
+ *
+ * Landed = the record is GONE: the exec node drops it only when the claim FINALIZES on L1 (state.drop_claimed). That is
+ * the only moment this says "received" — a submit that returned ok is "confirming", never success. */
+const CASH_CLAIMS_PER_TICK = 4;
+
+// The L1 claim, field for field what construct_bridge_withdraw_tx builds (default namespace, so no `ns`), plus the
+// min_block propagation guard every flexibly-landing tx carries (bridge_withdraw lands flexibly — block_ops
+// _lands_flexibly; construct_bridge_withdraw_tx omits it, the only difference). amount is a BigInt so it rides as a
+// bare JSON integer of any size: validation asserts an int and the proof binds the exact value. INVARIANT: tests/test_bridge_claim_js_matches_node.py builds this in node and has L1's
+// validate_transaction accept it — change a field here and that test is what tells you.
+function buildBridgeClaimTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp, minBlock) {
+  const draft = { sender: wallet.address, recipient: "bridge_withdraw", amount: 0, timestamp,
+    data: { addr, amount: BigInt(amount), nonce: String(nonce), proof }, nonce: randNonce(), public_key: wallet.publicKey,
+    max_block: targetBlock, chain_id: CHAIN_ID };
+  if (minBlock) draft.min_block = minBlock;
+  return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
+}
+
+/** this address's unclaimed cash-outs from the exec node, or null (unreachable / an exec node without the route) */
+async function fetchCashOuts(root) {
+  const q = "/exec/withdrawals?address=" + encodeURIComponent(state.wallet.address) + (root ? "&root=" + encodeURIComponent(root) : "");
+  try {
+    const r = await fetch(execBase() + q, { cache: "no-store" });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d && Array.isArray(d.pending) ? d : null;
+  } catch (e) { return null; }
+}
+
+/** blocks until the next settle is expected to cover a record made now (settle cadence minus how far into it we are,
+ *  plus the landing of the claim itself); a settle that is already overdue reads as the minimum, not a negative */
+function cashOutWaitBlocks(d) {
+  const every = Number(d && d.settle_every) || 30, cur = Number(d && d.cursor), sc = Number(d && d.settled_cursor);
+  const into = Number.isFinite(cur) && Number.isFinite(sc) && sc >= 0 ? Math.max(0, cur - sc) : 0;
+  return Math.max(0, every - into) + TX_INCLUSION_DELAY * 2;
+}
+
+/** Claim every provable, not-in-flight record in `d` (opts.only: one nonce). Each submitted nonce is held until its claim
+ *  has had time to land (the record stays listed until the claim FINALIZES, so without the gate every poll would
+ *  rebuild it with a fresh txid — the duplicate-claim bug the dividend and unbond claims both shipped once). Returns
+ *  {submitted, txid, err}. */
+async function claimCashOuts(d, opts = {}) {
+  const out = { submitted: 0, txid: "", err: "" };
+  if (!state.wallet || !d || !d.pending.length) return out;
+  if (state._cashClaiming) { out.err = "busy"; return out; }
+  state._cashClaiming = true;
+  try {
+    // the proof must be against the root L1 holds as SETTLED — the relay's answer is the one the claim is validated
+    // against, so it overrules the exec node's (6 s cached) hint; ask again against the relay's root if they differ
+    let settled = null;
+    try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch (e) {}
+    const settledRoot = settled && settled.state_root;
+    if (!settledRoot) { out.err = "no settled root"; return out; }
+    if (d.pending.some((p) => p.proof && p.state_root !== settledRoot)) d = (await fetchCashOuts(settledRoot)) || d;
+    const latest = await getLatestBlock();
+    if (!latest) { out.err = "relay unavailable"; return out; }
+    if (!state._cashGate) state._cashGate = {};
+    for (const p of d.pending) {
+      if (out.submitted >= CASH_CLAIMS_PER_TICK) break;
+      if (opts.only && String(p.nonce) !== String(opts.only)) continue;
+      if (!p.proof || p.state_root !== settledRoot) { if (opts.only) out.err = "not settled yet"; continue; }
+      const g = state._cashGate[p.nonce];
+      if (g && latest.block_number < g.until) { if (opts.only) { out.txid = g.txid; out.submitted++; } continue; }   // already on its way
+      const { res, tx } = await submitResilient(async () => buildBridgeClaimTx(state.wallet, state.wallet.address, p.amount,
+        p.nonce, p.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds(), guardFrom(latest.block_number)));
+      if (res && res.data && res.data.result) {
+        state._cashGate[p.nonce] = { until: latest.block_number + TX_INCLUSION_DELAY * 4, txid: tx.txid, amount: String(p.amount) };
+        out.submitted++; out.txid = tx.txid;
+      } else {
+        out.err = (res && res.data && res.data.message) || "rejected";
+      }
+    }
+  } finally { state._cashClaiming = false; }
+  if (out.err) state._cashLastErr = out.err; else if (out.submitted) state._cashLastErr = "";
+  return out;
+}
+
+async function refreshCashOuts() {
+  const panel = $("cashOutPanel");
+  if (!panel || !state.wallet) return;
+  const d = await fetchCashOuts();
+  if (!d) return;                                              // exec blip — leave the panel as it was
+  const pending = d.pending;
+  // LANDED: a nonce we claimed that the exec node no longer lists finalized on L1 — the first true "received"
+  const listed = new Set(pending.map((p) => String(p.nonce)));
+  for (const [n, g] of Object.entries(state._cashGate || {})) {
+    if (listed.has(String(n))) continue;
+    log("ok", i18("cash.received", "Cash-out received: +{a} NADO is in your spendable balance.", { a: rawToNado(BigInt(g.amount || 0)) }));
+    delete state._cashGate[n];
+  }
+  panel.classList.toggle("hidden", !pending.length);
+  if (!pending.length) return;
+  let total = 0n; for (const p of pending) total += BigInt(p.amount || 0);
+  $("cashOutAmt").textContent = rawToNado(total) + " NADO";
+  if (pending.some((p) => p.proof)) await claimCashOuts(d).catch(() => {});
+  const tip = Number(state.latest) || 0;
+  const inflight = pending.filter((p) => { const g = (state._cashGate || {})[p.nonce]; return g && tip < g.until; });
+  const ready = pending.filter((p) => p.proof && !inflight.includes(p));
+  const btn = $("btnClaimCashOut");
+  let line;
+  if (inflight.length) line = i18("cash.confirming", "Claim sent — confirming in a block. It shows in your balance as soon as it lands.");
+  else if (ready.length) line = state._cashLastErr
+    ? i18("cash.retrying", "Claim not accepted yet ({m}) — retrying automatically.", { m: state._cashLastErr })
+    : i18("cash.ready", "Settled — moving it to your spendable balance now.");
+  else line = i18("cash.waiting", "Waiting for the next settlement (~{t}). It then moves to your spendable balance automatically.",
+    { t: blocksToEta(cashOutWaitBlocks(d)) });
+  $("cashOutWhen").textContent = line;
+  if (btn) {
+    btn.classList.toggle("hidden", !(ready.length && !inflight.length));
+    btn.disabled = !!state._cashClaiming;
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const fresh = await fetchCashOuts();
+      const r = fresh ? await claimCashOuts(fresh, { manual: true }) : { err: "exec node unreachable" };
+      if (r.err && !r.submitted) log("err", i18("cash.claimFailed", "Claim failed: {m}", { m: r.err }));
+      refreshCashOuts().catch(() => {});
+    };
+  }
+}
+/* ==== end CASH-OUT CLAIM ==== */
 
 // A relay that is momentarily unreachable — a fetch reject (offline/DNS/TLS), a request timeout, an
 // HTTP 5xx/429, or a non-JSON body (a proxy 502 HTML page). This is EXPECTED and transient: the node
@@ -4647,6 +4778,7 @@ async function refreshDashboard() {
   if (!refreshDashboard._vouchedAt || Date.now() - refreshDashboard._vouchedAt > 60000) { refreshDashboard._vouchedAt = Date.now(); renderVouched().catch(() => {}); }
   refreshMiningChart(addr, acc, ms).catch(() => {});   // mined-per-day chart under the menu (never blocks the card)
   refreshUnbond().catch(() => {});                     // surface + auto-finish a matured savings exit
+  refreshCashOuts().catch(() => {});                   // surface + auto-claim on L1 every cash-out the exec layer recorded
   claimLegacy(acc).catch(() => {});                    // coins still at this key's OLD address move here (gen 28)
 
   // wallet card + send/stake panels (balances are shared across tabs)
@@ -4976,6 +5108,20 @@ async function resumePendingExecSign() {
   // chain_id is rejected "wrong chain id"; the boot initNetTag can still be racing). Sign-in (connect) above
   // needs no tx and must never be blocked by this /status fetch.
   await initNetTag().catch(() => {});
+  if (call.bridge_claim) {   // CASH-OUT CLAIM: finish this wallet's own cash-out on L1 (see "CASH-OUT CLAIM")
+    // No confirm, silent in the background signer: the claim is fee-exempt and consensus requires sender == addr, so it
+    // can only move this wallet's own recorded cash-out into this wallet. The game names only a nonce; the record, its
+    // amount and its proof are read from the exec node HERE, never taken from the request.
+    const nonce = String((call.bridge_claim || {}).nonce || "");
+    if (!/^[0-9]{1,20}$/.test(nonce)) { back("ok=0&err=bad+claim"); return; }
+    try {
+      const d = await fetchCashOuts();
+      const r = d ? await claimCashOuts(d, { only: nonce }) : { submitted: 0, err: "exec node unreachable" };
+      back(r.submitted ? "ok=1&txid=" + r.txid + "&addr=" + state.wallet.address
+                       : "ok=0&err=" + encodeURIComponent(String(r.err || "nothing to claim").slice(0, 80)));
+    } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+    return;
+  }
   if (call.deposit) {   // BRIDGE DEPOSIT: move the user's OWN L1 funds into their OWN exec balance (safe, bounded — no third-party recipient)
     let amt; try { amt = BigInt(call.deposit.amount); } catch (e) { back("ok=0&err=bad+amount"); return; }
     if (amt <= 0n) { back("ok=0"); return; }

@@ -9,8 +9,8 @@
 // Games opened by the previous code (md == 0, no commitments) still resolve from BLOCKHASH(sh) + BLOCKHASH(sh+1).
 // The stake is escrowed as call VALUE and paid by the contract's PAY. Login + every signature is delegated to
 // the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
-import { Practice } from "./practice.js?v=4b10cba6";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=1d249c14";
+import { Practice } from "./practice.js?v=31028a4c";      // free in-browser practice (play chips, no chain)
 
 const CID = "dd84238f53bcefcc69f965fced5ea856";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';

@@ -272,6 +272,18 @@
          never looks like lost money — the single most nervous-making moment in any wallet. -->
     <div id="walPendNote" class="pendnote hidden" data-i18n="pend.note">⏳ Amounts marked “confirming” are being sealed into a block right now. They can't be spent or played yet — they unlock automatically, usually in under a minute. Nothing is lost.</div>
 
+    <!-- CASH-OUT PENDING. A cash-out is two steps: the exec layer debits the playable balance and records the
+         withdrawal, then an L1 claim proves that record against a SETTLED root and releases the coins. Nothing built
+         the claim, so every cash-out stopped halfway (4 of them, 10.06 NADO, 2026-10-10) — the playable balance went
+         down and nothing came back. This shows the record and finishes it the moment it is provable
+         (refreshCashOuts in interface.js). Visible whether or not anything is playable: the stuck ones read 0. -->
+    <div id="cashOutPanel" class="pendnote hidden">
+      <div><span data-i18n="cash.pending">Cash-out pending:</span> <b id="cashOutAmt">—</b></div>
+      <div id="cashOutWhen" class="small mt"></div>
+      <button id="btnClaimCashOut" class="primary mt hidden" style="width:100%"
+              data-i18n="cash.claimNow">Claim now</button>
+    </div>
+
     <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
     <div id="coinPileWrap" class="mt hidden" style="text-align:center">
       <svg id="coinPile" viewBox="0 0 240 150" width="100%" style="max-width:280px;height:auto" aria-hidden="true"></svg>
@@ -1396,7 +1408,7 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
 <!-- i18n.js is ~1 MiB: defer keeps it from blocking first paint. Execution order is preserved —
      deferred classic scripts and module scripts share one in-order after-parse execution list,
      so i18n.js still runs before interface.js. -->
-<script defer src="/static/i18n.js?v=92fe1211"></script>
-<script type="module" src="/static/interface.js?v=f6b99900"></script>
+<script defer src="/static/i18n.js?v=b9c169b6"></script>
+<script type="module" src="/static/interface.js?v=a92b3318"></script>
 </body>
 </html>

@@ -24,8 +24,8 @@
 //   duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll"]);
 import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, confirmingLabel, orderCards,
          resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify,
-         blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js?v=a192d4c0";
-import { Practice, prand, randomSeed } from "./practice.js?v=4b10cba6";
+         blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js?v=1d249c14";
+import { Practice, prand, randomSeed } from "./practice.js?v=31028a4c";
 
 const T0 = (p, k, d, v) => (typeof window !== "undefined" && window.t) ? window.t(p + "." + k, d, v) : d;
 const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;

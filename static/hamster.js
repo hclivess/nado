@@ -7,8 +7,8 @@
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
-import { Book } from "./bookgame.js?v=d7024353";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=a192d4c0";
+import { Book } from "./bookgame.js?v=16906df0";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=1d249c14";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=33fab85c";
 import * as DERBY from "./hamster-daily.js?v=dc5056df";
 

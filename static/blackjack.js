@@ -7,10 +7,10 @@
 // reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack 5:2; European
 // no-hole-card timing. A hand nobody finishes within 18000 blocks of its last move goes to the bank.
 // See tests/test_blackjack_settles_from_the_beacon_and_times_out_to_the_bank.py.
-import { NadoDapp, chainResultAlg, blocksToTime, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
-import { BankedGame } from "./bankedgame.js?v=c7ad37a0";
+import { NadoDapp, chainResultAlg, blocksToTime, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=1d249c14";
+import { BankedGame } from "./bankedgame.js?v=040c30c7";
 import { cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=9765f2c6";
-import { Practice } from "./practice.js?v=4b10cba6";      // free in-browser practice (play chips, no chain)
+import { Practice } from "./practice.js?v=31028a4c";      // free in-browser practice (play chips, no chain)
 
 const CID = "7d3d1f539b9dc228c359a52efc460c49";
 // REAP: the contract's timeout (reap gates on ge + 18000 < cursor). After it the hand resolves to the BANK, so

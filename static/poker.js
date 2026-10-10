@@ -12,9 +12,9 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 //     A seat that does not reveal by the showdown deadline cannot win any pot layer (settle values it at 0).
-import { NadoDapp, EPOCH_LENGTH, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, confirmingLabel, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
-import { BankedGame } from "./bankedgame.js?v=c7ad37a0";   // the ONE banked-table reader — hold'em overlays its street phases
-import { Practice } from "./practice.js?v=4b10cba6";       // free in-browser practice (play chips, no chain)
+import { NadoDapp, EPOCH_LENGTH, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, confirmingLabel, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=1d249c14";
+import { BankedGame } from "./bankedgame.js?v=040c30c7";   // the ONE banked-table reader — hold'em overlays its street phases
+import { Practice } from "./practice.js?v=31028a4c";       // free in-browser practice (play chips, no chain)
 
 const CID = "52aa9beb6dc0a187a0ae3ee59de9f3e1";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
