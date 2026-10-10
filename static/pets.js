@@ -6,10 +6,10 @@
 // keeps the secret in localStorage before the call and reveals it automatically; a missed reveal forfeits) —
 // and transfers between wallets like any NFT. Gear finds and re-rolls resolve from a LATER epoch beacon. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, EPOCH_LENGTH, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
-import * as G from "./pets-genes.js?v=abd574d9";
-import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
-import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js?v=02122c27";
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, EPOCH_LENGTH, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc, BLOCK_TIME } from "./nadodapp.js";
+import * as G from "./pets-genes.js";
+import { HAND_ART } from "./pets-art-hand.js";   // bespoke per-animal art (grows toward the full roster)
+import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js";
 
 const CID = "46490de9bfb9db59e0124fbdbef3c152";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });

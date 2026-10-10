@@ -9,7 +9,7 @@
 // deterministic game logic calls at MODULE-LOAD time (e.g. Scrapline's solo-offer render paints before init()
 // runs). Gating it behind the async loadCrypto() made that logic throw "blake2b is not a function" before the
 // bundle finished loading, which aborted the whole module (so sign-in return handling never ran). Binding it
-// eagerly removes that entire class of races. (Node's ESM loader rejects the ?v= cache-bust query, and
+// eagerly removes that entire class of races. (Node's ESM loader rejects a version query on the specifier, and
 // merkle.js / messaging.js / the crosscheck tests already import this bundle by its bare path — so we match.)
 import { blake2b, ml_dsa44, bytesToHex, hexToBytes } from "./vendor/nado-crypto.js";
 

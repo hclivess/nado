@@ -23,23 +23,23 @@ import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_M
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
          INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK } from "/protocol.js";
-import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=1d249c14";   // THE one share implementation (SDK) + the shared select picker
-import * as shielded from "./shielded.js?v=4e224dbe";
-import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
-import * as alghash from "./alghash.js?v=849f345a";
+import { poswProveAsync, challengeBytes } from "./posw.js";
+import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
+import * as shielded from "./shielded.js";
+import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
+import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
 import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
 import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
-import * as alghash2 from "./alghash2.js?v=08c4277c";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
+import * as alghash2 from "./alghash2.js";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
 import * as sjoinsplit3 from "./stark/joinsplit3.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
-import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js?v=527c8fc6";
-import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js?v=66edc4a0";   // TPM challenger duty (maybeTpmChallenge); merge_games.py content-stamps it and the server re-stamps it with the JS epoch
+import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
+import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js";   // TPM challenger duty (maybeTpmChallenge); the server versions it by content (ops/static_versions.py)
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
  * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
  * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
@@ -155,7 +155,7 @@ async function loadDeps() {
   // 1) LOCAL self-contained bundle (no internet needed) — all symbols from one vendored module.
   //    This is what makes the wallet WORK on a phone / restricted network where the CDN is blocked.
   try {
-    const m = await import('./vendor/nado-crypto.js?v=mlkem');
+    const m = await import('./vendor/nado-crypto.js');
     blake2b = m.blake2b; bytesToHex = m.bytesToHex; hexToBytes = m.hexToBytes; ml_dsa44 = m.ml_dsa44;
     ml_kem768 = m.ml_kem768;   // ML-KEM-768 for messaging E2E (may be undefined on a stale cached bundle)
     if (blake2b && ml_dsa44) return;
@@ -1180,10 +1180,6 @@ function renderDeviceStatus() {
 // DROP the statement on the relay; the node polls its peers for a drop addressed to itself, builds and SIGNS its own
 // register tx. Nobody else can use the blob (the tx needs the node's key). One tap per lease, like every miner.
 const LS_NODE_ATTEST_ADDR = "nado_node_attest_addr";
-// The CDN caches /static/* by URL for a year. interface.js is loaded with a per-restart ?v= stamp; a module imported
-// with a LITERAL ?v=1 stayed the first version forever (2026-09-07: a broken hwattest.js kept being served after its
-// fix). Reuse this module's own stamp for every dynamic import.
-const HW_STAMP = (() => { try { return new URL(import.meta.url).searchParams.get("v") || String(Date.now()); } catch (e) { return String(Date.now()); } })();
 let _nodeAttestBound = false, _nodeAttestBusy = false;
 
 function nodeAttestInit() {
@@ -1333,7 +1329,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
   // here, and the same {att, cdj, rp} envelope goes into the register tx. The kernel verifies and binds the device.
   if (state.hwDevice && (state.attestVia === "ledger" || state.attestVia === "trezor")) {
     try {
-      const hw = await import("./hwattest.js?v=" + HW_STAMP);   // the page stamp: a literal ?v=1 was cached by the CDN forever
+      const hw = await import("./hwattest.js");   // never a literal version: the server stamps it (ops/static_versions.py)
       log("info", i18("hw.confirm", "Confirm on the {n} — it is vouching for this identity.", { n: state.hwDevice.name }));
       const device = await hw.attestHardware(state.hwDevice, chal);
       // REBIND (doc/device-attestation.md §"Binding modes"): ask the relay what this device vouches for BEFORE the tap is
@@ -9786,7 +9782,7 @@ async function renderMsig() {
 let MSG = null;
 async function loadMessaging() {
   if (MSG) return MSG;
-  try { MSG = await import('./messaging.js?v=ratchet2'); }
+  try { MSG = await import('./messaging.js'); }
   catch (e) { MSG = null; log("err", "Messaging unavailable: " + (e && e.message || e)); }
   return MSG;
 }
@@ -11106,7 +11102,7 @@ function wireEvents() {
   // itself happens later in attestDevice() over the kept handle. Choosing one arms the tap like Start does.
   const hwPick = async (kind) => {
     try {
-      const hw = await import("./hwattest.js?v=" + HW_STAMP);   // the page stamp: a literal ?v=1 was cached by the CDN forever
+      const hw = await import("./hwattest.js");   // never a literal version: the server stamps it (ops/static_versions.py)
       state.hwDevice = await hw.connect(kind);
       state.attestVia = kind;
       try { localStorage.setItem("nado_attest_via", kind); } catch (e) {}

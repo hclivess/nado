@@ -1,18 +1,21 @@
-"""i18n.js keeps its URL across a push that does not touch it (nado.py _stamp_static_refs, _OWN_STAMP_JS).
+"""i18n.js keeps its URL across a push that does not touch it.
 
-Every .js reference is stamped with the global JS epoch so a module graph busts together. i18n.js is a 7.4 MB classic
-script that imports nothing and nothing imports, and on the epoch it got a new URL at every push: each CDN edge then
+i18n.js is a 7.7 MB classic script. Under the old JS-wide mtime epoch it got a new URL at every push: each CDN edge
 re-pulled it cold from the origin in 10-22 s, and right after the betanet-8 pushes 2 of 5 fetches arrived truncated,
-leaving the wallet in untranslated defaults. Pins: i18n.js is stamped by its own mtime, every other .js by the epoch,
-and i18n.js really is standalone (the exemption would break coherency otherwise).
-
-The functions are lifted from nado.py's source: importing nado.py opens the node's database.
+leaving the wallet in untranslated defaults. That was patched with an own-mtime exemption (_OWN_STAMP_JS); since
+2026-10-10 every file is versioned by CONTENT (ops/static_versions.py), so the property holds for i18n.js — and for
+everything else — by construction. Pins: i18n.js's version is a pure function of its bytes (it imports nothing), a
+push that changes other modules leaves it alone, and touching its mtime without changing its bytes leaves it alone.
 Run: python3 tests/test_i18n_own_stamp.py
 """
-import os, re, ast, sys, tempfile, time
+import os, re, shutil, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = open(os.path.join(ROOT, "nado.py")).read()
+# ops/static_versions.py is pure, but the rule is one shape for every test that imports from ops/ (CLAUDE.md rule 4)
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-static-test-")
+sys.path.insert(0, ROOT)
+from ops.static_versions import StaticVersions  # noqa: E402
+
 fails = 0
 
 
@@ -22,26 +25,23 @@ def check(name, ok, detail=""):
     fails += 0 if ok else 1
 
 
-tree = ast.parse(SRC)
-wanted = {"_STATIC_REF_RE", "_OWN_STAMP_JS", "_stamp_static_refs"}
-parts = [ast.get_source_segment(SRC, n) for n in tree.body
-         if (isinstance(n, ast.Assign) and any(getattr(t, "id", None) in wanted for t in n.targets))
-         or (isinstance(n, ast.FunctionDef) and n.name in wanted)]
-check("the stamper and its constants are found in nado.py", len(parts) == 3, len(parts))
-
-static = tempfile.mkdtemp(prefix="nado-stamp-")
-for name, mtime in (("i18n.js", 1_700_000_000), ("interface.js", 1_700_000_500)):
-    p = os.path.join(static, name)
-    open(p, "w").write("//")
-    os.utime(p, (mtime, mtime))
-EPOCH = 1_790_000_000
-ns = {"re": re, "os": os, "_STATIC_DIR": static, "_js_epoch": lambda: EPOCH}
-exec("\n".join(parts), ns)
-
-html = b'<script src="/static/i18n.js?v=cc667a3f"></script><script src="/static/interface.js"></script>'
-out = ns["_stamp_static_refs"](html)
-check("i18n.js is stamped by its own mtime, replacing a literal stamp", b'/static/i18n.js?v=1700000000"' in out, out)
-check("every other .js still carries the global epoch", b'/static/interface.js?v=%d"' % EPOCH in out, out)
+d = tempfile.mkdtemp(prefix="nado-i18nstamp-")
+shutil.copy(os.path.join(ROOT, "static", "i18n.js"), os.path.join(d, "i18n.js"))
+open(os.path.join(d, "interface.js"), "w").write('import "./nadodapp.js";')
+open(os.path.join(d, "nadodapp.js"), "w").write("export const a = 1;")
+open(os.path.join(d, "p.html"), "w").write('<script src="/static/i18n.js"></script><script src="/static/interface.js"></script>')
+sv = StaticVersions(d, ttl=0)
+p = os.path.join(d, "p.html")
+v_i18n = re.search(rb'i18n\.js\?v=([0-9a-f]+)', sv.get(p)[0]).group(1)
+v_ui = re.search(rb'interface\.js\?v=([0-9a-f]+)', sv.get(p)[0]).group(1)
+open(os.path.join(d, "nadodapp.js"), "w").write("export const a = 2;")
+os.utime(os.path.join(d, "nadodapp.js"), ns=(1, 2_000_000_000_000_000_000))
+body = sv.get(p)[0]
+check("a push that changes another module moves THAT module's importers", re.search(rb'interface\.js\?v=([0-9a-f]+)', body).group(1) != v_ui)
+check("...and leaves i18n.js's URL alone", re.search(rb'i18n\.js\?v=([0-9a-f]+)', body).group(1) == v_i18n)
+os.utime(os.path.join(d, "i18n.js"), ns=(1, 2_100_000_000_000_000_000))
+check("touching i18n.js's mtime without changing its bytes keeps its URL",
+      re.search(rb'i18n\.js\?v=([0-9a-f]+)', sv.get(p)[0]).group(1) == v_i18n)
 
 i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
 check("i18n.js imports nothing", not re.search(r"^\s*import\b|\bimport\s*\(", i18n, re.M))

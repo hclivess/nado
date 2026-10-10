@@ -20,7 +20,7 @@
 // Messaging hashcash domain (mirrors ops/message_pool.py DOMAIN_MSG_POW).
 const DOMAIN_MSG_POW = "msg-pow-v1";
 
-import { blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_kem768 } from './vendor/nado-crypto.js?v=mlkem';
+import { blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_kem768 } from './vendor/nado-crypto.js';
 
 const _enc = new TextEncoder();
 

@@ -11,7 +11,7 @@
 //  * A LEGACY TRANSACTION is a compact-array format with a 3-byte header and INDEXES into one account
 //    list, so building one means collecting every account, ordering it (signers first, then writable),
 //    and then referring to each by position.
-import * as ed from "./vendor/noble-ed25519.js?v=1";
+import * as ed from "./vendor/noble-ed25519.js";
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 export function b58encode(bytes) {

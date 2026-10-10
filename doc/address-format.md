@@ -32,8 +32,9 @@ account (the body is the pubkey), so the switch ships as one commit + one reroll
 
 1. Flip `ADDRESS_PREFIX` in `protocol.py` and `ADDR_PREFIX` in `static/nadotx.js` +
    `static/interface.js` (three lines).
-2. `sed -i 's/ndo…/<new>…/g' static/i18n.js static/*.html` — the human-readable "ndo…" hints in
-   translations and input placeholders (language-invariant, one mechanical pass).
+2. `sed -i 's/ndo…/<new>…/g' static/i18n/*.json static/i18n_games/*.json static/*.html`, then
+   `python3 tools/build_i18n.py` — the human-readable "ndo…" hints in translations and input
+   placeholders (language-invariant, one mechanical pass; i18n.js is generated from those JSON files).
 3. Re-derive the wallet self-test vectors in `static/interface.js` (`make_address_out`,
    `pow_address`, `register_tx` fixtures) — the self-test pins the format on purpose.
 4. Re-key the genesis allocation so every balance carries to the same owners:

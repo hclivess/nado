@@ -40,6 +40,10 @@ top comment. It self-initializes on DOMContentLoaded: builds a language picker, 
    language; "escrow"/"stake"/"exec/execution layer"/"L1" as in a crypto app. Preserve `{placeholders}`
    EXACTLY, and any emoji.
 
+5. **Regenerate** `static/i18n.js`: `python3 tools/build_i18n.py` (or `python3 static/i18n_games/merge_games.py`).
+   i18n.js is generated in full from the JSON sources; it refuses a key already defined in another file, a
+   language missing a key, placeholder drift and empty strings. Commit the JSON and the regenerated i18n.js together.
+
 ## Rules
 - Keys are namespaced `<game>.` so games never collide.
 - Every key in the html/js MUST be in the JSON's `en` (and thus all langs). No orphan keys, no unused keys.

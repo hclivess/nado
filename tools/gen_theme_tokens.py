@@ -10,7 +10,6 @@ interface.css reaches the games by regenerating, not by remembering to copy hexe
     python3 tools/gen_theme_tokens.py           # rewrite static/theme.css
     python3 tools/gen_theme_tokens.py --check   # verify it is current (CI / pre-release)
 """
-import hashlib
 import re
 import sys
 import os
@@ -90,26 +89,8 @@ def build():
     return "\n\n".join(out) + "\n", len(palettes)
 
 
-def stamp(text):
-    """Content-stamp the SDK's link to this file. Cloudflare serves /static with a four-hour max-age, so an
-    UNSTAMPED href means a palette change — or a fix to the shared toggle now living in here — reaches
-    nobody for four hours, and reaches each visitor at a different moment in between. nadodapp.js is itself
-    stamped by merge_games.bust_module_imports(), so bumping the href here propagates to all 24 pages."""
-    h = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:8]
-    sdk = os.path.join(ROOT, "static", "nadodapp.js")
-    src = open(sdk, encoding="utf8").read()
-    out = re.sub(r'"/static/theme\.css(?:\?v=[^"]*)?"', '"/static/theme.css?v=%s"' % h, src)
-    if out != src:
-        open(sdk, "w", encoding="utf8").write(out)
-        return f"stamped theme.css?v={h} into nadodapp.js"
-    return f"theme.css?v={h} already current in nadodapp.js"
-
-
-def check_stamp(text):
-    h = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:8]
-    src = open(os.path.join(ROOT, "static", "nadodapp.js"), encoding="utf8").read()
-    if f"/static/theme.css?v={h}" not in src:
-        sys.exit(f"nadodapp.js links a STALE theme.css stamp (want ?v={h}) — run: python3 tools/gen_theme_tokens.py")
+# No stamp is written into nadodapp.js any more: the server versions "/static/theme.css" by its content when it
+# serves nadodapp.js (ops/static_versions.py), and the change propagates to every page through the import graph.
 
 
 if __name__ == "__main__":
@@ -118,9 +99,7 @@ if __name__ == "__main__":
         cur = open(OUT, encoding="utf8").read() if os.path.exists(OUT) else ""
         if cur != text:
             sys.exit("static/theme.css is STALE — run: python3 tools/gen_theme_tokens.py")
-        check_stamp(text)
-        print(f"theme.css is current ({n} palettes + shared components), stamp matches")
+        print(f"theme.css is current ({n} palettes + shared components)")
     else:
         open(OUT, "w", encoding="utf8").write(text)
         print(f"wrote static/theme.css ({n} palettes + shared components)")
-        print(stamp(text))

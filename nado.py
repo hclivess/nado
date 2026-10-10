@@ -1,6 +1,5 @@
 import asyncio
 import functools
-import hashlib
 import json
 import os
 import queue
@@ -2750,131 +2749,37 @@ async def referrals(request):
     return _resp(await asyncio.to_thread(_work))
 
 
-# HTML pages are served with their /static/<asset> references stamped ?v=<file mtime>. The stamped URL
-# changes whenever the file on disk changes, so the assets themselves can be cached as immutable (by the
-# browser AND the CDN edge) while an edit still propagates on the next page load — the interface pulls
-# ~1.5 MB of JS (i18n.js alone is ~1 MiB), which under the old blanket no-store re-downloaded every visit.
-# The optional (?:\?v=...) group SWALLOWS a hand-written stamp: every page carried a literal
-# `?v=<hash>` (added 2026-09-02) that this pattern did not match, so the mtime stamp was never applied and
-# browsers kept the JS of 2026-09-02 through four days of wallet/dApp changes (found 2026-09-06 when the
-# wallet kept requesting the six per-tick endpoints after /wallet_view shipped). Keep the group.
-_STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(?:\?v=[A-Za-z0-9_.-]*)?(")')
-# ES-module import specifiers inside a served .js:  from "./x.js"  ·  import("./x.js")  ·  import "./x.js"
-_JS_IMPORT_RE = re.compile(rb'(\bfrom\s*["\']|import\s*\(\s*["\']|import\s*["\'])(\.{1,2}/[A-Za-z0-9_./-]+\.js)(["\'])')
+# ONE cache-busting scheme (2026-10-10, ops/static_versions.py): every /static reference in a served page or module is
+# rewritten to ?v=<the referenced file's content hash, including its own rewritten imports>, and a URL is immutable only
+# while its v names the current bytes. It replaced four overlapping schemes — a JS-wide mtime epoch stamped here,
+# md5 literals written into sources by merge_games.py, hand labels (?v=mlkem / ?v=ratchet2 / ?v=1) and interface.js's
+# HW_STAMP — under which vendor/nado-crypto.js loaded under TWO URLs (two module instances) and noble-secp256k1.js?v=1
+# was served immutable for a year. Never hand-write a ?v= in static/: the server swallows it, and
+# tests/test_static_versions.py refuses it in source.
+from ops.static_versions import StaticVersions as _StaticVersions, cache_control as _static_cache_control
+# INVARIANT: a served module's version covers the /protocol.js stamp it carries, because the stamp is applied to the
+# module's bytes BEFORE they are versioned — so an importer's URL moves when the constants do.
+_static_versions = _StaticVersions(_STATIC_DIR, js_transform=lambda raw: _stamp_protocol_import(raw))
 
 
-_JS_EPOCH_TTL = 2.0        # seconds; a deploy is picked up within this, a request storm walks static/ once
-_js_epoch_cache = [0.0, 0]  # [computed_at_monotonic, value]
-_static_body_cache = {}     # abs path -> (mtime_ns, size, js_epoch, body_bytes, etag_or_None)
-_STATIC_CACHE_MAX_BYTES = 48 * 1024 * 1024
-_static_cache_bytes = [0]
-_static_cache_lock = _threading.Lock()
-
-
-def _js_epoch():
-    """A single version number = the NEWEST mtime across ALL static .js files. Every .js reference (HTML
-    <script> AND in-file ES imports) is stamped with THIS, so editing ANY module bumps the version of the
-    WHOLE graph at once. That guarantees coherency: a browser/CDN can never load a fresh game.js against a
-    stale cached nadodapp.js (the bug that made 'sign in do nothing' after an SDK export was added) — the
-    stamped URLs all change together, so a cache miss on one is a cache miss on all its dependencies.
-
-    CACHED for _JS_EPOCH_TTL. This is a full os.walk + os.stat over ~130 .js files (2.5 ms measured) and
-    it ran on EVERY html and EVERY .js request, on the event loop. The value only moves when someone
-    deploys, so a couple of seconds of staleness costs nothing and a page load stops paying it ~15x."""
-    now = time.monotonic()
-    if now - _js_epoch_cache[0] < _JS_EPOCH_TTL:
-        return _js_epoch_cache[1]
-    newest = 0
-    try:
-        for root, _dirs, names in os.walk(_STATIC_DIR):
-            for name in names:
-                if name.endswith(".js"):
-                    newest = max(newest, int(os.stat(os.path.join(root, name)).st_mtime))
-    except OSError:
-        pass
-    _js_epoch_cache[0], _js_epoch_cache[1] = now, newest
-    return newest
-
-
-def _static_cached(full, build):
-    """Memoise a stamped static body on (path, mtime_ns, size, js_epoch), calling build(raw_bytes) on miss.
-
-    Stamping is a pure function of the file bytes and the JS epoch, but it was redone on every request
-    ON THE EVENT LOOP: a cold GET /static/i18n.js measured 220 ms (8 ms read + 162 ms of regex
-    substitution), during which this process served nothing else AND the block loop could not run,
-    because re.sub does not release the GIL. A page load pulls i18n.js + interface.js + a dozen modules
-    — ~300 ms of blocked loop per fresh visitor, and ten at once is a dropped block. Keyed on mtime, so
-    a redeploy invalidates immediately rather than serving stale JS off a timer."""
-    try:
-        st = os.stat(full)
-    except OSError:
-        return None
-    key = (st.st_mtime_ns, st.st_size, _js_epoch())
-    hit = _static_body_cache.get(full)
-    if hit is not None and hit[0] == key:
-        return hit[1]
-    with open(full, "rb") as f:
-        raw = f.read()
-    built = build(raw)
-    with _static_cache_lock:
-        prev = _static_body_cache.get(full)
-        if prev is not None:
-            _static_cache_bytes[0] -= len(prev[1][0])
-        if _static_cache_bytes[0] > _STATIC_CACHE_MAX_BYTES:
-            _static_body_cache.clear()       # whole static/ is ~16 MB, so this should never fire
-            _static_cache_bytes[0] = 0
-        _static_body_cache[full] = (key, built)
-        _static_cache_bytes[0] += len(built[0])
-    return built
-
-
-# Classic scripts nothing imports and that import nothing: stamped by their OWN mtime, not the global JS epoch, so a
-# push that does not touch them keeps their URL — and the CDN copy. i18n.js is 7.4 MB (2.2 MB gzipped); on the epoch
-# it got a new URL at every push, every edge re-pulled it cold from the origin in 10-22 s, and 2 of 5 fetches right
-# after the betanet-8 pushes arrived TRUNCATED, which leaves the whole wallet in untranslated defaults ("via {h}").
-# Coherency is kept: its URL changes exactly when its bytes do. Never add a file here that imports or is imported.
-_OWN_STAMP_JS = frozenset(("i18n.js",))
-
-
-def _stamp_static_refs(html):
-    """Rewrite src/href="/static/<asset>" references in `html` (bytes) to .../<asset>?v=<version>. A .js
-    asset is stamped with the global JS epoch (so all modules bust together); other assets use their own
-    mtime. References whose file doesn't exist are left untouched."""
-    jsep = _js_epoch()
-    def sub(m):
-        rel = m.group(2)[len(b"/static/"):].decode()
-        try:
-            v = jsep if (rel.endswith(".js") and rel not in _OWN_STAMP_JS) \
-                else int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
-        except (OSError, UnicodeDecodeError):
-            return m.group(0)
-        return m.group(1) + m.group(2) + b"?v=%d" % v + m.group(3)
-    return _STATIC_REF_RE.sub(sub, html)
-
-
-def _stamp_js_imports(js_bytes):
-    """Rewrite a served .js file's relative ES-module imports (from './x.js') to '.../x.js?v=<js epoch>',
-    so the shared modules (nadodapp.js, nadotx.js, …) are fetched at the SAME coherent version as the
-    importing file — never a stale CDN-cached copy that's missing a newly-added export."""
-    v = b"?v=%d" % _js_epoch()
-    return _JS_IMPORT_RE.sub(lambda m: m.group(1) + m.group(2) + v + m.group(3), js_bytes)
+def _etag_matches(request, etag):
+    return etag in (t.strip() for t in request.headers.get("If-None-Match", "").split(","))
 
 
 async def _html_response(request, full):
-    """Serve an HTML file with stamped asset references, a strong ETag over the stamped body, and
-    revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip).
-    The stamp+hash runs in a worker thread on a cache miss so a cold page never blocks the event loop."""
-    cached = await asyncio.to_thread(_static_cached, full, lambda raw: (
-        (lambda b: (b, '"' + hashlib.blake2b(b, digest_size=16).hexdigest() + '"'))(_stamp_static_refs(raw))))
-    if cached is None:
+    """Serve an HTML file with version-stamped asset references, a strong ETag (its version — a hash of the stamped
+    body) and revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip). The
+    versioning runs in a worker thread so a cold page never blocks the event loop."""
+    got = await asyncio.to_thread(_static_versions.get, full)
+    if got is None or got[0] is None:
         return web.Response(status=404, text="Not found")
-    body, etag = cached
+    body, ver = got
+    etag = '"' + ver + '"'
     # X-Frame-Options/frame-ancestors: the wallet must NEVER be framed — the exec_sign / forum-login confirm is
     # the only human gate, and a header-delivered frame denial defeats clickjacking of it (a <meta> CSP cannot).
     headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*",
                "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'"}
-    inm = request.headers.get("If-None-Match", "")
-    if etag in (t.strip() for t in inm.split(",")):
+    if _etag_matches(request, etag):
         return web.Response(status=304, headers=headers)
     return web.Response(body=body, content_type="text/html", charset="utf-8", headers=headers)
 
@@ -2898,11 +2803,10 @@ def _static_secret(full):
 
 
 async def static_handler(request):
-    """GET /static/{path}: serve a file from static/ with open CORS. HTML goes through _html_response
-    (asset-stamped + ETag revalidation). An asset requested with a numeric ?v= is content-addressed by
-    construction (the stamp is its mtime), so it's served immutable for a year — cacheable by browsers
-    and the CDN edge. Everything else is no-cache: stored but revalidated (ETag/Last-Modified -> 304),
-    so wallet/explorer edits are picked up immediately without re-downloading unchanged bytes.
+    """GET /static/{path}: serve a file from static/ with open CORS. HTML goes through _html_response. A .js module is
+    served with its references rewritten to their content versions (ops/static_versions.py); everything else streams
+    as is. Cache rule: ?v= equal to the file's CURRENT version -> immutable for a year (browser and CDN edge); any other
+    ?v= or none -> no-cache with the version as ETag, so a stale or hand-written URL can never pin old bytes.
     Path-traversal contained: the normpath'd target must stay under _STATIC_DIR or it 404s."""
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
@@ -2912,19 +2816,17 @@ async def static_handler(request):
         return web.Response(status=404, text="Not found")
     if full.endswith(".html"):
         return await _html_response(request, full)
-    immutable = request.query.get("v", "").isdigit()
-    headers = {"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache",
+    got = await asyncio.to_thread(_static_versions.get, full)
+    if got is None:
+        return web.Response(status=404, text="Not found")
+    body, ver = got
+    etag = '"' + ver + '"'
+    headers = {"Cache-Control": _static_cache_control(request.query.get("v", ""), ver), "ETag": etag,
                "Access-Control-Allow-Origin": "*"}
-    # A .js module's relative imports are rewritten to the coherent global JS version so the CDN can never
-    # pair a fresh importer with a stale imported module (missing-export -> dead page). Read + rewrite in
-    # process (JS files are small); everything else streams via FileResponse.
-    if full.endswith(".js"):
-        cached = await asyncio.to_thread(_static_cached, full,
-                                         lambda raw: (_stamp_protocol_import(_stamp_js_imports(raw)), None))
-        if cached is None:
-            return web.Response(status=404, text="Not found")
-        return web.Response(body=cached[0], content_type="application/javascript", charset="utf-8",
-                            headers=headers)
+    if _etag_matches(request, etag):
+        return web.Response(status=304, headers=headers)
+    if body is not None:                     # a module whose references were rewritten (or that has none)
+        return web.Response(body=body, content_type="application/javascript", charset="utf-8", headers=headers)
     return web.FileResponse(full, headers=headers)
 
 
@@ -2934,7 +2836,7 @@ async def static_handler(request):
 # into the tree (a tracked build product at its generated path once bricked the fleet fast-forward). No new trust: the
 # wallet and the games are served by this same relay, which already supplies their code, balances and fee targets.
 # CACHING: every served .js that imports "/protocol.js" is rewritten to "/protocol.js?v=<hash of the rendered body>"
-# (_stamp_protocol_import below), and a request carrying the CURRENT hash is immutable for a year — the URL changes
+# (_stamp_protocol_import below, applied by the static versioner before it hashes the module), and a request carrying the CURRENT hash is immutable for a year — the URL changes
 # exactly when the values do, i.e. after a protocol.py commit restarts the node. An unstamped or stale-stamped request
 # (the website's cross-origin import, an old cached importer) gets no-cache + a strong ETag, so it revalidates in one
 # small round trip and can never pin an old value. CORS is open: nadochain.com's /emission imports it cross-origin.

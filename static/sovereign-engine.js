@@ -192,7 +192,7 @@ export const EVENTS = [
 ];
 
 // ---- deterministic hashing (browser-side; the contract computes no rolls) ------------------------------
-import { blake2bHash } from "./nadotx.js?v=02122c27";
+import { blake2bHash } from "./nadotx.js";
 // blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
 // nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract stores no rolls; every browser
 // replays the world through this engine and derives the same rolls from the same block hashes. It was

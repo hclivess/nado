@@ -13,8 +13,8 @@
 //   dapp.call("bet", [g, t, ...args], stakeRaw, "human label", { table: t, phase: "bet" });
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
-import { loadCrypto, blake2bHash } from "./nadotx.js?v=02122c27";
-import * as alghash from "./alghash.js?v=849f345a";
+import { loadCrypto, blake2bHash } from "./nadotx.js";
+import * as alghash from "./alghash.js";
 // PROTOCOL CONSTANTS come from the serving relay's /protocol.js (protocol.CLIENT_EXPORTS rendered by nado.py from the
 // protocol.py it runs) — never copied here. Every game page is served by a relay, so this adds no trust the page did
 // not already place in it. Re-exported so a game imports them from the SDK like everything else (BLOCK_TIME for its
@@ -105,7 +105,7 @@ function applyDappTheme() {
   try {
     if (!document.getElementById("nadoThemeCSS")) {
       const l = document.createElement("link");
-      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css?v=b851a71b";
+      l.id = "nadoThemeCSS"; l.rel = "stylesheet"; l.href = "/static/theme.css";
       document.head.appendChild(l);
     }
     const t = localStorage.getItem("nado_theme");

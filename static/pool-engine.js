@@ -23,7 +23,7 @@
 // The RACK is seeded by the join-time future block height kh (stormhold's scheme): blake2bInt(bh(kh)+
 // bh(kh+1) + salt + i), computed only by browsers, drives a Fisher-Yates shuffle, so neither player can
 // grind a favourable break.
-import { blake2bHash } from "./nadotx.js?v=02122c27";
+import { blake2bHash } from "./nadotx.js";
 
 // blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
 // nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this

@@ -3,8 +3,8 @@
 // btcleg.js builds — BIP143 sighash, RFC-6979 ECDSA via the vendored @noble/secp256k1. Byte-identical to
 // scripts/otc_btc_leg.py (deterministic nonces → the same tx hex), so what the browser broadcasts is what
 // the Python leg and the test suite already verify. No key ever leaves the page.
-import * as secp from "./vendor/noble-secp256k1.js?v=1";
-import { htlcScript } from "./btcleg.js?v=93bc368e";
+import * as secp from "./vendor/noble-secp256k1.js";
+import { htlcScript } from "./btcleg.js";
 
 // noble 2.x needs an async HMAC-SHA256 wired for RFC-6979 signing; WebCrypto provides it.
 secp.etc.hmacSha256Async = async (key, ...msgs) => {
