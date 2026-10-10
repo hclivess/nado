@@ -9,8 +9,11 @@
  *
  * Usage: node tests/autogame_daily_verify.mjs <cid> <utcDay> [execUrl]
  */
-import { entriesFrom, verifyEntries } from "../static/provable.js";
-import { verifyClaim, WORDS } from "../static/autogame-daily.js";
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
+const { entriesFrom, verifyEntries } = await import("../static/provable.js");
+const { verifyClaim, WORDS } = await import("../static/autogame-daily.js");
 
 const [cid, dayArg, execArg] = process.argv.slice(2);
 const exec = execArg || "http://127.0.0.1:9273";

@@ -4,7 +4,7 @@
 // it through the engine to derive the live world (my nation + every rival), and turns dashboard taps into
 // ply-bound act() calls. Practice mode runs the identical engine over a local sandbox of bot nations.
 import { NadoDapp, $, _m, base, notify, confirmingLabel, alertBar, disp, share, wireWallet, renderWallet, stickyInputs,
-         orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm } from "./nadodapp.js?v=1d249c14";
+         orderCards, resolveAliases, renderTopScores, uiPrompt, uiConfirm, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
 import * as E from "./sovereign-engine.js?v=ba797810";
 import { ART } from "./sovereign-art.js?v=b1838f38";
 import { Practice, prand } from "./practice.js?v=31028a4c";
@@ -19,7 +19,8 @@ const sign = (x) => (x >= 0 ? "+" : "") + (Math.abs(x) >= 100 ? Math.round(x) : 
 
 let world = {}, me = null, mc = 0, tab = "build", target = null, atkKind = "plunder";
 let myLastCur = 0, nowCur = 0, lastWall = 0;              // my last touch + live cursor + wall-time of last poll (turn clock)
-const BLOCK_SECS = 6;
+// BLOCK_TIME: protocol.BLOCK_TIME from the relay's /protocol.js via the SDK — never a literal copy (tests/test_constant_mirrors.py)
+const BLOCK_SECS = BLOCK_TIME;
 let comp = { soldier: 1, tank: 1, fighter: 1, bunker: 0, mech: 1 };
 let practice = null;                                  // {seed, log, bots} when in the offline sandbox
 const prac = new Practice("sovereign");

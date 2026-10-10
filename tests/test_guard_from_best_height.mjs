@@ -11,11 +11,13 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+// the protocol constants the wallet imports from the relay's /protocol.js, rendered from protocol.py (tests/protocol_hook.mjs)
+import { P } from './protocol_hook.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS  ' : 'FAIL  ') + name); if (!cond) fails++; };
 const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
-const D = Number((js.match(/^const TX_INCLUSION_DELAY = (\d+);/m) || [])[1]);
+const D = P.TX_INCLUSION_DELAY;
 const lift = (n) => (js.match(new RegExp(`\\nfunction ${n}\\([^)]*\\) \\{[\\s\\S]*?\\}\\n`)) || [''])[0];
 // guardFrom reads relayTipEstimate: the pool's max, credible only up to RELAY_LEAD_MAX above the median (a relay's
 // height is self-reported, and one claiming 10^9 used to put every guard past its max_block — audit 2026-09-25)

@@ -15,9 +15,14 @@
 //   const sto = await dapp.storage();        // the contract's storage maps
 import { loadCrypto, blake2bHash } from "./nadotx.js?v=02122c27";
 import * as alghash from "./alghash.js?v=849f345a";
-export { loadCrypto, blake2bHash };
+// PROTOCOL CONSTANTS come from the serving relay's /protocol.js (protocol.CLIENT_EXPORTS rendered by nado.py from the
+// protocol.py it runs) — never copied here. Every game page is served by a relay, so this adds no trust the page did
+// not already place in it. Re-exported so a game imports them from the SDK like everything else (BLOCK_TIME for its
+// countdowns, EPOCH_LENGTH for beacon seats); tests/test_constant_mirrors.py refuses a literal copy anywhere in static/.
+import { EPOCH_LENGTH, BLOCK_TIME, DENOMINATION, ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM } from "/protocol.js";
+export { loadCrypto, blake2bHash, EPOCH_LENGTH, BLOCK_TIME };
 
-export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
+export const RAW = BigInt(DENOMINATION);       // 1 NADO = 1e10 raw units (protocol.DENOMINATION)
 const WALLET = "https://get.nadochain.com";
 const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
 const PEND_TTL_MS = 120000;      // how long a CLICKED action stays "pending" with no on-chain confirmation before its gate self-expires (a lost tx must re-enable retry — never brick a button); matches the proven pets hatch stamp
@@ -30,13 +35,13 @@ const PEND_TIP_TTL = 4;
 const STALL_MS = 45000;          // exec cursor frozen this long = the chain isn't advancing (node catching up / partition), not "your tx is slow" — see chainStalled()
 // ---- address format (ONE constant — see the rebrand-proofing rule) --------------------------------
 // An address is a 42-hex hash of the pubkey (format 2, gen 28) + an 8-hex blake2b checksum over it. No prefix (betanet-14).
-export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
+export const ADDR_PREFIX = ADDRESS_PREFIX;    // "" since betanet-14; NO backwards compatibility
 // A format-2 address cannot be derived from a format-1 one (it hashes the whole key), so the signed-in session is kept
 // under a key of its own (LS_ME below): the pre-format-2 session is simply not read, and the next sign-in returns the
 // new address.
 // a 4-byte checksum (protocol.ADDRESS_CHECKSUM; format 1 had 2): an old 46-char address is not an address here
-const ADDR_CK = 4;
-const ADDR_BODY = 42;
+const ADDR_CK = ADDRESS_CHECKSUM;
+const ADDR_BODY = ADDRESS_BODY;
 export const ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");
 export const isAddress = (a) => typeof a === "string" && ADDR_RE.test(a);
@@ -218,9 +223,8 @@ export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypt
 // both were commented "== VM HASH" but hashed with blake2b, which the zkVM contracts do not use, so any page that
 // picked them up previewed a result the contract would not pay. The contract-matching forms are chainResultAlg
 // (beacon / block-hash results) and algHashn (commits, field-native structures). Do not reintroduce a blake2b one.
-// EPOCH_LENGTH: protocol.EPOCH_LENGTH, the beacon epoch. A beacon seat bound to epoch gb settles once the exec
-// cursor reaches gb * EPOCH_LENGTH (its gh is that height minus one).
-export const EPOCH_LENGTH = 60;
+// EPOCH_LENGTH (imported from /protocol.js and re-exported above): the beacon epoch. A beacon seat bound to epoch gb
+// settles once the exec cursor reaches gb * EPOCH_LENGTH (its gh is that height minus one).
 // chainResultAlg: the zkVM-era beacon result, byte-matching the ported contracts' in-VM alghash HASH +
 // LO32 window. The contract computes ws = alghash.hashn([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod P])'s low
 // 32 bits % mod. BLOCKHASH enters the VM reduced mod P, so the client reduces each block hash mod P too.

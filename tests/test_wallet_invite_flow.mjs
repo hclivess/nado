@@ -27,6 +27,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { webcrypto } from "node:crypto";
 import * as nc from "../static/vendor/nado-crypto.js";
+// the protocol constants the wallet imports from the relay's /protocol.js, rendered from protocol.py (tests/protocol_hook.mjs)
+import { P } from "./protocol_hook.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let fails = 0;
@@ -61,7 +63,8 @@ function harness(opts = {}) {
   const relay = { invite: opts.invite === undefined ? null : opts.invite, tip: opts.tip ?? 1000, submit: opts.submit || (() => ({ result: true })) };
   const env = {
     events, ls, els, relay,
-    CHAIN_ID: CHAIN, netAdopted: true, EPOCH_LENGTH: 60,
+    CHAIN_ID: CHAIN, netAdopted: true, P, EPOCH_LENGTH: P.EPOCH_LENGTH,
+    INVITE_MIN_TIMELOCK: P.INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK: P.INVITE_MAX_TIMELOCK,
     blake2b: nc.blake2b, bytesToHex: nc.bytesToHex, hexToBytes: nc.hexToBytes, ml_dsa44: nc.ml_dsa44, TextEncoder,
     crypto: webcrypto,
     state: { wallet: { address: ME, publicKey: "pk", privateKey: "sk" }, locked: false, latest: relay.tip, mining: false,

@@ -7,6 +7,9 @@
  * the real chainResultAlg from static/nadodapp.js. Negative control: the blake2b derivation the page used before
  * must DISAGREE with the contract, or this test has no teeth.
  */
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
 import { readFileSync } from "node:fs";
 
 const store = new Map();

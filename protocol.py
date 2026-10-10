@@ -2577,3 +2577,30 @@ DEVICE_ATTEST_LEDGER_ISSUER_KEYS = (
     "0490f5c9d15a0134bb019d2afd0bf297149738459706e7ac5be4abc350a1f818057224fce12ec9a65de18ec34d6e8c24db927835ea1692b14c32e9836a75dad609",
 )
 DEVICE_ATTEST_RP_IDS = ("get.nadochain.com", "nadochain.com")
+
+# ---- CLIENT EXPORTS (2026-10-10): the constants a browser client needs, SERVED rather than copied ----------------------
+# The relay renders exactly these names, from THIS module, as GET /protocol.js (an ES module, `export const NAME = value;`)
+# and GET /protocol.json (ops/client_protocol.py). The wallet (static/interface.js), the dApp SDK (static/nadodapp.js,
+# re-exported to every game) and the website's /emission model import them instead of declaring literals
+# (static/nadotx.js, the environment-free crypto SDK the engines run in plain Node, keeps four address constants that
+# the test pins by value). WHY: every one of these used to be a hand-made copy with a "MUST match protocol.py" comment, and the
+# copies drifted anyway — FINALITY_DEPTH 12 vs 45 (browser reveals rejected), TX_INCLUSION_DELAY 2 vs 8 (sends looked like
+# network faults), the wallet's default auto-bond 80 vs AUTO_BOND_DEFAULT_PERCENT 99. tests/test_constant_mirrors.py renders
+# the module and refuses any of these names (or a known alias) declared as a literal under static/ or website/.
+# Adding a name here is how a client gets a constant. Values must be int / str / bool or a list / dict of them — NO
+# FLOATS (determinism). Integers above 2^53 are emitted as BigInt literals (`123n`) in /protocol.js and as decimal
+# strings in /protocol.json; none of the names below is that large today.
+# NOT here on purpose: the wallet's SEED-derived tags (DOMAIN_HD_ACCOUNT, DOMAIN_SHIELD_NSK*, DOMAIN_RANDAO_SECRET) — they
+# derive from the user's seed, not the chain, and must never move with a relay's answer.
+CLIENT_EXPORTS = (
+    "CHAIN_ID", "DENOMINATION", "BLOCK_TIME", "EPOCH_LENGTH", "FINALITY_DEPTH",
+    "ADDRESS_PREFIX", "ADDRESS_BODY", "ADDRESS_CHECKSUM", "MSIG_PREFIX",
+    "DOMAIN_ADDRESS_V2", "DOMAIN_MSIG", "DOMAIN_REGISTER", "DOMAIN_RANDAO_COMMIT",
+    "POSW_T", "POSW_S", "POSW_K", "POSW_ANCHOR_OFFSET", "POSW_TARGET_MARGIN", "POSW_LEASE_EPOCHS",
+    "MIN_TX_FEE", "TX_INCLUSION_DELAY", "TX_TARGET_MARGIN",
+    "BOND_UNLOCK_DELAY", "B_MIN", "FIDELITY_CAP", "FIDELITY_MIN_GAP_EPOCHS",
+    "TREASURY_BPS", "OPEN_TIP_BPS", "BONDED_DIVIDEND_BPS",
+    "BASE_SUBSIDY", "BOND_ELASTIC_MULT_BPS",
+    "ALIAS_REGISTRATION_FEE", "AUTO_BOND_MIN_RAW", "AUTO_BOND_DEFAULT_PERCENT",
+    "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
+)

@@ -274,7 +274,8 @@ def js_eval(pairs):
             + "process.exit(0);\n")
     path = os.path.join(os.environ["HOME"], "cf.mjs")
     open(path, "w").write(prog)
-    out = subprocess.run(["node", path, json.dumps(pairs)], capture_output=True, text=True, timeout=60)
+    # --import: nadodapp.js imports the relay's /protocol.js; tests/protocol_hook.mjs serves it rendered from protocol.py
+    out = subprocess.run(["node", "--import", os.path.join(ROOT, "tests", "protocol_hook.mjs"), path, json.dumps(pairs)], capture_output=True, text=True, timeout=60)
     if out.returncode != 0:
         print(out.stderr[-2000:])
         return "error"

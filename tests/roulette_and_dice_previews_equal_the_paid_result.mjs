@@ -11,6 +11,9 @@
  *
  * Run (via the driver):  python3 tests/test_roulette_and_dice_previews_equal_the_paid_result.py
  */
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
 import { readFileSync } from "node:fs";
 
 // nadodapp.js touches a few browser globals at import time

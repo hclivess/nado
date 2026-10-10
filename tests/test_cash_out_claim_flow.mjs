@@ -25,6 +25,8 @@
  *   - "✓ Cashed out" is raised only when the record is gone.
  */
 import { readFileSync } from "node:fs";
+// nadodapp.js imports the relay's /protocol.js; the hook serves it rendered from protocol.py (load the SDK dynamically after it)
+import "./protocol_hook.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 

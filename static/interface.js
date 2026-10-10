@@ -10,8 +10,19 @@
  */
 
 /* ----------------------------------------------------------------------------------------------
- * Protocol constants (mirror protocol.py — consensus-critical)
+ * Protocol constants — IMPORTED from the relay's /protocol.js (protocol.CLIENT_EXPORTS, rendered by nado.py from the
+ * protocol.py the relay runs; ops/client_protocol.py). They used to be hand-made copies here with "MUST match
+ * protocol.py" comments, and they drifted (FINALITY_DEPTH 12 vs 45, TX_INCLUSION_DELAY 2 vs 8, the auto-bond default
+ * 80 vs 99). NO NEW TRUST: this page is served by the same relay, which already supplies this code, every balance and
+ * every fee target. tests/test_constant_mirrors.py refuses any of these names re-declared as a literal.
+ * Values that can move under a running page (finality_depth, the lease, the fidelity gap, chain_id) are still
+ * ADOPTED from /status by refreshNetIdentity(); the import is their starting value.
  * -------------------------------------------------------------------------------------------- */
+import * as P from "/protocol.js";
+import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
+         DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
+         BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=1d249c14";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js?v=4e224dbe";
@@ -40,14 +51,12 @@ import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlo
 // literal had not been touched since betanet-2).
 const LS_CHAIN_ID = "nado_chain_id";
 const CHAIN_ID_SAVED = (() => { try { return localStorage.getItem(LS_CHAIN_ID) || ""; } catch (e) { return ""; } })();
-let CHAIN_ID = CHAIN_ID_SAVED || "betanet-9";   // default MUST track protocol.CHAIN_ID; refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+let CHAIN_ID = CHAIN_ID_SAVED || P.CHAIN_ID;   // the serving relay's protocol.CHAIN_ID until refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
 let netAdopted = false;                          // true once a relay's /status has confirmed CHAIN_ID THIS session
-const EPOCH_LENGTH = 60;
-let FINALITY_DEPTH = 45;     // MUST match protocol.py FINALITY_DEPTH: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
-// Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
+let FINALITY_DEPTH = P.FINALITY_DEPTH;     // protocol.FINALITY_DEPTH (adopted from /status): reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
+// Registration Proof of Sequential Work (POSW_T/S/K/ANCHOR_OFFSET imported above). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once per its class's grant (36 h for a phone, 7 days otherwise).
-const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 150;
-let POSW_LEASE_EPOCHS = 360;   // the historical / default grant (protocol.POSW_LEASE_EPOCHS); refreshNetIdentity() adopts the relay's value
+let POSW_LEASE_EPOCHS = P.POSW_LEASE_EPOCHS;   // the historical / default grant (protocol.POSW_LEASE_EPOCHS); refreshNetIdentity() adopts the relay's value
 // PER-CLASS LEASES (protocol.LEASE_V2_EPOCH, 2026-09-14): a phone keeps 36 h, a Windows PC, Ledger, Trezor or enrolled
 // chip is present for 7 days per renewal. The relay tells the wallet the lease THIS identity's latest recert granted
 // (`devbind.lease_epochs` on /get_account) and the class table (`lease_epochs_by_class` on /status); every countdown,
@@ -67,8 +76,7 @@ function leaseText(acc, epochSecs) { return humanizeSeconds(leaseEpochsOf(acc) *
 // were wrong: the budget has to cover the WORK the difficulty demands, and an entry registration owes up
 // to 512 x POSW_T sequential hashes — unfinishable on a phone inside 180 s, which surfaced only as a
 // rejected tx. protocol.py now separates the two: offset 150, target 90, so the anchor is tip-60 (deeper
-// than FINALITY_DEPTH at prove time) and the budget is 90 blocks = 540 s. MUST match protocol.py.
-const POSW_TARGET_MARGIN = 90;
+// than FINALITY_DEPTH at prove time) and the budget is 90 blocks = 540 s. POSW_TARGET_MARGIN is imported above.
 // The margin a PARTICULAR proof needs, rather than the worst case. `register` lands EXACTLY at max_block,
 // so every block of margin is latency the user waits through — and the ceiling (90 = 9 min) is budgeted
 // for the most expensive ENTRY proof at a flood multiplier, which a renewal never pays. Derived from the
@@ -84,25 +92,26 @@ function poswTargetMarginFor(requiredT) {
   const blocks = Math.ceil((secs * 3) / 6) + 12;          // 3x headroom + propagation floor
   return Math.max(12, Math.min(POSW_TARGET_MARGIN, blocks));
 }
-const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
-// ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
-const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
-const MSIG_PREFIX = "msig";                 // policy accounts (multisig) — own discriminator
+const DENOMINATION = BigInt(P.DENOMINATION); // 1 NADO in raw units (1e10)
+// ADDRESS FORMAT — protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point), served by the relay.
+const ADDR_PREFIX = P.ADDRESS_PREFIX;    // "" since betanet-14; MSIG_PREFIX (imported) is the policy-account discriminator
 // ADDRESS FORMAT 2 (gen 28): mirrors ops/address_ops.make_address and static/nadotx.js (tests/test_address_format_v2.py).
 // A key-derived address commits to the WHOLE public key (format 1's first 21 bytes are the key's rho, which a forger
 // chooses); a multisig address (its own prefix) keeps format 1's body rule — its descriptor hash's first 42 hex.
-const DOMAIN_ADDRESS_V2 = "nado-address-v2";
+// (DOMAIN_ADDRESS_V2 is imported above.)
 // a 4-byte checksum (protocol.ADDRESS_CHECKSUM; format 1 had 2): an old 46-char address is not an address here
-const ADDR_CK = 4;
-const ADDR_BODY = 42, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;          // 50
+const ADDR_CK = P.ADDRESS_CHECKSUM;
+const ADDR_BODY = P.ADDRESS_BODY, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + ADDR_CK * 2;          // 50
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
 const MSIG_RE_I = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$", "i");   // policy accounts are payable
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
-// DOMAIN-SEPARATION TAGS — mirror protocol.py DOMAIN_* (renamed only at a CHAIN_GENERATION reroll).
-const DOMAIN_MSIG = "msig-v2", DOMAIN_REGISTER = "register-v1";
-const DOMAIN_RANDAO_COMMIT = "randao-commit-v1", DOMAIN_RANDAO_SECRET = "randao-secret-v1";
+// DOMAIN-SEPARATION TAGS — protocol.py DOMAIN_MSIG / DOMAIN_REGISTER / DOMAIN_RANDAO_COMMIT are imported above.
+// DOMAIN_RANDAO_SECRET is NOT a protocol constant and stays here: the per-epoch secret derives from the USER'S SEED
+// (randaoSecretFor), no node ever computes it, and a relay's answer must never be able to move it between a commit
+// and its reveal.
+const DOMAIN_RANDAO_SECRET = "randao-secret-v1";
 // ⚠ KEY-DERIVED TAGS — these derive from the USER'S SEED, not the chain: a reroll does NOT reset
 // them, and renaming them silently orphans every derived account / shielded note. FROZEN FOREVER
 // (they are invisible to users); a rename would require explicit migration code, never a sed.
@@ -112,25 +121,22 @@ const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // shielded nullifier-secret d
 // proof published the v1 key; reusing it for the wide pool would hand anyone holding an old proof the new spend key.
 const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";
 const DOMAIN_FORUM_LOGIN = "forum-login-v1";      // forum login challenge (matches forum/server.py)
-const MIN_TX_FEE = 1000;
+// MIN_TX_FEE is imported above.
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
 // fast-forward always hits (steady block_time). Mirror of protocol.TX_INCLUSION_DELAY.
-// HAND-MAINTAINED MIRROR — the one constant on this page not derived from the node, so the one that can
-// silently drift. It sat at 2 while protocol.py moved to 8: the browser stamped min_block = tip + 2,
-// producers that had not yet seen the tx rejected it as too early, and a send looked like an intermittent
-// network fault rather than a constant mismatch. Keep in lockstep with protocol.TX_INCLUSION_DELAY.
-const TX_INCLUSION_DELAY = 8;
+// IMPORTED from /protocol.js (above). It was a hand-maintained mirror that sat at 2 while protocol.py moved to 8:
+// the browser stamped min_block = tip + 2, producers that had not yet seen the tx rejected it as too early, and a
+// send looked like an intermittent network fault rather than a constant mismatch.
 // GENEROUS landing headroom for a FLEXIBLY-landing tx (value send, blob/collect, bridge, dividend_withdraw):
 // max_block = tip + this, so the tx may be mined anywhere in [min_block, max_block] and does not expire (and
 // re-gossip-flood "Target block too low") before a producer includes it. Kept below the tip+360 mempool cap.
-// Mirror of protocol.TX_TARGET_MARGIN. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
-const TX_TARGET_MARGIN = 300;
-const BOND_UNLOCK_DELAY = 14400; // protocol.py: blocks a bond stays locked after an unbond request (= 1 day at 6s)
+// protocol.TX_TARGET_MARGIN, imported. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
+// BOND_UNLOCK_DELAY (imported): blocks a bond stays locked after an unbond request (= 1 day at 6s).
 // No per-identity bond cap (protocol.py, removed 2026-08-25): bonded weight is linear in stake, so autoBond()
 // below compounds without an upper stop. (The old BOND_CAP was per key and only ever idled honest miners' coins.)
-const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
-const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
+// ALIAS_REGISTRATION_FEE (imported): the 0.001 NADO anti-squat fee for `alias` register.
+const AUTO_BOND_MIN_RAW = BigInt(P.AUTO_BOND_MIN_RAW);  // protocol.py: dust floor for an auto-bond (0.001 NADO)
 
 /* ----------------------------------------------------------------------------------------------
  * Dependency loading: @noble/hashes (blake2b) + @noble/post-quantum (ML-DSA-44) as ESM from a CDN.
@@ -1538,7 +1544,7 @@ const state = {
   recommendedFee: null,
   // AUTO-BOND (client-side, opt-in): compound a % of newly-mined earnings straight into bonded stake
   // while mining, at most once per epoch. baseline = last balance we've accounted for.
-  autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
+  autoBondPct: P.AUTO_BOND_DEFAULT_PERCENT,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
   // A DIVIDEND IS EARNINGS TOO (2026-09-19). The baseline below counts `produced`, the chain's MINED
   // counter — correct for keeping transfers/faucet/bridge/withdrawals out, but the presence dividend is
@@ -2593,15 +2599,13 @@ function nadoToRaw(amountStr) {
 // of blocks (70%). Bonded rewards are shared across the lane's producing weight (curved shares of B_MIN = 10 NADO), so the APY on
 // staked capital ≈ (annual bonded producer reward ÷ total bonded shares) ÷ B_MIN. The dividend is paid to
 // PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
-const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
-const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
-const FIDELITY_CAP = 30;                   // protocol.py FIDELITY_CAP: continuous recerts to fully ramp the open bonus
-let FIDELITY_MIN_GAP_EPOCHS = 192;       // protocol.py: a recert earns +1 only this far after the previous one
-// Reward split per lane (protocol.py, basis points) — shown on the Selection lanes card. MUST track protocol.py
-// (test_constant_mirrors pins them): a split change that is not mirrored here tells users the wrong story.
-const TREASURY_BPS = 1000;               // every block: treasury cut
-const OPEN_TIP_BPS = 2000;               // open-lane block: producer's tip; the rest (minus treasury) is the presence pot
-const BONDED_DIVIDEND_BPS = 4000;        // savings-lane block: slice into the presence pot; producer keeps the rest
+const B_MIN_RAW = BigInt(P.B_MIN);         // protocol.B_MIN: 10 NADO per bonded selection share
+const BASE_SUBSIDY_RAW = BigInt(P.BASE_SUBSIDY);   // protocol.BASE_SUBSIDY: 0.1 NADO/block, the max emission per block
+// FIDELITY_CAP (imported): continuous recerts to fully ramp the open bonus.
+let FIDELITY_MIN_GAP_EPOCHS = P.FIDELITY_MIN_GAP_EPOCHS;   // a recert earns +1 only this far after the previous one (adopted from /status)
+// Reward split per lane (protocol.py, basis points) — shown on the Selection lanes card: TREASURY_BPS (every block's
+// treasury cut), OPEN_TIP_BPS (open-lane producer's tip; the rest minus treasury is the presence pot) and
+// BONDED_DIVIDEND_BPS (savings-lane slice into the presence pot) are imported from /protocol.js above.
 async function estimateSavingsApy() {
   const box = $("apyResult");
   if (!box) return;
@@ -2839,7 +2843,9 @@ function renderThemePicker() {
   }
 }
 const LS_MINING = "nado_mining";           // "1" while mining, so a browser refresh auto-resumes (no re-click)
-const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
+// The default when the user has never set one: protocol.AUTO_BOND_DEFAULT_PERCENT (99). This literal sat at 80 while
+// protocol.py had moved to 99 — a fresh browser compounded at a different rate than a fresh node.
+const AUTO_BOND_DEFAULT_PCT = P.AUTO_BOND_DEFAULT_PERCENT;
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
 const LS_PENDING_CLAIM = "nado_pending_claim"; // sessionStorage: a banknote claim link awaiting wallet setup
 
@@ -6631,7 +6637,7 @@ function setAutoBondPct(pct) {
   pct = Math.max(0, Math.min(100, Math.floor(Number(pct) || 0)));
   state.autoBondPct = pct;
   // Always persist — INCLUDING 0 — so an explicit "off" is remembered and does NOT fall back to the
-  // AUTO_BOND_DEFAULT_PCT (80%) default on the next load (which only applies when nothing was ever set).
+  // AUTO_BOND_DEFAULT_PCT default on the next load (which only applies when nothing was ever set).
   try { localStorage.setItem(LS_AUTOBOND, String(pct)); } catch (e) {}
   const note = $("autoBondNote");
   if (note) note.textContent = pct
@@ -7445,9 +7451,8 @@ function resumePendingClaim() {
  * tests/test_wallet_invite_flow.mjs drives with stubs — both LIFT this block from the file, so keep it contiguous
  * between the two marker lines. */
 const LS_PENDING_INVITE = "nado_pending_invite";   // localStorage: an invite link opened here, kept until it is claimed
-const INVITE_MIN_TIMELOCK = 1440;                  // protocol.INVITE_MIN_TIMELOCK
-const INVITE_MAX_TIMELOCK = 432000;                // protocol.INVITE_MAX_TIMELOCK
-const INVITE_BLOCKS_PER_DAY = 14400;               // 6 s blocks
+// INVITE_MIN_TIMELOCK / INVITE_MAX_TIMELOCK are imported from /protocol.js at the top of this file.
+const INVITE_BLOCKS_PER_DAY = 86400 / P.BLOCK_TIME;   // protocol.BLOCK_TIME (6 s) -> 14,400 blocks a day
 const INVITE_DEFAULT_DAYS = 7;
 const INVITE_LAND_AHEAD = 8;                       // exact-landing reserved txs land at tip + 8 (as htlc_lock does)
 // A link opened within a minute of being made can be read before its lock has landed: /invite answers null then. Only
@@ -11391,12 +11396,14 @@ async function boot() {
 
   // auto-bond preference (persisted %); reflect it into the Stake-tab control + the status note
   try {
-    // No saved preference at all -> the 80% default (auto-bond on out of the box). A stored value
+    // No saved preference at all -> the protocol default (AUTO_BOND_DEFAULT_PCT; auto-bond on out of the box). A stored value
     // (including "0" for explicit off) is honoured verbatim.
     const raw = localStorage.getItem(LS_AUTOBOND);
     const saved = raw === null ? AUTO_BOND_DEFAULT_PCT : (parseInt(raw, 10) || 0);
     const p = setAutoBondPct(saved);
     if ($("autoBondPct")) $("autoBondPct").value = String(p);
+    // the placeholders in interface.html are only first paint; the default they show is the protocol's
+    for (const id of ["autoBondPct", "autoBondPctMine"]) if ($(id)) $(id).placeholder = String(AUTO_BOND_DEFAULT_PCT);
   } catch (e) {}
 
   try {

@@ -67,6 +67,10 @@ export function blake2bHash(data, size = 32) { return bytesToHex(blake2b(canonic
 
 // ---- keys / address ------------------------------------------------------------------------------
 // ADDRESS FORMAT — mirrors protocol.py ADDRESS_PREFIX/BODY/CHECKSUM (the one-constant rebrand point).
+// THE ONE PINNED COPY (2026-10-10). Every other client imports these from the relay's /protocol.js; this file does not,
+// because it is the environment-free crypto SDK: the game engines and their contract cross-checks load it in plain
+// Node (tests, vector generators) where there is no relay to import from. tests/test_constant_mirrors.py names exactly
+// these four as the exemption and pins each one's VALUE to protocol.py, so the copy cannot drift silently.
 export const ADDR_PREFIX = ""    // removed at betanet-14; NO backwards compatibility;
 // ADDRESS FORMAT 2 (gen 28; protocol.py "ADDRESS FORMAT 2"): the body is a hash of the WHOLE public key — format 1's
 // first 21 bytes are the key's rho, which a forger chooses. Byte-identical to ops/address_ops.make_address

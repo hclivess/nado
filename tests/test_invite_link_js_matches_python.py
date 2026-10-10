@@ -46,6 +46,8 @@ def check(name, cond, detail=""):
 NODE_RUNNER = r"""
 import { readFileSync } from "node:fs";
 const crypto = await import(%(crypto)s);
+// the protocol constants the wallet imports from the relay's /protocol.js, rendered from protocol.py
+const { P } = await import(%(hook)s);
 const js = readFileSync(%(iface)s, "utf8");
 const cut = (a, b) => { const i = js.indexOf(a), j = js.indexOf(b, i + 1); if (i < 0 || j < 0) throw new Error("slice not found: " + a); return js.slice(i, j); };
 const src = cut("function jsonEscapeAscii(", "function blake2bHashLink(")
@@ -53,7 +55,7 @@ const src = cut("function jsonEscapeAscii(", "function blake2bHashLink(")
   + cut("/* ==== FUNDED INVITE LINKS + REFERRALS", "/* ==== end FUNDED INVITE LINKS + REFERRALS ==== */");
 const load = (chainId) => new Function("env", `with (env) { ${src}\n return { inviteKeyOf, inviteIdOf, inviteClaimSig }; }`)({
   blake2b: crypto.blake2b, bytesToHex: crypto.bytesToHex, hexToBytes: crypto.hexToBytes, ml_dsa44: crypto.ml_dsa44,
-  CHAIN_ID: chainId, TextEncoder });
+  CHAIN_ID: chainId, P, TextEncoder });
 let raw = ""; process.stdin.on("data", (c) => raw += c); process.stdin.on("end", () => {
   const req = JSON.parse(raw);
   const w = load(req.chain_id), other = load(req.other_chain);
@@ -81,6 +83,7 @@ def main():
     with open(runner, "w") as f:
         f.write(NODE_RUNNER % {
             "crypto": json.dumps("file://" + os.path.join(ROOT, "static", "vendor", "nado-crypto.js")),
+            "hook": json.dumps("file://" + os.path.join(ROOT, "tests", "protocol_hook.mjs")),
             "iface": json.dumps(os.path.join(ROOT, "static", "interface.js"))})
     req = {"chain_id": CHAIN_ID, "other_chain": CHAIN_ID + "-other", "cases": cases}
     p = subprocess.run(["node", runner], input=json.dumps(req), capture_output=True, text=True, timeout=180)

@@ -2919,12 +2919,57 @@ async def static_handler(request):
     # pair a fresh importer with a stale imported module (missing-export -> dead page). Read + rewrite in
     # process (JS files are small); everything else streams via FileResponse.
     if full.endswith(".js"):
-        cached = await asyncio.to_thread(_static_cached, full, lambda raw: (_stamp_js_imports(raw), None))
+        cached = await asyncio.to_thread(_static_cached, full,
+                                         lambda raw: (_stamp_protocol_import(_stamp_js_imports(raw)), None))
         if cached is None:
             return web.Response(status=404, text="Not found")
         return web.Response(body=cached[0], content_type="application/javascript", charset="utf-8",
                             headers=headers)
     return web.FileResponse(full, headers=headers)
+
+
+# GET /protocol.js and /protocol.json (2026-10-10, ops/client_protocol.py): protocol.CLIENT_EXPORTS rendered from the
+# module THIS process runs, so a browser client imports the constants instead of carrying hand-made copies that drifted
+# (FINALITY_DEPTH 12 vs 45, TX_INCLUSION_DELAY 2 vs 8, auto-bond default 80 vs 99). Rendered in memory, never written
+# into the tree (a tracked build product at its generated path once bricked the fleet fast-forward). No new trust: the
+# wallet and the games are served by this same relay, which already supplies their code, balances and fee targets.
+# CACHING: every served .js that imports "/protocol.js" is rewritten to "/protocol.js?v=<hash of the rendered body>"
+# (_stamp_protocol_import below), and a request carrying the CURRENT hash is immutable for a year — the URL changes
+# exactly when the values do, i.e. after a protocol.py commit restarts the node. An unstamped or stale-stamped request
+# (the website's cross-origin import, an old cached importer) gets no-cache + a strong ETag, so it revalidates in one
+# small round trip and can never pin an old value. CORS is open: nadochain.com's /emission imports it cross-origin.
+_PROTOCOL_IMPORT_RE = re.compile(rb'((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["\'])/protocol\.js(?:\?v=[A-Za-z0-9_.-]*)?(["\'])')
+
+
+def _stamp_protocol_import(js_bytes):
+    """Rewrite `from "/protocol.js"` (and import("/protocol.js")) in a served .js to the content-hash stamped URL. The
+    static body cache needs no extra key: the hash is fixed for the life of the process."""
+    from ops.client_protocol import rendered
+    v = rendered()[2].encode()
+    return _PROTOCOL_IMPORT_RE.sub(lambda m: m.group(1) + b"/protocol.js?v=" + v + m.group(2), js_bytes)
+
+
+def _protocol_response(request, body, content_type):
+    from ops.client_protocol import rendered
+    ver = rendered()[2]
+    etag = '"' + ver + '"'
+    headers = {"Cache-Control": "public, max-age=31536000, immutable" if request.query.get("v") == ver else "no-cache",
+               "ETag": etag, "Access-Control-Allow-Origin": "*"}
+    if etag in (t.strip() for t in request.headers.get("If-None-Match", "").split(",")):
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=body, content_type=content_type, charset="utf-8", headers=headers)
+
+
+async def protocol_js(request):
+    """GET /protocol.js: protocol.CLIENT_EXPORTS as an ES module (`export const NAME = value;`)."""
+    from ops.client_protocol import rendered
+    return _protocol_response(request, rendered()[0], "application/javascript")
+
+
+async def protocol_json(request):
+    """GET /protocol.json: the same names and values as JSON (integers above 2^53 - 1 as decimal strings)."""
+    from ops.client_protocol import rendered
+    return _protocol_response(request, rendered()[1], "application/json")
 
 
 async def favicon(request):
@@ -3445,6 +3490,8 @@ async def make_app(port):
         web.get("/force_sync", force_sync),
         web.get("/favicon.ico", favicon),
         web.get("/robots.txt", robots_txt),
+        web.get("/protocol.js", protocol_js),
+        web.get("/protocol.json", protocol_json),
         web.get("/static/miner.{ext:html|js|css}", legacy_static_redirect),   # old name -> interface.*
         web.get("/static/{path:.*}", static_handler),
     ])

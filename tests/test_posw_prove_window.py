@@ -104,13 +104,13 @@ def main():
               and sum(1 for ln in _reg.split('"""')[-1].splitlines()
                       if ln.strip() and not ln.strip().startswith("#")) == 1)
         js = open(os.path.join(root, "static", "interface.js")).read()
-        # the wallet carries its own copies of both constants; they must track protocol.py exactly
-        m_off = re.search(r"POSW_ANCHOR_OFFSET\s*=\s*(\d+)", js)
-        m_mar = re.search(r"const POSW_TARGET_MARGIN\s*=\s*(\d+)", js)
+        # the wallet IMPORTS both from the relay's /protocol.js (rendered from this protocol.py; values pinned by
+        # tests/test_constant_mirrors.py) — it used to carry its own copies, which is how they could drift
+        imp = re.search(r'import \{([^}]*)\} from "/protocol\.js"', js)
         check("the wallet's POSW_ANCHOR_OFFSET matches protocol.py",
-              bool(m_off) and int(m_off.group(1)) == POSW_ANCHOR_OFFSET)
+              bool(imp) and re.search(r"\bPOSW_ANCHOR_OFFSET\b", imp.group(1)) is not None)
         check("the wallet's POSW_TARGET_MARGIN matches protocol.py",
-              bool(m_mar) and int(m_mar.group(1)) == POSW_TARGET_MARGIN)
+              bool(imp) and re.search(r"\bPOSW_TARGET_MARGIN\b", imp.group(1)) is not None)
 
         # ---- and the anchor arithmetic itself ---------------------------------------------------------
         # validate_transaction derives the anchor from the tx's OWN max_block; a client that targets
