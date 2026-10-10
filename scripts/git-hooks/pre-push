@@ -17,7 +17,10 @@ while read -r lref lsha rref rsha; do
   [ "$lsha" = "$Z" ] && continue                                   # a delete
   base=$rsha; [ "$base" = "$Z" ] && base=$(git merge-base "$lsha" origin/main 2>/dev/null || echo "")
   range=${base:+$base..}$lsha
-  for c in $(git rev-list "$range"); do
+  # INVARIANT: only NON-MERGE commits are judged, because a merge's `git show --name-only` lists just the files its
+  # conflict resolution touched — never the parents' tests — so every merge looked like code without a test
+  # (2026-10-10, the rel3 push). Each merged commit is in the range itself and is judged on its own.
+  for c in $(git rev-list --no-merges "$range"); do
     files=$(git show --name-only --format= "$c")
     code=$(echo "$files" | grep -vE '^(doc/|tests/|legal/|graphics/|website/|genesis_data/)|\.md$|^$' || true)
     tst=$(echo "$files" | grep -E '^tests/' || true)

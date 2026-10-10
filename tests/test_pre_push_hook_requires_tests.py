@@ -54,5 +54,31 @@ check("with [no-test: <reason>] it passes the test check and reaches the core gu
       "without a test" not in r.stdout and "core guards" in r.stdout, r.stdout[-300:])
 r = push_check("docs", "doc/a.md", "words\n")
 check("a doc-only change needs no test", "without a test" not in r.stdout and "core guards" in r.stdout, r.stdout[-300:])
+
+# A conflicted merge of two tested branches: its combined diff lists ops/x.py and no test file. It must not be refused
+# (each parent commit carries its test and is judged itself); a code commit without a test in the same range still is.
+def commit(msg, files):
+    for p_, t_ in files.items():
+        os.makedirs(os.path.dirname(os.path.join(repo, p_)), exist_ok=True)
+        open(os.path.join(repo, p_), "w").write(t_)
+    git(repo, "add", "-A"); git(repo, *env_git, "commit", "-qm", msg)
+git(repo, "checkout", "-qb", "side", base)
+commit("side change", {"ops/x.py": "X = 10\n", "tests/test_side.py": "pass\n"})
+git(repo, "checkout", "-q", "-")
+commit("main change", {"ops/x.py": "X = 20\n", "tests/test_main.py": "pass\n"})
+subprocess.run(["git", "-C", repo, *env_git, "merge", "-q", "side"], capture_output=True)
+commit("merge side", {"ops/x.py": "X = 30\n"})
+merged = git(repo, "rev-parse", "HEAD")
+check("the merge's own combined diff names code and no test (the case being pinned)",
+      git(repo, "show", "--name-only", "--format=", merged).split() == ["ops/x.py"])
+r = subprocess.run(["bash", HOOK], input=f"refs/heads/main {merged} refs/heads/main {base}\n", cwd=repo,
+                   capture_output=True, text=True, env={**os.environ, "PY": sys.executable})
+check("a merge of tested commits is not refused as code without a test", "without a test" not in r.stdout, r.stdout[-300:])
+commit("untested change after the merge", {"ops/x.py": "X = 40\n"})
+head = git(repo, "rev-parse", "HEAD")
+r = subprocess.run(["bash", HOOK], input=f"refs/heads/main {head} refs/heads/main {base}\n", cwd=repo,
+                   capture_output=True, text=True, env={**os.environ, "PY": sys.executable})
+check("... while an untested commit in the same range still is",
+      "untested change after the merge" in r.stdout and "merge side" not in r.stdout, r.stdout[-300:])
 print("ALL PASS" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
