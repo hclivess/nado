@@ -5,7 +5,7 @@
 # actual rules engine with the actual pinned block hashes (all three secrets passed, so scroll buys are
 # exercised end to end). Then the settle paths run for real: reveal (commit-verified halves), the resign
 # cascade (last seat standing is paid the pot), a cancel refund, and a 2-seat unanimous-agree payout.
-# The full play-to-10-points path is proven headless (tests/hexholm_engine_test.mjs plays whole games);
+# The full play-to-10-points path is proven headless (tests/test_hexholm_engine_conserves_resources.mjs plays whole games);
 # this driver proves the CHAIN half: seeds, escrow, free-actor ply binding, payouts.
 import sys, json, time, urllib.request, random, subprocess
 import os
