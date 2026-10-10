@@ -206,6 +206,14 @@ deposit/spend effects join that list.
 | shielded address | `shieldAddr` in static/interface.js | owner = BLAKE2s(nsk) changes every zaddr — the wallet shows the new one; deposits to an old-format zaddr are refused from the gate |
 | exits | unchanged | unshield records and their L1 claims are the same exit records; only the proof that creates them changes |
 
+**Toolchains (measured 2026-10-11).** Stwo pins `nightly-2026-01-15`, and fleet nodes build native crates on whatever
+stable cargo they have, without our root. The split that works: the WALLET prover (WASM) is built here, on nightly, and
+shipped as a file; the NODE verifier is Stwo with `default-features = false, features = ["std"]` (no `prover`), which
+builds on stable rustc 1.95 (72 s, scratchpad/stwo0/stable_verify). Still to check before coding: that the ZK verify
+tail (stwo_zk `verify_js`) also builds on stable, and the OLDEST rustc on the fleet (Stwo's edition needs a recent
+compiler; nodes do not report theirs — add it to /status first, and refuse loudly in `_build_crates` if too old,
+never fail-stop the exec node).
+
 **Gates on value.** Deposits into the new pool are refused until (a) the zero-knowledge argument is written and
 reviewed (scratchpad/stwo0/zkproof/ARGUMENT.md is the draft; an outside review is the step that cannot be done here) and
 (b) a deposit cap is set in protocol for the first weeks. Spends need no cap: a spend can only move what was deposited.
