@@ -142,8 +142,21 @@ def main():
     check("nado.py routes GET /protocol.json", 'web.get("/protocol.json", protocol_json)' in nsrc)
     check("both handlers render through ops.client_protocol (one renderer, in memory)",
           nsrc.count("from ops.client_protocol import rendered") >= 3)
-    check("served .js has its /protocol.js import stamped",
-          "_stamp_protocol_import(_stamp_js_imports(raw))" in nsrc)
+    check("the static versioner is built with the /protocol.js stamp as its module transform",
+          "_StaticVersions(_STATIC_DIR, js_transform=lambda raw: _stamp_protocol_import(raw))" in nsrc)
+    # Behaviour, not text: a module served through ops.static_versions with that transform carries the stamp, and its
+    # version moves when the stamp does (an importer's URL must change when the constants change).
+    import tempfile as _tf
+    from ops.static_versions import StaticVersions
+    _d = _tf.mkdtemp(prefix="nado-test-protostamp-")
+    open(os.path.join(_d, "a.js"), "w").write('import { B_MIN } from "/protocol.js";\nimport "./b.js";\n')
+    open(os.path.join(_d, "b.js"), "w").write("export const x = 1;\n")
+    def _sv(v):
+        return StaticVersions(_d, js_transform=lambda raw: raw.replace(b'"/protocol.js"', b'"/protocol.js?v=' + v + b'"'))
+    b1, v1 = _sv(b"aaaa").get(os.path.join(_d, "a.js"))
+    b2, v2 = _sv(b"bbbb").get(os.path.join(_d, "a.js"))
+    check("served .js has its /protocol.js import stamped", b'"/protocol.js?v=aaaa"' in b1 and b'"./b.js?v=' in b1, b1)
+    check("a module's version moves with the protocol stamp it carries", v1 != v2)
     m = re.search(r"^_PROTOCOL_IMPORT_RE = (re\.compile\(.*\))$", nsrc, re.M)
     check("the stamp pattern is found in nado.py", m is not None)
     if m:
