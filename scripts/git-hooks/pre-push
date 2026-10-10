@@ -3,7 +3,8 @@
 # on the push host (this checkout: every push to the fleet goes through it). Refuses the push when:
 #   1. a pushed commit changes code (anything outside doc/, tests/, *.md and a few asset dirs) without adding or
 #      changing a file under tests/ — unless its message carries "[no-test: <reason>]" (a reason, not a shrug);
-#   2. a core guard fails: undefined names, the gate ledger, test isolation, the exec-file guard, i18n coverage;
+#   2. a core guard fails: undefined names, the gate ledger, test isolation, every file in tests/ run or declared,
+#      the exec-file guard, i18n coverage;
 #   3. any test the push adds or changes fails (run the way scripts/run_tests.sh runs it — isolated HOME, live tests
 #      skipped). Only its FAST tier: a changed test that takes a minute or more is listed as DEFERRED, not run.
 # The 2026-09-26 audit found 8 code commits of one session with no test of their own. Bypass (git push --no-verify)
@@ -33,6 +34,7 @@ done
 [ "$fail" = 0 ] || { echo "pre-push: refused — every change ships with its test"; exit 1; }
 echo "pre-push: core guards"
 for g in tests/test_no_undefined_names.py tests/test_gate_reroll_transfer.py tests/test_tests_are_isolated.py \
+         tests/test_every_file_in_tests_is_run_or_declared.py \
          tests/test_tests_never_touch_live_exec_state.py; do
   env -i PATH="$PATH" HOME="$(mktemp -d)" "$PY" "$g" > /tmp/pre-push-guard.log 2>&1 || { echo "  FAIL $g"; tail -5 /tmp/pre-push-guard.log; fail=1; }
 done
