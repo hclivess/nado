@@ -73,8 +73,15 @@ That last rule is the method worth copying: an optimization that changes no outp
 
 **Measured progression** (from the commit messages): peak memory 11.73 GB (896dc54) → 8.24 GiB (88f22f7) → 5.87
 (754321f) → **2.11** (0e80cbf) → **1.81 GiB** (cb63e35). Time ranged from 0.51× to 0.94× of the pinned prover as
-memory trades were taken; the latest is 0.807× (19.3 % faster). The post's 13.9 GiB starting figure and the Pixel run
-are **not** in the repository: the evaluator and the phone build live elsewhere.
+memory trades were taken; the latest is 0.807× (19.3 % faster).
+
+The authors' announcement (2026-10) states the same result from their evaluator: peak memory **13.9 GiB → 2.1 GiB in
+under two weeks without dropping below the original speed**, and a **Pixel 11 producing the full STARK proof of a real
+Starknet mainnet transaction in 51 s using 2.41 GiB of RAM**. The repository's records agree with the parts it holds
+(2.11 GiB at 0e80cbf, speed recovered afterwards). The 13.9 GiB baseline and the phone run come from their evaluator and
+phone build, which are not in the repository. Their point about privacy is ours too: in most private-payment flows the
+proof is made on a server that sees who pays whom and how much, and a phone-sized prover keeps that on the phone. Our
+wallet already proves client-side; what Stwo would change is how fast and how small that proof is on a phone.
 
 **Where the memory went** (all bit-exact):
 
