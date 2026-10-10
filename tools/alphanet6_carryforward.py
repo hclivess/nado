@@ -145,6 +145,16 @@ def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy, tip: int 
     return out, kept
 
 
+def exec_assets_doc(d: dict) -> dict:
+    """The exec ASSETS of a snapshot as the exec genesis carries them (execnode/exec_genesis.apply): asset records,
+    holdings and allowances verbatim — an asset record holds no height and its id derives from (issuer, seed) — with
+    zero holdings dropped and amounts as decimal strings (never floats)."""
+    return {"assets": json.loads(json.dumps(d.get("assets") or {})),
+            "abal": {a: {h: str(_num(n)) for h, n in sorted(hs.items()) if _num(n)}
+                     for a, hs in sorted((d.get("abal") or {}).items())},
+            "allow": json.loads(json.dumps(d.get("allow") or {}))}
+
+
 _EXEC_GENESIS = [None]
 
 
@@ -152,18 +162,15 @@ def exec_value_the_carry_would_drop(d: dict) -> list:
     """Reasons this exec snapshot holds value the carry cannot move yet ([] = nothing would be lost). The carry used to
     check only the LEGACY pool (`shielded`), while every shield deposit from block 1 lands in the WIDE pool and some in
     the field pool and app_state; and it ignored exec-side ASSETS (`abal`) entirely, so a held token died with the
-    generation. INVARIANT: every place exec value can sit is either folded by this tool or listed here, because a reroll
-    that silently drops a holder's note or token is a theft by the protocol."""
+    generation (assets now carry in the exec genesis). INVARIANT: every place exec value can sit is either folded or
+    carried by this tool or listed here, because a reroll that silently drops a holder's note or token is a theft by the
+    protocol."""
     out = []
     for name in ("shielded", "field_pool", "wide_pool", "app_state"):
         pool = d.get(name) or {}
         if pool.get("commitments") or pool.get("trees"):
             out.append(f"{name} holds notes — holders must unshield before the reroll (or the pool must be carried)")
-    held = {aid: {h: a for h, a in (holders or {}).items() if _num(a)} for aid, holders in (d.get("abal") or {}).items()}
-    held = {aid: h for aid, h in held.items() if h}
-    if held:
-        out.append(f"exec assets are held ({len(held)} asset(s), {sum(len(h) for h in held.values())} holder(s)) — "
-                   "they have no L1 form to fold into")
+    # exec ASSETS are carried verbatim in the exec genesis (assets, abal, allow), so they are no longer a refusal
     return out
 
 
@@ -225,7 +232,8 @@ def build():
     _gen_contracts, kept_pots = exec_genesis_doc(contracts, pot_bridge, tip=int(d.get("cursor", 0)))
     from protocol import CHAIN_GENERATION as _G
     _EXEC_GENESIS[0] = {"generation": int(_G) + 1, "contracts": _gen_contracts,
-                        "bridge": {c: str(v) for c, v in sorted(kept_pots.items())}}
+                        "bridge": {c: str(v) for c, v in sorted(kept_pots.items())},
+                        **exec_assets_doc(d)}
     pot_refunds = {}
     for cid, pot in pot_bridge.items():
         if cid in kept_pots:

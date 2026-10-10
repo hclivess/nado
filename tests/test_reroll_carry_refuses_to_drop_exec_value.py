@@ -1,7 +1,7 @@
 """The reroll carry refuses to run while exec value it cannot move would be dropped (tools/alphanet6_carryforward.py).
 
 Found 2026-10-10: the carry checked only the LEGACY shielded pool, while every shield deposit from block 1 lands in the
-WIDE pool (and some in the field pool and app_state); and it ignored exec ASSETS (`abal`) entirely. A reroll with notes
+WIDE pool (and some in the field pool and app_state); and it ignored exec ASSETS (`abal`) entirely (they now carry in the exec genesis). A reroll with notes
 in the wide pool or a token held in exec would have dropped them silently — the coins are real, so that is a theft by
 the protocol. Pins: each place exec value can sit is refused while it holds value, and an empty snapshot (the live
 shape on 2026-10-10) is accepted.
@@ -32,8 +32,8 @@ for pool in ("shielded", "field_pool", "wide_pool"):
     got = drop(d)
     check(f"notes in the {pool} are refused", len(got) == 1 and pool in got[0], got)
 check("app_state notes are refused", any("app_state" in r for r in drop(dict(empty, app_state={"trees": {"x": 1}}))))
-check("a held exec asset is refused", any("assets are held" in r for r in drop(dict(empty, abal={"tok": {"a" * 46: 5}}))))
-check("a zero asset holding is not value", drop(dict(empty, abal={"tok": {"a" * 46: 0}})) == [])
+check("a held exec asset is no longer a refusal: assets carry in the exec genesis",
+      drop(dict(empty, abal={"tok": {"a" * 46: 5}})) == [])
 
 src = open(os.path.join(ROOT, "tools", "alphanet6_carryforward.py")).read()
 b = src[src.index("def build():"):]

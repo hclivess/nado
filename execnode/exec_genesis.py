@@ -7,7 +7,8 @@ genesis_data/exec_genesis.json, tagged with the generation it was built for:
 
     {"generation": G,
      "contracts": {cid: {"code", "abi", "deployer", "runtime", "upgradable", "storage"}},
-     "bridge":    {cid: "<raw>"}}                         # each carried contract's pot (a decimal string, never a float)
+     "bridge":    {cid: "<raw>"},                         # each carried contract's pot (a decimal string, never a float)
+     "assets": {aid: {...}}, "abal": {aid: {holder: n}}, "allow": {aid: {owner: {spender: n}}}}   # exec assets, verbatim
 
 and every exec node loads it into a FRESH state (cursor -1, no contracts) — at boot and at an in-process reset to
 genesis — so the new chain starts from identical bytes on every node. Contract ids are kept, so frontends need no
@@ -49,7 +50,8 @@ def load():
                 raise ValueError(f"exec genesis: pots for contracts it does not carry: {stray}")
             if any(v < 0 for v in bridge.values()):
                 raise ValueError("exec genesis: a negative pot")
-            out = {"contracts": contracts, "bridge": bridge}
+            out = {"contracts": contracts, "bridge": bridge,
+                   "assets": doc.get("assets") or {}, "abal": doc.get("abal") or {}, "allow": doc.get("allow") or {}}
     _CACHE[p] = out
     return out
 
@@ -71,6 +73,11 @@ def apply(state) -> bool:
     for cid, amt in sorted(g["bridge"].items()):
         if amt:
             state.bridge[cid] = amt
+    # EXEC ASSETS carry verbatim: an asset record holds no height, its id derives from (issuer, seed), and it has no L1
+    # form to fold into — so the only way a held token survives a reroll is to start the new layer holding it.
+    state.assets = copy.deepcopy(g.get("assets") or {})
+    state.abal = {a: {h: int(n) for h, n in hs.items()} for a, hs in (g.get("abal") or {}).items()}
+    state.allow = copy.deepcopy(g.get("allow") or {})
     state._touch()
     return True
 
