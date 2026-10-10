@@ -6,9 +6,9 @@
 // (a seat placed before the beacon rule has gb == 0 and keeps HASH(BLOCKHASH(gh) + BLOCKHASH(gh+1) + seatId)).
 // Once the beacon is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the bankroll
 // so the table keeps rolling. A seat nobody settles within HORIZON blocks of gh goes to the bank (reclaim).
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes, EPOCH_LENGTH } from "./nadodapp.js?v=42226f9f";
-import { BankedGame } from "./bankedgame.js?v=66957686";
-import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes, EPOCH_LENGTH } from "./nadodapp.js?v=2b19b6c0";
+import { BankedGame } from "./bankedgame.js?v=8fa1ed1a";
+import { Practice } from "./practice.js?v=fa9696bf";      // free in-browser practice (play chips, no chain)
 
 const CID = "28da34f204923d91f6486edfa4504427";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';

@@ -97,6 +97,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 |---|---|---|---|
 | GET | `/exec/bridge` | `?ns=` | `{balances, withdrawals}` — exec-side bridged balances |
 | GET | `/exec/withdrawal_proof` | `?ns=&nonce=` | Merkle proof for a `bridge_withdraw` exit (claim on L1) |
+| GET | `/exec/withdrawals` | `?address=[&root=]` | an address's unclaimed cash-outs (`amount` as a string), each with its proof once L1's settled root covers it; the wallet and game SDK claim them automatically |
 
 ### Presence dividend
 | Method | Path | Params | Returns |
@@ -195,7 +196,7 @@ your NADO wallet (delegated via the `exec_sign` redirect — the key never touch
 3. **Reveal** — `call reveal1|reveal2 {game, secret}` (256-bit CSPRNG secret; the commit is public, so low entropy would be brute-forceable).
 4. **Settle** — once both revealed, `call settle {game}` `PAY`s the whole pot to the winner (`result = HASH(s₁+s₂) % 2` → slot 1 or 2).
 5. **Or claim** — if an opponent withholds their reveal past the deadline (`CURSOR + 1000` blocks), `call claim {game}` awards the pot to the revealer by forfeit (no-reveal/no-opponent games refund). A sore loser can only stall, never steal.
-6. **Cash out** — `bridge_withdraw {amount}` → claim on L1 with `/exec/withdrawal_proof`.
+6. **Cash out** — `bridge_withdraw {amount}` → claim on L1 with `/exec/withdrawal_proof` (the wallet does this automatically from `/exec/withdrawals` once the record is settled; a game page asks the wallet's background signer with `{bridge_claim: {nonce}}`).
 
 There is **no coinflip read API**: the dApp derives game / lobby / scoreboard from the contract's storage maps
 via the generic `GET /exec/contract?cid=<coinflip-cid>` (storage maps: `st` stake, `pt` pot,

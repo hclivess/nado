@@ -7,9 +7,9 @@
 // bh(gh) + bh(gh+1) in place of the beacon). Resolve is permissionless; reap() times an 18,000-block idle
 // game out TO THE BANK (the player gets nothing back), so this client never reaps for the player. See
 // tests/test_mines_settle_from_the_beacon_and_time_out_to_the_bank.py — the contract enforces exactly this math.
-import { NadoDapp, chainResultAlg, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
-import { BankedGame } from "./bankedgame.js?v=66957686";
-import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, chainResultAlg, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=2b19b6c0";
+import { BankedGame } from "./bankedgame.js?v=8fa1ed1a";
+import { Practice } from "./practice.js?v=fa9696bf";      // free in-browser practice (play chips, no chain)
 
 const CID = "31691dd8ff6ed950aab4440278d38351";
 const T = 25, NMIN = 1, NMAX = 24, REAP = 18000;   // REAP = the contract's idle window (ge + 18000 < cursor)

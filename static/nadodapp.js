@@ -918,7 +918,8 @@ export function statusLabel(pend, ok, err, extra) {
   const labels = Object.assign({ connect: _t("connect", "Signed in."), deposit: _t("deposit", "Buy-in submitted — confirming…"),
     open: _t("open", "Table opening — confirming…"), bet: _t("bet", "Bet placed — confirming…"), join: _t("join", "Joining — confirming…"),
     settle: _t("settle", "Collecting — confirming on-chain (~1 min)…"), fund: _t("fund", "Topping up…"), close: _t("close", "Closing…"),
-    resolve: _t("resolve", "Rolling out — confirming…"), cancel: _t("cancel", "Cancelling…"), withdraw: _t("withdraw", "Cash-out submitted.") }, extra || {});
+    resolve: _t("resolve", "Rolling out — confirming…"), cancel: _t("cancel", "Cancelling…"), withdraw: _t("withdraw", "Cash-out submitted."),
+    bridge_claim: _t("cashClaimSent", "Cash-out claim sent — confirming…") }, extra || {});
   return ok ? (labels[pend && pend.phase] || _t("submitted", "Submitted.")) : _t("rejected", "Rejected") + (err ? ": " + err : ".");
 }
 // confirmingLabel(): the ONE ⏳ label for a button whose action is click-pending/confirming on-chain, so
@@ -1380,8 +1381,12 @@ export class NadoDapp {
   }
   _bgFlushToRedirect() {
     const svc = this._bgSvc; if (!svc) return;
-    const jobs = svc.queue.splice(0); if (svc.cur) { svc.cur = null; }
+    const all = svc.queue.splice(0); if (svc.cur) { svc.cur = null; }
     this._bgBusy(false);
+    // an AUTOMATIC request (onNeedUI set — the cash-out claim) never navigates the tab away from the game: it is told
+    // the background path failed and offers its own button. Only what the player clicked can redirect.
+    for (const j of all) if (j.onNeedUI) { try { j.onNeedUI("off"); } catch (e) {} }
+    const jobs = all.filter((j) => !j.onNeedUI);
     // ONE navigation only. location.href assignments don't stack — the old per-job loop overwrote LS_P and
     // the nav target once per job, so with N queued actions the LAST one silently replaced every earlier one
     // (the user's FIRST click was the one that died, unretried and unreported). Redirect the first job in
@@ -1390,13 +1395,13 @@ export class NadoDapp {
     // _bgPump timeout path redirects its timed-out job right before flushing the rest).
     if (jobs.length && !this._redirecting) this._goRedirect(jobs[0].obj, jobs[0].pend);
   }
-  _goBackground(obj, pend, isValue) {
+  _goBackground(obj, pend, isValue, onNeedUI, onResult) {
     const svc = this._ensureBgSvc();
-    if (!svc || svc.dead) return this._goRedirect(obj, pend);
+    if (!svc || svc.dead) return onNeedUI ? onNeedUI("off") : this._goRedirect(obj, pend);
     // sub-second SPECIFIC feedback: name the action the instant it's queued (the 🔏 pill only says
     // "Signing…"). Auto-dismisses; showReturn's "…confirming…" replaces it — a readable progression.
     if (obj.label) notify(_t("submitting", "Submitting: {label}…", { label: obj.label }), 2500);
-    svc.queue.push({ obj, pend, isValue });
+    svc.queue.push({ obj, pend, isValue, onNeedUI, onResult });
     this._bgPump();
     this._bgSyncBusy();
   }
@@ -1419,7 +1424,10 @@ export class NadoDapp {
       if (d.needui) {
         if (d.reason === "off" || d.reason === "locked" || d.reason === "untrusted") this._bgOff = true;   // global block
         else if (job.isValue) this._bgValueUI = true;                                                      // staked call needs a confirm
-        this._goRedirect(job.obj, job.pend);
+        if (job.onNeedUI) job.onNeedUI(d.reason || "confirm");                                            // automatic: never navigate
+        else this._goRedirect(job.obj, job.pend);
+      } else if (job.onResult) {
+        job.onResult(d.ok === 1 || d.ok === true || d.ok === "1", d);
       } else {
         const ok = d.ok === 1 || d.ok === true || d.ok === "1";   // the "ok=1" param rides as a STRING
         this._applyReturn(job.pend, ok, d.addr || null, d.err ? String(d.err) : "");
@@ -1430,11 +1438,12 @@ export class NadoDapp {
     };
     svc.timer = setTimeout(() => {                                // the loaded wallet went silent → treat service as dead, redirect
       if (!svc.cur) return; svc.cur = null; svc.dead = true;
-      this._goRedirect(job.obj, job.pend); this._bgFlushToRedirect();
+      if (job.onNeedUI) job.onNeedUI("timeout"); else this._goRedirect(job.obj, job.pend);
+      this._bgFlushToRedirect();
     }, 9000);
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(job.obj))));
     try { svc.frame.contentWindow.postMessage({ nadoExecSignReq: 1, payload, ret: base() + "/", app: this.app }, svc.walletOrigin); }
-    catch (e) { svc.cur = null; clearTimeout(svc.timer); this._goRedirect(job.obj, job.pend); }
+    catch (e) { svc.cur = null; clearTimeout(svc.timer); if (job.onNeedUI) job.onNeedUI("post"); else this._goRedirect(job.obj, job.pend); }
   }
   _go(obj, pend, bg, isValue) {
     if (bg && !obj.confirm) this._goBackground(obj, pend, isValue);
@@ -1513,7 +1522,7 @@ export class NadoDapp {
     if (!ok && pend) this._pendSettle(pend);   // rejected → release the click-guard immediately (no TTL lockout)
     // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
     // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
-    if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
+    if (ok && pend && pend.phase && !["connect", "deposit", "withdraw", "bridge_claim"].includes(pend.phase)) {
       this.inflight = Object.assign({ ts: Date.now(), cur0: this.cursor }, pend);   // cur0: tip at submit (settleInflight fallback)
     }
     // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line clears the
@@ -1564,7 +1573,7 @@ export class NadoDapp {
   }
   _pendSave(a) { try { localStorage.setItem(this.LS_CLICK, JSON.stringify(a)); } catch (e) {} }
   _pendAdd(pend, stakes, tipExpire) {
-    if (!pend || !pend.phase || ["connect", "deposit", "withdraw"].includes(pend.phase)) return;
+    if (!pend || !pend.phase || ["connect", "deposit", "withdraw", "bridge_claim"].includes(pend.phase)) return;
     const j = JSON.stringify(pend);
     const a = this._pendLoad().filter((e) => JSON.stringify(e.p) !== j);   // a re-submit refreshes its entry, never duplicates
     // cur0/nv ride on the ENTRY, not the pend — pend identity (the JSON above) must not change per submit
@@ -1844,7 +1853,7 @@ export class NadoDapp {
   clearInvite() { try { localStorage.removeItem(this.LS_INVITE); } catch (e) {} this._inviteFn = null; this._inviteExec = null; }
 
   // --- reads ---
-  async refresh() { await Promise.all([this._balances(), this._cursor()]); }
+  async refresh() { await Promise.all([this._balances(), this._cursor()]); this._cashOuts().catch(() => {}); }
   async _balances() {
     if (!this.me) { this.exec = 0n; this.l1 = 0n; return; }
     try { const b = await (await fetch(base() + "/exec/bridge?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.exec = BigInt((b.balances || {})[this.me] || 0); } catch { this.exec = 0n; }
@@ -1857,8 +1866,55 @@ export class NadoDapp {
       if (w.exec == null) { w.exec = this.exec; w.l1 = this.l1; w.ts = Date.now(); }   // baseline: first read after return
       else if (this.exec !== w.exec || this.l1 !== w.l1 || Date.now() - w.ts > 180000) {
         this._balWatch = null;   // balances moved (or timed out) → the buy-in / cash-out landed
-        okBar(w.phase === "deposit" ? _t("boughtOk", "✓ Tokens bought — your playable balance is updated.") : _t("cashedOk", "✓ Cashed out — back in your main-chain wallet."));
+        // A cash-out moving the PLAYABLE balance is only its first half: the exec layer recorded a withdrawal, and the
+        // coins are not in the main-chain wallet until the L1 claim lands (_cashOuts). This used to say "✓ Cashed out —
+        // back in your main-chain wallet" right here, while nothing ever claimed it (four cash-outs stuck, 2026-10-10).
+        // INVARIANT: "cashedOk" is raised only by _cashOuts, when the record is gone after its claim finalized.
+        if (w.phase === "deposit") okBar(_t("boughtOk", "✓ Tokens bought — your playable balance is updated."));
+        else { this._cashAt = 0; notify(_t("cashRecorded", "Cash-out recorded — it reaches your main-chain wallet after the next settlement (a few minutes). This page finishes it automatically."), 9000); }
       }
+    }
+  }
+  // CASH-OUT, SECOND HALF (static/interface.js "CASH-OUT CLAIM" is the other end). withdraw() only records a withdrawal on
+  // the exec layer; the coins reach the main-chain wallet when an L1 claim proves that record against a SETTLED root.
+  // Nothing built that claim, so every cash-out from every game stopped halfway. The game cannot sign it (the key never
+  // touches this origin), so once /exec/withdrawals shows a record as provable this asks the WALLET to claim it, through
+  // the hidden background signer — the wallet reads the record and proof itself and signs a fee-exempt, self-paying claim
+  // with no confirm. AUTOMATIC, so it never navigates the tab: a wallet that cannot sign in the background (locked,
+  // background signing off) gets ONE bar with a "Finish in wallet" button instead. Received = the record is gone (the exec
+  // node drops it only when the claim finalizes on L1), and only that raises "✓ Cashed out".
+  async _cashOuts() {
+    if (!this.me || typeof fetch === "undefined") return;
+    const now = this._nowMs ? this._nowMs() : Date.now();
+    if (this._cashAt && now - this._cashAt < (this._cashSeen && this._cashSeen.size ? 10000 : 60000)) return;
+    this._cashAt = now;
+    let d = null;
+    try { const r = await fetch(base() + "/exec/withdrawals?address=" + encodeURIComponent(this.me), { cache: "no-store" }); if (r.ok) d = await r.json(); } catch (e) {}
+    if (!d || !Array.isArray(d.pending)) return;               // exec blip / an exec node without the route: try later
+    if (!this._cashSeen) this._cashSeen = new Map();
+    if (!this._cashGate) this._cashGate = {};
+    const listed = new Map(d.pending.map((p) => [String(p.nonce), String(p.amount)]));
+    for (const [n, amt] of this._cashSeen) {
+      if (listed.has(n)) continue;
+      okBar(_t("cashedOk", "✓ Cashed out — back in your main-chain wallet.") + " (+" + rawToNado(BigInt(amt || 0)) + " NADO)");
+      delete this._cashGate[n];
+    }
+    this._cashSeen = listed;
+    for (const p of d.pending) {
+      const n = String(p.nonce);
+      if (!p.proof) continue;                                   // not covered by a settled root yet — next settle
+      const g = this._cashGate[n];
+      if (g && now < g.until) continue;                         // a claim for it is on its way
+      const amt = rawToNado(BigInt(p.amount || 0));
+      const label = _t("cashClaimLabel", "receive your cash-out of {a} NADO", { a: amt });
+      const finish = () => alertBar(_t("cashFinish", "Your cash-out of {a} NADO is ready — finish it in your wallet.", { a: amt }),
+        _t("cashFinishBtn", "Finish in wallet"), () => this._goRedirect({ bridge_claim: { nonce: n }, label }, { phase: "bridge_claim" }));
+      this._cashGate[n] = { until: now + 120000 };
+      if (this._bgOff) { this._cashGate[n].until = now + 600000; finish(); break; }   // known: no silent signing here
+      this._goBackground({ bridge_claim: { nonce: n }, label }, null, false,
+        () => { this._cashGate[n] = { until: now + 600000 }; finish(); },
+        (ok) => { if (!ok) this._cashGate[n] = { until: now + 30000 }; });   // refused (e.g. relay blip): retry soon
+      break;                                                    // one claim per pass — the queue stays shallow
     }
   }
   async _cursor() {

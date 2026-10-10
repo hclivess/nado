@@ -4510,6 +4510,45 @@ async def h_withdrawal_proof(request):
                               "proof": proof, "state_root": root})
 
 
+async def h_withdrawals(request):
+    """?address= -> that address's CASH-OUTS still waiting for their L1 claim, each with its proof when L1's settled root
+    covers it: {"address", "pending": [{nonce, amount, proof?, state_root?}], "settled_root", "settled_cursor",
+    "cursor", "settle_every"}. ?root= overrides the root the proofs are built against (default: L1's justified one).
+
+    WHY THIS EXISTS. A cash-out (blob op bridge_withdraw) only DEBITS the playable balance and records a withdrawal;
+    the coins reach L1 when a second, L1 `bridge_withdraw` tx proves that record against a settled root. Nothing in the
+    product built that second tx, and nothing could list a user's records except /exec/bridge, which returns every
+    balance and every withdrawal on the layer: four cash-outs (10.06 NADO, 2026-10-10) were debited and never paid.
+    The wallet and the game SDK read this to show "cash-out pending" and to claim each one the moment it is
+    provable. A record disappears here when its claim FINALIZES on L1 (state.drop_claimed), so "gone after a claim"
+    is the landed signal. Cheap for the common case: an address with nothing pending costs one dict scan and no L1
+    read; the proofs reuse the per-root tree cache (state.record_proof_at)."""
+    from execnode import exec_root as ER
+    addr = request.query.get("address", "")
+    if not addr:
+        return web.json_response({"error": "address required"}, status=400)
+    mine = [(n, w) for n, w in sorted(state.withdrawals.items(), key=lambda kv: (len(kv[0]), kv[0]))
+            if w.get("addr") == addr]
+    out = {"address": addr, "pending": [], "settled_root": None, "settled_cursor": None,
+           "cursor": state.cursor, "settle_every": SETTLE_EVERY}
+    if not mine:
+        return web.json_response(out)
+    s_cur, s_root = await _settled_root_hint()
+    out["settled_root"], out["settled_cursor"] = s_root, s_cur
+    root_hex = request.query.get("root") or s_root
+    for nonce, w in mine:
+        # amount as a STRING (see h_assets): past 2^53 a browser's JSON.parse rounds it, and the claim's amount must
+        # equal the record exactly or the proof is refused — a cash-out above ~900k NADO would be unclaimable
+        row = {"nonce": nonce, "amount": str(int(w["amount"]))}
+        # only a proof against the SETTLED root can be claimed; with no settled root yet there is nothing to prove
+        # against (record_proof_at(None) would answer with the LIVE root, which L1 refuses)
+        got = state.record_proof_at(root_hex, ER.T_BRIDGE_WD, addr, nonce, value=w["amount"]) if root_hex else None
+        if got:
+            row["proof"], row["state_root"] = got
+        out["pending"].append(row)
+    return web.json_response(out)
+
+
 async def h_dividend(request):
     """Presence-dividend view: with ?address= one miner's accrued balance + pending (collected,
     unclaimed) withdrawals; without it, the whole accrual map."""
@@ -4932,6 +4971,7 @@ async def main():
                     web.get("/exec/asset", h_asset),
                     web.get("/exec/allowances", h_allowances),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
+                    web.get("/exec/withdrawals", h_withdrawals),
                     web.get("/exec/dividend", h_dividend),
                     web.get("/exec/dividend_proof", h_dividend_proof),
                     web.get("/exec/dividend_proofs", h_dividend_proofs),
