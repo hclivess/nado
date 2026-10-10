@@ -18,6 +18,7 @@ from protocol import LEASE_EPOCHS_MAX, fidelity_step, dividend_weight
 from ops import kv_ops
 
 _CARRIED = [None]
+_CARRIED_ABSENT = [None]
 
 
 def carried_identities() -> dict:
@@ -33,16 +34,29 @@ def carried_identities() -> dict:
     fails before it ships. NADO_GENESIS_CARRY / NADO_GENESIS_ALLOC override the paths for tests only."""
     if _CARRIED[0] is not None:
         return _CARRIED[0]
+    _load_carry()
+    return _CARRIED[0]
+
+
+def carried_absent_fidelity() -> dict:
+    """{address: carried fidelity > 0} for the identities THIS generation's carry wrote a fidelity for but did NOT name
+    as present (no epoch-0 recert). Same files and the same invariants as carried_identities()."""
+    if _CARRIED_ABSENT[0] is None:
+        _load_carry()
+    return _CARRIED_ABSENT[0]
+
+
+def _load_carry():
     import json, os
     from protocol import CHAIN_GENERATION
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     carry_path = os.environ.get("NADO_GENESIS_CARRY") or os.path.join(here, "genesis_data", "genesis_carry.dat")
     if not os.path.exists(carry_path):
-        _CARRIED[0] = {}
-        return _CARRIED[0]
+        _CARRIED[0], _CARRIED_ABSENT[0] = {}, {}
+        return
     with open(carry_path) as f:
         carry = json.load(f)
-    out = {}
+    out, absent = {}, {}
     if int(carry.get("generation", -1)) == int(CHAIN_GENERATION):
         present = set(carry.get("present") or [])
         alloc_path = os.environ.get("NADO_GENESIS_ALLOC") or os.path.join(here, "genesis_data", "genesis_alloc.dat")
@@ -51,8 +65,9 @@ def carried_identities() -> dict:
             with open(alloc_path) as f:
                 fid = {e["address"]: int(e.get("fidelity") or 0) for e in json.load(f) if isinstance(e, dict)}
         out = {a: fid.get(a, 0) for a in present}
+        absent = {a: f for a, f in fid.items() if f > 0 and a not in present}
+    _CARRIED_ABSENT[0] = absent
     _CARRIED[0] = out
-    return out
 
 
 def fidelity_at_epoch(address: str, epoch: int) -> int:
@@ -61,6 +76,14 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     `epoch` (uncapped — dividend_weight() applies the FIDELITY_CAP saturation, matching the live path)."""
     fid = 0
     prev = -1
+    # INVARIANT: an identity the carry wrote a fidelity for but did NOT name present (no epoch-0 recert) starts from that
+    # carried value with no previous recert, so its first recert here is a lapse through fidelity_step — exactly what
+    # account_ops.apply_register did live from the account field the carry wrote (CARRY_FIDELITY_ALL_HEIGHT; before
+    # it they replayed as newcomers, and those epochs' weights stand: no back-pay). Exact while the identity's first
+    # recert row is retained (RECERT_HISTORY_EPOCHS_V2 = 55,000 epochs); past that horizon a run is capped either way.
+    from protocol import CARRY_FIDELITY_ALL_HEIGHT, EPOCH_LENGTH
+    if epoch >= CARRY_FIDELITY_ALL_HEIGHT // EPOCH_LENGTH:
+        fid = int(carried_absent_fidelity().get(address, 0))
     # Every epoch: gen 27's DIVIDEND_CARRY_EPOCH was 0 from gen 28 (deleted). A negative epoch holds no recert, so the
     # loop below never reads the carry there.
     carried = carried_identities()
@@ -78,7 +101,7 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
         # what a dividend fraud proof checks against, so the two cannot be allowed to drift.
         fid = fidelity_step(fid, continuous, r - prev, r)
         prev = r
-    return fid
+    return fid if prev >= 0 else 0        # no recert at/behind `epoch`: 0, never the bare carried seed
 
 
 def present_at_epoch(epoch: int) -> set:

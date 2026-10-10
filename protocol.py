@@ -1671,6 +1671,8 @@ def split_open_block_reward(reward: int):
 #                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
 #                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
+#                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
+#                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2136,6 +2138,15 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 REVEAL_SEATLESS_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 RANDAO_MISS_POOL_HEIGHT = 156400 if CHAIN_GENERATION == 28 else 1
 REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
+
+# CARRIED FIDELITY FOR EVERY CARRIED IDENTITY (dividend_ops.fidelity_at_epoch). The live apply
+# (account_ops.apply_register) continues every carried identity from the fidelity the carry wrote into its account; the
+# dividend replay seeded it only for identities PRESENT at the reroll (their epoch-0 recert), so the 32 identities absent
+# at the gen-28 reroll replayed as newcomers — measured 2026-10-10: account fidelity 16 vs dividend fidelity 12. OUR BUG
+# (the a344f923 fix covered the present ones only). From this height's epoch the replay starts an absent carried
+# identity from its carried value, so its first recert is a lapse through fidelity_step exactly as the live apply did.
+# Weights of epochs before it are unchanged: no back-pay (operator, 2026-10-10). The first block of epoch 2667.
+CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a

@@ -263,8 +263,9 @@ Measured 2026-10-10 at epoch 2578 (`/get_account` against `/get_open_weights`):
 This is **our bug**, the same class as 302215f2. Its fix (a344f923) covered present identities only. The permanent rule:
 a carried identity's first recert on the new chain continues from its carried value through `fidelity_step` as a
 lapse, whether or not it was present, in **both** paths, so `fidelity_at_epoch == account.fidelity` for every identity.
-On the live chain this is a consensus change, so it needs a gated epoch. Back-pay for the epochs already paid is the
-operator's decision; the precedent (dividend-carried-identities-gap) was no back-pay.
+Fixed on the live chain from `CARRY_FIDELITY_ALL_HEIGHT` (block 160,020, epoch 2667): from that epoch the replay
+starts an absent carried identity from its carried value. No back-pay (operator, 2026-10-10): earlier epochs keep their
+weights. The permanent carry tool must keep both paths seeded from the same value.
 
 ### 6.4 The shielded pool
 
@@ -294,7 +295,7 @@ operator's decision; the precedent (dividend-carried-identities-gap) was no back
 1. Adopt Stwo for the shielded join-split, after the 5.0 measurement?
 2. Replace alghash2 with Blake2s, the hash Stwo's production circuits prove?
 3. Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)?
-4. Fix the fidelity divergence on the live chain now (gated), and back-pay or not?
+4. ~~Fix the fidelity divergence on the live chain~~ — fixed from 160,020, no back-pay (2026-10-10).
 5. When to reroll: the switch is cheapest while the shielded pool is still empty.
 
 ## 8. Risks
