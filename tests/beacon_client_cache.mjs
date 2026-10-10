@@ -8,6 +8,9 @@ const reply = JSON.parse(process.argv[2]);
 const urls = [];
 globalThis.fetch = async (url) => { urls.push(String(url)); return { json: async () => reply }; };
 
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
 const { NadoDapp, chainResultAlg, EPOCH_LENGTH } = await import("../static/nadodapp.js");
 const { BankedGame } = await import("../static/bankedgame.js");
 

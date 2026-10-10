@@ -86,8 +86,12 @@ check("the L1 settle-proof check reads BEACON through exec_beacon_at",
 ex = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
 check("/exec/beacon is routed", 'web.get("/exec/beacon", h_beacon)' in ex)
 js = open(os.path.join(ROOT, "static", "nadodapp.js")).read()
-m = re.search(r"export const EPOCH_LENGTH = (\d+);", js)
-check("the client's EPOCH_LENGTH is protocol.EPOCH_LENGTH", m and int(m.group(1)) == L, m and m.group(1))
+# the SDK imports EPOCH_LENGTH from the relay's /protocol.js (rendered from protocol.py, values pinned by
+# tests/test_constant_mirrors.py) and re-exports it to the games; a literal copy here is what could drift
+m = re.search(r'import \{([^}]*)\} from "/protocol\.js"', js)
+check("the client's EPOCH_LENGTH is protocol.EPOCH_LENGTH",
+      bool(m) and re.search(r"\bEPOCH_LENGTH\b", m.group(1)) is not None and L == P.EPOCH_LENGTH
+      and re.search(r"export \{[^}]*\bEPOCH_LENGTH\b", js) is not None, m and m.group(1))
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

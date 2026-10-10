@@ -15,8 +15,7 @@
 import {
   NadoDapp, randId, $, base, gate, guardedAction, relocalize, alertBar, okBar, wireWallet,
   renderWallet, renderTopScores, resolveAliases, disp, algHashn, ALG_P, esc, blocksToTime, modeBar,
-  confirmingLabel,
-} from "./nadodapp.js?v=1d249c14";
+  confirmingLabel, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
 import * as E from "./autogame-engine.js?v=8a997c33";
 import { ACTS_FOR } from "./autogame-rules.js?v=a3d6848d";
 import * as ART from "./autogame-art.js?v=a6a3eead";
@@ -28,7 +27,8 @@ import { createAudio } from "./autogame-audio.js?v=afd7538c";
 const CID = "f6ccb08e979e1989516f35c4bfb7dea1";          // execnode/games/autogame.py (zkVM) — set by the deploy script
 const dapp = new NadoDapp({ cid: CID, app: "Autogame" });
 const P = ALG_P();
-const BLOCK_SECS = 6;
+// BLOCK_TIME: protocol.BLOCK_TIME from the relay's /protocol.js via the SDK — never a literal copy (tests/test_constant_mirrors.py)
+const BLOCK_SECS = BLOCK_TIME;
 
 // drawWarrior anchors the sprite's TOP-LEFT corner, but everything here thinks in ground coordinates —
 // the warrior stands ON the road line, and the gear panel stands him on its floor. Converting once, here,

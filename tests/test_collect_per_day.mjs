@@ -8,6 +8,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+// the protocol constants the wallet imports from the relay's /protocol.js, rendered from protocol.py (tests/protocol_hook.mjs)
+import { P } from './protocol_hook.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let fails = 0;
@@ -26,8 +28,8 @@ const lift = (name) => {
 const src = lift('collectPerDay');
 check('collectPerDay is defined in interface.js', !!src);
 const collectPerDay = new Function(src + '; return collectPerDay;')();
-const tipM = js.match(/const OPEN_TIP_BPS = (\d+);/);
-check('OPEN_TIP_BPS is the protocol value (20 %)', tipM && +tipM[1] === 2000, tipM && tipM[1]);
+check('the wallet imports OPEN_TIP_BPS from /protocol.js', /import \{[^}]*\bOPEN_TIP_BPS\b[^}]*\} from "\/protocol\.js"/.test(js));
+check('OPEN_TIP_BPS is the protocol value (20 %)', P.OPEN_TIP_BPS === 2000, P.OPEN_TIP_BPS);
 const fmtM = js.match(/const fmtPerDay = (\(raw\) => \{[^\n]*\});/);
 const fmtPerDay = fmtM ? eval(fmtM[1]) : null;
 check('fmtPerDay is defined in interface.js', !!fmtPerDay);

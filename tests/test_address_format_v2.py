@@ -84,7 +84,11 @@ check("...and a multisig address of the wrong length does not", not A.validate_a
 js = {n: open(os.path.join(ROOT, "static", n)).read() for n in ("nadotx.js", "interface.js", "nadodapp.js")}
 for n, src in js.items():
     check(f"{n} carries no address-format switch", "ADDR_FORMAT" not in src)
-    check(f"{n} carries the 4-byte checksum", re.search(r"(?:export )?const ADDR_CK = 4;", src) is not None)
+    # the wallet and the dApp SDK take the checksum width from the relay's /protocol.js (protocol.ADDRESS_CHECKSUM, its
+    # value pinned by tests/test_constant_mirrors.py); nadotx.js — the environment-free crypto SDK — carries it pinned
+    check(f"{n} carries the 4-byte checksum",
+          re.search(r"(?:export )?const ADDR_CK = 4;", src) is not None if n == "nadotx.js"
+          else re.search(r"const ADDR_CK = (?:P\.)?ADDRESS_CHECKSUM;", src) is not None)
     check(f"{n} hard-codes no 46-character address", not re.search(r"\{46\}|ADDR_BODY \+ 4\b", src))
 check("the wallet's makeAddress hashes every key-derived body (multisig keeps its slice)",
       "const body = prefix + (prefix === ADDR_PREFIX" in js["interface.js"])

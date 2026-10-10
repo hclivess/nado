@@ -5,14 +5,15 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame } from "./nadodapp.js?v=1d249c14";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
 import { Practice } from "./practice.js?v=31028a4c";   // free in-browser practice vs the computer
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=33fab85c";
 import * as SALVO from "./battleship-daily.js?v=f2ea7548";
 
 const CID = "1751614b80de7257db8821c611fc5d40";   // execnode/games/battleship.py (zkVM; betanet-7 redeploy with the Daily Salvo)
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
-const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
+// BLOCK_TIME: protocol.BLOCK_TIME from the relay's /protocol.js via the SDK — never a literal copy (tests/test_constant_mirrors.py)
+const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = BLOCK_TIME;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)
 const LS_G = "nado_bs_games";                  // gameId -> { role, board:[128], salts:[128 dec-strings], stake, ts }
 

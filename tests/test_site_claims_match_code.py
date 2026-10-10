@@ -21,7 +21,6 @@ Every check here is a claim the 2026-09-29 site review found false on nadochain.
   * the sitemap listed a 301 (/games) and another host (get.nadochain.com).
 """
 import json
-import math
 import os
 import re
 import sys
@@ -60,15 +59,16 @@ apps = read(WEB, "apps.html")
 T = json.loads(re.search(r"<script>window.__NADO_I18N__=(\{.*?\});?</script>", index).group(1))
 
 print("emission page vs consensus:")
-m = re.search(r"var BASE=([0-9.]+), M_MIN=([0-9.]+), K=([0-9.]+), BLOCK_TIME=(\d+);", emission)
-ck(m is not None, "the simulator's constants are found in emission.html")
-if m:
-    base, mmin, k, bt = float(m.group(1)), float(m.group(2)), float(m.group(3)), int(m.group(4))
-    model = [round((mmin + (1 - mmin) * math.exp(-k * p / 100)) * 10000) for p in range(101)]
-    ck(model == table, f"the simulator's m(r) reproduces protocol.BOND_ELASTIC_MULT_BPS at every whole percent "
-                       f"(M_MIN={mmin}, K={k})")
-    ck(base == BASE, f"the simulator's BASE ({base}) is BASE_SUBSIDY ({BASE} NADO)")
-    ck(bt == BLOCK_TIME, f"the simulator's BLOCK_TIME ({bt}) is protocol.BLOCK_TIME ({BLOCK_TIME})")
+# The simulator no longer carries the constants: it imports them from the relay's /protocol.js (protocol.CLIENT_EXPORTS,
+# tests/test_constant_mirrors.py renders and pins that module). What this page must still get right is HOW it uses them.
+ck("protocol.js" in emission and re.search(r"await import\(PROTOCOL_URL\)", emission) is not None,
+   "the simulator imports the chain's constants from the relay's /protocol.js")
+for name in ("BASE_SUBSIDY", "DENOMINATION", "BOND_ELASTIC_MULT_BPS", "BLOCK_TIME"):
+    ck(re.search(r"\bP\.%s\b" % name, emission) is not None, f"the simulator reads {name} from the imported module")
+ck(re.search(r"\b(M_MIN|K|BLOCK_TIME|BASE)\s*=\s*[0-9]", emission) is None,
+   "no simulator constant is declared as a literal any more (BASE / M_MIN / K / BLOCK_TIME)")
+ck(re.search(r"MULT\[Math\.max\(0,Math\.min\(100,Math\.floor\(r\*100", emission) is not None,
+   "m(r) indexes BOND_ELASTIC_MULT_BPS by whole percent, as ops/block_ops does (no float formula)")
 tail_k = round(BASE * table[100] / 10000 * 365 * 86400 / BLOCK_TIME / 1000)
 stated = set(int(x) for x in re.findall(r"(\d+)k(?: NADO)?/yr", emission))
 ck(stated == {tail_k}, f"every 'Nk NADO/yr' tail figure on /emission is the consensus tail, ~{tail_k}k (found {sorted(stated)})")

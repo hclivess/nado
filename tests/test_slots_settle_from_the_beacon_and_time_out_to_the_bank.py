@@ -93,7 +93,8 @@ def js_stops(seed_hexes, gs):
             + "process.exit(0);\n")                  # the module's own timers would keep node alive
     path = os.path.join(os.environ["HOME"], "x.mjs")
     open(path, "w").write(prog)
-    out = subprocess.run(["node", path, json.dumps([[a, b, str(g)] for (a, b), g in zip(seed_hexes, gs)])],
+    # --import: nadodapp.js imports the relay's /protocol.js; tests/protocol_hook.mjs serves it rendered from protocol.py
+    out = subprocess.run(["node", "--import", os.path.join(ROOT, "tests", "protocol_hook.mjs"), path, json.dumps([[a, b, str(g)] for (a, b), g in zip(seed_hexes, gs)])],
                          capture_output=True, text=True, timeout=60)
     if out.returncode != 0:
         print(out.stderr[-2000:])

@@ -8,6 +8,9 @@
 // BEFORE importing it, or the import throws "document is not defined" and no vector is ever checked.
 const _el = new Proxy(function () {}, { get: (t, k) => k === Symbol.toPrimitive ? () => "" : _el, apply: () => _el });
 for (const k of ["document", "window", "localStorage", "sessionStorage", "location", "history"]) if (!(k in globalThis)) globalThis[k] = _el;
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
 const { loadCrypto } = await import("../static/nadotx.js");
 const G = await import("../static/pets-genes.js");
 

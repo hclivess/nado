@@ -17,15 +17,17 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+// the protocol constants the wallet imports from the relay's /protocol.js, rendered from protocol.py (tests/protocol_hook.mjs)
+import { P } from './protocol_hook.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS  ' : 'FAIL  ') + name); if (!cond) fails++; };
 
 const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
-const num = (name) => Number((js.match(new RegExp(`^(?:const|let) ${name} = (\\d+);`, 'm')) || [])[1]);
+const num = (name) => Number(P[name]);
 const EPOCH_LENGTH = num('EPOCH_LENGTH'), TX_INCLUSION_DELAY = num('TX_INCLUSION_DELAY'), FINALITY_DEPTH = num('FINALITY_DEPTH');
-check('constants lifted from the wallet', EPOCH_LENGTH > 0 && TX_INCLUSION_DELAY > 0 && FINALITY_DEPTH > 0);
+check('constants taken from /protocol.js', EPOCH_LENGTH > 0 && TX_INCLUSION_DELAY > 0 && FINALITY_DEPTH > 0);
 
 // lift the function itself, not a copy of it
 const src = js.match(/function dutyWindow\(latest, X, revealPossible\) \{[\s\S]*?\n\}/);

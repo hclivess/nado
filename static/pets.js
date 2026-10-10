@@ -6,7 +6,7 @@
 // keeps the secret in localStorage before the call and reveals it automatically; a missed reveal forfeits) —
 // and transfers between wallets like any NFT. Gear finds and re-rolls resolve from a LATER epoch beacon. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, EPOCH_LENGTH, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc } from "./nadodapp.js?v=1d249c14";
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, EPOCH_LENGTH, _m, $, base, gate, canPay, orderCards, alertBar, notify, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shortAddr, shareInvite, confirmingLabel, esc, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
 import * as G from "./pets-genes.js?v=abd574d9";
 import { HAND_ART } from "./pets-art-hand.js?v=666a1afd";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto, ADDR_PREFIX, ADDR_LEN } from "./nadotx.js?v=02122c27";
@@ -17,7 +17,8 @@ const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 const petSlug = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, "");
 const AN = (a) => a ? window.t("pets.an_" + petSlug(a.n), a.n) : "";     // translated animal name
 const CN = (c) => c ? window.t("pets.coat_" + petSlug(c.name), c.name) : "";  // translated coat name
-const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
+// BLOCK_TIME: protocol.BLOCK_TIME from the relay's /protocol.js via the SDK — never a literal copy (tests/test_constant_mirrors.py)
+const BLOCK_SECS = BLOCK_TIME, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_B = "nado_pets_bsec";                    // {bid: {s, side: "a"|"b", ts}} — commit-reveal battle secrets
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags
 

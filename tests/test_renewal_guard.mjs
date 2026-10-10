@@ -5,6 +5,7 @@
  * `register` lands EXACTLY at max_block so the in-flight window is the whole margin. */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { P } from './protocol_hook.mjs';
 import { dirname, join } from 'node:path';
 // THIS tree, never the live checkout's absolute path: read from /srv/nado-home/nado, a test run in a worktree
 // checked the deployed file instead of the one under review, and three tests went stale unnoticed (2026-09-27).
@@ -23,9 +24,9 @@ check('...and set only on an ACCEPTED submit',
 // GEN 25 retired the PoSW proof, so the per-proof margin sizer (poswTargetMarginFor) no longer sizes anything: a
 // registration's only wait is the device prompt, and 864522d5 set a fixed REG_TARGET_MARGIN. What must hold is that
 // both register paths build at tip + that margin, and that it stays inside what the nodes accept (POSW_TARGET_MARGIN).
-const _m = js.match(/const REG_TARGET_MARGIN = (\d+);/), _p = js.match(/const POSW_TARGET_MARGIN = (\d+);/);
+const _m = js.match(/const REG_TARGET_MARGIN = (\d+);/);   // POSW_TARGET_MARGIN: the relay's /protocol.js (tests/protocol_hook.mjs)
 check('the register target margin is fixed and inside the protocol ceiling',
-  !!_m && !!_p && Number(_m[1]) >= 12 && Number(_m[1]) <= Number(_p[1]));
+  !!_m && Number(_m[1]) >= 12 && Number(_m[1]) <= P.POSW_TARGET_MARGIN);
 check('both register paths build at tip + REG_TARGET_MARGIN', (js.match(/\+ REG_TARGET_MARGIN;/g) || []).length >= 2);
 
 // the sizer's actual numbers

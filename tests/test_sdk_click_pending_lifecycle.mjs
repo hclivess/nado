@@ -37,6 +37,8 @@ globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
+// nadodapp.js imports the relay's /protocol.js; tests/protocol_hook.mjs serves it rendered from protocol.py
+await import("./protocol_hook.mjs");
 const url = new URL("../static/nadodapp.js", import.meta.url);
 const mod = await import(url.href);
 const Dapp = mod.NadoDapp || mod.Dapp || mod.default;

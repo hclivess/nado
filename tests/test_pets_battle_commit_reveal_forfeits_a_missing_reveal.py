@@ -250,7 +250,8 @@ try:
     try:
         eA = [P.ref_stat(H(5), 3, i) + 7 for i in range(10)]
         eB = [P.ref_stat(H(6), 2, i) for i in range(10)]
-        out = subprocess.run(["node", tmp, json.dumps({"s1": str(S1), "s2": str(S2), "bid": 70, "effA": eA,
+        # --import: nadodapp.js imports the relay's /protocol.js; tests/protocol_hook.mjs serves it rendered from protocol.py
+        out = subprocess.run(["node", "--import", os.path.join(ROOT, "tests", "protocol_hook.mjs"), tmp, json.dumps({"s1": str(S1), "s2": str(S2), "bid": 70, "effA": eA,
                                                       "effB": eB})],
                              capture_output=True, text=True, cwd=ROOT, timeout=120)
     finally:

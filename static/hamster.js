@@ -8,7 +8,7 @@
 // contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
 import { Book } from "./bookgame.js?v=16906df0";
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame } from "./nadodapp.js?v=1d249c14";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame, BLOCK_TIME } from "./nadodapp.js?v=1d249c14";
 import { todayIdx, anchorOf, ensureAnchor, entriesFrom, verifyEntries, provableSeed, packMoves } from "./provable.js?v=33fab85c";
 import * as DERBY from "./hamster-daily.js?v=dc5056df";
 
@@ -24,7 +24,8 @@ const NH = 6, GENE_DELAY = 2, BET_BLOCKS = 50, RACE_LEN = 10, GENE_SPREAD = 8, S
 //   • raw STORAGE maps (tot/pl/...) hold UNITs      -> multiply by UNIT before rawToNado()
 //   • the contract VIEWS (total_of / stake_of / claimable_of) already `mul UNIT` and return RAW NADO
 //     -> pass them to rawToNado() as-is. (A double-multiply here showed a 13.78 NADO stake as 137798.1.)
-const UNIT = 10000n, BLOCK_SECS = 6;
+// BLOCK_TIME: protocol.BLOCK_TIME from the relay's /protocol.js via the SDK — never a literal copy (tests/test_constant_mirrors.py)
+const UNIT = 10000n, BLOCK_SECS = BLOCK_TIME;
 // the fixed-odds BOOK — the model, the solvency ceiling, the five actions and the settle predicates
 // come from the shared scaffold, so this game and bet cannot drift on the part that moves money.
 // The RENDERING stays here: prices belong in the lane table, not in a separate card.

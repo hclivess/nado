@@ -18,10 +18,13 @@
  *
  * Usage: node tests/autogame_daily_play.mjs <cid> <utcDay> <addr> [execUrl]
  */
-import { provableSeed, anchorOf } from "../static/provable.js";
-import * as R from "../static/autogame-rules.js";
-import * as E from "../static/autogame-engine.js";
-import * as D from "../static/autogame-daily.js";
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
+const { provableSeed, anchorOf } = await import("../static/provable.js");
+const R = await import("../static/autogame-rules.js");
+const E = await import("../static/autogame-engine.js");
+const D = await import("../static/autogame-daily.js");
 
 const [cid, dayArg, addr, execArg] = process.argv.slice(2);
 const exec = execArg || "http://127.0.0.1:9273";

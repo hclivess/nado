@@ -10,7 +10,10 @@
  *
  * Run:  node tests/bankedgame_scoreboard_test.mjs
  */
-import { BankedGame } from "../static/bankedgame.js";
+// static/ modules import the relay's /protocol.js (protocol.CLIENT_EXPORTS); tests/protocol_hook.mjs serves it
+// rendered from protocol.py, and the static/ modules are loaded AFTER it (dynamic import) so they resolve through it.
+import "./protocol_hook.mjs";
+const { BankedGame } = await import("../static/bankedgame.js");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log("  FAIL:", m); } };

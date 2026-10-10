@@ -388,19 +388,31 @@
   </div>
 </footer>
 
-<script>
-(function(){
+<script type="module">
+// THE MODEL'S CONSTANTS ARE THE CHAIN'S, IMPORTED — not copied. This page used to carry the base subsidy, the
+// curve's formula parameters and the block time by hand, and a hand copy went wrong once already (0.1656 — the curve's
+// floor — used as its constant lifted the whole modelled curve above consensus). The relay serves protocol.CLIENT_EXPORTS from the protocol.py it runs
+// (GET /protocol.js, CORS-open), so the multiplier below is protocol.BOND_ELASTIC_MULT_BPS itself, indexed by the
+// bonded ratio in whole percent exactly as ops/block_ops does. nadochain.com proxies only /static/ to the node, so
+// the import names the relay's host.
+const PROTOCOL_URL = "https://get.nadochain.com/protocol.js";
+let P = null;
+try { P = await import(PROTOCOL_URL); }
+catch (e) {
+  console.error("emission model: could not load the chain's constants from " + PROTOCOL_URL, e);
+  const v = document.getElementById("verdict");
+  if (v) { v.className = "verdict inf"; v.textContent = "The chain's constants could not be loaded from " + PROTOCOL_URL + " — reload to try again."; }
+}
+if (P) (function(){
   "use strict";
-  // M_MIN is the curve's CONSTANT, not its floor: consensus is m(r)=0.15+0.85·e^(−4r) (protocol.BOND_ELASTIC_MULT_BPS,
-  // regenerated from exactly this formula), whose value at r=1 is 0.1656. Plugging 0.1656 in here lifted the whole
-  // modelled curve above the chain's (tests/test_site_claims_match_code.py pins it).
-  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=6;
+  var BASE=P.BASE_SUBSIDY/P.DENOMINATION, MULT=P.BOND_ELASTIC_MULT_BPS, BLOCK_TIME=P.BLOCK_TIME;
   var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
   var YEARS=20;
 
   var R=el('r'), F=el('f'), G=el('g');
   function el(id){return document.getElementById(id);}
-  function m(r){return M_MIN+(1-M_MIN)*Math.exp(-K*r);}
+  // consensus: reward * BOND_ELASTIC_MULT_BPS[min(100, whole percent bonded)] // 10000 (+1e-9: 0.29*100 is 28.999…)
+  function m(r){return MULT[Math.max(0,Math.min(100,Math.floor(r*100+1e-9)))]/10000;}
   function fmt(x,d){d=(d==null)?4:d;return (x<0?'−':'')+Math.abs(x).toFixed(d);}
   function fmtBig(x){var s=x<0?'−':'+';x=Math.abs(x);
     if(x>=1e9)return s+(x/1e9).toFixed(2)+'B';
