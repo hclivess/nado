@@ -399,6 +399,13 @@ def _attest_kernel_ok() -> bool:
     return _ATTEST_KERNEL_OK[0]
 
 
+def _undo_shadow_status() -> dict:
+    """The generic undo log's shadow verdicts (ops/kv_ops UNDO LOG): blocks recorded, rollbacks checked, keys whose
+    hand-written revert disagreed with the recorded prior value. Mismatch > 0 is a revert bug to investigate."""
+    from ops import kv_ops as _kv
+    return dict(_kv.UNDO_SHADOW)
+
+
 def _jobs_report():
     """The cached job report (ops/jobs.py) — refreshed by _node_jobs_loop, never computed in the handler."""
     try:
@@ -502,6 +509,7 @@ async def status(request):
             # systemd state, the in-node samplers' last success, and `problems` — so a job that stops is seen from
             # /status and from every peer's status_pool instead of failing silently for days.
             "jobs": _jobs_report(),
+            "undo_shadow": _undo_shadow_status(),
             # PROOF RULE GATES (2026-09-23): a proof is judged by the rules of the block it lands in, and the
             # wallet's on-device prover must produce that format, so the heights are published here rather
             # than hard-coded in a page that would go stale (see static/interface.js _onDeviceProve2). Every one of

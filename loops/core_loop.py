@@ -3847,6 +3847,9 @@ class CoreClient(threading.Thread):
         # leaves the block UNapplied (and block_already_indexed lets the replay re-apply it
         # cleanly) instead of double-crediting the reward (audit LO-1/CO-4).
         with kv_ops.write_txn():
+            # UNDO LOG (shadow mode, kv_ops): record the prior bytes of every consensus key this block writes; stored
+            # with this txn's commit, checked by rollback_one_block against the hand-written reverts.
+            kv_ops.undo_begin(block["block_number"])
             index_transactions(block=block,
                                sorted_transactions=sorted_transactions,
                                logger=self.logger)
@@ -4067,6 +4070,7 @@ class CoreClient(threading.Thread):
             prune_local_revert_records(self.memserver.finalized_height)
             try:
                 kv_ops.execsum_revert_prune(self.memserver.finalized_height)
+                kv_ops.undo_prune(self.memserver.finalized_height)
                 kv_ops.attest_memo_prune(self.memserver.finalized_height // EPOCH_LENGTH - 2)
             except Exception:
                 pass

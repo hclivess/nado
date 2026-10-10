@@ -103,6 +103,9 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
             _ph, _doc = _rev
             kv_ops.exec_summary_restore(_ph, _doc)   # the whole journaled document, not a re-derivation
         unindex_block(block, logger=logger)
+        # UNDO LOG, SHADOW MODE (kv_ops): every consensus key this block's apply wrote must now hold exactly the bytes it
+        # held before the block. A mismatch is logged and counted (/status undo_shadow) — never acted on yet.
+        kv_ops.undo_shadow_verify(block["block_number"], logger)
 
     set_latest_block_info(latest_block=previous_block, logger=logger)
 

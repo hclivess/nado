@@ -201,6 +201,13 @@ def main():
                     print(f"            before={str(b)[:70]}")
                     print(f"            after ={str(a)[:70]}")
 
+        # ---- the generic undo log agrees with every hand-written revert on the real apply/rollback ----
+        from ops import kv_ops as _kvu
+        _u = dict(_kvu.UNDO_SHADOW)
+        check("the undo log recorded the applied blocks and checked every rollback", _u["recorded"] > 0 and _u["checked"] > 0, _u)
+        check("...with zero keys where a hand-written revert left a different value", _u["mismatch"] == 0,
+              _u.get("last_mismatch"))
+
         # ---- and the guard against this file rotting the way its predecessor did ----------------------
         src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "tests", "test_rollback_symmetry.py")).read()

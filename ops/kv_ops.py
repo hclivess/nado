@@ -54,7 +54,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("devbind", "devbind_revert", "accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert")
+_PLAIN_DBS = ("devbind", "devbind_revert", "accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "pubkey_revert", "block_loc", "gc_revert", "execsum_revert", "attest_memo", "auth_revert", "undo")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes", "auth_history")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -88,7 +88,9 @@ _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 #               C+1..tip tail replay rebuilds byte-for-byte as it re-incorporates each block. wipe_non_carried_dbs
 #               (all-DBs - SNAPSHOT_DBS) clears any stale residue on re-anchor. So they belong here, not in the root.
 _LOCAL_DBS = frozenset(("block_loc", "gc_revert", "bond_since_revert", "hb_revert", "msgkey_revert",
-                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert", "devbind_revert"))
+                        "pubkey_revert", "execsum_revert", "attest_memo", "auth_revert", "devbind_revert", "undo"))
+# undo — the GENERIC per-block undo log (UNDO LOG below): the prior bytes of every consensus key a block's apply wrote,
+# keyed be8(height). Node-local rollback bookkeeping exactly like the *_revert journals, so never in the root.
 # (pool_revert — the staking-pool journal — was node-local, never in SNAPSHOT_DBS or the state root, and never written
 # from generation 26 on; it left both tuples with the pool code, so SNAPSHOT_DBS and the root are unchanged.)
 # devbind (device certificate -> {address, epoch}, ops/device_attest.device_binding_key) IS consensus state: written
@@ -236,7 +238,11 @@ class _TrackTxn:
 
     def _touch(self, name, key):
         if name is not None:
-            self.touched.add((name, bytes(key)))
+            k = bytes(key)
+            self.touched.add((name, k))
+            u = getattr(_local, "undo", None)
+            if u is not None and name in _UNDO_DBS and (name, k) not in u["rec"]:
+                u["rec"][(name, k)] = _undo_prior(self._t, name, k)   # BEFORE the write: _touch precedes every mutation
 
     # Signatures mirror lmdb.Transaction EXACTLY (positional db included): `txn.cursor(handle)` and
     # `txn.put(k, v, True, True, False, handle)` are legal lmdb calls, and a `*a, db=None` proxy turned the
@@ -428,6 +434,9 @@ class _WriteTxn:
         if _local.wdepth == 0:
             txn = _local.wtxn
             _local.wtxn = None
+            undo, _local.undo = getattr(_local, "undo", None), None
+            if exc_type is None and undo is not None:
+                _undo_store(txn, undo)          # in the SAME txn: the record exists iff the block's writes committed
             if exc_type is None:
                 try:
                     txn.commit()
@@ -442,6 +451,88 @@ class _WriteTxn:
             else:
                 txn.abort()
         return False  # never suppress
+
+
+# --- UNDO LOG (generic per-block rollback record, SHADOW MODE) -------------------------------------------------------
+# Every hand-written revert path re-derives or journals what one feature overwrote, and the same three bugs were
+# re-learned journal by journal (first write wins, delete vs restore, no journal vs no row). The generic record is
+# correct by construction: while a block applies (undo_begin inside incorporate_block's write txn), the FIRST write to
+# each consensus key records the bytes it held before — the full dup list for a DUPSORT DB, None when absent — and the
+# record is stored with the block's commit. SHADOW MODE: rollback still runs the existing reverts, then
+# undo_shadow_verify compares every recorded key with what they restored and counts any mismatch (/status
+# "undo_shadow"). Once mismatches stay at zero long enough, rollback can replay the record instead.
+# INVARIANT: recording reads through the RAW txn (never tracked, never journaled) and covers exactly the consensus DBs.
+_UNDO_DBS = frozenset(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS)
+UNDO_SHADOW = {"recorded": 0, "checked": 0, "mismatch": 0, "last_mismatch": None}
+
+
+def _undo_prior(raw, name, key):
+    db = _dbs()[name]
+    if name in _DUP_DBS:
+        with raw.cursor(db=db) as cur:
+            if not cur.set_key(key):
+                return None
+            return [bytes(v) for v in cur.iternext_dup(keys=False, values=True)]
+    v = raw.get(key, db=db)
+    return None if v is None else bytes(v)
+
+
+def undo_begin(height: int):
+    """Start recording block `height`'s prior values (call inside the block's write txn). Off with NADO_UNDO_SHADOW=0."""
+    if os.environ.get("NADO_UNDO_SHADOW", "1") == "0":
+        return
+    _local.undo = {"h": int(height), "rec": {}}
+
+
+def _undo_store(txn, undo):
+    rows = [[n, k, p] for (n, k), p in undo["rec"].items()]
+    txn._t.put(be8(undo["h"]), _pack(rows), db=_dbs()["undo"])
+    UNDO_SHADOW["recorded"] += 1
+
+
+def undo_shadow_verify(height: int, logger=None) -> list:
+    """After rollback's reverts ran (inside its txn): every key block `height` wrote must hold exactly its recorded prior
+    value. Returns the mismatches [(db, key hex, expected, got)], counts them in UNDO_SHADOW and logs them; pops the
+    record. A block applied before the undo log existed has no record and is skipped."""
+    def _do(txn):
+        raw_txn = txn._t if isinstance(txn, _TrackTxn) else txn
+        k = be8(int(height))
+        raw = raw_txn.get(k, db=_dbs()["undo"])
+        if raw is None:
+            return None
+        raw_txn.delete(k, db=_dbs()["undo"])
+        out = []
+        for name, key, prior in _unpack(bytes(raw)):
+            got = _undo_prior(raw_txn, name, bytes(key))
+            want = prior if prior is None or isinstance(prior, (bytes, bytearray)) else [bytes(x) for x in prior]
+            if got != want:
+                out.append((name, bytes(key).hex()[:64], want, got))
+        return out
+    res = _write(_do)
+    if res is None:
+        return []
+    UNDO_SHADOW["checked"] += 1
+    if res:
+        UNDO_SHADOW["mismatch"] += len(res)
+        UNDO_SHADOW["last_mismatch"] = {"height": int(height), "keys": [(n, kh) for n, kh, _w, _g in res[:8]]}
+        if logger is not None:
+            logger.error(f"UNDO SHADOW: rollback of {height} left {len(res)} key(s) different from their recorded "
+                         f"prior value: {[(n, kh) for n, kh, _w, _g in res[:8]]}")
+    return res
+
+
+def undo_prune(below_height: int) -> int:
+    """Drop undo records below the finality floor — rollback can never reach them (node-local)."""
+    def _do(txn):
+        n = 0
+        with txn.cursor(db=_dbs()["undo"]) as cur:
+            if cur.first():
+                while un_be8(cur.key()) < int(below_height):
+                    if not cur.delete():
+                        break
+                    n += 1
+        return n
+    return _write(_do)
 
 
 def write_txn():
