@@ -74,9 +74,10 @@ contracts = {
     "faucet": {"code": json.loads(json.dumps(faucet.build())), "abi": faucet.ABI, "deployer": OP, "runtime": "zkvm",
                "upgradable": True, "storage": {"slots": {"7": str(FAUCET_POT), "8": "0"}}},
     "d" * 32: {"code": dice_code, "abi": {}, "deployer": OP, "runtime": "zkvm", "upgradable": True,
-               "storage": {"slots": {"11": "123", "17": "9"}}},             # a seat in flight: must NOT carry
+               # a table with an open bet (index count 1, table 5 at dice.TLIST, committed liability tc != 0): in flight
+               "storage": {"slots": {"0": "1", str((dice.TLIST << 32) + 0): "5", str((4 << 32) + 5): "100"}}},
 }
-check("the faucet is carry-safe by its code; dice is not", carry_policy("faucet", contracts["faucet"]) == "keep"
+check("the faucet is carry-safe by its code; a dice table with an open bet is not", carry_policy("faucet", contracts["faucet"]) == "keep"
       and carry_policy("d" * 32, contracts["d" * 32]) == "reset")
 gen_contracts, kept = exec_genesis_doc(contracts, {"faucet": FAUCET_POT, "d" * 32: DICE_POT})
 check("2. every contract is carried under its id", sorted(gen_contracts) == sorted(contracts), sorted(gen_contracts))
