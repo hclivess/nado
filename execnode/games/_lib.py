@@ -69,6 +69,23 @@ def guard_ids(src, plan):
     return out
 
 
+def banked_tables_in_flight(storage: dict, tlist: int) -> list:
+    """Table ids of a banked game (slots, dice, roulette, mines, blackjack) that still carry OPEN BETS — a non-zero
+    committed liability `tc`, the same test close_table() uses to refuse. Read through the game's own table index
+    (slot 0 = count, field `tlist` = ids; open_table caps an id below 2^32, so field*2^32 + id is exact).
+    The reroll carry keeps a banked game's storage only when this is empty (tools/alphanet6_carryforward.carry_policy):
+    INVARIANT: with tc == 0 on every table no seat is in flight, so nothing left in storage refers to the old chain's
+    heights or beacons in a way any method still reads — settled seats are history and every method refuses them."""
+    slots = (storage or {}).get("slots") or {}
+    n = int(slots.get("0", 0))
+    out = []
+    for i in range(n):
+        t = int(slots.get(str((tlist << 32) + i), 0))
+        if t and int(slots.get(str((TC << 32) + t), 0)) != 0:
+            out.append(t)
+    return out
+
+
 def open_table(tlist):
     """open(tableId)[bankroll]: require value>0 and a fresh id, set ta=caller, tk=tp=bankroll, append id to
     the table index (slot 0 count + <tlist> field). `tlist` is the game's table-list field id."""

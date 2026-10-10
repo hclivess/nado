@@ -39,6 +39,12 @@ PC_BASE, DK_BASE, SC = 40, 60, 30
 TLIST, GLIST = 21, 22
 
 
+def carry_in_flight(storage):
+    """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
+    on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""
+    return [f"table {t} has open bets" for t in _lib.banked_tables_in_flight(storage, TLIST)]
+
+
 def card_at(bh0, bh1, salt, i):
     """The contract's card draw. Block-hash step: (bh(gh), bh(gh+1)). Beacon step: (BEACON(gb), 0)."""
     return (alghash.hashn([(bh0 % F.P + bh1 % F.P + salt + i) % F.P]) & 0xFFFFFFFF) % 52

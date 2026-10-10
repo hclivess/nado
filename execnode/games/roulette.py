@@ -21,6 +21,12 @@ from execnode.games import _lib
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 GG, GMASK, GS, GA, GH, GR, GW, GD, GC = 7, 8, 9, 10, 11, 12, 13, 14, 15
 TLIST, GLIST = 16, 17
+
+
+def carry_in_flight(storage):
+    """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
+    on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""
+    return [f"table {t} has open bets" for t in _lib.banked_tables_in_flight(storage, TLIST)]
 # 18 gb (beacon epoch): added at an unused field for the in-place upgrade. gb == 0 marks a bet placed before the
 # beacon rule, which keeps settling from BHASH(gh) + BHASH(gh + 1) (_lib.seed_q).
 GB = 18

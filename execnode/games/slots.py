@@ -28,6 +28,12 @@ GB = 18                 # beacon epoch of a spin (unused field before the beacon
 HORIZON = 18000         # the settle window: after gh + HORIZON, claim() resolves an unsettled spin to the bank
 SC = 30
 TLIST, GLIST = 16, 17
+
+
+def carry_in_flight(storage):
+    """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
+    on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""
+    return [f"table {t} has open bets" for t in _lib.banked_tables_in_flight(storage, TLIST)]
 THRESH = [16, 30, 42, 52, 58, 62]
 # paytable[sym] = 2× multiplier for a 3-of-a-kind of `sym`: [16,20,24,30,60,100,300] -> ×[8,10,12,15,30,50,150]
 PT2 = [16, 16 + 4, 16 + 4 + 4, 16 + 4 + 4 + 6, 16 + 4 + 4 + 6 + 30, 16 + 4 + 4 + 6 + 30 + 40,

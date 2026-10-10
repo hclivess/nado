@@ -21,6 +21,12 @@ GG, GM, GS, GA, GH, GR, GW, GD = 7, 8, 9, 10, 11, 12, 13, 14
 GB = 17
 TLIST, GLIST = 15, 16
 
+
+def carry_in_flight(storage):
+    """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
+    on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""
+    return [f"table {t} has open bets" for t in _lib.banked_tables_in_flight(storage, TLIST)]
+
 SRC = {
     "open": _lib.open_table(TLIST),
     "bet": """

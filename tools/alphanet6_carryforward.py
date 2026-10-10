@@ -62,11 +62,12 @@ def open_escrow_refunds(invites: dict, htlcs: dict):
     return refunds, out
 
 
-def carry_policy(cid: str, contract: dict) -> str:
-    """"keep" when the contract's game module declares its storage carry-safe (CARRY_STORAGE = True: nothing in it
-    names an L1 height, a beacon epoch or a block hash of the old chain) AND the contract runs exactly that module's
-    code; otherwise "reset" (fresh-deploy storage, pot refunded as before). Matching by code, not by a table of ids,
-    so a contract whose code was changed without its module being reviewed can never be carried by accident."""
+CARRY_BLOCKERS = {}       # cid -> [reasons] for contracts that would carry but hold something in flight (printed)
+
+
+def game_module_of(contract: dict):
+    """The execnode.games module whose build() is exactly this contract's code, or None. Matching by code, not by a
+    table of ids, so a contract whose code changed without its module being reviewed is never carried by accident."""
     import importlib, pkgutil
     import execnode.games as _g
     code = contract.get("code")
@@ -74,13 +75,32 @@ def carry_policy(cid: str, contract: dict) -> str:
         if m.name.startswith("_") or m.name in ("deploy", "redeploy"):
             continue
         mod = importlib.import_module(f"execnode.games.{m.name}")
-        if getattr(mod, "CARRY_STORAGE", False) and hasattr(mod, "build"):
-            try:
-                if json.loads(json.dumps(mod.build())) == code:
-                    return "keep"
-            except Exception:
-                continue
-    return "reset"
+        if not hasattr(mod, "build") or not (getattr(mod, "CARRY_STORAGE", False) or hasattr(mod, "carry_in_flight")):
+            continue
+        try:
+            if json.loads(json.dumps(mod.build())) == code:
+                return mod
+        except Exception:
+            continue
+    return None
+
+
+def carry_policy(cid: str, contract: dict) -> str:
+    """"keep" (storage and pot cross the reroll as is) when the contract runs exactly its game module's code AND that
+    module says its storage is carry-safe: CARRY_STORAGE = True (nothing stored names the old chain), or
+    carry_in_flight(storage) == [] (nothing is in flight right now — e.g. a banked game with no open bets).
+    Otherwise "reset" (fresh-deploy storage, pot refunded as before); the in-flight reasons are kept in CARRY_BLOCKERS
+    so the operator can settle them on the old chain and run the carry again."""
+    mod = game_module_of(contract)
+    if mod is None:
+        return "reset"
+    if getattr(mod, "CARRY_STORAGE", False):
+        return "keep"
+    why = mod.carry_in_flight(contract.get("storage") or {})
+    if why:
+        CARRY_BLOCKERS[cid] = list(why)
+        return "reset"
+    return "keep"
 
 
 def fresh_deploy_storage(contract: dict) -> dict:
@@ -261,6 +281,8 @@ def build():
     print(f"  refunded contract pots:               {refunded_pots:>18} raw -> players/operator, -bridge escrow")
     print(f"  carried contract pots (stay escrowed): {sum(kept_pots.values()):>18} raw in {len(kept_pots)} contract(s); "
           f"{len(_gen_contracts)} contracts carried by id")
+    for _cid, _why in sorted(CARRY_BLOCKERS.items()):
+        print(f"  NOT CARRIED (in flight — settle on the old chain, then re-run): {_cid[:16]}: {'; '.join(_why)}")
     print(f"  folded dividends (uncollected):       {sum(_num(v) for v in dividend.values()):>18} raw -> users, -dividend pool")
     print(f"  folded dividend withdrawals (pending):{sum(_num(w['amount']) for w in dws.values()):>18} raw -> users, -dividend pool")
     print(f"  folded bridge withdrawals (pending):  {sum(_num(w['amount']) for w in bws.values()):>18} raw -> users, -bridge escrow")
