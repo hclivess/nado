@@ -178,19 +178,44 @@ Every phase starts with a measurement, and its result decides whether the phase 
 Decision: go ahead if Stwo is faster *and* smaller on the phone. If it is not, the soundness argument still stands, but
 the wallet phase waits.
 
-### 5.1 Shielded join-split on Stwo (first, while the pool is empty)
+### 5.1 Shielded join-split on Stwo (first, while the pool is empty) — design
 
-The pool holds **0 commitments and 0 nullifiers** today (read from `exec_state.json`, 2026-10-10), and the shield escrow
-holds 1,123,000 raw (residual dust). A new pool started at the reroll therefore migrates nothing. Every note created
-before the switch makes this phase harder (6.4), so it should go first.
+**Phase 0 result (2026-10-11, scratchpad/stwo0/RESULTS.md).** One join-split at depth 48: today's wallet prover takes
+266 s and 3.5 GB in desktop Chrome and CRASHES a phone-class tab (4x CPU throttle) at both a 1 GiB and a 2 GiB heap.
+A Stwo prototype of the same relation, made zero-knowledge (below), proves in 3.4-8.8 s with 218 MiB under the same
+proxy (0.7-0.9 s native), verifies in 20 ms native, and its proof is 1.5 MB (36 MB today).
 
-- A new circuit in a `native/stwo_joinsplit` crate, built for the node (verify) and for WASM (wallet prove).
-- The wallet swaps `static/stark/joinsplit3.js` for the WASM prover. The served artifact is versioned by content
-  (ops/static_versions.py), so stale browsers cannot pair an old prover with the new rules.
-- Tests: an honest proof verifies; a forgery that passes the legacy rules fails the new ones (the model is
-  tests/test_proof_query_full.py); the wallet's WASM proof verifies in the node; and joinsplit3 history replays below
-  the gate.
+**No reroll is needed for this phase.** The pool is empty, so nothing has to migrate. A new pool enters the exec root
+the way the wide pool did at SHIELD_WIDE_HEIGHT: digest records (`stwo_root`, `stwo_nfset`) that are ABSENT while the
+pool is empty (exec_root.records_projection, "empty is absent"), so the projection is byte-identical on every node
+until the first note exists, and the rule switches at an exec-rules height gate (`STWO_POOL_HEIGHT = H if
+CHAIN_GENERATION == 28 else 1`, GATE LEDGER + doc/reroll.md + tests/test_gate_reroll_transfer.py). Settlement needs
+no circuit change: the settle binding does not derive shielded-pool records today (`shield`/`unshield` are in
+`records_bind._KNOWN_UNDERIVED`, so a span that touches a pool settles by quorum, not by proof), and the new pool's
+deposit/spend effects join that list.
 
+**The pieces.**
+
+| piece | where | notes |
+|---|---|---|
+| circuit + ZK layer | `native/stwo_js` (Rust, Stwo pinned to one rev in `Cargo.lock.pinned`) | the phase-0 relation: 1 input, 2 outputs, owner = H(nsk), cm = H(value, owner, rho), nf = H(nsk, rho), depth-48 membership, 64-bit value conservation, root/nf/cm1/cm2/public value/fee + unshield destination bound in the transcript; H = BLAKE2s-256 |
+| node verifier | the same crate, `prover` feature OFF, exposed through `native_guard` like every other kernel | consensus code: verify under `stark.rules_at(height)`; below the gate the call refuses |
+| dispatcher | `execnode/stark/joinsplit_transfer.verify_transfer` | a new bundle key `stwo_js` beside `joinsplit3`; the old keys keep verifying history |
+| pool | `execnode/shielded_stwo.py` (new), modelled on `shielded_wide.py` | BLAKE2s Merkle tree, depth 48 from its first note (no 12 -> 48 switch), anchors window, nullifier set |
+| wallet prover | `static/vendor/stwo_js.wasm` + a Worker | content-versioned by ops/static_versions.py; seeded from `crypto.getRandomValues` per proof (the prototype refuses a reused seed); proves in a Worker, never the main thread |
+| shielded address | `shieldAddr` in static/interface.js | owner = BLAKE2s(nsk) changes every zaddr — the wallet shows the new one; deposits to an old-format zaddr are refused from the gate |
+| exits | unchanged | unshield records and their L1 claims are the same exit records; only the proof that creates them changes |
+
+**Gates on value.** Deposits into the new pool are refused until (a) the zero-knowledge argument is written and
+reviewed (scratchpad/stwo0/zkproof/ARGUMENT.md is the draft; an outside review is the step that cannot be done here) and
+(b) a deposit cap is set in protocol for the first weeks. Spends need no cap: a spend can only move what was deposited.
+
+**Tests (each in the same commit as its code).**
+- forgeries refused AT the gate and impossible below it: wrong root, fee + 1, changed unshield destination, inflating
+  witness, a claimed-sum shift between components, a forged lookup (the phase-0 negatives, against the node verifier);
+- the wallet's WASM proof verifies in the node (the joinsplit3 cross-check pattern), and a reused seed is refused;
+- empty is absent: the exec root is unchanged by the code until the first note;
+- history: every joinsplit3 bundle in the chain still verifies (replay).
 ### 5.2 Settlement on Stwo
 
 Prove the exec transition (KV half and records) with Stwo components. This is the larger job: our VM AIR
@@ -309,7 +334,8 @@ Carrying the shielded pool itself is NOT built — see doc/reroll.md "What cross
 2. Replace alghash2 with Blake2s, the hash Stwo's production circuits prove?
 3. Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)?
 4. ~~Fix the fidelity divergence on the live chain~~ — fixed from 160,020, no back-pay (2026-10-10).
-5. When to reroll: the switch is cheapest while the shielded pool is still empty.
+5. When to reroll: §5.1 (private payments) needs none — an exec-rules gate, while the pool is empty. A reroll is
+   needed only for §5.2/§5.4 (the settlement proof and the exec-root hash), and it uses the carry (§6).
 
 ## 8. Risks
 
