@@ -349,6 +349,17 @@ def _dividend_epoch_for(height):
     return epoch_accrual_due(height, EPOCH_LENGTH)
 
 
+def settle_depth_reference(known_tip, mesh_median) -> int:
+    """The chain height the settle-proof depth gate (protocol.SETTLE_PROOF_DEPTH_GATED) measures a block against.
+    known_tip is the highest block number of a FETCHED sync batch — one donor's claim, recorded before any of those
+    blocks is verified; mesh_median is the upper median of the admitted statuses. The gate RELAXES verification, so
+    neither single source may open it: with both known, the reference is the LOWER of the two (a block is deep only
+    when the donor's batch and the mesh both say so); with no batch height, the median alone, as before.
+    INVARIANT: no single peer's claim makes a block deep (the max() here let one donor skip STARK checks)."""
+    k, m = int(known_tip or 0), int(mesh_median or 0)
+    return min(k, m) if k > 0 else m
+
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -5159,8 +5170,8 @@ class CoreClient(threading.Thread):
                     # so a node catching up still sees the mesh tip. A lone peer is still its own median.
                     _best_peer = self._mesh_height_median()
                     _deep = bool(remote) and (
-                        max(int(getattr(self, "_known_tip_height", 0)), _best_peer) - int(block["block_number"])
-                        > FINALITY_DEPTH)
+                        settle_depth_reference(getattr(self, "_known_tip_height", 0), _best_peer)
+                        - int(block["block_number"]) > FINALITY_DEPTH)
                     validate_transaction(transaction=transaction,
                                          logger=logger,
                                          block_height=block["block_number"],
