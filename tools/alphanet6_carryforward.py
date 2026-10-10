@@ -62,6 +62,25 @@ def open_escrow_refunds(invites: dict, htlcs: dict):
     return refunds, out
 
 
+def exec_value_the_carry_would_drop(d: dict) -> list:
+    """Reasons this exec snapshot holds value the carry cannot move yet ([] = nothing would be lost). The carry used to
+    check only the LEGACY pool (`shielded`), while every shield deposit from block 1 lands in the WIDE pool and some in
+    the field pool and app_state; and it ignored exec-side ASSETS (`abal`) entirely, so a held token died with the
+    generation. INVARIANT: every place exec value can sit is either folded by this tool or listed here, because a reroll
+    that silently drops a holder's note or token is a theft by the protocol."""
+    out = []
+    for name in ("shielded", "field_pool", "wide_pool", "app_state"):
+        pool = d.get(name) or {}
+        if pool.get("commitments") or pool.get("trees"):
+            out.append(f"{name} holds notes — holders must unshield before the reroll (or the pool must be carried)")
+    held = {aid: {h: a for h, a in (holders or {}).items() if _num(a)} for aid, holders in (d.get("abal") or {}).items()}
+    held = {aid: h for aid, h in held.items() if h}
+    if held:
+        out.append(f"exec assets are held ({len(held)} asset(s), {sum(len(h) for h in held.values())} holder(s)) — "
+                   "they have no L1 form to fold into")
+    return out
+
+
 def build():
     kv_ops.init_env()
     d = json.load(open(EXEC_STATE))
@@ -71,7 +90,6 @@ def build():
     dws = d.get("dividend_withdrawals", {})
     bws = d.get("withdrawals", {})                   # pending bridge exits (old-root proofs die at reroll)
     uws = d.get("unshield_withdrawals", {})          # pending unshield exits (ditto)
-    shielded = d.get("shielded", {})
     cids = set(contracts)
     # THE EXEC STATE MUST BE AT THE L1 TIP. Deposits (bridge, faucet, shield) and dividend inflow in blocks the exec
     # node has not applied yet would otherwise stay stranded in keyless escrow. The runbook stops the services only
@@ -88,8 +106,9 @@ def build():
         if int(d.get("cursor", -1)) < _tip:
             raise SystemExit(f"exec cursor {d.get('cursor')} is behind the L1 tip {_tip}: let exec catch up first")
 
-    assert not shielded.get("commitments"), \
-        "shielded pool is NOT empty — holders would lose notes; have them unshield before the reroll"
+    _lost = exec_value_the_carry_would_drop(d)
+    if _lost:
+        raise SystemExit("REFUSING: the carry would drop exec value:\n  " + "\n  ".join(_lost))
 
     # 1) base: every L1 account's balance + bonded
     alloc = {}
