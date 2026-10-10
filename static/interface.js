@@ -2158,6 +2158,9 @@ const CASH_CLAIMS_PER_TICK = 4;
 // _lands_flexibly; construct_bridge_withdraw_tx omits it, the only difference). amount is a BigInt so it rides as a
 // bare JSON integer of any size: validation asserts an int and the proof binds the exact value. INVARIANT: tests/test_bridge_claim_js_matches_node.py builds this in node and has L1's
 // validate_transaction accept it — change a field here and that test is what tells you.
+// how long a submitted claim is held before it may be re-sent — a local resend hold, NOT a landing guard (that is
+// guardFrom, on the tx itself)
+const CASH_RESEND_HOLD_BLOCKS = TX_INCLUSION_DELAY * 4;
 function buildBridgeClaimTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp, minBlock) {
   const draft = { sender: wallet.address, recipient: "bridge_withdraw", amount: 0, timestamp,
     data: { addr, amount: BigInt(amount), nonce: String(nonce), proof }, nonce: randNonce(), public_key: wallet.publicKey,
@@ -2214,7 +2217,7 @@ async function claimCashOuts(d, opts = {}) {
       const { res, tx } = await submitResilient(async () => buildBridgeClaimTx(state.wallet, state.wallet.address, p.amount,
         p.nonce, p.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds(), guardFrom(latest.block_number)));
       if (res && res.data && res.data.result) {
-        state._cashGate[p.nonce] = { until: latest.block_number + TX_INCLUSION_DELAY * 4, txid: tx.txid, amount: String(p.amount) };
+        state._cashGate[p.nonce] = { until: latest.block_number + CASH_RESEND_HOLD_BLOCKS, txid: tx.txid, amount: String(p.amount) };
         out.submitted++; out.txid = tx.txid;
       } else {
         out.err = (res && res.data && res.data.message) || "rejected";
