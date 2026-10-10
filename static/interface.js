@@ -13,7 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js?v=012201e1";
-import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=42226f9f";   // THE one share implementation (SDK) + the shared select picker
+import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js?v=a192d4c0";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js?v=4e224dbe";
 import { flagSvg, ccBadge } from "./flags.js?v=a5087315";   // drawn country flags (emoji flags do not render on Windows)
 import * as alghash from "./alghash.js?v=849f345a";
@@ -10809,7 +10809,7 @@ async function doReceiveShielded() {
     $("zrecvCode").value = "";
     log("ok", i18("shield.received", "Received {a} NADO privately ✓", { a: rawToNado(BigInt(value)) }));
     renderShield().catch(() => {});
-  } catch (e) { log("err", i18("shield.badCode", "Invalid claim code: {m}", { m: e.message })); }
+  } catch (e) { log("err", i18("shield.badCodeReason", "Invalid claim code: {m}", { m: e.message })); }
 }
 
 async function claimUnshields(silent) {

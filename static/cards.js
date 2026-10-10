@@ -1,25 +1,14 @@
 // cards.js — shared CARD primitives for NADO card games (blackjack today; baccarat/poker-family later).
-// One convention, one renderer, one chain-draw formula, so every card game shows the same deck and can
-// never drift from what its contract computes.
+// One convention and one renderer, so every card game shows the same deck.
 //
 //   card index c ∈ 0..51 :  rank = c % 13 (0="2" … 8="10", 9=J, 10=Q, 11=K, 12=A)
 //                           suit = c // 13 (0=♠ 1=♥ 2=♦ 3=♣) — hearts/diamonds render red
-//   chain draw (multi-deck / draws independent, the only sound dealer-less scheme — see hold'em):
-//           card_i = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + salt + i ) % 52
-//   which is exactly the VM's HASH over ints (blake2bHash of a BigInt canonicalizes to bare digits).
-import { blake2bHash } from "./nadotx.js?v=02122c27";
+//   chain draws are NOT computed here: a card a contract deals must be derived with the contract's own alghash
+//   (nadodapp.js chainResultAlg — see blackjack.js). The blake2b chainCards that used to live here was commented as
+//   "exactly the VM's HASH" and was not; it was deleted 2026-10-10. Do not add a blake2b draw back.
 
 export const RANK_NAMES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 export const SUITS = ["♠", "♥", "♦", "♣"];
-const H = (v) => BigInt("0x" + blake2bHash(v));
-
-// chainCards(bh0Hex, bh1Hex, salt, n): the i-th card of a bound draw — null until both hashes exist.
-// salt disambiguates draws sharing a height (seat id scheme is the game's contract's business).
-export function chainCards(bh0, bh1, salt, n) {
-  if (!bh0 || !bh1) return null;
-  const q = BigInt("0x" + bh0) + BigInt("0x" + bh1) + BigInt(salt);
-  return Array.from({ length: n }, (_, i) => Number(H(q + BigInt(i)) % 52n));
-}
 
 // cardHTML(c, big): the standard card tile (same classes as poker.js: .card/.red/.big/.back).
 // c == null renders a face-down back.

@@ -7,9 +7,9 @@
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless for 18000 blocks; a spin nobody settled in
 // that window goes to the bank via claim (it pays nobody, so the page never fires it for the player).
-import { NadoDapp, chainResultAlg, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
-import { BankedGame } from "./bankedgame.js?v=66957686";
-import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, chainResultAlg, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, orderCards, alertBar, okBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
+import { BankedGame } from "./bankedgame.js?v=c7ad37a0";
+import { Practice } from "./practice.js?v=4b10cba6";      // free in-browser practice (play chips, no chain)
 
 const CID = "13b82a08e3278cc56f50c14b092804d4";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });

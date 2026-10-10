@@ -21,7 +21,7 @@
 //     (road 1T+1C · homestead 1T+1C+1W+1G · keep 2G+3O · scroll 1W+1G+1O), play at most ONE scroll per
 //     turn (never one bought the same turn) → end. Supply: 15 roads, 5 homesteads, 4 keeps each.
 //   • SCROLLS (dev deck, 25: 14 Warden · 5 Charter · 2 Pathwright · 2 Bounty · 2 Levy). HIDDEN via the
-//     commit-reveal model: each seat commits H(secret) before the game; a buy's card = a draw from the
+//     commit-reveal model: each seat commits alghash(secret) before the game; a buy's card = a draw from the
 //     buyer's OWN private stream (seeded by the buy move's block hash + their secret) without replacement
 //     from the full 25 composition — hold'em's MULTI-DECK RULE, the only sound dealer-less hidden-card
 //     scheme. Total buys are capped at 25 table-wide (public counter keeps the scarcity). Playing a scroll
@@ -60,8 +60,13 @@ export const pack5 = (c) => c.reduce((s, n, r) => s + Math.min(31, n) * 32 ** r,
 export const unpack5 = (p) => RES.map((_, r) => Math.floor(p / 32 ** r) % 32);
 
 // ---- deterministic randomness (the cards.js chain-draw convention) ---------------------------------
-const H = (v) => BigInt("0x" + blake2bHash(v));
-const der = (q, salt) => H(q + BigInt(salt));                       // q = BigInt(bh(h)) + BigInt(bh(h+1))
+// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
+// nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
+// engine is the referee every browser runs, so the players only need to agree with EACH OTHER. It was
+// named `H` and described as "the VM's HASH"; renamed 2026-10-10 so nobody copies it into contract-matching code.
+// Changing the hash would re-deal every game in progress, so the function itself is unchanged.
+const blake2bInt = (v) => BigInt("0x" + blake2bHash(v));
+const der = (q, salt) => blake2bInt(q + BigInt(salt));                       // q = BigInt(bh(h)) + BigInt(bh(h+1))
 const derN = (q, salt, n) => Number(der(q, salt) % BigInt(n));
 
 // ---- board geometry (all-integer lattice: x in √3/2 units, y in 1/2 units — no float trig) ----------
@@ -227,7 +232,7 @@ export function totalVp(st, s) {
 }
 
 // private scroll stream (multi-deck rule): the n-th draw of seat s removes a card from the buyer's OWN
-// remaining 25-composition, indexed by H(buy-move seed + secret + n) — unknowable without the secret,
+// remaining 25-composition, indexed by blake2bInt(buy-move seed + secret + n) — unknowable without the secret,
 // un-grindable because the secret commits before the board seed exists.
 function drawDev(st, s, q, n) {
   const x = st.secrets[s];

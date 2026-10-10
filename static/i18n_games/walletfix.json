@@ -1,0 +1,50 @@
+{
+ "ar": {
+  "shield.badCodeReason": "رمز الاستلام غير صالح: {m}"
+ },
+ "cs": {
+  "shield.badCodeReason": "Neplatný kód k vyzvednutí: {m}"
+ },
+ "de": {
+  "shield.badCodeReason": "Ungültiger Einlöse-Code: {m}"
+ },
+ "en": {
+  "shield.badCodeReason": "Invalid claim code: {m}"
+ },
+ "es": {
+  "shield.badCodeReason": "Código de reclamación inválido: {m}"
+ },
+ "fr": {
+  "shield.badCodeReason": "Code de réclamation invalide : {m}"
+ },
+ "hi": {
+  "shield.badCodeReason": "अमान्य क्लेम कोड: {m}"
+ },
+ "id": {
+  "shield.badCodeReason": "Kode klaim tidak valid: {m}"
+ },
+ "it": {
+  "shield.badCodeReason": "Codice di riscatto non valido: {m}"
+ },
+ "ja": {
+  "shield.badCodeReason": "受け取りコードが無効です: {m}"
+ },
+ "ko": {
+  "shield.badCodeReason": "잘못된 수령 코드: {m}"
+ },
+ "pt": {
+  "shield.badCodeReason": "Código de resgate inválido: {m}"
+ },
+ "ru": {
+  "shield.badCodeReason": "Неверный код получения: {m}"
+ },
+ "tr": {
+  "shield.badCodeReason": "Geçersiz talep kodu: {m}"
+ },
+ "vi": {
+  "shield.badCodeReason": "Mã nhận không hợp lệ: {m}"
+ },
+ "zh": {
+  "shield.badCodeReason": "领取码无效：{m}"
+ }
+}

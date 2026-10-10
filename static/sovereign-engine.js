@@ -191,11 +191,16 @@ export const EVENTS = [
   { k: "sabotage", tone: "bad",  res: "techPts",pct: [-0.10, -0.02], txt: "Industrial sabotage sets research back." },
 ];
 
-// ---- deterministic hashing (shared with the contract's beacon rolls) ----------------------------------
+// ---- deterministic hashing (browser-side; the contract computes no rolls) ------------------------------
 import { blake2bHash } from "./nadotx.js?v=02122c27";
-const H = (v) => BigInt("0x" + blake2bHash(v));
-// roll(seed, i) -> a float in [0,1); seed is the block-hash-derived BigInt the contract also uses.
-export const roll = (seed, i) => Number(H((seed % (1n << 200n)).toString(16) + ":" + i) % 1000000n) / 1000000;
+// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
+// nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract stores no rolls; every browser
+// replays the world through this engine and derives the same rolls from the same block hashes. It was
+// named `H` and described as "the VM's HASH"; renamed 2026-10-10 so nobody copies it into contract-matching code.
+// Changing the hash would re-deal every game in progress, so the function itself is unchanged.
+const blake2bInt = (v) => BigInt("0x" + blake2bHash(v));
+// roll(seed, i) -> a float in [0,1); seed is a block-hash-derived BigInt.
+export const roll = (seed, i) => Number(blake2bInt((seed % (1n << 200n)).toString(16) + ":" + i) % 1000000n) / 1000000;
 
 // ---- a fresh nation -----------------------------------------------------------------------------------
 export const START_LAND = 40;
@@ -318,7 +323,7 @@ export function settle(n, turns) {
 }
 
 // deterministic per-nation randomness for events/catastrophes (a pure function of owner + tick)
-const nrand = (n, tk, salt) => Number(H("ev:" + n.owner + ":" + tk + ":" + salt) % 1000000n) / 1000000;
+const nrand = (n, tk, salt) => Number(blake2bInt("ev:" + n.owner + ":" + tk + ":" + salt) % 1000000n) / 1000000;
 function rollEvent(n, tk) { return nrand(n, tk, "e") < 0.08; }
 function applyEvent(n, tk) {
   const goodBias = n.joy > 75 ? 0.62 : n.joy < 55 ? 0.38 : 0.5;   // content nations get luckier

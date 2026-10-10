@@ -3,9 +3,9 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js?v=42226f9f";
-import { BankedGame } from "./bankedgame.js?v=66957686";
-import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (solo score-attack, no chain)
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, chainResultAlg, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, confirmingLabel, loadQR, resolveAliases, disp , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
+import { BankedGame } from "./bankedgame.js?v=c7ad37a0";
+import { Practice } from "./practice.js?v=4b10cba6";      // free in-browser practice (solo score-attack, no chain)
 
 const CID = "92d2e33c094528aa4cf13fd531e1bba8";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
@@ -17,13 +17,19 @@ const BASE = { 1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600 };
 let activeTable = null, lastTable = null, lastSeats = [], lastSto = null;
 let keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };        // client-side "dice set aside this roll"
 
-// ---- dice + scoring (mirror of tests/test_farkle_contract.py) -------------------------------------
-const H = (v) => BigInt("0x" + blake2bHash(v));           // vm HASH on a BigInt
+// ---- dice + scoring (mirror of execnode/games/farkle.py) -----------------------------------------
+// rollDice MUST be the contract's roll_dice / in-VM _derive_dice, die for die: the contract hashes with the zkVM's
+// alghash (HASH over a field element) and takes the LO32 window, seed = (bh(grh)%P + bh(grh+1)%P + seat*1000 +
+// rolln*10) % P, die_p = (alghash([(seed+p)%P]) & 0xFFFFFFFF) % 6 + 1. chainResultAlg is exactly that with
+// salt = seat*1000 + rolln*10 + p. This page once hashed with blake2b instead (no mod P, no LO32), so every roll it
+// SHOWED was different from the roll the contract SCORED — the hold then refused or banked dice nobody saw.
+// tests/test_farkle_client_rolls_the_contracts_dice.py runs this function against the contract; never swap in
+// blake2bHash here.
 function rollDice(seatId, grh, grn, diceLeft, aHex, bHex) {
   if (!aHex || !bHex) return null;
-  const seed = BigInt("0x" + aHex) + BigInt("0x" + bHex) + BigInt(seatId) * 1000n + BigInt(grn) * 10n;
+  const salt0 = BigInt(seatId) * 1000n + BigInt(grn) * 10n;
   const out = [];
-  for (let p = 0; p < diceLeft; p++) out.push(Number(H(seed + BigInt(p)) % 6n) + 1);
+  for (let p = 0; p < diceLeft; p++) out.push(chainResultAlg(aHex, bHex, salt0 + BigInt(p), 6) + 1);
   return out;
 }
 const countsOf = (dice) => { const c = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; for (const d of dice) c[d]++; return c; };

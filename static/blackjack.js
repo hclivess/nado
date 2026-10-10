@@ -7,10 +7,10 @@
 // reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack 5:2; European
 // no-hole-card timing. A hand nobody finishes within 18000 blocks of its last move goes to the bank.
 // See tests/test_blackjack_settles_from_the_beacon_and_times_out_to_the_bank.py.
-import { NadoDapp, chainResultAlg, blocksToTime, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=42226f9f";
-import { BankedGame } from "./bankedgame.js?v=66957686";
-import { cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=687b2fe8";
-import { Practice } from "./practice.js?v=482139c0";      // free in-browser practice (play chips, no chain)
+import { NadoDapp, chainResultAlg, blocksToTime, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, confirmingLabel, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite , installModes , playModes} from "./nadodapp.js?v=a192d4c0";
+import { BankedGame } from "./bankedgame.js?v=c7ad37a0";
+import { cardHTML, injectCardCSS, bjTotal } from "./cards.js?v=9765f2c6";
+import { Practice } from "./practice.js?v=4b10cba6";      // free in-browser practice (play chips, no chain)
 
 const CID = "7d3d1f539b9dc228c359a52efc460c49";
 // REAP: the contract's timeout (reap gates on ge + 18000 < cursor). After it the hand resolves to the BANK, so
@@ -25,7 +25,7 @@ let lastSto = null, myHand = null, watch = null;
 // cardsAt(bh0, bh1, salt, n): the contract's card draw, card_i = LO32(alghash([bh0 + bh1 + salt + i] mod P)) % 52
 // (blackjack.card_at). A beacon step passes (BEACON(gb), "0"); a block-hash step (bh(gh), bh(gh+1)).
 // INVARIANT: the preview equals the landed cards because both reduce through chainResultAlg's exact VM formula
-// (cards.js chainCards hashes with blake2b and does not match the zkVM contract).
+// (a blake2b draw — the old cards.js chainCards, deleted 2026-10-10 — does not match the zkVM contract).
 function cardsAt(bh0, bh1, salt, n) {
   if (!bh0 || !bh1) return null;
   return Array.from({ length: n }, (_, i) => chainResultAlg(bh0, bh1, salt + i, 52));

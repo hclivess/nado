@@ -20,11 +20,17 @@
 //                            when the shooter has ball in hand — otherwise ignored]
 //   payload < 2^48, so enc < 2^52 and the value survives JSON's 2^53 integer range intact.
 //
-// The RACK is seeded by the join-time future block height kh (stormhold's scheme): HASH(bh(kh)+bh(kh+1)
-// + salt + i) drives a Fisher-Yates shuffle, so neither player can grind a favourable break.
+// The RACK is seeded by the join-time future block height kh (stormhold's scheme): blake2bInt(bh(kh)+
+// bh(kh+1) + salt + i), computed only by browsers, drives a Fisher-Yates shuffle, so neither player can
+// grind a favourable break.
 import { blake2bHash } from "./nadotx.js?v=02122c27";
 
-const H = (v) => BigInt("0x" + blake2bHash(v));
+// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
+// nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
+// engine is the referee every browser runs, so the players only need to agree with EACH OTHER. It was
+// named `H` and described as "the VM's HASH"; renamed 2026-10-10 so nobody copies it into contract-matching code.
+// Changing the hash would re-deal every game in progress, so the function itself is unchanged.
+const blake2bInt = (v) => BigInt("0x" + blake2bHash(v));
 
 // ---- table geometry (units ≈ mm on a 9-foot table) --------------------------------------------------
 export const FP = 1024;                       // position fixed-point scale (Q10)
@@ -192,7 +198,7 @@ function rackOrder(q) {
   for (let i = 1; i <= 15; i++) if (i !== 8) rest.push(i);
   if (q != null) {                                   // Fisher-Yates over the shared chain-draw formula
     for (let i = rest.length - 1; i > 0; i--) {
-      const j = Number(H(q + BigInt(1000 + i)) % BigInt(i + 1));
+      const j = Number(blake2bInt(q + BigInt(1000 + i)) % BigInt(i + 1));
       const t = rest[i]; rest[i] = rest[j]; rest[j] = t;
     }
   }

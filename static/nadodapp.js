@@ -5,7 +5,7 @@
 // cursor, amounts, commit-reveal secrets, QR, alias resolution, and Share. See dice.js / roulette.js.
 //
 // Usage:
-//   import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, _m, $ } from "./nadodapp.js";
+//   import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, _m, $ } from "./nadodapp.js";
 //   const dapp = new NadoDapp({ cid: "…", app: "Dice" });
 //   dapp.onReturn((pend, ok, err) => { /* update your #status, mark local pending state */ });
 //   await dapp.init();                       // loads crypto + processes any wallet return
@@ -214,15 +214,10 @@ export const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1)
 // reconvene at one new game/table instead of scattering to random ids. (LCG mix -> uniform over 0..1e9)
 export const rematchId = (oldId) => Number((BigInt(oldId) * 6364136223846793005n + 1442695040888963407n) % 1000000000n);
 export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypto.getRandomValues(new Uint8Array(32))) h += b.toString(16).padStart(2, "0"); return BigInt(h); };
-export const commitHashOf = (secret) => BigInt("0x" + blake2bHash(secret));   // 256-bit; == VM HASH(secret)
-// chainResult(shHex, sh1Hex, salt, mod): the ONE beacon-game result formula, shared by every game so it can
-// never drift from the contract — result = HASH(bh(sh) + bh(sh+1) + salt) % mod. Passes a BigInt to blake2bHash
-// so canonicalize emits bare digits, EXACTLY matching the VM's HASH(<int>). Returns null if a hash is missing.
-export function chainResult(shHex, sh1Hex, salt, mod) {
-  if (!shHex || !sh1Hex) return null;
-  const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt);
-  return Number(BigInt("0x" + blake2bHash(seed)) % BigInt(mod));
-}
+// No blake2b "chain result" / commit helper lives here any more (chainResult, commitHashOf — deleted 2026-10-10):
+// both were commented "== VM HASH" but hashed with blake2b, which the zkVM contracts do not use, so any page that
+// picked them up previewed a result the contract would not pay. The contract-matching forms are chainResultAlg
+// (beacon / block-hash results) and algHashn (commits, field-native structures). Do not reintroduce a blake2b one.
 // EPOCH_LENGTH: protocol.EPOCH_LENGTH, the beacon epoch. A beacon seat bound to epoch gb settles once the exec
 // cursor reaches gb * EPOCH_LENGTH (its gh is that height minus one).
 export const EPOCH_LENGTH = 60;
