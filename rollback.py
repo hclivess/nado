@@ -101,7 +101,7 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
         _rev = kv_ops.execsum_revert_pop(block["block_number"])
         if _rev:
             _ph, _doc = _rev
-            kv_ops.exec_summary_put(_ph, bool(_doc.get("inert")), _doc.get("calls") or {})
+            kv_ops.exec_summary_restore(_ph, _doc)   # the whole journaled document, not a re-derivation
         unindex_block(block, logger=logger)
 
     set_latest_block_info(latest_block=previous_block, logger=logger)

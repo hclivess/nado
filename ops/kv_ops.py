@@ -950,12 +950,21 @@ def exec_summary_put(height: int, inert: bool, calls_by_ns: dict, records=None, 
         # PRESENCE-DIVIDEND CARRY. Written only on an epoch-boundary block, where it is that epoch's
         # leftover sub-unit remainder — the ONE input to the accrual that is not already on L1. The next
         # boundary reads it as its carry-in, so the chain lives entirely in these summaries and inherits
-        # their atomicity AND their rollback inverse (rollback_one_block already restores the whole doc).
+        # their atomicity AND their rollback inverse (rollback_one_block restores the whole journaled doc: exec_summary_restore).
         # Keeping it here rather than in a separate accumulator row is the point: a new meta row would have
         # needed its own rollback, and a meta row whose rollback is not the exact inverse of its write is
         # what corrupted the L1 state root at h4260.
         if div_carry is not None:
             doc["dc"] = int(div_carry)
+    def _do(txn):
+        txn.put(_exec_summary_key(height).encode(), _pack(doc), db=_dbs()["meta"])
+    _write(_do)
+
+
+def exec_summary_restore(height: int, doc: dict):
+    """Write back an exec summary EXACTLY as it was journaled (rollback of a retention prune): the whole document —
+    inert, calls and any records-half fields (rd/rec/dc) — byte for byte. INVARIANT: revert restores what apply
+    overwrote; it never re-derives it through exec_summary_put, which would drop the fields it is not given."""
     def _do(txn):
         txn.put(_exec_summary_key(height).encode(), _pack(doc), db=_dbs()["meta"])
     _write(_do)
