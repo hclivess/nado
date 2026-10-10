@@ -4,6 +4,9 @@ A **reroll** restarts the chain from a fresh genesis (new `CHAIN_ID`, `GENESIS_T
 `CHAIN_GENERATION`), carrying balances forward. This document is the procedure, the failure modes that have actually
 happened, and — since 2026-09-09 — the rule that makes the *code* cleanup mechanical instead of archaeological.
 
+**What a reroll still drops** (contract state, the fidelity of identities absent at the reroll, a non-empty shielded
+pool) and the plan to carry all of it permanently are in `doc/stwo-migration.md` §6.
+
 ## The gate rule
 
 **Every consensus gate is written `<live height> if CHAIN_GENERATION == <gen> else <x>`.** Never a bare height.
