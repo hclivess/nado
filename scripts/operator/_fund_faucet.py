@@ -1,8 +1,11 @@
 # _fund_faucet.py — top up the leaderboard prize bank: bridge-deposit from L1 into the operator's exec
 # balance, then call faucet.fund() escrowing that VALUE into the fixed-name `faucet` contract.
-# Usage: HOME=/root python3 _fund_faucet.py [NADO]   (default 50)
+# Usage: nado_venv/bin/python scripts/operator/_fund_faucet.py [NADO]   (default 50)
+# (runs against the LIVE node and spends real NADO from the operator key)
 import json, sys, time, urllib.request
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/operator/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from ops.key_ops import load_keys
 from ops.address_ops import make_address
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx

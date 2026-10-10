@@ -411,7 +411,7 @@ function the march animates and the contract is diff-tested against; it never re
 two methods (`post`, `anchor`) are the shared `_lib` routines mounted on the contract verbatim via
 `zkpy.Contract.asm()`. Files: `autogame-daily.js` (rules), `autogame-dailyui.js` (SDK panel),
 `tests/autogame_daily_verify.mjs` (the faucet oracle), `tests/autogame_daily_play.mjs`,
-`_autogame_daily_e2e.py` (the whole rail live: anchor → play → post → the distributor ranks it → a stolen
+`scripts/live/_autogame_daily_e2e.py` (the whole rail live: anchor → play → post → the distributor ranks it → a stolen
 claim does not).
 
 > One subtlety worth carrying: a day anchor is a field element up to 2^64, and JSON has no integers, so a
@@ -433,7 +433,7 @@ Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochai
 | balance sim | `tests/autogame_balance.py` | economy harness (see its header) |
 | generated rules | `static/autogame-rules.js` | emitted from the contract; the browser's copy of every constant |
 | pixel art | `static/autogame-art.js` | the whole sprite world, ground-up: the wayfarer (gear composes the silhouette), 36 realm creatures, 18 animated props, gore, six fatalities — one primitive (fillRect), deterministic, verified by `tests/autogame_art_verify.mjs` |
-| live e2e | `_autogame_e2e.py` | the whole loop against the running node |
+| live e2e | `scripts/live/_autogame_e2e.py` | the whole loop against the running node |
 
 `tests/autogame_contract_test.py` runs the contract and the Python model over the same hashes and asserts
 step-for-step equality. A divergence in any of the three is a bug in the other two until proven otherwise.

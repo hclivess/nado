@@ -4,10 +4,12 @@
 # terrain the way the browser does, queue a plan against it, wait for the rolling height, settle, and check
 # that what the chain computed is exactly what the reference model says it should have computed.
 #
-# Run: HOME=/root python3 _autogame_e2e.py
+# Run: nado_venv/bin/python scripts/live/_autogame_e2e.py   (runs against the LIVE node and spends real NADO from the operator key)
 import json, sys, time, urllib.error, urllib.request
 
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.address_ops import make_address

@@ -258,7 +258,7 @@ verdict, or serve a snapshot here.
 
 ## The faucet was never going to pay anything
 
-`reward()` is operator-only and nothing in the node calls it — the distributor `_faucet_rewards.py` is the
+`reward()` is operator-only and nothing in the node calls it — the distributor `scripts/operator/_faucet_rewards.py` is the
 only caller. It had been written, 14 games were enrolled against it, and **it was scheduled nowhere**: no
 crontab entry, no systemd timer, nothing in `/etc/cron.d`. Donations accumulated and every airdrop-play
 leaderboard went unpaid. Verified by hand: the exec layer showed a funded faucet balance and the

@@ -1,7 +1,7 @@
 """Trio daily-board contract test — anchor (two-phase) + post, on the three board games that just gained
 a free Daily Challenge (tic-tac-toe / connect four / reversi). Checks the shared _lib board is wired to
 each contract's own field block and readable through its _view, WITHOUT disturbing the PvP game maps.
-Run: HOME=/root python tests/trio_daily_contract_test.py
+Run: HOME=$(mktemp -d) python tests/trio_daily_contract_test.py   (a throwaway HOME, never the live node's: CLAUDE.md rule 4)
 """
 import os, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -89,7 +89,7 @@ single `post`, not 128 fee-paying calls.
 - **The wall-clock envelope** — that one `lt`. See §5; it is the only real clock in the design and it is the
   piece the source design got wrong.
 - **Bounds and ordering** — `day == today ± 1`, `n <= MAX_N`, `score <= MAX_SCORE`, entry append log.
-- **Money** — *nothing in v1*. The faucet rail (`_faucet_rewards.py` `GAMES` + `DAILY_VERIFY`) pays off-chain
+- **Money** — *nothing in v1*. The faucet rail (`scripts/operator/_faucet_rewards.py` `GAMES` + `DAILY_VERIFY`) pays off-chain
   against a re-run of the same replay.
 
 ### The client simulates
@@ -251,8 +251,8 @@ Register `"gore"` in `execnode/games/deploy.py`'s `GAMES`. **Every later rule ch
 | `static/i18n_games/gore.json` | Then `python3 static/i18n_games/merge_games.py`. **The JSON alone ships nothing.** |
 | `tests/gore_engine_test.mjs` | Golden replay vectors, node **and** in-browser. The file that keeps the game honest. |
 | `tests/gore_model.py` | The readable reference implementation + differential oracle. Third of three, per this repo's rule. |
-| `tests/gore_daily_verify.mjs` | Faucet oracle, registered in `_faucet_rewards.py` `GAMES` + `DAILY_VERIFY`. |
-| `_gore_e2e.py` | anchor → muster → play → post → distributor ranks it; a **stolen claim does not**; a post outside `LIVE_WINDOW` **reverts**. Modelled on `_autogame_daily_e2e.py`. |
+| `tests/gore_daily_verify.mjs` | Faucet oracle, registered in `scripts/operator/_faucet_rewards.py` `GAMES` + `DAILY_VERIFY`. |
+| `_gore_e2e.py` | anchor → muster → play → post → distributor ranks it; a **stolen claim does not**; a post outside `LIVE_WINDOW` **reverts**. Modelled on `scripts/live/_autogame_daily_e2e.py`. |
 
 Run order matters: **`gore-engine.js` headless with bit-identical vectors under node before a single pixel is
 drawn.** It is the only irreversible decision in the project.

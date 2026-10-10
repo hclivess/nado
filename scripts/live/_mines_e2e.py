@@ -3,7 +3,9 @@
 # bank a field, start a round, reveal a batch, resolve it permissionlessly, and assert the exact
 # contract math (bust folds the stake; a clean batch banks the re-priced value and cashes out).
 import sys, json, time, urllib.request, random
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx

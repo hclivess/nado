@@ -1,5 +1,5 @@
 """
-Every live e2e script must at least still be able to LOAD.
+Every live e2e script (scripts/live/) and operator script (scripts/operator/) must at least still be able to LOAD.
 
 Run: python3 tests/test_e2e_scripts.py
 
@@ -14,6 +14,10 @@ coverage. It had none, and had not for months.
 
 This test does not run them. It resolves every module they import, which is enough to catch a script whose
 world has moved on underneath it.
+
+They live in scripts/live/ (drivers that spend real NADO on the live chain) and scripts/operator/ (the faucet
+distributor the nado-faucet-rewards unit runs, and its top-up). They used to sit at the repo root as `_*.py`; one
+left behind there would silently drop out of this check, so the root is required to hold none.
 """
 import ast
 import re
@@ -45,10 +49,17 @@ def imports_of(path):
 
 
 def main():
-    scripts = sorted(f for f in os.listdir(ROOT) if f.startswith("_") and f.endswith("_e2e.py"))
-    assert scripts, "found no _*_e2e.py scripts — has the naming convention changed?"
-    print(f"checking {len(scripts)} live e2e scripts\n")
-    for f in scripts:
+    live = sorted(os.path.join("scripts", "live", f) for f in os.listdir(os.path.join(ROOT, "scripts", "live"))
+                  if f.startswith("_") and f.endswith(".py"))
+    operator = sorted(os.path.join("scripts", "operator", f)
+                      for f in os.listdir(os.path.join(ROOT, "scripts", "operator")) if f.endswith(".py"))
+    assert any(f.endswith("_e2e.py") for f in live), "found no scripts/live/_*_e2e.py — has the layout changed?"
+    stray = sorted(f for f in os.listdir(ROOT) if f.startswith("_") and f.endswith(".py"))
+    if stray:
+        fails.extend(stray)
+        print(f"  FAIL  live/operator scripts at the repo root (move them to scripts/live or scripts/operator): {stray}")
+    print(f"checking {len(live)} live + {len(operator)} operator scripts\n")
+    for f in live + operator:
         bad = []
         for m in imports_of(os.path.join(ROOT, f)):
             try:
@@ -58,15 +69,16 @@ def main():
                 bad.append(m)
         if bad:
             fails.append(f)
-            print(f"  FAIL  {f:26s} cannot load: {', '.join(bad)}")
+            print(f"  FAIL  {f:44s} cannot load: {', '.join(bad)}")
         else:
-            print(f"  PASS  {f:26s} imports resolve")
+            print(f"  PASS  {f:44s} imports resolve")
         # A PASTED contract id is the same rot one layer down: it dies at every reroll while the script still loads.
         # After betanet-8, 13 of these scripts targeted contracts that no longer existed. Derive it: target_cids().
-        pasted = re.findall(r'"[0-9a-f]{32}"', open(os.path.join(ROOT, f)).read())
+        # (the operator distributor is exempt: its GAMES table IS the pasted-cid list redeploy rewires in place)
+        pasted = re.findall(r'"[0-9a-f]{32}"', open(os.path.join(ROOT, f)).read()) if f in live else []
         if pasted:
             fails.append(f)
-            print(f"  FAIL  {f:26s} pastes a contract id ({pasted[0]}) — use execnode.games.redeploy.target_cids()")
+            print(f"  FAIL  {f:44s} pastes a contract id ({pasted[0]}) — use execnode.games.redeploy.target_cids()")
     return 1 if fails else 0
 
 

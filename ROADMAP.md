@@ -268,7 +268,7 @@ interpreter-vs-proof-vs-replay check our money-code rule demands. Wallet half ou
 - Frontend: `static/swap.html` + `swapdapp.js` built on `nadodapp.js`, with the standard
   confirming→confirmed lifecycle and a real `settleInflight` landed function.
 
-**Exit criteria:** live E2E script (`_amm_e2e.py`, same pattern as `_pets_e2e.py`) creates a pool,
+**Exit criteria:** live E2E script (`_amm_e2e.py`, same pattern as `scripts/live/_pets_e2e.py`) creates a pool,
 swaps both directions, adds/removes liquidity, and proves reserves and fees conserve exactly.
 
 ---
@@ -711,7 +711,7 @@ honestly is rarer than it should be.
    classes have already bitten us (banked-table solvency, field-wrap on static payout math); an AMM
    and a bonding curve are the same class of arithmetic with more zeroes attached.
 2. **Bugs are caught by running code, not reading it.** Every phase ships with a live E2E script in
-   the `_*_e2e.py` pattern and is proven on betanet before it's called done.
+   the `scripts/live/_*_e2e.py` pattern and is proven on betanet before it's called done.
 3. **Upgrade in place, no legacy paths.** Betanet has no activation gates; consensus changes go live.
 4. **Close the whole usability loop** — ids, results, feedback, history, search, i18n, routes. A
    half-wired swap is worse than no swap.

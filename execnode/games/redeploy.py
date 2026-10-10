@@ -43,13 +43,18 @@ from execnode.state import ExecState
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATIC = os.path.join(ROOT, "static")
+# THE DISTRIBUTOR'S REAL PATH. wire()/verify() skip it when it does not exist (`if os.path.exists`), so a move that
+# forgets this line stops rewiring the prize table SILENTLY and pays every board out of a dead contract after the
+# next reroll. It moved from the repo root to scripts/operator/ on 2026-10-10;
+# tests/test_redeploy_rewires_every_cid.py fails if this path stops existing.
+FAUCET_REWARDS = os.path.join(ROOT, "scripts", "operator", "_faucet_rewards.py")
 
 # game -> the frontend that drives it. Everything else is static/<game>.js; these are the exceptions, and
 # the ones with no frontend at all (system contracts reached only from python or another contract).
 FRONTEND = {"holdem": "poker.js"}
 NO_FRONTEND = {"reserve", "faucet"}
 
-# _faucet_rewards.py carries its own CID table, keyed by a stable row index. Resolving the game from the
+# scripts/operator/_faucet_rewards.py carries its own CID table, keyed by a stable row index. Resolving the game from the
 # row's `kind` works for every "<game>-daily" row; the banked/duel rows need this map. Fail loudly rather
 # than guess: a wrong row here pays a board's rewards out of the wrong contract.
 FAUCET_ROW_GAME = {0: "dice", 1: "scrapline", 2: "stormhold", 3: "farkle", 4: "blackjack",
@@ -172,7 +177,7 @@ def wire(targets):
             open(path, "w", encoding="utf-8").write(src[:m.start(1)] + targets[game] + src[m.end(1):])
             changed.append(f"{os.path.basename(path)} {var}: {m.group(1)[:10]}… -> {targets[game][:10]}…")
 
-    fr = os.path.join(ROOT, "_faucet_rewards.py")
+    fr = FAUCET_REWARDS
     if os.path.exists(fr):
         lines = open(fr, encoding="utf-8").read().split("\n")
         for i, line in enumerate(lines):
@@ -191,7 +196,7 @@ def wire(targets):
                 changed.append(f"_faucet_rewards.py[{idx}] {game}: {old[:10]}… -> {targets[game][:10]}…")
         open(fr, "w", encoding="utf-8").write("\n".join(lines))
 
-    # The live e2e scripts (_*_e2e.py) are not rewired here: they derive their cid from target_cids() at run time,
+    # The live e2e scripts (scripts/live/_*_e2e.py) are not rewired here: they derive their cid from target_cids() at run time,
     # so a reroll cannot strand them (13 pointed at dead contracts after betanet-8 while only autogame's were rewired).
     return changed
 
@@ -222,7 +227,7 @@ def verify(targets, ex):
         for var, cid in re.findall(r'^const ((?:[A-Z]+_)?CID) = "([0-9a-z]+)";', _src, re.M):
             if cid not in have:
                 bad.append(f"{os.path.basename(path)} {var} -> {cid}")
-    fr = os.path.join(ROOT, "_faucet_rewards.py")
+    fr = FAUCET_REWARDS
     if os.path.exists(fr):
         for cid in re.findall(r'\(\d+,\s*"([0-9a-z]+)"', open(fr, encoding="utf-8").read()):
             if cid not in have:

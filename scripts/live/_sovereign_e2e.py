@@ -2,7 +2,9 @@
 # _sovereign_e2e.py — LIVE: found two nations on-chain, run economy actions, confirm the global log + the
 # JS engine replay agree. Uses the node key (A) + a fresh key (B).
 import sys, json, time, urllib.request, subprocess
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from ops.key_ops import load_keys
 from signatures import generate_keydict
 from ops.transaction_ops import construct_blob_tx, draft_transaction, create_transaction
@@ -71,7 +73,7 @@ const log=[]; for(let i=0;i<mc;i++){{ const rh=lc[String(i)]||0; log.push({{acto
 const w = E.replayWorld(log, {tip()}, ()=>1n).world;
 const A='{A["address"]}', B='{B["address"]}';
 console.log(JSON.stringify({{nations:Object.keys(w).length, Avillages: w[A]?w[A].bld.village:-1, Aland: w[A]?w[A].land:-1, Bexists: !!w[B]}}));
-"""], capture_output=True, text=True, cwd="/root/nado", timeout=60)
+"""], capture_output=True, text=True, cwd=REPO, timeout=60)
 out = node.stdout.strip().splitlines()[-1] if node.stdout.strip() else node.stderr[-300:]
 print("  replay:", out, flush=True)
 try:

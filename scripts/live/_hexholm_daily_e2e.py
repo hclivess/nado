@@ -5,7 +5,7 @@ _hexholm_daily_e2e.py — LIVE end-to-end of the Hexholm PROVABLE DAILY ISLAND o
   3. posts the claim (day, score, n, 150 packed words) via a signed blob tx
   4. waits for the entry to land and runs the faucet distributor's oracle
      (tests/hexholm_daily_verify.mjs) — the run must rank, with the exact score
-Run: HOME=/root ./nado_venv/bin/python _hexholm_daily_e2e.py
+Run: nado_venv/bin/python scripts/live/_hexholm_daily_e2e.py   (runs against the LIVE node and spends real NADO from the operator key)
 """
 import json
 import os
@@ -14,7 +14,8 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 
@@ -34,7 +35,7 @@ def sto():
 
 def call(method, args):
     out = subprocess.run([PY, "execnode/submit_blob.py", "call", CID, method, json.dumps(args)],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, cwd=REPO, timeout=60)
     print(f"  submit {method}: {out.stdout.strip().splitlines()[0] if out.stdout else out.stderr.strip()[:200]}")
     if out.returncode != 0:
         sys.exit(f"submit {method} failed:\n{out.stdout}\n{out.stderr}")
@@ -66,7 +67,7 @@ print(f"  anchor av[{day}] = {av}")
 
 # 2 ---- play the run headlessly ---------------------------------------------------------------------
 out = subprocess.run(["node", "tests/hexholm_daily_play.mjs", str(day), str(av), addr],
-                     capture_output=True, text=True, timeout=300)
+                     capture_output=True, text=True, cwd=REPO, timeout=300)
 if out.returncode != 0:
     sys.exit(f"play failed:\n{out.stderr}")
 claim = json.loads(out.stdout.strip())
@@ -84,7 +85,7 @@ print("  entry landed on-chain")
 
 # 4 ---- the distributor's oracle must rank it -------------------------------------------------------
 out = subprocess.run(["node", "tests/hexholm_daily_verify.mjs", CID, str(day)],
-                     capture_output=True, text=True, timeout=600)
+                     capture_output=True, text=True, cwd=REPO, timeout=600)
 if out.returncode != 0:
     sys.exit(f"verify oracle failed:\n{out.stderr}")
 rows = json.loads(out.stdout.strip())

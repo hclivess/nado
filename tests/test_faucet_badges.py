@@ -2,7 +2,7 @@
 
 The apps page badge ("🪂 airdrop play") is the only place a player learns a game has free play with real
 prizes. It is set by hand on each tile (`faucet:true`) while the payouts are driven by a separate list in
-_faucet_rewards.py, so the two drift silently: a game can be paid prizes nobody is told about, or promise
+scripts/operator/_faucet_rewards.py, so the two drift silently: a game can be paid prizes nobody is told about, or promise
 prizes it will never receive. Autogame was the first case — enrolled as idx 13 with a working daily and a
 replay oracle, and no badge on its tile.
 
@@ -15,7 +15,7 @@ def check(name, cond, detail=""):
     print(("PASS  " if cond else "FAIL  ") + name + (("  — " + detail) if detail and not cond else ""))
     if not cond: _fails.append(name)
 
-src = open(os.path.join(ROOT, "_faucet_rewards.py"), encoding="utf8").read()
+src = open(os.path.join(ROOT, "scripts", "operator", "_faucet_rewards.py"), encoding="utf8").read()
 block = src[src.index("GAMES = ["):src.index("]", src.index("GAMES = ["))]
 # (idx, cid, kind) plus the trailing comment naming the game
 enrolled = {}

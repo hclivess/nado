@@ -3,7 +3,9 @@
 # from the faucet contract, and the grant lands as spendable exec balance. (The donation + enrollment
 # already happened; this is the player half of doc/faucet.md.)
 import sys, json, time, urllib.request
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict

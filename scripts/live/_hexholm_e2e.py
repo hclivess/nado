@@ -8,7 +8,9 @@
 # The full play-to-10-points path is proven headless (tests/hexholm_engine_test.mjs plays whole games);
 # this driver proves the CHAIN half: seeds, escrow, free-actor ply binding, payouts.
 import sys, json, time, urllib.request, random, subprocess
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict
@@ -80,7 +82,7 @@ def transfer(kd, to, amount):
 def oracle(g, seed, secrets):
     extra = [str(x) for x in secrets]
     r = subprocess.run(["node", "tests/hexholm_next_move.mjs", str(g), CID, str(seed), EX] + extra,
-                       capture_output=True, text=True, cwd="/root/nado", timeout=60)
+                       capture_output=True, text=True, cwd=REPO, timeout=60)
     if r.returncode != 0: sys.exit("oracle failed: " + r.stderr[-400:])
     return json.loads(r.stdout.strip().splitlines()[-1])
 
