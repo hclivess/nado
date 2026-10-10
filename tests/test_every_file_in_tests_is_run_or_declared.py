@@ -87,8 +87,11 @@ KINDS = {"library", "suite", "tool", "data"}
 IGNORED = {"__pycache__"}            # interpreter cache, never tracked
 
 
-def entries():
-    return sorted(n for n in os.listdir(TESTS) if n not in IGNORED and not n.startswith("."))
+def entries(d=TESTS):
+    # INVARIANT: an EMPTY directory is skipped, because git cannot track one — it is a leftover in one checkout (the live
+    # node's tests/helpers, empty since 2026-09-10, refused the rel4 push), never something a push carries.
+    return sorted(n for n in os.listdir(d) if n not in IGNORED and not n.startswith(".")
+                  and not (os.path.isdir(os.path.join(d, n)) and not os.listdir(os.path.join(d, n))))
 
 
 def classify(names, declared):
@@ -154,6 +157,11 @@ def self_check():
 
 if __name__ == "__main__":
     self_check()
+    import tempfile as _tf
+    _d = _tf.mkdtemp(prefix="nado-test-entries-")
+    os.makedirs(os.path.join(_d, "leftover")); os.makedirs(os.path.join(_d, "full")); open(os.path.join(_d, "full", "x"), "w").close()
+    _e = entries(_d)
+    assert _e == ["full"], f"an empty leftover directory is not an entry; a non-empty one is: {_e}"
     bad = classify(entries(), DECLARED) + drivers_name_their_libraries(DECLARED) + runner_runs_the_suite_entries(DECLARED)
     for b in bad:
         print("FAIL  " + b)
