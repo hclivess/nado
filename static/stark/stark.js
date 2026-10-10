@@ -4,7 +4,7 @@ import * as F from "./field.js";
 import * as merkle from "./merkle.js";
 import * as fri from "./fri.js";
 import { Transcript, DOMAIN_STARK } from "./transcript.js";
-import { b2b32, i8le, hexToBytes } from "./bhash.js";   // round-2 prologue (airDigest / aux lanes)
+import { b2b32, b2b32Parts, i8le, hexToBytes } from "./bhash.js";   // round-2 prologue (airDigest / aux lanes)
 
 export const OFF = F.GEN;
 export const NUM_QUERIES = fri.NUM_QUERIES;   // protocol query count (C-1), single source of truth = fri.js
@@ -82,7 +82,7 @@ export function airDigest(T, W, blowup, nTransitions, boundaries, periodic) {   
                  i8le(periodic ? periodic.length : 0)];
   for (const [row, col, val] of boundaries) parts.push(i8le(row), i8le(col), i8le(val));
   if (periodic) for (const pc of periodic) { parts.push(i8le(pc.length)); for (const v of pc) parts.push(i8le(v)); }
-  return b2b32(...parts);
+  return b2b32Parts(parts);                          // never b2b32(...parts): ~10^5 parts overflow the stack (bhash.js)
 }
 const _TE = new TextEncoder();
 function _salts(n) {                                 // n hex salts of 32 bytes, from the platform CSPRNG

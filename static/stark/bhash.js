@@ -11,6 +11,14 @@ import { P } from "./field.js";
 
 // blake2b-256 over concatenated byte parts -> 32-byte hex digest. Mirrors backend._b2b32(*parts).
 export function b2b32(...parts) {
+  return b2b32Parts(parts);
+}
+
+// The same digest over an ARRAY of parts. INVARIANT: a caller with an unbounded number of parts uses this, never
+// b2b32(...parts), because spreading ~10^5 arguments overflows the call stack — airDigest at depth 48 spread ~102,500
+// and died with "RangeError: Maximum call stack size exceeded" in a Worker and on small-stack (phone) browsers
+// (found 2026-10-10 measuring the join-split prover).
+export function b2b32Parts(parts) {
   let len = 0;
   for (const p of parts) len += p.length;
   const buf = new Uint8Array(len);
