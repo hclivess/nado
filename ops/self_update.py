@@ -953,9 +953,35 @@ def native_report(max_age=60):
                       "built": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(m)),
                       "restart_needed": m > _PROC_START}
         all_ok = all_ok and not stale
-    rep = {"ok": all_ok, "crates": out}
+    rep = {"ok": all_ok, "crates": out, "rustc": rustc_version()}
     _NATIVE_REPORT[:] = [now, rep]
     return rep
+
+
+_RUSTC = []
+
+
+def rustc_version():
+    """The rustc this node would build native crates with ("1.95.0"), or None without one — resolved like _build_crates
+    resolves cargo (PATH, then ~/.cargo/bin). Read once per process. Published in /status (native.rustc) because a
+    crate that needs a newer compiler than a fleet node has would fail on that node's update, and nodes are run by
+    operators who give us no shell: the oldest compiler in the fleet must be READ before such a crate ships
+    (doc/stwo-migration.md §5.1)."""
+    if _RUSTC:
+        return _RUSTC[0]
+    import re as _re
+    import shutil as _sh
+    import subprocess as _sp
+    rustc = _sh.which("rustc") or os.path.expanduser("~/.cargo/bin/rustc")
+    ver = None
+    try:
+        r = _sp.run([rustc, "--version"], capture_output=True, text=True, timeout=20)
+        m = _re.match(r"rustc (\d+\.\d+\.\d+)", r.stdout or "")
+        ver = m.group(1) if m else None
+    except Exception:
+        ver = None
+    _RUSTC.append(ver)
+    return ver
 
 
 def _missing_required_libs():

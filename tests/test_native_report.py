@@ -103,6 +103,35 @@ def t_the_report_is_cached():
         _restore(saved)
 
 
+def t_it_names_the_rustc_this_node_would_build_with():
+    """native.rustc: the compiler version a node would build crates with, so the fleet's oldest compiler can be read
+    before a crate that needs a newer one ships (doc/stwo-migration.md §5.1); None without a usable compiler, never a
+    crash. Driven with fake compilers on PATH (a throwaway HOME has no rustup default, so the real one prints nothing)."""
+    import re as _re
+    d = tempfile.mkdtemp(dir=os.environ["HOME"])
+    def fake(out, code=0):
+        p = os.path.join(d, "rustc")
+        open(p, "w").write(f"#!/bin/sh\necho '{out}'\nexit {code}\n"); os.chmod(p, 0o755)
+    saved = os.environ["PATH"]
+    try:
+        os.environ["PATH"] = d
+        fake("rustc 1.95.0 (59807616e 2026-04-14)")
+        SU._RUSTC.clear()
+        assert SU.rustc_version() == "1.95.0", SU._RUSTC
+        assert SU.native_report(max_age=0)["rustc"] == "1.95.0"
+        fake("error: rustup could not choose a version of rustc to run", 1)
+        SU._RUSTC.clear()
+        assert SU.rustc_version() is None
+        os.environ["PATH"] = "/nonexistent"
+        SU._RUSTC.clear()
+        assert not os.path.exists(os.path.expanduser("~/.cargo/bin/rustc"))
+        assert SU.rustc_version() is None
+    finally:
+        os.environ["PATH"] = saved
+        SU._RUSTC.clear()
+        SU._NATIVE_REPORT[:] = [0, None]
+
+
 def t_status_publishes_it():
     src = open(os.path.join(ROOT, "nado.py")).read()
     assert '"native": self_update.native_report(),' in src
