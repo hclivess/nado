@@ -2,8 +2,6 @@ import asyncio
 import functools
 import hashlib
 import json
-import base64
-import hmac
 import os
 import queue
 import re
@@ -1347,32 +1345,6 @@ async def devbind_lookup(request):
 # blob is deterministic in (seed, name, secret), so any node can replay the challenge from public data. There
 # is no CA key here to steal, rotate or guard, which is the entire point of the construction.
 #
-# These endpoints are LIVE. They enrol chips against the pinned vendor endorsement roots. Nothing downstream
-# consumes the result yet - the consensus rule is not written - so an enrolment today proves a chip and confers
-# no standing, which is the honest state to be in while the rule is built rather than a disabled switch that
-# hides whether any of it works.
-_tpm_enrol = {}                       # nonce -> (issued_at, ek_identity, aik_name, secret, seed, blob)
-_TPM_ENROL_TTL = 300                  # seconds; an unanswered challenge is worthless and must not accumulate
-
-
-def _tpm_enrol_gc():
-    now = time.time()
-    for k in [k for k, v in _tpm_enrol.items() if now - v[0] > _TPM_ENROL_TTL]:
-        _tpm_enrol.pop(k, None)
-
-
-# Finished device proofs waiting for the wallet that can sign for them: address -> (dropped_at, payload).
-# IN MEMORY AND SHORT-LIVED ON PURPOSE. A proof is only usable until its max_block passes, and it is not
-# a secret — it is a signature by a chip over a public challenge, useless to anyone who cannot sign as
-# the address it names.
-_TPM_PROOFS = {}
-_TPM_PROOF_TTL = 1800
-# BOUNDED (audit 2026-09-25): the dict was keyed by any address string and filled BEFORE the proof was checked, with a
-# TTL as the only limit — so a stream of drops under fresh addresses grew it without bound. Only an ACCEPTED proof is
-# stored now, the endpoint is throttled per IP, and the oldest entry is evicted once this many are held.
-_TPM_PROOFS_MAX = 2048
-
-
 async def tpm_proof_drop(request):
     """POST {address, id, device, max_block} — the enrolment helper leaves a finished device proof for
     the wallet that owns `address`.
@@ -1390,19 +1362,11 @@ async def tpm_proof_drop(request):
         dev = body.get("device")
         if not isinstance(dev, dict) or not dev.get("certinfo") or not dev.get("sig"):
             return _resp({"ok": False, "reason": "no device proof"}, status=400)
-        now = time.time()
-        _entry = (now, {"id": str(body.get("id") or ""), "device": dev, "max_block": int(body.get("max_block") or 0)})
 
-        def _keep():
-            # STORED ONLY ONCE ACCEPTED, and bounded: see _TPM_PROOFS_MAX.
-            for k in [k for k, v in _TPM_PROOFS.items() if now - v[0] > _TPM_PROOF_TTL]:
-                _TPM_PROOFS.pop(k, None)
-            while len(_TPM_PROOFS) >= _TPM_PROOFS_MAX:
-                _TPM_PROOFS.pop(min(_TPM_PROOFS, key=lambda k: _TPM_PROOFS[k][0]), None)
-            _TPM_PROOFS[addr] = _entry
-        # AND INTO THE STORE THE WALLET ACTUALLY POLLS. This endpoint had its own private dict and its own
-        # pickup, and nothing in the wallet read either — so the first proof ever produced on real silicon
-        # sat here until its max_block passed, with no button anywhere that could collect it. The wallet
+        # INTO THE ONE STORE THE WALLET POLLS (node_attest; /node_attest_pickup). This endpoint once had its own private
+        # dict and its own /tpm_proof_pickup, and nothing in the wallet read either (both deleted 2026-10-10) — so the
+        # first proof ever produced on real silicon sat there until its max_block passed, with no button anywhere that
+        # could collect it. The wallet
         # has polled /node_attest_pickup for "attest from another device" all along, and this is the same
         # situation by a different road: a machine that holds the hardware cannot sign for the identity it
         # vouches for, so the finished proof waits for that wallet to collect it. One store, one pickup.
@@ -1418,7 +1382,6 @@ async def tpm_proof_drop(request):
                 logger.error(f"tpm_proof_drop: mirror refused for {addr[:12]}: {_mirror.get('reason')}")
                 return _resp({"ok": False, "reason": f"proof not accepted: {_mirror.get('reason')}"},
                              status=400)
-            _keep()
             # AND FAN IT OUT, because a wallet does not stay on one relay. This called node_attest.drop()
             # in-process, which stores locally and skips the one-hop forward that /node_attest_drop does
             # for exactly this reason — so the proof existed on precisely ONE node. A wallet load-balances
@@ -1434,23 +1397,10 @@ async def tpm_proof_drop(request):
             # endpoint reported success, and the only way anyone found out was a person looking for a
             # button that was never going to appear.
             logger.error(f"tpm_proof_drop: mirror into node_attest failed: {type(_e).__name__}: {_e}")
-            _keep()                          # the drop stands (see above); it is still bounded
+            return _resp({"ok": False, "reason": "proof not stored"}, status=500)
         return _resp({"ok": True})
     except Exception as e:
         return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
-
-
-async def tpm_proof_pickup(request):
-    """GET /tpm_proof_pickup?address=<addr> — what the helper left, or {"found": false}. The wallet
-    polls this while the helper runs and offers the registration the moment a proof appears."""
-    addr = str(request.query.get("address", ""))
-    entry = _TPM_PROOFS.get(addr)
-    if not entry:
-        return _resp({"found": False})
-    if time.time() - entry[0] > _TPM_PROOF_TTL:
-        _TPM_PROOFS.pop(addr, None)
-        return _resp({"found": False})
-    return _resp({"found": True, **entry[1]})
 
 
 async def download_enrol(request):
@@ -1930,78 +1880,6 @@ async def tpm_duty(request):
     return _resp({"tip": tip, "duties": list(_tpm_duty_cache["index"].get(address, []))})
 
 
-async def tpm_enrol_challenge(request):
-    """POST {ek_chain: [b64 DER, ...], aik_pub: b64} -> {nonce, credential_blob, encrypted_secret}.
-
-    The endorsement chain is verified to a PINNED VENDOR ROOT by the native kernel, because real vendor
-    certificates are not strictly DER and python cannot read them. The attestation key's public area is
-    refused unless it is restricted and signing - certify an unrestricted key and that chip can afterwards
-    sign anything its host asks, including a forged TPMS_ATTEST for a key that never lived in the TPM.
-    """
-    if _rate_limited(request, 10):
-        return _RL()
-    try:
-        body = await request.json()
-        chain = [base64.b64decode(c, validate=True) for c in (body.get("ek_chain") or [])]
-        aik_pub = base64.b64decode(str(body.get("aik_pub") or ""), validate=True)
-        if not chain or not aik_pub:
-            raise ValueError("ek_chain and aik_pub are required")
-        if sum(len(c) for c in chain) > 32_000 or len(aik_pub) > 2_000:
-            raise ValueError("enrolment payload out of bounds")
-
-        from ops import attest_native, tpm_aik
-        from protocol import DEVICE_ATTEST_TPM_MANUFACTURERS
-        ek = attest_native.verify_ek(chain, int(time.time()))
-        if not ek.get("ok"):
-            return _resp({"ok": False, "reason": ek.get("reason")}, status=400)
-        if str(ek.get("manufacturer", "")).upper() not in DEVICE_ATTEST_TPM_MANUFACTURERS:
-            return _resp({"ok": False, "reason": f"TPM manufacturer {ek.get('manufacturer')} is not a physical maker"},
-                         status=400)
-        detail = tpm_aik.validate_aik_pub_area(aik_pub)
-
-        name = tpm_aik.aik_name(aik_pub)
-        secret, seed = os.urandom(32), os.urandom(32)
-        blob, enc = tpm_aik.make_credential(attest_native.ek_public_der(chain[0]), name, secret, seed=seed)
-        nonce = os.urandom(16).hex()
-        _tpm_enrol_gc()
-        _tpm_enrol[nonce] = (time.time(), ek["ek_identity"], name, secret, seed, blob)
-        return _resp({"ok": True, "nonce": nonce, "key": detail,
-                      "credential_blob": base64.b64encode(blob).decode(),
-                      "encrypted_secret": base64.b64encode(enc).decode()})
-    except Exception as e:
-        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
-
-
-async def tpm_enrol_reveal(request):
-    """POST {nonce, secret: b64} -> the challenger's reveal, which is what makes this checkable without a CA.
-
-    The client can only produce `secret` by holding the chip. We answer with (secret, seed) so that any node,
-    later and offline, can recompute the credential blob and confirm the enrolment for itself.
-    """
-    if _rate_limited(request, 10):
-        return _RL()
-    try:
-        body = await request.json()
-        _tpm_enrol_gc()
-        rec = _tpm_enrol.pop(str(body.get("nonce") or ""), None)
-        if not rec:
-            return _resp({"ok": False, "reason": "unknown or expired challenge"}, status=400)
-        _at, ek_identity, name, secret, seed, blob = rec
-        got = base64.b64decode(str(body.get("secret") or ""), validate=True)
-        # Constant-time: this is the comparison the whole proof reduces to.
-        if not hmac.compare_digest(got, secret):
-            return _resp({"ok": False, "reason": "the chip did not return the sealed secret"}, status=400)
-        from ops import tpm_aik
-        return _resp({"ok": True, "ek_identity": ek_identity,
-                      "aik_name": base64.b64encode(name).decode(),
-                      "secret": base64.b64encode(secret).decode(),
-                      "seed": base64.b64encode(seed).decode(),
-                      "credential_blob": base64.b64encode(blob).decode(),
-                      "commitment": tpm_aik.credential_commitment(secret)})
-    except Exception as e:
-        return _resp({"ok": False, "reason": str(e)[:200]}, status=400)
-
-
 async def node_attest_drop(request):
     """POST /node_attest_drop {sender, max_block, device:{att,cdj,rp}, hop?}: a wallet drops a device attestation
     for a NODE's address (ops/node_attest — the phone cannot reach a TLS-less node, so the statement travels
@@ -2053,7 +1931,7 @@ async def node_attest_pickup(request):
         return _RL()
     from ops import node_attest as _na
     # ACCEPT `address=` AS WELL AS `sender=`. Every other endpoint on this node takes address=
-    # (/get_account, /tpm_proof_pickup, /download_enrol), and this one silently returned an empty list
+    # (/get_account, /download_enrol), and this one silently returned an empty list
     # for it rather than complaining — which cost a debugging cycle on the night the first real proof
     # was produced. An empty result that means "wrong parameter name" is indistinguishable from one that
     # means "nothing waiting", so accept both spellings instead of making callers guess.
@@ -2228,47 +2106,13 @@ async def snapshot_chunk(request):
                         headers={"Access-Control-Allow-Origin": "*"})
 
 
-_richest_cache = {"height": -1, "value": 0, "address": None}
-# STAMPEDE LOCKS. All three caches below are keyed on the block height, which moves every ~6 s, so at
+# STAMPEDE LOCKS. Both caches below are keyed on the block height, which moves every ~6 s, so at
 # every block boundary every concurrent request missed at once and each ran its OWN full iter_accounts()
 # scan. The to_thread pool is min(32, cpu+4) wide, so 32 simultaneous /wealth_stats at a boundary meant
 # 32 full scans of GIL-held Python (~90 ms each at 11k accounts = ~2.9 s, half a block slot) from one
 # unauthenticated client. Holding the lock across the scan means exactly one runs and the rest return
 # its result. Paired with a rate limit on each endpoint below — these are page-load reads, not polls.
-_scan_locks = {k: _threading.Lock() for k in ("richest", "wealth", "rich_list")}
-
-
-async def get_richest(request):
-    """GET /get_richest: the single largest account by balance+bonded (wallet "coin pile" visual).
-    O(accounts) scan, but cached per block height so it costs at most one scan per block."""
-    if _rate_limited(request, 30):
-        return _RL()
-    # The largest account by total holdings (balance + bonded) — powers the wallet's relative "coin
-    # pile" visual. O(accounts) scan, cached per block height so it runs at most once per block.
-    def _work():
-        """Cached-per-height O(accounts) max scan (worker thread)."""
-        try:
-            h = memserver.latest_block["block_number"]
-        except Exception:
-            h = 0
-        if _richest_cache["height"] == h and _richest_cache["address"] is not None:
-            return {"richest": _richest_cache["value"], "address": _richest_cache["address"], "block_number": h}
-        with _scan_locks["richest"]:                       # one scan per height, not one per requester
-            if _richest_cache["height"] == h and _richest_cache["address"] is not None:
-                return {"richest": _richest_cache["value"], "address": _richest_cache["address"],
-                        "block_number": h}
-            return _richest_scan(h)
-
-    def _richest_scan(h):
-        from ops import kv_ops
-        best_v, best_a = 0, None
-        for addr, acc in kv_ops.iter_accounts():
-            tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
-            if tot > best_v:
-                best_v, best_a = tot, addr
-        _richest_cache.update(height=h, value=best_v, address=best_a)
-        return {"richest": best_v, "address": best_a, "block_number": h}
-    return _resp(await asyncio.to_thread(_work))
+_scan_locks = {k: _threading.Lock() for k in ("wealth", "rich_list")}
 
 
 _wealth_cache = {"height": -1, "data": None}
@@ -3522,13 +3366,10 @@ async def make_app(port):
         web.post("/device_attest_probe", device_attest_probe),
         web.get("/download_enrol", download_enrol),
         web.post("/tpm_proof_drop", tpm_proof_drop),
-        web.get("/tpm_proof_pickup", tpm_proof_pickup),
         web.get("/tpm_enrolment", tpm_enrolment),
         web.get("/tpm_duty", tpm_duty),
         web.post("/tpm_enrol_id", tpm_enrol_id),
         web.post("/register_challenge", register_challenge),
-        web.post("/tpm_enrol_challenge", tpm_enrol_challenge),
-        web.post("/tpm_enrol_reveal", tpm_enrol_reveal),
         web.post("/devbind_lookup", devbind_lookup),
         web.post("/node_attest_drop", node_attest_drop),
         web.get("/node_attest_pickup", node_attest_pickup),
@@ -3571,7 +3412,6 @@ async def make_app(port):
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
-        web.get("/get_richest", get_richest),
         web.get("/wealth_stats", get_wealth_stats),
         web.get("/device_stats", device_stats),
         web.get("/treasury_status", get_treasury_status),

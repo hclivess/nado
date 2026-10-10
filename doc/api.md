@@ -47,7 +47,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 |---|---|---|---|
 | GET | `/get_account` | `?address=` | `{balance, …}` (raw units; 1 NADO = 1e10) |
 | GET | `/get_account` (auth fields) | `?address=` | with account authentication live, the doc also carries `auth` (the installed config: `v`, `keys`, `sign`, `reconf`), `auth_pending` (`cfg`, `eff`, `txid`) and `auth_freeze` — see doc/key-rotation.md |
-| GET | `/get_supply` · `/wealth_stats` · `/get_rich_list` · `/get_richest` | — | supply + distribution |
+| GET | `/get_supply` · `/wealth_stats` · `/get_rich_list` | — | supply + distribution |
 | GET | `/resolve_alias` | `?name=` | on-chain alias → address |
 | GET | `/get_aliases_of` | `?address=` | aliases owned by an address |
 

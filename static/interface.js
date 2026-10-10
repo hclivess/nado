@@ -4183,7 +4183,7 @@ function stopMining() {
  * -------------------------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------------------------------
  * A LITTLE TOUCH — a pile of coins that grows with your wallet, scaled to the richest wallet on the
- * network (from /get_richest). Pure SVG, no assets. Richest → full heap + crown; empty → no coins.
+ * network (from /wealth_stats). Pure SVG, no assets. Richest → full heap + crown; empty → no coins.
  * ---------------------------------------------------------------------------------------------- */
 let _wealthCache = { at: 0, stats: null };
 async function getWealthStats() {
