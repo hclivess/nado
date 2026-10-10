@@ -106,24 +106,39 @@ check("the unseated duty carries no attest and no commit",
       "if seated and X >= 1 and not kv_ops.attestation_exists(X, me):" in seg
       and "if seated and kv_ops.commit_get(me, e_commit) is None:" in seg)
 
-# the TPM challenger pool
+# the TPM challenger pool: an unrevealed commitment excludes only a validator ABSENT from the reveal epoch
 P.RANDAO_MISS_POOL_HEIGHT = GATE
-a_miss, a_rev, a_none = ("miss" + "q" * 46), ("rev" + "q" * 47), ("none" + "q" * 46)
-for a in (a_miss, a_rev, a_none):
+a_miss, a_late, a_rev, a_none = ("miss" + "q" * 46), ("late" + "q" * 46), ("rev" + "q" * 47), ("none" + "q" * 46)
+for a in (a_miss, a_late, a_rev, a_none):
     kv_ops.account_set(a, "bonded", P.B_MIN * 2)
-T._duty_presence = lambda h: {a_miss: 99, a_rev: 99, a_none: 99}
+T._duty_presence = lambda h: {a_miss: 99, a_late: 99, a_rev: 99, a_none: 99}
 T._tpm_excluded = lambda h: set()
 for Ep in (GATE // L - 3, GATE // L + 3):
     kv_ops.commit_put(a_miss, Ep, beacon_commitment("never-revealed-%d" % Ep))
+    kv_ops.commit_put(a_late, Ep, beacon_commitment("late-never-revealed-%d" % Ep))
     kv_ops.commit_put(a_rev, Ep, beacon_commitment("revealed-%d" % Ep))
     kv_ops.reveal_put(Ep, "revealed-%d" % Ep)
+# epoch E-1 blocks: a_late landed a duty (present, but its reveal missed the window); a_miss landed nothing
+T.get_block_number = lambda n: {"block_number": n, "block_hash": "ab" * 32,
+                                "block_transactions": ([{"recipient": "duty", "sender": a_late}] if n % L == 20 else [])}
 pool_below = T.tpm_pool_v2((GATE // L - 3) * L + 5)
-check("below the gate an unrevealed commitment changes nothing", set(pool_below) == {a_miss, a_rev, a_none}, pool_below)
+check("below the gate an unrevealed commitment changes nothing", set(pool_below) == {a_miss, a_late, a_rev, a_none}, pool_below)
 pool_after = T.tpm_pool_v2((GATE // L + 3) * L + 5)
-check("from the gate an unrevealed commitment for the pool's epoch leaves the pool",
-      set(pool_after) == {a_rev, a_none}, pool_after)
+check("from the gate a validator ABSENT from the reveal epoch with an unrevealed commitment leaves the pool",
+      a_miss not in pool_after, pool_after)
+check("a validator PRESENT in the reveal epoch whose reveal still missed stays (a timing casualty, not absence)",
+      a_late in pool_after and a_rev in pool_after and a_none in pool_after, pool_after)
 check("the exclusion is per epoch: the next epoch without a commitment counts again",
       a_miss in T.tpm_pool_v2((GATE // L + 4) * L + 5))
+_held = T.get_block_number
+T._epoch_duty_cache[0] = None
+T.get_block_number = lambda n: None
+try:
+    T.tpm_pool_v2((GATE // L + 3) * L + 5); _deferred = False
+except T.WindowUnavailable:
+    _deferred = True
+check("a missing block of the reveal epoch defers (never guesses presence)", _deferred)
+T.get_block_number = _held
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

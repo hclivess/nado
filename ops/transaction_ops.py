@@ -715,11 +715,41 @@ def tpm_carry_misses(prev, block_height: int) -> list:
     return [[e, a] for e, a in sorted(out)]
 
 
+_epoch_duty_cache = [None]              # [(window key, frozenset of duty senders)]
+
+
+def _duty_senders_in_epoch(e: int) -> frozenset:
+    """Addresses that landed any FFG duty tx in a block of epoch `e`. A block of the epoch this node does not hold DEFERS
+    (WindowUnavailable), never guesses — the answer reaches the state root through the pool. Cached on _window_key."""
+    lo, hi = int(e) * EPOCH_LENGTH, (int(e) + 1) * EPOCH_LENGTH
+    wkey = _window_key(lo, hi)
+    entry = _epoch_duty_cache[0]
+    if entry is not None and entry[0] == wkey:
+        return entry[1]
+    who = set()
+    for h in range(lo, hi):
+        block = get_block_number(h)
+        if not block:
+            raise WindowUnavailable(
+                f"the reveal-miss rule needs block {h} of epoch {e} [{lo},{hi}) and this node does not have it "
+                f"— cannot evaluate the challenger pool without it (sync the gap, do not guess)", lo, hi)
+        for t in (block.get("block_transactions") or []):
+            if t.get("recipient") in _DUTY_RECIPIENTS and t.get("sender"):
+                who.add(t["sender"])
+    out = frozenset(who)
+    _epoch_duty_cache[0] = (wkey, out)
+    return out
+
+
 def _randao_unrevealed(block_height: int, candidates) -> set:
-    """The `candidates` whose RANDAO commitment for the epoch of `block_height` was not revealed (protocol.RANDAO_MISS_POOL_HEIGHT;
-    empty below it). The reveal window for epoch E closes at E*EPOCH_LENGTH - FINALITY_DEPTH - 1, inside E-1, so at any
-    block of E both the commitments and the reveals for E are committed and final.
-    INVARIANT: a pure function of committed rows for one epoch, identical at every block of that epoch."""
+    """The `candidates` that committed a RANDAO secret for the epoch of `block_height` and were ABSENT from the reveal
+    epoch — no duty tx of theirs landed in epoch E-1 — so the secret went unrevealed (protocol.RANDAO_MISS_POOL_HEIGHT;
+    empty below it). A validator present in E-1 whose reveal still missed is NOT excluded: the reveal window
+    (E-1)*L .. E*L-FINALITY_DEPTH-1 is 14 blocks and TX_INCLUSION_DELAY leaves ~6 to start a duty that carries it,
+    so a present validator's miss is a timing casualty, not absence (measured 2026-10-10: 122 of 173 misses).
+    The window cannot widen: commits for E land in E-2, so a reveal before E-1 would let a late committer see secrets,
+    and L1's epoch_beacon(E) reads E's reveals at block E*L, so they must be final by then.
+    INVARIANT: a pure function of committed rows and blocks of epochs E-2..E-1, identical at every block of epoch E."""
     from protocol import RANDAO_MISS_POOL_HEIGHT
     from ops.mining_ops import beacon_commitment
     if int(block_height) < RANDAO_MISS_POOL_HEIGHT:
@@ -728,12 +758,15 @@ def _randao_unrevealed(block_height: int, candidates) -> set:
     if E < 2:
         return set()
     revealed = {beacon_commitment(sec) for sec in kv_ops.reveals_for_epoch(E)}
-    out = set()
+    missed = []
     for a in sorted(candidates):                      # point reads: commits is keyed sender|epoch
         c = kv_ops.commit_get(a, E)
         if c is not None and c not in revealed:
-            out.add(a)
-    return out
+            missed.append(a)
+    if not missed:
+        return set()
+    present = _duty_senders_in_epoch(E - 1)
+    return {a for a in missed if a not in present}
 
 
 def tpm_pool_v2(block_height: int) -> dict:

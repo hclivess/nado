@@ -2119,9 +2119,10 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # epoch. Measured 2026-10-08 over target epochs 2072..2178: 358 of 1240 commitments (28.9 %) were never revealed.
 #   REVEAL_SEATLESS_HEIGHT    from here a duty tx carrying ONLY a reveal section needs no committee seat: the reveal
 #                             opens the sender's own commitment, made while seated, so it is already bounded by seats.
-#   RANDAO_MISS_POOL_HEIGHT   from here an address whose commitment for epoch E was not revealed is left out of the
-#                             TPM challenger pool (tpm_pool_v2) for enrolments opened in E. Set after
-#                             REVEAL_SEATLESS_HEIGHT so the miss rate can be re-measured under the seatless rule.
+#   RANDAO_MISS_POOL_HEIGHT   from here an address whose commitment for epoch E was not revealed AND that landed no duty
+#                             tx in the reveal epoch E-1 (absent, not merely late) is left out of the TPM challenger pool
+#                             (tpm_pool_v2) for enrolments opened in E. A present validator's miss is a timing casualty
+#                             of the 14-block reveal window, which cannot widen (transaction_ops._randao_unrevealed).
 #   REGISTRY_SNAPSHOT_HEIGHT  from here the bonded registry is frozen into state at each epoch's first block, as the
 #                             registry of the NEXT epoch (whose beacon is anchored at that block): regsnap:<E> is
 #                             written by block (E-1)*EPOCH_LENGTH, and the producer draw and duty committee for E read
