@@ -90,7 +90,7 @@ def t4_default_determinism_preserved():
 
 
 def t5_outbox_emit_commit_and_proof():
-    """Prove `emit` commits a cross-domain message in state_root and outbox_proof verifies against it."""
+    """Prove `emit` commits a cross-domain message in state_root and the record_proof_at proof (what /exec/outbox_proof serves) verifies against it."""
     from execnode import exec_root as ER
     st = _states(["default"])["default"]
     r0 = st.state_root()
@@ -98,12 +98,14 @@ def t5_outbox_emit_commit_and_proof():
     st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": [1, 2, 3]}, B, "e2")
     assert len(st.outbox) == 2, "two messages committed"
     assert st.state_root() != r0, "emitting a message changes the committed root"
-    p = st.outbox_proof(0)
-    assert p is not None and p["message"]["from"] == A and p["message"]["to_ns"] == "rollupb"
-    m = p["message"]
-    assert ER.verify_outbox_msg(st.state_root(), m["seq"], m["from"], m["to_ns"], m.get("data"), p["proof"]), \
+    m = st.outbox.get("0")
+    assert m is not None and m["from"] == A and m["to_ns"] == "rollupb"
+    # the proof /exec/outbox_proof serves: the message's leaf digest under T_DIGEST/"outbox"
+    proof, root = st.record_proof_at(None, ER.T_DIGEST, "outbox", ER.leaf_digest(ER.msg_outbox_leaf(m)), value=1)
+    assert root == st.state_root()
+    assert ER.verify_outbox_msg(root, m["seq"], m["from"], m["to_ns"], m.get("data"), proof), \
         "message proves against state_root"
-    assert st.outbox_proof(9) is None, "unknown seq -> None"
+    assert "9" not in st.outbox, "unknown seq -> no message to prove"
 
 def t6_outbox_determinism():
     """Prove two nodes emitting the same messages reach the same state_root (message commitment is deterministic)."""

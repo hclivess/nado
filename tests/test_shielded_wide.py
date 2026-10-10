@@ -167,8 +167,8 @@ def t_wide_transfer_and_unshield_apply_end_to_end():
     _apply(st, H + 3, [_transfer_tx(b2), _transfer_tx(b3)])
     assert len(st.wide_pool.commitments) == 7 and len(st.wide_pool.nullifiers) == 3
     assert st.pool_value == 600 and st.unshield_withdrawals == {"1": {"addr": BOB, "amount": 400}}
-    p = st.unshield_withdrawal_proof("1")
-    assert ER.verify_unshield(st.state_root(), p["addr"], p["amount"], p["nonce"], p["proof"]), "the exit is provable"
+    proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, BOB, "1", value=400)
+    assert root == st.state_root() and ER.verify_unshield(root, BOB, 400, "1", proof), "the exit is provable"
     # the wide pool state survives a save/load with an identical root
     st.save(); st2 = ExecState(path=st.path)
     assert st2.wide_pool.root() == st.wide_pool.root() and st2.state_root() == st.state_root()

@@ -76,8 +76,11 @@ def t_legit_unshield_still_ok():
     victim = _victim_unshield_blob("ndoVictimAddress")
     res = st.apply_blob(victim, sender="relay", txid="legit")
     assert "unshield 40" in res, f"the correctly-signed unshield must be accepted, got: {res!r}"
-    p = st.unshield_withdrawal_proof("1")
-    assert p and p["addr"] == "ndoVictimAddress" and p["amount"] == 40, p
+    w = st.unshield_withdrawals.get("1")
+    assert w and w["addr"] == "ndoVictimAddress" and w["amount"] == 40, w
+    from execnode import exec_root as ER       # the proof the /exec/unshield_proof handler serves
+    proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, w["addr"], "1", value=w["amount"])
+    assert ER.verify_unshield(root, w["addr"], w["amount"], "1", proof), "the victim's exit is provable"
 
 setup()
 check("t_redirect_rejected (H-4: swapped withdraw_addr fails the signature)", t_redirect_rejected)

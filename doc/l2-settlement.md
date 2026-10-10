@@ -22,7 +22,7 @@ with anything L1 does. Phones stay first-class (headers + DA sampling), exactly 
 | `execnode` | `execnode/execnode.py`, `state.py`, `zkvm.py` | tails **finalized** L1 blocks, decodes blobs → exec txs, runs the zkVM, maintains a state store (sparse alghash2 root) |
 | `settle` tx | `construct_settle_tx` → `{exec_cursor, state_root}`, fee-exempt | a bonded validator running an exec node attests "at cursor C the exec state root is R" |
 | settlement verifier | `settlement_ops.settlement_justified(cursor, root, reg)` | a root is **SETTLED** when attesting bonded shares `> SETTLE_NUM/SETTLE_DEN` (2/3). `latest_settled()` derives the highest justified `(cursor, root)`; exposed at `/get_settled` |
-| trust-minimized bridge | `bridge` / `bridge_withdraw` recipients; `execnode.withdrawal_proof(nonce)` | L1 deposit escrows NADO → exec credit → exec burn → **Merkle proof against the settled root** → L1 releases escrow |
+| trust-minimized bridge | `bridge` / `bridge_withdraw` recipients; `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) | L1 deposit escrows NADO → exec credit → exec burn → **Merkle proof against the settled root** → L1 releases escrow |
 
 Two properties of this substrate matter for everything below:
 
@@ -172,7 +172,7 @@ they sample, they don't store. Rolling mode and the blob cap must be tuned toget
 Every rollup exposes a trust-minimized two-way bridge, escrow held per-`ns` at the `bridge` reserved address:
 
 - **Deposit:** L1 `bridge` tx escrows NADO against `ns`; the exec node credits it exec-side (already built).
-- **Withdraw:** exec-side burn → `execnode.withdrawal_proof(nonce)` → L1 `bridge_withdraw` with a **Merkle
+- **Withdraw:** exec-side burn → `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) → L1 `bridge_withdraw` with a **Merkle
   proof against `latest_settled(ns)`** (2a) or an inclusion claim under a **validity-proven** root (2b). L1
   releases escrow only against a settled root, so a bad exec-layer state can never drain the bridge.
 - **Escape hatch (censorship resistance) — to design.** A forced-withdrawal path: if a rollup's sequencer/prover
@@ -246,6 +246,6 @@ the proof system and DA commitments are **PQ-sound hash-based**; the bridge hono
 > [`rolling-mode-and-da.md`](rolling-mode-and-da.md) (DA, erasure coding, hash-based DAS, pruning),
 > [`quantum-resistance-and-vms.md`](quantum-resistance-and-vms.md) (why proofs/DA must be hash-based),
 > `ops/settlement_ops.py` (`settlement_justified` seam, `latest_settled`), `execnode/` (tailing node,
-> `maybe_settle`, `withdrawal_proof`), `protocol.py` (`RESERVED_RECIPIENTS`, `SETTLE_NUM/DEN`,
+> `maybe_settle`, `h_withdrawal_proof`), `protocol.py` (`RESERVED_RECIPIENTS`, `SETTLE_NUM/DEN`,
 > `MAX_BLOB_BYTES_PER_BLOCK`, `HISTORY_RETENTION_BLOCKS`). Settlement 2a + bridge are implemented; namespaces,
 > validity proofs, aggregation, and DA hardening are design.

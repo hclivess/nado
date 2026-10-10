@@ -102,9 +102,13 @@ def fabricated_state(who):
 
 def exits(st, who, h):
     """The three escrow exits the attacker proves against its root, as real signed transactions."""
-    d = st.dividend_withdrawal_proof("d1")
-    u = st.unshield_withdrawal_proof("u1")
-    b = st.withdrawal_proof("b1")
+    # the proofs the exec HTTP handlers serve (record_proof_at against the live root)
+    def _exit(table, tag, nonce):
+        w = table[nonce]
+        return {"amount": w["amount"], "proof": st.record_proof_at(None, tag, w["addr"], nonce, value=w["amount"])[0]}
+    d = _exit(st.dividend_withdrawals, ER.T_DIV_WD, "d1")
+    u = _exit(st.unshield_withdrawals, ER.T_UNSHIELD_WD, "u1")
+    b = _exit(st.withdrawals, ER.T_BRIDGE_WD, "b1")
     div = construct_dividend_withdraw_tx(who, d["amount"], "d1", d["proof"], max_block=h)
     uns = {"sender": who["address"], "recipient": "unshield", "amount": 0, "fee": 0, "timestamp": 1, "nonce": "nu",
            "data": {"addr": who["address"], "amount": u["amount"], "nonce": "u1", "proof": u["proof"]},

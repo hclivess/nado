@@ -39,8 +39,8 @@ def t1_drop_claimed():
     st.drop_claimed("unshield", 4)
     assert "1" not in st.withdrawals and "3" not in st.dividend_withdrawals and "4" not in st.unshield_withdrawals
     assert st.state_root() != r0, "claimed leaves must leave the root"
-    p = st.withdrawal_proof("2")
-    assert p and ER.verify_withdrawal(st.state_root(), "ndoB", 7, "2", p["proof"]), \
+    proof, root = st.record_proof_at(None, ER.T_BRIDGE_WD, "ndoB", "2", value=7)
+    assert ER.verify_withdrawal(root, "ndoB", 7, "2", proof), \
         "UNclaimed exits must stay provable"
     st.drop_claimed("bridge_withdraw", 999)        # unknown nonce -> no-op, no error
     st.drop_claimed("nonsense", 1)                 # unknown kind -> no-op
@@ -56,11 +56,11 @@ def t2_drop_consumed_outbox_and_monotonic_seq():
     assert st.state_root() != r0, "consumed outbox leaf must leave the root"
     st.apply_blob({"op": "emit", "to_ns": "b", "data": "m2"}, sender="ndoA", txid="t2")
     assert "2" in st.outbox and st.outbox["2"]["seq"] == 2, "seq counter is monotonic after GC (no reuse)"
-    p = st.outbox_proof(1)
-    m = p["message"]
-    assert p and ER.verify_outbox_msg(st.state_root(), m["seq"], m["from"], m["to_ns"], m.get("data"), p["proof"]), \
+    m = st.outbox["1"]
+    proof, root = st.record_proof_at(None, ER.T_DIGEST, "outbox", ER.leaf_digest(ER.msg_outbox_leaf(m)), value=1)
+    assert ER.verify_outbox_msg(root, m["seq"], m["from"], m["to_ns"], m.get("data"), proof), \
         "surviving outbox messages stay provable"
-    assert st.outbox_proof(0) is None, "consumed message is gone"
+    assert "0" not in st.outbox, "consumed message is gone"
     st.drop_consumed_outbox("bogus")               # malformed seq -> no-op
 
 
