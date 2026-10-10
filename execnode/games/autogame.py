@@ -1438,3 +1438,57 @@ if __name__ == "__main__":
         with open(_p, "w") as _f:
             _f.write(rules_js())
         print("wrote", _p)
+
+
+# ── reroll carry (tools/alphanet6_carryforward.carry_policy, doc/stwo-migration.md §6.2) ──────────────────────
+CARRY_PIN_FLOOR = 2           # the first new-chain block a re-pinned terrain / day anchor may read
+
+
+def _carry_ids(slots, cnt_slot, lst):
+    return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+
+
+def _run_live(slots, rid):
+    g = lambda f: int(slots.get(str((f << 32) + rid), 0))
+    return g(RAV) != 0 and not g(RDN) and not g(RRT) and not g(RMI)
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can): a LIVE run whose dice are scheduled (RNH != 0). Its
+    sixteen committed answers were chosen against old-chain terrain, so it cannot be re-pinned fairly; advance it on
+    the old chain (permissionless) until it parks."""
+    slots = (storage or {}).get("slots") or {}
+    return [f"run {rid} has a leg in flight" for rid in _carry_ids(slots, 0, RLIST)
+            if _run_live(slots, rid) and int(slots.get(str((RNH << 32) + rid), 0))]
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood. A parked live run's
+    next terrain (RLH, read as BHASH(lh)) is re-pinned to a new-chain block >= CARRY_PIN_FLOOR — unknown when the carry is
+    built, and the run has committed no answers to it — and its dial fences (POLH, POLPH) shift by `tip`, so dials set
+    before the reroll still predate every new leg. An unresolved day anchor (A_V == 0) is re-pinned the same way.
+    Finished runs and resolved days are history and stay as they are. INVARIANT: only (field, id) slots reached
+    through the contract's own indexes are touched (runs: count slot 0 / RLIST; days: DCNT_SLOT / DLIST)."""
+    tip = int(tip)
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+
+    def get(f, k):
+        return int(slots.get(str((f << 32) + k), 0))
+
+    def put(f, k, v):
+        key = str((f << 32) + k)
+        if key in slots or v:
+            slots[key] = str(int(v))
+
+    for rid in _carry_ids(slots, 0, RLIST):
+        if _run_live(slots, rid):
+            put(RLH, rid, max(CARRY_PIN_FLOOR, get(RLH, rid) - tip))
+        for f in (POLH, POLPH):
+            if get(f, rid):
+                put(f, rid, max(0, get(f, rid) - tip))
+    for day in _carry_ids(slots, DCNT_SLOT, DLIST):
+        if get(A_H, day) and not get(A_V, day):
+            put(A_H, day, max(CARRY_PIN_FLOOR, get(A_H, day) - tip))
+    out = dict(storage or {})
+    out["slots"] = slots
+    return out
