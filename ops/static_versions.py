@@ -98,9 +98,13 @@ class _Node:
 class StaticVersions:
     """Content versions + rewritten bodies for the files under `root` (the static/ directory)."""
 
-    def __init__(self, root, ttl=TTL):
+    def __init__(self, root, ttl=TTL, js_transform=None):
         self.root = os.path.abspath(root)
         self.ttl = ttl
+        # js_transform(raw) -> raw: applied to a module's bytes BEFORE its references are scanned and its version
+        # hashed (nado.py stamps "/protocol.js" with the constants' hash). It must be a pure function for the life of
+        # the process — the memo keys on the file's mtime and size only.
+        self.js_transform = js_transform
         self._lock = threading.RLock()
         self._nodes = {}     # abs path -> _Node (memoised on mtime_ns + size)
         self._fresh = {}     # abs path -> (checked_at, version, body or None)
@@ -142,6 +146,8 @@ class StaticVersions:
             n = _Node(key, "leaf", None, (), _h(raw))       # the bytes are not kept: FileResponse streams them
             self._nodes[full] = n
             return n
+        if kind == "js" and self.js_transform is not None:
+            raw = self.js_transform(raw)
         base = os.path.dirname(full)
         clean, end = [], -1
         for (s, e, head, spec, tail) in scan_refs(raw, kind):
