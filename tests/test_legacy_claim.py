@@ -18,7 +18,7 @@ Pins, on real tables (throwaway HOME) with real signed transactions:
 
 Run: python3 tests/test_legacy_claim.py
 """
-import os, sys, tempfile, logging
+import json, os, sys, tempfile, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-legacyclaim-")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,9 +130,9 @@ check("the wallet claims on every dashboard cycle", "claimLegacy(acc)" in js[js.
 check("...only from the base key, with no format switch left", "ADDR_FORMAT" not in fn and "makeAddress(w.publicKey) !== w.address" in fn)
 check("...from this key's own old address, never a keyed one", "legacyAddress(w.publicKey)" in fn and "!old.public_key" in fn)
 check("...with the exact balance", "buildLegacyClaimTx(w, legacy, Number(bal)" in fn)
-i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
-blk = i18n[i18n.index("const T118 = "):i18n.index("for (const l in T118)")]
-check("...and says so in all 16 languages", all(f'"{l}": {{"legacy.claiming"' in blk for l in
+# the strings' SOURCE (i18n.js is generated from static/i18n/*.json since 2026-10-10; this read the T118 patch table)
+_misc = json.load(open(os.path.join(ROOT, "static", "i18n", "misc.json"), encoding="utf-8"))
+check("...and says so in all 16 languages", all(_misc[l].get("legacy.claiming") for l in
       ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi")))
 
 kv_ops.close_all()

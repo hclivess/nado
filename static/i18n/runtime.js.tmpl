@@ -1,0 +1,137 @@
+/* NADO Interface i18n. Classic (non-module) script loaded BEFORE interface.js so it can localize the
+ * static DOM and expose window.t() for the module. Language defaults to the browser locale
+ * (navigator.languages), overridable via the header picker (persisted in localStorage). English is the
+ * fallback for any missing key, so a partial translation degrades gracefully. RTL langs flip <html dir>.
+ *
+ * Tag elements with data-i18n="key" (textContent), data-i18n-ph="key" (placeholder), or
+ * data-i18n-title="key" (title).
+ *
+ * @@GENERATED@@ */
+(function () {
+  "use strict";
+
+  // THEME, APPLIED BEFORE FIRST PAINT. It lives here rather than in interface.js because that file is a
+  // MODULE (deferred until after the document parses and paints), so applying the accent there shows the
+  // default teal for a frame and then swaps — visible on every load. An inline <script> would be the
+  // usual fix, but this page's CSP deliberately omits 'unsafe-inline' as an XSS defence and that is not
+  // worth weakening for a colour. i18n.js is a classic deferred script that already runs earlier, and it
+  // is the file whose whole job is "decorate the document before the user reads it".
+  //
+  // Only sets the attribute; every colour still comes from interface.css, so an unknown or tampered
+  // stored value simply leaves the default stylesheet in charge instead of producing a half-styled page.
+  try {
+    var _th = localStorage.getItem("nado_theme");
+    if (_th && /^[a-z]{3,10}$/.test(_th) && _th !== "teal") {
+      document.documentElement.setAttribute("data-theme", _th);
+    }
+  } catch (e) { /* private mode / storage disabled — the default theme is correct */ }
+
+
+  // THE TABLES — one object per language, every language carrying the SAME keys. Each key is defined in exactly one
+  // source file (static/i18n/<namespace>.json or static/i18n_games/<game>.json); the generator refuses a key defined
+  // twice, a language missing a key, a placeholder that differs from English, and an empty string. This file used to
+  // be hand-layered (a base table, 110 appended patch tables merged with Object.assign, a generated games block and a
+  // hand-written site block): 129 keys were defined more than once and the LAST definition silently won.
+  const T = {
+@@TABLES@@
+  };
+
+  const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
+    ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
+    id:"Bahasa Indonesia", vi:"Tiếng Việt" };
+  const RTL = new Set(["ar", "fa", "he", "ur"]);
+
+  function pickLang() {
+    try { const s = localStorage.getItem("nado_lang"); if (s && T[s]) return s; } catch (e) {}
+    const cands = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"];
+    for (const c of cands) { const base = String(c).toLowerCase().split("-")[0]; if (T[base]) return base; }
+    return "en";
+  }
+  let LANG = pickLang();
+
+  function t(key, fb, vars) {
+    let s = (T[LANG] && T[LANG][key]) || T.en[key] || (fb != null ? fb : key);
+    if (vars) for (const k in vars) s = s.split("{" + k + "}").join(String(vars[k]));  // {name} placeholders
+    return s;
+  }
+
+  // Replace ONLY an element's leading text node, so a translated label keeps its child nodes intact
+  // (the ⓘ hint icons, .pill / .badge spans). Falls back to the current leading text if the key is missing.
+  function _leadText(el) {
+    const n = el.firstChild;
+    return (n && n.nodeType === 3) ? n.nodeValue.trim() : el.textContent.trim();
+  }
+  function _setLead(el, val) {
+    const n = el.firstChild;
+    if (n && n.nodeType === 3) {
+      const trail = /\s$/.test(n.nodeValue) ? " " : "";
+      n.nodeValue = val + trail;
+    } else {
+      el.insertBefore(document.createTextNode(val + " "), el.firstChild);
+    }
+  }
+
+  function applyI18n() {
+    const html = document.documentElement;
+    html.lang = LANG;
+    html.dir = RTL.has(LANG) ? "rtl" : "ltr";
+    document.querySelectorAll("[data-i18n]").forEach((el) => { _setLead(el, t(el.getAttribute("data-i18n"), _leadText(el))); });
+    document.querySelectorAll("[data-i18n-html]").forEach((el) => { el.innerHTML = t(el.getAttribute("data-i18n-html"), el.innerHTML); });
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph"), el.getAttribute("placeholder"))); });
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.setAttribute("title", t(el.getAttribute("data-i18n-title"), el.getAttribute("title"))); });
+    try { window.dispatchEvent(new CustomEvent("nado-lang", { detail: LANG })); } catch (e) {}
+  }
+
+  function setLang(l) {
+    if (!T[l]) return;
+    LANG = l;
+    try { localStorage.setItem("nado_lang", l); } catch (e) {}
+    applyI18n();
+  }
+
+  // ONE language control for every page. The look is the landing page's `.langsel` (nadochain.com): a quiet
+  // bordered select with a chevron, no browser chrome. The same rule is injected here so the wallet, the dex,
+  // every game page and /apps render the identical control — there is no second picker anywhere.
+  function ensurePickerStyle() {
+    if (document.getElementById("langselStyle")) return;
+    const st = document.createElement("style"); st.id = "langselStyle";
+    st.textContent = ".langsel{background:var(--panel,#111823);color:var(--txt,#e6edf3);border:1px solid var(--line,#1c2530);border-radius:8px;" +
+      "padding:6px 26px 6px 9px;font:inherit;font-size:13px;line-height:1.2;cursor:pointer;-webkit-appearance:none;appearance:none;" +
+      "background-image:linear-gradient(45deg,transparent 50%,var(--muted,#8b9bab) 50%),linear-gradient(135deg,var(--muted,#8b9bab) 50%,transparent 50%);" +
+      "background-position:calc(100% - 15px) 51%,calc(100% - 10px) 51%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}" +
+      ".langsel:hover{border-color:var(--accent,#00ad93)}.langsel:focus{outline:none;border-color:var(--accent,#00ad93)}" +
+      ".langsel.mounted{width:100%;max-width:320px;margin-top:6px}";
+    document.head.appendChild(st);
+  }
+  function buildPicker() {
+    if (document.getElementById("langSelect")) return;
+    ensurePickerStyle();
+    const sel = document.createElement("select");
+    sel.id = "langSelect"; sel.className = "langsel";
+    sel.setAttribute("aria-label", "Language");
+    // Where it lives: a page that offers a #langMount (the wallet's Settings) gets it as a full-width
+    // setting there — language is a preference, not header chrome. Other pages dock it in the header.
+    const mount = document.getElementById("langMount");
+    if (mount) sel.classList.add("mounted");
+    Object.keys(T).forEach((l) => {
+      const o = document.createElement("option");
+      o.value = l; o.textContent = NAMES[l] || l; if (l === LANG) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", () => setLang(sel.value));
+    const host = mount || document.querySelector("header.app .conn") || document.querySelector("header.app") || document.querySelector("header") || document.body;
+    // No header to dock into → pin it to the top corner instead of letting it fall to the end of <body>.
+    if (host === document.body) {
+      sel.style.cssText = "position:fixed;top:8px;" + (RTL.has(LANG) ? "left" : "right") + ":8px;z-index:2147483647";
+    }
+    host.appendChild(sel);
+  }
+
+  function init() { buildPicker(); applyI18n(); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+
+  // expose for the miner module
+  window.t = t;
+  window.NADO_i18n = { t: t, setLang: setLang, apply: applyI18n, lang: function () { return LANG; }, langs: Object.keys(T) };
+})();

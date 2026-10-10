@@ -28,17 +28,12 @@ def referenced_keys():
 
 
 def lang_keysets():
-    """{lang: set(keys)} — UNION of each language's block across BOTH tables (T + T2). A block is
-    `\\n    <lang>: {` up to the next 4-space-indented close brace."""
-    src = open(os.path.join(STATIC, "i18n.js"), encoding="utf-8").read()
-    out = {}
-    for m in re.finditer(r'\n {4}([a-z]{2}): \{', src):
-        lang = m.group(1)
-        rest = src[m.end():]
-        close = re.search(r'\n {4}\}', rest)          # end of this language's object
-        block = rest[:close.start()] if close else rest
-        out.setdefault(lang, set()).update(re.findall(r'"([^"]+)"\s*:', block))
-    return out
+    """{lang: set(keys)} from the i18n SOURCES (static/i18n/*.json + static/i18n_games/*.json) — the same data
+    tools/build_i18n.py generates static/i18n.js from. Regex-parsing the 7 MB generated file mistook an escaped
+    \\"x\\": inside a translation for a key."""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import build_i18n
+    return {l: {k for k, _ in rows} for l, rows in build_i18n.load_and_validate().items()}
 
 
 def main():
