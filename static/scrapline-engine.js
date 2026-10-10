@@ -6,7 +6,7 @@
 // Shape: a 2-player staked duel on the stormhold/chess contract (escrow + free-actor move log + agree
 // settle). DRAFT: 9 rounds each, CONCURRENT — every player draws their own offer stream. The offer a
 // player sees for round r derives from the seed height pinned by their PREVIOUS move (the join-time kh
-// for round 1): HASH(bh(rh)+bh(rh+1)+salt+i) — unpredictable when the pick before it was signed, and
+// for round 1): blake2bInt(bh(rh)+bh(rh+1)+salt+i), browser-only — unpredictable when the pick before it was signed, and
 // replayable by any browser. Six gear slots; picking a duplicate (same item, same rank) MERGES into a
 // higher rank; replacing scraps the old item for max-HP; skipping the whole offer scraps it for max-HP.
 // COMBAT: once both players have drafted, the fight resolves as a PURE deterministic simulation of the
@@ -18,7 +18,12 @@
 //   op 2 SKIP  scrap the whole offer for max HP (8 + 4·round, cap 50)
 import { blake2bHash } from "./nadotx.js?v=02122c27";
 
-const H = (v) => BigInt("0x" + blake2bHash(v));
+// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
+// nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
+// engine is the referee every browser runs, so the players only need to agree with EACH OTHER. It was
+// named `H` and described as "the VM's HASH"; renamed 2026-10-10 so nobody copies it into contract-matching code.
+// Changing the hash would re-deal every game in progress, so the function itself is unchanged.
+const blake2bInt = (v) => BigInt("0x" + blake2bHash(v));
 
 export const ROUNDS = 9, SLOTS = 6, BASE_HP = 350, SHIELD_CAP = 250, MAXRANK = 9;
 export const TAGS = ["BLADE", "BOLT", "SPARK", "EMBER", "PLATE", "MEND", "CORE"];
@@ -93,7 +98,7 @@ export function deriveOffer(g, p, r, q) {
   const ok = tiersFor(r);
   const pool = ITEMS.map((it, i) => (ok.includes(it.tier) ? i : -1)).filter((i) => i >= 0);
   const salt = BigInt(g) * 16777216n + BigInt(p) * 1048576n + BigInt(r) * 4096n;
-  return [0, 1, 2].map((i) => pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))]);
+  return [0, 1, 2].map((i) => pool[Number(blake2bInt(q + salt + BigInt(i)) % BigInt(pool.length))]);
 }
 export const offerFor = (st, p) =>
   st.ps[p].round >= ROUNDS ? null : deriveOffer(st.g, p, st.ps[p].round + 1, st.ps[p].pendq);
@@ -252,7 +257,7 @@ export function simulateBuilds(z0, z1) {
 // Win → next stage. Lose → lose a life; out of lives → run over, score = stages cleared.
 export const SOLO_LIVES = 2, PICKS_PER_FIGHT = 2, GRIT_HP = 25;
 const SOLO_SALT = 777216n;                               // keeps solo streams disjoint from PvP offers
-export const soloQ = (seed) => H("scrapline-solo:" + seed);
+export const soloQ = (seed) => blake2bInt("scrapline-solo:" + seed);
 
 // offer tiers key off the STAGE you're fighting, so counters unlock when the enemies escalate.
 export function soloOffer(seed, offerN, stage) {
@@ -260,7 +265,7 @@ export function soloOffer(seed, offerN, stage) {
   const ok = stage <= 2 ? [1] : stage <= 5 ? [1, 2] : [2, 3];
   const pool = ITEMS.map((it, i) => (ok.includes(it.tier) ? i : -1)).filter((i) => i >= 0);
   const salt = SOLO_SALT + BigInt(offerN) * 4096n;
-  return [0, 1, 2].map((i) => pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))]);
+  return [0, 1, 2].map((i) => pool[Number(blake2bInt(q + salt + BigInt(i)) % BigInt(pool.length))]);
 }
 // the stage-s enemy: item count, ranks and hull all escalate — unbounded, so every run ends eventually.
 export function enemyBuild(seed, stage) {
@@ -275,12 +280,12 @@ export function enemyBuild(seed, stage) {
   const rank = 1 + Math.floor(stage / 3);               // UNCAPPED — enemy pressure never plateaus
   const gear = Array(Math.max(SLOTS, n)).fill(null);
   for (let i = 0; i < n; i++) {
-    let id = pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))];
+    let id = pool[Number(blake2bInt(q + salt + BigInt(i)) % BigInt(pool.length))];
     if (i === 0) { // guarantee a weapon so stage 1 can't be a pacifist stall
       const dPool = pool.filter((x) => ITEMS[x].kind === "d");
-      id = dPool[Number(H(q + salt + BigInt(i)) % BigInt(dPool.length))];
+      id = dPool[Number(blake2bInt(q + salt + BigInt(i)) % BigInt(dPool.length))];
     }
-    const bump = stage >= 4 ? Number(H(q + salt + 100n + BigInt(i)) % 2n) : 0;
+    const bump = stage >= 4 ? Number(blake2bInt(q + salt + 100n + BigInt(i)) % 2n) : 0;
     gear[i] = { id, rank: Math.min(MAXRANK, rank + bump) };
   }
   // QUADRATIC hull: any player strategy has a bounded per-fight damage budget (ranks cap at 9, a

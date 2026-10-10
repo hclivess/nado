@@ -11,7 +11,7 @@
 //   bg.track(sto);  const tb = bg.read(sto, bg.active);
 //   bg.lobby($("lobbyList"), sto, (tb) => "…chip text…", select, sortFn);
 //   bg.recent($("recent"), select, tagFn);
-import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel, scoreBump, scoreSort, EPOCH_LENGTH } from "./nadodapp.js?v=42226f9f";
+import { _m, $, lsLoad, lsSave, lsPrune, randId, recentChips, notify, confirmingLabel, scoreBump, scoreSort, EPOCH_LENGTH } from "./nadodapp.js?v=a192d4c0";
 
 export class BankedGame {
   constructor(dapp, { icon = "🎯", bankIcon = "🏦" } = {}) {
