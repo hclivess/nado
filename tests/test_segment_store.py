@@ -6,7 +6,7 @@ Append-only segment block store (ops/segment_store.py + kv_ops block_loc + block
   4. rollover: appends roll to new segment files past NADO_SEGMENT_BYTES
   5. re-save (replay) repoints the locator, last write wins
   6. rollback atomicity: unindex_block inside an ABORTED txn restores locator + index
-  7. migration: legacy flat + sharded *.block files fold into segments and read back identically
+  7. no legacy fallback: a body that exists only as an old per-file *.block is never served
 
 Run: python3 tests/test_segment_store.py
 """
@@ -29,7 +29,7 @@ from genesis import create_indexers
 create_indexers()
 
 from ops import kv_ops, segment_store
-from ops.block_ops import save_block, get_block, load_block_from_hash, unindex_block, migrate_block_store, \
+from ops.block_ops import save_block, get_block, load_block_from_hash, unindex_block, \
     block_content_hash, construct_block
 from ops.data_ops import get_home
 
@@ -153,28 +153,19 @@ def t6_unindex_atomic_with_txn_abort():
     assert get_block(b["block_hash"]) is False, "an unreferenced orphan can never be served"
 
 
-def t7_migration_from_legacy_files():
-    """Legacy flat AND sharded *.block files fold into segments, read back identically, files removed."""
+def t7_legacy_block_file_is_never_served():
+    """The per-file *.block sweep was deleted (nothing has written one since the segment store): a body
+    present ONLY as a legacy flat or sharded file must be a clean miss, never read and never migrated
+    on a store re-open. If someone revives a file fallback, this fails."""
     from ops.block_ops import _pack_block
-    legacy = []
-    for i in range(3):
-        b = make_block(200 + i)
-        legacy.append(b)
-    flat = f"{HOME}/blocks/{legacy[0]['block_hash']}.block"
+    b = make_block(200)
+    flat = f"{HOME}/blocks/{b['block_hash']}.block"
     with open(flat, "wb") as f:
-        f.write(_pack_block(legacy[0]))
-    for b in legacy[1:]:
-        shard = f"{HOME}/blocks/{b['block_hash'][:3]}"
-        os.makedirs(shard, exist_ok=True)
-        with open(f"{shard}/{b['block_hash']}.block", "wb") as f:
-            f.write(_pack_block(b))
-    moved = migrate_block_store(logger)
-    assert moved == 3, f"expected 3 files migrated, got {moved}"
-    for b in legacy:
-        got = get_block(b["block_hash"])
-        assert got and block_content_hash(got) == b["block_hash"], "migrated body reads back byte-exact"
-    assert not os.path.exists(flat), "legacy flat file removed"
-    assert migrate_block_store(logger) == 0, "second run is a no-op (idempotent)"
+        f.write(_pack_block(b))
+    segment_store._stores.clear(); segment_store.init()
+    assert kv_ops.block_loc_get(b["block_hash"]) is None, "no locator may be created from a legacy file"
+    assert get_block(b["block_hash"]) is False, "a legacy-file-only body is not served"
+    assert os.path.exists(flat), "the store open does not touch stray files"
 
 
 for name, fn in sorted((n, f) for n, f in list(globals().items())
