@@ -838,9 +838,10 @@ class MemServer:
         # CHEAP BOUNDS FIRST (audit): the two integer max_block compares run before the LMDB
         # get_account read — a stale re-gossiped tx (the most common reject under load, since peers
         # re-serve their whole pool every second) must not cost a DB hit to reject.
-        # `<=` (was `<`): the drain promotes only max_block STRICTLY greater than the tip
-        # (merge_buffer block_min < target), so a tx targeting the current tip was acknowledged
-        # "Success", could never be mined, and silently aged out — reject it up front instead.
+        # `<=` (was `<`): block selection takes only max_block STRICTLY greater than the tip
+        # (remove_outdated_transactions keeps only `tip < max_block`), so a tx targeting the current
+        # tip was acknowledged "Success", could never be mined, and silently aged out — reject it up
+        # front instead.
         if transaction["max_block"] <= self.latest_block["block_number"]:
             msg = {"result": False,
                    "message": "Target block too low"}

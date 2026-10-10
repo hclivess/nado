@@ -2,7 +2,9 @@
 # _slots_e2e.py — LIVE smoke test of the slots contract with real (tiny) NADO from the node key:
 # open a machine, spin it, settle permissionlessly, and assert the exact paytable payout on-chain.
 import sys, json, time, urllib.request, random
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx

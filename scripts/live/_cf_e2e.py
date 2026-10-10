@@ -5,7 +5,7 @@
 # finality (a settled game cannot be re-settled). The forfeit/refund paths need REVEAL_WINDOW blocks of waiting
 # and are pinned offline by tests/test_coinflip_commit_reveal_forfeits_a_missing_reveal.py instead.
 #
-# Run: HOME=/root python3 _cf_e2e.py
+# Run: nado_venv/bin/python scripts/live/_cf_e2e.py   (runs against the LIVE node and spends real NADO from the operator key)
 #
 # This is a rewrite. The previous version had been dead since two separate migrations — it imported
 # `Curve25519` (gone when signing went post-quantum) and `execnode.contract_lib.COIN_FLIP` (gone when the
@@ -19,7 +19,9 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from config import get_timestamp_seconds
 from ops.key_ops import load_keys

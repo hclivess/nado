@@ -23,11 +23,13 @@
 # Calls are submitted ONE AT A TIME and waited on: the producer includes roughly one tx per block, so firing
 # twenty at once just races them all against their own expiry.
 #
-# Run: HOME=/root python3 _games_live_smoke.py [game ...]
-#      HOME=/root python3 _games_live_smoke.py --fund 5000000000   # bridge-deposit first, then test
+# Run: nado_venv/bin/python scripts/live/_games_live_smoke.py [game ...]   (runs against the LIVE node and spends real NADO from the operator key)
+#      nado_venv/bin/python scripts/live/_games_live_smoke.py --fund 5000000000   # bridge-deposit first, then test
 import json, sys, time, urllib.request
 
-sys.path.insert(0, "/srv/nado-home/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from ops.key_ops import load_keys
 from ops.address_ops import make_address
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx

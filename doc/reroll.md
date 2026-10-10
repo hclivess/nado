@@ -174,7 +174,7 @@ must be reviewable as "new genesis, same rules".
 11. Start exec and watchtower, then `python3 -m execnode.games.redeploy` (confirms via a provisional view, needs no
     finality). It rewires EVERY `const CID` / `const <NAME>_CID` in static/ (the wallet's `RESERVE_CID` included) and
     the reward table, and verifies each resolves to a live contract; the live e2e scripts derive their ids and need
-    nothing. Then `_fund_faucet.py <NADO>` with the faucet bank the carry refunded to the operator (betanet-8: 99.4),
+    nothing. Then `scripts/operator/_fund_faucet.py <NADO>` with the faucet bank the carry refunded to the operator (betanet-8: 99.4),
     and the manual refunds the carry-forward printed (`scripts/nado_cli.py send <addr> <NADO> --memo …`).
 12. Check `/status` → `jobs.problems` is empty (doc/jobs.md). The DEX price history resets itself on the new chain id.
 13. Walk every page headless (every `static/*.html`, script errors and failed requests) — the betanet-8 walk found the

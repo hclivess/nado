@@ -2,7 +2,7 @@
 Faucet — the fixed-name PRIZE BANK (doc/faucet.md). Holds donations sent to the L1 reserved address
 `faucet` (the exec node credits them to this contract's balance — its cid IS the literal string
 "faucet", see execnode.state.FIXED_CIDS) plus governance top-ups, and pays DAILY LEADERBOARD PRIZES
-for airdrop play: the operator's distributor (_faucet_rewards.py) tallies each enrolled game's
+for airdrop play: the operator's distributor (scripts/operator/_faucet_rewards.py) tallies each enrolled game's
 scoreboard off-chain (a provable computation anyone can recompute from the game contracts' storage)
 and calls `reward` per top finisher.
 

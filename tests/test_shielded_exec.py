@@ -74,10 +74,11 @@ def t4_unshield_provable_exit():
     res = st.apply_blob(transfer_blob([(40, ALICE, "rc", 2)], [], public_value=-40, withdraw_addr="ndoAlice"),
                         sender="relay", txid="t4")
     assert "unshield 40" in res, res
-    p = st.unshield_withdrawal_proof("1")
-    assert p and p["amount"] == 40 and p["addr"] == "ndoAlice", p
+    w = st.unshield_withdrawals.get("1")
+    assert w and w["amount"] == 40 and w["addr"] == "ndoAlice", w
     from execnode import exec_root as ER
-    assert ER.verify_unshield(st.state_root(), p["addr"], p["amount"], p["nonce"], p["proof"]), \
+    proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, w["addr"], "1", value=w["amount"])
+    assert root == st.state_root() and ER.verify_unshield(root, w["addr"], w["amount"], "1", proof), \
         "unshield exit must be provable against state_root"
 
 def t5_double_spend_rejected():

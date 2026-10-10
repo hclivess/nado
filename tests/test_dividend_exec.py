@@ -54,9 +54,9 @@ def t3_collect_burns_and_proves():
     assert "collect_dividend" in res and st.dividend.get("A", 0) == 0, "collect burns the balance"
     w = st.dividend_withdrawals["1"]
     assert w["addr"] == "A" and w["amount"] == 1000, "records the provable withdrawal"
-    p = st.dividend_withdrawal_proof("1")
     from execnode import exec_root as ER
-    assert ER.verify_dividend(st.state_root(), "A", 1000, "1", p["proof"]), \
+    proof, root = st.record_proof_at(None, ER.T_DIV_WD, "A", "1", value=1000)
+    assert root == st.state_root() and ER.verify_dividend(root, "A", 1000, "1", proof), \
         "the collection proves against the state_root (== what L1 checks vs the settled root)"
 
 def t4_collect_nothing_is_noop():

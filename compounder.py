@@ -154,7 +154,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     """PUSH one transaction to a peer's POST /submit_transaction, body = codec.pack(tx) — the exact
     wire net_ops.unpack_tx decodes. (The old GET `?data=<json>` form never matched the POST-body
     endpoint and silently failed.) Returns (peer, message) on success, None on failure. Shared by
-    push-gossip (nado._gossip_worker) and the wallet CLI (compound_send_transaction)."""
+    push-gossip (nado._gossip_worker)."""
     from ops import codec
     url_construct = f"http://{hostport(peer, port)}/submit_transaction"
     _body = codec.pack(transaction)
@@ -179,23 +179,6 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
         if peer not in fail_storage:
             logger.error(f"Compounder: Failed to send transaction to {url_construct}: {e}")
             fail_storage.append(peer)
-
-async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore):
-    """returns a list of dicts where ip addresses are keys"""
-    result = list(
-        filter(
-            None,
-            await asyncio.gather(
-                *[send_transaction(ip, port, logger, fail_storage, transaction, semaphore) for ip in ips]),
-        )
-    )
-
-    result_dict = {}
-    for entry in result:
-        result_dict[entry[0]] = entry[1]
-
-    return result_dict
-
 
 async def get_status(peer, port, logger, fail_storage, semaphore, compress=None):
     """method compounded by compound_get_status_pool"""

@@ -56,7 +56,7 @@ export const geneFromHalves = (gl, gh) => (BigInt(gh) << 32n) | BigInt(gl);   //
 export function speciesOf(gene) { const rt = roll32(gene + 555n) % 100000; return 1 + TIER_CUM.filter((t) => rt >= t).length; }
 // species id si — the animal WITHIN the tier's roster band (independent gene slice). Matches ref_si.
 export function speciesIdOf(gene, sp) { return TIER_BASE[sp] + roll32(gene + 777n) % TIER_COUNT[sp]; }
-// combine(): which of the 10 stats gets +1 when two same-species pets are merged (mirrors ref_combine_stat)
+// combine(): which of the 10 stats gets +1 when two same-species pets are merged (mirrors the contract's combine(), execnode/games/pets.py _combine)
 export const COMBINE_SALT = 888888n;
 export function combineStatOf(geneKeep, geneConsume) { return roll32((geneKeep + geneConsume + COMBINE_SALT) % ALG_P()) % 10; }
 

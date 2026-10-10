@@ -70,11 +70,12 @@ def t2_full_bridge_roundtrip():
     st.credit_deposit(U["address"], D)
     st.apply_blob({"op": "bridge_withdraw", "amount": W}, sender=U["address"], txid="wd")
     assert st.bridge[U["address"]] == D - W, "exec-side balance burned by W"
-    p = st.withdrawal_proof("1")
-    assert p and p["addr"] == U["address"] and p["amount"] == W and p["nonce"] == "1"
-    root = st.state_root()
-    from execnode import exec_root as ER
-    assert ER.verify_withdrawal(root, U["address"], W, "1", p["proof"]), "exec proof self-consistent"
+    assert st.withdrawals.get("1") == {"addr": U["address"], "amount": W}, st.withdrawals
+    from execnode import exec_root as ER       # the proof /exec/withdrawal_proof serves
+    wd_proof, root = st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=W)
+    assert root == st.state_root()
+    assert ER.verify_withdrawal(root, U["address"], W, "1", wd_proof), "exec proof self-consistent"
+    p = {"nonce": "1", "proof": wd_proof}
 
     # 3) SETTLE the exec root on L1 (bonded quorum: V alone = 4/4 > 2/3)
     reflect_transaction(construct_settle_tx(V, exec_cursor=7, state_root=root, max_block=1), logger, 1)
@@ -97,7 +98,8 @@ def t3_withdraw_without_settlement_rejected():
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)
     st.apply_blob({"op": "bridge_withdraw", "amount": 100_000}, sender=U["address"], txid="wd2")
-    p = st.withdrawal_proof("1")
+    from execnode import exec_root as ER
+    p = {"proof": st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=100_000)[0]}
     wtx = construct_bridge_withdraw_tx(U, U["address"], 100_000, "1", p["proof"], max_block=1)
     # this exact (unsettled) root is not the settled one -> proof fails against the settled root
     assert raises(lambda: validate_transaction(wtx, logger, 1)), "unsettled withdrawal must reject"
@@ -108,7 +110,8 @@ def t4_forged_amount_rejected():
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)
     st.apply_blob({"op": "bridge_withdraw", "amount": 40_000}, sender=U["address"], txid="wd3")
-    p = st.withdrawal_proof("1")
+    from execnode import exec_root as ER
+    p = {"proof": st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=40_000)[0]}
     root = st.state_root()
     reflect_transaction(construct_settle_tx(V, exec_cursor=99, state_root=root, max_block=1), logger, 1)
     forged = construct_bridge_withdraw_tx(U, U["address"], 99_999, "1", p["proof"], max_block=1)  # wrong amount

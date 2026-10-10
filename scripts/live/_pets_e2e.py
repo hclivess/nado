@@ -1,9 +1,12 @@
 # _pets_e2e.py — LIVE end-to-end exercise of the deployed NADO Pets contract with real txs on the running
 # node: two wallets deposit, mint eggs, hatch (chain-decided species vs the reference), feed, name, train +
 # resolve, list + buy on the marketplace, then battle to a chain-decided end. Every step is verified against
-# /exec/contract storage and the Python reference (tests/pets_ref.py). Run: nado_venv/bin/python _pets_e2e.py
+# /exec/contract storage and the Python reference (tests/pets_ref.py). Run: nado_venv/bin/python scripts/live/_pets_e2e.py
+# (runs against the LIVE node and spends real NADO from the operator key)
 import json, urllib.request, time, sys
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict, sign, unhex

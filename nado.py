@@ -3590,13 +3590,15 @@ if not os.path.exists(f"{get_home()}/index/block_ends.dat"):
         logger=logger,
     )
 
-# BLOCK-STORE migration (idempotent, one-time): fold any legacy per-file bodies (flat or sharded
-# *.block) into the append-only segment store, and repair a torn segment tail from a crash mid-append.
+# BLOCK-STORE open (idempotent, every boot): discover the active segment and repair a torn segment tail
+# from a crash mid-append. The legacy per-file *.block sweep that used to run here was deleted: nothing
+# has written a *.block body since the segment store (ae3c319d, 2026-07-12), and every reroll since has
+# purged chain data, so no node can still hold one.
 try:
-    from ops.block_ops import migrate_block_store
-    migrate_block_store(logger)
+    from ops import segment_store as _segment_store
+    _segment_store.init()
 except Exception as _e:
-    logger.error(f"block-store segment migration failed: {_e}")
+    logger.error(f"block-store segment open failed: {_e}")
     raise SystemExit(1)   # a half-migrated store must not silently run — fix disk/permissions and restart
 
 # CHECKPOINT SWEEP (idempotent, boot-time): drop any persisted checkpoint that does not anchor to THIS

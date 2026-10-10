@@ -12,7 +12,7 @@ bus challenges) is bounded by the space its challenge is drawn from.
 WHY IT IS DEGREE-PARAMETERISED, NOT ext2 + ext3
 -----------------------------------------------
 This file replaces ext2.py, which hardcoded degree 2 in 24 places — the
-constants, every destructuring `a, b = v`, the mul/inv formulas, is_base. The
+constants, every destructuring `a, b = v`, the mul/inv formulas, the base-field test. The
 migration to GF(p^3) turned up 118 such assumptions across 16 files, and the
 lesson of this codebase is unambiguous: a duplicated field assumption drifts.
 Five copies of "the recursion backend is base-field" let a prover choose its own
@@ -93,12 +93,6 @@ def lift(v):
             raise ValueError(f"element has {len(v)} limbs but the field is degree {DEGREE}")
         return tuple(v[i] % P if i < len(v) else 0 for i in range(DEGREE))
     return tuple([v % P] + [0] * (DEGREE - 1))
-
-
-def is_base(v):
-    """True iff the element lies in the base field — i.e. EVERY non-constant limb is zero. Testing only one
-    limb (which the degree-2 version could get away with) reports (a, 0, c) as base and loses c."""
-    return all(limb == 0 for limb in lift(v)[1:])
 
 
 def add(u, v):

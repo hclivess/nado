@@ -2702,7 +2702,7 @@ def tpm_enrols_live(limit: int = 64, tip: int = None):
     Bounded, because this runs once per block on every node.
 
     With `tip`, an EXPIRED incomplete record (tip >= h + enrol_window(h), the same edge /tpm_enrol_status calls
-    expired) is skipped too. Incomplete rows are never collected (tpm_enrols_expired has no caller), so they
+    expired) is skipped too. Incomplete rows are never collected (nothing deletes them), so they
     accumulate for the life of the chain; counted against `limit` in key order, 64 dead rows sorting before a
     fresh enrolment id hid it from every challenger, and the enrolment expired unanswered. The skip happens
     BEFORE the limit, so the limit bounds live work only. A node-local read: nothing consensus calls this."""
@@ -2746,27 +2746,6 @@ def tpm_enrols_all():
                     out.append((k[4:].decode(), _tpm_enrol_from_row(rec)))
         return out
     return _read(_do)
-
-
-def tpm_enrols_expired(before_height: int, limit: int = 64):
-    """Ids of INCOMPLETE enrolments published before `before_height` — the collection list. A proven record is
-    never returned: what it proved does not decay, and deleting it would let one chip re-enrol for a second
-    identity. Bounded per call so a boundary sweep cannot become unbounded work in a block."""
-    def _do(txn):
-        out = []
-        with txn.cursor(db=_dbs()["devbind"]) as cur:
-            if cur.set_range(b"tpm:"):
-                for k, v in cur:
-                    if not k.startswith(b"tpm:") or len(out) >= limit:
-                        break
-                    rec = _unpack(v)
-                    if not _is_enrol_record(rec):
-                        continue             # a device binding sharing the "tpm:" prefix
-                    if rec[0] != "proven" and int(rec[6]) < int(before_height):   # rec[6] is "h" — keep in step with _TPM_ENROL_FIELDS
-                        out.append(k[4:].decode())
-        return out
-    return _read(_do)
-
 
 
 def msgkey_revert_put(txid: str, prev_value):

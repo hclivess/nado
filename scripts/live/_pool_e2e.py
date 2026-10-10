@@ -10,7 +10,9 @@
 #      this is the path that proves a stakeless frame really does escrow, log, settle and refund nothing.
 #   3. CANCEL — an unjoined frame is cancelled and the stake comes back.
 import sys, json, time, urllib.request, random, subprocess
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from signatures import generate_keydict
@@ -89,7 +91,7 @@ def transfer(kd, to, amount):
 
 def oracle(g, seed):
     r = subprocess.run(["node", "tests/pool_next_move.mjs", str(g), CID, str(seed)],
-                       capture_output=True, text=True, cwd="/root/nado", timeout=120)
+                       capture_output=True, text=True, cwd=REPO, timeout=120)
     if r.returncode != 0: sys.exit("oracle failed: " + r.stderr[-400:])
     return json.loads(r.stdout.strip().splitlines()[-1])
 

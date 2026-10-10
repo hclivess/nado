@@ -2,7 +2,7 @@
 Covers: bankroll posting + bank-only guards, quoting, backing at the locked price, the per-bet SOLVENCY
 invariant (a lane can never be committed to more than bankroll+stakes), payout on the winning lane, the
 bank's sweep, void refunds, and global value conservation (the contract never mints).
-Run: HOME=/root python tests/hamster_book_test.py
+Run: HOME=$(mktemp -d) python tests/hamster_book_test.py   (a throwaway HOME, never the live node's: CLAUDE.md rule 4)
 """
 import os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

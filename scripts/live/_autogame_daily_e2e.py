@@ -9,7 +9,7 @@ _autogame_daily_e2e.py — LIVE end-to-end of the Autogame DAILY GAUNTLET on the
   5. proves a stolen claim does not rank: the same words posted under a different address must replay to a
      different score, which is the whole point of binding the seed to the poster
 
-Run: HOME=/root python3 _autogame_daily_e2e.py
+Run: nado_venv/bin/python scripts/live/_autogame_daily_e2e.py   (runs against the LIVE node and spends real NADO from the operator key)
 """
 import json
 import subprocess
@@ -17,7 +17,9 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/live/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from execnode.games.redeploy import target_cids
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx
@@ -115,7 +117,7 @@ print("\n2. play today's Gauntlet (one-ply greedy — a score a person could rea
 # to a double while Python keeps every digit. Handing Python's exact string to a JS verifier seeds a
 # different run and the claim never verifies — which is precisely how this test failed the first time.
 out = subprocess.run(["node", "tests/autogame_daily_play.mjs", CID, str(DAY), ADDR],
-                     capture_output=True, text=True, timeout=600, cwd="/root/nado")
+                     capture_output=True, text=True, timeout=600, cwd=REPO)
 if out.returncode != 0:
     sys.exit("play failed:\n" + out.stderr[:2000])
 claim = json.loads(out.stdout.strip().splitlines()[-1])
@@ -150,7 +152,7 @@ if mine:
 # ── 4. the distributor's oracle must rank it ─────────────────────────────────────────────────────
 print("\n4. the faucet distributor's oracle replays it", flush=True)
 out = subprocess.run(["node", "tests/autogame_daily_verify.mjs", CID, str(DAY)],
-                     capture_output=True, text=True, timeout=900, cwd="/root/nado")
+                     capture_output=True, text=True, timeout=900, cwd=REPO)
 if out.returncode != 0:
     sys.exit("verify oracle failed:\n" + out.stderr[:2000])
 rows = json.loads(out.stdout.strip().splitlines()[-1])
@@ -164,13 +166,13 @@ ck("the oracle verified and ranked the run", bool(row) and row[0][1] == claim["s
 # player — this checks that directly rather than trusting the design note.
 print("\n5. the same moves under a different address are a different run", flush=True)
 chk = subprocess.run(["node", "-e", f"""
-import('/root/nado/static/autogame-daily.js').then(D => {{
+import('{REPO}/static/autogame-daily.js').then(D => {{
   const A = {json.dumps(claim['anchor'])};                      // the anchor as the VERIFIERS read it
   const mine  = D.verifyClaim({DAY}, {claim['n']}, {json.dumps(claim['words'])}, A, {json.dumps(ADDR)});
   const thief = D.verifyClaim({DAY}, {claim['n']}, {json.dumps(claim['words'])}, A, "mldsa44thief0000");
   console.log(JSON.stringify({{mine, thief}}));
 }});
-"""], capture_output=True, text=True, timeout=300, cwd="/root/nado")
+"""], capture_output=True, text=True, timeout=300, cwd=REPO)
 v = json.loads(chk.stdout.strip().splitlines()[-1])
 ck("my own claim replays to my own score", v["mine"] == claim["score"], f"{v['mine']} vs {claim['score']}")
 ck("a thief reposting my moves does NOT reproduce my score", v["thief"] != claim["score"],

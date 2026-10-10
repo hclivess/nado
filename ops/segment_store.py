@@ -12,7 +12,7 @@ Layout: <home>/blocks/seg-<8-hex>.dat, records appended back to back:
 
 crc32 covers hash32+payload. Records are SELF-DESCRIBING (they carry their block hash), so the
 hash->locator index in LMDB (kv_ops `block_loc`) stays a DERIVED, rebuildable index — a full
-segment scan can always reconstruct it (iter_records).
+segment scan can always reconstruct it (_parse_records + the per-record crc).
 
 CRASH SAFETY (the same contract the old temp+fsync+os.replace file store gave):
   * append = write + flush + fsync BEFORE the locator is committed to LMDB. A crash between the
@@ -64,7 +64,7 @@ def segment_path(seg: int, home=None) -> str:
 def _parse_records(f, upto=None):
     """Yield (offset, total_len, hash_hex, payload_off, payload_len) for every VALID record from
     offset 0; stop at EOF, a torn/invalid record, or `upto`. Does NOT verify crc (cheap structural
-    walk); use read()/iter_records for verified payloads."""
+    walk); use read() for verified payloads."""
     off = 0
     size = os.fstat(f.fileno()).st_size if upto is None else upto
     while off + HEADER_SIZE <= size:
@@ -276,16 +276,3 @@ def reset(home=None):
 
 def active_segment(home=None) -> int:
     return _store(home).active_seg
-
-
-def iter_records(seg: int, home=None):
-    """Yield (block_hash_hex, payload) for every crc-VALID record in a segment — the rebuild path
-    that keeps the LMDB locator index a derived structure (and the migration verifier)."""
-    path = segment_path(seg, home)
-    with open(path, "rb") as f:
-        for off, total, hash_hex, _poff, _plen in _parse_records(f):
-            f.seek(off)
-            raw = f.read(total)
-            _m, _pl, crc = _HDR.unpack(raw[:_HDR.size])
-            if zlib.crc32(raw[_HDR.size:]) == crc:
-                yield hash_hex, raw[HEADER_SIZE:]

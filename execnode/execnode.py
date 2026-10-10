@@ -1216,7 +1216,7 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
 
     NO POST-STATE IS NEEDED, and that is the point. The KV half never materialises one either — it derives
     the post from the pre by executing. Here the updates come from the SAME effect derivation L1 will run
-    against its own committed summaries (records_bind.span_effects), so `st` mutating under us during the
+    against its own committed summaries (records_bind.block_records_effects), so `st` mutating under us during the
     prove cannot desynchronise anything. Building it from a live post-state would reintroduce exactly the
     "two roots that were never simultaneously true" trap records_root_from_snapshot documents.
 
@@ -1232,7 +1232,7 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
     from protocol import EXEC_TREE_DEPTH as _D, EPOCH_LENGTH as _EL
     try:
         # DERIVE EXACTLY AS L1 DOES: PER BLOCK, via block_records_effects, in block order — NOT via
-        # span_effects.
+        # span_effects (a span-wide derivation since deleted; tests/test_prover_records_half.py pins its absence).
         #
         # THIS WAS WRONG AND THE LIVE TEST CAUGHT IT. The two functions do not derive the same thing:
         # measured on one value call with the flag on, block_records_effects returns the escrow's two

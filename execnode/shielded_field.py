@@ -9,7 +9,7 @@ path from this tree and proves the whole join-split (execnode/stark/joinsplit_ci
 one proof (via verify_transfer's Phase-2 seam). Works on any phone today; a blind/WASM prover is the private
 endgame.
 """
-from execnode.stark import field as F, alghash, joinsplit_circuit as JC, joinsplit2 as J2
+from execnode.stark import field as F, alghash, joinsplit_circuit as JC
 
 TREE_DEPTH = 12                                   # 2^12 = 4096 notes (alpha); proving cost scales with depth
 EMPTY_LEAF = 0                                     # field element for an empty slot
@@ -136,21 +136,5 @@ def prove_transfer(pool, nsk, value_in, rho_in, cm_in_pos, out_value, out_owner,
     bundle = {"stark": {"joinsplit": {"proof": proof, "root": root, "nf": nf, "cm_out": cm_out,
                                       "public_value": public_value, "fee": fee}}}
     public = {"root": root, "nullifiers": [nf], "out_commitments": [cm_out],
-              "public_value": public_value, "fee": fee}
-    return bundle, public
-
-
-def prove_transfer2(pool, nsk, value_in, rho_in, cm_in_pos, v1, o1, r1, v2, o2, r2, public_value, fee,
-                    withdraw_addr=None):
-    """2-output delegated proof: send v1 to owner o1 (recipient) + keep v2 as change (owner o2). Builds the
-    path from the pool and produces the 2-output join-split STARK. Returns (bundle, public). The FRI query
-    count is a protocol constant (stark.NUM_QUERIES), NOT a caller/client input (C-1/H-7).
-    H-4: withdraw_addr (the unshield destination) is bound into the proof so it can't be redirected."""
-    sibs, dirs = tree_path(pool.commitments, cm_in_pos)
-    proof, root, nf, cm1, cm2 = J2.prove_transfer(nsk, value_in, rho_in, sibs, dirs, v1, o1, r1, v2, o2, r2,
-                                                  public_value, fee, aux=withdraw_addr)
-    bundle = {"stark": {"joinsplit2": {"proof": proof, "root": root, "nf": nf, "cm_out1": cm1, "cm_out2": cm2,
-                                       "public_value": public_value, "fee": fee}}}
-    public = {"root": root, "nullifiers": [nf], "out_commitments": [cm1, cm2],
               "public_value": public_value, "fee": fee}
     return bundle, public

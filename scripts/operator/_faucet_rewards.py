@@ -13,7 +13,9 @@ Leaderboard = WINS (a uniform, on-chain-settled metric across both game shapes):
 Payout: a per-game daily budget split by rank (Webgame's Odměny taper). Run daily (cron / a NADO routine).
 """
 import sys, json, time, urllib.request, subprocess
-sys.path.insert(0, "/root/nado")
+import os
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # scripts/operator/<this>.py -> the repo root
+sys.path.insert(0, REPO)
 from ops.key_ops import load_keys
 from ops.transaction_ops import construct_blob_tx
 from protocol import MIN_TX_FEE
@@ -76,7 +78,7 @@ def leaderboard(cid, kind):
         day = int(time.time()) // 86400 - 1
         try:
             out = subprocess.run(["node", *DAILY_VERIFY[kind], cid, str(day)],
-                                 capture_output=True, text=True, cwd="/root/nado", timeout=600)
+                                 capture_output=True, text=True, cwd=REPO, timeout=600)
             rows = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else []
         except Exception:
             rows = []

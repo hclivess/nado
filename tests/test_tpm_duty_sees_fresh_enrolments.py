@@ -1,6 +1,6 @@
 """EXPIRED ENROLMENTS MUST NOT HIDE FRESH ONES FROM THE CHALLENGER DUTY.
 
-An incomplete TPM enrolment row is never collected from the chain (kv_ops.tpm_enrols_expired has no caller), so
+An incomplete TPM enrolment row is never collected from the chain (nothing deletes it), so
 every abandoned attempt stays in the devbind DB for the life of the chain. The challenger duty's work list,
 kv_ops.tpm_enrols_live, scans the "tpm:" prefix in KEY order and stops at 64 — and it used to count every
 non-proven row, expired ones included. Enrolment ids are hashes, so once 64 dead rows sort before a fresh id,

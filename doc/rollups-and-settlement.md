@@ -95,7 +95,7 @@ These are two different things, and conflating them causes confusion. The **VM**
 | I/O, network, time? | **None** (sandboxed — no ambient anything, no floats) | network (L1 + API), disk (persistence), poll timer |
 | Determinism scope | one call is a pure function of its inputs | the **whole state** is a pure function of the ordered L1 blob stream |
 | On failure | a revert is `ok=False`, storage unchanged | a bad blob is a skipped no-op; the loop never dies |
-| Merkle root / proofs | — | `state_root()`, `withdrawal_proof`, `outbox_proof`, … |
+| Merkle root / proofs | — | `state_root()`, `record_proof_at` (behind `/exec/withdrawal_proof`, `/exec/outbox_proof`, …) |
 | Relationship | **called by** the node for `deploy` (constructor) and `call` | **calls** the VM as a subroutine; does everything else itself |
 
 **In one sentence:** the VM runs a *single contract method* in a sandbox; the execution node is the service
@@ -307,7 +307,7 @@ root. NADO has three built, one designed.
 ### 7.1 Bridge tunnel (value: L1 ⇄ exec) — **BUILT, now per-namespace**
 - **In (deposit):** `bridge` tx locks `amount` at the `BRIDGE_ESCROW` address on L1; the exec node reads the
   ordered deposit and credits the sender exec-side.
-- **Out (withdraw):** exec-side burn → `execnode.withdrawal_proof(nonce)` returns a **Merkle branch against the
+- **Out (withdraw):** exec-side burn → `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) returns a **Merkle branch against the
   exec `state_root`** → user submits `bridge_withdraw{addr, amount, nonce, proof[, ns]}`. L1 verifies that ONE
   branch against **`latest_settled(ns)`**, checks the **nullifier** (no double-claim, `bridge_nullifier_exists`)
   and escrow funding, then releases. A withdraw against an *unsettled* root is refused.
@@ -327,7 +327,7 @@ The open-lane **presence dividend** accrues off-L1 on the exec layer and is with
 
 ### 7.4 Cross-rollup message tunnel (namespace A → namespace B) — **BUILT**
 Both halves are implemented. **Emit (sender):** the `emit` blob op appends a message to the rollup's
-**outbox** (`ExecState.outbox`), committed in `state_root` and provable via `outbox_proof(seq)` /
+**outbox** (`ExecState.outbox`), committed in `state_root` and provable via `ExecState.record_proof_at` /
 `GET /exec/outbox_proof?ns=&seq=` — the exact `withdrawal_proof` pattern. **Deliver (receiver):** an L1
 `xmsg` tx carries the outbox message + its Merkle proof, and **L1 is the verifier** — it checks the proof
 against `latest_settled(from_ns)` and burns a `(from_ns, seq)` nullifier (exactly the bridge pattern). So
@@ -393,7 +393,7 @@ routed through i18n.
 | Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
 | **DA erasure-coding + hash-based sampling** (`ops/da.py`: RS k-of-n + Merkle commit + sample verify) | **built (primitive); blob integration designed** |
 | Recursive proof aggregation (one proof settles many rollups) | designed (moot without a zkVM) |
-| **Cross-domain outbox** (`emit` op, committed messages, `outbox_proof`) | **built (this work)** |
+| **Cross-domain outbox** (`emit` op, committed messages, `/exec/outbox_proof`) | **built (this work)** |
 | **Cross-rollup delivery** (`xmsg`: L1 verifies message vs sender's settled root → receiver inbox) | **built (this work)** |
 | Forced-exit escape hatch; multi-message atomicity | designed |
 
@@ -406,8 +406,8 @@ routed through i18n.
 | Namespaces | `protocol.DEFAULT_NS` / `valid_namespace`; `ops/kv_ops._settle_key`, `settlement_*(ns,…)` |
 | Settlement predicate + pointer + 2b marker | `ops/settlement_ops.settlement_justified` / `latest_settled` / `kv_ops.settlement_proven` |
 | Settle tx + validation + reflect | `ops/transaction_ops.construct_settle_tx` + settle validate arm; `ops/account_ops` reflect arm |
-| Bridge tunnel | `construct_bridge_deposit_tx` / `construct_bridge_withdraw_tx`; `bridge`/`bridge_withdraw` arms; `execnode.state.withdrawal_proof` |
-| Cross-domain outbox | `emit` op + `execnode.state.outbox` / `outbox_proof`; `/exec/outbox`, `/exec/outbox_proof` |
+| Bridge tunnel | `construct_bridge_deposit_tx` / `construct_bridge_withdraw_tx`; `bridge`/`bridge_withdraw` arms; `/exec/withdrawal_proof` (`ExecState.record_proof_at`) |
+| Cross-domain outbox | `emit` op + `execnode.state.outbox`; `/exec/outbox`, `/exec/outbox_proof` |
 | Cross-rollup delivery | `xmsg` arm + `construct_xmsg_tx`; shared `hashing.outbox_leaf`; `kv_ops.xmsg_nullifier_*`; `execnode.state.apply_xmsg` + inbox; `/exec/inbox` |
 | Data availability | `ops/da.py` — `encode` / `reconstruct` / `sample_proof` / `verify_sample` (Reed-Solomon + Merkle) |
 | Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/zkvm.py`, `execnode/stark/` |

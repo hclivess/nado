@@ -1126,18 +1126,6 @@ def apply_msgkey(address, kem_pub, txid, logger, revert=False):
     return True
 
 
-def change_fidelity(address: str, amount: int, logger, revert=False):
-    """Additive OPEN-lane diligence counter (revert = sign-flip, EXACT). Stored RAW/uncapped;
-    mining_ops.open_shares clamps to FIDELITY_CAP on READ, so the stored value stays a clean
-    reversible counter (no lossy clamp at write time). Floor keeps it non-negative -> a bad revert
-    fails closed instead of going negative."""
-    delta = -amount if revert else amount
-    if not kv_ops.account_adjust(address, "fidelity", delta, floor_zero=True):
-        logger.error(f"Refusing to drive fidelity negative for {address} (amount={amount}, revert={revert})")
-        raise AssertionError(f"Fidelity underflow for {address}")
-    return True
-
-
 def apply_slash(address, height, logger, revert=False):
     """SLASHING core (#15 step 5C / #6): burn SLASH_BOND_PENALTY of `address`'s bonded stake for a
     proven offence at `height`, and record (address, height) so the same offence can't be slashed

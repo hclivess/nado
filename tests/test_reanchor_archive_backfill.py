@@ -92,18 +92,18 @@ def t_missing_is_highest_first():
 def t_fork_bodies_are_named_and_history_is_not_purged():
     old, new = forked(0, 100, 150, 300)
     p = CR.plan(old, new, 300, lambda bh: True)
-    assert p.is_fork_body(120, H("a", 120)), "our block 120 is on the abandoned fork"
-    assert not p.is_fork_body(50, H("a", 50)), "our block 50 is canonical — never a fork body"
-    assert p.is_fork_body(50, "zzzz"), "at a height we CAN name, a different body is positively a fork body"
-    assert not p.is_fork_body(999, "zzzz"), "at a height we CANNOT name, a body is KEPT, not purged"
+    # A body is a fork body iff the plan NAMES the canonical block at its height and it is a different one;
+    # a height the plan cannot name keeps its body (it may be deep history older than any index we hold).
+    assert p.canonical[120] != H("a", 120), "our block 120 is on the abandoned fork"
+    assert p.canonical[50] == H("a", 50), "our block 50 is canonical — never a fork body"
+    assert 999 not in p.canonical, "at a height we CANNOT name, nothing is named, so the body is KEPT"
 
 
 def t_no_body_below_the_fork_point_is_ever_missing_or_fork():
     old, new = forked(0, 100, 150, 300)
     p = CR.plan(old, new, 300, lambda bh: True)
     for h in range(0, 101):
-        assert p.canonical[h] == old[h]
-        assert not p.is_fork_body(h, old[h])
+        assert p.canonical[h] == old[h], "below the fork point our own block is the canonical one"
 
 
 # ---- the deep-fork (escalated recovery) shape ------------------------------------------------------
@@ -116,8 +116,8 @@ def t_fork_deeper_than_the_donor_index_is_flagged_undetermined_not_guessed():
     assert p.fork_point is None
     assert p.undetermined == (0, 899), f"undetermined {p.undetermined}"
     assert p.notes, "the deep-fork case must be explained in the plan"
-    assert not p.is_fork_body(500, H("a", 500)), "an unnamed height is never a fork body"
-    assert p.is_fork_body(950, H("a", 950)), "inside the window we CAN name the canonical block"
+    assert 500 not in p.canonical, "an unnamed height is never a fork body"
+    assert p.canonical[950] != H("a", 950), "inside the window we CAN name the canonical block"
 
 
 # ---- rolling donor / previously-truncated archive --------------------------------------------------

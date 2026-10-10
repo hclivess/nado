@@ -3304,12 +3304,6 @@ def to_readable_amount(raw_amount: int) -> str:
     return f"{sign}{whole}.{frac:010d}"
 
 
-def to_raw_amount(amount: [int, float]) -> int:
-    """readable coin amount -> INTEGER raw units (1 coin = 10^10 raw); the float only exists at this
-    UI/tooling boundary — everything on-chain stays integer"""
-    return int(float(amount) * 10000000000)
-
-
 def _spend_costs(tx):
     """(spendable-balance cost, bonded-stake cost) of a tx for overspend checks.
     An `unbond` draws its `amount` from bonded stake (only the fee leaves balance); every

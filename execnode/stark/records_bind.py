@@ -68,7 +68,7 @@ currently UNREACHABLE from the settle path, for a reason that has nothing to do 
   But calls_commit.block_summary extracts ONLY `blob` transactions with op == "call" — the KV half. A
   bridge deposit, a faucet donation, a treasury mirror, a shield, an xmsg appear NOWHERE in the summary.
   `inert` records only THAT records moved, never which effect or how much, and a boolean cannot be derived
-  against. So `span_effects(txs)` has no txs to walk at the moment a verifier needs them.
+  against. So a derivation over the span's txs has no txs to walk at the moment a verifier needs them.
 
 Unblocking it means block_summary must also commit the block's records-moving effects at incorporate time.
 exec summaries live in the `meta` sub-DB, which FEEDS THE L1 STATE ROOT — adding a field changes the root
@@ -192,7 +192,7 @@ def epoch_accrual_due(height, epoch_length):
     Verified against a live accrual: "dividend epoch 760" was logged as the cursor passed 45660 = 761*60.
 
     A batch that crosses several epochs accrues each of them; each is attributed to its own boundary block
-    here, so a span's effects come out in block order with the carry chaining exactly as span_effects does.
+    here, so a span's effects come out in block order with the carry chaining epoch to epoch.
     """
     h, L = int(height), int(epoch_length)
     if h <= 0 or L <= 0 or h % L != 0:
@@ -563,38 +563,6 @@ def pay_effects_from_proof(proof, assets=None):
     for seg in (proof.get("segments") or ()):
         out.extend(pay_effects_from_segment(seg, reg, assets))
     return out
-
-
-def span_effects(txs, accruals=(), div_carry=0):
-    """Derive every records effect of a span, as [(tag, parts, delta), ...] in application order.
-
-    `txs` is the span's transactions in block order (each a dict with at least `recipient`); `accruals` is
-    an ordered iterable of (inflow, weights) — one per epoch the span accrues, which the caller reads from
-    L1 consensus state (dividend_inflow_get(E) / weights_at_epoch(E)); `div_carry` is the exec PRE-state's
-    carried sub-unit remainder. Raises Unbindable on the first effect that cannot be derived.
-
-    The carry CHAINS across epochs exactly as the tail loop's `while state.last_div_epoch < cur_epoch - 1`
-    does: epoch E's leftover is epoch E+1's pot. Taking a per-epoch carry from the caller instead would let
-    a two-epoch span be derived with the wrong pot and refuse an honest proof.
-    """
-    effects = []
-    for tx in txs or ():
-        r = tx.get("recipient")
-        fn = _RECIPIENT_EFFECTS.get(r)
-        if fn is not None:
-            effects.extend(fn(tx))
-        elif r in _KNOWN_UNDERIVED:
-            raise Unbindable(f"records effect of reserved recipient '{r}' is not derivable yet")
-        # A recipient with no records effect at all (a plain transfer, a duty tx, a value-0 call) adds
-        # nothing. It is NOT asserted safe here: calls_commit.block_records_inert is the allowlist that
-        # decides that question, and this module is only reached for spans it has already vetted.
-    carry = int(div_carry)
-    for acc in accruals or ():
-        inflow, weights = acc[0], acc[1]
-        epoch = acc[2] if len(acc) > 2 else None          # (inflow, weights, epoch) — epoch selects the carry rule
-        eff, carry = dividend_accrual_effects(inflow, weights, carry, epoch)
-        effects.extend(eff)
-    return effects
 
 
 def net_records_updates(pre_get, effects, depth=ER.DEPTH, nonneg=False):

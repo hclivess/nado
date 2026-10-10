@@ -1,6 +1,6 @@
 """Hamster Racing contract test — exercises open/bet/settle/claim/void through ExecState and checks the
 parimutuel money math, the chain-picked winner, auto-void on an unbacked winner, the betting-window guards,
-and global value conservation (no NADO minted or lost). Run: HOME=/root python tests/hamster_contract_test.py
+and global value conservation (no NADO minted or lost). Run: HOME=$(mktemp -d) python tests/hamster_contract_test.py   (a throwaway HOME, never the live node's: CLAUDE.md rule 4)
 """
 import os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

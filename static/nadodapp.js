@@ -637,7 +637,7 @@ export function renderWallet(dapp) {
   const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = (dapp.walletLabels && dapp.walletLabels.ofPlayable ? dapp.walletLabels.ofPlayable : (n) => _t("ofPlayable", "of {n} playable", { n }))(rawToNado(dapp.exec));
   return signedIn;
 }
-// The faucet PRIZE TAPER — rank 1..5 shares of a game's daily faucet budget. MIRRORS _faucet_rewards.py
+// The faucet PRIZE TAPER — rank 1..5 shares of a game's daily faucet budget. MIRRORS scripts/operator/_faucet_rewards.py
 // (SHARES + BUDGET); keep the two in sync so the displayed prize equals what the distributor actually pays.
 export const FAUCET_TAPER = [0.40, 0.25, 0.15, 0.12, 0.08];
 export const FAUCET_DAILY_RAW = 1_000_000_000;                       // per-game daily prize pool, raw (0.1 NADO)

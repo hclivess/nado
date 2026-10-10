@@ -13,7 +13,7 @@ no per-address grants, no enrollment registry. The loop:
    via a governance spend (`treasury_vote`/`treasury_execute` allow the reserved `faucet` recipient),
    and anyone can top it up exec-side with the contract's `fund()`.
 2. **Airdrop play** — enrolled games offer free play; the results land on each game's scoreboard.
-3. **Prizes out, daily** — the operator's distributor (`_faucet_rewards.py`, run by
+3. **Prizes out, daily** — the operator's distributor (`scripts/operator/_faucet_rewards.py`, run by
    `scripts/nado-faucet-rewards.timer`) tallies every
    enrolled game's leaderboard off-chain — a PROVABLE computation: the boards derive from the game
    contracts' on-chain storage, so anyone can recompute them and audit that the right addresses were
@@ -54,7 +54,7 @@ double-firing timer cannot double-pay or drain the bank.
 
 ## 3. Enrolling a game
 
-Add the game to `_faucet_rewards.py`'s `GAMES` list with its cid and leaderboard `kind`
+Add the game to `scripts/operator/_faucet_rewards.py`'s `GAMES` list with its cid and leaderboard `kind`
 (`duel` — 2-seat winner tally · `table` — N-seat winner seat 1..4 · `banked` — settled won seats ·
 `battleship` — fewest shots to sink the fleet), turn on the scoreboard prize column in the game's
 client (`renderScore(..., prize=true)`), and set `faucet:true` on its hub tile. That's the whole

@@ -267,7 +267,7 @@ class ExecState:
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
         # CROSS-DOMAIN OUTBOX: messages emitted by this layer (via the `emit` blob op), each committed as a
-        # Merkle leaf in state_root and provable via outbox_proof(seq). This is the sound foundation for
+        # Merkle leaf in state_root and provable via /exec/outbox_proof?seq= (record_proof_at). This is the sound foundation for
         # cross-rollup / L1-bound messaging; CONSUMPTION (verifying against the sender's SETTLED root) is a
         # separate step, see doc/rollups-and-settlement.md §7.4. Keyed by seq; a message is GC'd once its
         # finalized xmsg delivery burns the (from_ns, seq) L1 nullifier (drop_consumed_outbox).
@@ -587,7 +587,7 @@ class ExecState:
 
     def unshields_for(self, addr):
         """Pending unshield exits recorded for an L1 address — a wallet uses this to find the nonce(s) of its
-        own unshields, then fetches unshield_withdrawal_proof(nonce) to claim once the root is settled."""
+        own unshields, then fetches /exec/unshield_proof?nonce= (record_proof_at) to claim once the root is settled."""
         return [{"nonce": n, "amount": w["amount"]} for n, w in sorted(self.unshield_withdrawals.items())
                 if w["addr"] == addr]
 
@@ -601,24 +601,6 @@ class ExecState:
             return None
         from execnode.shielded import merkle_path
         return {"pos": pos, "path": merkle_path(self.shielded.commitments, pos), "root": self.shielded.root()}
-
-    def unshield_withdrawal_proof(self, nonce):
-        """(addr, amount, nonce, proof) for a recorded unshield exit, provable against state_root; None if absent."""
-        from execnode import exec_root as ER
-        w = self.unshield_withdrawals.get(str(nonce))
-        if not w:
-            return None
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
-                "proof": self._record_proof(ER.T_UNSHIELD_WD, w["addr"], str(nonce))}
-
-    def dividend_withdrawal_proof(self, nonce):
-        """(addr, amount, nonce, proof) for a recorded dividend collection, provable against state_root."""
-        from execnode import exec_root as ER
-        w = self.dividend_withdrawals.get(str(nonce))
-        if not w:
-            return None
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
-                "proof": self._record_proof(ER.T_DIV_WD, w["addr"], str(nonce))}
 
     # RECENT-ROOT RING (exit proofs against a SETTLED root). Every exit proof — bridge/dividend/unshield
     # withdrawals, outbox messages — must verify against the root L1 has SETTLED, but this state keeps
@@ -782,27 +764,6 @@ class ExecState:
         with self._mutate_lock:
             kv, rec = self._sparse_stores()
             return ER.record_proof(kv.root(), rec, ER.record_key(tag, *parts))
-
-    def withdrawal_proof(self, nonce):
-        """(addr, amount, nonce, proof) for a recorded withdrawal, provable against state_root; None if absent."""
-        from execnode import exec_root as ER
-        w = self.withdrawals.get(str(nonce))
-        if not w:
-            return None
-        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce),
-                "proof": self._record_proof(ER.T_BRIDGE_WD, w["addr"], str(nonce))}
-
-    def outbox_proof(self, seq):
-        """(msg, proof) for outbox message `seq`, provable against state_root; None if absent. Mirrors
-        withdrawal_proof: a consumer verifies exec_root.verify_outbox_msg(proof) against the sender
-        rollup's SETTLED root (from L1 /get_settled?ns=) to accept the message trust-minimized."""
-        from execnode import exec_root as ER
-        try:
-            msg = self.outbox[str(int(seq))]
-        except (KeyError, ValueError, TypeError):
-            return None
-        dg = ER.leaf_digest(ER.msg_outbox_leaf(msg))
-        return {"message": msg, "proof": self._record_proof(ER.T_DIGEST, "outbox", dg)}
 
     def apply_xmsg(self, from_ns, message):
         """Deliver an L1-VERIFIED cross-domain message into this rollup's inbox. L1 already verified the
@@ -1811,7 +1772,7 @@ class ExecState:
 
             if op == "emit":
                 # Emit a cross-domain MESSAGE: append {seq, from, to_ns, data} to the outbox, committed in
-                # state_root as an outbox leaf and provable via outbox_proof(seq). This blob only COMMITS the
+                # state_root as an outbox leaf and provable via /exec/outbox_proof (record_proof_at). This blob only COMMITS the
                 # message; a consumer (another rollup / L1) verifies + delivers it against this rollup's
                 # SETTLED root separately (doc/rollups-and-settlement.md §7.4). Append-only, seq == index.
                 to_ns = payload.get("to_ns")
