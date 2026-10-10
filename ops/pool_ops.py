@@ -1,4 +1,4 @@
-from .data_ops import get_byte_size, sort_list_dict
+from .data_ops import get_byte_size
 
 # Fee-EXEMPT reserved txs. Each is gated so it cannot be spammed — register (sequential PoSW + per-IP cap),
 # heartbeat (must be registered), unbond/withdraw (the sender's OWN stake), commit/reveal/attest/settle
@@ -68,28 +68,6 @@ def cull_buffer(buffer, limit) -> list:
         drop.add(id(tx))
         total -= sizes[id(tx)]
     return [t for t in buffer if id(t) not in drop] if drop else buffer
-
-
-def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
-    """Promote EVERY tx whose max_block is in (block_min, block_max] from `from_buffer` into `to_buffer`, and
-    keep the rest in `from_buffer`. Single O(N) pass, order-independent.
-
-    The old code re-selected the max-FEE tx each iteration and, when that tx did not match the window, left it
-    in place and re-picked it — spinning on it and STARVING every lower-fee tx, so a due tx (e.g. a fee-0
-    register at target == latest+1) could sit behind an undue higher-fee one and miss its target block. That is
-    the 'accepted but never included' registration bug. Dedup is by txid (O(1)) rather than a deep list scan."""
-    in_to = {tx.get("txid") for tx in to_buffer}
-    kept = []
-    for tx in from_buffer:
-        tid = tx.get("txid")
-        if tid in in_to:
-            continue                                            # already in to_buffer — drop the duplicate
-        if block_min < tx["max_block"] <= block_max:
-            to_buffer.append(tx)
-            in_to.add(tid)
-        else:
-            kept.append(tx)
-    return {"from_buffer": sort_list_dict(kept), "to_buffer": sort_list_dict(to_buffer)}
 
 
 def get_from_pool(pool, source, target):

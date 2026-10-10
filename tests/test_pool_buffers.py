@@ -1,6 +1,7 @@
 """
-Mempool three-buffer transference (ops/pool_ops.py): merge_buffer must promote EVERY due tx (not starve a
-low-fee one behind an undue high-fee one), and cull_buffer must never evict a fee-exempt reserved tx.
+Mempool buffer culling (ops/pool_ops.py): cull_buffer must never evict a fee-exempt reserved tx, and the
+fee-exempt set must cover every reserved fee-gated tx type. (The three-buffer merge_buffer it used to pin
+was deleted as unreachable; its starvation tests went with it.)
 
 Run: python3 tests/test_pool_buffers.py
 """
@@ -10,7 +11,7 @@ _os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.
 _os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ops.pool_ops import merge_buffer, cull_buffer, FEE_EXEMPT_RECIPIENTS
+from ops.pool_ops import cull_buffer, FEE_EXEMPT_RECIPIENTS
 from ops.data_ops import get_byte_size
 
 fails = 0
@@ -24,31 +25,6 @@ def check(name, fn):
 def tx(txid, target, fee=0, recipient="ndoRECIPIENT"):
     """Build a minimal tx dict with the given txid, max_block, fee and recipient."""
     return {"txid": txid, "max_block": target, "fee": fee, "recipient": recipient, "amount": 1}
-
-def t1_due_low_fee_not_starved_by_undue_high_fee():
-    """Prove merge_buffer promotes a due fee-0 tx even when an undue high-fee tx sits ahead of it."""
-    # the exact bug: a fee-0 due tx (target==5) behind a high-fee undue tx (target==100). Window (4,5].
-    frm = [tx("high", 100, fee=10, recipient="ndoX"), tx("reg", 5, fee=0, recipient="register")]
-    out = merge_buffer(list(frm), [], block_max=5, block_min=4)
-    moved = {t["txid"] for t in out["to_buffer"]}
-    assert "reg" in moved, "the due fee-0 register MUST promote"
-    assert "high" not in moved, "the undue high-fee tx must stay behind"
-    assert {t["txid"] for t in out["from_buffer"]} == {"high"}
-
-def t2_promotes_all_in_window():
-    """Prove merge_buffer promotes exactly the txs whose max_block falls in (block_min, block_max]."""
-    frm = [tx("a", 5), tx("b", 5), tx("c", 9), tx("d", 4)]
-    out = merge_buffer(frm, [], block_max=5, block_min=4)   # window (4,5] -> a,b only
-    assert {t["txid"] for t in out["to_buffer"]} == {"a", "b"}
-    assert {t["txid"] for t in out["from_buffer"]} == {"c", "d"}
-
-def t3_dedup_against_to_buffer():
-    """Prove merge_buffer drops a txid already present in to_buffer instead of adding it twice."""
-    existing = [tx("a", 5)]
-    out = merge_buffer([tx("a", 5), tx("b", 5)], list(existing), block_max=5, block_min=4)
-    ids = [t["txid"] for t in out["to_buffer"]]
-    assert ids.count("a") == 1 and "b" in ids, "a duplicate must not be added twice"
-    assert all(t["txid"] != "a" for t in out["from_buffer"]), "the duplicate is dropped from from_buffer"
 
 def t4_cull_never_drops_fee_exempt():
     """Prove cull_buffer keeps a fee-exempt register while evicting fee-paying spam to fit the byte limit."""
