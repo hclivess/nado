@@ -1262,3 +1262,58 @@ def build():
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "reveal_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
+
+
+# ---- reroll carry (tools/alphanet6_carryforward.carry_policy, doc/stwo-migration.md §6.2) ------------------------
+CARRY_PIN_FLOOR = 2           # the first new-chain block (and beacon epoch) a re-pinned roll may read
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage, moved onto a new chain whose block 0 stands where the old chain's `tip` stood.
+
+    Every stored HEIGHT shifts by `tip` so what is left of it is left on the new chain: fed-until, exhausted-until, a
+    building's since-block and a battle's reveal deadline (a value already passed becomes 0, or 1 for a deadline that
+    must stay set). Every pending roll that reads chain randomness — a hatch (bhash(bh)), a training session
+    (bhash(th)), a legacy battle (bhash(wh)), a building's find (BEACON(bdp)) and a paid item reroll (BEACON(irp)) — is
+    re-pinned to the new chain's block / beacon epoch CARRY_PIN_FLOOR at the earliest: those values do not exist when
+    the carry is built, so nobody can know or choose an outcome, and every paid action still resolves.
+
+    INVARIANT: only (field, id) slots found through the contract's own indexes are touched — pets (cnt 0, PLIST),
+    battles (cnt WCNT_SLOT, WLIST), buildings (cnt BCNT_SLOT, BLIST), items (cnt ICNT_SLOT, ILIST) — because hashed
+    keys (resource balances, gear) are field elements whose high bits could fall in a height field's range."""
+    from protocol import EPOCH_LENGTH
+    tip = int(tip)
+    etip = tip // EPOCH_LENGTH
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+
+    def get(f, k):
+        return int(slots.get(str((f << 32) + k), 0))
+
+    def put(f, k, v):
+        key = str((f << 32) + k)
+        if key in slots or v:
+            slots[key] = str(int(v))
+
+    def ids(cnt_slot, lst):
+        return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+
+    shift = lambda v: max(0, v - tip)
+    pin_h = lambda v: max(CARRY_PIN_FLOOR, v - tip) if v else 0
+    pin_e = lambda v: max(CARRY_PIN_FLOOR, v - etip) if v else 0
+    for pid in ids(0, PLIST):
+        put(BH, pid, pin_h(get(BH, pid)))
+        put(FU, pid, shift(get(FU, pid)))
+        put(EX, pid, shift(get(EX, pid)))
+        put(TH, pid, pin_h(get(TH, pid)))
+    for bid in ids(WCNT_SLOT, WLIST):
+        put(WH, bid, pin_h(get(WH, bid)))
+        if get(WRD, bid):
+            put(WRD, bid, max(1, get(WRD, bid) - tip))
+    for bid in ids(BCNT_SLOT, BLIST):
+        put(BSI, bid, shift(get(BSI, bid)))
+        put(BDP, bid, pin_e(get(BDP, bid)))
+    for iid in ids(ICNT_SLOT, ILIST):
+        put(IRP, iid, pin_e(get(IRP, iid)))
+    out = dict(storage or {})
+    out["slots"] = slots
+    return out

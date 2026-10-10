@@ -75,7 +75,8 @@ def game_module_of(contract: dict):
         if m.name.startswith("_") or m.name in ("deploy", "redeploy"):
             continue
         mod = importlib.import_module(f"execnode.games.{m.name}")
-        if not hasattr(mod, "build") or not (getattr(mod, "CARRY_STORAGE", False) or hasattr(mod, "carry_in_flight")):
+        if not hasattr(mod, "build") or not (getattr(mod, "CARRY_STORAGE", False) or hasattr(mod, "carry_in_flight")
+                                             or hasattr(mod, "carry_rebase")):
             continue
         try:
             if json.loads(json.dumps(mod.build())) == code:
@@ -94,7 +95,7 @@ def carry_policy(cid: str, contract: dict) -> str:
     mod = game_module_of(contract)
     if mod is None:
         return "reset"
-    if getattr(mod, "CARRY_STORAGE", False):
+    if getattr(mod, "CARRY_STORAGE", False) or (hasattr(mod, "carry_rebase") and not hasattr(mod, "carry_in_flight")):
         return "keep"
     why = mod.carry_in_flight(contract.get("storage") or {})
     if why:
@@ -121,9 +122,10 @@ def fresh_deploy_storage(contract: dict) -> dict:
         return json.loads(json.dumps(made[0]["storage"])) if made else {}
 
 
-def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy) -> tuple:
-    """(genesis doc for execnode/exec_genesis.py, {cid: pot} kept in escrow). EVERY contract carries its code under its
-    id — so the frontends need no rewiring and nothing has to be redeployed; a "keep" contract also keeps its storage
+def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy, tip: int = 0) -> tuple:
+    """(genesis doc for execnode/exec_genesis.py, {cid: pot} kept in escrow). `tip` is the old chain's height that the
+    new chain's block 0 replaces (the drained exec cursor); a module's carry_rebase moves stored heights by it. EVERY
+    contract carries its code under its id — so the frontends need no rewiring and nothing has to be redeployed; a "keep" contract also keeps its storage
     and pot, every other one starts from fresh-deploy storage and its pot is refunded by the caller as before."""
     out, kept = {}, {}
     for cid in sorted(contracts):
@@ -131,6 +133,10 @@ def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy) -> tuple:
         rec = {k: c[k] for k in ("code", "abi", "deployer", "runtime", "upgradable") if k in c}
         if policy(cid, c) == "keep":
             rec["storage"] = json.loads(json.dumps(c.get("storage") or {}))
+            mod = game_module_of(c)
+            if mod is not None and hasattr(mod, "carry_rebase"):
+                # heights and pins move onto the new chain, whose block 0 stands where `tip` stood (the module's hook)
+                rec["storage"] = json.loads(json.dumps(mod.carry_rebase(rec["storage"], tip)))
             if pots.get(cid):
                 kept[cid] = int(pots[cid])
         else:
@@ -216,7 +222,7 @@ def build():
         credit(a, v)
     # 3) CARRIED CONTRACTS keep their pots in escrow (execnode/exec_genesis.py); every other pot is refunded to its
     # players (digest-slot games: residual -> deployer/operator of record) as before
-    _gen_contracts, kept_pots = exec_genesis_doc(contracts, pot_bridge)
+    _gen_contracts, kept_pots = exec_genesis_doc(contracts, pot_bridge, tip=int(d.get("cursor", 0)))
     from protocol import CHAIN_GENERATION as _G
     _EXEC_GENESIS[0] = {"generation": int(_G) + 1, "contracts": _gen_contracts,
                         "bridge": {c: str(v) for c, v in sorted(kept_pots.items())}}
