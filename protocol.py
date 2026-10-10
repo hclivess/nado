@@ -1667,7 +1667,7 @@ def split_open_block_reward(reward: int):
 #                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
 #                                    epoch with no reveals takes the next revealed epoch's reveals)
 #                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
-#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT ((1 << 62) placeholder -> 1: an
+#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT (156400 -> 1: an
 #                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
 #                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
@@ -2131,9 +2131,10 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # was 164100; moved back to a placeholder before it fired (2026-10-10): re-measured over target epochs 2393..2499 the
 # miss rate fell 28.9 % -> 12.9 %, and 122 of the 173 misses were validators PRESENT in the reveal epoch whose duty
 # missed the 14-block reveal window (E-1)*L .. E*L-FINALITY_DEPTH-1 (TX_INCLUSION_DELAY leaves ~6 blocks to start
-# one). The exclusion returns after the reveal window is widened.
+# one). Re-armed at 156400 as ABSENT-ONLY: excluded only if the validator landed no duty tx in the reveal epoch
+# (51 of 1344 commitments in the measurement); a present validator's late miss is never excluded.
 REVEAL_SEATLESS_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
-RANDAO_MISS_POOL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+RANDAO_MISS_POOL_HEIGHT = 156400 if CHAIN_GENERATION == 28 else 1
 REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the

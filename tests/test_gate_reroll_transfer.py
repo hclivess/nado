@@ -32,7 +32,7 @@ REROLL = {
     "TPM_ENROL_V3_HEIGHT": 1,                  # 132000 on gen 28: failed commitments, retry cooldown
     "BEACON_EXTEND_HEIGHT": 1,                 # 132000 on gen 28: a reveal-less epoch's beacon waits for reveals
     "REVEAL_SEATLESS_HEIGHT": 1,               # 135300 on gen 28: a reveal-only duty needs no seat
-    "RANDAO_MISS_POOL_HEIGHT": 1,              # placeholder 2^62 on gen 28 (was 164100, moved before firing): an unrevealed commitment leaves the TPM pool
+    "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool
     "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "REFERRAL_HEIGHT": 1,                      # 107000 on gen 28: referral links, the 10 % slice, funded invites
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
