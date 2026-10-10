@@ -141,6 +141,36 @@ its docstring is the procedure.
 Do this in a **follow-up commit after** the reroll is live and verified, never in the same one — the reroll commit
 must be reviewable as "new genesis, same rules".
 
+## What crosses a reroll (the carry, since 2026-10-10) — and how to see it before the day
+
+Carried: L1 balances and bonded stake; identities (keys, registration, fidelity for EVERY carried identity, device
+bindings, aliases, auth history); uncollected dividends and pending exits (folded into L1 balances); **every contract
+by its id** (execnode/exec_genesis.py), with its storage and pot when its game module says the storage is carry-safe
+(`CARRY_STORAGE`, or `carry_in_flight(storage) == []`, plus `carry_rebase` for games that store heights — pets,
+autogame, the daily boards); **exec assets** (records, holdings, allowances). Refunded to whoever funded them: open
+invites and HTLCs, and the pot of any contract that still has something in flight (the carry names each blocker:
+"table N has open bets", "race N is not settled", "run N has a leg in flight", "game N is open" — settle, void or
+advance them on the old chain and run the carry again). **Refused** (the carry will not run): notes in any shielded
+pool — a carried wide pool would sit at depth 48 where the exec layer insists on 12 at genesis, and the Stwo migration
+replaces the note hash anyway (doc/stwo-migration.md §6.4); holders unshield first.
+
+**Dry run, any day, read-only** — what the carry would do right now:
+
+```bash
+D=$(mktemp -d); mkdir -p $D/home/nado/index/state $D/home/nado/private
+nado_venv/bin/python -c "import lmdb; e=lmdb.open('index/state', readonly=True, max_dbs=256); e.copy('$D/home/nado/index/state', compact=True)"
+cp exec_state.json $D/exec_state.json            # then, in a scratch worktree of this commit:
+cp $D/exec_state.json ./exec_state.json && HOME=$D/home NADO_EXEC_STATE=$D/x.json NADO_EXEC_DA=$D/da \
+  nado_venv/bin/python tools/alphanet6_carryforward.py --l1-tip <exec cursor> ; rm ./exec_state.json
+```
+
+`env.copy` takes a consistent snapshot under one read transaction; nothing is imported against the live database.
+Read `CONSERVATION: OK (Δ=0)`, the carried/refunded pot lines and every `NOT CARRIED` line. Measured 2026-10-10 (tip
+155141): Δ = 0, 27 contracts by id, 112.53 of 112.67 NADO of contract pots stay with their contracts; blockers: one
+open dice bet, three unsettled hamster races. A rehearsal from that carry (generation bumped, loopback testnet, 6 s
+blocks) built the genesis exactly — supply 166,418,297,612,303 raw = the carry total, BRIDGE_ESCROW = the carried pots,
+carried fidelity intact — and finalized 16 blocks on 4 nodes.
+
 ## Runbook (as executed for gen 22, 23 and 24)
 
 1. Audit exec state read-only over HTTP (`/exec/contracts`, `/exec/bridge`, `/exec/assets`).

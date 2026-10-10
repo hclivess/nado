@@ -277,6 +277,13 @@ weights. The permanent carry tool must keep both paths seeded from the same valu
   the old pool's escrow, and it never closes on unclaimed notes. Funds are never burned, which matches the rule that
   the coins are real.
 
+### 6.4b Status (2026-10-10)
+
+Built on branch `carry`: §6.2 (every contract by id; storage and pot for carry-safe games; hooks for slots, dice,
+roulette, mines, blackjack, pets, autogame, hamster, tictactoe, connect4, reversi, chess, bet, the faucet and the daily
+boards), exec assets, the refusal of every shielded pool (not only the legacy one), and §6.3 live (CARRY_FIDELITY_ALL_HEIGHT).
+Carrying the shielded pool itself is NOT built — see doc/reroll.md "What crosses a reroll".
+
 ### 6.5 Making it permanent
 
 - One tool, `tools/carry.py`, replaces the per-generation `alphanet*_carryforward.py` scripts. It is versioned, it is
