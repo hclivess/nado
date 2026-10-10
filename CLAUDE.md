@@ -198,7 +198,9 @@ as the change. `scripts/git-hooks/pre-push` (installed: `git config core.hooksPa
 push containing a code commit without a test change — `[no-test: <reason>]` in the message is the only way past it,
 and it needs a real reason — then runs the core guards and every test the push touches.
 
-- **Before a release: `scripts/run_tests.sh`** — the whole suite, Python and `.mjs`, each test in its own HOME. It
+- **Before a release: `scripts/run_tests.sh`** — the whole suite, Python, `.mjs` and `.js`, each test in its own HOME,
+  longest first (`--fast` = the tests measured under 60 s, `--slow` = the rest; times are kept in
+  `~/.cache/nado-tests/`). It lists every skip with its reason. It
   skips LIVE tests (`test_otc_swap_e2e` posts real transactions); `tests/test_tests_are_isolated.py` keeps that list,
   the HOME rule and the no-live-paths rule true for every test.
 - **A consensus change is tested under BOTH rule sets**: the new rules refuse the attack / accept the honest case, and

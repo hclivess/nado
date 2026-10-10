@@ -9,7 +9,7 @@
 // every verifier replays.
 //
 // NOT A SECOND RULEBOOK. Every step goes through autogame-engine.js's `step` — the same function the
-// animator uses and the same one tests/autogame_contract_test.py proves equal to the contract, step for
+// animator uses and the same one tests/test_autogame_contract_matches_the_reference_model.py proves equal to the contract, step for
 // step. This file adds only two things: where the world comes from (the seed instead of two block hashes)
 // and how a run is packed into a claim. If it ever starts making rules of its own, it is wrong.
 //

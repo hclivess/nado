@@ -10,7 +10,7 @@ operator's keys while matching the runner's test_*.py glob.
 Pins, for every tests/*.py: (1) it ASSIGNS HOME before its first import of ops / memserver / genesis / nado / loops (or
 re-runs itself in a child whose environment names HOME); (2) it never puts the live checkout on sys.path or opens a
 file under it, nor names a keys.dat (rule 8: msg_ratchet_e2e.mjs derived an identity from the node's own key) —
-and neither does any tests/*.mjs (three wallet tests read /srv/nado-home/nado/static by absolute path,
+and neither does any tests/*.mjs or *.js (three wallet tests read /srv/nado-home/nado/static by absolute path,
 so from a worktree they checked the deployed file and went stale unnoticed, 2026-09-27); (3) a URL to the live node's ports in CODE (not prose) appears only in a file listed in LIVE, and
 scripts/run_tests.sh skips every LIVE file.
 
@@ -72,7 +72,7 @@ def offenders():
         if name not in LIVE and any(LIVE_URL.match(s) for s in _code_strings(src)):
             bad.append(f"{name}: talks to the live node's ports in code but is not listed in LIVE")
     for name in sorted(os.listdir(TESTS)):
-        if not name.endswith(".mjs"):
+        if not name.endswith((".mjs", ".js")):     # .js: the CommonJS wallet tests (test_auto_vote_yes.js …) too
             continue
         src = open(os.path.join(TESTS, name), encoding="utf-8", errors="replace").read()
         if LIVE_PATH_JS.search(_js_code(src)):

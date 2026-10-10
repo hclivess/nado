@@ -12,8 +12,13 @@ Both are "the one address allowed to unlock this walked away" bugs:
       fills: leave(g) pops the LAST joiner only, abort(g) is _FULL-gated. Creator + last joiner both go
       dark => the middle seats' stakes are unrecoverable forever.
 
-Run: python3 tests/fund_lock_test.py
+Run: python3 tests/test_game_funds_never_lock.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-game-funds-never-lock-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -249,5 +254,6 @@ if __name__ == "__main__":
     check("hexholm: creator cancel still immediate", t_hexholm_creator_cancel_still_immediate)
     check("hexholm: cancel still blocked on a full table", t_hexholm_cancel_still_blocked_on_full_table)
     check("hexholm: move clock unaffected", t_hexholm_move_clock_unaffected)
-    print("FAILURES:", fails)
+    # not "FAILURES: 0": the runner counts lines starting FAIL, so a green run must not print one
+    print("ALL PASS" if not fails else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

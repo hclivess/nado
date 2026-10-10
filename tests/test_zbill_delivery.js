@@ -45,11 +45,41 @@ check("the zaddr -> contact mapping is sender-local storage only", () => {
   hasnt(fn, "fetch(", "the mapping must never be published anywhere");
 });
 
-check("the shielded address format is unchanged", () => {
-  // If this ever becomes anything but owner-in-base36, the privacy argument above has been broken.
-  has(SRC, 'function shieldAddr() { return "zaddr" + shieldOwner().toString(36); }',
-      "zaddr must stay owner-only — no embedded address, alias or kem_pub");
-});
+// The zaddr must stay the recipient's OWNER ID in base36 and nothing else. This used to pin shieldAddr's source
+// text, and went red the day a8a720f1 (2026-09-23, the wide pool, SHIELD_WIDE_HEIGHT) rightly gave it a second,
+// 256-bit branch — a pin on the spelling fails on a correct change and passes on a wrong one written the old way.
+// So the property is checked by RUNNING the wallet's own shieldAddr / parseShieldAddr, in both pools: the address
+// is "zaddr" + base36(owner), and parsing it gives back exactly the owner — so no transparent address, alias or
+// kem_pub can be riding inside it.
+function fnSrc(name) {
+  const i = SRC.indexOf("function " + name + "(");
+  if (i === -1) throw new Error(name + " not found in interface.js");
+  let depth = 0, j = SRC.indexOf("{", i);
+  for (; j < SRC.length; j++) { if (SRC[j] === "{") depth++; else if (SRC[j] === "}" && --depth === 0) break; }
+  return SRC.slice(i, j + 1);
+}
+const zaddrChecks = (async () => {
+  const A2 = await import(path.join(__dirname, "..", "static", "alghash2.js"));
+  const make = (wide, owner) => new Function("shieldWide", "shieldOwner", "alghash2",
+    fnSrc("shieldAddr") + fnSrc("_b36") + fnSrc("parseShieldAddr") + "return { shieldAddr, parseShieldAddr };")(
+    () => wide, () => owner, A2);
+  check("a legacy zaddr is the owner id in base36 and nothing else", () => {
+    const owner = 0xfedcba9876543210n % A2.P;
+    const z = make(false, owner);
+    const a = z.shieldAddr();
+    if (a !== "zaddr" + owner.toString(36)) throw new Error("zaddr is not owner-only: " + a);
+    if (z.parseShieldAddr(a) !== owner) throw new Error("parse does not return the owner");
+  });
+  check("a wide zaddr is the 256-bit owner digest in base36 and nothing else", () => {
+    const owner = [1n, 2n ** 63n, 12345678901234567n, A2.P - 1n];
+    const z = make(true, owner);
+    const a = z.shieldAddr();
+    if (a !== "zaddr" + BigInt("0x" + A2.toHex(owner)).toString(36)) throw new Error("zaddr is not owner-only: " + a);
+    if (!/^zaddr[0-9a-z]+$/.test(a)) throw new Error("zaddr carries more than a base36 number: " + a);
+    const back = z.parseShieldAddr(a);
+    if (back.map(String).join() !== owner.map(String).join()) throw new Error("parse does not return the owner");
+  });
+})().catch((e) => { fails++; console.log("FAIL  zaddr checks could not run: " + e.message); });
 
 check("no on-chain registration binds a shielded owner to a messaging key", () => {
   // A shieldOwner -> kem_pub registry would be a permanent, public link in consensus state.
@@ -140,6 +170,8 @@ check("the manual paths survive", () => {
   has(SRC, "async function doReceiveShielded", "manual receive must remain");
 });
 
-console.log();
-if (fails) { console.log(fails + " FAILURES"); process.exit(1); }
-console.log("ALL PASS");
+zaddrChecks.then(() => {
+  console.log();
+  if (fails) { console.log(fails + " FAILURES"); process.exit(1); }
+  console.log("ALL PASS");
+});

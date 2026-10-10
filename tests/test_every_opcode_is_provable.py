@@ -42,7 +42,37 @@ def call_of(code, extra):
     return c
 
 
+# BATCHED INTO EPOCHS (2026-10-10). This made 31 separate prove_epoch_calls([c]) proofs — 3,546 s, the slowest test in
+# the suite — although every case is a handful of rows: each padded to MIN_T = 512 alone, and ALL 31 together fit
+# in one T = 512 trace (measured: one call 76 s, eight calls 89 s). prove_epoch_calls takes an ordered batch and is
+# how an epoch settles in production, and its per-call io is the slice of the proven epoch io, so batching proves
+# exactly what the per-call proofs did — every case still proves, verifies, and its proven io equals the
+# interpreter's. A batch that fails is re-proven one case at a time, so a red run still NAMES the opcode.
+# OPCODE_BATCH = calls per epoch (default: all of them in one).
+BATCH = int(os.environ.get("OPCODE_BATCH", "0")) or len(CASES)
+
+
+def prove_and_compare(batch):
+    """batch = [(name, call, interpreter_io)]. One epoch proof; returns {name: (ok, detail)}."""
+    calls = [c for _, c, _ in batch]
+    pubs = [{k: v for k, v in c.items() if k != "slots"} for c in calls]
+    try:
+        proof, io_p, _ = VC.prove_epoch_calls(calls, num_queries=NQ)
+        ok, why = VC.verify_epoch_calls(proof, pubs, io_p, num_queries=NQ)
+    except Exception as e:
+        return {name: (False, f"{type(e).__name__}: {str(e)[:120]}") for name, _, _ in batch}
+    out, at = {}, 0
+    for name, _, io_i in batch:                       # the proven epoch io, sliced call by call in order
+        mine = [tuple(x) for x in io_p[at:at + len(io_i)]]
+        at += len(io_i)
+        out[name] = (ok is True and mine == [tuple(x) for x in io_i], (why, mine, io_i))
+    if at != len(io_p):                               # the proven log and the interpreters' differ in length: every case fails
+        out = {n: (False, f"proven epoch io has {len(io_p)} entries, the interpreter's {at}") for n in out}
+    return out
+
+
 covered = set()
+runnable = []
 with stark.with_rules(stark.RULES_STRICT):
     for name, code, extra in CASES:
         zkvm.validate_code(code)
@@ -55,15 +85,20 @@ with stark.with_rules(stark.RULES_STRICT):
         if not r[0]:
             check(f"{name}: the interpreter completes", False, r)
             continue
-        io_i = list(r[3])
-        pub = {k: v for k, v in c.items() if k != "slots"}
-        try:
-            proof, io_p, _ = VC.prove_epoch_calls([c], num_queries=NQ)
-            ok, why = VC.verify_epoch_calls(proof, [pub], io_p, num_queries=NQ)
-        except Exception as e:
-            ok, why, io_p = False, f"{type(e).__name__}: {str(e)[:120]}", None
-        check(f"{name}: proves, verifies, and the proven io equals the interpreter's",
-              ok is True and list(io_p) == io_i, (why, io_p, io_i))
+        runnable.append((name, c, list(r[3])))
+    results = {}
+    for i in range(0, len(runnable), BATCH):
+        batch = runnable[i:i + BATCH]
+        res = prove_and_compare(batch)
+        if len(batch) > 1 and not all(ok for ok, _ in res.values()):
+            print(f"  epoch of {len(batch)} failed — re-proving each case alone to name the culprit")
+            res = {}
+            for one in batch:
+                res.update(prove_and_compare([one]))
+        results.update(res)
+    for name, _, _ in runnable:
+        ok, detail = results[name]
+        check(f"{name}: proves, verifies, and the proven io equals the interpreter's", ok, detail)
 
 missing = sorted(set(zkvm.OPS) - covered, key=zkvm.OPS.index)
 check(f"every one of the {len(zkvm.OPS)} opcodes is executed by a program above", not missing, missing)

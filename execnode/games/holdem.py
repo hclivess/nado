@@ -825,7 +825,7 @@ def _reclaim():
     # PERMISSIONLESS BY DESIGN. This is the only exit from this state — settle() requires tb != 0 and
     # reclaim requires tb == 0, so the two paths are disjoint and no other method can unwind the table.
     # Gating it on the host meant one absent address locked every seat's stack AND the pot forever
-    # (tests/fund_lock_test.py). The height gate (cursor >= c4+R), the tb == 0 gate and the tz gate all
+    # (tests/test_game_funds_never_lock.py). The height gate (cursor >= c4+R), the tb == 0 gate and the tz gate all
     # still apply, so opening the caller does not open the window early, twice, or over a live hand;
     # and the payout depends only on table state, never on who called, so there is nothing to race for.
     L = _sl(TA) + ["sload r5 r4", "require r5"]

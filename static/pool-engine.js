@@ -62,7 +62,7 @@ const POCKET_FACE = [[-46341, -46341], [0, -65536], [46341, -46341],
                      [-46341, 46341], [0, 65536], [46341, 46341]];
 const POCKET_COS = [17000, 32768, 17000, 17000, 32768, 17000];
 
-// ---- simulation constants (tuned by tests/pool_js_test.mjs, all integers) ---------------------------
+// ---- simulation constants (tuned by tests/test_pool_engine_is_deterministic.mjs, all integers) ---------------------------
 const ROLL = 4090, ROLL_D = 4096;             // per-tick rolling friction ≈ 0.998535
 const CUSH = 880;                             // cushion restitution (Q10) ≈ 0.859
 const REST = 1966;                            // 1 + ball-ball restitution (Q10·(1+e), e ≈ 0.92)

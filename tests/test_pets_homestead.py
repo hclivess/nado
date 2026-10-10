@@ -10,7 +10,7 @@ and work, that changing a building's terms banks the old terms first, that produ
 the OWNER rather than the caller, that fodder is actually spent, and that equip/unequip is exactly
 reversible (a drifting gear board would permanently inflate or wreck a pet).
 
-Run: python tests/pets_homestead_test.py
+Run: python tests/test_pets_homestead.py
 """
 import os, sys, tempfile, time, shutil
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-pets-homestead-")   # never the live database (assign, not setdefault)

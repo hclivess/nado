@@ -6,8 +6,13 @@ the unanimous-alive agree() payout, the resign cascade (last seat standing takes
 abort() with equal alive-split + remainder-to-caller, and commit-verified reveal(). Reverts must leave
 state untouched. One representative method is STARK-proven (a call is provable).
 
-Run: python3 tests/hexholm_contract_test.py
+Run: python3 tests/test_hexholm_contract_lifecycle.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-hexholm-contract-lifecycle-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

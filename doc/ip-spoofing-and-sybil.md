@@ -353,7 +353,7 @@ each mask must pay its own fresh, un-fakeable slice of real sequential time.
 2. `POSW_T / POSW_S / POSW_K` (+ `POSW_ANCHOR_OFFSET`) are **`protocol.py` consensus constants**,
    calibrated so an honest phone spends ~1 s once at registration. `POSW_LEASE_EPOCHS` (≈ 1 day) sets the
    recert-lease length.
-3. Browser prover in `static/` (byte-for-byte with Python; cross-checked by `tests/posw_xlang.mjs`) —
+3. Browser prover in `static/` (byte-for-byte with Python; cross-checked by `tests/test_posw_js_and_python_agree.py`, driving `tests/posw_xlang.mjs`) —
    *pending* as part of the S4b light-miner.
 4. **Done:** the `register` branch of `ops/transaction_ops.py` verifies the PoSW
    (`posw.verify(posw.challenge_bytes(sender, anchor), …)`) where `anchor` is the finalized block

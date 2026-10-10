@@ -1,9 +1,9 @@
-// autogame_art_verify.mjs — the art module's contract, enforced: every creature, prop, gore kind and
+// test_autogame_art_renders_inside_its_cell.mjs — the art module's contract, enforced: every creature, prop, gore kind and
 // fatality renders NON-EMPTY, INSIDE its cell, ON the ground line, DETERMINISTICALLY, and every species
 // is visually DISTINCT from every other. No canvas dependency — the art's one primitive is fillRect, so
 // a 30-line fake ctx is a complete renderer.
 //
-// Run: node tests/autogame_art_verify.mjs        (exits non-zero on any failure)
+// Run: node tests/test_autogame_art_renders_inside_its_cell.mjs        (exits non-zero on any failure)
 import * as ART from "../static/autogame-art.js";
 
 let fails = 0;

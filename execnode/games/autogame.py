@@ -21,7 +21,7 @@ the run concludes at its last resolved step and scores what it had (`mists`).
 
 THIS FILE IS THE DEFINITION OF THE RULES. tests/autogame_model.py imports the constants below rather than
 restating them, so the readable reference model and the authoritative contract cannot drift. The JS engine
-(static/autogame-engine.js) mirrors them and tests/autogame_contract_test.py asserts all three agree.
+(static/autogame-engine.js) mirrors them and tests/test_autogame_contract_matches_the_reference_model.py asserts all three agree.
 
 FIELD-WRAP DISCIPLINE. Goldilocks subtraction wraps, and a wrapped `hp` is a ~2^64 hit-point pool. Every
 subtraction of a player- or roll-controlled quantity goes through `csub` (select(a<b, 0, a-b)), never a bare
@@ -1375,7 +1375,7 @@ def rules_js():
         "//",
         "// The contract is the authority on every number in this game. The browser cannot import Python, so",
         "// this file is emitted from it rather than transcribed — the engine, the contract and the Python",
-        "// reference model then all trace back to one definition, and tests/autogame_contract_test.py fails",
+        "// reference model then all trace back to one definition, and tests/test_autogame_contract_matches_the_reference_model.py fails",
         "// the moment this file stops matching its source.",
         "",
     ]

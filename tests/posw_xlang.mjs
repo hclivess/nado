@@ -1,3 +1,5 @@
+// Driver for tests/test_posw_js_and_python_agree.py (a library, not a test): `prove` prints the browser's proof for a fixed
+// challenge, `verify <file>` prints OK/FAIL. Run it through that test, which checks it against ops/posw.py.
 import { blake2b, bytesToHex, hexToBytes } from '../static/vendor/nado-crypto.js';
 import { poswProve, poswVerify, challengeBytes } from '../static/posw.js';
 import { readFileSync } from 'node:fs';

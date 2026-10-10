@@ -3,7 +3,7 @@
  * invariants a persistent PvP world needs — settle() is deterministic and idempotent-by-turn-count, the
  * economy is bounded (never NaN, never > CAP, never < 0), actions reject illegal moves, and combat is a
  * pure function of (attacker, defender, seed) that conserves what it moves (loot leaves the defender and
- * arrives at the attacker; razed land becomes rubble, not thin air). Run: node tests/sovereign_engine_test.mjs
+ * arrives at the attacker; razed land becomes rubble, not thin air). Run: node tests/test_sovereign_engine.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");
@@ -17,13 +17,23 @@ const clone = (n) => JSON.parse(JSON.stringify(n));
 const finite = (n) => { for (const k of ["people", "money", "food", "energy", "joy", "land"])
   if (!Number.isFinite(n[k]) || n[k] < 0 || n[k] > CAP + 1) throw new Error(`${k}=${n[k]} out of range`); };
 
+// Turn-additivity holds WITHIN the bank: settle() caps a single call at MAX_BANK rounds (c3cae680, the source's
+// 140-round bank — offline production beyond it is forfeit). This check used to settle 200 in one hop against
+// 120 + 80 and went red the moment the cap landed (36 minutes after it was written); it was never run, so nobody
+// saw. The split is now inside the cap, and the cap itself is pinned by the next check.
 check("settle: deterministic + split-equals-whole (idempotent by turn count)", () => {
   const a = newNation("ndoA".padEnd(50, "a")), b = clone(a);
-  settle(a, 200);
-  settle(b, 120); settle(b, 80);                       // same total in two hops must match one hop
+  settle(a, E.MAX_BANK);
+  settle(b, 80); settle(b, E.MAX_BANK - 80);           // same total in two hops must match one hop
   if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error("settle not turn-additive");
   finite(a);
-  if (a.tick !== 200) throw new Error("tick bookkeeping");
+  if (a.tick !== E.MAX_BANK) throw new Error("tick bookkeeping");
+});
+
+check("rounds beyond the bank cap are forfeit: one settle of more than MAX_BANK equals MAX_BANK", () => {
+  const a = newNation("ndoB".padEnd(50, "b")), b = clone(a);
+  settle(a, E.MAX_BANK + 60); settle(b, E.MAX_BANK);
+  if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error("production accrued beyond the 140-round bank");
 });
 
 check("economy stays bounded over a long idle (no NaN / overflow / negative)", () => {
@@ -260,7 +270,8 @@ check("advances: cost scales with difficulty; alien ones can't be bought", () =>
 
 check("events fire deterministically and stay bounded", () => {
   const a = newNation("ev".padEnd(50, "e")), b = JSON.parse(JSON.stringify(a));
-  settle(a, 500); settle(b, 250); settle(b, 250);
+  // within one bank (see the MAX_BANK note at the first check): 4 x 140 in one series, 2 x 70 hops per bank
+  for (let i = 0; i < 4; i++) { settle(a, E.MAX_BANK); settle(b, 70); settle(b, E.MAX_BANK - 70); }
   if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error("events break turn-additivity");
   finite(a);
 });

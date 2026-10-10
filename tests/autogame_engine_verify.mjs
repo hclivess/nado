@@ -2,7 +2,7 @@
 //
 // Usage:  node tests/autogame_engine_verify.mjs <vectors.json>
 //
-// The vectors are produced by tests/autogame_contract_test.py, which has already proven the Python model
+// The vectors are produced by tests/test_autogame_contract_matches_the_reference_model.py, which has already proven the Python model
 // agrees with the contract step for step. Chaining the two makes the browser engine transitively verified
 // against the chain — which matters because the client uses it to preview a plan and to animate a leg, and
 // a preview that disagrees with the settlement is worse than no preview at all.

@@ -31,8 +31,8 @@ weeks into the new chain, silently leaving the old behaviour live until then.
   cursor 19690, last_settled_cursor 19681 — settlement advances on betanet-9. NOT checked: whether the first span
   (from cursor 0) carried a proof or degraded to a bare attestation; that needs the exec log of the first settle.
 - ~~**Two tests fail identically on old and new code**~~ — **closed 2026-09-30.** test_settle_fold_tree is on
-  scripts/run_tests.sh's SLOW list (10800 s ceiling; measured 2 h 28 min to ALL PASS). autogame_model does not
-  reproduce: `python tests/autogame_model.py` exits 0 and tests/autogame_contract_test.py, which drives the model
+  scripts/run_tests.sh's SLOW list (seeded at its worst measured 2 h 28 min to ALL PASS; the timeout is 3x the last measurement). autogame_model does not
+  reproduce: `python tests/autogame_model.py` exits 0 and tests/test_autogame_contract_matches_the_reference_model.py, which drives the model
   against the contract and the browser engine, is ALL PASS on this tree. (test_auto_bond, test_emergency_rollback_gating,
   test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and test_pay_binding were stale on correct code and are
   fixed, 5e5d48ad.)

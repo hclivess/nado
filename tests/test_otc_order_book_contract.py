@@ -3,8 +3,13 @@ Covers both order kinds end to end (post/fill/settle with the dual-hashlock prei
 full revert-guard battery (every guard proven by a state-unchanged check), the claim/refund window split,
 and the reroll attribution (`escrow_refunds` must hand every live escrow back to its funder, summing exactly
 to the contract's balance).
-Run: HOME=$(mktemp -d) python3 tests/otc_contract_test.py
+Run: python3 tests/test_otc_order_book_contract.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-otc-book-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import hashlib, json, os, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

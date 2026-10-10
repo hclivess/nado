@@ -73,7 +73,6 @@ test_state_merge                             needs the Rust kernels (native/, wa
 test_state_transition                        needs the Rust kernels (native/, wasm/goldilocks)
 test_state_transition_batched                needs the Rust kernels (native/, wasm/goldilocks)
 test_assets                                  proves in Python kernels: over 5 minutes
-test_every_opcode_is_provable                proves in Python kernels: over 5 minutes
 test_exec_commit_periodic                    proves in Python kernels: over 5 minutes
 test_fold_hardening                          proves in Python kernels: over 5 minutes
 test_fri_verify                              proves in Python kernels: over 5 minutes
@@ -96,4 +95,5 @@ test_zkvm_arg_tag_from_one                   proves in Python kernels: over 5 mi
 test_zkvm_args                               proves in Python kernels: over 5 minutes
 test_zkvm_circuit                            proves in Python kernels: over 5 minutes
 test_zkvm_epoch                              proves in Python kernels: over 5 minutes
+test_joinsplit3_js_proof_verifies_in_python  proves in the browser's JS prover at two depths: ~9 min each
 test_updatability                            [box] judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box

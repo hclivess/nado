@@ -1,6 +1,6 @@
 # Sovereign — a persistent nation-war MMO on NADO
 
-Status: **LIVE** on betanet-6 (`sovereign.nadochain.com`). Engine + tests (`static/sovereign-engine.js`, `tests/sovereign_engine_test.mjs`,
+Status: **LIVE** on betanet-6 (`sovereign.nadochain.com`). Engine + tests (`static/sovereign-engine.js`, `tests/test_sovereign_engine.mjs`,
 ALL PASS). Contract + client + practice next.
 
 ## 1. What it is
@@ -101,7 +101,7 @@ practice is the same rules with local opponents.
 - `static/sovereign-engine.js` — the deterministic simulation (done): resources, production/settle,
   buildings, governments, satisfaction, army, tech, combat, prestige. Pure, shared by contract + client +
   practice + tests.
-- `tests/sovereign_engine_test.mjs` — determinism / boundedness / action-legality / loot-conservation
+- `tests/test_sovereign_engine.mjs` — determinism / boundedness / action-legality / loot-conservation
   (done, ALL PASS).
 - `execnode/games/sovereign.py` — the contract: a **single global append-only ACTION LOG** (a thin
   recorder, NOT a per-nation referee — the economy + combat rules live in the browser engine, which
