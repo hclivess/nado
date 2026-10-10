@@ -62,6 +62,66 @@ def open_escrow_refunds(invites: dict, htlcs: dict):
     return refunds, out
 
 
+def carry_policy(cid: str, contract: dict) -> str:
+    """"keep" when the contract's game module declares its storage carry-safe (CARRY_STORAGE = True: nothing in it
+    names an L1 height, a beacon epoch or a block hash of the old chain) AND the contract runs exactly that module's
+    code; otherwise "reset" (fresh-deploy storage, pot refunded as before). Matching by code, not by a table of ids,
+    so a contract whose code was changed without its module being reviewed can never be carried by accident."""
+    import importlib, pkgutil
+    import execnode.games as _g
+    code = contract.get("code")
+    for m in pkgutil.iter_modules(_g.__path__):
+        if m.name.startswith("_") or m.name in ("deploy", "redeploy"):
+            continue
+        mod = importlib.import_module(f"execnode.games.{m.name}")
+        if getattr(mod, "CARRY_STORAGE", False) and hasattr(mod, "build"):
+            try:
+                if json.loads(json.dumps(mod.build())) == code:
+                    return "keep"
+            except Exception:
+                continue
+    return "reset"
+
+
+def fresh_deploy_storage(contract: dict) -> dict:
+    """The storage a fresh deploy of this code produces (its constructor's output, e.g. autogame's lookup tables), run
+    through the exec layer's own deploy path in a scratch state — never re-derived here."""
+    import tempfile
+    from execnode.state import ExecState
+    from execnode.code_codec import FIXED_CIDS
+    with tempfile.TemporaryDirectory(prefix="nado-carry-deploy-") as tdir:
+        st = ExecState(os.path.join(tdir, "s.json"))
+        sender = contract.get("deployer") or ""
+        payload = {"op": "deploy", "code": contract["code"], "runtime": contract.get("runtime"), "nonce": "carry"}
+        fixed = [n for n, dep in FIXED_CIDS.items() if dep == sender]
+        st.apply_blob(payload, sender, "carry-deploy")
+        if not st.contracts and fixed:                      # a fixed-name system contract deploys at its name
+            st.apply_blob(dict(payload, at=fixed[0]), sender, "carry-deploy")
+        made = list(st.contracts.values())
+        return json.loads(json.dumps(made[0]["storage"])) if made else {}
+
+
+def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy) -> tuple:
+    """(genesis doc for execnode/exec_genesis.py, {cid: pot} kept in escrow). EVERY contract carries its code under its
+    id — so the frontends need no rewiring and nothing has to be redeployed; a "keep" contract also keeps its storage
+    and pot, every other one starts from fresh-deploy storage and its pot is refunded by the caller as before."""
+    out, kept = {}, {}
+    for cid in sorted(contracts):
+        c = contracts[cid]
+        rec = {k: c[k] for k in ("code", "abi", "deployer", "runtime", "upgradable") if k in c}
+        if policy(cid, c) == "keep":
+            rec["storage"] = json.loads(json.dumps(c.get("storage") or {}))
+            if pots.get(cid):
+                kept[cid] = int(pots[cid])
+        else:
+            rec["storage"] = fresh_deploy_storage(c)
+        out[cid] = rec
+    return out, kept
+
+
+_EXEC_GENESIS = [None]
+
+
 def exec_value_the_carry_would_drop(d: dict) -> list:
     """Reasons this exec snapshot holds value the carry cannot move yet ([] = nothing would be lost). The carry used to
     check only the LEGACY pool (`shielded`), while every shield deposit from block 1 lands in the WIDE pool and some in
@@ -134,9 +194,16 @@ def build():
     pot_bridge = {a: _num(v) for a, v in bridge.items() if a in cids}
     for a, v in user_bridge.items():
         credit(a, v)
-    # 3) refund POTS to players (digest-slot games: residual -> deployer/operator of record)
+    # 3) CARRIED CONTRACTS keep their pots in escrow (execnode/exec_genesis.py); every other pot is refunded to its
+    # players (digest-slot games: residual -> deployer/operator of record) as before
+    _gen_contracts, kept_pots = exec_genesis_doc(contracts, pot_bridge)
+    from protocol import CHAIN_GENERATION as _G
+    _EXEC_GENESIS[0] = {"generation": int(_G) + 1, "contracts": _gen_contracts,
+                        "bridge": {c: str(v) for c, v in sorted(kept_pots.items())}}
     pot_refunds = {}
     for cid, pot in pot_bridge.items():
+        if cid in kept_pots:
+            continue
         for addr, amt in pot_refunds_for(cid, contracts[cid], pot, d.get("zk_addrs") or {}).items():
             pot_refunds[addr] = pot_refunds.get(addr, 0) + amt
             credit(addr, amt)
@@ -152,7 +219,7 @@ def build():
     # the reroll. Printing only — the fold above is unchanged, so conservation is unaffected.
     _z = d.get("zk_addrs") or {}
     for cid, pot in sorted(pot_bridge.items()):
-        if cid == "faucet" or not pot:
+        if cid == "faucet" or not pot or cid in kept_pots:
             continue
         sl = {int(k): int(v) for k, v in ((contracts[cid].get("storage") or {}).get("slots") or {}).items()}
         ids = sorted({k & 0xffffffff for k in sl if k >> 32 in (1, 2)})
@@ -178,7 +245,8 @@ def build():
             debit_reserved(acct, v)
 
     # 6) debit the escrow reserved accounts by exactly what was folded (conserve supply)
-    bridge_out = sum(user_bridge.values()) + sum(pot_bridge.values()) + sum(_num(w["amount"]) for w in bws.values())
+    refunded_pots = sum(v for c, v in pot_bridge.items() if c not in kept_pots)
+    bridge_out = sum(user_bridge.values()) + refunded_pots + sum(_num(w["amount"]) for w in bws.values())
     dividend_out = sum(_num(v) for v in dividend.values()) + sum(_num(w["amount"]) for w in dws.values())
     shield_out = sum(_num(w["amount"]) for w in uws.values())
     debit_reserved("bridge", bridge_out)
@@ -190,7 +258,9 @@ def build():
     print("=== alphanet-6 carry-forward ===")
     print(f"L1 accounts total (balance+bonded):     {l1_total:>18} raw")
     print(f"  folded user bridge:                   {sum(user_bridge.values()):>18} raw -> users, -bridge escrow")
-    print(f"  refunded contract pots:               {sum(pot_bridge.values()):>18} raw -> players/operator, -bridge escrow")
+    print(f"  refunded contract pots:               {refunded_pots:>18} raw -> players/operator, -bridge escrow")
+    print(f"  carried contract pots (stay escrowed): {sum(kept_pots.values()):>18} raw in {len(kept_pots)} contract(s); "
+          f"{len(_gen_contracts)} contracts carried by id")
     print(f"  folded dividends (uncollected):       {sum(_num(v) for v in dividend.values()):>18} raw -> users, -dividend pool")
     print(f"  folded dividend withdrawals (pending):{sum(_num(w['amount']) for w in dws.values()):>18} raw -> users, -dividend pool")
     print(f"  folded bridge withdrawals (pending):  {sum(_num(w['amount']) for w in bws.values()):>18} raw -> users, -bridge escrow")
@@ -201,6 +271,12 @@ def build():
     print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")
     if carried != l1_total:
         raise SystemExit("conservation failed — refusing to write")
+    # INVARIANT: what stays in BRIDGE_ESCROW is exactly the carried pots, because L1 genesis seeds the escrow counter
+    # from them and refuses a mismatch (genesis.py) — a residual would be unbacked coins or a failed first exit.
+    _esc = alloc.get("bridge", {"balance": 0})["balance"]
+    if _esc != sum(kept_pots.values()):
+        raise SystemExit(f"bridge escrow would hold {_esc} raw but the carried pots total {sum(kept_pots.values())} — "
+                         "the exec bridge invariant does not hold on the source chain; reconcile before carrying")
 
     # IDENTITY CARRY (gen 25 -> 26, operator decision 2026-09-25: "carry them"). Per account: the recorded public key
     # (keeps ADDRESS_KEY_BIND effective from block 1 — without it every account would be "never sent" again), the
@@ -311,6 +387,11 @@ def main():
         with open(xpath, "w") as f:
             json.dump(extra, f, indent=0, sort_keys=True)
         print("WROTE genesis_data/genesis_carry.dat")
+        epath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "genesis_data", "exec_genesis.json")
+        with open(epath, "w") as f:
+            json.dump(_EXEC_GENESIS[0], f, indent=0, sort_keys=True)
+        print(f"WROTE genesis_data/exec_genesis.json ({len(_EXEC_GENESIS[0]['contracts'])} contracts)")
     else:
         print("\n(dry run — pass --write to persist genesis_alloc.dat)")
 

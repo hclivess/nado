@@ -253,6 +253,16 @@ def main():
     ap.add_argument("--wire-only", action="store_true", help="skip deploying; repoint + rebake i18n + verify")
     a = ap.parse_args()
 
+    # CARRIED CONTRACTS (execnode/exec_genesis.py): when this generation started from a carried exec genesis every contract
+    # already lives at its old id. target_cids() derives ids from the CURRENT code, and a contract upgraded in place keeps
+    # the id of its first code — so a deploy here would create duplicates and rewire the frontends AWAY from the carried
+    # contracts (their state and pots). INVARIANT: with a carried genesis this tool only verifies references.
+    from execnode import exec_genesis as _EG
+    if _EG.load():
+        print("contracts were CARRIED (genesis_data/exec_genesis.json): verifying references only, deploying nothing")
+        ok = verify({}, a.ex)
+        sys.exit(0 if ok else 1)
+
     if a.check:
         targets, have = target_cids(), live_cids(a.ex)
         if have is None:

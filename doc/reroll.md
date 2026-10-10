@@ -174,11 +174,13 @@ must be reviewable as "new genesis, same rules".
    total and the node's `open:N` log line equals the tip's live collector count, then push and kick the wave **from a
    fleet node** (`http://<fleet-ip>:9173/update?wave=true`, failure 7) so the fleet purges too. Confirm unification by
    one block hash at a common height across every node.
-11. Start exec and watchtower, then `python3 -m execnode.games.redeploy` (confirms via a provisional view, needs no
-    finality). It rewires EVERY `const CID` / `const <NAME>_CID` in static/ (the wallet's `RESERVE_CID` included) and
-    the reward table, and verifies each resolves to a live contract; the live e2e scripts derive their ids and need
-    nothing. Then `scripts/operator/_fund_faucet.py <NADO>` with the faucet bank the carry refunded to the operator (betanet-8: 99.4),
-    and the manual refunds the carry-forward printed (`scripts/nado_cli.py send <addr> <NADO> --memo …`).
+11. Start exec and watchtower. **Contracts are carried, not redeployed** (since 2026-10-10, execnode/exec_genesis.py):
+    the carry wrote `genesis_data/exec_genesis.json` — commit it with the other genesis files — and every exec node
+    starts from it, so every contract keeps its id and no frontend needs rewiring. A contract whose game module declares
+    `CARRY_STORAGE = True` (the faucet) keeps its storage and its pot; every other one starts from fresh-deploy storage
+    and its pot was refunded by the carry, as before. Confirm with `python3 -m execnode.games.redeploy` (with a carried genesis it only
+    verifies that every frontend `CID` resolves to a live contract, and refuses to deploy), then pay the manual refunds the carry printed (`scripts/nado_cli.py send <addr> <NADO> --memo …`).
+    The faucet bank is no longer refunded and re-funded: it carries.
 12. Check `/status` → `jobs.problems` is empty (doc/jobs.md). The DEX price history resets itself on the new chain id.
 13. Walk every page headless (every `static/*.html`, script errors and failed requests) — the betanet-8 walk found the
     wallet's reserve panel on a dead contract and the lend page broken since it was written.

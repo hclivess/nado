@@ -1067,6 +1067,12 @@ if _exec_stored_gen() not in (None, _CHAIN_GENERATION):
 
 states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
 state = states["default"]
+# CARRIED CONTRACTS (execnode/exec_genesis.py): a fresh default layer starts from the contracts the reroll carried,
+# not from nothing. INVARIANT: every place that builds a fresh layer (here and _reset_states_to_genesis) applies it,
+# because a node that started empty would compute a different genesis root and settle a root nobody else holds.
+from execnode import exec_genesis as _exec_genesis
+if _exec_genesis.apply(state):
+    print(f"[execnode] exec genesis: loaded {len(state.contracts)} carried contract(s)", flush=True)
 
 # WARM THE SINGLETON-FOLD CACHE FROM DISK. Measured 2026-08-13 (betanet-2, 8,376 slots, depth 256, native,
 # a real 30-block span): a settle prove is 58.9 s COLD and 10.2 s WARM, and 50.0 s of the cold number is
@@ -1117,13 +1123,15 @@ def _persist_fold_cache():
         print(f"[execnode] fold cache: save failed ({type(_e).__name__}: {_e})", flush=True)
         return 0   # the full-featured default layer; shielded/bridge/dividend endpoints use it
 
-# JOINT-GENESIS CANARY: a freshly-loaded EMPTY default layer (cursor == -1) MUST hash to EXEC_GENESIS_ROOT.
-# If it doesn't, the exec-root scheme drifted from the hardcoded genesis constant — starting would settle a
-# root no other node agrees on and fork L2. Fail LOUD instead. (A non-empty state is mid-chain and exempt.)
+# JOINT-GENESIS CANARY: a freshly-loaded default layer (cursor == -1) MUST hash to the genesis root — EXEC_GENESIS_ROOT
+# for an empty layer, or the root of the carried contracts when the reroll carried some (exec_genesis.genesis_root()).
+# If it doesn't, the exec-root scheme drifted — starting would settle a root no other node agrees on and fork L2.
+# Fail LOUD instead. (A state past genesis is mid-chain and exempt.)
 from protocol import EXEC_GENESIS_ROOT as _EXEC_GENESIS_ROOT
-if state.cursor == -1 and state.state_root() != _EXEC_GENESIS_ROOT:
-    raise SystemExit(f"[execnode] FATAL: empty exec state root {state.state_root()[:16]} != EXEC_GENESIS_ROOT "
-                     f"{_EXEC_GENESIS_ROOT[:16]} — scheme drift; refusing to start (would fork L2)")
+_GENESIS_ROOT_WANT = _exec_genesis.genesis_root(ExecState) if _exec_genesis.load() else _EXEC_GENESIS_ROOT
+if state.cursor == -1 and state.state_root() != _GENESIS_ROOT_WANT:
+    raise SystemExit(f"[execnode] FATAL: genesis exec state root {state.state_root()[:16]} != expected "
+                     f"{_GENESIS_ROOT_WANT[:16]} — scheme drift; refusing to start (would fork L2)")
 
 # Stamp OUR generation now that we have loaded a clean state, so a later reroll is detected exactly once.
 try:
@@ -1175,9 +1183,10 @@ def _reset_states_to_genesis(reason="", keep_da=False):
     DA = DaStore(DA_DIR, retain=DA_RETAIN)
     states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
     state = states["default"]
-    if state.cursor == -1 and state.state_root() != _EXEC_GENESIS_ROOT:
-        raise SystemExit(f"[execnode] FATAL after reset: empty root {state.state_root()[:16]} != "
-                         f"EXEC_GENESIS_ROOT {_EXEC_GENESIS_ROOT[:16]} — scheme drift; refusing to run")
+    _exec_genesis.apply(state)                     # the carried contracts, exactly as at boot (see above)
+    if state.cursor == -1 and state.state_root() != _GENESIS_ROOT_WANT:
+        raise SystemExit(f"[execnode] FATAL after reset: genesis root {state.state_root()[:16]} != "
+                         f"expected {_GENESIS_ROOT_WANT[:16]} — scheme drift; refusing to run")
     _last_settled_cursor = -1
     prov_states = None
     _prov_key = None

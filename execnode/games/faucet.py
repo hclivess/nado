@@ -40,6 +40,12 @@ OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 # reward markers, which are alghash outputs.
 DONATED, DEFUNDED = 7, 8
 
+# CARRY_STORAGE (tools/alphanet6_carryforward.carry_policy): this contract's storage crosses a reroll as is, pot
+# included. INVARIANT: nothing it stores names an L1 height, a beacon epoch or a block hash of the old chain — slots 7/8
+# are amounts and the reward markers are H(idx, day, rank) with `day` from wall-clock time — so it means the same on the
+# new chain. Re-check before adding any method that reads `cursor`, `timestamp`, BHASH or BEACON.
+CARRY_STORAGE = True
+
 FUND = f"""
     ctx r1 value
     movi r2 0

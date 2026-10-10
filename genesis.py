@@ -217,6 +217,23 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         logger.warning(f"RELAUNCH: carried {len(carry.get('devbind') or [])} device bindings, "
                        f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories")
 
+    # CARRIED CONTRACT POTS (execnode/exec_genesis.py): contracts the reroll carried keep their pots on the exec side, so
+    # L1 must start holding exactly those coins in BRIDGE_ESCROW and count them in the default namespace's escrow
+    # counter — every exit checks both (transaction_ops bridge_withdraw), and the counter used to start at 0 always.
+    # INVARIANT: BRIDGE_ESCROW == Σ carried pots at block 0, because the exec layer starts holding exactly those; a
+    # mismatch refuses to build genesis rather than start a chain whose first exit fails or whose escrow is unbacked.
+    from execnode import exec_genesis as _exec_genesis
+    if _exec_genesis.load():
+        from protocol import BRIDGE_ESCROW as _BRIDGE_ESCROW
+        _pots = _exec_genesis.pots_total()
+        _held = int((kv_ops.get_account(_BRIDGE_ESCROW) or {}).get("balance", 0))
+        if _held != _pots:
+            raise SystemExit(f"genesis: BRIDGE_ESCROW holds {_held} raw but the carried contracts' pots total {_pots}")
+        if _pots:
+            with kv_ops.write_txn():
+                kv_ops.bridge_escrow_ns_add("default", _pots)
+        logger.warning(f"RELAUNCH: carried {len(_exec_genesis.load()['contracts'])} contracts; {_pots} raw in their pots")
+
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->
     # stake-majority path that broke the rejected fronted/faucet designs). Onboarding is strictly:
