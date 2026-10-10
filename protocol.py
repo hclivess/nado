@@ -179,12 +179,11 @@ FLEX_TX_MIN_MARGIN = 30      # flexibly-landing system txs (collect blob, divide
                              # sweep that became eligible ~6s after submit. These txs are per-epoch —
                              # 3 min of patience is free, and 30 absorbs any realistic tip staleness.
 
-# GATE HYGIENE (operator directive: height-activation gates MUST NOT survive their activation).
-# ALL betanet-3 gates were DELETED at the betanet-4 (gen 22) reroll, and the gen-22 dividend-rules gate
-# at the betanet-5 (gen 23) reroll — every such rule is simply THE RULE from block 0 of this generation.
-# Any future consensus change ships either at a reroll (ungated) or with a gate keyed on the CURRENT
-# CHAIN_GENERATION (`H if CHAIN_GENERATION == <this> else 0`), so it self-disarms at the next reroll —
-# never a bare height that outlives its chain.
+# GATE HYGIENE: a consensus change ships either at a reroll (ungated) or with a gate keyed on the CURRENT
+# CHAIN_GENERATION, written `H if CHAIN_GENERATION == <this> else 1` — on the next chain the rule is live from block 1,
+# so a reroll needs no gate edit (see the GATE LEDGER below and doc/reroll.md). `else 0` means "never" and marks dead
+# code for the cleanup pass. Never a bare height that outlives its chain. A gate that has fired stays until the reroll
+# (blocks below it still replay under the old rule) and is deleted there.
                              # from this height (a boundary, 60*1370; 0 = genesis on any future chain),
                              # every epoch-boundary block COMMITS the just-completed epoch's open-lane
                              # weights into L1 state (kv_ops.epoch_weights_commit) — the presence-

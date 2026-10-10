@@ -56,8 +56,10 @@ Owed before the refusal may go, IN THIS ORDER:
    `stark.fri_claim` (the full-domain rule) — the comp AIRs and the arena's fold kernels all assume the lower half;
 2. the two fold forgeries of review 2026-09-24 stay closed (both fixed 2026-09-24: inner geometry pinned via
    `max_degree`, transition-bundle boundaries rebuilt from public data) — keep their tests green;
-3. a height gate `... if CHAIN_GENERATION == 27 else 1` for the relaxation (at the fleet's adoption block), registered
-   in the GATE LEDGER.
+3. a height gate `<adoption height> if CHAIN_GENERATION == <the LIVE generation> else 1` for the relaxation (at the
+   fleet's adoption block), registered in the GATE LEDGER. Key it on the generation that is live WHEN IT SHIPS (28 as of
+   2026-10-10): a gate keyed on an older generation evaluates to its `else` branch — 1 — and ships the relaxation
+   ungated from block 1.
 Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
 
 ## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): DELETED 2026-09-30 (branch q-dead)
