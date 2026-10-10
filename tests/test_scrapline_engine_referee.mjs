@@ -3,7 +3,7 @@
  * Asserts: offers are seed-determined; merges/scraps/skips follow the rules; illegal moves corrupt;
  * a missing seed BLOCKS the replay (never corrupts); replay is byte-deterministic; every finished draft
  * produces a decisive/draw result from a combat that both sides could recompute.
- * Run from the repo root:  node tests/scrapline_js_test.mjs
+ * Run from the repo root:  node tests/test_scrapline_engine_referee.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");

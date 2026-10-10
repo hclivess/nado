@@ -478,7 +478,7 @@ LEAVE = f"""    slot r4 {NN} r0
 # cancel(g): the CREATOR — or ANYONE once the lobby deadline lapses — dissolves a not-yet-full table;
 # every seated stake refunds. The permissionless half is what stops a dead lobby from eating stakes:
 # leave(g) only pops the LAST joiner and abort(g) is FULL-gated, so with the creator and the last joiner
-# both gone the middle seats had no exit at all (tests/fund_lock_test.py). Refunds are per seat and
+# both gone the middle seats had no exit at all (tests/test_game_funds_never_lock.py). Refunds are per seat and
 # caller-independent, so opening the gate hands the caller nothing but the gas bill.
 _CANCEL_REFUNDS = ""
 for i in (1, 2, 3, 4):

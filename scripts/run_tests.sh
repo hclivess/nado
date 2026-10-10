@@ -15,7 +15,8 @@ set -u
 cd "$(dirname "$0")/.."
 PY=${PY:-nado_venv/bin/python}
 PY_ORACLE=${PY_ORACLE:-python3}
-PAT=${1:-'tests/test_*.py tests/test_*.mjs'}      # .mjs: the wallet/JS tests, run with node (they were never run here)
+PAT=${1:-'tests/test_*.py tests/test_*.mjs tests/test_*.js'}   # .mjs/.js: the wallet/JS tests, run with node (the .js ones
+                                                                  # — CommonJS — matched no glob until 2026-10-10)
 TMO=${NADO_TEST_TIMEOUT:-900}
 JOBS=${NADO_TEST_JOBS:-2}
 OUT=$(mktemp -d /tmp/nado-tests.XXXXXX)
@@ -32,13 +33,13 @@ STMO=${NADO_TEST_SLOW_TIMEOUT:-10800}
 # step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.
 LIVE="test_otc_swap_e2e"
 run_one() {
-  t=$1; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; h="$OUT/home-$n"; mkdir -p "$h"
+  t=$1; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; n=${n%.js}; h="$OUT/home-$n"; mkdir -p "$h"
   case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac
   if [ -n "${NADO_TEST_EXCLUDE:-}" ]; then
     why=$(awk -v n="$n" '$1 == n { $1 = ""; sub(/^ +/, ""); print; exit }' "$NADO_TEST_EXCLUDE")
     if [ -n "$why" ]; then printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "EXCLUDED" "-" "-" "-" "$n ($why)"; return; fi
   fi
-  run=("$PY" "$t"); case "$t" in *.mjs) run=(node "$t");; esac
+  run=("$PY" "$t"); case "$t" in *.mjs|*.js) run=(node "$t");; esac
   case "$t" in *.py)
     if grep -qE "^[[:space:]]*(from|import) cryptography" "$t" && ! "$PY" -c "import cryptography" 2>/dev/null \
        && "$PY_ORACLE" -c "import cryptography" 2>/dev/null; then run=("$PY_ORACLE" "$t"); fi;;

@@ -9,7 +9,7 @@
 // map, rendering the world, editing a plan, and the four calls that move a run.
 //
 // The step function is NOT here. It lives in autogame-engine.js, which is the same program as
-// execnode/games/autogame.py and is diff-tested against it (tests/autogame_contract_test.py). The client
+// execnode/games/autogame.py and is diff-tested against it (tests/test_autogame_contract_matches_the_reference_model.py). The client
 // uses it to preview and to animate; the contract remains the authority, and wherever the two disagree the
 // chain wins and the view snaps to it.
 import {

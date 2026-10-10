@@ -5,8 +5,13 @@ with "count" instead of "cnt". decode_view read it as the simple single-index sc
 took cnt=0, and returned every map EMPTY: the AMM's pools were invisible to the frontend for the
 contract's entire life while every call landed fine on chain. This pins the key names for every game.
 
-Run: HOME=$(mktemp -d) python3 tests/view_schema_test.py
+Run: python3 tests/test_every_game_view_schema_decodes.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-every-game-view-schema-decodes-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import importlib, os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.games.deploy import GAMES

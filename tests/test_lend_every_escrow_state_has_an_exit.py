@@ -12,8 +12,13 @@ It also checks CONSERVATION — that the contract never pays out more than it to
 contract that can overpay by one unit is a contract that drains, and no individual lifecycle test would
 notice.
 
-Run: python3 tests/lend_contract_test.py
+Run: python3 tests/test_lend_every_escrow_state_has_an_exit.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-lend-every-escrow-state-has-an-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os
 import sys
 import tempfile

@@ -1,6 +1,6 @@
 /*
  * WITHDRAW WIRE FORMAT: the browser's withdraw tx must carry data.amount as a JSON *integer*.
- * Run: node tests/withdraw_wire_crosscheck.mjs
+ * Run: node tests/test_withdraw_amount_is_a_json_integer.mjs
  *
  * WHY THIS FILE EXISTS. validate_transaction (ops/transaction_ops.py, recipient "withdraw") compares
  * the tx's self-describing data against the pending unbond record with plain ==:

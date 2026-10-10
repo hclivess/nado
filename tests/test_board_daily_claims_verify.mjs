@@ -1,8 +1,8 @@
 /*
- * board_daily_test.mjs — the correctness properties of the shared board-game Daily Challenge harness
+ * test_board_daily_claims_verify.mjs — the correctness properties of the shared board-game Daily Challenge harness
  * (static/board-daily.js + the three pure rule sets). Proves the thing the faucet's money depends on:
  * a genuine claim verifies to exactly the score it posted, and anything else does not.
- * Run: node tests/board_daily_test.mjs
+ * Run: node tests/test_board_daily_claims_verify.mjs
  */
 import { play, score, verifyClaim, prng } from "../static/board-daily.js";
 import { provableSeed, packMoves, unpackMoves } from "../static/provable.js";

@@ -7,8 +7,13 @@ so this exercises the whole escrow with value 0 (open/join/move/agree/resign/abo
 with the staked path and asserts the two behave identically apart from the money. A zero pot must never
 mint, never lock, and never revert a settle.
 
-Run: python3 tests/pool_contract_test.py
+Run: python3 tests/test_pool_free_play_escrow.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-pool-free-play-escrow-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

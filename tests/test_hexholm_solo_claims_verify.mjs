@@ -1,9 +1,9 @@
 /*
- * hexholm_solo_test.mjs — the provable daily gauntlet's soundness core: solo runs are deterministic,
+ * test_hexholm_solo_claims_verify.mjs — the provable daily gauntlet's soundness core: solo runs are deterministic,
  * a winning run's packed claim verifies to its exact score, and any tampering (words, count, day,
  * address) makes verifyClaim return -1. The "player" here is the same bot policy on seat 1, driven
  * through the exact soloState interleave every verifier replays.
- * Run: node tests/hexholm_solo_test.mjs
+ * Run: node tests/test_hexholm_solo_claims_verify.mjs
  */
 import * as B from "../static/hexholm-bot.js";
 import { prng } from "../static/hexholm-bot.js";

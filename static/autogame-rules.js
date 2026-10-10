@@ -3,7 +3,7 @@
 //
 // The contract is the authority on every number in this game. The browser cannot import Python, so
 // this file is emitted from it rather than transcribed — the engine, the contract and the Python
-// reference model then all trace back to one definition, and tests/autogame_contract_test.py fails
+// reference model then all trace back to one definition, and tests/test_autogame_contract_matches_the_reference_model.py fails
 // the moment this file stops matching its source.
 
 export const LEG = 16;

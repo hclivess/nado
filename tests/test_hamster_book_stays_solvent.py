@@ -2,8 +2,13 @@
 Covers: bankroll posting + bank-only guards, quoting, backing at the locked price, the per-bet SOLVENCY
 invariant (a lane can never be committed to more than bankroll+stakes), payout on the winning lane, the
 bank's sweep, void refunds, and global value conservation (the contract never mints).
-Run: HOME=/root python tests/hamster_book_test.py
+Run: python3 tests/test_hamster_book_stays_solvent.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-hamster-book-stays-solvent-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

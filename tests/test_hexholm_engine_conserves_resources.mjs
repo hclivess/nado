@@ -1,10 +1,10 @@
 /*
- * hexholm_engine_test.mjs — headless soak of the HEXHOLM rules engine: geometry sanity, then full
+ * test_hexholm_engine_conserves_resources.mjs — headless soak of the HEXHOLM rules engine: geometry sanity, then full
  * random-bot self-play games at 2/3/4 seats over many seeds, replayed MOVE BY MOVE through the exact
  * replay() the browser uses. Invariants after every move: resource conservation (bank + all hands = 19
  * of each), no negative counts, supply caps, no corruption from bot moves (the bot only emits
  * legalMoves() output — a corrupt flag means referee and generator disagree = a real bug).
- * Run: node tests/hexholm_engine_test.mjs [games-per-cap]
+ * Run: node tests/test_hexholm_engine_conserves_resources.mjs [games-per-cap]
  */
 import * as E from "../static/hexholm-engine.js";
 import { prng, pickMove } from "../static/hexholm-bot.js";

@@ -435,7 +435,7 @@ Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochai
 | pixel art | `static/autogame-art.js` | the whole sprite world, ground-up: the wayfarer (gear composes the silhouette), 36 realm creatures, 18 animated props, gore, six fatalities — one primitive (fillRect), deterministic, verified by `tests/autogame_art_verify.mjs` |
 | live e2e | `_autogame_e2e.py` | the whole loop against the running node |
 
-`tests/autogame_contract_test.py` runs the contract and the Python model over the same hashes and asserts
+`tests/test_autogame_contract_matches_the_reference_model.py` runs the contract and the Python model over the same hashes and asserts
 step-for-step equality. A divergence in any of the three is a bug in the other two until proven otherwise.
 
 ### Field-wrap discipline

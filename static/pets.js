@@ -665,7 +665,7 @@ function battlesFrom(sto) {
 // A pet is born to a TRADE (its species decides it, so every Beagle is the same kind of worker) and a base
 // of that trade can be staffed with it. Production accrues lazily against the block cursor: nothing runs on
 // a timer, so the numbers below are computed the same way the contract will when you collect.
-// MIRRORS execnode/games/pets.py — tests/pets_homestead_test.py asserts these match, because they silently
+// MIRRORS execnode/games/pets.py — tests/test_pets_homestead.py asserts these match, because they silently
 // drifted once (RATE_DIV and FODDER_BLOCKS were left at their pre-tuning values and RARITY_RATE was never
 // declared at all, which threw on every refresh and froze the whole page — nothing rendered, nothing hatched).
 const NJOBS = 5, GEAR_SLOTS = 4, RATE_DIV = 9000, ACCRUE_CAP = 20000, MAX_LEVEL = 5;

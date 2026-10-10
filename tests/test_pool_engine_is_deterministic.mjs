@@ -7,7 +7,7 @@
  * escape the table or overlap at rest; pockets accept by DIRECTION rather than mere proximity; the aim
  * preview is the shot that will actually be taken; and the 8-ball rules (break legality, group
  * assignment, first-contact / no-rail / scratch fouls, ball in hand, the called-pocket ending) fire.
- * Run from the repo root:  node tests/pool_js_test.mjs
+ * Run from the repo root:  node tests/test_pool_engine_is_deterministic.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");

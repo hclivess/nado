@@ -8,7 +8,7 @@
  *   - replay determinism: same log + same seeds => byte-identical state
  *   - blocked-seed behavior: a missing block hash pauses the replay, never corrupts it
  *   - illegal moves (wrong actor / bad payload) DO corrupt (the chess dispute model)
- * Run from the repo root:  node tests/stormhold_js_test.mjs
+ * Run from the repo root:  node tests/test_stormhold_engine_referee.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");

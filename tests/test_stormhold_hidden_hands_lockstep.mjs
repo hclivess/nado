@@ -1,5 +1,5 @@
 /*
- * stormhold_hidden_test.mjs — lockstep fuzz for HIDDEN-HANDS mode. For each seeded game it advances FOUR
+ * test_stormhold_hidden_hands_lockstep.mjs — lockstep fuzz for HIDDEN-HANDS mode. For each seeded game it advances FOUR
  * states through the same claim-carrying move log:
  *   exact — verify mode (both secrets): the ground truth, every claim asserted
  *   pov0 / pov1 — what each player's browser actually sees (own zones real, opponent = UNKNOWN counts)
@@ -7,7 +7,7 @@
  * coins/actions/buys/turn/phase, zone counts, frame stack shape, and the PUBLIC play areas — plays stay
  * visible like the real game). At game end verifyHidden must reproduce the exact result with no cheater,
  * and a TAMPERED claim (lying about the played card) must convict the liar.
- * Run: node tests/stormhold_hidden_test.mjs
+ * Run: node tests/test_stormhold_hidden_hands_lockstep.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");

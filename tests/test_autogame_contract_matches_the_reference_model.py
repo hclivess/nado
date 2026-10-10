@@ -1,7 +1,7 @@
 """
 Autogame — differential test: the zkasm contract vs the Python reference model, step for step.
 
-Run: python3 tests/autogame_contract_test.py
+Run: python3 tests/test_autogame_contract_matches_the_reference_model.py
 
 The contract (execnode/games/autogame.py) is authoritative and the model (tests/autogame_model.py) is the
 readable statement of what it is supposed to compute. Neither is evidence on its own — this file is. It
@@ -12,6 +12,11 @@ The two hash windows are reproduced here exactly as the VM derives them: BHASH r
 the Goldilocks prime, the contract feeds (T, runId, stepIndex) through the alghash sponge, and LO32 takes the
 canonical low 32 bits.
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-autogame-contract-matches-the--")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import hashlib
 import os
 import sys

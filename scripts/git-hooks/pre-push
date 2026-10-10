@@ -28,7 +28,7 @@ while read -r lref lsha rref rsha; do
       fail=1
     fi
   done
-  while read -r f; do [ -n "$f" ] && [ -f "$f" ] && changed_tests+=("$f"); done < <(git diff --name-only "${base:-$lsha~1}" "$lsha" -- 'tests/test_*.py' 'tests/test_*.mjs' 2>/dev/null)
+  while read -r f; do [ -n "$f" ] && [ -f "$f" ] && changed_tests+=("$f"); done < <(git diff --name-only "${base:-$lsha~1}" "$lsha" -- 'tests/test_*.py' 'tests/test_*.mjs' 'tests/test_*.js' 2>/dev/null)
 done
 [ "$fail" = 0 ] || { echo "pre-push: refused — every change ships with its test"; exit 1; }
 echo "pre-push: core guards"

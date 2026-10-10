@@ -1,8 +1,13 @@
 """Trio daily-board contract test — anchor (two-phase) + post, on the three board games that just gained
 a free Daily Challenge (tic-tac-toe / connect four / reversi). Checks the shared _lib board is wired to
 each contract's own field block and readable through its _view, WITHOUT disturbing the PvP game maps.
-Run: HOME=/root python tests/trio_daily_contract_test.py
+Run: python3 tests/test_board_games_daily_challenge_contract.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-board-games-daily-challenge-co-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

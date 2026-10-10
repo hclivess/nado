@@ -3,8 +3,13 @@
 The tote pays a share of the pool (unknown until betting closes); the book quotes a PRICE you can see
 before you take it. Adding the book meant narrowing the auto-void — a market traded only on the book has
 no tote pot to strand — so the existing tote paths are re-checked here too.
-Run: HOME=/root python tests/bet_book_test.py
+Run: python3 tests/test_bet_book_beside_the_tote.py
 """
+import os, tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): a throwaway HOME and exec files, never the live node's
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-bet-book-beside-the-tote-")
+os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
+os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
+import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState

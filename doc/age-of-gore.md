@@ -352,7 +352,7 @@ Its cost is a **fourth implementation**, and I will not understate it. `autogame
 to **14 745 instructions** — measured — and needed ~1 400 lines of Python emitter plus `tests/autogame_model.py`
 plus a balance harness, for *discrete integer RPG arithmetic*. One tick of Q10/Q12 ballistics with `isqrt`,
 per-pair blast falloff and heightfield sampling, on 8 registers with storage as the only memory, and every
-scratch slot scrubbed before return or it leaks into the state root (`tests/autogame_contract_test.py` already
+scratch slot scrubbed before return or it leaks into the state root (`tests/test_autogame_contract_matches_the_reference_model.py` already
 asserts "scratch residue in the state root") — that is a project, not a feature.
 
 **Do not build it for v1. Do not design it out of reach either.** The two constraints that keep it reachable

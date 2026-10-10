@@ -3,7 +3,7 @@
  * invariants a persistent PvP world needs — settle() is deterministic and idempotent-by-turn-count, the
  * economy is bounded (never NaN, never > CAP, never < 0), actions reject illegal moves, and combat is a
  * pure function of (attacker, defender, seed) that conserves what it moves (loot leaves the defender and
- * arrives at the attacker; razed land becomes rubble, not thin air). Run: node tests/sovereign_engine_test.mjs
+ * arrives at the attacker; razed land becomes rubble, not thin air). Run: node tests/test_sovereign_engine.mjs
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");

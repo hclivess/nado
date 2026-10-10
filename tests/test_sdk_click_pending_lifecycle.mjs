@@ -1,7 +1,7 @@
 /**
  * The SDK's click-pending lifecycle — the shared gate EVERY game's buttons and auto-pumps hang off.
  *
- * Run: node tests/sdk_pend_test.mjs
+ * Run: node tests/test_sdk_click_pending_lifecycle.mjs
  *
  * Why this file exists. static/nadodapp.js decides, for every action, "is this still in flight?" — and the
  * whole fleet's feel depends on getting the RELEASE right. Release too late and a pool-dropped tx strands
