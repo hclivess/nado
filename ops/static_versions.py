@@ -79,12 +79,20 @@ def _h(*parts):
     return d.hexdigest()
 
 
+# RACY TIMESTAMPS (git's rule): a file modified within this window of the moment we read it may be rewritten again with
+# the same size inside one filesystem timestamp tick, leaving (mtime, size) unchanged. Such a node is re-read and its
+# bytes compared before the memo is trusted. Found 2026-10-10: test_static_versions failed under load when a same-length
+# edit landed in the tick of the previous read, and production would have kept serving the old version of that file.
+RACY_NS = 2_000_000_000
+
+
 class _Node:
-    __slots__ = ("key", "kind", "raw", "refs", "leaf_ver", "memo")
+    __slots__ = ("key", "kind", "raw", "refs", "leaf_ver", "memo", "seen")
 
     def __init__(self, key, kind, raw, refs, leaf_ver):
         self.key, self.kind, self.raw, self.refs, self.leaf_ver = key, kind, raw, refs, leaf_ver
-        self.memo = None     # (tuple of dep versions, body, version) — the rewrite is redone only when a dep moves
+        self.memo = None
+        self.seen = time.time_ns()     # when these bytes were read (the racy-timestamp check compares mtime with it)     # (tuple of dep versions, body, version) — the rewrite is redone only when a dep moves
 
 
 class StaticVersions:
@@ -117,10 +125,15 @@ class StaticVersions:
             return None
         key = (st.st_mtime_ns, st.st_size)
         n = self._nodes.get(full)
-        if n is not None and n.key == key:
+        # INVARIANT: the memo is trusted only when the file's mtime is clearly older than the read that filled it, because
+        # a same-size rewrite inside one timestamp tick leaves (mtime, size) unchanged (RACY_NS above).
+        if n is not None and n.key == key and st.st_mtime_ns + RACY_NS < n.seen:
             return n
         with open(full, "rb") as f:
             raw = f.read()
+        if n is not None and n.key == key and (n.raw == raw if n.raw is not None else n.leaf_ver == _h(raw)):
+            n.seen = time.time_ns()       # unchanged bytes: keep the node (and its memo), re-stamp the read
+            return n
         if full.endswith(".html"):
             kind = "html"
         elif full.endswith((".js", ".mjs")):

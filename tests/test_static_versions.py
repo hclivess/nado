@@ -146,6 +146,15 @@ c_body = s1.get(os.path.join(T, "lib/c.js"))[0]
 check("c.js and app.js reference b.js under the same URL",
       ('./b.js?v=%s"' % s1.version(b)).encode() in c_body and ('./lib/b.js?v=%s"' % s1.version(b)).encode() in ab)
 
+# RACY TIMESTAMP: a same-length rewrite that keeps the file's mtime (one timestamp tick, forced here with os.utime) must
+# still move the version. The memo used to key on (mtime, size) alone and kept serving the old bytes.
+_r = w("racy.js", "export const r = 1;")
+_st = os.stat(_r)
+_rv = s1.version(_r)
+w("racy.js", "export const r = 2;")
+os.utime(_r, ns=(_st.st_atime_ns, _st.st_mtime_ns))
+check("a same-size rewrite inside one timestamp tick still moves the version", s1.version(_r) != _rv)
+
 b_v = s1.version(b)
 i18n_v, shared_v = s1.version(os.path.join(T, "i18n.js")), s1.version(os.path.join(T, "shared.js"))
 w("shared.js", "export const s = 2;")                        # a leaf two hops below app.js
