@@ -432,7 +432,7 @@ Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochai
 | JS engine | `static/autogame-engine.js` | client prediction, animation, independent verification |
 | balance sim | `tests/autogame_balance.py` | economy harness (see its header) |
 | generated rules | `static/autogame-rules.js` | emitted from the contract; the browser's copy of every constant |
-| pixel art | `static/autogame-art.js` | the whole sprite world, ground-up: the wayfarer (gear composes the silhouette), 36 realm creatures, 18 animated props, gore, six fatalities — one primitive (fillRect), deterministic, verified by `tests/autogame_art_verify.mjs` |
+| pixel art | `static/autogame-art.js` | the whole sprite world, ground-up: the wayfarer (gear composes the silhouette), 36 realm creatures, 18 animated props, gore, six fatalities — one primitive (fillRect), deterministic, verified by `tests/test_autogame_art_renders_inside_its_cell.mjs` |
 | live e2e | `_autogame_e2e.py` | the whole loop against the running node |
 
 `tests/test_autogame_contract_matches_the_reference_model.py` runs the contract and the Python model over the same hashes and asserts

@@ -48,8 +48,10 @@ while [ $# -gt 0 ]; do
 done
 PY=${PY:-nado_venv/bin/python}
 PY_ORACLE=${PY_ORACLE:-python3}
-PAT=${1:-'tests/test_*.py tests/test_*.mjs tests/test_*.js'}   # .mjs/.js: the wallet/JS tests, run with node (the .js ones
-                                                                  # — CommonJS — matched no glob until 2026-10-10)
+# .mjs/.js: the wallet/JS tests, run with node (the .js ones — CommonJS — matched no glob until 2026-10-10). The two
+# named files are tests kept under their names because CI, the pre-push hook and CLAUDE.md call them by it
+# (tests/test_every_file_in_tests_is_run_or_declared.py declares every non-test_* file in tests/ and why).
+PAT=${1:-'tests/test_*.py tests/test_*.mjs tests/test_*.js tests/i18n_coverage.mjs tests/selftest_vectors_crosscheck.mjs'}
 TMO=${NADO_TEST_TIMEOUT:-900}
 STMO=${NADO_TEST_SLOW_TIMEOUT:-0}
 NCPU=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
@@ -68,6 +70,7 @@ NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNE
 #   test_every_opcode_is_provable  3,546 s as 31 separate proofs; ~100 s since its cases are proven as one epoch.
 SLOW="
 test_settle_fold_tree 8880
+test_joinsplit3_js_proof_verifies_in_python 1200
 test_games_e2e 2087
 test_shielded_wide 1799
 test_fold_hardening 1393
@@ -127,6 +130,7 @@ test_shielded_state_seam 81
 test_offchain_batch_canon 80
 test_appnote_circuit 77
 test_hexholm_contract_lifecycle 75
+test_joinsplit2_js_proof_verifies_in_python 114
 test_stormhold_engine_referee 73
 test_fri_blowup2_parity 71
 test_settle_proof_live_state_shape 66
