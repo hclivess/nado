@@ -57,6 +57,12 @@ POT_CAP = 1 << 31                 # per-market pot cap in UNITs — keeps stake�
 
 _2_32 = 1 << 32
 
+# CARRY_STORAGE (tools/alphanet6_carryforward.carry_policy): markets cross a reroll as they are, pot included.
+# INVARIANT: nothing this contract reads is a height, a block hash or a beacon — lock and deadline are TIME (chain_clock,
+# wall-clock seconds), and a reroll starts the new chain's clock at the reroll moment, so every open market keeps its
+# real-world lock and deadline. Re-check before adding any method that reads `cursor`, BHASH or BEACON.
+CARRY_STORAGE = True
+
 
 def _sl(field):
     """asm: r4 = slot(field, m) with m in r0 (composite-int addressing)."""

@@ -1441,11 +1441,8 @@ if __name__ == "__main__":
 
 
 # ── reroll carry (tools/alphanet6_carryforward.carry_policy, doc/stwo-migration.md §6.2) ──────────────────────
-CARRY_PIN_FLOOR = 2           # the first new-chain block a re-pinned terrain / day anchor may read
-
-
-def _carry_ids(slots, cnt_slot, lst):
-    return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+CARRY_PIN_FLOOR = _lib.CARRY_PIN_FLOOR
+_carry_ids = _lib.carry_ids
 
 
 def _run_live(slots, rid):
@@ -1486,9 +1483,7 @@ def carry_rebase(storage, tip):
         for f in (POLH, POLPH):
             if get(f, rid):
                 put(f, rid, max(0, get(f, rid) - tip))
-    for day in _carry_ids(slots, DCNT_SLOT, DLIST):
-        if get(A_H, day) and not get(A_V, day):
-            put(A_H, day, max(CARRY_PIN_FLOOR, get(A_H, day) - tip))
+    _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     out = dict(storage or {})
     out["slots"] = slots
     return out

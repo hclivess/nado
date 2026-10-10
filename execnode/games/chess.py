@@ -223,3 +223,9 @@ def build():
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "abort", "cancel")}
     return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can): an open game (_lib.pvp_games_in_flight) — finish,
+    resign or abort it on the old chain first. Nothing else chess stores names the old chain."""
+    return [f"game {g} is open" for g in _lib.pvp_games_in_flight(storage, NN, SD, LIST)]

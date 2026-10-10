@@ -434,3 +434,21 @@ def build():
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("bet", "settle", "claim", "void", "book", "quote", "back", "bclaim", "bsweep", "claimable_of")}
     return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can): a race neither settled nor voided — its genes and run
+    are old-chain block hashes and its stakes are in the pot. Settle it (or void it past the window) on the old chain.
+    A settled or voided race is at rest: claim() reads only stakes and the result."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    return [f"race {r} is not settled" for r in _lib.carry_ids(slots, 0, RLIST) if g(RA, r) and not g(SD, r) and not g(VD, r)]
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood: only the daily
+    board's unresolved anchors move (_lib.rebase_daily_anchors); everything else is at rest once carry_in_flight is []."""
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    out = dict(storage or {})
+    out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
+    return out

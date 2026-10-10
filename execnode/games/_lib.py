@@ -69,6 +69,37 @@ def guard_ids(src, plan):
     return out
 
 
+CARRY_PIN_FLOOR = 2          # the first new-chain block (or beacon epoch) a re-pinned roll may read
+
+
+def carry_ids(slots: dict, cnt_slot: int, lst: int) -> list:
+    """The ids a contract's own index lists (count at raw slot `cnt_slot`, ids at field `lst`, 0-indexed) — the only safe
+    way for a reroll hook to reach (field, id) slots: hashed keys are field elements whose high bits can fall in any
+    field's range, so decoding a key's field from its value is never trusted."""
+    return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+
+
+def rebase_daily_anchors(slots: dict, tip: int, a_h: int, a_v: int, dcnt_slot: int, dlist: int) -> dict:
+    """The daily-board anchors (daily_anchor) on a new chain whose block 0 stands where `tip` stood: a day whose anchor
+    is PINNED but not yet resolved (a_v == 0) re-pins to a new-chain block >= CARRY_PIN_FLOOR, unknown when the carry
+    is built, so no caller can have steered it. A resolved day keeps its stored hash VALUE — clients and verifiers
+    read the value, never the old chain. Mutates and returns `slots` (str keys)."""
+    for day in carry_ids(slots, dcnt_slot, dlist):
+        h = int(slots.get(str((a_h << 32) + day), 0))
+        if h and not int(slots.get(str((a_v << 32) + day), 0)):
+            slots[str((a_h << 32) + day)] = str(max(CARRY_PIN_FLOOR, h - int(tip)))
+    return slots
+
+
+def pvp_games_in_flight(storage: dict, nn: int = 1, sd: int = 6, lst: int = 10) -> list:
+    """Game ids of a PvP board game (the tictactoe skeleton: connect4, reversi, chess) that are OPEN — created and not
+    settled. Their moves race an old-chain deadline, so the reroll carry refuses them; finish, resign or abort them on
+    the old chain first. Index: slot 0 count, field `lst` ids."""
+    slots = (storage or {}).get("slots") or {}
+    return [g for g in carry_ids(slots, 0, lst)
+            if int(slots.get(str((nn << 32) + g), 0)) and not int(slots.get(str((sd << 32) + g), 0))]
+
+
 def banked_tables_in_flight(storage: dict, tlist: int) -> list:
     """Table ids of a banked game (slots, dice, roulette, mines, blackjack) that still carry OPEN BETS — a non-zero
     committed liability `tc`, the same test close_table() uses to refuse. Read through the game's own table index
