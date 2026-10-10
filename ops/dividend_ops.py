@@ -21,33 +21,36 @@ _CARRIED = [None]
 
 
 def carried_identities() -> dict:
-    """{address: carried fidelity} for the identities THIS generation's carry named as present — read once from the same
-    files genesis built this chain from (genesis_data/genesis_carry.dat "present", only when it names this generation;
-    the allocation from private/ first, else the repo copy, exactly as genesis.py resolves it). Static for the life of a
-    chain, identical on every node that built the same genesis. {} on a chain without a carry."""
+    """{address: carried fidelity} for the identities THIS generation's carry named as present — read once from the
+    REPOSITORY's genesis_data/genesis_carry.dat ("present", only when it names this generation) and
+    genesis_data/genesis_alloc.dat. Static for the life of a chain. {} on a chain without a carry (no carry file, or
+    one for another generation).
+
+    The result reaches committed epoch weights (epochw, in the state root), so it must be the same on every node:
+    INVARIANT: only tracked repository files are read — never a node-local private/ copy — and a carry file that cannot
+    be parsed RAISES instead of being remembered as "no carry" (which would split this node's roots from the fleet's).
+    tests/test_dividend_carried_identities.py pins both files' sha256 for the live generation, so an edit mid-generation
+    fails before it ships. NADO_GENESIS_CARRY / NADO_GENESIS_ALLOC override the paths for tests only."""
     if _CARRIED[0] is not None:
         return _CARRIED[0]
     import json, os
     from protocol import CHAIN_GENERATION
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    carry_path = os.environ.get("NADO_GENESIS_CARRY") or os.path.join(here, "genesis_data", "genesis_carry.dat")
+    if not os.path.exists(carry_path):
+        _CARRIED[0] = {}
+        return _CARRIED[0]
+    with open(carry_path) as f:
+        carry = json.load(f)
     out = {}
-    try:
-        carry_path = os.environ.get("NADO_GENESIS_CARRY") or os.path.join(here, "genesis_data", "genesis_carry.dat")
-        with open(carry_path) as f:
-            carry = json.load(f)
-        if int(carry.get("generation", -1)) == int(CHAIN_GENERATION):
-            present = set(carry.get("present") or [])
-            from ops.data_ops import get_home
-            alloc_path = f"{get_home()}/private/genesis_alloc.dat"
-            if not os.path.exists(alloc_path):
-                alloc_path = os.path.join(here, "genesis_data", "genesis_alloc.dat")
-            fid = {}
-            if os.path.exists(alloc_path):
-                with open(alloc_path) as f:
-                    fid = {e["address"]: int(e.get("fidelity") or 0) for e in json.load(f) if isinstance(e, dict)}
-            out = {a: fid.get(a, 0) for a in present}
-    except (OSError, ValueError, TypeError):
-        out = {}
+    if int(carry.get("generation", -1)) == int(CHAIN_GENERATION):
+        present = set(carry.get("present") or [])
+        alloc_path = os.environ.get("NADO_GENESIS_ALLOC") or os.path.join(here, "genesis_data", "genesis_alloc.dat")
+        fid = {}
+        if os.path.exists(alloc_path):
+            with open(alloc_path) as f:
+                fid = {e["address"]: int(e.get("fidelity") or 0) for e in json.load(f) if isinstance(e, dict)}
+        out = {a: fid.get(a, 0) for a in present}
     _CARRIED[0] = out
     return out
 

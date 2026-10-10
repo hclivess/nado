@@ -30,8 +30,10 @@ SEED, CARRIED, VETERAN, FRESH = "5" * 46, "6" * 46, "7" * 46, "8" * 46
 carry_file = os.path.join(os.environ["HOME"], "carry.json")
 json.dump({"generation": P.CHAIN_GENERATION, "present": [CARRIED, VETERAN]}, open(carry_file, "w"))
 os.environ["NADO_GENESIS_CARRY"] = carry_file
+alloc_file = os.path.join(os.environ["HOME"], "alloc.json")
 json.dump([{"address": CARRIED, "fidelity": 15, "balance": 0}, {"address": VETERAN, "fidelity": 12, "balance": 0}],
-          open(os.path.join(os.environ["HOME"], "nado", "private", "genesis_alloc.dat"), "w"))
+          open(alloc_file, "w"))
+os.environ["NADO_GENESIS_ALLOC"] = alloc_file
 from ops import kv_ops
 kv_ops.close_all(); kv_ops.init_env()
 from ops import dividend_ops as D
@@ -69,6 +71,27 @@ check("a carried veteran who renewed replays to the live apply's fidelity, not a
 check("...and weighs accordingly", after.get(VETERAN) == P.dividend_weight(live, E), after.get(VETERAN))
 check("a fresh identity is unaffected", after.get(FRESH) == P.dividend_weight(P.fidelity_step(0, False, R + 1, R), E),
       after.get(FRESH))
+
+# THE CARRY IS READ FROM THE REPOSITORY ONLY, AND IS FROZEN FOR THE GENERATION. carried_identities feeds committed epoch
+# weights (state root): a node-local private/ copy, or an edit to the tracked files mid-generation, would split roots
+# along the update wave. These are the files betanet-9 (gen 28) was built from; a reroll updates the pins.
+import hashlib
+_pins = {28: {"genesis_carry.dat": "dcdd7e6c4aa049c9c064a7b15587cf91b02376938a39cbf221452270c49ec9bd",
+              "genesis_alloc.dat": "9c5ec251f0b5939cecd880574cd1301412d3c30766b3f7fda0f1c20ced9f0e16"}}
+if P.CHAIN_GENERATION in _pins:
+    for _name, _want in _pins[P.CHAIN_GENERATION].items():
+        _got = hashlib.sha256(open(os.path.join(ROOT, "genesis_data", _name), "rb").read()).hexdigest()
+        check(f"genesis_data/{_name} is the file generation {P.CHAIN_GENERATION} was built from", _got == _want, _got)
+_src = open(os.path.join(ROOT, "ops", "dividend_ops.py")).read()
+_fn = _src[_src.index("def carried_identities("):_src.index("def fidelity_at_epoch(")]
+check("carried_identities never reads a node-local private/ file", "private" not in _fn.split('"""', 2)[2], "")
+_bad = os.path.join(os.environ["HOME"], "bad.json"); open(_bad, "w").write("{not json")
+os.environ["NADO_GENESIS_CARRY"] = _bad; D._CARRIED[0] = None
+try:
+    D.carried_identities(); _raised = False
+except ValueError:
+    _raised = True
+check("a carry file that cannot be parsed raises (never remembered as 'no carry')", _raised and D._CARRIED[0] is None)
 
 kv_ops.close_all()
 print("ALL PASS — carried identities earn at their carried fidelity" if not fails else f"{fails} FAILURES")
