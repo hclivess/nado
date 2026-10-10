@@ -141,6 +141,12 @@ prove these hashes in-circuit, so we choose between:
 - Emulating Goldilocks alghash2 inside M31: 64-bit modular arithmetic built from 31-bit limbs. Expensive, and it keeps
   the parameters we chose ourselves.
 
+**Addresses do not change.** An L1 address is a blake2b hash of the whole public key (format 2, `ops/address_ops`),
+outside every proof. What changes is how a CONTRACT stores one: an owner/banker/bettor is `blake2b("zkvmaddr", addr)
+mod P`, one 64-bit Goldilocks element (`execnode/runtimes.zkvm_addr_digest`), which no longer fits a 31-bit M31
+element. The Stwo carry therefore re-encodes owner fields inside contract storage (a mechanical pass through the same
+index walk the carry hooks use); users keep the same address, keys, pets and balances.
+
 So the reroll re-hashes all public state (the carry does this, section 6). Shielded notes cannot be re-hashed, because
 only their owners hold the openings; section 6.4 deals with that.
 
