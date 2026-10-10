@@ -73,7 +73,6 @@ test_state_merge                             needs the Rust kernels (native/, wa
 test_state_transition                        needs the Rust kernels (native/, wasm/goldilocks)
 test_state_transition_batched                needs the Rust kernels (native/, wasm/goldilocks)
 test_assets                                  proves in Python kernels: over 5 minutes
-test_every_opcode_is_provable                proves in Python kernels: over 5 minutes
 test_exec_commit_periodic                    proves in Python kernels: over 5 minutes
 test_fold_hardening                          proves in Python kernels: over 5 minutes
 test_fri_verify                              proves in Python kernels: over 5 minutes
