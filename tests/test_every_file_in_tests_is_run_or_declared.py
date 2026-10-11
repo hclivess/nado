@@ -31,6 +31,8 @@ DECLARED = {
     # ---- libraries: imported or spawned by a test
     "__init__.py": ("library", "package marker: lets tests import each other's helpers"),
     "_stwo_js_build.py": ("library", "builds native/stwo_js (stable verifier, nightly test prover) outside the checkout for the test_stwo_js_* tests"),
+    "_stwo_zk_probe.rs": ("library", "the witness-leak probe test_a_stwo_proof_reveals_nothing_about_its_witness builds into a temp copy of native/stwo_js"),
+    "stwo_js_attack": ("data", "a directory: the forging harness test_stwo_js_every_post_proof_mutation_and_cheat_is_refused builds into a temp copy of native/stwo_js"),
     "_attest_fixtures.py": ("library", "device-attestation fixtures for the test_device_attest_* tests"),
     "autogame_action_matrix.py": ("library", "the action matrix test_autogame_contract_matches_the_reference_model drives"),
     "autogame_engine_verify.mjs": ("library", "the browser-engine leg of test_autogame_contract_matches_the_reference_model"),
