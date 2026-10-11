@@ -1855,6 +1855,9 @@ def field_shield_check(data, block_height):
     from protocol import WIDE_DEPOSIT_CLOSE_HEIGHT as _WCLOSE
     # WIDE_DEPOSIT_CLOSE_HEIGHT: no new wide note, so the Stwo gate can never freeze one (protocol.py). INVARIANT: this
     # sits AFTER the Stwo branch — from STWO_POOL_HEIGHT a deposit is a Stwo one and is judged above.
+    # It is ALSO what refuses a deposit tagged `pool: "stwo"` below the Stwo gate (review 2026-10-11): the wide branch
+    # ignores the tag and the exec layer would make a wide note under a BLAKE2s owner nobody can spend. That needs the
+    # Stwo gate at or above this close; tests/test_a_deposit_tagged_for_the_stwo_pool_is_refused_below_its_gate pins it.
     assert _sh < _WCLOSE, "the wide shielded pool takes no new deposits (WIDE_DEPOSIT_CLOSE_HEIGHT)"
     if _sh >= 1:
         # THE WIDE POOL (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,

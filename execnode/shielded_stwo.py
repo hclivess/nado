@@ -21,7 +21,14 @@ import re
 import struct
 
 DEPTH = 48
+# ANCHORS (review 2026-10-11, integration): a spend may name the root after any of the last ANCHOR_WINDOW appends, OR the
+# root a block CLOSED on, for every block that appended within the last ANCHOR_BLOCKS blocks. The block-closing roots are
+# the ones that matter: a wallet proves against the FINALIZED pool, so its root is a block-closing root ~finality_depth
+# old before proving even starts. A window counted only in APPENDS was flushed by 128 one-raw deposits (~1.3e-5 NADO,
+# blocks have no tx-count cap), failing every spend in flight; no count-based window survives that, so the bound is in
+# blocks. 1024 blocks is ~2 h at 6.8 s: finality (45) + proving + DA + TX_INCLUSION_DELAY with a wide margin.
 ANCHOR_WINDOW = 128
+ANCHOR_BLOCKS = 1024
 DOM_OWNER, DOM_CM, DOM_NF = 21, 22, 23
 _MASK64 = (1 << 64) - 1
 _DIGEST_RE = re.compile(r"[0-9a-f]{64}")
@@ -132,37 +139,92 @@ def tree_path(leaves, pos):
 
 
 class StwoShieldedPool:
-    """Commitments (append-only), the nullifier set and a window of recent roots a spend may anchor to."""
+    """Commitments (append-only), the nullifier set, and the roots a spend may anchor to (ANCHORS above).
 
-    def __init__(self, commitments=None, nullifiers=None):
-        self.commitments, self.nullifiers = [], set()
+    `marks` are [height, note count] for each recent block that appended: the count the block closed on. They are state
+    (snapshot + exec root, `marks_digest`) because they are not derivable from the commitments; every mark names a real
+    prefix of the committed leaves, so a root they admit is always the root of real notes."""
+
+    def __init__(self, commitments=None, nullifiers=None, marks=None):
+        cms = list(commitments or [])
+        for cm in cms:
+            if not is_digest(cm):
+                raise ValueError("a commitment is 64 lowercase hex")
+        if len(set(cms)) != len(cms):
+            raise ValueError("duplicate commitment in the pool")
+        marks = [[int(h), int(n)] for h, n in (marks or [])]
+        for a, b in zip(marks, marks[1:]):
+            if not (a[0] < b[0] and a[1] < b[1]):
+                raise ValueError("pool marks must rise in height and in note count")
+        if marks and not (1 <= marks[0][1] and marks[-1][1] <= len(cms)):
+            raise ValueError("a pool mark names a note count the pool does not hold")
+        self.nullifiers = {str(nf) for nf in (nullifiers or [])}
+        self.commitments, self._cms, self.marks = cms, set(cms), marks
+        # REBUILT THROUGH THE FRONTIER, ONCE (review 2026-10-11): O(n) node hashes + a root per kept anchor. Appending
+        # through append() cost a 48-hash root PER NOTE on every _restore, i.e. every clone of the provisional view —
+        # 17 s at 20,000 notes. The anchors are the same list append() keeps (tests pin the equality).
         self._f = _Frontier()
-        self.anchors = [EMPTY_ROOT]
-        for cm in commitments or []:
-            self.append(cm)
-        for nf in nullifiers or []:
-            self.nullifiers.add(str(nf))
+        n, want = len(cms), {c for _, c in marks}
+        first = n + 1 - ANCHOR_WINDOW                    # the oldest prefix length the append window keeps
+        self.anchors = [EMPTY_ROOT] if first <= 0 else []
+        self._mark_roots = {}
+        for k, cm in enumerate(cms, 1):
+            self._f.append(cm)
+            if k >= first or k in want:
+                r = self._f.root()
+                if k >= first:
+                    self.anchors.append(r)
+                if k in want:
+                    self._mark_roots[k] = r
+        self._root = self._f.root() if n else EMPTY_ROOT
 
     def root(self):
-        return self._f.root()
+        return self._root
 
     def room_for(self, k):
         """Whether `k` more commitments fit (the depth-48 tree's capacity) — checked BEFORE a mutation starts."""
         return self._f.n + int(k) <= (1 << DEPTH)
 
-    def append(self, cm):
-        # canonical only (is_digest): a commitment has one spelling, so duplicate checks over the list are exact
+    def has_commitment(self, cm):
+        return cm in self._cms                           # a set: the list scan was O(n) per deposit and per spend
+
+    def append(self, cm, height=None):
+        """Append one commitment. `height` is the block applying it (ExecState.applying_height()); every consensus
+        caller passes it — only tooling and tests building a bare tree omit it, and such a pool has no block marks."""
+        # canonical only (is_digest): a commitment has one spelling, so duplicate checks are exact
         if not is_digest(cm):
             raise ValueError("a commitment is 64 lowercase hex")
         if not self.room_for(1):
             raise ValueError("the pool is full")
         self.commitments.append(cm)
+        self._cms.add(cm)
         self._f.append(cm)
-        self.anchors.append(self.root())
+        self._root = r = self._f.root()
+        self.anchors.append(r)
         del self.anchors[:-ANCHOR_WINDOW]
+        if height is not None:
+            h, n = int(height), len(self.commitments)
+            if self.marks and self.marks[-1][0] == h:
+                self._mark_roots.pop(self.marks[-1][1], None)
+                self.marks[-1][1] = n
+            elif self.marks and self.marks[-1][0] > h:
+                raise ValueError("a pool append below the last block that appended")
+            else:
+                self.marks.append([h, n])
+            self._mark_roots[n] = r
+            # Pruning is a pure function of the append history (it runs only here), so every node holds the same marks;
+            # knows_root filters by age anyway, so a mark kept a little past its window is never accepted.
+            while self.marks and self.marks[0][0] < h - ANCHOR_BLOCKS:
+                self._mark_roots.pop(self.marks.pop(0)[1], None)
 
-    def knows_root(self, root):
-        return str(root).lower() in self.anchors
+    def knows_root(self, root, height=None):
+        """Whether a spend applied at block `height` may anchor to `root`: the append window, or a block-closing root
+        no older than ANCHOR_BLOCKS. height=None (tooling) accepts any kept mark."""
+        root = str(root)
+        if root in self.anchors:
+            return True
+        lo = None if height is None else int(height) - ANCHOR_BLOCKS
+        return any(self._mark_roots.get(c) == root for h, c in self.marks if lo is None or h >= lo)
 
     def has_nullifier(self, nf):
         return str(nf).lower() in self.nullifiers
@@ -178,9 +240,16 @@ class StwoShieldedPool:
         """One digest of the spent set, order-independent (sorted) — what the exec root's record carries."""
         return hashlib.blake2b(("stwo_nfset|" + "|".join(sorted(self.nullifiers))).encode(), digest_size=32).hexdigest()
 
+    def marks_digest(self):
+        """The block marks as the exec root carries them: they decide which anchors a spend may name, so a node that
+        adopted a snapshot with different marks would accept a different set of spends — the root must show it."""
+        return hashlib.blake2b(("stwo_marks|" + "|".join(f"{h}:{n}" for h, n in self.marks)).encode(),
+                               digest_size=32).hexdigest()
+
     def to_dict(self):
-        return {"commitments": list(self.commitments), "nullifiers": sorted(self.nullifiers)}
+        return {"commitments": list(self.commitments), "nullifiers": sorted(self.nullifiers),
+                **({"marks": [list(m) for m in self.marks]} if self.marks else {})}
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d.get("commitments") or [], d.get("nullifiers") or [])
+        return cls(d.get("commitments") or [], d.get("nullifiers") or [], d.get("marks") or [])

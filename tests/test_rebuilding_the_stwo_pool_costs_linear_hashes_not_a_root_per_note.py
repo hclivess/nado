@@ -1,7 +1,7 @@
 """Loading the Stwo pool from a snapshot costs O(1) tree hashes per note, not a full root per note
 (execnode/shielded_stwo.py StwoShieldedPool.__init__/from_dict, reached by ExecState._restore and ExecState.clone).
 
-REVIEW 2026-10-11 (integration, reproduced, NOT FIXED). StwoShieldedPool rebuilds its tree by calling append() for
+REVIEW 2026-10-11 (integration, reproduced; FIXED: StwoShieldedPool.__init__ walks the frontier once). StwoShieldedPool rebuilds its tree by calling append() for
 every stored commitment, and append() computes root() — DEPTH (48) BLAKE2s node hashes — to remember an anchor, so a
 pool of n notes costs ~49 n node hashes to load. Measured here: ~850 us per note in CPython, 17 s for 20,000 notes.
 That load runs on every ExecState._restore, and clone() is a _restore: the exec node clones its states for the
@@ -37,8 +37,8 @@ def check(name, ok, detail=""):
 N = 1000
 cms = [hashlib.blake2s(b"note%d" % i).hexdigest() for i in range(N)]
 live = SP.StwoShieldedPool()
-for c in cms:
-    live.append(c)
+for i, c in enumerate(cms):
+    live.append(c, 5000 + i // 3)              # block marks too: 3 notes per block
 
 count = [0]
 _orig = SP.node
@@ -50,13 +50,14 @@ def _counting(a, b):
 
 
 SP.node = _counting
-BOUND = 2 * N + 2 * SP.ANCHOR_WINDOW * SP.DEPTH
+BOUND = 2 * N + 2 * (SP.ANCHOR_WINDOW + len(live.marks)) * SP.DEPTH
 count[0] = 0
 p = SP.StwoShieldedPool.from_dict(live.to_dict())
 n_load = count[0]
 SP.node = _orig
 check("the rebuilt pool is the live pool: root, and the anchor window a spend may name",
-      p.root() == live.root() and p.anchors == live.anchors)
+      p.root() == live.root() and p.anchors == live.anchors and p.marks == live.marks
+      and all(p.knows_root(live._mark_roots[c], 5400) for _, c in live.marks))
 SP.node = _counting
 check(f"loading {N} notes hashes at most {BOUND} tree nodes (linear), not a 48-hash root per note",
       n_load <= BOUND, f"{n_load} node hashes ({n_load / N:.1f} per note)")
@@ -70,5 +71,7 @@ n_clone = count[0]
 SP.node = _orig
 check(f"ExecState.clone (every provisional poll) of a {N}-note pool is linear too",
       n_clone <= BOUND, f"{n_clone} node hashes ({n_clone / N:.1f} per note)")
+p.append(hashlib.blake2s(b"x").hexdigest(), 6000)
+check("a duplicate check is a set lookup, not a list scan", p.has_commitment(cms[0]) and not p.has_commitment("00" * 32))
 print("ALL PASS — the Stwo pool loads in linear time" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

@@ -190,6 +190,10 @@ def records_projection(st):
     if sp is not None and (sp.commitments or sp.nullifiers):
         out[record_key(T_DIGEST, "stwo_root", sp.root())] = 1
         out[record_key(T_DIGEST, "stwo_nfset", sp.nullifier_digest())] = 1
+        # the block marks decide which anchors a spend may name (shielded_stwo ANCHORS): a snapshot with other marks
+        # accepts other spends, so they are in the root with the tree and the spent set (empty is absent, as above)
+        if sp.marks:
+            out[record_key(T_DIGEST, "stwo_marks", sp.marks_digest())] = 1
     # SHIELDED CONTRACTS: one record per contract that holds private state, plus one for the spent set.
     # getattr, because an exec state built before this feature simply has no pool and must project to the
     # same root it always did — an absent attribute is not an empty pool, it is "this half is unchanged".

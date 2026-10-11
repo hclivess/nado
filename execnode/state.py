@@ -1318,11 +1318,11 @@ class ExecState:
         except Exception as e:
             return f"skip field-shield: bad Stwo note ({e})"
         with self._mutate_lock:
-            if cm in self.stwo_pool.commitments:
+            if self.stwo_pool.has_commitment(cm):
                 return "skip field-shield: duplicate note commitment"
             if not self.stwo_pool.room_for(1):
                 return "skip field-shield: the pool is full"
-            self.stwo_pool.append(cm)
+            self.stwo_pool.append(cm, self.applying_height())
             self.pool_value += int(amount)
             self._touch()
         return f"field-shield {amount} -> stwo note #{len(self.stwo_pool.commitments)}"
@@ -1370,11 +1370,11 @@ class ExecState:
         if not (0 <= unshield <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
             return "skip field-transfer: unshield/fee out of range"
         with self._mutate_lock:
-            if not self.stwo_pool.knows_root(root):
+            if not self.stwo_pool.knows_root(root, self.applying_height()):
                 return "skip field-transfer: unknown anchor root"
             if self.stwo_pool.has_nullifier(nf):
                 return "skip field-transfer: nullifier already spent (double-spend)"
-            if cm1 == cm2 or cm1 in self.stwo_pool.commitments or cm2 in self.stwo_pool.commitments:
+            if cm1 == cm2 or self.stwo_pool.has_commitment(cm1) or self.stwo_pool.has_commitment(cm2):
                 return "skip field-transfer: duplicate note commitment"
             if not self.stwo_pool.room_for(2):
                 return "skip field-transfer: the pool is full"
@@ -1385,7 +1385,7 @@ class ExecState:
             # ---- the mutation: nothing below can raise (every input checked above) ----
             self.stwo_pool.spend(nf)
             for c in (cm1, cm2):
-                self.stwo_pool.append(c)
+                self.stwo_pool.append(c, self.applying_height())
             self.pool_value -= unshield + fee
             self.pool_fees += fee
             if unshield:
