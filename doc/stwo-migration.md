@@ -180,7 +180,7 @@ the wallet phase waits.
 
 ### 5.1 Shielded join-split on Stwo (first, while the pool is empty) — design
 
-**Phase 0 result (2026-10-11, scratchpad/stwo0/RESULTS.md).** One join-split at depth 48: today's wallet prover takes
+**Phase 0 result (2026-10-11, doc/stwo/phase0-results.md).** One join-split at depth 48: today's wallet prover takes
 266 s and 3.5 GB in desktop Chrome and CRASHES a phone-class tab (4x CPU throttle) at both a 1 GiB and a 2 GiB heap.
 A Stwo prototype of the same relation, made zero-knowledge (below), proves in 3.4-8.8 s with 218 MiB under the same
 proxy (0.7-0.9 s native), verifies in 20 ms native, and its proof is 1.5 MB (36 MB today).
@@ -237,13 +237,13 @@ same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, 
 **Toolchains (measured 2026-10-11).** Stwo pins `nightly-2026-01-15`, and fleet nodes build native crates on whatever
 stable cargo they have, without our root. The split that works: the WALLET prover (WASM) is built here, on nightly, and
 shipped as a file; the NODE verifier is Stwo with `default-features = false, features = ["std"]` (no `prover`), which
-builds on stable rustc 1.95 (72 s, scratchpad/stwo0/stable_verify). Still to check before coding: that the ZK verify
+builds on stable rustc 1.95 (72 s, measured 2026-10-11). Still to check before coding: that the ZK verify
 tail (stwo_zk `verify_js`) also builds on stable, and the OLDEST rustc on the fleet (Stwo's edition needs a recent
 compiler; nodes do not report theirs — add it to /status first, and refuse loudly in `_build_crates` if too old,
 never fail-stop the exec node).
 
 **Gates on value.** Deposits into the new pool are refused until the zero-knowledge argument is written and reviewed
-(scratchpad/stwo0/zkproof/ARGUMENT.md is the draft; an outside review is the step that cannot be done here). No deposit
+(doc/stwo/zk-argument.md is the draft; an outside review is the step that cannot be done here). No deposit
 cap: the operator's decision (2026-10-11).
 
 **Tests (each in the same commit as its code).**
