@@ -1,0 +1,4 @@
+target/
+# cargo writes Cargo.lock on every build; the tracked copy is Cargo.lock.pinned (ops/self_update._build_crates
+# copies it in), as for native/attest.
+Cargo.lock
