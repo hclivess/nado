@@ -153,8 +153,13 @@ again. Every carried slot is an int (a string slot is a KVX record in the root, 
 genesis root). Refunded to whoever funded them: open invites and HTLCs. **A contract with something in flight refuses
 the carry** (since 2026-10-11): the carry names each blocker — "table N has open bets", "race N is not settled", "run N
 has a leg in flight", "game N is open", and for pets every roll whose outcome is already visible at the tip ("hatch(N)",
-"train_resolve(N)", "collect(N)", ... — all permissionless) — settle, void, advance or resolve them on the old chain and
-run the carry again. `--allow-blockers` accepts the old fallback deliberately: that contract resets and its pot is
+"train_resolve(N)", "collect(N)", ... — all permissionless), and for autogame "run N is in the mists" (a live run
+whose terrain aged past HORIZON at the tip: `advance(N)`, permissionless, concludes it) — settle, void, advance or
+resolve them on the old chain and run the carry again. **One documented exception** (operator decision 2026-10-11): a
+parked autogame run whose next terrain is already visible at the tip is still carried, its sixteen UNANSWERED tiles
+redrawn once from a new-chain block. A parked run always sits on a visible terrain and only its owner can commit, so a
+blocker would make autogame uncarryable whenever anyone has a run (and a reset loses every run); nothing committed is
+redrawn, and a run the mists ended is never rescued (autogame.carry_rebase). `--allow-blockers` accepts the old fallback deliberately: that contract resets and its pot is
 refunded by attribution (for the digest-slot banked games, to the deployer of record: the MANUAL REFUND lines).
 **Refused** (the carry will not run): notes in any shielded pool (`shielded`, `field_pool`, `wide_pool`, `stwo_pool`,
 `app_state`, or any `pool_value`) — a carried wide pool would sit at depth 48 where the exec layer insists on 12 at

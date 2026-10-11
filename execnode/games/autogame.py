@@ -1450,23 +1450,48 @@ def _run_live(slots, rid):
     return g(RAV) != 0 and not g(RDN) and not g(RRT) and not g(RMI)
 
 
-def carry_in_flight(storage):
-    """Why this contract cannot cross a reroll yet ([] = it can): a LIVE run whose dice are scheduled (RNH != 0). Its
-    sixteen committed answers were chosen against old-chain terrain, so it cannot be re-pinned fairly; advance it on
-    the old chain (permissionless) until it parks."""
+def carry_in_flight(storage, tip=None):
+    """Why this contract cannot cross a reroll yet ([] = it can):
+      * a LIVE run whose dice are scheduled (RNH != 0) — its sixteen committed answers were chosen against old-chain
+        terrain, so it cannot be re-pinned fairly; advance it on the old chain (permissionless) until it parks;
+      * (given the old `tip`) a live run already IN THE MISTS at the tip (tip - lh >= HORIZON): the rules have ended it,
+        and a re-pin would hand it a fresh terrain instead (review 2026-10-11). advance() concludes it, and anyone may
+        call it, so nobody can hold the carry hostage with one."""
     slots = (storage or {}).get("slots") or {}
-    return [f"run {rid} has a leg in flight" for rid in _carry_ids(slots, 0, RLIST)
-            if _run_live(slots, rid) and int(slots.get(str((RNH << 32) + rid), 0))]
+    out = []
+    for rid in _carry_ids(slots, 0, RLIST):
+        if not _run_live(slots, rid):
+            continue
+        if int(slots.get(str((RNH << 32) + rid), 0)):
+            out.append(f"run {rid} has a leg in flight")
+        elif tip is not None:
+            lh = int(slots.get(str((RLH << 32) + rid), 0))
+            if lh and int(tip) - lh >= HORIZON:
+                out.append(f"run {rid} is in the mists - advance({rid}) concludes it (permissionless)")
+    return out
 
 
 def carry_rebase(storage, tip):
     """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood. A parked live run's
-    next terrain (RLH, read as BHASH(lh)) is re-pinned to a new-chain block >= CARRY_PIN_FLOOR — unknown when the carry is
-    built, and the run has committed no answers to it — and its dial fences (POLH, POLPH) shift by `tip`, so dials set
-    before the reroll still predate every new leg. An unresolved day anchor (A_V == 0) is re-pinned the same way.
-    Finished runs and resolved days are history and stay as they are. INVARIANT: only (field, id) slots reached
-    through the contract's own indexes are touched (runs: count slot 0 / RLIST; days: DCNT_SLOT / DLIST)."""
+    next terrain (RLH, read as BHASH(lh)) is re-pinned to a new-chain block >= CARRY_PIN_FLOOR, and its dial fences
+    (POLH, POLPH) shift by `tip`, so dials set before the reroll still predate every new leg. An unresolved day anchor
+    (A_V == 0) is re-pinned the same way. Finished runs and resolved days are history and stay as they are.
+
+    DOCUMENTED EXCEPTION (operator decision 2026-10-11; doc/reroll.md "What crosses a reroll"): a terrain ALREADY
+    VISIBLE at the tip (lh <= tip) is re-pinned although its owner may have seen it — a one-time redraw of the sixteen
+    tiles the run has not answered. Every other carry hook refuses to re-roll a visible outcome; this one cannot: a
+    parked run ALWAYS sits on a visible terrain (each leg ends parked on the next) and only its owner can commit, so a
+    blocker would make autogame uncarryable whenever anyone has a run, and a reset loses every run. What stays closed:
+    nothing COMMITTED is re-rolled (a run with dice scheduled blocks the carry) and a run the mists already ended blocks
+    it too (carry_in_flight) — the redraw never rescues a run the rules concluded.
+    INVARIANT: every value written is an INT — exec_root.kv_projection commits only int-valued slots at their slot
+    positions, while the settle proof's sparse_projection int()s every slot (review 2026-10-11). Only (field, id) slots
+    reached through the contract's own indexes are touched (runs: count slot 0 / RLIST; days: DCNT_SLOT / DLIST)."""
     tip = int(tip)
+    blocked = carry_in_flight(storage, tip)
+    if blocked:
+        # carry_policy never rebases a blocked contract; refusing here keeps a direct caller from rescuing one
+        raise ValueError("autogame carry_rebase: resolve these on the old chain first: " + "; ".join(blocked))
     slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
 
     def get(f, k):
@@ -1475,7 +1500,7 @@ def carry_rebase(storage, tip):
     def put(f, k, v):
         key = str((f << 32) + k)
         if key in slots or v:
-            slots[key] = str(int(v))
+            slots[key] = int(v)
 
     for rid in _carry_ids(slots, 0, RLIST):
         if _run_live(slots, rid):

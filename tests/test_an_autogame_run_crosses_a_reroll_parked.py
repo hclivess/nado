@@ -98,5 +98,48 @@ check("4. a finished run is left exactly as it was",
       all(gen[cid]["storage"]["slots"].get(str((f << 32) + 8)) == raw["storage"]["slots"].get(str((f << 32) + 8))
           for f in range(1, 30)))
 
+
+# ── review 2026-10-11: the rebase writes ints; the mists block; the visible-terrain redraw is the documented exception ──
+bad = [(k, v) for k, v in gen[cid]["storage"]["slots"].items() if type(v) is not int]
+check("5. every slot the rebase writes is an int (a string slot would be a KVX record, not a provable slot leaf)",
+      bad == [] and all(type(v) is int for v in G.carry_rebase(raw["storage"], TIP)["slots"].values()), bad[:5])
+
+from execnode.games import _lib as _L
+_day_slots = {str(G.DCNT_SLOT): 1, str((G.DLIST << 32) + 0): 20000, str((G.A_H << 32) + 20000): TIP + 1}
+_L.rebase_daily_anchors(_day_slots, TIP, G.A_H, G.A_V, G.DCNT_SLOT, G.DLIST)
+check("...and so does the shared daily-anchor re-pin", _day_slots[str((G.A_H << 32) + 20000)] == G.CARRY_PIN_FLOOR
+      and type(_day_slots[str((G.A_H << 32) + 20000)]) is int, _day_slots)
+
+lh7 = rd(old, G.RLH, 7)
+vis_tip = lh7 + 5                                                 # the parked run's terrain is mined and visible
+st_vis = json.loads(json.dumps(old.contracts[cid]["storage"]))
+reb = G.carry_rebase(st_vis, vis_tip)
+check("6. DOCUMENTED EXCEPTION: a parked run on a VISIBLE terrain still carries, its unanswered terrain redrawn once",
+      G.carry_in_flight(st_vis, tip=vis_tip) == []
+      and G.CARRY_PIN_FLOOR <= int(reb["slots"][str((G.RLH << 32) + 7)]) <= 10, int(reb["slots"][str((G.RLH << 32) + 7)]))
+
+call(old, cid, B, "begin", [9])                                   # a second live run, parked on its first terrain
+mist_tip = max(lh7, rd(old, G.RLH, 9)) + G.HORIZON               # both terrains have aged past the horizon
+why = G.carry_in_flight(old.contracts[cid]["storage"], tip=mist_tip)
+check("7. a live run already in the mists at the tip blocks the carry, naming advance(rid)",
+      any("advance(7)" in w for w in why) and any("advance(9)" in w for w in why), why)
+C.CARRY_BLOCKERS.clear()
+check("...so the contract would reset and the carry refuses (refuse_blockers)",
+      C.carry_policy(cid, old.contracts[cid], tip=mist_tip) == "reset" and C.CARRY_BLOCKERS.get(cid) == why, C.CARRY_BLOCKERS)
+try:
+    G.carry_rebase(json.loads(json.dumps(old.contracts[cid]["storage"])), mist_tip)
+    raised = False
+except ValueError:
+    raised = True
+check("...and carry_rebase refuses to rescue a run the mists ended", raised)
+X = "ndoX" + "x" * 44
+old.cursor = mist_tip
+r7, r9 = call(old, cid, X, "advance", [7]), call(old, cid, X, "advance", [9])
+check("8. anyone concludes them on the old chain (advance is permissionless) ...",
+      rd(old, G.RMI, 7) == 1 and rd(old, G.RMI, 9) == 1, (r7, r9))
+C.CARRY_BLOCKERS.clear()
+check("...and the contract then carries, the concluded runs left as history",
+      G.carry_in_flight(old.contracts[cid]["storage"], tip=mist_tip) == []
+      and C.carry_policy(cid, old.contracts[cid], tip=mist_tip) == "keep")
 print("ALL PASS — an Autogame run crosses a reroll parked" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

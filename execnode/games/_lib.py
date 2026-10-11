@@ -83,11 +83,14 @@ def rebase_daily_anchors(slots: dict, tip: int, a_h: int, a_v: int, dcnt_slot: i
     """The daily-board anchors (daily_anchor) on a new chain whose block 0 stands where `tip` stood: a day whose anchor
     is PINNED but not yet resolved (a_v == 0) re-pins to a new-chain block >= CARRY_PIN_FLOOR, unknown when the carry
     is built, so no caller can have steered it. A resolved day keeps its stored hash VALUE — clients and verifiers
-    read the value, never the old chain. Mutates and returns `slots` (str keys)."""
+    read the value, never the old chain. Mutates and returns `slots` (str keys).
+    INVARIANT: the pin is written as an INT — exec_root.kv_projection commits only int-valued slots at their slot
+    positions, while the settle proof's sparse_projection int()s every slot, so a string made the carried genesis root
+    unprovable (review 2026-10-11)."""
     for day in carry_ids(slots, dcnt_slot, dlist):
         h = int(slots.get(str((a_h << 32) + day), 0))
         if h and not int(slots.get(str((a_v << 32) + day), 0)):
-            slots[str((a_h << 32) + day)] = str(max(CARRY_PIN_FLOOR, h - int(tip)))
+            slots[str((a_h << 32) + day)] = int(max(CARRY_PIN_FLOOR, h - int(tip)))
     return slots
 
 
