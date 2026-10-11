@@ -1852,6 +1852,10 @@ def field_shield_check(data, block_height):
         assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
             and 0 <= int(_rh) < (1 << 64), "stwo shield rho must be a decimal u64"
         return
+    from protocol import WIDE_DEPOSIT_CLOSE_HEIGHT as _WCLOSE
+    # WIDE_DEPOSIT_CLOSE_HEIGHT: no new wide note, so the Stwo gate can never freeze one (protocol.py). INVARIANT: this
+    # sits AFTER the Stwo branch — from STWO_POOL_HEIGHT a deposit is a Stwo one and is judged above.
+    assert _sh < _WCLOSE, "the wide shielded pool takes no new deposits (WIDE_DEPOSIT_CLOSE_HEIGHT)"
     if _sh >= 1:
         # THE WIDE POOL (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
         # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape

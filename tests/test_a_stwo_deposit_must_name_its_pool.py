@@ -61,7 +61,11 @@ check("...rho is a u64: 2^64 - 1 admitted, 2^64 refused",
 check("...an uppercase or short owner is refused", not admitted({"owner": bad_lane.upper(), "rho": "1", "pool": "stwo"}, GATE)
       and not admitted({"owner": "ab" * 31, "rho": "1", "pool": "stwo"}, GATE))
 P.STWO_POOL_HEIGHT = live
+# below WIDE_DEPOSIT_CLOSE_HEIGHT the wide pool still takes its deposits; from it no pool does until the Stwo gate
+# (tests/test_the_wide_pool_takes_no_deposits_after_its_close.py)
+from protocol import WIDE_DEPOSIT_CLOSE_HEIGHT as _WC
 check("on the live value nothing changes at any height (dormant)",
-      admitted({"owner": good_wide, "rho": "5"}, 10 ** 9) and not admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, 10 ** 9))
+      admitted({"owner": good_wide, "rho": "5"}, _WC - 1) and not admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, 10 ** 9)
+      and not admitted({"owner": good_wide, "rho": "5", "pool": "stwo"}, 10 ** 9))
 print("ALL PASS — a Stwo deposit must name its pool" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

@@ -22,7 +22,7 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js";
@@ -10337,11 +10337,12 @@ function ensureShielded() { if (!_shInit) { alghash.initAlghash(blake2bHash); al
  * (refreshShieldRules, awaited by every shielded entry point) and read synchronously after that, because the
  * owner/address helpers are called from synchronous render paths. Until the first fetch answers, the wallet
  * assumes the legacy pool, exactly as a node that publishes no gate would be judged. */
-let _shieldWide = null;
+let _shieldWide = null, _shieldTip = 0;
 async function refreshShieldRules() {
   try {
     const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
+    _shieldTip = tip;
     _shieldWide = pr.shield_wide !== undefined && tip + 1 >= Number(pr.shield_wide);
     await _refreshStwo(tip);
   } catch (e) { if (_shieldWide === null) _shieldWide = false; }
@@ -10529,9 +10530,19 @@ async function renderShield() {
   }
 }
 
+// WIDE DEPOSITS ARE CLOSED (protocol WIDE_DEPOSIT_CLOSE_HEIGHT): between that gate and the Stwo pool's there is no pool to
+// deposit into, so the wallet says so instead of building a deposit L1 refuses. Judged at tip + 1, like every pool rule.
+function wideDepositClosed(tip) {
+  const g = BigInt(WIDE_DEPOSIT_CLOSE_HEIGHT || 0);
+  return !shieldStwo() && g > 0n && BigInt(tip) + 1n >= g;
+}
 async function doShield() {
   if (!state.wallet) return;
   ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
+  if (wideDepositClosed(_shieldTip)) {
+    log("err", i18("shield.depositsClosed", "New private deposits are paused while private banknotes move to their new pool. Your public balance is not affected."));
+    return;
+  }
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   const rho = _randField();
