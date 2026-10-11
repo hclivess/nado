@@ -319,8 +319,8 @@ fn js_rows(msgs: &[[u32; 16]], dirs: &[u32], w: &Witness, rng: &mut impl RngCore
     let (mut sm, mut cs, mut cr) = ([0u32; 4], [0u32; 4], [0u32; 4]);
     let (mut c1, mut c2) = (0u32, 0u32);
     for k in 0..4 {
-        let a = vin[k] + pv[k] + c1;
-        let b = v1[k] + v2[k] + fee[k] + c2;
+        let a = vin[k] + c1;                                // input side: v_in alone (lib.rs conservation invariant)
+        let b = v1[k] + v2[k] + fee[k] + pv[k] + c2;        // output side: the unshield pv leaves with the outputs and fee
         sm[k] = a & 0xffff;
         cs[k] = a >> 16;
         cr[k] = b >> 16;
@@ -786,6 +786,14 @@ pub fn fixture() -> Witness {
     let (sibs, dirs, _root) = tree_path(&leaves, 3, D);
     Witness { nsk, v_in, rho, sibs, dirs, v1: 700, o1, r1: 0x2222, v2: 300, o2, r2: 0x3333, pv: 0, fee: 0 }
 }
+/// The MINT witness: fixture b balanced the OLD way (v1 + v2 + fee = v_in + pv) while pv is still paid out as the
+/// unshield — outputs AND an exit worth pv more than the input. tests/test_stwo_js_honest_proof_... proves it must be
+/// refused (lib.rs conservation invariant).
+pub fn fixture_mint() -> Witness {
+    let mut w = fixture_b();
+    w.v2 = w.v_in + w.pv - w.fee - w.v1;
+    w
+}
 pub fn pool_root_of_fixture() -> [u32; 8] {
     let nsk: [u32; 8] = [0xCAFE, 1, 2, 3, 4, 5, 6, 7];
     let o1 = owner_of(&[0xB0B, 0, 0, 0, 0, 0, 0, 0]);
@@ -809,7 +817,7 @@ pub fn fixture_b() -> Witness {
     let fee = 77u64;
     let pv = 5000u64;
     let v1 = v_in / 3;
-    let v2 = v_in + pv - fee - v1;
+    let v2 = v_in - pv - fee - v1;                          // v_in = v1 + v2 + fee + pv: pv is the unshield
     Witness { nsk, v_in, rho, sibs, dirs, v1, o1, r1: 0xaaaa_bbbb, v2, o2, r2: 0xcccc_dddd, pv, fee }
 }
 

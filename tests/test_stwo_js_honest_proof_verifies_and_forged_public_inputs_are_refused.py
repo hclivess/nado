@@ -110,6 +110,20 @@ check("a digest that is not hex is refused by the wrapper", not ok and "root" in
 ok, why = SJ.verify(pb, P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], 1 << 64, P["dest"])
 check("a fee outside u64 is refused by the wrapper", not ok and "fee" in why, why)
 
+# THE UNSHIELD IS VALUE LEAVING THE POOL (lib.rs conservation invariant, found 2026-10-11): v_in = v1 + v2 + fee + pv.
+# The mint witness balances the OLD way (v1 + v2 + fee = v_in + pv) while pv is paid out as an exit — outputs and an exit
+# worth pv more than the input. The prover must refuse it, or, forced, produce nothing the verifier accepts.
+out = tempfile.mkdtemp(prefix="nado-stwo-js-proof-mint-", dir=_T)
+r = subprocess.run([exe, "mint", DEST, out], capture_output=True, text=True, timeout=600)
+if r.returncode == 0:
+    pm, M = open(os.path.join(out, "proof.bin"), "rb").read(), json.load(open(os.path.join(out, "public.json")))
+    ok, why = run(pm, M)
+    check("a witness that mints the unshield (old balance) never yields an accepted proof", not ok, (ok, why))
+else:
+    check("a witness that mints the unshield (old balance) is refused by the prover", r.returncode != 0, r.stderr[-300:])
+check("the honest unshield balances on the OUTPUT side: v_in = v1 + v2 + fee + unshield (fixture b verifies)",
+      run(pb, P)[0])
+
 print("ALL PASS — the Stwo join-split verifier accepts the honest proof and refuses every rewrite" if not fails
       else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
