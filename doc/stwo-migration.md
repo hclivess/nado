@@ -236,6 +236,42 @@ same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, 
   under a wide owner nobody can spend. L1 cannot tell the two owners apart (both 64-hex), so the Stwo wallet tags its
   deposits `"pool": "stwo"`; the gate's activation commit should make L1 refuse an untagged field deposit from the gate.
 
+**L1 linkage: who publishes, and which owner a deposit names (ZK review 2026-10-11, operator decisions; built
+2026-10-12).** The proof hides the spent note and its owner, but two things around it did not:
+
+- *Who publishes a spend — nodes relay spends, on by default on every node.* The wallet used to publish its spend in a
+  `field_transfer` blob signed by its own account, tying every nullifier to that account
+  (tests/test_a_stwo_spend_is_not_published_under_the_spenders_own_account.mjs). Now a PRIVATE spend is proved with
+  `unshield` = the relay's fee and `withdraw_addr` = a relay node's address (the proof binds both, so the relay can be
+  paid and cannot be paid more or redirected) and POSTed to that node's `/stwo/relay` (ops/stwo_relay.py). The node
+  checks it before it spends anything — enabled (`"stwo_relay"`, default true in the code; `false` opts out), not in
+  emergency mode, per-IP rate (12 per 10 min), a bounded in-flight set keyed by nullifier (64), the bundle through
+  `shielded_stwo.parse_transfer` (the exec layer's own reading), the exec node's `/exec/stwo_spendable`
+  (`ExecState.stwo_spend_refusal`, the apply path's own method), and the proof through `stwo_js_native.verify` — then
+  publishes the bundle to its exec node's DA store and submits the blob signed with ITS OWN node key. The fee is one
+  constant on every node, `STWO_RELAY_FEE_RAW` = 100 x MIN_TX_FEE (1e5 raw), so a relayed spend's public unshield does
+  not tell relays apart; the node claims those exits on its auto-collect pass (`CoreClient._claim_relay_unshields`).
+  `GET /stwo/relay_info` says whether a node relays right now (a node without the Stwo verifier library says no). The
+  wallet asks its relay, home and the relay pool, shows the fee in the send confirmation, tries the next relay (with a
+  fresh proof bound to that relay's address) when one fails, and NEVER falls back to signing a private spend itself — no
+  relay is an error. A WITHDRAWAL (unshield to a public address) is still published by the account: its payout is
+  public anyway and one proof binds one destination. Withdrawing to someone else's address shows a one-time notice that
+  it links the payment to the account. No consensus change: to the exec layer a relayed spend is an ordinary unshield.
+- *A fresh owner per deposit.* A deposit publishes `{owner, rho, cm}` next to the depositing account, and the owner was
+  the wallet's one stable owner — the digest its zaddr encodes — so a zaddr named its account
+  (tests/test_a_stwo_deposit_does_not_publish_the_owner_behind_the_wallets_zaddr.mjs). Deposit i is now owned by
+  `ownerOf(nsk_i)`, `nsk_i = BLAKE2s-256("NADO/stwo/deposit-nsk/v1\0" || nsk || u64le(i))` (static/stark/stwo_js.js
+  `depositNsk`; nsk = the wallet's Stwo spend key). The index is taken before the deposit is sent and never reused
+  (interface.js `stwoDepositIndexTake`); the note stores it (`k`) and is spent with nsk_i (`noteNskWire`). A wallet
+  restored on another device scans its own shield transactions for `ownerOf(nsk_0..)` until 20 indices in a row match
+  nothing (`stwoRecoverDeposits`), recomputes each commitment, and marks the spent ones against the pool's whole spent
+  set (`/exec/stwo_nullifiers`) locally. The zaddr for RECEIVING stays the stable owner (a payment's owner is inside its
+  commitment, never published). Notes received by claim code or made as change cannot be found from the chain, as before.
+- *Defence in depth: `stwo_value`.* The exec layer keeps the Stwo pool's own total (+amount per Stwo deposit,
+  -(unshield + fee) per Stwo spend) and refuses, before any mutation, a spend that exits more than it — so even a proof
+  the verifier wrongly accepts cannot take more than went into the Stwo pool, nor the frozen wide pool's value that
+  `pool_value` still counts. In the snapshot and the exec root (`stwo_value` digest record), zero is absent.
+
 **Toolchains (measured 2026-10-11).** Stwo pins `nightly-2026-01-15`, and fleet nodes build native crates on whatever
 stable cargo they have, without our root. The split that works: the WALLET prover (WASM) is built here, on nightly, and
 shipped as a file; the NODE verifier is Stwo with `default-features = false, features = ["std"]` (no `prover`), which

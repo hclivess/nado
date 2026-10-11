@@ -10427,6 +10427,33 @@ function shieldNskWide() {
 // (review 2026-10-11; the wide key's separation from v1 is the same rule). The Stwo owner is BLAKE2s(21, nsk)
 // (static/stark/stwo_js.js ownerOf), a one-way image, and a Stwo proof is zero-knowledge.
 function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
+// A FRESH OWNER PER DEPOSIT (ZK review 2026-10-11, tests/test_a_stwo_deposit_does_not_publish_the_owner_behind_the_wallets_zaddr.mjs).
+// A deposit publishes its note's owner in the clear, next to the account that signs it. Under the one stable owner (the
+// zaddr) that tied the zaddr — and every deposit, and every note ever paid to it — to the account. Deposit i is owned by
+// ownerOf(nsk_i), nsk_i = static/stark/stwo_js.js depositNsk(shieldNskStwo(), i): one-way, so deposits share nothing an
+// observer can compare, and the recovery phrase re-derives every nsk_i (stwoRecoverDeposits). The note remembers its i
+// (note.k) and is spent with nsk_i (noteNskWire). INVARIANT: doShield in the Stwo pool never publishes shieldOwner(),
+// and an index is never used twice (stwoDepositIndexTake advances BEFORE the deposit is sent, so a send whose answer
+// was lost burns its index instead of reusing it).
+function stwoDepositNsk(i) { return _stwo.depositNsk(shieldNskStwo(), i); }
+function stwoDepositKey() { return "nado.stwoDep." + (state.wallet ? state.wallet.address : "none"); }
+function stwoDepositIndexTake() {
+  const key = stwoDepositKey(), mem = state.stwoDepNext || (state.stwoDepNext = {});
+  let n = 0;
+  try { n = Number(localStorage.getItem(key) || 0) || 0; } catch (e) { /* storage blocked: the floors below hold */ }
+  // three floors, so no path re-uses an index: what this device stored, what this page took, what the notes carry
+  for (const x of loadNotes()) if (x && x.k !== undefined && x.k !== null) n = Math.max(n, Number(x.k) + 1);
+  n = Math.max(n, mem[key] || 0);
+  mem[key] = n + 1;
+  try { localStorage.setItem(key, String(n + 1)); } catch (e) { /* in-page floor still advances */ }
+  return n;
+}
+// the spend key of THIS note, in the active pool's wire form: a Stwo deposit note is spent with its own nsk_i; every
+// other note (received payments, change) with the wallet's stable key, which its owner (the zaddr) is the image of
+function noteNskWire(n) {
+  if (shieldStwo() && n && n.k !== undefined && n.k !== null) return stwoDepositNsk(Number(n.k));
+  return shieldNskWire();
+}
 // ONE NULLIFIER, ONE NOTE (review 2026-10-11, "faerie gold"): the Stwo circuit leaves an output's rho free and
 // nf = H(nsk, rho) does not depend on the note's position, so a sender can pay two notes to one owner with the SAME rho
 // and the owner can only ever spend one of them. Received notes are counted by NULLIFIER: a note whose nullifier this
@@ -10434,7 +10461,8 @@ function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_N
 // INVARIANT: every receive path goes through doReceiveShielded, which asks this before banking a Stwo note.
 function shieldDuplicateNote(notes, rho, nskStwo, nullifierOf) {
   const nf = nullifierOf(nskStwo, BigInt(rho));
-  return notes.some((n) => n.rho !== undefined && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
+  // a deposit note (n.k) is spent with its own nsk_i, so its nullifier is not nf(nskStwo, rho): compare only stable-key notes
+  return notes.some((n) => n.rho !== undefined && (n.k === undefined || n.k === null) && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
 }
 // the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
 function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
@@ -10512,10 +10540,60 @@ async function reconcileSpentNotes() {
   return restored;
 }
 
+// RESTORING DEPOSIT NOTES (fresh owner per deposit, stwoDepositNsk). A deposit note is not re-derivable from the zaddr,
+// so a wallet restored on a new device finds its deposits the way it made them: it reads ITS OWN shield transactions
+// (public: amount, owner, rho), derives ownerOf(nsk_0), ownerOf(nsk_1)… until STWO_DEPOSIT_GAP indices in a row match
+// nothing, and banks each match whose commitment is in the pool. Spent ones are marked by testing their nullifiers
+// against the pool's whole spent set locally (/exec/stwo_nullifiers), so no node learns which notes are this wallet's.
+// Once per account on each device (stwoDepositKey + ".scan"); the index counter then continues past the last match.
+const STWO_DEPOSIT_GAP = 20;
+async function stwoRecoverDeposits() {
+  if (!state.wallet || !shieldStwo()) return 0;
+  const done = stwoDepositKey() + ".scan";
+  try { if (localStorage.getItem(done)) return 0; } catch (e) { return 0; }
+  const addr = state.wallet.address;
+  const r = await rpcJSON("/get_transactions_of_account?address=" + encodeURIComponent(addr) + "&min_block=0");
+  if (!r.ok && r.status !== 404) return 0;                   // try again on a later render
+  const txs = (r.ok && r.data && Array.isArray(r.data.transactions)) ? r.data.transactions : [];
+  const deps = txs.filter((t) => t && t.recipient === "shield" && t.sender === addr && t.data && t.data.pool === "stwo"
+                                 && typeof t.data.owner === "string");
+  if (deps.length) {
+    const byOwner = new Map(deps.map((t) => [String(t.data.owner).toLowerCase(), t]));
+    const nsk = shieldNskStwo(), found = [];
+    for (let i = 0, hi = STWO_DEPOSIT_GAP; i < hi; i++) {
+      const t = byOwner.get(_stwo.ownerOf(_stwo.depositNsk(nsk, i)));
+      if (t) { found.push([i, t]); hi = Math.max(hi, i + 1 + STWO_DEPOSIT_GAP); }
+    }
+    if (found.length) {
+      const leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String));
+      const spent = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String));
+      const notes = loadNotes();
+      let added = 0, top = -1;
+      for (const [i, t] of found) {
+        top = Math.max(top, i);
+        // the commitment is recomputed from the public amount, owner and rho — never taken from the tx's data.cm
+        const cm = _stwo.commit(BigInt(t.amount), _stwo.ownerOf(_stwo.depositNsk(nsk, i)), BigInt(t.data.rho));
+        if (!leaves.has(cm) || notes.some((n) => n.cm === cm)) continue;
+        notes.push({ value: String(t.amount), rho: String(t.data.rho), cm, k: i, ts: Date.now(),
+                     spent: spent.has(_stwo.nullifier(_stwo.depositNsk(nsk, i), BigInt(t.data.rho))) });
+        added++;
+      }
+      if (added) saveNotes(notes);
+      try { const key = stwoDepositKey(); if (Number(localStorage.getItem(key) || 0) <= top) localStorage.setItem(key, String(top + 1)); } catch (e) {}
+      if (added) log("ok", i18("shield.recovered", "{n} private banknote(s) from your earlier deposits were restored.", { n: String(added) }));
+      try { localStorage.setItem(done, "1"); } catch (e) {}
+      return added;
+    }
+  }
+  try { localStorage.setItem(done, "1"); } catch (e) {}
+  return 0;
+}
+
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded(); await refreshShieldRules();
   await reconcileSpentNotes().catch(() => 0);
+  await stwoRecoverDeposits().catch(() => 0);
   renderZaddrQR();   // your reusable shielded receive address as a payment-link QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
@@ -10555,7 +10633,9 @@ async function doShield() {
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   const rho = _randField();
-  const owner = shieldOwner();                               // this wallet's stable shielded owner
+  // STWO: a fresh owner per deposit (stwoDepositNsk) — never the stable owner the zaddr encodes. Older pools: the stable one.
+  const k = shieldStwo() ? stwoDepositIndexTake() : null;
+  const owner = k !== null ? _stwo.ownerOf(stwoDepositNsk(k)) : shieldOwner();
   const cm = noteCommit(rawAmount, owner, BigInt(rho));      // field-native note commitment (wide from the gate)
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
@@ -10570,7 +10650,7 @@ async function doShield() {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
-      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now() });
+      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), ...(k !== null ? { k } : {}) });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       $("shieldAmount").value = "";
@@ -10639,6 +10719,21 @@ async function doUnshield() {
   if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid address.")); return; }
   const picks = selectNotesFor(rawAmount);
   if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
+  // A WITHDRAWAL IS PUBLISHED BY THIS ACCOUNT (its payout is public anyway, and one proof binds one destination, so a
+  // relay cannot be paid in the same spend). To one's own address that reveals nothing new; to SOMEONE ELSE's it tells
+  // everyone this account paid them. Said once per account, before the first such withdrawal (operator decision
+  // 2026-10-11) — a private payment (Send shielded) is the unlinked way.
+  if (shieldStwo() && to !== state.wallet.address) {
+    const seen = "nado.stwoPublicPayWarned." + state.wallet.address;
+    let warned = false; try { warned = !!localStorage.getItem(seen); } catch (e) {}
+    if (!warned) {
+      const okw = await uiConfirm({ title: i18("shield.unshieldPublicTitle", "This withdrawal is public"),
+        body: i18("shield.unshieldPublicBody", "Withdrawing to someone else's address is published by your own account, so anyone can see that this payment came from you. To pay privately, use {b} instead.", { b: i18("shield.zsend", "Send shielded") }),
+        confirmText: i18("shield.unshieldPublicOk", "Withdraw anyway") });
+      if (!okw) { log("info", i18("msg.cancelled", "Cancelled.")); return; }
+      try { localStorage.setItem(seen, "1"); } catch (e) {}
+    }
+  }
   const _ub = $("btnUnshield");
   if (_ub) { _ub.disabled = true; _ub.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   let done = 0n;
@@ -10660,7 +10755,7 @@ async function doUnshield() {
       // withdrawal = a 2-output join-split with a public exit: out1 = change (back to me), out2 = empty note,
       // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
       const wit = {
-        cm: note.cm, nsk: shieldNskWire(), value_in: note.value, rho_in: note.rho,
+        cm: note.cm, nsk: noteNskWire(note), value_in: note.value, rho_in: note.rho,
         v1: change.toString(), o1: ownerStr(owner), r1,
         v2: "0", o2: ownerStr(owner), r2,
         public_value: (-take).toString(), fee: "0", withdraw_addr: to,
@@ -10807,17 +10902,70 @@ async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
            cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2) };
 }
+/* PRIVATE STWO SPENDS ARE PUBLISHED BY A RELAY NODE, NEVER BY THIS ACCOUNT (ZK review 2026-10-11, operator decision
+ * "nodes relay spends"; ops/stwo_relay.py). The proof hides the spent note and its owner; a `field_transfer` blob signed
+ * by this account would put the account's name on it, and every nullifier with it. So a private payment is proved with
+ * unshield = the relay's fee and withdraw_addr = the relay node's address (the proof binds both), and POSTed to that
+ * node's /stwo/relay, which checks it and publishes it under ITS OWN key. If a relay fails, the next one from the relay
+ * pool is tried (a fresh proof: each binds its own relay's address). INVARIANT: a private spend that no relay takes is
+ * an ERROR shown to the user — it never falls back to _daSubmitFieldTransfer with this account. Only a withdrawal (an
+ * unshield to a public address, which is public anyway) is still published by the account itself. */
+const STWO_RELAY_TRIES = 3;
+async function stwoRelayInfo(url) {
+  const res = await fetchWithTimeout(url + "/stwo/relay_info", { method: "GET", cache: "no-store" }, 6000);
+  if (!res.ok) return null;
+  const j = await res.json();
+  if (!j || j.available !== true || typeof j.address !== "string" || !ADDR_RE_I.test(j.address)) return null;
+  if (!/^[0-9]+$/.test(String(j.fee))) return null;
+  return { url, address: j.address, fee: BigInt(j.fee) };
+}
+// the relays to try, in order: the one this wallet talks to, home, then the relay pool — all answering available,
+// all asking the SAME fee as the first (the fee the user confirms; a proof's change depends on it)
+async function stwoRelays() {
+  const urls = [];
+  for (const u of [relayBase(), homeRelay(), ...((relayPool.list || []).map((c) => c.url))]) if (u && !urls.includes(u)) urls.push(u);
+  const out = [];
+  for (const u of urls) {
+    try { const i = await stwoRelayInfo(u); if (i && (!out.length || i.fee === out[0].fee)) out.push(i); } catch (e) { /* next */ }
+    if (out.length >= STWO_RELAY_TRIES) break;
+  }
+  return out;
+}
+async function _stwoRelayPost(url, bundle) {
+  const res = await fetchWithTimeout(url + "/stwo/relay", { method: "POST", cache: "no-store",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bundle }) }, 180000);
+  let j = null; try { j = await res.json(); } catch (e) { /* not JSON */ }
+  return { ok: !!(res.ok && j && j.ok), status: res.status, txid: j && j.txid, commitment: j && j.commitment,
+           reason: (j && j.reason) || ("HTTP " + res.status) };
+}
 // STWO on-device prover (STWO_POOL_HEIGHT): the Merkle path is built here over the pool's leaves, the proof is made by
 // the Stwo WASM in a Worker (static/stark/stwo_js.js proveSpend — never on the main thread), checked against this page's
-// own note algebra, and published as a `stwo_js` bundle through the same DA path. The proof binds the unshield address
-// (aux) and the public unshield + fee; a private transfer is bound to the empty address. Same shape of result.
+// own note algebra, and published: a PRIVATE spend (wit.relays) through a relay node, a withdrawal (wit.withdraw_addr,
+// public_value < 0) through the DA path under this account. The proof binds the destination (aux) and the public
+// unshield + fee. Same shape of result.
 async function _onDeviceProveStwo(wit, execBase, leaves) {
   const pos = leaves.findIndex((l) => String(l) === String(wit.cm));
   if (pos < 0) throw new Error(i18("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute"));
   const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
-  const r = await _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1, o1: wit.o1, r1: wit.r1,
-    v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: (pv < 0n ? -pv : 0n).toString(), fee: wit.fee,
-    dest: wit.withdraw_addr || "" }, leaves, pos);
+  const spend = (unshield, dest) => _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1,
+    o1: wit.o1, r1: wit.r1, v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: unshield.toString(), fee: wit.fee, dest }, leaves, pos);
+  if (pv >= 0n) {
+    // A PRIVATE SPEND: a relay node publishes it (see above). Never this account.
+    const relays = (wit.relays || []).filter((rl) => rl && rl.fee === wit.relayFee);
+    if (!relays.length) return { ok: false, error: i18("shield.relayNeeded", "A private payment is published only by a relay node, never from your own account, and no relay was available. Nothing was sent.") };
+    let last = "";
+    for (const rl of relays) {
+      const r = await spend(rl.fee, rl.address);
+      let res;
+      try { res = await _stwoRelayPost(rl.url, r.bundle); } catch (e) { res = { ok: false, status: 0, reason: e.message }; }
+      if (res.ok) return { ok: true, relayed: rl.url, txid: res.txid, commitment: res.commitment, cm_out1: r.cm1, cm_out2: r.cm2 };
+      last = res.reason;
+      // the spend itself was refused (spent, stale, malformed): another relay would refuse it too
+      if (res.status === 400 || res.status === 409) break;
+    }
+    return { ok: false, error: i18("shield.relayAllFailed", "No relay node could publish this private payment ({m}). Nothing was sent from your account — try again in a minute.", { m: last }) };
+  }
+  const r = await spend(-pv, wit.withdraw_addr || "");
   const res = await _daSubmitFieldTransfer(r.bundle, execBase);
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment, cm_out1: r.cm1, cm_out2: r.cm2 };
 }
@@ -10858,8 +11006,35 @@ async function doSendShielded() {
   catch (e) { log("err", i18("shield.badZaddr", "Enter a valid zaddr… shielded address.")); return; }
   const rawAmount = nadoToRaw($("zsendAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
-  const picks = selectNotesFor(rawAmount);
-  if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
+  // STWO: a relay node publishes the payment (stwoRelays / _onDeviceProveStwo) and is paid its fee once per banknote
+  // spent, out of the banknote — so the notes must cover the amount PLUS one fee each, and the user confirms the fee.
+  let relays = [], relayFee = 0n, picks;
+  if (shieldStwo()) {
+    relays = await stwoRelays();
+    if (!relays.length) { log("err", i18("shield.relayNone", "No relay node can publish a private payment right now. Nothing was sent — try again in a minute.")); return; }
+    relayFee = relays[0].fee;
+    picks = selectNotesFor(rawAmount);
+    for (let i = 0; picks && i < 8; i++) {
+      const need = rawAmount + relayFee * BigInt(picks.length), again = selectNotesFor(need);
+      if (!again || again.length === picks.length) { picks = again; break; }
+      picks = again;
+    }
+    if (!picks) { log("err", insufficientMsg(rawAmount + relayFee)); return; }
+    const okc = await uiConfirm({
+      title: i18("shield.zsendTitle", "Send privately"),
+      rows: [
+        { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
+        { k: i18("dlg.to", "To"), v: String($("zsendTo").value || "").trim().slice(0, 18) + "…" },
+        { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(relayFee * BigInt(picks.length)) + " NADO" },
+        { k: i18("shield.relayBy", "Published by"), v: relayHost(relays[0].url) },
+      ],
+      note: i18("shield.zsendNote", "A relay node publishes this payment under its own account, so it is not linked to yours. Its fee comes out of your private balance."),
+    });
+    if (!okc) { log("info", i18("msg.cancelled", "Cancelled.")); return; }
+  } else {
+    picks = selectNotesFor(rawAmount);
+    if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
+  }
   const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     // ONE CLAIM CODE PER NOTE SPENT. The circuit is 1-in/2-out, so an amount spanning several banknotes
@@ -10871,18 +11046,21 @@ async function doSendShielded() {
       const notes = loadNotes();                          // re-read: each pass mutates stored notes
       const note = notes.find((n) => n.cm === picks[i].cm && !n.spent);
       if (!note) continue;
-      const take = BigInt(note.value) < (rawAmount - done) ? BigInt(note.value) : (rawAmount - done);
-      const change = BigInt(note.value) - take;
+      const avail = BigInt(note.value) - relayFee;         // what this banknote can pay once the relay's fee is out
+      if (avail <= 0n) continue;
+      const take = avail < (rawAmount - done) ? avail : (rawAmount - done);
+      const change = avail - take;
       const r1 = _randField(), r2 = _randField();          // recipient-note rho, change-note rho
       $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + (picks.length > 1
         ? i18("shield.provingN", "Generating proof {i} of {n}… (~15s each — this amount spans several banknotes)",
               { i: String(i + 1), n: String(picks.length) })
         : i18("shield.proving", "Generating your zero-knowledge proof…"));
       const wit = {
-        cm: note.cm, nsk: shieldNskWire(), value_in: note.value, rho_in: note.rho,
+        cm: note.cm, nsk: noteNskWire(note), value_in: note.value, rho_in: note.rho,
         v1: take.toString(), o1: ownerStr(recipientOwner), r1,
         v2: change.toString(), o2: ownerStr(shieldOwner()), r2,
         public_value: "0", fee: "0",
+        ...(shieldStwo() ? { relays, relayFee } : {}),      // STWO: published by one of these relays, never this account
       };
       const pr = await proveTransfer2(wit);
       if (pr.error || !pr.ok) {
