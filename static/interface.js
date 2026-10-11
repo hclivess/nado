@@ -10426,6 +10426,15 @@ function shieldNskWide() {
 // (review 2026-10-11; the wide key's separation from v1 is the same rule). The Stwo owner is BLAKE2s(21, nsk)
 // (static/stark/stwo_js.js ownerOf), a one-way image, and a Stwo proof is zero-knowledge.
 function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
+// ONE NULLIFIER, ONE NOTE (review 2026-10-11, "faerie gold"): the Stwo circuit leaves an output's rho free and
+// nf = H(nsk, rho) does not depend on the note's position, so a sender can pay two notes to one owner with the SAME rho
+// and the owner can only ever spend one of them. Received notes are counted by NULLIFIER: a note whose nullifier this
+// wallet already holds (spent or not) is refused, so a payment is credited once and the receiver is told why.
+// INVARIANT: every receive path goes through doReceiveShielded, which asks this before banking a Stwo note.
+function shieldDuplicateNote(notes, rho, nskStwo, nullifierOf) {
+  const nf = nullifierOf(nskStwo, BigInt(rho));
+  return notes.some((n) => n.rho !== undefined && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
+}
 // the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
 function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
 function shieldOwner() {
@@ -11030,6 +11039,10 @@ async function doReceiveShielded() {
     if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
     if (notes.some((n) => n.cm === cmStr(cm))) { log("info", i18("shield.already", "You already have that banknote.")); return; }
+    if (shieldStwo() && shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)) {
+      log("err", i18("shield.stwoSameNf", "This banknote shares its spending tag with one you already hold, so only one of them could ever be spent. It was not added — ask the sender for a new one."));
+      return;
+    }
     notes.push({ value: value.toString(), rho: rho.toString(), cm: cmStr(cm), spent: false, ts: Date.now() });
     saveNotes(notes);
     $("zrecvCode").value = "";

@@ -258,6 +258,10 @@ whatever the state of the ZK review:**
    rho from the input's nullifier and the output index, or bind nf to the leaf position), so it needs the AIR change, a
    new `NODE_PREPROCESSED_ROOT` if a selector moves, and a re-shipped WASM built with the pinned nightly
    (tests/_stwo_js_build.py --ship).
+   **Resolved for the receiver in the wallet (2026-10-11):** a Stwo wallet counts received notes by NULLIFIER
+   (interface.js `shieldDuplicateNote`, every receive path): a note whose nullifier it already holds is refused with a
+   translated reason, so a payment is credited once and nobody is paid in a note they cannot spend. The circuit change
+   above stays the clean fix and can ship later behind its own gate; the wallet rule is what makes the gate safe now.
 2. **The gate freezes every wide-pool note with no way out.** From the gate `apply_field_transfer` accepts only a
    `stwo_js` bundle, so a joinsplit3 spend or unshield of a wide note is refused forever, while the wide pool keeps taking
    deposits until the gate. The wide pool is empty today (0 notes at 2026-10-11); any deposit before the gate would be
