@@ -2682,6 +2682,22 @@ def _da_grace_over(commitment):
     return time.monotonic() - first >= DA_SKIP_GRACE_S
 
 
+def _block_carries_stwo_spend(block, resolved):
+    """True when any field_transfer in `block` names a `stwo_js` bundle — inline (bundle / bundle_json) or in DA bytes the
+    pre-resolve fetched. Over-matching costs only a stall on a node without the library; under-matching would fork."""
+    for tx in block.get("block_transactions", []):
+        d = tx.get("data")
+        if tx.get("recipient") != "blob" or not isinstance(d, dict) or d.get("op") != "field_transfer":
+            continue
+        parts = [d.get("bundle_json"), d.get("bundle")]
+        if tx.get("txid") in resolved:
+            parts.append(resolved[tx["txid"]][1])
+        for p in parts:
+            if p is not None and "stwo_js" in (p if isinstance(p, str) else json.dumps(p, default=str)):
+                return True
+    return False
+
+
 async def _apply_block(session, states_map, default_state, block, verbose=True, finalized=None):
     """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
     default_state — then advance every state's cursor to this height. Returns False (applying NOTHING) if a
@@ -2775,6 +2791,25 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
             except Exception as e:
                 if verbose:
                     print(f"[execnode] block {h}: skipping {d.get('op')} with bad DA proof ({type(e).__name__})", flush=True)
+    # A STWO SPEND NEEDS THE NATIVE VERIFIER ON THIS MACHINE, CHECKED BEFORE ANYTHING MUTATES (STWO_POOL_HEIGHT).
+    # INVARIANT: a node that cannot load native/stwo_js stalls the whole block, exactly like an unavailable DA proof,
+    # because apply_blob turns any exception into a "skip" — a node missing the library would otherwise skip a spend every
+    # other node applies and fork its exec state silently. The crate is optional until the gate is set, so this is the
+    # one place its absence must stop the node rather than be survived.
+    from protocol import STWO_POOL_HEIGHT as _STWO_H
+    if _STWO_H and h >= _STWO_H and _block_carries_stwo_spend(block, resolved):
+        from execnode.stark import stwo_js_native as _sjn
+        from execnode.stark.native_guard import NativeMissing as _NM
+        try:
+            _sjn.ensure_loaded()
+        except _NM as e:
+            print(f"[execnode] block {h}: a Stwo spend needs native/stwo_js and this node cannot load it ({e}) — "
+                  f"STALLING at {h} (build the crate: cargo build --release in native/stwo_js)", flush=True)
+            for _st in states_map.values():               # nothing of block h applied, so h is NOT done
+                _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
+                if _prev_wide.get(id(_st)) is not None:
+                    _st.wide_restore(_prev_wide[id(_st)])
+            return False
     for _pos, tx in enumerate(block.get("block_transactions", [])):
       # PER-TX GUARD (halt-class, audit 2026-07): this DISPATCH code — not apply_blob, which is already
       # fully guarded — used a payload field (`ns`) as a dict key with no type check, so a blob carrying an

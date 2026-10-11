@@ -85,6 +85,13 @@ def _load():
         return lib
 
 
+def ensure_loaded():
+    """Load the library now or raise NativeMissing — for execnode._apply_block's pre-check, which must learn a node
+    cannot verify a Stwo spend BEFORE the block mutates anything (a missing library is a fact about this machine, not a
+    verdict: skipping the spend would fork this node's exec state from every node that verified it)."""
+    _load()
+
+
 def _digest(h):
     if not isinstance(h, str) or len(h) != 64:
         return None
