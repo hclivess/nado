@@ -338,23 +338,43 @@ def aik_name_hex(aik_pub: bytes) -> str:
     return aik_name(aik_pub).hex()
 
 
-def client_failed(rec: dict) -> bool:
+def client_failed(rec: dict, height=None) -> bool:
     """True when an enrolment ended without proof through its CLIENT (TPM_ENROL_V3_HEIGHT retry cooldown): its commitment
     did not match, or every drawn challenger answered and the client never committed. An enrolment held up by a
-    challenger is not the client's failure and retries at no cost."""
+    challenger is not the client's failure and retries at no cost. `height` is the block judging it: from
+    protocol.TPM_RETRY_OWNER_HEIGHT an all-answered record counts only if its last challenge left the client
+    TPM_REVEAL_GRACE blocks to commit in (a challenge in the record's last block left it none)."""
     if not rec:
         return False
     if rec.get("state") == STATE_FAILED:
         return True
-    return (rec.get("state") == STATE_OPEN and is_v2(rec) and bool(rec.get("challengers"))
-            and len(_pairs(rec, "blobs")) == len(rec.get("challengers") or []))
+    answered = (rec.get("state") == STATE_OPEN and is_v2(rec) and bool(rec.get("challengers"))
+                and len(_pairs(rec, "blobs")) == len(rec.get("challengers") or []))
+    if not answered:
+        return False
+    from protocol import TPM_RETRY_OWNER_HEIGHT, TPM_REVEAL_GRACE
+    if height is not None and int(height) >= TPM_RETRY_OWNER_HEIGHT:
+        # INVARIANT: mirror of faults()' commit grace — a party is charged only for a window it actually had.
+        last = max(int(v[2]) for v in _pairs(rec, "blobs").values())
+        return expiry(rec) - last > TPM_REVEAL_GRACE
+    return True
 
 
-def retry_ready_at(rec: dict, failures: int) -> int:
+def retry_key(rec: dict, height) -> str:
+    """The retry-count identity a failure of `rec` is charged to: the chip (TPM_ENROL_V3_HEIGHT), or from
+    protocol.TPM_RETRY_OWNER_HEIGHT the chip AND the identity that opened it, "<ek>:<owner>" — a certificate is public,
+    so a stranger's failed enrolments must not cool the owner's chip down. Below the gate it is the chip alone, byte for
+    byte the row the chain already holds."""
+    from protocol import TPM_RETRY_OWNER_HEIGHT
+    ek = str(rec.get("ek") or "")
+    return ek if int(height) < TPM_RETRY_OWNER_HEIGHT else f"{ek}:{rec.get('owner')}"
+
+
+def retry_ready_at(rec: dict, failures: int, height=None) -> int:
     """The first height a chip may enrol again after `rec` (TPM_ENROL_V3_HEIGHT): the record's expiry, plus
-    TPM_RETRY_COOLDOWN_BASE * 2^failures (capped) when the client failed it."""
+    TPM_RETRY_COOLDOWN_BASE * 2^failures (capped) when the client failed it (judged at `height`, see client_failed)."""
     from protocol import TPM_RETRY_COOLDOWN_BASE, TPM_RETRY_COOLDOWN_MAX_EXP
     end = expiry(rec)
-    if not client_failed(rec):
+    if not client_failed(rec, height):
         return end
     return end + TPM_RETRY_COOLDOWN_BASE * (1 << min(int(failures), TPM_RETRY_COOLDOWN_MAX_EXP))

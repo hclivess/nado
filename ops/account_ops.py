@@ -1028,9 +1028,9 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # (kv_ops.tpm_enrol_open_revert_put); it never re-derives a prior value.
         # INVARIANT: the retry count (TPM_ENROL_V3_HEIGHT) is restored from its own journal, popped by the first
         # revert of this block to reach the chip, because apply journaled the value before the block changed it.
-        rfound, rprev = kv_ops.tpm_retry_revert_pop(h, ek_id)
+        rfound, rprev, rkey = kv_ops.tpm_retry_revert_pop(h, ek_id)
         if rfound:
-            kv_ops.tpm_retry_set(ek_id, rprev)
+            kv_ops.tpm_retry_set(rkey, rprev)
         mfound, mprev = kv_ops.tpm_enrol_open_revert_pop(h, ek_id)
         if mfound:
             # popped by the FIRST revert of this block to reach the chip (first-write-wins journal), so it restores
@@ -1089,10 +1089,13 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         from protocol import TPM_ENROL_V3_HEIGHT
         if h >= TPM_ENROL_V3_HEIGHT and _old:
             _old_rec = prev if str(_old) == eid else kv_ops.tpm_enrol_get(str(_old))
-            if _te.client_failed(_old_rec):
-                _n = kv_ops.tpm_retry_get(_ek_id)
-                kv_ops.tpm_retry_revert_put(h, _ek_id, _n)
-                kv_ops.tpm_retry_set(_ek_id, _n + 1)
+            if _te.client_failed(_old_rec, h):
+                # charged to retry_key: the chip below TPM_RETRY_OWNER_HEIGHT, (chip, the failed record's opener) from it.
+                # The journal names the row it saved, so revert restores that row and never re-derives which one it was.
+                _key = _te.retry_key(_old_rec, h)
+                _n = kv_ops.tpm_retry_get(_key)
+                kv_ops.tpm_retry_revert_put(h, _ek_id, _n, count_key=_key)
+                kv_ops.tpm_retry_set(_key, _n + 1)
         kv_ops.tpm_enrol_open_revert_put(h, _ek_id, _old)
         kv_ops.tpm_enrol_open_set(_ek_id, eid)   # this chip's slot is taken until it expires
 

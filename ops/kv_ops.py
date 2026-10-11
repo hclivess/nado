@@ -3096,24 +3096,27 @@ def tpm_retry_set(ek_identity: str, n: int):
     _write(_do)
 
 
-def tpm_retry_revert_put(height: int, ek_identity: str, prev: int):
-    """Journal the chip's retry count as it stood BEFORE the block (first write wins, node-local devbind_revert).
-    INVARIANT: revert restores this value; it never re-derives the count from the records."""
+def tpm_retry_revert_put(height: int, ek_identity: str, prev: int, count_key=None):
+    """Journal the retry count as it stood BEFORE the block (first write wins, node-local devbind_revert). `count_key`
+    is the row it belongs to when that is not the chip's own (protocol.TPM_RETRY_OWNER_HEIGHT: "<ek>:<owner>").
+    INVARIANT: revert restores this value into this row; it never re-derives the count or the row."""
     def _do(txn):
         k = be8(int(height)) + ("tpmretry:" + str(ek_identity)).encode()
         if txn.get(k, db=_dbs()["devbind_revert"]) is not None:
             return
-        txn.put(k, _pack([int(prev)]), db=_dbs()["devbind_revert"])
+        row = [int(prev)] if count_key is None or str(count_key) == str(ek_identity) else [int(prev), str(count_key)]
+        txn.put(k, _pack(row), db=_dbs()["devbind_revert"])
     _write(_do)
 
 
 def tpm_retry_revert_pop(height: int, ek_identity: str):
-    """Read + DELETE the retry-count journal for (height, chip): (found, previous count)."""
+    """Read + DELETE the retry-count journal for (height, chip): (found, previous count, the row it belongs to)."""
     def _do(txn):
         k = be8(int(height)) + ("tpmretry:" + str(ek_identity)).encode()
         raw = txn.get(k, db=_dbs()["devbind_revert"])
         if raw is None:
-            return False, 0
+            return False, 0, str(ek_identity)
         txn.delete(k, db=_dbs()["devbind_revert"])
-        return True, int(_unpack(raw)[0])
+        row = _unpack(raw)
+        return True, int(row[0]), (str(row[1]) if len(row) > 1 else str(ek_identity))
     return _write(_do)

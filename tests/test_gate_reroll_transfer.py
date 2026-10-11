@@ -30,6 +30,7 @@ REROLL = {
     "TPM_POOL_V2_HEIGHT": 1,                   # 100000 on gen 28: online-stake pool, k = 5, misses excluded
     "EVICT_VOIDS_EPOCH_HEIGHT": 1,             # 132000 on gen 28: a device move voids through the epoch
     "TPM_ENROL_V3_HEIGHT": 1,                  # 132000 on gen 28: failed commitments, retry cooldown
+    "TPM_RETRY_OWNER_HEIGHT": 1,               # 175000 on gen 28: retry count per (chip, opener), late-challenge grace
     "BEACON_EXTEND_HEIGHT": 1,                 # 132000 on gen 28: a reveal-less epoch's beacon waits for reveals
     "REVEAL_SEATLESS_HEIGHT": 1,               # 135300 on gen 28: a reveal-only duty needs no seat
     "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool

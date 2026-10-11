@@ -1664,6 +1664,8 @@ def split_open_block_reward(reward: int):
 #                                    EVICT_VOIDS_EPOCH_HEIGHT (132000 -> 1: a device move voids the
 #                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT (132000 ->
 #                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
+#                                    TPM_RETRY_OWNER_HEIGHT (175000 -> 1: the retry count is per (chip, opener) and
+#                                    a late last challenge leaves the client TPM_REVEAL_GRACE blocks before it counts)
 #                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
 #                                    epoch with no reveals takes the next revealed epoch's reveals)
 #                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
@@ -2164,6 +2166,15 @@ EVICT_VOIDS_EPOCH_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
 TPM_ENROL_V3_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
 TPM_RETRY_COOLDOWN_BASE = 300            # blocks; doubles per consecutive client-failed enrolment of one chip
 TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6.3 s)
+# TPM RETRY PER OPENER (review 2026-10-11). An endorsement certificate is public and tpm_enrol is free, so a stranger
+# could open enrolments with a copied certificate, never commit, and have each one charged to THE CHIP: a cooldown
+# doubling to ~5.5 days per round, locking the real owner out. And one drawn challenger could post a valid blob with a
+# garbage sealed secret, or post it in the record's last block, and the client was charged a failure it never had a
+# chance to avoid. From this height the count is keyed on (chip, opener) and the cooldown applies only when that same
+# opener returns; a stranger's failures cost only the stranger, bounded as before V3 by one open enrolment per chip per
+# window. And an all-answered record counts against its client only if the last challenge left it TPM_REVEAL_GRACE
+# blocks to commit in. INVARIANT: a failure is charged to the party that could have acted, never to the chip's name.
+TPM_RETRY_OWNER_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at

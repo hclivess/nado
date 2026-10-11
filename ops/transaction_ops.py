@@ -829,10 +829,14 @@ def tpm_retry_view(rec: dict, tip: int) -> dict:
     INVARIANT: a client told retry_ready_at = N is accepted at N and refused at N - 1."""
     from protocol import TPM_ENROL_V3_HEIGHT
     from ops import tpm_enrol as _te
-    failed = bool(_te.client_failed(rec))
-    if int(tip) + 1 < TPM_ENROL_V3_HEIGHT:
+    h = int(tip) + 1
+    failed = bool(_te.client_failed(rec, h))
+    if h < TPM_ENROL_V3_HEIGHT:
         return {"client_failed": failed, "retry_ready_at": int(_te.expiry(rec))}
-    return {"client_failed": failed, "retry_ready_at": int(_te.retry_ready_at(rec, kv_ops.tpm_retry_get(str(rec.get("ek") or ""))))}
+    # the OPENER's view (it is the one a retry spacing can hold back; from TPM_RETRY_OWNER_HEIGHT anyone else waits
+    # for the expiry alone)
+    return {"client_failed": failed,
+            "retry_ready_at": int(_te.retry_ready_at(rec, kv_ops.tpm_retry_get(_te.retry_key(rec, h)), h))}
 
 
 def tpm_challengers_view(rec: dict, tip: int) -> dict:
@@ -2329,7 +2333,14 @@ def validate_transaction(transaction, logger, block_height, deep=False):
                     "this chip already has an enrolment in progress — finish it or wait for it to expire"
                 from protocol import TPM_ENROL_V3_HEIGHT
                 if _prev and block_height >= TPM_ENROL_V3_HEIGHT:
-                    _ready = _te.retry_ready_at(_prev, kv_ops.tpm_retry_get(str(ek["identity"])))
+                    from protocol import TPM_RETRY_OWNER_HEIGHT
+                    # TPM_RETRY_OWNER_HEIGHT: the cooldown is the OPENER's, so it holds back only the identity that
+                    # failed; anyone else waits for the record's expiry alone (one open enrolment per chip still holds).
+                    if block_height >= TPM_RETRY_OWNER_HEIGHT and str(_prev.get("owner")) != str(sender):
+                        _ready = _te.expiry(_prev)
+                    else:
+                        _ready = _te.retry_ready_at(
+                            _prev, kv_ops.tpm_retry_get(_te.retry_key(_prev, block_height)), block_height)
                     assert block_height >= _ready, \
                         f"this chip's last enrolment was not completed by its client — it can enrol again from block {_ready}"
             # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
