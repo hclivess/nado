@@ -60,9 +60,11 @@ function fnSrc(name) {
 }
 const zaddrChecks = (async () => {
   const A2 = await import(path.join(__dirname, "..", "static", "alghash2.js"));
-  const make = (wide, owner) => new Function("shieldWide", "shieldOwner", "alghash2",
+  // ZADDR_STWO is read from the wallet itself, so a renamed prefix cannot leave this test checking a stale one
+  const ZADDR_STWO = JSON.parse(SRC.match(/const ZADDR_STWO = ("[^"]+")/)[1]);
+  const make = (wide, owner, stwo = false) => new Function("shieldWide", "shieldOwner", "alghash2", "shieldStwo", "ZADDR_STWO",
     fnSrc("shieldAddr") + fnSrc("_b36") + fnSrc("parseShieldAddr") + "return { shieldAddr, parseShieldAddr };")(
-    () => wide, () => owner, A2);
+    () => wide, () => owner, A2, () => stwo, ZADDR_STWO);
   check("a legacy zaddr is the owner id in base36 and nothing else", () => {
     const owner = 0xfedcba9876543210n % A2.P;
     const z = make(false, owner);
@@ -78,6 +80,16 @@ const zaddrChecks = (async () => {
     if (!/^zaddr[0-9a-z]+$/.test(a)) throw new Error("zaddr carries more than a base36 number: " + a);
     const back = z.parseShieldAddr(a);
     if (back.map(String).join() !== owner.map(String).join()) throw new Error("parse does not return the owner");
+  });
+  check("a Stwo zaddr is the 256-bit BLAKE2s owner in base36 and nothing else, and refuses the other pool's", () => {
+    const owner = "00ff" + "a5".repeat(30);
+    const z = make(false, owner, true);
+    const a = z.shieldAddr();
+    if (a !== ZADDR_STWO + BigInt("0x" + owner).toString(36)) throw new Error("zaddr is not owner-only: " + a);
+    if (z.parseShieldAddr(a) !== owner) throw new Error("parse does not return the owner");
+    let refused = false;
+    try { z.parseShieldAddr("zaddr" + 12345n.toString(36)); } catch (e) { refused = true; }
+    if (!refused) throw new Error("a previous-pool zaddr was accepted by the Stwo pool");
   });
 })().catch((e) => { fails++; console.log("FAIL  zaddr checks could not run: " + e.message); });
 
