@@ -1,10 +1,10 @@
 """The Stwo shielded pool is dormant until its gate, absent from the exec root until it holds a note, and once live it
 alone takes deposits and spends (execnode/state.py rules_stwo_pool, _apply_stwo_shield, _apply_stwo_transfer).
 
-STWO_POOL_HEIGHT is (1 << 62) on gen 28 and 0 (never) at a reroll: the pool's zero-knowledge layer must be reviewed
-before a coin enters, so neither this chain nor the next may switch it on by itself. Pins, on the real exec state
-(throwaway HOME), with the gate moved to a test height and the native verifier stood in by a recording fake:
-  1. on the live gate no height ever routes to the Stwo pool;
+STWO_POOL_HEIGHT is 182000 on gen 28 (set after the in-house review of 2026-10-11/12; it was (1 << 62) while dormant)
+and 1 at a reroll. Pins, on the real exec state (throwaway HOME), with the gate moved to a test height and the native
+verifier stood in by a recording fake:
+  1. on the live gate no height below it routes to the Stwo pool, and every height from it does;
   2. with the pool empty, the exec root is the one the code before the pool computed (empty is absent);
   3. below the gate a deposit lands in the wide pool and a stwo_js bundle is refused; at the gate the deposit lands in
      the Stwo pool (commitment computed from the L1 amount) and a joinsplit3 bundle is refused;
@@ -40,8 +40,9 @@ def fresh(cursor):
     return st
 
 
-check("1. the live gate never routes to the Stwo pool (on gen 28: 1 << 62; at a reroll: 0 = never)",
-      P.STWO_POOL_HEIGHT == ((1 << 62) if P.CHAIN_GENERATION == 28 else 0) and not fresh(10 ** 9).rules_stwo_pool())
+check("1. the live gate routes to the Stwo pool from its height, never below (on gen 28: 182000; at a reroll: 1)",
+      P.STWO_POOL_HEIGHT == (182000 if P.CHAIN_GENERATION == 28 else 1)
+      and not fresh(P.STWO_POOL_HEIGHT - 2).rules_stwo_pool() and fresh(P.STWO_POOL_HEIGHT - 1).rules_stwo_pool())
 
 st = fresh(500)
 with_pool = st.state_root()

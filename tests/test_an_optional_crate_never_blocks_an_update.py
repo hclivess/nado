@@ -1,7 +1,8 @@
 """An OPTIONAL native crate is built on update but never blocks one (ops/self_update._OPTIONAL_CRATES).
 
-native/stwo_js (the Stwo shielded-pool verifier) must reach fleet nodes before STWO_POOL_HEIGHT is set, but until then
-nothing needs it: a node whose build fails must update and run normally (at the gate it stalls a Stwo spend instead —
+native/stwo_js (the Stwo shielded-pool verifier) was the first: it had to reach fleet nodes before STWO_POOL_HEIGHT was
+set, while nothing needed it yet, and became a REQUIRED crate in the commit that set the gate (2026-10-12; pinned at the
+end). The class stays for the next such crate: a node whose build fails must update and run normally (at the gate it stalls a Stwo spend instead —
 tests/test_a_node_without_the_stwo_verifier_stalls_instead_of_skipping.py). Pins, against a scratch repository with a
 fake cargo: a changed optional crate is built; a failed build is REPORTED, never purged and never required; no cargo is
 reported, not fatal; and /status native.ok ignores an optional crate's state.
@@ -17,6 +18,8 @@ import stat, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from ops import self_update as SU
+import types
+SU_LIVE = types.SimpleNamespace(_CRATES=SU._CRATES, _OPTIONAL_CRATES=SU._OPTIONAL_CRATES)   # before the test rewires them
 
 fails = 0
 
@@ -86,8 +89,9 @@ try:
           and nr["crates"]["native/o"]["state"] == "missing", nr)
 finally:
     os.environ["PATH"] = saved_path
-check("the live list names native/stwo_js as optional and never as required",
-      "native/stwo_js" in open(os.path.join(ROOT, "ops", "self_update.py")).read().split("_OPTIONAL_CRATES = ")[1].split("\n")[0]
-      and "native/stwo_js" not in open(os.path.join(ROOT, "ops", "self_update.py")).read().split("_CRATES = (")[1].split(")")[0])
+# native/stwo_js was optional until STWO_POOL_HEIGHT was set (2026-10-12); from that commit it is REQUIRED (a verifier the
+# chain depends on: rebuilt when missing or stale), and never both
+check("native/stwo_js is a REQUIRED crate since its gate was set, and not also optional",
+      "native/stwo_js" in SU_LIVE._CRATES and "native/stwo_js" not in SU_LIVE._OPTIONAL_CRATES)
 print("ALL PASS — an optional crate never blocks an update" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

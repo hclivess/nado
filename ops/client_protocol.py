@@ -12,8 +12,8 @@ so it is computed once per process; protocol.py only changes with a commit, whic
 TYPES. int / str / bool, and lists / tuples / dicts of them. Floats are refused (no floats near consensus; a client that
 needs a ratio gets the integer basis points). JavaScript numbers are exact only to 2^53 - 1, so a larger integer is
 emitted as a BigInt literal (`123n`) in the module and as a decimal STRING in the JSON — documented here because the
-two forms differ; STWO_POOL_HEIGHT is that large while dormant (2^62) and tests/test_constant_mirrors.py pins the
-rendering.
+two forms differ; STWO_POOL_HEIGHT was that large while dormant (2^62); tests/test_constant_mirrors.py pins the rendering on
+synthetic values.
 
 Imports nothing but protocol (stdlib + hashing): safe to import from a test or a tool without touching any database.
 """
