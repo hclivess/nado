@@ -1833,6 +1833,21 @@ def field_shield_check(data, block_height):
     # THE LEGACY FIELD POOL TAKES NO DEPOSITS: gen 25 closed it between REVIEW_R2_HEIGHT and SHIELD_WIDE_HEIGHT, and
     # from gen 26 both gates were 1, so that window is empty and every deposit from block 1 is a WIDE one. Height 0
     # (mempool admission on a genesis tip) was below both gates and keeps its old verdict: no shape check.
+    from protocol import STWO_POOL_HEIGHT as _STWO_H
+    if _STWO_H and _sh >= _STWO_H:
+        # THE STWO POOL (STWO_POOL_HEIGHT): the deposit must SAY it is for the Stwo pool (`pool: "stwo"`), the owner is any
+        # 64-hex BLAKE2s digest (no field restriction — the wide check refused ~1 in 2^30 of them) and rho a u64, EXACTLY
+        # what state._apply_stwo_shield computes the note from. INVARIANT: an untagged deposit is refused from the gate,
+        # because a wallet tab loaded before the gate builds a WIDE owner, and L1 cannot tell the two owners apart — the
+        # exec layer would put its coins under an owner nobody can spend.
+        assert data.get("pool") == "stwo", "from STWO_POOL_HEIGHT a shield deposit must name pool \"stwo\""
+        _ow = data.get("owner")
+        assert isinstance(_ow, str) and len(_ow) == 64 and _ow == _ow.lower() and all(c in "0123456789abcdef" for c in _ow), \
+            "stwo shield owner must be a 64-hex digest"
+        _rh = data.get("rho")
+        assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
+            and 0 <= int(_rh) < (1 << 64), "stwo shield rho must be a decimal u64"
+        return
     if _sh >= 1:
         # THE WIDE POOL (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
         # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
