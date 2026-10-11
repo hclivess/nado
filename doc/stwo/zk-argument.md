@@ -48,6 +48,9 @@ T0 preprocessed (22 public selector/table columns), T1 original (+8 salt columns
   programming of H) is statistically close to a real proof for any witness, against any q-query distinguisher.
 * **Randomness.** Statistical closeness below assumes the prover's random cells are truly uniform. The implementation
   draws them from ChaCha20 seeded with 32 fresh OS bytes, so the delivered guarantee is computational (PRG security).
+  The wallet's seed is `crypto.getRandomValues` in the Worker (static/stark/stwo_worker.js). The WASM's refusal of a
+  reused seed (`SeedBook`) is per instance, and the wallet starts a fresh instance per proof, so it catches a repeat
+  inside one instance only; across proofs, freshness rests on getRandomValues alone.
 
 ## 3. The verifier's view V (every value it receives)
 
@@ -97,8 +100,13 @@ JS IV constraint, which fixes a public column. *Check:* zkcheck resamples every 
 re-runs `assert_constraints_on_trace` on all three components: **PASS** (was FAIL for ROUND before the fix, section 9).
 
 **L1 (hiding leaves; roots simulatable).** Each leaf of T1-T3 is Blake2s over the leaf's lifted row sorted by column
-size, ending with 8 salt columns of full lifted size: 8 independent uniform M31 values = 8 log2(2^31 - 1) ~ 248 bits,
-fresh per leaf, never sampled at any OODS point and not entering F. In the ROM, the hash of an unopened leaf is a
+size, ending with 8 salt columns of full lifted size: 8 uniform M31 values = 8 log2(2^31 - 1) ~ 248 bits per leaf, never sampled at any OODS point and not entering F.
+*Correction (review 2026-10-11, rev-zk):* the salts are NOT independent per leaf. Each salt column is 2^lc random
+evaluations committed through Stwo's LDE (`extend_evals` at log lc), so its 2^lt leaf values are evaluations of ONE
+circle polynomial of 2^lc coefficients (8 x 2^lc degrees of freedom per tree for 2^lt leaves). What the argument needs
+still holds: given the Q' < 2^lc opened leaves, the 8 salts of any one unopened leaf are uniform (8 independent
+polynomials, each evaluated at Q' + 1 distinct points, rank Q' + 1 by the zero bound), so the per-leaf bound below
+stands. In the ROM, the hash of an unopened leaf is a
 uniform 256-bit string independent of the leaf's other content unless the distinguisher queried H on that exact input:
 probability <= q * 2^lt / 2^248 per tree. Merkle nodes over uniform independent children are uniform, so the root and
 all sibling hashes of a tree are distributed identically whatever the unopened leaves contain: the simulator commits to
@@ -244,6 +252,18 @@ Rank test over 11 proofs at 1/80/20, 11 proofs at 2/160/20 (the 10-proof loop wi
 | composition tree RND cols [8, 9, 10, 11] | 84 / 1964 | 164 / 1884 |
 
 The tight class is the ROUND running sum D at 2/160/20 (worst case slack 4, measured minimum 7): it passes, but a larger query count or more ROUND real rows would need ROUND at 2^11 rows. Before the fix, the same rank test passed for every class (`before/zkcheck_1_80_20.log`) while L0 and L4 failed: the per-column count was never the problem.
+
+Re-measured 2026-10-11 (rev-zk) against native/stwo_js itself, since zkcheck is gone:
+tests/test_a_stwo_proof_reveals_nothing_about_its_witness.py re-checks L0 (free rows resampled, constraints hold) and the
+L2/L3 rank condition for all 11 classes at 2/160/20 (rank on free rows = rank on all rows; ROUND D: 478-482 of 482-485
+functionals, 492 free rows), plus salts, seed separation and wire contents. L4 (the FRI-mask span) and L3b were NOT
+re-measured.
+
+**Outside the proof (not covered by this argument).** The L1 transactions around the proof publish what the proof hides:
+a deposit publishes the wallet's stable owner digest (= its zaddr) next to the signing account, and every spend's
+`field_transfer` blob is signed by the spender's own account (tests
+`test_a_stwo_deposit_does_not_publish_the_owner_behind_the_wallets_zaddr.mjs`,
+`test_a_stwo_spend_is_not_published_under_the_spenders_own_account.mjs`, both failing at 37d076c6).
 
 ## 9. Bugs found by the checks, and the fixes
 
