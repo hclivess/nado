@@ -10,6 +10,7 @@ import sys
 
 from ops import codec
 from ops.gossip import should_gossip, gossip_targets
+from ops.stwo_relay import StwoRelay, make_handlers as _stwo_relay_handlers, STWO_RELAY_MAX_BODY
 import zstandard as _zstd
 from aiohttp import web
 
@@ -3192,6 +3193,47 @@ _DA_PROXY_PATHS = ("meta", "have", "shard", "get")
 _EXEC_PORT = int(os.environ.get("NADO_EXEC_PORT", "9273"))
 
 
+def _exec_local_get(path, timeout=5):
+    """GET a JSON view from THIS host's exec node, or None (no exec node here is a normal configuration)."""
+    import urllib.request as _rq
+    try:
+        with _rq.urlopen(f"http://127.0.0.1:{_EXEC_PORT}{path}", timeout=timeout) as r:  # nosec B310 # literal http:// to loopback; redirects guarded process-wide (ops/outbound_guard.py)
+            return json.loads(r.read(4_000_000))
+    except Exception:
+        return None
+
+
+def _exec_local_da_publish(data: bytes):
+    """POST bytes to THIS host's exec node /da/publish -> the commitment (raises when there is none)."""
+    import urllib.request as _rq
+    req = _rq.Request(f"http://127.0.0.1:{_EXEC_PORT}/da/publish", data=data, method="POST",
+                      headers={"Content-Type": "application/octet-stream"})
+    with _rq.urlopen(req, timeout=120) as r:  # nosec B310 # literal http:// to loopback; redirects guarded process-wide (ops/outbound_guard.py)
+        return json.loads(r.read(1_000_000)).get("commitment")
+
+
+def _stwo_relay_submit(tx):
+    """The node's own field_transfer blob, merged and gossiped exactly as a user's /submit_transaction is."""
+    output = memserver.merge_transaction(tx, user_origin=True)
+    if should_gossip(output):
+        memserver.enqueue_gossip(tx)
+    return output
+
+
+# THE STWO SPEND RELAY (ops/stwo_relay.py): ON BY DEFAULT ON EVERY NODE — the default is in the CODE
+# (.get("stwo_relay", True)), because get_config() returns private/config.json verbatim and a key added to the template
+# reaches only new installs (CLAUDE.md rule 9). "stwo_relay": false opts a node out. It signs with the node's own key.
+_stwo_relay = StwoRelay(
+    keydict_fn=lambda: memserver.keydict,
+    tip_fn=lambda: memserver.latest_block["block_number"],
+    exec_get=_exec_local_get,
+    da_publish=_exec_local_da_publish,
+    submit=_stwo_relay_submit,
+    enabled_fn=lambda: get_config().get("stwo_relay", True) is not False,
+    healthy_fn=lambda: not getattr(memserver, "emergency_mode", False))
+stwo_relay_info, stwo_relay_post = _stwo_relay_handlers(_stwo_relay, _ip)
+
+
 async def da_proxy(request):
     """GET /da/{meta,have,shard,get} — forward to THIS host's exec node, which owns the DA store.
 
@@ -3265,10 +3307,12 @@ async def make_app(port):
     # chunked (no-Content-Length) case before decode.
     _DEFAULT_MAX_BODY = 2 * 1024 * 1024              # 2 MiB — generous for any normal tx/message/prekey
     _LARGE_BODY_PATHS = {"/submit_transaction"}      # the only route that carries an inline settle proof
+    # a Stwo spend's proof bundle (~6 MB of JSON) to the spend relay: its own cap, between the two
+    _PATH_BODY_CAPS = {"/stwo/relay": STWO_RELAY_MAX_BODY}
 
     @web.middleware
     async def _body_cap_mw(request, handler):
-        limit = _MAX_INLINE_TX if request.path in _LARGE_BODY_PATHS else _DEFAULT_MAX_BODY
+        limit = _MAX_INLINE_TX if request.path in _LARGE_BODY_PATHS else _PATH_BODY_CAPS.get(request.path, _DEFAULT_MAX_BODY)
         cl = request.content_length
         if cl is not None and cl > limit:
             return _resp(f"body {cl} exceeds {limit} for {request.path}", status=413)
@@ -3340,6 +3384,10 @@ async def make_app(port):
         web.get("/update_peer", update_peer),
         # DA reads, forwarded to this host's exec node — see da_proxy for why L1 carries them.
         web.get("/da/{what}", da_proxy),
+        # the Stwo spend relay (ops/stwo_relay.py): a wallet's private spend published under THIS node's account
+        web.get("/stwo/relay_info", stwo_relay_info),
+        web.post("/stwo/relay", stwo_relay_post),
+        web.options("/stwo/relay", stwo_relay_post),
         # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
         # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
         web.get("/transaction_ids", _dump_handler("transaction_ids",

@@ -82,7 +82,7 @@ def node(left, right):
     return _h([*_words(left), *_words(right)])
 
 
-def _wire_u64(v):
+def wire_u64(v):
     """A u64 as a JSON int or an ASCII decimal string; nothing else (a bool is not a number here)."""
     if isinstance(v, bool):
         return None
@@ -116,7 +116,7 @@ def parse_transfer(bundle, max_value):
     p = js.get("proof")
     if not (isinstance(p, str) and p and len(p) % 2 == 0 and all(c in "0123456789abcdef" for c in p)):
         return "skip field-transfer: the proof is not lowercase hex", None
-    unshield, fee = _wire_u64(js.get("unshield", 0)), _wire_u64(js.get("fee"))
+    unshield, fee = wire_u64(js.get("unshield", 0)), wire_u64(js.get("fee"))
     if unshield is None or fee is None:
         return "skip field-transfer: unshield and fee must be integers", None
     addr = ""

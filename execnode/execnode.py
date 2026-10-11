@@ -4903,6 +4903,42 @@ async def h_field_leaves(request):
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})
 
 
+async def h_stwo_spendable(request):
+    """GET /exec/stwo_spendable?root=&nf=&cm1=&cm2=&unshield=&fee= — would a Stwo spend naming these public inputs apply
+    in the NEXT block, proof aside? {"live", "ok", "reason"}. What the node's spend relay (ops/stwo_relay.py) asks
+    before it pays an L1 fee to publish a spend: a stale anchor, a spent or duplicate nullifier, a duplicate output or
+    an exit beyond the pool's value would be skipped by every exec node, and the relay's fee with it.
+    INVARIANT: decided by ExecState.stwo_spend_refusal, the method _apply_stwo_transfer itself asks, at the height the
+    spend can first land (cursor + 1, the _stwo_pool_next rule) — never a second copy of the rules here.
+    Every input is a public input of a spend that is about to be published; the answer reveals nothing the chain will
+    not. "live": False before STWO_POOL_HEIGHT (the relay then refuses)."""
+    from execnode import shielded_stwo as _S
+    q = request.query
+    if not _stwo_pool_next():
+        return web.json_response({"live": False, "ok": False, "reason": "the Stwo pool is not live"})
+    digs = [q.get(k, "") for k in ("root", "nf", "cm1", "cm2")]
+    if not all(_S.is_digest(d) for d in digs):
+        return web.json_response({"live": True, "ok": False, "reason": "root, nf, cm1, cm2 must be 64 lowercase hex"},
+                                 status=400)
+    un, fee = _S.wire_u64(q.get("unshield", "0")), _S.wire_u64(q.get("fee", "0"))
+    if un is None or fee is None:
+        return web.json_response({"live": True, "ok": False, "reason": "unshield and fee are integers"}, status=400)
+    with state._mutate_lock:
+        why = state.stwo_spend_refusal(*digs, un, fee, int(state.cursor) + 1)
+    return web.json_response({"live": True, "ok": why is None, "reason": why or ""})
+
+
+async def h_stwo_nullifiers(request):
+    """GET /exec/stwo_nullifiers — the Stwo pool's spent set, sorted (public: every one was published in a spend). A
+    wallet restoring its notes from the chain marks the spent ones by testing its OWN nullifiers against this list
+    locally, so the node never learns which nullifiers the wallet holds (the field_leaves rule for commitments)."""
+    if not _stwo_pool_next():
+        return web.json_response({"live": False, "nullifiers": []})
+    with state._mutate_lock:
+        nfs = sorted(state.stwo_pool.nullifiers)
+    return web.json_response({"live": True, "nullifiers": nfs})
+
+
 async def h_shielded_note(request):
     """Spend witness for a Phase-1 note (?cm=): position + Merkle path (public data, leaks nothing);
     with ?nf= also whether that nullifier is already spent. 404 if the commitment isn't in the pool."""
@@ -5021,6 +5057,8 @@ async def main():
                     web.get("/exec/field_shielded", h_field_shielded),
                     web.get("/exec/private_state", h_private_state),
                     web.get("/exec/field_leaves", h_field_leaves),
+                    web.get("/exec/stwo_spendable", h_stwo_spendable),
+                    web.get("/exec/stwo_nullifiers", h_stwo_nullifiers),
                     # Z7 (security review 2026-09-23): the delegated provers took the wallet's SPENDING KEY over
                     # HTTP. The wallet has proven on-device since interface.js proveTransfer2 (WASM), so these
                     # routes only remained as a way to hand a secret to a server. Unrouted for good and the
