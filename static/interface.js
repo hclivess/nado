@@ -10444,7 +10444,7 @@ function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "012
 function parseShieldAddr(a) {
   a = String(a || "").trim();
   if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
-  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? "that zaddr… is from the previous pool" : "that zaddr… is for a pool that is not live yet");
+  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? i18("shield.zaddrPrevPool", "that zaddr… is from the previous pool") : i18("shield.zaddrNotLive", "that zaddr… is for a pool that is not live yet"));
   if (shieldStwo()) {
     const d = _b36(a.slice(ZADDR_STWO.length));
     if (d >= (1n << 256n)) throw new Error("bad shielded address");
@@ -10728,7 +10728,7 @@ async function _onDeviceProve2(wit, execBase) {
   const lv = await execJSON("/exec/field_leaves", { base: execBase });
   const leaves = lv.leaves || [];
   const rules = await _proofRulesNow();
-  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
+  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error(i18("shield.poolDisagree", "the exec node and the relay disagree on which pool is live — retry in a moment"));
   if (shieldStwo()) return _onDeviceProveStwo(wit, execBase, leaves);
   if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
   // the tree depth is the exec node's (ZK_HARDEN_HEIGHT: 12 -> 48), read from the same response as the leaves
@@ -10793,7 +10793,7 @@ async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
 // (aux) and the public unshield + fee; a private transfer is bound to the empty address. Same shape of result.
 async function _onDeviceProveStwo(wit, execBase, leaves) {
   const pos = leaves.findIndex((l) => String(l) === String(wit.cm));
-  if (pos < 0) throw new Error("note not in the pool yet");
+  if (pos < 0) throw new Error(i18("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute"));
   const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
   const r = await _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1, o1: wit.o1, r1: wit.r1,
     v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: (pv < 0n ? -pv : 0n).toString(), fee: wit.fee,
