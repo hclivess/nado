@@ -9,8 +9,9 @@ time to avoid (review 2026-10-11).
   * apply charges a failed record's OWN opener from the gate, and revert restores exactly that row;
   * validation holds back only the opener that failed: a stranger's failures leave the owner free at expiry, while the
     failing opener still waits its own spacing;
-  * an all-answered record whose last challenge left the client fewer than TPM_REVEAL_GRACE blocks is not the client's
-    failure from the gate, and still was below it (history replays unchanged).
+  * from the gate only a wrong commitment is the client's failure: an all-answered record never committed is ambiguous
+    (a challenger can seal a secret no chip opens, or post in the last block) and charges nobody; below the gate it
+    still counted (history replays unchanged).
 
 Real apply path (account_ops.apply_tpm_enrol_tx) and validate_transaction over a throwaway state DB; the endorsement-
 chain kernel is stubbed, as in test_enrolment_retry_spacing.
@@ -42,7 +43,7 @@ V3, GATE = 50_000, 60_000
 P.TPM_ENROL_V3_HEIGHT = V3
 P.TPM_RETRY_OWNER_HEIGHT = GATE
 P.TPM_POOL_V2_HEIGHT = 1 << 62
-BASE, GRACE = P.TPM_RETRY_COOLDOWN_BASE, P.TPM_REVEAL_GRACE
+BASE = P.TPM_RETRY_COOLDOWN_BASE
 
 
 def check(name, cond, detail=""):
@@ -87,15 +88,18 @@ r = failed_rec("aa" * 32, GATE + 10, "stranger")
 check("below the gate the count row is the chip alone", E.retry_key(r, GATE - 1) == "aa" * 32)
 check("from the gate it is (chip, opener)", E.retry_key(r, GATE) == "aa" * 32 + ":stranger")
 
-# --- the late-challenge grace ---------------------------------------------------------------------------------------
+# --- only a wrong commitment is the client's failure -------------------------------------------------------------
 h0 = GATE + 100
 late = failed_rec("ab" * 32, h0, "o", last_blob=E.expiry(failed_rec("ab" * 32, h0, "o")) - 10)
-early = failed_rec("ab" * 32, h0, "o", last_blob=E.expiry(late) - GRACE - 1)
-check("a last challenge inside the grace is not the client's failure from the gate", not E.client_failed(late, GATE))
-check("one that left the client the grace still is", E.client_failed(early, GATE))
-check("below the gate the late one still counted (history replays unchanged)",
-      E.client_failed(late, GATE - 1) and E.client_failed(late))
-check("retry_ready_at follows: no spacing after a late challenge", E.retry_ready_at(late, 3, GATE) == E.expiry(late))
+early = failed_rec("ab" * 32, h0, "o", last_blob=h0 + 3)
+wrong = dict(early, state=E.STATE_FAILED)
+check("an all-answered, never-committed record charges nobody from the gate (late or early challenge)",
+      not E.client_failed(late, GATE) and not E.client_failed(early, GATE))
+check("a wrong commitment still does", E.client_failed(wrong, GATE))
+check("below the gate the all-answered record still counted (history replays unchanged)",
+      E.client_failed(late, GATE - 1) and E.client_failed(early))
+check("retry_ready_at follows: no spacing after an unanswered commit", E.retry_ready_at(early, 3, GATE) == E.expiry(early))
+check("and the doubling after a wrong commitment", E.retry_ready_at(wrong, 3, GATE) == E.expiry(wrong) + BASE * 8)
 
 # --- apply / revert charge the failed record's own opener ---------------------------------------------------------
 attest_native.verify_ek = lambda chain, t, height=None, roots=None: {"ok": True, "identity": CUR["ek"],
@@ -103,7 +107,7 @@ attest_native.verify_ek = lambda chain, t, height=None, roots=None: {"ok": True,
                                                                      "root_sha256": sorted(P.DEVICE_ATTEST_EK_ROOTS)[0]}
 EK1 = "e1" * 32
 CUR["ek"] = EK1
-old = failed_rec(EK1, GATE + 10, "stranger")
+old = dict(failed_rec(EK1, GATE + 10, "stranger"), state=E.STATE_FAILED)
 put_open(EK1, old)
 kv_ops.tpm_retry_set(EK1, 4)                                          # a pre-gate chip-wide count stays untouched
 h = E.expiry(old) + 1
@@ -152,7 +156,7 @@ def verdict(kd, h, nonce):
 victim, stranger = generate_keydict(), generate_keydict()
 EK2 = "e2" * 32
 CUR["ek"] = EK2
-bad = failed_rec(EK2, GATE + 10, stranger["address"])
+bad = dict(failed_rec(EK2, GATE + 10, stranger["address"]), state=E.STATE_FAILED)
 put_open(EK2, bad)
 kv_ops.tpm_retry_set(EK2 + ":" + stranger["address"], 8)              # the stranger has failed this chip many times
 end = E.expiry(bad)

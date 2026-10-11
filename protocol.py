@@ -1665,7 +1665,7 @@ def split_open_block_reward(reward: int):
 #                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT (132000 ->
 #                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
 #                                    TPM_RETRY_OWNER_HEIGHT (175000 -> 1: the retry count is per (chip, opener) and
-#                                    a late last challenge leaves the client TPM_REVEAL_GRACE blocks before it counts)
+#                                    only a wrong commitment counts as the client's failure)
 #                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
 #                                    epoch with no reveals takes the next revealed epoch's reveals)
 #                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
@@ -2172,8 +2172,9 @@ TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6
 # garbage sealed secret, or post it in the record's last block, and the client was charged a failure it never had a
 # chance to avoid. From this height the count is keyed on (chip, opener) and the cooldown applies only when that same
 # opener returns; a stranger's failures cost only the stranger, bounded as before V3 by one open enrolment per chip per
-# window. And an all-answered record counts against its client only if the last challenge left it TPM_REVEAL_GRACE
-# blocks to commit in. INVARIANT: a failure is charged to the party that could have acted, never to the chip's name.
+# window. And only a WRONG COMMITMENT counts against a client: an all-answered record it never committed is ambiguous
+# (an unopenable sealed secret is indistinguishable from a client that walked away), and the address-rotating stranger
+# was never bound by it. INVARIANT: a failure is charged to the party that verifiably failed, never to the chip's name.
 TPM_RETRY_OWNER_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —

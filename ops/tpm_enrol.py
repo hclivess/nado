@@ -342,8 +342,10 @@ def client_failed(rec: dict, height=None) -> bool:
     """True when an enrolment ended without proof through its CLIENT (TPM_ENROL_V3_HEIGHT retry cooldown): its commitment
     did not match, or every drawn challenger answered and the client never committed. An enrolment held up by a
     challenger is not the client's failure and retries at no cost. `height` is the block judging it: from
-    protocol.TPM_RETRY_OWNER_HEIGHT an all-answered record counts only if its last challenge left the client
-    TPM_REVEAL_GRACE blocks to commit in (a challenge in the record's last block left it none)."""
+    protocol.TPM_RETRY_OWNER_HEIGHT only a WRONG COMMITMENT is the client's failure. An all-answered record the client
+    never committed is ambiguous — a challenger can post a valid blob with a sealed secret no chip can open (the
+    RSA-OAEP `enc` is randomised and cannot be checked), or post it in the record's last block — so it is charged to
+    nobody; a stranger with a copied certificate rotates addresses anyway, so counting it bound only honest clients."""
     if not rec:
         return False
     if rec.get("state") == STATE_FAILED:
@@ -352,12 +354,10 @@ def client_failed(rec: dict, height=None) -> bool:
                 and len(_pairs(rec, "blobs")) == len(rec.get("challengers") or []))
     if not answered:
         return False
-    from protocol import TPM_RETRY_OWNER_HEIGHT, TPM_REVEAL_GRACE
-    if height is not None and int(height) >= TPM_RETRY_OWNER_HEIGHT:
-        # INVARIANT: mirror of faults()' commit grace — a party is charged only for a window it actually had.
-        last = max(int(v[2]) for v in _pairs(rec, "blobs").values())
-        return expiry(rec) - last > TPM_REVEAL_GRACE
-    return True
+    from protocol import TPM_RETRY_OWNER_HEIGHT
+    # INVARIANT: a party is charged only for what it could have done and verifiably did not (faults() is the
+    # challengers' half of the same rule).
+    return height is None or int(height) < TPM_RETRY_OWNER_HEIGHT
 
 
 def retry_key(rec: dict, height) -> str:
