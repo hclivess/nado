@@ -299,6 +299,10 @@ class ExecState:
         # a gen-25 root is byte-identical with or without this attribute (exec_root.records_projection).
         from execnode.shielded_wide import WideShieldedPool
         self.wide_pool = WideShieldedPool()
+        # STWO POOL (STWO_POOL_HEIGHT, doc/stwo-migration.md §5.1): present on every state for a uniform code path,
+        # in the root and the snapshot only once it holds a note or a nullifier (empty is absent).
+        from execnode.shielded_stwo import StwoShieldedPool
+        self.stwo_pool = StwoShieldedPool()
         # SHIELDED CONTRACTS (execnode/shielded_state.py): private application STATE, as against the pools
         # above which hold private VALUE. Per-contract note trees + one spent set. Contributes nothing to
         # the settled root until a contract actually holds a note, so its mere existence cannot move a root.
@@ -432,6 +436,8 @@ class ExecState:
         if self.wide_pool.depth != _want:
             raise ValueError(f"exec state's wide pool is depth {self.wide_pool.depth} at cursor {self.cursor}, where the "
                              f"protocol puts depth {_want} — refusing the snapshot (re-bootstrap this node)")
+        from execnode.shielded_stwo import StwoShieldedPool
+        self.stwo_pool = StwoShieldedPool.from_dict(d["stwo_pool"]) if "stwo_pool" in d else StwoShieldedPool()
         from execnode.shielded_state import ShieldedStatePool
         self.app_state = (ShieldedStatePool.from_dict(d["app_state"]) if "app_state" in d
                           else ShieldedStatePool())
@@ -484,6 +490,7 @@ class ExecState:
                     "field_pool": self.field_pool.to_dict(),
                     # EMPTY IS ABSENT (the app_state rule): a gen-25 snapshot must not change by a key it never needed
                     **({"wide_pool": self.wide_pool.to_dict()} if self.wide_pool.commitments or self.wide_pool.nullifiers else {}),
+                    **({"stwo_pool": self.stwo_pool.to_dict()} if self.stwo_pool.commitments or self.stwo_pool.nullifiers else {}),
                     "pool_value": self.pool_value, "pool_fees": self.pool_fees,
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
@@ -972,6 +979,8 @@ class ExecState:
             amount = int(amount)
             if not (0 < amount < MAX_EXIT_VALUE):     # note values must be < 2^61 to satisfy the range gadget
                 return f"skip field-shield: amount out of range ({amount})"
+            if self.rules_stwo_pool():
+                return self._apply_stwo_shield(amount, owner, rho)
             if self.rules_shield_wide():
                 return self._apply_wide_shield(amount, owner, rho)
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
@@ -1073,6 +1082,14 @@ class ExecState:
         # from) and the legacy path below runs unchanged.
         if not isinstance(stark_b, dict):
             return "skip field-transfer: bad bundle"
+        # STWO_POOL_HEIGHT: one pool again — from the gate only a `stwo_js` bundle spends, and only from the Stwo pool; the
+        # wide pool is frozen there exactly as the legacy pool was frozen at SHIELD_WIDE_HEIGHT.
+        if self.rules_stwo_pool():
+            if "stwo_js" not in stark_b:
+                return "skip field-transfer: the Stwo pool takes a stwo_js bundle"
+            return self._apply_stwo_transfer(bundle)
+        if "stwo_js" in stark_b:
+            return "skip field-transfer: stwo_js is not live before STWO_POOL_HEIGHT"
         if self.rules_shield_wide():
             if "joinsplit3" not in stark_b:
                 return "skip field-transfer: the wide pool takes a joinsplit3 bundle"
@@ -1252,6 +1269,73 @@ class ExecState:
         joinsplit3 bundle spends; below it the legacy field pool and joinsplit/joinsplit2 (same convention as
         rules_v2)."""
         return self.applying_height() >= 1
+
+    def rules_stwo_pool(self):
+        """The Stwo pool in force for the block being applied (protocol.STWO_POOL_HEIGHT; 0 = never)."""
+        from protocol import STWO_POOL_HEIGHT
+        return bool(STWO_POOL_HEIGHT) and self.applying_height() >= STWO_POOL_HEIGHT
+
+    def _apply_stwo_shield(self, amount, owner, rho):
+        """STWO_POOL_HEIGHT: the deposit's note in the Stwo pool, cm = shielded_stwo.commit(amount, owner, rho) computed
+        HERE from the authoritative L1 amount (C-2), the owner a 64-hex BLAKE2s digest. Z6 (no duplicate commitment) as on
+        every pool; the tree is 2^48 deep, so Z4 (full) is the pool's own refusal."""
+        from execnode import shielded_stwo as _S
+        try:
+            if not (0 < int(amount) < (1 << 64)):
+                return f"skip field-shield: amount out of range ({amount})"
+            cm = _S.commit(int(amount), str(owner), int(rho))
+        except Exception as e:
+            return f"skip field-shield: bad Stwo note ({e})"
+        with self._mutate_lock:
+            if cm in self.stwo_pool.commitments:
+                return "skip field-shield: duplicate note commitment"
+            try:
+                self.stwo_pool.append(cm)
+            except ValueError as e:
+                return f"skip field-shield: {e}"
+            self.pool_value += int(amount)
+            self._touch()
+        return f"field-shield {amount} -> stwo note #{len(self.stwo_pool.commitments)}"
+
+    def _apply_stwo_transfer(self, bundle):
+        """STWO_POOL_HEIGHT: apply a `stwo_js` bundle — the same order as the wide pool's (destination, proof, value
+        bounds, double-spend, mutate). The proof is verified by the native Stwo verifier (execnode/stark/stwo_js_native),
+        loaded on first use, so a node that could not build it fails THIS call, never its boot."""
+        js = (bundle.get("stark") or {}).get("stwo_js") or {}
+        try:
+            proof = bytes.fromhex(js["proof"]) if isinstance(js.get("proof"), str) else bytes(js["proof"])
+            root, nf, cm1, cm2 = (str(js[k]).lower() for k in ("root", "nf", "cm_out1", "cm_out2"))
+            unshield, fee = int(js.get("unshield", 0)), int(js["fee"])
+        except Exception as e:
+            return f"skip field-transfer: malformed stwo_js bundle ({e})"
+        addr = ""
+        if unshield:
+            addr = bundle.get("withdraw_addr")
+            if not addr or not validate_address(addr, allow_reserved=False) or addr in self.contracts:
+                return "skip field-transfer: withdraw_addr is not a spendable account"
+        if not (0 <= unshield <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
+            return "skip field-transfer: unshield/fee out of range"
+        if not self.stwo_pool.knows_root(root):
+            return "skip field-transfer: unknown anchor root"
+        from execnode.stark import stwo_js_native
+        ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, addr)
+        if not ok:
+            return f"skip field-transfer: {reason}"
+        with self._mutate_lock:
+            if self.stwo_pool.has_nullifier(nf):
+                return "skip field-transfer: nullifier already spent (double-spend)"
+            if cm1 == cm2 or cm1 in self.stwo_pool.commitments or cm2 in self.stwo_pool.commitments:
+                return "skip field-transfer: duplicate note commitment"
+            self.stwo_pool.spend(nf)
+            for c in (cm1, cm2):
+                self.stwo_pool.append(c)
+            self.pool_value -= unshield + fee
+            self.pool_fees += fee
+            if unshield:
+                self.uw_nonce += 1
+                self.unshield_withdrawals[str(self.uw_nonce)] = {"addr": addr, "amount": unshield}
+            self._touch()
+        return f"field-transfer stwo nf {nf[:12]}… unshield {unshield} fee {fee}"
 
     def wide_enter(self, height):
         """Put the wide pool at the depth in force for block `height` (shielded_wide.depth_at): at block 1 the

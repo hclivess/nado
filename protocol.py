@@ -1673,6 +1673,8 @@ def split_open_block_reward(reward: int):
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 #                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
+#                                    STWO_POOL_HEIGHT ((1 << 62) -> 0: the Stwo shielded pool stays OFF across a reroll
+#                                    until its zero-knowledge layer is reviewed; a protocol commit switches it on)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2147,6 +2149,12 @@ REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 # identity from its carried value, so its first recert is a lapse through fidelity_step exactly as the live apply did.
 # Weights of epochs before it are unchanged: no back-pay (operator, 2026-10-10). The first block of epoch 2667.
 CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
+
+# THE STWO SHIELDED POOL (doc/stwo-migration.md §5.1; execnode/shielded_stwo.py, native/stwo_js). From this height
+# deposits land in the Stwo pool and only a `stwo_js` bundle spends from it. DORMANT ON PURPOSE — `else 0` (never) as
+# well: its zero-knowledge layer is ours (scratchpad stwo0/zkproof/ARGUMENT.md) and must be reviewed outside before a
+# coin enters, so a reroll must not switch it on by itself. Turning it on is a protocol commit that sets a real height.
+STWO_POOL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 0
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a

@@ -184,6 +184,12 @@ def records_projection(st):
         from execnode.stark import znote as _Z
         out[record_key(T_DIGEST, "wide_root", _Z.to_hex(wp.root()))] = 1
         out[record_key(T_DIGEST, "wide_nfset", wp.nullifier_digest())] = 1
+    # STWO POOL (STWO_POOL_HEIGHT): root and spent set as digests in the POSITION, EMPTY IS ABSENT exactly as the wide
+    # pool's — the projection is byte-identical to today's until its first note, so the code ships without moving a root.
+    sp = getattr(st, "stwo_pool", None)
+    if sp is not None and (sp.commitments or sp.nullifiers):
+        out[record_key(T_DIGEST, "stwo_root", sp.root())] = 1
+        out[record_key(T_DIGEST, "stwo_nfset", sp.nullifier_digest())] = 1
     # SHIELDED CONTRACTS: one record per contract that holds private state, plus one for the spent set.
     # getattr, because an exec state built before this feature simply has no pool and must project to the
     # same root it always did — an absent attribute is not an empty pool, it is "this half is unchanged".
