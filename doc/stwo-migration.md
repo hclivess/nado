@@ -385,11 +385,18 @@ Carrying the shielded pool itself is NOT built — see doc/reroll.md "What cross
 ## 7. Decisions for the operator
 
 1. Adopt Stwo for the shielded join-split, after the 5.0 measurement?
-2. Replace alghash2 with Blake2s, the hash Stwo's production circuits prove?
-3. Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)?
+2. ~~Replace alghash2 with Blake2s~~ — decided 2026-10-11: all of Goldilocks retires (alghash, alghash2, our STARK
+   stack, the wide pool, the wallet prover) at a reroll; the plan is §9.
+3. Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)? Costs for both, measured
+   against this tree, in §9.4; still open.
 4. ~~Fix the fidelity divergence on the live chain~~ — fixed from 160,020, no back-pay (2026-10-10).
 5. When to reroll: §5.1 (private payments) needs none — an exec-rules gate, while the pool is empty. A reroll is
-   needed only for §5.2/§5.4 (the settlement proof and the exec-root hash), and it uses the carry (§6).
+   needed only for §5.2/§5.4 (the settlement proof and the exec-root hash), and it uses the carry (§6). Its
+   prerequisites and order are §9.5.
+6. The tree shape of the BLAKE2s exec root (depth-256 sparse vs compressed) — frozen at the reroll, so decided at §9.5
+   G1 after its measurement.
+7. Whether the reroll waits for a landing Stwo settlement prover (§9.5 option S) or ships quorum-settled and turns the
+   prover on by a gen-29 gate (option R; §9.3 measures why the proof path settles almost nothing today).
 
 ## 8. Risks
 
@@ -399,6 +406,257 @@ Carrying the shielded pool itself is NOT built — see doc/reroll.md "What cross
 - **WASM proving on low-end phones is unmeasured**; that is what 5.0 is for.
 - **The carry is consensus.** A carry bug forks or loses money at genesis. Mitigation: the "loses nothing" test runs
   against the live chain continuously, and rehearsals follow the gen-28 pattern (memory: reroll-rehearsal-lessons).
+
+## 9. Retiring Goldilocks (plan, 2026-10-11)
+
+The operator's decision (2026-10-11): everything built on the Goldilocks field (p = 2^64 − 2^32 + 1) goes — our STARK
+stack, `alghash` and `alghash2`, recursion and folds, the wide pool (joinsplit3), the wallet's Goldilocks prover —
+replaced by Stwo (Circle STARK over M31) and BLAKE2s, switched at a reroll with the §6 carry. Nothing is deleted
+before the reroll. This section is the plan: what depends on the field (read from the code on `next` at 11e751ed,
+not from grep hits alone), what replaces each piece, the order, and what is deleted at the end. Counts are `wc -l`
+on that tree; live numbers are from this node's own files and journal on 2026-10-11 (read-only).
+
+### 9.1 Inventory: what depends on the field
+
+The field is not only the prover's. It is the **word of the zkVM** (`execnode/zkvm.py`: "every value is a Goldilocks
+field element"; ADD/SUB/MUL wrap mod P; LT/DIVMOD/LO32 are windows sized to P), and the zkVM is the only runtime
+(`runtimes._REGISTRY` holds one entry). So it reaches contract storage, game clients and two L1 header fields, not
+just proofs.
+
+**(a) Consensus state format** — bytes every node must agree on; can change only at a reroll.
+
+| what | where | form today |
+|---|---|---|
+| exec root | `execnode/exec_root.py` (280) | `alghash2.rnode(KV_ROOT, RECORDS_ROOT)`, both depth-256 sparse alghash2 trees (`storage_tree.py`, 441); pinned `EXEC_GENESIS_ROOT` (protocol.py) |
+| KV positions | `execnode/stark/exec_state_bind.py` (309) | `slot_key`/`code_key`/`meta_key` = alghash2 `hashn` of cid limbs + slot, 256 bits |
+| record positions | `exec_root.record_key` | alghash2 `hashn([DOM_REC, tag, 5×52-bit limbs])`; leaf values reduced `% P` |
+| contract storage | every zkVM contract | slot keys `field·2^32 + key` computed mod P; values are field elements |
+| owner encoding | `runtimes.zkvm_addr_digest` | `blake2b("zkvmaddr", addr) mod P`; the `zk_addrs` registry maps it back |
+| chain reads | `runtimes._ZkVM.run`, settle branch | BHASH / BEACON reduced `% P` before a contract sees them |
+| in-VM hash | `zkvm.OPS` HINIT/HABS/HR0..HR26/HOUT (30 of 61 opcodes) | the 64-bit `alghash` sponge (27 rounds, width 2); contracts' commit-reveal and every roll `LO32(alghash(x))` |
+| asset ids | `state.py:168` | `alghash.hashn([issuer_digest, seed]) % P` (0 assets live) |
+| L1 block header | `ops/block_ops.construct_block` → `mldsa_block_auth.auth_root` | `auth_root` = a 64-bit **alghash** fold over the block's authorization leaves, **inside the block-hash preimage**; recomputed in `core_loop` verify. The aggregate-proof path it served is gone (`verify_auth_proof` returns False) |
+| L1 exec summaries | `calls_commit.block_summary` → `kv_ops.exec_summary_put` | `execsum:<h>` call leaves (alghash2 `entry_leaf`) and records effects; in `meta` but **excluded** from the L1 root (`ROOT_EXCLUDED_META_PREFIXES`) |
+| shielded pools | `shielded_field.py` (140, alghash), `shielded_wide.py` (252, alghash2), `shielded_state.py` (515, appnote over alghash) | all empty: 0 commitments in `field_pool` and `shielded` at cursor 168,811; no app-note pool in the live state |
+
+**(b) Consensus verifiers.** The L1 settle branch (`ops/transaction_ops.py` ~2560-2900: `settlement_sparse`,
+`calls_commit.verify_calls_bound_to_summaries`, `records_bind.bind_and_verify_records`, run in `ops/proof_child.py`);
+L1 exit verifiers (`exec_root.verify_withdrawal/_dividend/_unshield/_outbox_msg`: an alghash2 path of depth 256); L1
+`field_shield_check` (wide owners parsed as alghash2 lanes); exec apply of `joinsplit3` / `joinsplit2` bundles
+(`joinsplit_transfer.verify_transfer`). The import closure of the L1 entry points is **29 of the 55 modules in
+`execnode/stark`, 11,168 lines** (stark, fri, fri_verify, recursion, recursive_verify, comp/rowcomp_verify, air_ir,
+backend, extf, transcript, merkle, alghash, alghash2, field, goldilocks_native, stark_native, storage_tree,
+exec_state_bind, calls_commit, records_bind/transition, state_transition, io_replay, membership, znote,
+mldsa_block_auth, settlement_sparse, native_guard). Native: `native/alghash2` (424 .rs), `wasm/goldilocks` (111 .rs,
+loaded as `libgoldilocks.so` by `field.py`), both REQUIRED by `native_guard` and listed in `ops/self_update._CRATES`.
+
+**(c) Prover only.** `execnode/settlement_proofs.py` (615), `vm_circuit.py` (1,314), `merkle_update`, `slot_key_air`,
+`state_io_tie`, `state_merge`, `fs_*`, `io_bind`, `deep_eval`, `logup*`, `recursion_depth/_authdepth`,
+`recursive_verify_hetero`, `settlement_aggregate`, `bound_epoch_o1`, `zkvm_alghash2`, `soundness` (the model);
+`native/starkprove` (2,331 .rs, the LDE arena) and `native/starkcompose` (172 .rs).
+
+**(d) Wallet and clients.** `static/stark/{field,fri,merkle,stark,transcript,tree,bhash,hashing,joinsplit2,joinsplit3}.js`,
+`static/alghash.js`, `static/alghash2.js`, `static/vendor/goldilocks-wasm.js` (1,303 lines / 75 KB together);
+`static/interface.js` imports all of them for the legacy and wide pools and reads `/status` `proof_rules`;
+`static/nadodapp.js` exports `algHashn`/`ALG_P` to **18 game pages and engines** (pets-genes, autogame-engine/-daily,
+poker, battleship, coinflip, stormhold, hamster, …), which mirror the contracts' rolls and commitments and replay
+carried history with them. Exec endpoints whose wire format is field-shaped: `/exec/field_leaves`,
+`/exec/field_shielded`, `/exec/shielded_note`, `/exec/verify_call`, `/exec/settlement`, and the exit-proof
+endpoints (packed alghash2 paths; the wallet forwards none of them — no reference in `interface.js`).
+
+**(e) Tests and tools.** 186 files in `tests/` (30,261 lines) touch the field (9.7). Tools: `tools/bench_settle_fri.py`,
+`tools/bench_fri_blowup.py` (381), `tools/replay_chain.py`; `scripts/live/_{autogame,cf,faucet,hexholm,stormhold}_e2e.py`;
+`scripts/build_native_all.sh`, `scripts/install.sh`, `.github/workflows/ci.yml`, `scripts/run_tests.sh`, `tests/ci_exclude.txt`.
+
+**What `native/mldsa44` says about Goldilocks.** Two doc comments (`src/lib.rs` lines 1 and 11: "matches the Rust
+prover pattern in wasm/goldilocks", "same as the Goldilocks lib") naming the build pattern it copied. ML-DSA-44 has no
+field dependency on Goldilocks (its own ring is mod 8,380,417), the crate links nothing from `wasm/goldilocks`, and
+nothing changes in it except those two comments at the deletion. `execnode/stark/mldsa_block_auth.py` is the module
+that does depend on the field (the header `auth_root` above).
+
+### 9.2 What replaces each, and what the carry re-encodes
+
+| category | replacement | carry |
+|---|---|---|
+| exec root, positions | BLAKE2s-256 everywhere: `root = H(dom, kv, rec)`; `slot_key = H(DOM_KVPOS, cid, slot)`, likewise code/meta/record keys; leaves `H(dom, pos, value)`. Python `hashlib.blake2s` in the node (no crate); the same function as a Stwo Blake component in the settlement circuit | recomputed by a fresh node from the carried storage; the result is pinned as the new `EXEC_GENESIS_ROOT` (§6.2) |
+| tree shape | **frozen at the reroll, so decided before it**: depth-256 sparse (today's shape, 256 compressions per path per side in-circuit) or a compressed sparse tree (path ≈ log2 of live leaves). Exit proofs, the settle statement and `exec_genesis` all follow it | — |
+| VM word and hash | decided by 9.4 (route A: our VM re-specified; route B: Cairo) | 9.4 |
+| owner digests in storage | under either route an owner becomes ≥ 128 bits of BLAKE2s (route A: a multi-limb word; route B: a felt252) | **359 slot values** are owner digests (bet 308, slots 34, dice 10, autogame 2, pets 2, hamster 1, tictactoe 1, roulette 1) and **2 slot keys** contain one (`field·2^32 + d mod P`, found with field ids 0-63); remapped through `zk_addrs` (164 entries), which crosses re-keyed. Old digest → address → new digest is one table walk, the §6.2 hook pass |
+| hash-valued storage | — | **12 further values ≥ 2^32** (slots 3, hamster 5, pets 3, faucet 1) are commitments, pins or seeds. Rule for a hash change: **anything a future call will hash is in flight**, even if at rest under a same-hash reroll — refund or rebase it through the existing `carry_in_flight` / `carry_rebase` hooks; never carry a value whose meaning was "alghash of something" |
+| client-side history | game clients replay carried runs (autogame legs, pet rolls) from stored values with `algHashn` | either keep `static/alghash.js` (2.5 KB, non-consensus) frozen as a "carried history" decoder, or close those runs in the carry. Operator's call per game; the deletion list (9.7) assumes the first |
+| `auth_root` | `blake2b` fold of the same leaves (`hashing.blake2b_hash`), same header field, or drop the field. Recommended: keep the field, change the hash — one function, no header-shape change | none (header of new blocks only) |
+| execsum leaves | the new settle statement's call leaves (BLAKE2s) | none (excluded from the root, rebuilt from block 1) |
+| exit verifiers | BLAKE2s path verify, `hashlib`, depth per the tree decision | pending exits fold into L1 at the carry, as today |
+| shielded pools | the Stwo pool (§5.1) is the only pool | legacy, wide and app-note pools must be empty at the carry (they are; the carry already refuses otherwise, §6.4b) |
+| asset ids | `H(dom, issuer, seed)` as 64-hex, a different shape from the carried decimal ids, so no collision by construction | carried verbatim (0 today) |
+
+### 9.3 Settlement proofs do not land, and what that changes
+
+Measured from this node's `nado-exec` and `nado` journals for the 7 days to 2026-10-11: **5** settle-with-proof
+bundles built (8.83 MiB each, inline) and **4** resubmissions; **17** spans skipped because the records half moved and
+could not be proven (the collect-dividend refusal of memory `settle-proof-landing`, still open); on L1, **14** KV-half
+verifications on this node passed in 14.7-87.8 s, **1** verify child was killed (rc −15), and **2** candidates were excluded with
+"pre_root must extend the settled tip" — a quorum settle had already moved the tip. `/get_settled` does not say whether
+a cursor settled by proof or by quorum, so how many of the 5 landed is not readable without opening the node's
+database; in every case the bonded quorum reached the same cursor within minutes. **The quorum is what settles the exec
+root today.**
+
+Consequences for the plan:
+
+1. **The Stwo settlement prover is not on the reroll's critical path.** Retiring the Goldilocks prover at the reroll
+   removes a path that settles almost nothing. The reroll can ship with quorum settlement and the proof branch
+   refused (one gate keyed like `STWO_POOL_HEIGHT`: `STWO_SETTLE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 0`, off across the reroll), and the Stwo settlement turns
+   on later when a protocol commit sets that gate to a height on generation 29 — no second reroll — **provided the statement it will prove
+   is fixed by the reroll**: the root hash, the tree shape, the position functions and the call-leaf format. Those
+   are (a)-class and cannot change after.
+2. So what must exist before the reroll is a **Stwo prototype that proves one sparse-path update and one call of each
+   opcode class under the frozen formats**, measured; not a landing prover.
+3. The records-half refusal (collect_dividend's amount and nonce are exec state, not calldata) has to be designed into
+   the new statement from the start, not ported: it is the reason 17 of 22 attempts in the window were never submitted.
+4. The interim loses the trustless path in principle (SETTLE_PROOF_TRUSTLESS), and that is a real reduction while it
+   lasts; it is the operator's call whether the reroll waits for a landing Stwo prover instead (strict order, 9.5
+   option S).
+
+### 9.4 The open decision: how contracts are proven
+
+Both routes need the 9.2 hash and carry work. They differ in what proves a contract call and who maintains it.
+
+**Route A — hand-written Stwo components for our zkVM.** Keep the ISA idea (registers, SLOAD/SSTORE/PAY io log,
+zkpy/zkasm front-end) and re-specify the word: M31 cannot hold amounts (1 NADO = 10^10 raw), so the word becomes
+limbs (e.g. 4×16-bit, range-checked by lookup) with checked integer arithmetic instead of mod-P wrap, sound
+comparisons over the whole word (retiring the `RANGE; RANGE; LT` 2^62 idiom), and one BLAKE2s-compression opcode in
+place of the 30 alghash round opcodes. Components: CPU (one row per step), storage/io bus (LogUp), Blake (from
+`native/stwo_js`), range checks, the sparse-path updates and the records transition.
+- Cost, measured where possible: rewrite `vm_circuit.py` (1,314) + `settlement_sparse` (645) + transitions
+  (`records_transition`, `state_transition`, `merkle_update`, 843) as Rust components. The one comparable we own,
+  `native/stwo_js` (2,547 .rs for one fixed statement, landed in one day's commits on 2026-10-11 with the phase-0 prototype behind it),
+  suggests **3-5× that: ~8-12k lines of Rust**, plus `zkvm.py` (537), `zkvmasm.py` (175), `zkpy.py` (495) re-specified,
+  and **all 29 game builders (12,584 lines) re-audited** for arithmetic that relied on field wrap, with their 18 client
+  mirrors moved to BLAKE2s.
+- What it keeps: our VM AIR — the class of self-written soundness code that §1 lists every failure in. Stwo removes
+  the FRI/PCS/transcript half of that surface; the constraint half stays ours.
+
+**Route B — Cairo programs proven by stwo-cairo.** Rewrite the contracts in Cairo; the exec layer runs the Cairo VM
+(or the settler does, with the exec node replaying the io log as today); the node verifies a stwo-cairo proof with
+StarkWare's verifier (the part zkSecurity reviewed).
+- Cost: **29 contracts rewritten in Cairo** (the 12,584 Python-builder lines are mostly zkasm text, so this is a
+  rewrite, not a port), the exec runtime adapter (`runtimes.py`, `state.py` call path), the game clients' mirrors
+  (to whatever hash the Cairo contracts use; BLAKE2s keeps 9.2 uniform), a pinned Scarb/Cairo toolchain on the
+  settler, and the developer story (Cairo instead of zkpy). Deleted on top of route A's list: `zkvm.py`, `zkvmasm.py`,
+  `zkpy.py`, `zkvm_examples.py` (1,265).
+- What it buys: the VM AIR is maintained and attacked by others; felt252 holds every 64-bit value and a 251-bit
+  owner digest, so the carry re-encodes owners once and never again.
+- To check before choosing (entry measurement of 9.5 G1): that stwo-cairo at the pinned revision proves a BLAKE2s
+  opcode/builtin, the settler's peak memory for one representative span (the frontier's privacy proof is 1.81 GiB),
+  and whether the verifier builds on stable rustc for the fleet (the `native/stwo_js` split of §5.1).
+
+Not presented as a route: keeping mod-P word semantics and emulating them in M31 limbs. It would carry storage
+untouched, but it keeps Goldilocks as the VM's arithmetic, which is what the decision retires.
+
+### 9.5 Phases
+
+Each phase has an entry measurement (it decides whether and how the phase runs) and an exit test (it decides that the
+phase is done). Nothing below changes the live chain until G7, except where a dormant gate is named.
+
+| phase | entry measurement | work | exit test |
+|---|---|---|---|
+| **G0 census** (done 2026-10-11, this section) | — | inventory 9.1, live storage census 9.2, settle census 9.3 | numbers recorded here; rerun at G7 |
+| **G1 route + tree** | stwo-cairo checks of 9.4; a Stwo prototype proving N depth-256 BLAKE2s path updates vs a compressed tree, on the settler; the busiest real span's touched-slot count (from DA) | operator chooses route A or B and the tree shape | the decision written into §7; prototype numbers in doc/stwo/ |
+| **G2 BLAKE2s commitment** | none beyond G1 | new `exec_root`/positions/records/exit verifiers/execsum leaves/`auth_root`, behind `BLAKE_EXEC_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1` (GATE LEDGER, doc/reroll.md, test_gate_reroll_transfer) | gen-28 roots byte-identical (dormant); on a gen-29 tree: the carried root recomputed equally on two machines, every pending exit verified by the new path verifier, forged path/position refused |
+| **G3 contract runtime** | route from G1 | A: new word + BLAKE2s opcode in `zkvm.py`, zkpy/zkasm, 29 builders, game clients; B: Cairo contracts + runtime adapter | every contract's reference-model test passes on the new runtime (the autogame/pets three-implementation pattern), `test_every_opcode_is_provable` replaced by its route-A/B form, games walked in a headless browser at 412 and 360 px |
+| **G4 Stwo settlement statement** | G1 prototype numbers | statement (pre/post root, call leaves, chain reads, records effects incl. collect_dividend from authenticated pre-state), verifier crate on stable rustc behind `native_guard`, prover on the settler | the forgery suite ported from today's settle tests (wrong pre-root, cid_io, chain-read substitution, PAY/asset io, records shift, counterfeit code) refused by the new verifier; an honest span verifies; verify time and proof size measured |
+| **G5 carry re-encoding** | rerun census | extend `tools/alphanet6_carryforward.py` (→ `tools/carry.py`, §6.5): owner digests and digest keys remapped through `zk_addrs`, hash-valued slots refunded/rebased, assets, registry re-keyed, new genesis root pinned, all pools empty | "a reroll loses nothing" (§6.5) on the live chain, plus: no slot value or key equal to an old digest remains; the remapped digest count equals the census; a carried pet, battle and autogame run playable on a loopback testnet from the carried genesis |
+| **G6 wallet** | — | Stwo pool only; drop legacy/wide UI, `proof_rules` read, alghash2/stark imports; nadodapp hash swap; i18n for any string touched | `node tests/i18n_coverage.mjs`; deposit, private send, unshield walked as a user on the testnet from the served URL (CLAUDE.md rule 6); a stale tab refused cleanly |
+| **G7 reroll (generation 29)** | fleet `status_pool` uniform; oldest fleet rustc ≥ Stwo's (needs the `/status` field of §5.1 first) | `CHAIN_GENERATION` bump, doc/reroll.md runbook, the gen-28 rehearsal pattern (full suite + testnet + headless walk on the gen-29 tree) | fleet on one genesis; exec root equals the pinned constant on every exec node; first quorum settle lands; exits claim |
+| **G8 Stwo settlement on** | 2 weeks of the G4 prover producing verifying proofs against live gen-29 spans, off-chain | `STWO_SETTLE_HEIGHT` set at the fleet's adoption block (CLAUDE.md rule 3) | proofs land; L1 verify time measured on the slowest fleet node |
+| **G9 deletion** | gen-29 chain replayed block for block on the deletion tree (the gen-27 cleanup recipe) | 9.7 | same hashes and roots at every height; pyflakes zero; `test_no_undefined_names`; suite green |
+
+**Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
+in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or
+before G7 (option S: the reroll waits until proofs land on a testnet; slower, keeps the trustless path continuous).
+G9 right after G7 is safe for consensus — a gen-29 node never verifies a gen-28 block — and the gen-28 verifier stays
+reachable in git history for `tools/replay_chain.py` against an archive of the old chain.
+
+**Size, from the counts above.** New: G2 ~0.6-0.9k lines Python (it replaces 2,806 lines of field-specific
+commitment code with hashlib), G4 ~8-12k Rust (route A) or the runtime adapter plus verifier embedding (route B),
+G3 the 29 contracts (re-audit or rewrite of 12,584 lines) and 18 client files, G5 a hook pass over 8 contracts
+holding digests. Deleted: ~21.2k lines of code and 9.9k of tests (9.7).
+
+### 9.6 Risks
+
+- **The tree shape is permanent.** Depth-256 BLAKE2s paths cost 256 compressions per side per touched slot in-circuit;
+  choosing it without the G1 measurement could make the settlement prover too slow to ever land, and only a reroll
+  undoes it.
+- **Route A keeps our own constraint system.** Every §1 finding except FRI/transcript ones would still be possible in
+  a hand-written VM AIR. Mitigation: the G4 forgery suite and an outside review before G8.
+- **The carry touches money-bearing storage.** 359 digests in bet, slots and dice tables sit next to open stakes. A
+  missed digest leaves a payout that reverts (`split_io` cannot resolve it); the exit test checks for zero residue,
+  and a slot the hooks cannot classify refuses the carry rather than guessing.
+- **Client history.** Clients that replay carried runs need the old hash; deleting `static/alghash.js` too early
+  breaks the display of carried state, not consensus.
+- **Toolchain.** Stwo is fetched from git and pins a nightly; fleet nodes build on stable without our root (§5.1).
+  A node that cannot build the verifier must stall, never skip (tests/test_a_node_without_the_stwo_verifier_stalls_instead_of_skipping.py
+  is the pattern).
+- **Left-over build products.** Deleting `native/alghash2`, `starkprove`, `starkcompose`, `wasm/goldilocks` leaves
+  untracked `target/` and `.so` files on every node; harmless unless a later commit tracks a file at one of those
+  paths (memory: untracked-file-bricks-fleet-fastforward). Remove them from `_CRATES` and the staleness checks in the
+  same commit, never reuse the paths.
+- **Interim without trustless settlement** (option R): the exec root is quorum-settled only, as it effectively is now.
+
+### 9.7 Deletion list (G9)
+
+Line counts are `wc -l` of tracked files at 11e751ed.
+
+**Code, deleted outright (~21.2k lines):**
+- `execnode/stark/` except `stwo_js_native.py` and `native_guard.py` (move both to `execnode/` or `ops/`; `signatures.py`
+  and `ops/attest_native.py` import `native_guard`) and the eight modules rewritten under BLAKE2s in G2
+  (`exec_state_bind`, `storage_tree`, `calls_commit`, `records_bind`, `records_transition`, `state_transition`,
+  `state_merge`, `mldsa_block_auth` — 2,806 lines replaced): **45 files, 14,493 lines** (air_ir, alghash, alghash2,
+  appnote_circuit, backend, bound_epoch_o1, comp_verify, deep_eval, extf, field, fri, fri_verify, fs_chain,
+  fs_incircuit, fs_step, goldilocks_native, io_bind, io_replay, joinsplit, joinsplit2, joinsplit3, joinsplit_circuit,
+  joinsplit_transfer, logup, logup_bind, membership, merkle, merkle_update, recursion, recursion_authdepth,
+  recursion_depth, recursive_verify, recursive_verify_hetero, rowcomp_verify, settlement_aggregate,
+  settlement_sparse, slot_key_air, soundness, stark, stark_native, state_io_tie, transcript, vm_circuit,
+  zkvm_alghash2, znote).
+- `execnode/settlement_proofs.py` (615); `execnode/shielded_field.py` (140), `shielded_wide.py` (252),
+  `shielded_state.py` (515) — and with them the phase-1 blake2b pool `execnode/shielded.py` (328) and
+  `static/shielded.js` (99), which are not field code but serve only the retired legacy pool.
+- `native/alghash2`, `native/starkprove`, `native/starkcompose`, `wasm/goldilocks` (3,121 lines with manifests and
+  locks; 3,038 of Rust).
+- `static/stark/{bhash,field,fri,hashing,joinsplit2,joinsplit3,merkle,stark,transcript,tree}.js`, `static/alghash2.js`,
+  `static/vendor/goldilocks-wasm.js` (1,303 lines with `static/alghash.js`, 75 KB); `static/alghash.js` only once no
+  carried run needs it (9.2).
+- `tools/bench_settle_fri.py`, `tools/bench_fri_blowup.py` (381).
+- Route B adds `execnode/zkvm.py`, `zkvmasm.py`, `zkpy.py`, `zkvm_examples.py` (1,265).
+- Edited, not deleted: `ops/self_update._CRATES` and the goldilocks special case, `ops/transaction_ops.py` settle and
+  shield branches, `ops/proof_child.py`, `execnode/execnode.py` endpoints, `execnode/state.py` pool wiring,
+  `runtimes.py`, `protocol.py` (proof-rule constants, `EXEC_GENESIS_ROOT`), `scripts/build_native_all.sh`,
+  `scripts/install.sh`, `.github/workflows/ci.yml`, `scripts/run_tests.sh`, the two comments in `native/mldsa44`,
+  and the docs that describe the retired stack (`zk-recursion`, `zk-execution-proofs`, `zk-components`, `fri-parameters`,
+  `wasm-prover`, `privacy`, `zk-glossary`, `settle-proof-transport`, `rust-only-proving`, `shielded-contracts`), each
+  marked historical or rewritten.
+
+**Tests (186 files, 30,261 lines touch the field):**
+- **Retire, 83 files / 9,862 lines** — their subject is deleted: the STARK/FRI/recursion/fold/AIR tests (`test_stark*`,
+  `test_fri*`, `test_recursion*`, `test_recursive_*`, `test_comp_verify`, `test_rowcomp_verify`, `test_air_ir`,
+  `test_deep_eval`, `test_fs_*`, `test_io_bind*`, `test_logup_bind`, `test_merkle_update*`, `test_starkprove`,
+  `test_native_reduce`, `test_native_prover_verifies`, `test_proof_*` rule tests, `test_settle_*fold*`,
+  `test_settle_recursive_gate`, `test_settle_row_commit_default`, `test_settle_prover_sim`, `test_settlement_o1`,
+  `test_settlement_aggregate`, `test_slot_key_air`, `test_state_io_tie`, `test_zkvm_circuit`, `test_zkvm_epoch`,
+  `test_zkvm_alghash2`, the joinsplit/membership/wide/appnote tests, the JS cross-checks `joinsplit{2,3}_js_crosscheck.*`,
+  `starkjs_crosscheck.sh`, `test_alghash_js_matches_python.mjs`, `test_wallet_air_digest_fits_a_small_stack.mjs`,
+  `test_zbill_delivery.js`).
+- **Rewrite against the new formats, 41 files / 6,505 lines** — the property survives, the encoding changes: the
+  settle-with-proof and binding tests (`test_settle_with_proof`, `test_settlement_sparse`, `test_settle_cid_io_binding`,
+  `test_settle_multiblock_da`, `test_records_bound_settle`, `test_prover_records_half`, `test_proof_bind_gate`,
+  `test_calldata_binding_is_wide`, …) become the G4 forgery suite; `test_exec_root*`, `test_storage_tree`,
+  `test_state_transition*`, `test_records_*`, `test_mldsa_block_auth`, `test_calls_commit`, `test_exec_summary_binding`
+  move to BLAKE2s; `test_every_opcode_is_provable` and `test_review_round2` / `test_zk_review_2026_09_24` keep their
+  attack cases against the new verifier; `test_self_update_stale_native` / `test_native_report` follow `_CRATES`.
+- **Port, 62 files / 13,894 lines** — game, exec, carry and Stwo-pool tests that use the field incidentally (rolls,
+  digests, reference models): `test_games_e2e`, the pets/autogame/holdem/dice/mines/coinflip lifecycle tests,
+  `test_zkvm*` runtime tests, `test_assets`, the carry tests, `pets_ref.py`, `opcode_programs.py`. Route B rewrites the
+  game ones with the contracts.
 
 ## Sources
 
