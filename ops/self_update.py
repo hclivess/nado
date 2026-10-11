@@ -43,6 +43,12 @@ _MIN_INTERVAL = 30                    # s between checks — spam does at most o
 _RESTART_DELAY = 5                    # s between "updated" and the service restart (lets the wave out)
 _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code (only installed ones restart)
 _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks")
+# OPTIONAL CRATES: built on update like the required ones (when their sources change, or their library was never built),
+# reported in /status native, but NEVER required — no refusal to start, no purge on a failed build, not part of
+# native.ok. native/stwo_js (the Stwo shielded-pool verifier) is optional until STWO_POOL_HEIGHT is set: a node without
+# it runs normally and, at the gate, STALLS a block carrying a Stwo spend instead of skipping it (execnode._apply_block).
+# INVARIANT: an optional crate's failure must never stop an update or a node — it is not needed yet.
+_OPTIONAL_CRATES = ("native/stwo_js",)
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that
@@ -953,6 +959,19 @@ def native_report(max_age=60):
                       "built": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(m)),
                       "restart_needed": m > _PROC_START}
         all_ok = all_ok and not stale
+    for crate in _OPTIONAL_CRATES:                       # reported, never part of `ok` (see _OPTIONAL_CRATES)
+        path = os.path.join(_REPO_DIR, crate)
+        if not os.path.isdir(path):
+            continue
+        so = _loader_lib(crate)
+        try:
+            m = os.path.getmtime(so)
+        except OSError:
+            out[crate] = {"state": "missing", "built": None, "restart_needed": False, "optional": True}
+            continue
+        out[crate] = {"state": "stale" if (_ng and _ng.is_stale(so, path)) else "ok",
+                      "built": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(m)), "restart_needed": m > _PROC_START,
+                      "optional": True}
     rep = {"ok": all_ok, "crates": out, "rustc": rustc_version()}
     _NATIVE_REPORT[:] = [now, rep]
     return rep
@@ -1320,6 +1339,20 @@ def _rebuild_native_if_changed(old, new):
             report[crate] = "pure-python"                # no cargo / build failed, but no stale .so existed anyway
       except Exception:
         continue                                         # one crate's trouble never aborts the others (or the update)
+    for crate in _OPTIONAL_CRATES:                       # see _OPTIONAL_CRATES: build, report, never purge or require
+        try:
+            path = os.path.join(_REPO_DIR, crate)
+            if not os.path.isdir(path):
+                continue
+            touched = changed is None or re.search(rf"^{re.escape(crate)}/.*\.(rs|toml|lock|pinned)$", changed, re.M)
+            if not touched and _has_shared_lib(path):
+                continue
+            if not have_cargo:
+                report[crate] = "optional-no-cargo"
+                continue
+            report[crate] = "built" if _build_crates([crate]).get(crate) == "built" else "optional-build-failed"
+        except Exception:
+            continue
     return report
 
 
