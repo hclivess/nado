@@ -17,12 +17,24 @@ The tree has ONE depth, 48, from its first note — no 12 -> 48 switch like the 
 existed at height 0.
 """
 import hashlib
+import re
 import struct
 
 DEPTH = 48
 ANCHOR_WINDOW = 128
 DOM_OWNER, DOM_CM, DOM_NF = 21, 22, 23
 _MASK64 = (1 << 64) - 1
+_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def is_digest(s):
+    """THE ONE SPELLING OF A DIGEST ON THE WIRE AND IN THE POOL: exactly 64 lowercase hex characters.
+    INVARIANT (review 2026-10-11, reproduced): bytes.fromhex skips ASCII whitespace, so `nf[:62] + "  "` decoded to 31
+    bytes, ctypes handed the verifier the bytes object's buffer and its trailing NUL made byte 32 — the SAME nullifier
+    as the canonical string whenever the real one ends in 0x00, but a different member of the spent set: one note spent
+    once per spelling. Every digest a spend names (root, nf, cm_out1, cm_out2) and every owner and commitment the pool
+    stores passes this before anything is decoded, verified or mutated. Never relax it to `.lower()` + fromhex."""
+    return isinstance(s, str) and _DIGEST_RE.fullmatch(s) is not None
 
 
 def _words(d):
@@ -134,10 +146,15 @@ class StwoShieldedPool:
     def root(self):
         return self._f.root()
 
+    def room_for(self, k):
+        """Whether `k` more commitments fit (the depth-48 tree's capacity) — checked BEFORE a mutation starts."""
+        return self._f.n + int(k) <= (1 << DEPTH)
+
     def append(self, cm):
-        cm = str(cm).lower()
-        _words(cm)
-        if self._f.n >= (1 << DEPTH):
+        # canonical only (is_digest): a commitment has one spelling, so duplicate checks over the list are exact
+        if not is_digest(cm):
+            raise ValueError("a commitment is 64 lowercase hex")
+        if not self.room_for(1):
             raise ValueError("the pool is full")
         self.commitments.append(cm)
         self._f.append(cm)
@@ -151,7 +168,8 @@ class StwoShieldedPool:
         return str(nf).lower() in self.nullifiers
 
     def spend(self, nf):
-        nf = str(nf).lower()
+        if not is_digest(nf):                          # one spelling per nullifier (is_digest)
+            raise ValueError("a nullifier is 64 lowercase hex")
         if nf in self.nullifiers:
             raise ValueError("nullifier already spent")
         self.nullifiers.add(nf)

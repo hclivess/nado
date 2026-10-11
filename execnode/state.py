@@ -1278,54 +1278,83 @@ class ExecState:
     def _apply_stwo_shield(self, amount, owner, rho):
         """STWO_POOL_HEIGHT: the deposit's note in the Stwo pool, cm = shielded_stwo.commit(amount, owner, rho) computed
         HERE from the authoritative L1 amount (C-2), the owner a 64-hex BLAKE2s digest. Z6 (no duplicate commitment) as on
-        every pool; the tree is 2^48 deep, so Z4 (full) is the pool's own refusal."""
+        every pool; the tree is 2^48 deep, so Z4 (full) is the pool's own refusal. EVERY CHECK BEFORE THE FIRST MUTATION
+        (review 2026-10-11): the owner in its one canonical spelling (shielded_stwo.is_digest), capacity, duplicate."""
         from execnode import shielded_stwo as _S
         try:
             if not (0 < int(amount) < (1 << 64)):
                 return f"skip field-shield: amount out of range ({amount})"
-            cm = _S.commit(int(amount), str(owner), int(rho))
+            if not _S.is_digest(owner):
+                return "skip field-shield: the Stwo owner is not 64 lowercase hex"
+            cm = _S.commit(int(amount), owner, int(rho))
         except Exception as e:
             return f"skip field-shield: bad Stwo note ({e})"
         with self._mutate_lock:
             if cm in self.stwo_pool.commitments:
                 return "skip field-shield: duplicate note commitment"
-            try:
-                self.stwo_pool.append(cm)
-            except ValueError as e:
-                return f"skip field-shield: {e}"
+            if not self.stwo_pool.room_for(1):
+                return "skip field-shield: the pool is full"
+            self.stwo_pool.append(cm)
             self.pool_value += int(amount)
             self._touch()
         return f"field-shield {amount} -> stwo note #{len(self.stwo_pool.commitments)}"
 
     def _apply_stwo_transfer(self, bundle):
-        """STWO_POOL_HEIGHT: apply a `stwo_js` bundle — the same order as the wide pool's (destination, proof, value
-        bounds, double-spend, mutate). The proof is verified by the native Stwo verifier (execnode/stark/stwo_js_native),
-        loaded on first use, so a node that could not build it fails THIS call, never its boot."""
-        js = (bundle.get("stark") or {}).get("stwo_js") or {}
-        try:
-            proof = bytes.fromhex(js["proof"]) if isinstance(js.get("proof"), str) else bytes(js["proof"])
-            root, nf, cm1, cm2 = (str(js[k]).lower() for k in ("root", "nf", "cm_out1", "cm_out2"))
-            unshield, fee = int(js.get("unshield", 0)), int(js["fee"])
-        except Exception as e:
-            return f"skip field-transfer: malformed stwo_js bundle ({e})"
+        """STWO_POOL_HEIGHT: apply a `stwo_js` bundle. ALL-OR-NOTHING (review 2026-10-11): every check — shape, canonical
+        digests, destination, value bounds, anchor, double-spend, duplicate and capacity of the outputs, the proof — runs
+        BEFORE the first mutation, and the mutation below cannot raise, so a refused transfer leaves the state byte for
+        byte as it was (apply_blob's catch-all would otherwise have turned a mid-mutation exception into a "skip" over a
+        half-applied spend). The proof is verified by the native Stwo verifier (execnode/stark/stwo_js_native), loaded
+        on first use; a node that cannot load it never reaches here (execnode._apply_block stalls the block first)."""
+        from execnode import shielded_stwo as _S
+        stark_b = bundle.get("stark")
+        js = stark_b.get("stwo_js") if isinstance(stark_b, dict) else None
+        if not isinstance(js, dict):
+            return "skip field-transfer: malformed stwo_js bundle"
+        # INVARIANT: digests in their ONE spelling (shielded_stwo.is_digest) — never lowered, never fromhex'd loosely. A
+        # whitespace or upper-case spelling of a spent nullifier was a fresh set member over the same verified bytes.
+        digs = [js.get(k) for k in ("root", "nf", "cm_out1", "cm_out2")]
+        if not all(_S.is_digest(d) for d in digs):
+            return "skip field-transfer: root, nf, cm_out1 and cm_out2 must be 64 lowercase hex"
+        root, nf, cm1, cm2 = digs
+        p = js.get("proof")
+        if not (isinstance(p, str) and p and len(p) % 2 == 0 and all(c in "0123456789abcdef" for c in p)):
+            return "skip field-transfer: the proof is not lowercase hex"
+        proof = bytes.fromhex(p)
+
+        def _u(v):                                     # a u64 as a JSON int or an ASCII decimal string; nothing else
+            if isinstance(v, bool):
+                return None
+            if isinstance(v, int):
+                return v
+            if isinstance(v, str) and v and v.isascii() and v.isdigit():
+                return int(v)
+            return None
+        unshield, fee = _u(js.get("unshield", 0)), _u(js.get("fee"))
+        if unshield is None or fee is None:
+            return "skip field-transfer: unshield and fee must be integers"
         addr = ""
         if unshield:
             addr = bundle.get("withdraw_addr")
-            if not addr or not validate_address(addr, allow_reserved=False) or addr in self.contracts:
+            if not isinstance(addr, str) or not addr or not validate_address(addr, allow_reserved=False) \
+                    or addr in self.contracts:
                 return "skip field-transfer: withdraw_addr is not a spendable account"
         if not (0 <= unshield <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
             return "skip field-transfer: unshield/fee out of range"
-        if not self.stwo_pool.knows_root(root):
-            return "skip field-transfer: unknown anchor root"
-        from execnode.stark import stwo_js_native
-        ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, addr)
-        if not ok:
-            return f"skip field-transfer: {reason}"
         with self._mutate_lock:
+            if not self.stwo_pool.knows_root(root):
+                return "skip field-transfer: unknown anchor root"
             if self.stwo_pool.has_nullifier(nf):
                 return "skip field-transfer: nullifier already spent (double-spend)"
             if cm1 == cm2 or cm1 in self.stwo_pool.commitments or cm2 in self.stwo_pool.commitments:
                 return "skip field-transfer: duplicate note commitment"
+            if not self.stwo_pool.room_for(2):
+                return "skip field-transfer: the pool is full"
+            from execnode.stark import stwo_js_native
+            ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, addr)
+            if not ok:
+                return f"skip field-transfer: {reason}"
+            # ---- the mutation: nothing below can raise (every input checked above) ----
             self.stwo_pool.spend(nf)
             for c in (cm1, cm2):
                 self.stwo_pool.append(c)
