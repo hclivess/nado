@@ -70,6 +70,12 @@ def setup(running, repo, dirty=False):
     assert not hasattr(SU, "_restart_services"), \
         "self_update._restart_services is a phantom — the real function is _schedule_restart"
     SU._schedule_restart = lambda: (restarts.append(True) or ["nado", "nado-exec", "forum"])
+    # the optional-crate build before the restart (2026-10-12) is recorded, never run: no cargo inside a test
+    del built[:]
+    SU._rebuild_optional_crates = lambda changed, have_cargo: (built.append((changed, len(restarts))) or {})
+
+
+built = []
 
 
 def t_current_checkout_does_nothing():
@@ -152,7 +158,35 @@ def t_it_never_raises():
     assert r["status"] == "error" and "RuntimeError" in r["reason"], r
 
 
+def t_optional_crates_are_built_before_the_restart():
+    """The push host restarts through THIS path, and it built nothing: the relay reported native/stwo_js "missing" while
+    every node that took /update had built it (2026-10-12). For a verifier that is a stall at STWO_POOL_HEIGHT — a stale
+    one, a different verdict. The optional crates are built here, from the diff running..repo, BEFORE the restart."""
+    setup("aaaaaaaaaaaa", "bbbbbbbbbbbb")
+    SU.apply_stale_checkout(now=0)
+    assert not built, "nothing is built while only observing"
+    SU.apply_stale_checkout(now=SU._STALE_MIN_AGE + 1)
+    assert len(built) == 1 and built[0][1] == 0 and restarts, f"built once, before the restart: {built} {restarts}"
+    SU.apply_stale_checkout(now=SU._STALE_MIN_AGE + 2)
+    assert len(built) == 1, "at most once per head, like the restart"
+
+
+def t_a_failing_optional_build_still_restarts():
+    """An optional crate is never required (_OPTIONAL_CRATES): its trouble must not hold the pushed fix back."""
+    setup("aaaaaaaaaaaa", "bbbbbbbbbbbb")
+
+    def boom(changed, have_cargo):
+        raise RuntimeError("cargo exploded")
+
+    SU._rebuild_optional_crates = boom
+    SU.apply_stale_checkout(now=0)
+    r = SU.apply_stale_checkout(now=SU._STALE_MIN_AGE + 1)
+    assert r["status"] == "restarting" and restarts and "cargo exploded" in str(r.get("native")), r
+
+
 for nm, fn in [("a current checkout does nothing", t_current_checkout_does_nothing),
+               ("optional crates are built before the restart", t_optional_crates_are_built_before_the_restart),
+               ("a failing optional build still restarts", t_a_failing_optional_build_still_restarts),
                ("stale restarts after the settle period", t_stale_restarts_after_the_settle_period),
                ("it restarts the EXEC node", t_it_restarts_the_exec_node),
                ("a dirty tree is never restarted", t_a_dirty_tree_is_never_restarted),

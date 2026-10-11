@@ -237,8 +237,21 @@ def apply_stale_checkout(now=None):
         # after the first failure every later pass short-circuits to "already_restarted" for a restart
         # that never happened. Found by test_no_undefined_names.
         _stale_acted[0] = repo
+        # OPTIONAL CRATES FIRST (_rebuild_optional_crates): the /update path builds them before its restart; this path
+        # did not, so the push host never built native/stwo_js. Required crates are left as before on this path (the
+        # push host's operator builds them, CLAUDE.md "A .rs commit fail-stops nado-exec").
+        try:
+            try:
+                changed = _git("diff", "--no-renames", "--name-only", run, repo, timeout=30)
+            except Exception:
+                changed = None
+            cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
+            native = _rebuild_optional_crates(changed, bool(shutil.which("cargo")) or os.access(cargo, os.X_OK))
+        except Exception as e:
+            native = {"error": f"{type(e).__name__}: {e}"}
         services = _schedule_restart()
-        return {"status": "restarting", "running": run, "repo": repo, "services": services}
+        return {"status": "restarting", "running": run, "repo": repo, "services": services,
+                **({"native": native} if native else {})}
     except Exception as e:
         return {"status": "error", "reason": f"{type(e).__name__}: {e}"}
 
@@ -1339,6 +1352,18 @@ def _rebuild_native_if_changed(old, new):
             report[crate] = "pure-python"                # no cargo / build failed, but no stale .so existed anyway
       except Exception:
         continue                                         # one crate's trouble never aborts the others (or the update)
+    report.update(_rebuild_optional_crates(changed, have_cargo))
+    return report
+
+
+def _rebuild_optional_crates(changed, have_cargo):
+    """Build each optional crate (_OPTIONAL_CRATES) whose sources changed in `changed` (a `git diff --name-only`, None =
+    treat all as touched) or whose library was never built. Report, never purge or require. ONE function for BOTH
+    restart paths: the /update fast-forward (_rebuild_native_if_changed) and the stale-checkout restart
+    (apply_stale_checkout) — the second is how the node a push is made FROM restarts, and it built nothing, so the relay
+    reported native/stwo_js "missing" after every other node had built it (2026-10-12). For a verifier that is a stall
+    at STWO_POOL_HEIGHT; a STALE one (sources changed, old .so kept) would be worse — a different verdict. Never raises."""
+    report = {}
     for crate in _OPTIONAL_CRATES:                       # see _OPTIONAL_CRATES: build, report, never purge or require
         try:
             path = os.path.join(_REPO_DIR, crate)
