@@ -3337,7 +3337,14 @@ def get_transactions_of_account(account, min_block: int, limit: int = 1000):
             if transaction["txid"] in wanted:
                 all_txs.append(transaction)
 
-    return {"transactions": all_txs}
+    # PAGING (2026-10-12): a full page (`limit` index entries) may stop inside a block, so the reply says where — the
+    # wallet's deposit restore reads every page from `last_block` again, deduped by txid (interface.js
+    # stwoOwnTransactions). Transactions carry no block number of their own, so without this a caller cannot page.
+    out = {"transactions": all_txs}
+    if fetched and len(fetched) >= limit:
+        out["more"] = True
+        out["last_block"] = int(block_order[-1])
+    return out
 
 
 def to_readable_amount(raw_amount: int) -> str:

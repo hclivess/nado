@@ -10547,14 +10547,46 @@ async function reconcileSpentNotes() {
 // against the pool's whole spent set locally (/exec/stwo_nullifiers), so no node learns which notes are this wallet's.
 // Once per account on each device (stwoDepositKey + ".scan"); the index counter then continues past the last match.
 const STWO_DEPOSIT_GAP = 20;
+// EVERY transaction of the account, exact. Two traps the first restore fell into (review 2026-10-12):
+// - the endpoint returns at most ~1000 transactions per call (transaction_ops.get_transactions_of_account), so an active
+//   account's later deposits were never read: page by min_block = the last block seen, deduped by txid;
+// - JSON.parse turns an amount above 2^53 raw (~900,719 NADO) into a rounded double, the recomputed commitment then
+//   matches no leaf and the deposit is silently not restored: every "amount" integer is quoted before parsing, so it
+//   reaches BigInt as its exact digits. Returns null on a relay failure (the caller retries on a later render).
+async function stwoOwnTransactions(addr) {
+  const out = [], seen = new Set();
+  let minBlock = 0;
+  for (let page = 0; page < 200; page++) {
+    let text, status;
+    try {
+      const res = await fetchWithTimeout(relayBase() + "/get_transactions_of_account?address=" + encodeURIComponent(addr)
+                                         + "&min_block=" + minBlock, { method: "GET", cache: "no-store" }, 20000);
+      status = res.status; text = await res.text();
+    } catch (e) { return null; }
+    if (status === 404) break;
+    if (status !== 200) return null;
+    let d;
+    try { d = JSON.parse(text.replace(/("amount"\s*:\s*)(-?\d+)(?=\s*[,\x7d\x5d])/g, '$1"$2"')); } catch (e) { return null; }
+    const txs = (d && Array.isArray(d.transactions)) ? d.transactions : [];
+    let fresh = 0;
+    for (const t of txs) {
+      if (!t || seen.has(t.txid)) continue;
+      seen.add(t.txid); out.push(t); fresh++;
+    }
+    // `more` + `last_block` (transaction_ops.get_transactions_of_account): the page stopped inside last_block, so the
+    // next one starts AT it (deduped above). A node without paging sends neither and this reads one page, as before.
+    if (!d.more || !fresh || !Number.isFinite(Number(d.last_block))) break;
+    minBlock = Number(d.last_block);
+  }
+  return out;
+}
 async function stwoRecoverDeposits() {
   if (!state.wallet || !shieldStwo()) return 0;
   const done = stwoDepositKey() + ".scan";
   try { if (localStorage.getItem(done)) return 0; } catch (e) { return 0; }
   const addr = state.wallet.address;
-  const r = await rpcJSON("/get_transactions_of_account?address=" + encodeURIComponent(addr) + "&min_block=0");
-  if (!r.ok && r.status !== 404) return 0;                   // try again on a later render
-  const txs = (r.ok && r.data && Array.isArray(r.data.transactions)) ? r.data.transactions : [];
+  const txs = await stwoOwnTransactions(addr);
+  if (txs === null) return 0;                                // try again on a later render
   const deps = txs.filter((t) => t && t.recipient === "shield" && t.sender === addr && t.data && t.data.pool === "stwo"
                                  && typeof t.data.owner === "string");
   if (deps.length) {
