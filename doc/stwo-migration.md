@@ -210,8 +210,10 @@ deposit/spend effects join that list.
 (protocol.CLIENT_EXPORTS; a BigInt while dormant at 2^62) and switches to the Stwo pool when tip + 1 >= the gate — the
 same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, which from the gate serves the Stwo pool
 (`"pool": "stwo"`, `"wide": false`, depth 48). Below the gate `static/stark/stwo_js.js` is never even downloaded.
-- spend key: the SAME 256 bits as the wide key (blake2b over `shield-nsk-v2`, taken whole instead of cut into four field
-  lanes); owner = BLAKE2s(21, nsk). No new derivation, recoverable from the same phrase.
+- spend key: 256 bits under its OWN domain (blake2b over `shield-nsk-stwo-v1`, `DOMAIN_SHIELD_NSK_STWO`); owner =
+  BLAKE2s(21, nsk). Recoverable from the same phrase. It was the wide key's v2 digest taken whole until review
+  2026-10-11: a leaked wide witness would then have opened every Stwo note of the wallet (changed while the pool was
+  dormant and empty, so no note exists under the old form).
 - zaddr: `zaddr_` + base36 of the owner — marked, because a wide owner is also 256 bits and a note sent to the wrong
   pool's owner is unspendable; `parseShieldAddr` refuses the other pool's form. Stored notes carry `pool: "stwo"`.
 - prover: `static/vendor/stwo_js.wasm` (ABI in `native/stwo_js/src/prover.rs`, "the wallet's WASM ABI": `stwo_seed`,
