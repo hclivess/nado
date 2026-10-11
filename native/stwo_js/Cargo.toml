@@ -1,0 +1,41 @@
+[package]
+name = "nado-stwo-js"
+version = "0.1.0"
+edition = "2024"
+description = "NADO Stwo join-split (doc/stwo-migration.md 5.1): node-side verifier (stable Rust); prover behind the `prover` feature (nightly) for the wallet WASM and tests. Bound by execnode/stark/stwo_js_native.py"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "nado_stwo_js"
+crate-type = ["cdylib", "rlib"]
+
+# The test prover: writes a proof and its public inputs for tests/test_stwo_js_*.py. Nightly + `prover` only.
+[[bin]]
+name = "stwo_js_prove"
+path = "src/bin/stwo_js_prove.rs"
+required-features = ["prover"]
+
+[features]
+# NEVER a default feature: the node builds this crate on stable Rust, and the verifier must not pull Stwo's prover
+# (tests/test_stwo_js_verifier_builds_on_stable_without_the_prover.py).
+prover = ["stwo/prover", "stwo-constraint-framework/prover", "dep:rand_chacha", "dep:rand_core"]
+parallel = ["prover", "stwo/parallel", "stwo-constraint-framework/parallel"]
+
+[dependencies]
+# Pinned upstream Stwo (starkware-libs/stwo main, 2026-08-13), the commit the phase-0 prototype was measured on.
+stwo = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", default-features = false, features = ["std"] }
+stwo-constraint-framework = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", default-features = false }
+num-traits = { version = "0.2.19", default-features = false }
+itertools = "0.12"
+bincode = "1.3"
+serde = "1"
+blake2 = "0.10.6"
+rand_chacha = { version = "0.3.1", default-features = false, optional = true }
+rand_core = { version = "0.6.4", default-features = false, optional = true }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = false
+# panic = "unwind" (the default) is REQUIRED: nado_stwo_js_verify turns a panic on adversarial bytes into a refusal.

@@ -1,0 +1,115 @@
+"""THE STWO JOIN-SPLIT VERIFIER ACCEPTS AN HONEST PROOF AND REFUSES EVERY REWRITE OF ITS PUBLIC INPUTS, through the
+node's own binding (execnode/stark/stwo_js_native.py -> native/stwo_js, doc/stwo-migration.md section 5.1).
+
+A proof is made by the crate's own prover (feature `prover`, nightly, built for this test by tests/_stwo_js_build.py,
+outside the checkout) at the pinned node config, then verified by the STABLE build of the same crate, the library a node
+would load. The soundness negatives are the four the phase-0 prototype ran, now through the wrapper:
+  wrong root, fee + 1, a changed unshield destination, and a proof made for different public inputs;
+plus the wire-format refusals a node relies on (a trailing byte, a non-canonical field element).
+
+SKIPS (with a SKIP line) when there is no stable cargo or no nightly-2026-01-15 toolchain on this machine.
+
+Run: python3 tests/test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py
+"""
+import os
+import sys
+import tempfile
+
+_REAL_HOME = os.path.expanduser("~")          # for the rustup / cargo homes, read BEFORE the throwaway HOME below
+_T = tempfile.mkdtemp(prefix="nado-test-stwo-js-")
+os.environ["HOME"] = _T
+os.environ["NADO_EXEC_STATE"] = os.path.join(_T, "exec_state")
+os.environ["NADO_EXEC_DA"] = os.path.join(_T, "exec_da")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import json
+import subprocess
+
+from tests._stwo_js_build import Env
+
+fails = 0
+
+
+def check(name, ok, detail=""):
+    global fails
+    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
+    fails += 0 if ok else 1
+
+
+env = Env(_REAL_HOME)
+if not env.have_stable():
+    print("SKIP  no stable cargo (`cargo +stable`) on this machine: the verifier cannot be built here")
+    sys.exit(0)
+nbin = env.nightly_bin()
+if not nbin:
+    print("SKIP  no nightly-2026-01-15 toolchain (or $NADO_STWO_NIGHTLY_BIN): the test prover cannot be built here")
+    sys.exit(0)
+
+so, secs, log = env.build_verifier()
+check(f"the verifier builds on stable ({secs:.0f} s)", so is not None, log)
+exe, psecs, plog = env.build_prover(nbin)
+check(f"the test prover builds with feature prover on {os.path.basename(os.path.dirname(nbin))} ({psecs:.0f} s)",
+      exe is not None, plog)
+if not so or not exe:
+    sys.exit(1)
+
+os.environ["NADO_STWO_JS_LIB"] = so
+from execnode.stark import stwo_js_native as SJ
+
+
+def prove(fixture, dest):
+    out = tempfile.mkdtemp(prefix=f"nado-stwo-js-proof-{fixture}-", dir=_T)
+    r = subprocess.run([exe, fixture, dest, out], capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, r.stderr[-2000:]
+    return open(os.path.join(out, "proof.bin"), "rb").read(), json.load(open(os.path.join(out, "public.json")))
+
+
+def run(proof, p, **over):
+    a = dict(root=p["root"], nf=p["nf"], cm1=p["cm1"], cm2=p["cm2"], unshield=p["unshield"], fee=p["fee"], dest=p["dest"])
+    a.update(over)
+    return SJ.verify(proof, **a)
+
+
+check("the library verifies at the pinned node config 2/160/20", SJ.config() == (2, 160, 20), SJ.config())
+
+DEST = "ndo1-unshield-destination-for-the-test"
+pb, P = prove("b", DEST)                       # fixture b: unshield 5000, fee 77
+pa, A = prove("a", "")                         # fixture a: a private transfer (unshield 0, fee 0)
+check("fixture b is an unshield with a fee (so the fee/destination negatives mean something)",
+      P["unshield"] > 0 and P["fee"] > 0, P)
+
+ok, why = run(pb, P)
+check("an honest unshield proof verifies through the wrapper", ok and why == "", why)
+ok, why = run(pa, A)
+check("an honest private-transfer proof verifies through the wrapper", ok and why == "", why)
+
+bad_root = ("00" if P["root"][:2] != "00" else "01") + P["root"][2:]
+ok, why = run(pb, P, root=bad_root)
+check("a wrong pool root is refused", not ok and why, why)
+ok, why = run(pb, P, fee=P["fee"] + 1)
+check("fee + 1 is refused", not ok and why, why)
+ok, why = run(pb, P, dest=DEST + "x")
+check("a changed unshield destination is refused", not ok and why, why)
+ok, why = run(pb, P, unshield=P["unshield"] + 1)
+check("unshield + 1 is refused", not ok and why, why)
+ok, why = run(pb, A)
+check("a proof made for different public inputs is refused (proof of b against a's statement)", not ok and why, why)
+ok, why = run(pa, P)
+check("... and the other way round (proof of a against b's statement)", not ok and why, why)
+
+ok, why = SJ.verify(pb + b"\x00", P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"])
+check("a trailing byte is refused (one proof, one encoding)", not ok and "malformed" in why, why)
+# the first claimed LogUp sum's first M31 starts after the 8-byte Vec length: 0xffffffff is >= P, i.e. non-canonical
+nc = pb[:8] + b"\xff\xff\xff\xff" + pb[12:]
+ok, why = SJ.verify(nc, P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"])
+check("a non-canonical field element is refused", not ok and "NonCanonical" in why, why)
+ok, why = SJ.verify(pb[: len(pb) // 2], P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"])
+check("a truncated proof is refused, not crashed on", not ok and why, why)
+ok, why = SJ.verify(pb, "zz" * 32, P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"])
+check("a digest that is not hex is refused by the wrapper", not ok and "root" in why, why)
+ok, why = SJ.verify(pb, P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], 1 << 64, P["dest"])
+check("a fee outside u64 is refused by the wrapper", not ok and "fee" in why, why)
+
+print("ALL PASS — the Stwo join-split verifier accepts the honest proof and refuses every rewrite" if not fails
+      else f"{fails} FAILURES")
+sys.exit(1 if fails else 0)

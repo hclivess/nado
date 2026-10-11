@@ -30,6 +30,7 @@ DRIVEN_BY_ROOT_SCRIPT = "a verifier/bot CLI called by the root-level e2e and fau
 DECLARED = {
     # ---- libraries: imported or spawned by a test
     "__init__.py": ("library", "package marker: lets tests import each other's helpers"),
+    "_stwo_js_build.py": ("library", "builds native/stwo_js (stable verifier, nightly test prover) outside the checkout for the test_stwo_js_* tests"),
     "_attest_fixtures.py": ("library", "device-attestation fixtures for the test_device_attest_* tests"),
     "autogame_action_matrix.py": ("library", "the action matrix test_autogame_contract_matches_the_reference_model drives"),
     "autogame_engine_verify.mjs": ("library", "the browser-engine leg of test_autogame_contract_matches_the_reference_model"),
