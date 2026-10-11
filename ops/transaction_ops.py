@@ -1252,6 +1252,22 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block, min
     return tx
 
 
+def construct_unshield_tx(keydict, amount, nonce, proof, max_block):
+    """Build a SIGNED unshield claim: recipient 'unshield', fee-exempt, self-claimed (data.addr == sender), releasing a
+    recorded {addr, amount, nonce} exit from SHIELD_ESCROW once its Merkle proof verifies against the settled exec root
+    — what the wallet's claimUnshields builds. The node claims with it the fees its Stwo spend relay earned
+    (ops/stwo_relay.py: each relayed spend pays the relay by an unshield exit to the node's address). EXACT landing
+    (unshield is not a flexibly-landing recipient, block_ops._lands_flexibly): max_block is the block it lands in."""
+    tx = {"sender": keydict["address"], "recipient": "unshield", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"addr": keydict["address"], "amount": int(amount), "nonce": str(nonce), "proof": proof},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None,
                         proof_da=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data

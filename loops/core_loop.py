@@ -49,7 +49,7 @@ from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
 from ops.transaction_ops import (construct_duty_tx,
                                  construct_bond_tx, construct_blob_tx, construct_register_tx,
-                                 construct_dividend_withdraw_tx)
+                                 construct_dividend_withdraw_tx, construct_unshield_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, FINALITY_HARD_BACKSTOP, REWARD_WINDOW
@@ -4969,6 +4969,11 @@ class CoreClient(threading.Thread):
                     self.logger.info(
                         f"Auto-collect: claimed settled dividend withdrawal of {w['amount']} raw "
                         f"(nonce {w['nonce']}, max_block {max_block})")
+            # (1b) CLAIM the Stwo spend relay's fees (ops/stwo_relay.py): every relayed spend pays this node by an
+            # unshield exit to its address, which only an `unshield` claim against the SETTLED root brings to L1.
+            # Without this the relay pays MIN_TX_FEE per spend and never recovers it. Fee-exempt, so always worth
+            # sending; capped per pass so a busy relay's backlog drains over epochs instead of flooding one block.
+            self._claim_relay_unshields()
             # (2) SWEEP the accrued balance once it dwarfs the fee; below the floor it keeps accruing fee-free.
             accrued = int(d.get("accrued", 0))
             if accrued < AUTO_COLLECT_MIN_RAW:
@@ -4986,6 +4991,36 @@ class CoreClient(threading.Thread):
                 f"window [{_tip + FLEX_TX_MIN_MARGIN}, {_tip + TX_TARGET_MARGIN}])")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
+
+    _RELAY_CLAIMS_PER_PASS = 8
+
+    def _claim_relay_unshields(self):
+        """Claim up to _RELAY_CLAIMS_PER_PASS of this node's settled unshield exits (the Stwo relay's fees). Called
+        from maybe_auto_collect, inside its emergency-mode guard and its try. An exit whose proof is not against the
+        settled root waits for a later epoch, exactly as the dividend claims above."""
+        u = self._exec_get(f"/exec/unshields?addr={self.memserver.address}")
+        pending = (u or {}).get("unshields") or []
+        if not pending:
+            return 0
+        from ops.settlement_ops import latest_settled
+        _cur, settled_root = latest_settled()
+        if not settled_root:
+            return 0
+        tip = self.memserver.latest_block["block_number"]
+        sent = 0
+        for w in pending[:self._RELAY_CLAIMS_PER_PASS]:
+            pr = self._exec_get(f"/exec/unshield_proof?nonce={w['nonce']}&root={settled_root}")
+            if not pr or not pr.get("proof") or pr.get("addr") != self.memserver.address:
+                continue
+            # EXACT landing (unshield is not flexible): TX_INCLUSION_DELAY ahead, so it has gossiped to every
+            # producer before its one block — the wallet's claimUnshields lands at tip + 8 the same way
+            tx = construct_unshield_tx(self.memserver.keydict, int(pr["amount"]), str(pr["nonce"]), pr["proof"],
+                                       tip + TX_INCLUSION_DELAY)
+            if self.memserver.merge_transaction(tx, user_origin=True).get("result"):
+                sent += 1
+        if sent:
+            self.logger.info(f"Auto-collect: claimed {sent} settled relay-fee unshield exit(s)")
+        return sent
 
     def maybe_auto_vote(self):
         """AUTO-VOTE 'yes' on open treasury proposals paying a WHITELISTED recipient (memserver.auto_vote,
