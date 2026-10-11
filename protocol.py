@@ -1677,8 +1677,8 @@ def split_open_block_reward(reward: int):
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
 #                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
 #                                    deposits; it held none, so the Stwo gate can freeze nothing)
-#                                    STWO_POOL_HEIGHT ((1 << 62) -> 0: the Stwo shielded pool stays OFF across a reroll
-#                                    until its zero-knowledge layer is reviewed; a protocol commit switches it on)
+#                                    STWO_POOL_HEIGHT (182000 -> 1: the Stwo shielded pool is ON after the in-house
+#                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2155,10 +2155,13 @@ REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
 
 # THE STWO SHIELDED POOL (doc/stwo-migration.md §5.1; execnode/shielded_stwo.py, native/stwo_js). From this height
-# deposits land in the Stwo pool and only a `stwo_js` bundle spends from it. DORMANT ON PURPOSE — `else 0` (never) as
-# well: its zero-knowledge layer is ours (scratchpad stwo0/zkproof/ARGUMENT.md) and must be reviewed outside before a
-# coin enters, so a reroll must not switch it on by itself. Turning it on is a protocol commit that sets a real height.
-STWO_POOL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 0
+# deposits land in the Stwo pool and only a `stwo_js` bundle spends from it. ON from 182000 (operator, 2026-10-11: "you
+# are the only one who will review it"): the in-house adversarial review (soundness, zero knowledge, integration —
+# doc/stwo-migration.md §5.1 "Review 2026-10-11") came back with every reproduced finding fixed, and spends reach the
+# chain through node relays so no spend names its spender. Chosen after WIDE_DEPOSIT_CLOSE_HEIGHT fired (the wide pool
+# measured empty for good) and with every node reporting native/stwo_js ok — a node without it STALLS at the first
+# Stwo spend (execnode._apply_block), it never skips one. `else 1`: a reroll starts with the pool live.
+STWO_POOL_HEIGHT = 182000 if CHAIN_GENERATION == 28 else 1
 # THE WIDE POOL TAKES NO NEW DEPOSITS (review 2026-10-11, gate blocker 2 of doc/stwo-migration.md §5.1). From
 # STWO_POOL_HEIGHT only a `stwo_js` bundle spends, so a wide note deposited before that gate could never move again, and
 # reopening wide spends after it would expose the escrow the two pools share to the old Goldilocks verifier. The wide
@@ -2630,7 +2633,7 @@ DEVICE_ATTEST_RP_IDS = ("get.nadochain.com", "nadochain.com")
 # the module and refuses any of these names (or a known alias) declared as a literal under static/ or website/.
 # Adding a name here is how a client gets a constant. Values must be int / str / bool or a list / dict of them — NO
 # FLOATS (determinism). Integers above 2^53 are emitted as BigInt literals (`123n`) in /protocol.js and as decimal
-# strings in /protocol.json (STWO_POOL_HEIGHT is, while dormant: 2^62).
+# strings in /protocol.json (none today; STWO_POOL_HEIGHT was 2^62 while dormant).
 # NOT here on purpose: the wallet's SEED-derived tags (DOMAIN_HD_ACCOUNT, DOMAIN_SHIELD_NSK*, DOMAIN_RANDAO_SECRET) — they
 # derive from the user's seed, not the chain, and must never move with a relay's answer.
 CLIENT_EXPORTS = (

@@ -280,12 +280,22 @@ tail (stwo_zk `verify_js`) also builds on stable, and the OLDEST rustc on the fl
 compiler; nodes do not report theirs — add it to /status first, and refuse loudly in `_build_crates` if too old,
 never fail-stop the exec node).
 
-**Gates on value.** Deposits into the new pool are refused until the zero-knowledge argument is written and reviewed
-(doc/stwo/zk-argument.md is the draft; an outside review is the step that cannot be done here). No deposit
-cap: the operator's decision (2026-10-11).
+**Gates on value.** Deposits into the new pool were refused until the zero-knowledge argument was written and reviewed.
+The operator decided (2026-10-11) that the review is ours alone ("you are the only one who will review it"): three
+adversarial reviewers, each counting only what they reproduced — soundness (no forgery: every post-proof mutation, every
+PcsConfig field, both cheating provers, 3,400 fuzzed proofs refused; tests/test_stwo_js_every_post_proof_mutation_and_
+cheat_is_refused.py), zero knowledge (the proof's openings measured against the witness, doc/stwo/zk-argument.md
+corrected; tests/test_a_stwo_proof_reveals_nothing_about_its_witness.py — L4 and L3b rest on the earlier zkcheck runs)
+and integration (anchor window, pool rebuild cost, a tagged deposit below the gate — all fixed with tests). The two
+L1 leaks the ZK review found are closed: spends go through node relays (ops/stwo_relay.py), each deposit has a fresh
+owner. `STWO_POOL_HEIGHT` = 182000. No deposit cap: the operator's decision (2026-10-11).
 
-**GATE BLOCKERS (review 2026-10-11). `STWO_POOL_HEIGHT` may not be set to a real height until BOTH are resolved,
-whatever the state of the ZK review:**
+**Not carried yet:** the reroll carry refuses a non-empty Stwo pool (holders unshield first, tools/alphanet6_carryforward
+`exec_value_the_carry_would_drop`). Its notes are BLAKE2s and survive the Goldilocks retirement unchanged, so carrying
+`stwo_pool` (commitments, nullifiers, `stwo_value`; marks restart empty) is the natural next carry item — it is owed
+before the next reroll, because a forced unshield de-anonymises every holder.
+
+**GATE BLOCKERS (review 2026-10-11) — BOTH RESOLVED before `STWO_POOL_HEIGHT` was set (2026-10-12):**
 1. **Output rho is free, so a payer can make a note its owner cannot spend ("faerie gold").** The AIR constrains an
    output row's domain tag, value and padding (lib.rs `s_out1`/`s_out2`: m[0..2], m[13..15]) but not its rho (m[11..12]),
    and nf = H(23, nsk, rho) does not depend on the note's position. A sender pays one owner twice with the SAME rho and
@@ -303,6 +313,8 @@ whatever the state of the ZK review:**
    deposits until the gate. The wide pool is empty today (0 notes at 2026-10-11); any deposit before the gate would be
    coins nobody can move — against "the coins are real". Before setting the gate: close wide deposits ahead of it (an L1
    admission gate on `shield`) AND either keep wide spends/unshields valid after it or prove the pool empty at the gate.
+   **Resolved:** `WIDE_DEPOSIT_CLOSE_HEIGHT` (175000) refuses every wide deposit, and the Stwo gate (182000) was set only
+   after the close fired with the wide pool measured empty — nothing exists to freeze.
 
 **Tests (each in the same commit as its code).**
 - forgeries refused AT the gate and impossible below it: wrong root, fee + 1, changed unshield destination, inflating

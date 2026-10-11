@@ -10357,7 +10357,7 @@ function shieldWide() { return _shieldWide === true; }
  * Once live it takes precedence over shieldWide(): the pools never mix. */
 let _stwoGate = false, _stwo = null;
 function stwoGateLive(tip) {
-  const g = BigInt(STWO_POOL_HEIGHT || 0);      // a BigInt in /protocol.js while dormant (2^62 > 2^53)
+  const g = BigInt(STWO_POOL_HEIGHT || 0);      // BigInt(): it was a BigInt in /protocol.js while dormant (2^62 > 2^53)
   return g > 0n && BigInt(tip) + 1n >= g;
 }
 async function _refreshStwo(tip) {

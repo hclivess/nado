@@ -79,7 +79,7 @@ def main():
     check("array constants are frozen in the module (a client cannot edit the table)", got.get("__frozen") is True)
     jd = json.loads(js_on)
     check("/protocol.json carries the same names, in order", list(jd) == names)
-    # an integer above 2^53 - 1 travels as a decimal string in the JSON (STWO_POOL_HEIGHT while dormant is 2^62)
+    # an integer above 2^53 - 1 travels as a decimal string in the JSON (STWO_POOL_HEIGHT was 2^62 while dormant)
     jwant = lambda v: (str(v) if isinstance(v, int) and not isinstance(v, bool) and abs(v) > cp.MAX_SAFE_INTEGER
                        else list(v) if isinstance(v, tuple) else v)
     check("/protocol.json carries the same values", all(jd[n] == jwant(getattr(protocol, n)) for n in names),

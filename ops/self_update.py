@@ -42,13 +42,17 @@ _BRANCH = "main"                      # the single release channel this updater 
 _MIN_INTERVAL = 30                    # s between checks — spam does at most one fetch per this window
 _RESTART_DELAY = 5                    # s between "updated" and the service restart (lets the wave out)
 _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code (only installed ones restart)
-_CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks")
+# native/stwo_js (the Stwo shielded-pool verifier) is REQUIRED from the commit that set STWO_POOL_HEIGHT (2026-10-12): a
+# verifier the chain depends on gets the required crates' protections — built when missing even if git is current, a
+# STALE library rebuilt (a stale verifier is a different verdict, i.e. a fork), and part of native.ok. A node without it
+# still STALLS a block carrying a Stwo spend instead of skipping it (execnode._apply_block).
+_CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks",
+           "native/stwo_js")
 # OPTIONAL CRATES: built on update like the required ones (when their sources change, or their library was never built),
 # reported in /status native, but NEVER required — no refusal to start, no purge on a failed build, not part of
-# native.ok. native/stwo_js (the Stwo shielded-pool verifier) is optional until STWO_POOL_HEIGHT is set: a node without
-# it runs normally and, at the gate, STALLS a block carrying a Stwo spend instead of skipping it (execnode._apply_block).
-# INVARIANT: an optional crate's failure must never stop an update or a node — it is not needed yet.
-_OPTIONAL_CRATES = ("native/stwo_js",)
+# native.ok. The class exists for a crate that must reach the fleet BEFORE its gate is set (native/stwo_js was one until
+# STWO_POOL_HEIGHT). INVARIANT: an optional crate's failure must never stop an update or a node — it is not needed yet.
+_OPTIONAL_CRATES = ()
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that
