@@ -11,6 +11,15 @@ Toolchains (resolved from the real HOME's rustup, or RUSTUP_HOME / CARGO_HOME as
                                         directory holding its cargo and rustc instead of a rustup toolchain)
 A missing toolchain is reported as None and the caller prints SKIP; a toolchain that exists but fails to build is a
 failure (the caller asserts on the returned log).
+
+THE WALLET'S WASM (static/vendor/stwo_js.wasm) is built by `build_wasm` and nothing else — the shipped file must be
+byte-identical to it (tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py). The exact command, from a
+copy of the crate at a FIXED path with the pinned lock:
+    RUSTFLAGS="-C target-feature=+simd128 --remap-path-prefix=<src>=/nado-stwo-js --remap-path-prefix=<CARGO_HOME>=/cargo
+               --remap-path-prefix=<rustc --print sysroot>=/rust-toolchain"
+    cargo build --release --locked --lib --features prover --target wasm32-unknown-unknown     (nightly-2026-01-15)
+The three remaps take the build machine's paths out of the panic-location strings, so two machines build the same bytes.
+To refresh the shipped file after a change under native/stwo_js:  python3 tests/_stwo_js_build.py --ship
 """
 import glob
 import os
@@ -93,3 +102,72 @@ class Env:
                            timeout=1800, env=env)
         exe = os.path.join(self.target, "prover", "release", "stwo_js_prove")
         return (exe if r.returncode == 0 and os.path.exists(exe) else None), time.time() - t0, r.stderr[-3000:]
+
+    # ---- the wallet's WASM prover --------------------------------------------------------------------------------
+    def wasm_source(self):
+        """The crate copied to a FIXED directory under the target root (the path is remapped out of the binary, and a
+        fixed one keeps the build incremental: RUSTFLAGS name it). Refreshed from the checkout on every call."""
+        d = os.path.join(self.target, "wasm-src")
+        if os.path.isdir(os.path.join(d, "src")):
+            shutil.rmtree(os.path.join(d, "src"))
+        os.makedirs(d, exist_ok=True)
+        shutil.copytree(os.path.join(CRATE, "src"), os.path.join(d, "src"))
+        shutil.copy(os.path.join(CRATE, "Cargo.toml"), d)
+        shutil.copy(os.path.join(CRATE, "Cargo.lock.pinned"), os.path.join(d, "Cargo.lock"))
+        return d
+
+    def have_wasm_target(self, nbin):
+        sysroot = subprocess.run([os.path.join(nbin, "rustc"), "--print", "sysroot"], capture_output=True, text=True)
+        return sysroot.returncode == 0 and os.path.isdir(
+            os.path.join(sysroot.stdout.strip(), "lib", "rustlib", "wasm32-unknown-unknown"))
+
+    def build_wasm(self, nbin):
+        """The wallet's prover WASM (feature `prover`, nightly, wasm32 + simd128) -> (path or None, seconds, log)."""
+        t0 = time.time()
+        src = self.wasm_source()
+        sysroot = subprocess.run([os.path.join(nbin, "rustc"), "--print", "sysroot"], capture_output=True,
+                                 text=True).stdout.strip()
+        flags = (f"-C target-feature=+simd128 --remap-path-prefix={src}=/nado-stwo-js "
+                 f"--remap-path-prefix={self.cargo_home}=/cargo --remap-path-prefix={sysroot}=/rust-toolchain")
+        env = self.base_env({"CARGO_TARGET_DIR": os.path.join(self.target, "wasm"), "RUSTC": os.path.join(nbin, "rustc"),
+                             "RUSTFLAGS": flags, "PATH": nbin + os.pathsep + os.environ.get("PATH", "")})
+        env.pop("RUSTUP_TOOLCHAIN", None)
+        r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked", "--lib", "--features", "prover",
+                            "--target", "wasm32-unknown-unknown"], cwd=src, capture_output=True, text=True,
+                           timeout=3600, env=env)
+        out = os.path.join(self.target, "wasm", "wasm32-unknown-unknown", "release", "nado_stwo_js.wasm")
+        return (out if r.returncode == 0 and os.path.exists(out) else None), time.time() - t0, r.stderr[-3000:]
+
+
+SHIPPED_WASM = os.path.join(ROOT, "static", "vendor", "stwo_js.wasm")
+
+
+def wasm_sources_digest():
+    """sha256 over the inputs of the WASM build (Cargo.toml, the pinned lock, src/ minus the test binary), by relative
+    path — pinned beside the shipped file's sha256 so a source change without a re-ship fails without a toolchain."""
+    import hashlib
+    files = sorted([os.path.join(dp, f) for dp, _d, fn in os.walk(os.path.join(CRATE, "src"))
+                    if os.path.relpath(dp, CRATE).split(os.sep)[:2] != ["src", "bin"] for f in fn]
+                   + [os.path.join(CRATE, "Cargo.toml"), os.path.join(CRATE, "Cargo.lock.pinned")])
+    h = hashlib.sha256()
+    for f in files:
+        h.update(os.path.relpath(f, CRATE).replace(os.sep, "/").encode() + b"\0" + open(f, "rb").read() + b"\0")
+    return h.hexdigest()
+
+if __name__ == "__main__":
+    # python3 tests/_stwo_js_build.py --ship : rebuild the wallet WASM and copy it to static/vendor/stwo_js.wasm
+    import sys
+    if sys.argv[1:] != ["--ship"]:
+        print("usage: python3 tests/_stwo_js_build.py --ship"); sys.exit(2)
+    e = Env(os.path.expanduser("~"))
+    nb = e.nightly_bin()
+    if not nb or not e.have_wasm_target(nb):
+        print(f"need {NIGHTLY} with the wasm32-unknown-unknown target (or $NADO_STWO_NIGHTLY_BIN)"); sys.exit(1)
+    w, secs, log = e.build_wasm(nb)
+    if not w:
+        print(log); sys.exit(1)
+    shutil.copyfile(w, SHIPPED_WASM)
+    import hashlib
+    print(f"built in {secs:.0f} s -> {SHIPPED_WASM}\n  WASM_SHA256    = \"{hashlib.sha256(open(w, 'rb').read()).hexdigest()}\"\n"
+          f"  SOURCES_SHA256 = \"{wasm_sources_digest()}\"\n"
+          "pin both in tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py")

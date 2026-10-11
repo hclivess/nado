@@ -206,6 +206,34 @@ deposit/spend effects join that list.
 | shielded address | `shieldAddr` in static/interface.js | owner = BLAKE2s(nsk) changes every zaddr — the wallet shows the new one; deposits to an old-format zaddr are refused from the gate |
 | exits | unchanged | unshield records and their L1 claims are the same exit records; only the proof that creates them changes |
 
+**The wallet side (built 2026-10-11, hidden until the gate).** The wallet reads `STWO_POOL_HEIGHT` from /protocol.js
+(protocol.CLIENT_EXPORTS; a BigInt while dormant at 2^62) and switches to the Stwo pool when tip + 1 >= the gate — the
+same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, which from the gate serves the Stwo pool
+(`"pool": "stwo"`, `"wide": false`, depth 48). Below the gate `static/stark/stwo_js.js` is never even downloaded.
+- spend key: the SAME 256 bits as the wide key (blake2b over `shield-nsk-v2`, taken whole instead of cut into four field
+  lanes); owner = BLAKE2s(21, nsk). No new derivation, recoverable from the same phrase.
+- zaddr: `zaddr_` + base36 of the owner — marked, because a wide owner is also 256 bits and a note sent to the wrong
+  pool's owner is unspendable; `parseShieldAddr` refuses the other pool's form. Stored notes carry `pool: "stwo"`.
+- prover: `static/vendor/stwo_js.wasm` (ABI in `native/stwo_js/src/prover.rs`, "the wallet's WASM ABI": `stwo_seed`,
+  `stwo_prove`, `stwo_verify_out`, `stwo_aux`), driven from a module Worker (`static/stark/stwo_worker.js`), one Worker
+  per proof, seeded from `crypto.getRandomValues` inside the Worker; the WASM refuses an all-zero seed, a reused one and
+  a prove without a fresh one, and the wallet verifies its own proof (the node's `verify_node`) before publishing.
+  Measured: ~5.8 s per proof in Node, 4-6.5 s in headless Chromium (server CPU, one thread); proof ~2.9 MB (5.8 MB hex
+  in the DA object, under the exec node's 16 MiB body cap).
+- bundle (DA-published, then an L1 `field_transfer` blob carrying its commitment, exactly as the wide pool):
+  `{"stark": {"stwo_js": {"proof": hex, "root", "nf", "cm_out1", "cm_out2": 64-hex, "unshield": "<u64>", "fee": "<u64>"}},
+  "withdraw_addr": <only when unshield > 0>}` — a private transfer is bound to the empty destination.
+- the shipped .wasm is a build product at a path nothing generates: `python3 tests/_stwo_js_build.py --ship` rebuilds it
+  with the one pinned command (nightly-2026-01-15, wasm32 + simd128, three `--remap-path-prefix` so two machines build the
+  same bytes — measured: a clean build in another directory is byte-identical) and prints the two sha256 pins that
+  tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py checks.
+- OPEN, node side, before the gate is set: L1 admission (`transaction_ops.field_shield_check`) still parses the deposit
+  owner as an alghash2 digest (four lanes each < the Goldilocks prime), so about one Stwo owner in 2^30 is refused at
+  admission (no coins move; that wallet cannot deposit). From the gate it should accept any 64-hex owner. And a wallet tab
+  loaded before the code that knows the gate keeps building wide deposits; the exec layer then puts them in the Stwo pool
+  under a wide owner nobody can spend. L1 cannot tell the two owners apart (both 64-hex), so the Stwo wallet tags its
+  deposits `"pool": "stwo"`; the gate's activation commit should make L1 refuse an untagged field deposit from the gate.
+
 **Toolchains (measured 2026-10-11).** Stwo pins `nightly-2026-01-15`, and fleet nodes build native crates on whatever
 stable cargo they have, without our root. The split that works: the WALLET prover (WASM) is built here, on nightly, and
 shipped as a file; the NODE verifier is Stwo with `default-features = false, features = ["std"]` (no `prover`), which

@@ -22,7 +22,7 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js";
@@ -10339,39 +10339,67 @@ async function refreshShieldRules() {
     const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
     _shieldWide = pr.shield_wide !== undefined && tip + 1 >= Number(pr.shield_wide);
+    await _refreshStwo(tip);
   } catch (e) { if (_shieldWide === null) _shieldWide = false; }
   return _shieldWide;
 }
 function shieldWide() { return _shieldWide === true; }
+/* THE STWO POOL (protocol STWO_POOL_HEIGHT, doc/stwo-migration.md §5.1). From the gate deposits land in the Stwo pool
+ * and only a `stwo_js` proof spends from it (execnode/state.py rules_stwo_pool); the wide pool is frozen there. The gate
+ * is read from /protocol.js — the relay's own protocol module — and judged by the same tip + 1 rule as the wide pool,
+ * because a note or proof built now lands in a later block. While the gate is dormant (2^62) or 0 (never) this is false,
+ * the Stwo module is never even downloaded, and every shielded path below is exactly what it was before the pool existed.
+ * Once live it takes precedence over shieldWide(): the pools never mix. */
+let _stwoGate = false, _stwo = null;
+function stwoGateLive(tip) {
+  const g = BigInt(STWO_POOL_HEIGHT || 0);      // a BigInt in /protocol.js while dormant (2^62 > 2^53)
+  return g > 0n && BigInt(tip) + 1n >= g;
+}
+async function _refreshStwo(tip) {
+  _stwoGate = stwoGateLive(tip);
+  if (_stwoGate && !_stwo) { try { _stwo = await import("./stark/stwo_js.js"); } catch (e) { _stwo = null; } }
+}
+function shieldStwo() { return _stwoGate && !!_stwo; }
+// THE GATE IS LIVE BUT THE MODULE DID NOT LOAD: every shielded action stops (shieldPaused). Falling back to the wide pool
+// here would escrow a deposit behind a wide owner in the Stwo pool — a note no key can ever spend.
+function stwoMissing() { return _stwoGate && !_stwo; }
 // PRIVACY PAUSE (2026-09-24): the legacy field pool is closed — L1 refuses its deposits and the exec layer its
 // transfers (PRIVACY_PAUSE_HEIGHT) — so the wallet must not build a legacy deposit or proof: the deposit would be
 // refused and a legacy proof publishes the spend key. Only the wide pool is open. Every shielded entry point that
 // builds a transaction calls this right after refreshShieldRules().
 function shieldPaused() {
-  if (shieldWide()) return false;
+  if (stwoMissing()) { log("err", i18("shield.stwoLoadFail", "Private banknotes could not load on this page. Check your connection and reload.")); return true; }
+  if (shieldWide() || shieldStwo()) return false;
   log("err", i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected."));
   return true;
 }
-// owner ids as the wire carries them: a 64-hex digest (wide) or a decimal field element (legacy)
-function ownerStr(o) { return shieldWide() ? alghash2.toHex(o) : o.toString(); }
-function ownerParse(str) { return shieldWide() ? alghash2.fromHex(String(str)) : BigInt(str); }
-function cmStr(cm) { return shieldWide() ? alghash2.toHex(cm) : cm.toString(); }
-function noteCommit(value, owner, rho) { return shieldWide() ? alghash2.commit(value, owner, rho) : alghash.commit(value, owner, rho); }
+// owner ids as the wire carries them: a 64-hex digest (wide, Stwo) or a decimal field element (legacy). A Stwo owner and
+// commitment are 64-hex strings already (static/stark/stwo_js.js), so they pass through.
+function ownerStr(o) { return shieldStwo() ? String(o) : shieldWide() ? alghash2.toHex(o) : o.toString(); }
+function ownerParse(str) { return shieldStwo() ? String(str).toLowerCase() : shieldWide() ? alghash2.fromHex(String(str)) : BigInt(str); }
+function cmStr(cm) { return shieldStwo() ? String(cm) : shieldWide() ? alghash2.toHex(cm) : cm.toString(); }
+function noteCommit(value, owner, rho) {
+  if (shieldStwo()) return _stwo.commit(BigInt(value), owner, BigInt(rho));
+  return shieldWide() ? alghash2.commit(value, owner, rho) : alghash.commit(value, owner, rho);
+}
 function shieldStoreKey() { return "nado.shieldf." + (state.wallet ? state.wallet.address : "none"); }
 // ONLY THE ACTIVE POOL'S NOTES (review 2026-09-24): a wide note's cm is 64 hex, a legacy one a decimal. They were
-// summed together, so after a pool switch the balance counted notes this pool cannot spend.
-function _notePoolIsWide(n) { return /^[0-9a-f]{64}$/.test(String(n && n.cm)); }
+// summed together, so after a pool switch the balance counted notes this pool cannot spend. A Stwo note's cm is ALSO
+// 64 hex, so it carries an explicit pool tag (saveNotes stamps it) — without one, a wide note would count as Stwo.
+function _notePool(n) { return n && n.pool === "stwo" ? "stwo" : /^[0-9a-f]{64}$/.test(String(n && n.cm)) ? "wide" : "legacy"; }
+function _activePool() { return shieldStwo() ? "stwo" : shieldWide() ? "wide" : "legacy"; }
 function loadNotes() {
   let all; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; }
-  const wide = shieldWide();
-  return all.filter((n) => _notePoolIsWide(n) === wide);
+  const pool = _activePool();
+  return all.filter((n) => _notePool(n) === pool);
 }
 // keep the OTHER pool's notes on disk untouched: saveNotes only ever receives the active pool's list
 function saveNotes(notes) {
   try {
     let all = []; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) {}
-    const wide = shieldWide();
-    localStorage.setItem(shieldStoreKey(), JSON.stringify(all.filter((n) => _notePoolIsWide(n) !== wide).concat(notes)));
+    const pool = _activePool();
+    if (pool === "stwo") for (const n of notes) n.pool = "stwo";
+    localStorage.setItem(shieldStoreKey(), JSON.stringify(all.filter((n) => _notePool(n) !== pool).concat(notes)));
   } catch (e) {}
 }
 function _randField() {   // a random Goldilocks field element (note randomness rho)
@@ -10388,15 +10416,35 @@ function shieldNskWide() {
   const h = blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]);
   return [0, 1, 2, 3].map((i) => BigInt("0x" + h.slice(16 * i, 16 * i + 16)) % alghash2.P);
 }
-// the spend key in the form the active pool's prover takes (wit.nsk): four decimal lanes (wide) or one (legacy)
-function shieldNskWire() { return shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
-function shieldOwner() { return shieldWide() ? alghash2.ownerOf(shieldNskWide()) : alghash.ownerOf(shieldNsk()); }
-// a zaddr is the owner id in base36: ~13 chars for a legacy 64-bit id, ~50 for a wide 256-bit digest
-function shieldAddr() { return "zaddr" + (shieldWide() ? BigInt("0x" + alghash2.toHex(shieldOwner())) : shieldOwner()).toString(36); }
+// THE STWO SPEND KEY IS THE SAME 256 BITS (doc/stwo-migration.md §5.1): the v2-domain blake2b digest the wide key is cut
+// from, taken whole as the circuit's eight u32 words — no new derivation, no new secret, and recoverable from the same
+// recovery phrase. The Stwo owner is BLAKE2s(21, nsk) (static/stark/stwo_js.js ownerOf), a one-way image as the wide
+// owner is, and a Stwo proof is zero-knowledge, so neither pool's published data reveals the key.
+function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]); }
+// the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
+function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
+function shieldOwner() {
+  if (shieldStwo()) return _stwo.ownerOf(shieldNskStwo());
+  return shieldWide() ? alghash2.ownerOf(shieldNskWide()) : alghash.ownerOf(shieldNsk());
+}
+// a zaddr is the owner id in base36: ~13 chars for a legacy 64-bit id, ~50 for a wide 256-bit digest. A Stwo owner is
+// also 256 bits, so its form is marked: "zaddr_" + base36. Sending to the wrong pool's address makes a note its owner
+// can never spend, so the mark is what lets parseShieldAddr refuse it.
+const ZADDR_STWO = "zaddr_";
+function shieldAddr() {
+  if (shieldStwo()) return ZADDR_STWO + BigInt("0x" + shieldOwner()).toString(36);
+  return "zaddr" + (shieldWide() ? BigInt("0x" + alghash2.toHex(shieldOwner())) : shieldOwner()).toString(36);
+}
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
 function parseShieldAddr(a) {
   a = String(a || "").trim();
   if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
+  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? "that zaddr… is from the previous pool" : "that zaddr… is for a pool that is not live yet");
+  if (shieldStwo()) {
+    const d = _b36(a.slice(ZADDR_STWO.length));
+    if (d >= (1n << 256n)) throw new Error("bad shielded address");
+    return d.toString(16).padStart(64, "0");   // -> the recipient's Stwo owner digest (64-hex)
+  }
   const body = a.slice(5), n = _b36(body);
   // a wide id is 256 bits (its base36 form is longer than any 64-bit legacy id's 13 chars); the pools do not
   // mix, so an address from the other pool is refused rather than silently sent into a note nobody can spend
@@ -10411,6 +10459,7 @@ function parseShieldAddr(a) {
 function renderZaddrQR() {
   if (!state.wallet) return;
   ensureShielded();
+  if (stwoMissing()) { if ($("zaddr")) $("zaddr").textContent = "—"; return; }   // never show the frozen pool's address
   const za = shieldAddr();
   if ($("zaddr")) $("zaddr").textContent = za;
   const link = payLink(za, currentZrecvAmount());
@@ -10461,7 +10510,8 @@ async function renderShield() {
     $("shieldPool").textContent = i18("shield.poolInfo", "{n} banknotes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
   // PRIVACY PAUSE: say so where the pool is described, AFTER the pool line so it is not overwritten.
-  if (!shieldWide()) $("shieldPool").textContent = i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected.");
+  if (stwoMissing()) $("shieldPool").textContent = i18("shield.stwoLoadFail", "Private banknotes could not load on this page. Check your connection and reload.");
+  else if (!shieldWide() && !shieldStwo()) $("shieldPool").textContent = i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected.");
   claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
   const box = $("shieldNotes"); box.innerHTML = "";
   const mine = notes.filter((n) => !n.spent);
@@ -10487,6 +10537,10 @@ async function doShield() {
     // C-2: send (owner, rho) so the exec node BINDS the note value to the escrowed amount by recomputing
     // commit(amount, owner, rho) itself. `cm` is kept for local reference only; the node does not trust it.
     const data = { field: true, owner: ownerStr(owner), rho: rho.toString(), cm: cmStr(cm) };
+    // A STWO DEPOSIT SAYS SO: a wide owner and a Stwo owner are both 64-hex, so L1 cannot tell a deposit from a page that
+    // predates the pool (it would land in the Stwo pool under an owner no key spends). The tag lets the gate's
+    // activation refuse an untagged deposit from the gate (doc/stwo-migration.md §5.1, "OPEN, node side").
+    if (shieldStwo()) data.pool = "stwo";
     const tx = buildTransferTx(state.wallet, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
@@ -10669,6 +10723,8 @@ async function _onDeviceProve2(wit, execBase) {
   const lv = await execJSON("/exec/field_leaves", { base: execBase });
   const leaves = lv.leaves || [];
   const rules = await _proofRulesNow();
+  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
+  if (shieldStwo()) return _onDeviceProveStwo(wit, execBase, leaves);
   if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
   // the tree depth is the exec node's (ZK_HARDEN_HEIGHT: 12 -> 48), read from the same response as the leaves
   if (shieldWide()) return _onDeviceProve3(wit, execBase, leaves, rules, alghash2.treeDepth(lv));
@@ -10726,12 +10782,27 @@ async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
            cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2) };
 }
+// STWO on-device prover (STWO_POOL_HEIGHT): the Merkle path is built here over the pool's leaves, the proof is made by
+// the Stwo WASM in a Worker (static/stark/stwo_js.js proveSpend — never on the main thread), checked against this page's
+// own note algebra, and published as a `stwo_js` bundle through the same DA path. The proof binds the unshield address
+// (aux) and the public unshield + fee; a private transfer is bound to the empty address. Same shape of result.
+async function _onDeviceProveStwo(wit, execBase, leaves) {
+  const pos = leaves.findIndex((l) => String(l) === String(wit.cm));
+  if (pos < 0) throw new Error("note not in the pool yet");
+  const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
+  const r = await _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1, o1: wit.o1, r1: wit.r1,
+    v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: (pv < 0n ? -pv : 0n).toString(), fee: wit.fee,
+    dest: wit.withdraw_addr || "" }, leaves, pos);
+  const res = await _daSubmitFieldTransfer(r.bundle, execBase);
+  return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment, cm_out1: r.cm1, cm_out2: r.cm2 };
+}
 async function _proofRulesNow() {
   try {
     const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
     const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
     const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
     _shieldWide = at("shield_wide");                                  // keep the pool choice in step with the proof rules
+    await _refreshStwo(tip);
     return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt"),
              fullQuery: at("full_query") };   // PROOF_QUERY_FULL_HEIGHT: full-domain openings + the shifted batch
   } catch (e) {

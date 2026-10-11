@@ -79,10 +79,12 @@ def main():
     check("array constants are frozen in the module (a client cannot edit the table)", got.get("__frozen") is True)
     jd = json.loads(js_on)
     check("/protocol.json carries the same names, in order", list(jd) == names)
-    check("/protocol.json carries the same values",
-          all(jd[n] == (list(getattr(protocol, n)) if isinstance(getattr(protocol, n), tuple) else getattr(protocol, n))
-              for n in names))
-    # the documented BigInt rule and the float refusal, on synthetic values (no exported name is that large today)
+    # an integer above 2^53 - 1 travels as a decimal string in the JSON (STWO_POOL_HEIGHT while dormant is 2^62)
+    jwant = lambda v: (str(v) if isinstance(v, int) and not isinstance(v, bool) and abs(v) > cp.MAX_SAFE_INTEGER
+                       else list(v) if isinstance(v, tuple) else v)
+    check("/protocol.json carries the same values", all(jd[n] == jwant(getattr(protocol, n)) for n in names),
+          [n for n in names if jd[n] != jwant(getattr(protocol, n))])
+    # the documented BigInt rule and the float refusal, on synthetic values
     check("an integer above 2^53 - 1 renders as a BigInt literal in JS", cp._js(2 ** 60) == "1152921504606846976n")
     check("an integer above 2^53 - 1 renders as a decimal string in JSON", cp._jsonable(2 ** 60) == "1152921504606846976")
     check("2^53 - 1 itself stays a plain number", cp._js(2 ** 53 - 1) == str(2 ** 53 - 1))

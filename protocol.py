@@ -2608,7 +2608,7 @@ DEVICE_ATTEST_RP_IDS = ("get.nadochain.com", "nadochain.com")
 # the module and refuses any of these names (or a known alias) declared as a literal under static/ or website/.
 # Adding a name here is how a client gets a constant. Values must be int / str / bool or a list / dict of them — NO
 # FLOATS (determinism). Integers above 2^53 are emitted as BigInt literals (`123n`) in /protocol.js and as decimal
-# strings in /protocol.json; none of the names below is that large today.
+# strings in /protocol.json (STWO_POOL_HEIGHT is, while dormant: 2^62).
 # NOT here on purpose: the wallet's SEED-derived tags (DOMAIN_HD_ACCOUNT, DOMAIN_SHIELD_NSK*, DOMAIN_RANDAO_SECRET) — they
 # derive from the user's seed, not the chain, and must never move with a relay's answer.
 CLIENT_EXPORTS = (
@@ -2622,4 +2622,7 @@ CLIENT_EXPORTS = (
     "BASE_SUBSIDY", "BOND_ELASTIC_MULT_BPS",
     "ALIAS_REGISTRATION_FEE", "AUTO_BOND_MIN_RAW", "AUTO_BOND_DEFAULT_PERCENT",
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
+    # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
+    # dormant, which /protocol.js carries as a BigInt
+    "STWO_POOL_HEIGHT",
 )

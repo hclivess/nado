@@ -4806,6 +4806,13 @@ async def h_field_shielded(request):
     Big field ints are returned as strings."""
     # Phase-2 field-native pool status + (optionally) a commitment's position.
     cm = request.query.get("cm")
+    if _stwo_pool_next():
+        # STWO_POOL_HEIGHT: the Stwo pool (execnode/shielded_stwo.py) — the pool a wallet's note and proof are for from
+        # the gate; "pool": "stwo" is how the wallet tells it from the wide pool (both carry 64-hex digests)
+        sp = state.stwo_pool
+        return web.json_response({"root": sp.root(), "notes": len(sp.commitments), "nullifiers": len(sp.nullifiers),
+                                  "cursor": state.cursor, "pos": None, "wide": False, "pool": "stwo",
+                                  "depth": _stwo_depth()})
     if _shield_wide_now():
         # SHIELD_WIDE_HEIGHT: the wide pool; a commitment is a 64-hex digest
         wp = state.wide_pool
@@ -4826,6 +4833,20 @@ def _shield_wide_now():
     block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules). From height 1: gen 25's
     SHIELD_WIDE_HEIGHT was 1 from gen 26 and is deleted; only a fresh state (cursor -1) is still below it."""
     return int(state.cursor) + 1 >= 1
+
+
+def _stwo_pool_next():
+    """Whether the NEXT block applies the Stwo-pool rules (protocol.STWO_POOL_HEIGHT; 0 = never) — the tip+1 rule of
+    _shield_wide_now, and ExecState.rules_stwo_pool's for the block a wallet's note or proof will land in. From the gate
+    a wallet must deposit into and prove against the Stwo pool, so the field endpoints serve it instead of the frozen
+    wide pool; before it they are byte-for-byte what they were."""
+    from protocol import STWO_POOL_HEIGHT
+    return bool(STWO_POOL_HEIGHT) and int(state.cursor) + 1 >= STWO_POOL_HEIGHT
+
+
+def _stwo_depth():
+    from execnode.shielded_stwo import DEPTH
+    return DEPTH
 
 
 def _wide_depth_next():
@@ -4865,6 +4886,11 @@ async def h_field_leaves(request):
     Merkle path and prove ON-DEVICE — the witness never reaches this node."""
     # the field pool's commitment list (public) so the browser can build the Merkle path itself and prove
     # ON-DEVICE (the node never sees the witness). Big ints as strings.
+    if _stwo_pool_next():
+        # STWO_POOL_HEIGHT: the Stwo pool's leaves (64-hex BLAKE2s digests, depth 48); "wide": False so a wallet that
+        # does not know this pool refuses to prove against it rather than build a joinsplit3 proof the gate refuses
+        return web.json_response({"leaves": list(state.stwo_pool.commitments), "wide": False, "pool": "stwo",
+                                  "depth": _stwo_depth()})
     if _shield_wide_now():
         from execnode.stark import znote as _Z
         # "depth": the tree the wallet must build its path and proof at (48 from block 1); see _wide_depth_next

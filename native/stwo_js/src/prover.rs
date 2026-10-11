@@ -821,48 +821,187 @@ pub fn fixture_b() -> Witness {
     Witness { nsk, v_in, rho, sibs, dirs, v1, o1, r1: 0xaaaa_bbbb, v2, o2, r2: 0xcccc_dddd, pv, fee }
 }
 
-// ------------------------------------------------------------------------------------------------ wasm harness
+// ------------------------------------------------------------------------------------------------ the wallet's WASM ABI
 
+/// Bytes of one packed witness (`wallet_witness`): nsk 32 | v_in 8 | rho 8 | sibs D x 32 | dirs D x 1 | v1 8 | o1 32 |
+/// r1 8 | v2 8 | o2 32 | r2 8 | unshield 8 | fee 8. Integers little-endian; digests are the 32 BLAKE2s bytes (the 64-hex
+/// form execnode/shielded_stwo.py carries), read as 8 little-endian u32 words exactly as `digest_words`.
+pub const WALLET_WITNESS_BYTES: usize = 32 + 8 + 8 + D * 32 + D + 8 + 32 + 8 + 8 + 32 + 8 + 8 + 8;
+
+/// Decode the wallet's packed witness. None: wrong length, a dir that is not 0/1, or values that do not conserve
+/// (v_in = v1 + v2 + fee + unshield over the integers, no u64 wrap) — refused BEFORE any proving work, because the
+/// prover's own LogUp check would only notice after the expensive trace, and a non-conserving witness is never honest.
+pub fn wallet_witness(b: &[u8]) -> Option<Witness> {
+    if b.len() != WALLET_WITNESS_BYTES {
+        return None;
+    }
+    let mut o = 0usize;
+    let mut take = |n: usize| {
+        let s = &b[o..o + n];
+        o += n;
+        s
+    };
+    let dg = |s: &[u8]| -> [u32; 8] { digest_words(&<[u8; 32]>::try_from(s).unwrap()) };
+    let u64le = |s: &[u8]| u64::from_le_bytes(<[u8; 8]>::try_from(s).unwrap());
+    let nsk = dg(take(32));
+    let v_in = u64le(take(8));
+    let rho = u64le(take(8));
+    let sibs: Vec<[u32; 8]> = (0..D).map(|_| dg(take(32))).collect();
+    let dirs: Vec<u32> = take(D).iter().map(|&x| x as u32).collect();
+    let v1 = u64le(take(8));
+    let o1 = dg(take(32));
+    let r1 = u64le(take(8));
+    let v2 = u64le(take(8));
+    let o2 = dg(take(32));
+    let r2 = u64le(take(8));
+    let pv = u64le(take(8));
+    let fee = u64le(take(8));
+    if dirs.iter().any(|&d| d > 1) {
+        return None;
+    }
+    let out = v1.checked_add(v2)?.checked_add(fee)?.checked_add(pv)?;
+    if out != v_in {
+        return None;
+    }
+    Some(Witness { nsk, v_in, rho, sibs, dirs, v1, o1, r1, v2, o2, r2, pv, fee })
+}
+
+/// The wallet's output record: root | nf | cm1 | cm2 (32 bytes each, `words_digest`) | unshield u64 | fee u64 | the
+/// proof's wire bytes (src/wire.rs) — everything the exec layer's `stwo_js` bundle carries except the destination.
+pub fn wallet_output(public: &Public, proof: &JsProof) -> Vec<u8> {
+    let mut out = Vec::new();
+    for d in [&public.root, &public.nf, &public.cm1, &public.cm2] {
+        out.extend_from_slice(&words_digest(d));
+    }
+    out.extend_from_slice(&public.pv.to_le_bytes());
+    out.extend_from_slice(&public.fee.to_le_bytes());
+    out.extend_from_slice(&wire::encode(proof));
+    out
+}
+
+/// Result codes of the wallet ABI (in addition to lib.rs RC_OK / RC_BAD_ARGS / RC_REJECTED).
+pub const RC_NO_SEED: i32 = 5;
+pub const RC_SEED_REUSED: i32 = 6;
+pub const RC_NOT_A_JOINSPLIT: i32 = 7;
+
+/// Seed bookkeeping shared by the WASM ABI and its native tests: a seed is accepted once, never all-zero, never twice.
+/// THE ZERO-KNOWLEDGE OF A PROOF IS ITS SEED: every random row, mask and salt is ChaCha20 of it, so two proofs from one
+/// seed share their randomness and their difference is a function of the two witnesses alone. A wallet that passes a
+/// constant (an uninitialised buffer, a failed getRandomValues) must get a refusal, never a proof.
+#[derive(Default)]
+pub struct SeedBook {
+    fresh: Option<[u8; 32]>,
+    used: Vec<[u8; 32]>,
+}
+impl SeedBook {
+    pub fn offer(&mut self, s: [u8; 32]) -> i32 {
+        if s == [0u8; 32] {
+            return RC_NO_SEED;
+        }
+        if self.used.contains(&s) || self.fresh == Some(s) {
+            return RC_SEED_REUSED;
+        }
+        self.fresh = Some(s);
+        RC_OK
+    }
+    /// The fresh seed, consumed: a second proof needs a second offer.
+    pub fn take(&mut self) -> Option<[u8; 32]> {
+        let s = self.fresh.take()?;
+        self.used.push(s);
+        Some(s)
+    }
+}
+
+/// Prove one wallet witness with a seed from `book` at the pinned node config -> (rc, output record).
+pub fn wallet_prove(book: &mut SeedBook, witness: &[u8], dest: &[u8]) -> (i32, Vec<u8>) {
+    let Some(w) = wallet_witness(witness) else { return (RC_NOT_A_JOINSPLIT, vec![]) };
+    let Some(seed) = book.take() else { return (RC_NO_SEED, vec![]) };
+    match prove_js(&w, aux_of(dest), node_config(), false, seed) {
+        Ok((public, proof, _)) => (RC_OK, wallet_output(&public, &proof)),
+        Err(_) => (RC_NOT_A_JOINSPLIT, vec![]),
+    }
+}
+
+/// The wallet's WASM exports (static/stark/stwo_js.js drives them from a Worker). No imports: a panic is a trap, and
+/// the JS side drops the instance after one. Memory crosses as (pointer, length) pairs from `stwo_alloc`.
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
     use std::sync::Mutex;
-    static LAST: Mutex<Option<(Public, Vec<u8>, Vec<SecureField>)>> = Mutex::new(None);
-    static CFG: Mutex<(u32, usize, u32)> = Mutex::new((1, 80, 20));
-    static SEED: Mutex<Option<[u8; 32]>> = Mutex::new(None);
+    static SEEDS: Mutex<Option<SeedBook>> = Mutex::new(None);
+    static OUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
+    unsafe fn bytes<'a>(p: *const u8, n: usize) -> &'a [u8] {
+        if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(p, n) } }
+    }
 
     #[unsafe(no_mangle)]
-    pub extern "C" fn js_set_config(log_blowup: u32, n_queries: u32, pow_bits: u32) {
-        *CFG.lock().unwrap() = (log_blowup, n_queries as usize, pow_bits);
+    pub extern "C" fn stwo_abi_version() -> u32 {
+        1
     }
-    /// 32 random bytes as 8 words, from crypto.getRandomValues; consumed by the next js_prove.
     #[unsafe(no_mangle)]
-    pub extern "C" fn js_seed(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32) {
-        let w = [a, b, c, d, e, f, g, h];
-        let mut s = [0u8; 32];
-        for i in 0..8 {
-            s[4 * i..4 * i + 4].copy_from_slice(&w[i].to_le_bytes());
+    pub extern "C" fn stwo_alloc(n: usize) -> *mut u8 {
+        let mut v = Vec::<u8>::with_capacity(n.max(1));
+        let p = v.as_mut_ptr();
+        std::mem::forget(v);
+        p
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_free(p: *mut u8, n: usize) {
+        if !p.is_null() {
+            drop(unsafe { Vec::from_raw_parts(p, 0, n.max(1)) });
         }
-        *SEED.lock().unwrap() = Some(s);
     }
-    /// Proves the fixture join-split; returns the proof size in bytes, 0 if no fresh seed was supplied.
+    /// 32 bytes from crypto.getRandomValues. RC_OK, RC_NO_SEED (all zero) or RC_SEED_REUSED (seen by this instance).
     #[unsafe(no_mangle)]
-    pub extern "C" fn js_prove() -> u32 {
-        let Some(seed) = SEED.lock().unwrap().take() else { return 0 };
-        let (b, q, p) = *CFG.lock().unwrap();
-        let (public, proof, _) = prove_js(&fixture(), [0; 8], config(b, q, p), false, seed).expect("prove");
-        let size = proof.size_bytes() as u32;
-        let bytes = bincode::serialize(&proof.stark).unwrap();
-        *LAST.lock().unwrap() = Some((public, bytes, proof.claimed));
-        size
+    pub extern "C" fn stwo_seed(p: *const u8) -> i32 {
+        if p.is_null() {
+            return RC_BAD_ARGS;
+        }
+        let s: [u8; 32] = unsafe { bytes(p, 32) }.try_into().unwrap();
+        SEEDS.lock().unwrap().get_or_insert_with(SeedBook::default).offer(s)
+    }
+    /// Prove the packed witness (`wallet_witness`) bound to `dest` (the unshield address's UTF-8, empty for a private
+    /// transfer). RC_OK leaves the record (`wallet_output`) at stwo_out_ptr / stwo_out_len.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_prove(wit: *const u8, wit_len: usize, dest: *const u8, dest_len: usize) -> i32 {
+        if wit.is_null() || (dest.is_null() && dest_len != 0) {
+            return RC_BAD_ARGS;
+        }
+        OUT.lock().unwrap().clear();
+        let mut g = SEEDS.lock().unwrap();
+        let (rc, out) = wallet_prove(g.get_or_insert_with(SeedBook::default), unsafe { bytes(wit, wit_len) }, unsafe { bytes(dest, dest_len) });
+        *OUT.lock().unwrap() = out;
+        rc
     }
     #[unsafe(no_mangle)]
-    pub extern "C" fn js_verify() -> u32 {
-        let (b, q, p) = *CFG.lock().unwrap();
-        let g = LAST.lock().unwrap();
-        let (public, bytes, claimed) = g.as_ref().unwrap();
-        let stark = bincode::deserialize(bytes).unwrap();
-        verify_js(public, JsProof { claimed: claimed.clone(), stark, dbg: None }, config(b, q, p)).is_ok() as u32
+    pub extern "C" fn stwo_out_ptr() -> *const u8 {
+        OUT.lock().unwrap().as_ptr()
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_out_len() -> usize {
+        OUT.lock().unwrap().len()
+    }
+    /// Verify the last output record exactly as a node does (`verify_node`, pinned config) against `dest`: the wallet
+    /// checks its own proof before publishing it, so a bad proof never reaches the chain or marks a note spent.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_verify_out(dest: *const u8, dest_len: usize) -> i32 {
+        if dest.is_null() && dest_len != 0 {
+            return RC_BAD_ARGS;
+        }
+        let o = OUT.lock().unwrap();
+        if o.len() < 144 {
+            return RC_BAD_ARGS;
+        }
+        let d = |i: usize| -> [u8; 32] { o[32 * i..32 * i + 32].try_into().unwrap() };
+        let pv = u64::from_le_bytes(o[128..136].try_into().unwrap());
+        let fee = u64::from_le_bytes(o[136..144].try_into().unwrap());
+        verify_node(&o[144..], d(0), d(1), d(2), d(3), pv, fee, unsafe { bytes(dest, dest_len) }).0
+    }
+    /// The 32-byte aux digest of `dest` into `out` (lib.rs aux_of), for the wallet's cross-check.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_aux(dest: *const u8, dest_len: usize, out: *mut u8) -> i32 {
+        nado_stwo_js_aux(dest, dest_len, out)
     }
 }
 
