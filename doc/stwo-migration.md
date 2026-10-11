@@ -248,6 +248,22 @@ never fail-stop the exec node).
 (doc/stwo/zk-argument.md is the draft; an outside review is the step that cannot be done here). No deposit
 cap: the operator's decision (2026-10-11).
 
+**GATE BLOCKERS (review 2026-10-11). `STWO_POOL_HEIGHT` may not be set to a real height until BOTH are resolved,
+whatever the state of the ZK review:**
+1. **Output rho is free, so a payer can make a note its owner cannot spend ("faerie gold").** The AIR constrains an
+   output row's domain tag, value and padding (lib.rs `s_out1`/`s_out2`: m[0..2], m[13..15]) but not its rho (m[11..12]),
+   and nf = H(23, nsk, rho) does not depend on the note's position. A sender pays one owner twice with the SAME rho and
+   different values: the two commitments differ (so the duplicate-cm check passes), both land in the pool, and they share
+   one nullifier — the recipient credits two payments and can spend one. The fix changes the circuit (derive an output's
+   rho from the input's nullifier and the output index, or bind nf to the leaf position), so it needs the AIR change, a
+   new `NODE_PREPROCESSED_ROOT` if a selector moves, and a re-shipped WASM built with the pinned nightly
+   (tests/_stwo_js_build.py --ship).
+2. **The gate freezes every wide-pool note with no way out.** From the gate `apply_field_transfer` accepts only a
+   `stwo_js` bundle, so a joinsplit3 spend or unshield of a wide note is refused forever, while the wide pool keeps taking
+   deposits until the gate. The wide pool is empty today (0 notes at 2026-10-11); any deposit before the gate would be
+   coins nobody can move — against "the coins are real". Before setting the gate: close wide deposits ahead of it (an L1
+   admission gate on `shield`) AND either keep wide spends/unshields valid after it or prove the pool empty at the gate.
+
 **Tests (each in the same commit as its code).**
 - forgeries refused AT the gate and impossible below it: wrong root, fee + 1, changed unshield destination, inflating
   witness, a claimed-sum shift between components, a forged lookup (the phase-0 negatives, against the node verifier);
