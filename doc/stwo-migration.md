@@ -242,9 +242,9 @@ tail (stwo_zk `verify_js`) also builds on stable, and the OLDEST rustc on the fl
 compiler; nodes do not report theirs — add it to /status first, and refuse loudly in `_build_crates` if too old,
 never fail-stop the exec node).
 
-**Gates on value.** Deposits into the new pool are refused until (a) the zero-knowledge argument is written and
-reviewed (scratchpad/stwo0/zkproof/ARGUMENT.md is the draft; an outside review is the step that cannot be done here) and
-(b) a deposit cap is set in protocol for the first weeks. Spends need no cap: a spend can only move what was deposited.
+**Gates on value.** Deposits into the new pool are refused until the zero-knowledge argument is written and reviewed
+(scratchpad/stwo0/zkproof/ARGUMENT.md is the draft; an outside review is the step that cannot be done here). No deposit
+cap: the operator's decision (2026-10-11).
 
 **Tests (each in the same commit as its code).**
 - forgeries refused AT the gate and impossible below it: wrong root, fee + 1, changed unshield destination, inflating
