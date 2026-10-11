@@ -81,7 +81,10 @@ check("the faucet is carry-safe by its code; a dice table with an open bet is no
       and carry_policy("d" * 32, contracts["d" * 32]) == "reset")
 gen_contracts, kept = exec_genesis_doc(contracts, {"faucet": FAUCET_POT, "d" * 32: DICE_POT})
 check("2. every contract is carried under its id", sorted(gen_contracts) == sorted(contracts), sorted(gen_contracts))
-check("...the faucet with its storage", gen_contracts["faucet"]["storage"] == contracts["faucet"]["storage"])
+# the fixture writes its slots as strings; the carried genesis holds them as INTS (alphanet6_carryforward.int_slots — a
+# string slot is a KVX record in the root, not a slot leaf, and no settle proof could extend that root)
+check("...the faucet with its storage, every slot an int", gen_contracts["faucet"]["storage"] == {"slots": {"7": FAUCET_POT, "8": 0}},
+      gen_contracts["faucet"]["storage"])
 check("...and its pot kept in escrow; the reset contract's pot is left to the refund", kept == {"faucet": FAUCET_POT}, kept)
 check("...the reset contract starts from fresh-deploy storage, its in-flight seat gone",
       gen_contracts["d" * 32]["storage"] != contracts["d" * 32]["storage"] and gen_contracts["d" * 32]["code"] == dice_code,

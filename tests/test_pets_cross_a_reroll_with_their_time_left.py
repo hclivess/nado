@@ -140,7 +140,7 @@ new.cursor = 300
 r = call(new, cid, A, "collect", [1])
 check("...and the farm collects on the new chain", rd(new, P.BSI, 1) == 300, (r, rd(new, P.BSI, 1)))
 check("5. a hashed slot (a resource balance) is untouched by the rebase",
-      gen[cid]["storage"]["slots"].get(res_slot) == "777")
+      gen[cid]["storage"]["slots"].get(res_slot) == 777)          # (as an int: alphanet6_carryforward.int_slots)
 
 new.cursor = P.CARRY_PIN_FLOOR + 2
 check("6. an open battle keeps the reveal window it had left (new block 0 stands where the old tip stood)",

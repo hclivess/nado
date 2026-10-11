@@ -86,18 +86,30 @@ def game_module_of(contract: dict):
     return None
 
 
-def carry_policy(cid: str, contract: dict) -> str:
+def _in_flight(mod, storage, tip):
+    """mod.carry_in_flight, given the old tip when the hook takes one (pets judges whether a pinned roll's outcome is
+    already visible at the tip; a banked game's open bet needs no tip)."""
+    import inspect
+    if tip is not None and "tip" in inspect.signature(mod.carry_in_flight).parameters:
+        return mod.carry_in_flight(storage, tip=int(tip))
+    return mod.carry_in_flight(storage)
+
+
+def carry_policy(cid: str, contract: dict, tip=None) -> str:
     """"keep" (storage and pot cross the reroll as is) when the contract runs exactly its game module's code AND that
     module says its storage is carry-safe: CARRY_STORAGE = True (nothing stored names the old chain), or
-    carry_in_flight(storage) == [] (nothing is in flight right now — e.g. a banked game with no open bets).
-    Otherwise "reset" (fresh-deploy storage, pot refunded as before); the in-flight reasons are kept in CARRY_BLOCKERS
-    so the operator can settle them on the old chain and run the carry again."""
+    carry_in_flight(storage[, tip]) == [] (nothing is in flight right now — e.g. a banked game with no open bets, or
+    no pets roll whose outcome is already visible at the old `tip`).
+    Otherwise "reset" (fresh-deploy storage, pot refunded as before); the in-flight reasons are kept in CARRY_BLOCKERS,
+    and build() REFUSES to write while any exist (unless --allow-blockers), so the operator settles them on the old
+    chain and runs the carry again. exec_genesis_doc passes `tip`; without it a tip-dependent hook reports only what
+    it can judge without one."""
     mod = game_module_of(contract)
     if mod is None:
         return "reset"
     if getattr(mod, "CARRY_STORAGE", False) or (hasattr(mod, "carry_rebase") and not hasattr(mod, "carry_in_flight")):
         return "keep"
-    why = mod.carry_in_flight(contract.get("storage") or {})
+    why = _in_flight(mod, contract.get("storage") or {}, tip)
     if why:
         CARRY_BLOCKERS[cid] = list(why)
         return "reset"
@@ -131,7 +143,7 @@ def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy, tip: int 
     for cid in sorted(contracts):
         c = contracts[cid]
         rec = {k: c[k] for k in ("code", "abi", "deployer", "runtime", "upgradable") if k in c}
-        if policy(cid, c) == "keep":
+        if (policy(cid, c, tip=tip) if policy is carry_policy else policy(cid, c)) == "keep":
             rec["storage"] = json.loads(json.dumps(c.get("storage") or {}))
             mod = game_module_of(c)
             if mod is not None and hasattr(mod, "carry_rebase"):
@@ -141,8 +153,21 @@ def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy, tip: int 
                 kept[cid] = int(pots[cid])
         else:
             rec["storage"] = fresh_deploy_storage(c)
+        rec["storage"] = int_slots(rec["storage"])
         out[cid] = rec
     return out, kept
+
+
+def int_slots(storage: dict) -> dict:
+    """`storage` with every "slots" value an int. INVARIANT (review 2026-10-11): a carried slot is an INT, because
+    exec_root.kv_projection commits only int-valued slots at their slot positions (anything else becomes a KVX record)
+    while the settle proof's settlement_sparse.sparse_projection int()s every slot — a rebase hook that wrote strings
+    gave a genesis root no settle proof could extend. The hooks write ints; this is the backstop for every contract. A
+    value that is not an integer RAISES: the carry never guesses."""
+    out = dict(storage or {})
+    if "slots" in out:
+        out["slots"] = {str(k): int(v) for k, v in (out["slots"] or {}).items()}
+    return out
 
 
 def exec_assets_doc(d: dict) -> dict:
@@ -158,20 +183,60 @@ def exec_assets_doc(d: dict) -> dict:
 _EXEC_GENESIS = [None]
 
 
-def exec_value_the_carry_would_drop(d: dict) -> list:
+SHIELDED_POOLS = ("shielded", "field_pool", "wide_pool", "stwo_pool", "app_state")   # every ExecState note pool
+
+
+def exec_value_the_carry_would_drop(d: dict, tip=None, policy=None) -> list:
     """Reasons this exec snapshot holds value the carry cannot move yet ([] = nothing would be lost). The carry used to
     check only the LEGACY pool (`shielded`), while every shield deposit from block 1 lands in the WIDE pool and some in
     the field pool and app_state; and it ignored exec-side ASSETS (`abal`) entirely, so a held token died with the
     generation (assets now carry in the exec genesis). INVARIANT: every place exec value can sit is either folded or
     carried by this tool or listed here, because a reroll that silently drops a holder's note or token is a theft by the
-    protocol."""
+    protocol.
+
+    Review 2026-10-11 closed two more:
+      * the Stwo pool (`stwo_pool`) was added after this list and was not in it; and `pool_value` — the exec layer's
+        own running total of value inside every pool — is checked too, so a pool this list does not name yet is
+        still refused rather than dropped;
+      * an exec ASSET held BY A CONTRACT that the carry would reset: assets carry verbatim, but a reset contract starts
+        from fresh-deploy storage, so the ledger that said whose those tokens are is gone and nothing can release them.
+        `policy` (default carry_policy, with `tip`) decides which contracts reset."""
     out = []
-    for name in ("shielded", "field_pool", "wide_pool", "app_state"):
+    for name in SHIELDED_POOLS:
         pool = d.get(name) or {}
         if pool.get("commitments") or pool.get("trees"):
             out.append(f"{name} holds notes — holders must unshield before the reroll (or the pool must be carried)")
-    # exec ASSETS are carried verbatim in the exec genesis (assets, abal, allow), so they are no longer a refusal
+    if int(d.get("pool_value") or 0) != 0:
+        out.append(f"pool_value is {int(d.get('pool_value') or 0)} raw — value sits in a shielded pool; holders must "
+                   "unshield before the reroll (or the pool must be carried)")
+    # exec ASSETS are carried verbatim in the exec genesis (assets, abal, allow) — but only a holder that survives can
+    # use them: a contract holding assets must itself carry ("keep")
+    contracts = d.get("contracts") or {}
+    held = {}
+    for aid, hs in sorted((d.get("abal") or {}).items()):
+        for holder, n in sorted((hs or {}).items()):
+            if holder in contracts and _num(n):
+                held.setdefault(holder, []).append(f"{aid}:{_num(n)}")
+    if held:
+        pol = policy or (lambda cid, c: carry_policy(cid, c, tip=tip))
+        for cid in sorted(held):
+            if pol(cid, contracts[cid]) != "keep":
+                out.append(f"contract {cid[:16]} holds exec assets ({', '.join(held[cid][:4])}) but would reset — its "
+                           "ledger of whose they are would be lost; settle it on the old chain (or make it carry)")
     return out
+
+
+def refuse_blockers(blockers: dict, argv) -> None:
+    """Refuse the carry while a contract that would carry is BLOCKED by something in flight (carry_policy put it in
+    CARRY_BLOCKERS and it falls back to reset). Review 2026-10-11: the fallback used to be a printed line — a banked
+    game's open bets and bankroll then went through attribute_pot to the deployer of record unless someone read the
+    printout. INVARIANT: a blocked contract is a refusal unless the operator passes --allow-blockers, deliberately
+    accepting the reset and its pot attribution (printed above it, as before)."""
+    if blockers and "--allow-blockers" not in argv:
+        lines = [f"{cid[:16]}: {'; '.join(why)}" for cid, why in sorted(blockers.items())]
+        raise SystemExit("REFUSING: contracts with something in flight would reset instead of carrying "
+                         "(settle them on the old chain and re-run, or pass --allow-blockers to accept the reset):\n  "
+                         + "\n  ".join(lines))
 
 
 def build():
@@ -199,7 +264,7 @@ def build():
         if int(d.get("cursor", -1)) < _tip:
             raise SystemExit(f"exec cursor {d.get('cursor')} is behind the L1 tip {_tip}: let exec catch up first")
 
-    _lost = exec_value_the_carry_would_drop(d)
+    _lost = exec_value_the_carry_would_drop(d, tip=int(d.get("cursor", 0)))
     if _lost:
         raise SystemExit("REFUSING: the carry would drop exec value:\n  " + "\n  ".join(_lost))
 
@@ -233,7 +298,9 @@ def build():
     from protocol import CHAIN_GENERATION as _G
     _EXEC_GENESIS[0] = {"generation": int(_G) + 1, "contracts": _gen_contracts,
                         "bridge": {c: str(v) for c, v in sorted(kept_pots.items())},
-                        **exec_assets_doc(d)}
+                        **exec_assets_doc(d),
+                        # the payee registry carried storage resolves its digests through (execnode/exec_genesis.apply)
+                        "zk_addrs": {str(k): str(v) for k, v in sorted((d.get("zk_addrs") or {}).items())}}
     pot_refunds = {}
     for cid, pot in pot_bridge.items():
         if cid in kept_pots:
@@ -307,6 +374,9 @@ def build():
     print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")
     if carried != l1_total:
         raise SystemExit("conservation failed — refusing to write")
+    # BLOCKED CONTRACTS REFUSE (refuse_blockers): the NOT CARRIED and MANUAL REFUND lines above are the attribution the
+    # operator accepts with --allow-blockers; without it nothing is written
+    refuse_blockers(CARRY_BLOCKERS, sys.argv)
     # INVARIANT: what stays in BRIDGE_ESCROW is exactly the carried pots, because L1 genesis seeds the escrow counter
     # from them and refuses a mismatch (genesis.py) — a residual would be unbacked coins or a failed first exit.
     _esc = alloc.get("bridge", {"balance": 0})["balance"]
