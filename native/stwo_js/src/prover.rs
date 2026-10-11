@@ -514,9 +514,40 @@ pub enum Cheat {
     /// commit a JS range-check piece that is not in the xor table, with the interaction column computed for the
     /// honest piece (so the LogUp sums still balance)
     ForgeLookup,
+    /// commit an all-zero preprocessed tree (every selector and the xor table zero, so every gated constraint and
+    /// lookup vanishes) and claimed sums that cancel the public LogUp sum: before the preprocessed root was pinned
+    /// (lib.rs NODE_PREPROCESSED_ROOT, review 2026-10-11) this verified for ANY public inputs. A forgery, test-only.
+    ZeroPre,
 }
 /// Column of the first nibble piece of message word 0, low limb (its range check is an xor-table lookup).
 pub const JS_NIB0_COL: usize = JS_NSK_COL + JS_NREG + 1;
+
+/// The preprocessed columns (JS selectors, ROUND selectors, the xor table), in storage order — THE builders both the
+/// prover commits and `preprocessed_root` recomputes the pin from. Fixed by the query count alone (Sizes::new): no
+/// witness, no randomness, no salt, so its commitment is one constant per config (lib.rs NODE_PREPROCESSED_ROOT).
+pub fn preprocessed_columns(sz: &Sizes) -> (Vec<Vec<BaseField>>, Vec<Vec<BaseField>>, Vec<Vec<BaseField>>) {
+    (
+        to_storage(&js_selectors(sz.log_js), sz.log_js),
+        to_storage(&plain_selectors(sz.log_round, R_ROUND), sz.log_round),
+        to_storage(&xor_table_rows(sz.log_xor), sz.log_xor),
+    )
+}
+
+/// The root of the preprocessed tree at `cfg`, recomputed from the column builders exactly as prove_js commits it.
+/// tests/test_stwo_js_preprocessed_root_is_pinned_and_recomputed_from_the_column_builders.py asserts that this equals
+/// lib.rs NODE_PREPROCESSED_ROOT for node_config(), so a selector or table change cannot drift silently from the pin.
+pub fn preprocessed_root(cfg: PcsConfig) -> [u8; 32] {
+    let sz = Sizes::new(cfg.fri_config.n_queries);
+    let lb = cfg.fri_config.log_blowup_factor;
+    let twiddles = SimdBackend::precompute_twiddles(CanonicCoset::new(sz.log_comp() + lb).circle_domain().half_coset);
+    let ch = &mut Blake2sChannel::default();
+    let mut cs = CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(cfg, &twiddles);
+    let (sel_js, sel_rd, xt) = preprocessed_columns(&sz);
+    let mut tb = cs.tree_builder();
+    tb.extend_evals(chain![evals(&sel_js, sz.log_js), evals(&sel_rd, sz.log_round), evals(&xt, sz.log_xor)].collect_vec());
+    tb.commit(ch);
+    cs.roots()[0].0
+}
 
 /// Prove one join-split in zero knowledge. `seed`: 32 fresh random bytes (never reuse one).
 pub fn prove_js(w: &Witness, aux: [u32; 8], cfg: PcsConfig, check: bool, seed: [u8; 32]) -> Result<(Public, JsProof, Timings), ProveError> {
@@ -538,6 +569,14 @@ pub fn prove_js_cheat(
     let t0 = now_ms();
     let (msgs, dirs, mut public) = messages(w);
     public.aux = aux;
+    if cheat == Cheat::ZeroPre {
+        // public inputs the witness never produced: a fresh nullifier, outputs from nowhere, an unshield of 10^18
+        public.nf = [0xdead; 8];
+        public.cm1 = [0xbeef; 8];
+        public.cm2 = [0xf00d; 8];
+        public.pv = 1_000_000_000_000_000_000;
+        public.fee = 0;
+    }
 
     // JS: R_JS real rows, then random rows (uniform M31 everywhere except the public BLAKE2s start state)
     let mut js_r = js_rows(&msgs, &dirs, w, rng);
@@ -577,9 +616,7 @@ pub fn prove_js_cheat(
     }
     let rd = to_storage(&rd_r, sz.log_round);
 
-    let sel_js = to_storage(&js_selectors(sz.log_js), sz.log_js);
-    let sel_rd = to_storage(&plain_selectors(sz.log_round, R_ROUND), sz.log_round);
-    let xt = to_storage(&xor_table_rows(sz.log_xor), sz.log_xor);
+    let (sel_js, sel_rd, xt) = preprocessed_columns(&sz);
     let pre: Vec<Vec<BaseField>> = chain![sel_js.iter().cloned(), sel_rd.iter().cloned(), xt.iter().cloned()].collect();
 
     // relation entries -> xor multiplicities (real rows only: every other row has multiplicity 0)
@@ -632,7 +669,12 @@ pub fn prove_js_cheat(
     public.mix_into(ch);
     let mut cs = CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(cfg, &twiddles);
     let mut tb = cs.tree_builder();
-    tb.extend_evals(chain![evals(&sel_js, sz.log_js), evals(&sel_rd, sz.log_round), evals(&xt, sz.log_xor)].collect_vec());
+    if cheat == Cheat::ZeroPre {
+        let z = |v: &[Vec<BaseField>]| v.iter().map(|c| vec![BaseField::zero(); c.len()]).collect_vec();
+        tb.extend_evals(chain![evals(&z(&sel_js), sz.log_js), evals(&z(&sel_rd), sz.log_round), evals(&z(&xt), sz.log_xor)].collect_vec());
+    } else {
+        tb.extend_evals(chain![evals(&sel_js, sz.log_js), evals(&sel_rd, sz.log_round), evals(&xt, sz.log_xor)].collect_vec());
+    }
     tb.commit(ch);
     let salt1 = rnd_cols(rng, N_SALT, lc);
     let mut tb = cs.tree_builder();
@@ -658,6 +700,9 @@ pub fn prove_js_cheat(
         let x = SecureField::from_m31_array([m31(12345), m31(1), m31(2), m31(3)]);
         claimed[0] += x;
         claimed[1] -= x;
+    }
+    if cheat == Cheat::ZeroPre {
+        claimed = vec![-public_sum(&rel, &public), SecureField::zero(), SecureField::zero()];
     }
     let total: SecureField = claimed.iter().copied().sum::<SecureField>() + public_sum(&rel, &public);
     if !total.is_zero() {
