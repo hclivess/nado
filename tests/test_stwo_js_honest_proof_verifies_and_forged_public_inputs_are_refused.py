@@ -5,7 +5,11 @@ A proof is made by the crate's own prover (feature `prover`, nightly, built for 
 outside the checkout) at the pinned node config, then verified by the STABLE build of the same crate, the library a node
 would load. The soundness negatives are the four the phase-0 prototype ran, now through the wrapper:
   wrong root, fee + 1, a changed unshield destination, and a proof made for different public inputs;
-plus the wire-format refusals a node relies on (a trailing byte, a non-canonical field element).
+plus the wire-format refusals a node relies on (a trailing byte, a non-canonical field element);
+plus THE ZERO-PREPROCESSED FORGERY (review 2026-10-11): a proof whose preprocessed tree (every selector and the xor
+table) is all zero, with claimed sums that cancel the public LogUp sum, for public inputs no witness produced (a fresh
+nullifier, outputs from nowhere, an unshield of 10^18). It verified before lib.rs pinned NODE_PREPROCESSED_ROOT;
+it must be refused, and refused BY the pin.
 
 SKIPS (with a SKIP line) when there is no stable cargo or no nightly-2026-01-15 toolchain on this machine.
 
@@ -121,6 +125,19 @@ if r.returncode == 0:
     check("a witness that mints the unshield (old balance) never yields an accepted proof", not ok, (ok, why))
 else:
     check("a witness that mints the unshield (old balance) is refused by the prover", r.returncode != 0, r.stderr[-300:])
+# THE PREPROCESSED TREE IS PINNED (lib.rs NODE_PREPROCESSED_ROOT): the forgery that switched every gate off
+out = tempfile.mkdtemp(prefix="nado-stwo-js-proof-zeropre-", dir=_T)
+r = subprocess.run([exe, "zeropre", "attacker-address", out], capture_output=True, text=True, timeout=600)
+check("the zero-preprocessed forgery is produced (Cheat::ZeroPre, prover feature only)", r.returncode == 0, r.stderr[-500:])
+if r.returncode == 0:
+    pz, Z = open(os.path.join(out, "proof.bin"), "rb").read(), json.load(open(os.path.join(out, "public.json")))
+    check("...for public inputs no witness produced (unshield 10^18)", Z["unshield"] == 10 ** 18, Z)
+    ok, why = run(pz, Z)
+    check("a proof over an all-zero preprocessed tree (every gate off) is REFUSED by the node verifier",
+          not ok and "preprocessed" in why, (ok, why))
+    # its commitments[0] (bincode: claimed Vec 8+3*16, PcsConfig 28, commitments Vec len 8) is not the pinned root
+    check("...the forgery's preprocessed root differs from the honest proofs' (the pin is what refuses it)",
+          pz[84:92] == (4).to_bytes(8, "little") and pz[92:124] != pb[92:124], pz[84:124].hex())
 check("the honest unshield balances on the OUTPUT side: v_in = v1 + v2 + fee + unshield (fixture b verifies)",
       run(pb, P)[0])
 

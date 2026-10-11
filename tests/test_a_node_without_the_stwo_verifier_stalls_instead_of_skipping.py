@@ -6,7 +6,13 @@ node applies and fork its exec state without a word — the crate is optional un
 exactly the node to expect. Pins, driving the real _apply_block with the library pointed at a path that does not exist:
   1. a block carrying a stwo_js field_transfer, at or above the gate, returns False and moves NOTHING (cursor, pool);
   2. the same block below the gate applies (the bundle is refused there as not live, deterministically);
-  3. a block with no Stwo spend applies above the gate as before.
+  3. a block with no Stwo spend applies above the gate as before;
+  4. A JSON-ESCAPED KEY STALLS TOO (review 2026-10-11): `{"stark": {"stwo\\u005fjs": ...}}` carries no "stwo_js"
+     substring, yet json.loads makes the key `stwo_js` and apply dispatches it to the verifier. The pre-check decided
+     on the raw text, so this node skipped a spend every node with the library applied — a fork for one blob. It now
+     decides on the parsed bundle (state.field_transfer_bundle, the one parse apply uses);
+  5. ...and deciding on the parse cuts both ways: "stwo_js" appearing only as TEXT inside another bundle is not a
+     Stwo spend, so it does not stall.
 
 Run: python3 tests/test_a_node_without_the_stwo_verifier_stalls_instead_of_skipping.py
 """
@@ -64,6 +70,22 @@ st = state_at(GATE + 4)
 ok = run(st, blk(GATE + 5, [{"recipient": "blob", "sender": "ndoA" + "a" * 44, "txid": "n1",
                              "data": {"op": "deploy", "code": {"x": []}, "nonce": "z"}}]))
 check("3. above the gate a block with no Stwo spend applies as before", ok is not False and st.cursor == GATE + 5, ok)
+
+ESC = json.dumps(SPEND).replace('"stwo_js"', '"stwo\\u005fjs"')
+assert "stwo_js" not in ESC and "stwo_js" in json.loads(ESC)["stark"], ESC
+st = state_at(GATE + 9)
+before = copy.deepcopy(st._snapshot())
+ok = run(st, blk(GATE + 10, [{"recipient": "blob", "sender": "ndoA" + "a" * 44, "txid": "e1",
+                              "data": {"op": "field_transfer", "bundle_json": ESC}}]))
+check("4. a Stwo spend whose key is JSON-escaped (no raw 'stwo_js' text) STALLS too, moving nothing",
+      ok is False and st.cursor == GATE + 9 and st._snapshot() == before, ok)
+
+TEXT_ONLY = {"stark": {"joinsplit3": {"note": "stwo_js"}}}
+st = state_at(GATE + 19)
+ok = run(st, blk(GATE + 20, [{"recipient": "blob", "sender": "ndoA" + "a" * 44, "txid": "t1",
+                              "data": {"op": "field_transfer", "bundle_json": json.dumps(TEXT_ONLY)}}]))
+check("5. 'stwo_js' only as text inside another bundle is not a Stwo spend: the block applies (skipped as wide)",
+      ok is not False and st.cursor == GATE + 20, ok)
 
 print("ALL PASS — a node without the Stwo verifier stalls instead of skipping" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

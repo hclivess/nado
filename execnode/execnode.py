@@ -2683,18 +2683,22 @@ def _da_grace_over(commitment):
 
 
 def _block_carries_stwo_spend(block, resolved):
-    """True when any field_transfer in `block` names a `stwo_js` bundle — inline (bundle / bundle_json) or in DA bytes the
-    pre-resolve fetched. Over-matching costs only a stall on a node without the library; under-matching would fork."""
+    """True when any field_transfer in `block` carries a bundle apply_field_transfer would send to the Stwo verifier.
+    DECIDED ON THE PARSED BUNDLE (state.field_transfer_bundle + state.carries_stwo_spend), with the DA bytes injected
+    exactly as the dispatch loop below injects them — never on raw text: a JSON escape (`stwo\\u005fjs`) hid a spend from
+    the old substring test, and a node without the library skipped what the others applied (review 2026-10-11).
+    Over-matching costs only a stall on a node without the library; under-matching forks."""
+    from execnode.state import field_transfer_bundle, carries_stwo_spend
     for tx in block.get("block_transactions", []):
         d = tx.get("data")
         if tx.get("recipient") != "blob" or not isinstance(d, dict) or d.get("op") != "field_transfer":
             continue
-        parts = [d.get("bundle_json"), d.get("bundle")]
-        if tx.get("txid") in resolved:
-            parts.append(resolved[tx["txid"]][1])
-        for p in parts:
-            if p is not None and "stwo_js" in (p if isinstance(p, str) else json.dumps(p, default=str)):
-                return True
+        if tx.get("txid") in resolved:                 # the dispatch loop's injection, byte for byte
+            _field, _bytes = resolved[tx["txid"]]
+            d = {**d, _field: _bytes}
+        bundle, _err = field_transfer_bundle(d)
+        if bundle is not None and carries_stwo_spend(bundle):
+            return True
     return False
 
 

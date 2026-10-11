@@ -228,7 +228,10 @@ def t_the_wallet_privacy_guards_are_in_place():
     assert "blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey])" in s
     assert "alghash2.ownerOf(shieldNskWide())" in s, "the wide owner must come from the wide key"
     assert "/exec/field_shielded?cm=" not in s, "receiving must not tell the relay which note"
-    assert "return all.filter((n) => _notePoolIsWide(n) === wide);" in s, "the balance must count one pool"
+    # the Stwo pool (73ff9e69) made the filter three-way: a note is legacy, wide or stwo (an explicit tag, since a Stwo
+    # cm is 64-hex like a wide one), and the balance counts the ACTIVE pool's notes only — the same property
+    assert "return all.filter((n) => _notePool(n) === pool);" in s, "the balance must count one pool"
+    assert 'n && n.pool === "stwo" ? "stwo"' in s, "a Stwo note is told from a wide one by its tag, not its shape"
     assert "J.bindAux(wit.withdraw_addr, wit.public_value, wit.fee)" in s, "the wide prover must bind value and fee"
     assert "fullQuery: at(\"full_query\")" in s, "the wallet must follow the full-query rule"
 

@@ -120,6 +120,10 @@ const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // shielded nullifier-secret d
 // THE WIDE POOL'S KEY COMES FROM ITS OWN DOMAIN, AND IS FOUR LANES (review 2026-09-24). Every legacy (non-ZK)
 // proof published the v1 key; reusing it for the wide pool would hand anyone holding an old proof the new spend key.
 const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";
+// THE STWO POOL'S KEY COMES FROM ITS OWN DOMAIN TOO (review 2026-10-11). It was the v2 digest taken whole, i.e. the wide
+// key's four lanes before reduction: any leak of a wide witness (the v1 precedent above) would have handed over every
+// Stwo note of the same wallet. Set while the Stwo pool is dormant and empty, so no note was ever made under the old form.
+const DOMAIN_SHIELD_NSK_STWO = "shield-nsk-stwo-v1";
 const DOMAIN_FORUM_LOGIN = "forum-login-v1";      // forum login challenge (matches forum/server.py)
 // MIN_TX_FEE is imported above.
 // Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
@@ -10416,11 +10420,12 @@ function shieldNskWide() {
   const h = blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]);
   return [0, 1, 2, 3].map((i) => BigInt("0x" + h.slice(16 * i, 16 * i + 16)) % alghash2.P);
 }
-// THE STWO SPEND KEY IS THE SAME 256 BITS (doc/stwo-migration.md §5.1): the v2-domain blake2b digest the wide key is cut
-// from, taken whole as the circuit's eight u32 words — no new derivation, no new secret, and recoverable from the same
-// recovery phrase. The Stwo owner is BLAKE2s(21, nsk) (static/stark/stwo_js.js ownerOf), a one-way image as the wide
-// owner is, and a Stwo proof is zero-knowledge, so neither pool's published data reveals the key.
-function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]); }
+// THE STWO SPEND KEY (doc/stwo-migration.md §5.1): a 256-bit blake2b digest under ITS OWN domain (DOMAIN_SHIELD_NSK_STWO),
+// taken whole as the circuit's eight u32 words — recoverable from the same recovery phrase, and independent of the wide
+// and legacy keys. INVARIANT: never derive it from another pool's domain; one pool's leak must not open another's notes
+// (review 2026-10-11; the wide key's separation from v1 is the same rule). The Stwo owner is BLAKE2s(21, nsk)
+// (static/stark/stwo_js.js ownerOf), a one-way image, and a Stwo proof is zero-knowledge.
+function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
 // the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
 function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
 function shieldOwner() {
@@ -10439,7 +10444,7 @@ function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "012
 function parseShieldAddr(a) {
   a = String(a || "").trim();
   if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
-  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? "that zaddr… is from the previous pool" : "that zaddr… is for a pool that is not live yet");
+  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? i18("shield.zaddrPrevPool", "that zaddr… is from the previous pool") : i18("shield.zaddrNotLive", "that zaddr… is for a pool that is not live yet"));
   if (shieldStwo()) {
     const d = _b36(a.slice(ZADDR_STWO.length));
     if (d >= (1n << 256n)) throw new Error("bad shielded address");
@@ -10723,7 +10728,7 @@ async function _onDeviceProve2(wit, execBase) {
   const lv = await execJSON("/exec/field_leaves", { base: execBase });
   const leaves = lv.leaves || [];
   const rules = await _proofRulesNow();
-  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
+  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error(i18("shield.poolDisagree", "the exec node and the relay disagree on which pool is live — retry in a moment"));
   if (shieldStwo()) return _onDeviceProveStwo(wit, execBase, leaves);
   if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
   // the tree depth is the exec node's (ZK_HARDEN_HEIGHT: 12 -> 48), read from the same response as the leaves
@@ -10788,7 +10793,7 @@ async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
 // (aux) and the public unshield + fee; a private transfer is bound to the empty address. Same shape of result.
 async function _onDeviceProveStwo(wit, execBase, leaves) {
   const pos = leaves.findIndex((l) => String(l) === String(wit.cm));
-  if (pos < 0) throw new Error("note not in the pool yet");
+  if (pos < 0) throw new Error(i18("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute"));
   const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
   const r = await _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1, o1: wit.o1, r1: wit.r1,
     v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: (pv < 0n ? -pv : 0n).toString(), fee: wit.fee,

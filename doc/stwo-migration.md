@@ -210,8 +210,10 @@ deposit/spend effects join that list.
 (protocol.CLIENT_EXPORTS; a BigInt while dormant at 2^62) and switches to the Stwo pool when tip + 1 >= the gate — the
 same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, which from the gate serves the Stwo pool
 (`"pool": "stwo"`, `"wide": false`, depth 48). Below the gate `static/stark/stwo_js.js` is never even downloaded.
-- spend key: the SAME 256 bits as the wide key (blake2b over `shield-nsk-v2`, taken whole instead of cut into four field
-  lanes); owner = BLAKE2s(21, nsk). No new derivation, recoverable from the same phrase.
+- spend key: 256 bits under its OWN domain (blake2b over `shield-nsk-stwo-v1`, `DOMAIN_SHIELD_NSK_STWO`); owner =
+  BLAKE2s(21, nsk). Recoverable from the same phrase. It was the wide key's v2 digest taken whole until review
+  2026-10-11: a leaked wide witness would then have opened every Stwo note of the wallet (changed while the pool was
+  dormant and empty, so no note exists under the old form).
 - zaddr: `zaddr_` + base36 of the owner — marked, because a wide owner is also 256 bits and a note sent to the wrong
   pool's owner is unspendable; `parseShieldAddr` refuses the other pool's form. Stored notes carry `pool: "stwo"`.
 - prover: `static/vendor/stwo_js.wasm` (ABI in `native/stwo_js/src/prover.rs`, "the wallet's WASM ABI": `stwo_seed`,
@@ -245,6 +247,22 @@ never fail-stop the exec node).
 **Gates on value.** Deposits into the new pool are refused until the zero-knowledge argument is written and reviewed
 (doc/stwo/zk-argument.md is the draft; an outside review is the step that cannot be done here). No deposit
 cap: the operator's decision (2026-10-11).
+
+**GATE BLOCKERS (review 2026-10-11). `STWO_POOL_HEIGHT` may not be set to a real height until BOTH are resolved,
+whatever the state of the ZK review:**
+1. **Output rho is free, so a payer can make a note its owner cannot spend ("faerie gold").** The AIR constrains an
+   output row's domain tag, value and padding (lib.rs `s_out1`/`s_out2`: m[0..2], m[13..15]) but not its rho (m[11..12]),
+   and nf = H(23, nsk, rho) does not depend on the note's position. A sender pays one owner twice with the SAME rho and
+   different values: the two commitments differ (so the duplicate-cm check passes), both land in the pool, and they share
+   one nullifier — the recipient credits two payments and can spend one. The fix changes the circuit (derive an output's
+   rho from the input's nullifier and the output index, or bind nf to the leaf position), so it needs the AIR change, a
+   new `NODE_PREPROCESSED_ROOT` if a selector moves, and a re-shipped WASM built with the pinned nightly
+   (tests/_stwo_js_build.py --ship).
+2. **The gate freezes every wide-pool note with no way out.** From the gate `apply_field_transfer` accepts only a
+   `stwo_js` bundle, so a joinsplit3 spend or unshield of a wide note is refused forever, while the wide pool keeps taking
+   deposits until the gate. The wide pool is empty today (0 notes at 2026-10-11); any deposit before the gate would be
+   coins nobody can move — against "the coins are real". Before setting the gate: close wide deposits ahead of it (an L1
+   admission gate on `shield`) AND either keep wide spends/unshields valid after it or prove the pool empty at the gate.
 
 **Tests (each in the same commit as its code).**
 - forgeries refused AT the gate and impossible below it: wrong root, fee + 1, changed unshield destination, inflating

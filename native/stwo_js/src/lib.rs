@@ -796,6 +796,20 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     if proof.claimed.len() != 3 || proof.stark.commitments.len() != 4 {
         return Err("bad proof structure".into());
     }
+    // THE PREPROCESSED TREE IS THE CIRCUIT, NOT THE PROVER'S TO CHOOSE (review 2026-10-11, reproduced). Every gate of
+    // the AIR is a preprocessed column (the js_*/rd_*/xs_* selectors) and the xor lookup table is one too; reading its
+    // root from the proof let a prover commit all-zero columns, which switched off every gated constraint and lookup,
+    // and a proof for ANY root, nullifier, outputs and unshield verified (Cheat::ZeroPre). The tree is unsalted and
+    // fixed by the config (prover.rs preprocessed_columns), so its root is one constant: refuse anything else BEFORE
+    // it reaches the channel. The constant exists for node_config() only, so no other config is accepted here.
+    // INVARIANT: never commit commitments[0] without this comparison; a change to a selector or the table changes the
+    // root and must re-pin NODE_PREPROCESSED_ROOT (the pin test recomputes it from the builders).
+    if cfg != node_config() {
+        return Err("not the node config (the preprocessed root is pinned for it alone)".into());
+    }
+    if proof.stark.commitments[0].0 != NODE_PREPROCESSED_ROOT {
+        return Err("the preprocessed commitment is not the pinned circuit".into());
+    }
     let sz = Sizes::new(q);
     let ch = &mut Blake2sChannel::default();
     cfg.mix_into(ch);
@@ -848,6 +862,15 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
 pub const NODE_LOG_BLOWUP: u32 = 2;
 pub const NODE_N_QUERIES: usize = 160;
 pub const NODE_POW_BITS: u32 = 20;
+
+/// The root of the preprocessed tree (selectors + xor table) at node_config(): the circuit itself, as a commitment.
+/// Recomputed from the column builders by prover.rs `preprocessed_root` and compared with this constant by
+/// tests/test_stwo_js_preprocessed_root_is_pinned_and_recomputed_from_the_column_builders.py. CONSENSUS CONSTANT.
+/// = 7c6ffd00b94f011171c878a8dd8a80ffe8d90804294359af1dc0ab8abb4cd111
+pub const NODE_PREPROCESSED_ROOT: [u8; 32] = [
+    0x7c, 0x6f, 0xfd, 0x00, 0xb9, 0x4f, 0x01, 0x11, 0x71, 0xc8, 0x78, 0xa8, 0xdd, 0x8a, 0x80, 0xff,
+    0xe8, 0xd9, 0x08, 0x04, 0x29, 0x43, 0x59, 0xaf, 0x1d, 0xc0, 0xab, 0x8a, 0xbb, 0x4c, 0xd1, 0x11,
+];
 
 pub fn node_config() -> PcsConfig {
     config(NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS)

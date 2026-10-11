@@ -2,14 +2,14 @@
  * it after the answer). Message in: {witness: Uint8Array (prover.rs wallet_witness), dest: string}. Out: {ok, out} with
  * the output record, or {ok: false, error}. The seed is 32 bytes of crypto.getRandomValues taken HERE, per proof — the
  * proof's zero-knowledge is that seed, so it never crosses a message and is never reused (the WASM refuses a repeat). */
-import { StwoCore, proveWith } from "./stwo_js.js";
+import { StwoCore, proveWith, errDownload } from "./stwo_js.js";
 
 let _core = null;
 async function core() {
   if (!_core) {
     // "/static/vendor/stwo_js.wasm" is stamped with the file's content version by the server (ops/static_versions.py)
     const r = await fetch("/static/vendor/stwo_js.wasm");
-    if (!r.ok) throw new Error("the Stwo prover could not be downloaded (HTTP " + r.status + ")");
+    if (!r.ok) throw errDownload(r.status);
     _core = await StwoCore.instantiate(await r.arrayBuffer());
   }
   return _core;
@@ -23,6 +23,8 @@ self.onmessage = async (ev) => {
     self.postMessage({ ok: true, out }, [out.buffer]);
   } catch (e) {
     _core = null;          // a trap leaves the instance unusable; the page terminates this worker anyway
-    self.postMessage({ ok: false, error: String((e && e.message) || e) });
+    // the key travels with the English text, so the page re-raises it in the user's language (stwo_js.js errFromWorker)
+    self.postMessage({ ok: false, error: String((e && e.message) || e), key: (e && e.i18nKey) || null,
+                       fallback: (e && e.i18nDefault) || null, vars: (e && e.i18nVars) || null });
   }
 };

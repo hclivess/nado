@@ -19,6 +19,21 @@
  * the RFC's Appendix B vector and Python's hashlib in the test above.
  */
 
+// ---- user-facing errors, in the wallet's language ---------------------------------------------------------------
+// The wallet speaks 16 languages (static/i18n.js). On the page window.t translates; in the Worker and in Node there is
+// no window, so the English default is used and the error carries its key (i18nKey / i18nVars): _inWorker re-raises it
+// on the page through _err again, translated there. Keys live in static/i18n/shield.json (tests/i18n_coverage.mjs reads
+// static/stark/ too). Internal invariant errors (bad hex, a wrong-length digest) stay English: no user can reach them.
+function _fill(fb, vars) { return String(fb).replace(/\{(\w+)\}/g, (m, n) => (vars && vars[n] != null ? String(vars[n]) : m)); }
+function _err(k, fb, vars) { const e = new Error(typeof window !== "undefined" && window.t ? window.t(k, fb, vars) : _fill(fb, vars)); e.i18nKey = k; e.i18nVars = vars || null; e.i18nDefault = fb; return e; }
+/** An error raised in the Worker, re-raised on the page in the page's language (the key travels with the message). */
+export function errFromWorker(d) {
+  if (d && d.key && d.fallback) return _err(d.key, d.fallback, d.vars || undefined);
+  return _err("shield.stwoFailed", "the prover failed");
+}
+/** The prover file could not be fetched (HTTP status `s`) — raised in the Worker. */
+export function errDownload(s) { return _err("shield.stwoDownload", "the private-banknote prover could not be downloaded (HTTP {s})", { s }); }
+
 // ---- BLAKE2s-256 (RFC 7693) -----------------------------------------------------------------------------------
 const IV = new Uint32Array([0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]);
 const SIGMA = [
@@ -142,7 +157,7 @@ export function treeRoot(leaves) {
 export function treePath(leaves, pos) {
   const E = EMPTY();
   let level = leaves.map((x) => String(x).toLowerCase()), i = Number(pos);
-  if (!(i >= 0 && i < level.length)) throw new Error("note not in the pool yet");
+  if (!(i >= 0 && i < level.length)) throw _err("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute");
   const sibs = [], dirs = [];
   for (let d = 0; d < DEPTH; d++) {
     const sib = i ^ 1;
@@ -176,7 +191,7 @@ function _rd64(b, o) { let v = 0n; for (let i = 7; i >= 0; i--) v = (v << 8n) | 
  *  too (the WASM refuses it anyway), so the wallet says what is wrong instead of a code. */
 export function packWitness(w) {
   const vin = BigInt(w.vIn), v1 = BigInt(w.v1), v2 = BigInt(w.v2), un = BigInt(w.unshield || 0), fee = BigInt(w.fee || 0);
-  if (vin !== v1 + v2 + fee + un) throw new Error("the spend does not balance: v_in must equal v1 + v2 + fee + unshield");
+  if (vin !== v1 + v2 + fee + un) throw _err("shield.stwoUnbalanced", "the spend does not balance: the banknote's value must equal both outputs plus the fee and the withdrawal");
   if (w.sibs.length !== DEPTH || w.dirs.length !== DEPTH) throw new Error("the path is not depth " + DEPTH);
   const parts = [fromHex(w.nsk), _le64(vin), _le64(w.rho), ...w.sibs.map(fromHex), Uint8Array.from(w.dirs.map(Number)),
     _le64(v1), fromHex(w.o1), _le64(w.r1), _le64(v2), fromHex(w.o2), _le64(w.r2), _le64(un), _le64(fee)];
@@ -189,7 +204,7 @@ export function packWitness(w) {
 
 /** The output record (prover.rs wallet_output) -> {root, nf, cm1, cm2, unshield, fee, proof}. proof: Uint8Array. */
 export function parseOutput(b) {
-  if (!(b instanceof Uint8Array) || b.length < 144) throw new Error("the prover returned no proof");
+  if (!(b instanceof Uint8Array) || b.length < 144) throw _err("shield.stwoNoProof", "the prover returned no proof");
   const d = (i) => toHex(b.subarray(32 * i, 32 * i + 32));
   return { root: d(0), nf: d(1), cm1: d(2), cm2: d(3), unshield: _rd64(b, 128), fee: _rd64(b, 136), proof: b.slice(144) };
 }
@@ -201,7 +216,7 @@ export function buildBundle(out, withdrawAddr) {
   const bundle = { stark: { stwo_js: { proof: toHex(out.proof), root: out.root, nf: out.nf, cm_out1: out.cm1, cm_out2: out.cm2,
     unshield: un.toString(), fee: fee.toString() } } };
   if (un > 0n) {
-    if (!withdrawAddr) throw new Error("an unshield needs a destination");
+    if (!withdrawAddr) throw _err("shield.stwoNeedDest", "a withdrawal needs a destination address");
     bundle.withdraw_addr = withdrawAddr;
   }
   return bundle;
@@ -212,7 +227,7 @@ export class StwoCore {
   static async instantiate(wasmBytes) {
     const { instance } = await WebAssembly.instantiate(wasmBytes, {});
     const c = new StwoCore(); c.x = instance.exports;
-    if (c.x.stwo_abi_version() !== ABI_VERSION) throw new Error("the Stwo prover is another ABI version");
+    if (c.x.stwo_abi_version() !== ABI_VERSION) throw _err("shield.stwoAbi", "the private-banknote prover on this page is out of date: reload the page");
     return c;
   }
   _put(bytes) { const p = this.x.stwo_alloc(bytes.length); new Uint8Array(this.x.memory.buffer, p, bytes.length).set(bytes); return p; }
@@ -240,11 +255,13 @@ export class StwoCore {
 /** One proof, inside a Worker: seed, prove, self-verify. -> output record bytes, or throws with the reason. */
 export async function proveWith(core, witness, dest, randomBytes) {
   const rcs = core.seed(randomBytes(32));
-  if (rcs !== RC.OK) throw new Error(rcs === RC.SEED_REUSED ? "the prover refused a reused random seed" : "the prover got no random seed");
+  if (rcs === RC.SEED_REUSED) throw _err("shield.stwoSeedReused", "the prover refused a reused random seed");
+  if (rcs !== RC.OK) throw _err("shield.stwoNoSeed", "the prover got no random seed");
   const { rc, out } = core.prove(witness, dest);
-  if (rc !== RC.OK) throw new Error(rc === RC.NOT_A_JOINSPLIT ? "this spend is not a valid join-split" : "the prover failed (code " + rc + ")");
+  if (rc === RC.NOT_A_JOINSPLIT) throw _err("shield.stwoNotJoinsplit", "this spend is not valid for that banknote");
+  if (rc !== RC.OK) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: rc });
   const v = core.verifyOut(dest);
-  if (v !== RC.OK) throw new Error("the proof made on this device does not verify (code " + v + ")");
+  if (v !== RC.OK) throw _err("shield.stwoSelfVerify", "the proof made on this device does not verify (code {c})", { c: v });
   return out;
 }
 
@@ -256,13 +273,13 @@ export async function proveWith(core, witness, dest, randomBytes) {
 export async function proveSpend(spend, leaves, pos, run) {
   const path = treePath(leaves, pos);
   const owner = ownerOf(spend.nsk);
-  if (commit(spend.vIn, owner, spend.rho) !== String(leaves[pos]).toLowerCase()) throw new Error("that banknote is not this wallet's");
+  if (commit(spend.vIn, owner, spend.rho) !== String(leaves[pos]).toLowerCase()) throw _err("shield.stwoNotMine", "that banknote does not belong to this wallet");
   const un = BigInt(spend.unshield || 0), dest = un > 0n ? String(spend.dest || "") : "";
   const witness = packWitness({ ...spend, sibs: path.sibs, dirs: path.dirs });
   const t0 = Date.now();
   const out = parseOutput(await (run || _inWorker)(witness, dest));
   const want = { root: path.root, nf: nullifier(spend.nsk, spend.rho), cm1: commit(spend.v1, spend.o1, spend.r1), cm2: commit(spend.v2, spend.o2, spend.r2) };
-  for (const k of Object.keys(want)) if (out[k] !== want[k]) throw new Error("the prover and the wallet disagree on " + k);
+  for (const k of Object.keys(want)) if (out[k] !== want[k]) throw _err("shield.stwoDisagree", "the prover and the wallet disagree on {k}: nothing was sent", { k });
   return { bundle: buildBundle(out, dest), ...want, ms: Date.now() - t0 };
 }
 
@@ -270,10 +287,10 @@ function _inWorker(witness, dest) {
   return new Promise((resolve, reject) => {
     let w;
     try { w = new Worker("/static/stark/stwo_worker.js", { type: "module" }); }
-    catch (e) { reject(new Error("private proving needs Web Workers")); return; }
+    catch (e) { reject(_err("shield.stwoNoWorkers", "private banknotes need a browser with Web Workers")); return; }
     const done = (f, v) => { try { w.terminate(); } catch (e) { /* already gone */ } f(v); };
-    w.onmessage = (ev) => (ev.data && ev.data.ok ? done(resolve, new Uint8Array(ev.data.out)) : done(reject, new Error((ev.data && ev.data.error) || "the prover failed")));
-    w.onerror = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); done(reject, new Error("the prover stopped: " + ((ev && ev.message) || "worker error"))); };
+    w.onmessage = (ev) => (ev.data && ev.data.ok ? done(resolve, new Uint8Array(ev.data.out)) : done(reject, errFromWorker(ev.data)));
+    w.onerror = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); done(reject, _err("shield.stwoStopped", "the prover stopped: {m}", { m: (ev && ev.message) || "worker error" })); };
     w.postMessage({ witness, dest }, [witness.buffer]);
   });
 }

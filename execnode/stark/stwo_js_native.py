@@ -93,12 +93,15 @@ def ensure_loaded():
 
 
 def _digest(h):
-    if not isinstance(h, str) or len(h) != 64:
+    """64 lowercase hex -> EXACTLY 32 bytes, else None.
+    INVARIANT (review 2026-10-11, reproduced): the C side reads 32 bytes from each digest pointer. `len(h) == 64` plus
+    bytes.fromhex let `nf[:62] + "  "` through as 31 bytes (fromhex skips whitespace), and the read's 32nd byte was the
+    bytes object's trailing NUL — a second spelling of every nullifier ending in 0x00 that verified. Canonical spelling
+    only, and the decoded length is asserted, so the native call can never read past a buffer."""
+    if not isinstance(h, str) or len(h) != 64 or any(c not in "0123456789abcdef" for c in h):
         return None
-    try:
-        return bytes.fromhex(h)
-    except ValueError:
-        return None
+    b = bytes.fromhex(h)
+    return b if len(b) == 32 else None
 
 
 def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, fee: int, dest: str):
@@ -120,6 +123,8 @@ def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, 
         db = dest.encode("utf-8")
     except UnicodeEncodeError:
         return False, "dest is not UTF-8"
+    if any(len(ds[k]) != 32 for k in ds):              # never hand the C side a buffer shorter than it reads
+        return False, "a digest is not 32 bytes"
     reason = ctypes.create_string_buffer(512)
     rlen = ctypes.c_size_t(0)
     rc = lib.nado_stwo_js_verify(bytes(proof), len(proof), ds["root"], ds["nf"], ds["cm1"], ds["cm2"],

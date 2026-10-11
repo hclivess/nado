@@ -79,7 +79,10 @@ const collectWrapped = (txt, name, prefix) => {
   for (const m of txt.matchAll(new RegExp(`(?<![\\w.$])${n}\\(\\s*[^,()"']*\\?\\s*["']([a-zA-Z0-9_.\\-]+)["']\\s*:\\s*["']([a-zA-Z0-9_.\\-]+)["']`, "g")))
     for (const k of [m[1], m[2]]) refs.add(prefix + k);
 };
-for (const f of fs.readdirSync("static")) {
+// static/stark/ TOO (2026-10-11): the Stwo wallet module (static/stark/stwo_js.js) raises user-facing errors through its
+// own window.t wrapper (_err), and this loop read static/ only — every key behind it would have shipped unchecked.
+const STATIC_FILES = [...fs.readdirSync("static"), ...fs.readdirSync("static/stark").filter((f) => f.endsWith(".js")).map((f) => "stark/" + f)];
+for (const f of STATIC_FILES) {
   if (f.endsWith(".html")) collect(fs.readFileSync("static/" + f, "utf8"), "");
   else if (f.endsWith(".js") && f !== "i18n.js") {
     const txt = fs.readFileSync("static/" + f, "utf8");
@@ -132,7 +135,7 @@ if (undef_.length) { fails++; console.error(`FAIL: ${undef_.length} referenced k
 // rendered a literal "{t}" / "{b}" / "{m}" to the user in every language (fixed 2026-10-10).
 {
   const ph = (x) => [...new Set([...String(x).matchAll(/\{([A-Za-z_]\w*)\}/g)].map((m) => m[1]))].sort().join(",");
-  const files = fs.readdirSync("static").filter((f) => /\.(js|html)$/.test(f) && f !== "i18n.js").map((f) => "static/" + f);
+  const files = STATIC_FILES.filter((f) => /\.(js|html)$/.test(f) && f !== "i18n.js").map((f) => "static/" + f);
   const bad = [];
   for (const f of files) {
     const txt = fs.readFileSync(f, "utf8");
