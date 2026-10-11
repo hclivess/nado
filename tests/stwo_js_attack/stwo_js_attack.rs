@@ -1,0 +1,147 @@
+//! Adversarial harness for the Stwo join-split verifier (review 2026-10-11). Built by
+//! tests/test_stwo_js_every_post_proof_mutation_and_cheat_is_refused.py into a TEMP copy of native/stwo_js as
+//! src/bin/stwo_js_attack.rs (feature `prover`, nightly) — never into the checkout.
+//! Prints one line per case: `CASE <name> rc=<code>`; the Python test asserts on them.
+use nado_stwo_js::*;
+use stwo::core::fields::qm31::SecureField;
+use num_traits::One;
+
+fn rc(bytes: &[u8], p: &Public, dest: &[u8]) -> i32 {
+    verify_node(bytes, words_digest(&p.root), words_digest(&p.nf), words_digest(&p.cm1), words_digest(&p.cm2), p.pv, p.fee, dest).0
+}
+
+fn main() {
+    let a: Vec<String> = std::env::args().collect();
+    let mode = a.get(1).map(String::as_str).unwrap_or("mutate");
+    let dest = b"ndo1-attack-destination";
+    let seed = [7u8; 32];
+    let w = fixture_b();
+    let (p, proof, _) = prove_js(&w, aux_of(dest), node_config(), false, seed).expect("prove");
+    let honest = wire::encode(&proof);
+    println!("CASE honest rc={}", rc(&honest, &p, dest));
+    let one = SecureField::one();
+    let enc = |f: &dyn Fn(&mut JsProof)| {
+        let mut q = wire::decode(&honest).unwrap();
+        f(&mut q);
+        wire::encode(&q)
+    };
+    let case = |name: &str, b: Vec<u8>| println!("CASE {name} rc={}", rc(&b, &p, dest));
+    if mode == "mutate" {
+        for i in 0..3 {
+            case(&format!("claimed{i}+1"), enc(&|q| q.claimed[i] += one));
+        }
+        case("claimed0+x,claimed1-x", enc(&|q| { q.claimed[0] += one; q.claimed[1] -= one; }));
+        case("claimed0+x,claimed2-x", enc(&|q| { q.claimed[0] += one; q.claimed[2] -= one; }));
+        case("claimed-extra", enc(&|q| q.claimed.push(SecureField::default())));
+        for t in 0..4 {
+            case(&format!("commitment{t}"), enc(&|q| q.stark.0.commitments[t].0[0] ^= 1));
+        }
+        for t in 0..4 {
+            case(&format!("sampled{t}"), enc(&|q| {
+                let c = q.stark.0.sampled_values[t].iter_mut().find(|c| !c.is_empty()).unwrap();
+                c[0] += one;
+            }));
+            case(&format!("sampled{t}-last"), enc(&|q| {
+                let c = q.stark.0.sampled_values[t].iter_mut().rev().find(|c| !c.is_empty()).unwrap();
+                c[0] += one;
+            }));
+            case(&format!("queried{t}"), enc(&|q| {
+                let c = &mut q.stark.0.queried_values[t][0];
+                c[0] = c[0] + stwo::core::fields::m31::BaseField::one();
+            }));
+            case(&format!("queried{t}-salt"), enc(&|q| {
+                let c = q.stark.0.queried_values[t].last_mut().unwrap();
+                c[0] = c[0] + stwo::core::fields::m31::BaseField::one();
+            }));
+            case(&format!("decommit{t}-pop"), enc(&|q| { q.stark.0.decommitments[t].hash_witness.pop(); }));
+            case(&format!("decommit{t}-push"), enc(&|q| {
+                let x = q.stark.0.decommitments[t].hash_witness[0];
+                q.stark.0.decommitments[t].hash_witness.push(x);
+            }));
+        }
+        case("pow+1", enc(&|q| q.stark.0.proof_of_work = q.stark.0.proof_of_work.wrapping_add(1)));
+        case("fri-first-commit", enc(&|q| q.stark.0.fri_proof.first_layer.commitment.0[0] ^= 1));
+        case("fri-first-witness", enc(&|q| q.stark.0.fri_proof.first_layer.fri_witness[0] += one));
+        case("fri-first-witness-push", enc(&|q| q.stark.0.fri_proof.first_layer.fri_witness.push(one)));
+        case("fri-inner0-witness", enc(&|q| q.stark.0.fri_proof.inner_layers[0].fri_witness[0] += one));
+        case("fri-inner-last-pop", enc(&|q| { q.stark.0.fri_proof.inner_layers.pop(); }));
+        case("fri-last-poly", enc(&|q| q.stark.0.fri_proof.last_layer_poly[0] += one));
+        case("cfg-queries-159", enc(&|q| q.stark.0.config.fri_config.n_queries = 159));
+        case("cfg-pow-0", enc(&|q| q.stark.0.config.pow_bits = 0));
+        case("cfg-blowup-1", enc(&|q| q.stark.0.config.fri_config.log_blowup_factor = 1));
+        case("cfg-lift+1", enc(&|q| q.stark.0.config.min_lifting_log_size += 1));
+        case("cfg-lastlayer-1", enc(&|q| q.stark.0.config.fri_config.log_last_layer_degree_bound = 1));
+        case("cfg-foldstep-2", enc(&|q| q.stark.0.config.fri_config.fold_step = 2));
+        // a proof honestly made at a CHEAPER config (1/80/20): the verifier must refuse it outright
+        let cheap = config(1, 80, 20);
+        let (p2, pr2, _) = prove_js(&w, aux_of(dest), cheap, false, [9u8; 32]).expect("prove cheap");
+        println!("CASE cheaper-config rc={}", rc(&wire::encode(&pr2), &p2, dest));
+        for (name, ch) in [("ShiftClaimed", Cheat::ShiftClaimed), ("ForgeLookup", Cheat::ForgeLookup)] {
+            match prove_js_cheat(&w, aux_of(dest), node_config(), false, [11u8; 32], ch) {
+                Ok((pc, prc, _)) => println!("CASE cheat-{name} rc={}", rc(&wire::encode(&prc), &pc, dest)),
+                Err(e) => println!("CASE cheat-{name} rc=prover-refused({e:?})"),
+            }
+        }
+    } else if mode == "struct" {
+        // structurally inconsistent proofs: each must be REFUSED (rc 2/3/4), never accepted, never abort the process
+        case("queried1-drop-column", enc(&|q| { q.stark.0.queried_values[1].pop(); }));
+        case("queried1-short-column", enc(&|q| { q.stark.0.queried_values[1][0].pop(); }));
+        case("queried-drop-tree", enc(&|q| { q.stark.0.queried_values.0.pop(); }));
+        case("decommit-drop-tree", enc(&|q| { q.stark.0.decommitments.0.pop(); }));
+        case("sampled-drop-tree", enc(&|q| { q.stark.0.sampled_values.0.pop(); }));
+        case("commitments-5", enc(&|q| { let c = q.stark.0.commitments[3]; q.stark.0.commitments.0.push(c); }));
+        case("fri-no-inner", enc(&|q| { q.stark.0.fri_proof.inner_layers.clear(); }));
+        case("fri-witness-empty", enc(&|q| { q.stark.0.fri_proof.first_layer.fri_witness.clear(); }));
+        case("claimed-empty", enc(&|q| { q.claimed.clear(); }));
+        // a declared length of 2^60 claimed sums in a few bytes: must be refused without allocating it
+        let mut b = honest.clone();
+        b[..8].copy_from_slice(&(1u64 << 60).to_le_bytes());
+        case("huge-len-prefix", b);
+        // 16 MiB + 1: refused by the cap before decoding
+        case("over-cap", vec![0u8; wire::MAX_PROOF_BYTES + 1]);
+        // the largest proof the cap admits, padded with hash witnesses: refused, and how long it takes
+        let big = enc(&|q| {
+            let x = q.stark.0.decommitments[1].hash_witness[0];
+            while bincode::serialized_size(&(&q.claimed, &q.stark)).unwrap() + 32 * 1024 < wire::MAX_PROOF_BYTES as u64 {
+                for _ in 0..1024 { q.stark.0.decommitments[1].hash_witness.push(x); }
+            }
+        });
+        let t = std::time::Instant::now();
+        let r = rc(&big, &p, dest);
+        println!("CASE max-size-padded rc={r} bytes={} ms={}", big.len(), t.elapsed().as_millis());
+        let t = std::time::Instant::now();
+        let r = rc(&honest, &p, dest);
+        println!("CASE honest-timing rc={r} bytes={} ms={}", honest.len(), t.elapsed().as_millis());
+    } else if mode == "dump" {
+        // for the node binding (ctypes -> nado_stwo_js_verify): the honest proof, one that makes the verifier panic,
+        // and the public inputs, so the Python test can check a panic comes back as a refusal and the caller lives
+        let out = a.get(2).expect("dump <dir>");
+        std::fs::write(format!("{out}/honest.bin"), &honest).unwrap();
+        std::fs::write(format!("{out}/panic.bin"), enc(&|q| { q.stark.0.queried_values[1].pop(); })).unwrap();
+        let h = |w: &[u32; 8]| words_digest(w).iter().map(|b| format!("{b:02x}")).collect::<String>();
+        std::fs::write(format!("{out}/public.json"), format!(
+            "{{\"root\": \"{}\", \"nf\": \"{}\", \"cm1\": \"{}\", \"cm2\": \"{}\", \"unshield\": {}, \"fee\": {}, \"dest\": \"{}\"}}",
+            h(&p.root), h(&p.nf), h(&p.cm1), h(&p.cm2), p.pv, p.fee, std::str::from_utf8(dest).unwrap())).unwrap();
+        println!("CASE dumped");
+    } else if mode == "fuzz" {
+        // byte flips and truncations: never RC_OK, and the process must survive every one (no abort across FFI)
+        let n: usize = a.get(2).map(|s| s.parse().unwrap()).unwrap_or(300);
+        let mut x: u64 = 0x9E3779B97F4A7C15;
+        let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let (mut ok, mut counts) = (0, [0usize; 5]);
+        for i in 0..n {
+            let mut b = honest.clone();
+            if i % 4 == 3 {
+                let l = (next() as usize) % b.len();
+                b.truncate(l);
+            } else {
+                let k = (next() as usize) % b.len();
+                b[k] ^= 1 << (next() % 8);
+            }
+            let r = rc(&b, &p, dest);
+            if r == RC_OK && b != honest { ok += 1; }
+            counts[r as usize] += 1;
+        }
+        println!("CASE fuzz n={n} accepted_mutants={ok} rc_counts={counts:?}");
+    }
+}
