@@ -105,7 +105,11 @@ def rollback_one_block(logger, block, depth: int = 1) -> dict:
         unindex_block(block, logger=logger)
         # UNDO LOG, SHADOW MODE (kv_ops): every consensus key this block's apply wrote must now hold exactly the bytes it
         # held before the block. A mismatch is logged and counted (/status undo_shadow) — never acted on yet.
-        kv_ops.undo_shadow_verify(block["block_number"], logger)
+        # SHADOW ONLY: a fault in the diagnostic must never abort a legal rollback (it runs inside rollback's txn).
+        try:
+            kv_ops.undo_shadow_verify(block["block_number"], logger)
+        except Exception as e:
+            logger.warning(f"undo shadow verify failed at {block['block_number']}: {e!r}")
 
     set_latest_block_info(latest_block=previous_block, logger=logger)
 

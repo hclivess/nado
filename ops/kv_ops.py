@@ -522,7 +522,8 @@ def undo_shadow_verify(height: int, logger=None) -> list:
 
 
 def undo_prune(below_height: int) -> int:
-    """Drop undo records below the finality floor — rollback can never reach them (node-local)."""
+    """Drop undo records below HARD finality — rollback can never reach them (node-local). The caller passes the
+    hard floor, never finalized_height: rollback crosses the depth floor (see core_loop's prune site)."""
     def _do(txn):
         n = 0
         with txn.cursor(db=_dbs()["undo"]) as cur:
@@ -531,6 +532,10 @@ def undo_prune(below_height: int) -> int:
                     if not cur.delete():
                         break
                     n += 1
+                    # deleting the LAST record leaves the cursor unpositioned and key() == b'', which un_be8
+                    # cannot unpack: re-seat it (gc_revert_prune's guard), or a store wholly below the floor raises
+                    if not cur.first():
+                        break
         return n
     return _write(_do)
 
@@ -1140,7 +1145,7 @@ def execsum_revert_pop(block_height: int):
 
 
 def execsum_revert_prune(below_height: int):
-    """Drop journal entries below the finality floor — rollback can never reach them."""
+    """Drop journal entries below HARD finality — rollback can never reach them (it crosses the depth floor)."""
     def _do(txn):
         with txn.cursor(db=_dbs()["execsum_revert"]) as cur:
             for k, _v in list(cur):

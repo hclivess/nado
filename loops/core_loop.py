@@ -4063,14 +4063,24 @@ class CoreClient(threading.Thread):
         if new_hard > prev_hard:
             set_hard_finality(new_hard)
 
-        # lazy NODE-LOCAL cleanup: idle-GC revert records below finality can never be needed
-        # (rollback refuses to cross the floor). Epoch boundaries only — negligible either way.
+        # lazy NODE-LOCAL cleanup of the rollback journals. Epoch boundaries only — negligible either way.
+        # INVARIANT: a journal is prunable only below HARD finality. Rollback crosses the depth floor
+        # (finalized_height) and stops only at hard_finality (rollback.py, two-floor model); the prunes
+        # here used finalized_height from before that model, so a legal reorg between the floors (86 blocks
+        # measured 2026-10-11) found its idle-GC record gone, restored nothing, and left a different
+        # state root: a wedge only a purge clears. Every journal a revert pops is pruned at the hard floor.
         if block["block_number"] % EPOCH_LENGTH == 0:
             from ops.gc_ops import prune_local_revert_records
-            prune_local_revert_records(self.memserver.finalized_height)
+            prune_local_revert_records(new_hard)
             try:
-                kv_ops.execsum_revert_prune(self.memserver.finalized_height)
-                kv_ops.undo_prune(self.memserver.finalized_height)
+                kv_ops.execsum_revert_prune(new_hard)
+            except Exception:
+                pass
+            try:                                         # one store's trouble must not skip the others
+                kv_ops.undo_prune(new_hard)
+            except Exception:
+                pass
+            try:
                 kv_ops.attest_memo_prune(self.memserver.finalized_height // EPOCH_LENGTH - 2)
             except Exception:
                 pass

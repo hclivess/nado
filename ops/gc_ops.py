@@ -117,8 +117,9 @@ def revert_idle_gc(block_height: int, logger):
 
 
 def prune_local_revert_records(finalized_height: int):
-    """Lazy NODE-LOCAL cleanup: rollback can never cross the finalized floor, so records below it
-    are dead weight. Called opportunistically (outside any consensus path)."""
+    """Lazy NODE-LOCAL cleanup of idle-GC revert records. Pass HARD finality: rollback crosses the depth floor
+    and stops only at hard_finality, so a record above the hard floor can still be popped (core_loop's prune site).
+    Called opportunistically (outside any consensus path)."""
     try:
         return kv_ops.gc_revert_prune(int(finalized_height))
     except Exception:
