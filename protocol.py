@@ -1675,6 +1675,8 @@ def split_open_block_reward(reward: int):
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 #                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
+#                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
+#                                    deposits; it held none, so the Stwo gate can freeze nothing)
 #                                    STWO_POOL_HEIGHT ((1 << 62) -> 0: the Stwo shielded pool stays OFF across a reroll
 #                                    until its zero-knowledge layer is reviewed; a protocol commit switches it on)
 # ---------------------------------------------------------------------------------------------------------------
@@ -2157,6 +2159,14 @@ CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
 # well: its zero-knowledge layer is ours (scratchpad stwo0/zkproof/ARGUMENT.md) and must be reviewed outside before a
 # coin enters, so a reroll must not switch it on by itself. Turning it on is a protocol commit that sets a real height.
 STWO_POOL_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 0
+# THE WIDE POOL TAKES NO NEW DEPOSITS (review 2026-10-11, gate blocker 2 of doc/stwo-migration.md §5.1). From
+# STWO_POOL_HEIGHT only a `stwo_js` bundle spends, so a wide note deposited before that gate could never move again, and
+# reopening wide spends after it would expose the escrow the two pools share to the old Goldilocks verifier. The wide
+# pool has never held a note (0 at 2026-10-11), so closing its deposits well ahead of the Stwo gate keeps it provably
+# empty: nothing can be frozen, and no wide verifier stays reachable. Spends are untouched (there is nothing to spend).
+# `else 1`: a reroll starts with the wide pool closed — its deposits return only through the Stwo pool's gate.
+# INVARIANT: STWO_POOL_HEIGHT, when set, is above this, and the wide pool is measured empty before that gate is set.
+WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
@@ -2636,5 +2646,5 @@ CLIENT_EXPORTS = (
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
     # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
     # dormant, which /protocol.js carries as a BigInt
-    "STWO_POOL_HEIGHT",
+    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT",
 )
