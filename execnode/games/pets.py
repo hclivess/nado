@@ -1268,34 +1268,102 @@ def build():
 CARRY_PIN_FLOOR = 2           # the first new-chain block (and beacon epoch) a re-pinned roll may read
 
 
+def _carry_view(storage):
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+
+    def get(f, k):
+        return int(slots.get(str((f << 32) + k), 0))
+
+    def ids(cnt_slot, lst):
+        return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+    return slots, get, ids
+
+
+def _carry_pins(storage, tip):
+    """Classify every pending roll against the old chain's `tip`: (blockers, visible_unresolvable).
+
+    A pin whose randomness is NOT YET MINED at the tip (a block pair h, h+1 with h + 1 > tip; a beacon epoch above the
+    tip's epoch) is re-pinned onto the new chain — nobody has seen its outcome. A pin whose outcome IS visible at the
+    tip must not be re-pinned: that hands its owner a free re-roll of a result they already saw and chose not to
+    resolve (review 2026-10-11 — an unhatched egg with a bad gene, a failed training session). Such a pin is:
+      * a BLOCKER while ANY caller can resolve it on the old chain — hatch, train_resolve, resolve_battle /
+        refund_battle, collect and a value-0 reroll are all permissionless, so the operator clears them and runs the
+        carry again; nobody can hold the carry hostage with a pin only its owner could move;
+      * otherwise (its hashes or beacon have left retention, so no third party can resolve it) it takes the
+        contract's own stale outcome where one exists — a training session lapses (TH = 0: train() forfeits a stale
+        session's fee) — and the rest (an egg whose gene blocks aged out, an item pin whose beacon aged out) re-pin,
+        a gain bounded by the fee the owner could have paid for the same re-roll (REBIRTH_FEE / a paid reroll).
+    `tip` None: the visibility rules cannot be applied, so no pin is reported (exec_genesis_doc always passes it)."""
+    if tip is None:
+        return [], set()
+    from protocol import EPOCH_LENGTH
+    from execnode.state import _BLOCKHASH_RING, _BEACON_RETENTION_EPOCHS
+    tip = int(tip)
+    etip = tip // EPOCH_LENGTH
+    _slots, get, ids = _carry_view(storage)
+    kept_hashes = lambda h: h > tip - _BLOCKHASH_RING          # the exec block-hash ring still holds h (and h + 1)
+    blockers, lapse = [], set()
+    for pid in ids(0, PLIST):
+        bh, th = get(BH, pid), get(TH, pid)
+        alive = get(FU, pid) >= tip
+        if get(OW, pid) and not get(GN, pid) and bh and bh + 1 <= tip and alive and kept_hashes(bh):
+            blockers.append(f"egg {pid}: its gene blocks are mined - hatch({pid}) (permissionless)")
+        if th and th + 1 <= tip:
+            if kept_hashes(th):
+                blockers.append(f"pet {pid}: its training roll is mined - train_resolve({pid}) (permissionless)")
+            else:
+                lapse.add((TH, pid))
+    for bid in ids(WCNT_SLOT, WLIST):
+        wh = get(WH, bid)
+        if get(WN, bid) == 2 and not get(WM, bid) and wh and wh + 1 <= tip:
+            blockers.append(f"battle {bid}: its seed blocks are mined - resolve_battle({bid}) or refund_battle({bid})")
+    for bid in ids(BCNT_SLOT, BLIST):
+        dp = get(BDP, bid)
+        if dp and dp <= etip:
+            blockers.append(f"building {bid}: its find beacon is final - collect({bid}) (permissionless)")
+    for iid in ids(ICNT_SLOT, ILIST):
+        rp = get(IRP, iid)
+        if rp and rp <= etip and get(IO, iid) and rp >= etip - _BEACON_RETENTION_EPOCHS:
+            blockers.append(f"item {iid}: its reroll beacon is final - reroll({iid}) with value 0 (permissionless)")
+    return blockers, lapse
+
+
+def carry_in_flight(storage, tip=None):
+    """Why this contract cannot cross a reroll yet ([] = it can): a pending roll whose outcome is already visible at
+    the old chain's `tip` and that any caller can still resolve there (see _carry_pins)."""
+    return _carry_pins(storage, tip)[0]
+
+
 def carry_rebase(storage, tip):
     """This contract's storage, moved onto a new chain whose block 0 stands where the old chain's `tip` stood.
 
     Every stored HEIGHT shifts by `tip` so what is left of it is left on the new chain: fed-until, exhausted-until, a
     building's since-block and a battle's reveal deadline (a value already passed becomes 0, or 1 for a deadline that
-    must stay set). Every pending roll that reads chain randomness — a hatch (bhash(bh)), a training session
-    (bhash(th)), a legacy battle (bhash(wh)), a building's find (BEACON(bdp)) and a paid item reroll (BEACON(irp)) — is
-    re-pinned to the new chain's block / beacon epoch CARRY_PIN_FLOOR at the earliest: those values do not exist when
-    the carry is built, so nobody can know or choose an outcome, and every paid action still resolves.
+    must stay set). A pending roll whose randomness is not yet mined at the tip — a hatch (bhash(bh)), a training
+    session (bhash(th)), a legacy battle (bhash(wh)), a building's find (BEACON(bdp)), a paid item reroll
+    (BEACON(irp)) — is re-pinned to the new chain's block / beacon epoch CARRY_PIN_FLOOR at the earliest: that value
+    does not exist when the carry is built, so nobody can know or choose an outcome. A pin whose outcome is already
+    visible is NOT re-pinned (_carry_pins): it blocks the carry, or takes the contract's stale outcome.
 
+    INVARIANT: every value written is an INT, because exec_root.kv_projection commits only int-valued slots at their
+    slot positions (anything else becomes a KVX record) while settlement_sparse.sparse_projection int()s every slot —
+    a string here made the carried genesis root unprovable (review 2026-10-11).
     INVARIANT: only (field, id) slots found through the contract's own indexes are touched — pets (cnt 0, PLIST),
     battles (cnt WCNT_SLOT, WLIST), buildings (cnt BCNT_SLOT, BLIST), items (cnt ICNT_SLOT, ILIST) — because hashed
     keys (resource balances, gear) are field elements whose high bits could fall in a height field's range."""
     from protocol import EPOCH_LENGTH
     tip = int(tip)
     etip = tip // EPOCH_LENGTH
-    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
-
-    def get(f, k):
-        return int(slots.get(str((f << 32) + k), 0))
+    blockers, lapse = _carry_pins(storage, tip)
+    if blockers:
+        # carry_policy never rebases a blocked contract; refusing here keeps a direct caller from re-rolling them
+        raise ValueError("pets carry_rebase: visible pins must be resolved first: " + "; ".join(blockers))
+    slots, get, ids = _carry_view(storage)
 
     def put(f, k, v):
         key = str((f << 32) + k)
         if key in slots or v:
-            slots[key] = str(int(v))
-
-    def ids(cnt_slot, lst):
-        return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
+            slots[key] = int(v)
 
     shift = lambda v: max(0, v - tip)
     pin_h = lambda v: max(CARRY_PIN_FLOOR, v - tip) if v else 0
@@ -1304,7 +1372,7 @@ def carry_rebase(storage, tip):
         put(BH, pid, pin_h(get(BH, pid)))
         put(FU, pid, shift(get(FU, pid)))
         put(EX, pid, shift(get(EX, pid)))
-        put(TH, pid, pin_h(get(TH, pid)))
+        put(TH, pid, 0 if (TH, pid) in lapse else pin_h(get(TH, pid)))
     for bid in ids(WCNT_SLOT, WLIST):
         put(WH, bid, pin_h(get(WH, bid)))
         if get(WRD, bid):

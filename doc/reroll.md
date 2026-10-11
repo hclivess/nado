@@ -147,12 +147,19 @@ Carried: L1 balances and bonded stake; identities (keys, registration, fidelity 
 bindings, aliases, auth history); uncollected dividends and pending exits (folded into L1 balances); **every contract
 by its id** (execnode/exec_genesis.py), with its storage and pot when its game module says the storage is carry-safe
 (`CARRY_STORAGE`, or `carry_in_flight(storage) == []`, plus `carry_rebase` for games that store heights — pets,
-autogame, the daily boards); **exec assets** (records, holdings, allowances). Refunded to whoever funded them: open
-invites and HTLCs, and the pot of any contract that still has something in flight (the carry names each blocker:
-"table N has open bets", "race N is not settled", "run N has a leg in flight", "game N is open" — settle, void or
-advance them on the old chain and run the carry again). **Refused** (the carry will not run): notes in any shielded
-pool — a carried wide pool would sit at depth 48 where the exec layer insists on 12 at genesis, and the Stwo migration
-replaces the note hash anyway (doc/stwo-migration.md §6.4); holders unshield first.
+autogame, the daily boards); **exec assets** (records, holdings, allowances); the exec layer's **digest→address
+registry** (`zk_addrs`), without which a carried contract's payout to a stored player reverts until that player calls
+again. Every carried slot is an int (a string slot is a KVX record in the root, and no settle proof could extend the
+genesis root). Refunded to whoever funded them: open invites and HTLCs. **A contract with something in flight refuses
+the carry** (since 2026-10-11): the carry names each blocker — "table N has open bets", "race N is not settled", "run N
+has a leg in flight", "game N is open", and for pets every roll whose outcome is already visible at the tip ("hatch(N)",
+"train_resolve(N)", "collect(N)", ... — all permissionless) — settle, void, advance or resolve them on the old chain and
+run the carry again. `--allow-blockers` accepts the old fallback deliberately: that contract resets and its pot is
+refunded by attribution (for the digest-slot banked games, to the deployer of record: the MANUAL REFUND lines).
+**Refused** (the carry will not run): notes in any shielded pool (`shielded`, `field_pool`, `wide_pool`, `stwo_pool`,
+`app_state`, or any `pool_value`) — a carried wide pool would sit at depth 48 where the exec layer insists on 12 at
+genesis, and the Stwo migration replaces the note hash anyway (doc/stwo-migration.md §6.4); holders unshield first; and
+exec assets held by a contract that would reset (its ledger of whose they are would be lost).
 
 **Dry run, any day, read-only** — what the carry would do right now:
 
