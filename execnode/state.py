@@ -52,6 +52,34 @@ from execnode.code_codec import (FIXED_CIDS, decode_code as _decode_code, contra
 MAX_EXIT_VALUE = 1 << 61
 
 
+def field_transfer_bundle(payload):
+    """A field_transfer payload -> (bundle dict, None) or (None, the skip reason) — THE parse apply_blob dispatches on
+    (inline `bundle`, or `bundle_json` decoded by json.loads, DA bytes injected into it by execnode).
+    INVARIANT (review 2026-10-11, traced): execnode._block_carries_stwo_spend must decide on THIS result, never on raw
+    text. It used to look for the substring "stwo_js" in the JSON string, and `{"stark": {"stwo\\u005fjs": ...}}` has no
+    such substring while json.loads makes the key `stwo_js`: a node without the native verifier then raised NativeMissing
+    inside apply_blob, whose catch-all made it a "skip", while every node with the library applied the spend — an exec
+    state fork for one blob. One parse, called by both, closes the class."""
+    bj = payload.get("bundle_json")
+    if bj is not None:
+        try:
+            bundle = json.loads(bj)
+        except Exception:
+            return None, "skip: bad bundle_json"
+    else:
+        bundle = payload.get("bundle")
+    if not isinstance(bundle, dict):
+        return None, "skip: bad field_transfer"
+    return bundle, None
+
+
+def carries_stwo_spend(bundle):
+    """Whether apply_field_transfer would hand `bundle` to the Stwo verifier at or above STWO_POOL_HEIGHT — the same key
+    test it dispatches on (`"stwo_js" in bundle["stark"]`)."""
+    stark_b = bundle.get("stark") if isinstance(bundle, dict) else None
+    return isinstance(stark_b, dict) and "stwo_js" in stark_b
+
+
 def _normalize_bundle(bundle):
     """Coerce a BROWSER-generated joinsplit2 bundle's stringified big field ints back to Python ints, IN
     PLACE, everywhere the verifier expects numbers. JS can't carry BigInt in JSON, so it serializes them as
@@ -1935,16 +1963,11 @@ class ExecState:
                     return "skip field_transfer: the legacy field pool is paused (PRIVACY_PAUSE_HEIGHT)"
                 # PHASE-2: a full join-split STARK proof (delegated-prover output). The bundle rides as an
                 # OPAQUE JSON STRING so its big field ints survive JSON (JS would lose >2^53 precision).
-                bj = payload.get("bundle_json")
-                if bj is not None:
-                    try:
-                        bundle = json.loads(bj)
-                    except Exception:
-                        return "skip: bad bundle_json"
-                else:
-                    bundle = payload.get("bundle")
-                if not isinstance(bundle, dict):
-                    return "skip: bad field_transfer"
+                # THE ONE PARSE (field_transfer_bundle): execnode._block_carries_stwo_spend decides whether to stall on
+                # exactly this bundle, so the two can never disagree about what a payload carries.
+                bundle, err = field_transfer_bundle(payload)
+                if bundle is None:
+                    return err
                 return self.apply_field_transfer(bundle)
 
             if op == "shielded_transfer":
