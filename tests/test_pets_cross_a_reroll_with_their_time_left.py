@@ -79,9 +79,6 @@ FARMER = pid
 call(old, cid, A, "build", [1, 0, FARMER], P.BUILD_FEE)
 old.cursor += 500
 call(old, cid, A, "collect", [1])                                # pins the farm's next find (bdp)
-call(old, cid, A, "train", [FARMER, 3], P.TRAIN_FEE)             # a pending training session (th)
-EGG = 9000
-call(old, cid, A, "mint", [EGG], P.MINT_FEE)                     # minted, not hatched (bh)
 # an OPEN commit-reveal battle between A's farmer and B's pet: accepted, nobody revealed yet (wrd pending)
 B = "ndoB" + "b" * 44
 old.credit_deposit(B, 20 * P.MINT_FEE)
@@ -97,6 +94,11 @@ r_ch = call(old, cid, A, "challenge", [70, FARMER, BPET, Hc(S1)], STAKE)
 r_ac = call(old, cid, B, "accept", [70, Hc(S2)], STAKE)
 res_slot = str(alghash.hashn([P.TG_RES, zkvm_addr_digest(A), 0]))
 old.contracts[cid]["storage"]["slots"][res_slot] = "777"         # a hashed slot: a resource balance
+# the pending rolls are made at the tip, so their randomness is NOT YET MINED when the carry runs (a roll whose outcome is
+# already visible blocks the carry instead: tests/test_a_carry_never_rerolls_a_visible_outcome.py)
+call(old, cid, A, "train", [FARMER, 3], P.TRAIN_FEE)             # a pending training session (th)
+EGG = 9000
+call(old, cid, A, "mint", [EGG], P.MINT_FEE)                     # minted, not hatched (bh)
 TIP = old.cursor
 wrd_left = rd(old, P.WRD, 70) - old.cursor
 check("setup: an open battle, accepted, awaiting both reveals", "ok" in r_ch and "ok" in r_ac and wrd_left > 0, (r_ch, r_ac))
@@ -104,7 +106,8 @@ check("setup: a farmer, a farm with a pinned find, a training session and an egg
       rd(old, P.BO, 1) and rd(old, P.BDP, 1) and rd(old, P.TH, FARMER) and rd(old, P.OW, EGG) and not rd(old, P.GN, EGG))
 life_left = rd(old, P.FU, FARMER) - TIP
 
-check("5. pets carries (a rebase, nothing blocks it)", C.carry_policy(cid, old.contracts[cid]) == "keep")
+check("5. pets carries (a rebase, nothing blocks it)", C.carry_policy(cid, old.contracts[cid], tip=TIP) == "keep",
+      P.carry_in_flight(old.contracts[cid]["storage"], tip=TIP))
 pot = int(old.bridge.get(cid, 0))
 gen, kept = C.exec_genesis_doc({cid: old.contracts[cid]}, {cid: pot}, tip=TIP)
 check("...its pot (burned fees, battle stakes) stays with it", kept == {cid: pot} and pot > 0, (kept, pot))
@@ -140,7 +143,7 @@ new.cursor = 300
 r = call(new, cid, A, "collect", [1])
 check("...and the farm collects on the new chain", rd(new, P.BSI, 1) == 300, (r, rd(new, P.BSI, 1)))
 check("5. a hashed slot (a resource balance) is untouched by the rebase",
-      gen[cid]["storage"]["slots"].get(res_slot) == "777")
+      gen[cid]["storage"]["slots"].get(res_slot) == 777)          # (as an int: alphanet6_carryforward.int_slots)
 
 new.cursor = P.CARRY_PIN_FLOOR + 2
 check("6. an open battle keeps the reveal window it had left (new block 0 stands where the old tip stood)",

@@ -8,7 +8,8 @@ genesis_data/exec_genesis.json, tagged with the generation it was built for:
     {"generation": G,
      "contracts": {cid: {"code", "abi", "deployer", "runtime", "upgradable", "storage"}},
      "bridge":    {cid: "<raw>"},                         # each carried contract's pot (a decimal string, never a float)
-     "assets": {aid: {...}}, "abal": {aid: {holder: n}}, "allow": {aid: {owner: {spender: n}}}}   # exec assets, verbatim
+     "assets": {aid: {...}}, "abal": {aid: {holder: n}}, "allow": {aid: {owner: {spender: n}}},   # exec assets, verbatim
+     "zk_addrs": {digest: addr}}                           # the digest->address registry payouts resolve through
 
 and every exec node loads it into a FRESH state (cursor -1, no contracts) — at boot and at an in-process reset to
 genesis — so the new chain starts from identical bytes on every node. Contract ids are kept, so frontends need no
@@ -51,7 +52,8 @@ def load():
             if any(v < 0 for v in bridge.values()):
                 raise ValueError("exec genesis: a negative pot")
             out = {"contracts": contracts, "bridge": bridge,
-                   "assets": doc.get("assets") or {}, "abal": doc.get("abal") or {}, "allow": doc.get("allow") or {}}
+                   "assets": doc.get("assets") or {}, "abal": doc.get("abal") or {}, "allow": doc.get("allow") or {},
+                   "zk_addrs": {str(k): str(v) for k, v in sorted((doc.get("zk_addrs") or {}).items())}}
     _CACHE[p] = out
     return out
 
@@ -78,6 +80,12 @@ def apply(state) -> bool:
     state.assets = copy.deepcopy(g.get("assets") or {})
     state.abal = {a: {h: int(n) for h, n in hs.items()} for a, hs in (g.get("abal") or {}).items()}
     state.allow = copy.deepcopy(g.get("allow") or {})
+    # THE PAYEE REGISTRY (review 2026-10-11): carried storage names its players by field DIGEST, and a PAY to a digest the
+    # registry cannot resolve REVERTS (runtimes.split_io). The registry is learned from call boundaries, so a fresh layer
+    # knew nobody: a carried pets battle could not refund either owner until both had made some exec call on the new
+    # chain. INVARIANT: the registry crosses with the storage that names it. It is not in the state root (state.py), so
+    # the genesis root is unchanged; every node loads the same file, so every node resolves the same payees.
+    state.zk_addrs = dict(g.get("zk_addrs") or {})
     state._touch()
     return True
 
