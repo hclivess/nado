@@ -580,15 +580,20 @@ impl FrameworkEval for JsEval {
             }
         }
         // conservation over the integers, checked on row 0 (registers are constant over the real rows).
-        // cr in {0..3} as cb0 + 2 cb1 (booleans) keeps every gated constraint at degree <= 3; cr = 3 cannot satisfy
-        // the limb equation with 16-bit-range sums, so this is as strong as the old ternary check.
+        // cr in {0..3} as cb0 + 2 cb1 (booleans) keeps every gated constraint at degree <= 3; with four 16-bit terms
+        // plus a carry the output-side limb sum is < 4 * 2^16, so a carry of 0..3 covers it exactly.
         let two16 = m31(1 << 16);
         let sf = s_first.clone();
         for k in 0..4 {
             let csp = if k == 0 { E::F::zero() } else { cs[k - 1].clone() };
             let crp = if k == 0 { E::F::zero() } else { cr[k - 1].clone() };
-            e.add_constraint(sf.clone() * (vin[k].clone() + pv[k].clone() + csp - sm[k].clone() - cs[k].clone() * two16));
-            e.add_constraint(sf.clone() * (v1[k].clone() + v2[k].clone() + fee[k].clone() + crp - sm[k].clone() - cr[k].clone() * two16));
+            // INVARIANT: the public value pv is the UNSHIELD — value LEAVING the pool — so it sits on the OUTPUT side:
+            // v_in = v1 + v2 + fee + pv. It used to sit on the input side (v_in + pv = v1 + v2 + fee), which made pv
+            // value ENTERING the pool; the exec layer pays pv out as an L1 exit, so that version minted pv from nothing
+            // (found 2026-10-11 wiring the exec layer, before anything shipped). Four 16-bit terms plus a carry fit the
+            // two-bit cr below, and cs[3] == cr[3] (with cs never above 1) still forbids a 64-bit wrap.
+            e.add_constraint(sf.clone() * (vin[k].clone() + csp - sm[k].clone() - cs[k].clone() * two16));
+            e.add_constraint(sf.clone() * (v1[k].clone() + v2[k].clone() + fee[k].clone() + pv[k].clone() + crp - sm[k].clone() - cr[k].clone() * two16));
             e.add_constraint(sf.clone() * cs[k].clone() * (cs[k].clone() - E::F::one()));
             e.add_constraint(sf.clone() * (cr[k].clone() - cb0[k].clone() - cb1[k].clone() * m31(2)));
             e.add_constraint(sf.clone() * cb0[k].clone() * (cb0[k].clone() - E::F::one()));

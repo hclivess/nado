@@ -18,7 +18,8 @@ fn main() {
     let w = match a[1].as_str() {
         "a" => fixture(),
         "b" => fixture_b(),
-        _ => panic!("fixture a or b"),
+        "mint" => fixture_mint(),
+        _ => panic!("fixture a, b or mint"),
     };
     let dest = a[2].as_bytes();
     let seed: [u8; 32] = match a.get(4) {
