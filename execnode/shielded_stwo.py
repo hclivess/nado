@@ -82,6 +82,55 @@ def node(left, right):
     return _h([*_words(left), *_words(right)])
 
 
+def _wire_u64(v):
+    """A u64 as a JSON int or an ASCII decimal string; nothing else (a bool is not a number here)."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v and v.isascii() and v.isdigit():
+        return int(v)
+    return None
+
+
+def parse_transfer(bundle, max_value):
+    """THE ONE READING OF A `stwo_js` BUNDLE, stateless: (None, spend) or ("<why refused>", None), where spend is
+    {root, nf, cm1, cm2, proof (bytes), unshield, fee, addr} — addr "" for a private transfer, whatever the bundle says,
+    because the proof of a transfer is bound to the empty destination. Every check here depends on the bundle alone:
+    shape, the one spelling of each digest (is_digest), the proof as lowercase hex, unshield/fee as u64s within
+    `max_value`, and an unshield's destination a spendable non-reserved address.
+    INVARIANT: ExecState._apply_stwo_transfer and the node's spend relay (ops/stwo_relay.py) BOTH read a bundle through
+    this function and nothing else, so the relay can never vouch for (and pay the L1 fee of) a bundle the exec layer
+    reads differently. A second reading — e.g. the relay lowering a digest — is the exact class of bug is_digest's
+    docstring records. The returned strings start "skip field-transfer:" because they are the exec layer's log lines."""
+    stark_b = bundle.get("stark") if isinstance(bundle, dict) else None
+    js = stark_b.get("stwo_js") if isinstance(stark_b, dict) else None
+    if not isinstance(js, dict):
+        return "skip field-transfer: malformed stwo_js bundle", None
+    # INVARIANT: digests in their ONE spelling (is_digest) — never lowered, never fromhex'd loosely. A whitespace or
+    # upper-case spelling of a spent nullifier was a fresh set member over the same verified bytes.
+    digs = [js.get(k) for k in ("root", "nf", "cm_out1", "cm_out2")]
+    if not all(is_digest(d) for d in digs):
+        return "skip field-transfer: root, nf, cm_out1 and cm_out2 must be 64 lowercase hex", None
+    root, nf, cm1, cm2 = digs
+    p = js.get("proof")
+    if not (isinstance(p, str) and p and len(p) % 2 == 0 and all(c in "0123456789abcdef" for c in p)):
+        return "skip field-transfer: the proof is not lowercase hex", None
+    unshield, fee = _wire_u64(js.get("unshield", 0)), _wire_u64(js.get("fee"))
+    if unshield is None or fee is None:
+        return "skip field-transfer: unshield and fee must be integers", None
+    addr = ""
+    if unshield:
+        from ops.address_ops import validate_address
+        addr = bundle.get("withdraw_addr")
+        if not isinstance(addr, str) or not addr or not validate_address(addr, allow_reserved=False):
+            return "skip field-transfer: withdraw_addr is not a spendable account", None
+    if not (0 <= unshield <= max_value) or not (0 <= fee <= max_value):
+        return "skip field-transfer: unshield/fee out of range", None
+    return None, {"root": root, "nf": nf, "cm1": cm1, "cm2": cm2, "proof": bytes.fromhex(p), "unshield": unshield,
+                  "fee": fee, "addr": addr}
+
+
 EMPTY_LEAF = "00" * 32
 _EMPTY = [EMPTY_LEAF]
 for _ in range(DEPTH):

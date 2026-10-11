@@ -194,6 +194,12 @@ def records_projection(st):
         # accepts other spends, so they are in the root with the tree and the spent set (empty is absent, as above)
         if sp.marks:
             out[record_key(T_DIGEST, "stwo_marks", sp.marks_digest())] = 1
+    # STWO VALUE (ExecState.stwo_value, review 2026-10-11): the cap every Stwo spend is checked against decides which
+    # spends apply, so two nodes that disagree on it must disagree on the root. ZERO IS ABSENT, like the pool above:
+    # until the first Stwo deposit the projection is byte-identical to today's. In the POSITION, as a decimal.
+    sv = int(getattr(st, "stwo_value", 0) or 0)
+    if sv:
+        out[record_key(T_DIGEST, "stwo_value", str(sv))] = 1
     # SHIELDED CONTRACTS: one record per contract that holds private state, plus one for the spent set.
     # getattr, because an exec state built before this feature simply has no pool and must project to the
     # same root it always did — an absent attribute is not an empty pool, it is "this half is unchanged".

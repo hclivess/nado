@@ -340,6 +340,11 @@ class ExecState:
         # public, so the pool's total is auditable without seeing into it (ops/invariants.py).
         self.pool_value = 0        # live total value of all notes in both pools
         self.pool_fees = 0         # cumulative fee burned inside the pool (leaves the notes, not the escrow)
+        # STWO VALUE (review 2026-10-11, defence in depth): the value that entered the Stwo pool by deposit and has not
+        # left it by unshield or fee. A Stwo spend whose unshield + fee exceeds it is refused before any mutation
+        # (stwo_spend_refusal), so even a forged proof cannot take out of the Stwo pool more than went in — and never
+        # the frozen wide pool's value, which pool_value still counts. In the snapshot and the exec root, zero is absent.
+        self.stwo_value = 0
         # M-10: the delegated-prover POST handlers apply field transfers in worker threads
         # (asyncio.to_thread), so the nullifier check->add and the state serialization can run concurrently.
         # This reentrant lock makes the double-spend check + the mutation atomic, and gives save() a
@@ -479,6 +484,7 @@ class ExecState:
         # re-derived from the blocks that follow.
         self.pool_value = int(d.get("pool_value", 0))
         self.pool_fees = int(d.get("pool_fees", 0))
+        self.stwo_value = int(d.get("stwo_value", 0))     # absent = 0 (empty is absent, as in _snapshot)
         self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
@@ -519,6 +525,8 @@ class ExecState:
                     # EMPTY IS ABSENT (the app_state rule): a gen-25 snapshot must not change by a key it never needed
                     **({"wide_pool": self.wide_pool.to_dict()} if self.wide_pool.commitments or self.wide_pool.nullifiers else {}),
                     **({"stwo_pool": self.stwo_pool.to_dict()} if self.stwo_pool.commitments or self.stwo_pool.nullifiers else {}),
+                    # zero is absent: a snapshot from before the Stwo pool's first deposit keeps its exact bytes
+                    **({"stwo_value": self.stwo_value} if self.stwo_value else {}),
                     "pool_value": self.pool_value, "pool_fees": self.pool_fees,
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
@@ -1324,8 +1332,30 @@ class ExecState:
                 return "skip field-shield: the pool is full"
             self.stwo_pool.append(cm, self.applying_height())
             self.pool_value += int(amount)
+            self.stwo_value += int(amount)     # the Stwo pool's own total (stwo_spend_refusal caps every exit by it)
             self._touch()
         return f"field-shield {amount} -> stwo note #{len(self.stwo_pool.commitments)}"
+
+    def stwo_spend_refusal(self, root, nf, cm1, cm2, unshield, fee, height):
+        """The STATEFUL half of a Stwo spend's checks, without the proof: None when a spend of (root, nf, cm1, cm2)
+        moving unshield + fee out of the pool could apply at block `height`, else the reason it would be skipped.
+        INVARIANT: _apply_stwo_transfer (under the mutate lock, before verifying) and the exec node's
+        /exec/stwo_spendable (what the spend relay asks before it pays an L1 fee) both decide through THIS method, so
+        the relay refuses exactly what the exec layer would skip."""
+        if not self.stwo_pool.knows_root(root, height):
+            return "skip field-transfer: unknown anchor root"
+        if self.stwo_pool.has_nullifier(nf):
+            return "skip field-transfer: nullifier already spent (double-spend)"
+        if cm1 == cm2 or self.stwo_pool.has_commitment(cm1) or self.stwo_pool.has_commitment(cm2):
+            return "skip field-transfer: duplicate note commitment"
+        if not self.stwo_pool.room_for(2):
+            return "skip field-transfer: the pool is full"
+        # STWO VALUE CAP (defence in depth, review 2026-10-11): the proof's conservation is the real guarantee; this is
+        # what holds if it ever fails. A spend may not move out more than Stwo deposits put in and Stwo spends left —
+        # never pool_value, which also counts the frozen wide pool's notes and would let a forged Stwo proof drain them.
+        if int(unshield) + int(fee) > self.stwo_value:
+            return "skip field-transfer: the spend exits more than the Stwo pool holds"
+        return None
 
     def _apply_stwo_transfer(self, bundle):
         """STWO_POOL_HEIGHT: apply a `stwo_js` bundle. ALL-OR-NOTHING (review 2026-10-11): every check — shape, canonical
@@ -1335,49 +1365,19 @@ class ExecState:
         half-applied spend). The proof is verified by the native Stwo verifier (execnode/stark/stwo_js_native), loaded
         on first use; a node that cannot load it never reaches here (execnode._apply_block stalls the block first)."""
         from execnode import shielded_stwo as _S
-        stark_b = bundle.get("stark")
-        js = stark_b.get("stwo_js") if isinstance(stark_b, dict) else None
-        if not isinstance(js, dict):
-            return "skip field-transfer: malformed stwo_js bundle"
-        # INVARIANT: digests in their ONE spelling (shielded_stwo.is_digest) — never lowered, never fromhex'd loosely. A
-        # whitespace or upper-case spelling of a spent nullifier was a fresh set member over the same verified bytes.
-        digs = [js.get(k) for k in ("root", "nf", "cm_out1", "cm_out2")]
-        if not all(_S.is_digest(d) for d in digs):
-            return "skip field-transfer: root, nf, cm_out1 and cm_out2 must be 64 lowercase hex"
-        root, nf, cm1, cm2 = digs
-        p = js.get("proof")
-        if not (isinstance(p, str) and p and len(p) % 2 == 0 and all(c in "0123456789abcdef" for c in p)):
-            return "skip field-transfer: the proof is not lowercase hex"
-        proof = bytes.fromhex(p)
-
-        def _u(v):                                     # a u64 as a JSON int or an ASCII decimal string; nothing else
-            if isinstance(v, bool):
-                return None
-            if isinstance(v, int):
-                return v
-            if isinstance(v, str) and v and v.isascii() and v.isdigit():
-                return int(v)
-            return None
-        unshield, fee = _u(js.get("unshield", 0)), _u(js.get("fee"))
-        if unshield is None or fee is None:
-            return "skip field-transfer: unshield and fee must be integers"
-        addr = ""
-        if unshield:
-            addr = bundle.get("withdraw_addr")
-            if not isinstance(addr, str) or not addr or not validate_address(addr, allow_reserved=False) \
-                    or addr in self.contracts:
-                return "skip field-transfer: withdraw_addr is not a spendable account"
-        if not (0 <= unshield <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
-            return "skip field-transfer: unshield/fee out of range"
+        # THE ONE READING (shielded_stwo.parse_transfer): shape, canonical digests, proof hex, u64 bounds, the
+        # destination's form. The node's spend relay (ops/stwo_relay.py) reads bundles through the same function.
+        why, sp = _S.parse_transfer(bundle, MAX_EXIT_VALUE)
+        if why:
+            return why
+        root, nf, cm1, cm2, proof = sp["root"], sp["nf"], sp["cm1"], sp["cm2"], sp["proof"]
+        unshield, fee, addr = sp["unshield"], sp["fee"], sp["addr"]
+        if addr and addr in self.contracts:
+            return "skip field-transfer: withdraw_addr is not a spendable account"
         with self._mutate_lock:
-            if not self.stwo_pool.knows_root(root, self.applying_height()):
-                return "skip field-transfer: unknown anchor root"
-            if self.stwo_pool.has_nullifier(nf):
-                return "skip field-transfer: nullifier already spent (double-spend)"
-            if cm1 == cm2 or self.stwo_pool.has_commitment(cm1) or self.stwo_pool.has_commitment(cm2):
-                return "skip field-transfer: duplicate note commitment"
-            if not self.stwo_pool.room_for(2):
-                return "skip field-transfer: the pool is full"
+            why = self.stwo_spend_refusal(root, nf, cm1, cm2, unshield, fee, self.applying_height())
+            if why:
+                return why
             from execnode.stark import stwo_js_native
             ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, addr)
             if not ok:
@@ -1387,6 +1387,9 @@ class ExecState:
             for c in (cm1, cm2):
                 self.stwo_pool.append(c, self.applying_height())
             self.pool_value -= unshield + fee
+            # STWO VALUE (defence in depth): the Stwo pool's own total falls with every exit; the refusal above kept
+            # it >= 0, so a spend can never take out more than Stwo deposits put in
+            self.stwo_value -= unshield + fee
             self.pool_fees += fee
             if unshield:
                 self.uw_nonce += 1
