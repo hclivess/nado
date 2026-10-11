@@ -157,6 +157,19 @@ honest = prove(0, FEE, node["address"])
 wrong_dest = prove(1, FEE, OTHER)
 low_fee = prove(1, FEE - 1, node["address"])
 
+# a node that cannot pay the blob's L1 fee (loopback walk 2026-10-12: it advertised itself, wrote the proof to DA and only
+# then had its own tx refused) says so in relay_info and refuses BEFORE publishing anything
+broke = make_relay(balance_fn=lambda: 0)
+s, info = one(broke, "GET", "/stwo/relay_info")
+check("...a node that cannot pay the L1 fee says it is unavailable", info.get("available") is False
+      and "cannot pay" in info["reason"], info)
+n_da, n_sub = len(DA), len(SUBMITTED)
+s, r = one(broke, "POST", "/stwo/relay", {"bundle": honest})
+check("...and refuses a spend before publishing or submitting anything", s == 503 and len(DA) == n_da
+      and len(SUBMITTED) == n_sub, (s, r))
+check("...an unknown balance (no reader, or a read error) does not block", make_relay(balance_fn=None)._can_pay()
+      and make_relay(balance_fn=lambda: 1 / 0)._can_pay())
+
 s, r = one(off, "POST", "/stwo/relay", {"bundle": honest})
 check("...and refuses to relay", s == 503 and not SUBMITTED, (s, r))
 

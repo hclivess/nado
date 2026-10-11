@@ -68,12 +68,13 @@ class StwoRelay:
     result dict; enabled_fn()/healthy_fn() -> bool; allow(key, limit, window) -> bool (ops.ratelimit.allow)."""
 
     def __init__(self, *, keydict_fn, tip_fn, exec_get, da_publish, submit, enabled_fn=lambda: True,
-                 healthy_fn=lambda: True, allow=None, clock=time.time):
+                 healthy_fn=lambda: True, allow=None, clock=time.time, balance_fn=None):
         if allow is None:
             from ops.ratelimit import allow
         self.keydict_fn, self.tip_fn, self.exec_get, self.da_publish, self.submit = \
             keydict_fn, tip_fn, exec_get, da_publish, submit
         self.enabled_fn, self.healthy_fn, self.allow, self.clock = enabled_fn, healthy_fn, allow, clock
+        self.balance_fn = balance_fn      # -> the node account's L1 balance in raw, or None when unknown
         self.inflight = {}                # nf -> expiry time
         self.lock = threading.Lock()
 
@@ -99,6 +100,8 @@ class StwoRelay:
             out["reason"] = "this node does not relay (stwo_relay: false)"
         elif not self.healthy_fn():
             out["reason"] = "this node is recovering its chain view"
+        elif not self._can_pay():
+            out["reason"] = "this node cannot pay the L1 fee of a relayed spend"
         elif not self._verifier_ready():
             out["reason"] = "this node has no Stwo verifier"
         else:
@@ -110,6 +113,19 @@ class StwoRelay:
             else:
                 out["available"] = True
         return out
+
+    def _can_pay(self):
+        """The node can pay the blob's L1 fee: a node at zero balance advertised itself, published the proof to DA and
+        only then got its own tx refused (502) — the wallet moved on, but the DA write and the user's wait were spent
+        (loopback walk 2026-10-12). Unknown balance (no balance_fn, a read error) does not block: the submit still
+        refuses honestly. Margin: a few fees, so a burst in one block does not run it dry mid-way."""
+        if self.balance_fn is None:
+            return True
+        try:
+            b = self.balance_fn()
+        except Exception:
+            return True
+        return b is None or int(b) >= 4 * MIN_TX_FEE
 
     # ---- the relay ------------------------------------------------------------------------------------------------
     def _prune(self, now):
@@ -133,6 +149,8 @@ class StwoRelay:
             raise Refused(503, "this node does not relay private spends")
         if not self.healthy_fn():
             raise Refused(503, "this node is recovering its chain view: try another relay")
+        if not self._can_pay():
+            raise Refused(503, "this relay cannot pay the L1 fee right now: try another relay")
         if not self.allow(f"stwo_relay|{ip}", STWO_RELAY_PER_IP, STWO_RELAY_WINDOW_S):
             raise Refused(429, "too many private spends from this address: slow down")
         bundle = req.get("bundle") if isinstance(req, dict) else None

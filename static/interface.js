@@ -11276,7 +11276,18 @@ async function claimUnshields(silent) {
   if (!state.wallet) return;
   try {
     const r = await execJSON("/exec/unshields?addr=" + encodeURIComponent(state.wallet.address));
-    const pending = r.unshields || [];
+    // only exits L1 has NOT released (nado.py /unshield_claimed): the exec node lists every exit it ever recorded, so
+    // claiming from that list alone re-sent a refused claim for each past exit on every render and then said "still
+    // settling" (loopback walk 2026-10-12). A relay without the endpoint answers nothing and the list is used as before.
+    let pending = r.unshields || [];
+    if (pending.length) {
+      try {
+        const q = pending.slice(0, 500).map((u) => String(u.nonce)).join(",");
+        const c = await (await fetch(relayBase() + "/unshield_claimed?addr=" + encodeURIComponent(state.wallet.address)
+                                     + "&nonces=" + encodeURIComponent(q), { cache: "no-store" })).json();
+        if (c && Array.isArray(c.claimed)) { const done = new Set(c.claimed.map(String)); pending = pending.filter((u) => !done.has(String(u.nonce))); }
+      } catch (e) { /* an older relay: claim from the whole list, as before */ }
+    }
     if (!pending.length) { if (!silent) $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
     let claimed = 0;
     // Prove against the SETTLED root (root=) — L1 verifies unshield exits against it, and the exec

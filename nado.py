@@ -2640,6 +2640,20 @@ async def get_settled(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def unshield_claimed(request):
+    """GET /unshield_claimed?addr=&nonces=1,2,3: which of the address's unshield exits L1 has already released (the burned
+    (addr, nonce) nullifier, kv_ops.shield_nullifier_exists). The exec node lists every exit it ever recorded — it never
+    learns that L1 released one — so a wallet that claimed from that list alone re-sent a refused claim for every past
+    exit on every render and then told its user "still settling" (loopback walk 2026-10-12). At most 500 nonces."""
+    addr = _q(request, "addr", "") or ""
+    nonces = [n for n in (_q(request, "nonces", "") or "").split(",") if n][:500]
+    if not addr or not all(n.isdigit() and len(n) <= 20 for n in nonces):
+        return _resp({"error": "addr and nonces (decimal, comma-separated) are required"}, status=400)
+    from ops import kv_ops
+    claimed = await asyncio.to_thread(lambda: [n for n in nonces if kv_ops.shield_nullifier_exists(addr, n)])
+    return _resp({"addr": addr, "claimed": claimed})
+
+
 async def resolve_alias(request):
     """GET /resolve_alias?name=: alias -> owner address; input is lowercased (registry names are
     all-lowercase) and owner is null when unregistered."""
@@ -3230,7 +3244,8 @@ _stwo_relay = StwoRelay(
     da_publish=_exec_local_da_publish,
     submit=_stwo_relay_submit,
     enabled_fn=lambda: get_config().get("stwo_relay", True) is not False,
-    healthy_fn=lambda: not getattr(memserver, "emergency_mode", False))
+    healthy_fn=lambda: not getattr(memserver, "emergency_mode", False),
+    balance_fn=lambda: (get_account(memserver.address, create_on_error=False) or {}).get("balance"))
 stwo_relay_info, stwo_relay_post = _stwo_relay_handlers(_stwo_relay, _ip)
 
 
@@ -3424,6 +3439,7 @@ async def make_app(port):
         web.get("/duty_committee", duty_committee),
         web.get("/get_dividend_inflow", get_dividend_inflow),
         web.get("/get_settled", get_settled),
+        web.get("/unshield_claimed", unshield_claimed),
         web.get("/resolve_alias", resolve_alias),
         web.get("/msig_address", msig_address),
         web.get("/get_htlc", get_htlc),

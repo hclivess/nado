@@ -4999,7 +4999,13 @@ class CoreClient(threading.Thread):
         from maybe_auto_collect, inside its emergency-mode guard and its try. An exit whose proof is not against the
         settled root waits for a later epoch, exactly as the dividend claims above."""
         u = self._exec_get(f"/exec/unshields?addr={self.memserver.address}")
-        pending = (u or {}).get("unshields") or []
+        # ONLY EXITS L1 HAS NOT RELEASED (loopback walk 2026-10-12): the exec node lists every exit it ever recorded — it
+        # never learns that L1 claimed one — so taking the first 8 as-is re-sent eight refused claims forever once the
+        # first eight were claimed, and the relay never recovered another fee. L1's own record decides: the burned
+        # (addr, nonce) unshield nullifier the claim's validation checks (kv_ops.shield_nullifier_exists).
+        me = self.memserver.address
+        pending = [w for w in ((u or {}).get("unshields") or [])
+                   if not kv_ops.shield_nullifier_exists(me, str(w.get("nonce")))]
         if not pending:
             return 0
         from ops.settlement_ops import latest_settled
