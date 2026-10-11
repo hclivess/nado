@@ -8,6 +8,7 @@ recorded before any of its blocks is verified, so a donor advertising tall block
   * a lying mesh majority alone never opens it while the donor's batch says the chain is short;
   * when both agree the chain is far ahead, a block that far behind is deep (catch-up still skips the re-verification);
   * with no batch height the mesh median alone decides, as before;
+  * a stale batch height (at or below the block, never refreshed by tip-swap adoption) counts as no batch height;
   * the depth decision in the remote-block path goes through this function.
 
 Run: python3 tests/test_one_donor_cannot_skip_settle_proof_checks.py
@@ -36,7 +37,7 @@ def check(name, cond, detail=""):
 
 
 def deep(known, median, h):
-    return ref(known, median) - h > FINALITY_DEPTH
+    return ref(known, median, h) - h > FINALITY_DEPTH
 
 
 H = 150000
@@ -45,10 +46,13 @@ check("a lying mesh alone does not make it deep while the donor's batch is short
 check("donor and mesh both far ahead: the block is deep (catch-up keeps skipping)", deep(H + 500, H + 480, H))
 check("no batch height: the mesh median decides, as before", deep(0, H + 500, H) and not deep(0, H + 10, H))
 check("no information at all: never deep", not deep(0, 0, H))
+check("a stale batch height below the block does not drag a far mesh tip under it (catch-up keeps skipping)",
+      deep(H - 2000, H + 500, H))
+check("a stale batch height is no batch height: a near mesh tip still decides", not deep(H - 2000, H + 10, H))
 
 src = open(os.path.join(ROOT, "loops", "core_loop.py")).read()
 check("the remote-block depth decision uses settle_depth_reference, not max()",
-      "settle_depth_reference(getattr(self, \"_known_tip_height\", 0), _best_peer)" in src
+      "settle_depth_reference(getattr(self, \"_known_tip_height\", 0), _best_peer," in src
       and "max(int(getattr(self, \"_known_tip_height\", 0)), _best_peer)" not in src)
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
