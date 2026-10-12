@@ -11,7 +11,8 @@ genesis_data/exec_genesis.json, tagged with the generation it was built for:
      "assets": {aid: {...}}, "abal": {aid: {holder: n}}, "allow": {aid: {owner: {spender: n}}},   # exec assets, verbatim
      "zk_addrs": {digest: addr},                           # the digest->address registry payouts resolve through
      "stwo_pool": {"commitments": [cm, ...], "nullifiers": [nf, ...]},   # the Stwo shielded pool (order kept; no marks)
-     "stwo_value": "<raw>", "pool_fees": "<raw>"}          # its value, and what else SHIELD_ESCROW holds (burned)
+     "stwo_value": "<raw>", "pool_fees": "<raw>",          # its value, and what else SHIELD_ESCROW holds (burned)
+     "stwo_deposits": [{"addr", "amount", "owner", "rho"}, ...]}   # the PUBLIC records of carried deposit notes
 
 and every exec node loads it into a FRESH state (cursor -1, no contracts) — at boot and at an in-process reset to
 genesis — so the new chain starts from identical bytes on every node. Contract ids are kept, so frontends need no
@@ -36,6 +37,16 @@ against the carried root. `pool_fees` is everything else SHIELD_ESCROW holds —
 whose notes were never created — so the shielded invariant (ops/invariants.check_shielded) is EXACT from block 0, and
 genesis.py refuses an L1 allocation whose SHIELD_ESCROW is not stwo_value + pool_fees. Every value is a pure function
 of this file.
+
+CARRIED DEPOSITS STAY RESTORABLE (review 2026-10-12, tests/test_every_stwo_deposit_is_restorable_from_the_recovery_phrase.mjs).
+A wallet finds its deposit notes from the recovery phrase by reading its OWN shield transactions (amount, owner, rho —
+all public) and re-deriving each owner from its spend key and that rho. Those transactions stay on the old chain, so a
+note carried across the reroll could no longer be restored on the new one. `stwo_deposits` keeps, beside the
+commitments, the public record of every carried note that came from a deposit — (depositor address, amount, owner,
+rho), exactly what the old chain's L1 transaction published — and the exec node serves it
+(GET /exec/stwo_carried_deposits?addr=), which the wallet's restore reads too. INVARIANT: each record's
+commit(amount, owner, rho) is a carried commitment (validated below); the records are not state (they enter no root
+and change no balance), they are what lets the owner find a note that is.
 """
 import copy
 import json
@@ -75,6 +86,51 @@ def load():
     return out
 
 
+def _raw(doc, key) -> int:
+    """A raw amount in the genesis document: a JSON int or a decimal string, never a float or a bool (review 2026-10-12:
+    int(1.9) == 1 and int(True) == 1, so a document written with a float would load as a different value on a node that
+    read it through another parser — and a value the cap of every Stwo spend is checked against must have one reading)."""
+    v = doc.get(key)
+    if v is None:
+        return 0
+    if isinstance(v, bool) or not (isinstance(v, int) or (isinstance(v, str) and v.isascii() and v.isdigit())):
+        raise ValueError(f"exec genesis: {key} must be an integer or a decimal string, not {v!r}")
+    return int(v)
+
+
+def _carried_deposits(doc, cms) -> list:
+    """The validated `stwo_deposits` records (module docstring): [{"addr", "amount", "owner", "rho"}], amount and rho as
+    decimal strings (a JSON number above 2^53 would round in a wallet). Each must name a carried commitment, once."""
+    from execnode import shielded_stwo as _S
+    recs = doc.get("stwo_deposits") or []
+    if not isinstance(recs, list):
+        raise ValueError("exec genesis: stwo_deposits must be a list")
+    have, seen, out = set(cms), set(), []
+    for r in recs:
+        if not isinstance(r, dict) or set(r) != {"addr", "amount", "owner", "rho"}:
+            raise ValueError(f"exec genesis: a carried deposit record must be {{addr, amount, owner, rho}}: {r!r}")
+        if not isinstance(r["addr"], str) or not r["addr"]:
+            raise ValueError("exec genesis: a carried deposit record names no depositor")
+        amount, rho = _raw(r, "amount"), _raw(r, "rho")
+        if not (0 < amount < (1 << 64)) or not (0 <= rho < (1 << 64)) or not _S.is_digest(r["owner"]):
+            raise ValueError(f"exec genesis: a carried deposit record is out of range: {r!r}")
+        cm = _S.commit(amount, r["owner"], rho)
+        if cm not in have:
+            raise ValueError(f"exec genesis: a carried deposit record names no carried commitment ({cm[:16]}…)")
+        if cm in seen:
+            raise ValueError(f"exec genesis: two carried deposit records for one commitment ({cm[:16]}…)")
+        seen.add(cm)
+        out.append({"addr": r["addr"], "amount": str(amount), "owner": r["owner"], "rho": str(rho)})
+    return out
+
+
+def carried_deposits(addr=None) -> list:
+    """The carried deposit records of THIS generation's genesis ([] without one), all or one depositor's."""
+    g = load()
+    recs = (g or {}).get("stwo_deposits") or []
+    return [dict(r) for r in recs if addr is None or r["addr"] == addr]
+
+
 def _shield_part(doc) -> dict:
     """The carried Stwo pool of a genesis document, validated: {"stwo_pool": {commitments, nullifiers}, "stwo_value": int,
     "pool_fees": int, "shield": bool} ("shield" = the document carries the shielded section at all; one written before
@@ -94,12 +150,13 @@ def _shield_part(doc) -> dict:
     if len(set(nfs)) != len(nfs) or nfs != sorted(nfs):
         raise ValueError("exec genesis: the carried Stwo nullifiers must be sorted and distinct")
     _S.StwoShieldedPool(cms, nfs)                     # duplicate commitments, capacity: the pool's own checks raise
-    sv, fees = int(doc.get("stwo_value") or 0), int(doc.get("pool_fees") or 0)
+    sv, fees = _raw(doc, "stwo_value"), _raw(doc, "pool_fees")     # never a float or a bool (_raw)
     if sv < 0 or fees < 0:
         raise ValueError("exec genesis: a negative stwo_value or pool_fees")
     if sv and not cms:
         raise ValueError("exec genesis: stwo_value with no Stwo note to hold it")
-    return {"stwo_pool": {"commitments": cms, "nullifiers": nfs}, "stwo_value": sv, "pool_fees": fees, "shield": shield}
+    return {"stwo_pool": {"commitments": cms, "nullifiers": nfs}, "stwo_value": sv, "pool_fees": fees, "shield": shield,
+            "stwo_deposits": _carried_deposits(doc, cms)}
 
 
 def shield_total() -> int:

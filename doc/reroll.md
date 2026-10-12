@@ -169,6 +169,13 @@ empty (they name old-chain heights). SHIELD_ESCROW stays put. After the pending 
 hold at least `stwo_value` + in-pool fees, or the carry refuses. The surplus is carried as `pool_fees`, and L1 genesis
 refuses unless SHIELD_ESCROW == `stwo_value + pool_fees`. Read the `carried Stwo pool` line of the dry run. Measured 2026-10-12
 (exec cursor 176850, before the pool's gate): 0 notes, 1,123,000 raw carried as `pool_fees`, Δ = 0.
+**Carried deposit notes stay restorable**: the same file keeps `stwo_deposits`, the public (depositor, amount, owner,
+rho) of every carried note that came from a deposit — from the old chain's shield transactions and from the old exec
+genesis's own records — because a wallet re-derives a deposit note's owner from its key and that rho, and the
+transactions stay on the old chain. The exec node serves them at `/exec/stwo_carried_deposits?addr=`; the dry run prints
+how many it kept. **L1 genesis refuses** a non-empty SHIELD_ESCROW that no exec genesis of the new generation accounts for
+(file missing, wrong generation, no shielded section) — the only exception is gen 28's own uncarried 1,123,000 raw
+(`genesis.UNCARRIED_SHIELD_ESCROW`, delete it in the gen-28 cleanup).
 **Refused** (the carry will not run): notes in the other shielded pools (`shielded`, `field_pool`, `wide_pool`,
 `app_state`), or any `pool_value` the Stwo pool's `stwo_value` does not explain. A carried wide pool would sit at depth 48
 where the exec layer insists on 12 at genesis. Holders of those notes unshield first. Also refused: exec assets held by a
@@ -231,7 +238,8 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
     and its pot was refunded by the carry, as before. Confirm with `python3 -m execnode.games.redeploy` (with a carried genesis it only
     verifies that every frontend `CID` resolves to a live contract, and refuses to deploy), then pay the manual refunds the carry printed (`scripts/nado_cli.py send <addr> <NADO> --memo …`).
     The faucet bank is no longer refunded and re-funded: it carries. The Stwo pool carries in the same file: confirm
-    `/exec/field_shielded` serves the old pool's `root`, `notes` and `nullifiers` (`"pool": "stwo"`), and that
+    `/exec/field_shielded` serves the old pool's `root`, `notes` and `nullifiers` (`"pool": "stwo"`), that
+    `/exec/stwo_carried_deposits` serves as many records as the dry run kept, and that
     `/invariants` shows the `shielded` domain `ok` with delta 0.
 12. Check `/status` → `jobs.problems` is empty (doc/jobs.md). The DEX price history resets itself on the new chain id.
 13. Walk every page headless (every `static/*.html`, script errors and failed requests) — the betanet-8 walk found the

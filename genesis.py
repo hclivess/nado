@@ -14,6 +14,11 @@ from ops.peer_ops import save_peer, get_public_ip
 from ops import kv_ops
 from protocol import GENESIS_ADDRESS, CHAIN_ID, TREASURY_GENESIS
 
+# What the gen-28 (betanet-9) genesis allocation holds in SHIELD_ESCROW with no exec genesis to account for it: deposits
+# stranded since an earlier generation, carried as a balance before the Stwo carry existed. Read only for generation 28
+# (make_genesis "NO SILENT DROP OF SHIELDED VALUE"); delete with the gen-28 cleanup after the next reroll.
+UNCARRIED_SHIELD_ESCROW = 1_123_000
+
 
 def create_indexers():
     """Open the single LMDB env with all named sub-DBs and seed/heal derived state (totals seed,
@@ -246,6 +251,24 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
                                  "(stwo_value + pool_fees)")
             logger.warning(f"RELAUNCH: carried the Stwo pool: "
                            f"{len(_exec_genesis.load()['stwo_pool']['commitments'])} notes, {_want} raw in SHIELD_ESCROW")
+
+    # NO SILENT DROP OF SHIELDED VALUE (review 2026-10-12). Without an exec genesis that accounts for SHIELD_ESCROW — the
+    # document missing, built for another generation (exec_genesis.load() ignores it), or without the shielded section —
+    # the exec layer starts with an empty pool and no pool_fees, so every raw the allocation left in SHIELD_ESCROW would
+    # back nothing: carried notes lost, or coins the shielded invariant cannot explain. INVARIANT: that case refuses
+    # unless SHIELD_ESCROW is empty. The one exception is the live generation's own tracked allocation: betanet-9
+    # (gen 28) was built before the Stwo carry existed and holds UNCARRIED_SHIELD_ESCROW raw stranded since an earlier
+    # generation (tools/alphanet6_carryforward.exec_shield_doc), and a fresh node must still build that genesis. From the
+    # next generation the carry always writes the shielded section, so the exception is 0 there.
+    _gdoc = _exec_genesis.load()
+    if not (_gdoc and _gdoc.get("shield")):
+        from protocol import SHIELD_ESCROW as _SE, CHAIN_GENERATION as _GEN_NOW
+        _sheld = int((kv_ops.get_account(_SE) or {}).get("balance", 0))
+        _known = UNCARRIED_SHIELD_ESCROW if int(_GEN_NOW) == 28 else 0
+        if _sheld not in (0, _known):
+            raise SystemExit(f"genesis: SHIELD_ESCROW holds {_sheld} raw but no exec genesis for generation {_GEN_NOW} "
+                             "accounts for it (genesis_data/exec_genesis.json is missing, for another generation, or "
+                             "has no shielded section) — the carried shielded value would be silently dropped")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->
