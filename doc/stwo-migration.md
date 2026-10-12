@@ -290,10 +290,30 @@ and integration (anchor window, pool rebuild cost, a tagged deposit below the ga
 L1 leaks the ZK review found are closed: spends go through node relays (ops/stwo_relay.py), each deposit has a fresh
 owner. `STWO_POOL_HEIGHT` = 182000. No deposit cap: the operator's decision (2026-10-11).
 
-**Not carried yet:** the reroll carry refuses a non-empty Stwo pool (holders unshield first, tools/alphanet6_carryforward
-`exec_value_the_carry_would_drop`). Its notes are BLAKE2s and survive the Goldilocks retirement unchanged, so carrying
-`stwo_pool` (commitments, nullifiers, `stwo_value`; marks restart empty) is the natural next carry item — it is owed
-before the next reroll, because a forced unshield de-anonymises every holder.
+**The carry (2026-10-12, branch `stwo-carry`).** A reroll carries the Stwo pool, so holders never unshield for it (a
+forced unshield publishes every holder's amount and destination). Its notes are BLAKE2s and survive the Goldilocks
+retirement unchanged. What crosses (tools/alphanet6_carryforward `exec_shield_doc`, execnode/exec_genesis.py, genesis.py):
+- **The exec genesis document** carries `stwo_pool` = the commitments IN ORDER (a note's leaf position is part of its
+  spend witness) and the nullifier set (sorted), plus `stwo_value` and `pool_fees`. A fresh exec layer loaded from it
+  has the old `stwo_root`, `stwo_nfset` and `stwo_value` records, so an old note spends against the carried root, and
+  an already-spent note stays spent. `pool_value` starts equal to `stwo_value`.
+- **Block marks restart EMPTY.** They are [old-chain height, note count] pairs: on the new chain those heights name
+  other blocks, a mark above the new tip makes the first append raise, and an old mark would stay "recent" for as long
+  as the new chain is shorter. Without marks, the anchors a spend may name are the carried tree's root and its append
+  window (rebuilt from the commitments). A wallet with a spend in flight at the reroll re-proves against the carried
+  root. The carried root differs from the old exec root only by the `stwo_marks` record. A document naming marks is
+  refused.
+- **SHIELD_ESCROW keeps backing the notes.** After the pending unshield exits are folded out of it, the escrow must
+  hold at least `stwo_value` + the old `pool_fees`, or the carry refuses: an unbacked note would carry. The surplus
+  (fees burned in-pool plus stranded deposits; 1,123,000 raw on betanet-9, locked since an earlier generation) is
+  carried as the new layer's `pool_fees`. It stays locked in SHIELD_ESCROW exactly as before, and no coin moves, so
+  Δ = 0. L1 genesis refuses an allocation whose SHIELD_ESCROW is not `stwo_value + pool_fees`, so the shielded
+  invariant (ops/invariants.check_shielded) is exact from block 0.
+- **Still refused:** notes in the legacy, field, wide or app-note pools, and any `pool_value` that `stwo_value` does not
+  explain (`exec_value_the_carry_would_drop`).
+- Tests: tests/test_the_stwo_pool_crosses_a_reroll_with_its_root_and_spent_set.py (roots, escrow, L1 genesis) and
+  tests/test_an_old_stwo_note_spends_on_the_new_chain_and_a_spent_one_stays_spent.py (a real Stwo proof made against
+  the old pool applies on the new chain; the same proof after an old-chain spend is refused as a double-spend).
 
 **GATE BLOCKERS (review 2026-10-11) — BOTH RESOLVED before `STWO_POOL_HEIGHT` was set (2026-10-12):**
 1. **Output rho is free, so a payer can make a note its owner cannot spend ("faerie gold").** The AIR constrains an
@@ -351,7 +371,7 @@ lines that can no longer hold a forgery.
 |---|---|
 | L1 balances and bonded stake (Δ = 0 enforced) | **all contract state**: contract pots are refunded to players or the deployer, game progress is lost, contracts are redeployed under new ids and the frontends rewired |
 | uncollected dividends, user bridge balances, pending exits (folded into L1) | **open invites and HTLCs** (refunded to the funder) |
-| device bindings, aliases, account-auth config | **the shielded pool**: the carry *refuses* if it is not empty ("have them unshield before the reroll") |
+| device bindings, aliases, account-auth config | **the legacy, field, wide and app-note pools**: the carry *refuses* if they are not empty (the Stwo pool carries since 2026-10-12, §5.1 "The carry") |
 | fidelity, **but only for identities present at the reroll** (47 of the 79 with fidelity at gen 28) | **fidelity of the 32 identities absent at the reroll**, see 6.3 |
 
 ### 6.2 Exec state carries as a genesis snapshot
@@ -419,7 +439,8 @@ weights. The permanent carry tool must keep both paths seeded from the same valu
 Built on branch `carry`: §6.2 (every contract by id; storage and pot for carry-safe games; hooks for slots, dice,
 roulette, mines, blackjack, pets, autogame, hamster, tictactoe, connect4, reversi, chess, bet, the faucet and the daily
 boards), exec assets, the refusal of every shielded pool (not only the legacy one), and §6.3 live (CARRY_FIDELITY_ALL_HEIGHT).
-Carrying the shielded pool itself is NOT built — see doc/reroll.md "What crosses a reroll".
+The Stwo pool carries since 2026-10-12 (§5.1 "The carry"); the older pools are still refused unless empty. See
+doc/reroll.md "What crosses a reroll".
 
 ### 6.5 Making it permanent
 

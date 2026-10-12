@@ -233,6 +233,19 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
             with kv_ops.write_txn():
                 kv_ops.bridge_escrow_ns_add("default", _pots)
         logger.warning(f"RELAUNCH: carried {len(_exec_genesis.load()['contracts'])} contracts; {_pots} raw in their pots")
+        # THE CARRIED STWO POOL (execnode/exec_genesis.py): its notes start the new exec layer, so SHIELD_ESCROW must start
+        # holding exactly their value plus what the carry booked as burned in-pool (pool_fees). INVARIANT: SHIELD_ESCROW ==
+        # stwo_value + pool_fees at block 0 (ops/invariants.check_shielded exact) — less is an unbacked note, more is
+        # a coin the shielded accounting does not know. Asserted only for a document that carries the shielded section.
+        if _exec_genesis.load().get("shield"):
+            from protocol import SHIELD_ESCROW as _SHIELD_ESCROW
+            _want = _exec_genesis.shield_total()
+            _sheld = int((kv_ops.get_account(_SHIELD_ESCROW) or {}).get("balance", 0))
+            if _sheld != _want:
+                raise SystemExit(f"genesis: SHIELD_ESCROW holds {_sheld} raw but the carried Stwo pool needs {_want} "
+                                 "(stwo_value + pool_fees)")
+            logger.warning(f"RELAUNCH: carried the Stwo pool: "
+                           f"{len(_exec_genesis.load()['stwo_pool']['commitments'])} notes, {_want} raw in SHIELD_ESCROW")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->

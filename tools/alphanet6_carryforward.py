@@ -10,8 +10,10 @@ writes genesis_alloc.dat so the reboot preserves everyone's coins under the same
   * PENDING BRIDGE + UNSHIELD withdrawals fold into their owners' L1 balances — their exit proofs are against the
     OLD root scheme and would be unverifiable after the reroll, so they are paid out at genesis instead.
   * Every fold is DEBITED from the matching L1 escrow reserved account (bridge / dividend / shield): supply is
-    conserved EXACTLY (Δ must be 0 or the tool refuses to write). Shield-escrow residual with an EMPTY pool
-    stays locked in the reserved account.
+    conserved EXACTLY (Δ must be 0 or the tool refuses to write).
+  * The STWO SHIELDED POOL carries (exec_shield_doc): its notes stay private, SHIELD_ESCROW keeps backing them, and
+    whatever else the escrow holds (fees burned in-pool, stranded deposits) is carried as the new layer's pool_fees,
+    so escrow == stwo_value + pool_fees exactly on the new chain. A deficit refuses.
 
 READ-ONLY on the chain; --write persists private/genesis_alloc.dat + genesis_data/genesis_alloc.dat.
 """
@@ -184,6 +186,40 @@ _EXEC_GENESIS = [None]
 
 
 SHIELDED_POOLS = ("shielded", "field_pool", "wide_pool", "stwo_pool", "app_state")   # every ExecState note pool
+CARRIED_POOLS = ("stwo_pool",)        # carried into the exec genesis (exec_shield_doc); every other pool must be empty
+
+
+def exec_shield_doc(d: dict, shield_escrow: int) -> dict:
+    """The shielded section of the exec genesis (execnode/exec_genesis.py): the Stwo pool's commitments IN ORDER (a
+    note's leaf position is part of its spend witness), its nullifier set (sorted; an already-spent note stays spent),
+    `stwo_value`, and `pool_fees` = everything else SHIELD_ESCROW holds. NO marks: they name old-chain heights
+    (exec_genesis docstring), so the new chain's anchors are the carried root and its append window.
+
+    `shield_escrow` is SHIELD_ESCROW's L1 balance AFTER the pending unshield exits were folded out of it. On the old
+    chain the shielded invariant (ops/invariants.check_shielded) is escrow == pool_value + pending exits + pool_fees,
+    with any surplus a stranded deposit (STRANDED, no note backs it). Exec_value_the_carry_would_drop has already
+    refused unless pool_value == stwo_value, so here escrow must hold at least stwo_value + pool_fees:
+      * LESS refuses — notes the escrow does not back; carrying them would carry an unbacked mint (or the snapshot
+        and the L1 balance are from different heights);
+      * the surplus over stwo_value (old pool_fees + stranded deposits, 1,123,000 raw on betanet-9, locked since an
+        earlier generation) is carried as the new layer's pool_fees: it stays in SHIELD_ESCROW, locked exactly as it
+        was, and the new chain's invariant is exact (OK, not STRANDED) from block 0. Supply is untouched (Δ = 0): no
+        coin moves between L1 accounts here.
+    INVARIANT: after the carry, SHIELD_ESCROW == stwo_value + pool_fees (genesis.py refuses to build a chain where it is
+    not)."""
+    sv, old_fees, esc = int(d.get("stwo_value") or 0), int(d.get("pool_fees") or 0), int(shield_escrow)
+    if esc < sv + old_fees:
+        raise SystemExit(f"REFUSING: SHIELD_ESCROW holds {esc} raw after the pending unshield exits, but the Stwo pool "
+                         f"carries {sv} raw of notes and {old_fees} raw of in-pool fees — the escrow does not back the "
+                         "carried notes (the shielded invariant does not hold on the source chain, or the exec "
+                         "snapshot and the L1 balance are from different heights); reconcile before carrying")
+    sp = d.get("stwo_pool") or {}
+    cms = [str(c) for c in (sp.get("commitments") or [])]
+    nfs = sorted(str(n) for n in (sp.get("nullifiers") or []))
+    out = {"stwo_value": str(sv), "pool_fees": str(esc - sv)}
+    if cms or nfs:
+        out["stwo_pool"] = {"commitments": cms, "nullifiers": nfs}
+    return out
 
 
 def exec_value_the_carry_would_drop(d: dict, tip=None, policy=None) -> list:
@@ -203,12 +239,26 @@ def exec_value_the_carry_would_drop(d: dict, tip=None, policy=None) -> list:
         `policy` (default carry_policy, with `tip`) decides which contracts reset."""
     out = []
     for name in SHIELDED_POOLS:
+        if name in CARRIED_POOLS:
+            continue
         pool = d.get(name) or {}
         if pool.get("commitments") or pool.get("trees"):
             out.append(f"{name} holds notes — holders must unshield before the reroll (or the pool must be carried)")
-    if int(d.get("pool_value") or 0) != 0:
-        out.append(f"pool_value is {int(d.get('pool_value') or 0)} raw — value sits in a shielded pool; holders must "
-                   "unshield before the reroll (or the pool must be carried)")
+    # THE STWO POOL CARRIES (exec_shield_doc; 2026-10-12): a forced unshield would publish every holder's amount and
+    # destination. INVARIANT: the carry moves exactly `stwo_value` of shielded value, so pool_value — the exec layer's
+    # total over EVERY pool — must be fully explained by it; anything else sits in a pool the carry does not move.
+    sv, pv = int(d.get("stwo_value") or 0), int(d.get("pool_value") or 0)
+    if pv != sv:
+        out.append(f"pool_value is {pv} raw but the Stwo pool carries {sv} — {pv - sv} raw sits in a shielded pool the "
+                   "carry does not move; holders must unshield it before the reroll")
+    sp = d.get("stwo_pool") or {}
+    if sv and not sp.get("commitments"):
+        out.append(f"stwo_value is {sv} raw but the Stwo pool holds no note — the snapshot is inconsistent")
+    try:
+        from execnode.shielded_stwo import StwoShieldedPool
+        StwoShieldedPool.from_dict(sp)
+    except Exception as e:                                  # a pool the exec layer itself would not load cannot carry
+        out.append(f"the Stwo pool cannot be carried as it stands: {e}")
     # exec ASSETS are carried verbatim in the exec genesis (assets, abal, allow) — but only a holder that survives can
     # use them: a contract holding assets must itself carry ("keep")
     contracts = d.get("contracts") or {}
@@ -354,6 +404,10 @@ def build():
     debit_reserved("dividend", dividend_out)
     if shield_out:
         debit_reserved("shield", shield_out)
+    # 6b) THE STWO POOL CARRIES (exec_shield_doc): SHIELD_ESCROW keeps backing its notes; a deficit refuses here
+    from protocol import SHIELD_ESCROW as _SHIELD_ESCROW
+    _shield_left = alloc.get(_SHIELD_ESCROW, {"balance": 0})["balance"]
+    _EXEC_GENESIS[0].update(exec_shield_doc(d, _shield_left))
 
     carried = sum(e["balance"] + e["bonded"] for e in alloc.values())
     print("=== alphanet-6 carry-forward ===")
@@ -369,6 +423,10 @@ def build():
     print(f"  folded bridge withdrawals (pending):  {sum(_num(w['amount']) for w in bws.values()):>18} raw -> users, -bridge escrow")
     print(f"  folded unshield withdrawals (pending):{shield_out:>18} raw -> users, -shield escrow")
     print(f"  refunded open invites / HTLC locks:   {esc_out['invite'] + esc_out['htlc']:>18} raw -> funders, -invite/-htlc escrow")
+    print(f"  carried Stwo pool (stays escrowed):   {int(_EXEC_GENESIS[0]['stwo_value']):>18} raw in "
+          f"{len((_EXEC_GENESIS[0].get('stwo_pool') or {}).get('commitments') or [])} notes, "
+          f"{len((_EXEC_GENESIS[0].get('stwo_pool') or {}).get('nullifiers') or [])} spent; "
+          f"{_EXEC_GENESIS[0]['pool_fees']} raw more in SHIELD_ESCROW carried as burned (pool_fees)")
     print(f"carried total after folds:              {carried:>18} raw")
     print(f"CONSERVATION: {'OK' if carried == l1_total else 'FAIL'} (Δ={carried - l1_total})")
     print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")
