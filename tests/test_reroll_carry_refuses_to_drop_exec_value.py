@@ -10,6 +10,9 @@ Review 2026-10-11 added: the Stwo pool (added after the list and missing from it
 total are refused; and an exec asset held BY A CONTRACT that would reset (fresh-deploy storage: the ledger of whose the
 tokens are is gone) is refused, while the same holding in a contract that carries is accepted.
 
+2026-10-12: the Stwo pool CARRIES (exec_shield_doc; tests/test_the_stwo_pool_crosses_a_reroll_with_its_root_and_spent_set.py),
+so its notes are no longer a refusal — but pool_value it does not explain still is.
+
 Run: python3 tests/test_reroll_carry_refuses_to_drop_exec_value.py
 """
 import os, sys, tempfile
@@ -31,10 +34,14 @@ def check(name, ok, detail=""):
 empty = {"shielded": {"commitments": [], "nullifiers": [], "root": "00" * 32}, "field_pool": {"commitments": []},
          "abal": {}, "assets": {}}
 check("an exec snapshot holding nothing the carry cannot move is accepted", drop(empty) == [], drop(empty))
-for pool in ("shielded", "field_pool", "wide_pool", "stwo_pool"):
+for pool in ("shielded", "field_pool", "wide_pool"):
     d = dict(empty, **{pool: {"commitments": ["ab" * 32], "nullifiers": []}})
     got = drop(d)
     check(f"notes in the {pool} are refused", len(got) == 1 and pool in got[0], got)
+got = drop(dict(empty, stwo_pool={"commitments": ["ab" * 32], "nullifiers": []}, stwo_value=4, pool_value=4))
+check("notes in the stwo_pool are carried, not refused, when stwo_value explains pool_value", got == [], got)
+got = drop(dict(empty, stwo_pool={"commitments": ["ab" * 32], "nullifiers": []}, stwo_value=4, pool_value=5))
+check("...but value beyond stwo_value is refused", len(got) == 1 and "pool_value" in got[0], got)
 check("app_state notes are refused", any("app_state" in r for r in drop(dict(empty, app_state={"trees": {"x": 1}}))))
 check("a held exec asset is no longer a refusal: assets carry in the exec genesis",
       drop(dict(empty, abal={"tok": {"a" * 46: 5}})) == [])

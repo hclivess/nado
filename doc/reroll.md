@@ -4,8 +4,9 @@ A **reroll** restarts the chain from a fresh genesis (new `CHAIN_ID`, `GENESIS_T
 `CHAIN_GENERATION`), carrying balances forward. This document is the procedure, the failure modes that have actually
 happened, and — since 2026-09-09 — the rule that makes the *code* cleanup mechanical instead of archaeological.
 
-**What a reroll still drops** (contract state, the fidelity of identities absent at the reroll, a non-empty shielded
-pool) and the plan to carry all of it permanently are in `doc/stwo-migration.md` §6.
+**What a reroll still drops** (contract state, the fidelity of identities absent at the reroll, notes in the legacy,
+field, wide or app-note pools) and the plan to carry all of it permanently are in `doc/stwo-migration.md` §6. The Stwo
+shielded pool carries (§5.1 "The carry").
 
 ## The gate rule
 
@@ -161,10 +162,17 @@ redrawn once from a new-chain block. A parked run always sits on a visible terra
 blocker would make autogame uncarryable whenever anyone has a run (and a reset loses every run); nothing committed is
 redrawn, and a run the mists ended is never rescued (autogame.carry_rebase). `--allow-blockers` accepts the old fallback deliberately: that contract resets and its pot is
 refunded by attribution (for the digest-slot banked games, to the deployer of record: the MANUAL REFUND lines).
-**Refused** (the carry will not run): notes in any shielded pool (`shielded`, `field_pool`, `wide_pool`, `stwo_pool`,
-`app_state`, or any `pool_value`) — a carried wide pool would sit at depth 48 where the exec layer insists on 12 at
-genesis, and the Stwo migration replaces the note hash anyway (doc/stwo-migration.md §6.4); holders unshield first; and
-exec assets held by a contract that would reset (its ledger of whose they are would be lost).
+**The Stwo shielded pool carries** (since 2026-10-12, doc/stwo-migration.md §5.1 "The carry"): its commitments in
+order, its nullifier set and `stwo_value` go into `genesis_data/exec_genesis.json`, so the new exec layer has the same
+`stwo_root` and spent set, old notes spend against the carried root, and no holder unshields. Its block marks restart
+empty (they name old-chain heights). SHIELD_ESCROW stays put. After the pending unshield exits are folded out, it must
+hold at least `stwo_value` + in-pool fees, or the carry refuses. The surplus is carried as `pool_fees`, and L1 genesis
+refuses unless SHIELD_ESCROW == `stwo_value + pool_fees`. Read the `carried Stwo pool` line of the dry run. Measured 2026-10-12
+(exec cursor 176850, before the pool's gate): 0 notes, 1,123,000 raw carried as `pool_fees`, Δ = 0.
+**Refused** (the carry will not run): notes in the other shielded pools (`shielded`, `field_pool`, `wide_pool`,
+`app_state`), or any `pool_value` the Stwo pool's `stwo_value` does not explain. A carried wide pool would sit at depth 48
+where the exec layer insists on 12 at genesis. Holders of those notes unshield first. Also refused: exec assets held by a
+contract that would reset (the ledger of whose they are would be lost).
 
 **Dry run, any day, read-only** — what the carry would do right now:
 
@@ -187,8 +195,8 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
 
 1. Audit exec state read-only over HTTP (`/exec/contracts`, `/exec/bridge`, `/exec/assets`).
 2. Dry-run `tools/alphanet6_carryforward.py` against a **read-only LMDB copy**; it folds balances, bonded, dividends,
-   pending withdrawals and the bridge, hard-asserts the shielded pool is EMPTY, and refuses unless supply conserves
-   exactly (Δ = 0).
+   pending withdrawals and the bridge, carries the Stwo pool (refusing if SHIELD_ESCROW does not back it), hard-asserts
+   every OTHER shielded pool is empty, and refuses unless supply conserves exactly (Δ = 0).
 3. Rehearse the source edit on a throwaway worktree (symlink `native/` in).
 4. Back up the data directory.
 5. `systemctl stop nado-watchtower nado-exec nado` (a fixed-point snapshot).
@@ -222,7 +230,9 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
     `CARRY_STORAGE = True` (the faucet) keeps its storage and its pot; every other one starts from fresh-deploy storage
     and its pot was refunded by the carry, as before. Confirm with `python3 -m execnode.games.redeploy` (with a carried genesis it only
     verifies that every frontend `CID` resolves to a live contract, and refuses to deploy), then pay the manual refunds the carry printed (`scripts/nado_cli.py send <addr> <NADO> --memo …`).
-    The faucet bank is no longer refunded and re-funded: it carries.
+    The faucet bank is no longer refunded and re-funded: it carries. The Stwo pool carries in the same file: confirm
+    `/exec/field_shielded` serves the old pool's `root`, `notes` and `nullifiers` (`"pool": "stwo"`), and that
+    `/invariants` shows the `shielded` domain `ok` with delta 0.
 12. Check `/status` → `jobs.problems` is empty (doc/jobs.md). The DEX price history resets itself on the new chain id.
 13. Walk every page headless (every `static/*.html`, script errors and failed requests) — the betanet-8 walk found the
     wallet's reserve panel on a dead contract and the lend page broken since it was written.
