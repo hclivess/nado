@@ -2,8 +2,8 @@ import os, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-fresh-snapshot-")
 """A fresh rolling snapshot joiner fetches its rollback window, never a fictitious fork back to genesis.
 
-Measured live 2026-10-12: 185.100.232.5 imported the fleet's valid h178000 checkpoint, then remained at
-that height for more than 75 minutes while the fleet moved 700+ blocks ahead. Its status still had
+Measured live 2026-10-12: a fresh rolling node imported the fleet's valid h178000 checkpoint, then
+remained at that height for more than 75 minutes while the fleet moved 700+ blocks ahead. Its status had
 ``earliest_block_height=0`` and ``recovery=null``: before either field could advance, canonical restore
 treated the expected no-overlap between a fresh node's genesis-only index and the checkpoint's windowed
 index as a deep established-node reorg, then fetched parent hashes toward genesis one request at a time.

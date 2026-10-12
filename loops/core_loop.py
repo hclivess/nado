@@ -4310,8 +4310,8 @@ class CoreClient(threading.Thread):
         #    FRESH SNAPSHOT BOOTSTRAP HAS NO OLD CHAIN TO RECONCILE. Its pre-import index contains only
         #    genesis while the checkpoint carries a window near C, so there is deliberately no overlap.
         #    Treating that as a deep reorg walked parent hashes from the imported index floor toward genesis
-        #    one HTTP request at a time before tail sync could start. Measured 2026-10-12: 185.100.232.5 sat
-        #    at the valid h178000 checkpoint for >75 min while the fleet moved 700+ blocks ahead; /status
+        #    one HTTP request at a time before tail sync could start. Measured 2026-10-12: a fresh rolling
+        #    node sat at the valid h178000 checkpoint for >75 min while the fleet moved 700+ blocks ahead; /status
         #    still showed earliest=0 and recovery=null because the core thread was trapped right here. A
         #    rolling joiner needs only the rollback window below C, which step 3 fetches. Established-node
         #    reanchors still take this walk: they have history to preserve and a fork point to find.
