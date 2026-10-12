@@ -4973,7 +4973,12 @@ class CoreClient(threading.Thread):
             # unshield exit to its address, which only an `unshield` claim against the SETTLED root brings to L1.
             # Without this the relay pays MIN_TX_FEE per spend and never recovers it. Fee-exempt, so always worth
             # sending; capped per pass so a busy relay's backlog drains over epochs instead of flooding one block.
-            self._claim_relay_unshields()
+            # ITS OWN try: a relay-claim failure (an exec view in an odd shape, a KV read) must never cost the node its
+            # dividend sweep below — the shared try used to skip the sweep on any error here (suite, 2026-10-12)
+            try:
+                self._claim_relay_unshields()
+            except Exception as e:
+                self.logger.info(f"Auto-collect: relay-fee claims skipped: {e}")
             # (2) SWEEP the accrued balance once it dwarfs the fee; below the floor it keeps accruing fee-free.
             accrued = int(d.get("accrued", 0))
             if accrued < AUTO_COLLECT_MIN_RAW:

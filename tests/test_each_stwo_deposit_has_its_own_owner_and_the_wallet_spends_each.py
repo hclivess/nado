@@ -86,13 +86,15 @@ const env = {
   loadNotes: () => stored.map((n) => ({ ...n })), saveNotes: (ns) => { stored = ns.map((n) => ({ ...n })); },
   setTimeout: () => {}, renderShield: async () => {},
   localStorage: { getItem: (k) => (k in ls ? ls[k] : null), setItem: (k, v) => { ls[k] = String(v); } },
-  rpcJSON: async () => ({ ok: true, status: 200, data: { transactions: c.history || [] } }),
+  // the restore reads the account's history through stwoOwnTransactions (paged, amounts parsed exactly)
+  relayBase: () => "http://relay",
+  fetchWithTimeout: async () => ({ status: 200, text: async () => JSON.stringify({ transactions: c.history || [] }) }),
   execJSON: async (p) => (p === "/exec/field_leaves" ? { leaves: c.leaves || [], pool: "stwo" } : { nullifiers: c.spent || [] }),
   shieldNskWire: null,
 };
 const body = [constSrc("ZADDR_STWO"), constSrc("STWO_DEPOSIT_GAP"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"),
   fnSrc("cmStr"), fnSrc("shieldAddr"), fnSrc("stwoDepositNsk"), fnSrc("stwoDepositKey"), fnSrc("stwoDepositIndexTake"),
-  fnSrc("noteNskWire"), fnSrc("doShield", true), fnSrc("stwoRecoverDeposits", true),
+  fnSrc("noteNskWire"), fnSrc("doShield", true), fnSrc("stwoOwnTransactions", true), fnSrc("stwoRecoverDeposits", true),
   "shieldNskWire = () => shieldNskStwo();",
   "return { doShield, shieldOwner, noteNskWire, stwoRecoverDeposits, shieldNskStwo };"].join("\n");
 const W = new Function(...Object.keys(env), constSrc("DOMAIN_SHIELD_NSK_STWO") + "\n" + body)(...Object.values(env));

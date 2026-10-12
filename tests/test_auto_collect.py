@@ -90,6 +90,18 @@ def t2():
     assert mem.submitted == [], "below the dust floor the accrual must keep growing fee-free"
 check("dust accrual -> no sweep", t2)
 
+# ---- 2b. a failing relay-fee claim never costs the dividend sweep ---------------------------------
+def t2b():
+    """The Stwo relay's fee claims (_claim_relay_unshields) run inside the same pass; an error there must not skip the
+    sweep (it shared the pass's try until 2026-10-12, so any relay-claim error cancelled the node's dividend sweep)."""
+    core, mem = make_core({"/exec/dividend?": {"accrued": AUTO_COLLECT_MIN_RAW, "pending": []}})
+    def boom():
+        raise RuntimeError("relay claims exploded")
+    core._claim_relay_unshields = boom
+    core.maybe_auto_collect()
+    assert len(mem.submitted) == 1, "the sweep still went out"
+check("a failing relay-fee claim never costs the dividend sweep", t2b)
+
 # ---- 3. accrued >= floor -> sweep, and the sweep dwarfs its fee -----------------------------------
 def t3():
     """Prove a floor-reaching accrual emits exactly one collect blob whose fee is <= 1/AUTO_MIN_FEE_MULTIPLE of the sweep."""

@@ -10570,8 +10570,10 @@ async function stwoOwnTransactions(addr) {
     const txs = (d && Array.isArray(d.transactions)) ? d.transactions : [];
     let fresh = 0;
     for (const t of txs) {
-      if (!t || seen.has(t.txid)) continue;
-      seen.add(t.txid); out.push(t); fresh++;
+      if (!t) continue;
+      const key = typeof t.txid === "string" && t.txid ? t.txid : JSON.stringify(t);   // never drop a txid-less entry as a repeat
+      if (seen.has(key)) continue;
+      seen.add(key); out.push(t); fresh++;
     }
     // `more` + `last_block` (transaction_ops.get_transactions_of_account): the page stopped inside last_block, so the
     // next one starts AT it (deduped above). A node without paging sends neither and this reads one page, as before.
