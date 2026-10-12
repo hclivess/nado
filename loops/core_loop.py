@@ -1326,7 +1326,8 @@ class CoreClient(threading.Thread):
             # come out of recovery with every canonical block it went in with — and, if it was truncated
             # before, this is where it gets its history back), the rollback window on a rolling one.
             try:
-                oldest = self._restore_canonical_chain(_old_index, anchor, source)
+                oldest = self._restore_canonical_chain(
+                    _old_index, anchor, source, fresh_bootstrap=not force_reanchor)
             except Exception as e:
                 # The identity has already changed above; a fault here must not leave the node without an
                 # earliest pointer or wedge the recovery. Fall back to "history from the anchor" — no worse
@@ -4261,7 +4262,7 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Epoch duty failed: {e}")
 
-    def _restore_canonical_chain(self, old_index, anchor, source):
+    def _restore_canonical_chain(self, old_index, anchor, source, fresh_bootstrap=False):
         """Reconcile our retained block bodies against the chain we just adopted, and refill what is
         canonical and missing. Returns the block that history is now contiguous from (the new earliest).
 
@@ -4305,9 +4306,21 @@ class CoreClient(threading.Thread):
         #    more height; a local body serves the walk, otherwise the donor does. Stops at the first
         #    height whose hash equals our old index (that IS the fork point — everything below is ours),
         #    or when neither we nor the donor have the body.
+        #
+        #    FRESH SNAPSHOT BOOTSTRAP HAS NO OLD CHAIN TO RECONCILE. Its pre-import index contains only
+        #    genesis while the checkpoint carries a window near C, so there is deliberately no overlap.
+        #    Treating that as a deep reorg walked parent hashes from the imported index floor toward genesis
+        #    one HTTP request at a time before tail sync could start. Measured 2026-10-12: a fresh rolling
+        #    node sat at the valid h178000 checkpoint for >75 min while the fleet moved 700+ blocks ahead; /status
+        #    still showed earliest=0 and recovery=null because the core thread was trapped right here. A
+        #    rolling joiner needs only the rollback window below C, which step 3 fetches. Established-node
+        #    reanchors still take this walk: they have history to preserve and a fork point to find.
         canonical = dict(p.canonical)
         missing = list(p.missing)
-        if p.undetermined:
+        if p.undetermined and fresh_bootstrap:
+            self.logger.warning(f"Canonical restore: fresh snapshot bootstrap — not walking undetermined "
+                                f"pre-checkpoint range {p.undetermined}; fetching only the rollback window")
+        elif p.undetermined:
             lo, hi = p.undetermined
             cur_h = hi + 1
             cur_hash = canonical.get(cur_h)
