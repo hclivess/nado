@@ -64,8 +64,10 @@ P.STWO_POOL_HEIGHT = live
 # below WIDE_DEPOSIT_CLOSE_HEIGHT the wide pool still takes its deposits; from it no pool does until the Stwo gate
 # (tests/test_the_wide_pool_takes_no_deposits_after_its_close.py)
 from protocol import WIDE_DEPOSIT_CLOSE_HEIGHT as _WC
-check("on the live value nothing changes at any height (dormant)",
-      admitted({"owner": good_wide, "rho": "5"}, _WC - 1) and not admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, 10 ** 9)
-      and not admitted({"owner": good_wide, "rho": "5", "pool": "stwo"}, 10 ** 9))
+_G = P.STWO_POOL_HEIGHT
+check("on the live values: a wide deposit below the close, none between the close and the Stwo gate, a tagged one from it",
+      admitted({"owner": good_wide, "rho": "5"}, _WC - 1)
+      and not admitted({"owner": good_wide, "rho": "5"}, _G - 1) and not admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, _G - 1)
+      and admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, _G) and not admitted({"owner": good_wide, "rho": "5"}, _G))
 print("ALL PASS — a Stwo deposit must name its pool" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
