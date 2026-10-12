@@ -175,7 +175,8 @@ def t_core_loop_captures_the_old_index_before_import_and_restores_after():
     cap = src.index("_old_index = dict(kv_ops.block_by_num_items())")
     imp = src.index("snapshot_ops.import_snapshot(manifest, chunks")
     assert cap < imp, "the old index must be captured BEFORE import_snapshot replaces it"
-    assert "self._restore_canonical_chain(_old_index, anchor, source)" in src
+    assert "_old_index, anchor, source, fresh_bootstrap=not force_reanchor)" in src, \
+        "bootstrap/reanchor no longer tells canonical restore whether an old chain exists"
     assert "def _start_deep_fill(" in src, "archive nodes no longer refill the deep chain"
     assert "self._maybe_advance_earliest()" in src, "the refill can never move earliest_block"
 

@@ -116,7 +116,7 @@ def main():
         # to shout about; a re-anchor that can still truncate would be a regression, not a logging change.
         src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "loops", "core_loop.py")).read()
-        restore_call = "self._restore_canonical_chain(_old_index, anchor, source)"
+        restore_call = "_old_index, anchor, source, fresh_bootstrap=not force_reanchor)"
         check("a re-anchor RESTORES the canonical chain instead of truncating it", restore_call in src)
         check("...after the identity change, so retained bodies are vouched for by the new identity",
               restore_call in src and src.index("snapshot_ops.adopt_new_identity(logger=self.logger)")
