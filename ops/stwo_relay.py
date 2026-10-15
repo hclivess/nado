@@ -50,6 +50,10 @@ STWO_RELAY_INFLIGHT_MAX = 64      # nullifiers this node is publishing at once (
 # a nullifier stays "in flight" as long as its blob can still land (TX_TARGET_MARGIN blocks at ~6.8 s, with margin);
 # after that the exec view (step 5) is what refuses a replay
 STWO_RELAY_HOLD_S = 45 * 60
+# the handler's pre-read bounds: bodies in flight at once, and the most `[`/`{` bytes a real bundle can carry (a stwo_js
+# bundle is {"bundle": {"stark": {"stwo_js": {…}}, …}} — a handful of objects, no arrays of note data)
+_BODIES_AT_ONCE = 2
+_MAX_BRACKETS = 64
 
 
 class Refused(Exception):
@@ -177,8 +181,12 @@ class StwoRelay:
         published = False
         try:
             # 5. the exec node would apply it next block (ExecState.stwo_spend_refusal, the apply path's own method)
+            # `land`: the LAST block this relay's blob can land in (its max_block, tip + TX_TARGET_MARGIN below). The exec
+            # node judges the anchor there too, so a root that ages out before the blob can land is refused here, before
+            # a fee is paid (review 2026-10-12: anchors on the edge of the window made relays pay for doomed spends).
+            land = int(self.tip_fn()) + TX_TARGET_MARGIN
             q = (f"/exec/stwo_spendable?root={sp['root']}&nf={nf}&cm1={sp['cm1']}&cm2={sp['cm2']}"
-                 f"&unshield={sp['unshield']}&fee={sp['fee']}")
+                 f"&unshield={sp['unshield']}&fee={sp['fee']}&land={land}")
             v = self.exec_get(q)
             if not isinstance(v, dict):
                 raise Refused(503, "this relay's exec node is unreachable: try another relay")
@@ -202,7 +210,7 @@ class StwoRelay:
             if not commitment:
                 raise Refused(503, "this relay could not publish the proof to DA")
             from ops.transaction_ops import construct_blob_tx
-            tip = int(self.tip_fn())
+            tip = land - TX_TARGET_MARGIN                    # the tip the anchor was judged at: max_block == land, exactly
             # min_block (tip + TX_INCLUSION_DELAY): gossips to every producer before any may include it (identical
             # mempools -> identical blocks); a wide max lets it land through a slow stretch, as the node's own blobs
             tx = construct_blob_tx(self.keydict_fn(), {"op": "field_transfer", "proof_da": commitment},
@@ -228,6 +236,7 @@ def make_handlers(relay, ip_of, max_body=STWO_RELAY_MAX_BODY):
     import asyncio
     from aiohttp import web
     cors = {"Access-Control-Allow-Origin": "*"}
+    _inflight = [0]                  # bodies being read/decoded right now (one event loop: no lock needed)
 
     async def relay_info(request):
         out = await asyncio.to_thread(relay.info)
@@ -240,14 +249,32 @@ def make_handlers(relay, ip_of, max_body=STWO_RELAY_MAX_BODY):
         cl = request.content_length
         if cl is not None and cl > max_body:
             return web.json_response({"ok": False, "reason": "body too large"}, status=413, headers=cors)
+        # BEFORE THE BODY IS READ OR DECODED (review 2026-10-12): a 16 MiB `[[],[],…]` cost 18 s of CPU and ~430 MB on
+        # the event loop, and the per-IP limit only ran afterwards. Now: the rate limit (its own bucket, so the relay's
+        # own count below is unchanged), at most _BODIES_AT_ONCE bodies in flight, and a shape check by byte count —
+        # a real bundle is a few objects around one long hex string, so a body with more brackets than that is refused
+        # without parsing (json.loads holds the GIL, so a worker thread alone would not have helped).
+        ip = ip_of(request)
+        if not relay.allow(f"stwo_relay_body|{ip}", STWO_RELAY_PER_IP, STWO_RELAY_WINDOW_S):
+            return web.json_response({"ok": False, "reason": "too many private spends from this address: slow down"},
+                                     status=429, headers=cors)
+        if _inflight[0] >= _BODIES_AT_ONCE:
+            return web.json_response({"ok": False, "reason": "this relay is busy: try another relay"}, status=429,
+                                     headers=cors)
+        _inflight[0] += 1
         try:
-            body = await request.read()
-            if len(body) > max_body:
-                return web.json_response({"ok": False, "reason": "body too large"}, status=413, headers=cors)
-            req = json.loads(body)
-        except Exception:
-            return web.json_response({"ok": False, "reason": "the body is not JSON"}, status=400, headers=cors)
-        out, status = await asyncio.to_thread(relay.relay, req, ip_of(request))
-        return web.json_response(out, status=status, headers=cors)
+            try:
+                body = await request.read()
+                if len(body) > max_body:
+                    return web.json_response({"ok": False, "reason": "body too large"}, status=413, headers=cors)
+                if body.count(b"[") + body.count(b"{") > _MAX_BRACKETS:
+                    return web.json_response({"ok": False, "reason": "not a Stwo spend bundle"}, status=400, headers=cors)
+                req = await asyncio.to_thread(json.loads, body)
+            except Exception:
+                return web.json_response({"ok": False, "reason": "the body is not JSON"}, status=400, headers=cors)
+            out, status = await asyncio.to_thread(relay.relay, req, ip)
+            return web.json_response(out, status=status, headers=cors)
+        finally:
+            _inflight[0] -= 1
 
     return relay_info, relay_post

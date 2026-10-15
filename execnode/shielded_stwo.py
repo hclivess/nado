@@ -261,19 +261,46 @@ class StwoShieldedPool:
             else:
                 self.marks.append([h, n])
             self._mark_roots[n] = r
-            # Pruning is a pure function of the append history (it runs only here), so every node holds the same marks;
-            # knows_root filters by age anyway, so a mark kept a little past its window is never accepted.
-            while self.marks and self.marks[0][0] < h - ANCHOR_BLOCKS:
+            # A MARK'S ROOT STAYS A CLOSING ROOT UNTIL THE NEXT APPEND (review 2026-10-12): every block up to the one before
+            # the next mark closed on it, so it is acceptable through (next mark's height - 1) + ANCHOR_BLOCKS — not
+            # ANCHOR_BLOCKS after its own block, which made a quiet pool's current root "expired" the instant one note
+            # landed. A mark is dropped once that span is past. Pruning runs only here, a pure function of the append
+            # history, so every node holds the same marks; knows_root checks the span anyway.
+            while len(self.marks) > 1 and self.marks[1][0] - 1 < h - ANCHOR_BLOCKS:
                 self._mark_roots.pop(self.marks.pop(0)[1], None)
 
+    def _mark_spans(self):
+        """[(root, last height it may be named at)] for each kept mark; the newest mark's root is the current root, open-
+        ended (None) until the next append."""
+        out = []
+        for i, (_h, c) in enumerate(self.marks):
+            nxt = self.marks[i + 1][0] if i + 1 < len(self.marks) else None
+            out.append((self._mark_roots.get(c), None if nxt is None else nxt - 1 + ANCHOR_BLOCKS))
+        return out
+
     def knows_root(self, root, height=None):
-        """Whether a spend applied at block `height` may anchor to `root`: the append window, or a block-closing root
-        no older than ANCHOR_BLOCKS. height=None (tooling) accepts any kept mark."""
+        """Whether a spend applied at block `height` may anchor to `root`: a root after one of the last ANCHOR_WINDOW
+        appends, or a root some block closed on no more than ANCHOR_BLOCKS blocks ago (see the pruning note in append).
+        height=None (tooling) accepts any kept mark."""
         root = str(root)
-        if root in self.anchors:
+        if root in self.anchors or root == self._root:
             return True
-        lo = None if height is None else int(height) - ANCHOR_BLOCKS
-        return any(self._mark_roots.get(c) == root for h, c in self.marks if lo is None or h >= lo)
+        return any(r == root and (height is None or last is None or int(height) <= last) for r, last in self._mark_spans())
+
+    def root_valid_through(self, root, cursor):
+        """The last block a spend anchored to `root` can still apply in, judged with the exec layer at `cursor`; None
+        when the root is only an intra-block append root (it leaves the 128-append window with the next appends, which
+        anyone can force with deposits) or unknown. The current root stays valid at least ANCHOR_BLOCKS past the next
+        block, because the next append can come no earlier. What the spend relay checks against the latest block its
+        blob can land in, so it never pays for a spend the exec layer will refuse (review 2026-10-12)."""
+        root = str(root)
+        if root == self._root:
+            return int(cursor) + ANCHOR_BLOCKS
+        best = None
+        for r, last in self._mark_spans():
+            if r == root and last is not None:
+                best = last if best is None else max(best, last)
+        return best
 
     def has_nullifier(self, nf):
         return str(nf).lower() in self.nullifiers

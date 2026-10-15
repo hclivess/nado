@@ -380,6 +380,17 @@ class MessageClient(threading.Thread):
         try:
             if now - getattr(self, "_native_checked_at", 0.0) >= 60:
                 self._native_checked_at = now
+                # A MISSING REQUIRED LIBRARY IS BUILT HERE TOO, not only by an explicit /update (review 2026-10-12): the
+                # push host restarts through apply_stale_checkout, so when native/stwo_js became required nothing ever
+                # built it there and the node would have stalled at the first Stwo spend. Retried at most every 30 min
+                # (a build on a loaded host can fail on its timeout); a missing library is loaded on first use, so no
+                # restart is needed for it.
+                if now - getattr(self, "_native_missing_tried_at", 0.0) >= 1800:
+                    miss = self_update._missing_required_libs()
+                    if miss:
+                        self._native_missing_tried_at = now
+                        built = self_update._build_crates(miss)
+                        self.logger.warning(f"Native: built missing required libraries {built}")
                 stale = self_update._stale_required_libs()
                 if stale:
                     try:

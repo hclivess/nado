@@ -133,7 +133,8 @@ check("setup: a blob the relay signs cannot land before tip + TX_INCLUSION_DELAY
 # what every exec node does with the blob in the first block it may land in
 st._applying = land
 st.cursor = land - 1
-applied = st.apply_field_transfer(json.loads(DA[tx["data"]["proof_da"]])) if tx else "(not submitted)"
+# the same bundle the relay was handed (it never published one once fixed): what every exec node would do with it there
+applied = st.apply_field_transfer(json.loads(DA[tx["data"]["proof_da"]]) if tx else json.loads(json.dumps(bundle)))
 st._applying = None
 check("the exec layer refuses this spend in the first block it can land in (the anchor aged out)",
       "unknown anchor root" in applied, applied)

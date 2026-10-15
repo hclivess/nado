@@ -89,5 +89,27 @@ status, out = asyncio.run(post(make(lambda *_: True), b'{"bundle": {}}'))
 check("2. a body that is decoded is decoded OFF the event loop", DECODES and not any(d["on_loop"] for d in DECODES),
       f"decodes: {DECODES} (on_loop=True: json.loads ran on the aiohttp event loop)")
 
+
+# 3. a body shaped nothing like a bundle (many brackets) is refused by a byte count, never decoded
+async def _shape():
+    seen = []
+    relay = R.StwoRelay(keydict_fn=lambda: {"address": "x"}, tip_fn=lambda: 0, exec_get=lambda p: None,
+                        da_publish=lambda b: None, submit=lambda t: None, allow=lambda *_: True)
+    orig = _json.loads
+    def spy(b, *a, **k):
+        seen.append(len(b)); return orig(b, *a, **k)
+    R.json.loads = spy
+    try:
+        info_h, post_h = R.make_handlers(relay, lambda r: "198.51.100.9")
+        app = web.Application(client_max_size=R.STWO_RELAY_MAX_BODY)
+        app.add_routes([web.post("/stwo/relay", post_h)])
+        async with TestClient(TestServer(app)) as c:
+            r = await c.post("/stwo/relay", data=b"[" + b"[]," * 10000 + b"[]]", headers={"Content-Type": "application/json"})
+            return r.status, seen
+    finally:
+        R.json.loads = orig
+st3, seen3 = asyncio.run(_shape())
+check("3. a body with far more brackets than a bundle has is refused (400) without being decoded", st3 == 400 and not seen3,
+      (st3, seen3))
 print("ALL PASS — the Stwo relay refuses a flood before it decodes the body" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)
