@@ -348,6 +348,47 @@ SRC = {
     """,
 }
 
+# THE REFUND ABORT, kept for the games that settle by AGREEMENT over a move log (chess, stormhold, pool). Their
+# contract does not check moves, so a stalled game may be one an opponent CORRUPTED with an illegal move — the
+# honest client stops playing, and a timeout-win there would pay the cheater who was "waiting". Refunding both stakes
+# is the only safe close when the contract cannot tell a staller from a refusal to follow a corrupt log. Only the
+# on-chain-rules games (tictactoe, connect4, reversi) use SRC["abort"], the timeout win (audit #26).
+ABORT_REFUND = """
+    slot r4 1 r0
+    sload r5 r4
+    movi r6 2
+    eq r5 r6
+    require r5
+    slot r4 6 r0
+    sload r5 r4
+    nez r5
+    notb r5
+    require r5
+    slot r4 9 r0
+    sload r5 r4
+    ctx r6 cursor
+    lt r5 r6
+    require r5
+    slot r4 2 r0
+    sload r5 r4
+    slot r4 4 r0
+    sload r6 r4
+    pay r6 r5
+    slot r4 5 r0
+    sload r6 r4
+    pay r6 r5
+    slot r4 7 r0
+    movi r5 3
+    sstore r4 r5
+    slot r4 6 r0
+    movi r5 1
+    sstore r4 r5
+    slot r4 3 r0
+    movi r5 0
+    sstore r4 r5
+    ret r0
+"""
+
 ABI = {
     "post": {"args": _lib.daily_post_abi(DAILY_WORDS)},
     "anchor": {"args": ["day"]},

@@ -91,9 +91,16 @@ def t_accrual_inputs_come_from_l1_not_the_proof():
     trusting the proof's copy would be trusting the prover's HTTP client. The prover must read them from L1
     and fail closed when they are unavailable."""
     body = SRC[SRC.index("async def _build_records_half"):SRC.index("async def _build_settlement_proof")]
-    assert "/get_dividend_inflow?epoch=" in body and "/get_open_weights?epoch=" in body, \
+    # both reads go through _get_l1_accrual_inputs (audit #25): it refuses a non-200, an error body or a missing field
+    # by raising, and the records half answers that with None (not derivable), never a default
+    assert "await _get_l1_accrual_inputs(session, _E)" in body and "except L1Unavailable" in body, \
         "accrual inputs must be fetched from L1"
-    assert 'ow.get("error")' in body, "a refused weights_at_epoch (pruned recerts) must fail closed"
+    helper = SRC[SRC.index("async def _get_l1_accrual_inputs"):]
+    helper = helper[:helper.index("\n\n\n")]
+    assert "/get_dividend_inflow?epoch=" in helper and "/get_open_weights?epoch=" in helper, \
+        "accrual inputs must be fetched from L1"
+    assert 'body.get("error")' in helper and "r.status != 200" in helper, \
+        "a refused weights_at_epoch (pruned recerts) must fail closed"
 
 
 def t_no_post_state_is_materialised():

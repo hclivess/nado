@@ -206,7 +206,7 @@ OPEN = f"""
 """ + _t.SRC["open"]
 
 SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": _c.AGREE, "reveal": REVEAL,
-       "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
+       "resign": _t.SRC["resign"], "abort": _t.ABORT_REFUND, "cancel": _t.SRC["cancel"]}
 
 ABI = {
     "open": {"args": ["gameId", "cfg", "commit"], "value": True},

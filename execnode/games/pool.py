@@ -87,7 +87,7 @@ MOVE = _s.MOVE.replace(f"movi r6 {_s.MAXMOVES}", f"movi r6 {MAXMOVES}")
 assert MOVE != _s.MOVE, "stormhold MOVE changed shape — update pool's MAXMOVES splice"
 
 SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": _c.AGREE,
-       "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
+       "resign": _t.SRC["resign"], "abort": _t.ABORT_REFUND, "cancel": _t.SRC["cancel"]}
 
 ABI = {
     "open": {"args": ["gameId", "cfg"], "value": True},

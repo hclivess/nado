@@ -198,7 +198,7 @@ AGREE = f"""
 """
 
 SRC = {"open": _t.SRC["open"], "join": _t.SRC["join"], "move": MOVE, "agree": AGREE,
-       "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
+       "resign": _t.SRC["resign"], "abort": _t.ABORT_REFUND, "cancel": _t.SRC["cancel"]}
 
 ABI = {
     "open": {"args": ["gameId"], "value": True},

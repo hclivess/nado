@@ -65,7 +65,7 @@ check("state.accrue_dividend_epoch == records_bind rule (map + carry)",
       dist == sum(d for _, _, d in eff) and st.div_carry == carry2 and st.dividend == {a[0]: d for _, a, d in eff})
 src = open(os.path.join(ROOT, "execnode", "state.py")).read()
 check("the live accrual has no arithmetic of its own", "pot * max(1, int(w)) // total_w" not in src and "_RB.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)" in src)
-for f, needle in (("execnode/execnode.py", "accrue_dividend_epoch(inflow, (ow or {}).get(\"weights\", {}), epoch=E)"),
+for f, needle in (("execnode/execnode.py", "accrue_dividend_epoch(inflow, weights, epoch=E)"),
                   ("execnode/execnode.py", "carry, _E)"), ("loops/core_loop.py", "carry_in, int(epoch))")):
     check(f"{f} passes the epoch", needle in open(os.path.join(ROOT, f)).read())
 

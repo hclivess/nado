@@ -59,4 +59,10 @@ for name, mod in (("tictactoe", tictactoe), ("connect4", connect4), ("reversi", 
     T.check(f"{name}: p1 stalled on the first move -> p2 takes the pot, whoever calls abort",
             r.endswith("-> ok") and st.bridge[B] == b0 + 2 * STAKE and st.bridge[A] == a0 and rd(tictactoe.WR, 8) == 2,
             (r, st.bridge[A] - a0, st.bridge[B] - b0, rd(tictactoe.WR, 8)))
+# The agreement games (chess, stormhold, pool) do NOT check moves on chain: a stall there may be the honest player
+# refusing a corrupt log, so their abort must stay the both-stakes refund — a timeout win would pay the cheater.
+from execnode.games import chess, stormhold, pool
+for name, mod in (("chess", chess), ("stormhold", stormhold), ("pool", pool)):
+    T.check(f"{name}: abort is the refund abort, not the timeout win",
+            mod.SRC["abort"] == tictactoe.ABORT_REFUND and mod.SRC["abort"] != tictactoe.SRC["abort"])
 T.done("ALL PASS — a player who lets the move clock run out loses the pot")
