@@ -16,9 +16,29 @@ _last_gc = [0.0]      # time-gate for the over-cap sweep (see allow)
 #  an open-lane identity now costs an attested device — doc/device-attestation.md.)
 
 
+def _bucket_key(key: str) -> str:
+    """The bucket a call counts against: an IPv6 address (bare, or as the last `|` part of a prefixed key such as
+    "stwo_relay|<ip>") counts as its /64.
+
+    IPV6 ROTATION (audit 2026-09-24, lower; confirmed 2026-10-18): a host is normally given a whole /64, so keying on the
+    full address gave one machine 2^64 fresh buckets — every per-IP limit defeated by changing the interface ID. IPv4
+    and anything that is not an address are unchanged."""
+    import ipaddress
+    head, sep, tail = str(key).rpartition("|")
+    cand = tail.strip("[]")
+    try:
+        a = ipaddress.ip_address(cand)
+    except ValueError:
+        return key
+    if a.version != 6 or a.ipv4_mapped:
+        return key if not (a.version == 6 and a.ipv4_mapped) else head + sep + str(a.ipv4_mapped)
+    return head + sep + str(ipaddress.ip_network(f"{a}/64", strict=False))
+
+
 def allow(ip: str, limit: int, window: float = 60.0) -> bool:
     """True if `ip` has made fewer than `limit` calls in the last `window` seconds (and records this
-    one). False (caller should return HTTP 429) once over the limit."""
+    one). False (caller should return HTTP 429) once over the limit. IPv6 counts per /64 (_bucket_key)."""
+    ip = _bucket_key(ip)
     now = time.time()
     cutoff = now - window
     dq = _buckets[ip]
