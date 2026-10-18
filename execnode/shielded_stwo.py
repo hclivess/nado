@@ -93,7 +93,7 @@ def wire_u64(v):
     return None
 
 
-def parse_transfer(bundle, max_value):
+def parse_transfer(bundle, max_value, fee_to_ok=False):
     """THE ONE READING OF A `stwo_js` BUNDLE, stateless: (None, spend) or ("<why refused>", None), where spend is
     {root, nf, cm1, cm2, proof (bytes), unshield, fee, addr} — addr "" for a private transfer, whatever the bundle says,
     because the proof of a transfer is bound to the empty destination. Every check here depends on the bundle alone:
@@ -119,16 +119,29 @@ def parse_transfer(bundle, max_value):
     unshield, fee = wire_u64(js.get("unshield", 0)), wire_u64(js.get("fee"))
     if unshield is None or fee is None:
         return "skip field-transfer: unshield and fee must be integers", None
+    from ops.address_ops import validate_address
     addr = ""
     if unshield:
-        from ops.address_ops import validate_address
         addr = bundle.get("withdraw_addr")
         if not isinstance(addr, str) or not addr or not validate_address(addr, allow_reserved=False):
             return "skip field-transfer: withdraw_addr is not a spendable account", None
     if not (0 <= unshield <= max_value) or not (0 <= fee <= max_value):
         return "skip field-transfer: unshield/fee out of range", None
+    # FEE_TO (protocol.STWO_FEE_TO_HEIGHT; the gate is the caller's — ExecState.rules_stwo_fee_to): the address the fee
+    # is paid to. The proof is bound to DEST = "<addr>|fee:<fee_to>" (addr "" for a private transfer), so both
+    # addresses are inside the transcript. Without fee_to, DEST is addr exactly as before.
+    # BELOW THE GATE THE KEY IS IGNORED, NOT REFUSED (fee_to_ok False): the code before the gate never read it, so a
+    # bundle carrying one applied there with its fee in pool_fees — refusing it in [STWO_POOL_HEIGHT, STWO_FEE_TO_HEIGHT)
+    # would split new nodes from old ones on the same block.
+    fee_to = bundle.get("fee_to") if (fee_to_ok and isinstance(bundle, dict)) else None
+    if fee_to is not None:
+        if not isinstance(fee_to, str) or not fee_to or not validate_address(fee_to, allow_reserved=False):
+            return "skip field-transfer: fee_to is not a spendable account", None
+        if fee <= 0:
+            return "skip field-transfer: fee_to names a payee for a zero fee", None
+    dest = addr if fee_to is None else f"{addr}|fee:{fee_to}"
     return None, {"root": root, "nf": nf, "cm1": cm1, "cm2": cm2, "proof": bytes.fromhex(p), "unshield": unshield,
-                  "fee": fee, "addr": addr}
+                  "fee": fee, "addr": addr, "fee_to": fee_to, "dest": dest}
 
 
 EMPTY_LEAF = "00" * 32

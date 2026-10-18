@@ -159,15 +159,24 @@ class StwoRelay:
             raise Refused(429, "too many private spends from this address: slow down")
         bundle = req.get("bundle") if isinstance(req, dict) else None
         # 2. THE ONE READING (shielded_stwo.parse_transfer), the exec layer's own
-        why, sp = _S.parse_transfer(bundle, MAX_EXIT_VALUE)
+        # fee_to read here whatever the height: whether the exec layer accepts it yet is asked in step 5 (fee_to=1)
+        why, sp = _S.parse_transfer(bundle, MAX_EXIT_VALUE, fee_to_ok=True)
         if why:
             raise Refused(400, why.replace("skip field-transfer: ", ""))
         # 3. it pays THIS node, at least the fee
+        # TWO WAYS TO PAY A RELAY: from STWO_FEE_TO_HEIGHT by the spend's `fee` with fee_to = this relay (the payout then
+        # goes anywhere — a shadow account), or as before by the unshield itself (withdraw_addr = this relay)
         me = self.keydict_fn()["address"]
-        if sp["addr"] != me:
-            raise Refused(400, "the spend does not pay this relay: prove it with withdraw_addr = this relay's address")
-        if sp["unshield"] < STWO_RELAY_FEE_RAW:
-            raise Refused(400, f"the relay fee is {STWO_RELAY_FEE_RAW} raw: prove the spend with unshield >= it")
+        if sp["fee_to"] is not None:
+            if sp["fee_to"] != me:
+                raise Refused(400, "the spend's fee does not pay this relay: prove it with fee_to = this relay's address")
+            if sp["fee"] < STWO_RELAY_FEE_RAW:
+                raise Refused(400, f"the relay fee is {STWO_RELAY_FEE_RAW} raw: prove the spend with fee >= it")
+        else:
+            if sp["addr"] != me:
+                raise Refused(400, "the spend does not pay this relay: prove it with withdraw_addr = this relay's address")
+            if sp["unshield"] < STWO_RELAY_FEE_RAW:
+                raise Refused(400, f"the relay fee is {STWO_RELAY_FEE_RAW} raw: prove the spend with unshield >= it")
         nf = sp["nf"]
         # 4. dedupe + bound: claim the nullifier before any expensive step, release it on every refusal below
         now = self.clock()
@@ -186,7 +195,8 @@ class StwoRelay:
             # a fee is paid (review 2026-10-12: anchors on the edge of the window made relays pay for doomed spends).
             land = int(self.tip_fn()) + TX_TARGET_MARGIN
             q = (f"/exec/stwo_spendable?root={sp['root']}&nf={nf}&cm1={sp['cm1']}&cm2={sp['cm2']}"
-                 f"&unshield={sp['unshield']}&fee={sp['fee']}&land={land}")
+                 f"&unshield={sp['unshield']}&fee={sp['fee']}&land={land}"
+                 + ("&fee_to=1" if sp["fee_to"] is not None else ""))
             v = self.exec_get(q)
             if not isinstance(v, dict):
                 raise Refused(503, "this relay's exec node is unreachable: try another relay")
@@ -200,7 +210,7 @@ class StwoRelay:
             from execnode.stark.native_guard import NativeMissing
             try:
                 ok, reason = stwo_js_native.verify(sp["proof"], sp["root"], nf, sp["cm1"], sp["cm2"], sp["unshield"],
-                                                   sp["fee"], sp["addr"])
+                                                   sp["fee"], sp["dest"])
             except NativeMissing:
                 raise Refused(503, "this relay has no Stwo verifier: try another relay")
             if not ok:

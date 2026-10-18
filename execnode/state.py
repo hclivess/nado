@@ -1306,6 +1306,11 @@ class ExecState:
         rules_v2)."""
         return self.applying_height() >= 1
 
+    def rules_stwo_fee_to(self):
+        """A Stwo spend may name its fee's payee (protocol.STWO_FEE_TO_HEIGHT) in the block being applied."""
+        from protocol import STWO_FEE_TO_HEIGHT
+        return bool(STWO_FEE_TO_HEIGHT) and self.applying_height() >= STWO_FEE_TO_HEIGHT
+
     def rules_stwo_pool(self):
         """The Stwo pool in force for the block being applied (protocol.STWO_POOL_HEIGHT; 0 = never)."""
         from protocol import STWO_POOL_HEIGHT
@@ -1367,19 +1372,22 @@ class ExecState:
         from execnode import shielded_stwo as _S
         # THE ONE READING (shielded_stwo.parse_transfer): shape, canonical digests, proof hex, u64 bounds, the
         # destination's form. The node's spend relay (ops/stwo_relay.py) reads bundles through the same function.
-        why, sp = _S.parse_transfer(bundle, MAX_EXIT_VALUE)
+        why, sp = _S.parse_transfer(bundle, MAX_EXIT_VALUE, fee_to_ok=self.rules_stwo_fee_to())
         if why:
             return why
         root, nf, cm1, cm2, proof = sp["root"], sp["nf"], sp["cm1"], sp["cm2"], sp["proof"]
-        unshield, fee, addr = sp["unshield"], sp["fee"], sp["addr"]
+        unshield, fee, addr, fee_to = sp["unshield"], sp["fee"], sp["addr"], sp["fee_to"]
         if addr and addr in self.contracts:
             return "skip field-transfer: withdraw_addr is not a spendable account"
+        if fee_to is not None:                 # only from STWO_FEE_TO_HEIGHT (parse_transfer ignores it below); a contract is never the payee
+            if fee_to in self.contracts:
+                return "skip field-transfer: fee_to is not a spendable account"
         with self._mutate_lock:
             why = self.stwo_spend_refusal(root, nf, cm1, cm2, unshield, fee, self.applying_height())
             if why:
                 return why
             from execnode.stark import stwo_js_native
-            ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, addr)
+            ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, sp["dest"])
             if not ok:
                 return f"skip field-transfer: {reason}"
             # ---- the mutation: nothing below can raise (every input checked above) ----
@@ -1390,10 +1398,15 @@ class ExecState:
             # STWO VALUE (defence in depth): the Stwo pool's own total falls with every exit; the refusal above kept
             # it >= 0, so a spend can never take out more than Stwo deposits put in
             self.stwo_value -= unshield + fee
-            self.pool_fees += fee
             if unshield:
                 self.uw_nonce += 1
                 self.unshield_withdrawals[str(self.uw_nonce)] = {"addr": addr, "amount": unshield}
+            if fee_to is not None:
+                # the fee leaves the escrow as an exit its payee claims on L1 (the relay's auto-collect), not pool_fees
+                self.uw_nonce += 1
+                self.unshield_withdrawals[str(self.uw_nonce)] = {"addr": fee_to, "amount": fee}
+            else:
+                self.pool_fees += fee
             self._touch()
         return f"field-transfer stwo nf {nf[:12]}… unshield {unshield} fee {fee}"
 

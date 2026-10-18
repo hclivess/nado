@@ -4931,6 +4931,13 @@ async def h_stwo_spendable(request):
     with state._mutate_lock:
         cur = int(state.cursor)
         why = state.stwo_spend_refusal(*digs, un, fee, cur + 1)
+        # fee_to=1: the spend names its fee's payee (STWO_FEE_TO_HEIGHT). Below the gate the exec layer IGNORES fee_to and
+        # verifies against the bare payout, so a proof bound to "<addr>|fee:<payee>" would be refused — the relay would
+        # pay for nothing. The gate must hold at the earliest block the blob can land in, so judge it at cursor + 1.
+        if why is None and q.get("fee_to"):
+            from protocol import STWO_FEE_TO_HEIGHT
+            if not (STWO_FEE_TO_HEIGHT and cur + 1 >= STWO_FEE_TO_HEIGHT):
+                why = "skip field-transfer: a spend naming fee_to is not accepted yet (STWO_FEE_TO_HEIGHT)"
         if why is None and land is not None:
             until = state.stwo_pool.root_valid_through(digs[0], cur)
             if until is None or until < land:

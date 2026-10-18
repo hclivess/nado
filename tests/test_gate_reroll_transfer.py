@@ -36,6 +36,7 @@ REROLL = {
     "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool
     "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "WIDE_DEPOSIT_CLOSE_HEIGHT": 1,            # 175000 on gen 28: no new wide-pool deposits (it never held a note)
+    "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
     "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll
     "REFERRAL_HEIGHT": 1,                      # 107000 on gen 28: referral links, the 10 % slice, funded invites

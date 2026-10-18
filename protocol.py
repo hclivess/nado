@@ -1679,6 +1679,8 @@ def split_open_block_reward(reward: int):
 #                                    deposits; it held none, so the Stwo gate can freeze nothing)
 #                                    STWO_POOL_HEIGHT (269000 -> 1: the Stwo shielded pool is ON after the in-house
 #                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
+#                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
+#                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2171,6 +2173,16 @@ STWO_POOL_HEIGHT = 269000 if CHAIN_GENERATION == 28 else 1
 # INVARIANT: STWO_POOL_HEIGHT, when set, is above this, and the wide pool is measured empty before that gate is set.
 WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 
+# A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). Below this a spend's `fee` stays in the escrow as
+# pool_fees and its one bound address is the unshield payout — so a relay could only be paid by the payout itself, and a
+# withdrawal to any OTHER address (a fresh per-dApp "shadow" account) had to be signed by the user's own account,
+# re-linking it. From this height a bundle may carry `fee_to`: the proof is bound to the destination string
+# "<withdraw_addr>|fee:<fee_to>" (the circuit's aux is BLAKE2s of that string, so neither address can be swapped and a
+# copied bundle cannot redirect the fee), and the fee is recorded as an unshield exit to `fee_to` instead of pool_fees.
+# Execnode/shielded_stwo.parse_transfer reads it; ExecState.rules_stwo_fee_to gates it. No circuit or WASM change.
+# `else 1`: live from block 1 after a reroll.
+STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
+
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
 # wrong client commitment fails the record instead of refusing the last reveal, and a chip whose enrolment failed by
@@ -2649,5 +2661,5 @@ CLIENT_EXPORTS = (
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
     # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
     # dormant, which /protocol.js carries as a BigInt
-    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT",
+    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT",
 )
