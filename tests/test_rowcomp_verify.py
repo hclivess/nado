@@ -17,12 +17,9 @@ from execnode.stark.transcript import Transcript, DOMAIN_STARK
 # the fold machinery in the rule window the fold implements: round 2 on, trace_ldt and full_query off.
 stark._RULES.set(stark.Rules(True, True, True, True, False))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 T, SEED = 8, 123
 BND = [(0, 0, SEED)]
@@ -137,5 +134,5 @@ if __name__ == "__main__":
     check("wrong row root rejected", t_wrong_root_rejected)
     check("W=10 multi-chunk row absorption binds", t_w10_multichunk_binds)
     check("wrong query index rejected (IACC direction binding)", t_wrong_index_rejected)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

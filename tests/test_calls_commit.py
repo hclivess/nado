@@ -18,12 +18,9 @@ from execnode.stark import calls_commit as CC, membership as MB, alghash, field 
 # (tests/test_calldata_binding_is_wide.py pins the wide form).
 CUR = 0
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 8
 CALLS = [{"cid": "c" * 64, "method": "bump", "caller": "ndoAAAA" + "A" * 41, "args": []},
@@ -99,5 +96,5 @@ if __name__ == "__main__":
     check("in-circuit proof verifies (+ soundness)", t_in_circuit_proof_verifies)
     check("provable + verifiable under RECURSION backend (foldable)", t_foldable_recursion_backend)
     check("string args do not kill the block summary", t_string_args_do_not_kill_the_summary)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

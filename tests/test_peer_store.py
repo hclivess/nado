@@ -35,12 +35,9 @@ def fresh_home(prefix):
 from ops import peer_ops
 from ops.data_ops import get_home
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def t1_save_load_delete():
@@ -92,7 +89,11 @@ def t5_seed_recovers_a_poisoned_table():
     # must never dial the mainnet anchors), so give it one to assert on in that environment.
     if os.environ.get("NADO_TESTNET") and not os.environ.get("NADO_SEED_PEERS"):
         os.environ["NADO_SEED_PEERS"] = "9.9.9.9"
-    seed = peer_ops.seed_peers()[0]
+    # a seed that is NOT this host: a node never stores its own address, and the host running the suite may itself be a
+    # seed (the relay is — after its IPv6 was detected as its own, seed_peers()[0] was this machine and was rightly skipped)
+    _own = set(peer_ops.own_ips()) | {OWN_IP}
+    seed = next((s for s in peer_ops.seed_peers() if s not in _own), None)
+    assert seed, "no seed other than this host to assert on"
     peer_ops._save_peers({OWN_IP: {"peer_ip": OWN_IP, "peer_port": 9173}})
     peer_ops.seed_default_peers(logger, my_ip=OWN_IP)
     tbl = peer_ops._load_peers()
@@ -114,5 +115,5 @@ def t6_migration_skips_own_ip():
 check("legacy migration filters out our own IP", t6_migration_skips_own_ip)
 
 
-print(f"\n{'ALL PEER-STORE CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PEER-STORE CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILED'}")
+sys.exit(1 if _report.fails else 0)

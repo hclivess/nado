@@ -12,12 +12,9 @@ from execnode import settlement_proofs as SP, zkvmasm, runtimes
 from execnode.state import ExecState
 import tempfile
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 8
 
@@ -128,5 +125,5 @@ if __name__ == "__main__":
     check("tampered log rejected", t4_tampered_log_rejected)
     check("wrong pre-state rejected", t5_wrong_pre_state_rejected)
     check("segmentation removes the epoch cap (multi-segment == single)", t8_segmented_settlement)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

@@ -18,12 +18,9 @@ from execnode.stark import stark as stark  # noqa: F811 (the fold-era rules belo
 # PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
 stark._RULES.set(stark.Rules(True, True, True, True, False))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 P = F.P
 SEED = 123456789 % P
@@ -147,5 +144,5 @@ if __name__ == "__main__":
     check("false layer-0 target rejected (authoritative binding)", t_false_layer0_rejected)
     check("lying opening rejected by in-circuit membership", t_lying_opening_rejected)
     check("binds a REAL stark.prove(x^2) proof's trace to its FRI layer-0 values", t_binds_real_stark_proof)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

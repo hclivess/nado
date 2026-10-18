@@ -13,12 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import slot_key_air as SK, alghash2 as A2, exec_state_bind as ESB, field as F, backend as B
 from execnode.stark.state_io_tie import _key
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 CID, SLOT, DEPTH, NQ = "e" * 64, 5, 24, 8
 bk = B.ALGHASH2
@@ -55,5 +52,5 @@ if __name__ == "__main__":
     check("derivation verifies for public (cid, slot)", t_derivation_verifies)
     check("wrong slot / cid / digest rejected", t_wrong_inputs_rejected)
     check("provable + verifiable under RECURSION (foldable)", t_recursion_committed)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

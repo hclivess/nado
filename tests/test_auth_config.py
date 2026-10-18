@@ -25,12 +25,9 @@ from ops.account_ops import create_account, get_account
 from ops.transaction_ops import construct_auth_tx, auth_pop
 from signatures import generate_keydict
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 def raises(fn, frag=""):
     try:
@@ -257,5 +254,5 @@ if __name__ == "__main__":
     check("install from legacy is immediate; apply -> revert exact", t_install)
     check("protected: hot alone pends, recovery cancels + freezes, hot+recovery rotates now, evidence at height", t_protected_flows)
     check("matured pending materialises; supersede; bounded history prunes and reverts", t_matured_and_prune)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

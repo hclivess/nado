@@ -17,12 +17,9 @@ from ops.account_ops import (create_account, get_account, change_balance, increa
                              reflect_transaction, get_totals, index_totals, fetch_totals)
 from ops.block_ops import get_block_reward, save_block, set_latest_block_info, construct_block
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 # 1. split is exact + 90/10 for every value (no lost unit, sums to reward)
 def t1():
@@ -119,5 +116,5 @@ def t6():
     assert total_supply == TREASURY_GENESIS and circulating == 0, (total_supply, treasury, circulating)
 check("supply: total = seed + produced - fees; circulating excludes treasury", t6)
 
-print(f"\n{'ALL S3 CHECKS PASSED' if fails==0 else str(fails)+' S3 CHECK(S) FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL S3 CHECKS PASSED' if _report.fails==0 else str(_report.fails)+' S3 CHECK(S) FAILED'}")
+sys.exit(1 if _report.fails else 0)

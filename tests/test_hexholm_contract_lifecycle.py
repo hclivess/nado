@@ -20,12 +20,9 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V, alghash, field as F
 from execnode.games import hexholm as hx
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 A = "ndoAAAA" + "A" * 41
 B = "ndoBBBB" + "B" * 41
@@ -196,5 +193,5 @@ def t_anchor():
 for t in (t_lobby_and_agree, t_resign_cascade, t_agree_excludes_resigned, t_cancel_refunds,
           t_abort_split, t_prove_move, t_anchor):
     check(t.__name__, t)
-print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

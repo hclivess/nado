@@ -33,12 +33,9 @@ def _tf(mod):
     THROUGH dice — removed as unused imports, 2026-09-30). roulette declares its own."""
     return games_lib if mod is dice else mod
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 6
 A = "ndoAAAA" + "A" * 41
@@ -1391,5 +1388,5 @@ if __name__ == "__main__":
     check("farkle: reclaim spares an active seat; a decided table takes no antes", t_farkle_reclaim_spares_an_active_seat)
     check("blackjack: the pot never drifts above escrow (close stays solvent)", t_blackjack_pot_tracks_escrow)
     check("blackjack: reap resolves to the bank in every phase", t_blackjack_reap_forfeits_a_player_stall)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

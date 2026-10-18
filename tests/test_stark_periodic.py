@@ -11,12 +11,9 @@ import os, sys, json, time, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, stark, backend as B
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 T = 16
 PAT = [3, 1, 4, 1]
@@ -78,5 +75,5 @@ if __name__ == "__main__":
     check("dense vs structured: byte-identical proofs, interchangeable verify", t_byte_identical)
     check("tampered structured periodic rejected", t_tampered_rejected)
     check("verify cost independent of trace length (16x growth)", t_verify_cost_t_independent)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

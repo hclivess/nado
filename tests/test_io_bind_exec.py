@@ -13,12 +13,9 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import vm_circuit as VC, deep_eval as DE, io_bind as IB, field as F, backend as B, stark
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 4
 IO_COLS = [VC.PL_CTR, VC.PL_KIND, VC.PL_A, VC.PL_B, VC.PL_ACT]     # the io-table periodic columns
@@ -68,5 +65,5 @@ def t_binding_ties_to_real_exec_proof():
 if __name__ == "__main__":
     check("commit_column reproduces the exec proof's committed io roots", t_commit_column_reproduces_exec_roots)
     check("binding ties to the real exec proof (divergent replay rejected)", t_binding_ties_to_real_exec_proof)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

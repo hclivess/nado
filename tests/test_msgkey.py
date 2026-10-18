@@ -23,12 +23,9 @@ from signatures import generate_keydict
 KEM1 = "aa" * 1184     # 2368 hex chars = a well-formed ML-KEM-768 pubkey length
 KEM2 = "bb" * 1184
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 def _acc(a):
     """Snapshot address a's account doc as a plain dict (empty dict if absent)."""
@@ -105,5 +102,5 @@ def t5_validate_gate():
 check("validate_transaction accepts a well-formed msgkey + rejects a malformed kem_pub", t5_validate_gate)
 
 
-print(f"\n{'ALL MSGKEY CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL MSGKEY CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILED'}")
+sys.exit(1 if _report.fails else 0)

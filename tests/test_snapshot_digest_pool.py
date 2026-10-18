@@ -25,12 +25,9 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import ops.snapshot_ops as S
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _base():
@@ -75,5 +72,5 @@ def t3_pin_pool_alarm():
 check("node-local rows do not split the digest; consensus rows still do", t1_node_local_rows_do_not_split_the_digest)
 check("pin: all five node-local meta keys payload-excluded", t2_pin_exclusion_set)
 check("pin: snapshot-hash pool alarm wired in the consensus loop", t3_pin_pool_alarm)
-print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if _report.fails == 0 else f'{_report.fails} FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

@@ -22,12 +22,9 @@ from ops.account_ops import create_account, get_account, get_bonded_registry, ge
 from ops.block_ops import get_block_candidate
 from protocol import B_MIN, CHAIN_ID, GENESIS_TIMESTAMP
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 WHALE = "ndo" + "e" * 46          # a founder relay: registered (open) AND holds coins + bonded stake
 BAL = 5_251_313_073_896
@@ -84,5 +81,5 @@ check("fresh relaunch chain produces a valid block 1 (no block_ip / block_produc
       t3_fresh_chain_produces_a_valid_block_1)
 
 
-print(f"\n{'ALL RELAUNCH CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL RELAUNCH CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILED'}")
+sys.exit(1 if _report.fails else 0)

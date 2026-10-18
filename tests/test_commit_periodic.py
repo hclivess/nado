@@ -16,12 +16,9 @@ import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import stark, field as F, backend as B, merkle
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 T, NQ = 8, 4
 # one genuinely-DENSE periodic column (every row distinct ⇒ exercises the O(T) dense-eval path)
@@ -99,5 +96,5 @@ if __name__ == "__main__":
     check("tampered committed cell rejected", t_tampered_committed_cell_rejected)
     check("wrong periodic root rejected (the binding hook)", t_wrong_root_rejected)
     check("committed root == honest table LDE commit (bindable)", t_committed_root_binds_to_table)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

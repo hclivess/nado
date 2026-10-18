@@ -16,12 +16,9 @@ from execnode.stark import (settlement_aggregate as AGG, io_replay as IR, state_
                             storage_tree as STree, exec_state_bind as ESB, field as F)
 from execnode import zkvm
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 D, NQ, NQO = 4, 4, 4                                # depth 4 ⇒ merkle-update trace == slot_key trace (128)
 CID = "e" * 64
@@ -77,5 +74,5 @@ def t_tampered_seam_rejected():
 if __name__ == "__main__":
     check("merkle-update + slot_key derivation fold into ONE bundle", t_aggregate_verifies)
     check("tampered fold seam rejected", t_tampered_seam_rejected)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

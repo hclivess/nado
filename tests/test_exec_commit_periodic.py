@@ -14,12 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import vm_circuit as VC, stark, field as F, backend as B, merkle
 from execnode import zkvm
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 4
 # a tiny program that writes a slot then returns — exercises the io + args + fetch tables
@@ -109,5 +106,5 @@ if __name__ == "__main__":
     check("structured range/selector columns are bit-identical", t_structured_periodic_bit_identity)
     check("O(1)-shaped verify accepts from roots, no io log", t_o1_verify_no_io_log)
     check("default (commit_periodic=None) path untouched", t_default_path_untouched)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

@@ -29,12 +29,9 @@ from execnode import settlement_proofs as SP, zkvmasm
 # covered small-scale by tests/test_recursive_row.py (two-phase row-mode K→1) and tests/test_rowcomp_verify.py.
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ, NQO = 2, 2
 COUNTER = {"bump": zkvmasm.assemble("""
@@ -122,12 +119,12 @@ if __name__ == "__main__":
               "but is opt-in for speed. Set NADO_HEAVY=1 to run the real W=106 O(1) settlement end-to-end.")
         print("      Its MECHANISM is also validated by test_recursive_row.py (two-phase row-mode K→1) and "
               "test_rowcomp_verify.py (W=10 row absorption).")
-        print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-        sys.exit(1 if fails else 0)
+        print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+        sys.exit(1 if _report.fails else 0)
     check("multi-segment epoch settles via ONE recursion bundle (no per-segment stark.verify)", t_o1_settles)
     check("agrees with the legacy per-segment path (same post root)", t_matches_legacy_path)
     check("tampered io log rejected", t_tampered_io_rejected)
     check("tampered layer-0 seam rejected", t_tampered_layer0_rejected)
     check("default policy demands protocol query strength", t_default_policy_demands_protocol_strength)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)
