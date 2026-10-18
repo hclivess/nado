@@ -13,12 +13,9 @@ def blake2b_seed(i):
     """deterministic per-index 'random' beacon (no Math.random / time)"""
     return blake2b_hash(["seed", i])
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 def t1():
     """Prove selection_shares gates below B_MIN and scales linearly with NO per-identity cap (removed
@@ -98,5 +95,5 @@ def t7():
     assert epoch_of(0) == 0 and epoch_of(59) == 0 and epoch_of(60) == 1
 check("epoch_of partitions by EPOCH_LENGTH", t7)
 
-print(f"\n{'ALL S4.2 CHECKS PASSED' if fails==0 else str(fails)+' S4.2 CHECK(S) FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL S4.2 CHECKS PASSED' if _report.fails==0 else str(_report.fails)+' S4.2 CHECK(S) FAILED'}")
+sys.exit(1 if _report.fails else 0)

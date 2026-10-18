@@ -23,12 +23,9 @@ _stk._RULES.set(_stk.Rules(True, True, True, False))
 
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 N, DEG, NQ, NQO = 8, 4, 1, 1
 
@@ -101,5 +98,5 @@ if __name__ == "__main__":
     else:
         print("SKIP  fold-of-folds depth step: the level-1 fold is ~19 min in pure Python (N=131072 recursion "
               "LDE, the throughput wall). Set NADO_HEAVY=1 to run it; the VERIFY side is already O(1) (~0.2 s).")
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

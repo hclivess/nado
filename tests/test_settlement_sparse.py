@@ -15,12 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import settlement_sparse as SS, storage_tree as ST, exec_state_bind as ESB, field as F
 from execnode import zkvm, zkvmasm
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ, DEPTH = 8, 16
 COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
@@ -154,5 +151,5 @@ if __name__ == "__main__":
     check("sparse post_root == independent full re-projection", t_post_root_matches_full_reprojection)
     check("withdrawal membership against the settled sparse root", t_withdrawal_membership)
     check("tampered transition root rejected", t_tampered_transition_rejected)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

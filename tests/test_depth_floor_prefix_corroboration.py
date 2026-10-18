@@ -23,12 +23,9 @@ _os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 _SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "loops", "core_loop.py")).read()
@@ -83,5 +80,5 @@ def t2_behavioral():
 
 check("pins: veto consults prefix probe; fallback probes heaviest; budgeted + memoized", t1_pins)
 check("behavioral: match / fork-reject / budget-stop / memo-free", t2_behavioral)
-print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if _report.fails == 0 else f'{_report.fails} FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

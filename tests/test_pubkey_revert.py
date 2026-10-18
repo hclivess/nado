@@ -22,12 +22,9 @@ from ops.account_ops import create_account, get_account
 from ops.transaction_ops import index_transactions, unindex_transactions
 from protocol import CHAIN_ID
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 PK = "ab" * 656   # a plausible ML-DSA-44 pubkey hex (length irrelevant here)
 
@@ -79,5 +76,5 @@ def t2_revert_of_the_establishing_tx_still_clears_pubkey():
 check("revert of the establishing (pubkey-carrying) tx still clears the pubkey (symmetry preserved)", t2_revert_of_the_establishing_tx_still_clears_pubkey)
 
 
-print(f"\n{'ALL PUBKEY-REVERT CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PUBKEY-REVERT CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILED'}")
+sys.exit(1 if _report.fails else 0)

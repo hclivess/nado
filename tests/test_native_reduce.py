@@ -10,12 +10,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import alghash2 as a2, goldilocks_native as gn, field as F
 import execnode.stark.field as Fm
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _py_permute(state):
@@ -93,5 +90,5 @@ if __name__ == "__main__":
     check("hashn native (fast reduce) == python (4000 random + edge values)", t_hashn_native_eq_python)
     check("NTT native (fast reduce) == python (2^6..2^17)", t_ntt_native_eq_python)
     check("rmerkle native (fast reduce) == python", t_rmerkle_native_eq_python)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

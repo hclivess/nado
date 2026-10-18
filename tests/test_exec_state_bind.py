@@ -14,12 +14,9 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import (exec_state_bind as ESB, state_transition as SX, storage_tree as ST, field as F)
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 D, NQ = 8, 8
 CID1, CID2 = "a" * 64, "b" * 64
@@ -84,5 +81,5 @@ if __name__ == "__main__":
     check("net_updates selects exactly the changed slots", t_net_updates_selects_changes)
     check("bound transition verifies", t_bound_transition_verifies)
     check("binding rejects tampered io / lied read / mismatch", t_binding_rejects_tampering)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

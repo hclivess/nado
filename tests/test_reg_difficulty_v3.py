@@ -19,12 +19,9 @@ kv_ops.init_env(_home)
 from ops import reg_difficulty as rd
 from protocol import POSW_DIFF_WINDOW, POSW_DIFF_FLOOR
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 A = lambda i: f"ndo{i:046d}"
 
@@ -60,5 +57,5 @@ def t_window_ends_before_anchor():
 
 for t in (t_rows_drive_counts, t_rollback_symmetry, t_multiplier_consumes_state, t_window_ends_before_anchor):
     check(t.__name__, t)
-print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

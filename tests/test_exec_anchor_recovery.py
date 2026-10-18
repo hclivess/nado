@@ -22,12 +22,9 @@ import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 _SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "execnode", "execnode.py")).read()
@@ -89,5 +86,5 @@ check("anchored-pair extraction binds to the anchor's full sender", t1_anchored_
 check("pin: freeze threshold / finality guard / one-per-episode / anchor never adopts / by-cursor", t2_pin_guards)
 check("pin: adoption stamps provenance, resets caches, is loud, probe wired", t3_pin_adoption_effects)
 check("anchor_adopted_at roundtrip + legacy default", t4_anchor_adopted_at_roundtrip)
-print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if _report.fails == 0 else f'{_report.fails} FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

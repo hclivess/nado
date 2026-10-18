@@ -17,12 +17,9 @@ from execnode.stark import field as F, stark, backend as B, recursive_verify as 
 # PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
 stark._RULES.set(stark.Rules(True, True, True, True, False))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 T, SEED, K, NQ, NQO = 8, 123456789 % F.P, 2, 2, 4
 PER0 = {"period": 4, "base": [3, 1, 4, 1]}                       # a public periodic column (structured form)
@@ -150,5 +147,5 @@ if __name__ == "__main__":
     check("tampered layer-0 seam rejected", t_tampered_seam_rejected)
     check("lied segment boundary rejected", t_lied_boundary_rejected)
     check("wrong public periodic rejected", t_wrong_periodic_rejected)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

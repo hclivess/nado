@@ -15,12 +15,9 @@ from ops.account_ops import change_balance, increase_produced_count, get_account
 from ops.block_ops import set_latest_block_info, set_earliest_block_info, get_block_ends_info, save_block
 from rollback import rollback_one_block, MissingParentError
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 def t1():
     """Prove change_balance credits and debits correctly in single statements."""
@@ -86,5 +83,5 @@ def t6():
         pass
 check("rollback missing-parent raises MissingParentError (no spin/crash)", t6)
 
-print(f"\n{'ALL S2 CHECKS PASSED' if fails==0 else str(fails)+' S2 CHECK(S) FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL S2 CHECKS PASSED' if _report.fails==0 else str(_report.fails)+' S2 CHECK(S) FAILED'}")
+sys.exit(1 if _report.fails else 0)

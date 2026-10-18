@@ -27,12 +27,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import kv_ops
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CORE = open(os.path.join(_ROOT, "loops", "core_loop.py")).read()
@@ -98,5 +95,5 @@ check("commit/get roundtrip + canonical insertion-order-independent encoding", t
 check("revert deletes the key — canonical-absent, no phantom", t2_revert_deletes)
 check("pins: gated commit, exact rollback inverse, committed-first serving", t3_pins)
 check("committed row shape matches the exec consumer", t4_exec_shape)
-print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if _report.fails == 0 else f'{_report.fails} FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

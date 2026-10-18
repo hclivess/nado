@@ -17,12 +17,9 @@ Run: python3 tests/test_exec_tail_resilience.py
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 _SRC = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                          "execnode", "execnode.py")).read()
@@ -77,8 +74,8 @@ check("mid-batch persistence", t2_mid_batch_persistence)
 check("tail error names the exception type", t3_tail_error_names_the_type)
 check("batch prefetch, poll-local, finality-bounded, single-fetch fallback", t4_batch_prefetch_with_single_fetch_fallback)
 check("provisional refresh paused while behind; errors named", t5_provisional_guarded_and_named)
-print(f"\n{'ALL PASS' if fails == 0 else f'{fails} FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if _report.fails == 0 else f'{_report.fails} FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)
 
 
 def t6_peer_fallback_fully_verified():

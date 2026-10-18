@@ -11,12 +11,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import protocol as P
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -101,5 +98,5 @@ if __name__ == "__main__":
     check("fidelity step: spacing kept, lapse halves", t_fidelity_step)
     check("live apply and fraud-proof replay share protocol.fidelity_step", t_live_apply_and_replay_share_the_step)
     check("dividends require attestation: genesis seeds produce but do not earn, at every epoch", t_dividends_require_attestation)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

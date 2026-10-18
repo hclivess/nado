@@ -17,12 +17,9 @@ from execnode.stark import field as F, stark, backend as B, recursive_verify as 
 # PROOF_TRACE_LDT_HEIGHT under the live strict default. It tests the fold in the rule window the fold implements.
 stark._RULES.set(stark.Rules(True, True, True, True, False))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 P = F.P
 SEED = 123456789 % P
@@ -115,5 +112,5 @@ if __name__ == "__main__":
     check("bundle's declared public has NO authority (verifier rebuilds it)", t_bundle_declared_public_has_no_authority)
     check("tampered layer-0 seam value rejected by in-circuit membership", t_tampered_seam_rejected)
     check("lied segment seed rejected", t_wrong_seed_rejected)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

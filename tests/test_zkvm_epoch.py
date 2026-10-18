@@ -11,12 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import vm_circuit as V
 from execnode import zkvmasm, runtimes, zkvm
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 NQ = 8
 COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
@@ -89,5 +86,5 @@ if __name__ == "__main__":
     check("wrong per-call caller rejected", t3_wrong_caller_rejected)
     check("non-contiguous block schedule rejected", t4_non_contiguous_schedule_rejected)
     check("single call is the N=1 epoch", t5_single_call_is_n1_epoch)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

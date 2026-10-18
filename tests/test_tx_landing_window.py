@@ -20,12 +20,9 @@ from ops.block_ops import _lands_flexibly, check_target_match, match_transaction
 import logging
 _LOG = logging.getLogger("t"); _LOG.addHandler(logging.NullHandler())
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _tx(recipient, max_block, min_block=0, txid=None):
@@ -103,5 +100,5 @@ if __name__ == "__main__":
     check("flexibly-landing tx includable at EVERY height in [min,max]", t_flex_lands_anywhere_in_window)
     check("timing-critical tx lands only at exactly max_block", t_exact_lands_only_at_max_block)
     check("margin is generous and fits under the landing window", t_window_is_generous)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

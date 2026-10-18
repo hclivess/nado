@@ -28,12 +28,9 @@ from execnode.stark import (field as F, stark, backend as B, recursive_verify as
 # recursive_verify and IS covered under round 2 by the heavy fold test). Pin the pre-round-2 rules here.
 stark._RULES.set(stark.Rules(True, True, True, False))
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 P = F.P
 SEED = 123456789 % P
@@ -124,5 +121,5 @@ if __name__ == "__main__":
     check("comp_air reconstructs comp_0's schedule (verifies via stark.verify)", t_comp_air_reconstructs)
     check("tampered bundle public rejected (verifier-authoritative)", t_tampered_public_rejected)
     check("full authoritative depth level (opt-in)", t_full_depth_level)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

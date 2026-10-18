@@ -21,12 +21,9 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from loops.core_loop import majority_on_our_canonical, reanchor_candidates
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 # ---- corroboration: a tiny two-fork world ------------------------------------------------------------
@@ -137,5 +134,5 @@ if __name__ == "__main__":
     check("a lighter fork majority can never pin us", t_lighter_majority_can_never_pin)
     check("malformed peer statuses are skipped", t_malformed_statuses_skipped)
     check("a foreign-protocol donor is never selected", t_foreign_protocol_donor_excluded)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

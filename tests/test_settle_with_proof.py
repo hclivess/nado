@@ -41,12 +41,9 @@ from execnode import exec_root as ER
 from execnode.state import ExecState
 from execnode.stark import storage_tree as SST, settlement_sparse as SS
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 def raises(fn):
     try: fn(); return False
     except Exception: return True
@@ -276,5 +273,5 @@ if __name__ == "__main__":
     check("bare settle still quorum-only", t8_bare_settle_still_quorum_only)
     check("non-bonded proof-settle rejected", t9_non_bonded_proof_settle_rejected)
     check("real sparse bound-epoch proof end-to-end (opt-in)", t10_real_proof_end_to_end)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

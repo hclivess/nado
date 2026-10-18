@@ -19,12 +19,9 @@ from execnode.stark import (stark, field as F, backend as B, recursive_verify as
 # production caller), so its machinery is tested under the LEGACY rules, the only window it implements.
 stark._RULES.set(stark.RULES_LEGACY)
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 T, NQ, NQO, MD = 8, 2, 2, 3
 TRANS_X2 = [lambda c, n, p: F.sub(n[0], F.mul(c[0], c[0]))]
@@ -157,5 +154,5 @@ if __name__ == "__main__":
     check("wrong AIR for a proof rejected", t_wrong_air_rejected)
     check("tampered fold seam rejected", t_tampered_seam_rejected)
     check("row two-phase + column fold into one bundle", t_row_twophase_plus_column_fold)
-    print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)
