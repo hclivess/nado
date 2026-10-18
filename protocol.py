@@ -1681,6 +1681,8 @@ def split_open_block_reward(reward: int):
 #                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
 #                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
 #                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
+#                                    EXEC_BUDGET_REVERTS_HEIGHT (285000 -> 1: a reverting or raising exec call counts
+#                                    its steps against the block's execution budget, so reverts cannot escape it)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2182,6 +2184,14 @@ WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 # Execnode/shielded_stwo.parse_transfer reads it; ExecState.rules_stwo_fee_to gates it. No circuit or WASM change.
 # `else 1`: live from block 1 after a reroll.
 STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
+
+# REVERTS PAY FOR THEIR STEPS (audit 2026-09-24 #13, confirmed 2026-10-18). EXEC_BLOCK_STEP_BUDGET bounds the VM steps a
+# block may make every exec node execute — but a call that REVERTED (or raised) returned before its steps were counted,
+# so a block of calls each burning GAS_LIMIT and then reverting was unbounded exec CPU for the price of their L1 fees.
+# From this height a reverting call's executed steps (the VM meters them on revert too) and a raising call's GAS_LIMIT
+# count against the block's budget. The settlement prover needs no mirror: any reverted call already makes its span
+# unprovable (settlement_proofs._run_call raises), so the chain's later budget refusals only fall in quorum spans.
+EXEC_BUDGET_REVERTS_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a

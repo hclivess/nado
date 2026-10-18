@@ -1306,6 +1306,20 @@ class ExecState:
         rules_v2)."""
         return self.applying_height() >= 1
 
+    def rules_budget_reverts(self):
+        """Reverting and raising calls count against the block's step budget (protocol.EXEC_BUDGET_REVERTS_HEIGHT)."""
+        from protocol import EXEC_BUDGET_REVERTS_HEIGHT
+        return bool(EXEC_BUDGET_REVERTS_HEIGHT) and self.applying_height() >= EXEC_BUDGET_REVERTS_HEIGHT
+
+    def _charge_reverted_steps(self, gas):
+        """Add a reverted call's steps (None = it raised: GAS_LIMIT, the most one call may execute) to the block's
+        budget count, from EXEC_BUDGET_REVERTS_HEIGHT and under the same rules_r2 the budget itself lives under.
+        Below the gate it does nothing, exactly as the code before it."""
+        if not (self.rules_r2() and self.rules_budget_reverts()):
+            return
+        from execnode.zkvm import GAS_LIMIT
+        self._block_steps = int(getattr(self, "_block_steps", 0)) + (int(GAS_LIMIT) if gas is None else int(gas))
+
     def rules_stwo_fee_to(self):
         """A Stwo spend may name its fee's payee (protocol.STWO_FEE_TO_HEIGHT) in the block being applied."""
         from protocol import STWO_FEE_TO_HEIGHT
@@ -1611,9 +1625,13 @@ class ExecState:
                     if not _v2:
                         raise
                     _refund()
+                    self._charge_reverted_steps(None)          # EXEC_BUDGET_REVERTS_HEIGHT: GAS_LIMIT, it may not have metered
                     return f"skip: call {cid[:12]}….{method} raised {type(e).__name__} — escrow refunded"
                 if not ok:
                     _refund()
+                    # INVARIANT (EXEC_BUDGET_REVERTS_HEIGHT): a revert's executed steps count against the block's
+                    # budget like an applied call's — a reverting call was the way around EXEC_BLOCK_STEP_BUDGET
+                    self._charge_reverted_steps(_meter.get("gas", 0))
                     return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
                 # F4 (REVIEW_R2_HEIGHT): a PER-BLOCK execution budget. Only GAS_LIMIT per call bounded the
                 # exec CPU a block could demand, and a 1 MiB block of cheap calls was measured at ~2 h. The
