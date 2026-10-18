@@ -71,6 +71,7 @@ const constSrc = (n) => SRC.match(new RegExp("const " + n + " = [^;]+;"))[0];
 let stored = c.stored || [];
 const published = [], logs = [], ls = Object.assign({}, c.ls || {});
 const env = {
+  shadowOrigins: () => [], shadowCandidateOrigins: () => [], shadowKeypair: () => null,   // no private games here
   state: { wallet: { address: c.address, privateKey: c.key, publicKey: "pk" } },
   _stwo: stwo,
   blake2bHash: (parts) => crypto.createHash("blake2b512").update(JSON.stringify(parts)).digest("hex").slice(0, 64),
@@ -95,7 +96,7 @@ const env = {
 const body = [constSrc("ZADDR_STWO"), constSrc("STWO_RESTORE_MARGIN"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"),
   fnSrc("cmStr"), fnSrc("shieldAddr"), fnSrc("stwoDepositNsk"), fnSrc("stwoRestoreKey"), fnSrc("_stwoRestoreLoad"), fnSrc("_stwoRestoreSave"),
   fnSrc("stwoCarriedDeposits", true),
-  fnSrc("noteNskWire"), fnSrc("doShield", true), fnSrc("stwoOwnTransactions", true), fnSrc("stwoRecoverDeposits", true),
+  fnSrc("noteNskWire"), fnSrc("doShield", true), fnSrc("shieldDeposit", true), fnSrc("stwoOwnTransactions", true), fnSrc("stwoRecoverDeposits", true),
   "shieldNskWire = () => shieldNskStwo();",
   "return { doShield, shieldOwner, noteNskWire, stwoRecoverDeposits, shieldNskStwo };"].join("\n");
 const W = new Function(...Object.keys(env), constSrc("DOMAIN_SHIELD_NSK_STWO") + "\n" + body)(...Object.values(env));

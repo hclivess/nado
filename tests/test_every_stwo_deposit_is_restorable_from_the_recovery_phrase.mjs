@@ -50,6 +50,7 @@ function device(submit) {
   const store = new Map();
   const localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
   const env = {
+  shadowOrigins: () => [], shadowCandidateOrigins: () => [], shadowKeypair: () => null,   // no private games here
     state: { wallet: { address: ADDR, privateKey: KEY, publicKey: "pk" } }, localStorage, _stwo: stwo,
     blake2bHash: (parts) => crypto.createHash("blake2b512").update(JSON.stringify(parts)).digest("hex").slice(0, 64),
     shieldStwo: () => true, shieldWide: () => false, ensureShielded: () => {}, refreshShieldRules: async () => {},
@@ -73,7 +74,7 @@ function device(submit) {
     fnSrc("_notePool"), fnSrc("_activePool"), fnSrc("loadNotes"), fnSrc("saveNotes"),
     fnSrc("stwoDepositNsk"), fnSrc("noteNskWire"), fnSrc("stwoRestoreKey"), fnSrc("_stwoRestoreLoad"), fnSrc("_stwoRestoreSave"),
     fnSrc("stwoCarriedDeposits", true),
-    fnSrc("doShield", true), fnSrc("stwoRecoverDeposits", true),
+    fnSrc("doShield", true), fnSrc("shieldDeposit", true), fnSrc("stwoRecoverDeposits", true),
     "return { doShield, stwoRecoverDeposits, loadNotes };"].join("\n");
   return new Function(...Object.keys(env), body)(...Object.values(env));
 }

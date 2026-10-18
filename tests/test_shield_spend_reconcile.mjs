@@ -63,7 +63,9 @@ check('a spend records both output commitments', JSON.stringify(n.spentOuts) ===
 
 const rules = grab(/async function _proofRulesNow\(\)[\s\S]*?\n\}\n/);
 check('the rules fetch never falls back to all-off rules', !/bind: false, blockSelector: false/.test(rules) && /throw new Error/.test(rules));
-check('both spend sites record their outputs', (js.match(/^\s+_markSpendPending\(note, pr\);/gm) || []).length === 2);
+// every site that proves a spend records its outputs (send, unshield, and the shadow-account funding of 2026-10-18)
+const _proves = (js.match(/=\s*await proveTransfer2\(wit\);/g) || []).length;
+check('every spend site records its outputs', _proves >= 3 && (js.match(/^\s+_markSpendPending\(note, pr\);/gm) || []).length === _proves);
 
 console.log(fails ? `\nFAILED: ${fails}` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

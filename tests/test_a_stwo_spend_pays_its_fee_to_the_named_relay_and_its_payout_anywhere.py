@@ -189,5 +189,18 @@ check("...from the gate it refuses a spend whose fee pays another relay", status
 res, status = relay.relay({"bundle": copy.deepcopy(b)}, "198.51.100.3")
 check("...and accepts one paying it by fee, the payout going to the shadow account", status == 200 and len(SUBMITTED) == 1
       and SUBMITTED[0]["sender"] == RELAY, (status, res))
+# ---- 6. the wallet's own prover builds the composite binding (static/stark/stwo_js.js proveSpend feeTo) ----------------
+st, v, rho = pool()
+leaves = list(st.stwo_pool.commitments)
+spend = {"nsk": nsk, "vIn": str(v), "rho": str(rho), "v1": str(v - U - FEE), "o1": me, "r1": str(secrets.randbits(64)),
+         "v2": "0", "o2": me, "r2": str(secrets.randbits(64)), "unshield": str(U), "fee": str(FEE), "dest": SHADOW, "feeTo": RELAY}
+wb = wallet_prove(spend, leaves, leaves.index(SP.commit(v, me, rho)))["bundle"]
+at(st, FEE_GATE)
+n0 = st.uw_nonce
+r = st.apply_field_transfer(copy.deepcopy(wb))
+check("6. a bundle the wallet's own prover builds with feeTo carries withdraw_addr + fee_to and applies at the gate",
+      wb.get("withdraw_addr") == SHADOW and wb.get("fee_to") == RELAY and r.startswith("field-transfer stwo")
+      and [st.unshield_withdrawals[str(i)] for i in range(n0 + 1, st.uw_nonce + 1)]
+      == [{"addr": SHADOW, "amount": U}, {"addr": RELAY, "amount": FEE}], (r, {k: wb.get(k) for k in ("withdraw_addr", "fee_to")}))
 print("ALL PASS — a Stwo spend pays its fee to the named relay and its payout anywhere" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

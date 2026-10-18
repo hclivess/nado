@@ -1199,6 +1199,19 @@ Trezor One and Model T have no secure element and cannot vouch.</div>
     <div class="faint small mt" data-i18n="shield.autoclaim">Withdrawals arrive on their own once the proof settles — no extra step. <a id="btnClaimUnshield" href="javascript:void(0)" data-i18n="shield.checkNow">check now</a></div>
   </div>
 
+  <!-- SHADOW ACCOUNTS (interface.js shadowKeypair / doFundShadow / doReturnShadow): a separate account per game, funded
+       from the private balance by a relay, so nothing on chain ties the game's player to this wallet -->
+  <div id="shadowCard" class="card hidden" data-tab="shield">
+    <div class="label" data-i18n="shadow.title">Play privately</div>
+    <div class="faint small" data-i18n="shadow.lead">A game sees a separate account funded from your private balance. Nothing on chain ties it to this wallet.</div>
+    <label class="mt" data-i18n="shadow.game">Game</label>
+    <select id="shadowGame" style="width:100%"></select>
+    <label class="mt" data-i18n="shield.amount">Amount (NADO)</label>
+    <input id="shadowAmount" type="text" placeholder="0.0" inputmode="decimal" />
+    <button id="btnShadowFund" class="accent mt" style="width:100%" data-i18n="shadow.fundOk">Fund privately</button>
+    <div id="shadowList" class="mt"></div>
+  </div>
+
   <div id="exploreSearchCard" class="card hidden" data-tab="explore">
     <h2 data-i18n="explore.title">Explore</h2>
     <div id="exSearch">

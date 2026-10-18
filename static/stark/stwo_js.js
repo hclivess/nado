@@ -236,7 +236,7 @@ export function parseOutput(b) {
 
 /** The exact bundle execnode/state.py _apply_stwo_transfer accepts. withdraw_addr only with an unshield: a private
  *  transfer is bound to the empty destination, and the node verifies it against "" whatever the bundle says. */
-export function buildBundle(out, withdrawAddr) {
+export function buildBundle(out, withdrawAddr, feeTo) {
   const un = BigInt(out.unshield), fee = BigInt(out.fee);
   const bundle = { stark: { stwo_js: { proof: toHex(out.proof), root: out.root, nf: out.nf, cm_out1: out.cm1, cm_out2: out.cm2,
     unshield: un.toString(), fee: fee.toString() } } };
@@ -244,8 +244,14 @@ export function buildBundle(out, withdrawAddr) {
     if (!withdrawAddr) throw _err("shield.stwoNeedDest", "a withdrawal needs a destination address");
     bundle.withdraw_addr = withdrawAddr;
   }
+  // fee_to (protocol STWO_FEE_TO_HEIGHT): the fee's payee — the proof must have been made for the destination
+  // "<withdraw_addr>|fee:<fee_to>" (stwoDest), which binds both
+  if (feeTo) bundle.fee_to = feeTo;
   return bundle;
 }
+/** The destination string a spend's proof is bound to: the payout address, or "<payout>|fee:<payee>" when the fee
+ *  pays a named address (execnode/shielded_stwo.parse_transfer builds the same string). */
+export function stwoDest(withdrawAddr, feeTo) { return feeTo ? String(withdrawAddr || "") + "|fee:" + feeTo : String(withdrawAddr || ""); }
 
 /** Drives one instance of the WASM (no Worker): the worker below, and tests in Node. */
 export class StwoCore {
@@ -299,13 +305,15 @@ export async function proveSpend(spend, leaves, pos, run) {
   const path = treePath(leaves, pos);
   const owner = ownerOf(spend.nsk);
   if (commit(spend.vIn, owner, spend.rho) !== String(leaves[pos]).toLowerCase()) throw _err("shield.stwoNotMine", "that banknote does not belong to this wallet");
-  const un = BigInt(spend.unshield || 0), dest = un > 0n ? String(spend.dest || "") : "";
+  // spend.feeTo (STWO_FEE_TO_HEIGHT): the fee's payee, bound with the payout as "<payout>|fee:<feeTo>" (stwoDest)
+  const un = BigInt(spend.unshield || 0), payout = un > 0n ? String(spend.dest || "") : "";
+  const feeTo = spend.feeTo ? String(spend.feeTo) : "", dest = stwoDest(payout, feeTo);
   const witness = packWitness({ ...spend, sibs: path.sibs, dirs: path.dirs });
   const t0 = Date.now();
   const out = parseOutput(await (run || _inWorker)(witness, dest));
   const want = { root: path.root, nf: nullifier(spend.nsk, spend.rho), cm1: commit(spend.v1, spend.o1, spend.r1), cm2: commit(spend.v2, spend.o2, spend.r2) };
   for (const k of Object.keys(want)) if (out[k] !== want[k]) throw _err("shield.stwoDisagree", "the prover and the wallet disagree on {k}: nothing was sent", { k });
-  return { bundle: buildBundle(out, dest), ...want, ms: Date.now() - t0 };
+  return { bundle: buildBundle(out, payout, feeTo), ...want, ms: Date.now() - t0 };
 }
 
 function _inWorker(witness, dest) {

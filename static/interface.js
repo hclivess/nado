@@ -22,7 +22,7 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
 import * as shielded from "./shielded.js";
@@ -301,6 +301,33 @@ function accountKeypair(masterHex, index) {
   return keypairFromPriv(index === 0 ? masterHex : accountChildSeed(masterHex, index));
 }
 function masterSeedOf() { return state.masterSeed || (state.wallet && state.wallet.privateKey) || null; }
+// ---- SHADOW ACCOUNTS: one private account per dApp, unlinkable to this wallet (2026-10-18) ------------------------
+// "Play privately" for a game signs that game's requests with an account derived from the MASTER seed and the game's
+// origin — so the recovery phrase restores it, every game sees a different player, and nothing on chain ties it to
+// this wallet: it is FUNDED from the Stwo pool by a relayed spend (protocol STWO_FEE_TO_HEIGHT: the relay is paid by
+// the spend's fee, the payout goes to the shadow address) and RETURNS to the pool by its own deposit. Its activity is
+// public (it is an ordinary account); the link to the wallet is what is hidden. Wallet-only derivation, like the HD
+// accounts above; the seed never leaves the device.
+const DOMAIN_HD_SHADOW = "hd-shadow-v1";
+const LS_SHADOW = "nado_shadow_origins";          // origins this wallet plays privately (JSON array)
+function shadowOrigins() {
+  try { const v = JSON.parse(localStorage.getItem(LS_SHADOW) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; }
+  catch (e) { return []; }
+}
+function shadowOn(origin) { return !!origin && shadowOrigins().includes(origin); }
+function setShadowOn(origin, on) {
+  const cur = shadowOrigins().filter((o) => o !== origin);
+  if (on) cur.push(origin);
+  try { localStorage.setItem(LS_SHADOW, JSON.stringify(cur)); } catch (e) {}
+}
+function shadowKeypair(origin) {
+  const m = masterSeedOf();
+  return m && origin ? keypairFromPriv(blake2bHash([DOMAIN_HD_SHADOW, m, String(origin)], 32)) : null;
+}
+// the account that signs for `origin`: its shadow account when the user plays it privately, else the active account
+function signerFor(origin) { return (shadowOn(origin) && shadowKeypair(origin)) || state.wallet; }
+// every origin whose shadow account may hold value (private ones now, plus the official games, for a restore)
+function shadowCandidateOrigins() { return [...new Set([...shadowOrigins(), ...EXEC_SIGN_ALLOW])]; }
 function accountLabel(i) { return i === 0 ? i18("acct.main", "Main") : i18("acct.n", "Account {n}", { n: i + 1 }); }
 // Keep the HD layer consistent with state.wallet. A wallet (re)loaded by unlock/import/boot is ALWAYS the
 // master on account 0 — its address won't match our expected active-account address — so re-anchor to it.
@@ -5096,6 +5123,10 @@ async function resumePendingExecSign() {
   }
   // In background mode the result is postMessaged to the game (parsed from the same "ok=1&…" string the
   // redirect would carry); otherwise it navigates back as before.
+  // THE SIGNER FOR THIS SITE (shadow accounts): its private account when the user plays it privately (signerFor), else
+  // the active account. INVARIANT: every signature and every address answered below uses `signer`, never state.wallet,
+  // so a private game never sees or gets a signature from the wallet's real account.
+  const signer = signerFor(retUrl.origin);
   const back = bg
     ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
     : (params) => { const r = retUrl.href; location.href = r + (r.includes("?") ? "&" : "?") + params; };
@@ -5107,10 +5138,10 @@ async function resumePendingExecSign() {
     const c = await uiConfirm({
       title: i18("dapp.connectTitle", "Sign in"),
       body: i18("dapp.connectBody", "{app} wants your wallet address ({a}) to sign you in. No transaction — nothing moves.",
-        { app: req.app, a: _abShort(state.wallet.address) }),
+        { app: req.app, a: _abShort(signer.address) }),
       confirmText: i18("dapp.connect", "Sign in"),
     });
-    back(c ? "ok=1&addr=" + state.wallet.address : "ok=0");
+    back(c ? "ok=1&addr=" + signer.address : "ok=0");
     return;
   }
   // Everything below BUILDS A SIGNED TX, so adopt the relay's CURRENT chain_id first (a tx signed with a stale
@@ -5126,7 +5157,7 @@ async function resumePendingExecSign() {
     try {
       const d = await fetchCashOuts();
       const r = d ? await claimCashOuts(d, { only: nonce }) : { submitted: 0, err: "exec node unreachable" };
-      back(r.submitted ? "ok=1&txid=" + r.txid + "&addr=" + state.wallet.address
+      back(r.submitted ? "ok=1&txid=" + r.txid + "&addr=" + signer.address
                        : "ok=0&err=" + encodeURIComponent(String(r.err || "nothing to claim").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -5146,12 +5177,12 @@ async function resumePendingExecSign() {
       const { res, tx } = await submitResilient(async () => {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
-        const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
+        const draft = { sender: signer.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
+          data: "", nonce: randNonce(), public_key: signer.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
           min_block: guardFrom(latest.block_number), chain_id: CHAIN_ID };
-        return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
+        return finalizeTransaction(draft, signer.privateKey, MIN_TX_FEE);
       });
-      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + signer.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -5181,10 +5212,10 @@ async function resumePendingExecSign() {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
         const target = latest.block_number + TX_TARGET_MARGIN;
-        return buildTransferTx(state.wallet, "htlc_lock", amt, MIN_TX_FEE, target,
+        return buildTransferTx(signer, "htlc_lock", amt, MIN_TX_FEE, target,
                                { claimant, hashlock, expiry: target + blocks }, nowSeconds());
       });
-      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + signer.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -5194,7 +5225,7 @@ async function resumePendingExecSign() {
     let doc = null;
     try { doc = (await rpcJSON("/get_htlc?id=" + encodeURIComponent(hid))).htlc; } catch (e) {}
     if (!doc) { back("ok=0&err=" + encodeURIComponent("no such swap lock")); return; }
-    if (doc.sender !== state.wallet.address) { back("ok=0&err=" + encodeURIComponent("that lock was not funded by this wallet")); return; }
+    if (doc.sender !== signer.address) { back("ok=0&err=" + encodeURIComponent("that lock was not funded by this wallet")); return; }
     const okr = await uiConfirm({
       title: i18("dapp.swapRefundTitle", "Reclaim an expired swap lock"),
       body: i18("dapp.swapRefundBody", "{app} is asking you to take back {n} NADO from an atomic-swap lock that has expired unclaimed.", { app: req.app, n: rawToNado(BigInt(doc.amount)) }),
@@ -5206,9 +5237,9 @@ async function resumePendingExecSign() {
       const { res, tx } = await submitResilient(async () => {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
-        return buildTransferTx(state.wallet, "htlc_refund", 0n, 0, latest.block_number + TX_TARGET_MARGIN, { htlc_id: hid }, nowSeconds());
+        return buildTransferTx(signer, "htlc_refund", 0n, 0, latest.block_number + TX_TARGET_MARGIN, { htlc_id: hid }, nowSeconds());
       });
-      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + signer.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -5220,7 +5251,7 @@ async function resumePendingExecSign() {
     let doc = null;
     try { doc = (await rpcJSON("/get_htlc?id=" + encodeURIComponent(hid))).htlc; } catch (e) {}
     if (!doc) { back("ok=0&err=" + encodeURIComponent("no such swap lock")); return; }
-    if (doc.claimant !== state.wallet.address) { back("ok=0&err=" + encodeURIComponent("that lock is claimable by " + doc.claimant.slice(0, 12) + "…, not this wallet")); return; }
+    if (doc.claimant !== signer.address) { back("ok=0&err=" + encodeURIComponent("that lock is claimable by " + doc.claimant.slice(0, 12) + "…, not this wallet")); return; }
     if ((await _sha256hex(Uint8Array.from(preimage.match(/../g), (x) => parseInt(x, 16)))) !== String(doc.hashlock).toLowerCase()) { back("ok=0&err=" + encodeURIComponent("secret does not match the lock's hashlock")); return; }
     const okc = (bg && claimSilently) || await uiConfirm({
       title: i18("dapp.swapClaimTitle", "Claim NADO from an atomic swap"),
@@ -5235,10 +5266,10 @@ async function resumePendingExecSign() {
       const { res, tx } = await submitResilient(async () => {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
-        return buildTransferTx(state.wallet, "htlc_claim", 0n, 0, latest.block_number + TX_TARGET_MARGIN,
+        return buildTransferTx(signer, "htlc_claim", 0n, 0, latest.block_number + TX_TARGET_MARGIN,
                                { htlc_id: hid, preimage }, nowSeconds());
       });
-      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + signer.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -5286,9 +5317,9 @@ async function resumePendingExecSign() {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
       if (!latest) throw new Error("relay unavailable");
-      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
+      return buildBlobTx(signer, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
     });
-    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
+    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + signer.address);
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
   };
   // AUTOSIGN IS DEFAULT-ON for value-free moves (user ask: zero friction for non-monetary actions). Only
@@ -5312,9 +5343,9 @@ async function resumePendingExecSign() {
     title: i18("dapp.title", "Sign a contract call"),
     body: escrow > 0n
       ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
-          { app: req.app, a: _abShort(state.wallet.address), v: rawToNado(escrow) })
+          { app: req.app, a: _abShort(signer.address), v: rawToNado(escrow) })
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
-          { app: req.app, a: _abShort(state.wallet.address) }),
+          { app: req.app, a: _abShort(signer.address) }),
     rows,
     // A trusted site's name in `ret` is not proof the site asked: say so when the caller is not that site.
     warn: (trustedOrigin && !fromRet) ? i18("dapp.notFromSite", "This request did not come from {site} itself — a link or another page opened it. Sign only if you just asked {site} for this.", { site: retUrl.origin }) : undefined,
@@ -10620,10 +10651,22 @@ async function stwoRecoverDeposits() {
   try { const l = await getLatestBlock(); if (l && Number.isFinite(Number(l.block_number))) tip = Number(l.block_number); } catch (e) {}
   const txs = await stwoOwnTransactions(addr, rs.from);
   if (txs === null) return 0;                                // try again on a later render
+  // SHADOW ACCOUNTS RETURN COINS BY DEPOSITING FROM THEMSELVES (doReturnShadow), so their deposits are this wallet's
+  // too: scan the private games' shadow addresses on every render, and every official game's on a first restore
+  // (a new device does not know yet which games were played privately)
+  const senders = new Set([addr]);
+  for (const o of (rs.from ? shadowOrigins() : shadowCandidateOrigins())) {
+    const kp = shadowKeypair(o);
+    if (!kp) continue;
+    senders.add(kp.address);
+    const more = await stwoOwnTransactions(kp.address, rs.from);
+    if (more === null) return 0;                             // all or nothing: a partial scan must not advance the cursor
+    txs.push(...more);
+  }
   const carried = await stwoCarriedDeposits(addr);
   const cands = [];
   for (const t of txs) {
-    if (!t || t.recipient !== "shield" || t.sender !== addr || !t.data || t.data.pool !== "stwo" || typeof t.data.owner !== "string") continue;
+    if (!t || t.recipient !== "shield" || !senders.has(t.sender) || !t.data || t.data.pool !== "stwo" || typeof t.data.owner !== "string") continue;
     cands.push({ key: "tx:" + (typeof t.txid === "string" && t.txid ? t.txid : JSON.stringify(t)), amount: t.amount, owner: t.data.owner, rho: t.data.rho });
   }
   for (const r of carried || []) {
@@ -10672,6 +10715,8 @@ async function renderShield() {
   ensureShielded(); await refreshShieldRules();
   await reconcileSpentNotes().catch(() => 0);
   await stwoRecoverDeposits().catch(() => 0);
+  shadowClaimAll().catch(() => {});   // shadow accounts claim their own settled exits (fee-exempt)
+  renderShadowCard().catch(() => {});
   renderZaddrQR();   // your reusable shielded receive address as a payment-link QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
@@ -10710,6 +10755,11 @@ async function doShield() {
   }
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
+  if (await shieldDeposit(rawAmount, state.wallet)) { $("shieldAmount").value = ""; setTimeout(() => renderShield().catch(() => {}), 1500); }
+}
+// ONE DEPOSIT, signed by `signer` (the active account, or a shadow account returning its coins to the pool), the note
+// owned by THIS wallet's private keys (a fresh owner from its rho) and banked in this wallet's notes. true on success.
+async function shieldDeposit(rawAmount, signer) {
   const rho = _randField();
   // STWO: a fresh owner per deposit, from its own rho (stwoDepositNsk) — never the stable owner the zaddr encodes. Older
   // pools: the stable one.
@@ -10725,17 +10775,146 @@ async function doShield() {
     // predates the pool (it would land in the Stwo pool under an owner no key spends). The tag lets the gate's
     // activation refuse an untagged deposit from the gate (doc/stwo-migration.md §5.1, "OPEN, node side").
     if (shieldStwo()) data.pool = "stwo";
-    const tx = buildTransferTx(state.wallet, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
+    const tx = buildTransferTx(signer, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
       notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), ...(dep ? { dep: true } : {}) });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
-      $("shieldAmount").value = "";
-      setTimeout(() => renderShield().catch(() => {}), 1500);
-    } else log("err", i18("shield.rej", "Shield rejected: {m}", { m: (res.data && res.data.message) || "" }));
+      return true;
+    }
+    log("err", i18("shield.rej", "Shield rejected: {m}", { m: (res.data && res.data.message) || "" }));
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
+  return false;
+}
+
+// ---- SHADOW ACCOUNTS: fund, collect, return (see shadowKeypair) ----------------------------------------------------
+// whether a relay may be paid by a spend's fee in the block a spend lands in (protocol STWO_FEE_TO_HEIGHT)
+function stwoFeeToLive() { const g = BigInt(STWO_FEE_TO_HEIGHT || 0); return g > 0n && BigInt(_shieldTip || 0) + 1n >= g; }
+// FUND a game's shadow account from this wallet's private balance: one relayed spend per banknote, each paying the
+// relay by its fee (fee_to) and sending the rest of the amount to the shadow address. Nothing is signed by this
+// account or by the shadow account; the shadow account then claims its exits itself (shadowClaimAll).
+async function doFundShadow(origin, rawAmount) {
+  if (!state.wallet) return false;
+  ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return false;
+  if (!shieldStwo() || !stwoFeeToLive()) { log("err", i18("shadow.notYet", "Private play opens once the network accepts relay-paid withdrawals. Try again later.")); return false; }
+  const kp = shadowKeypair(origin);
+  if (!kp || rawAmount <= 0n) return false;
+  const relays = await stwoRelays();
+  if (!relays.length) { log("err", i18("shield.relayNone", "No relay node can publish a private payment right now. Nothing was sent — try again in a minute.")); return false; }
+  const fee = BigInt(relays[0].fee);
+  let picks = selectNotesFor(rawAmount);
+  for (let i = 0; picks && i < 8; i++) {
+    const again = selectNotesFor(rawAmount + fee * BigInt(picks.length));
+    if (!again || again.length === picks.length) { picks = again; break; }
+    picks = again;
+  }
+  if (!picks) { log("err", insufficientMsg(rawAmount + fee)); return false; }
+  const ok = await uiConfirm({
+    title: i18("shadow.fundTitle", "Fund private play"),
+    rows: [
+      { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
+      { k: i18("shadow.game", "Game"), v: origin.replace(/^https:\/\//, "") },
+      { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(fee * BigInt(picks.length)) + " NADO" },
+    ],
+    body: i18("shadow.fundBody", "The game sees a separate account that nothing on chain ties to this wallet. Its moves and balance are public; who it belongs to is not."),
+    confirmText: i18("shadow.fundOk", "Fund privately") });
+  if (!ok) { log("info", i18("msg.cancelled", "Cancelled.")); return false; }
+  let done = 0n;
+  const owner = shieldOwner();
+  for (const pk of picks) {
+    const notes = loadNotes();
+    const note = notes.find((n) => n.cm === pk.cm && !n.spent);
+    if (!note) continue;
+    const room = BigInt(note.value) - fee;
+    if (room <= 0n) continue;
+    const take = room < rawAmount - done ? room : rawAmount - done;
+    const change = BigInt(note.value) - take - fee;
+    const r1 = _randField(), r2 = _randField();
+    const wit = { cm: note.cm, nsk: noteNskWire(note), value_in: note.value, rho_in: note.rho,
+      v1: change.toString(), o1: ownerStr(owner), r1, v2: "0", o2: ownerStr(owner), r2,
+      public_value: (-take).toString(), fee: fee.toString(), withdraw_addr: kp.address, fee_to_relays: relays };
+    const pr = await proveTransfer2(wit);
+    if (pr.error || !pr.ok) {
+      log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
+      return done > 0n;
+    }
+    note.spent = true;
+    _markSpendPending(note, pr);
+    if (change > 0n) notes.push({ value: change.toString(), rho: r1, cm: pr.cm_out1, spent: false, ts: Date.now() });
+    saveNotes(notes);
+    done += take;
+    if (done >= rawAmount) break;
+  }
+  log("ok", i18("shadow.funded", "{a} NADO is on its way to your private account for {g}. It arrives once the network settles (a few minutes).",
+    { a: rawToNado(done), g: origin.replace(/^https:\/\//, "") }));
+  return done > 0n;
+}
+// COLLECT: every shadow account claims its own settled exits (fee-exempt, self-signed), so funded coins become its
+// spendable balance without the user doing anything
+// THE CARD: a game picker + amount + Fund (turns private play on for that game), and one row per private game with
+// its shadow balance, Return (to the private balance) and Stop (that game signs with the active account again)
+async function renderShadowCard() {
+  const card = $("shadowCard");
+  if (!card) return;
+  const live = shieldStwo() && stwoFeeToLive();
+  card.classList.toggle("hidden", !live || !state.wallet);
+  if (!live || !state.wallet) return;
+  const sel = $("shadowGame");
+  if (sel && !sel.dataset.wired) {
+    sel.dataset.wired = "1";
+    for (const o of EXEC_SIGN_ALLOW) { const op = document.createElement("option"); op.value = o; op.textContent = o.replace(/^https:\/\//, ""); sel.appendChild(op); }
+    $("btnShadowFund").onclick = async () => {
+      const o = sel.value, amt = nadoToRaw($("shadowAmount").value || "0");
+      if (!o || amt <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
+      const b = $("btnShadowFund"); b.disabled = true;
+      try { if (await doFundShadow(o, amt)) { setShadowOn(o, true); $("shadowAmount").value = ""; renderShadowCard().catch(() => {}); } }
+      finally { b.disabled = false; }
+    };
+  }
+  const list = $("shadowList");
+  if (!list) return;
+  list.textContent = "";
+  for (const o of shadowOrigins()) {
+    const kp = shadowKeypair(o);
+    if (!kp) continue;
+    let bal = "…";
+    try { const a = await rpcJSON("/get_account?address=" + encodeURIComponent(kp.address)); bal = rawToNado(BigInt(String((a.data && a.data.balance) || 0).split(".")[0])); } catch (e) {}
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px";
+    const name = document.createElement("span"); name.className = "small"; name.style.flex = "1";
+    name.textContent = i18("shadow.row", "{g}: {b} NADO", { g: o.replace(/^https:\/\//, ""), b: bal });
+    const ret = document.createElement("button"); ret.className = "ghost small"; ret.textContent = i18("shadow.returnOk", "Return");
+    ret.onclick = async () => { if (await doReturnShadow(o)) setTimeout(() => renderShield().catch(() => {}), 1500); };
+    const stop = document.createElement("button"); stop.className = "ghost small"; stop.textContent = i18("shadow.stop", "Stop");
+    stop.onclick = async () => {
+      const ok = await uiConfirm({ title: i18("shadow.stopTitle", "Stop playing privately?"),
+        body: i18("shadow.stopBody", "{g} will see your wallet's own account again. Return the private account's balance first if you want it back in your private balance.", { g: o.replace(/^https:\/\//, "") }),
+        confirmText: i18("shadow.stop", "Stop") });
+      if (ok) { setShadowOn(o, false); renderShadowCard().catch(() => {}); }
+    };
+    row.append(name, ret, stop);
+    list.appendChild(row);
+  }
+}
+async function shadowClaimAll() {
+  for (const o of shadowOrigins()) { const kp = shadowKeypair(o); if (kp) await claimUnshields(true, kp).catch(() => {}); }
+}
+// RETURN a shadow account's balance to this wallet's private balance: a deposit signed by the shadow account, its
+// note owned by this wallet (a fresh owner). The deposit is public (shadow -> pool); nothing links it to this wallet.
+async function doReturnShadow(origin) {
+  const kp = shadowKeypair(origin);
+  if (!kp) return false;
+  let bal = 0n;
+  try { const a = await rpcJSON("/get_account?address=" + encodeURIComponent(kp.address)); bal = BigInt(String((a.data && a.data.balance) || 0).split(".")[0]); } catch (e) {}
+  const amount = bal - BigInt(MIN_TX_FEE);
+  if (amount <= 0n) { log("info", i18("shadow.empty", "That private account holds nothing to return.")); return false; }
+  const ok = await uiConfirm({ title: i18("shadow.returnTitle", "Return to private balance"),
+    rows: [{ k: i18("dlg.amount", "Amount"), v: rawToNado(amount) + " NADO" }, { k: i18("shadow.game", "Game"), v: origin.replace(/^https:\/\//, "") }],
+    confirmText: i18("shadow.returnOk", "Return") });
+  if (!ok) return false;
+  return shieldDeposit(amount, kp);
 }
 
 /* ---- AUTOMATIC NOTE MANAGEMENT ---------------------------------------------------------------------
@@ -11029,8 +11208,25 @@ async function _onDeviceProveStwo(wit, execBase, leaves) {
   const pos = leaves.findIndex((l) => String(l) === String(wit.cm));
   if (pos < 0) throw new Error(i18("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute"));
   const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
-  const spend = (unshield, dest) => _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1,
-    o1: wit.o1, r1: wit.r1, v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: unshield.toString(), fee: wit.fee, dest }, leaves, pos);
+  const spend = (unshield, dest, feeTo) => _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1,
+    o1: wit.o1, r1: wit.r1, v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: unshield.toString(), fee: wit.fee, dest, feeTo }, leaves, pos);
+  if (pv < 0n && wit.fee_to_relays) {
+    // A WITHDRAWAL A RELAY PUBLISHES (STWO_FEE_TO_HEIGHT; shadow accounts): the relay is paid by the spend's fee
+    // (fee_to = the relay), the payout goes to withdraw_addr, and neither this account nor the payee signs anything.
+    // The fee is the relay's, already in wit.fee (the outputs were balanced against it).
+    const relays = wit.fee_to_relays.filter((rl) => rl && String(rl.fee) === String(wit.fee));
+    if (!relays.length) return { ok: false, error: i18("shield.relayNeeded", "A private payment is published only by a relay node, never from your own account, and no relay was available. Nothing was sent.") };
+    let last = "";
+    for (const rl of relays) {
+      const r = await spend(-pv, wit.withdraw_addr, rl.address);
+      let res;
+      try { res = await _stwoRelayPost(rl.url, r.bundle); } catch (e) { res = { ok: false, status: 0, reason: e.message }; }
+      if (res.ok) return { ok: true, relayed: rl.url, txid: res.txid, commitment: res.commitment, cm_out1: r.cm1, cm_out2: r.cm2 };
+      last = res.reason;
+      if (res.status === 400 || res.status === 409) break;
+    }
+    return { ok: false, error: i18("shield.relayAllFailed", "No relay node could publish this private payment ({m}). Nothing was sent from your account — try again in a minute.", { m: last }) };
+  }
   if (pv >= 0n) {
     // A PRIVATE SPEND: a relay node publishes it (see above). Never this account.
     const relays = (wit.relays || []).filter((rl) => rl && rl.fee === wit.relayFee);
@@ -11322,10 +11518,13 @@ async function doReceiveShielded() {
   } catch (e) { log("err", i18("shield.badCodeReason", "Invalid claim code: {m}", { m: e.message })); }
 }
 
-async function claimUnshields(silent) {
-  if (!state.wallet) return;
+async function claimUnshields(silent, kp) {
+  // kp: the account whose exits to claim (a shadow account's own, shadowClaimAll); default the active account. A claim
+  // is self-claimed (L1 requires data.addr == sender), so it is signed by that account and never names another
+  const w = kp || state.wallet;
+  if (!w) return;
   try {
-    const r = await execJSON("/exec/unshields?addr=" + encodeURIComponent(state.wallet.address));
+    const r = await execJSON("/exec/unshields?addr=" + encodeURIComponent(w.address));
     // only exits L1 has NOT released (nado.py /unshield_claimed): the exec node lists every exit it ever recorded, so
     // claiming from that list alone re-sent a refused claim for each past exit on every render and then said "still
     // settling" (loopback walk 2026-10-12). A relay without the endpoint answers nothing and the list is used as before.
@@ -11333,7 +11532,7 @@ async function claimUnshields(silent) {
     if (pending.length) {
       try {
         const q = pending.slice(0, 500).map((u) => String(u.nonce)).join(",");
-        const c = await (await fetch(relayBase() + "/unshield_claimed?addr=" + encodeURIComponent(state.wallet.address)
+        const c = await (await fetch(relayBase() + "/unshield_claimed?addr=" + encodeURIComponent(w.address)
                                      + "&nonces=" + encodeURIComponent(q), { cache: "no-store" })).json();
         if (c && Array.isArray(c.claimed)) { const done = new Set(c.claimed.map(String)); pending = pending.filter((u) => !done.has(String(u.nonce))); }
       } catch (e) { /* an older relay: claim from the whole list, as before */ }
@@ -11350,7 +11549,7 @@ async function claimUnshields(silent) {
       if (pr.error || !pr.proof) continue;
       const latest = await getLatestBlock(); const target = latest.block_number + 8;
       const data = { addr: pr.addr, amount: pr.amount, nonce: pr.nonce, proof: pr.proof };
-      const tx = buildTransferTx(state.wallet, "unshield", 0n, 0n, target, data, nowSeconds());
+      const tx = buildTransferTx(w, "unshield", 0n, 0n, target, data, nowSeconds());
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) claimed++;
     }

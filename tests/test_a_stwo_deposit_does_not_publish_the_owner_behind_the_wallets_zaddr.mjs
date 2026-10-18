@@ -61,7 +61,7 @@ const env = {
 };
 const body = [constSrc("ZADDR_STWO"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"), fnSrc("cmStr"),
   fnSrc("shieldAddr"), fnSrc("_b36"), fnSrc("stwoDepositNsk"),
-  fnSrc("doShield", true),
+  fnSrc("doShield", true), fnSrc("shieldDeposit", true),
   "return { doShield, shieldOwner, shieldAddr, ownerStr, stwoDepositNsk };"].join("\n");
 const constName = constSrc("DOMAIN_SHIELD_NSK_STWO");
 const W = new Function(...Object.keys(env), constName + "\n" + body)(...Object.values(env));
