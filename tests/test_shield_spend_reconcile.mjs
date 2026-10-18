@@ -28,6 +28,9 @@ function harness(notes, leaves, now) {
     execJSON: async () => { if (leaves === null) throw new Error('down'); return { leaves }; },
     log: (lvl, m) => logs.push(m), i18: (k, d, v) => d.replace('{n}', v.n),
     Date: { now: () => now },
+    // the pre-Stwo pools' path (wall-clock grace); the Stwo path (nullifier + anchor window) is
+    // tests/test_a_relayed_spend_that_lands_late_never_costs_the_change_note.mjs
+    shieldStwo: () => false,
   };
   const f = new Function(...Object.keys(env), src + '; return { reconcileSpentNotes, _markSpendPending };')(...Object.values(env));
   return { f, get saved() { return saved; }, logs };
