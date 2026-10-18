@@ -37,18 +37,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_PATH = os.path.join(ROOT, "execnode", "execnode.py")
 TREE = ast.parse(open(SRC_PATH).read())
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _fn(name):
@@ -252,7 +243,7 @@ for nm, fn in [("a guard precedes the records prove", t_a_guard_precedes_the_rec
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

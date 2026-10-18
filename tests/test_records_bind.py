@@ -27,18 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import records_bind as RB, records_transition as RT
 from execnode import exec_root as ER
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 class FakeState:
@@ -271,5 +262,5 @@ if __name__ == "__main__":
     check("Unbindable surfaces as a refusal, not a crash", t_unbindable_surfaces_as_refusal_not_a_crash)
     print()
     print("ALL PASS — records updates are bound to the span, not merely proven"
-          if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+          if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

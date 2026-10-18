@@ -25,13 +25,9 @@ from ops.account_ops import create_account, reflect_transaction, get_bonded_regi
 from ops.mining_ops import (bond_ramp_weight, selection_shares, total_bonded_shares,
                             select_producer_two_lane)
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def t1_ramp_curve():
@@ -148,5 +144,5 @@ def t9_liveness_fallback_when_all_fresh():
 
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
-print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

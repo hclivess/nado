@@ -23,18 +23,9 @@ from execnode.stark import state_merge as SM, state_transition as SX, storage_tr
 
 DEPTH = 8
 NQ = 2
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _store(values=None):
@@ -156,5 +147,5 @@ if __name__ == "__main__":
     check("ALTERED value rejected", t_wrong_values_rejected)
     check("self-overlapping side refused", t_self_overlapping_side_refused)
     print()
-    print("ALL PASS — parallel merge composes only what it can prove" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS — parallel merge composes only what it can prove" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

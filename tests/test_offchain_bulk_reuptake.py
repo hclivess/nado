@@ -51,18 +51,9 @@ protocol.SETTLE_PROOF_RECURSIVE = True     # the fold ACCEPTANCE path (flipped o
 
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 D8 = 8                       # toy sparse depth (protocol is 256; verify pins depth per segment)
@@ -204,5 +195,5 @@ if __name__ == "__main__":
         print("SKIP  the real K->1 recursion bundle (set NADO_HEAVY=1)")
     print()
     print(f"ALL PASS — {N} off-chain transactions bulked into ONE on-chain settlement"
-          if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+          if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

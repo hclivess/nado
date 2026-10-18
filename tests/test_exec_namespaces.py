@@ -33,12 +33,9 @@ TOKEN = zkvmasm.assemble_contract({
 })
 A, B = "ndoalice", "ndobob"
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _states(nslist):
@@ -130,5 +127,5 @@ for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)
 
-print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

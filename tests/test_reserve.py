@@ -28,18 +28,9 @@ from execnode.state import ExecState, asset_id
 from execnode.games import reserve
 from execnode.games.reserve import UNIT, MIN_NOTICE, BOUND, OWN, AST, RES, OUT, NTC, PND, RDY
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 ALICE = "mldsa44" + "a" * 42          # the creator
@@ -406,5 +397,5 @@ if __name__ == "__main__":
     check("two vaults do not interfere", t_two_vaults_do_not_interfere)
     check("divmodw budget holds at the edges", t_divmodw_budget_holds_at_the_edges)
     check("rounding never overpays", t_rounding_never_overpays)
-    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
-    sys.exit(1 if fails else 0)
+    print("\n" + ("ALL PASS" if not _report.fails else f"{_report.fails} FAILED"))
+    sys.exit(1 if _report.fails else 0)

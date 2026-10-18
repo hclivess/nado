@@ -37,18 +37,9 @@ sys.path.insert(0, ROOT)
 SRC_PATH = os.path.join(ROOT, "execnode", "execnode.py")
 SRC = open(SRC_PATH).read()
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _load_helpers(state_path):
@@ -182,7 +173,7 @@ for nm, fn in [("a stash round-trips through disk", t_round_trip),
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

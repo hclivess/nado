@@ -37,15 +37,9 @@ from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, stark
 from execnode import shielded_wide as SW, shielded
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 # ---- the depth-12 functions this replaced, VERBATIM (execnode/shielded_wide.py at ec83847c) --------------------------
@@ -408,5 +402,5 @@ check("the transition at block 1 deepens the pool and refuses the depth-12 tree"
       t_the_transition_at_block_1_deepens_the_pool_and_refuses_the_old_tree)
 check("the verifier pins D to the depth in force, never the proof's", t_the_verifier_pins_d_to_the_depth_in_force_never_the_proof)
 check("capacity: depth 48 spends at 5,000 leaves", t_capacity_depth48_spends_at_5000_leaves)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -13,13 +13,9 @@ from execnode.state import ExecState
 from execnode.shielded import note_commitment, note_nullifier, owner_id, transfer_sighash, merkle_path
 from signatures import generate_keydict, sign, unhex
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 ALICE = generate_keydict()
 def out_open(v, kd, rho):
@@ -85,5 +81,5 @@ def t_legit_unshield_still_ok():
 setup()
 check("t_redirect_rejected (H-4: swapped withdraw_addr fails the signature)", t_redirect_rejected)
 check("t_legit_unshield_still_ok", t_legit_unshield_still_ok)
-print("\n" + ("ALL PASSED" if not fails else f"{fails} FAILED"))
-sys.exit(1 if fails else 0)
+print("\n" + ("ALL PASSED" if not _report.fails else f"{_report.fails} FAILED"))
+sys.exit(1 if _report.fails else 0)

@@ -17,13 +17,9 @@ from execnode.state import ExecState
 from execnode.stark import alghash, stark
 from execnode import shielded_field as SF, shielded
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _unshield_bundle(st):
@@ -84,5 +80,5 @@ def t_h7_oversized_N_rejected_no_alloc():
 
 check("t_m10_concurrent_double_unshield_records_one", t_m10_concurrent_double_unshield_records_one)
 check("t_h7_oversized_N_rejected_no_alloc", t_h7_oversized_N_rejected_no_alloc)
-print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

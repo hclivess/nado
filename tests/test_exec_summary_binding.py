@@ -18,13 +18,9 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import calls_commit as CC, field as F, alghash
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def call_tx(sender="ndoA", cid="c1", method="m", args=(1, 2), value=0, ns=None):
@@ -214,5 +210,5 @@ for name, fn in [
 ]:
     check(name, fn)
 
-print("ALL PASSED" if not fails else f"{fails} FAILED")
-sys.exit(1 if fails else 0)
+print("ALL PASSED" if not _report.fails else f"{_report.fails} FAILED")
+sys.exit(1 if _report.fails else 0)

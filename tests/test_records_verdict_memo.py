@@ -32,18 +32,9 @@ SRC_PATH = os.path.join(ROOT, "ops", "transaction_ops.py")
 SRC = open(SRC_PATH).read()
 TREE = ast.parse(SRC)
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _records_key_expr():
@@ -122,7 +113,7 @@ for nm, fn in [("the records half is memoized at all", t_the_records_half_is_mem
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

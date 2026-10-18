@@ -33,15 +33,9 @@ P.EVICT_VOIDS_EPOCH_HEIGHT = GATE
 DA.device_binding_key = lambda dev, *_a, **_k: dev["k"]
 DA.credential_public_key = lambda dev: None
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def addr():
@@ -104,5 +98,5 @@ for name, fn in [("before the gate an eviction voids only the latest recert", t_
                  ("a register in a later epoch counts again", t_counts_again_after_a_later_register),
                  ("reverting the move restores the eviction list exactly", t_revert_is_exact)]:
     check(name, fn)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

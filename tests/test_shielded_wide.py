@@ -38,12 +38,9 @@ from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
 from execnode import shielded_wide as SW, shielded_field as SF, exec_root as ER
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 H = 300_000
@@ -282,5 +279,5 @@ if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("t_"):
             check(name[2:].replace("_", " "), fn)
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

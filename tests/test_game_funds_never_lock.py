@@ -27,15 +27,9 @@ from execnode.state import ExecState
 from execnode.games import holdem as hd
 from execnode.games import hexholm as hx
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 A = "ndoAAAA" + "A" * 41          # host / creator — walks away in both scenarios
@@ -255,5 +249,5 @@ if __name__ == "__main__":
     check("hexholm: cancel still blocked on a full table", t_hexholm_cancel_still_blocked_on_full_table)
     check("hexholm: move clock unaffected", t_hexholm_move_clock_unaffected)
     # not "FAILURES: 0": the runner counts lines starting FAIL, so a green run must not print one
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

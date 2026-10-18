@@ -34,15 +34,9 @@ from execnode.stark import stark, fri, field as F, settlement_sparse as SS, stor
 from execnode.stark import extf as ext2
 from execnode import zkvmasm
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 GATE = 1   # the rule holds from block 1 (gen 25's PROOF_BIND_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
@@ -274,6 +268,6 @@ for name, fn in list(globals().items()):
         check(name[2:].replace("_", " "), fn)
 
 print()
-print("ALL PASS — the FRI domain is pinned and the statement is bound, from PROOF_BIND_HEIGHT" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the FRI domain is pinned and the statement is bound, from PROOF_BIND_HEIGHT" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

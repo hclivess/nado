@@ -37,13 +37,9 @@ FLOOR = max(REWARD_WINDOW + FINALITY_DEPTH + 1,
 RET = FLOOR + 150            # a configured retention comfortably ABOVE the floor, so the floor is not what
                              # binds in t1-t3 (t4 is the one that deliberately tests the floor binding)
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 def body_exists(h):
     """True if the block BODY for height h is still referenced (segment locator present)."""
@@ -136,5 +132,5 @@ for name, fn in sorted((n, f) for n, f in list(globals().items())
                        if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 
-print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

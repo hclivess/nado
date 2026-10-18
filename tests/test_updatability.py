@@ -24,13 +24,9 @@ from ops import self_update as SU
 # and a testnet node never runs the installer (heal(), 2026-09-28 — tests/test_testnet_never_runs_the_installer.py).
 os.environ.pop("NADO_TESTNET", None)
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 class patched:
@@ -255,5 +251,5 @@ for name, fn in [
 ]:
     check(name, fn)
 
-print("ALL PASSED" if not fails else f"{fails} FAILED")
-sys.exit(1 if fails else 0)
+print("ALL PASSED" if not _report.fails else f"{_report.fails} FAILED")
+sys.exit(1 if _report.fails else 0)

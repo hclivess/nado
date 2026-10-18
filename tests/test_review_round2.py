@@ -30,15 +30,9 @@ from execnode import zkvmasm, zkvm
 from execnode.stark import stark, field as F, settlement_sparse as SS
 from execnode.shielded_field import TREE_DEPTH
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 GATE = 1   # the rule holds from block 1 (gen 25's REVIEW_R2_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
@@ -269,6 +263,6 @@ for name, fn in list(globals().items()):
         check(name[2:].replace("_", " "), fn)
 
 print()
-print("ALL PASS — the second-round rules flip at REVIEW_R2_HEIGHT and nowhere else" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the second-round rules flip at REVIEW_R2_HEIGHT and nowhere else" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -25,18 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from execnode import settlement_proofs as SP
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 # A contract whose method stores its call value, so a proven run is observable in storage.
@@ -135,7 +126,7 @@ for nm, fn in [("an UNAFFORDABLE call is refused (chain skipped it)", t_unafford
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

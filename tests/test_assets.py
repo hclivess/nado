@@ -32,12 +32,9 @@ from execnode import runtimes, zkvm, zkvmasm
 from execnode.zkpy import Contract, hash as zhash
 from execnode.stark import vm_circuit, field as F
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 ALICE = "mldsa44" + "a" * 42
@@ -826,5 +823,5 @@ if __name__ == "__main__":
     check("settlement prover: mint + burn", t_settlement_prover_mint_burn)
     check("settlement prover: overdraw reverts", t_settlement_prover_rejects_overdraw)
     check("settlement prover: shadow enforces mint authority", t_settlement_prover_enforces_mint_authority)
-    print("ALL PASS" if not fails else f"{fails} FAILURE(S)")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURE(S)")
+    sys.exit(1 if _report.fails else 0)

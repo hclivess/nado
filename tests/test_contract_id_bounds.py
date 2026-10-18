@@ -29,15 +29,9 @@ from execnode import zkvm, zkvmasm
 from execnode.games import _lib
 from execnode.stark import field as F
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 MODULES = ("dice roulette slots mines blackjack tictactoe connect4 reversi chess stormhold scrapline hexholm pool "
@@ -178,6 +172,6 @@ for name, fn in list(globals().items()):
         check(name[2:].replace("_", " "), fn)
 
 print()
-print("ALL PASS — every id-taking method refuses an aliased id, and honest calls are untouched" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — every id-taking method refuses an aliased id, and honest calls are untouched" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

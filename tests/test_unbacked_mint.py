@@ -22,13 +22,9 @@ from execnode.state import ExecState
 from execnode.shielded import note_commitment, owner_id
 from signatures import generate_keydict
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 EVE = generate_keydict()
 MINT = 5_000_000_000_000                      # 500 NADO conjured from nothing
@@ -120,5 +116,5 @@ for name, fn in [("transparent mint (public_value > 0) rejected", t1),
                  ("legitimate field-shield deposit still works", t5)]:
     check(name, fn)
 
-print("ALL PASSED" if not fails else f"{fails} FAILED")
-sys.exit(1 if fails else 0)
+print("ALL PASSED" if not _report.fails else f"{_report.fails} FAILED")
+sys.exit(1 if _report.fails else 0)

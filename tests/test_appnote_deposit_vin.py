@@ -19,12 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode import shielded_state as S
 from execnode.stark import appnote_circuit as AC, field as F, stark, backend as BK
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 GAME = "d0be764f3da9c9cc6bb609280a887929"
 CID = S.cid_element(GAME)
@@ -62,5 +59,5 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("t_"):
             check(name[2:].replace("_", " "), fn)
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

@@ -31,18 +31,9 @@ from execnode.stark import (stark, field as F, backend as B, recursive_verify as
 # review 2026-09-24 — no production caller). So its machinery is tested under the LEGACY rules.
 stark._RULES.set(stark.RULES_LEGACY)
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 T, NQ, NQO, MD = 8, 2, 2, 3
@@ -172,7 +163,7 @@ for nm, fn in [("tree bundle has the right shape", t_tree_shape),
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

@@ -34,18 +34,9 @@ import traceback
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _const(path, name):
@@ -188,7 +179,7 @@ for nm, fn in [("margin fits in the landing window", t_margin_fits_in_the_landin
 print()
 print(f"budget={BUDGET}s  margin={MARGIN} blocks ({MARGIN * BLOCK_S:.0f}s)  "
       f"window={WINDOW} blocks  kv_margin={KV_MARGIN}")
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

@@ -32,18 +32,9 @@ sys.path.insert(0, ROOT)
 from execnode.stark import field as F
 import execnode.stark.stark as S
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _lde_vs_horner(T, blowup=4, n_pts=64):
@@ -234,7 +225,7 @@ for nm, fn in [("lde equals horner at every domain point", t_lde_equals_horner_a
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

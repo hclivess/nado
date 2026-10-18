@@ -19,12 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode.games import pool as P
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 A = "ndoAAAA" + "A" * 41
 B = "ndoBBBB" + "B" * 41
@@ -145,5 +142,5 @@ if __name__ == "__main__":
     check("free game: resign / abort / cancel", t_free_resign_abort_cancel)
     check("free and staked games share one lobby index", t_free_and_staked_share_one_lobby)
     check("move bounds: enc>0, ply binding, 48-bit payload, log cap", t_move_bounds)
-    print("\n" + ("%d FAILED" % fails if fails else "ALL PASS"))
-    sys.exit(1 if fails else 0)
+    print("\n" + ("%d FAILED" % _report.fails if _report.fails else "ALL PASS"))
+    sys.exit(1 if _report.fails else 0)

@@ -28,18 +28,9 @@ NQ = 2
 # small-depth assertions about "how many records changed" meaningless. Proving is slower here and that is
 # the right trade for testing the configuration that actually ships.
 DEPTH = ER.DEPTH
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 class FakeState:
@@ -156,5 +147,5 @@ if __name__ == "__main__":
     check("full transition requires BOTH halves and the right composition", t_full_transition_requires_both_halves)
     check("frozen-records root cannot masquerade as a full transition", t_frozen_records_cannot_masquerade)
     print()
-    print("ALL PASS — both halves of the settled root are provable" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS — both halves of the settled root are provable" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

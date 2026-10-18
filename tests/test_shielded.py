@@ -14,13 +14,9 @@ from execnode.shielded import (ShieldedPool, note_commitment, note_nullifier, ow
                                merkle_root, merkle_path, verify_path, apply_transfer, EMPTY_ROOT)
 from signatures import generate_keydict, sign, unhex
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 # ML-DSA keypairs (keygen is slow -> make them once)
 ALICE, BOB, CAROL, MALLORY = (generate_keydict() for _ in range(4))
@@ -151,5 +147,5 @@ def t10_unknown_anchor_rejected():
 
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
-print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

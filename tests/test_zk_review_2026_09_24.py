@@ -30,12 +30,9 @@ sys.path.insert(0, ROOT)
 import protocol as P
 from execnode.stark import stark, fri, field as F, native_guard as NG
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 GATE = 1   # the rule holds from block 1 (gen 25's PROOF_QUERY_FULL_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 TRANS = [lambda c, n, p: F.sub(n[0], F.add(c[0], 1))]
@@ -240,5 +237,5 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("t_"):
             check(name[2:].replace("_", " "), fn)
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

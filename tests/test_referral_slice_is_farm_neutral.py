@@ -47,15 +47,9 @@ SCALE, SHARE, WIN = P.REFERRAL_SCALE, P.REFERRAL_SHARE, P.REFERRAL_EPOCHS
 DA.device_binding_key = lambda dev, *_a, **_k: dev["k"]
 DA.credential_public_key = lambda dev: None
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def addr():
@@ -180,5 +174,5 @@ for name, fn in [("the link is written on the first attested registration only, 
                  ("one split function feeds every weight consumer", t_one_function_everywhere),
                  ("a referral row is never mistaken for a device binding", t_link_rows_are_not_devices)]:
     check(name, fn)
-print("ALL PASS — a referral moves the newcomer's own weight and nothing else" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a referral moves the newcomer's own weight and nothing else" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

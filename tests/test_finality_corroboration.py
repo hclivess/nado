@@ -31,15 +31,9 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from loops.core_loop import CoreClient
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 # our canonical chain: A(1) <- B(2) <- C(3), tip C. "F"/"G"/"H" are foreign, "O" is an orphan we hold.
@@ -147,5 +141,5 @@ if __name__ == "__main__":
     check("a heavier claim off our chain vetoes", t_heavier_claim_off_our_chain_vetoes)
     check("the prefix probe lifts the veto / corroborates a lagging node",
           t_prefix_probe_lifts_the_veto_and_corroborates_a_lagging_node)
-    print("\n" + ("ALL PASS" if not fails else f"{fails} FAILED"))
-    sys.exit(1 if fails else 0)
+    print("\n" + ("ALL PASS" if not _report.fails else f"{_report.fails} FAILED"))
+    sys.exit(1 if _report.fails else 0)

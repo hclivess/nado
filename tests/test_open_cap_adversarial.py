@@ -16,13 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from protocol import EPOCH_LENGTH, K_OPEN, OPEN_BPS, BPS_DENOM, B_MIN
 from ops.mining_ops import select_producer_two_lane, lane_of
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 BEACON = "a3f1" * 16   # any fixed hex beacon
 
@@ -84,5 +80,5 @@ def t5_one_bonded_holder_cannot_be_starved_below_capital_share():
 
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
-print(f"\n{'ALL PASSED — open-lane Sybil ceiling holds' if not fails else str(fails)+' FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASSED — open-lane Sybil ceiling holds' if not _report.fails else str(_report.fails)+' FAILED'}")
+sys.exit(1 if _report.fails else 0)

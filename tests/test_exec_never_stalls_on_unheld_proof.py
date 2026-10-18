@@ -41,18 +41,9 @@ from execnode.state import ExecState
 from execnode import execnode as EN
 from ops.da_store import DaStore
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 H = 300_000
@@ -265,5 +256,5 @@ def t_the_finalized_tail_bounds_the_stall_and_the_provisional_one_does_not():
 for _name, _fn in list(globals().items()):
     if _name.startswith("t_") and callable(_fn):
         check(_name[2:].replace("_", " "), _fn)
-print(f"\n{'ALL PASS' if not fails else f'{fails} FAILED'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL PASS' if not _report.fails else f'{_report.fails} FAILED'}")
+sys.exit(1 if _report.fails else 0)

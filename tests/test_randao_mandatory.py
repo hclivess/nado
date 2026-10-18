@@ -30,14 +30,9 @@ from ops import kv_ops
 from ops.block_ops import randao_eligible_bonded
 from ops.mining_ops import beacon_commitment, select_producer_two_lane, EPOCH_LENGTH
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 E = 5
 GOOD, LAZY, WITHHOLDER = "ndoGOOD", "ndoLAZY", "ndoWITHHOLD"
@@ -127,5 +122,5 @@ def t5_weight_sites_use_full_registry():
 check("fork weight stays on the FULL registry; selection sites keep the filter", t5_weight_sites_use_full_registry)
 
 
-print(f"\n{'ALL RANDAO-GATE CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL RANDAO-GATE CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

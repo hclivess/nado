@@ -36,18 +36,9 @@ sys.path.insert(0, ROOT)
 from ops import self_update as SU                                      # noqa: E402
 from execnode.stark import native_guard as NG                          # noqa: E402
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn()
-        print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1
-        print(f"FAIL  {name}: {e}")
-        traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 def _crate(tmp, name, so_older_than_src):
@@ -231,7 +222,7 @@ for nm, fn in [("a present-but-stale library is detected", t_a_present_but_stale
     check(nm, fn)
 
 print()
-if fails:
-    print(f"{fails} FAILURES")
+if _report.fails:
+    print(f"{_report.fails} FAILURES")
     sys.exit(1)
 print("ALL PASS")

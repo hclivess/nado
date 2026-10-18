@@ -27,14 +27,9 @@ from ops.block_ops import _block_sig_message_fields, verify_equivocation_proof
 from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, SLASH_BOND_PENALTY, CHAIN_ID
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 offender = generate_keydict()
 NUM, PARENT, HA, HB = 100, "p" * 64, "a" * 64, "b" * 64
@@ -109,5 +104,5 @@ def t5_insufficient_bond():
 check("slash of an offender with no bond -> rejected (keeps apply floor-free)", t5_insufficient_bond)
 
 
-print(f"\n{'ALL SLASHING CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL SLASHING CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

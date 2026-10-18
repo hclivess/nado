@@ -36,12 +36,9 @@ from execnode.code_codec import contract_id, FIXED_CIDS
 from execnode.state import ExecState
 from execnode.stark import settlement_sparse as SS, exec_state_bind as ESB, calls_commit as CC, field as F
 
-fails = 0
-def check(name, fn):
-    global fails
-    try: fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 NQ, DEPTH, H = 8, 16, 300_000          # any height >= 1 runs the same rules since the gen-25 gates were deleted
@@ -283,5 +280,5 @@ if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("t_"):
             check(name[2:].replace("_", " "), fn)
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)

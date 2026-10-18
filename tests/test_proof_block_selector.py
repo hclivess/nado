@@ -26,15 +26,9 @@ import protocol as P
 from execnode.stark import stark, vm_circuit as VC, backend as BK
 from execnode import zkvmasm
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 # the selector (gen 25's PROOF_BLOCK_SELECTOR_HEIGHT) and the bind pins (PROOF_BIND_HEIGHT) hold from block 1 since gen
@@ -148,6 +142,6 @@ for name, fn in list(globals().items()):
         check(name[2:].replace("_", " "), fn)
 
 print()
-print("ALL PASS — the block schedule bounds the execution from PROOF_BLOCK_SELECTOR_HEIGHT" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the block schedule bounds the execution from PROOF_BLOCK_SELECTOR_HEIGHT" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

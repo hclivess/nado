@@ -30,14 +30,9 @@ from ops.account_ops import get_bonded_registry
 from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, EPOCH_LENGTH, CHAIN_ID
 
-fails = 0
-def check(name, fn):
-    """Run fn; print PASS/FAIL and count failures."""
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 # 4 bonded validators, 1 share each (total 4). 2/3 supermajority (strict) => need >= 3 attesters.
 VALS = [generate_keydict() for _ in range(4)]
@@ -127,5 +122,5 @@ def t3_attest_tx():
 check("attest tx: bonded-only, one-per-epoch (no double-vote), revert-symmetric", t3_attest_tx)
 
 
-print(f"\n{'ALL FFG CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
-sys.exit(1 if fails else 0)
+print(f"\n{'ALL FFG CHECKS PASSED' if not _report.fails else str(_report.fails) + ' FAILURE(S)'}")
+sys.exit(1 if _report.fails else 0)

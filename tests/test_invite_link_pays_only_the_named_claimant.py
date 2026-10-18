@@ -35,15 +35,9 @@ from signatures import generate_keydict, sign, unhex
 GATE = 1000
 P.REFERRAL_HEIGHT = GATE
 
-fails = 0
-
-
-def check(name, fn):
-    global fails
-    try:
-        fn(); print(f"PASS  {name}")
-    except Exception as e:
-        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+import _harness
+_report = _harness.Report()
+check = _report.run
 
 
 RK = generate_keydict(); REF = RK["address"]          # the referrer
@@ -185,5 +179,5 @@ for name, fn in [("before the gate every invite tx is refused; the escrow is nev
                  ("the referrer refunds only after expiry, and the refund reverts exactly", t_refund_after_expiry_and_reverts),
                  ("one settle per invite per block; invite rows never read as HTLCs", t_block_uniqueness_and_htlc_isolation)]:
     check(name, fn)
-print("ALL PASS — an invite pays only the claimant its link key names" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an invite pays only the claimant its link key names" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)
