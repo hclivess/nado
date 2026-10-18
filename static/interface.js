@@ -9499,7 +9499,10 @@ async function rollupView() {
   try {
     const u = execBase() + "/exec/view?ns=" + encodeURIComponent(ns) + "&cid=" + encodeURIComponent(p.cid)
       + "&method=" + encodeURIComponent(p.method) + "&args=" + encodeURIComponent(JSON.stringify(p.args));
-    const j = await (await fetch(u, { cache: "no-store" })).json();
+    const res = await fetch(u, { cache: "no-store" });
+    // a busy exec node answers 429 (execnode.h_view slots full): say so, never show it as a null result
+    if (res.status === 429) { out.textContent = i18("err.relayHttp", "The relay is unreachable right now (HTTP {s}). Please try again in a moment.", { s: "429" }); return; }
+    const j = await res.json();
     out.textContent = i18("rollup.result", "Result: ") + JSON.stringify(j.result);
     rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok: true,
                         status: "→ " + JSON.stringify(j.result), ts: Date.now(), blk: state.latest });

@@ -1970,9 +1970,14 @@ export class NadoDapp {
   // error. A non-numeric RET falls back to the raw value. Args may be ints or address strings.
   async view(method, args) {
     try {
-      const r = await (await fetch(base() + "/exec/view?ns=" + this.ns + "&cid=" + this.cid
-        + "&method=" + encodeURIComponent(method) + "&args=" + encodeURIComponent(JSON.stringify(args || [])),
-        { cache: "no-store" })).json();
+      // a BUSY exec node answers 429 (its view slots are full: execnode.h_view) — retry briefly, never read a busy
+      // answer as "no value" (a claimable amount would show as nothing)
+      const url = base() + "/exec/view?ns=" + this.ns + "&cid=" + this.cid
+        + "&method=" + encodeURIComponent(method) + "&args=" + encodeURIComponent(JSON.stringify(args || []));
+      let res = await fetch(url, { cache: "no-store" });
+      for (let i = 0; res.status === 429 && i < 2; i++) { await new Promise((ok) => setTimeout(ok, 300 * (i + 1))); res = await fetch(url, { cache: "no-store" }); }
+      if (res.status === 429) return null;
+      const r = await res.json();
       const v = r && (r.result !== undefined ? r.result : r.ret);
       if (v == null) return null;
       try { return BigInt(v); } catch { return v; }

@@ -4380,8 +4380,25 @@ async def h_view(request):
     # RET is a 64-bit field element (up to ~1.8e19) — a raw JSON number loses precision past 2^53 the instant
     # the browser JSON.parses it (amounts over ~900k NADO, hashes, commitments). Emit it as a STRING so the
     # client can BigInt() it exactly; Number("123") still works for small legacy readers (forward-compatible).
-    _ret = st.view(cid, method, args)
+    # OFF THE EVENT LOOP, BOUNDED (audit 2026-09-24 #25, confirmed 2026-10-18): a view is a full contract call, up to
+    # GAS_LIMIT steps of the pure-Python VM, and it ran ON the event loop — any client could freeze the exec node,
+    # its block tail included, by repeating it. It runs in a worker under the state's mutate lock (never reading a
+    # half-applied block), at most _VIEW_SLOTS at a time; a full house answers 429 instead of queueing.
+    if _VIEW_BUSY[0] >= _VIEW_SLOTS:
+        return web.json_response({"cid": cid, "method": method, "result": None, "error": "busy"}, status=429)
+    _VIEW_BUSY[0] += 1
+    try:
+        def _run():
+            with st._mutate_lock:
+                return st.view(cid, method, args)
+        _ret = await asyncio.to_thread(_run)
+    finally:
+        _VIEW_BUSY[0] -= 1
     return web.json_response({"cid": cid, "method": method, "result": None if _ret is None else str(_ret)})
+
+
+_VIEW_SLOTS = 4                  # concurrent contract views (h_view); one event loop, so a plain counter is exact
+_VIEW_BUSY = [0]
 
 
 # (coinflip read endpoints removed — the Coin Flip dApp reads its state from the generic /exec/contract
