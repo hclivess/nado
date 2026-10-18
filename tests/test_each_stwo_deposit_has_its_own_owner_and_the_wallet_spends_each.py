@@ -92,8 +92,9 @@ const env = {
   execJSON: async (p) => (p === "/exec/field_leaves" ? { leaves: c.leaves || [], pool: "stwo" } : { nullifiers: c.spent || [] }),
   shieldNskWire: null,
 };
-const body = [constSrc("ZADDR_STWO"), constSrc("STWO_DEPOSIT_GAP"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"),
-  fnSrc("cmStr"), fnSrc("shieldAddr"), fnSrc("stwoDepositNsk"), fnSrc("stwoDepositKey"), fnSrc("stwoDepositIndexTake"),
+const body = [constSrc("ZADDR_STWO"), constSrc("STWO_RESTORE_MARGIN"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"),
+  fnSrc("cmStr"), fnSrc("shieldAddr"), fnSrc("stwoDepositNsk"), fnSrc("stwoRestoreKey"), fnSrc("_stwoRestoreLoad"), fnSrc("_stwoRestoreSave"),
+  fnSrc("stwoCarriedDeposits", true),
   fnSrc("noteNskWire"), fnSrc("doShield", true), fnSrc("stwoOwnTransactions", true), fnSrc("stwoRecoverDeposits", true),
   "shieldNskWire = () => shieldNskStwo();",
   "return { doShield, shieldOwner, noteNskWire, stwoRecoverDeposits, shieldNskStwo };"].join("\n");
@@ -141,7 +142,7 @@ check("...and the wallet's stored notes are exactly those commitments", sorted(n
 keys = wallet("spendkeys", stored=stored)["keys"]
 FEE = 100000
 for n, nsk in zip(stored, keys):
-    check(f"2. note k={n['k']}: the key the wallet picks owns it", SP.commit(int(n["value"]), SP.owner_of(nsk), int(n["rho"])) == n["cm"])
+    check(f"2. deposit note rho={n['rho']}: the key the wallet picks owns it", n.get("dep") is True and SP.commit(int(n["value"]), SP.owner_of(nsk), int(n["rho"])) == n["cm"])
     leaves = list(st.stwo_pool.commitments)
     v = int(n["value"])
     spend = {"nsk": nsk, "vIn": str(v), "rho": str(n["rho"]), "v1": "1000", "o1": SP.owner_of(secrets.token_hex(32)),
@@ -170,14 +171,18 @@ history = [dict(p, sender=ADDR) for p in pub]
 other = {"sender": make_address("ef" * 1312), "recipient": "shield", "amount": "5", "data": dict(pub[0]["data"], owner=SP.owner_of(secrets.token_hex(32)))}
 rec = wallet("recover", stored=[], history=history + [other], leaves=list(st_r.stwo_pool.commitments),
              spent=sorted(st_r.stwo_pool.nullifiers))
-got = sorted(rec["stored"], key=lambda n: n["k"])
+got = sorted(rec["stored"], key=lambda n: n["cm"])
 check("3. a restored wallet finds both deposits from its own shield transactions", rec["recovered"] == 2 and len(got) == 2, rec)
-check("...with their commitments recomputed and their key indices", [n["cm"] for n in got] == [n["cm"] for n in sorted(stored, key=lambda n: n["k"])]
-      and [n["k"] for n in got] == sorted(n["k"] for n in stored), got)
-check("...the spent one marked spent, the other spendable", [n["spent"] for n in got] == [True, False], got)
-key = "nado.stwoDep." + ADDR
-check("...and the index continues past them (no owner is reused)", int(rec["ls"].get(key, 0)) == max(n["k"] for n in stored) + 1, rec["ls"])
-check("...a restore runs once per account on a device", rec["ls"].get(key + ".scan") == "1")
+check("...with their commitments recomputed, each marked a deposit note (spent with its own rho-derived key)",
+      [n["cm"] for n in got] == sorted(n["cm"] for n in stored) and all(n.get("dep") is True for n in got), got)
+first_cm = SP.commit(int(pub[0]["amount"]), pub[0]["data"]["owner"], int(pub[0]["data"]["rho"]))
+check("...the spent one marked spent, the other spendable",
+      sorted((n["cm"] == first_cm, n["spent"]) for n in got) == [(False, False), (True, True)], got)
+key = "nado.stwoRestore." + ADDR
+again2 = wallet("recover", stored=rec["stored"], history=history + [other], leaves=list(st_r.stwo_pool.commitments),
+                spent=sorted(st_r.stwo_pool.nullifiers), ls=rec["ls"])
+check("...a later render banks nothing twice (the restore remembers what it settled)",
+      again2["recovered"] == 0 and len(again2["stored"]) == 2 and key in rec["ls"], again2)
 again = wallet("recover", stored=[], history=history, leaves=[], spent=[])
 check("4. a deposit the pool never applied is not banked", again["recovered"] == 0 and again["stored"] == [], again)
 check("...nor another account's deposit (sanity: 2 found above, not 3)", rec["recovered"] == 2)

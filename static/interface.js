@@ -10429,29 +10429,21 @@ function shieldNskWide() {
 function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
 // A FRESH OWNER PER DEPOSIT (ZK review 2026-10-11, tests/test_a_stwo_deposit_does_not_publish_the_owner_behind_the_wallets_zaddr.mjs).
 // A deposit publishes its note's owner in the clear, next to the account that signs it. Under the one stable owner (the
-// zaddr) that tied the zaddr — and every deposit, and every note ever paid to it — to the account. Deposit i is owned by
-// ownerOf(nsk_i), nsk_i = static/stark/stwo_js.js depositNsk(shieldNskStwo(), i): one-way, so deposits share nothing an
-// observer can compare, and the recovery phrase re-derives every nsk_i (stwoRecoverDeposits). The note remembers its i
-// (note.k) and is spent with nsk_i (noteNskWire). INVARIANT: doShield in the Stwo pool never publishes shieldOwner(),
-// and an index is never used twice (stwoDepositIndexTake advances BEFORE the deposit is sent, so a send whose answer
-// was lost burns its index instead of reusing it).
-function stwoDepositNsk(i) { return _stwo.depositNsk(shieldNskStwo(), i); }
-function stwoDepositKey() { return "nado.stwoDep." + (state.wallet ? state.wallet.address : "none"); }
-function stwoDepositIndexTake() {
-  const key = stwoDepositKey(), mem = state.stwoDepNext || (state.stwoDepNext = {});
-  let n = 0;
-  try { n = Number(localStorage.getItem(key) || 0) || 0; } catch (e) { /* storage blocked: the floors below hold */ }
-  // three floors, so no path re-uses an index: what this device stored, what this page took, what the notes carry
-  for (const x of loadNotes()) if (x && x.k !== undefined && x.k !== null) n = Math.max(n, Number(x.k) + 1);
-  n = Math.max(n, mem[key] || 0);
-  mem[key] = n + 1;
-  try { localStorage.setItem(key, String(n + 1)); } catch (e) { /* in-page floor still advances */ }
-  return n;
-}
-// the spend key of THIS note, in the active pool's wire form: a Stwo deposit note is spent with its own nsk_i; every
+// zaddr) that tied the zaddr — and every deposit, and every note ever paid to it — to the account. A deposit with
+// randomness rho is owned by ownerOf(nsk_dep), nsk_dep = static/stark/stwo_js.js depositNsk(shieldNskStwo(), rho): one-way,
+// so deposits share nothing an observer can compare, and the recovery phrase re-derives every nsk_dep from the rho its
+// deposit transaction published (stwoRecoverDeposits). The note is marked `dep` and spent with nsk_dep (noteNskWire).
+// KEYED ON RHO, NOT ON A COUNTER (review 2026-10-12, tests/test_every_stwo_deposit_is_restorable_from_the_recovery_phrase.mjs):
+// a per-device deposit index was re-used by a second device of the same wallet (one published owner for two deposits),
+// and refused sends burned indices past the restore's gap. rho is fresh per deposit and already public, so there is no
+// state to keep or share. No note was ever made under the index scheme: the pool was never live on the chain (gen 28's
+// STWO_POOL_HEIGHT unreached, and L1 refuses a Stwo-tagged deposit below it), so nothing migrates.
+// INVARIANT: doShield in the Stwo pool never publishes shieldOwner(), and never derives a deposit's key from device state.
+function stwoDepositNsk(rho) { return _stwo.depositNsk(shieldNskStwo(), BigInt(rho)); }
+// the spend key of THIS note, in the active pool's wire form: a Stwo deposit note is spent with its own nsk_dep; every
 // other note (received payments, change) with the wallet's stable key, which its owner (the zaddr) is the image of
 function noteNskWire(n) {
-  if (shieldStwo() && n && n.k !== undefined && n.k !== null) return stwoDepositNsk(Number(n.k));
+  if (shieldStwo() && n && n.dep) return stwoDepositNsk(n.rho);
   return shieldNskWire();
 }
 // ONE NULLIFIER, ONE NOTE (review 2026-10-11, "faerie gold"): the Stwo circuit leaves an output's rho free and
@@ -10461,8 +10453,8 @@ function noteNskWire(n) {
 // INVARIANT: every receive path goes through doReceiveShielded, which asks this before banking a Stwo note.
 function shieldDuplicateNote(notes, rho, nskStwo, nullifierOf) {
   const nf = nullifierOf(nskStwo, BigInt(rho));
-  // a deposit note (n.k) is spent with its own nsk_i, so its nullifier is not nf(nskStwo, rho): compare only stable-key notes
-  return notes.some((n) => n.rho !== undefined && (n.k === undefined || n.k === null) && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
+  // a deposit note (n.dep) is spent with its own nsk_dep, so its nullifier is not nf(nskStwo, rho): compare only stable-key notes
+  return notes.some((n) => n.rho !== undefined && !n.dep && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
 }
 // the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
 function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
@@ -10521,16 +10513,30 @@ function _markSpendPending(note, pr) {
   note.spentAt = Date.now();
   note.spentOuts = [pr && pr.cm_out1, pr && pr.cm_out2].filter(Boolean).map(String);
 }
+const STWO_SPEND_LAND_GRACE_MS = 3 * 3600 * 1000;   // past the anchor window (1024 blocks ~ 1.9 h at 6.8 s), with margin
 async function reconcileSpentNotes() {
   const notes = loadNotes();
   const open = notes.filter((n) => n.spent && Array.isArray(n.spentOuts) && n.spentOuts.length);
   if (!open.length) return 0;
   let leaves;
   try { leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String)); } catch (e) { return 0; }
+  // A RELAYED SPEND CAN LAND LATE (review 2026-10-12): its anchor is accepted for ANCHOR_BLOCKS (~2 h), so a relay (or a
+  // stalled exec node) can land it long after SPEND_LAND_GRACE_MS. Restoring the input then deleted the change note for
+  // good. A Stwo input is restored only when its nullifier is NOT spent and the anchor window has passed; a spent one
+  // keeps its outputs.
+  let spentNf = null;
+  if (shieldStwo()) {
+    try { spentNf = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String)); } catch (e) { return 0; }
+  }
   let changed = false, restored = 0;
   for (const n of open) {
     if (n.spentOuts.some((c) => leaves.has(String(c)))) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }
-    if (Date.now() - Number(n.spentAt || 0) < SPEND_LAND_GRACE_MS) continue;
+    if (spentNf) {
+      let nf = null;
+      try { nf = _stwo.nullifier(noteNskWire(n), BigInt(n.rho)); } catch (e) { continue; }   // cannot tell: never restore
+      if (spentNf.has(nf)) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }  // it landed: keep the change
+      if (Date.now() - Number(n.spentAt || 0) < STWO_SPEND_LAND_GRACE_MS) continue;
+    } else if (Date.now() - Number(n.spentAt || 0) < SPEND_LAND_GRACE_MS) continue;
     const outs = new Set(n.spentOuts.map(String));
     for (let i = notes.length - 1; i >= 0; i--) if (notes[i] !== n && outs.has(String(notes[i].cm))) notes.splice(i, 1);
     n.spent = false; delete n.spentOuts; delete n.spentAt; changed = true; restored++;
@@ -10541,21 +10547,46 @@ async function reconcileSpentNotes() {
 }
 
 // RESTORING DEPOSIT NOTES (fresh owner per deposit, stwoDepositNsk). A deposit note is not re-derivable from the zaddr,
-// so a wallet restored on a new device finds its deposits the way it made them: it reads ITS OWN shield transactions
-// (public: amount, owner, rho), derives ownerOf(nsk_0), ownerOf(nsk_1)… until STWO_DEPOSIT_GAP indices in a row match
-// nothing, and banks each match whose commitment is in the pool. Spent ones are marked by testing their nullifiers
-// against the pool's whole spent set locally (/exec/stwo_nullifiers), so no node learns which notes are this wallet's.
-// Once per account on each device (stwoDepositKey + ".scan"); the index counter then continues past the last match.
-const STWO_DEPOSIT_GAP = 20;
+// so a wallet restored on a new device finds its deposits the way it made them: for EVERY one of its own Stwo shield
+// transactions (public: amount, owner, rho) it derives nsk_dep from its key and that rho, and keeps the deposit when
+// ownerOf(nsk_dep) is the owner the transaction published — one note per transaction (never a map keyed by owner), no
+// index, no gap, no counter. A note carried across a reroll has no transaction on the new chain, so the carried public
+// records (/exec/stwo_carried_deposits, execnode/exec_genesis.py) are read the same way. Spent ones are marked by testing
+// their nullifiers against the pool's whole spent set locally (/exec/stwo_nullifiers), so no node learns which notes
+// are this wallet's.
+// NEVER "ONCE" (review 2026-10-12): a deposit whose leaf the exec node has not applied yet (exec trails L1 by the
+// finality depth) used to be skipped and the scan then marked done for good. Now the restore runs on every render and
+// remembers what is SETTLED — each deposit banked or found not to be this wallet's (stwoRestoreKey) — and a block cursor
+// behind which every deposit is settled, so a later render costs one short page of transactions. INVARIANT: the cursor
+// only advances when no deposit of this wallet is still waiting for its leaf.
+const STWO_RESTORE_MARGIN = 64;      // blocks the cursor stays behind the tip: deeper than finality (45), for reorgs
+function stwoRestoreKey() { return "nado.stwoRestore." + (state.wallet ? state.wallet.address : "none"); }
+function _stwoRestoreLoad() {
+  try {
+    const j = JSON.parse(localStorage.getItem(stwoRestoreKey()) || "null");
+    if (j && Array.isArray(j.done)) return { done: new Set(j.done.map(String)), from: Math.max(0, Number(j.from) || 0) };
+  } catch (e) { /* unreadable: start over, the scan is idempotent */ }
+  return { done: new Set(), from: 0 };
+}
+function _stwoRestoreSave(r) {
+  try { localStorage.setItem(stwoRestoreKey(), JSON.stringify({ done: [...r.done], from: r.from })); } catch (e) {}
+}
+// the public records of this account's deposit notes a reroll carried; null when the exec node cannot say (try later)
+async function stwoCarriedDeposits(addr) {
+  try {
+    const j = await execJSON("/exec/stwo_carried_deposits?addr=" + encodeURIComponent(addr));
+    return Array.isArray(j && j.deposits) ? j.deposits : [];
+  } catch (e) { return null; }
+}
 // EVERY transaction of the account, exact. Two traps the first restore fell into (review 2026-10-12):
 // - the endpoint returns at most ~1000 transactions per call (transaction_ops.get_transactions_of_account), so an active
 //   account's later deposits were never read: page by min_block = the last block seen, deduped by txid;
 // - JSON.parse turns an amount above 2^53 raw (~900,719 NADO) into a rounded double, the recomputed commitment then
 //   matches no leaf and the deposit is silently not restored: every "amount" integer is quoted before parsing, so it
 //   reaches BigInt as its exact digits. Returns null on a relay failure (the caller retries on a later render).
-async function stwoOwnTransactions(addr) {
+async function stwoOwnTransactions(addr, fromBlock = 0) {
   const out = [], seen = new Set();
-  let minBlock = 0;
+  let minBlock = Math.max(0, Math.floor(Number(fromBlock) || 0));
   for (let page = 0; page < 200; page++) {
     let text, status;
     try {
@@ -10584,43 +10615,56 @@ async function stwoOwnTransactions(addr) {
 }
 async function stwoRecoverDeposits() {
   if (!state.wallet || !shieldStwo()) return 0;
-  const done = stwoDepositKey() + ".scan";
-  try { if (localStorage.getItem(done)) return 0; } catch (e) { return 0; }
-  const addr = state.wallet.address;
-  const txs = await stwoOwnTransactions(addr);
+  const addr = state.wallet.address, nsk = shieldNskStwo(), rs = _stwoRestoreLoad();
+  let tip = null;
+  try { const l = await getLatestBlock(); if (l && Number.isFinite(Number(l.block_number))) tip = Number(l.block_number); } catch (e) {}
+  const txs = await stwoOwnTransactions(addr, rs.from);
   if (txs === null) return 0;                                // try again on a later render
-  const deps = txs.filter((t) => t && t.recipient === "shield" && t.sender === addr && t.data && t.data.pool === "stwo"
-                                 && typeof t.data.owner === "string");
-  if (deps.length) {
-    const byOwner = new Map(deps.map((t) => [String(t.data.owner).toLowerCase(), t]));
-    const nsk = shieldNskStwo(), found = [];
-    for (let i = 0, hi = STWO_DEPOSIT_GAP; i < hi; i++) {
-      const t = byOwner.get(_stwo.ownerOf(_stwo.depositNsk(nsk, i)));
-      if (t) { found.push([i, t]); hi = Math.max(hi, i + 1 + STWO_DEPOSIT_GAP); }
-    }
-    if (found.length) {
-      const leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String));
-      const spent = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String));
-      const notes = loadNotes();
-      let added = 0, top = -1;
-      for (const [i, t] of found) {
-        top = Math.max(top, i);
-        // the commitment is recomputed from the public amount, owner and rho — never taken from the tx's data.cm
-        const cm = _stwo.commit(BigInt(t.amount), _stwo.ownerOf(_stwo.depositNsk(nsk, i)), BigInt(t.data.rho));
-        if (!leaves.has(cm) || notes.some((n) => n.cm === cm)) continue;
-        notes.push({ value: String(t.amount), rho: String(t.data.rho), cm, k: i, ts: Date.now(),
-                     spent: spent.has(_stwo.nullifier(_stwo.depositNsk(nsk, i), BigInt(t.data.rho))) });
-        added++;
-      }
-      if (added) saveNotes(notes);
-      try { const key = stwoDepositKey(); if (Number(localStorage.getItem(key) || 0) <= top) localStorage.setItem(key, String(top + 1)); } catch (e) {}
-      if (added) log("ok", i18("shield.recovered", "{n} private banknote(s) from your earlier deposits were restored.", { n: String(added) }));
-      try { localStorage.setItem(done, "1"); } catch (e) {}
-      return added;
-    }
+  const carried = await stwoCarriedDeposits(addr);
+  const cands = [];
+  for (const t of txs) {
+    if (!t || t.recipient !== "shield" || t.sender !== addr || !t.data || t.data.pool !== "stwo" || typeof t.data.owner !== "string") continue;
+    cands.push({ key: "tx:" + (typeof t.txid === "string" && t.txid ? t.txid : JSON.stringify(t)), amount: t.amount, owner: t.data.owner, rho: t.data.rho });
   }
-  try { localStorage.setItem(done, "1"); } catch (e) {}
-  return 0;
+  for (const r of carried || []) {
+    if (r && typeof r.owner === "string") cands.push({ key: "carried:" + r.owner + ":" + r.rho, amount: r.amount, owner: r.owner, rho: r.rho });
+  }
+  const notes = loadNotes(), mine = [];
+  let changed = false;
+  for (const c of cands) {
+    if (rs.done.has(c.key)) continue;
+    let amount, rho, nskDep;
+    try { amount = BigInt(c.amount); rho = BigInt(c.rho); nskDep = _stwo.depositNsk(nsk, rho); }
+    catch (e) { rs.done.add(c.key); changed = true; continue; }          // not a u64 rho / amount: no note of ours
+    const owner = _stwo.ownerOf(nskDep);
+    if (owner !== String(c.owner).toLowerCase()) { rs.done.add(c.key); changed = true; continue; }   // not this wallet's
+    // the commitment is recomputed from the public amount, owner and rho — never taken from the tx's data.cm
+    const cm = _stwo.commit(amount, owner, rho);
+    if (notes.some((n) => n.cm === cm)) { rs.done.add(c.key); changed = true; continue; }        // already in the wallet
+    mine.push({ c, amount, rho, nskDep, cm });
+  }
+  let added = 0, waiting = 0;
+  if (mine.length) {
+    let leaves, spent;
+    try {
+      // the spent set FIRST, then the tree: a note whose leaf is read after its nullifier is never banked as unspent
+      // when a spend of it applied between the two reads
+      spent = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String));
+      leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String));
+    } catch (e) { return 0; }
+    for (const m of mine) {
+      if (!leaves.has(m.cm)) { waiting++; continue; }         // not applied yet: banked on a later render
+      notes.push({ value: m.amount.toString(), rho: m.rho.toString(), cm: m.cm, dep: true, ts: Date.now(),
+                   spent: spent.has(_stwo.nullifier(m.nskDep, m.rho)) });
+      rs.done.add(m.c.key); changed = true; added++;
+    }
+    if (added) saveNotes(notes);
+  }
+  // every deposit at or below tip - margin is settled now: the next render pages from there (never past a waiting one)
+  if (!waiting && tip !== null && tip - STWO_RESTORE_MARGIN > rs.from) { rs.from = tip - STWO_RESTORE_MARGIN; changed = true; }
+  if (changed) _stwoRestoreSave(rs);
+  if (added) log("ok", i18("shield.recovered", "{n} private banknote(s) from your earlier deposits were restored.", { n: String(added) }));
+  return added;
 }
 
 async function renderShield() {
@@ -10667,9 +10711,10 @@ async function doShield() {
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   const rho = _randField();
-  // STWO: a fresh owner per deposit (stwoDepositNsk) — never the stable owner the zaddr encodes. Older pools: the stable one.
-  const k = shieldStwo() ? stwoDepositIndexTake() : null;
-  const owner = k !== null ? _stwo.ownerOf(stwoDepositNsk(k)) : shieldOwner();
+  // STWO: a fresh owner per deposit, from its own rho (stwoDepositNsk) — never the stable owner the zaddr encodes. Older
+  // pools: the stable one.
+  const dep = shieldStwo();
+  const owner = dep ? _stwo.ownerOf(stwoDepositNsk(rho)) : shieldOwner();
   const cm = noteCommit(rawAmount, owner, BigInt(rho));      // field-native note commitment (wide from the gate)
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
@@ -10684,7 +10729,7 @@ async function doShield() {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
-      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), ...(k !== null ? { k } : {}) });
+      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), ...(dep ? { dep: true } : {}) });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       $("shieldAmount").value = "";
@@ -10956,8 +11001,11 @@ async function stwoRelayInfo(url) {
 // the relays to try, in order: the one this wallet talks to, home, then the relay pool — all answering available,
 // all asking the SAME fee as the first (the fee the user confirms; a proof's change depends on it)
 async function stwoRelays() {
-  const urls = [];
-  for (const u of [relayBase(), homeRelay(), ...((relayPool.list || []).map((c) => c.url))]) if (u && !urls.includes(u)) urls.push(u);
+  // OTHER RELAYS FIRST (review 2026-10-12): relayBase() is the node this wallet reads its ACCOUNT through, so relaying the
+  // spend there lets one node join the spend to the account by IP and timing. It is tried last, as the fallback.
+  const urls = [], mine = relayBase();
+  for (const u of [...((relayPool.list || []).map((c) => c.url)), homeRelay(), mine]) if (u && !urls.includes(u)) urls.push(u);
+  if (urls.length > 1 && urls[0] === mine) urls.push(urls.shift());
   const out = [];
   for (const u of urls) {
     try { const i = await stwoRelayInfo(u); if (i && (!out.length || i.fee === out[0].fee)) out.push(i); } catch (e) { /* next */ }

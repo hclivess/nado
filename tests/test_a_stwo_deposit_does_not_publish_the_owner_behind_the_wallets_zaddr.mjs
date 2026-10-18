@@ -12,7 +12,8 @@
  * The proof hides the input note's owner; the deposit has already published it, with the account's signature on it.
  *
  * FIXED: deposit i is owned by ownerOf(nsk_i), nsk_i = stwo_js.js depositNsk(shieldNskStwo(), i) — a fresh,
- * unlinkable owner per deposit (interface.js stwoDepositIndexTake); the zaddr stays the stable owner, for receiving.
+ * unlinkable owner per deposit, derived from the deposit's own rho (interface.js stwoDepositNsk); the zaddr stays the
+ * stable owner, for receiving.
  *
  * The check RUNS the wallet's own doShield / shieldOwner / shieldAddr / parseShieldAddr (extracted from
  * static/interface.js) with the Stwo pool live, a generated throwaway key (never a real one) and the network stubbed,
@@ -59,7 +60,7 @@ const env = {
   setTimeout: () => {}, renderShield: async () => {},
 };
 const body = [constSrc("ZADDR_STWO"), fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"), fnSrc("cmStr"),
-  fnSrc("shieldAddr"), fnSrc("_b36"), fnSrc("stwoDepositNsk"), fnSrc("stwoDepositKey"), fnSrc("stwoDepositIndexTake"),
+  fnSrc("shieldAddr"), fnSrc("_b36"), fnSrc("stwoDepositNsk"),
   fnSrc("doShield", true),
   "return { doShield, shieldOwner, shieldAddr, ownerStr, stwoDepositNsk };"].join("\n");
 const constName = constSrc("DOMAIN_SHIELD_NSK_STWO");
@@ -82,16 +83,16 @@ if (published.length === 2)
   check("two deposits of one wallet publish no common identifier", published[0].data.owner !== published[1].data.owner,
         "both carry the same owner: every deposit of the account is linkable, and to every note paid to its zaddr");
 
-// THE WALLET CAN STILL SPEND EACH: every deposit's note is stored with its key index, and that index's key owns it
+// THE WALLET CAN STILL SPEND EACH: every deposit's note is stored marked `dep`, and the key derived from its rho owns it
 // (the real spend of each, proved and applied, is tests/test_each_stwo_deposit_has_its_own_owner_and_the_wallet_spends_each.py)
 for (const [i, p] of published.entries()) {
   const n = stored.find((x) => x.cm === p.data.cm);
-  const ok = n && n.k !== undefined && stwo.ownerOf(W.stwoDepositNsk(n.k)) === p.data.owner
+  const ok = n && n.dep === true && stwo.ownerOf(W.stwoDepositNsk(n.rho)) === p.data.owner
     && stwo.commit(BigInt(p.amount), p.data.owner, BigInt(p.data.rho)) === n.cm;
-  check(`deposit ${i + 1}'s note is stored with the key index whose spend key owns it`, !!ok, js({ n, p: p.data }));
+  check(`deposit ${i + 1}'s note is stored as a deposit note whose rho-derived spend key owns it`, !!ok, js({ n, p: p.data }));
 }
-check("each deposit used a different key index", stored.length === 2 && stored[0].k !== stored[1].k, js(stored));
+check("each deposit used a different spend key", stored.length === 2 && W.stwoDepositNsk(stored[0].rho) !== W.stwoDepositNsk(stored[1].rho), js(stored));
 check("a deposit's spend key is not the wallet's stable one (one-way, domain-separated derivation)",
-      stored.every((n) => stwo.ownerOf(W.stwoDepositNsk(n.k)) !== owner));
+      stored.every((n) => stwo.ownerOf(W.stwoDepositNsk(n.rho)) !== owner));
 
 process.exit(fails ? 1 : 0);

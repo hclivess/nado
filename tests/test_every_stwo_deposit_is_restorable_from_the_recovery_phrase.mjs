@@ -43,7 +43,7 @@ const check = (name, ok, detail = "") => { console.log((ok ? "PASS  " : "FAIL  "
 
 // ---- one chain (L1 txs + the exec tree) shared by every device -------------------------------------------------------
 const ADDR = "ndo_review_account", KEY = crypto.randomBytes(32).toString("hex");   // throwaway, generated here
-const chain = { txs: [], leaves: new Set(), nfs: new Set() };
+const chain = { txs: [], leaves: new Set(), nfs: new Set(), carried: [] };
 let seq = 0;
 
 function device(submit) {
@@ -64,13 +64,15 @@ function device(submit) {
     submitTransaction: submit || (async (tx) => { chain.txs.push(tx); return { data: { result: true } }; }),
     stwoOwnTransactions: async (addr) => chain.txs.filter((t) => t.sender === addr),
     execJSON: async (p) => (p === "/exec/field_leaves" ? { leaves: [...chain.leaves] }
-                            : p === "/exec/stwo_nullifiers" ? { nullifiers: [...chain.nfs] } : {}),
+                            : p === "/exec/stwo_nullifiers" ? { nullifiers: [...chain.nfs] }
+                            : p.startsWith("/exec/stwo_carried_deposits") ? { deposits: chain.carried.filter((r) => r.addr === ADDR) } : {}),
     setTimeout: () => {}, renderShield: async () => {},
   };
-  const body = [constSrc("DOMAIN_SHIELD_NSK_STWO"), constSrc("ZADDR_STWO"), constSrc("STWO_DEPOSIT_GAP"),
+  const body = [constSrc("DOMAIN_SHIELD_NSK_STWO"), constSrc("ZADDR_STWO"), constSrc("STWO_RESTORE_MARGIN"),
     fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"), fnSrc("cmStr"), fnSrc("shieldStoreKey"),
     fnSrc("_notePool"), fnSrc("_activePool"), fnSrc("loadNotes"), fnSrc("saveNotes"),
-    fnSrc("stwoDepositNsk"), fnSrc("stwoDepositKey"), fnSrc("stwoDepositIndexTake"),
+    fnSrc("stwoDepositNsk"), fnSrc("noteNskWire"), fnSrc("stwoRestoreKey"), fnSrc("_stwoRestoreLoad"), fnSrc("_stwoRestoreSave"),
+    fnSrc("stwoCarriedDeposits", true),
     fnSrc("doShield", true), fnSrc("stwoRecoverDeposits", true),
     "return { doShield, stwoRecoverDeposits, loadNotes };"].join("\n");
   return new Function(...Object.keys(env), body)(...Object.values(env));
@@ -111,7 +113,9 @@ chain.txs.length = 0; chain.leaves.clear();
 const F = device();
 await F.doShield(); apply(lastDeposit());
 const carried = new Set(chain.leaves);
-chain.txs.length = 0; chain.leaves = carried;  // new chain: exec genesis stwo_pool carries the commitments; L1 starts empty
+// new chain: the exec genesis carries the commitments AND the deposits' public records (execnode/exec_genesis.py); L1 starts empty
+chain.carried = chain.txs.map((t) => ({ addr: t.sender, amount: t.amount, owner: t.data.owner, rho: t.data.rho }));
+chain.txs.length = 0; chain.leaves = carried;
 const G = device();
 await G.stwoRecoverDeposits();
 check("a deposit note carried across a reroll is restorable from the recovery phrase", G.loadNotes().length === 1,

@@ -42,21 +42,26 @@ let stored = [
   // the change note the spend made (value 990 - the relay fee already out); its rho exists nowhere else
   { value: "600", rho: "99", cm: CHANGE, spent: false, ts: 0 },
 ];
-const tree = { leaves: [IN] };
+const tree = { leaves: [IN] }, nfs = [];
 let now = 0;
 const env = {
   loadNotes: () => stored.map((n) => ({ ...n, spentOuts: n.spentOuts && [...n.spentOuts] })),
   saveNotes: (ns) => { stored = ns.map((n) => ({ ...n })); },
-  execJSON: async (p) => (p === "/exec/field_leaves" ? { leaves: [...tree.leaves] } : {}),
+  execJSON: async (p) => (p === "/exec/field_leaves" ? { leaves: [...tree.leaves] }
+                         : p === "/exec/stwo_nullifiers" ? { nullifiers: [...nfs] } : {}),
   log: () => {}, i18: (k, fb) => fb,
   Date: { now: () => now },
+  // the Stwo pool is live; a note's nullifier is a function of its rho here (the real one: stwo_js.nullifier)
+  shieldStwo: () => true, noteNskWire: () => "k", _stwo: { nullifier: (k, rho) => "nf" + String(rho) },
 };
 const reconcile = new Function(...Object.keys(env),
-  constSrc("SPEND_LAND_GRACE_MS") + "\n" + fnSrc("reconcileSpentNotes", true) + "\nreturn reconcileSpentNotes;")(...Object.values(env));
+  constSrc("SPEND_LAND_GRACE_MS") + "\n" + constSrc("STWO_SPEND_LAND_GRACE_MS") + "\n" + fnSrc("reconcileSpentNotes", true)
+  + "\nreturn reconcileSpentNotes;")(...Object.values(env));
 
 now = 21 * 60 * 1000;                 // the relay has said ok, and holds the bundle past the grace window
 await reconcile();
-tree.leaves.push(OUT1, CHANGE);        // ...then publishes it (its anchor is still within ANCHOR_BLOCKS): the spend lands
+nfs.push("nf7");                       // ...then publishes it (its anchor is still within ANCHOR_BLOCKS): the spend lands —
+                                       // its nullifier is spent at once, its outputs reach the leaves the wallet reads later
 now += 60 * 1000;
 await reconcile();
 
@@ -66,5 +71,13 @@ check("the change note of a spend that landed is still in the wallet", !!change 
       "the change note (600 raw) was deleted at the 20-minute mark; the spend then landed and its value is unrecoverable");
 check("an input whose spend landed is not counted as spendable", !!input && input.spent,
       "the spent input (1000 raw) is back in the balance; every spend of it is refused as a double spend");
+// and the other direction: a spend that NEVER lands gives the input back once the anchor window has passed
+stored = [{ value: "1000", rho: "8", cm: h("d"), spent: true, spentAt: 0, spentOuts: [h("e")], ts: 0 }];
+now = 2 * 3600 * 1000;
+await reconcile();
+check("within the anchor window an unlanded spend's input stays spent (it may still land)", stored[0].spent === true);
+now = 4 * 3600 * 1000;
+await reconcile();
+check("past the anchor window, with its nullifier unspent, the input is back in the balance", stored[0].spent === false);
 console.log(fails ? `${fails} FAILURES` : "ALL PASS — a relayed spend that lands late never costs the change note");
 process.exit(fails ? 1 : 0);
