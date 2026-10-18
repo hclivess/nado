@@ -10760,6 +10760,12 @@ async function doShield() {
 // ONE DEPOSIT, signed by `signer` (the active account, or a shadow account returning its coins to the pool), the note
 // owned by THIS wallet's private keys (a fresh owner from its rho) and banked in this wallet's notes. true on success.
 async function shieldDeposit(rawAmount, signer) {
+  // THE CLOSE IS CHECKED HERE, for every caller (doShield, and doReturnShadow which skips doShield): a deposit built
+  // while the wide pool is closed is refused by L1, but only after it was signed and sent
+  if (wideDepositClosed(_shieldTip)) {          // (false once the Stwo pool is live: wideDepositClosed checks)
+    log("err", i18("shield.depositsClosed", "New private deposits are paused while private banknotes move to their new pool. Your public balance is not affected."));
+    return false;
+  }
   const rho = _randField();
   // STWO: a fresh owner per deposit, from its own rho (stwoDepositNsk) — never the stable owner the zaddr encodes. Older
   // pools: the stable one.

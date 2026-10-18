@@ -61,10 +61,11 @@ check("...and the close reaches clients through /protocol.js", "WIDE_DEPOSIT_CLO
 SRC = open(os.path.join(ROOT, "static", "interface.js"), encoding="utf-8").read()
 check("4. the wallet imports the close from /protocol.js",
       re.search(r"import \{[^}]*WIDE_DEPOSIT_CLOSE_HEIGHT[^}]*\} from \"/protocol\.js\"", SRC) is not None)
-body = SRC[SRC.index("async function doShield()"):]
+# the close is checked where EVERY deposit is built (shieldDeposit: doShield, and a shadow account returning its coins)
+body = SRC[SRC.index("async function shieldDeposit("):]
 body = body[:body.index("\nasync function ", 10)]
 i_closed, i_build = body.find("wideDepositClosed(_shieldTip)"), body.find("noteCommit(")
-check("...doShield stops before it builds a deposit", 0 < i_closed < i_build, (i_closed, i_build))
+check("...every deposit stops before it is built", 0 < i_closed < i_build, (i_closed, i_build))
 check("...with a translated reason", 'i18("shield.depositsClosed"' in body)
 m = re.search(r"function wideDepositClosed\(tip\) \{.*?\n\}", SRC, re.S)
 if m and shutil.which("node"):
