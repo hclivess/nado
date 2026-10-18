@@ -1124,7 +1124,7 @@ shape is unchanged (49 chars).
   where trustless settlement stops. Start at [`doc/zk-glossary.md`](doc/zk-glossary.md) if the vocabulary
   is new.
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
-  the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
+  the prior NADO network's final account balances (1,583 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.
 - **Release notes** — [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 - Project site: <https://nadochain.com> — shared block production explained live at <https://nadochain.com/production> (design: [doc/leaderless-assembly.md](doc/leaderless-assembly.md))
