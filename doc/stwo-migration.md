@@ -288,7 +288,7 @@ cheat_is_refused.py), zero knowledge (the proof's openings measured against the 
 corrected; tests/test_a_stwo_proof_reveals_nothing_about_its_witness.py — L4 and L3b rest on the earlier zkcheck runs)
 and integration (anchor window, pool rebuild cost, a tagged deposit below the gate — all fixed with tests). The two
 L1 leaks the ZK review found are closed: spends go through node relays (ops/stwo_relay.py), each deposit has a fresh
-owner. `STWO_POOL_HEIGHT` = 185000. No deposit cap: the operator's decision (2026-10-11).
+owner. `STWO_POOL_HEIGHT` = 269000. No deposit cap: the operator's decision (2026-10-11).
 
 **The carry (2026-10-12, branch `stwo-carry`).** A reroll carries the Stwo pool, so holders never unshield for it (a
 forced unshield publishes every holder's amount and destination). Its notes are BLAKE2s and survive the Goldilocks
@@ -333,7 +333,7 @@ retirement unchanged. What crosses (tools/alphanet6_carryforward `exec_shield_do
    deposits until the gate. The wide pool is empty today (0 notes at 2026-10-11); any deposit before the gate would be
    coins nobody can move — against "the coins are real". Before setting the gate: close wide deposits ahead of it (an L1
    admission gate on `shield`) AND either keep wide spends/unshields valid after it or prove the pool empty at the gate.
-   **Resolved:** `WIDE_DEPOSIT_CLOSE_HEIGHT` (175000) refuses every wide deposit, and the Stwo gate (185000) was set only
+   **Resolved:** `WIDE_DEPOSIT_CLOSE_HEIGHT` (175000) refuses every wide deposit, and the Stwo gate (269000) was set only
    after the close fired with the wide pool measured empty — nothing exists to freeze.
 
 **Tests (each in the same commit as its code).**
