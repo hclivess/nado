@@ -460,16 +460,23 @@ doc/reroll.md "What crosses a reroll".
 1. Adopt Stwo for the shielded join-split, after the 5.0 measurement?
 2. ~~Replace alghash2 with Blake2s~~ — decided 2026-10-11: all of Goldilocks retires (alghash, alghash2, our STARK
    stack, the wide pool, the wallet prover) at a reroll; the plan is §9.
-3. Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)? Costs for both, measured
-   against this tree, in §9.4; still open.
+3. ~~Contracts: hand-written Stwo components (5.2), or Cairo programs proven by stwo-cairo (5.3)?~~ — decided
+   2026-10-18 by the operator: **Route A**, our zkVM rewritten as Stwo components (§9.4: ~8-12k lines of Rust, the
+   zkpy/zkasm tools and the 29 contracts keep their source form, re-audited for field-wrap arithmetic). We keep owning
+   the constraint half of the soundness risk, so every component ships with forgery tests against the node verifier
+   (the 2026-10-11 review pattern) before any gate uses it.
 4. ~~Fix the fidelity divergence on the live chain~~ — fixed from 160,020, no back-pay (2026-10-10).
 5. When to reroll: §5.1 (private payments) needs none — an exec-rules gate, while the pool is empty. A reroll is
    needed only for §5.2/§5.4 (the settlement proof and the exec-root hash), and it uses the carry (§6). Its
    prerequisites and order are §9.5.
 6. The tree shape of the BLAKE2s exec root (depth-256 sparse vs compressed) — frozen at the reroll, so decided at §9.5
    G1 after its measurement.
-7. Whether the reroll waits for a landing Stwo settlement prover (§9.5 option S) or ships quorum-settled and turns the
-   prover on by a gen-29 gate (option R; §9.3 measures why the proof path settles almost nothing today).
+7. ~~Whether the reroll waits for a landing Stwo settlement prover (option S) or ships quorum-settled (option R)?~~ —
+   decided 2026-10-18 by the operator: **option R**. The reroll ships with the bonded quorum settling the exec root (as it
+   effectively does today) and the proof branch refused; Stwo settlement turns on later by a gen-29 gate, no second
+   reroll. So what must be FIXED at the reroll is the statement it will prove (root hash, tree shape, position functions,
+   call-leaf format, and the records-half design of §9.3 point 3), with a Stwo prototype proving it, not a landing
+   prover.
 
 ## 8. Risks
 
