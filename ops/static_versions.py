@@ -275,3 +275,29 @@ def cache_control(requested_v, current_version):
     if requested_v and current_version and requested_v == current_version:
         return "public, max-age=31536000, immutable"
     return "no-cache"
+
+
+# ---- CONTENT SECURITY POLICY per page (audit 2026-09-24 #22, confirmed 2026-10-18) --------------------------------
+# The pages carried only frame-ancestors, so any HTML injection (the t() strings, a stored label) could run script with
+# the wallet's origin — next to the seed. 23 of 25 pages carry INLINE script (interface.html ~113 KB of it) and 17
+# inline on*= handlers, so 'self' alone would break them. Instead each page's own inline blocks and handlers are hashed
+# from the exact bytes served (the STAMPED body: stamping can rewrite an inline module's imports), so only the code that
+# shipped with the page runs. 'wasm-unsafe-eval': the provers and hashers are WASM. The analytics loader is the one
+# external script host. No 'unsafe-inline', no 'unsafe-eval'.
+_CSP_SCRIPT_HOSTS = ("https://www.googletagmanager.com", "https://www.google-analytics.com")
+_INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc\s*=)([^>]*)>(.*?)</script>", re.S | re.I)
+_INLINE_HANDLER = re.compile(r"""\son[a-z]+\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+_DATA_SCRIPT = re.compile(r"""\btype\s*=\s*["']?(application/(?:ld\+)?json|text/(?:template|plain))""", re.I)
+
+
+def page_csp(body) -> str:
+    """The Content-Security-Policy header for one served HTML page (bytes or str): its inline scripts and inline event
+    handlers by sha256, same-origin scripts, WASM, the analytics host. Pure: the same body always gives the same header."""
+    import base64
+    import hashlib
+    html = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else str(body)
+    h = lambda t: "'sha256-" + base64.b64encode(hashlib.sha256(t.encode("utf-8")).digest()).decode() + "'"
+    blocks = sorted({h(code) for attrs, code in _INLINE_SCRIPT.findall(html) if not _DATA_SCRIPT.search(attrs)})
+    handlers = sorted({h(a or b) for a, b in _INLINE_HANDLER.findall(html)})
+    src = ["'self'", *blocks] + (["'unsafe-hashes'", *handlers] if handlers else []) + ["'wasm-unsafe-eval'", *_CSP_SCRIPT_HOSTS]
+    return "frame-ancestors 'none'; script-src " + " ".join(src) + "; object-src 'none'; base-uri 'self'"

@@ -2781,6 +2781,9 @@ def _etag_matches(request, etag):
     return etag in (t.strip() for t in request.headers.get("If-None-Match", "").split(","))
 
 
+_CSP_BY_VER = {}                 # page version -> its Content-Security-Policy (page_csp)
+
+
 async def _html_response(request, full):
     """Serve an HTML file with version-stamped asset references, a strong ETag (its version — a hash of the stamped
     body) and revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip). The
@@ -2792,8 +2795,16 @@ async def _html_response(request, full):
     etag = '"' + ver + '"'
     # X-Frame-Options/frame-ancestors: the wallet must NEVER be framed — the exec_sign / forum-login confirm is
     # the only human gate, and a header-delivered frame denial defeats clickjacking of it (a <meta> CSP cannot).
+    # script-src: only this page's own inline code (sha256 of the stamped body) + same-origin + WASM (static_versions
+    # page_csp, audit #22). Memoised per version: the version IS a hash of the body, so it names the policy exactly.
+    csp = _CSP_BY_VER.get(ver)
+    if csp is None:
+        from ops.static_versions import page_csp
+        csp = _CSP_BY_VER[ver] = page_csp(body)
+        if len(_CSP_BY_VER) > 512:
+            _CSP_BY_VER.pop(next(iter(_CSP_BY_VER)))
     headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*",
-               "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'"}
+               "X-Frame-Options": "DENY", "Content-Security-Policy": csp}
     if _etag_matches(request, etag):
         return web.Response(status=304, headers=headers)
     return web.Response(body=body, content_type="text/html", charset="utf-8", headers=headers)
