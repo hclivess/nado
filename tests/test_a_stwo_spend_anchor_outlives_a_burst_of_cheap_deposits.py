@@ -131,6 +131,24 @@ for bad, why in (([[5, 2], [4, 3]], "heights fall"), ([[5, 3], [6, 3]], "counts 
         check(f"malformed marks are refused at load ({why})", False)
     except ValueError:
         check(f"malformed marks are refused at load ({why})", True)
+# A QUIET POOL (review 2026-10-12): a root stays every block's closing root until the next append, so it is acceptable
+# for ANCHOR_BLOCKS after it was LAST current — not after the block that created it. A pool quiet for longer than the
+# window, then one deposit: a spend proved against the pre-deposit root (what every wallet saw) still applies.
+st = fresh()
+at(st, GATE + 1)
+st.apply_field_shield(5 * 10 ** 10, SP.owner_of(victim_nsk), 7)
+quiet = st.stwo_pool.root()
+at(st, GATE + 1 + 3 * SP.ANCHOR_BLOCKS)                     # long quiet stretch, then someone deposits
+for i in range(SP.ANCHOR_WINDOW + 1):                     # one deposit, then enough more in the same block to push
+    st.apply_field_shield(1, griefer, 40_000 + i)           # the quiet root out of the append window: only its span remains
+check("setup: the quiet root is out of the append window", quiet not in st.stwo_pool.anchors)
+check("a quiet pool's root is still acceptable right after the next deposit", st.stwo_pool.knows_root(quiet, st.applying_height()))
+check("...and for ANCHOR_BLOCKS after it stopped being current",
+      st.stwo_pool.knows_root(quiet, GATE + 1 + 3 * SP.ANCHOR_BLOCKS - 1 + SP.ANCHOR_BLOCKS)
+      and not st.stwo_pool.knows_root(quiet, GATE + 1 + 3 * SP.ANCHOR_BLOCKS + SP.ANCHOR_BLOCKS))
+check("root_valid_through: the current root at least ANCHOR_BLOCKS past the cursor, an intra-block root never vouched",
+      st.stwo_pool.root_valid_through(st.stwo_pool.root(), 500) == 500 + SP.ANCHOR_BLOCKS
+      and st.stwo_pool.root_valid_through("ab" * 32, 500) is None)
 P.STWO_POOL_HEIGHT = live
 print("ALL PASS — a Stwo anchor outlives a burst of deposits" if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

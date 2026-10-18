@@ -4923,8 +4923,19 @@ async def h_stwo_spendable(request):
     un, fee = _S.wire_u64(q.get("unshield", "0")), _S.wire_u64(q.get("fee", "0"))
     if un is None or fee is None:
         return web.json_response({"live": True, "ok": False, "reason": "unshield and fee are integers"}, status=400)
+    # `land` (optional): the LAST block the caller's blob can land in (the relay's max_block). A spend refused there is
+    # refused for the relay too: the blob cannot land before L1 tip + TX_INCLUSION_DELAY and this cursor trails the tip
+    # by finality, so judging only cursor + 1 let an anchor that ages out in between pass — the relay paid the L1 fee
+    # for a spend every exec node then skipped (review 2026-10-12). Judged by shielded_stwo.root_valid_through.
+    land = _S.wire_u64(q.get("land", "")) if q.get("land") else None
     with state._mutate_lock:
-        why = state.stwo_spend_refusal(*digs, un, fee, int(state.cursor) + 1)
+        cur = int(state.cursor)
+        why = state.stwo_spend_refusal(*digs, un, fee, cur + 1)
+        if why is None and land is not None:
+            until = state.stwo_pool.root_valid_through(digs[0], cur)
+            if until is None or until < land:
+                why = ("skip field-transfer: the anchor root can no longer be named by the block this spend can land in "
+                       f"(valid through {until}, lands by {land}) — re-prove against the current root")
     return web.json_response({"live": True, "ok": why is None, "reason": why or ""})
 
 

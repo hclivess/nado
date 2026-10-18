@@ -73,6 +73,7 @@ def setup(running, repo, dirty=False):
     # the optional-crate build before the restart (2026-10-12) is recorded, never run: no cargo inside a test
     del built[:]
     SU._rebuild_optional_crates = lambda changed, have_cargo: (built.append((changed, len(restarts))) or {})
+    SU._missing_required_libs = lambda: []             # every required library present (the push-host case has its own test)
 
 
 built = []

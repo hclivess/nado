@@ -251,6 +251,11 @@ def apply_stale_checkout(now=None):
                 changed = None
             cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
             native = _rebuild_optional_crates(changed, bool(shutil.which("cargo")) or os.access(cargo, os.X_OK))
+            # ...and a REQUIRED crate this host never built (native/stwo_js became required with STWO_POOL_HEIGHT; the
+            # push host had never built it): built before the restart, as /update does (review 2026-10-12)
+            miss = _missing_required_libs()
+            if miss:
+                native.update(_build_crates(miss))
         except Exception as e:
             native = {"error": f"{type(e).__name__}: {e}"}
         services = _schedule_restart()
