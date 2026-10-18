@@ -127,22 +127,28 @@ export function commit(value, owner, rho) { return _h([DOM_CM, ..._u64(value), .
 export function nullifier(nsk, rho) { return _h([DOM_NF, ..._words(nsk), ..._u64(rho), 0, 0, 0, 0, 0]); }
 export function node(left, right) { return _h([..._words(left), ..._words(right)]); }
 
-/** A FRESH SPEND KEY PER DEPOSIT (ZK review 2026-10-11; doc/stwo-migration.md §5.1, "Deposits"). A deposit publishes its
- *  note's owner next to the depositing account, so depositing under the wallet's one stable owner (its zaddr) tied the
- *  zaddr, and every deposit, to the account. Deposit i is owned by
- *      nsk_i = BLAKE2s-256( "NADO/stwo/deposit-nsk/v1\0" || nsk (32 bytes) || i (u64 little-endian) )
- *  where nsk is the wallet's Stwo spend key (interface.js shieldNskStwo). One-way and domain-separated: an nsk_i (or
- *  its owner) reveals neither nsk nor any other nsk_j, so two deposits share nothing a chain observer can compare, and
- *  the recovery phrase still re-derives every one (the wallet scans its own shield transactions for ownerOf(nsk_i)).
- *  The zaddr for RECEIVING stays ownerOf(nsk): a payment's owner is hidden inside its commitment. Wallet-only — the
- *  node never sees an nsk and needs no copy of this rule. */
-export const DEPOSIT_NSK_DOMAIN = "NADO/stwo/deposit-nsk/v1\0";
-export function depositNsk(nsk, i) {
+/** A FRESH SPEND KEY PER DEPOSIT (ZK review 2026-10-11; review 2026-10-12; doc/stwo-migration.md §5.1, "Deposits"). A
+ *  deposit publishes its note's owner next to the depositing account, so depositing under the wallet's one stable owner
+ *  (its zaddr) tied the zaddr, and every deposit, to the account. A deposit with randomness rho is owned by
+ *      nsk_dep = BLAKE2s-256( "NADO/stwo/deposit-nsk/v2\0" || nsk (32 bytes) || rho (u64 little-endian) )
+ *  where nsk is the wallet's Stwo spend key (interface.js shieldNskStwo) and rho the note's own fresh 64-bit randomness,
+ *  which the deposit transaction already publishes. One-way and domain-separated: nsk_dep (or its owner) reveals neither
+ *  nsk nor any other deposit's key, so two deposits share nothing a chain observer can compare.
+ *  WHY RHO AND NOT A COUNTER (review 2026-10-12, tests/test_every_stwo_deposit_is_restorable_from_the_recovery_phrase.mjs):
+ *  v1 keyed it on a per-device deposit INDEX. Two devices of one wallet took the same index (each device's floor was its
+ *  own storage), so two deposits published one owner — the link the fresh owner exists to prevent — and the restore,
+ *  which scanned indices until 20 missed in a row, lost a deposit made after 20 refused sends. Keyed on rho there is no
+ *  state to share: the restore derives nsk_dep from each of the account's own deposit transactions and keeps it when
+ *  ownerOf(nsk_dep) is the owner the transaction published. The v1 (index) domain was never used on the chain — the pool
+ *  was not live (STWO_POOL_HEIGHT unreached on gen 28, and L1 refuses a Stwo-tagged deposit below it) — so no note needs
+ *  migrating. The zaddr for RECEIVING stays ownerOf(nsk): a payment's owner is hidden inside its commitment.
+ *  Wallet-only — the node never sees an nsk and needs no copy of this rule. */
+export const DEPOSIT_NSK_DOMAIN = "NADO/stwo/deposit-nsk/v2\0";
+export function depositNsk(nsk, rho) {
   const d = new TextEncoder().encode(DEPOSIT_NSK_DOMAIN), k = fromHex(nsk);
   if (k.length !== 32) throw new Error("a spend key is 32 bytes");
-  if (!Number.isSafeInteger(Number(i)) || Number(i) < 0) throw new Error("a deposit index is a non-negative integer");
   const m = new Uint8Array(d.length + 32 + 8);
-  m.set(d); m.set(k, d.length); m.set(_le64(i), d.length + 32);
+  m.set(d); m.set(k, d.length); m.set(_le64(rho), d.length + 32);     // _le64 refuses anything but a u64
   return toHex(blake2s(m));
 }
 

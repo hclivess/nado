@@ -4950,6 +4950,17 @@ async def h_stwo_nullifiers(request):
     return web.json_response({"live": True, "nullifiers": nfs})
 
 
+async def h_stwo_carried_deposits(request):
+    """GET /exec/stwo_carried_deposits[?addr=] — the PUBLIC records (depositor, amount, owner, rho) of the Stwo deposit
+    notes a reroll carried (execnode/exec_genesis.py "CARRIED DEPOSITS STAY RESTORABLE"). A wallet restoring its deposit
+    notes from the recovery phrase reads its own shield transactions AND these: the transactions of a carried note stayed
+    on the old chain. Everything here was published in the old chain's L1 transactions; amount and rho travel as decimal
+    strings. [] without a carried genesis for this generation."""
+    from execnode import exec_genesis as _EG
+    addr = request.query.get("addr") or None
+    return web.json_response({"deposits": _EG.carried_deposits(addr)})
+
+
 async def h_shielded_note(request):
     """Spend witness for a Phase-1 note (?cm=): position + Merkle path (public data, leaks nothing);
     with ?nf= also whether that nullifier is already spent. 404 if the commitment isn't in the pool."""
@@ -5070,6 +5081,7 @@ async def main():
                     web.get("/exec/field_leaves", h_field_leaves),
                     web.get("/exec/stwo_spendable", h_stwo_spendable),
                     web.get("/exec/stwo_nullifiers", h_stwo_nullifiers),
+                    web.get("/exec/stwo_carried_deposits", h_stwo_carried_deposits),
                     # Z7 (security review 2026-09-23): the delegated provers took the wallet's SPENDING KEY over
                     # HTTP. The wallet has proven on-device since interface.js proveTransfer2 (WASM), so these
                     # routes only remained as a way to hand a secret to a server. Unrouted for good and the

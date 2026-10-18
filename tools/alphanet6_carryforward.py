@@ -189,7 +189,38 @@ SHIELDED_POOLS = ("shielded", "field_pool", "wide_pool", "stwo_pool", "app_state
 CARRIED_POOLS = ("stwo_pool",)        # carried into the exec genesis (exec_shield_doc); every other pool must be empty
 
 
-def exec_shield_doc(d: dict, shield_escrow: int) -> dict:
+def stwo_deposit_records(txs, prev, commitments) -> list:
+    """The PUBLIC records of carried deposit notes (execnode/exec_genesis.py "CARRIED DEPOSITS STAY RESTORABLE"):
+    {addr, amount, owner, rho} for every carried commitment that came from a Stwo deposit. `txs` are the old chain's L1
+    shield transactions (recipient "shield", data.pool "stwo"); `prev` the records the old chain's own exec genesis
+    carried (a note carried twice keeps its record — its transaction is two chains back). A wallet restores a deposit
+    note from its recovery phrase by re-deriving the owner from (its spend key, rho), so without these a carried note
+    could not be found on the new chain. Each record is kept only when commit(amount, owner, rho) is a carried
+    commitment (a deposit the exec layer refused made no note), once per commitment, sorted by (addr, owner, rho).
+    INVARIANT: only what the old chain published is written — never a note's spend key or a nullifier."""
+    from execnode import shielded_stwo as _S
+    have, out = set(commitments), {}
+
+    def _int(v):
+        return _S.wire_u64(v)
+
+    for addr, amount, owner, rho in ([(r.get("addr"), r.get("amount"), r.get("owner"), r.get("rho")) for r in prev or []]
+                                     + [(t.get("sender"), t.get("amount"), (t.get("data") or {}).get("owner"),
+                                         (t.get("data") or {}).get("rho"))
+                                        for t in txs or [] if isinstance(t, dict) and t.get("recipient") == "shield"
+                                        and isinstance(t.get("data"), dict) and t["data"].get("pool") == "stwo"]):
+        a, r = _int(amount), _int(rho)
+        if not isinstance(addr, str) or not addr or a is None or r is None or not _S.is_digest(owner):
+            continue
+        if not (0 < a < (1 << 64)) or r >= (1 << 64):
+            continue
+        cm = _S.commit(a, owner, r)
+        if cm in have and cm not in out:
+            out[cm] = {"addr": addr, "amount": str(a), "owner": owner, "rho": str(r)}
+    return sorted(out.values(), key=lambda x: (x["addr"], x["owner"], int(x["rho"])))
+
+
+def exec_shield_doc(d: dict, shield_escrow: int, deposits=None) -> dict:
     """The shielded section of the exec genesis (execnode/exec_genesis.py): the Stwo pool's commitments IN ORDER (a
     note's leaf position is part of its spend witness), its nullifier set (sorted; an already-spent note stays spent),
     `stwo_value`, and `pool_fees` = everything else SHIELD_ESCROW holds. NO marks: they name old-chain heights
@@ -206,7 +237,7 @@ def exec_shield_doc(d: dict, shield_escrow: int) -> dict:
         was, and the new chain's invariant is exact (OK, not STRANDED) from block 0. Supply is untouched (Δ = 0): no
         coin moves between L1 accounts here.
     INVARIANT: after the carry, SHIELD_ESCROW == stwo_value + pool_fees (genesis.py refuses to build a chain where it is
-    not)."""
+    not). `deposits` (stwo_deposit_records) are the public records that keep carried deposit notes restorable."""
     sv, old_fees, esc = int(d.get("stwo_value") or 0), int(d.get("pool_fees") or 0), int(shield_escrow)
     if esc < sv + old_fees:
         raise SystemExit(f"REFUSING: SHIELD_ESCROW holds {esc} raw after the pending unshield exits, but the Stwo pool "
@@ -219,6 +250,8 @@ def exec_shield_doc(d: dict, shield_escrow: int) -> dict:
     out = {"stwo_value": str(sv), "pool_fees": str(esc - sv)}
     if cms or nfs:
         out["stwo_pool"] = {"commitments": cms, "nullifiers": nfs}
+    if deposits:
+        out["stwo_deposits"] = list(deposits)
     return out
 
 
@@ -407,7 +440,14 @@ def build():
     # 6b) THE STWO POOL CARRIES (exec_shield_doc): SHIELD_ESCROW keeps backing its notes; a deficit refuses here
     from protocol import SHIELD_ESCROW as _SHIELD_ESCROW
     _shield_left = alloc.get(_SHIELD_ESCROW, {"balance": 0})["balance"]
-    _EXEC_GENESIS[0].update(exec_shield_doc(d, _shield_left))
+    # CARRIED DEPOSITS STAY RESTORABLE (stwo_deposit_records): the old chain's Stwo deposit transactions, and the records
+    # its own exec genesis carried, so a wallet on the new chain can still re-derive each deposit note's owner
+    from ops import transaction_ops as _tops
+    from execnode import exec_genesis as _old_eg
+    _shield_txs = _tops.get_transactions_of_account("shield", 0, limit=1 << 40)["transactions"]
+    _deps = stwo_deposit_records(_shield_txs, (_old_eg.load() or {}).get("stwo_deposits") or [],
+                                 (d.get("stwo_pool") or {}).get("commitments") or [])
+    _EXEC_GENESIS[0].update(exec_shield_doc(d, _shield_left, _deps))
 
     carried = sum(e["balance"] + e["bonded"] for e in alloc.values())
     print("=== alphanet-6 carry-forward ===")
@@ -426,7 +466,8 @@ def build():
     print(f"  carried Stwo pool (stays escrowed):   {int(_EXEC_GENESIS[0]['stwo_value']):>18} raw in "
           f"{len((_EXEC_GENESIS[0].get('stwo_pool') or {}).get('commitments') or [])} notes, "
           f"{len((_EXEC_GENESIS[0].get('stwo_pool') or {}).get('nullifiers') or [])} spent; "
-          f"{_EXEC_GENESIS[0]['pool_fees']} raw more in SHIELD_ESCROW carried as burned (pool_fees)")
+          f"{_EXEC_GENESIS[0]['pool_fees']} raw more in SHIELD_ESCROW carried as burned (pool_fees); "
+          f"{len(_EXEC_GENESIS[0].get('stwo_deposits') or [])} deposit records kept restorable")
     print(f"carried total after folds:              {carried:>18} raw")
     print(f"CONSERVATION: {'OK' if carried == l1_total else 'FAIL'} (Δ={carried - l1_total})")
     print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")
