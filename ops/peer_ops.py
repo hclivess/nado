@@ -973,11 +973,22 @@ def behind_network(status_pool, our_tip, slack=2):
     A system tx built now carries a propagation guard (min_block = our tip + TX_INCLUSION_DELAY) that is
     already in the past for the rest of the network — h193750, 2026-09-22: a guard built from a tip eight
     blocks stale was eligible on arrival, the nodes that had it built it in, and five nodes rolled back.
-    Pure. Production is NOT gated on this (a lone node must still mint); only the periodic system txs are."""
-    best = 0
+    Pure. Production is NOT gated on this (a lone node must still mint); only the periodic system txs are.
+
+    THE UPPER MEDIAN, NOT THE MAXIMUM (audit 2026-09-24 #17, confirmed 2026-10-18): one peer advertising any height
+    made every node "behind", so one liar silenced every node's FFG attests, RANDAO reveals, TPM challenges and claims
+    — finality stalled for the price of one fake /status. With the upper median a node is behind when at least half
+    its readable peers are ahead: two peers, one ahead, still counts (as it always did); from three peers a lone
+    liar moves nothing."""
+    hs = []
     for st in (status_pool or {}).values():
         try:
-            best = max(best, int((st or {}).get("latest_block_height") or 0))
+            h = int((st or {}).get("latest_block_height") or 0)
         except (TypeError, ValueError):
             continue
-    return best > int(our_tip) + int(slack)
+        if h > 0:
+            hs.append(h)
+    if not hs:
+        return False
+    hs.sort()
+    return hs[len(hs) // 2] > int(our_tip) + int(slack)

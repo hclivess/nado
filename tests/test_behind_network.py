@@ -26,6 +26,13 @@ check(not behind_network(pool, 1020), "ahead of every peer (lone producer, or pe
 check(not behind_network({}, 1000), "no peers at all: not behind (a solo node keeps its duties)")
 check(not behind_network({"c": {"latest_block_height": "junk"}, "d": {}}, 1000), "unreadable heights are skipped, not treated as ahead")
 check(behind_network(pool, 1005, slack=2) and not behind_network(pool, 1005, slack=3), "slack is honoured exactly")
+# ONE LIAR (audit #17): a single peer advertising a fake tall tip must not silence this node's duties
+liar = {"a": {"latest_block_height": 1000}, "b": {"latest_block_height": 1001}, "x": {"latest_block_height": 10 ** 9}}
+check(not behind_network(liar, 1000), "one peer advertising a fake tall tip among three does not make us 'behind'")
+check(not behind_network({**liar, "c": {"latest_block_height": 1000}, "d": {"latest_block_height": 999}}, 1000),
+      "...nor among five")
+check(behind_network({"a": {"latest_block_height": 1010}, "b": {"latest_block_height": 1011}, "x": {"latest_block_height": 990}}, 1000),
+      "but when most peers really are ahead, we are behind")
 
 src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "loops", "core_loop.py")).read()
 i = src.index("if behind_network(self.consensus.status_pool.copy(), _tip_h):")
