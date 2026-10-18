@@ -6780,7 +6780,17 @@ function saveRandao(m) { try { localStorage.setItem(randaoKey(), JSON.stringify(
 // The epoch secret is DERIVED from the wallet key (like ETH validators' deterministic randao_reveal):
 // every device holding this wallet computes the SAME secret, so multi-device mining can never
 // split-brain an epoch. Only the key holder can compute it; the commit binds it two epochs ahead.
-function randaoSecretFor(epoch) { return blake2bHash([DOMAIN_RANDAO_SECRET, masterSeedOf() || state.wallet.privateKey, Number(epoch)]); }
+// A SECRET NEVER REPEATS ACROSS A REROLL (audit 2026-09-24, lower; confirmed 2026-10-18). Epoch numbers restart at every
+// reroll, so H(domain, seed, epoch) gave the new chain's epoch E the very secret this validator REVEALED for epoch E on
+// the old one: public, so its commitment's opening was known in advance. From generation 29 the chain's id is part of
+// the secret. Generation 28 keeps the form it started with (switching mid-generation would break a commitment already
+// made with it: a missed reveal), and a reroll restarts the epochs, so no commitment straddles the change.
+function randaoSecretFor(epoch) {
+  const seed = masterSeedOf() || state.wallet.privateKey;
+  return Number(P.CHAIN_GENERATION || 0) >= 29
+    ? blake2bHash([DOMAIN_RANDAO_SECRET, seed, CHAIN_ID, Number(epoch)])
+    : blake2bHash([DOMAIN_RANDAO_SECRET, seed, Number(epoch)]);
+}
 
 let _randaoBusy = false;
 const _randaoDead = new Set();     // epochs with a DETERMINISTIC reveal rejection — same inputs give the same

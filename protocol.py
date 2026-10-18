@@ -2671,5 +2671,5 @@ CLIENT_EXPORTS = (
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
     # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
     # dormant, which /protocol.js carries as a BigInt
-    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT",
+    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "CHAIN_GENERATION",
 )
