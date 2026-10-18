@@ -31,13 +31,9 @@ from execnode.stark import (settlement_sparse as SS, calls_commit as CC, stark, 
 NQ, D = 16, 16
 E0 = 4999                                 # the epoch whose beacon the contract reads (available from its first block)
 H = (E0 + 1) * 60 + 5
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A = "ndoAAAA" + "A" * 41; B = "ndoBBBB" + "B" * 41; C = "ndoCCCC" + "C" * 41
@@ -102,5 +98,5 @@ with stark.with_rules(stark.RULES_STRICT):
         check("the composed root equals the exec node's real post-state root",
               ER.full_root_hex(ST.digest_from_hex(r[3]), post_rec) == real_root)
         check("the records half really moved", proof["rec_post"] != rec_hex)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

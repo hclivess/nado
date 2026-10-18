@@ -24,13 +24,9 @@ from genesis import create_indexers
 create_indexers()
 from ops import kv_ops
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A1, A2, A3 = "a" * 50, "b" * 50, "c" * 50
@@ -62,5 +58,5 @@ src = open(os.path.join(ROOT, "tools", "alphanet6_carryforward.py")).read()
 check("the carry reads its device bindings from devbind_rows", "kv_ops.devbind_rows()" in src)
 
 kv_ops.close_all()
-print("ALL PASS — only devices carry as devices" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — only devices carry as devices" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

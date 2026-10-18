@@ -33,13 +33,9 @@ from ops.account_ops import create_account, get_account, reflect_transaction
 from signatures import generate_keydict, sign, unhex
 
 logger = logging.getLogger("legacy"); logger.addHandler(logging.NullHandler())
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 H = 1000
@@ -136,5 +132,5 @@ check("...and says so in all 16 languages", all(_misc[l].get("legacy.claiming") 
       ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi")))
 
 kv_ops.close_all()
-print("ALL PASS — an old address is claimed by its own key" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an old address is claimed by its own key" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

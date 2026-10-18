@@ -23,13 +23,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, _T, ignore_errors=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests._stwo_js_build import Env
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 env = Env(_REAL_HOME)
@@ -99,5 +95,5 @@ other = make_address("ef" * 1312)
 r = st2.apply_field_transfer(dict(copy.deepcopy(bundle), withdraw_addr=other))
 check("...and the proof re-pointed at another destination changes nothing", r.startswith("skip") and st2._snapshot() == before, r)
 
-print("ALL PASS — a Stwo spend applies end to end" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a Stwo spend applies end to end" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -22,13 +22,9 @@ from execnode.state import ExecState
 from execnode.games import hamster as HM, tictactoe as TT, bet as BT, _lib
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A, B, R1 = "ndoA" + "a" * 44, "ndoB" + "b" * 44, "ndoR" + "r" * 44
@@ -135,5 +131,5 @@ r3 = call(new, bc, A, "claim", [3])
 check("bet: on the new chain a market takes bets, resolves and pays the winner the whole pot",
       int(new.bridge.get(A, 0)) - a0 == 8 * BT.UNIT, (r1, r2, r3, int(new.bridge.get(A, 0)) - a0))
 
-print("ALL PASS — races, boards and markets cross a reroll at rest" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — races, boards and markets cross a reroll at rest" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

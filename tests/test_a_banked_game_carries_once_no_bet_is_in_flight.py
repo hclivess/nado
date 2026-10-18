@@ -30,13 +30,9 @@ from execnode import exec_genesis as EG
 from execnode.games import slots, dice, roulette, mines, blackjack
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 BANK, PLAYER = "ndoA" + "a" * 44, "ndoB" + "b" * 44
@@ -100,5 +96,5 @@ check("...and the settled spin can neither settle nor claim again", rd(new, cid,
       and int(new.bridge.get(cid, 0)) == 0, (r1, r2))
 
 check("4. every banked game declares the in-flight check", all(hasattr(m, "carry_in_flight") for m in (slots, dice, roulette, mines, blackjack)))
-print("ALL PASS — a banked game carries once no bet is in flight" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a banked game carries once no bet is in flight" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

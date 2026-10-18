@@ -11,13 +11,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import transaction_ops as T
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 # 5 transactions over blocks 3, 3, 4, 9, 9 (index entries are block-ordered)
@@ -35,5 +31,5 @@ check("the next page from that block holds the rest (the seam repeats, callers d
 short = T.get_transactions_of_account("x", 0, limit=1000)
 check("a short page carries no cursor (the reply shape is unchanged for every other caller)",
       set(short) == {"transactions"} and len(short["transactions"]) == 5, short)
-print("ALL PASS — account history says where a full page stopped" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — account history says where a full page stopped" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

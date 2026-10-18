@@ -29,13 +29,9 @@ from ops.key_ops import generate_keys
 from ops import kv_ops
 
 logger = logging.getLogger("nssettle"); logger.addHandler(logging.NullHandler())
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def verdict(tx, h):
@@ -72,5 +68,5 @@ check("...and so does the xmsg builder (at height 0 an xmsg must be exactly fee 
 check("the gate is deleted", not hasattr(P, "SPAM_HARDEN_HEIGHT"))
 
 kv_ops.close_all()
-print("ALL PASS — a namespace settle pays what validation demands" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a namespace settle pays what validation demands" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

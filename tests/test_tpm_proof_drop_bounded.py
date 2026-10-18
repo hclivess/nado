@@ -13,13 +13,9 @@ import ast, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(ROOT, "nado.py")).read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 tree = ast.parse(SRC)
@@ -37,5 +33,5 @@ check("a failing mirror is not reported as success", i_exc > 0 and "return _resp
 routes = [n for n in ("/tpm_enrol_challenge", "/tpm_enrol_reveal", "/get_richest") if f'"{n}"' in SRC]
 check("the dead relay-held enrolment and richest routes stay deleted", not routes, routes)
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

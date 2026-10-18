@@ -25,7 +25,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
 LIVE = {"test_otc_swap_e2e.py"}          # posts real transactions to 127.0.0.1:9173 with the operator's keys — run by hand
 DANGER = re.compile(r"^\s*(from\s+(ops|memserver|genesis|nado|loops)\b|import\s+(ops|memserver|genesis|nado|loops)\b)", re.M)
-ASSIGN_HOME = re.compile(r'^\s*_?os\.environ\["HOME"\]\s*=', re.M)
+# the HOME assignment, or the shared harness's isolate() that does exactly that (tests/_harness.py; it imports no node code)
+ASSIGN_HOME = re.compile(r'^\s*(_?os\.environ\["HOME"\]\s*=|(\w+\s*=\s*)?_harness\.isolate\()', re.M)
 LIVE_URL = re.compile(r"^https?://(127\.0\.0\.1|localhost|\[::1\]):9[12]73")   # a REQUEST, not a peer key or Host header
 
 
@@ -90,6 +91,8 @@ def self_check():
     """The detectors must fire on what they exist to catch, or a green run means nothing."""
     assert DANGER.search("from ops import kv_ops") and DANGER.search("import memserver") and not DANGER.search("from execnode.stark import stark")
     assert ASSIGN_HOME.search('os.environ["HOME"] = x') and not ASSIGN_HOME.search('os.environ.setdefault("HOME", x)')
+    assert ASSIGN_HOME.search('HOME = _harness.isolate("nado-test-x-")') and ASSIGN_HOME.search('_harness.isolate()')
+    assert not DANGER.search(open(os.path.join(TESTS, "_harness.py")).read()), "_harness.py must import no node code"
     assert LIVE_URL.match("http://127.0.0.1:9173/status") and LIVE_URL.match("http://localhost:9273") \
         and not LIVE_URL.match("http://127.0.0.2:19173") and not LIVE_URL.match("127.0.0.1:9173")
     assert _code_strings('"""doc http://127.0.0.1:9173"""\nX = 1') == []

@@ -25,13 +25,9 @@ from ops.address_ops import is_address
 from execnode.code_codec import FIXED_CIDS
 from execnode.games import faucet
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 # SETTLE_ANCHOR is read as SOURCE: importing execnode.execnode loads exec state (CLAUDE.md rule 4)
@@ -71,5 +67,5 @@ for fn in ("protocol.py", "nado.py", "genesis.py"):
             lits.append((fn, m.group(1)))
 check("no unlisted 42/46-hex address literal in the shipped code", not lits, lits[:5])
 
-print("ALL PASS — every hard-coded operator address is on the live format" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — every hard-coded operator address is on the live format" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

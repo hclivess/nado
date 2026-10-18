@@ -32,13 +32,9 @@ import subprocess
 
 from tests._stwo_js_build import Env, CRATE
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def pinned_root():
@@ -56,11 +52,11 @@ check("lib.rs pins a 32-byte preprocessed root that is not a placeholder", pin !
 env = Env(_REAL_HOME)
 if not env.have_stable():
     print("SKIP  no stable cargo (`cargo +stable`) on this machine: the verifier cannot be built here")
-    sys.exit(1 if fails else 0)
+    sys.exit(1 if _report.fails else 0)
 nbin = env.nightly_bin()
 if not nbin:
     print("SKIP  no nightly-2026-01-15 toolchain (or $NADO_STWO_NIGHTLY_BIN): the column builders cannot be run here")
-    sys.exit(1 if fails else 0)
+    sys.exit(1 if _report.fails else 0)
 
 exe, psecs, plog = env.build_prover(nbin)
 check(f"the test prover builds ({psecs:.0f} s)", exe is not None, plog)
@@ -91,5 +87,5 @@ if r.returncode == 0:
     check("...and verifies under the pin", ok, why)
 
 print("ALL PASS — the preprocessed root is pinned, recomputed from the builders, and carried by honest proofs"
-      if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+      if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

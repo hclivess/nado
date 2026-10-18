@@ -26,13 +26,9 @@ sys.path.insert(0, ROOT)
 from execnode.games import dice
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def refuses(blockers, argv):
@@ -64,5 +60,5 @@ i_ref = b.index("refuse_blockers(CARRY_BLOCKERS, sys.argv)")
 check("4. build() refuses after printing the pot attribution (NOT CARRIED, MANUAL REFUND) ...",
       b.index("NOT CARRIED") < i_ref and b.index("MANUAL REFUND") < i_ref)
 check("...and before it returns the allocation main() writes", i_ref < b.index("return out"))
-print("ALL PASS — a blocked contract refuses the carry" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a blocked contract refuses the carry" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

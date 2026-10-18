@@ -17,13 +17,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from ops import self_update as SU
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 slept, calls = [], []
@@ -83,5 +79,5 @@ body = src[i:i + 2500]
 check("/update routes its answer through queue_recheck", "self_update.queue_recheck(result)" in body)
 check("the peer-hint check does too", "queue_recheck(check_and_update(\"peer-hint\"))" in open(os.path.join(ROOT, "ops", "self_update.py")).read())
 
-print("ALL PASS — an update kick is retried, never dropped" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an update kick is retried, never dropped" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

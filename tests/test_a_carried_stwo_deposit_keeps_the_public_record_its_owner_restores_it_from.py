@@ -33,13 +33,9 @@ from execnode import exec_genesis as EG, shielded_stwo as SP
 import tools.alphanet6_carryforward as C
 import execnode.execnode as EN
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A, B = "ndo_alice_depositor", "ndo_bob_depositor"
@@ -129,6 +125,6 @@ check("...every record without addr, none for a stranger", serve(None) == recs a
 write_gen(json.loads(json.dumps(sdoc)), generation=P.CHAIN_GENERATION - 1)
 check("...and nothing from a document for another generation", serve(A) == [] and serve(None) == [])
 
-print("ALL PASS — a carried Stwo deposit keeps the public record its owner restores it from" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a carried Stwo deposit keeps the public record its owner restores it from" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

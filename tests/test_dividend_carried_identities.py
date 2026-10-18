@@ -39,13 +39,9 @@ kv_ops.close_all(); kv_ops.init_env()
 from ops import dividend_ops as D
 D._CARRIED[0] = None
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 check("the carry rule has no gate left", not hasattr(P, "DIVIDEND_CARRY_EPOCH"))
@@ -94,5 +90,5 @@ except ValueError:
 check("a carry file that cannot be parsed raises (never remembered as 'no carry')", _raised and D._CARRIED[0] is None)
 
 kv_ops.close_all()
-print("ALL PASS — carried identities earn at their carried fidelity" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — carried identities earn at their carried fidelity" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

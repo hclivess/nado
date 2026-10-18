@@ -25,13 +25,9 @@ import execnode.execnode as EN
 spec = importlib.util.spec_from_file_location("exec_drain", os.path.join(ROOT, "tools", "exec_drain.py"))
 DR = importlib.util.module_from_spec(spec); spec.loader.exec_module(DR)
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A = "ndoAAAA" + "A" * 41
@@ -61,5 +57,5 @@ check("... and equals what the exec node's own apply reaches", back.state_root()
       and back.contracts[cid]["storage"] == ref.contracts[cid]["storage"], (back.contracts[cid]["storage"], ref.contracts[cid]["storage"]))
 first, last = DR.drain(path, CHAIN.get)
 check("a state already at the tip applies nothing", (first, last) == (14, 13) and ExecState(path).cursor == 13, (first, last))
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

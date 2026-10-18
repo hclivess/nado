@@ -18,13 +18,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location("reconcile_units", os.path.join(ROOT, "scripts", "reconcile_units.py"))
 R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def machine(operator):
@@ -118,5 +114,5 @@ calls.clear()
 R.main()
 check("a machine without an exec node gets no keeper", not any(f.startswith("nado-exec-keeper") for f in os.listdir(etc)))
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

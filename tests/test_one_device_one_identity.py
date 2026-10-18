@@ -34,13 +34,9 @@ from ops.account_ops import apply_register
 import logging
 logger = logging.getLogger("onedev"); logger.addHandler(logging.NullHandler())
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def raises(fn):
@@ -130,5 +126,5 @@ check("apply too, and passes the legacy key",
 check("the gate is deleted", not hasattr(P, "DEVICE_BIND_CANONICAL_HEIGHT"))
 
 kv_ops.close_all()
-print("ALL PASS — one device backs one identity" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — one device backs one identity" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

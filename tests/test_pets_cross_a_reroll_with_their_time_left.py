@@ -28,13 +28,9 @@ from execnode.runtimes import zkvm_addr_digest
 from execnode.stark import alghash
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A = "ndoA" + "a" * 44
@@ -152,5 +148,5 @@ ra, rb = call(new, cid, A, "reveal_battle", [70, S1]), call(new, cid, B, "reveal
 rr = call(new, cid, A, "resolve_battle", [70])
 check("...and both sides reveal and the duel resolves on the new chain, paying out both stakes",
       all("ok" in x for x in (ra, rb, rr)) and f"paid={2 * STAKE}" in rr, (ra, rb, rr))
-print("ALL PASS — pets cross a reroll with their time left" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — pets cross a reroll with their time left" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

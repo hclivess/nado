@@ -16,13 +16,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from ops import dex_prices as D
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 js = open(os.path.join(ROOT, "static", "dex.js")).read()
@@ -52,5 +48,5 @@ src = open(os.path.join(ROOT, "nado.py")).read()
 check("the node starts the loop", 'target=_node_jobs_loop' in src and "dex_prices.sample_once" in src)
 check("the detached script is gone", not os.path.exists(os.path.join(ROOT, "scripts", "dex_price_sampler.py")))
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

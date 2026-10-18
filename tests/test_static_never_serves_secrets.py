@@ -12,13 +12,9 @@ import ast, os, re, stat, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(ROOT, "nado.py")).read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 tree = ast.parse(SRC)
@@ -58,5 +54,5 @@ check("static_handler refuses before its first serving call", 0 < i_chk < first_
 check("...with a 404, never a 403 that would confirm the secret exists",
       re.search(r"_static_secret\(full\):[^\n]*\n\s*return web\.Response\(status=404", body) is not None)
 
-print("ALL PASS — no key material is served from static/" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — no key material is served from static/" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

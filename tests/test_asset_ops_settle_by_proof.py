@@ -40,13 +40,9 @@ from ops.transaction_ops import settle_proof_io_check
 
 NQ, D = 16, 16
 H = 7000
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def refused(fn):
@@ -213,5 +209,5 @@ with stark.with_rules(stark.RULES_STRICT):
               r3[3] == ST.digest_hex(ST.SparseStore(D, SS.sparse_projection(st.contracts, D, v2=True)).root()))
     except Exception as e:
         check("a two-block asset span proves per block", False, f"{type(e).__name__}: {str(e)[:300]}")
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

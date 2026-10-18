@@ -20,13 +20,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from ops import tpm_enrol as te
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 H = 248
@@ -52,5 +48,5 @@ check("admission judges the three enrolment messages at max(tip + 1, min_block)"
       'if transaction.get("recipient") in ("tpm_challenge", "tpm_commit", "tpm_reveal"):' in seg
       and '_vh = max(int(_vh) + 1, int(transaction.get("min_block") or 0))' in seg and "block_height=_vh" in seg)
 check("...and nothing else (every other recipient is judged at the tip)", seg.count("recipient") == 1)
-print("ALL PASS — enrolment messages are judged where they can land" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — enrolment messages are judged where they can land" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

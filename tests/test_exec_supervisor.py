@@ -27,13 +27,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from ops import exec_supervisor as S
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 # the stand-in exec program: records its environment and working directory, then sleeps
@@ -122,5 +118,5 @@ probe = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r
                        capture_output=True, text=True, timeout=120, env=dict(os.environ))
 check("once the holder exits, the next exec node gets it", probe.stdout.strip().endswith("True"), probe.stdout[-200:])
 
-print("ALL PASS — an exec machine never stays without its exec node" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an exec machine never stays without its exec node" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

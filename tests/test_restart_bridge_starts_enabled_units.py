@@ -18,13 +18,9 @@ import os, re, subprocess, sys, tempfile
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-bridge-")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 src = open(os.path.join(ROOT, "scripts", "install.sh")).read()
@@ -65,5 +61,5 @@ check("a DISABLED stopped unit is left alone", "start forum.service" not in call
 check("a running unit is not started twice", "start nado.service" not in calls, calls)
 check("running units still get their try-restart", "try-restart nado.service" in calls, calls)
 
-print("ALL PASS — no enabled unit is left down" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — no enabled unit is left down" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

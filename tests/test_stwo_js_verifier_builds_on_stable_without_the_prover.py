@@ -24,13 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests._stwo_js_build import CRATE, Env
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 toml = open(os.path.join(CRATE, "Cargo.toml")).read()
@@ -43,7 +39,7 @@ check("the dependency set is pinned (Cargo.lock.pinned is tracked beside the cra
 env = Env(_REAL_HOME)
 if not env.have_stable():
     print("SKIP  no stable cargo (`cargo +stable`) on this machine: the stable build cannot be checked here")
-    sys.exit(1 if fails else 0)
+    sys.exit(1 if _report.fails else 0)
 
 so, secs, log = env.build_verifier()
 print(f"INFO  cargo +stable build --release --locked: {secs:.0f} s")
@@ -66,5 +62,5 @@ ptree, err = env.feature_tree("prover")
 check("the detector fires: with --features prover, stwo and the framework are listed with `prover` enabled",
       {l.split()[0] for l in with_prover(ptree)} >= {"stwo", "stwo-constraint-framework"}, err or ptree)
 
-print("ALL PASS — the verifier builds on stable without the prover" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the verifier builds on stable without the prover" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

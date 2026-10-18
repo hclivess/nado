@@ -20,13 +20,9 @@ import protocol as P
 from ops.transaction_ops import field_shield_check
 from execnode.stark import znote as Z
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def admitted(data, h):
@@ -69,5 +65,5 @@ check("on the live values: a wide deposit below the close, none between the clos
       admitted({"owner": good_wide, "rho": "5"}, _WC - 1)
       and not admitted({"owner": good_wide, "rho": "5"}, _G - 1) and not admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, _G - 1)
       and admitted({"owner": bad_lane, "rho": "5", "pool": "stwo"}, _G) and not admitted({"owner": good_wide, "rho": "5"}, _G))
-print("ALL PASS — a Stwo deposit must name its pool" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a Stwo deposit must name its pool" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

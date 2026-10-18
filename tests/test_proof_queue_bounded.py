@@ -13,13 +13,9 @@ import ast, os, sys, threading, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(ROOT, "memserver.py")).read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 tree = ast.parse(SRC)
@@ -71,5 +67,5 @@ check("the worker drains what was accepted and clears it from in-flight",
 body = ast.get_source_segment(SRC, next(m for m in cls.body if isinstance(m, ast.FunctionDef) and m.name == "_queue_proof_merge"))
 check("in flight is marked BEFORE the put", 0 < body.find("_proof_inflight.add(txid)") < body.find("put_nowait("))
 
-print("ALL PASS — the proof queue is bounded and declines instead of growing" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the proof queue is bounded and declines instead of growing" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -36,13 +36,9 @@ from ops import account_ops as A, dividend_ops as D
 D._CARRIED[0] = D._CARRIED_ABSENT[0] = None
 log = logging.getLogger("t")
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 G = P.CARRY_FIDELITY_ALL_HEIGHT // P.EPOCH_LENGTH         # the first epoch the rule judges
@@ -89,5 +85,5 @@ check("the dividend weight follows the carried fidelity", w.get(ABSENT) == scale
       (w.get(ABSENT), scale, after_renew))
 
 kv_ops.close_all()
-print("ALL PASS — an identity absent at the reroll keeps its carried fidelity" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an identity absent at the reroll keeps its carried fidelity" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

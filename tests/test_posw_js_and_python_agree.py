@@ -20,13 +20,9 @@ from ops import posw
 
 # the driver's fixed statement (tests/posw_xlang.mjs): T, S, K, address, anchor
 T, S, K, ADDR, ANCHOR = 1000, 10, 8, "ndoalice", "0" * 64
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def node(*args):
@@ -60,5 +56,5 @@ check("a tampered proof fails in the node", not posw.verify(ch, bad, T, S, K))
 check("a tampered proof fails in the browser", not js_verifies(bad))
 check("a proof for another address fails in the node", not posw.verify(posw.challenge_bytes("ndobob", ANCHOR), py_proof, T, S, K))
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -25,13 +25,9 @@ os.chdir(os.environ["HOME"])
 from execnode.stark import joinsplit3 as J3, field as F, alghash2 as A2
 from execnode.stark.native_guard import NODE_LOCAL_ERRORS
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 sys.setswitchinterval(1e-6)                          # hand the GIL over constantly, so a race shows
@@ -70,5 +66,5 @@ src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
 check("both settle-verify halves catch the whole NODE_LOCAL_ERRORS tuple (KV and records)",
       src.count("from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM") == 2
       and "import NativeMissing as _NM" not in src)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

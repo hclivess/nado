@@ -25,13 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode import shielded_stwo as SP
 from execnode.state import ExecState
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 N = 1000
@@ -73,5 +69,5 @@ check(f"ExecState.clone (every provisional poll) of a {N}-note pool is linear to
       n_clone <= BOUND, f"{n_clone} node hashes ({n_clone / N:.1f} per note)")
 p.append(hashlib.blake2s(b"x").hexdigest(), 6000)
 check("a duplicate check is a set lookup, not a list scan", p.has_commitment(cms[0]) and not p.has_commitment("00" * 32))
-print("ALL PASS — the Stwo pool loads in linear time" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo pool loads in linear time" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

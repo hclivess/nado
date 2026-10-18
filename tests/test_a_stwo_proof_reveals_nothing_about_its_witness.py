@@ -36,13 +36,9 @@ import subprocess
 from tests._stwo_js_build import Env
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 env = Env(_REAL_HOME)
@@ -62,12 +58,12 @@ r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked
                     "--bin", "stwo_zk_probe"], cwd=src, capture_output=True, text=True, timeout=3600, env=benv)
 exe = os.path.join(env.target, "zkprobe", "release", "stwo_zk_probe")
 check("the ZK probe builds", r.returncode == 0 and os.path.exists(exe), r.stderr[-3000:])
-if fails:
+if _report.fails:
     sys.exit(1)
 
 p = subprocess.run([exe, "1"], capture_output=True, text=True, timeout=3600)
 check("the probe runs", p.returncode == 0, p.stderr[-2000:])
-if fails:
+if _report.fails:
     sys.exit(1)
 d = json.loads(p.stdout)
 
@@ -99,4 +95,4 @@ for c in d["rank"]:
     check(f"{c['class']}: rank on free rows = rank on all rows ({c['rank_free']} of {c['functionals']} functionals, "
           f"{c['free_rows']} free rows)", c["rank_free"] == c["rank_all"], c)
 
-sys.exit(1 if fails else 0)
+sys.exit(1 if _report.fails else 0)

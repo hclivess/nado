@@ -25,13 +25,9 @@ from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 import execnode.execnode as EN
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 GATE = 5000
@@ -78,5 +74,5 @@ check("...and field_shielded carries the Stwo pool's own root and counts",
 lv, sh = ask(GATE + 10 ** 6, 0)
 check("4. a gate of 0 (never) serves the wide pool at any height", "pool" not in lv and "pool" not in sh, (lv, sh))
 
-print("ALL PASS — the exec node serves the Stwo pool to wallets from its gate" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the exec node serves the Stwo pool to wallets from its gate" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

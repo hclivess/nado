@@ -13,13 +13,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 import subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, "scripts", "git-hooks", "pre-push")
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def git(repo, *a):
@@ -80,5 +76,5 @@ r = subprocess.run(["bash", HOOK], input=f"refs/heads/main {head} refs/heads/mai
                    capture_output=True, text=True, env={**os.environ, "PY": sys.executable})
 check("... while an untested commit in the same range still is",
       "untested change after the merge" in r.stdout and "merge side" not in r.stdout, r.stdout[-300:])
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

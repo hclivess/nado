@@ -22,13 +22,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from execnode import shielded_stwo as SP
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 if not shutil.which("node"):
@@ -93,5 +89,5 @@ check("3. aux_of(dest) == BLAKE2s-256(b'NADO/stwo-js/aux/v1\\0' || dest UTF-8)",
 check("4. the JS refuses a value above 2^64 - 1 or below 0, and a digest that is not 32 bytes", all(js["refuse"]),
       js["refuse"])
 
-print("ALL PASS — the wallet's Stwo note algebra is the node's" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the wallet's Stwo note algebra is the node's" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -24,13 +24,9 @@ import atexit, shutil; atexit.register(shutil.rmtree, _T, ignore_errors=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WASM = os.path.join(ROOT, "static", "vendor", "stwo_js.wasm")
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 if not shutil.which("node"):
@@ -93,5 +89,5 @@ check("...and carry the same public inputs (the root of the wallet's own path)",
 check("5. the WASM refuses a witness that does not conserve value", o["nonConserving"] == RC["NOT_A_JOINSPLIT"], o["nonConserving"])
 check("...and so does the JS before it gets there", o["jsRefuses"])
 
-print("ALL PASS — the Stwo WASM proves only from a fresh seed" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo WASM proves only from a fresh seed" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

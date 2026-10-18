@@ -18,13 +18,9 @@ sys.path.insert(0, ROOT)
 import struct
 from execnode import shielded_stwo as SP
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 V = {"owner": "b7506b49b8cd0172cc8657df013494afac2b4ebf2a2f08469442a1f920ff19f2",
@@ -67,5 +63,5 @@ for i in range(SP.ANCHOR_WINDOW):
 check("a root older than the anchor window is refused", not pool.knows_root(old) and pool.knows_root(pool.root()))
 again = SP.StwoShieldedPool.from_dict(pool.to_dict())
 check("a pool round-trips through its snapshot", again.root() == pool.root() and again.nullifiers == pool.nullifiers)
-print("ALL PASS — the Stwo pool hashes as the circuit does" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo pool hashes as the circuit does" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

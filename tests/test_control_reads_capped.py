@@ -12,13 +12,9 @@ Run: python3 tests/test_control_reads_capped.py
 import ast, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def funcs(path):
@@ -47,5 +43,5 @@ check("peer_ops' status fetch caps read and decompression at MAX_CONTROL_BODY",
 check("peer_ops' block fetch keeps MAX_PEER_BODY (a block may carry an inline proof)",
       "r.read(MAX_PEER_BODY)" in psrc)
 
-print("ALL PASS — control messages are read under a control-sized cap" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — control messages are read under a control-sized cap" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

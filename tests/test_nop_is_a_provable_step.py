@@ -20,13 +20,9 @@ from execnode.stark import stark, vm_circuit as VC
 from execnode import zkvm, zkvmasm
 
 NQ = int(os.environ.get("NQ", "48"))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 NOPPY = {"go": [["NOP", 0, 0, 0], ["MOVI", 1, 0, 7], ["NOP", 0, 0, 0], ["NOP", 0, 0, 0], ["MOVI", 3, 0, 5],
@@ -71,5 +67,5 @@ with stark.with_rules(stark.RULES_STRICT):
     inb = [i for (st, nr, _p, _c) in blocks for i in range(st, st + nr)]
     check("... and every execution row's program id >= 1", all(cols[VC.PC_PROG][i] >= 1 for i in inb))
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

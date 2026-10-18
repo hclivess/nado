@@ -29,13 +29,9 @@ import protocol as P
 from execnode.state import ExecState
 from execnode.execnode import _apply_block
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 GATE = 500
@@ -87,5 +83,5 @@ ok = run(st, blk(GATE + 20, [{"recipient": "blob", "sender": "ndoA" + "a" * 44, 
 check("5. 'stwo_js' only as text inside another bundle is not a Stwo spend: the block applies (skipped as wide)",
       ok is not False and st.cursor == GATE + 20, ok)
 
-print("ALL PASS — a node without the Stwo verifier stalls instead of skipping" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a node without the Stwo verifier stalls instead of skipping" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

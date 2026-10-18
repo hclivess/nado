@@ -51,13 +51,9 @@ from signatures import generate_keydict, sign, unhex
 logger = logging.getLogger("freespam"); logger.addHandler(logging.NullHandler())
 # a real height, the one betanet-8 shipped the rules at, so settle cursors and epochs derived from it stay positive
 H = 24000
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def verdict(tx, h):
@@ -308,5 +304,5 @@ check("the wallet pays MIN_TX_FEE to rotate a bound messaging key (and falls bac
 check("the gate is gone: the rules hold from block 1", not hasattr(P, "SPAM_HARDEN_HEIGHT"))
 
 kv_ops.close_all()
-print("ALL PASS — no free repeatable transaction" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — no free repeatable transaction" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

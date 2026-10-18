@@ -20,13 +20,9 @@ os.environ["NADO_STWO_JS_LIB"] = os.path.join(_T, "absent", "libnado_stwo_js.so"
 os.environ["NADO_ALLOW_PYTHON_KERNELS"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 try:
@@ -69,5 +65,5 @@ except Exception as e:                         # noqa: BLE001
     got = repr(e)
 check("an unloadable file at the library path raises NativeMissing", got == "NativeMissing", got)
 
-print("ALL PASS — the stwo_js library loads on first verify, never at import" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the stwo_js library loads on first verify, never at import" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

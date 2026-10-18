@@ -16,13 +16,9 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-static-test-")
 sys.path.insert(0, ROOT)
 from ops.static_versions import StaticVersions  # noqa: E402
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 d = tempfile.mkdtemp(prefix="nado-i18nstamp-")
@@ -50,5 +46,5 @@ importers = [f for f in os.listdir(os.path.join(ROOT, "static")) if f.endswith((
                                                                            errors="ignore").read())]
 check("nothing imports i18n.js as a module", not importers, importers)
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

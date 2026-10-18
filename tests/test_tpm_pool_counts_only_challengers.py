@@ -26,13 +26,9 @@ sys.path.insert(0, ROOT)
 import protocol as P
 from ops import transaction_ops as T
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 L = P.EPOCH_LENGTH
@@ -74,5 +70,5 @@ finally:
 src = open(os.path.join(ROOT, "protocol.py")).read()
 check("the gate is keyed on the live generation (gen 28)",
       "TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1" in src and P.CHAIN_GENERATION == 28)
-print("ALL PASS — only challengers earn a seat" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — only challengers earn a seat" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

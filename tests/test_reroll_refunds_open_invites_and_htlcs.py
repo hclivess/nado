@@ -15,13 +15,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from tools.alphanet6_carryforward import open_escrow_refunds
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 inv = {"i1": ["alice", 500, 9000, "open", ""], "i2": ["alice", 70, 9000, "open", ""],
@@ -38,5 +34,5 @@ src = open(os.path.join(ROOT, "tools", "alphanet6_carryforward.py")).read()
 b = src[src.index("def build():"):src.index("CONSERVATION")]
 check("build() applies the fold before the conservation check",
       "open_escrow_refunds(kv_ops.invite_all(), kv_ops.htlc_all())" in b and "debit_reserved(acct, v)" in b)
-print("ALL PASS — open escrows go home at a reroll" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — open escrows go home at a reroll" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

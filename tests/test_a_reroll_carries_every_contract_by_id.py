@@ -29,13 +29,9 @@ GEN_FILE = os.environ.get("NADO_EXEC_GENESIS") or os.path.join(H, "exec_genesis.
 os.environ["NADO_EXEC_GENESIS"] = GEN_FILE
 import protocol as P
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 PHASE = os.environ.get("NADO_TEST_PHASE", "main")
@@ -131,5 +127,5 @@ json.dump({"generation": P.CHAIN_GENERATION + 1, "contracts": gen_contracts, "br
 EG._CACHE.clear()
 check("6. a genesis file for another generation is ignored", EG.load() is None and EG.genesis_root() == P.EXEC_GENESIS_ROOT)
 
-print("ALL PASS — a reroll carries every contract by its id" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a reroll carries every contract by its id" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

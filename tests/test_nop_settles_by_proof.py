@@ -25,13 +25,9 @@ from execnode.state import ExecState
 from execnode.stark import settlement_sparse as SS, calls_commit as CC, stark, storage_tree as ST
 
 NQ, DEPTH, H = 16, 16, 300_000
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A = "ndoAAAA" + "A" * 41; B = "ndoBBBB" + "B" * 41
@@ -79,5 +75,5 @@ if v:
     ok, why, post = v
     check("... verifies", ok is True, why)
     check("... and lands on exactly the chain's post state", post == ST.digest_hex(chain_root), (post, ST.digest_hex(chain_root)))
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

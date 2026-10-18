@@ -30,13 +30,9 @@ sys.path.insert(0, ROOT)
 
 from ops import self_update as SU  # noqa: E402
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 check("setup: native/stwo_js is a REQUIRED crate on this tree", "native/stwo_js" in SU._CRATES, SU._CRATES)
@@ -76,6 +72,6 @@ check("the stale-checkout restart builds the missing required Stwo verifier BEFO
 
 shutil.which = _real_which
 shutil.rmtree(repo, ignore_errors=True)
-print("ALL PASS — the push host builds the Stwo verifier before it restarts into the gate" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the push host builds the Stwo verifier before it restarts into the gate" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

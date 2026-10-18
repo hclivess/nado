@@ -23,13 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 NQ = int(os.environ.get("NQ", "32"))
 P = F.P
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 from opcode_programs import CASES, SELF   # the programs live in tests/opcode_programs.py (shared)
@@ -102,5 +98,5 @@ with stark.with_rules(stark.RULES_STRICT):
 
 missing = sorted(set(zkvm.OPS) - covered, key=zkvm.OPS.index)
 check(f"every one of the {len(zkvm.OPS)} opcodes is executed by a program above", not missing, missing)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -15,13 +15,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts")); sys.path.insert(0, ROOT)
 import bet_oracle as B
 import time
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 time.sleep = lambda s: None
@@ -51,5 +47,5 @@ try:
 except SystemExit as e:
     check("an exec node that stays down still fails, naming it as down", "did not answer" in str(e), str(e))
 
-print("ALL PASS — the oracle rides out an exec restart" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the oracle rides out an exec restart" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

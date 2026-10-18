@@ -30,6 +30,7 @@ DRIVEN_BY_ROOT_SCRIPT = "a verifier/bot CLI called by the root-level e2e and fau
 DECLARED = {
     # ---- libraries: imported or spawned by a test
     "__init__.py": ("library", "package marker: lets tests import each other's helpers"),
+    "_harness.py": ("library", "the shared isolation + PASS/FAIL report every migrated test imports (consolidation stage 1)"),
     "_stwo_js_build.py": ("library", "builds native/stwo_js (stable verifier, nightly test prover) outside the checkout for the test_stwo_js_* tests"),
     "_stwo_zk_probe.rs": ("library", "the witness-leak probe test_a_stwo_proof_reveals_nothing_about_its_witness builds into a temp copy of native/stwo_js"),
     "stwo_js_attack": ("data", "a directory: the forging harness test_stwo_js_every_post_proof_mutation_and_cheat_is_refused builds into a temp copy of native/stwo_js"),

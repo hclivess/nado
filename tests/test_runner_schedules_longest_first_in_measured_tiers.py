@@ -19,13 +19,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNNER = os.path.join(ROOT, "scripts", "run_tests.sh")
 D = os.environ["HOME"]
 TIMES = os.path.join(D, "times.tsv")
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def fake(name, body):
@@ -114,5 +110,5 @@ check("the pre-push hook runs the touched tests' fast tier only (a push never wa
 check("the runner, and the hook's touched-test list, take every test kind: .py, .mjs and .js",
       all(f"tests/test_*.{x}" in src for x in ("py", "mjs", "js")) and all(f"'tests/test_*.{x}'" in hook for x in ("py", "mjs", "js")))
 
-print("ALL PASS — tiers by measured time, longest first, 3x timeouts, skips reported" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — tiers by measured time, longest first, 3x timeouts, skips reported" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

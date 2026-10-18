@@ -12,13 +12,9 @@ import ast, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(ROOT, "nado.py")).read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 tree = ast.parse(SRC)
@@ -38,5 +34,5 @@ check("the cap is a small fixed number", bool(m) and 1 <= int(m.group(1)) <= 8, 
 i_rl = code.find("_rate_limited(request, 6)")
 check("the strict per-IP bucket applies to every large body before it is read", 0 < i_rl < i_read, (i_rl, i_read))
 
-print("ALL PASS — large and unknown-length submits are bounded per IP and node-wide" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — large and unknown-length submits are bounded per IP and node-wide" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

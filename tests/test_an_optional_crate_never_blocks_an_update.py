@@ -21,13 +21,9 @@ from ops import self_update as SU
 import types
 SU_LIVE = types.SimpleNamespace(_CRATES=SU._CRATES, _OPTIONAL_CRATES=SU._OPTIONAL_CRATES)   # before the test rewires them
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def git(cwd, *a):
@@ -93,5 +89,5 @@ finally:
 # chain depends on: rebuilt when missing or stale), and never both
 check("native/stwo_js is a REQUIRED crate since its gate was set, and not also optional",
       "native/stwo_js" in SU_LIVE._CRATES and "native/stwo_js" not in SU_LIVE._OPTIONAL_CRATES)
-print("ALL PASS — an optional crate never blocks an update" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an optional crate never blocks an update" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

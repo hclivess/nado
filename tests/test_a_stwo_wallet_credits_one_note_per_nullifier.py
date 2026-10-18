@@ -25,13 +25,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from execnode import shielded_stwo as SP
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 if not shutil.which("node"):
@@ -80,5 +76,5 @@ check("...only for the Stwo pool, with the wallet's own Stwo key and the real nu
       "shieldStwo() && shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)" in body)
 check("...and the refusal is a translated string", 'i18("shield.stwoSameNf"' in body)
 
-print("ALL PASS" if not fails else f"{fails} FAILED")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILED")
+sys.exit(1 if _report.fails else 0)

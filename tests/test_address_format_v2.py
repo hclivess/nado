@@ -28,13 +28,9 @@ import protocol as P
 from ops import address_ops as A
 from hashing import blake2b_hash
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 from signatures import generate_keydict
@@ -107,5 +103,5 @@ console.log(T.makeAddress(pk) + " " + T.legacyAddress(pk) + " " + T.ADDR_LEN);
     check("the browser's address, legacy address and length are byte-identical to the node's",
           out == f"{v2} {victim_v1} 50", (out, r.stderr[-300:]))
 
-print("ALL PASS — an address commits to the whole key" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an address commits to the whole key" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

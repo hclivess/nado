@@ -42,13 +42,9 @@ from genesis import make_folders, make_genesis
 from ops import kv_ops
 from ops.account_ops import get_open_registry, get_account
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 make_folders()
@@ -59,8 +55,8 @@ if MISMATCH:
     check("a carry file naming another generation is ignored: no device bindings", kv_ops.devbind_get("tpm:" + "1" * 64) is None)
     check("... no aliases", kv_ops.alias_get("zag") is None)
     check("... while the allocation's coins still carry", acc(LIVE).get("balance") == 500)
-    print("ALL PASS" if not fails else f"{fails} FAILURES")
-    sys.exit(1 if fails else 0)
+    print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+    sys.exit(1 if _report.fails else 0)
 check("balances and bonded stake are carried", (acc(LIVE).get("balance"), acc(LAPSED).get("bonded"), acc(PLAIN).get("balance")) == (500, 700, 42))
 check("identity fields are carried", acc(LIVE).get("fidelity") == 12 and acc(LIVE).get("devkey") == "tpm:" + "1" * 64
       and acc(LIVE).get("public_key") == "pk-live" and str(acc(LAPSED).get("registered")) == "1")
@@ -78,5 +74,5 @@ for line in child.stdout.splitlines():
     if line.startswith(("PASS", "FAIL")):
         print(line)
 check("(the other-generation run completed)", child.returncode == 0, child.stdout[-400:] + child.stderr[-400:])
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -19,13 +19,9 @@ import re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(ROOT, "static", "interface.js"), encoding="utf-8").read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 tags = dict(re.findall(r'^const (DOMAIN_[A-Z0-9_]+) = "([^"]+)";', src, re.M))
@@ -47,5 +43,5 @@ check("3. the Stwo tag is used by its declaration and shieldNskStwo only", len(u
 check("...the frozen wide and legacy tags are unchanged",
       tags.get("DOMAIN_SHIELD_NSK_WIDE") == "shield-nsk-v2" and tags.get("DOMAIN_SHIELD_NSK") == "shield-nsk-v1", tags)
 
-print("ALL PASS — the Stwo spend key has its own domain" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo spend key has its own domain" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

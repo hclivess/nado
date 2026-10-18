@@ -26,13 +26,9 @@ from ops.transaction_ops import field_shield_check
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def admitted(data, h):
@@ -61,5 +57,5 @@ r = st.apply_field_shield(10 ** 10, owner, 5)
 check("(why it matters: admitted below the gate, the coins become a WIDE note under a Stwo owner)",
       "wide note" in r and not st.stwo_pool.commitments, r)
 P.STWO_POOL_HEIGHT, P.WIDE_DEPOSIT_CLOSE_HEIGHT = live_gate, live_close
-print("ALL PASS — a Stwo-tagged deposit is refused below the gate" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a Stwo-tagged deposit is refused below the gate" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

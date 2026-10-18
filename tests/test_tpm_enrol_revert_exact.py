@@ -35,13 +35,9 @@ from ops.account_ops import apply_tpm_enrol_tx
 from protocol import CHAIN_ID
 
 kv_ops.init_env()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 # --- stubs: only what needs the native certificate kernel or the chain's block history. Every kv write is real. ---
@@ -141,5 +137,5 @@ for i in range(len(blocks) - 1, -1, -1):
 
 check("everything rolled back: no enrolment row, no marker, no journal left", dump() == before[0], diff(before[0], dump()))
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -21,13 +21,9 @@ from execnode.stark import stark, vm_circuit as VC
 from execnode import zkvm, zkvmasm
 
 NQ = int(os.environ.get("NQ", "48"))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 CODE = {"go": zkvmasm.assemble("movi r2 0\n arg r1 r2\n movi r3 5\n sstore r3 r1\n ret r1")}
@@ -68,5 +64,5 @@ r = attempt(STRICT, forge=True)
 check("the forged args[0] = 0 proof is refused under the hardened rules",
       isinstance(r, str) or r[0][0] is False, r)
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

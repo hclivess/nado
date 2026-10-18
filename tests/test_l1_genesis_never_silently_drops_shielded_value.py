@@ -51,13 +51,9 @@ import protocol as P
 import genesis as G
 from execnode import shielded_stwo as SP
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def l1(escrow, doc=None, gen=None):
@@ -108,5 +104,5 @@ check("...and the same residual on the next generation refuses (the carry always
 r = l1(7, dict(shield_doc, generation=GEN))
 check("6. a document that accounts for SHIELD_ESCROW builds", built(r), (r.returncode, r.stdout[-300:], r.stderr[-500:]))
 
-print("ALL PASS — L1 genesis never silently drops shielded value" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — L1 genesis never silently drops shielded value" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

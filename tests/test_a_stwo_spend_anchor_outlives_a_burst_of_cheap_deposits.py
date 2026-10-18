@@ -35,13 +35,9 @@ from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 GATE = 1000
@@ -150,5 +146,5 @@ check("root_valid_through: the current root at least ANCHOR_BLOCKS past the curs
       st.stwo_pool.root_valid_through(st.stwo_pool.root(), 500) == 500 + SP.ANCHOR_BLOCKS
       and st.stwo_pool.root_valid_through("ab" * 32, 500) is None)
 P.STWO_POOL_HEIGHT = live
-print("ALL PASS — a Stwo anchor outlives a burst of deposits" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a Stwo anchor outlives a burst of deposits" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

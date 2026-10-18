@@ -22,13 +22,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from tools.alphanet6_carryforward import exec_value_the_carry_would_drop as drop
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 empty = {"shielded": {"commitments": [], "nullifiers": [], "root": "00" * 32}, "field_pool": {"commitments": []},
@@ -63,5 +59,5 @@ src = open(os.path.join(ROOT, "tools", "alphanet6_carryforward.py")).read()
 b = src[src.index("def build():"):]
 check("build() refuses on any of them before it writes anything",
       b.index("exec_value_the_carry_would_drop(d,") < b.index("--write") if "--write" in b else True)
-print("ALL PASS — the carry refuses to drop exec value" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the carry refuses to drop exec value" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

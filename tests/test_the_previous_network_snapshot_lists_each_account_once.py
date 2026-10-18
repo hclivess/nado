@@ -11,13 +11,9 @@ import os, re, sys
 from decimal import Decimal
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 doc = open(os.path.join(ROOT, "doc", "previous-network-snapshot.md"), encoding="utf-8").read()
@@ -36,5 +32,5 @@ check("the summary's total is the sum of the rows", m_t and Decimal(m_t.group(1)
 check("balances are sorted descending", all(Decimal(rows[i][2]) >= Decimal(rows[i + 1][2]) for i in range(len(rows) - 1)))
 readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
 check("the README's holder count agrees", f"({len(rows):,} holders)" in readme)
-print("ALL PASS — the previous-network snapshot lists each account once" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the previous-network snapshot lists each account once" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

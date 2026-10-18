@@ -25,13 +25,9 @@ import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP, exec_root as ER
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def fresh(cursor):
@@ -114,5 +110,5 @@ again._restore(copy.deepcopy(st._snapshot()))
 check("the pool survives a snapshot round trip", again.stwo_pool.root() == st.stwo_pool.root()
       and again.stwo_pool.nullifiers == st.stwo_pool.nullifiers)
 
-print("ALL PASS — the Stwo pool is dormant until its gate" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo pool is dormant until its gate" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

@@ -23,13 +23,9 @@ from ops import kv_ops, tpm_enrol as te
 from ops.account_ops import apply_tpm_enrol_tx
 
 kv_ops.init_env()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A, B, C = "a" * 46, "b" * 46, "c" * 46
@@ -76,5 +72,5 @@ try:
 except AssertionError:
     check("a challenge in the enrolment's own block is refused", True)
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

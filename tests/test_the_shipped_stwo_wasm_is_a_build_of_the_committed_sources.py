@@ -24,13 +24,9 @@ from tests._stwo_js_build import Env, SHIPPED_WASM, wasm_sources_digest
 WASM_SHA256 = "9dc8559b4a608ff217573f9240eb7e3b6138e6eeb12dca4b6d38bec5d4129a3e"
 SOURCES_SHA256 = "ebf0e660d64caaf6a37e2588f9f798e082eefab30c7612bc49cd789c33e37f7c"
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 shipped = open(SHIPPED_WASM, "rb").read()
@@ -52,5 +48,5 @@ else:
         check(f"3. a fresh build ({secs:.0f} s) is byte-identical to the shipped file", fresh == shipped,
               f"fresh {hashlib.sha256(fresh).hexdigest()} ({len(fresh)} B) vs shipped ({len(shipped)} B)")
 
-print("ALL PASS — the shipped Stwo WASM is a build of the committed sources" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the shipped Stwo WASM is a build of the committed sources" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

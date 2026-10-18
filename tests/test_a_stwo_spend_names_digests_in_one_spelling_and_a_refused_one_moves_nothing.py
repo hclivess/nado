@@ -34,13 +34,9 @@ from execnode import shielded_stwo as SP
 from execnode.stark import stwo_js_native as SJ
 from execnode.stark.native_guard import NativeMissing
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 NF = "ab" * 31 + "00"                                     # a nullifier whose last byte is 0x00: the aliasable kind
@@ -148,6 +144,6 @@ for bad in (SP.owner_of("22" * 32).upper(), SP.owner_of("22" * 32)[:62] + "  "):
     check(f"6. a deposit to a non-canonical owner {bad[-4:]!r} is refused and moves nothing",
           r.startswith("skip") and st._snapshot() == before, r)
 
-print("ALL PASS — a Stwo spend names its digests in one spelling, and a refused one moves nothing" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a Stwo spend names its digests in one spelling, and a refused one moves nothing" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

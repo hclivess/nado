@@ -41,13 +41,9 @@ import subprocess
 from tests._stwo_js_build import Env
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 env = Env(_REAL_HOME)
@@ -133,6 +129,6 @@ check("through the node's ctypes binding: a proof that panics the verifier is a 
 ok, why = SJ.verify(open(os.path.join(out, "honest.bin"), "rb").read(), *args)
 check("...and the binding still verifies afterwards (the caller survived the panic)", ok, why)
 
-print("ALL PASS — every post-proof mutation and every cheating prover is refused" if not fails
-      else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — every post-proof mutation and every cheating prover is refused" if not _report.fails
+      else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

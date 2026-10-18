@@ -38,13 +38,9 @@ ELSEWHERE = {"PAY": ("test_pay_and_chain_reads_settle_natively.py", "pay r1 r2")
              "ABAL": ("test_asset_ops_settle_by_proof.py", "abal r4 r1"),
              "ARENOUNCE": ("test_asset_ops_settle_by_proof.py", "arenounce r1")}
 EXCLUDED = set(ELSEWHERE)            # from THIS span only
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A = "ndoAAAA" + "A" * 41; B = "ndoBBBB" + "B" * 41
@@ -89,5 +85,5 @@ for _op, (_file, _asm) in sorted(ELSEWHERE.items()):
     _path = os.path.join(HERE, _file)
     _src = open(_path).read() if os.path.exists(_path) else ""
     check(f"{_op} settles by proof in {_file}", _asm in _src and "prove_settlement_sparse" in _src, (_file, _asm))
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

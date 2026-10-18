@@ -11,13 +11,9 @@ Run: python3 tests/test_redeploy_rewires_every_cid.py
 import os, re, sys, glob
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(ROOT, "execnode", "games", "redeploy.py")).read()
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 wired = set(re.findall(r'\(os\.path\.join\(STATIC, "([a-z_]+\.js)"\), "([A-Z_]+_CID)", "[a-z_]+"\)', src))
@@ -37,5 +33,5 @@ fr_path = os.path.join(ROOT, *re.findall(r'"([^"]+)"', m.group(1))) if m else No
 check("the redeploy rewires the faucet distributor at a path that exists", bool(fr_path) and os.path.isfile(fr_path),
       fr_path)
 check("both the rewire and the verify read that path", src.count("fr = FAUCET_REWARDS") == 2)
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

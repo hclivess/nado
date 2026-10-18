@@ -25,13 +25,9 @@ from execnode.state import ExecState
 from execnode.games import autogame as G
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 A, B = "ndoA" + "a" * 44, "ndoB" + "b" * 44
@@ -141,5 +137,5 @@ C.CARRY_BLOCKERS.clear()
 check("...and the contract then carries, the concluded runs left as history",
       G.carry_in_flight(old.contracts[cid]["storage"], tip=mist_tip) == []
       and C.carry_policy(cid, old.contracts[cid], tip=mist_tip) == "keep")
-print("ALL PASS — an Autogame run crosses a reroll parked" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — an Autogame run crosses a reroll parked" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

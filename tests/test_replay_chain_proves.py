@@ -18,13 +18,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "replay_chain.py")
 W = tempfile.mkdtemp(prefix="nado-test-replay-")
 import atexit, shutil; atexit.register(shutil.rmtree, W, ignore_errors=True)
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def result(n, root_at=None, upto=None):
@@ -79,5 +75,5 @@ src = open(TOOL).read()
 check("the replayed blocks go through the node's own remote-block path",
       'core.produce_block(blk, remote=True, remote_peer="replay-harness")' in src)
 check("the child refuses every outbound connection", "_install_net_guard(net)" in src)
-print("ALL PASS — the replay proof says IDENTICAL only when it is" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the replay proof says IDENTICAL only when it is" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

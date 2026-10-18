@@ -22,13 +22,9 @@ sys.path.insert(0, ROOT)
 import protocol as P
 from ops.transaction_ops import field_shield_check
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def verdict(data, h):
@@ -85,5 +81,5 @@ console.log(JSON.stringify(out));
 else:
     check("...the wallet defines wideDepositClosed (and node runs it)", False, "missing function or node")
 
-print("ALL PASS" if not fails else f"{fails} FAILED")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILED")
+sys.exit(1 if _report.fails else 0)

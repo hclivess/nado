@@ -33,13 +33,9 @@ from signatures import generate_keydict
 from tools.rekey_v2 import rekey, v2_address
 from tools import recover_keys as RK
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 def refuses(fn):
@@ -162,5 +158,5 @@ check("...and re-keys only the carry that crossed the format switch (a gen-27 so
       "_crosses_format_switch = int(_G) == 27" in src and "if _crosses_format_switch:" in src and "ADDRESS_FORMAT" not in
       src.replace("protocol.ADDRESS_FORMAT deleted", ""))
 
-print("ALL PASS — every owner's coins are at the address their key derives" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — every owner's coins are at the address their key derives" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

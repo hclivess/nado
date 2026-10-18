@@ -33,13 +33,9 @@ GEN_FILE = os.environ.get("NADO_EXEC_GENESIS") or os.path.join(H, "exec_genesis.
 os.environ["NADO_EXEC_GENESIS"] = GEN_FILE
 import protocol as P
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 if os.environ.get("NADO_TEST_PHASE") == "l1":
@@ -209,5 +205,5 @@ old_doc = l1(STRANDED)
 check("...a document without the shielded section asserts nothing about SHIELD_ESCROW (as before the carry)",
       old_doc.returncode == 0, (old_doc.returncode, old_doc.stdout[-300:]))
 
-print("ALL PASS — the Stwo pool crosses a reroll with its root and spent set" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — the Stwo pool crosses a reroll with its root and spent set" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

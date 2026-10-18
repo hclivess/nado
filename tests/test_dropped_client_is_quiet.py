@@ -14,13 +14,9 @@ import os, sys, tempfile, asyncio, re, textwrap
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-dropped-")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 src = open(os.path.join(ROOT, "nado.py")).read()
@@ -53,5 +49,5 @@ if 0 < i < j:
     except KeyError:
         check("any other exception still propagates", True)
 
-print("ALL PASS — a dropped client is quiet" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — a dropped client is quiet" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

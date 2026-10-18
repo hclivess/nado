@@ -25,13 +25,9 @@ from execnode.state import ExecState
 from execnode import exec_genesis as EG
 import tools.alphanet6_carryforward as C
 
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 ISS, HOL, SPN, OUT = "ndoI" + "i" * 44, "ndoH" + "h" * 44, "ndoS" + "s" * 44, "ndoO" + "o" * 44
@@ -58,5 +54,5 @@ check("a holder transfers on the new chain", new.abal[aid].get(OUT) == 100 and n
 new.apply_blob({"op": "asset_transfer_from", "asset": aid, "from": HOL, "to": SPN, "amount": 50}, SPN, "tf")
 check("an allowance granted on the old chain still spends on the new one", new.abal[aid].get(SPN) == 50, new.abal[aid])
 
-print("ALL PASS — exec assets cross a reroll" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS — exec assets cross a reroll" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)

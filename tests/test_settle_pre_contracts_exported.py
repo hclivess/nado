@@ -25,13 +25,9 @@ from execnode.stark import (settlement_sparse as SS, exec_state_bind as ESB, cal
                             storage_tree as ST, state_transition as SX)
 
 NQ, DEPTH, H = 8, 16, 300_000
-fails = 0
-
-
-def check(name, ok, detail=""):
-    global fails
-    print(("PASS  " if ok else "FAIL  ") + name + ("" if ok else f"  {detail}"))
-    fails += 0 if ok else 1
+import _harness
+_report = _harness.Report()
+check = _report.check
 
 
 ALICE = "ndoAAAA" + "A" * 41; BOB = "ndoBBBB" + "B" * 41
@@ -88,5 +84,5 @@ ok, why = SS._exported_shape({cid1: {"code": {"a": [1]}, "storage": {"slots": {}
                                      "deployer": ALICE, "upgradable": True}}, True)
 check("an exporter-shaped record passes the shape check", ok, why)
 
-print("ALL PASS" if not fails else f"{fails} FAILURES")
-sys.exit(1 if fails else 0)
+print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
+sys.exit(1 if _report.fails else 0)
