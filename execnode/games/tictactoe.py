@@ -273,6 +273,11 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
+    # ABORT = A TIMEOUT WIN (audit 2026-09-24 #26, confirmed 2026-10-18). After the move clock (dl) runs out the player
+    # whose turn it was STALLED; the pot goes to the one who was waiting, exactly as a resign would pay it, and wr names
+    # them. It used to refund BOTH stakes, so a player about to lose stopped moving and got their stake back. The turn
+    # is mc's parity (p1 at even, p2 at odd — reversi's passes count as moves too), the rule the move method enforces.
+    # Anyone may still call it (a third party settles a dead game), but the payout can only go to the waiting player.
     "abort": """
         slot r4 1 r0
         sload r5 r4
@@ -289,16 +294,22 @@ SRC = {
         ctx r6 cursor
         lt r5 r6
         require r5
-        slot r4 2 r0
+        slot r4 8 r0
         sload r5 r4
-        slot r4 4 r0
-        sload r6 r4
-        pay r6 r5
-        slot r4 5 r0
-        sload r6 r4
+        movi r6 2
+        divmod r5 r6
+        movi r5 5
+        sub r5 r7
+        movi r6 4294967296
+        mul r5 r6
+        add r5 r0
+        sload r6 r5
+        slot r4 3 r0
+        sload r5 r4
         pay r6 r5
         slot r4 7 r0
-        movi r5 3
+        movi r5 2
+        sub r5 r7
         sstore r4 r5
         slot r4 6 r0
         movi r5 1

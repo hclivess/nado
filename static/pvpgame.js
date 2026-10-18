@@ -81,7 +81,7 @@ export class PvpGame {
       Object.assign({ game: this.active, phase: "move", ply: gm.mc }, pend || {}));
   }
   resign() { if (this.dapp.busy("resign", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("resign", [this.active], null, "resign #" + this.active, { game: this.active, phase: "resign" }); }
-  abort() { if (this.dapp.busy("abort", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("abort", [this.active], null, "refund a stalled game #" + this.active, { game: this.active, phase: "abort" }); }
+  abort() { if (this.dapp.busy("abort", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("abort", [this.active], null, "claim a timed-out game #" + this.active, { game: this.active, phase: "abort" }); }
   cancel() { if (this.dapp.busy("cancel", "game", this.active)) return notify(confirmingLabel()); this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
   async rematch(stakeRaw) {
     const stake = BigInt(stakeRaw);
@@ -141,7 +141,7 @@ export class PvpGame {
         if (done) {
           okBar({ open: T("stOpen", "✓ Game is on-chain — send your opponent the invite below."),
             join: T("stJoin", "✓ You're in — the opener moves first."), move: T("stMove", "✓ Move landed."),
-            resign: T("stResign", "✓ Resigned."), abort: T("stAbort", "✓ Refunded."), cancel: T("stCancel", "✓ Cancelled — stake refunded.") }[this.watch.phase]);
+            resign: T("stResign", "✓ Resigned."), abort: T("stAbort", "✓ You won on time."), cancel: T("stCancel", "✓ Cancelled — stake refunded.") }[this.watch.phase]);
           this.watch = null;
         } else if (this.watch.ts && Date.now() - this.watch.ts > 75000) {
           notify(T("stSettling", "Still settling on-chain — your move and funds are safe; the board updates by itself."));
@@ -237,10 +237,12 @@ export class PvpGame {
       if (gm.nn === 1 && !playing) btn(cfg.marks[1] + " " + T("joinStake", "Join — stake {stake} NADO", { stake: rawToNado(gm.stake) }), () => this.join(), true, true, "join");
       if (gm.nn === 1 && me1) btn(T("cancelRefund", "Cancel — refund my stake"), () => this.cancel(), false, false, "cancel");
       if (gm.nn === 2 && playing) btn(T("resignConcede", "🏳 Resign — concede the pot"), () => this.resign(), false, false, "resign");
-      if (gm.nn === 2 && dapp.cursor != null && dapp.cursor > gm.dl)
-        btn(T("opponentTimedOut", "⏰ Opponent timed out — refund both stakes"), () => this.abort(), true, false, "abort");
+      // A TIMEOUT IS A WIN for the player who was waiting (contract abort, audit #26): only they get the button —
+      // the contract pays the waiting player whoever calls it, so offering it to the staller would just mislead
+      if (gm.nn === 2 && dapp.cursor != null && dapp.cursor > gm.dl && gm.turnAddr !== dapp.me && playing)
+        btn(T("opponentTimedOut", "⏰ Opponent timed out — claim the pot"), () => this.abort(), true, false, "abort");
       else if (gm.nn === 2 && dapp.cursor != null && gm.turnAddr !== dapp.me && playing)
-        wrap.insertAdjacentHTML("beforeend", '<div class="small dim" style="flex:1 1 100%">' + T("moveClock", "move clock: refundable in {t} if they stall", { t: blocksToTime(gm.dl - dapp.cursor) }) + "</div>");
+        wrap.insertAdjacentHTML("beforeend", '<div class="small dim" style="flex:1 1 100%">' + T("moveClock", "move clock: you win the pot in {t} if they stall", { t: blocksToTime(gm.dl - dapp.cursor) }) + "</div>");
     }
     if (cfg.extraActions) cfg.extraActions(gm, btn);
   }
@@ -263,7 +265,7 @@ export class PvpGame {
       dapp.showReturn(pend, ok, err, {
         open: T("pendOpen", "Opening the game — confirming…"), join: T("pendJoin", "Joining — confirming…"),
         move: T("pendMove", "Move sent — landing in the next block…"), resign: T("pendResign", "Resigning…"),
-        abort: T("pendAbort", "Refunding…"), cancel: T("pendCancel", "Cancelling…") });
+        abort: T("pendAbort", "Claiming…"), cancel: T("pendCancel", "Cancelling…") });
     });
     try { await dapp.init(); } catch (e) { alertBar(T("cryptoFail", "Crypto bundle failed to load — reload.")); return; }
     this.wire(); loadQR();
