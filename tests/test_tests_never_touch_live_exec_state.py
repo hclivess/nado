@@ -43,6 +43,9 @@ def offenders():
         head = src[:m.start()]
         if _child_env_names_all_three(head):
             continue
+        # the shared harness assigns all three (tests/_harness.py isolate; exec_state=False opts the exec paths out)
+        if re.search(r"^\s*(\w+\s*=\s*)?_harness\.isolate\((?![^)]*exec_state\s*=\s*False)", head, re.M):
+            continue
         missing = [what for what, rx in (("HOME", ASSIGN_HOME), ("NADO_EXEC_STATE", ASSIGN_EXEC),
                                          ("NADO_EXEC_DA", ASSIGN_DA)) if not rx.search(head)]
         if missing:
@@ -57,6 +60,9 @@ def self_check():
                  "import execnode.execnode", "    from execnode.execnode import _apply_block"):
         assert IMPORT.search(form), f"detector misses {form!r}"
     assert not IMPORT.search("from execnode import state"), "detector must not flag other execnode modules"
+    # the harness form counts only when it keeps exec_state on
+    _h = lambda t: re.search(r"^\s*(\w+\s*=\s*)?_harness\.isolate\((?![^)]*exec_state\s*=\s*False)", t, re.M)
+    assert _h('HOME = _harness.isolate("x-")') and not _h('_harness.isolate("x-", exec_state=False)')
 
 
 if __name__ == "__main__":

@@ -1274,15 +1274,13 @@ async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_h
             _E = RB.epoch_accrual_due(_blk.get("block_number"), _EL)
             if _E is None:
                 continue
-            inf = await _get_json(session, f"/get_dividend_inflow?epoch={_E}")
-            ow = await _get_json(session, f"/get_open_weights?epoch={_E}")
-            if not isinstance(ow, dict) or ow.get("error"):
-                print(f"[execnode] records NOT DERIVABLE: epoch {_E} weights unavailable at block "
-                      f"{_blk.get('block_number')} ({(ow or {}).get('error', 'no response')}) — pruned "
-                      f"recert history; never guessed", flush=True)
-                return None                       # pruned recert history -> quorum, never a guess
-            _aeff, carry = RB.dividend_accrual_effects(int((inf or {}).get("inflow", 0)),
-                                                       (ow or {}).get("weights", {}) or {}, carry, _E)
+            try:
+                _inflow, _weights = await _get_l1_accrual_inputs(session, _E)
+            except L1Unavailable as e:
+                print(f"[execnode] records NOT DERIVABLE: epoch {_E} accrual inputs unavailable at block "
+                      f"{_blk.get('block_number')} ({e}) — never guessed", flush=True)
+                return None                       # pruned recert history / an L1 refusal -> quorum, never a guess
+            _aeff, carry = RB.dividend_accrual_effects(_inflow, _weights or {}, carry, _E)
             effects.extend(_aeff)
         # ...AND THE CONTRACT PAYOUTS. A PAY is an EXECUTION outcome: it never appears in the calldata, so
         # block_records_effects above — which reads calldata only — is structurally blind to it. L1 derives
@@ -2619,6 +2617,33 @@ async def _get_json(session, path):
         return await r.json(content_type=None)
 
 
+class L1Unavailable(RuntimeError):
+    """An L1 answer that is not data: a non-200 status or a body without the field the caller needs."""
+
+
+async def _get_l1_accrual_inputs(session, epoch):
+    """(inflow, weights) of dividend epoch `epoch` from L1, or raise L1Unavailable — NEVER a default.
+
+    THE ACCRUAL INPUTS ARE CONSENSUS (audit 2026-09-24 #25, confirmed 2026-10-18): _get_json decodes any body whatever
+    the status, so a 429 or an error page on /get_dividend_inflow became inflow 0 and the exec node accrued that
+    epoch with nothing — its state left every other exec node's, a silent exec-root fork caused by a rate limit (the
+    weights call checked for an error, the inflow call checked nothing). INVARIANT: both accrual paths read through
+    here; a refusal holds the cursor (_accrue_owed) or marks the span not derivable (records), never guesses."""
+    out = []
+    for path, field in ((f"/get_dividend_inflow?epoch={epoch}", "inflow"), (f"/get_open_weights?epoch={epoch}", "weights")):
+        async with session.get(L1 + path, timeout=aiohttp.ClientTimeout(total=15), allow_redirects=False) as r:
+            if r.status != 200:
+                raise L1Unavailable(f"{path}: HTTP {r.status}")
+            body = await r.json(content_type=None)
+        if not isinstance(body, dict) or body.get("error") or field not in body:
+            raise L1Unavailable(f"{path}: {(body or {}).get('error') if isinstance(body, dict) else 'not a JSON object'}")
+        out.append(body[field])
+    inflow, weights = out
+    if isinstance(inflow, bool) or not isinstance(inflow, int) or inflow < 0 or not isinstance(weights, dict):
+        raise L1Unavailable(f"epoch {epoch}: malformed accrual inputs")
+    return inflow, weights
+
+
 # PROVISIONAL (fast, pre-finality) view: clones of the finalized states with the UNFINALIZED L1 tail
 # speculatively applied. Rebuilt every poll from the finalized checkpoint, so a reorg self-heals on the next
 # rebuild and no persistent/finalized state is ever touched. Readers opt in with ?provisional=1. None until
@@ -3251,14 +3276,12 @@ async def _accrue_owed(session, st, epoch_incl):
     try:
         while st.last_div_epoch < epoch_incl:
             E = st.last_div_epoch + 1
-            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
-            inflow = int(inf.get("inflow", 0)) if isinstance(inf, dict) else 0
-            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
-            if not isinstance(ow, dict) or ow.get("error"):
-                print(f"[execnode] canonical accrual STALLED at epoch {E}: "
-                      f"{(ow or {}).get('error') if isinstance(ow, dict) else ow} — cursor holds", flush=True)
+            try:
+                inflow, weights = await _get_l1_accrual_inputs(session, E)
+            except L1Unavailable as e:
+                print(f"[execnode] canonical accrual STALLED at epoch {E}: {e} — cursor holds", flush=True)
                 return False
-            dist = st.accrue_dividend_epoch(inflow, (ow or {}).get("weights", {}), epoch=E)
+            dist = st.accrue_dividend_epoch(inflow, weights, epoch=E)
             st.last_div_epoch = E
             if dist:
                 print(f"[execnode] dividend epoch {E}: +{dist} raw (canonical)", flush=True)
