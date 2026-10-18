@@ -31,6 +31,9 @@ import sys, copy, json, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
+# THE WIDE POOL IS ONLY EVER LIVE WITH THE STWO POOL OFF: from STWO_POOL_HEIGHT deposits land in the Stwo pool and only a
+# stwo_js bundle spends, so this file (heights up to 300,000) pins the Stwo gate off rather than read the live one.
+protocol.STWO_POOL_HEIGHT = 0
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
 from execnode import shielded_wide as SW, shielded_field as SF, exec_root as ER
