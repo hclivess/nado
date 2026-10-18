@@ -1306,19 +1306,24 @@ class ExecState:
         rules_v2)."""
         return self.applying_height() >= 1
 
-    def rules_budget_reverts(self):
-        """Reverting and raising calls count against the block's step budget (protocol.EXEC_BUDGET_REVERTS_HEIGHT)."""
-        from protocol import EXEC_BUDGET_REVERTS_HEIGHT
-        return bool(EXEC_BUDGET_REVERTS_HEIGHT) and self.applying_height() >= EXEC_BUDGET_REVERTS_HEIGHT
+    def rules_budget_v2(self):
+        """Reverting and raising calls count against the block's step budget, and each sender has a share of it
+        (protocol.EXEC_BUDGET_V2_HEIGHT, EXEC_SENDER_STEP_SHARE)."""
+        from protocol import EXEC_BUDGET_V2_HEIGHT
+        return bool(EXEC_BUDGET_V2_HEIGHT) and self.applying_height() >= EXEC_BUDGET_V2_HEIGHT
 
-    def _charge_reverted_steps(self, gas):
+    def _charge_reverted_steps(self, gas, sender=None):
         """Add a reverted call's steps (None = it raised: GAS_LIMIT, the most one call may execute) to the block's
-        budget count, from EXEC_BUDGET_REVERTS_HEIGHT and under the same rules_r2 the budget itself lives under.
+        budget count, from EXEC_BUDGET_V2_HEIGHT and under the same rules_r2 the budget itself lives under.
         Below the gate it does nothing, exactly as the code before it."""
-        if not (self.rules_r2() and self.rules_budget_reverts()):
+        if not (self.rules_r2() and self.rules_budget_v2()):
             return
         from execnode.zkvm import GAS_LIMIT
-        self._block_steps = int(getattr(self, "_block_steps", 0)) + (int(GAS_LIMIT) if gas is None else int(gas))
+        g = int(GAS_LIMIT) if gas is None else int(gas)
+        self._block_steps = int(getattr(self, "_block_steps", 0)) + g
+        if sender is not None:                          # and against that sender's share (EXEC_SENDER_STEP_SHARE)
+            _by = self.__dict__.setdefault("_block_steps_by", {})
+            _by[sender] = _by.get(sender, 0) + g
 
     def rules_stwo_fee_to(self):
         """A Stwo spend may name its fee's payee (protocol.STWO_FEE_TO_HEIGHT) in the block being applied."""
@@ -1625,13 +1630,13 @@ class ExecState:
                     if not _v2:
                         raise
                     _refund()
-                    self._charge_reverted_steps(None)          # EXEC_BUDGET_REVERTS_HEIGHT: GAS_LIMIT, it may not have metered
+                    self._charge_reverted_steps(None, sender)  # EXEC_BUDGET_V2_HEIGHT: GAS_LIMIT, it may not have metered
                     return f"skip: call {cid[:12]}….{method} raised {type(e).__name__} — escrow refunded"
                 if not ok:
                     _refund()
-                    # INVARIANT (EXEC_BUDGET_REVERTS_HEIGHT): a revert's executed steps count against the block's
+                    # INVARIANT (EXEC_BUDGET_V2_HEIGHT): a revert's executed steps count against the block's
                     # budget like an applied call's — a reverting call was the way around EXEC_BLOCK_STEP_BUDGET
-                    self._charge_reverted_steps(_meter.get("gas", 0))
+                    self._charge_reverted_steps(_meter.get("gas", 0), sender)
                     return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
                 # F4 (REVIEW_R2_HEIGHT): a PER-BLOCK execution budget. Only GAS_LIMIT per call bounded the
                 # exec CPU a block could demand, and a 1 MiB block of cheap calls was measured at ~2 h. The
@@ -1639,12 +1644,21 @@ class ExecState:
                 # would take the block past it is treated as a revert (escrow refunded, nothing applied), and
                 # settlement_proofs mirrors the same count so the prover skips exactly what the chain skipped.
                 if self.rules_r2():
-                    from protocol import EXEC_BLOCK_STEP_BUDGET
-                    _used = int(getattr(self, "_block_steps", 0)) + int(_meter.get("gas", 0))
+                    from protocol import EXEC_BLOCK_STEP_BUDGET, EXEC_SENDER_STEP_SHARE
+                    _gas = int(_meter.get("gas", 0))
+                    _used = int(getattr(self, "_block_steps", 0)) + _gas
                     if _used > int(EXEC_BLOCK_STEP_BUDGET):
                         _refund()
                         return f"call {cid}.{method} -> revert (block execution budget exhausted)"
+                    # EXEC_BUDGET_V2_HEIGHT: a sender's share of the block (applied + reverted calls), so a txid-ground
+                    # sender at the front of the block cannot burn the budget everyone else's calls need
+                    _by = self.__dict__.setdefault("_block_steps_by", {})
+                    if self.rules_budget_v2() and _by.get(sender, 0) + _gas > int(EXEC_SENDER_STEP_SHARE):
+                        _refund()
+                        return f"call {cid}.{method} -> revert (sender's share of the block execution budget exhausted)"
                     self._block_steps = _used
+                    if self.rules_budget_v2():
+                        _by[sender] = _by.get(sender, 0) + _gas
                 # A contract can only pay out what it HOLDS: reject (revert + refund) an over-pay so its balance
                 # can never go negative and no NADO is minted.
                 total_pay = sum(a for _t, a in payouts)

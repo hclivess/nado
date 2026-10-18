@@ -1,4 +1,4 @@
-"""From EXEC_BUDGET_REVERTS_HEIGHT a reverting (or raising) exec call counts its steps against the block's execution
+"""From EXEC_BUDGET_V2_HEIGHT a reverting (or raising) exec call counts its steps against the block's execution
 budget, so a block of calls that burn GAS_LIMIT and revert can no longer make every exec node execute without bound
 (execnode/state.py ExecState._charge_reverted_steps; audit 2026-09-24 #13, confirmed 2026-10-18).
 
@@ -20,7 +20,7 @@ from execnode import zkvmasm, zkvm
 
 T = _harness.Report()
 GATE = 3000
-P.EXEC_BUDGET_REVERTS_HEIGHT = GATE
+P.EXEC_BUDGET_V2_HEIGHT = GATE
 ALICE = "mldsa44" + "a" * 42
 CODE = {
     "burn": zkvmasm.assemble("movi r1 60000\n movi r2 1\n loop:\n sub r1 r2\n jnz r1 @loop\n ret r0"),

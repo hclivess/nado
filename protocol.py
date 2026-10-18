@@ -1681,8 +1681,9 @@ def split_open_block_reward(reward: int):
 #                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
 #                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
 #                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
-#                                    EXEC_BUDGET_REVERTS_HEIGHT (285000 -> 1: a reverting or raising exec call counts
-#                                    its steps against the block's execution budget, so reverts cannot escape it)
+#                                    EXEC_BUDGET_V2_HEIGHT (285000 -> 1: a reverting or raising exec call counts
+#                                    its steps against the block's execution budget, so reverts cannot escape it,
+#                                    and no sender may use more than EXEC_SENDER_STEP_SHARE of a block's budget)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2191,7 +2192,7 @@ STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
 # From this height a reverting call's executed steps (the VM meters them on revert too) and a raising call's GAS_LIMIT
 # count against the block's budget. The settlement prover needs no mirror: any reverted call already makes its span
 # unprovable (settlement_proofs._run_call raises), so the chain's later budget refusals only fall in quorum spans.
-EXEC_BUDGET_REVERTS_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
+EXEC_BUDGET_V2_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
@@ -2404,6 +2405,11 @@ SETTLE_FLOOR_DEN = 16
 # SLASH_DEDUP_HEIGHT: gen 25 gate at 233300; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespace (16 maximal calls); a
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
+# ONE SENDER, AT MOST A QUARTER OF THE BLOCK (audit 2026-09-24 #18; operator 2026-10-18 "Per-sender share"). The budget is
+# spent in tx order and txids are grindable, so one sender could land first and burn the whole budget, reverting every
+# later call in the block. From EXEC_BUDGET_V2_HEIGHT a sender's calls (applied and reverted) may use at most this share;
+# its next call is reverted with its escrow refunded, and the rest of the block stays open to everyone else.
+EXEC_SENDER_STEP_SHARE = EXEC_BLOCK_STEP_BUDGET // 4
 
 # F3 (RIDES A REROLL). The exec layer applies block h's calls with cursor h-1 / chain_clock(h-1) — the context is
 # advanced only AFTER the block — while block_calls stamps each call cursor = h and the settlement prover replays

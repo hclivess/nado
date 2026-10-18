@@ -2754,6 +2754,7 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     for _st in states_map.values():
         _st._applying = h              # the height every rules_* helper judges by (see ExecState.applying_height)
         _st._block_steps = 0           # F4: the per-block execution budget starts fresh
+        _st._block_steps_by = {}       # ...and every sender's share of it (EXEC_BUDGET_V2_HEIGHT)
         if int(h) >= 1:
             # F3: the context a call sees is the block it executes in — what block_calls stamps and the settlement
             # prover replays — not the previous one. `>= 1`: gen 25's EXEC_CTX_CURRENT_HEIGHT, 1 from gen 26

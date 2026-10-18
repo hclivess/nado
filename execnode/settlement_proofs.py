@@ -311,7 +311,7 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
     # the chain refused. Per block, because block_calls stamps each call with its block. `>= 1`: gen 25's
     # REVIEW_R2_HEIGHT, 1 from gen 26 (deleted) — the same literal rules_r2 reads.
     from protocol import EXEC_BLOCK_STEP_BUDGET
-    _used = {}
+    _used, _by = {}, {}
     for i, call in enumerate(calls):
         _meter = {}
         ec, pc, _ = _run_call(contracts, bridge, abal, assets, registry, call, i, cursor, timestamp, beacons,
@@ -322,6 +322,15 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
             if _used[_h] > int(EXEC_BLOCK_STEP_BUDGET):
                 raise ValueError(f"call {i}: block {_h} execution budget exhausted — the chain REVERTED this "
                                  f"call, so the span is unprovable")
+            # EXEC_BUDGET_V2_HEIGHT MIRROR: the chain reverts a sender's call past its share of the block, so the prover
+            # must find that call unprovable too, or it would prove a transition the chain refused
+            from protocol import EXEC_BUDGET_V2_HEIGHT, EXEC_SENDER_STEP_SHARE
+            if EXEC_BUDGET_V2_HEIGHT and _h >= EXEC_BUDGET_V2_HEIGHT:
+                _k = (_h, call.get("caller"))
+                _by[_k] = _by.get(_k, 0) + int(_meter.get("gas", 0))
+                if _by[_k] > int(EXEC_SENDER_STEP_SHARE):
+                    raise ValueError(f"call {i}: sender's share of block {_h} exhausted — the chain REVERTED this "
+                                     f"call, so the span is unprovable")
         if ec is not None:                                # a code event without a constructor runs no VM
             epoch_calls.append(ec)
         public_calls.append(pc)
