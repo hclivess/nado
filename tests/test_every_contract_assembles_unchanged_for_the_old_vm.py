@@ -41,6 +41,8 @@ for g in GAMES:
         v2_clean.append(g)
     # strip what the ISA changes from v1; what remains must equal v2 instruction for instruction (jump targets aside)
     for m in v1:
+        if m in getattr(mod, "ISA_DIVERGENT_METHODS", ()):
+            continue                                       # declared by the builder, with its reason, beside the method
         p1 = [i for i in v1[m] if i[0] not in HR]
         # macro RANGE guards: a RANGE pair directly before an LT
         keep = []
@@ -61,6 +63,10 @@ T.check("1b. every contract that hashes still uses the alghash round opcodes in 
             for g in hashing) and len(hashing) >= 15, len(hashing))
 T.check("2a. build('v2') passes zkvm2's deploy gate for every contract", len(v2_ok) == 27, sorted(set(GAMES) - set(v2_ok)))
 T.check("2b. no v2 build contains an alghash round opcode", len(v2_clean) == 27, sorted(set(GAMES) - set(v2_clean)))
-T.check("3. the two builds differ only in what the ISA changes (hash rounds, macro RANGE guards)", not logic, logic[:5])
+T.check("3. the two builds differ only in what the ISA changes (hash rounds, macro RANGE guards), outside the methods a "
+        "builder declares in ISA_DIVERGENT_METHODS", not logic, logic[:5])
+declared = {g: getattr(importlib.import_module("execnode.games." + g), "ISA_DIVERGENT_METHODS", ()) for g in GAMES}
+T.check("3b. the declared per-ISA methods are exactly pets.hatch (each one is a reviewed port, not drift)",
+        {g: m for g, m in declared.items() if m} == {"pets": ("hatch",)}, {g: m for g, m in declared.items() if m})
 T.check("the ISA list is v1 and v2", zkvmasm.ISAS == ("v1", "v2"))
 T.done("ALL PASS — every contract assembles unchanged for the old VM and cleanly for the new one")

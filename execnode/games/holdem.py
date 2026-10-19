@@ -40,7 +40,6 @@ Methods: open(t,g,commit,ante)[buyin] · join(t,g,commit)[buyin] · start(t) · 
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
 
 F0, S, GRACE, R = 14, 20, 5, 60
 MAXP = 9
@@ -85,7 +84,7 @@ TL_SCRUB = ([TL_B0] + list(range(901, 910)) + list(range(910, 949))
 
 # ---- python reference (mirrored by static/poker.js; the E2E differentially verifies the bytecode) ----
 def roll32(x):
-    return alghash.hashn([x % F.P]) & 0xFFFFFFFF
+    return _lib.vm_hash([x % _lib.vm_mod()]) & 0xFFFFFFFF
 
 
 def draw(seed, slot, excl):
@@ -98,30 +97,30 @@ def draw(seed, slot, excl):
 
 
 def hole_ref(bh0, bh1, x):
-    hs = alghash.hashn([(bh0 % F.P + bh1 % F.P + x) % F.P])
+    hs = _lib.vm_hash([(bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod() + x) % _lib.vm_mod()])
     h0 = draw(hs, 0, ())
     return [h0, draw(hs, 1, (h0,))]
 
 
 def _board_from(base1, base2, base3, t):
     """The board from each street's randomness base (already reduced mod P by the caller's convention)."""
-    e1 = alghash.hashn([(base1 + t) % F.P])
+    e1 = _lib.vm_hash([(base1 + t) % _lib.vm_mod()])
     b0 = draw(e1, 0, ()); b1 = draw(e1, 1, (b0,)); b2 = draw(e1, 2, (b0, b1))
-    e2 = alghash.hashn([(base2 + t) % F.P])
+    e2 = _lib.vm_hash([(base2 + t) % _lib.vm_mod()])
     b3 = draw(e2, 3, (b0, b1, b2))
-    e3 = alghash.hashn([(base3 + t) % F.P])
+    e3 = _lib.vm_hash([(base3 + t) % _lib.vm_mod()])
     b4 = draw(e3, 4, (b0, b1, b2, b3))
     return [b0, b1, b2, b3, b4]
 
 
 def board_ref(bhmap, c1, c2, c3, t):
     """LEGACY (tg == 0) board: street k's base is bh(c_k) + bh(c_k+1)."""
-    return _board_from(*((bhmap[c] % F.P + bhmap[c + 1] % F.P) % F.P for c in (c1, c2, c3)), t)
+    return _board_from(*((bhmap[c] % _lib.vm_mod() + bhmap[c + 1] % _lib.vm_mod()) % _lib.vm_mod() for c in (c1, c2, c3)), t)
 
 
 def board_ref_beacon(beacons, p1, p2, p3, t):
     """BEACON board: street k's base is BEACON(p_k), p_k = c_k // 60 + 2. Same draw/exclusion mechanics."""
-    return _board_from(*(beacons[p] % F.P for p in (p1, p2, p3)), t)
+    return _board_from(*(beacons[p] % _lib.vm_mod() for p in (p1, p2, p3)), t)
 
 
 def hole_ref_beacon(beacon, x):

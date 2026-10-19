@@ -106,7 +106,7 @@ def t_beacon_hand_board_and_hole_come_from_the_beacon():
         vals[g] = ref
         _no_scratch(slots)
     # the legacy formula over the same epochs would be a different deal — the beacon is what was used
-    assert board == hd._board_from(*(st.beacons[p] % hd.F.P for p in pins), T)
+    assert board == hd._board_from(*(st.beacons[p] % hd._lib.vm_mod() for p in pins), T)   # the model's own word, per generation
     assert "ok" in call(H, "settle", [T])
     assert rd(hd.TZ, T) == 1 and st.bridge.get(cid, 0) == 0, "the table settles and drains"
 

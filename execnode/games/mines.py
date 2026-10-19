@@ -15,7 +15,6 @@ Methods: open(t)[bank] · bet(g,t,n)[stake] · pick(g,count) · resolve(g) · ca
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
 
 TA, TK, TP, TC, TZ, TN, TX = 1, 2, 3, 4, 6, 15, 16
 GG, GS, GA, GH, GD, GN, GV, GP, GC, GQ, GX, GE = 7, 9, 10, 11, 14, 17, 18, 19, 20, 21, 22, 23
@@ -46,8 +45,8 @@ def multiplier(gv, gp, gn, count):
 def round_seed(g, beacon=None, bh0=None, bh1=None):
     """In-clear q for resolve_hit: BEACON(gb) + g for a beacon round, BHASH(gh) + BHASH(gh+1) + g for a round
     picked before the beacon rule (gb == 0) — what RESOLVE stores at scratch 2 via _lib.seed_q + `add r3 r0`."""
-    base = beacon % F.P if beacon is not None else (bh0 % F.P + bh1 % F.P)
-    return (base + g) % F.P
+    base = beacon % _lib.vm_mod() if beacon is not None else (bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod())
+    return (base + g) % _lib.vm_mod()
 
 
 def resolve_hit(q, gp, gn, gc):
@@ -58,7 +57,7 @@ def resolve_hit(q, gp, gn, gc):
     for i in range(gc):
         if b:
             break
-        d = (alghash.hashn([(q + gp + i) % F.P]) & 0xFFFFFFFF) % (25 - gp - i)   # lo32 window, matches the VM
+        d = (_lib.vm_hash([(q + gp + i) % _lib.vm_mod()]) & 0xFFFFFFFF) % (25 - gp - i)   # lo32 window, matches the VM
         if d < gn:
             b = i + 1
     return b

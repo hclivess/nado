@@ -17,7 +17,6 @@ new table. join() refuses a decided table (tb!=0) — that ante had no way home.
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
 
 TA, T0, TS, TP, TN, TX, TZ, TB, TW, TFR, TI = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 GG, GA, GDL, GRH, GRN, GFIN, GSC, GTS, GGS = 12, 13, 14, 15, 16, 17, 18, 19, 20
@@ -32,8 +31,8 @@ WIN = 4000
 
 def roll_dice(rh_hash0, rh_hash1, seat, rolln, dice_left):
     """In-clear 6 dice (0 past dice_left) — matches the in-VM derivation + farkle.js."""
-    seed = (rh_hash0 % F.P + rh_hash1 % F.P + seat * 1000 + rolln * 10) % F.P
-    return [((alghash.hashn([(seed + p) % F.P]) & 0xFFFFFFFF) % 6 + 1) if p < dice_left else 0 for p in range(6)]
+    seed = (rh_hash0 % _lib.vm_mod() + rh_hash1 % _lib.vm_mod() + seat * 1000 + rolln * 10) % _lib.vm_mod()
+    return [((_lib.vm_hash([(seed + p) % _lib.vm_mod()]) & 0xFFFFFFFF) % 6 + 1) if p < dice_left else 0 for p in range(6)]
 
 
 def score_counts(counts, straight):

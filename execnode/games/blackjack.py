@@ -30,7 +30,6 @@ Methods: open(t)[bank] · deal(g,t)[stake] · reveal(g) · hit(g) · draw(g) · 
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
 
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 GG, GS, GA, GH, GF, GN, GD, GW, GR, DU, PHP, PAC, GE = 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
@@ -47,7 +46,7 @@ def carry_in_flight(storage):
 
 def card_at(bh0, bh1, salt, i):
     """The contract's card draw. Block-hash step: (bh(gh), bh(gh+1)). Beacon step: (BEACON(gb), 0)."""
-    return (alghash.hashn([(bh0 % F.P + bh1 % F.P + salt + i) % F.P]) & 0xFFFFFFFF) % 52
+    return (_lib.vm_hash([(bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod() + salt + i) % _lib.vm_mod()]) & 0xFFFFFFFF) % 52
 
 
 def card_value(c):

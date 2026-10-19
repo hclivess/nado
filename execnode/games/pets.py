@@ -39,7 +39,7 @@ Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid)[0.1 NADO] · feed(pid)[
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
+from execnode.stark import field as F
 
 # economic + game constants (mirrored by static/pets-genes.js and the reference functions below)
 MINT_FEE = 10**10
@@ -86,11 +86,11 @@ _INV232 = pow(1 << 32, F.P - 2, F.P)      # field inverse of 2^32 — exact hi-h
 
 # ---- python reference (the single source of truth; pets-genes.js and the E2E mirror THESE) ----------
 def roll32(x):
-    return alghash.hashn([x % F.P]) & 0xFFFFFFFF
+    return _lib.vm_hash([x % _lib.vm_mod()]) & 0xFFFFFFFF
 
 
 def ref_gene(bh0, bh1, pid):
-    return alghash.hashn([(bh0 % F.P + bh1 % F.P + pid) % F.P])
+    return _lib.vm_hash([(bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod() + pid) % _lib.vm_mod()])
 
 
 def ref_tier(gene):
@@ -111,7 +111,7 @@ def ref_power(gene, sp):
 
 
 def ref_train_roll(bh0, bh1, pid, i):
-    return roll32((bh0 % F.P + bh1 % F.P + pid * 16 + i) % F.P) % 100
+    return roll32((bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod() + pid * 16 + i) % _lib.vm_mod()) % 100
 
 
 def ref_train_ok(roll, cur, sp):
@@ -122,7 +122,7 @@ def ref_train_ok(roll, cur, sp):
 def ref_battle_turns(bh0, bh1, bid, eff_a, eff_b):
     """The 12-turn duel, byte-matching the contract. eff = the 10 EFFECTIVE stats (base + trained bonus).
     Returns (a_wins, dies, h0, h1, log)."""
-    q = (bh0 % F.P + bh1 % F.P + bid * 8) % F.P
+    q = (bh0 % _lib.vm_mod() + bh1 % _lib.vm_mod() + bid * 8) % _lib.vm_mod()
     ha = 20 + eff_a[2] * 3 + eff_a[9]
     hb = 20 + eff_b[2] * 3 + eff_b[9]
     h0, h1 = ha, hb
@@ -159,21 +159,21 @@ def ref_battle_seed(s1, s2, bid):
     ref_battle_turns(ref_battle_seed(s1, s2, bid), 0, bid, ...) is the duel of a wm == 1 battle.
     INVARIANT: neither owner can steer it alone, because each secret is committed (HASH(secret)) before the
     other side's commitment exists on chain, and a withheld reveal forfeits rather than voids."""
-    return alghash.hashn([(s1 % F.P + s2 % F.P + bid) % F.P])
+    return _lib.vm_hash([(s1 % _lib.vm_mod() + s2 % _lib.vm_mod() + bid) % _lib.vm_mod()])
 
 
 def ref_find_roll(beacon, pin, bid):
     """The building-find roll of a pinned collect: LO32(H(BEACON(pin) + pin + bid)). A find happens iff
     roll % DROP_ONE_IN == 0 and the rarity recorded at pin time is > 0; the roll then salts the gear slot
     (roll % GEAR_SLOTS) and the affixes, exactly as the pre-beacon find did."""
-    return roll32((beacon % F.P + pin + bid) % F.P)
+    return roll32((beacon % _lib.vm_mod() + pin + bid) % _lib.vm_mod())
 
 
 def ref_affixes(salt, rarity):
     """The three packed affixes _roll_affixes writes for (salt, rarity): stat * AFFIX_MUL + points."""
     out = []
     for k in range(3):
-        r = roll32((salt + 5000 + k) % F.P)
+        r = roll32((salt + 5000 + k) % _lib.vm_mod())
         out.append((r % 10) * AFFIX_MUL + r % (AFFIX_CAP * rarity) + 1)
     return out
 
@@ -213,7 +213,12 @@ MINT = "\n".join(
        "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
 
 
-def _hatch():
+# methods whose SOURCE differs between the two ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm
+# compares every other method strictly): hatch splits the gene with the field inverse of 2^32 on v1 and a divide on v2
+ISA_DIVERGENT_METHODS = ("hatch",)
+
+
+def _hatch(isa="v1"):
     L = _sl(OW) + ["sload r5 r4", "require r5"]                                  # exists
     L += _sl(GN) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]            # not hatched
     L += _sl(BH) + ["sload r5 r4", "movi r6 1", "add r5 r6",
@@ -225,7 +230,12 @@ def _hatch():
     L += _sl(GN) + ["sstore r4 r3"]
     # gl/gh: exact 32-bit halves for the browser (JS floats can't carry a field element)
     L += ["mov r5 r3", "lo32 r5"] + _sl(GL) + ["sstore r4 r5"]
-    L += ["mov r6 r3", "sub r6 r5", f"movi r4 {_INV232}", "mul r6 r4"] + _sl(GH) + ["sstore r4 r6"]
+    if isa == "v2":
+        # the 256-bit word has no inverse of 2^32 (it is not odd): gh = the gene's NEXT 32 bits by a full-width divide,
+        # kept 32-bit so the browser can still carry it; the whole gene is in GN for clients reading 256-bit values
+        L += ["mov r6 r3", "movi r4 4294967296", "divmod r6 r4", "lo32 r6"] + _sl(GH) + ["sstore r4 r6"]
+    else:
+        L += ["mov r6 r3", "sub r6 r5", f"movi r4 {_INV232}", "mul r6 r4"] + _sl(GH) + ["sstore r4 r6"]
     # tier: rt = roll32(gn+555) % 100000 ; sp = 1 + Σ(rt >= T)
     L += ["mov r5 r3", "movi r6 555", "add r5 r6"] + _roll32("r5", "r5")
     L += ["movi r6 100000", "divmodw r5 r6", "mov r5 r7"]                        # rt
@@ -1253,8 +1263,9 @@ ABI = {
 
 
 def build(isa=None):
+    isa = isa or zkvmasm.default_isa()
     src = dict(SRC)
-    src["hatch"] = "\n".join(_hatch())
+    src["hatch"] = "\n".join(_hatch(isa))
     src["train_resolve"] = "\n".join(_train_resolve())
     src["resolve_battle"] = "\n".join(_resolve_battle())
     src["combine"] = "\n".join(_combine())

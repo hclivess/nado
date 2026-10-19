@@ -27,6 +27,29 @@ byte-identical to the originals: they are the originals plus the guard.
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 
 
+# ---- the reference models' arithmetic, per generation (Goldilocks retirement G3) ---------------------------------------
+# Every game's Python reference model (what tests and the browser mirrors check the contract against) hashes and reduces
+# the way the contract's VM does. On v1 that is alghash.hashn and mod the Goldilocks prime; on the gen-29 v2 VM it is
+# zkvm2.hash_words and mod 2^256. These two follow zkvmasm.default_isa, so a model and the build() it mirrors always
+# agree on the generation. INVARIANT: a model never calls alghash or reduces by F.P directly.
+def vm_hash(words, isa=None):
+    from execnode import zkvmasm
+    if (isa or zkvmasm.default_isa()) == "v2":
+        from execnode import zkvm2
+        return zkvm2.hash_words([int(w) for w in words])
+    from execnode.stark import alghash
+    return alghash.hashn(list(words))
+
+
+def vm_mod(isa=None):
+    """the modulus a model reduces by: the Goldilocks prime on v1, 2^256 (the wrapping word) on v2"""
+    from execnode import zkvmasm
+    if (isa or zkvmasm.default_isa()) == "v2":
+        return 1 << 256
+    from execnode.stark import field as F
+    return F.P
+
+
 def id_guard(reg="r0", limit=1 << 32, scratch=("r4", "r5")):
     """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
     instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:

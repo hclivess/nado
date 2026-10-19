@@ -59,17 +59,15 @@ def stops_of(seed, g):
     """The in-clear reel stops the asm settle derives: q = seed + g (mod P), stop_i = LO32(alghash([q+i])) % 64.
     `seed` is BEACON(gb) for a beacon spin, BLOCKHASH(gh) + BLOCKHASH(gh+1) for a spin with gb == 0 (each value
     enters the VM reduced mod P). Mirrors slots.js spinResult (chainResultAlg with salt g + i)."""
-    from execnode.stark import alghash, field as F
-    q = (int(seed) + int(g)) % F.P
-    return [(alghash.hashn([(q + i) % F.P]) & 0xFFFFFFFF) % 64 for i in range(3)]
+    q = (int(seed) + int(g)) % _lib.vm_mod()
+    return [(_lib.vm_hash([(q + i) % _lib.vm_mod()]) & 0xFFFFFFFF) % 64 for i in range(3)]
 
 
 def seed_of(gb, gh, beacon=None, bh0=None, bh1=None):
     """The randomness base _lib.seed_q loads: BEACON(gb) when gb != 0, else BLOCKHASH(gh) + BLOCKHASH(gh+1)."""
-    from execnode.stark import field as F
     if gb:
-        return int(beacon) % F.P
-    return (int(bh0) % F.P + int(bh1) % F.P) % F.P
+        return int(beacon) % _lib.vm_mod()
+    return (int(bh0) % _lib.vm_mod() + int(bh1) % _lib.vm_mod()) % _lib.vm_mod()
 
 
 

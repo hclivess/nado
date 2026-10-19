@@ -69,7 +69,7 @@ Amounts are RAW NADO throughout: no products, no pro-rata — only EQ/escrow mov
 gate bounds every amount below the 2^62 LT window at the door.
 """
 from execnode import zkpy
-from execnode.stark import alghash
+from execnode.games import _lib
 
 MK, KIND, MAKER, ESC, NAMT, WCH, WAMT, WADR, HSHA, HVM = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
@@ -115,7 +115,7 @@ def preimage_limbs(s_hex):
 def vm_hashlocks(s_hex):
     """The FOUR alghash digests that lock the secret in-contract (see WIDE HASHLOCK above)."""
     limbs = preimage_limbs(s_hex)
-    return [alghash.hashn([limbs[0] + d] + limbs[1:]) for d in HDOM]
+    return [_lib.vm_hash([limbs[0] + d] + limbs[1:]) for d in HDOM]
 
 
 def vm_hashlock_parts(s_hex):

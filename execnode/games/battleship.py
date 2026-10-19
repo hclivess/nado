@@ -30,7 +30,6 @@ Methods: open(g,root)[stake] · join(g,root)[stake] · fire(g,cell) · answer(g,
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import alghash, field as F
 
 P1, P2, R1, R2, ST, PT, NN, SD, DL = 1, 2, 3, 4, 5, 6, 7, 8, 9
 PC, PEX, PF, TF, H1, H2, WR, DC, CD = 10, 11, 12, 13, 14, 15, 16, 17, 18
@@ -55,15 +54,15 @@ DAILY_WORDS = 6                                        # ceil(40 shots / 7 per w
 
 # ---- python reference (what the browser + tests mirror) --------------------------------------------
 def salt_at(seed, c):
-    return alghash.hashn([TAG_SALT, seed % F.P, c])
+    return _lib.vm_hash([TAG_SALT, seed % _lib.vm_mod(), c])
 
 
 def leaf_at(c, is_ship, salt):
-    return alghash.hashn([TAG_LEAF, salt % F.P, 2 * c + is_ship])
+    return _lib.vm_hash([TAG_LEAF, salt % _lib.vm_mod(), 2 * c + is_ship])
 
 
 def node_at(l, r, s):
-    return alghash.hashn([TAG_NODE, l % F.P, r % F.P, s])
+    return _lib.vm_hash([TAG_NODE, l % _lib.vm_mod(), r % _lib.vm_mod(), s])
 
 
 def bitrev7(x):
