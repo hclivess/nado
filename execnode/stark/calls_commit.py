@@ -396,6 +396,32 @@ def fold_leaves(node, leaves):
     return node
 
 
+# THE GEN-29 CALLS FOLD (Goldilocks retirement G4, doc/stwo/g4-settlement-statement.md 2.3). The same persisted leaves
+# (256-bit BLAKE2b digests of the canonical call, block_summary) folded with BLAKE2s instead of the alghash2 sponge, so
+# the Stwo settlement circuit proves the fold with the same Blake component as the tree and the VM: c_0 = 32 zero bytes,
+# c_i = BLAKE2s(c_{i-1} || leaf_i as 32 bytes big-endian, person=CALLS_PERSON). FROZEN at the reroll. Nothing calls it on
+# a consensus path yet: the gen-29 proof branch is refused (option R) until the Stwo settlement gate.
+CALLS_PERSON = b"NADOcll1"
+
+
+def chain_start_b2():
+    return bytes(32)
+
+
+def fold_leaves_b2(node, leaves):
+    """Extend a gen-29 calls chain (32 bytes) by `leaves` (256-bit ints, the persisted wide leaves) in order."""
+    import hashlib
+    node = bytes(node)
+    if len(node) != 32:
+        raise ValueError("a gen-29 calls chain node is 32 bytes")
+    for lf in leaves:
+        x = int(lf)
+        if isinstance(lf, bool) or x < 0 or x >> 256:
+            raise ValueError("calls leaf out of range")
+        node = hashlib.blake2s(node + x.to_bytes(32, "big"), digest_size=32, person=CALLS_PERSON).digest()
+    return node
+
+
 def span_width(lo, hi):
     """(ok, wide) for a segment covering L1 blocks (lo, hi]: the binding width is keyed on the segment's END
     height; a segment whose blocks straddle the widening (block 0 narrow, block 1 wide: lo < 0 < hi) is
