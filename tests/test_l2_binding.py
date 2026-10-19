@@ -120,7 +120,7 @@ def test_exec_resets_when_cursor_outruns_finalized():
         ex._reset_states_to_genesis(reason="test: cursor outran finalized")
         check("reset drops the cursor back to genesis (-1)", ex.state.cursor == -1)
         check("reset state hashes to EXEC_GENESIS_ROOT (canary-clean)",
-              ex.state.state_root() == ex._EXEC_GENESIS_ROOT)
+              ex.state.state_root() == ex._genesis_canary())   # the generation's empty-layer root (exec_root_b2)
         check("reset re-stamps the generation marker (next reroll still detected once)",
               os.path.exists(ex._EXEC_GEN_MARK))
     finally:
