@@ -118,7 +118,8 @@ check("...and A's eviction list", kv_ops.devevict_get(A) == snapshot[2])
 # --- one key, everywhere --------------------------------------------------------------------------------------------
 to = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
 ac = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
-check("validation keys canonically", "DEVICE_BIND_MAX_CERT_SECS, strict=True,\n                                              canonical=True)" in to)
+# whitespace-free: the rule moved into _validate_register (2026-10-19) and its continuation line moved with it
+check("validation keys canonically", "DEVICE_BIND_MAX_CERT_SECS,strict=True,canonical=True)" in "".join(to.split()))
 check("the one-device-per-block key too (register lands at max_block)",
       "tx.get(\"device\") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True, canonical=True)))" in to)
 check("apply too, and passes the legacy key",

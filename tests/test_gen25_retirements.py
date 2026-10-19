@@ -26,7 +26,7 @@ def main():
     assert not hasattr(ratelimit, "allow_registration") and not hasattr(ratelimit, "allow_identity"), "per-IP budgets retired"
     assert hasattr(ratelimit, "allow"), "the plain API rate limiter stays"
     tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    reg = tx[tx.index('elif recipient == "register":'):tx.index('elif recipient == "msgkey":')]
+    reg = tx[tx.index('def _validate_register('):tx.index('def _validate_msgkey(')]
     assert "posw.verify" not in reg and "required_posw_t" not in reg, "PoSW must not be validated"
     assert "verify_register_device(transaction, anchor)" in reg and "DEVICE_ATTEST_HEIGHT" not in reg, "attestation unconditional"
     cl = open(os.path.join(ROOT, "loops", "core_loop.py")).read()

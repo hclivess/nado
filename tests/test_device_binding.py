@@ -125,7 +125,7 @@ def t_rule():
     key = DA.device_binding_key({"att": v["att"]}, P.DEVICE_BIND_MAX_CERT_SECS)
     a, b = "a" * 46, "b" * 46
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
+    seg = src[src.index('def _validate_register('):src.index('def _validate_msgkey(')]
     check("rule wired after the kernel verdict: the device key is derived (strictly) from the verified statement",
           "verify_register_device(transaction, anchor)" in seg and "dkey = device_binding_key(" in seg
           and seg.index("verify_register_device(") < seg.index("dkey = device_binding_key("))
@@ -263,7 +263,7 @@ def t_binding_modes():
     kv_ops.close_all()
     # --- wiring pins
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
+    seg = src[src.index('def _validate_register('):src.index('def _validate_msgkey(')]
     check("validation: the statement-free branch holds from block 1 and checks devkey -> perm row -> sender",
           'stmt_free = bool(block_height >= 1 and not isinstance(transaction.get("device"), dict))' in seg
           and 'bound[0] == transaction["sender"] and bound[2] == "perm"' in seg and "verify_register_device(transaction, anchor)" in seg)
@@ -345,7 +345,7 @@ def t_instant_rebind():
     check("apply_register always evicts: no pre-gate `instant` switch is left", "instant" not in inspect.signature(apply_register).parameters)
     kv_ops.close_all()
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
+    seg = src[src.index('def _validate_register('):src.index('def _validate_msgkey(')]
     check("rule: no cooldown — the move is legal in any block because apply evicts", "NO COOLDOWN" in seg and "if not instant and bound" not in seg)
     acc = open(os.path.join(ROOT, "ops", "account_ops.py")).read()
     check("apply: an instant move evicts the previous holder and journals its eviction list",

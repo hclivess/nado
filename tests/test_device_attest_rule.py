@@ -97,7 +97,7 @@ def main():
         AN.verify = real_verify
         P.DEVICE_ATTEST_FIDO_AAGUID_ROOTS.pop("cc" * 16, None)
     src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    seg = src[src.index('elif recipient == "register":'):src.index('elif recipient == "msgkey":')]
+    seg = src[src.index('def _validate_register('):src.index('def _validate_msgkey(')]
     # gen 25: the register branch calls the rule UNCONDITIONALLY (no height gate survives the reroll — every register
     # tx from block 1 must attest), and the gate constant reads 1 for the wallet/status paths that ask.
     assert "verify_register_device(transaction, anchor)" in seg and "if DEVICE_ATTEST_HEIGHT and" not in seg
