@@ -33,6 +33,15 @@ PERSON_CODEV = b"NADOcdV1"        # the code commitment (a leaf VALUE: bounded, 
 PERSON_ROOT = b"NADOxR01"         # the two halves into the state root
 ONE = b"\x01"                     # the value of a digest-in-position record
 
+# THE COUNTERS (G4, 2026-10-20) — a record tag that exists only in this root. A withdrawal record's POSITION includes a
+# nonce from an exec-state counter (wd_nonce for bridge_withdraw, dw_nonce for collect_dividend, uw_nonce for unshield
+# exits) and outbox_seq numbers emitted messages; the gen-28 root commits none of them, so a settlement proof could not
+# authenticate where a new withdrawal leaf goes — the reason collect_dividend made 17 of 22 settle-proof spans
+# unprovable (doc/stwo-migration.md 9.3). Committed here, a proof reads the nonce from the pinned pre-state. Zero is
+# absent, like every other record. FROZEN at the reroll with the rest of the root.
+T_COUNTER = 13
+COUNTERS = ("wd_nonce", "dw_nonce", "uw_nonce", "outbox_seq")
+
 
 def blake_exec_at(cursor) -> bool:
     """Whether the exec root AT `cursor` is this module's (protocol.BLAKE_EXEC_HEIGHT). ONE predicate for the exec node
@@ -192,6 +201,8 @@ def records_projection(st):
             out[record_key(T_APP_ROOT, cid, str(int(app.root(cid)) % _F.P))] = ONE
         if app.nullifiers:
             out[record_key(T_APP_NULL, app.nullifier_digest())] = ONE
+    for name in COUNTERS:                                  # the nonces new records are positioned by (T_COUNTER)
+        _amount(out, record_key(T_COUNTER, name), getattr(st, name, 0) or 0)
     for _s, msg in st.outbox.items():
         out[record_key(T_DIGEST, "outbox", leaf_digest(msg_outbox_leaf(msg)))] = ONE
     for i, msg in enumerate(st.inbox):

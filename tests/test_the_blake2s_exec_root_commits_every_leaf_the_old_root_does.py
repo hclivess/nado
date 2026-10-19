@@ -44,6 +44,7 @@ def rich_state():
     st.unshield_withdrawals = {"u1": {"addr": A[7], "amount": 42}}
     st.outbox = {1: {"seq": 1, "from": A[0], "to_ns": "default", "data": {"x": 1}}}
     st.inbox = [{"from_ns": "other", "seq": 3, "data": "hi"}]
+    st.wd_nonce, st.dw_nonce, st.uw_nonce, st.outbox_seq = 7, 3, 0, 2      # uw zero: absent, like every zero record
     contracts = {
         "c" * 32: {"deployer": A[0], "code": {"m": [1, 2, 3]}, "runtime": "zkvm",
                    "storage": {"slots": {"1": 5, "2": 0, "3": (1 << 40), "4294967296": 77}}},
@@ -110,6 +111,12 @@ def same_values(old, new):
 
 st, contracts = rich_state()
 o_rec, n_rec = descr_records(R1, st), descr_records(R2, st)
+# the BLAKE2s root ALSO commits the nonce counters (T_COUNTER, G4) — the one deliberate addition; checked on its own
+counters = {k: v for k, v in n_rec.items() if k[1] == R2.T_COUNTER}
+T.check("1e. the BLAKE2s root commits the nonce counters, zero absent (the old root commits none)",
+        {k[2][0]: int.from_bytes(v, "big") for k, v in counters.items()} == {"wd_nonce": 7, "dw_nonce": 3, "outbox_seq": 2}
+        and not [k for k in o_rec if k[1] == R2.T_COUNTER], counters)
+n_rec = {k: v for k, v in n_rec.items() if k[1] != R2.T_COUNTER}
 # the old tree drops a zero VALUE at write time (value 0 == absent): compare with the zero leaves removed
 o_rec = {k: v for k, v in o_rec.items() if v != 0}
 T.check("1a. records: the same facts in both roots", set(o_rec) == set(n_rec),
