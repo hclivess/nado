@@ -14,7 +14,7 @@ import { htlcScript, p2wshAddress } from "./btcleg.js";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js";
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR, isAddress,
-         orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
+         orderCards, disp, share, installModes, algHashn, vmV2, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
          blocksToTime } from "./nadodapp.js";
@@ -345,8 +345,14 @@ const otcSecretFromLimbs = (ls) =>                    // s0..s4 back to the 64-h
 // limb. One 64-bit digest was forgeable at roughly 2^44 (audit); four independent constraints on one
 // secret put that back out of reach, and the VM needs no new opcode. Must match otc.py HDOM exactly.
 const HDOM = [0n, 0x10000000001n, 0x20000000003n, 0x30000000007n];
-const otcVmParts = (sHex) => {                        // the four hashlocks, as the eight halves post() takes
+const otcVmParts = (sHex) => {                        // the hashlock(s) as the eight 32-bit pieces post() takes
   const L = otcLimbs(sHex).map(BigInt);
+  // gen 29 (vmV2): ONE 256-bit BLAKE2s digest of the five limbs, as eight pieces most significant first — otc.py
+  // vm_hashlock_parts v2, so the contract recombines it into the one hashlock its settle() checks
+  if (vmV2()) {
+    const h = algHashn(L);
+    return Array.from({ length: 8 }, (_, i) => Number((h >> (32n * BigInt(7 - i))) & 0xFFFFFFFFn));
+  }
   const out = [];
   for (const d of HDOM) {
     const h = algHashn([L[0] + d, L[1], L[2], L[3], L[4]]);
