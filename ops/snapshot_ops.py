@@ -414,16 +414,24 @@ def _root_from_walk(home=None):
 # keeps, per root sub-DB, the sorted key list and each key's leaf digests, re-reads ONLY the touched keys
 # and folds the same leaves in the same canonical order — bit-identical to the walk by construction, and
 # CHECKED against it:
-#   NADO_ROOT_INC=verify (default)  incremental AND walk every block; the walk's root is the one used; any
+#   NADO_ROOT_INC=verify            incremental AND walk every block; the walk's root is the one used; any
 #                                    mismatch is logged and rebuilds the structure. Costs slightly MORE than
-#                                    before — this mode exists to prove equivalence on live data first.
-#   NADO_ROOT_INC=trust             incremental only, a full walk cross-check every ROOT_INC_VERIFY_EVERY
+#                                    the walk alone — this mode existed to prove equivalence on live data first.
+#   NADO_ROOT_INC=trust (default)   incremental only, a full walk cross-check every ROOT_INC_VERIFY_EVERY
 #                                    roots (NADO_ROOT_INC_VERIFY_EVERY, default 25; mismatch: log, rebuild,
 #                                    use the walk). PER-NODE: the mode is an env var, so a node that trusts a
 #                                    wrong incremental root diverges alone and resyncs — the fleet default
 #                                    stays verify. Measured on the relay 2026-09-06 (verify mode, 200/200
 #                                    matches): inc 143-165 ms vs walk 1075-1307 ms per block.
 #   NADO_ROOT_INC=off               the walk, as before.
+#
+# TRUST IS THE DEFAULT (operator decision 2026-10-19). The relay ran trust from 2026-09-06 with ZERO mismatches (760
+# walk cross-checks in its latest run alone), while every other node paid verify's walk on EVERY block: measured inc
+# 57 ms + walk 577 ms per block on the relay, the floor on a resync's speed. What makes trusting safe is
+# confirm_l1_state_root: verify_block never REFUSES a block over its root without first confirming ours by the full
+# walk, so a wrong incremental root can cost at most a block we build (it loses; the network's block is then accepted
+# after the confirming walk, which also drops the structure), never a valid block we reject. INVARIANT: any new caller
+# that refuses or purges because the root differs must confirm it first.
 # Rebuilt from a full walk whenever: nothing is cached yet, a txn dropped a sub-DB, a commit landed without
 # publishing (write generation moved more than the listener saw), the env object changed, or the retention
 # floor moved (once per epoch boundary — the window edge drops rows nobody touched).
@@ -436,7 +444,7 @@ _inc_stats = {"inc": 0, "walk": 0, "mismatch": 0, "inc_ms": 0.0, "walk_ms": 0.0,
 
 
 def _root_inc_mode():
-    return (os.environ.get("NADO_ROOT_INC") or "verify").strip().lower()
+    return (os.environ.get("NADO_ROOT_INC") or "trust").strip().lower()
 
 
 def _on_commit_touched(touched, dropped, gen):
@@ -735,6 +743,35 @@ def l1_state_root(home=None):
         root = _root_current(home)
         _root_cache[0] = (key, root)
     return root
+
+
+def confirm_l1_state_root(home=None):
+    """l1_state_root by the FULL WALK, bypassing the incremental structure — the root to rely on before refusing
+    anything over a root mismatch (see TRUST IS THE DEFAULT above). Memoised per write generation, so a diverged node
+    retrying the same parent walks once, not once per retry. When the walk disagrees with the incremental root that
+    is a mismatch: counted, logged, the structure dropped (rebuilt on the next call), and l1_state_root's cache
+    corrected to the walk's root so every later reader sees it."""
+    if kv_ops.in_write_txn():
+        return merkle_root(_root_triples(read_state(home)))   # mid-txn: l1_state_root walks here too, uncached
+    key = (kv_ops.env_path(home), home, kv_ops.write_generation())
+    entry = _confirmed_cache[0]
+    if entry is not None and entry[0] == key:
+        return entry[1]
+    with _root_lock:
+        global _inc
+        walk_root = _root_from_walk(home)
+        entry = _root_cache[0]
+        if entry is not None and entry[0] == key and entry[1] != walk_root:
+            _inc_stats["mismatch"] += 1
+            _inc = None
+            _log_inc("error", f"STATE ROOT INCREMENTAL MISMATCH (confirmed before a refusal): inc={entry[1][:16]} "
+                              f"walk={walk_root[:16]} (mismatch #{_inc_stats['mismatch']}) — structure dropped, walk root used")
+        _root_cache[0] = (key, walk_root)
+        _confirmed_cache[0] = (key, walk_root)
+    return walk_root
+
+
+_confirmed_cache = [None]
 
 
 def state_fingerprint(home=None):

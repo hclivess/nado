@@ -5379,6 +5379,13 @@ class CoreClient(threading.Thread):
             # block_number int() cannot parse raises and rejects the block, as it always has. Keep the evaluation.
             int(block.get("block_number") or 0)
             if block.get("state_root") != our_state_root:
+                # CONFIRM BEFORE REFUSING (2026-10-19): our root came from the incremental structure (NADO_ROOT_INC=trust,
+                # the default), which is checked against the full walk only periodically. A refusal must rest on the
+                # walk, so a wrong incremental root can never make this node reject a valid block — it re-derives
+                # the root here and only a mismatch that survives the walk refuses. INVARIANT: keep this before the reject.
+                from ops.snapshot_ops import confirm_l1_state_root
+                our_state_root = confirm_l1_state_root()
+            if block.get("state_root") != our_state_root:
                 # DIAGNOSTIC (no consensus effect): dump OUR per-sub-DB root fingerprint + count the reject.
                 # Comparing this one line against another node's at the same height localizes the divergence
                 # to the exact sub-DB immediately (the betanet-8 wedge needed a replay harness for this).

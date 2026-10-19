@@ -137,10 +137,10 @@ def cmd_replay(a):
     })
     env.pop("NADO_TESTNET", None)
     if a.root_inc:
-        # snapshot_ops._root_inc_mode: verify (default: incremental root cross-checked by a full walk every block,
-        # the WALK's root used) | trust (incremental only, walk every NADO_ROOT_INC_VERIFY_EVERY roots; ~2x faster,
-        # what the live relay runs) | off (walk only). Every mode still has verify_block enforce root == the
-        # block's committed state_root, so a wrong root rejects the next block in any mode.
+        # snapshot_ops._root_inc_mode: trust (the default since 2026-10-19: incremental only, walk every
+        # NADO_ROOT_INC_VERIFY_EVERY roots) | verify (incremental cross-checked by a full walk every block, the WALK's
+        # root used — the strongest check of the incremental path on this chain) | off (walk only). Every mode still
+        # has verify_block enforce root == the block's committed state_root, confirmed by the walk before a refusal.
         env["NADO_ROOT_INC"] = a.root_inc
     commit = subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "-C", tree, "status", "--porcelain", "--", ".", ":!native"],

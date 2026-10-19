@@ -165,8 +165,9 @@ def _bump_write_gen():
 #   * a txn.drop() marks the txn `dropped` and the listener rebuilds from a full walk;
 #   * a commit that bumps write_generation without publishing (there is none today) is detected by the
 #     listener comparing generations and also forces a rebuild;
-#   * snapshot_ops verifies the incremental root against the full walk (NADO_ROOT_INC=verify, the default)
-#     and logs any mismatch; only NADO_ROOT_INC=trust skips the walk (with a periodic re-verification).
+#   * snapshot_ops cross-checks the incremental root against the full walk every NADO_ROOT_INC_VERIFY_EVERY roots
+#     (NADO_ROOT_INC=trust, the default since 2026-10-19; =verify walks every block) and logs any mismatch, and
+#     verify_block confirms by the walk before refusing a block over its root (snapshot_ops.confirm_l1_state_root).
 _root_listeners = []
 _handle_names = {}      # env path -> {id(handle): sub-DB name}
 
