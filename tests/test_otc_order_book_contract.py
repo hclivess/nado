@@ -85,7 +85,11 @@ ok(rd(O.MK, 1) == 1 and rd(O.ST, 1) == O.OPEN, "ask posted")
 ok(rd(O.ESC, 1) == 0 and rd(O.NAMT, 1) == amt(1), "NOTHING is escrowed here — namt is only the advertised amount")
 ok(st.bridge.get(cid, 0) == 0 and st.bridge[A] == START, "no NADO left the maker's balance")
 ok(rd(O.KIND, 1) == O.ASK and rd(O.MAKER, 1) == zkvm_addr_digest(A), "kind+maker recorded")
-ok(rd(O.HVM, 1) == O.vm_hashlocks(secret(1))[0] and rd(O.HV3, 1) == O.vm_hashlocks(secret(1))[3], "all four hashlocks stored")
+if O._v2():   # gen 29: ONE 256-bit hashlock (otc.vm_hashlocks v2); the three extra v1 digest fields stay empty
+    ok(rd(O.HVM, 1) == O.vm_hashlocks(secret(1))[0] and rd(O.HV1, 1) == rd(O.HV2, 1) == rd(O.HV3, 1) == 0,
+       "the 256-bit hashlock stored (one digest, no v1 extras)")
+else:
+    ok(rd(O.HVM, 1) == O.vm_hashlocks(secret(1))[0] and rd(O.HV3, 1) == O.vm_hashlocks(secret(1))[3], "all four hashlocks stored")
 ok(rd(O.EXPN, 1) == EXPN, "expiry recorded")
 ok(rd(0, 0) == 1 and rd(O.LIST, 0) == 1, "order list index")
 ok(refused(A, "post", [2, O.ASK, amt(2), "btc", "x", "y", hsha(2), *P8(), EXPN, fdl()], amt(2)),

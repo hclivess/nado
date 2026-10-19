@@ -112,17 +112,30 @@ def preimage_limbs(s_hex):
     return [(v >> (LIMB_BITS * i)) & ((1 << LIMB_BITS) - 1) for i in range(LIMBS)]
 
 
-def vm_hashlocks(s_hex):
-    """The FOUR alghash digests that lock the secret in-contract (see WIDE HASHLOCK above)."""
+def _v2(isa=None):
+    from execnode import zkvmasm
+    return (isa or zkvmasm.default_isa()) == "v2"
+
+
+def vm_hashlocks(s_hex, isa=None):
+    """The digests that lock the secret in-contract. v1: the FOUR alghash digests of WIDE HASHLOCK above (each one
+    ~64-bit field element). v2 (the gen-29 256-bit VM): ONE BLAKE2s word chain over the same five limbs — a 256-bit
+    digest, stronger than the four 64-bit ones together, so the four-domain construction retires."""
     limbs = preimage_limbs(s_hex)
-    return [_lib.vm_hash([limbs[0] + d] + limbs[1:]) for d in HDOM]
+    if _v2(isa):
+        return [_lib.vm_hash(limbs, "v2")]
+    return [_lib.vm_hash([limbs[0] + d] + limbs[1:], "v1") for d in HDOM]
 
 
-def vm_hashlock_parts(s_hex):
-    """The four hashlocks as the eight (hi32, lo32) halves post() takes — a JS JSON number is exact only
-    to 2^53, so each field element crosses the wire in two 32-bit pieces and the contract recombines."""
+def vm_hashlock_parts(s_hex, isa=None):
+    """The eight 32-bit pieces post() takes — a JS JSON number is exact only to 2^53, so a digest crosses the wire in
+    32-bit pieces and the contract recombines. v1: the four hashlocks as (hi32, lo32) halves. v2: the one 256-bit
+    hashlock as eight pieces, most significant first. Eight either way, so post()'s argument list never changes."""
+    if _v2(isa):
+        (h,) = vm_hashlocks(s_hex, "v2")
+        return [(h >> (32 * (7 - i))) & 0xFFFFFFFF for i in range(8)]
     out = []
-    for h in vm_hashlocks(s_hex):
+    for h in vm_hashlocks(s_hex, "v1"):
         out.extend(divmod(h, 1 << 32))
     return out
 
@@ -152,7 +165,13 @@ def escrow_refunds(storage, zk_addrs):
     return out
 
 
+# methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
+# post/settle use one 256-bit BLAKE2s hashlock on v2 instead of v1's four 64-bit alghash ones (vm_hashlocks)
+ISA_DIVERGENT_METHODS = ("post", "settle")
+
+
 def build(isa=None):
+    v2 = _v2(isa)
     c = zkpy.Contract()
 
     # post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf) [VALUE = namt for ASK_NADO]
@@ -204,10 +223,20 @@ def build(isa=None):
         m.slot(WAMT, o).set(m.arg(4))
         m.slot(WADR, o).set(m.arg(5))
         m.slot(HSHA, o).set(m.arg(6))
-        m.slot(HVM, o).set(m.arg(7) * (1 << 32) + m.arg(8))
-        m.slot(HV1, o).set(m.arg(9) * (1 << 32) + m.arg(10))
-        m.slot(HV2, o).set(m.arg(11) * (1 << 32) + m.arg(12))
-        m.slot(HV3, o).set(m.arg(13) * (1 << 32) + m.arg(14))
+        if v2:
+            # ONE 256-bit hashlock from the eight 32-bit pieces, most significant first. Each piece is bounded, so the
+            # eight have exactly one reading (an unbounded piece would let two piece lists combine to one hashlock).
+            for i in range(7, 15):
+                m.require(m.arg(i) < m.const(1 << 32))
+            hl = m.arg(7)
+            for i in range(8, 15):
+                hl = hl * (1 << 32) + m.arg(i)
+            m.slot(HVM, o).set(hl)
+        else:
+            m.slot(HVM, o).set(m.arg(7) * (1 << 32) + m.arg(8))
+            m.slot(HV1, o).set(m.arg(9) * (1 << 32) + m.arg(10))
+            m.slot(HV2, o).set(m.arg(11) * (1 << 32) + m.arg(12))
+            m.slot(HV3, o).set(m.arg(13) * (1 << 32) + m.arg(14))
         m.slot(EXPN, o).set(m.arg(15))
         m.slot(EXPF, o).set(m.arg(16))
         m.slot(ST, o).set(m.const(OPEN))
@@ -376,11 +405,16 @@ def build(isa=None):
         m.require(m.arg(3) < m.const(1 << LIMB_BITS))
         m.require(m.arg(4) < m.const(1 << LIMB_BITS))
         m.require(m.arg(5) < m.const(1 << LIMB_BITS))
-        # all four constraints, on the SAME limbs — see WIDE HASHLOCK
-        m.require(zkpy.hash(m.arg(1) + HDOM[0], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
-        m.require(zkpy.hash(m.arg(1) + HDOM[1], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV1, o).get())
-        m.require(zkpy.hash(m.arg(1) + HDOM[2], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV2, o).get())
-        m.require(zkpy.hash(m.arg(1) + HDOM[3], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV3, o).get())
+        if v2:
+            # one 256-bit BLAKE2s hashlock over the five limbs (vm_hashlocks v2); the limb bounds above keep the
+            # secret -> limbs map one-to-one, exactly as before
+            m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
+        else:
+            # all four constraints, on the SAME limbs — see WIDE HASHLOCK
+            m.require(zkpy.hash(m.arg(1) + HDOM[0], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
+            m.require(zkpy.hash(m.arg(1) + HDOM[1], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV1, o).get())
+            m.require(zkpy.hash(m.arg(1) + HDOM[2], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV2, o).get())
+            m.require(zkpy.hash(m.arg(1) + HDOM[3], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV3, o).get())
         m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the collateral goes home
         m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
