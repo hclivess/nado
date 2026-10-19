@@ -56,13 +56,24 @@ def runtime_name_ok(name):
 ADDR_PERSON_V2 = b"NADOvmA1"      # the gen-29 address digest's BLAKE2s personalization (disjoint from the VM hash's)
 
 
-def zkvm_addr_digest(addr, v2=False):
+def _gen_v2(v2):
+    """None -> the generation's format (the gen-29 one when BLAKE_EXEC_HEIGHT covers its genesis), the rule
+    zkvmasm.default_isa uses — so tests, tools and builders that do not name a cursor get the generation's digests.
+    The exec state always passes the flag for its own cursor."""
+    if v2 is None:
+        from execnode.exec_root_b2 import blake_exec_at
+        return blake_exec_at(0)
+    return bool(v2)
+
+
+def zkvm_addr_digest(addr, v2=None):
     """Deterministic field digest of an L1 address string — how addresses enter the field-native zkVM.
     Computed at the CALL BOUNDARY (never in-circuit): the digest is part of the public statement, so any
     hash works; the digest→address registry (ExecState.zk_addrs) resolves payouts back to L1 addresses.
     v2 (the gen-29 256-bit zkvm2, BLAKE_EXEC_HEIGHT; Goldilocks retirement G3): the FULL 256-bit BLAKE2s digest, no
-    field reduction — an owner digest of >= 128 bits is what doc/stwo-migration.md 9.2 requires."""
-    if v2:
+    field reduction — an owner digest of >= 128 bits is what doc/stwo-migration.md 9.2 requires. None = the
+    generation's format (_gen_v2)."""
+    if _gen_v2(v2):
         import hashlib
         from hashing import canonical_bytes
         return int.from_bytes(hashlib.blake2s(canonical_bytes(["zkvmaddr", addr]), digest_size=32,
@@ -72,12 +83,13 @@ def zkvm_addr_digest(addr, v2=False):
     return int(blake2b_hash(["zkvmaddr", addr]), 16) % P
 
 
-def zkvm_statement(caller, args, registry=None, v2=False):
+def zkvm_statement(caller, args, registry=None, v2=None):
     """Digest a (caller, args) statement into zkVM field form, registering every address digest seen.
     Returns (caller_field, field_args) or raises ValueError on a non-encodable arg. Shared by the runtime
     adapter and the prove/verify endpoints so the statement is byte-identical everywhere. v2: 256-bit digests and
     int args below 2^256 (the gen-29 word)."""
     from execnode.stark.field import P
+    v2 = _gen_v2(v2)
     bound = (1 << 256) if v2 else P
     reg = registry if registry is not None else {}
     cf = zkvm_addr_digest(caller, v2)

@@ -59,7 +59,7 @@ P.BLAKE_EXEC_HEIGHT = 1
 try:
     d2 = RT.zkvm_addr_digest(A, True)
     T.check("2a. live: an address digest is 256-bit BLAKE2s", d2 < 1 << 256 and RT.zkvm_statement(A, [], v2=True)[0] == d2
-            and d2 != RT.zkvm_addr_digest(A))
+            and d2 != RT.zkvm_addr_digest(A, False) and RT.zkvm_addr_digest(A) == d2)   # the default follows the generation
     T.check("2b. live: a bare build() targets v2", zkvmasm.default_isa() == "v2" and tictactoe.build() == tictactoe.build("v2"))
     st, cid, code, r, call = game("live")
     T.check("2c. live: v2 code deploys", cid in st.contracts and "HR0" not in str(code), r)

@@ -162,11 +162,11 @@ ASSET_URI_MAX = 128             # a metadata/logo pointer (an https/ipfs/ar URL)
                                 # multi-KB data: URI (which would bloat every committed metadata leaf) impossible.
 
 
-def asset_id(issuer, seed, v2=False):
+def asset_id(issuer, seed, v2=None):
     """The deterministic id of `issuer`'s asset number `seed` — the same field element the contract computes
     in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string. v2 (BLAKE_EXEC_HEIGHT): the gen-29
-    VM's hash over its 256-bit digest, so the node's id stays the contract's."""
-    if v2:
+    VM's hash over its 256-bit digest, so the node's id stays the contract's. None = the generation's format."""
+    if runtimes._gen_v2(v2):
         from execnode import zkvm2
         return zkvm2.hash_words([runtimes.zkvm_addr_digest(issuer, True), int(seed)])
     from execnode.stark import alghash, field as _F
