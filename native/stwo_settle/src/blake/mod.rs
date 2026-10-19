@@ -18,6 +18,8 @@ mod air;
 mod preprocessed_columns;
 mod round;
 mod scheduler;
+pub mod path;
+pub mod settle;
 mod xor_table;
 
 const STATE_SIZE: usize = 16;

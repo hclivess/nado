@@ -101,5 +101,26 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
 2. A Stwo prototype of the compressed-tree path update (one row per level, BLAKE2s compression with the `NADOcsN1` /
    `NADOcsL1` personalizations, key-bit ordering, the variable depth up to the circuit maximum), on the round and XOR
    components `native/stwo_js` already uses; measured against the G1 numbers.
+
+   **v0 done (`native/stwo_settle`, 2026-10-20): one key update.** Upstream's BLAKE2s AIR (scheduler, rounds, XOR
+   tables; vendored at stwo rev 826591c) plus `src/blake/path.rs`: each row of the path component consumes one scheduler
+   compression by lookup (the scheduler gained a multiplicity column so only real rows are consumed), range-checks the
+   message bytes through the xor8 table, and ties the digest to the next level's child half by the key bit. The old and
+   new leaves share the siblings, so one proof binds `(key, vh_old, vh_new, old_root, new_root)`. The verifier recomputes
+   the preprocessed commitment instead of trusting the proof's (upstream took it unchecked), mixes the config and the
+   statement into the channel before any challenge, and returns errors instead of asserting.
+   `tests/test_a_stwo_proof_of_a_tree_update_proves_csmt_roots_and_refuses_forgeries.py` drives it with real
+   `csmt.Tree` updates: the proven roots equal csmt.py's, and forged new root, old root, key, new/old value hash and
+   swapped roots are refused. Measured (pow 20, blowup 2, 160 queries, this host):
+
+   | depth | prove | verify | proof |
+   |---|---|---|---|
+   | 0 | 5.6 s | 72 ms | 2.50 MB |
+   | 8 | 5.7 s | 73 ms | 2.48 MB |
+   | 29 | 5.7 s | 147 ms | 2.50 MB |
+
+   The cost is flat in depth because the fixed BLAKE2s tables (XOR 12/9/8/7/4) dominate a single update. That is the
+   case for batching: a span's ~130 updates share those tables, so the next step proves K updates in one trace and
+   measures the per-update cost the G1 estimate needs.
 3. The VM step component for `zkvm2` (the CPU row, the storage and io buses by lookup, the BLAKE2s accumulator).
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.

@@ -1,14 +1,13 @@
 use std::simd::u32x16;
 
 use itertools::{Itertools, chain};
-use num_traits::Zero;
 use stwo::core::ColumnVec;
 use stwo::core::fields::m31::BaseField;
 use stwo::core::fields::qm31::SecureField;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::prover::backend::Column;
 use stwo::prover::backend::simd::column::BaseColumn;
-use stwo::prover::backend::simd::m31::LOG_N_LANES;
+use stwo::prover::backend::simd::m31::{LOG_N_LANES, PackedBaseField};
 use stwo::prover::backend::simd::qm31::PackedSecureField;
 use stwo::prover::backend::simd::{SimdBackend, blake2s};
 use stwo::prover::poly::BitReversedOrder;
@@ -24,11 +23,14 @@ use crate::blake::{N_ROUND_INPUT_FELTS, N_ROUNDS, STATE_SIZE, to_felts};
 pub struct BlakeInput {
     pub v: [u32x16; STATE_SIZE],
     pub m: [u32x16; STATE_SIZE],
+    /// NADO (stwo_settle): the multiplicity this row's compression is published with (0 = unused / padding).
+    pub mult: u32x16,
 }
 
 pub struct BlakeSchedulerLookupData {
     pub round_lookups: [[BaseColumn; N_ROUND_INPUT_FELTS]; N_ROUNDS],
     pub blake_lookups: [BaseColumn; N_ROUND_INPUT_FELTS],
+    pub mult: BaseColumn,
 }
 impl BlakeSchedulerLookupData {
     fn new(log_size: u32) -> Self {
@@ -39,6 +41,7 @@ impl BlakeSchedulerLookupData {
             blake_lookups: std::array::from_fn(|_| unsafe {
                 BaseColumn::uninitialized(1 << log_size)
             }),
+            mult: unsafe { BaseColumn::uninitialized(1 << log_size) },
         }
     }
 }
@@ -71,7 +74,7 @@ pub fn gen_trace(
             });
         };
 
-        let BlakeInput { mut v, m } = inputs.get(vec_row).copied().unwrap_or_default();
+        let BlakeInput { mut v, m, mult } = inputs.get(vec_row).copied().unwrap_or_default();
         let initial_v = v;
         write_u32_array(m, &mut col_index);
         write_u32_array(v, &mut col_index);
@@ -92,6 +95,12 @@ pub fn gen_trace(
             .enumerate()
             .for_each(|(i, val)| lookup_data.round_lookups[r][i].data[vec_row] = val);
         }
+
+        // the multiplicity column, last (constraints.rs reads it after the states)
+        // SAFETY: a multiplicity is a small count (well below the M31 modulus), so every lane is a canonical M31
+        let mult_felt = unsafe { PackedBaseField::from_simd_unchecked(mult) };
+        trace[col_index].data[vec_row] = mult_felt;
+        lookup_data.mult.data[vec_row] = mult_felt;
 
         chain![
             initial_v.iter().flat_map(to_felts),
@@ -144,8 +153,8 @@ pub fn gen_interaction_trace(
             // TODO(alont): Remove.
             col_gen.write_frac(vec_row, p_blake, p_round * p_blake);
         } else {
-            // TODO(alont): Remove.
-            col_gen.write_frac(vec_row, PackedSecureField::zero(), p_blake);
+            // NADO (stwo_settle): the row's multiplicity (upstream wrote zero here)
+            col_gen.write_frac(vec_row, PackedSecureField::from(lookup_data.mult.data[vec_row]), p_blake);
         }
     }
     col_gen.finalize_col();

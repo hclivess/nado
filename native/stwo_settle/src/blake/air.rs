@@ -286,7 +286,7 @@ where
         .map(|i| {
             let v = [u32x16::from_array(std::array::from_fn(|j| (i + 2 * j) as u32)); 16];
             let m = [u32x16::from_array(std::array::from_fn(|j| (i + 2 * j + 1) as u32)); 16];
-            BlakeInput { v, m }
+            BlakeInput { v, m, mult: Default::default() }
         })
         .collect_vec();
 

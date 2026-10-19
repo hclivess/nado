@@ -1,5 +1,5 @@
 use itertools::{Itertools, chain};
-use num_traits::{One, Zero};
+use num_traits::One;
 use stwo::prover::backend::simd::blake2s::SIGMA;
 use stwo_constraint_framework::{EvalAtRow, RelationEntry};
 
@@ -15,6 +15,9 @@ pub fn eval_blake_scheduler_constraints<E: EvalAtRow>(
     let messages: [Fu32<E::F>; STATE_SIZE] = std::array::from_fn(|_| eval_next_u32(eval));
     let states: [[Fu32<E::F>; STATE_SIZE]; N_ROUNDS + 1] =
         std::array::from_fn(|_| std::array::from_fn(|_| eval_next_u32(eval)));
+    // NADO (stwo_settle): how many times a consumer (the settlement path component) uses this row's compression. A
+    // free multiplicity on a table row is sound — the row IS a proven compression — and lets padding rows publish 0.
+    let mult = eval.next_trace_mask();
 
     // Schedule.
     for [i, j] in (0..N_ROUNDS).array_chunks::<2>() {
@@ -37,10 +40,11 @@ pub fn eval_blake_scheduler_constraints<E: EvalAtRow>(
     let input_state = &states[0];
     let output_state = &states[N_ROUNDS];
 
-    // TODO(alont): Remove blake interaction.
+    // NADO (stwo_settle): upstream published this entry with multiplicity zero ("TODO: remove"); the settlement path
+    // component consumes it, so it carries the row's multiplicity.
     eval.add_to_relation(RelationEntry::new(
         blake_lookup_elements,
-        E::EF::zero(),
+        E::EF::from(mult),
         &chain![
             input_state.iter().cloned().flat_map(Fu32::into_felts),
             output_state.iter().cloned().flat_map(Fu32::into_felts),
