@@ -2074,1123 +2074,65 @@ def validate_transaction(transaction, logger, block_height, deep=False):
 
     recipient = transaction["recipient"]
     if recipient == "slash":
-        # SLASHING (#15 step 5C): a FEE-EXEMPT tx whose `data` carries an equivocation proof — the
-        # same identity validly signed two blocks at one slot. Anyone may report it (the proof is
-        # the anti-spam: it can't be forged, and one-per-(offender,height) blocks replay). The
-        # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
-        assert transaction["amount"] == 0, "Slash tx must have zero amount"
-        assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
-        result = resolve_slash(transaction.get("data"), block_height)   # judged at THIS block (ADDRESS_KEY_BIND)
-        assert result, "Invalid or missing equivocation proof"
-        offender, height = result
-        assert not kv_ops.slash_exists(offender, height), "This offence is already slashed (replay)"
-        offender_acc = get_account(offender, create_on_error=False)
-        assert offender_acc and offender_acc.get("bonded", 0) >= SLASH_BOND_PENALTY, \
-            "Offender holds insufficient bonded stake to slash"
+        _validate_slash(transaction, block_height)
     elif recipient == "attest":
-        # FFG attestation (#6) — HISTORICAL single-duty form: kept consensus-valid forever (genesis
-        # sync replays the pre-`duty` blocks that carry these), but the mempool refuses NEW ones —
-        # honest emission is the merged `duty` tx (doc/consensus-aggregation.md).
-        assert transaction["amount"] == 0, "Attest tx must have zero amount"
-        assert transaction["fee"] == 0, "Attest tx is fee-exempt (fee must be 0)"
-        _validate_attest_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+        _validate_attest(transaction)
     elif recipient in ("commit", "reveal"):
-        # COMMIT-REVEAL RANDAO (#7) — HISTORICAL single-duty forms (see the `attest` note): valid for
-        # replay, refused at the mempool; honest emission is the merged `duty` tx.
-        assert transaction["amount"] == 0, "Commit/reveal tx must have zero amount"
-        assert transaction["fee"] == 0, "Commit/reveal tx is fee-exempt (fee must be 0)"
-        if recipient == "commit":
-            _validate_commit_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
-        else:
-            _validate_reveal_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+        _validate_commit_reveal(transaction, recipient)
     elif recipient == "duty":
-        # MERGED EPOCH DUTY (doc/consensus-aggregation.md): a bonded validator's whole per-epoch
-        # consensus participation in ONE fee-exempt tx — sections `attest` (epoch X = the landing
-        # epoch), `commit` (X+2) and `reveal` (X+1), each optional, each validated by EXACTLY the
-        # same field rules as the historical single-duty forms (shared helpers). The sender must
-        # hold a seat in epoch X's DUTY COMMITTEE (beacon-sampled, stake-weighted — the O(seats)
-        # consensus-load bound); a reveal needs no committee check beyond its own commitment, which
-        # already proves committee membership at commit time.
-        from ops.block_ops import duty_committee_for_epoch
-        from ops.mining_ops import epoch_of
-        assert transaction["amount"] == 0, "Duty tx must have zero amount"
-        assert transaction["fee"] == 0, "Duty tx is fee-exempt (fee must be 0)"
-        data = transaction.get("data") or {}
-        sections = {k: data.get(k) for k in ("attest", "commit", "reveal") if data.get(k) is not None}
-        assert sections, "Duty tx carries no sections"
-        assert set(data.keys()) <= {"attest", "commit", "reveal"}, "Duty tx carries unknown sections"
-        tb = transaction["max_block"]
-        X = epoch_of(tb)
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc and acc.get("bonded", 0) >= B_MIN, "Duty sender is not a bonded validator"
-        # REVEAL_SEATLESS_HEIGHT: a reveal-only duty opens a commitment the sender made while seated, so it needs no
-        # seat of its own. INVARIANT: every other section still requires the landing epoch's seat.
-        from protocol import REVEAL_SEATLESS_HEIGHT
-        if not (set(sections) == {"reveal"} and tb >= REVEAL_SEATLESS_HEIGHT):
-            committee = duty_committee_for_epoch(X)
-            assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
-        if "attest" in sections:
-            a = sections["attest"]
-            assert isinstance(a, dict) and a.get("target_epoch") == X, "Duty attest must target the landing epoch"
-            _validate_attest_fields(a, tb, transaction["sender"])
-        if "commit" in sections:
-            c = sections["commit"]
-            assert isinstance(c, dict) and c.get("target_epoch") == X + 2, "Duty commit must target epoch X+2"
-            _validate_commit_fields(c, tb, transaction["sender"])
-        if "reveal" in sections:
-            r = sections["reveal"]
-            assert isinstance(r, dict) and r.get("target_epoch") == X + 1, "Duty reveal must target epoch X+1"
-            _validate_reveal_fields(r, tb, transaction["sender"])
+        _validate_duty(transaction)
     elif recipient in ("unbond", "withdraw"):
-        # UNBOND DELAY: fee-exempt actions on the sender's OWN stake. `unbond` requests a release (coins
-        # stay bonded + slashable); `withdraw` claims it only at/after the matured release_block. Bound
-        # to max_block (the deterministic landing block) so the mempool gate and block validation agree.
-        assert transaction["fee"] == 0, "unbond/withdraw is fee-exempt (fee must be 0)"
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc, "unbond/withdraw from an account with no stake"
-        pending = kv_ops.unbond_get(transaction["sender"])
-        if recipient == "unbond":
-            assert transaction["amount"] > 0, "unbond amount must be positive"
-            assert acc.get("bonded", 0) >= transaction["amount"], "unbond amount exceeds bonded stake"
-            assert pending is None, "an unbond is already pending (one withdrawal at a time)"
-        else:  # withdraw
-            assert pending, "no pending unbond to withdraw"
-            assert transaction["max_block"] >= pending["release_block"], \
-                "unbond has not matured yet (BOND_UNLOCK_DELAY)"
-            data = transaction.get("data") or {}
-            assert data.get("amount") == pending["amount"] and data.get("release_block") == pending["release_block"], \
-                "withdraw data does not match the pending unbond"
-            assert acc.get("bonded", 0) >= pending["amount"], "bonded stake is below the pending unbond"
+        _validate_unbond_withdraw(transaction, recipient)
     elif recipient == "register":
-        assert transaction["amount"] == 0, "register tx must have zero amount"
-        assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
-        validate_register_referrer(transaction, block_height)
-        from ops.block_ops import get_block_hash_by_number
-        anchor = get_block_hash_by_number(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET))
-        assert anchor, "registration anchor block not found"
-        assert kv_ops.recert_latest(transaction["sender"]) < (block_height // EPOCH_LENGTH), \
-            "sender already recerted this epoch (one register per epoch)"
-        # REAL DEVICE (gen 25, doc/device-attestation.md): every register tx — entry or renewal — carries a hardware
-        # attestation over the anchor-bound challenge, verified by the native kernel against the PINNED vendor
-        # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
-        # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
-        # a genuine device needs a human tap per identity per lease.
-        from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
-        epoch_now = block_height // EPOCH_LENGTH
-        # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
-        # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
-        # this function also runs at mempool admission on a genesis tip (block_height 0), where every one of them was off.
-        # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register WITHOUT a statement is the statement-free
-        # presence renewal of an identity permanently bound to a hardware wallet — valid only while the sender's `devkey`
-        # row still points back at the sender in "perm" mode (a rebind elsewhere ends it from the next block). For anyone
-        # else it is the historical "Missing device attestation".
-        stmt_free = bool(block_height >= 1 and not isinstance(transaction.get("device"), dict))
-        if is_assert_device(transaction.get("device")):
-            # SIGNATURE RENEWAL (LEASE_V2_EPOCH): the credential a statement bound signs this block's challenge; nothing is
-            # bound and no device key is derived (the shape has no certificate). Validated in full here.
-            verify_register_assertion(transaction, anchor)
-        elif stmt_free:
-            acc_r = get_account(transaction["sender"], create_on_error=False) or {}
-            dk = acc_r.get("devkey")
-            bound = kv_ops.devbind_get(dk) if isinstance(dk, str) and dk else None
-            assert bound and bound[0] == transaction["sender"] and bound[2] == "perm", \
-                "Missing device attestation (a registered identity must be a real device; only an identity bound for life " \
-                "to a hardware wallet renews without one)"
-        else:
-            verify_register_device(transaction, anchor)
-            # ONE DEVICE, ONE IDENTITY (doc/device-attestation.md §"One device, one identity"):
-            # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
-            # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
-            # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
-            # apply_register writes, at the block's own height.
-            if block_height >= 1:
-                from ops.device_attest import device_binding_key
-                try:
-                    # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
-                    # gets bound (IndexError/ValueError alike = malformed = invalid)
-                    # canonical: keyed on the certificate's SIGNED part, trailing bytes refused — the raw-bytes key let
-                    # one device back unlimited identities (protocol.py "ONE DEVICE, ONE IDENTITY — FOR REAL"; gen 27's
-                    # DEVICE_BIND_CANONICAL_HEIGHT, 1 from gen 28 and deleted — this block already requires height >= 1)
-                    dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
-                                              canonical=True)
-                except (ValueError, IndexError) as e:
-                    raise AssertionError(f"register: {e}")
-                # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it
-                # replaced): a device may move to another sender in any block, because apply EVICTS the identity it leaves
-                # (its lease is voided at once), so one device backs one identity at every instant.
-                # ...BUT NOT TO A NEW SENDER EVERY BLOCK (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27).
-                # A register needs no funds and creates its sender's account, so one device hopping to a fresh address
-                # each block was a free ~13 KB tx and a new account row per block, forever. A device moves to a DIFFERENT
-                # sender at most once per epoch (60 blocks): the first move — a lost key, a sold device, a wallet
-                # migration — is still instant, and renewals by the bound sender are unaffected.
-                # INVARIANT: keep the first move instant; bound the rest.
-                _cur = kv_ops.devbind_get(dkey)
-                assert not (_cur and _cur[0] != transaction["sender"] and int(_cur[1]) == epoch_now), \
-                    "register: this device already moved to another account this epoch — try again next epoch"
-                if dkey.split(":", 1)[0] in permanent_classes_at(block_height):
-                    # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
-                    # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
-                    acc_r = get_account(transaction["sender"], create_on_error=False) or {}
-                    dk_prev = acc_r.get("devkey")
-                    if isinstance(dk_prev, str) and dk_prev and dk_prev != dkey:
-                        pb = kv_ops.devbind_get(dk_prev)
-                        assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
-                            "register: this identity is already bound for life to another hardware wallet — use that device, " \
-                            "or bind this one to a new account"
+        _validate_register(transaction, block_height)
     elif recipient == "legacy_claim":
-        # LEGACY CLAIM (gen 28; operator: "sign with your old key and get the coins"). An account whose key no chain
-        # ever saw was carried at its OLD 46-character format-1 address, which format 2 refuses as a sender; its owner's
-        # key K claims it from K's format-2 address (validate_origin has bound the sender to K). The claim names the
-        # old address and its EXACT balance, so apply moves a stated amount and a rollback moves exactly that back, and
-        # a second claim fails because the balance is then zero. ACCEPTED RISK (operator's decision, 332 accounts /
-        # 142 NADO measured 2026-09-28): a key sharing the old address's 21 bytes can claim first — the exposure those
-        # accounts already carried on gen 27. INVARIANT: only ever the whole balance, only an address with no key.
-        # `>= 1` IS THE DELETED GATE'S OWN VALUE (LEGACY_CLAIM_HEIGHT was 1 from gen 28, deleted after the betanet-9
-        # reroll): mempool admission validates at the tip's height, which is 0 on a genesis tip, and a claim was
-        # refused there. Keep it; it changes no verdict on a chain with a block.
-        from protocol import ADDRESS_BODY, ADDRESS_PREFIX
-        from ops.address_ops import legacy_address
-        assert block_height is not None and int(block_height) >= 1, "legacy claims are not enabled on this chain"
-        assert transaction["amount"] == 0 and transaction["fee"] == 0, "legacy_claim carries no amount and no fee"
-        data = transaction.get("data")
-        assert isinstance(data, dict) and set(data) == {"legacy", "amount"}, "legacy_claim data is {legacy, amount}"
-        legacy, amt = data["legacy"], data["amount"]
-        assert isinstance(legacy, str) and len(legacy) == len(ADDRESS_PREFIX) + ADDRESS_BODY + 4, "not an old-format address"
-        assert legacy != transaction["sender"], "a legacy claim cannot name its own sender"
-        pk = transaction.get("public_key") or (get_account(transaction["sender"], create_on_error=False) or {}).get("public_key")
-        assert isinstance(pk, str) and pk, "legacy_claim needs the claimant's public key"
-        assert legacy_address(pk) == legacy, "this key's old address is not the one claimed"
-        old = get_account(legacy, create_on_error=False)
-        assert old and not old.get("public_key"), "only an old address whose key no chain ever saw can be claimed"
-        assert int(old.get("bonded", 0) or 0) == 0, "a bonded old address cannot be claimed"
-        assert isinstance(amt, int) and not isinstance(amt, bool) and amt > 0 and amt == int(old.get("balance", 0) or 0), \
-            "legacy_claim amount must be the old address's whole balance"
+        _validate_legacy_claim(transaction, block_height)
     elif recipient == "tpm_ready":
-        # VOLUNTEERING TO BE DRAWN. Carries nothing and proves nothing: it is an operator declaring that
-        # this node runs the challenger loop, so the draw can prefer addresses that have said so over
-        # addresses that merely look like validators on chain. Zero amount, no data, and the signature
-        # (checked for every transaction) is the whole of what makes it the sender's own statement.
-        # gen 25's DEVICE_ATTEST_EK_READY_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on
-        # a genesis tip) fell below it, and keeps its verdict.
-        assert block_height >= 1, "challenger announcements are not enabled yet"
-        assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
-        assert not transaction.get("data"), "tpm_ready carries no data"
-        # A VOLUNTEER HAS STAKE (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). This used to be the
-        # cheapest message on the chain: any fee, no uniqueness key, sendable from a never-funded address (it skips the
-        # empty-account check), and it wrote the sender's account row — free, unlimited, every block — and every sender
-        # joined the challenger pool at weight 1, so a thousand free addresses outweighed the fleet in the TPM challenger
-        # draw. It is fee-free only from a bonded sender, once per sender per block (reserved_uniqueness_key), and writes
-        # nothing. Unconditional: the `>= 1` assert above already holds (gen 27's SPAM_HARDEN_HEIGHT, deleted).
-        # INVARIANT: an announcement must cost the announcer stake; never let it through from an unbonded account.
-        assert transaction["fee"] == 0, "tpm_ready is fee-exempt (fee must be 0)"
-        _acc = get_account(transaction["sender"], create_on_error=False)
-        assert _acc and _acc.get("bonded", 0) >= B_MIN, "only a bonded validator can volunteer as a challenger"
+        _validate_tpm_ready(transaction, block_height)
 
     elif recipient in ("tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal"):
-        # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md).
-        # Four fee-exempt, zero-amount messages that prove an attestation key lives inside a chip whose
-        # ENDORSEMENT key a silicon vendor certified — the path for the 26.8 % of attempts Windows Hello
-        # refuses, and the only path a headless Linux node has ever had.
-        #
-        # NOTHING HERE CONFERS STANDING. A completed enrolment records that one attestation key is inside one
-        # certified chip. It is `register` that consumes it, with a FRESH TPM2_Certify over that block's own
-        # challenge, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation keys in one
-        # chip yields one identity, not ten. Anyone may spend blocks on enrolments that buy them nothing.
-        from protocol import DEVICE_ATTEST_EK_CHALLENGERS
-        from ops import tpm_enrol as _te
-        # gen 25's DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on a
-        # genesis tip) fell below it, and keeps its verdict.
-        assert block_height >= 1, "vendor-endorsed TPM enrolment is not enabled yet"
-        assert transaction["amount"] == 0 and transaction["fee"] == 0, \
-            f"{recipient} tx is fee-exempt and carries no amount"
-        data = transaction.get("data") or {}
-        assert isinstance(data, dict), f"{recipient} data must be an object"
-        sender = transaction["sender"]
-        if recipient == "tpm_enrol":
-            # STEP 1. The chip's endorsement chain and the public area of the key it will vouch for. The
-            # chain is verified by the native kernel against the PINNED vendor roots — real vendor
-            # certificates are not strictly DER and no Python parser in the node's runtime reads them.
-            from ops import attest_native
-            chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
-            pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
-            # the clock is _anchor_time, and apply_tpm_enrol_tx re-runs this same call through it — validation and
-            # apply must judge the chain at the SAME agreed time or a record validated here fails to apply there
-            _now = _anchor_time(transaction, block_height)
-            ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=block_height), _now)
-            assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
-            from protocol import ek_roots_at
-            # the set the kernel just verified against (ek_roots_at), not the base set: the base set refused Intel
-            # V2-root chips the kernel had accepted (betanet-8 below block 1400; protocol.py "ENROLMENT TRUSTS THE
-            # ROOTS IN FORCE"). INVARIANT: the kernel's set and this one are the same call at the same height.
-            assert ek.get("root_sha256") in ek_roots_at(block_height), \
-                "endorsement certificate does not chain to a pinned silicon-vendor root"
-            _te.validate_publication(str(ek["identity"]), pub)
-            eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
-            # AN EXPIRED ATTEMPT MUST BE RETRYABLE, and making it so is not optional: the enrolment id is
-            # DERIVED from (chain id, endorsement identity, attestation key name) with no nonce, so the
-            # same chip with the same key template derives the same id forever. That is what makes a
-            # proven enrolment stable and resumable, and it is also what made a FAILED one permanent —
-            # refusing every duplicate meant a chip whose first attempt stalled could never open another,
-            # because every future attempt derived the same id and hit the same dead record. Observed on
-            # real hardware: an enrolment drew three challengers under an older rule, one answered, it
-            # expired, and the chip could not try again under the corrected rule because no new draw could
-            # ever happen. An expired, unproven record is therefore SUPERSEDED — apply overwrites it with
-            # a fresh draw, and journals the old one so a rollback restores it exactly.
-            _existing = kv_ops.tpm_enrol_get(eid)
-            if _existing:
-                assert _existing.get("state") != "proven", \
-                    "this chip has already proved this attestation key — use the existing enrolment"
-                assert block_height >= int(_existing["h"]) + _te.enrol_window(_existing["h"]), \
-                    "this attestation key already has an enrolment in progress"
-            # ONE OPEN ENROLMENT PER CHIP. An endorsement certificate is PUBLIC — anyone who has seen a
-            # machine's certificate can copy it — so without this bound a single stolen certificate could
-            # open unlimited enrolments by varying the attestation key, and tpm_enrol is in the
-            # empty-account bypass. With it, an attacker's ceiling is the number of genuine vendor-signed
-            # certificates they hold, once per expiry window. Copying a certificate still proves nothing:
-            # the challengers seal to its public key and only the real chip can open them.
-            _open = kv_ops.tpm_enrol_open_for_ek(str(ek["identity"]))
-            if _open:
-                _prev = kv_ops.tpm_enrol_get(str(_open))
-                assert not (_prev and _prev.get("state") != "proven"
-                            and block_height < int(_prev["h"]) + _te.enrol_window(_prev["h"])), \
-                    "this chip already has an enrolment in progress — finish it or wait for it to expire"
-                from protocol import TPM_ENROL_V3_HEIGHT
-                if _prev and block_height >= TPM_ENROL_V3_HEIGHT:
-                    from protocol import TPM_RETRY_OWNER_HEIGHT
-                    # TPM_RETRY_OWNER_HEIGHT: the cooldown is the OPENER's, so it holds back only the identity that
-                    # failed; anyone else waits for the record's expiry alone (one open enrolment per chip still holds).
-                    if block_height >= TPM_RETRY_OWNER_HEIGHT and str(_prev.get("owner")) != str(sender):
-                        _ready = _te.expiry(_prev)
-                    else:
-                        _ready = _te.retry_ready_at(
-                            _prev, kv_ops.tpm_retry_get(_te.retry_key(_prev, block_height)), block_height)
-                    assert block_height >= _ready, \
-                        f"this chip's last enrolment was not completed by its client — it can enrol again from block {_ready}"
-            # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
-            # bonded registry must not thereby cut the number of parties it takes to collude.
-            # COMMIT, THEN DRAW (ops/tpm_enrol; audit 2026-09-27). The set does not exist yet — its dice are two epochs
-            # away — so what is checked here is that the pool it WILL be drawn from, frozen at this block, can seat k
-            # (exact sampling always does when it has k weighted members).
-            # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a beacon
-            # it already knows (this epoch's) — that is the grind the delayed draw closes.
-            from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
-            if block_height >= TPM_POOL_V2_HEIGHT:
-                # TPM POOL v2: the pool this enrolment will be drawn from is the snapshot apply stores (tpm_pool_v2,
-                # the same function), and it must seat k = 5. INVARIANT: the same call here and in apply.
-                assert _te.pool_can_seat(tpm_pool_v2(block_height), DEVICE_ATTEST_EK_CHALLENGERS_V2), \
-                    "not enough independent challengers are bonded and online to open an enrolment"
-            else:
-                assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
-                    "not enough independent challengers are bonded to open an enrolment"
-        else:
-            eid = data.get("id")
-            assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
-            rec = kv_ops.tpm_enrol_get(eid)
-            assert rec, "no such enrolment"
-            assert block_height < int(rec["h"]) + _te.enrol_window(rec["h"]), \
-                "this enrolment has expired — open a new one"
-            # Each branch below is a DRY RUN of the exact state transition apply will perform, on the record
-            # as it stands at this block. The state machine raises AssertionError on every rule it enforces,
-            # which is what validation wants, and apply re-runs it rather than trusting this.
-            if recipient == "tpm_challenge":
-                # a delayed draw's set is materialised by its first challenge; apply does the same (account_ops)
-                # INVARIANT: validation and apply must both materialise, or they judge against different sets
-                _te.apply_challenge(tpm_materialise_draw(rec, block_height), sender,
-                                    _hex_bytes(data.get("blob"), 1024, "credential blob"),
-                                    _hex_bytes(data.get("enc"), 1024, "wrapped seed"), block_height)
-            elif recipient == "tpm_commit":
-                _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)
-            else:
-                from protocol import TPM_ENROL_V3_HEIGHT
-                _te.apply_reveal(rec, sender, _hex_bytes(data.get("secret"), 64, "secret"),
-                                 _hex_bytes(data.get("seed"), 64, "seed"), block_height,
-                                 fail_on_mismatch=int(block_height) >= TPM_ENROL_V3_HEIGHT)
+        _validate_tpm_ceremony(transaction, block_height, recipient)
     elif recipient in ("pool", "delegate", "undelegate"):
-        # STAKING POOLS NEVER RAN FROM GENERATION 26 ON (protocol.py "THE SAVINGS LANE IS PLAIN STAKE"): the gen-25 branch
-        # opened with `assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"` and
-        # POOL_HEIGHT was 0, so every pool / delegate / undelegate tx was refused here, first, with this message. The
-        # rest of the branch and the apply path were deleted with the gate. INVARIANT: these three recipients stay in
-        # RESERVED_RECIPIENTS and stay REFUSED — letting one fall through to the generic path would turn a refused tx
-        # into an accepted one and fork every node still running the refusal.
-        raise AssertionError("staking pools are not enabled yet")
+        _validate_pool_delegation()
     elif recipient == "msgkey":
-        # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
-        # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is
-        # sender-scoped (writes only the sender's own kem_pub) and anti-spam-gated by the empty-account rule
-        # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account).
-        # THAT WAS NOT A BOUND (audit 2026-09-27): the empty-account check is mempool policy that consensus never runs,
-        # an emptied account still "exists", and accounts were free to create (tpm_ready wrote one) — so msgkey was a
-        # free ~10 KB message every block, forever, from any number of accounts. So only the FIRST bind is free (bounded
-        # by the paid transfer that created the account); a rotation pays MIN_TX_FEE, re-binding the key already bound is
-        # refused, and the tx carries no data. INVARIANT: never make a repeatable msgkey free.
-        # `>= 1` below is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
-        # mempool admission with the tip's height, 0 on a genesis tip, where the old fee-exempt rule held.
-        assert transaction["amount"] == 0, "msgkey tx must have zero amount"
-        kp = transaction.get("kem_pub")
-        # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
-        assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
-            "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
-        if block_height is not None and int(block_height) >= 1:
-            assert not transaction.get("data"), "msgkey carries no data"
-            _acc = get_account(transaction["sender"], create_on_error=False)
-            assert _acc, "msgkey needs an account on chain"
-            if _acc.get("kem_pub"):
-                assert _acc["kem_pub"] != kp, "this messaging key is already bound to the account"
-                assert transaction["fee"] >= MIN_TX_FEE, f"rotating a messaging key pays the minimum fee {MIN_TX_FEE}"
-                assert _acc.get("balance", 0) >= transaction["fee"], "msgkey sender cannot afford the fee"
-            else:
-                assert transaction["fee"] == 0, "the first messaging key is fee-exempt (fee must be 0)"
-        else:
-            assert transaction["fee"] == 0, "msgkey tx is fee-exempt (fee must be 0)"
+        _validate_msgkey(transaction, block_height)
     elif recipient == "auth":
-        # ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
-        # validate_origin verified every signature entry; here the SIGNER SET decides the effect (full
-        # reconfig policy -> immediate; signing policy alone -> pending; a reconfig-only key -> cancel).
-        from ops import auth_ops
-        _acc = get_account(transaction["sender"], create_on_error=False)
-        _cfg = auth_ops.effective_config(transaction["sender"], _acc, block_height)
-        auth_ops.validate_auth_tx(transaction, block_height, auth_ops.verify_entries(transaction, transaction["sender"], _cfg))
+        _validate_auth(transaction, block_height)
     elif recipient == "alias":
-        # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
-        from ops import alias_ops
-        alias_ops.validate_alias_op(transaction)
+        _validate_alias(transaction)
     elif recipient == "blob":
-        # DATA-AVAILABILITY blob (execution-layer Phase 1): envelope-only checks. L1 orders + stores the
-        # opaque payload and never decodes it. Zero amount, a non-empty payload within the size cap, and
-        # a paid DA fee (>= MIN_TX_FEE, burned). The sender must afford the fee (enforced at reflect).
-        assert transaction["amount"] == 0, "Blob tx must have zero amount"
-        assert transaction["fee"] >= MIN_TX_FEE, f"Blob DA fee below minimum {MIN_TX_FEE}"
-        payload = transaction.get("data")
-        assert payload not in (None, "", {}, []), "Blob tx must carry a data payload"
-        assert blob_payload_size(payload) <= BLOB_MAX_BYTES, f"Blob payload exceeds {BLOB_MAX_BYTES} bytes"
-        # HALT-CLASS field typing (audit 2026-07): the exec node replays these payloads and uses some fields
-        # as DICT KEYS or coerces them. A wrong TYPE there raises INSIDE the exec tail loop, which has no
-        # per-tx guard, so the cursor never advances — one MIN_TX_FEE blob permanently wedges every exec node
-        # (every game + every asset frozen; assets have no L1 exit). L1 orders the blob and never decodes it,
-        # but it must still REFUSE a payload that would halt the layer downstream — the same discipline the
-        # `settle` op below already applies to exec_cursor. Only dict payloads carry ops.
-        if isinstance(payload, dict):
-            _op = payload.get("op")
-            assert _op is None or isinstance(_op, str), "Blob op must be a string"
-            # F2 (2026-09-23): `method` is looked up in the contract's code dict; a list raised TypeError past the
-            # exec layer's escrow. The exec layer refuses it before debiting and L1 refuses to order it at all.
-            # `>= 1` is gen 25's EXEC_RULES_V2_HEIGHT from gen 26 (deleted): height 0 / None keep their old verdict.
-            if "method" in payload and block_height is not None \
-                    and int(block_height) >= 1:
-                assert isinstance(payload["method"], str), "Blob method must be a string"
-            # ns/to_ns/from_ns index the per-namespace state map: a list/dict there is unhashable -> TypeError.
-            assert valid_namespace(payload.get("ns", DEFAULT_NS)), "Blob ns must be a valid namespace id"
-            for _k in ("to_ns", "from_ns"):
-                if _k in payload:
-                    assert valid_namespace(payload[_k]), f"Blob {_k} must be a valid namespace id"
-            if "value" in payload:                         # int()'d in the exec summary AND the ledger
-                _v = payload["value"]
-                assert isinstance(_v, int) and not isinstance(_v, bool) and _v >= 0, \
-                    "Blob value must be a non-negative int"
-            if "asset" in payload:                         # a str/int id; anything else breaks ledger keys
-                _a = payload["asset"]
-                assert (isinstance(_a, int) and not isinstance(_a, bool)) or isinstance(_a, str), \
-                    "Blob asset must be an int or string id"
-            if "proof_da" in payload:                      # a DA commitment; path chars reach DaStore._dir
-                _pda = payload["proof_da"]
-                assert isinstance(_pda, str) and _pda and "/" not in _pda and "\\" not in _pda \
-                    and _pda not in (".", ".."), "Blob proof_da must be a safe commitment string"
+        _validate_blob(transaction, block_height)
     elif recipient == "settle":
-        # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
-        # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
-        from protocol import SETTLE_MAX_LAG
-        assert transaction["amount"] == 0, "Settle tx must have zero amount"
-        data = transaction.get("data") or {}
-        cursor = data.get("exec_cursor")
-        root = data.get("state_root")
-        ns = data.get("ns", DEFAULT_NS)
-        # FREE ONLY WHERE IT IS A DUTY (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). One 10-NADO bond
-        # used to be able to land a
-        # permanent settle row for every (namespace, cursor) pair — any namespace name, any past cursor — for free. The
-        # duty is the default namespace near the tip (honest settles trailed their block by 12..380 blocks); another
-        # namespace pays MIN_TX_FEE, and a cursor more than SETTLE_MAX_LAG behind is refused.
-        # INVARIANT: never make a settle free that the settle loop does not need — and construct_settle_tx must charge
-        # exactly this (it signed fee 0 for every namespace until 2026-09-28: tests/test_namespace_settle_pays.py).
-        # `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at mempool
-        # admission with the tip's height, 0 on a genesis tip, where the old free-settle rule held.
-        _spam = block_height is not None and int(block_height) >= 1
-        if _spam and ns != DEFAULT_NS:
-            assert transaction["fee"] >= MIN_TX_FEE, f"a settle outside the default namespace pays the minimum fee {MIN_TX_FEE}"
-            _sa = get_account(transaction["sender"], create_on_error=False)
-            assert _sa and _sa.get("balance", 0) >= transaction["fee"], "settle sender cannot afford the fee"
-        else:
-            assert transaction["fee"] == 0, "Settle tx is fee-exempt (fee must be 0)"
-        if _spam and isinstance(cursor, int) and not isinstance(cursor, bool):     # (the type is refused just below)
-            assert int(block_height) - cursor <= SETTLE_MAX_LAG, \
-                f"Settle exec_cursor is more than {SETTLE_MAX_LAG} blocks behind this block"
-        assert valid_namespace(ns), "Settle ns must be a valid namespace id ([a-z0-9._-], <=32)"
-        assert ns != DEFAULT_NS or "ns" not in data, "default namespace must be omitted from settle data (canonical form)"
-        # Upper bound is CONSENSUS-CRITICAL, not cosmetic: exec_cursor is packed be8 (struct '>Q') into the
-        # LMDB settlement key at apply-time (kv_ops._settle_key), which raises struct.error for cursor >= 2**64
-        # INSIDE incorporate_block — a path that must never raise, or one cheap tx halts production+verify on
-        # every node (same class as the old min_block poison). The 2**64-1 ceiling also keeps a real cursor from
-        # ever equaling the b'\xff'*8 end-of-namespace sentinel that settlement_max_cursor range-seeks past.
-        # NOTE: exec_cursor is an EXEC-LAYER position, NOT the L1 block height (it is not bounded by
-        # block_height — see the settlement tests). The upper bound below is purely the be8-pack safety bound.
-        assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
-        # SETTLEMENT-ORACLE CAPTURE (critical). active_settler_shares anchors the quorum DENOMINATOR on
-        # settlement_max_cursor(ns) and leaks out anyone who has not attested within SETTLE_ACTIVITY_CURSORS
-        # of it. With the cursor unbounded, ONE fee-exempt settle at cursor ~2**64 pushes that activity floor
-        # above every honest settler's real cursor, so they all leak from the denominator and the poster
-        # becomes the SOLE quorum member — permanently, since no honest exec node will ever reach that
-        # cursor to re-enter. latest_settled() then returns the attacker's fabricated root, and
-        # bridge_withdraw / unshield / dividend_withdraw prove against it to drain BRIDGE_ESCROW,
-        # SHIELD_ESCROW and DIVIDEND_POOL. Total cost: B_MIN bonded (10 NADO) and no fee. The per-namespace
-        # escrow cap does not help — all bridge deposits and every unshield/dividend exit use DEFAULT_NS.
-        # The exec cursor IS an L1 block height in practice (execnode sets state.cursor = h while applying
-        # FINALIZED blocks), so it can never legitimately exceed the height of the block carrying the settle.
-        # Bounding it here is deterministic (block_height is consensus input) and cannot reject an honest
-        # settle, which is always well behind the tip.
-        assert block_height is None or cursor <= int(block_height), (
-            f"Settle exec_cursor {cursor} exceeds the current block height {block_height} — the exec layer "
-            f"applies FINALIZED blocks and can never be ahead of L1 (settlement-oracle capture guard)")
-        assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
-        assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
-        # DA-CARRIED PROOF COMMITMENT. Same hardening as the blob branch: the string reaches
-        # DaStore._dir, so path characters must never get through. Validated for SHAPE only — this field
-        # does not (yet) justify the root, so an unfetchable or bogus commitment cannot change what
-        # settles; it degrades to the ordinary bonded-quorum path exactly as a bare attestation does.
-        # Making it justify the root requires L1 to fetch+verify during validation inside the depth gate,
-        # which is the consensus step in doc/settle-proof-transport.md §4 and is NOT done here.
-        _pda = data.get("proof_da")
-        if _pda is not None:
-            assert isinstance(_pda, str) and _pda and len(_pda) <= 128 and "/" not in _pda \
-                and "\\" not in _pda and _pda not in (".", ".."), \
-                "Settle proof_da must be a safe commitment string"
-        proof = data.get("proof")
-        _from_da = False          # set once the proof came back from DA, so the verdict memo can key on the
-                                  # commitment (which cryptographically binds those exact bytes)
-        if proof is None and _pda is not None and not deep:
-            # DA-CARRIED PROOF, RESOLVED AT VALIDATION. A settle proof is ~118 MiB at protocol strength
-            # against an 8 MiB submit cap and a ~256 KiB block, so it cannot ride in the tx. It is published
-            # k-of-n and the tx carries the commitment; here we pull it back and verify it as if it had been
-            # inline, so the root settles TRUSTLESSLY on a validity proof rather than on a bonded quorum.
-            #
-            # THE BYTES ARE BINDING, so fetching does not introduce trust: da reconstruction checks the
-            # commitment round-trip, and a blob that does not hash to `proof_da` is not returned. Whoever
-            # serves it cannot substitute a different proof.
-            #
-            # NOT HOLDING IT IS NOT A REJECTION. Raising ProofUnavailable defers the whole block: every node
-            # applies the same rule, so unavailability costs liveness, never safety. Rejecting instead would
-            # fork the fleet along the axis of who happened to have the data.
-            #
-            # `deep` bounds the stall. Past FINALITY_DEPTH below the known tip the proof is not consulted at
-            # all (SETTLE_PROOF_DEPTH_GATED), so a permanently unavailable proof degrades to the
-            # accumulated-weight path rather than halting the node — the same weak subjectivity already
-            # accepted for snapshot bootstrap.
-            _blob = _fetch_da_proof(_pda)
-            if _blob is None:
-                raise ProofUnavailable(
-                    f"settle proof {_pda[:16]}… for (ns={ns}, cursor={cursor}) is not available via DA yet — "
-                    f"deferring this block rather than judging it")
-            try:
-                proof = json.loads(_blob.decode())
-                _from_da = True
-            except Exception as e:
-                # Retrievable but not a proof: that IS a judgement we can make, so reject rather than defer.
-                raise AssertionError(f"Settle proof_da resolved to non-proof bytes: {type(e).__name__}")
-        if proof is not None:
-            # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
-            # block-height special-casing): the carried SPARSE settlement proof must PROVE exactly this
-            # checkpoint's EXECUTION half and STRICTLY EXTEND the namespace's settled chain, verified
-            # identically on every node. On success this tx settles the root TRUSTLESSLY at apply-time
-            # (kv_ops.settlement_proof_put), no bonded quorum needed.
-            #
-            # The settled root is rnode(KV half, RECORDS half) (execnode/exec_root.py). The proof covers the
-            # KV half (contract execution — bound epochs over the sparse tree); the RECORDS half must be
-            # UNCHANGED across the proven span (pinned equal in the pre and post compositions below). That is
-            # an EXPLICIT, enforced restriction, not an assumption: epochs that also moved records (bridge
-            # credits, dividends, exits) ride the bonded quorum until record transitions are proven in-circuit
-            # — a forward-compatible extension on the SAME tree, never a scheme change.
-            import protocol as _protocol
-            from ops.settlement_ops import latest_settled
-            from execnode.stark import settlement_sparse as SS
-            from execnode import exec_root as ER
-            from execnode.stark import storage_tree as SST
-            assert isinstance(proof, dict), "Settle proof must be an object"
-            rec_hex = proof.get("rec")
-            kv_pre_claim, kv_post_claim = proof.get("kv_pre"), proof.get("kv_post")
-            assert int(proof.get("cursor", -1)) == cursor, "Settle proof cursor must equal exec_cursor"
-            # CHAIN: the (kv, records) decomposition composed with rnode must equal the namespace's committed
-            # settled tip (EXEC_GENESIS_ROOT before the first settlement) — rnode is collision-resistant, so
-            # only the REAL decomposition of the tip can satisfy this; a proof can never start from a
-            # fabricated pre-state, and only one settlement extends the tip per block.
-            _tip_cursor, tip_root = latest_settled(ns)
-            # FIRST SETTLEMENT MUST BE BY QUORUM — asserted HERE, before any verification work, so a
-            # genesis-spanning proof is rejected outright rather than fully verified and then thrown away.
-            # This is also what bounds the exec-summary window the DA binding needs: a proof only ever
-            # extends a real committed tip, so its span is recent and small, never "from block 0" (which
-            # was guaranteed pruned and is what broke the previous attempt).
-            assert tip_root is not None, "first settlement in a namespace must be by bonded quorum, not by proof"
-            expected_pre = tip_root
-            # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
-            # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
-            # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
-            # not have moved records (enforced per block in verify_calls_bound_to_summaries).
-            # With SETTLE_PROOF_RECORDS the proof may instead carry `rec_post` and a `records` transition,
-            # and the records half is allowed to MOVE — provided that transition proves EXACTLY the effects
-            # this node committed for the span's blocks. `_records_bound` is the switch the DA gate reads.
-            rec_post_hex = rec_hex
-            _records_bound = False
-            if _protocol.SETTLE_PROOF_RECORDS and proof.get("records") is not None:
-                rec_post_hex = proof.get("rec_post") or rec_hex
-                _records_bound = True
-            # S3 (2026-09-23): THE CHEAP CHECKS RUN FIRST, ON THE PROOF'S CLAIMS. The full STARK verify and an
-            # O(state) sparse_root over a PROVER-CHOSEN pre_contracts used to run before the tip-extension, root,
-            # chain-read and calldata checks (fee-exempt, 192 MiB bodies) — a settle that could never land still
-            # cost minutes of consensus CPU. Every check below is a pure function of committed state and the
-            # proof's claimed halves; the verification that follows then pins those claims to what was proven,
-            # so nothing accepted here is accepted on the prover's word.
-            assert isinstance(kv_pre_claim, str) and isinstance(kv_post_claim, str) and isinstance(rec_hex, str), \
-                "Settle proof halves must be hex strings"
-            pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre_claim), SST.digest_from_hex(rec_hex))
-            post_full = ER.full_root_hex(SST.digest_from_hex(kv_post_claim), SST.digest_from_hex(rec_post_hex))
-            assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
-            assert post_full == root, "Settle proof post_root must equal state_root"
-            # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
-            # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
-            # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
-            # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
-            # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
-            # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
-            from execnode.stark import field as _F
-            from execnode import zkvm as _zkvm
-            from execnode.state import ExecState as _ExecState
-            from ops.block_ops import get_block_hash_by_number as _bhash
-            from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
-            _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
-            for _kind, _key, _val in SS.chain_reads(proof):
-                assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
-                if _kind == _zkvm.IO_BHASH:
-                    assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
-                    _bh = _bhash(_key)
-                    assert _bh, "Settle proof BHASH height unavailable on chain"
-                    assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
-                elif _kind == _zkvm.IO_BEACON:
-                    assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
-                    # INVARIANT: the same function the exec node computes BEACON with (ExecState.exec_beacon_at,
-                    # protocol.BEACON_EXTEND_HEIGHT), read at this block's finalized position
-                    _bv = _ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)
-                    assert _bv is not None, "Settle proof BEACON epoch is not finalized"
-                    assert _bv % _F.P == _val, "Settle proof BEACON does not match the finalized chain"
-                else:
-                    raise AssertionError("unknown chain-read kind in settle proof")
-            # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
-            # which returns False on a pruned node and the body on an archive node, so the same tx validated
-            # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
-            # node rejected the WHOLE BLOCK its peers accepted). No depth fence can fix that: a snapshot
-            # re-anchor (snapshot_ops.adopt_new_identity -> segment_store.reset) wipes ALL bodies, blob-bearing
-            # included, and backfills only a best-effort ~265-block tail. So the binding now reads the per-block
-            # EXEC SUMMARIES persisted at incorporate time (kv_ops.exec_summary_get) — committed state, which
-            # pruning never touches — instead of bodies.
-            #
-            # FIRST SETTLEMENT MUST BE BY QUORUM. This is what makes the summary window bounded and therefore
-            # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
-            # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
-            # and was the concrete case that broke the previous attempt.
-            # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
-            # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
-            # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
-            # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
-            # settle it. Cursor arithmetic only — no body, no exec state.
-            # ...UNLESS THE PROOF BINDS THE RECORDS HALF. The accrual is now DERIVED at incorporate time
-            # (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the boundary
-            # block's exec summary), so a records-bound proof carries it like any other effect and the
-            # binding below checks it against THIS node's own committed derivation. The blanket refusal was
-            # the single largest reason a span was rejected — 55 of 146 over one day — and it existed only
-            # because the accrual was invisible, not because it was unprovable.
-            # A records-FROZEN proof keeps the old rule exactly: it pins one records root across the span,
-            # so an accrual inside it would make the proof assert something false.
-            if not _records_bound:
-                assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
-                    "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
-            # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
-            # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
-            # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
-            # A RECORDS-FROZEN proof still refuses a PAY, and must: it pins one records root across the
-            # span, so a payout inside it would make the proof assert something false. A records-BOUND
-            # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
-            # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
-            settle_proof_io_check(proof, _records_bound, block_height)   # PAY + asset io (see the function)
-            from execnode.stark import calls_commit as _CC
-            # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
-            # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
-            # before and the two forms cannot be confused for one another.
-            _rec_effects = [] if _records_bound else None
-            _ok, _why = _CC.verify_calls_bound_to_summaries(
-                proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
-                records_out=_rec_effects)
-            assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
-            # DEPTH-GATED VERIFICATION. Cryptographic verification of the proof runs while the block is
-            # near the tip; a block already buried under FINALITY_DEPTH is accepted on accumulated weight
-            # instead, exactly as the chain already treats deep history for snapshot bootstrap.
-            #
-            # WHY: the proof cannot live in the block (~97 MiB vs a ~256 KiB block, see
-            # doc/settle-proof-transport.md), so it has to be fetched. Re-fetching and re-verifying one per
-            # settle for the whole of history would make joining the network cost hundreds of GiB.
-            #
-            # WHAT IT COSTS, stated plainly: a from-genesis sync no longer independently verifies
-            # historical settlements — it INHERITS them from the nodes that were online when the block was
-            # at the tip. That is a real reduction in what a full sync proves, and it is a deliberate
-            # choice (option 1 of doc/settle-proof-transport.md §4), not a side effect.
-            #
-            # WHY IT CANNOT FORK THE FLEET: the gate only ever RELAXES. Two nodes disagreeing about depth
-            # disagree as "strict rejects / relaxed accepts", so they diverge only on a proof that is
-            # actually INVALID — and an invalid proof cannot reach a deep block in the first place, because
-            # the nodes that saw it at the tip were in the strict regime and rejected it there.
-            #
-            # Everything else in this branch still runs at any depth: cursor match, tip extension, root
-            # composition, chain-read binding, the epoch/PAY guards and the DA binding. Only the expensive
-            # cryptographic check is skipped, so a fabricated settle is still refused on structure.
-            # THE PROOF IDENTITY IS NEEDED ON BOTH PATHS: the records-half memo below keys on it (`_rvk`). It used to
-            # be computed only in the strict branch, so a records-bound settle validated DEEP (a node more than
-            # FINALITY_DEPTH behind, catching up) raised UnboundLocalError on `_vk`. The first records-bound settle on
-            # betanet-8 landed at block 10212; nodes that saw it at the tip moved on, and a node that had to SYNC
-            # across it (behind, restarting, or new) rejected the block forever — the relay sat frozen at 10211 for
-            # 80 minutes (2026-09-26). Computing it here costs one hash and changes no verdict.
-            from execnode.stark import stark as _stk
-            _rules = _stk.rules_for_height(block_height)
-            _vk = settle_verify_key(proof, _pda, _from_da, _rules)
-            if deep and _protocol.SETTLE_PROOF_DEPTH_GATED:
-                kv_pre, kv_post = kv_pre_claim, kv_post_claim
-            else:
-                # MEMOISE THE CRYPTOGRAPHIC VERDICT. A settle proof verifies or it does not — that is a
-                # property of the proof's own bytes and NOTHING else, so re-deriving it is pure repetition.
-                # And it is repeated: a tx sitting in the mempool is re-validated on EVERY block-candidate
-                # build, so a single pooled settle turned the block-producing core loop into a 91 s loop and
-                # took this node OUT OF CONSENSUS — blocks frozen 221 s, 219 unhealthy episodes, while peers
-                # advanced normally (observed 2026-08-04). The node poisoned its own block production with
-                # its own transaction.
-                #
-                # THE KEY MUST BIND THE PROOF'S BYTES, NOT ITS CLAIMS. This was keyed on
-                # (cursor, kv_pre, kv_post, rec, rec_post) — all of which are what the proof ASSERTS, none of
-                # which is the FRI/openings body that actually gets verified. Two proofs making identical
-                # claims therefore shared an entry, so verifying an HONEST settle cached ok=True under a key
-                # a CORRUPTED one also matched: the tampered proof was then accepted without ever being
-                # verified. Caught by tests/test_settle_depth_gate ("corrupted proof is REJECTED near the
-                # tip"), which truncates seg["proof"]["openings"] while leaving every claim identical.
-                # A cache that answers for input it never saw is not a cache.
-                #
-                # See settle_verify_key for the binding argument.
-                # THE RULES FOR THIS BLOCK, not for "now" (PROOF_BIND_HEIGHT; stark.rules_at). Set here, once,
-                # for every prove/verify beneath — the segment STARKs, the K->1 fold, the transition binding —
-                # and carried explicitly into the child interpreter, which has no context of its own.
-                _hit = _SETTLE_VERIFY_MEMO.get(_vk)
-                if _hit is None:
-                    with _settle_verify_lock(_vk), _stk.rules_at(block_height):   # single flight per proof
-                        _hit = _SETTLE_VERIFY_MEMO.get(_vk)
-                        if _hit is None:
-                            # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the
-                            # measured verify cost of their records half is only ~472s, so ~730s is
-                            # somewhere else; these timers split the budget between the two verifications.
-                            with _SETTLE_VERIFY_GATE:         # one sparse verification at a time, process-wide
-                                _t_kv = _time.time()
-                                # OUT OF PROCESS (2026-09-07): the verdict is computed by a child interpreter so
-                                # the 70-780 s of hashing never holds THIS process's GIL (ops/proof_child.py);
-                                # NADO_PROOF_VERIFY_INPROC=1 keeps the old inline path. A child failure is not
-                                # a verdict: fall back inline, exactly as before.
-                                import os as _os
-                                _hit = None
-                                if not _os.environ.get("NADO_PROOF_VERIFY_INPROC"):
-                                    from ops.proof_child import verify_sparse_out_of_process
-                                    _hit = verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH,
-                                                                        rules=_rules)
-                                    _where = "child"
-                                if _hit is None:
-                                    # A MISSING OR STALE NATIVE KERNEL IS NOT A VERDICT (native_guard.NODE_LOCAL_ERRORS):
-                                    # it says nothing about the proof, so it defers the block like an unavailable DA
-                                    # blob instead of rejecting what every peer accepts. Never memoised (raised here).
-                                    # ALL of NODE_LOCAL_ERRORS, not just NativeMissing: an out-of-memory here is this node's
-                                    # limit, not the proof's fault, and rejecting on it split a low-memory node from the fleet
-                                    # (zk audit 2026-09-26, SETTLE-2).
-                                    from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM
-                                    try:
-                                        _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
-                                    except _NM as _nm:
-                                        raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm}") from _nm
-                                    _where = "inproc"
-                                print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]} ({_where})", flush=True)
-                            if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
-                                _SETTLE_VERIFY_MEMO.clear()   # bounded: a proof is ~118 MiB, entries are tiny
-                            _SETTLE_VERIFY_MEMO[_vk] = _hit
-                ok, why, kv_pre, kv_post = _hit
-                assert ok, f"Settle proof invalid: {why}"
-            assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
-            # PAYOUTS, DERIVED FROM THE PROVEN io LOG. This runs only AFTER the segments have been bound to
-            # this node's committed calls above — that binding is what makes the io log's provenance mean
-            # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
-            # than inside verify_calls_bound_to_summaries) keeps the calldata binding a pure function of
-            # committed state, with the execution-derived half added on top and clearly separable.
-            # ASSET IO, BOUND (zk audit 2026-09-26; settle_proof_io_check admits it). The asset ledger is part
-            # of the records half, so what an asset call did is judged against the PINNED pre-state: records_pre
-            # must hash to the tip's records root, and PinnedAssets walks the proven io through the live staging
-            # rules — issuer-only mint/renounce, the supply cap, holdings, and every ABAL read against the running
-            # authenticated balance. A records-bound proof folds those moves into its binding like a payout; a
-            # records-FROZEN one (say, a span that only reads balances) must move nothing at all.
-            # No height guard (the gen-27 ZK_HARDEN_HEIGHT, 1 from gen 28): block_height >= 1 is proven here — the DA
-            # binding above passed, which needs a non-empty span (tip_cursor, cursor] with tip_cursor >= 0 (a real
-            # settlement) and cursor <= block_height.
-            _asset_view = _asset_pin = None
-            from execnode.stark import records_bind as _RBA
-            if _RBA.proof_asset_ids(proof)[0]:
-                try:
-                    _asset_pin = _RBA.pinned_pre_get(proof.get("records_pre") or {}, SST.digest_from_hex(rec_hex),
-                                                     depth=_protocol.EXEC_TREE_DEPTH)
-                except (_RBA.Unbindable, TypeError, ValueError, AttributeError) as _e:
-                    raise AssertionError(f"settle-with-proof asset io without a pinned pre-state: {_e}")
-                _asset_view = _RBA.PinnedAssets(_asset_pin, proof.get("asset_meta_pre") or {})
-                if not _records_bound:
-                    # An asset-VALUED call's escrow is not in this net (PinnedAssets.escrow emits nothing; the summary
-                    # carries it), which is safe only because block_records_inert marks every value call non-inert and
-                    # verify_calls_bound_to_summaries refuses a frozen proof over a non-inert block. Keep them together.
-                    try:
-                        _anet = _RBA.net_records_updates(_asset_pin, _RBA.pay_effects_from_proof(proof, _asset_view),
-                                                         _protocol.EXEC_TREE_DEPTH, nonneg=True)
-                    except _RBA.Unbindable as _e:
-                        raise AssertionError(f"settle-with-proof carries an unsettleable asset effect: {_e}")
-                    assert not _anet, "records-frozen settle proof moves the asset ledger"
-            if _records_bound:
-                from execnode.stark import records_bind as _RBP
-                try:
-                    _pay_fx = _RBP.pay_effects_from_proof(proof, _asset_view)
-                except _RBP.Unbindable as _e:
-                    raise AssertionError(f"settle-with-proof carries an unsettleable payout: {_e}")
-                if _pay_fx:
-                    _rec_effects.extend(_pay_fx)
-
-            if _records_bound:
-                # THE RECORDS BINDING. The effects come from THIS node's committed summaries — never from
-                # the proof — so a prover cannot choose what it is proving. The transition must advance the
-                # records half from the tip's rec_hex to the claimed rec_post over exactly that set.
-                from execnode.stark import records_bind as _RB
-                _pre_rec = SST.digest_from_hex(rec_hex)
-                _post_rec = SST.digest_from_hex(rec_post_hex)
-                _eff = [(int(t), tuple(str(p) for p in parts), int(dv)) for (t, parts, dv) in _rec_effects]
-                # An empty effect set must not be able to MOVE the half: with nothing to prove, rec_post is
-                # required to equal rec_hex, which collapses to the frozen case rather than trusting the
-                # prover's word for a root nothing authorises.
-                if not _eff:
-                    assert rec_post_hex == rec_hex, \
-                        "Settle proof moves the records half but the span committed no records effects"
-                else:
-                    # PIN THE PRE-STATE the binding reads, exactly as the KV half pins pre_contracts
-                    # against sparse_pre_root: the projection must hash to the TIP's committed records
-                    # root, so every value the arithmetic touches is authenticated rather than asserted.
-                    # (already pinned above when the proof carries asset io: same projection, same root)
-                    _pre_get = _asset_pin or _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
-                                                                depth=_protocol.EXEC_TREE_DEPTH)
-                    # MEMOIZE THE RECORDS VERDICT TOO — this is what wedged the node, twice.
-                    #
-                    # The KV half has been memoized since settle_verify_key existed; the records half was
-                    # not, so EVERY revalidation of a mempool transaction re-ran it. Measured on one live
-                    # settle (span 7800->7866, 29 effects):
-                    #     08:58:55  RECORDS half 1057.2s ok=True    <- the submit
-                    #     09:13:50  RECORDS half  878.9s ok=True    <- again, 15 minutes later
-                    # while the KV half was verified once (15.7 s) and never repeated. ~900-1050 s of CPU
-                    # per revalidation is enough to stop this node keeping up: it stalled at block 7364 and
-                    # again at 8203 while the rest of the fleet ran on, both times with a records settle
-                    # sitting in the mempool. An exact-landing tx waits ~280 blocks for its slot, so it gets
-                    # revalidated repeatedly by construction — the cost was guaranteed to recur.
-                    #
-                    # KEYED ON THE SAME PROOF IDENTITY AS THE KV HALF, which binds the proof's BYTES
-                    # (blake2b over the inline proof, or the DA commitment) — see settle_verify_key, which
-                    # documents why keying on CLAIMS once let a tampered proof through unverified. The
-                    # records inputs are added on top: the pre/post roots being asserted and a digest of the
-                    # effect set THIS node derived. Same bytes + same roots + same effects = same verdict;
-                    # anything else misses and is verified in full.
-                    _rvk = (_vk, rec_hex, rec_post_hex, blake2b_hash(_eff))
-                    _rhit = _SETTLE_VERIFY_MEMO.get(_rvk)
-                    if _rhit is not None:
-                        _rok, _rwhy = _rhit
-                    else:
-                        _t_rec = _time.time()
-                        from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM2   # OOM included (SETTLE-2)
-                        try:
-                            _rok, _rwhy = _RB.bind_and_verify_records(
-                                proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
-                                depth=_protocol.EXEC_TREE_DEPTH,
-                                # S2: refuse a running balance below zero (from height 1: gen 25's
-                                # EXEC_RULES_V2_HEIGHT, 1 from gen 26 and deleted)
-                                nonneg=(int(block_height) >= 1))
-                        except _NM2 as _nm2:              # node-local, not a verdict: defer (see the KV half above)
-                            raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm2}") from _nm2
-                        print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
-                              f"({len(_eff)} effects) ok={_rok}", flush=True)
-                        if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
-                            _SETTLE_VERIFY_MEMO.clear()
-                        _SETTLE_VERIFY_MEMO[_rvk] = (_rok, _rwhy)
-                    assert _rok, f"Settle proof records half invalid: {_rwhy}"
+        _validate_settle(transaction, block_height, deep)
     elif recipient == "bridge":
-        # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
-        assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
-        assert transaction["fee"] >= MIN_TX_FEE, f"Bridge deposit fee below minimum {MIN_TX_FEE}"
+        _validate_bridge(transaction)
         # Deposits credit the DEFAULT-namespace escrow ledger (where the exec node credits the depositor);
         # only that rollup's settled root can release them (per-namespace cap in bridge_withdraw), which is
         # what closes the lone-quorum drain via any fresh/attacker namespace.
     elif recipient == "faucet":
-        # FAUCET DONATION (doc/faucet.md): lock L1 coins into the faucet escrow; the exec layer credits
-        # the faucet contract's balance. Same shape as a bridge deposit — anyone can fund it from any wallet.
-        assert transaction["amount"] > 0, "Faucet donation amount must be positive"
-        assert transaction["fee"] >= MIN_TX_FEE, f"Faucet donation fee below minimum {MIN_TX_FEE}"
+        _validate_faucet(transaction)
     elif recipient == "bridge_withdraw":
-        # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is a record of the bonded-quorum
-        # SETTLED execution-layer root (the frozen sparse scheme, execnode/exec_root.py): L1 recomputes the
-        # record's 256-bit position from the tx's public fields, folds ONE packed sparse path, composes with
-        # the claimed kv half and compares to the settled root — then checks the nullifier + escrow, releases.
-        from ops.settlement_ops import latest_settled
-        from execnode import exec_root as ER
-        assert transaction["amount"] == 0, "bridge_withdraw carries no L1 amount (amount is in data)"
-        assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
-        data = transaction.get("data") or {}
-        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
-        ns = data.get("ns", DEFAULT_NS)
-        assert valid_namespace(ns), "bridge_withdraw ns must be a valid namespace id"
-        assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
-        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
-        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
-        assert isinstance(nonce, str) and isinstance(proof, dict), "bad withdraw nonce/proof"
-        # WINDOWED like dividend_withdraw (same bug class): an exit proven against the newest root died
-        # at the next settle; the (ns, addr, nonce) nullifier still guarantees at-most-once release.
-        # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
-        # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
-        from ops.settlement_ops import recent_settled_roots
-        _window = recent_settled_roots(ns, k=3)
-        assert _window, "no settled execution-layer root yet for this namespace"
-        assert any(ER.verify_withdrawal(_root, addr, amount, nonce, proof) for _c, _root in _window), \
-            "withdrawal is not proven against the settled execution-layer root window"
-        assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
-        escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
-        assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
-        # PER-NAMESPACE ESCROW CAP (SECURITY): a namespace can only ever release what was DEPOSITED targeting
-        # it. This is the L1 conservation boundary that closes the lone-quorum drain — a lone bonded validator
-        # can self-settle a fabricated root in a fresh namespace, but that namespace holds 0 escrow, so the
-        # exit releases nothing. Even a captured namespace can only reclaim its own deposits. Independent of
-        # the (attacker-influenced) settled root, so it holds regardless of quorum capture. It does NOT cover the
-        # DEFAULT namespace, which holds every deposit (and which dividend_withdraw / unshield always read): there
-        # the stake floor in settlement_justified (SETTLE_FLOOR_NUM/DEN, lone-settler drain) is the guard.
-        assert kv_ops.bridge_escrow_ns(ns) >= amount, "namespace bridge escrow underfunded"
+        _validate_bridge_withdraw(transaction, block_height)
     elif recipient == "xmsg":
-        # CROSS-ROLLUP MESSAGE DELIVERY: verify the outbox message is committed in from_ns's SETTLED root,
-        # then let the receiver rollup's exec node deliver it. L1 is the verifier (it holds the settled roots),
-        # exactly like bridge_withdraw — so delivery is deterministic for every receiver node. Fee-exempt; one
-        # delivery per (from_ns, seq) via the nullifier.
-        from ops.settlement_ops import latest_settled
-        from execnode import exec_root as ER
-        assert transaction["amount"] == 0, "xmsg carries no L1 amount"
-        # PAID (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27): a lone bonded settler is quorum in a
-        # namespace nobody else settles, so it could settle a made-up root there and deliver unlimited free xmsgs against
-        # it, each a permanent nullifier row. No zero-balance claimant needs this path (unlike the exits), so it pays like
-        # any message. `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
-        # mempool admission with the tip's height, 0 on a genesis tip, where xmsg was still fee-exempt.
-        if block_height is not None and int(block_height) >= 1:
-            assert transaction["fee"] >= MIN_TX_FEE, f"xmsg pays the minimum fee {MIN_TX_FEE}"
-            _xa = get_account(transaction["sender"], create_on_error=False)
-            assert _xa and _xa.get("balance", 0) >= transaction["fee"], "xmsg sender cannot afford the fee"
-        else:
-            assert transaction["fee"] == 0, "xmsg is fee-exempt"
-        data = transaction.get("data") or {}
-        from_ns, to_ns = data.get("from_ns", DEFAULT_NS), data.get("to_ns")
-        msg, proof = data.get("message"), data.get("proof")
-        assert valid_namespace(from_ns) and valid_namespace(to_ns), "xmsg from_ns/to_ns must be valid namespaces"
-        assert isinstance(msg, dict) and isinstance(proof, dict), "bad xmsg message/proof"
-        seq = msg.get("seq")
-        assert isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0, "xmsg message seq must be a non-negative int"
-        assert msg.get("to_ns") == to_ns, "xmsg message.to_ns must match the delivery to_ns"
-        # WINDOWED like dividend/bridge claims (same bug class); the (from_ns, seq) nullifier still
-        # guarantees at-most-once delivery.
-        # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
-        # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
-        from ops.settlement_ops import recent_settled_roots
-        _window = recent_settled_roots(from_ns, k=3)
-        assert _window, "sending namespace has no settled root yet"
-        assert any(ER.verify_outbox_msg(_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof)
-                   for _c, _root in _window), \
-            "message is not proven against from_ns's settled root window"
-        assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
+        _validate_xmsg(transaction, block_height)
     elif recipient == "dividend_withdraw":
-        # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
-        # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,
-        # then releases `amount` from the DIVIDEND_POOL to the claimant. Fee-exempt, self-claimed.
-        from ops.settlement_ops import latest_settled
-        from execnode import exec_root as ER
-        assert transaction["amount"] == 0, "dividend_withdraw carries no L1 amount (amount is in data)"
-        assert transaction["fee"] == 0, "dividend_withdraw is fee-exempt"
-        data = transaction.get("data") or {}
-        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
-        assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
-        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
-        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
-        assert isinstance(nonce, str) and isinstance(proof, dict), "bad dividend nonce/proof"
-        # WINDOWED settlement validity (2026-08-18): a claim proven against ONLY the newest settled
-        # root died the moment the next settle landed — permanently unminable, rebuilt each epoch, a
-        # growing pool graveyard some peers held and others refused (the dominant residual fork/slow-
-        # block driver). Any of the last K justified roots now proves the claim; the (addr, nonce)
-        # NULLIFIER below still guarantees at-most-once payout. Deterministic: the window is a pure
-        # read of on-chain attestations (see settlement_ops.recent_settled_roots).
-        # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
-        # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
-        from ops.settlement_ops import recent_settled_roots
-        _window = recent_settled_roots(k=3)
-        assert _window, "no settled execution-layer root yet"
-        assert any(ER.verify_dividend(_root, addr, amount, nonce, proof) for _c, _root in _window), \
-            "dividend collection is not proven against the settled execution-layer root window"
-        assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
-        pool = get_account(DIVIDEND_POOL, create_on_error=False)
-        assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
+        _validate_dividend_withdraw(transaction, block_height)
     elif recipient == "treasury_vote":
-        # TREASURY GOVERNANCE (doc/treasury.md §3.3): a BONDED validator votes to APPROVE a treasury_spend
-        # proposal. Fee-exempt duty (like `settle`); one vote per (validator, pid). ELIGIBILITY = real bonded
-        # stake (bonded >= B_MIN) — the open, capital-free lane never votes on money (that would reopen the
-        # Sybil faucet). The vote carries the full spend so its id is verifiable + displayable; the id binds
-        # the approval to EXACTLY that payout, so a passing vote can never be redirected.
-        from hashing import treasury_proposal_id
-        from protocol import TREASURY_PROPOSAL_MAX_TTL
-        assert transaction["amount"] == 0, "treasury_vote must have zero amount"
-        assert transaction["fee"] >= MIN_TX_FEE, f"treasury_vote fee below minimum {MIN_TX_FEE}"   # not free -> no spam faucet
-        data = transaction.get("data") or {}
-        spend, pid = data.get("spend") or {}, data.get("pid")
-        sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
-        # recipient: a normal address — or the reserved FAUCET escrow, the one treasury->reserved payout that
-        # makes sense (governance tops up the prize bank; the exec layer mirrors it like a donation).
-        from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
-            and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
-        assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
-        assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
-        assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
-        assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
-        assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc and acc.get("bonded", 0) >= B_MIN, "treasury_vote sender is not a bonded validator"
-        assert acc.get("balance", 0) >= transaction["fee"], "treasury_vote sender cannot afford the fee"
-        # the proposal's expiry must be in the future (you can't vote on an already-expired proposal) and no more
-        # than TREASURY_PROPOSAL_MAX_TTL out — bounds stale execution + the size of the live proposal set.
-        assert transaction["max_block"] <= sexpiry <= transaction["max_block"] + TREASURY_PROPOSAL_MAX_TTL, \
-            "proposal expiry must be >= this block and <= this block + TREASURY_PROPOSAL_MAX_TTL"
-        # CHANGE/WITHDRAW: re-voting is allowed and OVERWRITES the prior vote (revert-symmetric in reflect).
-        # "yes" approves at the snapshot weight; "no" withdraws/opposes (counts as 0). Choice is outside the pid
-        # (it's per-vote, not per-proposal), so it never affects which payout the id authorizes.
-        choice = data.get("choice", "yes")
-        assert choice in ("yes", "no"), "treasury_vote choice must be 'yes' or 'no'"
+        _validate_treasury_vote(transaction)
     elif recipient == "treasury_execute":
-        # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
-        # trigger it. Carries a FEE (so an execute-flood — each forces an O(accounts) registry scan — isn't free).
-        # Gated on: the 2/3 bonded quorum, a per-proposal cap vs the CURRENT treasury balance, funding, and a
-        # one-shot nullifier. CHEAP checks run FIRST; the registry-scanning quorum check runs LAST.
-        from hashing import treasury_proposal_id
-        from ops.settlement_ops import treasury_justified
-        from ops.account_ops import get_bonded_registry
-        from ops.mining_ops import epoch_of
-        from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM
-        assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
-        assert transaction["fee"] >= MIN_TX_FEE, f"treasury_execute fee below minimum {MIN_TX_FEE}"
-        data = transaction.get("data") or {}
-        spend, pid = data.get("spend") or {}, data.get("pid")
-        sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
-        # same recipient rule as treasury_vote: normal address, or the FAUCET escrow (prize-bank top-up).
-        from protocol import FAUCET_ESCROW
-        assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
-            and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
-        assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
-        assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
-        assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
-        assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
-        assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
-        assert transaction["max_block"] <= sexpiry, "this proposal has expired (past its bound expiry block)"
-        sender_acc = get_account(transaction["sender"], create_on_error=False)
-        assert sender_acc and sender_acc.get("balance", 0) >= transaction["fee"], "treasury_execute sender cannot afford the fee"
-        assert kv_ops.treasury_voters(pid), "no votes recorded for this proposal"          # cheap gate BEFORE the O(N) scan
-        treasury = get_account(TREASURY_ADDRESS, create_on_error=False)
-        bal = treasury.get("balance", 0) if treasury else 0
-        assert bal >= sa, "treasury underfunded for this payout"
-        assert sa * BPS_DENOM <= bal * TREASURY_MAX_SPEND_BPS, "treasury spend exceeds the per-proposal cap (% of balance)"
-        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["max_block"])), \
-            "treasury proposal has not reached the bonded quorum"
+        _validate_treasury_execute(transaction)
     elif recipient == "htlc_lock":
-        # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
-        data = transaction.get("data") or {}
-        h = transaction["max_block"]                          # deterministic landing height (mempool == build)
-        assert transaction["amount"] > 0, "HTLC lock amount must be positive"
-        assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
-        claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
-        assert isinstance(claimant, str) and is_address(claimant), "bad HTLC claimant address"
-        assert claimant != transaction["sender"], "HTLC claimant must differ from the sender"
-        assert isinstance(hashlock, str) and len(hashlock) == 64 and _is_hex(hashlock), "HTLC hashlock must be 32-byte SHA-256 hex"
-        assert isinstance(expiry, int) and not isinstance(expiry, bool), "HTLC expiry must be an int block height"
-        assert h + HTLC_MIN_TIMELOCK <= expiry <= h + HTLC_MAX_TIMELOCK, "HTLC expiry outside the allowed timelock window"
+        _validate_htlc_lock(transaction)
     elif recipient == "htlc_claim":
-        # HTLC CLAIM: reveal the preimage before expiry. Fee-EXEMPT so a zero-balance claimant can still claim.
-        import hashlib
-        data = transaction.get("data") or {}
-        h = transaction["max_block"]
-        assert transaction["amount"] == 0, "htlc_claim carries no amount"
-        assert transaction["fee"] == 0, "htlc_claim is fee-exempt"
-        hid, preimage = data.get("htlc_id"), data.get("preimage")
-        assert isinstance(hid, str) and hid, "bad HTLC id"
-        assert _is_hex(preimage) and len(preimage) <= 128, "HTLC preimage must be hex (<= 64 bytes)"
-        doc = kv_ops.htlc_get(hid)
-        assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
-        assert transaction["sender"] == doc["claimant"], "only the claimant may claim this HTLC"
-        assert h < int(doc["expiry"]), "HTLC has expired — the claim window is closed"
-        assert hashlib.sha256(bytes.fromhex(preimage)).hexdigest() == doc["hashlock"], "preimage does not match the hashlock"
+        _validate_htlc_claim(transaction)
     elif recipient == "htlc_refund":
-        # HTLC REFUND: the original sender reclaims an unclaimed lock after expiry. Fee-EXEMPT.
-        data = transaction.get("data") or {}
-        h = transaction["max_block"]
-        assert transaction["amount"] == 0, "htlc_refund carries no amount"
-        assert transaction["fee"] == 0, "htlc_refund is fee-exempt"
-        hid = data.get("htlc_id")
-        assert isinstance(hid, str) and hid, "bad HTLC id"
-        doc = kv_ops.htlc_get(hid)
-        assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
-        assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
-        assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
+        _validate_htlc_refund(transaction)
     elif recipient in ("invite", "invite_lock", "invite_claim", "invite_refund"):
-        validate_invite(transaction, block_height)
+        _validate_invite(transaction, block_height)
     elif recipient == "shield":
-        # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitment(s).
-        assert transaction["amount"] > 0, "shield amount must be positive"
-        assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
-        data = transaction.get("data") or {}
-        if data.get("field"):                                        # Phase-2 field-native note (single commitment)
-            field_shield_check(data, block_height)
-        else:                                                        # transparent-phase note openings
-            assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
+        _validate_shield(transaction, block_height)
     elif recipient == "unshield":
-        # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
-        from ops.settlement_ops import latest_settled
-        from execnode import exec_root as ER
-        assert transaction["amount"] == 0, "unshield carries no L1 amount (amount is in data)"
-        assert transaction["fee"] == 0, "unshield is fee-exempt"
-        data = transaction.get("data") or {}
-        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
-        assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
-        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
-        exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
-        assert isinstance(nonce, str) and isinstance(proof, dict), "bad unshield nonce/proof"
-        # WINDOWED like the other settlement-proven claims (same bug class); the (addr, nonce)
-        # nullifier still guarantees at-most-once release.
-        # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
-        # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
-        # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
-        from ops.settlement_ops import recent_settled_roots
-        _window = recent_settled_roots(k=3)
-        assert _window, "no settled execution-layer root yet"
-        assert any(ER.verify_unshield(_root, addr, amount, nonce, proof) for _c, _root in _window), \
-            "unshield is not proven against the settled execution-layer root window"
-        assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
-        escrow = get_account(SHIELD_ESCROW, create_on_error=False)
-        assert escrow and escrow.get("balance", 0) >= amount, "shield escrow underfunded"
+        _validate_unshield(transaction, block_height)
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"
@@ -3200,6 +2142,1179 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     # txid, signature) and swap recipient/amount. The block path previously skipped this.
     assert validate_txid(transaction, logger=logger), "Transaction id does not match its contents"
     return True
+
+
+# THE PER-RECIPIENT RULES OF validate_transaction (consolidation stage 3, 2026-10-19): each one is the body of a
+# branch of its `if recipient == ...` chain, MOVED VERBATIM — nothing rewritten, so consensus is byte-identical
+# (proven by the replay harness and an AST comparison of every body against the pre-move tree). Each raises
+# AssertionError on the first violation, exactly as the inline branch did; validate_transaction still owns the
+# shared checks before the dispatch and validate_txid after it, and the chain's order is unchanged.
+
+
+def _validate_slash(transaction, block_height):
+    # SLASHING (#15 step 5C): a FEE-EXEMPT tx whose `data` carries an equivocation proof — the
+    # same identity validly signed two blocks at one slot. Anyone may report it (the proof is
+    # the anti-spam: it can't be forged, and one-per-(offender,height) blocks replay). The
+    # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
+    assert transaction["amount"] == 0, "Slash tx must have zero amount"
+    assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
+    result = resolve_slash(transaction.get("data"), block_height)   # judged at THIS block (ADDRESS_KEY_BIND)
+    assert result, "Invalid or missing equivocation proof"
+    offender, height = result
+    assert not kv_ops.slash_exists(offender, height), "This offence is already slashed (replay)"
+    offender_acc = get_account(offender, create_on_error=False)
+    assert offender_acc and offender_acc.get("bonded", 0) >= SLASH_BOND_PENALTY, \
+        "Offender holds insufficient bonded stake to slash"
+
+
+def _validate_attest(transaction):
+    # FFG attestation (#6) — HISTORICAL single-duty form: kept consensus-valid forever (genesis
+    # sync replays the pre-`duty` blocks that carry these), but the mempool refuses NEW ones —
+    # honest emission is the merged `duty` tx (doc/consensus-aggregation.md).
+    assert transaction["amount"] == 0, "Attest tx must have zero amount"
+    assert transaction["fee"] == 0, "Attest tx is fee-exempt (fee must be 0)"
+    _validate_attest_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+
+
+def _validate_commit_reveal(transaction, recipient):
+    # COMMIT-REVEAL RANDAO (#7) — HISTORICAL single-duty forms (see the `attest` note): valid for
+    # replay, refused at the mempool; honest emission is the merged `duty` tx.
+    assert transaction["amount"] == 0, "Commit/reveal tx must have zero amount"
+    assert transaction["fee"] == 0, "Commit/reveal tx is fee-exempt (fee must be 0)"
+    if recipient == "commit":
+        _validate_commit_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+    else:
+        _validate_reveal_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+
+
+def _validate_duty(transaction):
+    # MERGED EPOCH DUTY (doc/consensus-aggregation.md): a bonded validator's whole per-epoch
+    # consensus participation in ONE fee-exempt tx — sections `attest` (epoch X = the landing
+    # epoch), `commit` (X+2) and `reveal` (X+1), each optional, each validated by EXACTLY the
+    # same field rules as the historical single-duty forms (shared helpers). The sender must
+    # hold a seat in epoch X's DUTY COMMITTEE (beacon-sampled, stake-weighted — the O(seats)
+    # consensus-load bound); a reveal needs no committee check beyond its own commitment, which
+    # already proves committee membership at commit time.
+    from ops.block_ops import duty_committee_for_epoch
+    from ops.mining_ops import epoch_of
+    assert transaction["amount"] == 0, "Duty tx must have zero amount"
+    assert transaction["fee"] == 0, "Duty tx is fee-exempt (fee must be 0)"
+    data = transaction.get("data") or {}
+    sections = {k: data.get(k) for k in ("attest", "commit", "reveal") if data.get(k) is not None}
+    assert sections, "Duty tx carries no sections"
+    assert set(data.keys()) <= {"attest", "commit", "reveal"}, "Duty tx carries unknown sections"
+    tb = transaction["max_block"]
+    X = epoch_of(tb)
+    acc = get_account(transaction["sender"], create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "Duty sender is not a bonded validator"
+    # REVEAL_SEATLESS_HEIGHT: a reveal-only duty opens a commitment the sender made while seated, so it needs no
+    # seat of its own. INVARIANT: every other section still requires the landing epoch's seat.
+    from protocol import REVEAL_SEATLESS_HEIGHT
+    if not (set(sections) == {"reveal"} and tb >= REVEAL_SEATLESS_HEIGHT):
+        committee = duty_committee_for_epoch(X)
+        assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
+    if "attest" in sections:
+        a = sections["attest"]
+        assert isinstance(a, dict) and a.get("target_epoch") == X, "Duty attest must target the landing epoch"
+        _validate_attest_fields(a, tb, transaction["sender"])
+    if "commit" in sections:
+        c = sections["commit"]
+        assert isinstance(c, dict) and c.get("target_epoch") == X + 2, "Duty commit must target epoch X+2"
+        _validate_commit_fields(c, tb, transaction["sender"])
+    if "reveal" in sections:
+        r = sections["reveal"]
+        assert isinstance(r, dict) and r.get("target_epoch") == X + 1, "Duty reveal must target epoch X+1"
+        _validate_reveal_fields(r, tb, transaction["sender"])
+
+
+def _validate_unbond_withdraw(transaction, recipient):
+    # UNBOND DELAY: fee-exempt actions on the sender's OWN stake. `unbond` requests a release (coins
+    # stay bonded + slashable); `withdraw` claims it only at/after the matured release_block. Bound
+    # to max_block (the deterministic landing block) so the mempool gate and block validation agree.
+    assert transaction["fee"] == 0, "unbond/withdraw is fee-exempt (fee must be 0)"
+    acc = get_account(transaction["sender"], create_on_error=False)
+    assert acc, "unbond/withdraw from an account with no stake"
+    pending = kv_ops.unbond_get(transaction["sender"])
+    if recipient == "unbond":
+        assert transaction["amount"] > 0, "unbond amount must be positive"
+        assert acc.get("bonded", 0) >= transaction["amount"], "unbond amount exceeds bonded stake"
+        assert pending is None, "an unbond is already pending (one withdrawal at a time)"
+    else:  # withdraw
+        assert pending, "no pending unbond to withdraw"
+        assert transaction["max_block"] >= pending["release_block"], \
+            "unbond has not matured yet (BOND_UNLOCK_DELAY)"
+        data = transaction.get("data") or {}
+        assert data.get("amount") == pending["amount"] and data.get("release_block") == pending["release_block"], \
+            "withdraw data does not match the pending unbond"
+        assert acc.get("bonded", 0) >= pending["amount"], "bonded stake is below the pending unbond"
+
+
+def _validate_register(transaction, block_height):
+    assert transaction["amount"] == 0, "register tx must have zero amount"
+    assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
+    validate_register_referrer(transaction, block_height)
+    from ops.block_ops import get_block_hash_by_number
+    anchor = get_block_hash_by_number(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET))
+    assert anchor, "registration anchor block not found"
+    assert kv_ops.recert_latest(transaction["sender"]) < (block_height // EPOCH_LENGTH), \
+        "sender already recerted this epoch (one register per epoch)"
+    # REAL DEVICE (gen 25, doc/device-attestation.md): every register tx — entry or renewal — carries a hardware
+    # attestation over the anchor-bound challenge, verified by the native kernel against the PINNED vendor
+    # roots. This replaced the sequential-work proof (PoSW) and its difficulty machinery at the betanet-7
+    # reroll: a VM, a desktop without hardware, an emulator, a virtual TPM or a rooted phone cannot attest;
+    # a genuine device needs a human tap per identity per lease.
+    from protocol import DEVICE_BIND_MAX_CERT_SECS, permanent_classes_at
+    epoch_now = block_height // EPOCH_LENGTH
+    # THE DEVICE GATES ARE GONE (gen 25's DEVICE_BIND_HEIGHT, DEVICE_BIND_STRICT_HEIGHT, DEVICE_BIND_PERMANENT_HEIGHT and
+    # DEVICE_REBIND_INSTANT_HEIGHT were all 1 from gen 26). `block_height >= 1` below is that value, kept only because
+    # this function also runs at mempool admission on a genesis tip (block_height 0), where every one of them was off.
+    # BINDING MODES (doc/device-attestation.md §"Binding modes"): a register WITHOUT a statement is the statement-free
+    # presence renewal of an identity permanently bound to a hardware wallet — valid only while the sender's `devkey`
+    # row still points back at the sender in "perm" mode (a rebind elsewhere ends it from the next block). For anyone
+    # else it is the historical "Missing device attestation".
+    stmt_free = bool(block_height >= 1 and not isinstance(transaction.get("device"), dict))
+    if is_assert_device(transaction.get("device")):
+        # SIGNATURE RENEWAL (LEASE_V2_EPOCH): the credential a statement bound signs this block's challenge; nothing is
+        # bound and no device key is derived (the shape has no certificate). Validated in full here.
+        verify_register_assertion(transaction, anchor)
+    elif stmt_free:
+        acc_r = get_account(transaction["sender"], create_on_error=False) or {}
+        dk = acc_r.get("devkey")
+        bound = kv_ops.devbind_get(dk) if isinstance(dk, str) and dk else None
+        assert bound and bound[0] == transaction["sender"] and bound[2] == "perm", \
+            "Missing device attestation (a registered identity must be a real device; only an identity bound for life " \
+            "to a hardware wallet renews without one)"
+    else:
+        verify_register_device(transaction, anchor)
+        # ONE DEVICE, ONE IDENTITY (doc/device-attestation.md §"One device, one identity"):
+        # the device certificate behind this statement may vouch for ONE sender per lease. A class with no per-device
+        # certificate (FIDO2 batch key, Apple, batch-attested Android) cannot be bound and is refused outright —
+        # "using one device to attest 100,000 wallets must be impossible". Reads the same consensus table
+        # apply_register writes, at the block's own height.
+        if block_height >= 1:
+            from ops.device_attest import device_binding_key
+            try:
+                # strict: duplicate CBOR keys are refused, so the chain the kernel verified IS the certificate that
+                # gets bound (IndexError/ValueError alike = malformed = invalid)
+                # canonical: keyed on the certificate's SIGNED part, trailing bytes refused — the raw-bytes key let
+                # one device back unlimited identities (protocol.py "ONE DEVICE, ONE IDENTITY — FOR REAL"; gen 27's
+                # DEVICE_BIND_CANONICAL_HEIGHT, 1 from gen 28 and deleted — this block already requires height >= 1)
+                dkey = device_binding_key(transaction.get("device") or {}, DEVICE_BIND_MAX_CERT_SECS, strict=True,
+                                          canonical=True)
+            except (ValueError, IndexError) as e:
+                raise AssertionError(f"register: {e}")
+            # NO COOLDOWN (gen 25's DEVICE_REBIND_INSTANT_HEIGHT, 1 from gen 26, deleted with the pre-gate cooldown it
+            # replaced): a device may move to another sender in any block, because apply EVICTS the identity it leaves
+            # (its lease is voided at once), so one device backs one identity at every instant.
+            # ...BUT NOT TO A NEW SENDER EVERY BLOCK (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27).
+            # A register needs no funds and creates its sender's account, so one device hopping to a fresh address
+            # each block was a free ~13 KB tx and a new account row per block, forever. A device moves to a DIFFERENT
+            # sender at most once per epoch (60 blocks): the first move — a lost key, a sold device, a wallet
+            # migration — is still instant, and renewals by the bound sender are unaffected.
+            # INVARIANT: keep the first move instant; bound the rest.
+            _cur = kv_ops.devbind_get(dkey)
+            assert not (_cur and _cur[0] != transaction["sender"] and int(_cur[1]) == epoch_now), \
+                "register: this device already moved to another account this epoch — try again next epoch"
+            if dkey.split(":", 1)[0] in permanent_classes_at(block_height):
+                # ONE HARDWARE WALLET PER IDENTITY: an identity whose live permanent device is a DIFFERENT one is refused a
+                # second (a replaced or lost hardware wallet means a new account, or that device rebinding here later).
+                acc_r = get_account(transaction["sender"], create_on_error=False) or {}
+                dk_prev = acc_r.get("devkey")
+                if isinstance(dk_prev, str) and dk_prev and dk_prev != dkey:
+                    pb = kv_ops.devbind_get(dk_prev)
+                    assert not (pb and pb[0] == transaction["sender"] and pb[2] == "perm"), \
+                        "register: this identity is already bound for life to another hardware wallet — use that device, " \
+                        "or bind this one to a new account"
+
+
+def _validate_legacy_claim(transaction, block_height):
+    # LEGACY CLAIM (gen 28; operator: "sign with your old key and get the coins"). An account whose key no chain
+    # ever saw was carried at its OLD 46-character format-1 address, which format 2 refuses as a sender; its owner's
+    # key K claims it from K's format-2 address (validate_origin has bound the sender to K). The claim names the
+    # old address and its EXACT balance, so apply moves a stated amount and a rollback moves exactly that back, and
+    # a second claim fails because the balance is then zero. ACCEPTED RISK (operator's decision, 332 accounts /
+    # 142 NADO measured 2026-09-28): a key sharing the old address's 21 bytes can claim first — the exposure those
+    # accounts already carried on gen 27. INVARIANT: only ever the whole balance, only an address with no key.
+    # `>= 1` IS THE DELETED GATE'S OWN VALUE (LEGACY_CLAIM_HEIGHT was 1 from gen 28, deleted after the betanet-9
+    # reroll): mempool admission validates at the tip's height, which is 0 on a genesis tip, and a claim was
+    # refused there. Keep it; it changes no verdict on a chain with a block.
+    from protocol import ADDRESS_BODY, ADDRESS_PREFIX
+    from ops.address_ops import legacy_address
+    assert block_height is not None and int(block_height) >= 1, "legacy claims are not enabled on this chain"
+    assert transaction["amount"] == 0 and transaction["fee"] == 0, "legacy_claim carries no amount and no fee"
+    data = transaction.get("data")
+    assert isinstance(data, dict) and set(data) == {"legacy", "amount"}, "legacy_claim data is {legacy, amount}"
+    legacy, amt = data["legacy"], data["amount"]
+    assert isinstance(legacy, str) and len(legacy) == len(ADDRESS_PREFIX) + ADDRESS_BODY + 4, "not an old-format address"
+    assert legacy != transaction["sender"], "a legacy claim cannot name its own sender"
+    pk = transaction.get("public_key") or (get_account(transaction["sender"], create_on_error=False) or {}).get("public_key")
+    assert isinstance(pk, str) and pk, "legacy_claim needs the claimant's public key"
+    assert legacy_address(pk) == legacy, "this key's old address is not the one claimed"
+    old = get_account(legacy, create_on_error=False)
+    assert old and not old.get("public_key"), "only an old address whose key no chain ever saw can be claimed"
+    assert int(old.get("bonded", 0) or 0) == 0, "a bonded old address cannot be claimed"
+    assert isinstance(amt, int) and not isinstance(amt, bool) and amt > 0 and amt == int(old.get("balance", 0) or 0), \
+        "legacy_claim amount must be the old address's whole balance"
+
+
+def _validate_tpm_ready(transaction, block_height):
+    # VOLUNTEERING TO BE DRAWN. Carries nothing and proves nothing: it is an operator declaring that
+    # this node runs the challenger loop, so the draw can prefer addresses that have said so over
+    # addresses that merely look like validators on chain. Zero amount, no data, and the signature
+    # (checked for every transaction) is the whole of what makes it the sender's own statement.
+    # gen 25's DEVICE_ATTEST_EK_READY_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on
+    # a genesis tip) fell below it, and keeps its verdict.
+    assert block_height >= 1, "challenger announcements are not enabled yet"
+    assert int(transaction.get("amount") or 0) == 0, "tpm_ready carries no amount"
+    assert not transaction.get("data"), "tpm_ready carries no data"
+    # A VOLUNTEER HAS STAKE (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). This used to be the
+    # cheapest message on the chain: any fee, no uniqueness key, sendable from a never-funded address (it skips the
+    # empty-account check), and it wrote the sender's account row — free, unlimited, every block — and every sender
+    # joined the challenger pool at weight 1, so a thousand free addresses outweighed the fleet in the TPM challenger
+    # draw. It is fee-free only from a bonded sender, once per sender per block (reserved_uniqueness_key), and writes
+    # nothing. Unconditional: the `>= 1` assert above already holds (gen 27's SPAM_HARDEN_HEIGHT, deleted).
+    # INVARIANT: an announcement must cost the announcer stake; never let it through from an unbonded account.
+    assert transaction["fee"] == 0, "tpm_ready is fee-exempt (fee must be 0)"
+    _acc = get_account(transaction["sender"], create_on_error=False)
+    assert _acc and _acc.get("bonded", 0) >= B_MIN, "only a bonded validator can volunteer as a challenger"
+
+
+def _validate_tpm_ceremony(transaction, block_height, recipient):
+    # VENDOR-ENDORSED TPM ENROLMENT (doc/tpm-attestation-without-a-ca.md).
+    # Four fee-exempt, zero-amount messages that prove an attestation key lives inside a chip whose
+    # ENDORSEMENT key a silicon vendor certified — the path for the 26.8 % of attempts Windows Hello
+    # refuses, and the only path a headless Linux node has ever had.
+    #
+    # NOTHING HERE CONFERS STANDING. A completed enrolment records that one attestation key is inside one
+    # certified chip. It is `register` that consumes it, with a FRESH TPM2_Certify over that block's own
+    # challenge, and the identity binds to the ENDORSEMENT key — so enrolling ten attestation keys in one
+    # chip yields one identity, not ten. Anyone may spend blocks on enrolments that buy them nothing.
+    from protocol import DEVICE_ATTEST_EK_CHALLENGERS
+    from ops import tpm_enrol as _te
+    # gen 25's DEVICE_ATTEST_EK_HEIGHT was 1 from gen 26 (deleted); only block_height 0 (mempool admission on a
+    # genesis tip) fell below it, and keeps its verdict.
+    assert block_height >= 1, "vendor-endorsed TPM enrolment is not enabled yet"
+    assert transaction["amount"] == 0 and transaction["fee"] == 0, \
+        f"{recipient} tx is fee-exempt and carries no amount"
+    data = transaction.get("data") or {}
+    assert isinstance(data, dict), f"{recipient} data must be an object"
+    sender = transaction["sender"]
+    if recipient == "tpm_enrol":
+        # STEP 1. The chip's endorsement chain and the public area of the key it will vouch for. The
+        # chain is verified by the native kernel against the PINNED vendor roots — real vendor
+        # certificates are not strictly DER and no Python parser in the node's runtime reads them.
+        from ops import attest_native
+        chain = _hex_list(data.get("ek"), 8, 8192, "ek chain")
+        pub = _hex_bytes(data.get("pub"), 2048, "attestation public area")
+        # the clock is _anchor_time, and apply_tpm_enrol_tx re-runs this same call through it — validation and
+        # apply must judge the chain at the SAME agreed time or a record validated here fails to apply there
+        _now = _anchor_time(transaction, block_height)
+        ek = cert_verdict(lambda t: attest_native.verify_ek(chain, t, height=block_height), _now)
+        assert ek.get("ok"), f"endorsement certificate rejected: {ek.get('reason')}"
+        from protocol import ek_roots_at
+        # the set the kernel just verified against (ek_roots_at), not the base set: the base set refused Intel
+        # V2-root chips the kernel had accepted (betanet-8 below block 1400; protocol.py "ENROLMENT TRUSTS THE
+        # ROOTS IN FORCE"). INVARIANT: the kernel's set and this one are the same call at the same height.
+        assert ek.get("root_sha256") in ek_roots_at(block_height), \
+            "endorsement certificate does not chain to a pinned silicon-vendor root"
+        _te.validate_publication(str(ek["identity"]), pub)
+        eid = _te.enrol_id(CHAIN_ID, str(ek["identity"]), _te.aik_name_hex(pub))
+        # AN EXPIRED ATTEMPT MUST BE RETRYABLE, and making it so is not optional: the enrolment id is
+        # DERIVED from (chain id, endorsement identity, attestation key name) with no nonce, so the
+        # same chip with the same key template derives the same id forever. That is what makes a
+        # proven enrolment stable and resumable, and it is also what made a FAILED one permanent —
+        # refusing every duplicate meant a chip whose first attempt stalled could never open another,
+        # because every future attempt derived the same id and hit the same dead record. Observed on
+        # real hardware: an enrolment drew three challengers under an older rule, one answered, it
+        # expired, and the chip could not try again under the corrected rule because no new draw could
+        # ever happen. An expired, unproven record is therefore SUPERSEDED — apply overwrites it with
+        # a fresh draw, and journals the old one so a rollback restores it exactly.
+        _existing = kv_ops.tpm_enrol_get(eid)
+        if _existing:
+            assert _existing.get("state") != "proven", \
+                "this chip has already proved this attestation key — use the existing enrolment"
+            assert block_height >= int(_existing["h"]) + _te.enrol_window(_existing["h"]), \
+                "this attestation key already has an enrolment in progress"
+        # ONE OPEN ENROLMENT PER CHIP. An endorsement certificate is PUBLIC — anyone who has seen a
+        # machine's certificate can copy it — so without this bound a single stolen certificate could
+        # open unlimited enrolments by varying the attestation key, and tpm_enrol is in the
+        # empty-account bypass. With it, an attacker's ceiling is the number of genuine vendor-signed
+        # certificates they hold, once per expiry window. Copying a certificate still proves nothing:
+        # the challengers seal to its public key and only the real chip can open them.
+        _open = kv_ops.tpm_enrol_open_for_ek(str(ek["identity"]))
+        if _open:
+            _prev = kv_ops.tpm_enrol_get(str(_open))
+            assert not (_prev and _prev.get("state") != "proven"
+                        and block_height < int(_prev["h"]) + _te.enrol_window(_prev["h"])), \
+                "this chip already has an enrolment in progress — finish it or wait for it to expire"
+            from protocol import TPM_ENROL_V3_HEIGHT
+            if _prev and block_height >= TPM_ENROL_V3_HEIGHT:
+                from protocol import TPM_RETRY_OWNER_HEIGHT
+                # TPM_RETRY_OWNER_HEIGHT: the cooldown is the OPENER's, so it holds back only the identity that
+                # failed; anyone else waits for the record's expiry alone (one open enrolment per chip still holds).
+                if block_height >= TPM_RETRY_OWNER_HEIGHT and str(_prev.get("owner")) != str(sender):
+                    _ready = _te.expiry(_prev)
+                else:
+                    _ready = _te.retry_ready_at(
+                        _prev, kv_ops.tpm_retry_get(_te.retry_key(_prev, block_height)), block_height)
+                assert block_height >= _ready, \
+                    f"this chip's last enrolment was not completed by its client — it can enrol again from block {_ready}"
+        # A SHORT CHALLENGER SET IS A WEAKER PROOF, so it is not a proof. An attacker who can shrink the
+        # bonded registry must not thereby cut the number of parties it takes to collude.
+        # COMMIT, THEN DRAW (ops/tpm_enrol; audit 2026-09-27). The set does not exist yet — its dice are two epochs
+        # away — so what is checked here is that the pool it WILL be drawn from, frozen at this block, can seat k
+        # (exact sampling always does when it has k weighted members).
+        # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a beacon
+        # it already knows (this epoch's) — that is the grind the delayed draw closes.
+        from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
+        if block_height >= TPM_POOL_V2_HEIGHT:
+            # TPM POOL v2: the pool this enrolment will be drawn from is the snapshot apply stores (tpm_pool_v2,
+            # the same function), and it must seat k = 5. INVARIANT: the same call here and in apply.
+            assert _te.pool_can_seat(tpm_pool_v2(block_height), DEVICE_ATTEST_EK_CHALLENGERS_V2), \
+                "not enough independent challengers are bonded and online to open an enrolment"
+        else:
+            assert _te.pool_can_seat(_tpm_pool(block_height), DEVICE_ATTEST_EK_CHALLENGERS), \
+                "not enough independent challengers are bonded to open an enrolment"
+    else:
+        eid = data.get("id")
+        assert isinstance(eid, str) and len(eid) == 32 and _is_hex_str(eid), "malformed enrolment id"
+        rec = kv_ops.tpm_enrol_get(eid)
+        assert rec, "no such enrolment"
+        assert block_height < int(rec["h"]) + _te.enrol_window(rec["h"]), \
+            "this enrolment has expired — open a new one"
+        # Each branch below is a DRY RUN of the exact state transition apply will perform, on the record
+        # as it stands at this block. The state machine raises AssertionError on every rule it enforces,
+        # which is what validation wants, and apply re-runs it rather than trusting this.
+        if recipient == "tpm_challenge":
+            # a delayed draw's set is materialised by its first challenge; apply does the same (account_ops)
+            # INVARIANT: validation and apply must both materialise, or they judge against different sets
+            _te.apply_challenge(tpm_materialise_draw(rec, block_height), sender,
+                                _hex_bytes(data.get("blob"), 1024, "credential blob"),
+                                _hex_bytes(data.get("enc"), 1024, "wrapped seed"), block_height)
+        elif recipient == "tpm_commit":
+            _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)
+        else:
+            from protocol import TPM_ENROL_V3_HEIGHT
+            _te.apply_reveal(rec, sender, _hex_bytes(data.get("secret"), 64, "secret"),
+                             _hex_bytes(data.get("seed"), 64, "seed"), block_height,
+                             fail_on_mismatch=int(block_height) >= TPM_ENROL_V3_HEIGHT)
+
+
+def _validate_pool_delegation():
+    # STAKING POOLS NEVER RAN FROM GENERATION 26 ON (protocol.py "THE SAVINGS LANE IS PLAIN STAKE"): the gen-25 branch
+    # opened with `assert POOL_HEIGHT and block_height >= POOL_HEIGHT, "staking pools are not enabled yet"` and
+    # POOL_HEIGHT was 0, so every pool / delegate / undelegate tx was refused here, first, with this message. The
+    # rest of the branch and the apply path were deleted with the gate. INVARIANT: these three recipients stay in
+    # RESERVED_RECIPIENTS and stay REFUSED — letting one fall through to the generic path would turn a refused tx
+    # into an accepted one and fork every node still running the refusal.
+    raise AssertionError("staking pools are not enabled yet")
+
+
+def _validate_msgkey(transaction, block_height):
+    # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
+    # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is
+    # sender-scoped (writes only the sender's own kem_pub) and anti-spam-gated by the empty-account rule
+    # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account).
+    # THAT WAS NOT A BOUND (audit 2026-09-27): the empty-account check is mempool policy that consensus never runs,
+    # an emptied account still "exists", and accounts were free to create (tpm_ready wrote one) — so msgkey was a
+    # free ~10 KB message every block, forever, from any number of accounts. So only the FIRST bind is free (bounded
+    # by the paid transfer that created the account); a rotation pays MIN_TX_FEE, re-binding the key already bound is
+    # refused, and the tx carries no data. INVARIANT: never make a repeatable msgkey free.
+    # `>= 1` below is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
+    # mempool admission with the tip's height, 0 on a genesis tip, where the old fee-exempt rule held.
+    assert transaction["amount"] == 0, "msgkey tx must have zero amount"
+    kp = transaction.get("kem_pub")
+    # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
+    assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
+        "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
+    if block_height is not None and int(block_height) >= 1:
+        assert not transaction.get("data"), "msgkey carries no data"
+        _acc = get_account(transaction["sender"], create_on_error=False)
+        assert _acc, "msgkey needs an account on chain"
+        if _acc.get("kem_pub"):
+            assert _acc["kem_pub"] != kp, "this messaging key is already bound to the account"
+            assert transaction["fee"] >= MIN_TX_FEE, f"rotating a messaging key pays the minimum fee {MIN_TX_FEE}"
+            assert _acc.get("balance", 0) >= transaction["fee"], "msgkey sender cannot afford the fee"
+        else:
+            assert transaction["fee"] == 0, "the first messaging key is fee-exempt (fee must be 0)"
+    else:
+        assert transaction["fee"] == 0, "msgkey tx is fee-exempt (fee must be 0)"
+
+
+def _validate_auth(transaction, block_height):
+    # ACCOUNT AUTHENTICATION (doc/key-rotation.md): install / rotate / cancel the sender's auth config.
+    # validate_origin verified every signature entry; here the SIGNER SET decides the effect (full
+    # reconfig policy -> immediate; signing policy alone -> pending; a reconfig-only key -> cancel).
+    from ops import auth_ops
+    _acc = get_account(transaction["sender"], create_on_error=False)
+    _cfg = auth_ops.effective_config(transaction["sender"], _acc, block_height)
+    auth_ops.validate_auth_tx(transaction, block_height, auth_ops.verify_entries(transaction, transaction["sender"], _cfg))
+
+
+def _validate_alias(transaction):
+    # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
+    from ops import alias_ops
+    alias_ops.validate_alias_op(transaction)
+
+
+def _validate_blob(transaction, block_height):
+    # DATA-AVAILABILITY blob (execution-layer Phase 1): envelope-only checks. L1 orders + stores the
+    # opaque payload and never decodes it. Zero amount, a non-empty payload within the size cap, and
+    # a paid DA fee (>= MIN_TX_FEE, burned). The sender must afford the fee (enforced at reflect).
+    assert transaction["amount"] == 0, "Blob tx must have zero amount"
+    assert transaction["fee"] >= MIN_TX_FEE, f"Blob DA fee below minimum {MIN_TX_FEE}"
+    payload = transaction.get("data")
+    assert payload not in (None, "", {}, []), "Blob tx must carry a data payload"
+    assert blob_payload_size(payload) <= BLOB_MAX_BYTES, f"Blob payload exceeds {BLOB_MAX_BYTES} bytes"
+    # HALT-CLASS field typing (audit 2026-07): the exec node replays these payloads and uses some fields
+    # as DICT KEYS or coerces them. A wrong TYPE there raises INSIDE the exec tail loop, which has no
+    # per-tx guard, so the cursor never advances — one MIN_TX_FEE blob permanently wedges every exec node
+    # (every game + every asset frozen; assets have no L1 exit). L1 orders the blob and never decodes it,
+    # but it must still REFUSE a payload that would halt the layer downstream — the same discipline the
+    # `settle` op below already applies to exec_cursor. Only dict payloads carry ops.
+    if isinstance(payload, dict):
+        _op = payload.get("op")
+        assert _op is None or isinstance(_op, str), "Blob op must be a string"
+        # F2 (2026-09-23): `method` is looked up in the contract's code dict; a list raised TypeError past the
+        # exec layer's escrow. The exec layer refuses it before debiting and L1 refuses to order it at all.
+        # `>= 1` is gen 25's EXEC_RULES_V2_HEIGHT from gen 26 (deleted): height 0 / None keep their old verdict.
+        if "method" in payload and block_height is not None \
+                and int(block_height) >= 1:
+            assert isinstance(payload["method"], str), "Blob method must be a string"
+        # ns/to_ns/from_ns index the per-namespace state map: a list/dict there is unhashable -> TypeError.
+        assert valid_namespace(payload.get("ns", DEFAULT_NS)), "Blob ns must be a valid namespace id"
+        for _k in ("to_ns", "from_ns"):
+            if _k in payload:
+                assert valid_namespace(payload[_k]), f"Blob {_k} must be a valid namespace id"
+        if "value" in payload:                         # int()'d in the exec summary AND the ledger
+            _v = payload["value"]
+            assert isinstance(_v, int) and not isinstance(_v, bool) and _v >= 0, \
+                "Blob value must be a non-negative int"
+        if "asset" in payload:                         # a str/int id; anything else breaks ledger keys
+            _a = payload["asset"]
+            assert (isinstance(_a, int) and not isinstance(_a, bool)) or isinstance(_a, str), \
+                "Blob asset must be an int or string id"
+        if "proof_da" in payload:                      # a DA commitment; path chars reach DaStore._dir
+            _pda = payload["proof_da"]
+            assert isinstance(_pda, str) and _pda and "/" not in _pda and "\\" not in _pda \
+                and _pda not in (".", ".."), "Blob proof_da must be a safe commitment string"
+
+
+def _validate_settle(transaction, block_height, deep):
+    # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
+    # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
+    from protocol import SETTLE_MAX_LAG
+    assert transaction["amount"] == 0, "Settle tx must have zero amount"
+    data = transaction.get("data") or {}
+    cursor = data.get("exec_cursor")
+    root = data.get("state_root")
+    ns = data.get("ns", DEFAULT_NS)
+    # FREE ONLY WHERE IT IS A DUTY (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27). One 10-NADO bond
+    # used to be able to land a
+    # permanent settle row for every (namespace, cursor) pair — any namespace name, any past cursor — for free. The
+    # duty is the default namespace near the tip (honest settles trailed their block by 12..380 blocks); another
+    # namespace pays MIN_TX_FEE, and a cursor more than SETTLE_MAX_LAG behind is refused.
+    # INVARIANT: never make a settle free that the settle loop does not need — and construct_settle_tx must charge
+    # exactly this (it signed fee 0 for every namespace until 2026-09-28: tests/test_namespace_settle_pays.py).
+    # `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at mempool
+    # admission with the tip's height, 0 on a genesis tip, where the old free-settle rule held.
+    _spam = block_height is not None and int(block_height) >= 1
+    if _spam and ns != DEFAULT_NS:
+        assert transaction["fee"] >= MIN_TX_FEE, f"a settle outside the default namespace pays the minimum fee {MIN_TX_FEE}"
+        _sa = get_account(transaction["sender"], create_on_error=False)
+        assert _sa and _sa.get("balance", 0) >= transaction["fee"], "settle sender cannot afford the fee"
+    else:
+        assert transaction["fee"] == 0, "Settle tx is fee-exempt (fee must be 0)"
+    if _spam and isinstance(cursor, int) and not isinstance(cursor, bool):     # (the type is refused just below)
+        assert int(block_height) - cursor <= SETTLE_MAX_LAG, \
+            f"Settle exec_cursor is more than {SETTLE_MAX_LAG} blocks behind this block"
+    assert valid_namespace(ns), "Settle ns must be a valid namespace id ([a-z0-9._-], <=32)"
+    assert ns != DEFAULT_NS or "ns" not in data, "default namespace must be omitted from settle data (canonical form)"
+    # Upper bound is CONSENSUS-CRITICAL, not cosmetic: exec_cursor is packed be8 (struct '>Q') into the
+    # LMDB settlement key at apply-time (kv_ops._settle_key), which raises struct.error for cursor >= 2**64
+    # INSIDE incorporate_block — a path that must never raise, or one cheap tx halts production+verify on
+    # every node (same class as the old min_block poison). The 2**64-1 ceiling also keeps a real cursor from
+    # ever equaling the b'\xff'*8 end-of-namespace sentinel that settlement_max_cursor range-seeks past.
+    # NOTE: exec_cursor is an EXEC-LAYER position, NOT the L1 block height (it is not bounded by
+    # block_height — see the settlement tests). The upper bound below is purely the be8-pack safety bound.
+    assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
+    # SETTLEMENT-ORACLE CAPTURE (critical). active_settler_shares anchors the quorum DENOMINATOR on
+    # settlement_max_cursor(ns) and leaks out anyone who has not attested within SETTLE_ACTIVITY_CURSORS
+    # of it. With the cursor unbounded, ONE fee-exempt settle at cursor ~2**64 pushes that activity floor
+    # above every honest settler's real cursor, so they all leak from the denominator and the poster
+    # becomes the SOLE quorum member — permanently, since no honest exec node will ever reach that
+    # cursor to re-enter. latest_settled() then returns the attacker's fabricated root, and
+    # bridge_withdraw / unshield / dividend_withdraw prove against it to drain BRIDGE_ESCROW,
+    # SHIELD_ESCROW and DIVIDEND_POOL. Total cost: B_MIN bonded (10 NADO) and no fee. The per-namespace
+    # escrow cap does not help — all bridge deposits and every unshield/dividend exit use DEFAULT_NS.
+    # The exec cursor IS an L1 block height in practice (execnode sets state.cursor = h while applying
+    # FINALIZED blocks), so it can never legitimately exceed the height of the block carrying the settle.
+    # Bounding it here is deterministic (block_height is consensus input) and cannot reject an honest
+    # settle, which is always well behind the tip.
+    assert block_height is None or cursor <= int(block_height), (
+        f"Settle exec_cursor {cursor} exceeds the current block height {block_height} — the exec layer "
+        f"applies FINALIZED blocks and can never be ahead of L1 (settlement-oracle capture guard)")
+    assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
+    acc = get_account(transaction["sender"], create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
+    assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
+    # DA-CARRIED PROOF COMMITMENT. Same hardening as the blob branch: the string reaches
+    # DaStore._dir, so path characters must never get through. Validated for SHAPE only — this field
+    # does not (yet) justify the root, so an unfetchable or bogus commitment cannot change what
+    # settles; it degrades to the ordinary bonded-quorum path exactly as a bare attestation does.
+    # Making it justify the root requires L1 to fetch+verify during validation inside the depth gate,
+    # which is the consensus step in doc/settle-proof-transport.md §4 and is NOT done here.
+    _pda = data.get("proof_da")
+    if _pda is not None:
+        assert isinstance(_pda, str) and _pda and len(_pda) <= 128 and "/" not in _pda \
+            and "\\" not in _pda and _pda not in (".", ".."), \
+            "Settle proof_da must be a safe commitment string"
+    proof = data.get("proof")
+    _from_da = False          # set once the proof came back from DA, so the verdict memo can key on the
+                              # commitment (which cryptographically binds those exact bytes)
+    if proof is None and _pda is not None and not deep:
+        # DA-CARRIED PROOF, RESOLVED AT VALIDATION. A settle proof is ~118 MiB at protocol strength
+        # against an 8 MiB submit cap and a ~256 KiB block, so it cannot ride in the tx. It is published
+        # k-of-n and the tx carries the commitment; here we pull it back and verify it as if it had been
+        # inline, so the root settles TRUSTLESSLY on a validity proof rather than on a bonded quorum.
+        #
+        # THE BYTES ARE BINDING, so fetching does not introduce trust: da reconstruction checks the
+        # commitment round-trip, and a blob that does not hash to `proof_da` is not returned. Whoever
+        # serves it cannot substitute a different proof.
+        #
+        # NOT HOLDING IT IS NOT A REJECTION. Raising ProofUnavailable defers the whole block: every node
+        # applies the same rule, so unavailability costs liveness, never safety. Rejecting instead would
+        # fork the fleet along the axis of who happened to have the data.
+        #
+        # `deep` bounds the stall. Past FINALITY_DEPTH below the known tip the proof is not consulted at
+        # all (SETTLE_PROOF_DEPTH_GATED), so a permanently unavailable proof degrades to the
+        # accumulated-weight path rather than halting the node — the same weak subjectivity already
+        # accepted for snapshot bootstrap.
+        _blob = _fetch_da_proof(_pda)
+        if _blob is None:
+            raise ProofUnavailable(
+                f"settle proof {_pda[:16]}… for (ns={ns}, cursor={cursor}) is not available via DA yet — "
+                f"deferring this block rather than judging it")
+        try:
+            proof = json.loads(_blob.decode())
+            _from_da = True
+        except Exception as e:
+            # Retrievable but not a proof: that IS a judgement we can make, so reject rather than defer.
+            raise AssertionError(f"Settle proof_da resolved to non-proof bytes: {type(e).__name__}")
+    if proof is not None:
+        # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
+        # block-height special-casing): the carried SPARSE settlement proof must PROVE exactly this
+        # checkpoint's EXECUTION half and STRICTLY EXTEND the namespace's settled chain, verified
+        # identically on every node. On success this tx settles the root TRUSTLESSLY at apply-time
+        # (kv_ops.settlement_proof_put), no bonded quorum needed.
+        #
+        # The settled root is rnode(KV half, RECORDS half) (execnode/exec_root.py). The proof covers the
+        # KV half (contract execution — bound epochs over the sparse tree); the RECORDS half must be
+        # UNCHANGED across the proven span (pinned equal in the pre and post compositions below). That is
+        # an EXPLICIT, enforced restriction, not an assumption: epochs that also moved records (bridge
+        # credits, dividends, exits) ride the bonded quorum until record transitions are proven in-circuit
+        # — a forward-compatible extension on the SAME tree, never a scheme change.
+        import protocol as _protocol
+        from ops.settlement_ops import latest_settled
+        from execnode.stark import settlement_sparse as SS
+        from execnode import exec_root as ER
+        from execnode.stark import storage_tree as SST
+        assert isinstance(proof, dict), "Settle proof must be an object"
+        rec_hex = proof.get("rec")
+        kv_pre_claim, kv_post_claim = proof.get("kv_pre"), proof.get("kv_post")
+        assert int(proof.get("cursor", -1)) == cursor, "Settle proof cursor must equal exec_cursor"
+        # CHAIN: the (kv, records) decomposition composed with rnode must equal the namespace's committed
+        # settled tip (EXEC_GENESIS_ROOT before the first settlement) — rnode is collision-resistant, so
+        # only the REAL decomposition of the tip can satisfy this; a proof can never start from a
+        # fabricated pre-state, and only one settlement extends the tip per block.
+        _tip_cursor, tip_root = latest_settled(ns)
+        # FIRST SETTLEMENT MUST BE BY QUORUM — asserted HERE, before any verification work, so a
+        # genesis-spanning proof is rejected outright rather than fully verified and then thrown away.
+        # This is also what bounds the exec-summary window the DA binding needs: a proof only ever
+        # extends a real committed tip, so its span is recent and small, never "from block 0" (which
+        # was guaranteed pruned and is what broke the previous attempt).
+        assert tip_root is not None, "first settlement in a namespace must be by bonded quorum, not by proof"
+        expected_pre = tip_root
+        # Verify every bound epoch at the PROTOCOL query strength (None ⇒ the protocol constant — never
+        # the bundle's own word) and at the PROTOCOL tree depth, deterministically on every node.
+        # RECORDS HALF. Frozen by default: the SAME rec_hex composes both roots, so a proven span must
+        # not have moved records (enforced per block in verify_calls_bound_to_summaries).
+        # With SETTLE_PROOF_RECORDS the proof may instead carry `rec_post` and a `records` transition,
+        # and the records half is allowed to MOVE — provided that transition proves EXACTLY the effects
+        # this node committed for the span's blocks. `_records_bound` is the switch the DA gate reads.
+        rec_post_hex = rec_hex
+        _records_bound = False
+        if _protocol.SETTLE_PROOF_RECORDS and proof.get("records") is not None:
+            rec_post_hex = proof.get("rec_post") or rec_hex
+            _records_bound = True
+        # S3 (2026-09-23): THE CHEAP CHECKS RUN FIRST, ON THE PROOF'S CLAIMS. The full STARK verify and an
+        # O(state) sparse_root over a PROVER-CHOSEN pre_contracts used to run before the tip-extension, root,
+        # chain-read and calldata checks (fee-exempt, 192 MiB bodies) — a settle that could never land still
+        # cost minutes of consensus CPU. Every check below is a pure function of committed state and the
+        # proof's claimed halves; the verification that follows then pins those claims to what was proven,
+        # so nothing accepted here is accepted on the prover's word.
+        assert isinstance(kv_pre_claim, str) and isinstance(kv_post_claim, str) and isinstance(rec_hex, str), \
+            "Settle proof halves must be hex strings"
+        pre_full = ER.full_root_hex(SST.digest_from_hex(kv_pre_claim), SST.digest_from_hex(rec_hex))
+        post_full = ER.full_root_hex(SST.digest_from_hex(kv_post_claim), SST.digest_from_hex(rec_post_hex))
+        assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
+        assert post_full == root, "Settle proof post_root must equal state_root"
+        # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
+        # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
+        # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
+        # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
+        # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
+        # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
+        from execnode.stark import field as _F
+        from execnode import zkvm as _zkvm
+        from execnode.state import ExecState as _ExecState
+        from ops.block_ops import get_block_hash_by_number as _bhash
+        from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
+        _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
+        for _kind, _key, _val in SS.chain_reads(proof):
+            assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
+            if _kind == _zkvm.IO_BHASH:
+                assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
+                _bh = _bhash(_key)
+                assert _bh, "Settle proof BHASH height unavailable on chain"
+                assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
+            elif _kind == _zkvm.IO_BEACON:
+                assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
+                # INVARIANT: the same function the exec node computes BEACON with (ExecState.exec_beacon_at,
+                # protocol.BEACON_EXTEND_HEIGHT), read at this block's finalized position
+                _bv = _ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)
+                assert _bv is not None, "Settle proof BEACON epoch is not finalized"
+                assert _bv % _F.P == _val, "Settle proof BEACON does not match the finalized chain"
+            else:
+                raise AssertionError("unknown chain-read kind in settle proof")
+        # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
+        # which returns False on a pruned node and the body on an archive node, so the same tx validated
+        # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
+        # node rejected the WHOLE BLOCK its peers accepted). No depth fence can fix that: a snapshot
+        # re-anchor (snapshot_ops.adopt_new_identity -> segment_store.reset) wipes ALL bodies, blob-bearing
+        # included, and backfills only a best-effort ~265-block tail. So the binding now reads the per-block
+        # EXEC SUMMARIES persisted at incorporate time (kv_ops.exec_summary_get) — committed state, which
+        # pruning never touches — instead of bodies.
+        #
+        # FIRST SETTLEMENT MUST BE BY QUORUM. This is what makes the summary window bounded and therefore
+        # obtainable: a proof may only EXTEND an already-settled tip, so the span is always
+        # (settled_cursor, cursor] — recent and small — never "from block 0", which was guaranteed pruned
+        # and was the concrete case that broke the previous attempt.
+        # NO EPOCH BOUNDARY. The presence dividend accrues with NO transaction at all, in the exec node's
+        # tail loop, once per EPOCH_LENGTH blocks (execnode.tail_loop -> accrue_dividend_epoch), and it
+        # writes st.dividend — a RECORDS position. It is therefore invisible to any per-block body scan.
+        # A span that crosses an epoch boundary may carry that accrual, so a records-frozen proof must not
+        # settle it. Cursor arithmetic only — no body, no exec state.
+        # ...UNLESS THE PROOF BINDS THE RECORDS HALF. The accrual is now DERIVED at incorporate time
+        # (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the boundary
+        # block's exec summary), so a records-bound proof carries it like any other effect and the
+        # binding below checks it against THIS node's own committed derivation. The blanket refusal was
+        # the single largest reason a span was rejected — 55 of 146 over one day — and it existed only
+        # because the accrual was invisible, not because it was unprovable.
+        # A records-FROZEN proof keeps the old rule exactly: it pins one records root across the span,
+        # so an accrual inside it would make the proof assert something false.
+        if not _records_bound:
+            assert (int(_tip_cursor) // _protocol.EPOCH_LENGTH) == (int(cursor) // _protocol.EPOCH_LENGTH), \
+                "settle-with-proof span crosses an epoch boundary (possible presence-dividend accrual)"
+        # NO PAYOUTS IN-PROOF. A PAY opcode moves bridge balances at the runtime boundary (state.py), i.e.
+        # RECORDS, while the proof pins records frozen. block_records_inert cannot see this — PAY is
+        # emitted by execution, not visible in the calldata — so it is caught here, on the proof's own io.
+        # A RECORDS-FROZEN proof still refuses a PAY, and must: it pins one records root across the
+        # span, so a payout inside it would make the proof assert something false. A records-BOUND
+        # proof is the opposite case — records are allowed to MOVE and every effect is checked — so
+        # there the payout is DERIVED below (records_bind.pay_effects_from_proof) instead of refused.
+        settle_proof_io_check(proof, _records_bound, block_height)   # PAY + asset io (see the function)
+        from execnode.stark import calls_commit as _CC
+        # `records_out` is passed ONLY for a records-bound proof. Passing None keeps the old, stricter
+        # rule (any non-inert block refuses the span), so a frozen-records proof is validated exactly as
+        # before and the two forms cannot be confused for one another.
+        _rec_effects = [] if _records_bound else None
+        _ok, _why = _CC.verify_calls_bound_to_summaries(
+            proof, ns, _tip_cursor, cursor, kv_ops.exec_summary_get, _protocol.SETTLE_PROOF_MAX_SPAN,
+            records_out=_rec_effects)
+        assert _ok, f"Settle proof not bound to the on-chain calldata: {_why}"
+        # DEPTH-GATED VERIFICATION. Cryptographic verification of the proof runs while the block is
+        # near the tip; a block already buried under FINALITY_DEPTH is accepted on accumulated weight
+        # instead, exactly as the chain already treats deep history for snapshot bootstrap.
+        #
+        # WHY: the proof cannot live in the block (~97 MiB vs a ~256 KiB block, see
+        # doc/settle-proof-transport.md), so it has to be fetched. Re-fetching and re-verifying one per
+        # settle for the whole of history would make joining the network cost hundreds of GiB.
+        #
+        # WHAT IT COSTS, stated plainly: a from-genesis sync no longer independently verifies
+        # historical settlements — it INHERITS them from the nodes that were online when the block was
+        # at the tip. That is a real reduction in what a full sync proves, and it is a deliberate
+        # choice (option 1 of doc/settle-proof-transport.md §4), not a side effect.
+        #
+        # WHY IT CANNOT FORK THE FLEET: the gate only ever RELAXES. Two nodes disagreeing about depth
+        # disagree as "strict rejects / relaxed accepts", so they diverge only on a proof that is
+        # actually INVALID — and an invalid proof cannot reach a deep block in the first place, because
+        # the nodes that saw it at the tip were in the strict regime and rejected it there.
+        #
+        # Everything else in this branch still runs at any depth: cursor match, tip extension, root
+        # composition, chain-read binding, the epoch/PAY guards and the DA binding. Only the expensive
+        # cryptographic check is skipped, so a fabricated settle is still refused on structure.
+        # THE PROOF IDENTITY IS NEEDED ON BOTH PATHS: the records-half memo below keys on it (`_rvk`). It used to
+        # be computed only in the strict branch, so a records-bound settle validated DEEP (a node more than
+        # FINALITY_DEPTH behind, catching up) raised UnboundLocalError on `_vk`. The first records-bound settle on
+        # betanet-8 landed at block 10212; nodes that saw it at the tip moved on, and a node that had to SYNC
+        # across it (behind, restarting, or new) rejected the block forever — the relay sat frozen at 10211 for
+        # 80 minutes (2026-09-26). Computing it here costs one hash and changes no verdict.
+        from execnode.stark import stark as _stk
+        _rules = _stk.rules_for_height(block_height)
+        _vk = settle_verify_key(proof, _pda, _from_da, _rules)
+        if deep and _protocol.SETTLE_PROOF_DEPTH_GATED:
+            kv_pre, kv_post = kv_pre_claim, kv_post_claim
+        else:
+            # MEMOISE THE CRYPTOGRAPHIC VERDICT. A settle proof verifies or it does not — that is a
+            # property of the proof's own bytes and NOTHING else, so re-deriving it is pure repetition.
+            # And it is repeated: a tx sitting in the mempool is re-validated on EVERY block-candidate
+            # build, so a single pooled settle turned the block-producing core loop into a 91 s loop and
+            # took this node OUT OF CONSENSUS — blocks frozen 221 s, 219 unhealthy episodes, while peers
+            # advanced normally (observed 2026-08-04). The node poisoned its own block production with
+            # its own transaction.
+            #
+            # THE KEY MUST BIND THE PROOF'S BYTES, NOT ITS CLAIMS. This was keyed on
+            # (cursor, kv_pre, kv_post, rec, rec_post) — all of which are what the proof ASSERTS, none of
+            # which is the FRI/openings body that actually gets verified. Two proofs making identical
+            # claims therefore shared an entry, so verifying an HONEST settle cached ok=True under a key
+            # a CORRUPTED one also matched: the tampered proof was then accepted without ever being
+            # verified. Caught by tests/test_settle_depth_gate ("corrupted proof is REJECTED near the
+            # tip"), which truncates seg["proof"]["openings"] while leaving every claim identical.
+            # A cache that answers for input it never saw is not a cache.
+            #
+            # See settle_verify_key for the binding argument.
+            # THE RULES FOR THIS BLOCK, not for "now" (PROOF_BIND_HEIGHT; stark.rules_at). Set here, once,
+            # for every prove/verify beneath — the segment STARKs, the K->1 fold, the transition binding —
+            # and carried explicitly into the child interpreter, which has no context of its own.
+            _hit = _SETTLE_VERIFY_MEMO.get(_vk)
+            if _hit is None:
+                with _settle_verify_lock(_vk), _stk.rules_at(block_height):   # single flight per proof
+                    _hit = _SETTLE_VERIFY_MEMO.get(_vk)
+                    if _hit is None:
+                        # TIME THE KV HALF. Two records-bearing submits died at ~1200s while the
+                        # measured verify cost of their records half is only ~472s, so ~730s is
+                        # somewhere else; these timers split the budget between the two verifications.
+                        with _SETTLE_VERIFY_GATE:         # one sparse verification at a time, process-wide
+                            _t_kv = _time.time()
+                            # OUT OF PROCESS (2026-09-07): the verdict is computed by a child interpreter so
+                            # the 70-780 s of hashing never holds THIS process's GIL (ops/proof_child.py);
+                            # NADO_PROOF_VERIFY_INPROC=1 keeps the old inline path. A child failure is not
+                            # a verdict: fall back inline, exactly as before.
+                            import os as _os
+                            _hit = None
+                            if not _os.environ.get("NADO_PROOF_VERIFY_INPROC"):
+                                from ops.proof_child import verify_sparse_out_of_process
+                                _hit = verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH,
+                                                                    rules=_rules)
+                                _where = "child"
+                            if _hit is None:
+                                # A MISSING OR STALE NATIVE KERNEL IS NOT A VERDICT (native_guard.NODE_LOCAL_ERRORS):
+                                # it says nothing about the proof, so it defers the block like an unavailable DA
+                                # blob instead of rejecting what every peer accepts. Never memoised (raised here).
+                                # ALL of NODE_LOCAL_ERRORS, not just NativeMissing: an out-of-memory here is this node's
+                                # limit, not the proof's fault, and rejecting on it split a low-memory node from the fleet
+                                # (zk audit 2026-09-26, SETTLE-2).
+                                from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM
+                                try:
+                                    _hit = SS.verify_settlement_sparse(proof, depth=_protocol.EXEC_TREE_DEPTH)
+                                except _NM as _nm:
+                                    raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm}") from _nm
+                                _where = "inproc"
+                            print(f"[settle-verify] KV half {_time.time() - _t_kv:.1f}s ok={_hit[0]} ({_where})", flush=True)
+                        if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
+                            _SETTLE_VERIFY_MEMO.clear()   # bounded: a proof is ~118 MiB, entries are tiny
+                        _SETTLE_VERIFY_MEMO[_vk] = _hit
+            ok, why, kv_pre, kv_post = _hit
+            assert ok, f"Settle proof invalid: {why}"
+        assert kv_pre == kv_pre_claim and kv_post == kv_post_claim, "Settle proof kv halves mismatch"
+        # PAYOUTS, DERIVED FROM THE PROVEN io LOG. This runs only AFTER the segments have been bound to
+        # this node's committed calls above — that binding is what makes the io log's provenance mean
+        # anything, because the payee registry is rebuilt from those same calls. Appending here (rather
+        # than inside verify_calls_bound_to_summaries) keeps the calldata binding a pure function of
+        # committed state, with the execution-derived half added on top and clearly separable.
+        # ASSET IO, BOUND (zk audit 2026-09-26; settle_proof_io_check admits it). The asset ledger is part
+        # of the records half, so what an asset call did is judged against the PINNED pre-state: records_pre
+        # must hash to the tip's records root, and PinnedAssets walks the proven io through the live staging
+        # rules — issuer-only mint/renounce, the supply cap, holdings, and every ABAL read against the running
+        # authenticated balance. A records-bound proof folds those moves into its binding like a payout; a
+        # records-FROZEN one (say, a span that only reads balances) must move nothing at all.
+        # No height guard (the gen-27 ZK_HARDEN_HEIGHT, 1 from gen 28): block_height >= 1 is proven here — the DA
+        # binding above passed, which needs a non-empty span (tip_cursor, cursor] with tip_cursor >= 0 (a real
+        # settlement) and cursor <= block_height.
+        _asset_view = _asset_pin = None
+        from execnode.stark import records_bind as _RBA
+        if _RBA.proof_asset_ids(proof)[0]:
+            try:
+                _asset_pin = _RBA.pinned_pre_get(proof.get("records_pre") or {}, SST.digest_from_hex(rec_hex),
+                                                 depth=_protocol.EXEC_TREE_DEPTH)
+            except (_RBA.Unbindable, TypeError, ValueError, AttributeError) as _e:
+                raise AssertionError(f"settle-with-proof asset io without a pinned pre-state: {_e}")
+            _asset_view = _RBA.PinnedAssets(_asset_pin, proof.get("asset_meta_pre") or {})
+            if not _records_bound:
+                # An asset-VALUED call's escrow is not in this net (PinnedAssets.escrow emits nothing; the summary
+                # carries it), which is safe only because block_records_inert marks every value call non-inert and
+                # verify_calls_bound_to_summaries refuses a frozen proof over a non-inert block. Keep them together.
+                try:
+                    _anet = _RBA.net_records_updates(_asset_pin, _RBA.pay_effects_from_proof(proof, _asset_view),
+                                                     _protocol.EXEC_TREE_DEPTH, nonneg=True)
+                except _RBA.Unbindable as _e:
+                    raise AssertionError(f"settle-with-proof carries an unsettleable asset effect: {_e}")
+                assert not _anet, "records-frozen settle proof moves the asset ledger"
+        if _records_bound:
+            from execnode.stark import records_bind as _RBP
+            try:
+                _pay_fx = _RBP.pay_effects_from_proof(proof, _asset_view)
+            except _RBP.Unbindable as _e:
+                raise AssertionError(f"settle-with-proof carries an unsettleable payout: {_e}")
+            if _pay_fx:
+                _rec_effects.extend(_pay_fx)
+
+        if _records_bound:
+            # THE RECORDS BINDING. The effects come from THIS node's committed summaries — never from
+            # the proof — so a prover cannot choose what it is proving. The transition must advance the
+            # records half from the tip's rec_hex to the claimed rec_post over exactly that set.
+            from execnode.stark import records_bind as _RB
+            _pre_rec = SST.digest_from_hex(rec_hex)
+            _post_rec = SST.digest_from_hex(rec_post_hex)
+            _eff = [(int(t), tuple(str(p) for p in parts), int(dv)) for (t, parts, dv) in _rec_effects]
+            # An empty effect set must not be able to MOVE the half: with nothing to prove, rec_post is
+            # required to equal rec_hex, which collapses to the frozen case rather than trusting the
+            # prover's word for a root nothing authorises.
+            if not _eff:
+                assert rec_post_hex == rec_hex, \
+                    "Settle proof moves the records half but the span committed no records effects"
+            else:
+                # PIN THE PRE-STATE the binding reads, exactly as the KV half pins pre_contracts
+                # against sparse_pre_root: the projection must hash to the TIP's committed records
+                # root, so every value the arithmetic touches is authenticated rather than asserted.
+                # (already pinned above when the proof carries asset io: same projection, same root)
+                _pre_get = _asset_pin or _RB.pinned_pre_get(proof.get("records_pre") or {}, _pre_rec,
+                                                            depth=_protocol.EXEC_TREE_DEPTH)
+                # MEMOIZE THE RECORDS VERDICT TOO — this is what wedged the node, twice.
+                #
+                # The KV half has been memoized since settle_verify_key existed; the records half was
+                # not, so EVERY revalidation of a mempool transaction re-ran it. Measured on one live
+                # settle (span 7800->7866, 29 effects):
+                #     08:58:55  RECORDS half 1057.2s ok=True    <- the submit
+                #     09:13:50  RECORDS half  878.9s ok=True    <- again, 15 minutes later
+                # while the KV half was verified once (15.7 s) and never repeated. ~900-1050 s of CPU
+                # per revalidation is enough to stop this node keeping up: it stalled at block 7364 and
+                # again at 8203 while the rest of the fleet ran on, both times with a records settle
+                # sitting in the mempool. An exact-landing tx waits ~280 blocks for its slot, so it gets
+                # revalidated repeatedly by construction — the cost was guaranteed to recur.
+                #
+                # KEYED ON THE SAME PROOF IDENTITY AS THE KV HALF, which binds the proof's BYTES
+                # (blake2b over the inline proof, or the DA commitment) — see settle_verify_key, which
+                # documents why keying on CLAIMS once let a tampered proof through unverified. The
+                # records inputs are added on top: the pre/post roots being asserted and a digest of the
+                # effect set THIS node derived. Same bytes + same roots + same effects = same verdict;
+                # anything else misses and is verified in full.
+                _rvk = (_vk, rec_hex, rec_post_hex, blake2b_hash(_eff))
+                _rhit = _SETTLE_VERIFY_MEMO.get(_rvk)
+                if _rhit is not None:
+                    _rok, _rwhy = _rhit
+                else:
+                    _t_rec = _time.time()
+                    from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM2   # OOM included (SETTLE-2)
+                    try:
+                        _rok, _rwhy = _RB.bind_and_verify_records(
+                            proof["records"], _pre_rec, _post_rec, _pre_get, _eff,
+                            depth=_protocol.EXEC_TREE_DEPTH,
+                            # S2: refuse a running balance below zero (from height 1: gen 25's
+                            # EXEC_RULES_V2_HEIGHT, 1 from gen 26 and deleted)
+                            nonneg=(int(block_height) >= 1))
+                    except _NM2 as _nm2:              # node-local, not a verdict: defer (see the KV half above)
+                        raise ProofUnavailable(f"this node cannot verify settle proofs yet: {_nm2}") from _nm2
+                    print(f"[settle-verify] RECORDS half {_time.time() - _t_rec:.1f}s "
+                          f"({len(_eff)} effects) ok={_rok}", flush=True)
+                    if len(_SETTLE_VERIFY_MEMO) >= _SETTLE_VERIFY_MEMO_MAX:
+                        _SETTLE_VERIFY_MEMO.clear()
+                    _SETTLE_VERIFY_MEMO[_rvk] = (_rok, _rwhy)
+                assert _rok, f"Settle proof records half invalid: {_rwhy}"
+
+
+def _validate_bridge(transaction):
+    # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
+    assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
+    assert transaction["fee"] >= MIN_TX_FEE, f"Bridge deposit fee below minimum {MIN_TX_FEE}"
+
+
+def _validate_faucet(transaction):
+    # FAUCET DONATION (doc/faucet.md): lock L1 coins into the faucet escrow; the exec layer credits
+    # the faucet contract's balance. Same shape as a bridge deposit — anyone can fund it from any wallet.
+    assert transaction["amount"] > 0, "Faucet donation amount must be positive"
+    assert transaction["fee"] >= MIN_TX_FEE, f"Faucet donation fee below minimum {MIN_TX_FEE}"
+
+
+def _validate_bridge_withdraw(transaction, block_height):
+    # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is a record of the bonded-quorum
+    # SETTLED execution-layer root (the frozen sparse scheme, execnode/exec_root.py): L1 recomputes the
+    # record's 256-bit position from the tx's public fields, folds ONE packed sparse path, composes with
+    # the claimed kv half and compares to the settled root — then checks the nullifier + escrow, releases.
+    from execnode import exec_root as ER
+    assert transaction["amount"] == 0, "bridge_withdraw carries no L1 amount (amount is in data)"
+    assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
+    data = transaction.get("data") or {}
+    addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+    ns = data.get("ns", DEFAULT_NS)
+    assert valid_namespace(ns), "bridge_withdraw ns must be a valid namespace id"
+    assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
+    assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
+    exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
+    assert isinstance(nonce, str) and isinstance(proof, dict), "bad withdraw nonce/proof"
+    # WINDOWED like dividend_withdraw (same bug class): an exit proven against the newest root died
+    # at the next settle; the (ns, addr, nonce) nullifier still guarantees at-most-once release.
+    # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
+    # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
+    # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
+    from ops.settlement_ops import recent_settled_roots
+    _window = recent_settled_roots(ns, k=3)
+    assert _window, "no settled execution-layer root yet for this namespace"
+    assert any(ER.verify_withdrawal(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+        "withdrawal is not proven against the settled execution-layer root window"
+    assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
+    escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
+    assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
+    # PER-NAMESPACE ESCROW CAP (SECURITY): a namespace can only ever release what was DEPOSITED targeting
+    # it. This is the L1 conservation boundary that closes the lone-quorum drain — a lone bonded validator
+    # can self-settle a fabricated root in a fresh namespace, but that namespace holds 0 escrow, so the
+    # exit releases nothing. Even a captured namespace can only reclaim its own deposits. Independent of
+    # the (attacker-influenced) settled root, so it holds regardless of quorum capture. It does NOT cover the
+    # DEFAULT namespace, which holds every deposit (and which dividend_withdraw / unshield always read): there
+    # the stake floor in settlement_justified (SETTLE_FLOOR_NUM/DEN, lone-settler drain) is the guard.
+    assert kv_ops.bridge_escrow_ns(ns) >= amount, "namespace bridge escrow underfunded"
+
+
+def _validate_xmsg(transaction, block_height):
+    # CROSS-ROLLUP MESSAGE DELIVERY: verify the outbox message is committed in from_ns's SETTLED root,
+    # then let the receiver rollup's exec node deliver it. L1 is the verifier (it holds the settled roots),
+    # exactly like bridge_withdraw — so delivery is deterministic for every receiver node. Fee-exempt; one
+    # delivery per (from_ns, seq) via the nullifier.
+    from execnode import exec_root as ER
+    assert transaction["amount"] == 0, "xmsg carries no L1 amount"
+    # PAID (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27): a lone bonded settler is quorum in a
+    # namespace nobody else settles, so it could settle a made-up root there and deliver unlimited free xmsgs against
+    # it, each a permanent nullifier row. No zero-balance claimant needs this path (unlike the exits), so it pays like
+    # any message. `>= 1` is gen 27's SPAM_HARDEN_HEIGHT at its gen-28 value (deleted), kept because this also runs at
+    # mempool admission with the tip's height, 0 on a genesis tip, where xmsg was still fee-exempt.
+    if block_height is not None and int(block_height) >= 1:
+        assert transaction["fee"] >= MIN_TX_FEE, f"xmsg pays the minimum fee {MIN_TX_FEE}"
+        _xa = get_account(transaction["sender"], create_on_error=False)
+        assert _xa and _xa.get("balance", 0) >= transaction["fee"], "xmsg sender cannot afford the fee"
+    else:
+        assert transaction["fee"] == 0, "xmsg is fee-exempt"
+    data = transaction.get("data") or {}
+    from_ns, to_ns = data.get("from_ns", DEFAULT_NS), data.get("to_ns")
+    msg, proof = data.get("message"), data.get("proof")
+    assert valid_namespace(from_ns) and valid_namespace(to_ns), "xmsg from_ns/to_ns must be valid namespaces"
+    assert isinstance(msg, dict) and isinstance(proof, dict), "bad xmsg message/proof"
+    seq = msg.get("seq")
+    assert isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0, "xmsg message seq must be a non-negative int"
+    assert msg.get("to_ns") == to_ns, "xmsg message.to_ns must match the delivery to_ns"
+    # WINDOWED like dividend/bridge claims (same bug class); the (from_ns, seq) nullifier still
+    # guarantees at-most-once delivery.
+    # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
+    # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
+    # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
+    from ops.settlement_ops import recent_settled_roots
+    _window = recent_settled_roots(from_ns, k=3)
+    assert _window, "sending namespace has no settled root yet"
+    assert any(ER.verify_outbox_msg(_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof)
+               for _c, _root in _window), \
+        "message is not proven against from_ns's settled root window"
+    assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
+
+
+def _validate_dividend_withdraw(transaction, block_height):
+    # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
+    # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,
+    # then releases `amount` from the DIVIDEND_POOL to the claimant. Fee-exempt, self-claimed.
+    from execnode import exec_root as ER
+    assert transaction["amount"] == 0, "dividend_withdraw carries no L1 amount (amount is in data)"
+    assert transaction["fee"] == 0, "dividend_withdraw is fee-exempt"
+    data = transaction.get("data") or {}
+    addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+    assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
+    assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
+    exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
+    assert isinstance(nonce, str) and isinstance(proof, dict), "bad dividend nonce/proof"
+    # WINDOWED settlement validity (2026-08-18): a claim proven against ONLY the newest settled
+    # root died the moment the next settle landed — permanently unminable, rebuilt each epoch, a
+    # growing pool graveyard some peers held and others refused (the dominant residual fork/slow-
+    # block driver). Any of the last K justified roots now proves the claim; the (addr, nonce)
+    # NULLIFIER below still guarantees at-most-once payout. Deterministic: the window is a pure
+    # read of on-chain attestations (see settlement_ops.recent_settled_roots).
+    # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
+    # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
+    # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
+    from ops.settlement_ops import recent_settled_roots
+    _window = recent_settled_roots(k=3)
+    assert _window, "no settled execution-layer root yet"
+    assert any(ER.verify_dividend(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+        "dividend collection is not proven against the settled execution-layer root window"
+    assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
+    pool = get_account(DIVIDEND_POOL, create_on_error=False)
+    assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
+
+
+def _validate_treasury_vote(transaction):
+    # TREASURY GOVERNANCE (doc/treasury.md §3.3): a BONDED validator votes to APPROVE a treasury_spend
+    # proposal. Fee-exempt duty (like `settle`); one vote per (validator, pid). ELIGIBILITY = real bonded
+    # stake (bonded >= B_MIN) — the open, capital-free lane never votes on money (that would reopen the
+    # Sybil faucet). The vote carries the full spend so its id is verifiable + displayable; the id binds
+    # the approval to EXACTLY that payout, so a passing vote can never be redirected.
+    from hashing import treasury_proposal_id
+    from protocol import TREASURY_PROPOSAL_MAX_TTL
+    assert transaction["amount"] == 0, "treasury_vote must have zero amount"
+    assert transaction["fee"] >= MIN_TX_FEE, f"treasury_vote fee below minimum {MIN_TX_FEE}"   # not free -> no spam faucet
+    data = transaction.get("data") or {}
+    spend, pid = data.get("spend") or {}, data.get("pid")
+    sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
+    # recipient: a normal address — or the reserved FAUCET escrow, the one treasury->reserved payout that
+    # makes sense (governance tops up the prize bank; the exec layer mirrors it like a donation).
+    from protocol import FAUCET_ESCROW
+    assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
+        and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
+    assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
+    assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
+    assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
+    assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
+    assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
+    acc = get_account(transaction["sender"], create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "treasury_vote sender is not a bonded validator"
+    assert acc.get("balance", 0) >= transaction["fee"], "treasury_vote sender cannot afford the fee"
+    # the proposal's expiry must be in the future (you can't vote on an already-expired proposal) and no more
+    # than TREASURY_PROPOSAL_MAX_TTL out — bounds stale execution + the size of the live proposal set.
+    assert transaction["max_block"] <= sexpiry <= transaction["max_block"] + TREASURY_PROPOSAL_MAX_TTL, \
+        "proposal expiry must be >= this block and <= this block + TREASURY_PROPOSAL_MAX_TTL"
+    # CHANGE/WITHDRAW: re-voting is allowed and OVERWRITES the prior vote (revert-symmetric in reflect).
+    # "yes" approves at the snapshot weight; "no" withdraws/opposes (counts as 0). Choice is outside the pid
+    # (it's per-vote, not per-proposal), so it never affects which payout the id authorizes.
+    choice = data.get("choice", "yes")
+    assert choice in ("yes", "no"), "treasury_vote choice must be 'yes' or 'no'"
+
+
+def _validate_treasury_execute(transaction):
+    # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
+    # trigger it. Carries a FEE (so an execute-flood — each forces an O(accounts) registry scan — isn't free).
+    # Gated on: the 2/3 bonded quorum, a per-proposal cap vs the CURRENT treasury balance, funding, and a
+    # one-shot nullifier. CHEAP checks run FIRST; the registry-scanning quorum check runs LAST.
+    from hashing import treasury_proposal_id
+    from ops.settlement_ops import treasury_justified
+    from ops.account_ops import get_bonded_registry
+    from ops.mining_ops import epoch_of
+    from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM
+    assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
+    assert transaction["fee"] >= MIN_TX_FEE, f"treasury_execute fee below minimum {MIN_TX_FEE}"
+    data = transaction.get("data") or {}
+    spend, pid = data.get("spend") or {}, data.get("pid")
+    sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
+    # same recipient rule as treasury_vote: normal address, or the FAUCET escrow (prize-bank top-up).
+    from protocol import FAUCET_ESCROW
+    assert isinstance(sr, str) and (sr == FAUCET_ESCROW or (is_address(sr)
+        and sr not in RESERVED_RECIPIENTS)), "treasury spend recipient must be a normal address or 'faucet'"
+    assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
+    assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
+    assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
+    assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
+    assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
+    assert transaction["max_block"] <= sexpiry, "this proposal has expired (past its bound expiry block)"
+    sender_acc = get_account(transaction["sender"], create_on_error=False)
+    assert sender_acc and sender_acc.get("balance", 0) >= transaction["fee"], "treasury_execute sender cannot afford the fee"
+    assert kv_ops.treasury_voters(pid), "no votes recorded for this proposal"          # cheap gate BEFORE the O(N) scan
+    treasury = get_account(TREASURY_ADDRESS, create_on_error=False)
+    bal = treasury.get("balance", 0) if treasury else 0
+    assert bal >= sa, "treasury underfunded for this payout"
+    assert sa * BPS_DENOM <= bal * TREASURY_MAX_SPEND_BPS, "treasury spend exceeds the per-proposal cap (% of balance)"
+    assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["max_block"])), \
+        "treasury proposal has not reached the bonded quorum"
+
+
+def _validate_htlc_lock(transaction):
+    # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
+    data = transaction.get("data") or {}
+    h = transaction["max_block"]                          # deterministic landing height (mempool == build)
+    assert transaction["amount"] > 0, "HTLC lock amount must be positive"
+    assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
+    claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
+    assert isinstance(claimant, str) and is_address(claimant), "bad HTLC claimant address"
+    assert claimant != transaction["sender"], "HTLC claimant must differ from the sender"
+    assert isinstance(hashlock, str) and len(hashlock) == 64 and _is_hex(hashlock), "HTLC hashlock must be 32-byte SHA-256 hex"
+    assert isinstance(expiry, int) and not isinstance(expiry, bool), "HTLC expiry must be an int block height"
+    assert h + HTLC_MIN_TIMELOCK <= expiry <= h + HTLC_MAX_TIMELOCK, "HTLC expiry outside the allowed timelock window"
+
+
+def _validate_htlc_claim(transaction):
+    # HTLC CLAIM: reveal the preimage before expiry. Fee-EXEMPT so a zero-balance claimant can still claim.
+    import hashlib
+    data = transaction.get("data") or {}
+    h = transaction["max_block"]
+    assert transaction["amount"] == 0, "htlc_claim carries no amount"
+    assert transaction["fee"] == 0, "htlc_claim is fee-exempt"
+    hid, preimage = data.get("htlc_id"), data.get("preimage")
+    assert isinstance(hid, str) and hid, "bad HTLC id"
+    assert _is_hex(preimage) and len(preimage) <= 128, "HTLC preimage must be hex (<= 64 bytes)"
+    doc = kv_ops.htlc_get(hid)
+    assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
+    assert transaction["sender"] == doc["claimant"], "only the claimant may claim this HTLC"
+    assert h < int(doc["expiry"]), "HTLC has expired — the claim window is closed"
+    assert hashlib.sha256(bytes.fromhex(preimage)).hexdigest() == doc["hashlock"], "preimage does not match the hashlock"
+
+
+def _validate_htlc_refund(transaction):
+    # HTLC REFUND: the original sender reclaims an unclaimed lock after expiry. Fee-EXEMPT.
+    data = transaction.get("data") or {}
+    h = transaction["max_block"]
+    assert transaction["amount"] == 0, "htlc_refund carries no amount"
+    assert transaction["fee"] == 0, "htlc_refund is fee-exempt"
+    hid = data.get("htlc_id")
+    assert isinstance(hid, str) and hid, "bad HTLC id"
+    doc = kv_ops.htlc_get(hid)
+    assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
+    assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
+    assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
+
+
+def _validate_invite(transaction, block_height):
+    validate_invite(transaction, block_height)
+
+
+def _validate_shield(transaction, block_height):
+    # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitment(s).
+    assert transaction["amount"] > 0, "shield amount must be positive"
+    assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
+    data = transaction.get("data") or {}
+    if data.get("field"):                                        # Phase-2 field-native note (single commitment)
+        field_shield_check(data, block_height)
+    else:                                                        # transparent-phase note openings
+        assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
+
+
+def _validate_unshield(transaction, block_height):
+    # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
+    from execnode import exec_root as ER
+    assert transaction["amount"] == 0, "unshield carries no L1 amount (amount is in data)"
+    assert transaction["fee"] == 0, "unshield is fee-exempt"
+    data = transaction.get("data") or {}
+    addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+    assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
+    assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
+    exit_amount_check(amount, block_height)       # no amount + k*P aliasing (review 2026-09-24)
+    assert isinstance(nonce, str) and isinstance(proof, dict), "bad unshield nonce/proof"
+    # WINDOWED like the other settlement-proven claims (same bug class); the (addr, nonce)
+    # nullifier still guarantees at-most-once release.
+    # LONE-SETTLER DRAIN (audit 2026-09-25 HIGH): the window is only as strong as settlement_justified, whose stake
+    # floor (protocol.SETTLE_FLOOR_NUM/DEN of all bonded) is what stops one fresh 10-NADO bond settling a made-up root and
+    # proving this exit against it. INVARIANT: read the settled roots through recent_settled_roots only.
+    from ops.settlement_ops import recent_settled_roots
+    _window = recent_settled_roots(k=3)
+    assert _window, "no settled execution-layer root yet"
+    assert any(ER.verify_unshield(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+        "unshield is not proven against the settled execution-layer root window"
+    assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
+    escrow = get_account(SHIELD_ESCROW, create_on_error=False)
+    assert escrow and escrow.get("balance", 0) >= amount, "shield escrow underfunded"
 
 
 
