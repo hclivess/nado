@@ -429,8 +429,8 @@ ABI = {
 }
 
 
-def build():
+def build(isa="v1"):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("join", "reveal", "settle", "reclaim", "cancel")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)

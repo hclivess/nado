@@ -421,8 +421,8 @@ ABI["_view"]["board3"] = {"name": "rs1", "base": RS1_BASE, "cells": 100, "stride
 ABI["_view"]["board4"] = {"name": "rs2", "base": RS2_BASE, "cells": 100, "stride": 100, "index": "games"}
 
 
-def build():
+def build(isa="v1"):
     src = dict(SRC)
     src["answer"] = "\n".join(_answer())
     src["claim"] = "\n".join(_claim())
-    return zkvmasm.assemble_contract(src)
+    return zkvmasm.assemble_contract(src, isa)

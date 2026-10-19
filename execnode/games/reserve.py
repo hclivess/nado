@@ -46,7 +46,7 @@ def _c(m, field, vid):
     return m.slot(field, vid)
 
 
-def build():
+def build(isa="v1"):
     c = zkpy.Contract()
 
     # open(vid, asset, supply, notice)[native] — claim a vault and seed it.
@@ -177,7 +177,7 @@ def build():
         m.pay(m.caller(), amt * UNIT)
         m.ret(amt)
 
-    return c.build()
+    return c.build(isa)
 
 
 ABI = {

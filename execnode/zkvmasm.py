@@ -45,18 +45,30 @@ def _reg(tok):
     return int(tok[1])
 
 
-def _imm(tok):
+def _imm(tok, bits=64):
     try:
         v = int(tok, 0)
     except ValueError:
         raise zkvm.ZkVMError(f"bad immediate {tok!r}")
-    if not (0 <= v < 2**64):
+    if not (0 <= v < 2**bits):
         raise zkvm.ZkVMError(f"immediate out of range {tok!r}")
     return v
 
 
-def assemble(text):
-    """Assemble one method body. Returns the instruction list ready for zkvm.validate_code."""
+# THE TWO INSTRUCTION SETS (Goldilocks retirement G3, doc/stwo/g3-vm-word.md). isa="v1" is zkvm.py, byte-identical to
+# what this assembler always produced (tests/test_the_256_bit_vm_matches_the_old_vm_wherever_no_value_wraps.py's
+# sibling, test_every_contract_assembles_unchanged_for_the_old_vm, pins it for all 27 contracts); isa="v2" is the
+# generation-29 zkvm2.py: `hash` absorbs with ONE HABS per source and no round opcodes, `lt`/`gte` emit no RANGE (LT is
+# sound over the whole word), immediates may use all 256 bits. The SOURCE of every contract is the same text for both.
+ISAS = ("v1", "v2")
+
+
+def assemble(text, isa="v1"):
+    """Assemble one method body. Returns the instruction list ready for zkvm.validate_code (isa="v1") or
+    zkvm2.validate_code (isa="v2")."""
+    if isa not in ISAS:
+        raise zkvm.ZkVMError(f"unknown isa {isa!r}")
+    v2 = isa == "v2"
     # pass 1: expand macros into (op, d, s, imm-or-("@", label)) tuples, record label positions
     out, labels = [], {}
     for raw in text.splitlines():
@@ -75,15 +87,16 @@ def assemble(text):
             out.append(["HINIT", 0, 0, 0])
             for stok in toks[3:]:
                 out.append(["HABS", 0, _reg(stok), 0])
-                for h in _HR:
-                    out.append([h, 0, 0, 0])
+                if not v2:                                     # v2: HABS is the whole BLAKE2s compression
+                    for h in _HR:
+                        out.append([h, 0, 0, 0])
             out.append(["HOUT", d, 0, 0])
         elif op == "SLOT":                                     # slot rd <field> rk  ->  rd = field*2^32 + rk
             # Composite integer storage addressing (doc/zk-execution-proofs.md game model): a game's map
             # entry lives at slot = field_id * 2^32 + key. field_id*2^32 is a COMPILE-TIME constant (one MOVI)
             # so a slot address costs just MOVI+ADD, and the frontend computes the identical slot from
             # (field, key) with no hashing. Keys (game/table/seat ids) are frontend ints < 2^32 -> enumerable.
-            d = _reg(toks[1]); field = _imm(toks[2]); k = _reg(toks[3])
+            d = _reg(toks[1]); field = _imm(toks[2], 256 if v2 else 64); k = _reg(toks[3])
             out.append(["MOVI", d, 0, field << 32])
             out.append(["ADD", d, k, 0])
         elif op == "LT":                                       # lt d s  ->  range d ; range s ; LT d s
@@ -92,13 +105,15 @@ def assemble(text):
             # cannot emit an un-bounded compare, and RANGE reverts on any operand >= 2^62 (never a real
             # amount/id/roll; a full-field value must be windowed with lo32/rem before comparison).
             d, s = _reg(toks[1]), _reg(toks[2])
-            out.append(["RANGE", d, 0, 0])
-            out.append(["RANGE", s, 0, 0])
+            if not v2:                                         # v2: LT is exact over the whole word on its own
+                out.append(["RANGE", d, 0, 0])
+                out.append(["RANGE", s, 0, 0])
             out.append(["LT", d, s, 0])
         elif op == "GTE":                                      # gte d s  ->  range d ; range s ; LT d s ; notb d
             d, s = _reg(toks[1]), _reg(toks[2])
-            out.append(["RANGE", d, 0, 0])
-            out.append(["RANGE", s, 0, 0])
+            if not v2:
+                out.append(["RANGE", d, 0, 0])
+                out.append(["RANGE", s, 0, 0])
             out.append(["LT", d, s, 0])
             out.append(["NOTB", d, 0, 0])
         elif op in ("REM", "MOD", "REMW"):                     # rem[w] d s  ->  d = d % s  (remainder to dest)
@@ -144,7 +159,7 @@ def assemble(text):
             s = _reg(toks[1]) if op == "JNZ" else 0
             out.append([op, 0, s, ("@", tgt[1:])])
         elif op == "MOVI":
-            out.append(["MOVI", _reg(toks[1]), 0, _imm(toks[2])])
+            out.append(["MOVI", _reg(toks[1]), 0, _imm(toks[2], 256 if v2 else 64)])
         elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "DIVMOD", "DIVMODW", "SLOAD", "SSTORE", "PAY",
                     "ARG"):
             out.append([op, _reg(toks[1]), _reg(toks[2]), 0])
@@ -168,8 +183,12 @@ def assemble(text):
     return out
 
 
-def assemble_contract(methods):
-    """{method: asm text} -> validated zkVM code object."""
-    code = {m: assemble(t) for m, t in methods.items()}
-    zkvm.validate_code(code)
+def assemble_contract(methods, isa="v1"):
+    """{method: asm text} -> validated zkVM code object for `isa` (v1 = zkvm.py, v2 = the gen-29 zkvm2.py)."""
+    code = {m: assemble(t, isa) for m, t in methods.items()}
+    if isa == "v2":
+        from execnode import zkvm2
+        zkvm2.validate_code(code)
+    else:
+        zkvm.validate_code(code)
     return code

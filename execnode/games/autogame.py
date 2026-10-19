@@ -1074,7 +1074,7 @@ def _resolve_legs(m):
 
 
 # ── methods ──────────────────────────────────────────────────────────────────────────────────────
-def build():
+def build(isa="v1"):
     _LBL[0] = 0                                   # deterministic label numbering across rebuilds
     c = zkpy.Contract()
 
@@ -1334,7 +1334,7 @@ def build():
                                   max_n=DAILY_HEAD + DAILY_STEPS, max_score=DAILY_MAX_SCORE, e_ts=E_TS))
     c.asm("anchor", _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST))
 
-    return c.build()
+    return c.build(isa)
 
 
 # ── the rules, emitted for the browser ───────────────────────────────────────────────────────────

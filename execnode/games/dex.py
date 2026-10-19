@@ -54,7 +54,7 @@ MIN_SEED = 1000                    # units each side must stage to SEED a pool (
 FEE_NUM, FEE_DEN = 9970, 10000
 
 
-def build():
+def build(isa="v1"):
     c = zkpy.Contract()
 
     # open(pid, asset) — claim a pool id for a NADO/asset pair. Carries no value; an empty pool is just a
@@ -280,7 +280,7 @@ def build():
         m.pay(m.caller(), out * UNIT)
         m.ret(out)
 
-    return c.build()
+    return c.build(isa)
 
 
 ABI = {

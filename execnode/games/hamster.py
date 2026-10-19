@@ -429,11 +429,11 @@ ABI["_view"]["board3"] = {"name": "od", "base": OD_BASE, "cells": NH, "stride": 
 ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": NH, "stride": NH, "index": "races"}
 
 
-def build():
+def build(isa="v1"):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("bet", "settle", "claim", "void", "book", "quote", "back", "bclaim", "bsweep", "claimable_of")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
 
 
 def carry_in_flight(storage):

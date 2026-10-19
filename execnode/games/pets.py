@@ -1252,7 +1252,7 @@ ABI = {
 }
 
 
-def build():
+def build(isa="v1"):
     src = dict(SRC)
     src["hatch"] = "\n".join(_hatch())
     src["train_resolve"] = "\n".join(_train_resolve())
@@ -1261,7 +1261,7 @@ def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "reveal_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
 
 
 # ---- reroll carry (tools/alphanet6_carryforward.carry_policy, doc/stwo-migration.md §6.2) ------------------------

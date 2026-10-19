@@ -152,7 +152,7 @@ def escrow_refunds(storage, zk_addrs):
     return out
 
 
-def build():
+def build(isa="v1"):
     c = zkpy.Contract()
 
     # post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf) [VALUE = namt for ASK_NADO]
@@ -541,7 +541,7 @@ def build():
         m.label("bdone")
         m.ret(esc)
 
-    return c.build()
+    return c.build(isa)
 
 
 ABI = {
