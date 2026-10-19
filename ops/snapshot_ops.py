@@ -597,7 +597,66 @@ def _root_from_inc(home=None):
         lv = st["leaves"][name]
         for k in st["keys"][name]:
             ext(lv[k])
-    return _merkle_from_leaves(flat)
+    root, st["levels"] = _fold_levels(st.get("levels"), flat)
+    return root
+
+
+def _changed_positions(old, new):
+    """indices of `new` whose digest differs from `old` at the same index, plus every index past old's end.
+    Compared in slices first (C speed, identity-short-circuited — an untouched key keeps the same digest object),
+    so a block that changed a handful of rows costs a few slice compares, not a Python loop over every leaf."""
+    lo, out, step = min(len(old), len(new)), [], 512
+    for a in range(0, lo, step):
+        b = min(a + step, lo)
+        if old[a:b] != new[a:b]:
+            first = next(i for i in range(a, b) if old[i] != new[i])
+            if len(old) != len(new):
+                return range(first, len(new))     # an insert/delete shifted everything after it: no point comparing
+            out.extend(i for i in range(first, b) if old[i] != new[i])
+    out.extend(range(lo, len(new)))
+    return out
+
+
+def _fold_levels(levels, flat):
+    """(root, levels): _merkle_from_leaves(flat), BIT-IDENTICAL, re-hashing only the pairs whose inputs changed
+    since `levels` (the previous call's tree, level 0 = its flat leaf list; None = fold everything).
+
+    WHY (2026-10-19): the incremental root kept the LEAVES current but re-folded the whole tree every block — ~2N
+    blake2b calls, 57 ms of the relay's 57 ms incremental root and the largest node cost in a resync, growing with
+    the state. Most blocks only change values (balances, counters): positions do not move, so only the k changed
+    leaves' paths to the top are re-hashed, O(k log N). An insertion or deletion shifts every later position and
+    re-hashes from there on — never more than the full fold.
+    THE ARGUMENT, per level: pair j hashes elements 2j and 2j+1 (or 2j twice when 2j is the last, odd element).
+    If neither index changed and both exist in the old and new level alike, the pair is unchanged and is copied.
+    So the next level's changed set is {i // 2 for changed i}, plus every pair past the old level's end, plus the
+    last pair whenever the level's length changed (its partner, or its padding, may differ though no element did).
+    tests/test_the_incremental_state_root_refolds_only_what_changed.py checks it against _merkle_from_leaves over
+    random edit sequences; trust mode's periodic walk cross-checks it on live data."""
+    if not flat:
+        return _blake2b(b""), None
+    new_levels = [flat]
+    changed = range(len(flat)) if not levels else _changed_positions(levels[0], flat)
+    lvl, k, h = flat, 0, hashlib.blake2b
+    while len(lvl) > 1:
+        n, m = len(lvl), (len(lvl) + 1) // 2
+        old_next = levels[k + 1] if levels and k + 1 < len(levels) and levels[k + 1] else None
+        if old_next is None:
+            nxt, todo = [None] * m, range(m)
+        else:
+            todo = {i >> 1 for i in changed}
+            todo.update(range(len(old_next), m))
+            if n != len(levels[k]):
+                todo.add((n - 1) >> 1)
+            nxt = old_next[:m]
+            if m > len(nxt):
+                nxt.extend([None] * (m - len(nxt)))
+            todo = sorted(todo)
+        for j in todo:
+            a = lvl[2 * j]
+            nxt[j] = h(a + (lvl[2 * j + 1] if 2 * j + 1 < n else a), digest_size=32).digest()
+        new_levels.append(nxt)
+        changed, lvl, k = todo, nxt, k + 1
+    return lvl[0].hex(), new_levels
 
 
 def _root_current(home=None):
