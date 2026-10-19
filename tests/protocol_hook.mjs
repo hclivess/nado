@@ -17,6 +17,11 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PY = "import atexit,os,shutil,sys,tempfile\n" +
   "h=tempfile.mkdtemp(prefix='nado-protojs-'); os.environ['HOME']=h; atexit.register(shutil.rmtree,h,True)\n" +
   "sys.path.insert(0, sys.argv[1])\n" +
+  // NADO_TEST_PROTOCOL_OVERRIDES (tests only, a JSON object): protocol constants set before rendering, so a Python
+  // test that runs as another generation (e.g. BLAKE_EXEC_HEIGHT = 1, the gen-29 VM) hands the SAME generation to the
+  // browser code it drives — the client and the contract must never run different generations in one test
+  "import json, protocol\n" +
+  "for k, v in json.loads(os.environ.get('NADO_TEST_PROTOCOL_OVERRIDES') or '{}').items(): setattr(protocol, k, v)\n" +
   "from ops.client_protocol import render_js\n" +
   "sys.stdout.write(render_js().decode('utf-8'))\n";
 export const PROTOCOL_JS = execFileSync(process.env.NADO_TEST_PYTHON || "python3", ["-c", PY, ROOT], { encoding: "utf8" });

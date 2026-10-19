@@ -2695,4 +2695,7 @@ CLIENT_EXPORTS = (
     # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
     # dormant, which /protocol.js carries as a BigInt
     "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "CHAIN_GENERATION",
+    # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
+    # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js, like STWO_POOL_HEIGHT)
+    "BLAKE_EXEC_HEIGHT",
 )

@@ -19,7 +19,8 @@ import * as alghash from "./alghash.js";
 // protocol.py it runs) — never copied here. Every game page is served by a relay, so this adds no trust the page did
 // not already place in it. Re-exported so a game imports them from the SDK like everything else (BLOCK_TIME for its
 // countdowns, EPOCH_LENGTH for beacon seats); tests/test_constant_mirrors.py refuses a literal copy anywhere in static/.
-import { EPOCH_LENGTH, BLOCK_TIME, DENOMINATION, ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM } from "/protocol.js";
+import { EPOCH_LENGTH, BLOCK_TIME, DENOMINATION, ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM, BLAKE_EXEC_HEIGHT } from "/protocol.js";
+import { hashWords } from "./blake2s.js";
 export { loadCrypto, blake2bHash, EPOCH_LENGTH, BLOCK_TIME };
 
 export const RAW = BigInt(DENOMINATION);       // 1 NADO = 1e10 raw units (protocol.DENOMINATION)
@@ -228,24 +229,37 @@ export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypt
 // chainResultAlg: the zkVM-era beacon result, byte-matching the ported contracts' in-VM alghash HASH +
 // LO32 window. The contract computes ws = alghash.hashn([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod P])'s low
 // 32 bits % mod. BLOCKHASH enters the VM reduced mod P, so the client reduces each block hash mod P too.
+// THE GENERATION'S VM (Goldilocks retirement G3). On the gen-29 chain the contracts run on the 256-bit zkvm2: their HASH is
+// a BLAKE2s word chain (static/blake2s.js hashWords == execnode/zkvm2.hash_words) and their word wraps at 2^256, and a
+// block hash enters the VM whole. vmV2() is the client half of zkvmasm.default_isa: BLAKE_EXEC_HEIGHT == 1 means the
+// whole generation runs v2. Every helper below follows it, so a page shows exactly the roll the chain will settle.
+// INVARIANT: a game page never calls alghash directly — only through these helpers.
+export const vmV2 = () => BigInt(BLAKE_EXEC_HEIGHT) === 1n;
+const WORD = 1n << 256n;
 let _algReady = false;
 function _ensureAlg() { if (!_algReady) { alghash.initAlghash(blake2bHash); _algReady = true; } }
 export function chainResultAlg(shHex, sh1Hex, salt, mod) {
   if (!shHex || !sh1Hex) return null;
+  if (vmV2()) {
+    const seed = (BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt)) % WORD;
+    return Number((hashWords([seed]) & 0xFFFFFFFFn) % BigInt(mod));
+  }
   _ensureAlg();
   const P = alghash.P;
   const seed = ((BigInt("0x" + shHex) % P) + (BigInt("0x" + sh1Hex) % P) + (BigInt(salt) % P)) % P;
   const h = alghash.hashn([seed]);
   return Number((h & 0xFFFFFFFFn) % BigInt(mod));   // LO32 window, then % mod (matches DIVMOD in the contract)
 }
-// algHashn(elements): the raw in-VM alghash HASH for games that build their own field-native structures
-// (e.g. battleship's merkle-sum board). Accepts BigInt/Number/string, reduces mod P, matches hashn exactly.
+// algHashn(elements): the raw in-VM HASH for games that build their own structures (e.g. battleship's merkle-sum
+// board). Accepts BigInt/Number/string, reduces into the generation's word, matches the contract's `hash` exactly.
 export function algHashn(elements) {
+  if (vmV2()) return hashWords(elements.map((x) => ((BigInt(x) % WORD) + WORD) % WORD));
   _ensureAlg();
   const P = alghash.P;
   return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
 }
-export const ALG_P = () => alghash.P;
+// the modulus a page reduces by: the Goldilocks prime on gen 28, 2^256 (the wrapping word) on gen 29
+export const ALG_P = () => (vmV2() ? WORD : (_ensureAlg(), alghash.P));
 // blocksToTime(blocks): a block count as elapsed time at the given block time (default 6s). A few minutes
 // reads best as m:ss, but a swap window of two days does NOT read as "3809:18" — above an hour it switches
 // to the units people actually use. Short game countdowns are unchanged.
