@@ -295,8 +295,8 @@ else:
         ok_w = all(r[2] + 1 == ref_slot(int(a), int(b), int(g)) for r, (a, b, g) in zip(js["rows"], pairs))
         check("client preview chainResultAlg(s1, s2, g, 2) == contract winner", ok_w)
         fs = int(js["fresh"])
-        check("a fresh client secret is a field element and its commitment matches the VM",
-              0 <= fs < F.P and int(js["freshC"]) == H(fs))
+        check("a fresh client secret is a word of the generation's VM and its commitment matches the VM",
+              0 <= fs < _lib.vm_mod() and int(js["freshC"]) == H(fs))
         # and the VM accepts that browser-made commitment end to end
         st, cid = started(31, fs, S2)
         st.contracts[cid]["storage"]["slots"][str(CF.C1 * (1 << 32) + 31)] = int(js["freshC"])
