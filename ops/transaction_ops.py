@@ -1802,6 +1802,42 @@ class WindowUnavailable(ProofUnavailable):
 
 
 
+def settle_chain_reads_check(proof, block_height):
+    """The settle-with-proof CHAIN-READ binding, moved here verbatim from _validate_settle (2026-10-20) so it can be
+    tested on its own: every BHASH/BEACON value the proof's io claims must equal the finalized chain at this block.
+    Raises AssertionError like the branch it came from. tests/test_a_settle_proof_cannot_swap_a_chain_read.py — the
+    soundness suite had no test that swaps a chain read and expects the refusal (found mapping the settle statement)."""
+    from execnode.stark import settlement_sparse as SS
+    # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
+    # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
+    # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
+    # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
+    # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
+    # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
+    from execnode.stark import field as _F
+    from execnode import zkvm as _zkvm
+    from execnode.state import ExecState as _ExecState
+    from ops.block_ops import get_block_hash_by_number as _bhash
+    from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
+    _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
+    for _kind, _key, _val in SS.chain_reads(proof):
+        assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
+        if _kind == _zkvm.IO_BHASH:
+            assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
+            _bh = _bhash(_key)
+            assert _bh, "Settle proof BHASH height unavailable on chain"
+            assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
+        elif _kind == _zkvm.IO_BEACON:
+            assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
+            # INVARIANT: the same function the exec node computes BEACON with (ExecState.exec_beacon_at,
+            # protocol.BEACON_EXTEND_HEIGHT), read at this block's finalized position
+            _bv = _ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)
+            assert _bv is not None, "Settle proof BEACON epoch is not finalized"
+            assert _bv % _F.P == _val, "Settle proof BEACON does not match the finalized chain"
+        else:
+            raise AssertionError("unknown chain-read kind in settle proof")
+
+
 def settle_proof_io_check(proof, records_bound, block_height):
     """What a settle proof's io log may carry, judged at `block_height`. Raises AssertionError on refusal.
 
@@ -2779,34 +2815,7 @@ def _validate_settle(transaction, block_height, deep):
         post_full = ER.full_root_hex(SST.digest_from_hex(kv_post_claim), SST.digest_from_hex(rec_post_hex))
         assert pre_full == expected_pre, "Settle proof pre_root must extend the settled tip"
         assert post_full == root, "Settle proof post_root must equal state_root"
-        # CHAIN-RANDOMNESS SOUNDNESS: the STARK only proves the computation is CONSISTENT with the
-        # BHASH/BEACON values in the bundle's io log — a malicious prover may put ANY value there. Bind
-        # every chain read to THIS node's authoritative finalized chain (block hash at height / exec
-        # beacon of epoch — both pure functions of the finalized chain, so every node agrees), exactly as
-        # the interactive verifier does (execnode /exec/verify_state). Without this a bonded validator
-        # could settle-with-proof a state built on attacker-chosen dice/wheel/beacon outcomes.
-        from execnode.stark import field as _F
-        from execnode import zkvm as _zkvm
-        from execnode.state import ExecState as _ExecState
-        from ops.block_ops import get_block_hash_by_number as _bhash
-        from protocol import EPOCH_LENGTH as _EL, FINALITY_DEPTH as _FD
-        _fin = int(block_height) - _FD - 1                    # highest position that is finalized & immutable now
-        for _kind, _key, _val in SS.chain_reads(proof):
-            assert 0 <= _val < _F.P, "Settle proof chain read value out of field"
-            if _kind == _zkvm.IO_BHASH:
-                assert 0 <= _key <= _fin, "Settle proof BHASH height is not finalized"
-                _bh = _bhash(_key)
-                assert _bh, "Settle proof BHASH height unavailable on chain"
-                assert int(_bh, 16) % _F.P == _val, "Settle proof BHASH does not match the finalized chain"
-            elif _kind == _zkvm.IO_BEACON:
-                assert 0 <= _key and _key * _EL <= _fin, "Settle proof BEACON epoch is not finalized"
-                # INVARIANT: the same function the exec node computes BEACON with (ExecState.exec_beacon_at,
-                # protocol.BEACON_EXTEND_HEIGHT), read at this block's finalized position
-                _bv = _ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)
-                assert _bv is not None, "Settle proof BEACON epoch is not finalized"
-                assert _bv % _F.P == _val, "Settle proof BEACON does not match the finalized chain"
-            else:
-                raise AssertionError("unknown chain-read kind in settle proof")
+        settle_chain_reads_check(proof, block_height)   # BHASH/BEACON == the finalized chain (see the function)
         # DA BINDING — PRUNE-SAFE. The old check read every block BODY in the span via get_block_number,
         # which returns False on a pruned node and the body on an archive node, so the same tx validated
         # differently across the fleet -> consensus FORK (and because these are bare asserts, the pruned
