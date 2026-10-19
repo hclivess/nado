@@ -50,6 +50,29 @@ def vm_mod(isa=None):
     return F.P
 
 
+INV32_FIELD = 18446744065119617026     # the Goldilocks inverse of 2^32 — the v1 "exact hi half" idiom's constant
+
+
+def port_inv32(text):
+    """A v1 method's `x - lo32(x)` -> hi idiom, ported to the v2 word: `movi rA <inv 2^32> ; mul rB rA` (multiply the
+    exact multiple of 2^32 by the field inverse) becomes `movi rA 2^32 ; divmod rB rA` (divide it, exact on the 256-bit
+    word, which has no inverse of 2^32). For x < 2^64 — the secrets and genes the browser halves carry — hi is the same
+    value. DIVMOD writes its remainder (0) to r7: the caller has checked nothing after the split reads r7, and rB may not
+    be r7 (asserted). Every replacement is counted; a method that does not contain the idiom is refused, so a builder
+    cannot declare a port that does nothing."""
+    import re
+    pat = re.compile(r"movi (r\d) " + str(INV32_FIELD) + r"([^\n]*)\n(\s*)mul (r\d) \1\b")
+
+    def sub(m):
+        if m.group(4) == "r7":
+            raise ValueError("port_inv32: the multiply target is r7, which DIVMOD overwrites with the remainder")
+        return f"movi {m.group(1)} 4294967296{m.group(2)}\n{m.group(3)}divmod {m.group(4)} {m.group(1)}"
+    out, n = pat.subn(sub, text)
+    if n == 0:
+        raise ValueError("port_inv32: no `movi rA <inv 2^32> ; mul rB rA` idiom in this method")
+    return out
+
+
 def id_guard(reg="r0", limit=1 << 32, scratch=("r4", "r5")):
     """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
     instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:

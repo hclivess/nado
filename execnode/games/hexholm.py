@@ -629,8 +629,16 @@ ABI = {
 }
 
 
+# methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
+# reveal splits the secret into browser halves with the field inverse of 2^32 on v1, a divide on v2 (_lib.port_inv32)
+ISA_DIVERGENT_METHODS = ("reveal",)
+
+
 def build(isa=None):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "reveal", "leave", "cancel", "abort")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    src = SRC
+    if (isa or zkvmasm.default_isa()) == "v2":
+        src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)

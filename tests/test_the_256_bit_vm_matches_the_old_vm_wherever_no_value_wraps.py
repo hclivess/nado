@@ -149,4 +149,34 @@ T.check("5a. replay_io accepts the run's own log: the same storage, payout and r
         and ok[2] == {9: 1 << 255} and ok[3] == [(1 << 255, 9)])
 bad = list(r[3]); bad[1] = (V2.IO_SLOAD, 9, 5)
 T.check("5b. replay_io rejects a log whose read does not match the state", V2.replay_io(bad, {})[0] is False)
+# ---- 6: the ported "exact hi half" idiom (games/_lib.port_inv32 — hexholm/stormhold reveal) equals the v1 one
+from execnode import zkvmasm
+from execnode.games import _lib, hexholm, stormhold
+IDIOM = """
+    mov r6 r1
+    lo32 r6
+    mov r5 r1
+    sub r5 r6
+    movi r7 18446744065119617026
+    mul r5 r7
+    ret r5
+"""
+p1 = zkvmasm.assemble(IDIOM, "v1")
+p2 = zkvmasm.assemble(_lib.port_inv32(IDIOM), "v2")
+xs = [0, 1, (1 << 32) - 1, 1 << 32, (1 << 64) - 2 ** 32 - 1] + [rnd.randrange(1 << 64) % V1.F.P for _ in range(2000)]
+mism = [x for x in xs if V1.run({"m": p1}, "m", 1, [0, x], {})[1] != V2.run({"m": p2}, "m", 1, [0, x], {})[1]
+        or V2.run({"m": p2}, "m", 1, [0, x], {})[1] != x >> 32]
+T.check(f"6a. the ported hi-half idiom equals the v1 one (and x >> 32) for {len(xs)} secrets below 2^64", not mism, mism[:3])
+try:
+    _lib.port_inv32("    movi r1 5\n    ret r1\n"); refused = False
+except ValueError:
+    refused = True
+T.check("6b. port_inv32 refuses a method without the idiom (a declared port that changes nothing)", refused)
+try:
+    _lib.port_inv32("    movi r3 18446744065119617026\n    mul r7 r3\n"); refused7 = False
+except ValueError:
+    refused7 = True
+T.check("6c. port_inv32 refuses a multiply into r7 (DIVMOD's remainder would overwrite it)", refused7)
+T.check("6d. hexholm's and stormhold's v2 reveal carry no field inverse", all(
+    18446744065119617026 not in [i[3] for i in m.build("v2")["reveal"]] for m in (hexholm, stormhold)))
 T.done("ALL PASS — the 256-bit VM matches the old VM wherever no value wraps")
