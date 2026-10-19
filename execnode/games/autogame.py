@@ -797,7 +797,12 @@ def _noncombat(m):
     _s(m, S_T5).set(_r(m, RMX).get() + 4 * _s(m, S_T5).get())          # the bloodlust factor, x1..x5
     _s(m, S_T4).set(_s(m, S_T4).get() * _s(m, S_T5).get() // _r(m, RMX).get())
     _s(m, S_T0).set(_s(m, S_ACT).get() == A_STRIKE)
-    _s(m, S_T1).set((_s(m, S_ACT).get() == A_POTION) * (_r(m, RPO).get() > 0))
+    # THE OFFERING IS THE IDOL'S (2026-10-19): this flag spends a flask, so it carries `idol` itself. It used to be
+    # gated only through S_T4 — the XP — which left `potions -= 1` firing on EVERY non-combat tile answered with
+    # Potion: the explicit drink took one and this took a second, where the model and the browser engine took one
+    # (found running the reference test as generation 29; 110 of 119 random runs diverged on the live contract).
+    # INVARIANT: every effect of a tile's block is multiplied by that tile's flag.
+    _s(m, S_T1).set((_s(m, S_ACT).get() == A_POTION) * (_r(m, RPO).get() > 0) * idol)
     _s(m, S_T2).set(_s(m, S_T0).get() + 3 * _s(m, S_T1).get())         # smash x1, offer x3
     _r(m, RXP).set(_r(m, RXP).get() + _s(m, S_T4).get() * _s(m, S_T2).get())
     _r(m, RPO).set(csub(_r(m, RPO).get(), _s(m, S_T1).get()))

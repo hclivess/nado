@@ -24,10 +24,9 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from execnode.games import _lib   # the contract's hash and word, per generation
 from execnode import runtimes, zkvm
 from execnode.games import autogame as A
-from execnode.stark import alghash
-from execnode.stark import field as F
 from tests import autogame_model as M
 
 fails = 0
@@ -50,13 +49,17 @@ BH = {h: int.from_bytes(hashlib.blake2b(b"autogame:%d" % h, digest_size=8).diges
 
 
 def _call(meth, args, storage, caller=1234, cursor=0, timestamp=0):
+    # the generation's VM, as the runtime picks it (zkvm2 for v2 code on gen 29, zkvm otherwise) — running v2 code on
+    # the v1 interpreter is a different machine, not a test of the contract
+    from execnode import zkvm2, zkvmasm
+    vm = zkvm2 if zkvmasm.default_isa() == "v2" else zkvm
     cf, fa = runtimes.zkvm_statement(caller, args, {})
-    return zkvm.run(CODE, meth, cf, fa, storage, cursor=cursor, timestamp=timestamp, block_hashes=BH)
+    return vm.run(CODE, meth, cf, fa, storage, cursor=cursor, timestamp=timestamp, block_hashes=BH)
 
 
 def _words(height_hash, run_id, i):
     """Exactly what the contract computes: lo32(alghash(BHASH(h), runId, i))."""
-    return alghash.hashn([height_hash % F.P, run_id, i]) & 0xFFFFFFFF
+    return _lib.vm_hash([height_hash % _lib.vm_mod(), run_id, i]) & 0xFFFFFFFF
 
 
 def _contract_state(st, rid):
@@ -88,7 +91,7 @@ def _answer_cells(st, rid, leg):
     mirrors the animator replays a settled leg from. A commit half that STANDS DOWN has to leave all three
     exactly as it found them — "no dice were scheduled" cannot see a stale word landing in the answer slot
     of a leg it was never written for, which is the whole thing the select-gating protects."""
-    return (st.get(alghash.hashn([A.OVR_TAG, rid, leg]), 0),
+    return (st.get(_lib.vm_hash([A.OVR_TAG, rid, leg]), 0),
             st.get(A.RCW * (1 << 32) + rid, 0),
             st.get(A.RCL * (1 << 32) + rid, 0))
 
@@ -177,6 +180,18 @@ def t_every_reaction():
           A.SHRINE: A.A_RALLY, A.FORGE: A.A_REST, A.RELIC: A.A_POTION, A.FORK: A.A_RIGHT,
           A.BOSS: A.A_STRIKE}
     drive(12, cm, legs=6, agg=3)
+
+
+def t_a_potion_off_the_idol_costs_one_flask():
+    """Answering Potion on a non-combat tile that is not the idol is ONE drink — one flask. The contract's idol
+    offering spent a second flask on every such tile (its potion cost was not gated by the idol flag), so the chain
+    took two where the model and the browser engine took one; t_every_reaction's dice never produced the case, so
+    it shipped (found 2026-10-19 running this test as generation 29: 110 of 119 runs diverged on the live contract).
+    Many runs, every non-combat tile answered Potion, so the case is certain to occur."""
+    cmap = {t: A.A_POTION for t in (A.CACHE, A.RELIC, A.SHRINE, A.FORGE, A.GROVE, A.VEIN, A.ARMORY, A.BARROW, A.CAMP,
+                                    A.PYRE)}
+    for rid in range(1, 41):
+        drive(rid, cmap, legs=4, agg=3)
 
 
 def t_all_stances_and_focus():
@@ -894,8 +909,7 @@ def t_per_tile_answers_and_the_unscheduled_roll():
     ok, _r, st2, _ = _call("advance", [rid], dict(st), cursor=nh + 1)
     assert ok, "advance reverted"
     bare = dict(st)
-    import execnode.stark.alghash as _ah
-    bare[_ah.hashn([A.OVR_TAG, rid, 0])] = 0          # same leg, all answers blanked to A_DEFAULT
+    bare[_lib.vm_hash([A.OVR_TAG, rid, 0])] = 0       # same leg, all answers blanked to A_DEFAULT (the generation's hash)
     ok, _r, st3, _ = _call("advance", [rid], bare, cursor=nh + 1)
     assert ok
     a, b = _contract_state(st2, rid), _contract_state(st3, rid)
@@ -918,6 +932,7 @@ def t_constants_are_not_duplicated():
 if __name__ == "__main__":
     check("the all-blank answer word (walk in, fight plainly)", t_blank_answers)
     check("every reaction, including unaffordable degradation", t_every_reaction)
+    check("a potion off the idol costs one flask, not two (the idol's offering is the idol's)", t_a_potion_off_the_idol_costs_one_flask)
     check("all stances x focus splits", t_all_stances_and_focus)
     check("long run across a boss checkpoint", t_long_run_to_boss)
     check("death is terminal and a dead run cannot advance", t_death_is_terminal)
