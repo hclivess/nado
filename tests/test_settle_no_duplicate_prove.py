@@ -37,7 +37,7 @@ check = _report.run
 def t_the_prove_is_gated_on_no_pending_proof():
     assert "_pend_hold = _settle_pending.get(ns) is not None" in SRC, \
         "the loop must record whether a proof-carrying settle is already pending"
-    assert "if not _pend_hold:\n                    proof = await _build_settlement_proof(" in SRC, \
+    assert "if not _pend_hold and not _quorum_only:\n                    proof = await _build_settlement_proof(" in SRC, \
         "_build_settlement_proof must not run while a proof is pending its landing block"
 
 
