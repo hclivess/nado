@@ -77,5 +77,5 @@ ABI = {
 }
 
 
-def build(isa="v1"):
+def build(isa=None):
     return zkvmasm.assemble_contract(SRC, isa)

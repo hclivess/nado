@@ -162,9 +162,13 @@ ASSET_URI_MAX = 128             # a metadata/logo pointer (an https/ipfs/ar URL)
                                 # multi-KB data: URI (which would bloat every committed metadata leaf) impossible.
 
 
-def asset_id(issuer, seed):
+def asset_id(issuer, seed, v2=False):
     """The deterministic id of `issuer`'s asset number `seed` — the same field element the contract computes
-    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string."""
+    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string. v2 (BLAKE_EXEC_HEIGHT): the gen-29
+    VM's hash over its 256-bit digest, so the node's id stays the contract's."""
+    if v2:
+        from execnode import zkvm2
+        return zkvm2.hash_words([runtimes.zkvm_addr_digest(issuer, True), int(seed)])
     from execnode.stark import alghash, field as _F
     return alghash.hashn([runtimes.zkvm_addr_digest(issuer), int(seed) % _F.P]) % _F.P
 
@@ -1566,7 +1570,8 @@ class ExecState:
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
-                rt.validate_code(code)                    # raises ZkVMError on bad code (caught below)
+                # the gen-29 deploy gate from BLAKE_EXEC_HEIGHT; the keyword is passed only then, so a gen-28 call is unchanged
+                rt.validate_code(code, **({"v2": True} if self.rules_blake_exec() else {}))   # raises ZkVMError (caught below)
                 # FIXED-NAME deploy (doc/faucet.md §4): a SYSTEM contract may claim a well-known literal
                 # cid instead of the derived hash, so the L1 reserved recipient, the exec ledger key and
                 # the contract address are all the same word. Allowlisted per name to a sole deployer —
@@ -1583,7 +1588,7 @@ class ExecState:
                 storage = {}
                 if "constructor" in code:
                     kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                     elif self.rules_r2() and _fx:
@@ -1685,7 +1690,7 @@ class ExecState:
                         rt, c["code"], method, sender, args, c["storage"],
                         value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
                         block_hashes=self.block_hashes, asset=int(in_asset or 0),
-                        selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), meter=_meter, **kw)
+                        selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), meter=_meter, **kw)
                 except Exception as e:
                     # F2: the VM raising (rather than reverting) must not keep the escrow. Below the gate the
                     # exception keeps propagating to the outer except, exactly as it always did.
@@ -1791,7 +1796,7 @@ class ExecState:
                     if c.get("deployer") != sender:
                         return "skip: only a contract's deployer may issue an asset for it"
                     issuer = for_cid
-                aid = str(asset_id(issuer, seed))
+                aid = str(asset_id(issuer, seed, self.rules_blake_exec()))   # the id the gen-29 VM computes, from the gate
                 if aid in self.assets:
                     return f"skip: asset {aid[:12]}… already exists"
                 # MINT AUTHORITY is opt-IN and renounceable, never implicit: an asset created with
@@ -1983,7 +1988,7 @@ class ExecState:
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 try:
-                    rt.validate_code(code)
+                    rt.validate_code(code, **({"v2": True} if self.rules_blake_exec() else {}))
                 except Exception as e:
                     return f"skip: invalid code ({e})"
                 c["code"] = code
@@ -2312,5 +2317,5 @@ class ExecState:
         if rt is None:
             return None
         kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
-        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
+        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), **kw)
         return ret if ok else None

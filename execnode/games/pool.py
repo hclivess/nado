@@ -108,7 +108,7 @@ ABI = {
 }
 
 
-def build(isa="v1"):
+def build(isa=None):
     # C2 (security review 2026-09-23): pool splices tictactoe's `open`, which bounds nothing but g > 0 — the
     # same aliasing hole as the seven board games the review named (this is the eighth). See _lib.id_guard.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "abort", "cancel")}

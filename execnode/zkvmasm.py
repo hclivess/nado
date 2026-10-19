@@ -183,8 +183,18 @@ def assemble(text, isa="v1"):
     return out
 
 
-def assemble_contract(methods, isa="v1"):
-    """{method: asm text} -> validated zkVM code object for `isa` (v1 = zkvm.py, v2 = the gen-29 zkvm2.py)."""
+def default_isa():
+    """The ISA a bare build() targets: v2 on a generation whose exec layer is BLAKE2s from genesis (BLAKE_EXEC_HEIGHT
+    == 1, i.e. generation 29), v1 otherwise — so the reroll's redeploy, which calls build() bare, deploys v2 code, and
+    a gen-28 build() stays byte-identical. exec_root_b2.blake_exec_at(0) is exactly "the gate covers the genesis"."""
+    from execnode.exec_root_b2 import blake_exec_at
+    return "v2" if blake_exec_at(0) else "v1"
+
+
+def assemble_contract(methods, isa=None):
+    """{method: asm text} -> validated zkVM code object for `isa` (v1 = zkvm.py, v2 = the gen-29 zkvm2.py; None =
+    default_isa())."""
+    isa = isa or default_isa()
     code = {m: assemble(t, isa) for m, t in methods.items()}
     if isa == "v2":
         from execnode import zkvm2

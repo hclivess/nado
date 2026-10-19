@@ -207,7 +207,7 @@ ABI = {
 }
 
 
-def build(isa="v1"):
+def build(isa=None):
     src = dict(SRC)
     src["open"] = "\n".join(_open())
     src["move"] = "\n".join(_move())

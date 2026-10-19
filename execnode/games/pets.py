@@ -1252,7 +1252,7 @@ ABI = {
 }
 
 
-def build(isa="v1"):
+def build(isa=None):
     src = dict(SRC)
     src["hatch"] = "\n".join(_hatch())
     src["train_resolve"] = "\n".join(_train_resolve())

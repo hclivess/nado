@@ -568,7 +568,7 @@ ABI = {
 }
 
 
-def build(isa="v1"):
+def build(isa=None):
     src = dict(SRC)
     src["hold"] = "\n".join(_hold())
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;

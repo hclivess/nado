@@ -139,5 +139,16 @@ ABI = {
 }
 
 
-def build(isa="v1"):
-    return zkvmasm.assemble_contract(SRC, isa)
+def build(isa=None):
+    """v2 (the gen-29 zkvm2): the operator check compares the CALLER's 256-bit digest, so the baked operator digest is
+    the v2 one. It appears in the source only as the immediate of `movi rN <OP_DIG>` (asserted, so nothing else can
+    be rewritten by accident); v1 is SRC unchanged."""
+    if (isa or zkvmasm.default_isa()) != "v2":
+        return zkvmasm.assemble_contract(SRC, isa)
+    import re
+    lit, dig2 = str(OP_DIG), str(runtimes.zkvm_addr_digest(OPERATOR, True))
+    src = {}
+    for m, t in SRC.items():
+        assert t.count(lit) == len(re.findall(r"\bmovi r\d " + lit + r"\b", t)), "OP_DIG outside a movi operand"
+        src[m] = re.sub(r"(\bmovi r\d )" + lit + r"\b", lambda x: x.group(1) + dig2, t)
+    return zkvmasm.assemble_contract(src, isa)

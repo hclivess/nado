@@ -900,7 +900,7 @@ ABI["_view"]["board3"] = {"name": "cs", "base": CS_BASE, "cells": 5, "stride": 8
 ABI["_view"]["board4"] = {"name": "ti", "base": TI_BASE, "cells": MAXP, "stride": 16, "index": "tables"}
 
 
-def build(isa="v1"):
+def build(isa=None):
     src = {
         "open": OPEN,
         "join": "\n".join(_join()),

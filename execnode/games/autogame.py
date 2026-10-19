@@ -1074,7 +1074,7 @@ def _resolve_legs(m):
 
 
 # ── methods ──────────────────────────────────────────────────────────────────────────────────────
-def build(isa="v1"):
+def build(isa=None):
     _LBL[0] = 0                                   # deterministic label numbering across rebuilds
     c = zkpy.Contract()
 

@@ -492,7 +492,7 @@ ABI = {
 ABI["_view"]["board2"] = {"name": "dk", "base": DK_BASE, "cells": 16, "stride": 16, "index": "games"}
 
 
-def build(isa="v1"):
+def build(isa=None):
     src = dict(SRC)
     src["draw"] = "\n".join(_draw())
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;

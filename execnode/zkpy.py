@@ -491,5 +491,5 @@ class Contract:
         """The generated zkasm text per method (for inspection / golden tests)."""
         return dict(self._src)
 
-    def build(self, isa="v1"):
+    def build(self, isa=None):
         return zkvmasm.assemble_contract(self._src, isa)        # isa: zkvmasm.ISAS (v2 = the gen-29 zkvm2)

@@ -53,33 +53,45 @@ def runtime_name_ok(name):
     return isinstance(name, str) and name in _REGISTRY
 
 
-def zkvm_addr_digest(addr):
+ADDR_PERSON_V2 = b"NADOvmA1"      # the gen-29 address digest's BLAKE2s personalization (disjoint from the VM hash's)
+
+
+def zkvm_addr_digest(addr, v2=False):
     """Deterministic field digest of an L1 address string — how addresses enter the field-native zkVM.
     Computed at the CALL BOUNDARY (never in-circuit): the digest is part of the public statement, so any
-    hash works; the digest→address registry (ExecState.zk_addrs) resolves payouts back to L1 addresses."""
+    hash works; the digest→address registry (ExecState.zk_addrs) resolves payouts back to L1 addresses.
+    v2 (the gen-29 256-bit zkvm2, BLAKE_EXEC_HEIGHT; Goldilocks retirement G3): the FULL 256-bit BLAKE2s digest, no
+    field reduction — an owner digest of >= 128 bits is what doc/stwo-migration.md 9.2 requires."""
+    if v2:
+        import hashlib
+        from hashing import canonical_bytes
+        return int.from_bytes(hashlib.blake2s(canonical_bytes(["zkvmaddr", addr]), digest_size=32,
+                                              person=ADDR_PERSON_V2).digest(), "big")
     from hashing import blake2b_hash
     from execnode.stark.field import P
     return int(blake2b_hash(["zkvmaddr", addr]), 16) % P
 
 
-def zkvm_statement(caller, args, registry=None):
+def zkvm_statement(caller, args, registry=None, v2=False):
     """Digest a (caller, args) statement into zkVM field form, registering every address digest seen.
     Returns (caller_field, field_args) or raises ValueError on a non-encodable arg. Shared by the runtime
-    adapter and the prove/verify endpoints so the statement is byte-identical everywhere."""
+    adapter and the prove/verify endpoints so the statement is byte-identical everywhere. v2: 256-bit digests and
+    int args below 2^256 (the gen-29 word)."""
     from execnode.stark.field import P
+    bound = (1 << 256) if v2 else P
     reg = registry if registry is not None else {}
-    cf = zkvm_addr_digest(caller)
+    cf = zkvm_addr_digest(caller, v2)
     reg[str(cf)] = caller
     out = []
     for a in args:
         if isinstance(a, bool) or not isinstance(a, (int, str)):
             raise ValueError("zkvm args must be ints or address strings")
         if isinstance(a, int):
-            if not (0 <= a < P):
+            if not (0 <= a < bound):
                 raise ValueError("zkvm int arg out of field")
             out.append(a)
         else:
-            d = zkvm_addr_digest(a)
+            d = zkvm_addr_digest(a, v2)
             reg[str(d)] = a
             out.append(d)
     return cf, out
@@ -140,7 +152,11 @@ class _ZkVM:
     name = "zkvm"
     wants_registry = True         # state.py passes its persistent digest→address registry to run()
 
-    def validate_code(self, code):
+    def validate_code(self, code, v2=False):
+        """v2: the gen-29 zkvm2 deploy gate (BLAKE_EXEC_HEIGHT; the exec state passes it only when the gate is live)"""
+        if v2:
+            from execnode import zkvm2
+            return zkvm2.validate_code(code)
         from execnode import zkvm
         return zkvm.validate_code(code)
 
@@ -148,17 +164,29 @@ class _ZkVM:
             block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None):
         from execnode import zkvm
         from execnode.stark.field import P
+        # THE VM FOLLOWS THE CURSOR (BLAKE_EXEC_HEIGHT, dormant on gen 28): from the gate the call runs on the 256-bit
+        # zkvm2 with 256-bit digests and the chain reads unreduced — exec_root_b2.blake_exec_at is the one predicate,
+        # the same the exec root and L1's exits use, so a contract's VM and its root's format never disagree.
+        from execnode.exec_root_b2 import blake_exec_at
+        v2 = blake_exec_at(cursor)
         reg = registry if registry is not None else {}
         try:
-            cf, fargs = zkvm_statement(caller, args, reg)
+            cf, fargs = zkvm_statement(caller, args, reg, v2)
         except ValueError:
             return (False, None, storage, [], [])
         slots = {int(k): int(v) for k, v in (storage.get("slots") or {}).items()}
-        ok, ret, new_slots, io = zkvm.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
-                                         timestamp=timestamp,
-                                         beacons={e: v % P for e, v in (beacons or {}).items()},
-                                         block_hashes={h: v % P for h, v in (block_hashes or {}).items()},
-                                         asset=asset, selfd=selfd, abal=abal, meter=meter)
+        if v2:
+            from execnode import zkvm2
+            ok, ret, new_slots, io = zkvm2.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
+                                              timestamp=timestamp, beacons=dict(beacons or {}),
+                                              block_hashes=dict(block_hashes or {}),
+                                              asset=asset, selfd=selfd, abal=abal, meter=meter)
+        else:
+            ok, ret, new_slots, io = zkvm.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
+                                             timestamp=timestamp,
+                                             beacons={e: v % P for e, v in (beacons or {}).items()},
+                                             block_hashes={h: v % P for h, v in (block_hashes or {}).items()},
+                                             asset=asset, selfd=selfd, abal=abal, meter=meter)
         if not ok:
             return (False, None, storage, [], [])
         # ASSET EFFECTS ride the SAME digest→address registry as payouts and revert on the same rule (see
