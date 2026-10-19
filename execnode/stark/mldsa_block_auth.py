@@ -107,14 +107,38 @@ def entry_pubkey(entry, resolve_pubkey=None):
     return entry.get("tx_pubkey") or (resolve_pubkey(entry["sender"]) if resolve_pubkey else None)
 
 
-def auth_root(entries):
+def auth_root(entries, height=0):
     """Fold the ordered leaves into one field element — domain-separated from the calls commitment by starting
-    the chain at merkle_node(IV, IV) with auth-prefixed leaves."""
+    the chain at merkle_node(IV, IV) with auth-prefixed leaves. From BLAKE_EXEC_HEIGHT (dormant on gen 28; the
+    whole of gen 29, block 0's header included — genesis calls this with height 0) the BLAKE2s chain of
+    _auth_root_b2: the same entries and the same field, a different hash (Goldilocks retirement G2)."""
+    from execnode.exec_root_b2 import blake_exec_at
+    if blake_exec_at(height):
+        return _auth_root_b2(entries)
     node = alghash.merkle_node(alghash.IV, alghash.IV)
     for e in entries:
         node = alghash.merkle_node(node, auth_leaf(e["height"], e["index"], e["txid"], e["sender"],
                                                    e["kind"], e["sig_count"]))
     return node
+
+
+AUTH_PERSON_LEAF = b"NADOauL1"           # BLAKE2s personalizations of the gen-29 auth chain: disjoint from the exec
+AUTH_PERSON_NODE = b"NADOauR1"           # root's (exec_root_b2) and the calls chain's, so no hash means two things
+
+
+def _auth_root_b2(entries):
+    """The gen-29 auth commitment: a BLAKE2s chain from 32 zero bytes over each entry's leaf, where the leaf is BLAKE2s
+    of the entry's canonical bytes (the fields auth_leaf hashes, uncompressed: no 52-bit limbs, no mod P). One
+    compression per step. Returned as an int, so the header field keeps its type."""
+    import hashlib
+    from hashing import canonical_bytes
+    node = bytes(32)
+    for e in entries:
+        leaf = hashlib.blake2s(canonical_bytes([AUTH_DOMAIN, AUTH_VERSION, int(e["height"]), int(e["index"]),
+                                                str(e["txid"]), str(e["sender"]), int(e["kind"]), int(e["sig_count"])]),
+                               digest_size=32, person=AUTH_PERSON_LEAF).digest()
+        node = hashlib.blake2s(node + leaf, digest_size=32, person=AUTH_PERSON_NODE).digest()
+    return int.from_bytes(node, "big")
 
 
 def auth_commitments(block):
@@ -124,7 +148,7 @@ def auth_commitments(block):
     sig_count, which differs once a multisig entry is present. The header pins the entry count because that is what indexes
     the root; the check count rides inside each leaf and so is pinned too."""
     entries = auth_entries(block)
-    return auth_root(entries), len(entries)
+    return auth_root(entries, int(block.get("block_number", 0) or 0)), len(entries)
 
 
 # ---- detached evidence ------------------------------------------------------------------------------
@@ -162,7 +186,15 @@ def evidence_ok(evidence, block, resolve_pubkey=None, verify_sig=None, verify_pr
     root, count = auth_commitments(block)
     if int(block.get("auth_count", -1)) != count:
         return False, f"auth_count {block.get('auth_count')} != recomputed {count}"
-    if int(block.get("auth_root", -1)) % F.P != root % F.P:
+    from execnode.exec_root_b2 import blake_exec_at
+    if blake_exec_at(int(block.get("block_number", 0) or 0)):
+        # the BLAKE2s commitment is compared exactly (it is no field element), and there is no Goldilocks validity proof
+        # of it to accept: stark evidence is refused like the settle proof (option R), raw evidence still works
+        if int(block.get("auth_root", -1)) != root:
+            return False, "auth_root does not match the block's own transactions"
+        if evidence["type"] == "stark":
+            return False, "a BLAKE2s auth root has no Goldilocks validity proof (raw evidence only)"
+    elif int(block.get("auth_root", -1)) % F.P != root % F.P:
         return False, "auth_root does not match the block's own transactions"
     if evidence["type"] == "raw":
         entries = auth_entries(block)
