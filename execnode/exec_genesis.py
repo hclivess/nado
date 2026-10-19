@@ -210,7 +210,7 @@ def apply(state) -> bool:
 
 def genesis_root(state_cls=None) -> str:
     """The exec root a fresh node computes at cursor -1: the empty layer plus the carried contracts. Equals
-    protocol.EXEC_GENESIS_ROOT when there is no carried genesis."""
+    the generation's empty-layer canary (exec_root_b2.genesis_canary) when there is no carried genesis."""
     import tempfile
     if state_cls is None:
         from execnode.state import ExecState as state_cls

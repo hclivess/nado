@@ -236,10 +236,12 @@ def settled_header_commitment(ns: str = DEFAULT_NS):
     does NOT by itself re-derive the exec computation — that trust stays on the bonded settle quorum until
     the trustless proof path is enabled. Default ns only is committed EXPLICITLY; every other ns stays bound
     transitively through the settlement attestations already inside state_root."""
-    from protocol import EXEC_GENESIS_ROOT
+    # the sentinel is the generation's empty exec root (exec_root_b2.genesis_canary: the BLAKE2s root on gen 29, the
+    # alghash constant on gen 28 — byte-identical there), so a gen-29 header never carries a Goldilocks root
+    from execnode.exec_root_b2 import genesis_canary
     cursor, root = latest_settled(ns)
     if root is None:
-        return -1, EXEC_GENESIS_ROOT
+        return -1, genesis_canary()
     return int(cursor), root
 
 

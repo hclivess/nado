@@ -103,4 +103,33 @@ T.check("5b. the settler never builds a Goldilocks proof for a BLAKE2s cursor",
                   exn, re.S) is not None)
 direct = re.findall(r"\bER\.verify_(?:withdrawal|dividend|unshield|outbox_msg|record)\(", txs)
 T.check("5c. no exit verifier is called except through exit_root_module", not direct, direct)
+# ---- 6: the genesis canary follows the generation (2026-10-19: the exec node's start-up check and L1's pre-settlement
+#         header sentinel both read the alghash constant directly, which on gen 29 would have refused every exec node)
+from ops import settlement_ops as SO
+T.check("6a. dormant: the genesis canary and the header sentinel are the alghash constant",
+        R2.genesis_canary() == P.EXEC_GENESIS_ROOT and SO.settled_header_commitment() == (-1, P.EXEC_GENESIS_ROOT))
+P.BLAKE_EXEC_HEIGHT = 1
+try:
+    T.check("6b. live: the genesis canary and the header sentinel are the BLAKE2s root",
+            R2.genesis_canary() == P.EXEC_GENESIS_ROOT_B2 and SO.settled_header_commitment() == (-1, P.EXEC_GENESIS_ROOT_B2))
+    T.check("6c. live: a fresh exec layer's root equals the canary the exec node checks at start",
+            ExecState(os.path.join(HOME, "fresh.json")).state_root() == R2.genesis_canary())
+finally:
+    P.BLAKE_EXEC_HEIGHT = 1 << 62
+readers = []
+for d in ("execnode", "ops", "loops"):
+    for root_, _dirs, files in os.walk(os.path.join(_harness.ROOT, d)):
+        for f in files:
+            if f.endswith(".py"):
+                path = os.path.join(root_, f)
+                if path.endswith("exec_root_b2.py"):
+                    continue
+                import ast                                     # code, not prose: names, attributes and imports
+                for node in ast.walk(ast.parse(open(path).read())):
+                    hit = (isinstance(node, ast.Name) and node.id == "EXEC_GENESIS_ROOT") or \
+                          (isinstance(node, ast.Attribute) and node.attr == "EXEC_GENESIS_ROOT") or \
+                          (isinstance(node, ast.ImportFrom) and any(a.name == "EXEC_GENESIS_ROOT" for a in node.names))
+                    if hit:
+                        readers.append(f"{os.path.relpath(path, _harness.ROOT)}:{node.lineno}")
+T.check("6d. nothing but exec_root_b2.genesis_canary reads EXEC_GENESIS_ROOT at runtime", not readers, readers)
 T.done("ALL PASS — the BLAKE2s exec root is dormant now and whole from its gate")

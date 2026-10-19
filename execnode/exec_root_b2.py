@@ -44,6 +44,15 @@ def blake_exec_at(cursor) -> bool:
     return bool(H) and (H == 1 or int(cursor) >= H)
 
 
+def genesis_canary() -> str:
+    """The empty exec layer's root in THIS generation's format: protocol.EXEC_GENESIS_ROOT_B2 when the gate covers the
+    genesis (generation 29), protocol.EXEC_GENESIS_ROOT otherwise. INVARIANT: every runtime reader of the genesis root
+    goes through here — the exec node's start-up canary and L1's pre-settlement header sentinel both read the alghash
+    constant directly until 2026-10-19, which on generation 29 would have refused every exec node's start."""
+    import protocol
+    return protocol.EXEC_GENESIS_ROOT_B2 if blake_exec_at(0) else protocol.EXEC_GENESIS_ROOT
+
+
 def _b2(data, person):
     return hashlib.blake2s(data, digest_size=32, person=person).digest()
 

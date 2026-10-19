@@ -1127,8 +1127,10 @@ def _persist_fold_cache():
 # for an empty layer, or the root of the carried contracts when the reroll carried some (exec_genesis.genesis_root()).
 # If it doesn't, the exec-root scheme drifted — starting would settle a root no other node agrees on and fork L2.
 # Fail LOUD instead. (A state past genesis is mid-chain and exempt.)
-from protocol import EXEC_GENESIS_ROOT as _EXEC_GENESIS_ROOT
-_GENESIS_ROOT_WANT = _exec_genesis.genesis_root(ExecState) if _exec_genesis.load() else _EXEC_GENESIS_ROOT
+# The empty layer's root is the generation's canary (exec_root_b2.genesis_canary: the BLAKE2s one on gen 29) — reading
+# the alghash constant here would have refused every exec node's start on generation 29.
+from execnode.exec_root_b2 import genesis_canary as _genesis_canary
+_GENESIS_ROOT_WANT = _exec_genesis.genesis_root(ExecState) if _exec_genesis.load() else _genesis_canary()
 if state.cursor == -1 and state.state_root() != _GENESIS_ROOT_WANT:
     raise SystemExit(f"[execnode] FATAL: genesis exec state root {state.state_root()[:16]} != expected "
                      f"{_GENESIS_ROOT_WANT[:16]} — scheme drift; refusing to start (would fork L2)")
