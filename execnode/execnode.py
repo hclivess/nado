@@ -2010,9 +2010,13 @@ async def maybe_settle(session):
             # `_settle_pending[ns]` is cleared by the resolution block below when the proof lands, when it
             # is resubmitted, or when it gives up after SETTLE_RESUBMIT_MAX_S — so this can never wedge.
             _pend_hold = _settle_pending.get(ns) is not None
+            # OPTION R (BLAKE_EXEC_HEIGHT, dormant on gen 28): a BLAKE2s root settles by quorum attestation only — L1
+            # refuses a Goldilocks proof for it (transaction_ops _validate_settle), so never spend a prove on one.
+            from execnode.exec_root_b2 import blake_exec_at as _blake_exec_at
+            _quorum_only = _blake_exec_at(cur)
             proof = None
             try:
-                if not _pend_hold:
+                if not _pend_hold and not _quorum_only:
                     proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
                     # HOLD THE TIP THE INSTANT A PROOF EXISTS — not later, at the publish step.
                     #

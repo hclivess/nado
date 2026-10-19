@@ -34,6 +34,16 @@ PERSON_ROOT = b"NADOxR01"         # the two halves into the state root
 ONE = b"\x01"                     # the value of a digest-in-position record
 
 
+def blake_exec_at(cursor) -> bool:
+    """Whether the exec root AT `cursor` is this module's (protocol.BLAKE_EXEC_HEIGHT). ONE predicate for the exec node
+    (which root it computes and proves against) and L1 (which verifier reads a settled root of that cursor), so the two
+    can never disagree about a root's format. 1 = the WHOLE generation, genesis cursors (-1, 0) included — the gen-29
+    genesis exec root is a BLAKE2s root, or Goldilocks would survive the reroll in its very first root; a real height =
+    from that cursor on; 0 = never."""
+    from protocol import BLAKE_EXEC_HEIGHT as H
+    return bool(H) and (H == 1 or int(cursor) >= H)
+
+
 def _b2(data, person):
     return hashlib.blake2s(data, digest_size=32, person=person).digest()
 
@@ -191,11 +201,11 @@ def state_root_hex(contracts, st) -> str:
 
 
 # ---- exit proofs (prove exec-side, verify on L1 — both through THIS module) ---------------------------
-def record_proof(kv_tree: "csmt.Tree", rec_tree: "csmt.Tree", key: bytes) -> dict:
+def record_proof(kv_root: bytes, rec_tree: "csmt.Tree", key: bytes) -> dict:
     """{"kv": 64-hex kv half-root, "s": [64-hex siblings, root first], "t": terminal} — the gen-29 exit wire format"""
     sibs, term = rec_tree.prove(key)
     t = ["empty"] if term[0] == "empty" else ["leaf", term[1].hex(), term[2].hex()]
-    return {"kv": kv_tree.root().hex(), "s": [s.hex() for s in sibs], "t": t}
+    return {"kv": bytes(kv_root).hex(), "s": [s.hex() for s in sibs], "t": t}
 
 
 def verify_record(settled_hex, key: bytes, value, proof) -> bool:

@@ -124,6 +124,15 @@ class Tree:
             self._sorted.remove(key)
             self._invalidate(key)
 
+    def apply(self, projection):
+        """make the tree hold exactly `projection` ({key: value}): delete what vanished, write what changed — the
+        exec node keeps one Tree per half and diff-applies each block's projection, O(changed x depth) hashing"""
+        for k in [k for k in self._kv if k not in projection]:
+            self.delete(k)
+        for k, v in projection.items():
+            if self._kv.get(k) != v:
+                self.set(k, v)
+
     def _invalidate(self, key):
         """drop the cached hash of every subtree on the key's path (the only ones whose content changed)"""
         prefix = 0

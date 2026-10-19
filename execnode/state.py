@@ -397,6 +397,7 @@ class ExecState:
         self._root_cache = None
         self._kv_store = None            # persistent KV half-tree (lazy cold build, then incremental)
         self._rec_store = None           # persistent RECORDS half-tree
+        self._b2_trees = None            # the BLAKE2s halves (BLAKE_EXEC_HEIGHT), same lazy/incremental life
         self._mut_gen = 0
         self.load()
 
@@ -409,6 +410,8 @@ class ExecState:
         if not hasattr(self, "_kv_store"):
             self._kv_store = None
             self._rec_store = None
+        if not hasattr(self, "_b2_trees"):
+            self._b2_trees = None
 
     # --- persistence -----------------------------------------------------------------------------
     def _restore(self, d):
@@ -597,6 +600,28 @@ class ExecState:
         except OSError:
             pass
 
+    def rules_blake_exec(self):
+        """The exec root at this state's cursor is the BLAKE2s root (protocol.BLAKE_EXEC_HEIGHT; dormant on gen 28).
+        exec_root_b2.blake_exec_at is the one predicate, shared with L1's exit verifiers."""
+        from execnode.exec_root_b2 import blake_exec_at
+        return blake_exec_at(self.cursor)
+
+    def _blake_trees(self):
+        """The two BLAKE2s half-trees (execnode/exec_root_b2.py) diff-applied to the CURRENT state — _sparse_stores's
+        twin, memoised on the mutation generation the same way. Called only under _mutate_lock."""
+        from execnode import csmt, exec_root_b2 as R2
+        gen = getattr(self, "_mut_gen", 0)
+        if self._b2_trees is not None and getattr(self, "_b2_gen", None) == gen:
+            return self._b2_trees
+        kv_p, rec_p = R2.kv_projection(self.contracts), R2.records_projection(self)
+        if self._b2_trees is None:
+            self._b2_trees = (csmt.Tree(kv_p), csmt.Tree(rec_p))
+        else:
+            self._b2_trees[0].apply(kv_p)
+            self._b2_trees[1].apply(rec_p)
+        self._b2_gen = gen
+        return self._b2_trees
+
     def _sparse_stores(self):
         """The two persistent depth-256 half-trees of the FROZEN root scheme (execnode/exec_root.py),
         diff-applied to the CURRENT state: contract storage in the KV half; bridged/dividend balances,
@@ -667,9 +692,15 @@ class ExecState:
             root = self.state_root()
             if root in ring:
                 return root
-            from execnode import exec_root as ER
-            kv, _rec = self._sparse_stores()
-            ring[root] = (kv.root(), ER.records_projection(self))
+            if self.rules_blake_exec():
+                # a BLAKE2s root remembers its format with it: record_proof_at must rebuild THAT tree for it
+                from execnode import exec_root_b2 as R2
+                kv, _rec = self._blake_trees()
+                ring[root] = ("b2", kv.root(), R2.records_projection(self))
+            else:
+                from execnode import exec_root as ER
+                kv, _rec = self._sparse_stores()
+                ring[root] = (kv.root(), ER.records_projection(self))
             while len(ring) > self._ROOT_RING_KEEP:
                 del ring[next(iter(ring))]
             return root
@@ -690,6 +721,8 @@ class ExecState:
             ent = getattr(self, "_root_ring", {}).get(root_hex)
             if not ent:
                 return None
+            if len(ent) == 3 and ent[0] == "b2":
+                return self._b2_record_proof_at(root_hex, ent, tag, *parts, value=value)
             kv_root, proj = ent
             key = ER.record_key(tag, *parts)
             if value is not None and proj.get(key, 0) != int(value) % F.P:
@@ -740,9 +773,14 @@ class ExecState:
         if root is None:
             with self._mutate_lock:
                 if self._root_cache is None:
-                    from execnode import exec_root as ER
-                    kv, rec = self._sparse_stores()
-                    self._root_cache = ER.full_root_hex(kv.root(), rec.root())
+                    if self.rules_blake_exec():               # BLAKE_EXEC_HEIGHT: the gen-29 root (dormant on gen 28)
+                        from execnode import exec_root_b2 as R2
+                        kv, rec = self._blake_trees()
+                        self._root_cache = R2.full_root(kv.root(), rec.root()).hex()
+                    else:
+                        from execnode import exec_root as ER
+                        kv, rec = self._sparse_stores()
+                        self._root_cache = ER.full_root_hex(kv.root(), rec.root())
                 root = self._root_cache
         return root
 
@@ -800,9 +838,33 @@ class ExecState:
             _kv, rec = self._sparse_stores()
             return self.cursor, root, rec.root(), getattr(self, "_mut_gen", 0)
 
+    def _b2_record_proof_at(self, root_hex, ent, tag, *parts, value=None):
+        """record_proof_at for a remembered BLAKE2s root: the same contract (None when the record did not hold
+        `value` under that root), the tree rebuilt from the remembered projection and cached with the ring"""
+        from execnode import csmt, exec_root_b2 as R2
+        _fmt, kv_root, proj = ent
+        key = R2.record_key(tag, *parts)
+        if value is not None and proj.get(key) != R2.int_value(int(value)):
+            return None
+        cache = getattr(self, "_ring_stores", None)
+        if cache is None:
+            cache = self._ring_stores = {}
+        tree = cache.get(root_hex)
+        if tree is None:
+            tree = cache[root_hex] = csmt.Tree(proj)
+            for k in [k for k in cache if k not in self._root_ring]:
+                del cache[k]
+        return R2.record_proof(kv_root, tree, key), root_hex
+
     def _record_proof(self, tag, *parts):
         """Sparse exit proof {"kv": hex, "path": packed} for the record at record_key(tag, *parts) —
-        the wire format L1's exec_root.verify_record checks against the settled root."""
+        the wire format L1's exec_root.verify_record checks against the settled root. From BLAKE_EXEC_HEIGHT the
+        gen-29 format {"kv", "s", "t"} that exec_root_b2.verify_record checks."""
+        if self.rules_blake_exec():
+            from execnode import exec_root_b2 as R2
+            with self._mutate_lock:
+                kv, rec = self._blake_trees()
+                return R2.record_proof(kv.root(), rec, R2.record_key(tag, *parts))
         from execnode import exec_root as ER
         with self._mutate_lock:
             kv, rec = self._sparse_stores()

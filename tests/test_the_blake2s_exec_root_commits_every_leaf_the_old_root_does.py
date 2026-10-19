@@ -139,14 +139,14 @@ rec_tree = csmt.Tree(R2.records_projection(st))
 settled = R2.full_root(kv_tree.root(), rec_tree.root()).hex()
 T.check("3a. the incremental trees give the cold root", settled == r0)
 wd = st.withdrawals["n1"]
-pw = R2.record_proof(kv_tree, rec_tree, R2.record_key(R1.T_BRIDGE_WD, wd["addr"], "n1"))
+pw = R2.record_proof(kv_tree.root(), rec_tree, R2.record_key(R1.T_BRIDGE_WD, wd["addr"], "n1"))
 dv = st.dividend_withdrawals["d1"]
-pd = R2.record_proof(kv_tree, rec_tree, R2.record_key(R1.T_DIV_WD, dv["addr"], "d1"))
+pd = R2.record_proof(kv_tree.root(), rec_tree, R2.record_key(R1.T_DIV_WD, dv["addr"], "d1"))
 us = st.unshield_withdrawals["u1"]
-pu = R2.record_proof(kv_tree, rec_tree, R2.record_key(R1.T_UNSHIELD_WD, us["addr"], "u1"))
+pu = R2.record_proof(kv_tree.root(), rec_tree, R2.record_key(R1.T_UNSHIELD_WD, us["addr"], "u1"))
 msg = st.outbox[1]
 dg = R1.leaf_digest(R1.msg_outbox_leaf(msg))
-pm = R2.record_proof(kv_tree, rec_tree, R2.record_key(R1.T_DIGEST, "outbox", dg))
+pm = R2.record_proof(kv_tree.root(), rec_tree, R2.record_key(R1.T_DIGEST, "outbox", dg))
 T.check("3b. a withdrawal exit verifies", R2.verify_withdrawal(settled, wd["addr"], wd["amount"], "n1", pw))
 T.check("3c. a dividend exit verifies", R2.verify_dividend(settled, dv["addr"], dv["amount"], "d1", pd))
 T.check("3d. an unshield exit verifies", R2.verify_unshield(settled, us["addr"], us["amount"], "u1", pu))
@@ -165,7 +165,7 @@ forged = {
     "an altered message": R2.verify_outbox_msg(settled, msg["seq"], msg["from"], msg["to_ns"], {"x": 2}, pm),
 }
 absent_key = R2.record_key(R1.T_BRIDGE_WD, A[0], "nope")
-pa = R2.record_proof(kv_tree, rec_tree, absent_key)
+pa = R2.record_proof(kv_tree.root(), rec_tree, absent_key)
 T.check("3f. an absence proof verifies as absence", R2.verify_record(settled, absent_key, None, pa))
 forged["an absence proof posed as membership"] = R2.verify_record(settled, absent_key, R2.int_value(5), pa)
 for name, got in forged.items():

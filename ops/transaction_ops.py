@@ -1838,6 +1838,19 @@ def exit_amount_check(amount, block_height):
         assert int(amount) < (1 << 61), "exit amount exceeds MAX_EXIT_VALUE"
 
 
+def exit_root_module(cursor):
+    """The verifier module for a settled exec root AT `cursor`: execnode/exec_root_b2.py from BLAKE_EXEC_HEIGHT (dormant on
+    gen 28), execnode/exec_root.py before it. Keyed on the ROOT's cursor, not this block's height, so an exit window
+    straddling the gate checks each root in the format it was computed in (exec_root_b2.blake_exec_at is the one
+    predicate, shared with the exec node that built the root). INVARIANT: every exit verifier call goes through here."""
+    from execnode.exec_root_b2 import blake_exec_at
+    if blake_exec_at(cursor):
+        from execnode import exec_root_b2 as R2
+        return R2
+    from execnode import exec_root as ER
+    return ER
+
+
 def field_shield_check(data, block_height):
     """Admission rules for a field-native `shield` deposit, judged at `block_height` (the block being validated).
     A pure function so tests can drive it directly — the inline form read an unbound `h` for a day and nothing
@@ -2638,6 +2651,13 @@ def _validate_settle(transaction, block_height, deep):
     # NOTE: exec_cursor is an EXEC-LAYER position, NOT the L1 block height (it is not bounded by
     # block_height — see the settlement tests). The upper bound below is purely the be8-pack safety bound.
     assert isinstance(cursor, int) and not isinstance(cursor, bool) and 0 <= cursor < (1 << 64) - 1, "Settle exec_cursor must be an int in [0, 2**64-1)"
+    # OPTION R (BLAKE_EXEC_HEIGHT, doc/stwo-migration.md 9.3): a BLAKE2s exec root settles by the bonded quorum only. The
+    # Goldilocks settle proof proves an alghash2 root and could never match one; refusing its fields keeps a ~118 MiB DA
+    # fetch and a verify that can only fail out of block validation. The Stwo settlement prover turns on by its own gate.
+    from execnode.exec_root_b2 import blake_exec_at as _blake_exec_at
+    if _blake_exec_at(cursor):
+        assert data.get("proof") is None and data.get("proof_da") is None, \
+            "a BLAKE2s exec root settles by quorum attestation only (no Goldilocks settle proof)"
     # SETTLEMENT-ORACLE CAPTURE (critical). active_settler_shares anchors the quorum DENOMINATOR on
     # settlement_max_cursor(ns) and leaks out anyone who has not attested within SETTLE_ACTIVITY_CURSORS
     # of it. With the cursor unbounded, ONE fee-exempt settle at cursor ~2**64 pushes that activity floor
@@ -3052,7 +3072,6 @@ def _validate_bridge_withdraw(transaction, block_height):
     # SETTLED execution-layer root (the frozen sparse scheme, execnode/exec_root.py): L1 recomputes the
     # record's 256-bit position from the tx's public fields, folds ONE packed sparse path, composes with
     # the claimed kv half and compares to the settled root — then checks the nullifier + escrow, releases.
-    from execnode import exec_root as ER
     assert transaction["amount"] == 0, "bridge_withdraw carries no L1 amount (amount is in data)"
     assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
     data = transaction.get("data") or {}
@@ -3071,7 +3090,7 @@ def _validate_bridge_withdraw(transaction, block_height):
     from ops.settlement_ops import recent_settled_roots
     _window = recent_settled_roots(ns, k=3)
     assert _window, "no settled execution-layer root yet for this namespace"
-    assert any(ER.verify_withdrawal(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+    assert any(exit_root_module(_c).verify_withdrawal(_root, addr, amount, nonce, proof) for _c, _root in _window), \
         "withdrawal is not proven against the settled execution-layer root window"
     assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
     escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
@@ -3091,7 +3110,6 @@ def _validate_xmsg(transaction, block_height):
     # then let the receiver rollup's exec node deliver it. L1 is the verifier (it holds the settled roots),
     # exactly like bridge_withdraw — so delivery is deterministic for every receiver node. Fee-exempt; one
     # delivery per (from_ns, seq) via the nullifier.
-    from execnode import exec_root as ER
     assert transaction["amount"] == 0, "xmsg carries no L1 amount"
     # PAID (protocol.py "NO FREE REPEATABLE TRANSACTIONS", audit 2026-09-27): a lone bonded settler is quorum in a
     # namespace nobody else settles, so it could settle a made-up root there and deliver unlimited free xmsgs against
@@ -3120,7 +3138,7 @@ def _validate_xmsg(transaction, block_height):
     from ops.settlement_ops import recent_settled_roots
     _window = recent_settled_roots(from_ns, k=3)
     assert _window, "sending namespace has no settled root yet"
-    assert any(ER.verify_outbox_msg(_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof)
+    assert any(exit_root_module(_c).verify_outbox_msg(_root, seq, msg.get("from"), msg.get("to_ns"), msg.get("data"), proof)
                for _c, _root in _window), \
         "message is not proven against from_ns's settled root window"
     assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
@@ -3130,7 +3148,6 @@ def _validate_dividend_withdraw(transaction, block_height):
     # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
     # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,
     # then releases `amount` from the DIVIDEND_POOL to the claimant. Fee-exempt, self-claimed.
-    from execnode import exec_root as ER
     assert transaction["amount"] == 0, "dividend_withdraw carries no L1 amount (amount is in data)"
     assert transaction["fee"] == 0, "dividend_withdraw is fee-exempt"
     data = transaction.get("data") or {}
@@ -3151,7 +3168,7 @@ def _validate_dividend_withdraw(transaction, block_height):
     from ops.settlement_ops import recent_settled_roots
     _window = recent_settled_roots(k=3)
     assert _window, "no settled execution-layer root yet"
-    assert any(ER.verify_dividend(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+    assert any(exit_root_module(_c).verify_dividend(_root, addr, amount, nonce, proof) for _c, _root in _window), \
         "dividend collection is not proven against the settled execution-layer root window"
     assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
     pool = get_account(DIVIDEND_POOL, create_on_error=False)
@@ -3293,7 +3310,6 @@ def _validate_shield(transaction, block_height):
 
 def _validate_unshield(transaction, block_height):
     # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
-    from execnode import exec_root as ER
     assert transaction["amount"] == 0, "unshield carries no L1 amount (amount is in data)"
     assert transaction["fee"] == 0, "unshield is fee-exempt"
     data = transaction.get("data") or {}
@@ -3310,7 +3326,7 @@ def _validate_unshield(transaction, block_height):
     from ops.settlement_ops import recent_settled_roots
     _window = recent_settled_roots(k=3)
     assert _window, "no settled execution-layer root yet"
-    assert any(ER.verify_unshield(_root, addr, amount, nonce, proof) for _c, _root in _window), \
+    assert any(exit_root_module(_c).verify_unshield(_root, addr, amount, nonce, proof) for _c, _root in _window), \
         "unshield is not proven against the settled execution-layer root window"
     assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
     escrow = get_account(SHIELD_ESCROW, create_on_error=False)
