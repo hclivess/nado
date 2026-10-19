@@ -469,8 +469,10 @@ doc/reroll.md "What crosses a reroll".
 5. When to reroll: §5.1 (private payments) needs none — an exec-rules gate, while the pool is empty. A reroll is
    needed only for §5.2/§5.4 (the settlement proof and the exec-root hash), and it uses the carry (§6). Its
    prerequisites and order are §9.5.
-6. The tree shape of the BLAKE2s exec root (depth-256 sparse vs compressed) — frozen at the reroll, so decided at §9.5
-   G1 after its measurement.
+6. ~~The tree shape of the BLAKE2s exec root (depth-256 sparse vs compressed)~~ — decided 2026-10-19 by the operator
+   after the G1 measurement (doc/stwo/g1-tree-shape.md): **the compressed sparse tree** (a leaf at the shortest unused
+   prefix of its key; ~40 compressions per update at a million leaves vs 512 for depth-256; today's busiest span ~4.5 s
+   and ~1.5 GB to prove vs ~25 s and ~9.4 GB). Its split/collapse rules ship with their own forgery tests in G2.
 7. ~~Whether the reroll waits for a landing Stwo settlement prover (option S) or ships quorum-settled (option R)?~~ —
    decided 2026-10-18 by the operator: **option R**. The reroll ships with the bonded quorum settling the exec root (as it
    effectively does today) and the proof branch refused; Stwo settlement turns on later by a gen-29 gate, no second
@@ -641,7 +643,7 @@ phase is done). Nothing below changes the live chain until G7, except where a do
 | phase | entry measurement | work | exit test |
 |---|---|---|---|
 | **G0 census** (done 2026-10-11, this section) | — | inventory 9.1, live storage census 9.2, settle census 9.3 | numbers recorded here; rerun at G7 |
-| **G1 route + tree** | stwo-cairo checks of 9.4; a Stwo prototype proving N depth-256 BLAKE2s path updates vs a compressed tree, on the settler; the busiest real span's touched-slot count (from DA) | operator chooses route A or B and the tree shape | the decision written into §7; prototype numbers in doc/stwo/ |
+| **G1 route + tree** (done 2026-10-19: route A, compressed tree; doc/stwo/g1-tree-shape.md) | stwo-cairo checks of 9.4; a Stwo prototype proving N depth-256 BLAKE2s path updates vs a compressed tree, on the settler; the busiest real span's touched-slot count (from DA) | operator chooses route A or B and the tree shape | the decision written into §7; prototype numbers in doc/stwo/ |
 | **G2 BLAKE2s commitment** | none beyond G1 | new `exec_root`/positions/records/exit verifiers/execsum leaves/`auth_root`, behind `BLAKE_EXEC_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1` (GATE LEDGER, doc/reroll.md, test_gate_reroll_transfer) | gen-28 roots byte-identical (dormant); on a gen-29 tree: the carried root recomputed equally on two machines, every pending exit verified by the new path verifier, forged path/position refused |
 | **G3 contract runtime** | route from G1 | A: new word + BLAKE2s opcode in `zkvm.py`, zkpy/zkasm, 29 builders, game clients; B: Cairo contracts + runtime adapter | every contract's reference-model test passes on the new runtime (the autogame/pets three-implementation pattern), `test_every_opcode_is_provable` replaced by its route-A/B form, games walked in a headless browser at 412 and 360 px |
 | **G4 Stwo settlement statement** | G1 prototype numbers | statement (pre/post root, call leaves, chain reads, records effects incl. collect_dividend from authenticated pre-state), verifier crate on stable rustc behind `native_guard`, prover on the settler | the forgery suite ported from today's settle tests (wrong pre-root, cid_io, chain-read substitution, PAY/asset io, records shift, counterfeit code) refused by the new verifier; an honest span verifies; verify time and proof size measured |
