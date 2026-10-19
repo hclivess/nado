@@ -90,3 +90,16 @@ Kept as is: BLAKE2s, one compression per internal node (two 32-byte children = o
 `H(dom, pos, value)`.
 
 **Decided 2026-10-19 by the operator: the compressed sparse tree** (section 7, item 6). G2 builds on it.
+
+## 5. First G2 piece: the tree itself (execnode/csmt.py)
+
+Canonical by definition (EMPTY / LEAF at the shortest owned prefix / INTERNAL), one BLAKE2s compression per node with
+leaf and node domains separated by personalization, and a verifier that refuses non-canonical paths as well as wrong
+roots. tests/test_the_compressed_exec_tree_is_canonical_and_refuses_forged_paths.py pins it against an independent
+reference and 15 forgery shapes. Measured at 100,000 random leaves: build 0.6 s, 130 updates plus the new root 22 ms,
+path depth median 18, max 28.
+
+**Open for G4: the circuit's maximum path depth.** Depth follows the keys, and contract code influences keys, so an
+attacker can grind a key that shares a long prefix with another (each shared bit doubles the work). The circuit's fixed
+maximum depth must sit beyond feasible grinding (around 80, i.e. 2^80 work), not near the typical 18-28, or one ground
+key makes a span unprovable. At 80 a deep path only costs its own span more hashes.
