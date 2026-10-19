@@ -18,6 +18,7 @@ import atexit; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState
 from execnode.games import pets as P
 
@@ -86,8 +87,7 @@ def grant(st, cid, owner, kind, amount):
     honest way means raising and working two more bases — worth testing once (it is), but not worth paying
     for in every other test. The slot is derived exactly as the contract derives it."""
     from execnode.runtimes import zkvm_addr_digest
-    from execnode.stark import alghash
-    slot = alghash.hashn([P.TG_RES, zkvm_addr_digest(owner), kind])
+    slot = _lib.vm_hash([P.TG_RES, zkvm_addr_digest(owner), kind])
     st.contracts[cid]["storage"].setdefault("slots", {})[str(slot)] = int(amount)
     st.contracts[cid]["storage"]["slots"] = st.contracts[cid]["storage"]["slots"]
 

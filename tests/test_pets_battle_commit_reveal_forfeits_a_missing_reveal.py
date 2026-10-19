@@ -33,9 +33,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRE_RELEASE = "29dfdc7e"
 sys.path.insert(0, ROOT)
 
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState                                   # noqa: E402
 from execnode.runtimes import zkvm_addr_digest                         # noqa: E402
-from execnode.stark import alghash, field as F                         # noqa: E402
 from execnode.games import pets as P                                   # noqa: E402
 
 FAILED = []
@@ -56,7 +56,7 @@ _n = [0]
 
 
 def H(x):
-    return alghash.hashn([x % F.P])
+    return _lib.vm_hash([x % _lib.vm_mod()])
 
 
 def fresh(code=None, abi=None, cursor=1000):
@@ -104,7 +104,7 @@ def battle(st, cid, bid, pa, pb, s1, s2):
     return r1, r2
 
 
-S1, S2 = 123456789123456789 % F.P, 987654321987654321 % F.P
+S1, S2 = 123456789123456789 % _lib.vm_mod(), 987654321987654321 % _lib.vm_mod()
 
 
 # ---- both reveal -> the duel over HASH(s1 + s2 + bid) -------------------------------------------------------------

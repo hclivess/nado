@@ -22,7 +22,6 @@ sys.path.insert(0, ROOT)
 
 import protocol as P                                                   # noqa: E402
 from execnode.state import ExecState                                   # noqa: E402
-from execnode.stark import field as F                                  # noqa: E402
 from execnode import zkvmasm                                           # noqa: E402
 from execnode.games import _lib                                        # noqa: E402
 
@@ -70,7 +69,7 @@ BEACON = (1 << 255) + 12345
 st.beacons[102] = BEACON
 st.cursor = 102 * 60
 call("seed", 1)
-check("a bound seat's seed is BEACON(gb)", rd(OUT, 1) == BEACON % F.P, (rd(OUT, 1), BEACON % F.P))
+check("a bound seat's seed is BEACON(gb)", rd(OUT, 1) == BEACON % _lib.vm_mod(), (rd(OUT, 1), BEACON % _lib.vm_mod()))
 
 st.cursor = 7000
 call("legacy", 2)
@@ -79,7 +78,7 @@ st.block_hashes[7003] = (1 << 190) + 9
 st.cursor = 7004
 call("seed", 2)
 check("a seat with gb == 0 keeps BHASH(gh) + BHASH(gh + 1)",
-      rd(OUT, 2) == ((st.block_hashes[7002] % F.P) + (st.block_hashes[7003] % F.P)) % F.P, rd(OUT, 2))
+      rd(OUT, 2) == ((st.block_hashes[7002] % _lib.vm_mod()) + (st.block_hashes[7003] % _lib.vm_mod())) % _lib.vm_mod(), rd(OUT, 2))
 
 st.cursor = 8000
 call("bind", 3)

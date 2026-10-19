@@ -26,7 +26,6 @@ atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import sys, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
-from execnode.stark import alghash, field as F
 from execnode.games import dice, roulette, _lib
 
 A = "ndoBANK" + "A" * 41          # banker / deployer
@@ -46,8 +45,8 @@ def ok(cond, msg):
 
 
 def ref(seed, salt, mod):
-    """The contract's draw: alghash.hashn([(seed + salt) mod P]) low 32 bits, % mod (settle: add r3 r0; hash; lo32)."""
-    return (alghash.hashn([(seed % F.P + salt) % F.P]) & 0xFFFFFFFF) % mod
+    """The contract's draw: _lib.vm_hash([(seed + salt) mod P]) low 32 bits, % mod (settle: add r3 r0; hash; lo32)."""
+    return (_lib.vm_hash([(seed % _lib.vm_mod() + salt) % _lib.vm_mod()]) & 0xFFFFFFFF) % mod
 
 
 class Game:

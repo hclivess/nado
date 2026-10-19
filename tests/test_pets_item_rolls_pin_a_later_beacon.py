@@ -28,7 +28,6 @@ sys.path.insert(0, ROOT)
 
 from execnode.state import ExecState                                   # noqa: E402
 from execnode.runtimes import zkvm_addr_digest                         # noqa: E402
-from execnode.stark import alghash, field as F                         # noqa: E402
 from execnode.games import pets as P                                   # noqa: E402
 from execnode.games import _lib                                        # noqa: E402
 
@@ -79,7 +78,7 @@ def res(st, cid, who, kind):
 
 
 def grant(st, cid, who, kind, amount):
-    slot = alghash.hashn([P.TG_RES, zkvm_addr_digest(who), kind])
+    slot = _lib.vm_hash([P.TG_RES, zkvm_addr_digest(who), kind])
     st.contracts[cid]["storage"].setdefault("slots", {})[str(slot)] = int(amount)
 
 
@@ -203,7 +202,7 @@ check("fuse refuses an item with a pending reroll", "ok" not in call(st, cid, A,
 st.cursor = irp * EL
 check("phase 2 carries no value", "ok" not in call(st, cid, B, "reroll", [IID], P.REROLL_FEE))
 r = call(st, cid, B, "reroll", [IID])
-salt = (st.beacons[irp] % F.P + irp + IID) % F.P
+salt = (st.beacons[irp] % _lib.vm_mod() + irp + IID) % _lib.vm_mod()
 after = [rd(st, cid, P.IA_BASE + k, IID) for k in range(3)]
 check("phase 2 (any caller) resolves the affixes from BEACON(irp) + irp + item",
       "ok" in r and after == P.ref_affixes(salt, RAR), (r, after, P.ref_affixes(salt, RAR)))

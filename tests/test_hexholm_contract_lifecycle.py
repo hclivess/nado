@@ -15,9 +15,10 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState
 from execnode import runtimes
-from execnode.stark import vm_circuit as V, alghash, field as F
+from execnode.stark import vm_circuit as V
 from execnode.games import hexholm as hx
 
 import _harness
@@ -29,7 +30,7 @@ B = "ndoBBBB" + "B" * 41
 C = "ndoCCCC" + "C" * 41
 D = "ndoDDDD" + "D" * 41
 XB = 0x123456789ABCDEF0                       # B's reveal secret
-CB = alghash.hashn([XB % F.P])                # its commit
+CB = _lib.vm_hash([XB % _lib.vm_mod()])                # its commit
 
 def _fresh(cursor=100):
     st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = cursor
@@ -151,6 +152,12 @@ def t_abort_split():
     assert st.bridge[B] == 1_000_000 - 501                 # the resigner forfeited
 
 def t_prove_move():
+    from execnode.exec_root_b2 import blake_exec_at
+    if blake_exec_at(0):
+        # gen 29: the contract is v2 code (zkvm2) and this is the Goldilocks execution prover, which proves only v1; the
+        # Stwo execution AIR replaces it (doc/stwo-migration.md G4) and gets its own proving test there
+        print("SKIP  the Goldilocks prover proves only v1 code; the gen-29 Stwo prover is G4")
+        return
     code = hx.build()
     S = lambda f, k: f * (1 << 32) + k
     slots = {S(hx.NN, 1): 2, S(hx.CAP, 1): 2, S(hx.MC, 1): 0,
@@ -175,9 +182,9 @@ def t_anchor():
     st.cursor = 510
     st.block_hashes[500 + hx.GAP] = 0xDEADBEEF12345
     call(B, "a3", "anchor", [day])                         # phase 2: hash VALUE stored forever
-    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % F.P
+    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % _lib.vm_mod()
     call(C, "a4", "anchor", [day])                         # already anchored -> revert, unchanged
-    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % F.P and cnt() == 1
+    assert rd(hx.A_V, day) == 0xDEADBEEF12345 % _lib.vm_mod() and cnt() == 1
     day2 = day + 1                                         # stale-pin re-pin path
     st.block_ts = 86400 * day2 + 50
     call(A, "b1", "anchor", [day2])

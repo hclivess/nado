@@ -24,9 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import random
 import traceback
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState
 from execnode.games import holdem as hd
-from execnode.stark import alghash
 
 fails = 0
 
@@ -68,8 +68,8 @@ def _no_scratch(slots):
 
 
 def _seat_two(call, T, G1, G2, x1, x2):
-    assert "ok" in call(H, "open", [T, G1, alghash.hashn([x1]), 1000], 10000)
-    assert "ok" in call(X, "join", [T, G2, alghash.hashn([x2])], 10000)
+    assert "ok" in call(H, "open", [T, G1, _lib.vm_hash([x1]), 1000], 10000)
+    assert "ok" in call(X, "join", [T, G2, _lib.vm_hash([x2])], 10000)
     assert "ok" in call(H, "start", [T])
 
 

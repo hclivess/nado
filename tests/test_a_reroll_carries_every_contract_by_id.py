@@ -61,7 +61,10 @@ from execnode.code_codec import FIXED_CIDS
 from execnode.games import faucet, dice
 from tools.alphanet6_carryforward import exec_genesis_doc, carry_policy
 
-check("1. without a carried genesis the genesis root is EXEC_GENESIS_ROOT", EG.genesis_root() == P.EXEC_GENESIS_ROOT)
+# the empty exec state's root in this generation's format: the alghash canary on gen 28, the BLAKE2s one on gen 29
+from execnode.exec_root_b2 import blake_exec_at as _bea
+GENESIS_ROOT = P.EXEC_GENESIS_ROOT_B2 if _bea(0) else P.EXEC_GENESIS_ROOT
+check("1. without a carried genesis the genesis root is EXEC_GENESIS_ROOT", EG.genesis_root() == GENESIS_ROOT)
 
 OP = FIXED_CIDS["faucet"]
 FAUCET_POT, DICE_POT = 9_000_000, 77
@@ -93,7 +96,7 @@ st = ExecState(os.path.join(H, "s.json"))
 check("3. a fresh exec layer loads the carried contracts", EG.apply(st) and sorted(st.contracts) == sorted(contracts))
 check("...the faucet's pot is on its exec balance", int(st.bridge.get("faucet", 0)) == FAUCET_POT, st.bridge)
 check("...its root is genesis_root(), not the empty root",
-      st.state_root() == EG.genesis_root() and st.state_root() != P.EXEC_GENESIS_ROOT)
+      st.state_root() == EG.genesis_root() and st.state_root() != GENESIS_ROOT)
 check("...and loading again is a no-op", EG.apply(st) is False)
 
 # 4) the carried pot pays: the operator defunds part of its own donation on the new chain
@@ -125,7 +128,7 @@ check("redeploy with a carried genesis only verifies references and deploys noth
 # 6) a file for another generation is ignored
 json.dump({"generation": P.CHAIN_GENERATION + 1, "contracts": gen_contracts, "bridge": {}}, open(GEN_FILE, "w"))
 EG._CACHE.clear()
-check("6. a genesis file for another generation is ignored", EG.load() is None and EG.genesis_root() == P.EXEC_GENESIS_ROOT)
+check("6. a genesis file for another generation is ignored", EG.load() is None and EG.genesis_root() == GENESIS_ROOT)
 
 print("ALL PASS — a reroll carries every contract by its id" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

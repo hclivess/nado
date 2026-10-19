@@ -27,7 +27,6 @@ sys.path.insert(0, ROOT)
 from execnode import state as S                                       # noqa: E402
 from execnode.state import ExecState                                   # noqa: E402
 from execnode.runtimes import zkvm_addr_digest                         # noqa: E402
-from execnode.stark import alghash, field as F                         # noqa: E402
 from execnode.games import pets as P                                   # noqa: E402
 from execnode.games import _lib                                        # noqa: E402
 
@@ -77,7 +76,7 @@ def res(st, cid, who, kind):
 
 
 def grant(st, cid, who, kind, amount):
-    slot = alghash.hashn([P.TG_RES, zkvm_addr_digest(who), kind])
+    slot = _lib.vm_hash([P.TG_RES, zkvm_addr_digest(who), kind])
     st.contracts[cid]["storage"].setdefault("slots", {})[str(slot)] = int(amount)
 
 
@@ -139,7 +138,7 @@ check("the new pin is young again: a second paid call reverts and charges nothin
 st.beacons[irp2] = 0xC0FFEE1234
 st.cursor = irp2 * EL
 r = call(st, cid, B, "reroll", [IID])
-salt = (st.beacons[irp2] % F.P + irp2 + IID) % F.P
+salt = (st.beacons[irp2] % _lib.vm_mod() + irp2 + IID) % _lib.vm_mod()
 after = [rd(st, cid, P.IA_BASE + k, IID) for k in range(3)]
 check("the re-pinned reroll resolves from BEACON(new irp) + irp + item and clears the pin",
       "ok" in r and after == P.ref_affixes(salt, RAR) and rd(st, cid, P.IRP, IID) == 0, (r, after))
@@ -162,7 +161,7 @@ for f, v in ((P.IO, zkvm_addr_digest(A)), (P.IT, 1), (P.IR, RAR), (P.IE, 0), (P.
 st.beacons[20] = 0xABCDEF
 st.cursor = (20 + P.REROLL_STALE_EPOCHS) * EL + 7
 r = call(st, cid, B, "reroll", [IID])
-salt = (st.beacons[20] % F.P + 20 + IID) % F.P
+salt = (st.beacons[20] % _lib.vm_mod() + 20 + IID) % _lib.vm_mod()
 check("a value-0 call on a stale pin whose beacon is still present resolves it as phase 2",
       "ok" in r and rd(st, cid, P.IRP, IID) == 0
       and [rd(st, cid, P.IA_BASE + k, IID) for k in range(3)] == P.ref_affixes(salt, RAR), r)

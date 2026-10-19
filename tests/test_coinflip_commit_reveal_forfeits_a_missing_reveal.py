@@ -29,9 +29,10 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState                                   # noqa: E402
 from execnode.runtimes import zkvm_addr_digest                         # noqa: E402
-from execnode.stark import alghash, field as F                         # noqa: E402
+from execnode.stark import field as F                                  # noqa: E402
 from execnode.games import coinflip as CF                              # noqa: E402
 
 FAILED = []
@@ -52,12 +53,12 @@ _n = [0]
 
 
 def H(x):
-    return alghash.hashn([x % F.P])
+    return _lib.vm_hash([x % _lib.vm_mod()])
 
 
 def ref_slot(s1, s2, g):
     """In-clear reference: winner slot = (HASH(s1 + s2 + g) LO32 % 2) + 1."""
-    return (H((s1 % F.P + s2 % F.P + g) % F.P) & 0xFFFFFFFF) % 2 + 1
+    return (H((s1 % _lib.vm_mod() + s2 % _lib.vm_mod() + g) % _lib.vm_mod()) & 0xFFFFFFFF) % 2 + 1
 
 
 def fresh(cursor=1000):
@@ -104,7 +105,7 @@ def started(g, s1, s2):
 
 
 # ---- 1. open/join record the commit-reveal game --------------------------------------------------------------
-S1, S2, G = 0x1234567890ABCDEF % F.P, 0xFEDCBA0987654321 % F.P, 777
+S1, S2, G = 0x1234567890ABCDEF % _lib.vm_mod(), 0xFEDCBA0987654321 % _lib.vm_mod(), 777
 st, cid = fresh()
 check("open refuses a zero commitment", refused(st, cid, A, "open", [G, 0], STAKE))
 call(st, cid, A, "open", [G, H(S1)], STAKE)
@@ -141,7 +142,7 @@ check("reveal after settle is refused", refused(st, cid, B, "reveal", [G, S2]))
 # both slots happen: over a handful of secret pairs the reference must produce both outcomes and the VM must agree
 seen = set()
 for i in range(8):
-    s1, s2, g = (i * 0x9E3779B97F4A7C15 + 5) % F.P, (i * 0xC2B2AE3D27D4EB4F + 11) % F.P, 1000 + i
+    s1, s2, g = (i * 0x9E3779B97F4A7C15 + 5) % _lib.vm_mod(), (i * 0xC2B2AE3D27D4EB4F + 11) % _lib.vm_mod(), 1000 + i
     st_i, cid_i = started(g, s1, s2)
     call(st_i, cid_i, A, "reveal", [g, s1])
     call(st_i, cid_i, B, "reveal", [g, s2])
@@ -216,7 +217,7 @@ check("legacy game: reveal is refused (no commitments)", refused(st, cid, A, "re
 st.cursor = SH
 check("legacy game: settle still waits for both settle blocks", refused(st, cid, C, "settle", [LG]))
 st.cursor = SH + 1
-want = (H((0xABCDEF0123 + 0x77665544 + LG) % F.P) & 0xFFFFFFFF) % 2 + 1
+want = (H((0xABCDEF0123 + 0x77665544 + LG) % _lib.vm_mod()) & 0xFFFFFFFF) % 2 + 1
 a0, b0 = st.bridge[A], st.bridge[B]
 call(st, cid, C, "settle", [LG])
 check("legacy game: settles from BLOCKHASH(sh) + BLOCKHASH(sh+1) + g exactly as before",
@@ -282,7 +283,7 @@ def js_eval(pairs):
     return json.loads(out.stdout)
 
 
-pairs = [[str(S1), str(S2), str(G)], [str(F.P - 1), "1", "4294967295"], [str((1 << 63) % F.P), str(12345), "1"]]
+pairs = [[str(S1), str(S2), str(G)], [str(F.P - 1), "1", "4294967295"], [str((1 << 63) % _lib.vm_mod()), str(12345), "1"]]
 js = js_eval(pairs)
 if js is None:
     print("SKIP  node not installed: client commitment cross-check")

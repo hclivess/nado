@@ -22,10 +22,10 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 H = os.environ["HOME"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState
 from execnode.games import pets as P
 from execnode.runtimes import zkvm_addr_digest
-from execnode.stark import alghash
 import tools.alphanet6_carryforward as C
 
 import _harness
@@ -84,11 +84,11 @@ old.cursor += 3
 call(old, cid, B, "hatch", [BPET])
 from execnode.stark import field as _F
 S1, S2, STAKE = 123456789, 987654321, 10 ** 9
-Hc = lambda x: alghash.hashn([x % _F.P])
+Hc = lambda x: _lib.vm_hash([x % _F.P])
 old.cursor = max(old.cursor, rd(old, P.EX, FARMER), rd(old, P.EX, BPET)) + 1
 r_ch = call(old, cid, A, "challenge", [70, FARMER, BPET, Hc(S1)], STAKE)
 r_ac = call(old, cid, B, "accept", [70, Hc(S2)], STAKE)
-res_slot = str(alghash.hashn([P.TG_RES, zkvm_addr_digest(A), 0]))
+res_slot = str(_lib.vm_hash([P.TG_RES, zkvm_addr_digest(A), 0]))
 old.contracts[cid]["storage"]["slots"][res_slot] = "777"         # a hashed slot: a resource balance
 # the pending rolls are made at the tip, so their randomness is NOT YET MINED when the carry runs (a roll whose outcome is
 # already visible blocks the carry instead: tests/test_a_carry_never_rerolls_a_visible_outcome.py)
