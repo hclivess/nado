@@ -3,7 +3,7 @@
 native/stwo_settle/src/csmt_ref.rs is the ground truth the gen-29 settlement circuit (Goldilocks retirement G4) is
 tested against: one personalized BLAKE2s compression per leaf and per node, keys and digests as little-endian words. If it
 disagreed with the node's own tree by a bit, every proof would prove a root no node computes. So: every membership proof (up to 10 per tree, ~170 in all) from
-csmt.Tree (random key sets, keys sharing long prefixes, membership and absence-by-leaf paths, depths 0 to 40+) are fed to
+csmt.Tree (random key sets, keys sharing long prefixes, membership paths, depths 0 to 40+) are fed to
 the Rust reference (src/bin/csmt_ref_roots), and every root it prints must equal the tree's root.
 
 Needs the nightly toolchain to build the crate; skips with the reason when it is not installed.
