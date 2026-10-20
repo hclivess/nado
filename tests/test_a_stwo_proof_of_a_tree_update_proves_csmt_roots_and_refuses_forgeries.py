@@ -42,8 +42,11 @@ def build():
     cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
     if not os.path.exists(cargo):
         return None
+    # RUSTUP_AUTO_INSTALL=0: rustup >= 1.28 INSTALLS a missing `+toolchain` on the spot — on a CI runner or a fleet
+    # box running scripts/run_tests.sh that is a nightly download nobody asked for, and minutes past the CI cap.
+    # Without it the toolchain is simply absent and the test SKIPs.
     r = subprocess.run([cargo, "+nightly-2026-01-15", "build", "--release", "--bin", "settle_update"], cwd=CRATE,
-                       capture_output=True, text=True, timeout=1800, env=dict(os.environ, CARGO_TARGET_DIR=TARGET))
+                       capture_output=True, text=True, timeout=1800, env=dict(os.environ, RUSTUP_AUTO_INSTALL="0", CARGO_TARGET_DIR=TARGET))
     if r.returncode != 0:
         print(r.stderr[-1500:])
         return None

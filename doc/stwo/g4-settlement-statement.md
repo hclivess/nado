@@ -70,8 +70,10 @@ and the root after the last block equals `post_root`.
   canonical call, with gen-29 address digests);
 - the calls fold (new): `c_0 = 32 zero bytes; c_i = BLAKE2s(c_{i-1} || leaf_i)` with its own personalization, so the
   circuit proves the fold with the same Blake component as everything else;
-- the circuit's maximum tree path depth: beyond feasible key grinding (around 80), not the typical 18-28
-  (doc/stwo/g1-tree-shape.md section 5).
+- the tree path depth: ANY depth a 256-bit key allows. The path component (step 2 below) takes each write's shape
+  (op, depths) as part of the statement and rebuilds its preprocessed columns from it, so no fixed circuit maximum
+  exists to exceed. A ground key that shares a long prefix costs only rows in its own span, which is the grinder's
+  bill (doc/stwo/g1-tree-shape.md section 5 had planned a fixed maximum of around 80; superseded 2026-10-20).
 
 ### 2.4 Soundness: the suite the new verifier must refuse
 
@@ -175,7 +177,11 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
    2. The shape (op and depths per write) is public, so the preprocessed commitment is per statement, and the
       verifier recomputes it (~70 ms of the verify time). A fixed-shape circuit would let L1 pin one key. That is a
       later choice, which the frozen statement does not depend on.
-   3. A refusal by the prover's own consistency check (`ConstraintsNotSatisfied`) shows the constraint is violated.
+   3. The VM hash's BIG-ENDIAN encoding (`zkvm2._absorb`: `h.to_bytes(32, "big")`, mirrored in `static/blake2s.js`,
+      `nadodapp.js`, `dex.js` and the games) costs nothing in-circuit. A Blake-consuming row already splits every
+      message and digest limb into range-checked bytes (path.rs sections 2 and 3), and big-endian is a different
+      linear recombination of the same bytes. Checked while scoping the VM component, so the frozen encoding stays.
+   4. A refusal by the prover's own consistency check (`ConstraintsNotSatisfied`) shows the constraint is violated.
       A prover that skips the check is caught by FRI, which this test does not exercise separately.
 3. The VM step component for `zkvm2` (the CPU row, the storage and io buses by lookup, the BLAKE2s accumulator).
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.
