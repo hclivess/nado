@@ -9,34 +9,17 @@ the Rust reference (src/bin/csmt_ref_roots), and every root it prints must equal
 Needs the nightly toolchain to build the crate; skips with the reason when it is not installed.
 Run: python3 tests/test_the_stwo_tree_reference_equals_csmt_py.py
 """
+import os
+_REAL_HOME = os.path.expanduser("~")      # BEFORE isolate: the toolchain lives under the real HOME
 import _harness
 HOME = _harness.isolate("nado-test-stwo-tree-ref-")
-import os
 import random
-import shutil
 import subprocess
 
 from execnode import csmt as C
+from tests._stwo_settle_build import NIGHTLY, build
 
 T = _harness.Report()
-CRATE = os.path.join(_harness.ROOT, "native", "stwo_settle")
-TOOLCHAIN = "nightly-2026-01-15"
-
-
-def build():
-    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
-    if not os.path.exists(cargo):
-        return None
-    # RUSTUP_AUTO_INSTALL=0: rustup >= 1.28 INSTALLS a missing `+toolchain` on the spot — on a CI runner or a fleet
-    # box running scripts/run_tests.sh that is a nightly download nobody asked for, and minutes past the CI cap.
-    # Without it the toolchain is simply absent and the test SKIPs.
-    r = subprocess.run([cargo, f"+{TOOLCHAIN}", "build", "--release", "--bin", "csmt_ref_roots"], cwd=CRATE,
-                       capture_output=True, text=True, timeout=1800,
-                       env=dict(os.environ, RUSTUP_AUTO_INSTALL="0", CARGO_TARGET_DIR=os.path.join(os.path.expanduser("~"), ".cache", "nado-stwo-settle-target")))
-    if r.returncode != 0:
-        print(r.stderr[-1500:])
-        return None
-    return os.path.join(os.path.expanduser("~"), ".cache", "nado-stwo-settle-target", "release", "csmt_ref_roots")
 
 
 rnd = random.Random(4)
@@ -59,9 +42,10 @@ for t in range(30):
         want.append(root.hex())
 T.check("the cases cover depth 0 and paths deeper than 30", min(c.count(",") for c in cases if " " in c) >= 0
         and max(len(c.split(" ")[2].split(",")) if c.split(" ")[2] else 0 for c in cases) > 30)
-binp = build()
+binp, build_log = build(_REAL_HOME, "csmt_ref_roots")
+T.check("the crate builds when its toolchain is present", binp is not None or not build_log, build_log)
 if binp is None:
-    print(f"SKIP  no {TOOLCHAIN} toolchain (or the crate did not build): the Rust reference cannot be run here")
+    print(f"SKIP  no {NIGHTLY} toolchain: the Rust reference cannot be run here")
 else:
     r = subprocess.run([binp], input="\n".join(cases) + "\n", capture_output=True, text=True, timeout=120)
     got = r.stdout.split()

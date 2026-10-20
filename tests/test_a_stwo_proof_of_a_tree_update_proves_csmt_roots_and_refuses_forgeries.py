@@ -24,33 +24,17 @@ Also prints the prove/verify time and proof size.
 Needs the nightly toolchain to build the crate; skips with the reason when it is not installed.
 Run: python3 tests/test_a_stwo_proof_of_a_tree_update_proves_csmt_roots_and_refuses_forgeries.py
 """
+import os
+_REAL_HOME = os.path.expanduser("~")      # BEFORE isolate: the toolchain lives under the real HOME
 import _harness
 HOME = _harness.isolate("nado-test-stwo-tree-update-")
-import os
 import random
-import shutil
 import subprocess
 
 from execnode import csmt as C
+from tests._stwo_settle_build import NIGHTLY, build
 
 T = _harness.Report()
-CRATE = os.path.join(_harness.ROOT, "native", "stwo_settle")
-TARGET = os.path.join(os.path.expanduser("~"), ".cache", "nado-stwo-settle-target")
-
-
-def build():
-    cargo = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo")
-    if not os.path.exists(cargo):
-        return None
-    # RUSTUP_AUTO_INSTALL=0: rustup >= 1.28 INSTALLS a missing `+toolchain` on the spot — on a CI runner or a fleet
-    # box running scripts/run_tests.sh that is a nightly download nobody asked for, and minutes past the CI cap.
-    # Without it the toolchain is simply absent and the test SKIPs.
-    r = subprocess.run([cargo, "+nightly-2026-01-15", "build", "--release", "--bin", "settle_update"], cwd=CRATE,
-                       capture_output=True, text=True, timeout=1800, env=dict(os.environ, RUSTUP_AUTO_INSTALL="0", CARGO_TARGET_DIR=TARGET))
-    if r.returncode != 0:
-        print(r.stderr[-1500:])
-        return None
-    return os.path.join(TARGET, "release", "settle_update")
 
 
 def pfx(key, d):
@@ -166,9 +150,10 @@ T.check("the batches hold all five op kinds", set(cases[1][4]) | set(cases[2][4]
         (cases[1][4], cases[2][4]))
 T.check("the edge case starts and ends at the empty tree", cases[2][2] == C.EMPTY.hex() == cases[2][3])
 
-binp = build()
+binp, build_log = build(_REAL_HOME, "settle_update")
+T.check("the crate builds when its toolchain is present", binp is not None or not build_log, build_log)
 if binp is None:
-    print("SKIP  no nightly-2026-01-15 toolchain (or the crate did not build): the Stwo prover cannot be run here")
+    print(f"SKIP  no {NIGHTLY} toolchain: the Stwo prover cannot be run here")
 else:
     for name, line, want_old, want_new, ops in cases:
         r = subprocess.run([binp], input=line + "\n", capture_output=True, text=True, timeout=1800)
