@@ -1,11 +1,14 @@
-//! Prove / verify ONE compressed-tree key update (prototype v0, doc/stwo/g4-settlement-statement.md): upstream's BLAKE2s
-//! scheduler + rounds + XOR tables, plus the path component (path.rs) that consumes the scheduler's compressions.
+//! Prove / verify a SEQUENTIAL BATCH of compressed-tree key updates (doc/stwo/g4-settlement-statement.md): upstream's
+//! BLAKE2s scheduler + rounds + XOR tables, plus the path component (path.rs) that consumes the scheduler's compressions.
+//! The fixed XOR tables dominate one update's cost, so a span's updates share one trace.
 //!
 //! SOUNDNESS CHOICES made here, each one load-bearing:
-//!  * the statement (depth, key, both value hashes, both roots) is mixed into the transcript BEFORE any lookup element is
-//!    drawn, so a prover cannot pick a statement after seeing the challenges;
-//!  * the verifier rebuilds the path's preprocessed columns from the depth alone and checks every claimed sum plus the
+//!  * the statement (every update's depth, key, both value hashes, both roots) is mixed into the transcript BEFORE any
+//!    lookup element is drawn, so a prover cannot pick a statement after seeing the challenges;
+//!  * the verifier rebuilds the path's preprocessed columns from the depths alone and checks every claimed sum plus the
 //!    public terms it computes itself total ZERO, returning an error (upstream's example asserted);
+//!  * the verifier chains the batch natively: update i's new root is update i+1's old root, so the proof covers ONE
+//!    sequence of states from the first old root to the last new root, not K unrelated updates;
 //!  * the verifier refuses a proof whose PcsConfig is weaker than the node's (upstream's example accepted 5 bits).
 
 use std::simd::u32x16;
@@ -36,7 +39,7 @@ use stwo_constraint_framework::{
 
 use super::path::{
     N_PUB, PathComponent, PathEval, PubElements, SEL, TAG_DIR, TAG_KEY, TAG_ROOT_NEW, TAG_ROOT_OLD, TAG_VH_NEW,
-    TAG_VH_OLD, pos, preprocessed_logical, preprocessed_values, real_rows, sel_id,
+    TAG_VH_OLD, batch_rows, pos, preprocessed_logical, preprocessed_values, sel_id,
 };
 use super::preprocessed_columns::XorTable;
 use super::round::{BlakeRoundComponent, BlakeRoundEval, RoundElements, blake_round_info};
@@ -60,7 +63,7 @@ pub struct Update {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Statement {
+pub struct UpdateStatement {
     pub depth: usize,
     pub key: [u32; 8],
     pub vh_old: [u32; 8],
@@ -68,16 +71,28 @@ pub struct Statement {
     pub root_old: [u32; 8],
     pub root_new: [u32; 8],
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Statement {
+    pub updates: Vec<UpdateStatement>,
+}
 impl Statement {
     fn mix_into(&self, ch: &mut impl Channel) {
-        ch.mix_u64(self.depth as u64);
-        for w in [self.key, self.vh_old, self.vh_new, self.root_old, self.root_new] {
-            ch.mix_u32s(&w);
+        ch.mix_u64(self.updates.len() as u64);
+        for u in &self.updates {
+            ch.mix_u64(u.depth as u64);
+            for w in [u.key, u.vh_old, u.vh_new, u.root_old, u.root_new] {
+                ch.mix_u32s(&w);
+            }
         }
+    }
+    pub fn depths(&self) -> Vec<usize> {
+        self.updates.iter().map(|u| u.depth).collect()
     }
 }
 
-pub struct UpdateProof {
+#[derive(Clone)]
+pub struct BatchProof {
     pub log_size: u32,
     pub sums: Vec<SecureField>,
     pub stark: StarkProof<Blake2sMerkleHasher>,
@@ -90,7 +105,7 @@ struct Row {
     dir: u32,
 }
 
-fn rows_of(u: &Update) -> (Vec<Row>, Statement) {
+fn rows_of(u: &Update) -> (Vec<Row>, UpdateStatement) {
     let d = u.sibs.len();
     let cat = |a: &[u32; 8], b: &[u32; 8]| -> [u32; 16] { std::array::from_fn(|i| if i < 8 { a[i] } else { b[i - 8] }) };
     let mut rows = vec![Row { m: cat(&u.key, &u.vh_old), leaf: true, dir: 0 }, Row { m: cat(&u.key, &u.vh_new), leaf: true, dir: 0 }];
@@ -106,11 +121,22 @@ fn rows_of(u: &Update) -> (Vec<Row>, Statement) {
             rows.push(Row { m, leaf: false, dir });
         }
     }
-    (rows, Statement { depth: d, key: u.key, vh_old: u.vh_old, vh_new: u.vh_new, root_old: h_old, root_new: h_new })
+    (rows, UpdateStatement { depth: d, key: u.key, vh_old: u.vh_old, vh_new: u.vh_new, root_old: h_old, root_new: h_new })
 }
 
-fn log_size_for(d: usize) -> u32 {
-    (real_rows(d).next_power_of_two().trailing_zeros()).max(LOG_N_LANES)
+fn batch_of(us: &[Update]) -> (Vec<Row>, Statement) {
+    let mut rows = vec![];
+    let mut updates = vec![];
+    for u in us {
+        let (r, st) = rows_of(u);
+        rows.extend(r);
+        updates.push(st);
+    }
+    (rows, Statement { updates })
+}
+
+fn log_size_for(depths: &[usize]) -> u32 {
+    (batch_rows(depths).next_power_of_two().trailing_zeros()).max(LOG_N_LANES)
 }
 
 type Evals = Vec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>;
@@ -124,8 +150,8 @@ fn f(x: u32) -> BaseField {
     BaseField::from_u32_unchecked(x)
 }
 
-fn path_preprocessed(d: usize, log: u32) -> Evals {
-    evals(preprocessed_values(d, log).into_iter().map(|c| c.into_iter().map(f).collect()).collect(), log)
+fn path_preprocessed(depths: &[usize], log: u32) -> Evals {
+    evals(preprocessed_values(depths, log).into_iter().map(|c| c.into_iter().map(f).collect()).collect(), log)
 }
 
 /// One row's every lookup entry in the order PathEval adds them: (numerator, the relation's values) — so the interaction
@@ -179,8 +205,9 @@ fn path_row_entries(row: Option<&Row>, sel: &[u32]) -> (Vec<u32>, Vec<(i64, Rel,
         }
     }
     cols.push(dir);
+    let upd = sel[8];
     let tup = |tag: u32, vals: Vec<u32>| {
-        let mut t = vec![tag];
+        let mut t = vec![tag, upd];
         t.extend(vals);
         t.resize(N_PUB, 0);
         t
@@ -205,9 +232,9 @@ struct PathTrace {
     entries: Vec<Vec<(i64, Rel, Vec<u32>)>>,
 }
 
-fn path_trace(rows: &[Row], d: usize, log: u32, xor: &mut XorAccums) -> PathTrace {
+fn path_trace(rows: &[Row], depths: &[usize], log: u32, xor: &mut XorAccums) -> PathTrace {
     let n = 1usize << log;
-    let sels = preprocessed_logical(d, log);
+    let sels = preprocessed_logical(depths, log);
     // built per LOGICAL row, then placed at its storage index (path.rs pos): the masks at -1 / -2 are coset steps
     let mut cols: Vec<Vec<BaseField>> = vec![];
     let mut entries: Vec<Vec<(i64, Rel, Vec<u32>)>> = (0..n).map(|_| vec![]).collect();
@@ -409,11 +436,12 @@ fn log_sizes(log: u32) -> TreeVec<Vec<u32>> {
     out
 }
 
-/// Prove one key update. Returns the statement it proves (the roots computed from the witness) and the proof.
-pub fn prove_update(u: &Update, config: PcsConfig) -> (Statement, UpdateProof) {
-    let (rows, stmt) = rows_of(u);
-    let d = stmt.depth;
-    let log = log_size_for(d);
+/// Prove a sequential batch of key updates (each one's siblings against the tree the previous one left). Returns the
+/// statement it proves (the roots computed from the witness) and the proof.
+pub fn prove_batch(us: &[Update], config: PcsConfig) -> (Statement, BatchProof) {
+    let (rows, stmt) = batch_of(us);
+    let depths = stmt.depths();
+    let log = log_size_for(&depths);
     const XOR_TABLE_MAX_LOG_SIZE: u32 = 16;
     let log_max = (log + *ROUND_LOG_SPLIT.iter().max().unwrap()).max(XOR_TABLE_MAX_LOG_SIZE);
     let twiddles = SimdBackend::precompute_twiddles(
@@ -425,7 +453,7 @@ pub fn prove_update(u: &Update, config: PcsConfig) -> (Statement, UpdateProof) {
     let mut cs = CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(config, &twiddles);
     cs.set_store_polynomials_coefficients();   // the path constraints (degree 3) evaluate on a larger domain than the trace
 
-    // preprocessed: the XOR tables, then the path's selectors (a function of the depth)
+    // preprocessed: the XOR tables, then the path's selectors (a function of the depths)
     let mut tb = cs.tree_builder();
     tb.extend_evals(
         chain![
@@ -434,7 +462,7 @@ pub fn prove_update(u: &Update, config: PcsConfig) -> (Statement, UpdateProof) {
             XorTable::new(8, 2, 0).generate_constant_trace(),
             XorTable::new(7, 2, 0).generate_constant_trace(),
             XorTable::new(4, 0, 0).generate_constant_trace(),
-            path_preprocessed(d, log),
+            path_preprocessed(&depths, log),
         ]
         .collect_vec(),
     );
@@ -460,7 +488,7 @@ pub fn prove_update(u: &Update, config: PcsConfig) -> (Statement, UpdateProof) {
         rest = r;
         round::generate_trace(log + l, cur, &mut xor_acc)
     }));
-    let pt = path_trace(&rows, d, log, &mut xor_acc);
+    let pt = path_trace(&rows, &depths, log, &mut xor_acc);
     let (x12, xl12) = xor12::generate_trace(xor_acc.xor12);
     let (x9, xl9) = xor9::generate_trace(xor_acc.xor9);
     let (x8, xl8) = xor8::generate_trace(xor_acc.xor8);
@@ -497,37 +525,40 @@ pub fn prove_update(u: &Update, config: PcsConfig) -> (Statement, UpdateProof) {
     tb.commit(channel);
 
     let comps = Components::new(log, &el, &sums);
-    let stark = prove::<SimdBackend, Blake2sMerkleChannel>(&comps.provers(), channel, cs).expect("honest update proves");
-    (stmt, UpdateProof { log_size: log, sums, stark })
+    let stark = prove::<SimdBackend, Blake2sMerkleChannel>(&comps.provers(), channel, cs).expect("honest batch proves");
+    (stmt, BatchProof { log_size: log, sums, stark })
 }
 
 /// The public LogUp terms the verifier adds itself: +1/combine(tuple) for every tuple the path component consumes.
 fn public_sum(st: &Statement, pubs: &PubElements) -> SecureField {
     let limbs = |w: &[u32; 8]| w.iter().flat_map(|x| [x & 0xffff, x >> 16]).collect_vec();
-    let tup = |tag: u32, vals: Vec<u32>| -> Vec<BaseField> {
-        let mut t = vec![tag];
-        t.extend(vals);
-        t.resize(N_PUB, 0);
-        t.into_iter().map(f).collect()
-    };
     let term = |t: Vec<BaseField>| -> SecureField {
         <PubElements as Relation<BaseField, SecureField>>::combine(pubs, &t).inverse()
     };
-    let mut s = term(tup(TAG_KEY, limbs(&st.key))) * SecureField::from(f(2)); // both leaf rows carry the key
-    s += term(tup(TAG_VH_OLD, limbs(&st.vh_old)));
-    s += term(tup(TAG_VH_NEW, limbs(&st.vh_new)));
-    for level in 0..st.depth {
-        s += term(tup(TAG_DIR, vec![level as u32, bit(&st.key, level)]));
+    let mut s = SecureField::zero();
+    for (i, u) in st.updates.iter().enumerate() {
+        let tup = |tag: u32, vals: Vec<u32>| -> Vec<BaseField> {
+            let mut t = vec![tag, i as u32];
+            t.extend(vals);
+            t.resize(N_PUB, 0);
+            t.into_iter().map(f).collect()
+        };
+        s += term(tup(TAG_KEY, limbs(&u.key))) * SecureField::from(f(2)); // both leaf rows carry the key
+        s += term(tup(TAG_VH_OLD, limbs(&u.vh_old)));
+        s += term(tup(TAG_VH_NEW, limbs(&u.vh_new)));
+        for level in 0..u.depth {
+            s += term(tup(TAG_DIR, vec![level as u32, bit(&u.key, level)]));
+        }
+        s += term(tup(TAG_ROOT_OLD, limbs(&u.root_old)));
+        s += term(tup(TAG_ROOT_NEW, limbs(&u.root_new)));
     }
-    s += term(tup(TAG_ROOT_OLD, limbs(&st.root_old)));
-    s += term(tup(TAG_ROOT_NEW, limbs(&st.root_new)));
     s
 }
 
-/// The commitment of the preprocessed trace (XOR tables + the depth-`d` path selectors) under `config` — what an honest
-/// proof's commitments[0] is. Computed with the prover's machinery; a deployment pins it per depth.
-pub fn preprocessed_root(d: usize, config: PcsConfig) -> <Blake2sMerkleHasher as stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted>::Hash {
-    let log = log_size_for(d);
+/// The commitment of the preprocessed trace (XOR tables + the path selectors of a batch of these depths) under `config`
+/// — what an honest proof's commitments[0] is. Computed with the prover's machinery from the statement alone.
+pub fn preprocessed_root(depths: &[usize], config: PcsConfig) -> <Blake2sMerkleHasher as stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted>::Hash {
+    let log = log_size_for(depths);
     let log_max = (log + *ROUND_LOG_SPLIT.iter().max().unwrap()).max(16);
     let twiddles = SimdBackend::precompute_twiddles(
         CanonicCoset::new(log_max + 1 + config.fri_config.log_blowup_factor).circle_domain().half_coset,
@@ -542,7 +573,7 @@ pub fn preprocessed_root(d: usize, config: PcsConfig) -> <Blake2sMerkleHasher as
             XorTable::new(8, 2, 0).generate_constant_trace(),
             XorTable::new(7, 2, 0).generate_constant_trace(),
             XorTable::new(4, 0, 0).generate_constant_trace(),
-            path_preprocessed(d, log),
+            path_preprocessed(depths, log),
         ]
         .collect_vec(),
     );
@@ -555,17 +586,26 @@ pub enum VerifyError {
     Preprocessed,
     WeakConfig,
     Shape,
+    /// an update's new root is not the next update's old root
+    Chain,
     Sum,
     Stark(VerificationError),
 }
 
-/// Verify that `proof` proves `st`: the depth's layout, the node's config, every sum plus the public terms zero, the
-/// STARK. Never panics on a malformed proof it can recognize; returns why it refused.
-pub fn verify_update(st: &Statement, proof: UpdateProof, config: PcsConfig) -> Result<(), VerifyError> {
+/// Verify that `proof` proves `st`: the batch's layout, the node's config, the root chain, every sum plus the public
+/// terms zero, the STARK. Never panics on a malformed proof it can recognize; returns why it refused.
+pub fn verify_batch(st: &Statement, proof: BatchProof, config: PcsConfig) -> Result<(), VerifyError> {
     if proof.stark.config != config {
         return Err(VerifyError::WeakConfig);
     }
-    let log = log_size_for(st.depth);
+    if st.updates.is_empty() || st.updates.iter().any(|u| u.depth > 255) {
+        return Err(VerifyError::Shape);
+    }
+    if st.updates.windows(2).any(|w| w[0].root_new != w[1].root_old) {
+        return Err(VerifyError::Chain);
+    }
+    let depths = st.depths();
+    let log = log_size_for(&depths);
     if proof.log_size != log || proof.sums.len() != 1 + ROUND_LOG_SPLIT.len() + 6 {
         return Err(VerifyError::Shape);
     }
@@ -578,10 +618,10 @@ pub fn verify_update(st: &Statement, proof: UpdateProof, config: PcsConfig) -> R
         return Err(VerifyError::Shape);
     }
     // THE PREPROCESSED COLUMNS ARE OURS, NOT THE PROVER'S: the XOR tables and the path's selectors are constants of the
-    // depth, so their commitment is recomputed here and a proof carrying any other is refused. Upstream's example took
+    // depths, so their commitment is recomputed here and a proof carrying any other is refused. Upstream's example took
     // commitments[0] from the proof unchecked — a prover could commit a fake XOR table or selectors that switch every
     // constraint off. (stwo_js pins the same thing as NODE_PREPROCESSED_ROOT.)
-    if proof.stark.commitments[0] != preprocessed_root(st.depth, config) {
+    if proof.stark.commitments[0] != preprocessed_root(&depths, config) {
         return Err(VerifyError::Preprocessed);
     }
     cs.commit(proof.stark.commitments[0], &sizes[0], channel);
@@ -615,15 +655,15 @@ fn _ids() -> usize {
     ORIGINAL_TRACE_IDX
 }
 
-/// DEBUG: evaluate the path component's constraints on its own trace for `u` (random lookup elements), panicking with
+/// DEBUG: evaluate the path component's constraints on its own trace for `us` (random lookup elements), panicking with
 /// the first failing row and constraint index — the tool for "ConstraintsNotSatisfied".
-pub fn debug_path_constraints(u: &Update) {
+pub fn debug_path_constraints(us: &[Update]) {
     use stwo_constraint_framework::assert_constraints_on_trace;
-    let (rows, stmt) = rows_of(u);
-    let d = stmt.depth;
-    let log = log_size_for(d);
+    let (rows, stmt) = batch_of(us);
+    let depths = stmt.depths();
+    let log = log_size_for(&depths);
     let mut xa = XorAccums::default();
-    let pt = path_trace(&rows, d, log, &mut xa);
+    let pt = path_trace(&rows, &depths, log, &mut xa);
     let ch = &mut Blake2sChannel::default();
     let el = Elements {
         blake: BlakeElements::draw(ch),
@@ -633,7 +673,7 @@ pub fn debug_path_constraints(u: &Update) {
     };
     let (itr, sum) = path_interaction(&pt, log, &el.blake, &el.xor, &el.pubs);
     let pre: Vec<Vec<BaseField>> =
-        preprocessed_values(d, log).into_iter().map(|c| c.into_iter().map(f).collect()).collect();
+        preprocessed_values(&depths, log).into_iter().map(|c| c.into_iter().map(f).collect()).collect();
     let orig: Vec<Vec<BaseField>> = pt.trace.iter().map(|e| e.values.to_cpu()).collect();
     let inter: Vec<Vec<BaseField>> = itr.iter().map(|e| e.values.to_cpu()).collect();
     let tv = TreeVec::new(vec![pre.iter().collect_vec(), orig.iter().collect_vec(), inter.iter().collect_vec()]);

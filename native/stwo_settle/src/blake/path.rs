@@ -1,7 +1,12 @@
-//! The settlement PATH component: one compressed-tree key update (old leaf -> old root, new leaf -> new root over the
-//! SAME siblings), proven over upstream's BLAKE2s components (doc/stwo/g4-settlement-statement.md, prototype v0).
+//! The settlement PATH component: a BATCH of compressed-tree key updates, each one old leaf -> old root and new leaf ->
+//! new root over the SAME siblings, proven over upstream's BLAKE2s components (doc/stwo/g4-settlement-statement.md).
+//! Updates sit back to back, each in its own block of rows; the preprocessed `settle_upd` column numbers them and every
+//! public tuple carries that number, so a row cannot lend its key, value or root to another update. The batch is
+//! SEQUENTIAL: update i+1's siblings are against the tree after update i, and the verifier chains the roots natively
+//! (settle.rs verify_batch: root_new[i] == root_old[i+1]).
 //!
-//! ONE ROW PER COMPRESSION, interleaved old/new by level, so a row's child digest is always two rows up:
+//! WITHIN AN UPDATE, ONE ROW PER COMPRESSION, interleaved old/new by level, so a row's child digest is always two rows up
+//! (an update's first node row reads its own leaf row: the -1 / -2 masks never reach the previous update on a gated row):
 //!   rows 0, 1          the old and the new LEAF: message = key (8 words) || value hash (8 words), person NADOcsL1
 //!   rows 2k+2, 2k+3    the old and the new NODE at level d-1-k: message = (child, sibling) ordered by the key's bit
 //!                      at that level, person NADOcsN1
@@ -26,8 +31,8 @@ use super::scheduler::BlakeElements;
 use super::{BlakeXorElements, Fu32};
 use crate::csmt_ref::{PERSON_LEAF, PERSON_NODE, h0, v_init};
 
-/// Public tuple width: a tag, then up to 16 felts (8 words as 16-bit limbs).
-pub const N_PUB: usize = 17;
+/// Public tuple width: a tag, the update's index, then up to 16 felts (8 words as 16-bit limbs).
+pub const N_PUB: usize = 18;
 relation!(PubElements, N_PUB);
 
 pub const TAG_KEY: u32 = 1;
@@ -37,8 +42,8 @@ pub const TAG_DIR: u32 = 4;
 pub const TAG_ROOT_OLD: u32 = 5;
 pub const TAG_ROOT_NEW: u32 = 6;
 
-/// The preprocessed columns (a function of the depth only): selectors and the level index.
-pub const SEL: [&str; 8] = [
+/// The preprocessed columns (a function of the batch's depths only): selectors, the level and the update index.
+pub const SEL: [&str; 9] = [
     "settle_sel_real",
     "settle_sel_leaf_old",
     "settle_sel_leaf_new",
@@ -47,6 +52,7 @@ pub const SEL: [&str; 8] = [
     "settle_sel_root_old",
     "settle_sel_root_new",
     "settle_lvl",
+    "settle_upd",
 ];
 
 pub fn sel_id(name: &str) -> PreProcessedColumnId {
@@ -58,6 +64,11 @@ pub const fn real_rows(d: usize) -> usize {
     2 * d + 2
 }
 
+/// Rows a batch uses.
+pub fn batch_rows(depths: &[usize]) -> usize {
+    depths.iter().map(|d| real_rows(*d)).sum()
+}
+
 /// Stwo stores a column in bit-reversed CIRCLE-DOMAIN order, and a mask offset (the -1 / -2 this component reads) is a
 /// step along the coset, not along the storage index: logical row r lives at storage index pos(r). Every column this
 /// component owns is written through it (the selectors here, the trace in settle.rs).
@@ -66,10 +77,10 @@ pub fn pos(r: usize, log: u32) -> usize {
     bit_reverse_index(coset_index_to_circle_domain_index(r, log), log)
 }
 
-/// The preprocessed column VALUES for a depth-`d` update in a component of `1 << log_size` rows, in SEL order, in
-/// STORAGE order (logical row r at pos(r)).
-pub fn preprocessed_values(d: usize, log_size: u32) -> Vec<Vec<u32>> {
-    let logical = preprocessed_logical(d, log_size);
+/// The preprocessed column VALUES for a batch of updates of these depths in a component of `1 << log_size` rows, in SEL
+/// order, in STORAGE order (logical row r at pos(r)).
+pub fn preprocessed_values(depths: &[usize], log_size: u32) -> Vec<Vec<u32>> {
+    let logical = preprocessed_logical(depths, log_size);
     let n = 1usize << log_size;
     logical
         .iter()
@@ -83,24 +94,30 @@ pub fn preprocessed_values(d: usize, log_size: u32) -> Vec<Vec<u32>> {
         .collect()
 }
 
-/// The same columns in LOGICAL row order (row 0 = the old leaf ...).
-pub fn preprocessed_logical(d: usize, log_size: u32) -> Vec<Vec<u32>> {
+/// The same columns in LOGICAL row order (row 0 = update 0's old leaf ...).
+pub fn preprocessed_logical(depths: &[usize], log_size: u32) -> Vec<Vec<u32>> {
     let n = 1usize << log_size;
-    let r = real_rows(d);
     let mut cols = vec![vec![0u32; n]; SEL.len()];
-    for row in 0..r {
-        cols[0][row] = 1;
-        let old = row % 2 == 0;
-        if row < 2 {
-            cols[if old { 1 } else { 2 }][row] = 1;
-            cols[7][row] = d as u32; // a leaf sits at level d
-        } else {
-            cols[if old { 3 } else { 4 }][row] = 1;
-            cols[7][row] = (d - 1 - (row - 2) / 2) as u32;
+    let mut base = 0;
+    for (u, &d) in depths.iter().enumerate() {
+        let r = real_rows(d);
+        for i in 0..r {
+            let row = base + i;
+            cols[0][row] = 1;
+            cols[8][row] = u as u32;
+            let old = i % 2 == 0;
+            if i < 2 {
+                cols[if old { 1 } else { 2 }][row] = 1;
+                cols[7][row] = d as u32; // a leaf sits at level d
+            } else {
+                cols[if old { 3 } else { 4 }][row] = 1;
+                cols[7][row] = (d - 1 - (i - 2) / 2) as u32;
+            }
+            if i >= r - 2 {
+                cols[if old { 5 } else { 6 }][row] = 1;
+            }
         }
-        if row >= r - 2 {
-            cols[if old { 5 } else { 6 }][row] = 1;
-        }
+        base += r;
     }
     cols
 }
@@ -129,8 +146,10 @@ impl FrameworkEval for PathEval {
     }
     fn evaluate<E: EvalAtRow>(&self, mut e: E) -> E {
         let s: Vec<E::F> = SEL.iter().map(|n| e.get_preprocessed_column(sel_id(n))).collect();
-        let (s_real, s_leaf_old, s_leaf_new, s_node_old, s_node_new, s_root_old, s_root_new, s_lvl) =
-            (s[0].clone(), s[1].clone(), s[2].clone(), s[3].clone(), s[4].clone(), s[5].clone(), s[6].clone(), s[7].clone());
+        let (s_real, s_leaf_old, s_leaf_new, s_node_old, s_node_new, s_root_old, s_root_new, s_lvl, s_upd) = (
+            s[0].clone(), s[1].clone(), s[2].clone(), s[3].clone(), s[4].clone(), s[5].clone(), s[6].clone(), s[7].clone(),
+            s[8].clone(),
+        );
         let s_leaf = s_leaf_old.clone() + s_leaf_new.clone();
         let s_node = s_node_old.clone() + s_node_new.clone();
 
@@ -230,7 +249,7 @@ impl FrameworkEval for PathEval {
         // 5. public terms (the verifier adds the expected tuples back; any difference leaves a nonzero sum)
         let limbs = |ws: &[Fu32<E::F>]| ws.iter().flat_map(|x| [x.l.clone(), x.h.clone()]).collect_vec();
         let tup = |tag: u32, mut vals: Vec<E::F>| {
-            let mut t = vec![cst::<E>(tag)];
+            let mut t = vec![cst::<E>(tag), s_upd.clone()];
             t.append(&mut vals);
             t.resize(N_PUB, E::F::zero());
             t

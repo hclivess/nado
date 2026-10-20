@@ -119,8 +119,35 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
    | 8 | 5.7 s | 73 ms | 2.48 MB |
    | 29 | 5.7 s | 147 ms | 2.50 MB |
 
-   The cost is flat in depth because the fixed BLAKE2s tables (XOR 12/9/8/7/4) dominate a single update. That is the
-   case for batching: a span's ~130 updates share those tables, so the next step proves K updates in one trace and
-   measures the per-update cost the G1 estimate needs.
+   The cost is flat in depth because the fixed BLAKE2s tables (XOR 12/9/8/7/4) dominate a single update.
+
+   **Batched (2026-10-20): K sequential updates in one trace.** Each update owns a block of rows; a preprocessed
+   `settle_upd` column numbers them and every public tuple carries the number, so no row can lend its key, value or root
+   to another update. Update i+1's siblings are against the tree update i left, and the verifier chains the roots
+   natively (`root_new[i] == root_old[i+1]`, else `Chain`). The intermediate roots are public. That costs nothing
+   in-circuit and lets an L1 check any of them. The test adds a batch of eight (one key twice, the deep key twice)
+   and four batch forgeries: a consistent chain through a wrong intermediate root, a value moved between updates, a
+   dropped update, and two updates reordered. All are refused. Measured on real `csmt.Tree` updates (50,000 keys,
+   random keys, depth ~16-20):
+
+   | updates | rows | prove | verify | proof | peak RSS |
+   |---|---|---|---|---|---|
+   | 1 | 26 | 5.6 s | 75 ms | 2.49 MB | — |
+   | 4 | 112 | 5.9 s | 71 ms | 2.49 MB | — |
+   | 32 | 1,128 | 7.3 s | 74 ms | 2.50 MB | 1.5 GB |
+   | 130 (the busiest span) | 4,708 | 11.7 s | 155 ms | 2.50 MB | 2.6 GB |
+   | 512 | 18,454 | 32 s | 90 ms | 2.64 MB | 7.2 GB |
+   | 2,048 | 73,454 | 125 s | 242 ms | 2.82 MB | 25 GB |
+
+   So the busiest measured span proves in ~12 s. The marginal cost at scale is ~61 ms per update, ~1.7 ms per
+   compression row. That is about 5x the G1 planning figure of 0.33 ms per compression, and the gap is the next thing
+   to cut. The path component is ~200 columns wide (message, state, byte splits for the digest XOR), and the rounds
+   components run at log + 1..3. Memory, ~340 KB per row at 2,048, caps a single proof well before span sizes do. A
+   span larger than ~500 updates should be split or the trace narrowed first.
+
+   **Not covered yet:** inserts and deletes. A compressed tree changes shape on both: an insert splits a leaf into a
+   node, and a delete collapses a lone sibling upward. The path component proves value updates of existing keys only.
+   Every records op of 2.2 point 3 that creates or removes a key (a withdrawal deletes the balance) needs the
+   shape-changing step next.
 3. The VM step component for `zkvm2` (the CPU row, the storage and io buses by lookup, the BLAKE2s accumulator).
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.
