@@ -145,9 +145,37 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
    components run at log + 1..3. Memory, ~340 KB per row at 2,048, caps a single proof well before span sizes do. A
    span larger than ~500 updates should be split or the trace narrowed first.
 
-   **Not covered yet:** inserts and deletes. A compressed tree changes shape on both: an insert splits a leaf into a
-   node, and a delete collapses a lone sibling upward. The path component proves value updates of existing keys only.
-   Every records op of 2.2 point 3 that creates or removes a key (a withdrawal deletes the balance) needs the
-   shape-changing step next.
+   **Inserts and deletes (2026-10-20).** A compressed tree changes shape on both: an insert can split a neighbour's
+   leaf into a chain, and a delete can collapse a lone neighbour upward. Soundness is by INDUCTION ON CANONICAL TREES.
+   The first old root is L1's, and every op maps a canonical tree to the canonical tree of the new key set. The only
+   freedom a prover has is the shape it claims, so each shape choice is pinned (the argument is at the top of
+   `native/stwo_settle/src/blake/path.rs`):
+
+   | op | old -> new at the key's walk | what pins it |
+   |---|---|---|
+   | UPDATE | leaf(k, vh_old) -> leaf(k, vh_new), same siblings | the old root |
+   | INSERT_EMPTY | EMPTY at d -> leaf(k) | the old root (no hash is 32 zero bytes); an EMPTY start is constrained zero |
+   | INSERT_SPLIT | leaf(k2) at da -> leaf(k) at db, EMPTY siblings between, leaf(k2) at db-1 | db-1 = the first bit where k and k2 differ (checked natively; k2 is public in this prototype) |
+   | DELETE_EMPTY | leaf(k) at d -> EMPTY, sibling at d-1 internal | the sibling OPENED as node(l, r) by one compression: a leaf cannot be opened as a node |
+   | DELETE_COLLAPSE | INSERT_SPLIT backwards | the sibling at da-1 is NONZERO (in-circuit): stopping beside an EMPTY is non-canonical |
+
+   The layout puts two rows per depth, slot B on the deep side and slot A on the shallow side. Non-adjacent links
+   (the split sibling, the opening) are LogUp tuples that one row emits +1 and another -1, so they cancel only when
+   they agree. The test now drives a nine-write batch that holds all five ops from real `csmt.Tree` writes, plus the
+   empty tree gaining two keys and losing both (every op at depth 0). It also tests a DISHONEST PROVER: six witnesses,
+   each breaking one shape rule while every hash chain stays consistent, each on a single write so no root chain can
+   catch it. Each is refused in-circuit (the prover's constraint check or the LogUp sum), and each has an honest
+   control that verifies. Cost: an insert or delete is one write's rows plus one opening compression; the 9-write
+   batch proves in 6.2 s.
+
+   **Open in this component:**
+   1. The keys are public here. In the settlement circuit they come from the records component by lookup, so the
+      split depth's bit check (k and k2 agree down to db-1 and differ there) moves in-circuit. It needs a byte-to-bit
+      table (2^11 rows) and the leaf's key bytes, which are already range-checked.
+   2. The shape (op and depths per write) is public, so the preprocessed commitment is per statement, and the
+      verifier recomputes it (~70 ms of the verify time). A fixed-shape circuit would let L1 pin one key. That is a
+      later choice, which the frozen statement does not depend on.
+   3. A refusal by the prover's own consistency check (`ConstraintsNotSatisfied`) shows the constraint is violated.
+      A prover that skips the check is caught by FRI, which this test does not exercise separately.
 3. The VM step component for `zkvm2` (the CPU row, the storage and io buses by lookup, the BLAKE2s accumulator).
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.

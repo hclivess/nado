@@ -1,14 +1,21 @@
-//! Prove + verify a SEQUENTIAL BATCH of compressed-tree key updates, then try forged statements against the honest
-//! proof. Input: one line per update, in order, each against the tree the previous one left:
-//! `key_hex vh_old_hex vh_new_hex sib1,sib2,...` (32-byte hex each, siblings root first). Output (one line per item):
+//! Prove + verify a SEQUENTIAL BATCH of compressed-tree writes, then try forged statements against the honest proof.
+//! Input: one line per write, in order, each against the tree the previous one left (32-byte hex values, `-` = none):
+//!   `<op> key vh_old vh_new sib1,sib2,... extra`
+//! op: U (update), IE / DE (insert into / delete to EMPTY), IS / DC (insert splitting / delete collapsing a neighbour
+//! leaf); sibs: the shallow side's siblings, root first; extra: IS / DC `k2,vh2,db`, IE / DE at depth > 0 `l,r` (the
+//! children of the deepest sibling), else `-`. Output (one line per item):
 //!   ROOTS <first old root hex> <last new root hex>   the statement the witness proves (the chain's two ends)
-//!   HONEST ok|<error>                                the honest proof verifies
+//!   HONEST ok|<error>|prover_refused <error>         the honest proof verifies (with SETTLE_TAMPER=<name> the witness
+//!                                                    is a dishonest one, path.rs settle::Tamper, and nothing else runs)
 //!   FORGE <name> refused|ACCEPTED                    each forged statement against the honest proof
 //!   TIME updates=<K> rows=<..> prove_ms=<..> verify_ms=<..> proof_bytes=<..>
 use std::io::{self, BufRead};
 use std::time::Instant;
 
-use nado_stwo_settle::blake::settle::{Statement, Update, debug_path_constraints, debug_upstream_blake, node_config, prove_batch, verify_batch};
+use nado_stwo_settle::blake::path::batch_rows;
+use nado_stwo_settle::blake::settle::{
+    Op, Statement, Tamper, Update, debug_path_constraints, debug_upstream_blake, node_config, prove_tampered, verify_batch,
+};
 use nado_stwo_settle::csmt_ref::{bytes, words};
 
 fn h32(s: &str) -> [u8; 32] {
@@ -27,9 +34,29 @@ fn main() {
             continue;
         }
         let p: Vec<&str> = line.split(' ').collect();
-        let sibs: Vec<[u32; 8]> =
-            if p.len() > 3 && !p[3].is_empty() { p[3].split(',').map(|s| words(&h32(s))).collect() } else { vec![] };
-        us.push(Update { key: words(&h32(p[0])), vh_old: words(&h32(p[1])), vh_new: words(&h32(p[2])), sibs });
+        let w = |s: &str| if s == "-" { [0u32; 8] } else { words(&h32(s)) };
+        fn list(s: &str) -> Vec<&str> {
+            if s == "-" || s.is_empty() { vec![] } else { s.split(',').collect() }
+        }
+        let op = match p[0] {
+            "U" => Op::Update,
+            "IE" => Op::InsertEmpty,
+            "DE" => Op::DeleteEmpty,
+            "IS" => Op::InsertSplit,
+            "DC" => Op::DeleteCollapse,
+            x => panic!("unknown op {x}"),
+        };
+        let sibs: Vec<[u32; 8]> = list(p[4]).into_iter().map(w).collect();
+        let extra = list(p[5]);
+        let z = [0u32; 8];
+        let (k2, vh2, db, open) = if op.split_kind() {
+            (w(extra[0]), w(extra[1]), extra[2].parse().unwrap(), (z, z))
+        } else if op.empty_kind() && !extra.is_empty() {
+            (z, z, sibs.len(), (w(extra[0]), w(extra[1])))
+        } else {
+            (z, z, sibs.len(), (z, z))
+        };
+        us.push(Update { op, key: w(p[1]), vh_old: w(p[2]), vh_new: w(p[3]), sibs, k2, vh2, db, open });
     }
     if std::env::var("SETTLE_UPSTREAM").is_ok() {
         debug_upstream_blake();
@@ -41,7 +68,21 @@ fn main() {
     }
     let cfg = node_config();
     let t = Instant::now();
-    let (st, proof) = prove_batch(&us, cfg);
+    let tamper = match std::env::var("SETTLE_TAMPER").as_deref() {
+        Ok("shared_sibling") => Tamper::SharedSibling,
+        Ok("empty_sibling") => Tamper::EmptySibling,
+        Ok("split_link") => Tamper::SplitLink,
+        Ok("empty_start") => Tamper::EmptyStart,
+        Ok(x) => panic!("unknown tamper {x}"),
+        Err(_) => Tamper::None,
+    };
+    let (st, proof) = match prove_tampered(&us, cfg, tamper) {
+        Ok(x) => x,
+        Err(e) => {
+            println!("HONEST prover_refused {e}");
+            return;
+        }
+    };
     let prove_ms = t.elapsed().as_secs_f64() * 1e3;
     let k = st.updates.len();
     println!("ROOTS {} {}", hex(&st.updates[0].root_old), hex(&st.updates[k - 1].root_new));
@@ -50,6 +91,9 @@ fn main() {
     let honest = verify_batch(&st, proof.clone(), cfg);
     let verify_ms = t.elapsed().as_secs_f64() * 1e3;
     println!("HONEST {}", match &honest { Ok(()) => "ok".to_string(), Err(e) => format!("{e:?}") });
+    if tamper != Tamper::None {
+        return;
+    }
 
     let flip = |w: &[u32; 8]| { let mut x = *w; x[3] ^= 1; x };
     let edit = |f: &dyn Fn(&mut Statement)| { let mut s = st.clone(); f(&mut s); s };
@@ -66,6 +110,11 @@ fn main() {
             let u = &mut s.updates[i];
             std::mem::swap(&mut u.root_old, &mut u.root_new);
         })));
+    }
+    // a split's neighbour key, past the bits the shape check reads: only the in-circuit tuple refuses it
+    if let Some(i) = st.updates.iter().position(|u| u.op.split_kind()) {
+        forged.push(("neighbour_key".into(), edit(&|s| s.updates[i].k2[7] ^= 1)));
+        forged.push(("split_depth".into(), edit(&|s| s.updates[i].db += 1)));
     }
     if k >= 2 {
         // a consistent chain through a WRONG intermediate root: only the in-circuit roots can refuse it
@@ -87,6 +136,6 @@ fn main() {
         let r = verify_batch(&fst, proof.clone(), cfg);
         println!("FORGE {name} {}", match r { Err(e) => format!("refused {e:?}"), Ok(()) => "ACCEPTED".into() });
     }
-    let rows: usize = st.updates.iter().map(|u| 2 * u.depth + 2).sum();
+    let rows = batch_rows(&st.shapes());
     println!("TIME updates={k} rows={rows} prove_ms={prove_ms:.0} verify_ms={verify_ms:.1} proof_bytes={size}");
 }
