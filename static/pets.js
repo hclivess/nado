@@ -501,7 +501,7 @@ function graveSvg() {
 // draw a pet: its animal's archetype body in its gene-derived coat, inside a rarity-aura span
 function drawOf(a) { return ART[petSlug(a.n)] || ART[a.a] || quadArt; }   // per-animal HAND art wins; archetype is the fallback
 function petBody(p, cls = "pet-idle") {
-  const a = p.animal, coat = G.coatOf(p.gene, a);
+  const a = p.animal, coat = G.coatOf(p.gene, a, p.rolls);
   const aura = G.auraOf(p.sp, coat.shiny);
   const floats = a.float || FLOATERS.has(a.a);
   return `<span class="aura ${aura}">${wrap(cls + (floats && cls ? " swim" : ""), drawOf(a)(coat, a.v || {}), floats)}</span>`;
@@ -511,7 +511,7 @@ const petArt = (p, cls = "pet-idle") => p.dead ? graveSvg() : (p.hatched ? petBo
 // ---- CHALLENGER CARD: a downloadable PNG — the pet's WARRIOR face, name, power and a QR to its page ---
 const rr = (x, y, w, h, r) => { const p = new Path2D(); p.roundRect(x, y, w, h, r); return p; };
 async function challengerCanvas(p) {
-  const an = p.animal, coat = G.coatOf(p.gene, an), tier = p.tier;
+  const an = p.animal, coat = G.coatOf(p.gene, an, p.rolls), tier = p.tier;
   FIERCE = 1;                                    // same body, angry face
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 112 112">${drawOf(an)(coat, an.v || {})}</svg>`;
   FIERCE = 0;
@@ -612,12 +612,13 @@ function petsFrom(sto) {
       ti: _m(sto, "ti")[pid] || 0, tr: _m(sto, "tr")[pid] || 0, price: _m(sto, "mp")[pid] || 0,
       wins: _m(sto, "wins")[pid] || 0, loss: _m(sto, "loss")[pid] || 0 };
     p.hatched = !!gs;
-    if (gs) {   // memoized immutable decode (gene / species / base stats) — keyed by the immutable gene
-      const k = pid + "|" + gs;
+    p.rolls = G.rollsFrom(sto, pid);    // gen 29: the contract's stored trait rolls (the roll table); null on gen 28
+    if (gs) {   // memoized immutable decode (gene / species / base stats) — keyed by the immutable gene and its rolls
+      const k = pid + "|" + gs + (p.rolls ? "|r" : "");
       let d = _geneCache[k];
       // species is re-derived from the IMMUTABLE gene (not the stored si) so the 1007-animal roster remap
       // applies to every pet with zero on-chain writes — stored si is legacy/ignored. sp is unchanged (TIER_CUM).
-      if (!d) { const gene = BigInt(gs); d = _geneCache[k] = { gene, animal: G.animalOf(G.speciesIdOf(gene, p.sp), p.sp), base: G.baseStats(gene, p.sp) }; }
+      if (!d) { const gene = BigInt(gs); d = _geneCache[k] = { gene, animal: G.animalOf(G.speciesIdOf(gene, p.sp, p.rolls), p.sp), base: G.baseStats(gene, p.sp, p.rolls) }; }
       p.gene = d.gene; p.animal = d.animal; p.base = d.base;
     } else { p.gene = null; p.animal = null; p.base = null; }
     p.dead = cur != null && cur > p.fu;
@@ -1192,7 +1193,7 @@ function renderActive() {
     $("petStage").innerHTML = petArt(p);
   }
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
-  const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
+  const coat = p.gene && an ? G.coatOf(p.gene, an, p.rolls) : null;
   $("petSpecies").innerHTML = p.hatched
     ? an.e + " " + esc(CN(coat)) + " " + esc(AN(an)) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOfN", "1 of {n} animals", { n: G.ANIMALS.length }) + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
     : window.t("pets.unhatchedEgg", "Unhatched egg");
@@ -1560,7 +1561,7 @@ function maybePlayHatch(p) {
       stage.style.position = "relative"; sp.style.left = "50%"; sp.style.top = "45%"; stage.appendChild(sp);
       setTimeout(() => sp.remove(), 1100);
     }
-    const an = p.animal, coat = G.coatOf(p.gene, an);
+    const an = p.animal, coat = G.coatOf(p.gene, an, p.rolls);
     alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of {total} possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
       { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), total: G.ANIMALS.length, shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }), null, null, { tone: "ok" });
   }, t + 600);

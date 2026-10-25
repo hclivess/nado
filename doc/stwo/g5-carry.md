@@ -98,9 +98,10 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
 - **The autogame Daily Gauntlet replays claims through the VM hash** (`static/autogame-daily.js` dailyWorld via
   algHashn, also the faucet oracle): a gen-28 day's claims must replay under alghash after the reroll, or the board of
   the reroll day drops them. The other daily boards seed through blake2b and are unaffected. (G6, with the wallet.)
-- **The browser reads pets' traits from the roll table on gen 29** (`static/pets-genes.js`: speciesIdOf, statOf, coat,
-  shiny), instead of from the gene; that also retires the gen-29 gene-exposure gap (v2 `hatch` stores only 64 of the
-  gene's 256 bits as gl/gh). (G6.)
+- ~~The browser reads pets' traits from the roll table~~ — done 2026-10-25: `static/pets-genes.js` reads the view's
+  `r<c>` maps whenever a pet has them (`rollOf`/`rollsFrom`) and the gene only when it has none, which also covers the
+  gen-29 gene-exposure gap (v2 exposes 64 of the gene's 256 bits as gl/gh). Still on the gene: `combineStatOf`'s
+  preview of a future roll — on gen 29 it needs the full gene in the view (G6).
 - **History displays recompute from stored seeds** (coinflip's face, pets' battle replays, hamster's race animation,
   poker's board): the stored results are right, the replays of pre-reroll history would draw differently. Display
   only; G6 replays a pre-reroll record with the old hash.

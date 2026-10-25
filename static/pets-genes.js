@@ -42,6 +42,20 @@ export const STAT_ROLES = [
 
 // ---- the contract's roll window: roll32(x) = LO32(alghash HASH(x)) — every derived roll uses it ----
 export const roll32 = (x) => Number(algHashn([x]) & 0xFFFFFFFFn);
+// THE ROLL TABLE (execnode/games/pets.py RT_BASE): from generation 29 the contract STORES every trait roll of a pet's
+// gene — roll32(gene + c) for c in ROLL_OFFSETS — and the view shows them as r<c>. A pet carried from gen 28 keeps its
+// gen-28 rolls there, which the gen-29 hash could not reproduce, and v2 exposes only 64 of the gene's 256 bits. So a
+// trait reads the stored roll whenever the pet has one, and computes it from the gene only when it has none (gen 28).
+export const ROLL_OFFSETS = [555, 777, 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 7000, 9000];
+export const rollOf = (gene, c, rolls) => (rolls && rolls[c] != null ? Number(rolls[c]) : roll32(gene + BigInt(c)));
+export function rollsFrom(view, pid) {      // {c: roll} from the contract view's r<c> maps, or null on a gen-28 pet
+  let out = null;
+  for (const c of ROLL_OFFSETS) {
+    const v = ((view || {})["r" + c] || {})[pid];
+    if (v != null) (out = out || {})[c] = Number(v);
+  }
+  return out;
+}
 const hexInt = (h) => BigInt("0x" + h);
 
 // gene = HASH( (BLOCKHASH(b) + BLOCKHASH(b+1) + petId) mod P ) — hashes (hex) from /exec/blockhash.
@@ -53,9 +67,9 @@ export function geneOf(bh0Hex, bh1Hex, pid) {
 }
 export const geneFromHalves = (gl, gh) => (BigInt(gh) << 32n) | BigInt(gl);   // exact chain -> JS round-trip
 // TIER (sp, 1..6) from a fresh 100000-wide gene slice — geometric odds 78/17/3.9/0.85/0.21/0.04 %.
-export function speciesOf(gene) { const rt = roll32(gene + 555n) % 100000; return 1 + TIER_CUM.filter((t) => rt >= t).length; }
+export function speciesOf(gene, rolls) { const rt = rollOf(gene, 555, rolls) % 100000; return 1 + TIER_CUM.filter((t) => rt >= t).length; }
 // species id si — the animal WITHIN the tier's roster band (independent gene slice). Matches ref_si.
-export function speciesIdOf(gene, sp) { return TIER_BASE[sp] + roll32(gene + 777n) % TIER_COUNT[sp]; }
+export function speciesIdOf(gene, sp, rolls) { return TIER_BASE[sp] + rollOf(gene, 777, rolls) % TIER_COUNT[sp]; }
 // combine(): which of the 10 stats gets +1 when two same-species pets are merged (mirrors the contract's combine(), execnode/games/pets.py _combine)
 export const COMBINE_SALT = 888888n;
 export function combineStatOf(geneKeep, geneConsume) { return roll32((geneKeep + geneConsume + COMBINE_SALT) % ALG_P()) % 10; }
@@ -1201,10 +1215,10 @@ export const PALS = {
     { name: "Storm",    body: "#6c7684", shade: "#4f5762", line: "#333941" },
   ],
 };
-export function coatOf(gene, animal) {
+export function coatOf(gene, animal, rolls) {
   const palette = PALS[animal && animal.pal] || PALS.poodle;
-  const idx = roll32(gene + 7000n) % palette.length;
-  const shiny = roll32(gene + 9000n) % 16 === 0;   // ~6.25% shiny (extra shimmer, cosmetic)
+  const idx = rollOf(gene, 7000, rolls) % palette.length;
+  const shiny = rollOf(gene, 9000, rolls) % 16 === 0;   // ~6.25% shiny (extra shimmer, cosmetic)
   return { ...palette[idx], idx, shiny };
 }
 // rarity visual tier: 1 subtle, 2 rare glow, 3 legend aura, 4 epic, 5 mythic, 6 omega (+shiny stacks on top)
@@ -1212,9 +1226,9 @@ export const auraOf = (sp, shiny) => {
   const base = { 1: "", 2: "rare", 3: "legend", 4: "epic", 5: "mythic", 6: "omega" }[sp] || "";
   return shiny ? (base ? base + " shiny" : "shiny") : base;
 };
-export function statOf(gene, sp, i) { return roll32(gene + 1000n + BigInt(i)) % 60 + 1 + (sp - 1) * 6; }
-export function baseStats(gene, sp) { return STAT_NAMES.map((_n, i) => statOf(gene, sp, i)); }
-export function powerOf(gene, sp) { return baseStats(gene, sp).reduce((a, b) => a + b, 0); }
+export function statOf(gene, sp, i, rolls) { return rollOf(gene, 1000 + i, rolls) % 60 + 1 + (sp - 1) * 6; }
+export function baseStats(gene, sp, rolls) { return STAT_NAMES.map((_n, i) => statOf(gene, sp, i, rolls)); }
+export function powerOf(gene, sp, rolls) { return baseStats(gene, sp, rolls).reduce((a, b) => a + b, 0); }
 
 // ---- training: the rarity-scaled limit function ----------------------------------------------------
 export const trainK = (sp) => 10 + 30 * sp;                        // Poodle 40, Parrot 70, Dragon 100
