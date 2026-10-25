@@ -24,6 +24,7 @@ Slot model: slot(field, vid) = field*2^32 + vid, vid a frontend int < 2^32.
 Fields: 1 own · 2 ast · 3 res(UNITs) · 4 out · 5 ntc · 6 pnd(UNITs) · 7 rdy · 9 list; slot 0 = count.
 """
 from execnode import zkpy
+from execnode.games import _lib
 
 OWN, AST, RES, OUT, NTC, PND, RDY, LIST = 1, 2, 3, 4, 5, 6, 7, 9
 
@@ -45,6 +46,34 @@ MIN_NOTICE = 14400
 def _c(m, field, vid):
     return m.slot(field, vid)
 
+
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+# Nothing a vault holds is in flight: redeem and back have no clock, and a pending release is a NOTICE, not a race —
+# holders keep redeeming through it on either chain. The one old-chain value is `rdy`, the HEIGHT at which an announced
+# release unlocks (cursor + notice), which carry_rebase moves onto the new chain.
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood: every announced
+    release keeps EXACTLY the notice it had left (rdy - tip blocks), so the holders' redemption window is neither cut
+    short nor stretched; one whose notice already ran out unlocks at block 1 (rdy must stay non-zero — release reads 0 as
+    "nothing announced"). Heights do not advance while the chain is down, so blocks-left is the honest measure.
+    INVARIANT: written as an INT (exec_root commits only int-valued slots; _lib.rebase_daily_anchors)."""
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    for vid in _lib.carry_ids(slots, 0, LIST):
+        k = str((RDY << 32) + vid)
+        rdy = int(slots.get(k, 0))
+        if rdy:
+            slots[k] = int(max(1, rdy - int(tip)))
+    out = dict(storage or {})
+    out["slots"] = slots
+    return out
+
+
+# Values >= 2^32 a vault may hold that are NOT registry digests (own is remapped): `rdy` (cursor + a notice of up to
+# 2^32 - 1 blocks), and an AST that names NO asset — open() never checks the id exists, and a real asset's id is remapped
+# by tools/carry.py's asset map before this table is consulted (the made-up one names nothing on gen 29 either; refusing
+# it would let one free open() veto the carry). res, out and pnd are bounded below 2^31; ntc below 2^32.
+CARRY_WORDS = {("field", RDY): "an announced release's unlock height (cursor + notice)",
+               ("field", AST): "a vault asset id that names no asset (a real one is remapped)"}
 
 def build(isa=None):
     c = zkpy.Contract()

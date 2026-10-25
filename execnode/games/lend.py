@@ -267,6 +267,28 @@ ABI = {
 }
 
 
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+def carry_in_flight(storage):
+    """Why this contract cannot cross the reroll yet ([] = it can): every TAKEN loan. Its deadline `dl` is in TIME, and
+    TIME is protocol.chain_clock(height) = GENESIS_TIMESTAMP + height * cadence — the new generation restarts it from a
+    new GENESIS_TIMESTAMP, and the old chain's clock drifts from wall time by however far its cadence slipped (it has
+    run 12 h behind in two days). So the clock JUMPS at the reroll, by an amount unknown when the carry is built: a jump
+    forward defaults a loan its borrower was about to repay (they lose the collateral in the first block, with no
+    chance to act), and the reroll's own downtime eats the borrower's window too. The borrower repays on the old chain
+    (repay costs the same fixed interest at any time before the deadline), or, past the deadline, anyone defaults it.
+    INVARIANT: an OPEN offer has no deadline (dl is set at take), and REPAID / DEFAULTED / CANCELLED loans hold only
+    pull balances (lc/bc) that claim() pays with no time check — those are at rest and carry as they are."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    return [f"loan {i} is taken (the borrower repays it, or anyone defaults it once TIME passes {g(DL, i)})"
+            for i in _lib.carry_ids(slots, 0, LLIST) if g(ST, i) == ST_TAKEN]
+
+
+# Values >= 2^32 a loan may hold that are NOT registry digests (lr/bw are remapped): the due time, TIME + duration, with
+# duration up to 2^32 - 1 seconds, kept on every loan that was ever taken. Every amount is in UNITs below 2^31, and the
+# claimable balances are credited once per loan (lc <= principal + interest < 2^32, bc = collateral).
+CARRY_WORDS = {("field", DL): "a loan's due TIME (time + duration may pass 2^32)"}
+
 def build(isa=None):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.

@@ -108,6 +108,22 @@ ABI = {
 }
 
 
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+def carry_in_flight(storage):
+    """Why this contract cannot cross the reroll yet ([] = it can): an open game (_lib.pvp_games_in_flight) — its move
+    clock `dl` and rack seed `kh` are OLD-CHAIN heights (the rack is BHASH(kh)). Finish it (agree), resign, abort it
+    past the clock, or cancel an unjoined lobby on the old chain. A settled game is history: every method refuses it."""
+    return [f"game {g} is open" for g in _lib.pvp_games_in_flight(storage, NN, SD, LIST)]
+
+
+# Values >= 2^32 a game may hold that are NOT registry digests (p1/p2 are remapped): the stake and pot (raw NADO), the
+# creator's cfg word (stored as given, unbounded), and the shot log — enc = op + payload*16 with payload < 2^48
+# (static/pool-engine.js), and move() bounds it only by enc > 0. The seed/actor log mh = (cursor+GAP)*4+side, the clock
+# and kh stay far below 2^32.
+CARRY_WORDS = {("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
+               ("field", CFG): "the creator's cfg word (opaque)"}
+CARRY_WORDS.update({("field", MV_BASE + i): "a logged shot (enc < 2^52)" for i in range(MAXMOVES)})
+
 def build(isa=None):
     # C2 (security review 2026-09-23): pool splices tictactoe's `open`, which bounds nothing but g > 0 — the
     # same aliasing hole as the seven board games the review named (this is the eighth). See _lib.id_guard.

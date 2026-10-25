@@ -40,10 +40,10 @@ fill-accept time, never in-circuit. The contract stores it so both parties signe
 
 RE-ROLL SURVIVABILITY (doc/updates-and-rerolls.md): every escrowed raw is ATTRIBUTABLE on-chain — orders are
 enumerable (slot 0 count + LIST field) and each carries maker/taker digests and its live escrow `esc`, so at
-a genesis reroll the carry-forward refunds every open/filled order exactly to whoever funded it
-(`escrow_refunds` below is that attribution, the contract module owning its own schema). Orders themselves
-are NOT carried: their expiry heights belong to the dead chain and the foreign leg falls back to its own
-refund path — makers simply re-post. Funds always survive; intents are re-stated.
+a genesis reroll nothing is lost. The gen-29 carry (tools/carry.py) carries the whole book, but an OPEN or
+FILLED order REFUSES it (carry_in_flight below): its expiry heights belong to the old chain and its hashlock
+can only be checked under the old hash, so it is cancelled, settled or expired there first. Closed orders
+cross as history. (`escrow_refunds` is the older carry-forward's attribution of the same live escrows.)
 
 Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerable by the storage view):
   1 mk  2 kind(1=ASK_NADO maker gives NADO / 2=BID_NADO maker wants NADO)  3 maker(caller digest)
@@ -163,6 +163,60 @@ def escrow_refunds(storage, zk_addrs):
         add(g(MAKER, o), g(PHELD, o))      # the maker posted the collateral — a reroll is not a walk
         add(g(TAKER, o), g(TB, o))         # the taker's bond is the taker's — a reroll is not a walk either
     return out
+
+
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+def carry_in_flight(storage):
+    """Why this contract cannot cross the reroll yet ([] = it can): every order that is OPEN or FILLED, and every order
+    still holding a live escrow (the same ledger escrow_refunds attributes). An open HTLC order is tied to a foreign
+    lock with real money and to a NADO expiry in OLD-CHAIN heights (expn, fillh), and its hashlock is compared against a
+    FRESH VM hash in settle — v1 stores four alghash digests (HVM/HV1-3), v2 reads one BLAKE2s word from HVM — so a
+    carried open order could be filled but never settled on gen 29. Nothing about it can be re-derived (the preimage is
+    the maker's secret), so it is resolved on the old chain: cancel (maker, while open), settle (anyone with the secret,
+    while filled), release (maker, nothing bound after the fill window) or expire (anyone, at/after expn).
+    INVARIANT: a SETTLED/REFUNDED/CANCELLED order is history — every method that reads its hashlock, expiry or fill
+    height requires OPEN or FILLED first, so those slots are never read again by either build."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for o in _lib.carry_ids(slots, 0, LIST):
+        st = g(ST, o)
+        if st == OPEN:
+            out.append(f"order {o} is open (maker cancels it, or anyone expires it at height {g(EXPN, o)})")
+        elif st == FILLED:
+            out.append(f"order {o} is filled and unsettled (settle with the secret before height {g(EXPN, o)}, "
+                       "release if nothing was bound, or expire it after)")
+        elif g(ESC, o) or g(BNTY, o) or g(PHELD, o) or g(TB, o):
+            # unreachable by the methods (every terminal path zeroes them) — but money with a closed order is
+            # exactly what the carry must never move without a rule, so it refuses rather than assumes
+            out.append(f"order {o} is closed but still holds escrow")
+    return out
+
+
+# Values >= 2^32 an order may hold that are NOT registry digests and NOT asset ids remapped by the carry. Kept verbatim:
+#   - raw NADO amounts (escrow, advertised amount, want amount, bounty, collateral, taker bond);
+#   - the foreign-side references (chain, amount, addresses, SHA-256 lock, foreign ref, L1 HTLC id). The wallet sends
+#     them as STRINGS, so they are registry digests and remapped; a caller who sent a raw int stored a raw int, which
+#     names nothing on either chain's registry and is kept as given (a refusal here would let any poster veto the
+#     carry with one cancelled order);
+#   - expf, an opaque foreign-chain deadline (a BID's has no upper bound);
+#   - the closed orders' VM hashlocks (HVM, HV1-3) — read only by settle, which requires FILLED (carry_in_flight);
+#   - the revealed preimage limbs (< 2^52 each, public history);
+#   - WAST: an asset id held by a real asset is remapped by tools/carry.py's asset map BEFORE this table is consulted;
+#     only an id that names no asset (post_intra never checks the WANT side exists) reaches it, and it names none on
+#     gen 29 either. GAST is not listed: the give side arrived as call value, so it is always a real asset (remapped).
+CARRY_WORDS = {("field", f): why for f, why in (
+    (ESC, "an intra order's escrow (raw)"), (NAMT, "the NADO side amount (raw)"), (WANT, "the intra want amount"),
+    (BNTY, "a bounty (raw NADO)"), (PREM, "the maker's promised collateral (raw)"), (PHELD, "collateral held (raw)"),
+    (TB, "the taker bond (raw)"),
+    (WCH, "foreign chain (opaque int when not sent as a string)"), (WAMT, "foreign amount (opaque int)"),
+    (WADR, "maker's foreign address (opaque int)"), (HSHA, "SHA-256 hashlock (opaque int)"),
+    (TADR, "taker's foreign address (opaque int)"), (FREF, "foreign HTLC ref (opaque int)"),
+    (HID, "the L1 HTLC id (opaque int)"), (EXPF, "the foreign deadline (opaque)"),
+    (HVM, "a closed order's VM hashlock (history)"), (HV1, "a closed order's VM hashlock (history)"),
+    (HV2, "a closed order's VM hashlock (history)"), (HV3, "a closed order's VM hashlock (history)"),
+    (WAST, "a want-asset id that names no asset"))}
+CARRY_WORDS.update({("field", S0 + i): "a revealed preimage limb (< 2^52)" for i in range(LIMBS)})
 
 
 # methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
