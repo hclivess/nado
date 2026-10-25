@@ -127,6 +127,24 @@ honest proof and refused all 16 forgeries. Security is Stwo's conjectured count,
   upstream revision, so adopting it means moving both crates' Stwo pin, with the verifier re-checked against the
   forgery suites.
 
+### 3a. The Stwo pin stays at 826591c (measured 2026-10-25; operator decision: "just keep our pin")
+
+Upstream development left `starkware-libs/stwo` at the end of July 2026 (826591c, our pin, is that repository's last
+commit) for `starkware-libs/proving`. Measured on a 130-update batch (3,486 rows), the same crate ported to each, every
+build with Stwo's `parallel` feature, 5 interleaved rounds, medians:
+
+| prover | 1 thread | 4 threads | verify (4 thr.) | peak memory |
+|---|---|---|---|---|
+| our pin, 826591c | 8.78 s | 3.79 s | 31 ms | 1.78 GiB |
+| starkware-libs/proving (2026-10-15) | 9.05 s | 4.34 s | 34 ms | 1.78 GiB |
+| provably.fast `mainnet-season` (2026-10-23) | 10.15 s | 4.37 s | 53 ms | 0.78-0.87 GiB |
+
+All three gave the same roots, verified the honest proof and refused all 16 forgeries. Neither newer prover is faster on
+a trace this small (their gains are on Cairo-sized traces); provably.fast halves peak memory, the reason to revisit it
+when proving moves into phone wallets. Both newer versions commit every tree at an explicit lifting height that is
+part of the proof, so moving `native/stwo_js` to either is a consensus change, not a library bump. The cheapest speed-up
+needs no pin move: Stwo's `parallel` feature takes this batch from 8.8 s to 3.8 s on four threads.
+
 ## 4. Next steps
 
 1. The calls fold (2.3) as code beside today's, with its test (dormant, like the rest of gen 29).
