@@ -1,0 +1,30 @@
+[package]
+name = "nado-attest"
+version = "0.4.1"   # 0.4.1: the Apple App Attest formats removed again (built, verified, withdrawn 2026-09-07); 0.3.0 was the gen-25 reroll so every node rebuilds from Cargo.lock.pinned (one dependency set fleet-wide)
+edition = "2021"
+description = "NADO native device-attestation verifier (WebAuthn apple / android-key statements against pinned vendor roots) — Rust cdylib bound by ops/attest_native.py"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "nado_attest"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ciborium = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x509-parser = "0.16"
+der-parser = "9"
+p256 = { version = "0.13", features = ["ecdsa", "pem"] }
+p384 = { version = "0.13", features = ["ecdsa", "pem"] }
+k256 = { version = "0.13", features = ["ecdsa"] }          # Ledger: secp256k1 device + issuer keys
+ecdsa = { version = "0.16", features = ["verifying"] }
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+sha1 = { version = "0.10", features = ["oid"] }
+base64 = "0.22"
+oid-registry = "0.7"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
