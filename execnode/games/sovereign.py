@@ -79,3 +79,18 @@ ABI = {
 
 def build(isa=None):
     return zkvmasm.assemble_contract(SRC, isa)
+
+
+# ---- the gen-29 reroll carry: DELIBERATELY NO CARRY RULE (tools/carry.py, doc/stwo/g5-carry.md) ---------------------
+# The world is not stored; it is RE-DERIVED on every read by folding the log, and the fold reads the OLD CHAIN through
+# lc[i] = submission cursor + GAP in two ways:
+#   * every raid / tactical / spy outcome rolls from bh(lc[i]), the L1 block hash at that old-chain height
+#     (static/sovereign.js seedOf -> sovereign-engine.js roll). On a new chain that height is another block (or not yet
+#     produced), so every past raid would re-roll: different winners, losses, loot, generals;
+#   * the economy settles each nation lazily over cursor deltas, up to the LIVE cursor (replayWorld(log, nowCur)).
+#     The new chain's cursor restarts near 0, below every carried entry's cursor.
+# Neither is fixable in storage: shifting lc by the tip would keep the deltas but drive early entries below 0 and still
+# re-roll every raid. So a sovereign holding a log cannot be carried losslessly, and tools/carry.py refuses it as
+# holding storage with no carry rule — the honest answer until the game stores what it reads (each raid's seed value,
+# and a cursor origin). An EMPTY world carries as its v2 build. Do not add CARRY_STORAGE = True here: it would carry
+# the log verbatim and silently replay a different world (tests/test_battleship_hexholm_scrapline_carry_at_rest_and_sovereign_refuses.py).

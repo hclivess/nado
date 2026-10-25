@@ -179,3 +179,47 @@ def build(isa=None):
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
     return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+
+
+# ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
+# An unsettled game holds stakes against an old-chain move clock (dl) — it blocks the carry. A SETTLED game (sd) is
+# history: the pot is paid, every value-moving method refuses it, and its pinned heights (kh, mh) are only the browser's
+# replay seeds. The stormhold sources this contract reuses also carry hidden-hands commitments (c1/c2, checked by
+# reveal against the VM hash); this page never sets one, and a settled game's unrevealed one does not block, for the
+# reason hexholm.py gives (it moves nothing; gen 29 keeps it verbatim and a reveal of it there reverts).
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can), per unsettled game in the index, naming the call that
+    ends it on the old chain."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for gid in _lib.pvp_games_in_flight(storage, NN, SD, LIST):
+        if g(NN, gid) == 1:
+            out.append(f"game {gid} waits for an opponent - cancel({gid}) by its opener refunds the stake")
+        else:
+            out.append(f"game {gid} is in play (stakes on an old-chain move clock) - agree({gid}, result) by both "
+                       f"players, resign({gid}), or abort({gid}) by anyone once the move clock lapses (refunds both)")
+    return out
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood: only the daily
+    board's unresolved anchors move (_lib.rebase_daily_anchors); everything else is at rest once carry_in_flight is []."""
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    out = dict(storage or {})
+    out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
+    return out
+
+
+# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1/p2/eaddr are owner digests (remapped).
+# The daily claim words sit in two runs (ea0..ea4, ea5..ea7), so they are listed here rather than by
+# _lib.daily_carry_words; the client keeps them < 2^50 but the contract does not bound them. cfg/c1/c2 are open's and
+# join's extra args (unbounded; a commitment is a hash value). Revealed halves (r1h..r2l) are < 2^32 on the Goldilocks
+# word. No slot is hash-KEYED.
+CARRY_WORDS = {("field", A_V): "a resolved day anchor (block-hash value, read as stored)",
+               **{("field", f): "a packed daily claim word" for f in list(range(E_A, E_A + 5)) + list(range(E_A2, E_A2 + 3))},
+               ("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
+               ("field", _s.CFG): "the creator's config word (open's extra arg, unbounded)",
+               ("field", _s.C1): "p1's hidden-hands commitment (hash value)",
+               ("field", _s.C2): "p2's hidden-hands commitment (hash value)",
+               **{("field", MV_BASE + i): "a recorded move (unbounded enc)" for i in range(MAXMOVES)}}

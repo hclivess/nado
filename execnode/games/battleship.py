@@ -425,3 +425,46 @@ def build(isa=None):
     src["answer"] = "\n".join(_answer())
     src["claim"] = "\n".join(_claim())
     return zkvmasm.assemble_contract(src, isa)
+
+
+# ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
+# A board root is a Merkle-sum commitment under the VM hash: answer() re-climbs a revealed cell to it and claim()
+# rebuilds the whole tree to it. The gen-29 hash cannot reproduce a gen-28 root, so every game whose root can still be
+# checked — and whose pot is still escrowed — blocks the carry. A SETTLED game (sd) is history: answer/claim/forfeit
+# refuse it, nothing reads its roots again, and its deadlines (dl, cd) are dead old-chain heights nobody can lose to.
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can), per unsettled game in the index, naming the move that
+    ends it on the old chain."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for gid in _lib.carry_ids(slots, 0, GLIST):
+        if not g(NN, gid) or g(SD, gid):
+            continue
+        if g(NN, gid) == 1:
+            out.append(f"game {gid} waits for an opponent - cancel({gid}) by its opener refunds the stake")
+        elif not g(DC, gid):
+            out.append(f"game {gid} is in play (its board roots are still checked shot by shot) - play it out, "
+                       f"resign({gid}), or timeout({gid}) by the player kept waiting once the move deadline passes")
+        else:
+            out.append(f"game {gid} is decided but unpaid (the winner's fleet is still to be proven against its root) "
+                       f"- claim({gid}, fleet, seed) by the winner, or forfeit({gid}) by the loser after the claim deadline")
+    return out
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood: only the daily
+    board's unresolved anchors move (_lib.rebase_daily_anchors); everything else is at rest once carry_in_flight is []."""
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    out = dict(storage or {})
+    out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
+    return out
+
+
+# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1/p2/eaddr are owner digests (remapped).
+# The settled roots stay readable to the view but no method checks them again (carry_in_flight blocks the rest).
+# No slot is hash-KEYED: fired flags, results and the claim scratch are all field*2^32 + game id.
+CARRY_WORDS = {**_lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS),
+               ("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
+               ("field", R1): "p1's settled board root (hash value, never re-checked)",
+               ("field", R2): "p2's settled board root (hash value, never re-checked)"}

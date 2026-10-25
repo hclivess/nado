@@ -642,3 +642,51 @@ def build(isa=None):
     if (isa or zkvmasm.default_isa()) == "v2":
         src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+
+
+# ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
+# An unsettled table holds stakes against an old-chain move clock (dl), and its seats' commitments are still to be
+# revealed against the VM hash, which gen 29 changes — so it blocks the carry. A SETTLED table (sd) is history: the pot
+# is paid, every value-moving method refuses it, and its pinned heights (kh, mh) are only the browser's replay seeds.
+# DECISION (2026-10-25): a settled table's UNREVEALED commitment does NOT block. reveal() still accepts it on the old
+# chain, but it moves nothing — it only lets clients audit a game whose pot is already paid — and the usual way a table
+# ends (resignation down to one seat, the move-clock abort) leaves seats that never reveal and that no one else can
+# reveal for; blocking on them would make the contract uncarryable for good. Carried, such a commitment is kept
+# verbatim and a gen-29 reveal of it reverts (the new hash cannot reproduce it): the audit of that one paid game is
+# what is not carried.
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can), per unsettled table in the index, naming the call that
+    ends it on the old chain."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for gid in _lib.carry_ids(slots, 0, LIST):
+        if not g(NN, gid) or g(SD, gid):
+            continue
+        if g(NN, gid) < g(CAP, gid):
+            out.append(f"table {gid} is a lobby ({g(NN, gid)} of {g(CAP, gid)} seats) - cancel({gid}) by its creator, "
+                       "or by anyone once the lobby deadline passes, refunds every seat")
+        else:
+            out.append(f"game {gid} is in play (stakes on an old-chain move clock, seats' commitments unrevealed) - "
+                       f"agree({gid}, w) by every live seat, resign({gid}), or abort({gid}) by any seat once the move "
+                       "clock lapses")
+    return out
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood: only the daily
+    board's unresolved anchors move (_lib.rebase_daily_anchors); everything else is at rest once carry_in_flight is []."""
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    out = dict(storage or {})
+    out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
+    return out
+
+
+# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1..p4/eaddr are owner digests (remapped).
+# A move's enc is unbounded (> 0 is the only check) and a commitment is a hash value; a revealed secret is stored as
+# 32-bit halves (rh/rl < 2^32 on the Goldilocks word) and mh = (cursor+GAP)*8 + side, so neither needs declaring.
+# No slot is hash-KEYED: the move log is field (1000+mc / 2000+mc) * 2^32 + game id.
+CARRY_WORDS = {**_lib.daily_carry_words(A_V, EW_BASE, CLAIM_WORDS),
+               ("field", ST): "a table's stake (raw NADO)", ("field", PT): "a table's pot (raw NADO)",
+               **{("field", C_BASE + i): f"seat {i}'s scroll commitment (hash value)" for i in (1, 2, 3, 4)},
+               **{("field", MV_BASE + i): "a recorded move (unbounded enc)" for i in range(MAXMOVES)}}
