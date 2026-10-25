@@ -66,8 +66,8 @@ T.check("2b. no v2 build contains an alghash round opcode", len(v2_clean) == 27,
 T.check("3. the two builds differ only in what the ISA changes (hash rounds, macro RANGE guards), outside the methods a "
         "builder declares in ISA_DIVERGENT_METHODS", not logic, logic[:5])
 declared = {g: getattr(importlib.import_module("execnode.games." + g), "ISA_DIVERGENT_METHODS", ()) for g in GAMES}
-T.check("3b. the declared per-ISA methods are exactly pets.hatch, hexholm/stormhold.reveal and otc.post/settle (each a reviewed port)",
-        {g: m for g, m in declared.items() if m} == {"pets": ("hatch",), "hexholm": ("reveal",), "stormhold": ("reveal",),
+T.check("3b. the declared per-ISA methods are exactly pets' hatch and gene-roll readers (the roll table), hexholm/stormhold.reveal and otc.post/settle (each a reviewed port)",
+        {g: m for g, m in declared.items() if m} == {"pets": ("hatch", "train_resolve", "resolve_battle", "combine", "upgrade", "staff", "collect"), "hexholm": ("reveal",), "stormhold": ("reveal",),
                                                      "otc": ("post", "settle")},
         {g: m for g, m in declared.items() if m})
 T.check("the ISA list is v1 and v2", zkvmasm.ISAS == ("v1", "v2"))

@@ -217,6 +217,10 @@ def build(isa=None):
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
 
 
+# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note): the daily board's anchor and claim words
+CARRY_WORDS = _lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS)
+
+
 def carry_in_flight(storage):
     """Why this contract cannot cross a reroll yet ([] = it can): an open game (_lib.pvp_games_in_flight) — finish,
     resign or abort it on the old chain first."""

@@ -5,8 +5,9 @@ writes genesis_alloc.dat so the reboot preserves everyone's coins under the same
 
   * L1 account balances + bonded stake carry forward verbatim.
   * Exec-side USER bridge balances, uncollected DIVIDENDS and pending DIVIDEND withdrawals fold into L1 balances.
-  * Contract POTS refund to players where the ledger identifies them; the zkVM digest-slot games carry no named
-    escrow maps, so their (small) pots refund to the deployer/operator of record.
+  * EVERY CONTRACT carries with all of its storage and its pot (tools/carry.py; operator rule 2026-10-20: no reset, no
+    refund in place of a carry). A contract that cannot carry losslessly — something in flight, or a slot the carry
+    cannot re-encode — REFUSES the whole carry, naming why; it is settled on the old chain and the carry runs again.
   * PENDING BRIDGE + UNSHIELD withdrawals fold into their owners' L1 balances — their exit proofs are against the
     OLD root scheme and would be unverifiable after the reroll, so they are paid out at genesis instead.
   * Every fold is DEBITED from the matching L1 escrow reserved account (bridge / dividend / shield): supply is
@@ -24,25 +25,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops import kv_ops
 from ops.data_ops import get_home
-from tools.alphanet5_carryforward import attribute_pot, _num
-from execnode.games import otc as _otc
+from tools.alphanet5_carryforward import _num
+from tools import carry as _carry
 
-
-def pot_refunds_for(cid, contract, pot, zk_addrs):
-    """Route a contract's pot to its refund attribution. The OTC order book (doc/dex-bridge.md §4.4) keeps an
-    ENUMERABLE maker/taker escrow ledger precisely so a reroll refunds every live order to whoever funded it —
-    detect it by its ABI and use the contract module's own attribution; anything unattributed (should be 0)
-    falls to the deployer so Σ == pot stays exact. Every other contract goes through the legacy attribute_pot."""
-    if {"post", "fill", "settle", "expire"} <= set(contract.get("abi") or {}):
-        refunds = _otc.escrow_refunds(contract.get("storage") or {}, zk_addrs)
-        residual = pot - sum(refunds.values())
-        assert residual >= 0, f"{cid}: otc escrow ledger {sum(refunds.values())} exceeds pot {pot}"
-        if residual:
-            dep = contract.get("deployer")
-            refunds[dep] = refunds.get(dep, 0) + residual
-        assert sum(refunds.values()) == pot, f"{cid}: otc attribution != pot"
-        return refunds
-    return attribute_pot(cid, contract, pot)
 
 EXEC_STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exec_state.json")
 
@@ -98,65 +83,45 @@ def _in_flight(mod, storage, tip):
 
 
 def carry_policy(cid: str, contract: dict, tip=None) -> str:
-    """"keep" (storage and pot cross the reroll as is) when the contract runs exactly its game module's code AND that
-    module says its storage is carry-safe: CARRY_STORAGE = True (nothing stored names the old chain), or
-    carry_in_flight(storage[, tip]) == [] (nothing is in flight right now — e.g. a banked game with no open bets, or
-    no pets roll whose outcome is already visible at the old `tip`).
-    Otherwise "reset" (fresh-deploy storage, pot refunded as before); the in-flight reasons are kept in CARRY_BLOCKERS,
-    and build() REFUSES to write while any exist (unless --allow-blockers), so the operator settles them on the old
-    chain and runs the carry again. exec_genesis_doc passes `tip`; without it a tip-dependent hook reports only what
-    it can judge without one."""
+    """What the module's own hooks say about carrying this contract NOW: "keep" when it runs exactly its game module's
+    code AND that module says its storage is at rest — CARRY_STORAGE = True (nothing stored names the old chain), or
+    carry_in_flight(storage[, tip]) == [] (nothing in flight: no open bet, no pets roll already visible at `tip`);
+    otherwise "blocked", with the in-flight reasons in CARRY_BLOCKERS. A blocked contract no longer falls back to a
+    reset: the carry (exec_genesis -> tools/carry.carry_contracts) REFUSES, and the operator settles it on the old
+    chain and runs the carry again. Kept for inspection; the carry decides through tools/carry.py itself."""
     mod = game_module_of(contract)
     if mod is None:
-        return "reset"
+        return "blocked"
     if getattr(mod, "CARRY_STORAGE", False) or (hasattr(mod, "carry_rebase") and not hasattr(mod, "carry_in_flight")):
         return "keep"
     why = _in_flight(mod, contract.get("storage") or {}, tip)
     if why:
         CARRY_BLOCKERS[cid] = list(why)
-        return "reset"
+        return "blocked"
     return "keep"
 
 
-def fresh_deploy_storage(contract: dict) -> dict:
-    """The storage a fresh deploy of this code produces (its constructor's output, e.g. autogame's lookup tables), run
-    through the exec layer's own deploy path in a scratch state — never re-derived here."""
-    import tempfile
-    from execnode.state import ExecState
-    from execnode.code_codec import FIXED_CIDS
-    with tempfile.TemporaryDirectory(prefix="nado-carry-deploy-") as tdir:
-        st = ExecState(os.path.join(tdir, "s.json"))
-        sender = contract.get("deployer") or ""
-        payload = {"op": "deploy", "code": contract["code"], "runtime": contract.get("runtime"), "nonce": "carry"}
-        fixed = [n for n, dep in FIXED_CIDS.items() if dep == sender]
-        st.apply_blob(payload, sender, "carry-deploy")
-        if not st.contracts and fixed:                      # a fixed-name system contract deploys at its name
-            st.apply_blob(dict(payload, at=fixed[0]), sender, "carry-deploy")
-        made = list(st.contracts.values())
-        return json.loads(json.dumps(made[0]["storage"])) if made else {}
+def exec_genesis(contracts: dict, pots: dict, zk_addrs=None, tip: int = 0, dst=None, amap=None) -> tuple:
+    """(genesis records for execnode/exec_genesis.py, {cid: pot} kept in escrow, the re-keyed zk_addrs registry). `tip`
+    is the old chain's height the new chain's block 0 replaces (the drained exec cursor); a module's carry_rebase moves
+    stored heights by it. EVERY contract carries under its id with ALL of its storage, re-encoded from the running
+    generation's ISA to `dst` (None = the same ISA: nothing re-encoded), and EVERY pot stays in escrow with it — or
+    tools/carry.Refused names every contract that cannot (operator rule 2026-10-20; the reset-and-refund path that stood
+    here is gone)."""
+    from execnode import zkvmasm
+    src = zkvmasm.default_isa()
+    out, reg, _counts = _carry.carry_contracts(contracts, zk_addrs or {}, int(tip), src=src, dst=dst or src, amap=amap)
+    stray = sorted(c for c, p in pots.items() if p and c not in out)
+    if stray:
+        raise _carry.Refused(f"pots of contracts the state does not hold: {stray}")
+    for cid in out:
+        out[cid]["storage"] = int_slots(out[cid]["storage"])
+    return out, {c: int(p) for c, p in sorted(pots.items()) if p}, reg
 
 
-def exec_genesis_doc(contracts: dict, pots: dict, policy=carry_policy, tip: int = 0) -> tuple:
-    """(genesis doc for execnode/exec_genesis.py, {cid: pot} kept in escrow). `tip` is the old chain's height that the
-    new chain's block 0 replaces (the drained exec cursor); a module's carry_rebase moves stored heights by it. EVERY
-    contract carries its code under its id — so the frontends need no rewiring and nothing has to be redeployed; a "keep" contract also keeps its storage
-    and pot, every other one starts from fresh-deploy storage and its pot is refunded by the caller as before."""
-    out, kept = {}, {}
-    for cid in sorted(contracts):
-        c = contracts[cid]
-        rec = {k: c[k] for k in ("code", "abi", "deployer", "runtime", "upgradable") if k in c}
-        if (policy(cid, c, tip=tip) if policy is carry_policy else policy(cid, c)) == "keep":
-            rec["storage"] = json.loads(json.dumps(c.get("storage") or {}))
-            mod = game_module_of(c)
-            if mod is not None and hasattr(mod, "carry_rebase"):
-                # heights and pins move onto the new chain, whose block 0 stands where `tip` stood (the module's hook)
-                rec["storage"] = json.loads(json.dumps(mod.carry_rebase(rec["storage"], tip)))
-            if pots.get(cid):
-                kept[cid] = int(pots[cid])
-        else:
-            rec["storage"] = fresh_deploy_storage(c)
-        rec["storage"] = int_slots(rec["storage"])
-        out[cid] = rec
+def exec_genesis_doc(contracts: dict, pots: dict, tip: int = 0, zk_addrs=None, dst=None) -> tuple:
+    """exec_genesis without the registry: (records, kept pots)."""
+    out, kept, _reg = exec_genesis(contracts, pots, zk_addrs, tip, dst)
     return out, kept
 
 
@@ -172,14 +137,17 @@ def int_slots(storage: dict) -> dict:
     return out
 
 
-def exec_assets_doc(d: dict) -> dict:
+def exec_assets_doc(d: dict, amap=None) -> dict:
     """The exec ASSETS of a snapshot as the exec genesis carries them (execnode/exec_genesis.apply): asset records,
-    holdings and allowances verbatim — an asset record holds no height and its id derives from (issuer, seed) — with
-    zero holdings dropped and amounts as decimal strings (never floats)."""
-    return {"assets": json.loads(json.dumps(d.get("assets") or {})),
-            "abal": {a: {h: str(_num(n)) for h, n in sorted(hs.items()) if _num(n)}
-                     for a, hs in sorted((d.get("abal") or {}).items())},
-            "allow": json.loads(json.dumps(d.get("allow") or {}))}
+    holdings and allowances — an asset record holds no height — with zero holdings dropped and amounts as decimal
+    strings (never floats). An asset's id derives from (issuer, seed) through the VM hash, so a carry that changes the
+    hash re-keys all three by `amap` (tools/carry.asset_map); None keeps the ids."""
+    assets, abal, allow = d.get("assets") or {}, d.get("abal") or {}, d.get("allow") or {}
+    if amap is not None:
+        assets, abal, allow = _carry.carry_assets(assets, abal, allow, amap)
+    return {"assets": json.loads(json.dumps(assets)),
+            "abal": {a: {h: str(_num(n)) for h, n in sorted(hs.items()) if _num(n)} for a, hs in sorted(abal.items())},
+            "allow": json.loads(json.dumps(allow))}
 
 
 _EXEC_GENESIS = [None]
@@ -304,22 +272,9 @@ def exec_value_the_carry_would_drop(d: dict, tip=None, policy=None) -> list:
         pol = policy or (lambda cid, c: carry_policy(cid, c, tip=tip))
         for cid in sorted(held):
             if pol(cid, contracts[cid]) != "keep":
-                out.append(f"contract {cid[:16]} holds exec assets ({', '.join(held[cid][:4])}) but would reset — its "
+                out.append(f"contract {cid[:16]} holds exec assets ({', '.join(held[cid][:4])}) but cannot carry — its "
                            "ledger of whose they are would be lost; settle it on the old chain (or make it carry)")
     return out
-
-
-def refuse_blockers(blockers: dict, argv) -> None:
-    """Refuse the carry while a contract that would carry is BLOCKED by something in flight (carry_policy put it in
-    CARRY_BLOCKERS and it falls back to reset). Review 2026-10-11: the fallback used to be a printed line — a banked
-    game's open bets and bankroll then went through attribute_pot to the deployer of record unless someone read the
-    printout. INVARIANT: a blocked contract is a refusal unless the operator passes --allow-blockers, deliberately
-    accepting the reset and its pot attribution (printed above it, as before)."""
-    if blockers and "--allow-blockers" not in argv:
-        lines = [f"{cid[:16]}: {'; '.join(why)}" for cid, why in sorted(blockers.items())]
-        raise SystemExit("REFUSING: contracts with something in flight would reset instead of carrying "
-                         "(settle them on the old chain and re-run, or pass --allow-blockers to accept the reset):\n  "
-                         + "\n  ".join(lines))
 
 
 def build():
@@ -375,22 +330,24 @@ def build():
     pot_bridge = {a: _num(v) for a, v in bridge.items() if a in cids}
     for a, v in user_bridge.items():
         credit(a, v)
-    # 3) CARRIED CONTRACTS keep their pots in escrow (execnode/exec_genesis.py); every other pot is refunded to its
-    # players (digest-slot games: residual -> deployer/operator of record) as before
-    _gen_contracts, kept_pots = exec_genesis_doc(contracts, pot_bridge, tip=int(d.get("cursor", 0)))
+    # 3) EVERY CONTRACT CARRIES with all its storage, re-encoded into the new generation's VM formats, and EVERY pot
+    # stays in escrow with it (tools/carry.py; operator rule 2026-10-20). A contract that cannot carry losslessly
+    # refuses the carry here — nothing is reset, nothing refunded in its place.
+    from execnode import zkvmasm as _zasm
+    _src = _zasm.default_isa()
+    _amap = _carry.asset_map(d.get("assets"), _src, "v2")
+    try:
+        _gen_contracts, kept_pots, _reg = exec_genesis(contracts, pot_bridge, d.get("zk_addrs") or {},
+                                                       int(d.get("cursor", 0)), dst="v2", amap=_amap)
+    except _carry.Refused as e:
+        raise SystemExit(f"REFUSING: {e}")
     from protocol import CHAIN_GENERATION as _G
     _EXEC_GENESIS[0] = {"generation": int(_G) + 1, "contracts": _gen_contracts,
                         "bridge": {c: str(v) for c, v in sorted(kept_pots.items())},
-                        **exec_assets_doc(d),
-                        # the payee registry carried storage resolves its digests through (execnode/exec_genesis.apply)
-                        "zk_addrs": {str(k): str(v) for k, v in sorted((d.get("zk_addrs") or {}).items())}}
-    pot_refunds = {}
-    for cid, pot in pot_bridge.items():
-        if cid in kept_pots:
-            continue
-        for addr, amt in pot_refunds_for(cid, contracts[cid], pot, d.get("zk_addrs") or {}).items():
-            pot_refunds[addr] = pot_refunds.get(addr, 0) + amt
-            credit(addr, amt)
+                        **exec_assets_doc(d, _amap),
+                        # the payee registry carried storage resolves its digests through (execnode/exec_genesis.apply),
+                        # keyed by each string's NEW digest — the one carried storage now holds
+                        "zk_addrs": {str(k): str(v) for k, v in sorted(_reg.items())}}
     # ALREADY-CLAIMED EXITS ARE NOT PAID AGAIN (review 2026-09-25, measured). The exec node applies only FINALIZED L1
     # blocks, so exec_state trails L1 by ~45 blocks: a withdrawal claimed on L1 in that gap is already in its owner's
     # L1 balance while its exec record still exists. Folding it again paid it twice — and Δ stayed 0, because the
@@ -398,17 +355,6 @@ def build():
     dws = {n: w for n, w in dws.items() if not kv_ops.dividend_nullifier_exists(w["addr"], str(n))}
     bws = {n: w for n, w in bws.items() if not kv_ops.bridge_nullifier_exists("default", w["addr"], str(n))}
     uws = {n: w for n, w in uws.items() if not kv_ops.shield_nullifier_exists(w["addr"], str(n))}
-    # PRINT EVERY NON-FAUCET POT that fell to the deployer, with the owners its table slots name (field 1 = owner
-    # digest, field 2 = amount; zk_addrs maps a digest to an address), so the operator can refund them by hand after
-    # the reroll. Printing only — the fold above is unchanged, so conservation is unaffected.
-    _z = d.get("zk_addrs") or {}
-    for cid, pot in sorted(pot_bridge.items()):
-        if cid == "faucet" or not pot or cid in kept_pots:
-            continue
-        sl = {int(k): int(v) for k, v in ((contracts[cid].get("storage") or {}).get("slots") or {}).items()}
-        ids = sorted({k & 0xffffffff for k in sl if k >> 32 in (1, 2)})
-        owners = [(_z.get(str(sl.get((1 << 32) + i))) or "?", sl.get((2 << 32) + i, 0)) for i in ids]
-        print(f"  MANUAL REFUND? {cid[:16]} pot {pot} raw -> deployer; table owners/amounts: {owners[:8]}")
     # 4) fold uncollected dividends + pending dividend withdrawals
     for a, v in dividend.items():
         credit(a, _num(v))
@@ -429,8 +375,7 @@ def build():
             debit_reserved(acct, v)
 
     # 6) debit the escrow reserved accounts by exactly what was folded (conserve supply)
-    refunded_pots = sum(v for c, v in pot_bridge.items() if c not in kept_pots)
-    bridge_out = sum(user_bridge.values()) + refunded_pots + sum(_num(w["amount"]) for w in bws.values())
+    bridge_out = sum(user_bridge.values()) + sum(_num(w["amount"]) for w in bws.values())
     dividend_out = sum(_num(v) for v in dividend.values()) + sum(_num(w["amount"]) for w in dws.values())
     shield_out = sum(_num(w["amount"]) for w in uws.values())
     debit_reserved("bridge", bridge_out)
@@ -453,11 +398,8 @@ def build():
     print("=== alphanet-6 carry-forward ===")
     print(f"L1 accounts total (balance+bonded):     {l1_total:>18} raw")
     print(f"  folded user bridge:                   {sum(user_bridge.values()):>18} raw -> users, -bridge escrow")
-    print(f"  refunded contract pots:               {refunded_pots:>18} raw -> players/operator, -bridge escrow")
     print(f"  carried contract pots (stay escrowed): {sum(kept_pots.values()):>18} raw in {len(kept_pots)} contract(s); "
           f"{len(_gen_contracts)} contracts carried by id")
-    for _cid, _why in sorted(CARRY_BLOCKERS.items()):
-        print(f"  NOT CARRIED (in flight — settle on the old chain, then re-run): {_cid[:16]}: {'; '.join(_why)}")
     print(f"  folded dividends (uncollected):       {sum(_num(v) for v in dividend.values()):>18} raw -> users, -dividend pool")
     print(f"  folded dividend withdrawals (pending):{sum(_num(w['amount']) for w in dws.values()):>18} raw -> users, -dividend pool")
     print(f"  folded bridge withdrawals (pending):  {sum(_num(w['amount']) for w in bws.values()):>18} raw -> users, -bridge escrow")
@@ -470,12 +412,9 @@ def build():
           f"{len(_EXEC_GENESIS[0].get('stwo_deposits') or [])} deposit records kept restorable")
     print(f"carried total after folds:              {carried:>18} raw")
     print(f"CONSERVATION: {'OK' if carried == l1_total else 'FAIL'} (Δ={carried - l1_total})")
-    print(f"accounts in alloc: {len(alloc)}  (pot refunds to {len(pot_refunds)} recipients)")
+    print(f"accounts in alloc: {len(alloc)}")
     if carried != l1_total:
         raise SystemExit("conservation failed — refusing to write")
-    # BLOCKED CONTRACTS REFUSE (refuse_blockers): the NOT CARRIED and MANUAL REFUND lines above are the attribution the
-    # operator accepts with --allow-blockers; without it nothing is written
-    refuse_blockers(CARRY_BLOCKERS, sys.argv)
     # INVARIANT: what stays in BRIDGE_ESCROW is exactly the carried pots, because L1 genesis seeds the escrow counter
     # from them and refuses a mismatch (genesis.py) — a residual would be unbacked coins or a failed first exit.
     _esc = alloc.get("bridge", {"balance": 0})["balance"]

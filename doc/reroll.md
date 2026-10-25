@@ -146,9 +146,11 @@ must be reviewable as "new genesis, same rules".
 
 Carried: L1 balances and bonded stake; identities (keys, registration, fidelity for EVERY carried identity, device
 bindings, aliases, auth history); uncollected dividends and pending exits (folded into L1 balances); **every contract
-by its id** (execnode/exec_genesis.py), with its storage and pot when its game module says the storage is carry-safe
-(`CARRY_STORAGE`, or `carry_in_flight(storage) == []`, plus `carry_rebase` for games that store heights — pets,
-autogame, the daily boards); **exec assets** (records, holdings, allowances); the exec layer's **digest→address
+by its id, with ALL of its storage and its pot** (execnode/exec_genesis.py, `tools/carry.py`; operator rule 2026-10-20:
+"everything should be carried" — there is no reset and no pot refund in place of a carry), re-encoded into the new
+generation's VM formats (doc/stwo/g5-carry.md: at gen 29, every owner digest, hash-keyed slot, asset id and the code
+itself), with `carry_rebase` moving stored heights for the games that keep them (pets, autogame, the daily boards);
+**exec assets** (records, holdings, allowances); the exec layer's **digest→address
 registry** (`zk_addrs`), without which a carried contract's payout to a stored player reverts until that player calls
 again. Every carried slot is an int (a string slot is a KVX record in the root, and no settle proof could extend the
 genesis root). Refunded to whoever funded them: open invites and HTLCs. **A contract with something in flight refuses
@@ -160,8 +162,11 @@ resolve them on the old chain and run the carry again. **One documented exceptio
 parked autogame run whose next terrain is already visible at the tip is still carried, its sixteen UNANSWERED tiles
 redrawn once from a new-chain block. A parked run always sits on a visible terrain and only its owner can commit, so a
 blocker would make autogame uncarryable whenever anyone has a run (and a reset loses every run); nothing committed is
-redrawn, and a run the mists ended is never rescued (autogame.carry_rebase). `--allow-blockers` accepts the old fallback deliberately: that contract resets and its pot is
-refunded by attribution (for the digest-slot banked games, to the deployer of record: the MANUAL REFUND lines).
+redrawn, and a run the mists ended is never rescued (autogame.carry_rebase). There is no override: the old
+`--allow-blockers` (reset that contract, refund its pot by attribution) was removed with the reset path on 2026-10-25.
+The same refusal covers a slot the carry cannot re-encode (an unexplained hash key, an undeclared large value, a
+module with no carry rule holding storage): `python3 tools/carry.py <copy of exec_state.json>` names every one, and
+the module gains the hook it lacks before the reroll.
 **The Stwo shielded pool carries** (since 2026-10-12, doc/stwo-migration.md §5.1 "The carry"): its commitments in
 order, its nullifier set and `stwo_value` go into `genesis_data/exec_genesis.json`, so the new exec layer has the same
 `stwo_root` and spent set, old notes spend against the carried root, and no holder unshields. Its block marks restart

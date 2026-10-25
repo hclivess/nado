@@ -46,6 +46,9 @@ DONATED, DEFUNDED = 7, 8
 # new chain. Re-check before adding any method that reads `cursor`, `timestamp`, BHASH or BEACON.
 CARRY_STORAGE = True
 
+# Values >= 2^32 kept verbatim by the gen-29 carry (tools/carry.py refuses any undeclared one): the two raw amounts.
+CARRY_WORDS = {("slot", DONATED): "raw NADO the operator donated", ("slot", DEFUNDED): "raw NADO defunded"}
+
 FUND = f"""
     ctx r1 value
     movi r2 0
@@ -152,3 +155,22 @@ def build(isa=None):
         assert t.count(lit) == len(re.findall(r"\bmovi r\d " + lit + r"\b", t)), "OP_DIG outside a movi operand"
         src[m] = re.sub(r"(\bmovi r\d )" + lit + r"\b", lambda x: x.group(1) + dig2, t)
     return zkvmasm.assemble_contract(src, isa)
+
+
+# the paid-marker domain the carry enumerates (carry_hash_preimages): the distributor's game indexes, its five ranks
+# with headroom, and both day kinds it has keyed on — the block-day (an L1 tip // 14,400, small on every generation's
+# chain: 400 days is 5.76 M blocks) and the UTC day (unix seconds // 86,400; 19,500 is 2023-05, 21,500 is 2028-11)
+CARRY_MARKER_IDX, CARRY_MARKER_RANKS = range(32), range(1, 9)
+CARRY_MARKER_DAYS = (range(0, 400), range(19500, 21500))
+
+
+def carry_hash_preimages(storage, digests):
+    """The paid markers H(idx, day, rank) the faucet can hold (tools/carry.py re-derives each under the new VM hash).
+    The faucet keeps no index of them, so the domain the operator's distributor writes is enumerated (CARRY_MARKER_*);
+    a marker outside it REFUSES the carry, and the domain is widened rather than the marker dropped — a dropped marker
+    would let that (game, day, rank) be paid twice. Measured 2026-10-25: all 93 live markers are in it."""
+    for idx in CARRY_MARKER_IDX:
+        for days in CARRY_MARKER_DAYS:
+            for day in days:
+                for rank in CARRY_MARKER_RANKS:
+                    yield (idx, day, rank)

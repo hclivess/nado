@@ -6,8 +6,8 @@ silently). Now the carry writes genesis_data/exec_genesis.json and every exec no
 
 Pins, driving the real carry builder, the real exec layer and the real L1 genesis (throwaway HOME):
   1. without a carried genesis nothing changes: the genesis root is EXEC_GENESIS_ROOT;
-  2. the carry keeps EVERY contract under its id; a CARRY_STORAGE contract (the faucet) keeps storage and pot, any
-     other contract starts from fresh-deploy storage (its constructor's output) and its pot is refunded by the carry;
+  2. the carry keeps EVERY contract under its id WITH its storage and its pot (operator rule 2026-10-20: no reset, no
+     refund) — the faucet and a dice table at rest alike; a dice table with an open bet REFUSES the carry instead;
   3. a fresh exec layer loads the carried contracts, its root equals genesis_root(), and loading twice is a no-op;
   4. the carried pot is SPENDABLE on the new chain: the faucet operator defunds from it;
   5. L1 genesis seeds the default namespace's escrow counter with exactly the carried pots, and refuses to build when
@@ -60,6 +60,7 @@ from execnode.state import ExecState
 from execnode.code_codec import FIXED_CIDS
 from execnode.games import faucet, dice
 from tools.alphanet6_carryforward import exec_genesis_doc, carry_policy
+from tools.carry import Refused
 
 # the empty exec state's root in this generation's format: the alghash canary on gen 28, the BLAKE2s one on gen 29
 from execnode.exec_root_b2 import blake_exec_at as _bea
@@ -77,17 +78,25 @@ contracts = {
                "storage": {"slots": {"0": "1", str((dice.TLIST << 32) + 0): "5", str((4 << 32) + 5): "100"}}},
 }
 check("the faucet is carry-safe by its code; a dice table with an open bet is not", carry_policy("faucet", contracts["faucet"]) == "keep"
-      and carry_policy("d" * 32, contracts["d" * 32]) == "reset")
+      and carry_policy("d" * 32, contracts["d" * 32]) == "blocked")
+try:
+    exec_genesis_doc(contracts, {"faucet": FAUCET_POT, "d" * 32: DICE_POT})
+    refused = None
+except Refused as e:
+    refused = str(e)
+check("2. the open bet refuses the whole carry (no reset, no refund), naming it", refused is not None
+      and "table 5 has open bets" in refused, refused)
+contracts["d" * 32]["storage"]["slots"][str((4 << 32) + 5)] = "0"            # settled on the old chain
 gen_contracts, kept = exec_genesis_doc(contracts, {"faucet": FAUCET_POT, "d" * 32: DICE_POT})
 check("2. every contract is carried under its id", sorted(gen_contracts) == sorted(contracts), sorted(gen_contracts))
 # the fixture writes its slots as strings; the carried genesis holds them as INTS (alphanet6_carryforward.int_slots — a
 # string slot is a KVX record in the root, not a slot leaf, and no settle proof could extend that root)
 check("...the faucet with its storage, every slot an int", gen_contracts["faucet"]["storage"] == {"slots": {"7": FAUCET_POT, "8": 0}},
       gen_contracts["faucet"]["storage"])
-check("...and its pot kept in escrow; the reset contract's pot is left to the refund", kept == {"faucet": FAUCET_POT}, kept)
-check("...the reset contract starts from fresh-deploy storage, its in-flight seat gone",
-      gen_contracts["d" * 32]["storage"] != contracts["d" * 32]["storage"] and gen_contracts["d" * 32]["code"] == dice_code,
-      gen_contracts["d" * 32]["storage"])
+check("...and EVERY pot kept in escrow", kept == {"faucet": FAUCET_POT, "d" * 32: DICE_POT}, kept)
+check("...the settled dice table carries its storage too",
+      gen_contracts["d" * 32]["storage"]["slots"] == {k: int(v) for k, v in contracts["d" * 32]["storage"]["slots"].items()}
+      and gen_contracts["d" * 32]["code"] == dice_code, gen_contracts["d" * 32]["storage"])
 json.dump({"generation": P.CHAIN_GENERATION, "contracts": gen_contracts, "bridge": {c: str(v) for c, v in kept.items()}},
           open(GEN_FILE, "w"))
 EG._CACHE.clear()
@@ -111,10 +120,10 @@ def l1(escrow):
     env["NADO_EXEC_STATE"] = os.path.join(env["HOME"], "exec_state.json")
     env["NADO_EXEC_DA"] = os.path.join(env["HOME"], "exec_da")
     return subprocess.run([sys.executable, os.path.abspath(__file__)], env=env, capture_output=True, text=True, timeout=600)
-ok = l1(FAUCET_POT)
+ok = l1(FAUCET_POT + DICE_POT)
 check("5. L1 genesis seeds bridgeescrow:default with exactly the carried pots",
-      ok.returncode == 0 and f"ESCROW_COUNTER {FAUCET_POT}" in ok.stdout, (ok.returncode, ok.stdout[-300:], ok.stderr[-300:]))
-bad = l1(FAUCET_POT - 1)
+      ok.returncode == 0 and f"ESCROW_COUNTER {FAUCET_POT + DICE_POT}" in ok.stdout, (ok.returncode, ok.stdout[-300:], ok.stderr[-300:]))
+bad = l1(FAUCET_POT + DICE_POT - 1)
 check("...and refuses to build genesis when BRIDGE_ESCROW does not hold them", bad.returncode == 3 and "REFUSED" in bad.stdout,
       (bad.returncode, bad.stdout[-300:]))
 

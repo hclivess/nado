@@ -125,6 +125,49 @@ def carry_ids(slots: dict, cnt_slot: int, lst: int) -> list:
     return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
 
 
+# ---- the gen-29 carry's re-encoding hooks (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------
+# A hash-keyed slot (bet's stakes, the faucet's paid markers, ...) is addressed by the VM hash of a preimage, and the hash
+# changes with the generation, so the carry must re-derive every such key from its preimage — never decode it from its
+# bits. A module that stores hash-keyed slots declares carry_hash_preimages(storage, digests): every preimage its storage
+# may hold a key for, enumerated from its own index, with each word that is an owner/string DIGEST wrapped in Owner (the
+# carry remaps exactly those words to the gen-29 digest before rehashing). Over-enumerating is harmless (a preimage whose
+# old hash is not a stored key is ignored); a stored hash key no preimage explains REFUSES the carry.
+class Owner(int):
+    """A preimage word that is a zk_addrs digest — remapped to the new generation's digest by the carry."""
+
+
+# CARRY_WORDS: the slots a module's storage may hold a value >= 2^32 in that is NOT a registry digest, each with what it
+# is — {("field", F): why} for F*2^32 + id keys, {("slot", k): why} for a bare slot k < 2^32, {("tag", t): why} for the
+# hash slots whose preimage starts with t. The carry keeps them verbatim and REFUSES any other large value: it is either
+# a digest the registry cannot remap (an owner that would silently be lost) or a hash-derived value nobody has checked
+# for a re-derivation under the new hash (pets' genes were one, doc/stwo/g5-carry.md).
+BANKED_CARRY_WORDS = {("field", TK): "a table's bankroll (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
+                      ("field", TC): "a table's committed cover (raw NADO)"}
+
+
+def daily_carry_words(a_v, ew_base, n_words):
+    """A provable daily board's large values: the resolved anchor (a block-hash VALUE the verifiers read as stored) and
+    the packed claim words (moves, 3-6 bits each)."""
+    out = {("field", a_v): "a resolved day anchor (block-hash value, read as stored)"}
+    out.update({("field", ew_base + j): "a packed daily claim word" for j in range(n_words)})
+    return out
+
+
+def carry_tote_preimages(slots, cnt_slot, lst, n_out, tags_out, tags_own, digests):
+    """The preimages of a tote/book's per-user slots (bet's markets, hamster's races): HASH(tag, id, outcome, owner) for
+    each tag in `tags_out` and HASH(tag, id, owner) for each in `tags_own`, over the ids the index lists, every outcome
+    below `n_out` and every registry digest. The owner word is LAST, so the carry's prefix cache absorbs the shared
+    prefix once per (tag, id[, outcome])."""
+    for i in carry_ids(slots, cnt_slot, lst):
+        for t in tags_own:
+            for d in digests:
+                yield (t, i, Owner(d))
+        for t in tags_out:
+            for o in range(n_out):
+                for d in digests:
+                    yield (t, i, o, Owner(d))
+
+
 def rebase_daily_anchors(slots: dict, tip: int, a_h: int, a_v: int, dcnt_slot: int, dlist: int) -> dict:
     """The daily-board anchors (daily_anchor) on a new chain whose block 0 stands where `tip` stood: a day whose anchor
     is PINNED but not yet resolved (a_v == 0) re-pins to a new-chain block >= CARRY_PIN_FLOOR, unknown when the carry

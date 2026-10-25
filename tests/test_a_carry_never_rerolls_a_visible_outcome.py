@@ -14,7 +14,7 @@ exists: a training session lapses, as train() lapses a stale session.
 
 Pins, on the REAL pets contract (throwaway HOME):
   1. an egg minted at the tip (gene blocks not mined) carries and is re-pinned — no blocker;
-  2. an egg whose gene blocks are mined blocks the carry, naming hatch(pid), and the policy is "reset" (a blocker);
+  2. an egg whose gene blocks are mined blocks the carry, naming hatch(pid), and the policy is "blocked" (the carry refuses);
   3. a pending training session whose roll is mined blocks it too, naming train_resolve(pid);
   4. carry_rebase itself refuses to re-pin them (a direct caller cannot re-roll them either);
   5. a THIRD PARTY resolves both on the old chain (permissionless), and the contract then carries — with the hatched
@@ -80,8 +80,8 @@ check("1. an egg whose gene blocks are not mined is no blocker", not any("egg 3"
 check("2. an egg whose gene blocks are mined blocks the carry, naming hatch(2)", any("hatch(2)" in w for w in why), why)
 check("3. a training session whose roll is mined blocks it, naming train_resolve(1)", any("train_resolve(1)" in w for w in why), why)
 C.CARRY_BLOCKERS.clear()
-check("...so the carry policy is reset with the blockers recorded (and the carry refuses: refuse_blockers)",
-      C.carry_policy(cid, old.contracts[cid], tip=TIP) == "reset" and C.CARRY_BLOCKERS.get(cid) == why, C.CARRY_BLOCKERS)
+check("...so the carry policy is blocked with the blockers recorded (the carry refuses)",
+      C.carry_policy(cid, old.contracts[cid], tip=TIP) == "blocked" and C.CARRY_BLOCKERS.get(cid) == why, C.CARRY_BLOCKERS)
 try:
     P.carry_rebase(json.loads(json.dumps(S())), TIP)
     raised = False

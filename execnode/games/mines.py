@@ -27,6 +27,11 @@ SC = 30
 TLIST, GLIST = 24, 25
 
 
+# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note): the table's and the seat's amounts
+CARRY_WORDS = {**_lib.BANKED_CARRY_WORDS, ("field", GS): "a round's stake (raw NADO)", ("field", GV): "a round's value (raw NADO)",
+               ("field", GQ): "a round's potential payout (raw NADO)"}
+
+
 def carry_in_flight(storage):
     """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
     on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""

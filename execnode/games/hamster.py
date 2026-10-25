@@ -452,3 +452,15 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     return out
+
+
+# Values >= 2^32 this contract's storage may hold that are NOT registry digests (tools/carry.py refuses any other): the
+# carry keeps them verbatim (_lib.CARRY_WORDS note).
+CARRY_WORDS = _lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS)
+
+
+def carry_hash_preimages(storage, digests):
+    """Every per-user hash slot a race can hold (tools/carry.py re-derives each under the new VM hash): stake, book
+    stake and book payout per (race, lane, owner); total, claim and book claim per (race, owner)."""
+    return _lib.carry_tote_preimages((storage or {}).get("slots") or {}, 0, RLIST, NH,
+                                     (TG_STK, TG_BSTK, TG_BPAY), (TG_US, TG_CL, TG_BCL), digests)

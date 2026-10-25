@@ -3,7 +3,7 @@ flight (_lib.banked_tables_in_flight, tools/alphanet6_carryforward.carry_policy)
 
 A seat in flight refers to the OLD chain — its beacon epoch and heights — and can never settle on the new one, so a
 table with open bets (committed liability tc != 0, the same test close() uses) blocks the carry and the contract falls
-back to a reset with its pot refunded, exactly as before. Once every seat is settled on the old chain (settle is
+a REFUSAL of the whole carry (no reset, no refund). Once every seat is settled on the old chain (settle is
 permissionless) the storage is pure history plus bankroll and carries as is.
 
 Pins, on the REAL slots contract (throwaway HOME):
@@ -64,7 +64,7 @@ call(st, cid, PLAYER, "spin", [G, T], STAKE)
 why = slots.carry_in_flight(st.contracts[cid]["storage"])
 check("1. a spin in flight blocks the carry, naming its table", why == [f"table {T} has open bets"], why)
 C.CARRY_BLOCKERS.clear()
-check("...so the contract would reset (pot refunded as before)", C.carry_policy(cid, st.contracts[cid]) == "reset"
+check("...so the contract is blocked (the carry refuses it)", C.carry_policy(cid, st.contracts[cid]) == "blocked"
       and C.CARRY_BLOCKERS.get(cid) == why)
 
 gb, gh = rd(st, cid, slots.GB, G), rd(st, cid, slots.GH, G)

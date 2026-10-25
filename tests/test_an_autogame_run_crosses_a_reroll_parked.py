@@ -63,7 +63,7 @@ check("setup: run 7 committed its answers (dice scheduled)", rd(old, G.RNH, 7) !
 why = G.carry_in_flight(old.contracts[cid]["storage"])
 check("1. a run with a leg in flight blocks the carry, naming the run", why == ["run 7 has a leg in flight"], why)
 C.CARRY_BLOCKERS.clear()
-check("...so the contract would reset", C.carry_policy(cid, old.contracts[cid]) == "reset")
+check("...so the contract is blocked (the carry refuses it)", C.carry_policy(cid, old.contracts[cid]) == "blocked")
 
 old.cursor = rd(old, G.RNH, 7) + 1
 r = call(old, cid, A, "advance", [7])
@@ -120,8 +120,8 @@ why = G.carry_in_flight(old.contracts[cid]["storage"], tip=mist_tip)
 check("7. a live run already in the mists at the tip blocks the carry, naming advance(rid)",
       any("advance(7)" in w for w in why) and any("advance(9)" in w for w in why), why)
 C.CARRY_BLOCKERS.clear()
-check("...so the contract would reset and the carry refuses (refuse_blockers)",
-      C.carry_policy(cid, old.contracts[cid], tip=mist_tip) == "reset" and C.CARRY_BLOCKERS.get(cid) == why, C.CARRY_BLOCKERS)
+check("...so the contract is blocked and the carry refuses it",
+      C.carry_policy(cid, old.contracts[cid], tip=mist_tip) == "blocked" and C.CARRY_BLOCKERS.get(cid) == why, C.CARRY_BLOCKERS)
 try:
     G.carry_rebase(json.loads(json.dumps(old.contracts[cid]["storage"])), mist_tip)
     raised = False
