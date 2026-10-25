@@ -1305,6 +1305,11 @@ ABI = {
     },
 }
 
+# the ROLL TABLE (RT_BASE) to the page: r555 (tier), r777 (species), r1000..r1009 (base stats), r7000 (coat), r9000
+# (shiny). On gen 29 the page reads a pet's traits from here, never from its gene — the gene's rolls are the contract's
+# state there (and the browser could not re-derive them: v2 exposes only 64 of the gene's 256 bits as gl/gh). Empty on v1.
+ABI["_view"]["maps"].update({f"r{c}": {"field": _rt(c), "index": "pets"} for c in ROLL_OFFSETS})
+
 
 def build(isa=None):
     isa = isa or zkvmasm.default_isa()

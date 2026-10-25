@@ -122,6 +122,8 @@ from execnode.games import _lib
 T.check("2. the roll table carries the worker's gen-28 stat rolls — which BLAKE2s would have re-rolled",
         rt == [_lib.vm_hash([gn + 1000 + i], "v1") & 0xFFFFFFFF for i in range(10)]
         and rt != [_lib.vm_hash([gn + 1000 + i], "v2") & 0xFFFFFFFF for i in range(10)], rt)
+T.check("3. the carried ABI is the module's, with the roll table in the pets view schema",
+        recs[pc]["abi"] == json.loads(json.dumps(P.ABI)) and "r1000" in recs[pc]["abi"]["_view"]["maps"])
 T.check("3. the carried code is each module's v2 build",
         recs[bc]["code"] == json.loads(json.dumps(B.build("v2"))) and recs[pc]["code"] == json.loads(json.dumps(P.build("v2"))))
 
@@ -143,6 +145,9 @@ try:
     T.check("1. the carried views report exactly the gen-28 positions", views29 == views28
             and views28[("stake_of", str([M, 0, A]))] == 30 * UNIT and views28[("bpay_of", str([M, 2, C]))] == 100 * UNIT,
             (views29, views28))
+    dv = new.decode_view(new.contracts[pc])
+    T.check("2. the page's view of the carried pet shows its gen-28 stat rolls (r1000..r1009), owner resolved",
+            [int(dv.get(f"r{1000 + i}", {}).get(str(farmer), 0)) for i in range(10)] == rt, dv.get("r1000"))
     new.cursor = ELAPSED                                  # the farm's clock was rebased to the new block 0
     call(new, pc, OWN, "collect", [1])
     harvest29 = new.view(pc, "res_of", [OWN, 0])

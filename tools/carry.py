@@ -18,7 +18,8 @@ Gen 28 -> gen 29 (the Goldilocks -> BLAKE2s/M31 exec layer), per contract (carry
              digest; a plain key (< 2^32, or F*2^32 + id with F < 2^20) unchanged; anything else REFUSES.
        value a registry digest -> the new digest; any other value >= 2^32 must be declared in the module's CARRY_WORDS
              (kept verbatim) or it REFUSES; small values unchanged.
-  5. code: mod.build("v2"). abi, deployer, runtime and upgradable carry as they are.
+  5. code: mod.build("v2"), and the module's ABI with it (its view schema describes the new code's state); deployer,
+     runtime and upgradable carry as they are.
 and the registry (zk_addrs) is re-keyed by the new digest of every string it holds (digest_map).
 
 The new digest of a string is runtimes.zkvm_addr_digest(s, v2=True) — what the gen-29 call boundary computes for the same
@@ -244,6 +245,9 @@ def carry_contract(cid, contract, dmap, tip, v1hash=None, src="v1", dst="v2", am
         storage, n = reencode_storage(mod, storage, dmap, v1hash, amap)
     rec = {k: contract[k] for k in ("abi", "deployer", "runtime", "upgradable") if k in contract}
     rec["code"] = json.loads(json.dumps(mod.build(dst)))
+    if src != dst and hasattr(mod, "ABI"):
+        # the ABI travels with the code it describes: a view schema for state the new code keeps (pets' roll table)
+        rec["abi"] = json.loads(json.dumps(mod.ABI))
     rec["storage"] = storage
     n["module"] = mod.__name__.rsplit(".", 1)[-1]
     return rec, n
