@@ -258,6 +258,14 @@ export function algHashn(elements) {
   const P = alghash.P;
   return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
 }
+// algHashnV1(elements): the gen-28 alghash HASH whatever the generation — ONLY for structures scored entirely off-chain
+// whose old records must keep replaying (the autogame Daily Gauntlet's road: a claim posted on gen 28 is verified by
+// replay long after the reroll). Never for anything a contract computes: that is algHashn, which follows the VM.
+export function algHashnV1(elements) {
+  _ensureAlg();
+  const P = alghash.P;
+  return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
+}
 // the modulus a page reduces by: the Goldilocks prime on gen 28, 2^256 (the wrapping word) on gen 29
 export const ALG_P = () => (vmV2() ? WORD : (_ensureAlg(), alghash.P));
 // blocksToTime(blocks): a block count as elapsed time at the given block time (default 6s). A few minutes

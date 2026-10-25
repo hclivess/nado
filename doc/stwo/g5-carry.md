@@ -95,9 +95,10 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
 - **Commit-reveal and hashlock contracts have no in-flight hook**: coinflip, holdem, battleship, hexholm, stormhold,
   farkle and otc (otc's hashlocks also change layout between v1 and v2). With storage, the carry refuses them as "no
   carry rule"; each needs `carry_in_flight` (an open round blocks) so a contract at rest carries. Empty today.
-- **The autogame Daily Gauntlet replays claims through the VM hash** (`static/autogame-daily.js` dailyWorld via
-  algHashn, also the faucet oracle): a gen-28 day's claims must replay under alghash after the reroll, or the board of
-  the reroll day drops them. The other daily boards seed through blake2b and are unaffected. (G6, with the wallet.)
+- ~~The autogame Daily Gauntlet replays claims through the VM hash~~ — done 2026-10-25: the Gauntlet is scored
+  off-chain, so its road hash is pinned to the gen-28 alghash (`nadodapp.algHashnV1`) for every generation; a claim
+  posted on gen 28 replays to the same score on gen 29 (measured without the pin: 196 -> 413). The other daily boards
+  seed through blake2b and were never affected.
 - ~~The browser reads pets' traits from the roll table~~ — done 2026-10-25: `static/pets-genes.js` reads the view's
   `r<c>` maps whenever a pet has them (`rollOf`/`rollsFrom`) and the gene only when it has none, which also covers the
   gen-29 gene-exposure gap (v2 exposes 64 of the gene's 256 bits as gl/gh). Still on the gene: `combineStatOf`'s

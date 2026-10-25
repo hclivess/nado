@@ -19,7 +19,13 @@
 // maximise a compounding renown/gear/streak/stamina economy — with a cash-out decision live at every step
 // — is a planning problem with branching factor 8 and a horizon of 124. Knowing the road is the premise of
 // the puzzle, not the answer to it.
-import { algHashn } from "./nadodapp.js";
+import { algHashnV1 } from "./nadodapp.js";
+// THE ROAD'S HASH IS PINNED to the gen-28 alghash (nadodapp.algHashnV1), not the generation's VM hash. The Gauntlet is
+// scored entirely off-chain — the contract stores claims and gates the day, never the road — and every verifier
+// (browsers, the faucet oracle tests/autogame_daily_verify.mjs) replays a claim long after it was posted. Following the
+// VM, a claim posted on gen 28 would replay to another road on gen 29 and drop off the board and the payout. One pinned
+// hash keeps every past and future claim replayable under one rule (doc/stwo/g5-carry.md 2c).
+const algHashn = algHashnV1;
 import { H, provableSeed, unpackMoves, packMoves } from "./provable.js";
 import * as R from "./autogame-rules.js";
 import * as E from "./autogame-engine.js";
