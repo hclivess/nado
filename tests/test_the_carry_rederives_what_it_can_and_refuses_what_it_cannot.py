@@ -84,9 +84,18 @@ msg = refuses(lambda: carry.carry_contract("x" * 32, {"code": {"m": [["RET", 0, 
 T.check("6. a contract whose code is no module's gen-28 build refuses", msg is not None and "no game module" in msg, msg)
 cf = {"code": json.loads(json.dumps(coinflip.build("v1"))), "abi": coinflip.ABI, "deployer": OWNER, "runtime": "zkvm",
       "storage": {"slots": {"0": 1}}}
-msg = refuses(lambda: carry.carry_contract("c" * 32, cf, dmap, 0))
-T.check("6. a module with no carry rule refuses when it holds storage", msg is not None and "no carry rule" in msg, msg)
-rec, _ = carry.carry_contract("c" * 32, dict(cf, storage={}), dmap, 0)
+# coinflip gained its carry hooks (G5 2c); with them hidden it stands for any module that declares no rule, so this
+# property does not depend on which modules still lack one
+_hooks = {a: getattr(coinflip, a) for a in ("carry_in_flight", "carry_rebase", "CARRY_STORAGE") if hasattr(coinflip, a)}
+for a in _hooks:
+    delattr(coinflip, a)
+try:
+    msg = refuses(lambda: carry.carry_contract("c" * 32, cf, dmap, 0))
+    T.check("6. a module with no carry rule refuses when it holds storage", msg is not None and "no carry rule" in msg, msg)
+    rec, _ = carry.carry_contract("c" * 32, dict(cf, storage={}), dmap, 0)
+finally:
+    for a, v in _hooks.items():
+        setattr(coinflip, a, v)
 T.check("6. ...and carries when it holds none, as its v2 build",
         rec["code"] == json.loads(json.dumps(coinflip.build("v2"))) and rec["storage"].get("slots", {}) == {}, rec.get("storage"))
 

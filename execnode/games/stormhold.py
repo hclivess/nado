@@ -242,3 +242,41 @@ def build(isa=None):
     if (isa or zkvmasm.default_isa()) == "v2":
         src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+
+
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
+# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the stakes (raw NADO), the creator's cfg word and every move
+# word (both stored exactly as passed, so any field value), and a game's hidden-hands commitments. A revealed secret is
+# stored as two 32-bit halves, so it is never large. The move log's seed heights mh/kh stay old-chain heights: they are
+# read only by the browser replaying a finished game (G6 replays pre-reroll history with the old chain's hashes).
+CARRY_WORDS = {("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
+               ("field", CFG): "the creator's cfg word (stored as passed)",
+               ("field", C1): "p1's hidden-hands commitment H(secret)", ("field", C2): "p2's hidden-hands commitment H(secret)",
+               **{("field", MV_BASE + i): "a recorded move word (stored as passed)" for i in range(MAXMOVES)}}
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can):
+      * an open game (_lib.pvp_games_in_flight) — its move clock is an old-chain height and its shuffles pin old-chain
+        block hashes: the opener's cancel(g) in the lobby; agree / resign, or abort(g) once the move clock lapses
+        (permissionless, refunds both stakes) after the join;
+      * an UNREVEALED hidden-hands commitment of a joined game, settled or not: reveal() does not check sd (it is the
+        post-game proof every client verifies the hidden game with) and checks the commitment against a FRESH hash,
+        which the gen-29 hash can never match — only that player's reveal(g, x) on the old chain resolves it. A
+        revealed seat has a nonzero half (a secret of exactly 0 reads as unrevealed: reveal it again, it is idempotent).
+    Reached through the game index only (slot 0 count, field LIST)."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for gid in _lib.pvp_games_in_flight(storage, NN, SD, LIST):
+        if g(NN, gid) == 1:
+            out.append(f"game {gid} awaits a joiner - cancel({gid}) (opener)")
+        else:
+            out.append(f"game {gid} is in play - agree/resign, or abort({gid}) past block {g(DL, gid)} (permissionless)")
+    for gid in _lib.carry_ids(slots, 0, LIST):
+        if g(NN, gid) != 2:
+            continue                       # a lobby game cancelled before a join can never be revealed, on any chain
+        for seat, c, hi, lo in (("p1", C1, R1H, R1L), ("p2", C2, R2H, R2L)):
+            if g(c, gid) and not g(hi, gid) and not g(lo, gid):
+                out.append(f"game {gid}: {seat}'s hidden-hands commitment is unrevealed - reveal({gid}, x) ({seat})")
+    return out

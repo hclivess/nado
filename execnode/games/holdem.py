@@ -917,3 +917,37 @@ def build(isa=None):
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("join", "start", "leave", "bet", "close_street", "reveal", "settle", "reclaim", "cancel")}
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+
+
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
+# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the ante, pot, street prices, stacks and street contributions
+# (raw NADO), and a CLOSED table's seat commitments and revealed secrets — history: every method refuses a closed table
+# (tz) and poker.js redraws the board from them only as a display replay (G6, old hash). The timeline/eval scratch
+# (fields 800-999) is scrubbed to 0 by every successful call, so it never holds a large value at rest.
+CARRY_WORDS = {("field", TS): "a table's ante (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
+               ("field", GC): "a closed table's seat commitment H(x)", ("field", GK): "a seat's stack (raw NADO)",
+               ("field", GR): "a closed table's revealed seat secret",
+               **{("field", MS_BASE + k): f"street {k}'s price (raw NADO)" for k in range(1, 5)},
+               **{("field", CS_BASE + k): f"a seat's street-{k} contribution (raw NADO)" for k in range(1, 5)}}
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can): a table opened and not closed (tz). Its seats hold
+    stakes behind gen-28 commitments gc that reveal() checks against a FRESH hash (unverifiable under the gen-29 hash),
+    its cards pin old-chain beacons or block hashes, and its streets and showdown window are old-chain heights.
+    Resolved on the old chain: before the deal, by the host's cancel(t) once every other seat has left (leave(g));
+    after it, by settle(t) or — when nobody revealed — reclaim(t), both permissionless once the showdown window
+    closes. Reached through the table index only (slot 0 count, field TLIST)."""
+    slots = (storage or {}).get("slots") or {}
+    g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
+    out = []
+    for t in _lib.carry_ids(slots, 0, TLIST):
+        if not g(TA, t) or g(TZ, t):
+            continue
+        if not g(TD, t):
+            out.append(f"table {t} is open and not dealt - start({t}) (host), or every guest leave(seat) and the "
+                       f"host cancel({t})")
+        else:
+            out.append(f"table {t} is dealt and unsettled - settle({t}), or reclaim({t}) if nobody revealed, once its "
+                       "showdown window closes (permissionless)")
+    return out

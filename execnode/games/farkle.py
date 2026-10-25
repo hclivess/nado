@@ -574,3 +574,71 @@ def build(isa=None):
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {**{m: ["r0"] for m in ("roll", "hold", "settle", "reclaim", "cancel")}, "join": ["r0", "r1"]}
     return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+
+
+# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
+CARRY_PIN_FLOOR = _lib.CARRY_PIN_FLOOR
+# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the ante and pot (raw NADO), and hold()'s scratch row (field
+# SC keyed 0..35: the last roll's seed bh+bh+..., and `cont` stored as passed) — every hold rewrites a scratch cell
+# before it reads it, so a carried value is never read.
+CARRY_WORDS = {("field", TS): "a table's ante (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
+               ("field", SC): "hold()'s scratch (rewritten before every read)"}
+
+
+def _carry_view(storage):
+    slots = (storage or {}).get("slots") or {}
+    return slots, (lambda f, k: int(slots.get(str((f << 32) + k), 0)))
+
+
+def carry_in_flight(storage):
+    """Why this contract cannot cross a reroll yet ([] = it can): an open table (ta set, tz not) that still holds an
+    ante (tp != 0) or a seat still playing (gfin == 0). Its antes ride rolls pinned to old-chain block hashes, and
+    reclaim's idleness gate is an old-chain height. Resolved on the old chain: settle(t) once a seat has banked 4000
+    (permissionless), the host's cancel(t) at a solo table, or reclaim(g) of each seat idle 18000 blocks
+    (permissionless) — a table every seat has reclaimed holds tp == 0 and is at rest (a later join plays it on the new
+    chain from scratch). Reached through the contract's own indexes only (tables: slot 0 / TLIST, seats: slot 1 /
+    GLIST)."""
+    slots, g = _carry_view(storage)
+    live = {}
+    for s in _lib.carry_ids(slots, 1, GLIST):
+        if g(GG, s) and not g(GFIN, s):
+            live.setdefault(g(GG, s), []).append(s)
+    out = []
+    for t in _lib.carry_ids(slots, 0, TLIST):
+        if not g(TA, t) or g(TZ, t) or not (g(TP, t) or live.get(t)):
+            continue
+        if g(TB, t):
+            out.append(f"table {t} has a winner - settle({t}) (permissionless)")
+        elif g(TN, t) == 1:
+            out.append(f"table {t} is a solo table in play - cancel({t}) (host), or reclaim(seat) once idle 18000 blocks")
+        else:
+            out.append(f"table {t} is in play - bank to {WIN} and settle({t}), or reclaim(seat) for each seat idle "
+                       "18000 blocks (permissionless)")
+    return out
+
+
+def carry_rebase(storage, tip):
+    """This contract's storage on a new chain whose block 0 stands where the old chain's `tip` stood. Once
+    carry_in_flight is [], the one height a method still reads is a seat's pending roll grh: roll() never checks the
+    table, so a seat at a SETTLED or cancelled table keeps rolling for nothing (hold() then reads bhash(grh)). Such a
+    pin is re-pinned to a new-chain block >= CARRY_PIN_FLOOR — unknown when the carry is built. That can re-roll an
+    outcome the owner saw, deliberately: nothing rides on it (the table's pot is paid out), and blocking on it instead
+    would let anyone hold the carry hostage with one free roll that only they can hold().
+    Not moved: gla (reclaim's idleness clock) — reclaim refuses every seat at rest (gfin set, or the table closed) —
+    and t0, which no method reads.
+    INVARIANT: every value written is an INT (exec_root.kv_projection commits only int-valued slots; a string made the
+    carried genesis root unprovable, review 2026-10-11), and only (field, seat) slots reached through the seat index
+    are touched."""
+    tip = int(tip)
+    blocked = carry_in_flight(storage)
+    if blocked:
+        # carry_contract never rebases a blocked contract; refusing here keeps a direct caller from re-rolling them
+        raise ValueError("farkle carry_rebase: resolve these on the old chain first: " + "; ".join(blocked))
+    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
+    for s in _lib.carry_ids(slots, 1, GLIST):
+        key = str((GRH << 32) + s)
+        if int(slots.get(key, 0)):
+            slots[key] = int(max(CARRY_PIN_FLOOR, int(slots[key]) - tip))
+    out = dict(storage or {})
+    out["slots"] = slots
+    return out
