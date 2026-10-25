@@ -91,6 +91,7 @@ helpers = "\n".join([
     fn_src("schemeLib"), fn_src("schemeKeygen"), fn_src("schemeSign"), fn_src("schemeVerify"), fn_src("schemeFee"),
     fn_src("keypairFromPriv"), fn_src("accountChildSeed"), fn_src("createTxid"), fn_src("finalizeTransaction"),
 ])
+helpers = helpers + "\nconst __CUR__ = " + json.dumps(fn_src("currentFeeRaw", True)) + ";"
 js = r"""
 const C = await import(process.argv[2]);
 const { blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_dsa65, ml_dsa87, slh_dsa_sha2_128s, shake256 } = C;
@@ -114,6 +115,13 @@ try { finalizeTransaction({ ...IN.drafts.mldsa65, recipient: "register" }, keypa
 catch (e) { out.registerBuilt = false; out.registerErr = e.message; }
 const s48 = new Uint8Array(48).fill(5); slh_dsa_sha2_128s.keygen(s48);
 out.slhWipesSeed = s48.subarray(0, 32).every((b) => b === 0) && s48[47] === 5;   // SK.seed and SK.prf zeroed; PK.seed kept
+// the fee the wallet SHOWS and checks is the fee it signs (currentFeeRaw, read by Send's confirm and the fee label)
+{
+  const fee = (w) => new Function("state", "getRecommendedFee", "schemeFee", "schemeOf",
+    __CUR__ + "\nreturn currentFeeRaw;")({ wallet: w, recommendedFee: MIN_TX_FEE }, async () => MIN_TX_FEE, schemeFee,
+    (x) => (x && x.alg) || "mldsa44")();
+  out.feeShown = { slh: await fee({ alg: "slhdsa128s" }), ml44: await fee({}) };
+}
 out.child44 = accountChildSeed(IN.seed, 1);
 out.child65 = accountChildSeed(IN.seed, 1, "mldsa65");
 console.log(JSON.stringify(out));
@@ -158,6 +166,8 @@ if out:
     check("a node SLH-DSA signature verifies in the browser", out["nodeSigOk"] is True)
     check("the wallet refuses to build a register tx for an ML-DSA-65 account", out["registerBuilt"] is False and
           "ML-DSA-44" in out.get("registerErr", ""), out.get("registerErr"))
+    check("the fee Send shows and checks is the fee signed: 3 x MIN_TX_FEE for SLH-DSA, unchanged for ML-DSA-44",
+          out["feeShown"] == {"slh": 3 * P.MIN_TX_FEE, "ml44": P.MIN_TX_FEE}, out.get("feeShown"))
     check("noble's SLH-DSA keygen zeroes the secret part of the seed it is given (schemeKeygen must pass a copy)", out["slhWipesSeed"] is True)
     check("an ML-DSA-44 child account keeps the seed it always had",
           out["child44"] == blake2b_hash(["hd-account-v1", SEED, 1], size=32))

@@ -6076,9 +6076,12 @@ async function getRecommendedFee() {
     return Math.min(Math.max(Number.isFinite(f) ? Math.floor(f) : 0, MIN_TX_FEE), MAX_QUOTED_FEE);
   } catch (e) { return MIN_TX_FEE; }
 }
+// The fee the ACTIVE account's next paying tx will carry: the network fee lifted to its signature scheme's floor (an
+// SLH-DSA account pays 3 x MIN_TX_FEE). finalizeTransaction lifts it too; reading it here keeps the balance check, the
+// confirm dialog and the "Network fee" label true of the transaction actually signed (CLAUDE.md rule 6).
 async function currentFeeRaw() {
   if (state.recommendedFee == null) state.recommendedFee = await getRecommendedFee();
-  return state.recommendedFee;
+  return schemeFee(schemeOf(state.wallet), state.recommendedFee);
 }
 // Fill the read-only "Network fee: X NADO" labels on the Send + Stake tabs (no raw units shown).
 async function updateFeeInfo() {
