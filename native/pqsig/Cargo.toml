@@ -1,0 +1,19 @@
+[package]
+name = "nado_pqsig"
+version = "0.1.0"
+edition = "2021"
+description = "NADO user-selectable post-quantum signature schemes (ML-DSA-65/87, SLH-DSA-SHA2-128s, FN-DSA-512) over one C ABI"
+
+[lib]
+name = "nado_pqsig"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ml-dsa = "0.1"
+slh-dsa = "0.1"
+fn-dsa = "0.4"
+
+[profile.release]
+opt-level = 3
+# THIN LTO, as native/mldsa44: the fat-LTO link can OOM a small node's build.
+lto = "thin"

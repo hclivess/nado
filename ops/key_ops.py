@@ -42,7 +42,9 @@ def load_keys(file=f"{get_home()}/private/keys.dat"):
     try:
         from ops.address_ops import make_address
         if keydict.get("public_key"):
-            keydict["address"] = make_address(keydict["public_key"])
+            # a key of another signature scheme carries "alg", and its address commits to it (protocol.py
+            # "USER-SELECTABLE SIGNATURE SCHEMES") — re-derived under that scheme, never as an ML-DSA-44 key
+            keydict["address"] = make_address(keydict["public_key"], alg=keydict.get("alg"))
     except Exception:
         pass          # never make key loading fail on a derivation problem — fall back to the stored value
     # ACCOUNT AUTHENTICATION (doc/key-rotation.md): after a key rotation the node's signing key no longer

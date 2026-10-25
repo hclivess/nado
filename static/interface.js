@@ -148,6 +148,9 @@ const AUTO_BOND_MIN_RAW = BigInt(P.AUTO_BOND_MIN_RAW);  // protocol.py: dust flo
  * Dependency loading: @noble/hashes (blake2b) + @noble/post-quantum (ML-DSA-44) as ESM from a CDN.
  * -------------------------------------------------------------------------------------------- */
 let blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_kem768;
+// the other user-selectable signature schemes (doc/signature-schemes.md); undefined on a stale cached bundle, which
+// schemeLib() reports instead of signing with the wrong scheme
+let ml_dsa65, ml_dsa87, slh_dsa_sha2_128s, shake256;
 
 // Optional, locally-vendored QR generator (static/vendor/qrcode.js). Loaded best-effort: if it is
 // missing the Receive tab degrades to showing the address text instead of failing (NO runtime CDN).
@@ -164,6 +167,7 @@ async function loadDeps() {
     const m = await import('./vendor/nado-crypto.js');
     blake2b = m.blake2b; bytesToHex = m.bytesToHex; hexToBytes = m.hexToBytes; ml_dsa44 = m.ml_dsa44;
     ml_kem768 = m.ml_kem768;   // ML-KEM-768 for messaging E2E (may be undefined on a stale cached bundle)
+    ml_dsa65 = m.ml_dsa65; ml_dsa87 = m.ml_dsa87; slh_dsa_sha2_128s = m.slh_dsa_sha2_128s; shake256 = m.shake256;
     if (blake2b && ml_dsa44) return;
   } catch (e) { /* fall through to CDN */ }
   // 2) CDN fallback (esm.sh, then jsdelivr) only if the local bundle isn't served.
@@ -174,12 +178,15 @@ async function loadDeps() {
   let lastErr;
   for (const build of cdns) {
     try {
-      const [hb, hu, pq, pk] = await Promise.all([
+      const [hb, hu, pq, pk, slh, h3] = await Promise.all([
         import(build("@noble/hashes@1.4.0/blake2b")),
         import(build("@noble/hashes@1.4.0/utils")),
         import(build("@noble/post-quantum@0.2.0/ml-dsa")),
         import(build("@noble/post-quantum@0.2.0/ml-kem")),
+        import(build("@noble/post-quantum@0.2.0/slh-dsa")),
+        import(build("@noble/hashes@1.4.0/sha3")),
       ]);
+      ml_dsa65 = pq.ml_dsa65; ml_dsa87 = pq.ml_dsa87; slh_dsa_sha2_128s = slh.slh_dsa_sha2_128s; shake256 = h3.shake256;
       blake2b = hb.blake2b;
       bytesToHex = hu.bytesToHex;
       hexToBytes = hu.hexToBytes;
@@ -264,29 +271,87 @@ function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
 /* ----------------------------------------------------------------------------------------------
  * Addresses, keys, registration PoW
  * -------------------------------------------------------------------------------------------- */
-function makeAddress(pubHex, prefix = ADDR_PREFIX) {
+// `alg`: the key's signature scheme (absent / "mldsa44" = the address exactly as before). Any other scheme's address
+// commits to it — ops/address_ops.address_body_v2, byte for byte: [domain, alg, key] instead of [domain, key].
+function makeAddress(pubHex, prefix = ADDR_PREFIX, alg = undefined) {
+  const pk = String(pubHex).toLowerCase();
   const body = prefix + (prefix === ADDR_PREFIX
-    ? blake2bHash([DOMAIN_ADDRESS_V2, String(pubHex).toLowerCase()], ADDR_BODY / 2)
+    ? blake2bHash(alg && alg !== SIG_ML44 ? [DOMAIN_ADDRESS_V2, alg, pk] : [DOMAIN_ADDRESS_V2, pk], ADDR_BODY / 2)
     : pubHex.slice(0, ADDR_BODY));
   return body + blake2bHash(body, ADDR_CK);
 }
+
+/* ---- USER-SELECTABLE SIGNATURE SCHEMES (protocol.py; doc/signature-schemes.md) -------------------------------------
+ * An account signs with ML-DSA-44 unless it was created with another offered scheme. Every key is still ONE 32-byte
+ * seed, so the recovery phrase restores it; the scheme's expansion is native/pqsig/src/lib.rs's, mirrored here:
+ *   ML-DSA-65/87   the seed is FIPS 204's xi (as ML-DSA-44)
+ *   SLH-DSA-128s   (SK.seed, SK.prf, PK.seed) = SHAKE256("NADO/sig/slh-dsa-sha2-128s/keygen" || seed)[0..48]
+ * tests/test_every_signature_scheme_derives_one_key_in_every_stack.mjs pins the public keys against the node's.
+ * A key of another scheme carries `alg` on the keypair object; ML-DSA-44 keypairs carry none (as on the wire). */
+const SIG_ML44 = "mldsa44";
+const SIG_DST_SLH = "NADO/sig/slh-dsa-sha2-128s/keygen";
+const SIG_NAMES = { mldsa44: "ML-DSA-44", mldsa65: "ML-DSA-65", mldsa87: "ML-DSA-87", slhdsa128s: "SLH-DSA-128s" };
+function schemeLib(alg) {
+  const lib = (!alg || alg === SIG_ML44) ? ml_dsa44 : ({ mldsa65: ml_dsa65, mldsa87: ml_dsa87, slhdsa128s: slh_dsa_sha2_128s })[alg];
+  if (!lib || (alg === "slhdsa128s" && !shake256)) throw new Error(i18("sig.noLib", "This page cannot sign with {s} — reload it.", { s: SIG_NAMES[alg] || alg }));
+  return lib;
+}
+function schemeKeygen(alg, seed) {
+  const lib = schemeLib(alg);
+  if (alg === "slhdsa128s") {
+    const dst = _enc.encode(SIG_DST_SLH), buf = new Uint8Array(dst.length + seed.length);
+    buf.set(dst); buf.set(seed, dst.length);
+    // .slice(): noble's SLH-DSA keygen ZEROES the secret part (SK.seed, SK.prf) of the buffer it is given — a reused
+    // buffer would derive another key the next time (found by the interop test, 2026-10-25; pinned there)
+    return lib.keygen(shake256(buf, { dkLen: 48 }).slice());
+  }
+  return lib.keygen(seed);
+}
+// hedged: ML-DSA's own randomness; SLH-DSA's opt_rand is 16 fresh bytes (FIPS 205 hedged variant)
+function schemeSign(alg, secretKey, m) {
+  const lib = schemeLib(alg);
+  return alg === "slhdsa128s" ? lib.sign(secretKey, m, crypto.getRandomValues(new Uint8Array(16))) : lib.sign(secretKey, m);
+}
+function schemeVerify(alg, publicKey, m, sig) { return schemeLib(alg).verify(publicKey, m, sig); }
+// offered from SIG_SCHEMES_HEIGHT (a BigInt in /protocol.js while dormant: 2^62 > 2^53)
+function schemesLive() {
+  try { return BigInt(P.SIG_SCHEMES_HEIGHT || 0) > 0n && BigInt(Number(state.latest) || 0) + 1n >= BigInt(P.SIG_SCHEMES_HEIGHT); }
+  catch (e) { return false; }
+}
+function schemeOf(w) { return (w && w.alg) || SIG_ML44; }
+// the fee floor a PAYING tx of this scheme must meet (protocol SIG_SCHEME_SIZES[alg][2] x MIN_TX_FEE); exempt stays 0
+function schemeFee(alg, fee) {
+  const units = ((P.SIG_SCHEME_SIZES || {})[alg || SIG_ML44] || [0, 0, 1])[2];
+  return fee ? Math.max(Number(fee), MIN_TX_FEE * units) : fee;
+}
+// Surfaces the chain verifies with ML-DSA-44 only (protocol SIG_ML44_ONLY_RECIPIENTS: mining and its stake, messaging,
+// auth configs, legacy claims — and multisig membership, forum sign-in): an account of another scheme is told so instead
+// of signing something no node will accept.
+function ml44Only(w, what) {
+  if (schemeOf(w) === SIG_ML44) return false;
+  log("warn", i18("sig.ml44Only", "{what} needs an ML-DSA-44 account — this one signs with {s}. Switch to your Main account for it.",
+    { what, s: SIG_NAMES[schemeOf(w)] || schemeOf(w) }));
+  return true;
+}
 function legacyAddress(pubHex) { const body = ADDR_PREFIX + pubHex.slice(0, ADDR_BODY); return body + blake2bHash(body, 2); }
 
-function newKeypair() {
-  // The private key is a 32-byte ML-DSA-44 SEED; the 1312-byte public key derives from it.
-  const seed = crypto.getRandomValues(new Uint8Array(32));
-  const { publicKey } = ml_dsa44.keygen(seed);
-  const seedHex = bytesToHex(seed);
-  const pubHex = bytesToHex(publicKey);
-  return { privateKey: seedHex, publicKey: pubHex, address: makeAddress(pubHex) };
+function newKeypair(alg = undefined) {
+  // The private key is a 32-byte SEED; the public key derives from it (ML-DSA-44 unless `alg` names another scheme).
+  return keypairFromPriv(bytesToHex(crypto.getRandomValues(new Uint8Array(32))), alg);
 }
 
-function keypairFromPriv(privHex) {
+// `alg` DEFAULTS TO ML-DSA-44 ON PURPOSE: auth signer children, recovery keys, invite keys and the self-test call this
+// for keys the chain verifies as ML-DSA-44 only. A wallet account of another scheme passes its own (accountKeypair,
+// the persisted master's `alg`).
+function keypairFromPriv(privHex, alg = undefined) {
   privHex = (privHex || "").trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(privHex)) throw new Error("private key (seed) must be 64 hex chars (32 bytes)");
-  const { publicKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  const a = alg && alg !== SIG_ML44 ? alg : undefined;
+  const { publicKey } = schemeKeygen(a, hexToBytes(privHex));
   const pubHex = bytesToHex(publicKey);
-  return { privateKey: privHex, publicKey: pubHex, address: makeAddress(pubHex) };
+  const kp = { privateKey: privHex, publicKey: pubHex, address: makeAddress(pubHex, ADDR_PREFIX, a) };
+  if (a) kp.alg = a;
+  return kp;
 }
 
 // ---- HD ACCOUNTS: multiple addresses from ONE master seed / recovery phrase -----------------------
@@ -298,9 +363,27 @@ function keypairFromPriv(privHex) {
 // same child addresses for recovery.
 const LS_HD_COUNT = "nado_hd_accounts";     // how many DERIVED accounts (beyond Main) the user has added
 function hdCount() { return Math.max(0, parseInt(localStorage.getItem(LS_HD_COUNT) || "0", 10) || 0); }
-function accountChildSeed(masterHex, index) { return blake2bHash([DOMAIN_HD_ACCOUNT, masterHex, index], 32); }
+// A DERIVED ACCOUNT MAY SIGN WITH ANOTHER SCHEME (doc/signature-schemes.md): the scheme is chosen when the account is
+// added and kept per index in LS_HD_ALGS (absent = ML-DSA-44; Main, the mining identity, is always ML-DSA-44). Its seed
+// is domain-separated by the scheme — [domain, master, index, alg] — so no seed ever serves two schemes, and an
+// ML-DSA-44 child keeps exactly the seed it always had. The key file carries the map (downloadKeyFile hd_algs).
+const LS_HD_ALGS = "nado_hd_algs";
+function hdAlgs() {
+  try { const v = JSON.parse(localStorage.getItem(LS_HD_ALGS) || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  catch (e) { return {}; }
+}
+function hdAlg(index) { const a = index > 0 ? hdAlgs()[String(index)] : undefined; return SIG_NAMES[a] && a !== SIG_ML44 ? a : undefined; }
+function setHdAlg(index, alg) {
+  const m = hdAlgs();
+  if (alg && alg !== SIG_ML44) m[String(index)] = alg; else delete m[String(index)];
+  try { localStorage.setItem(LS_HD_ALGS, JSON.stringify(m)); } catch (e) {}
+}
+function accountChildSeed(masterHex, index, alg = undefined) {
+  return blake2bHash(alg && alg !== SIG_ML44 ? [DOMAIN_HD_ACCOUNT, masterHex, index, alg] : [DOMAIN_HD_ACCOUNT, masterHex, index], 32);
+}
 function accountKeypair(masterHex, index) {
-  return keypairFromPriv(index === 0 ? masterHex : accountChildSeed(masterHex, index));
+  const alg = hdAlg(index);
+  return keypairFromPriv(index === 0 ? masterHex : accountChildSeed(masterHex, index, alg), alg);
 }
 function masterSeedOf() { return state.masterSeed || (state.wallet && state.wallet.privateKey) || null; }
 // ---- SHADOW ACCOUNTS: one private account per dApp, unlinkable to this wallet (2026-10-18) ------------------------
@@ -330,7 +413,11 @@ function shadowKeypair(origin) {
 function signerFor(origin) { return (shadowOn(origin) && shadowKeypair(origin)) || state.wallet; }
 // every origin whose shadow account may hold value (private ones now, plus the official games, for a restore)
 function shadowCandidateOrigins() { return [...new Set([...shadowOrigins(), ...EXEC_SIGN_ALLOW])]; }
-function accountLabel(i) { return i === 0 ? i18("acct.main", "Main") : i18("acct.n", "Account {n}", { n: i + 1 }); }
+function accountLabel(i) {
+  const base = i === 0 ? i18("acct.main", "Main") : i18("acct.n", "Account {n}", { n: i + 1 });
+  const a = hdAlg(i);
+  return a ? base + " · " + SIG_NAMES[a] : base;
+}
 // Keep the HD layer consistent with state.wallet. A wallet (re)loaded by unlock/import/boot is ALWAYS the
 // master on account 0 — its address won't match our expected active-account address — so re-anchor to it.
 function hdSync() {
@@ -364,9 +451,26 @@ function switchAccount(i) {
   if (resume) startMining();
   else if (!state.pollTimer) startPollLoop();            // else at least keep the dashboard live
 }
-function addAccount() {
+async function addAccount() {
   const n = hdCount() + 1;
+  let alg;
+  if (schemesLive()) {
+    // ONE CHOICE, DEFAULT FIRST: most people never need another scheme; the picker says what each one costs
+    const offered = (P.SIG_SCHEMES_OFFERED || [SIG_ML44]).filter((a) => SIG_NAMES[a]);
+    const units = (a) => ((P.SIG_SCHEME_SIZES || {})[a] || [0, 0, 1])[2];
+    alg = await uiChoose({
+      title: i18("sig.pickTitle", "Signature scheme for the new account"),
+      body: i18("sig.pickBody", "Every scheme here is post-quantum. The scheme is part of the account's address and cannot be changed later. To restore this account from your recovery phrase, add it again with the same scheme."),
+      choices: offered.map((a) => ({ value: a, label: SIG_NAMES[a],
+        note: a === SIG_ML44 ? i18("sig.note44", "Default. Smallest signatures, works everywhere in the wallet.")
+          : a === "slhdsa128s" ? i18("sig.noteSlh", "Hash-based: safe even if lattice schemes are broken. Large signatures — fees x{n}.", { n: units(a) })
+          : i18("sig.noteMl", "Higher security level than ML-DSA-44. Fees x{n}.", { n: units(a) }) })),
+      confirmText: i18("acct.add", "+ Add"),
+    });
+    if (alg == null) return;
+  }
   localStorage.setItem(LS_HD_COUNT, String(n));
+  setHdAlg(n, alg);
   switchAccount(n);
 }
 function renderAccountBar() {
@@ -621,19 +725,28 @@ function createTxid(body) {
   return blake2bHash(preimage);
 }
 
-function finalizeTransaction(draft, privHex, fee) {
-  const body = { ...draft, fee }; // fee is part of the signed body (matches create_transaction)
+// `key`: the signing keypair (its `alg` names a scheme other than ML-DSA-44), or a bare seed hex = ML-DSA-44. A tx of
+// another scheme names it in `alg` and a PAYING fee is lifted to that scheme's floor — both ride in the txid, so they
+// are set first (ops/transaction_ops._seal, the same rule). A kind the chain verifies with ML-DSA-44 only is refused
+// here rather than signed into a transaction no node accepts.
+function finalizeTransaction(draft, key, fee) {
+  const privHex = typeof key === "string" ? key : key.privateKey;
+  const alg = typeof key === "string" ? undefined : key.alg;
+  if (alg && (P.SIG_ML44_ONLY_RECIPIENTS || []).includes(draft.recipient))
+    throw new Error(i18("sig.ml44Only", "{what} needs an ML-DSA-44 account — this one signs with {s}. Switch to your Main account for it.",
+      { what: draft.recipient, s: SIG_NAMES[alg] || alg }));
+  const body = alg ? { ...draft, alg, fee: schemeFee(alg, fee) } : { ...draft, fee }; // fee is part of the signed body
   const txid = createTxid(body);  // public_key (if present in body) is excluded from this hash
-  // Derive the ML-DSA-44 secret key from the 32-byte seed, then sign the message bytes M = unhex(txid).
-  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  // Derive the secret key from the 32-byte seed, then sign the message bytes M = unhex(txid).
+  const { publicKey, secretKey } = schemeKeygen(alg, hexToBytes(privHex));
   const m = hexToBytes(txid);
   // ML-DSA-44 signing is HEDGED (randomized). A rare bad hedge yields a signature that does NOT verify —
   // the node then rejects the tx with "Invalid signature" (seen intermittently on auto-bond). Verify our own
   // signature locally and re-sign until it checks out, so we never submit a non-verifying signature.
   let signature = null;
   for (let i = 0; i < 8; i++) {
-    const sig = ml_dsa44.sign(secretKey, m);
-    if (ml_dsa44.verify(publicKey, m, sig)) { signature = bytesToHex(sig); break; }
+    const sig = schemeSign(alg, secretKey, m);
+    if (schemeVerify(alg, publicKey, m, sig)) { signature = bytesToHex(sig); break; }
   }
   if (!signature) throw new Error("could not produce a verifying signature — please retry");
   return { ...body, txid, signature };
@@ -659,7 +772,7 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp, device) {
   };
   if (posw) draft.posw = posw;         // retired at gen 25 (ignored by validation); never sent by this wallet
   if (device) draft.device = device;   // the registration proof: hardware attestation over the anchor-bound challenge   // {att, cdj, rp}: hardware attestation over the anchor-bound challenge (doc/device-attestation.md)
-  return finalizeTransaction(draft, wallet.privateKey, 0);
+  return finalizeTransaction(draft, wallet, 0);
 }
 
 // ON-CHAIN messaging key (fee-exempt identity tx): binds the sender's ML-KEM-768 pubkey to their account so
@@ -679,7 +792,7 @@ function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp, fee = 0) {
     chain_id: CHAIN_ID,
     kem_pub: kemPubHex,
   };
-  return finalizeTransaction(draft, wallet.privateKey, fee);
+  return finalizeTransaction(draft, wallet, fee);
 }
 
 // The sequential proof hashes POSW_T (1,000,000) times in a chain. Route that through the WASM blake2b —
@@ -1560,7 +1673,7 @@ function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, t
   // node ignores it for exact-landing reserved recipients. See TX_INCLUSION_DELAY.
   if (minBlock) draft.min_block = minBlock;
   if (includePubkey) draft.public_key = wallet.publicKey;
-  return finalizeTransaction(draft, wallet.privateKey, fee);
+  return finalizeTransaction(draft, wallet, fee);
 }
 
 // PUBKEY-ONCE (#19): is the sender's pubkey already recorded on-chain? The node stores it on an
@@ -1914,7 +2027,7 @@ function buildBlobTx(wallet, payload, targetBlock, fee, timestamp, minBlock) {
   const draft = { sender: wallet.address, recipient: "blob", amount: 0, timestamp, data: payload,
     nonce: randNonce(), public_key: wallet.publicKey, max_block: targetBlock, chain_id: CHAIN_ID };
   if (minBlock) draft.min_block = minBlock;   // earliest-inclusion (propagation delay) — see TX_INCLUSION_DELAY
-  return finalizeTransaction(draft, wallet.privateKey, fee);
+  return finalizeTransaction(draft, wallet, fee);
 }
 // ML-DSA-44 signing is HEDGED (randomized): a rare signature verifies locally yet is rejected by the node /
 // peers as "Invalid signature" (the JS and native verifiers disagree on a boundary case). Each rebuild
@@ -1947,7 +2060,7 @@ function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock
   // flexibly-landing: min_block is the propagation guard (fork seed h66894 — a claim included by its own
   // node before gossip delivered it). minBlock optional for compatibility with existing callers.
   if (minBlock) draft.min_block = minBlock;
-  return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
+  return finalizeTransaction(draft, wallet, 0);   // fee-exempt
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -1978,7 +2091,7 @@ function buildWithdrawUnbondTx(wallet, amount, releaseBlock, targetBlock, timest
     data: { amount: BigInt(amount), release_block: Number(releaseBlock) },
     nonce: randNonce(), max_block: targetBlock, chain_id: CHAIN_ID };
   if (includePubkey) draft.public_key = wallet.publicKey;
-  return finalizeTransaction(draft, wallet.privateKey, 0);
+  return finalizeTransaction(draft, wallet, 0);
 }
 
 async function claimMaturedUnbond(pending, auto) {
@@ -2224,7 +2337,7 @@ function buildBridgeClaimTx(wallet, addr, amount, nonce, proof, targetBlock, tim
     data: { addr, amount: BigInt(amount), nonce: String(nonce), proof }, nonce: randNonce(), public_key: wallet.publicKey,
     max_block: targetBlock, chain_id: CHAIN_ID };
   if (minBlock) draft.min_block = minBlock;
-  return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
+  return finalizeTransaction(draft, wallet, 0);   // fee-exempt
 }
 
 /** this address's unclaimed cash-outs from the exec node, or null (unreachable / an exec node without the route) */
@@ -3210,6 +3323,10 @@ function authPop(sender, cfg, privHex) {
   return mldsaSignHex(privHex, hexToBytes(blake2bHash(["auth-pop-v1", CHAIN_ID, sender, cfg]))).signature;
 }
 function authBuildTx(sender, signerPrivs, data, tipHeight) {
+  // an auth config's keys are ML-DSA-44 (ops/auth_ops), and so is the account it configures
+  if (state.wallet && state.wallet.address === sender && schemeOf(state.wallet) !== SIG_ML44)
+    throw new Error(i18("sig.ml44Only", "{what} needs an ML-DSA-44 account — this one signs with {s}. Switch to your Main account for it.",
+      { what: i18("sig.whatAuth", "Key rotation"), s: SIG_NAMES[schemeOf(state.wallet)] }));
   const body = { sender, recipient: "auth", amount: 0, timestamp: nowSeconds(), data, nonce: randNonce(),
                  max_block: tipHeight + 40, chain_id: CHAIN_ID, fee: AUTH_FEE_PER_ENTRY * Math.max(1, signerPrivs.length),
                  min_block: guardFrom(tipHeight) };
@@ -4357,6 +4474,8 @@ if (typeof document !== "undefined") {
 async function startMining() {
   if (!state.wallet) return;
   if (state.starting || state.mining) return;   // idempotency guard: a start is already in flight
+  // a validator identity signs blocks and attestations with ML-DSA-44 (protocol SIG_ML44_ONLY_RECIPIENTS)
+  if (ml44Only(state.wallet, i18("sig.whatMining", "Mining"))) return;
   // gen 25: Start does NOT arm an attestation prompt — only the explicit Register / Renew / hardware buttons do
   // (user 2026-09-07: "the attestation window should only pop up after one clicks register").
   state.mining = true;
@@ -4836,7 +4955,7 @@ function buildLegacyClaimTx(wallet, legacy, amount, targetBlock, timestamp) {
     data: { legacy, amount }, nonce: randNonce(), public_key: wallet.publicKey,
     max_block: targetBlock, chain_id: CHAIN_ID,
   };
-  return finalizeTransaction(draft, wallet.privateKey, 0);
+  return finalizeTransaction(draft, wallet, 0);
 }
 async function claimLegacy(acc) {
   const w = state.wallet;
@@ -5051,6 +5170,7 @@ async function resumePendingForumLogin() {
     uiAlert(i18("forum.badOrigin", "Ignored a sign-in request for an unrecognised site.") + " (" + req.forum + ")");
     return;
   }
+  if (ml44Only(state.wallet, i18("sig.whatForum", "Forum sign-in"))) return;   // forum/server.py verifies ML-DSA-44
   const okc = await uiConfirm({
     title: i18("forum.title", "Sign in to NADO Forum"),
     body: i18("forum.body", "Prove you own this wallet to sign in to {f} as {a}. This cannot move funds.",
@@ -5242,7 +5362,7 @@ async function resumePendingExecSign() {
         const draft = { sender: signer.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
           data: "", nonce: randNonce(), public_key: signer.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
           min_block: guardFrom(latest.block_number), chain_id: CHAIN_ID };
-        return finalizeTransaction(draft, signer.privateKey, MIN_TX_FEE);
+        return finalizeTransaction(draft, signer, MIN_TX_FEE);
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + signer.address
                                        : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
@@ -5748,6 +5868,10 @@ async function downloadKeyFile() {
     mnemonic,                             // the SAME secret as 24 words — what users are told to keep
     public_key: w.publicKey,
     address: w.address,
+    // the derived accounts and the scheme of each that does not sign with ML-DSA-44 (LS_HD_ALGS): the phrase alone
+    // re-derives every key, but only this map knows which scheme an index was added with
+    hd_accounts: hdCount(),
+    hd_algs: hdAlgs(),
     note: mnemonic
       ? "NADO ML-DSA-44 key — keep secret, no recovery. `mnemonic` and `private_key` are the SAME secret "
         + "in two encodings; either one alone restores this wallet and every account derived from it."
@@ -5923,6 +6047,10 @@ function importKeyFile(file) {
         if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
         const kp = keypairFromPriv(String(priv).trim());
         if (!(await clearToReplaceWith(kp))) return;      // REPLACE GUARD — see confirmReplaceWallet
+        // a key file written with derived accounts brings them back, each with the scheme it was added with
+        if (obj && Number.isInteger(obj.hd_accounts) && obj.hd_accounts > hdCount()) localStorage.setItem(LS_HD_COUNT, String(obj.hd_accounts));
+        if (obj && obj.hd_algs && typeof obj.hd_algs === "object")
+          for (const [i, a] of Object.entries(obj.hd_algs)) if (/^[1-9][0-9]*$/.test(i) && SIG_NAMES[a]) setHdAlg(Number(i), a);
         adoptWallet(kp, { needsSavePrompt: false });
         show("importBox", false);
         log("info", i18("log.keyImported", "Imported key from file."));
@@ -7342,6 +7470,32 @@ function _openModal(spec) {
 let _modalCheckEl = null;
 function modalCheckValue() { return !!(_modalCheckEl && _modalCheckEl.checked); }
 function uiConfirm(spec) { return _openModal(Object.assign({}, spec, { kind: "confirm" })); }
+// One choice from a short list (spec.choices = [{value, label, note}]): resolves the chosen value, or null on Cancel.
+// Built on the confirm modal — the list is radio rows in its body slot, the first one preselected (the default).
+async function uiChoose(spec) {
+  const list = document.createElement("div");
+  list.className = "modal-choices";
+  list.style.cssText = "display:flex;flex-direction:column;gap:8px;margin:10px 0 0";
+  const name = "choice" + Date.now();
+  (spec.choices || []).forEach((c, i) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:13px";
+    const r = document.createElement("input");
+    r.type = "radio"; r.name = name; r.value = c.value; r.checked = i === 0;
+    const t = document.createElement("span");
+    const b = document.createElement("b"); b.textContent = c.label;
+    t.appendChild(b);
+    if (c.note) { const n = document.createElement("div"); n.className = "small faint"; n.textContent = c.note; t.appendChild(n); }
+    row.appendChild(r); row.appendChild(t); list.appendChild(row);
+  });
+  const done = _openModal(Object.assign({}, spec, { kind: "confirm", choices: undefined }));
+  const rows = _modalEl && _modalEl.querySelector(".modal-rows");
+  if (rows) { rows.innerHTML = ""; rows.appendChild(list); rows.classList.remove("hidden"); }
+  const ok = await done;
+  if (!ok) return null;
+  const sel = list.querySelector("input:checked");
+  return sel ? sel.value : null;
+}
 function uiAlert(body, title) { return _openModal({ kind: "alert", title: title || i18("dlg.notice", "Notice"), body: body, confirmText: i18("dlg.ok", "OK") }); }
 function uiPrompt(spec) { return _openModal(Object.assign({}, spec, { kind: "prompt" })); }
 
@@ -9714,6 +9868,7 @@ function msigCheckProposal(tx) {
 function msigTrySignLocal(tx) {
   const w = state.wallet;
   if (!w || !tx.multisig.members.includes(w.address)) return false;
+  if (schemeOf(w) !== SIG_ML44) return false;      // multisig members sign with ML-DSA-44 (ops/multisig_ops)
   if (tx.signature.some((e) => e && makeAddress(String(e.public_key || "")) === w.address)) return false;
   const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(w.privateKey));
   const m = hexToBytes(tx.txid);
@@ -9918,6 +10073,8 @@ function _lastTs(conv) { return conv.messages.length ? conv.messages[conv.messag
 
 function msgIdentity() {
   if (!MSG || !state.wallet || !state.wallet.privateKey) return null;
+  // the messaging key binds to the account through an ML-DSA-44 signature (msgkey, nado.py key_authorized)
+  if (schemeOf(state.wallet) !== SIG_ML44) return null;
   if (!state._msgId || state._msgId.addr !== state.wallet.address) {
     state._msgId = { addr: state.wallet.address, id: MSG.identity(state.wallet.privateKey) };  // per-account
   }
@@ -9977,6 +10134,7 @@ async function msgOpen() {
 }
 
 async function msgSend() {
+  if (ml44Only(state.wallet, i18("sig.whatMsg", "Messaging"))) return;
   const m = await loadMessaging(); if (!m) return;
   const toRaw = ($("msgTo").value || "").trim().toLowerCase();
   const body = ($("msgBody").value || "").trim();
@@ -10179,7 +10337,7 @@ async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expi
     data,
     nonce: randNonce(), public_key: state.wallet.publicKey,
     max_block: latest.block_number + 8, chain_id: CHAIN_ID };
-  return submitTransaction(finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE));
+  return submitTransaction(finalizeTransaction(draft, state.wallet, MIN_TX_FEE));
 }
 async function proposeSpend() {
   const msg = $("qPropMsg");

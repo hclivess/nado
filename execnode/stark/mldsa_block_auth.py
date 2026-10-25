@@ -43,6 +43,10 @@ from execnode.stark import alghash, field as F
 AUTH_DOMAIN = "nado-auth-v1"          # domain separator; a reroll-time constant
 KIND_SINGLE_MLDSA44 = 1               # one ML-DSA-44 signature by the sender's own key
 KIND_MULTISIG_MLDSA44 = 2             # a descriptor account: M member signatures over the same txid
+# ONE SIGNATURE BY THE SENDER'S OWN KEY IN ANOTHER SCHEME (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES"): the leaf
+# declares which, so a validity proof can never be checked as the wrong scheme's. A tx without `alg` keeps kind 1, so no
+# existing leaf, root or block hash moves. INVARIANT: never reuse a kind number — the leaf is in the block-hash preimage.
+KIND_SINGLE_BY_ALG = {"mldsa65": 3, "mldsa87": 4, "slhdsa128s": 5, "fndsa512": 6}
 AUTH_VERSION = 1
 
 
@@ -83,6 +87,8 @@ def auth_entries(block):
             # commit K checks and require more, which is the whole thing auth_count exists to pin.
             sigs = tx.get("signature")
             kind, n = KIND_MULTISIG_MLDSA44, (len(sigs) if isinstance(sigs, list) else 0)
+        elif tx.get("alg"):
+            kind, n = KIND_SINGLE_BY_ALG[tx["alg"]], 1          # admission refused any other alg (sig_scheme_check)
         else:
             kind, n = KIND_SINGLE_MLDSA44, 1
         # tx_pubkey is the key the TRANSACTION carries, if any. It is NOT in the leaf — the leaf must stay a
@@ -91,8 +97,11 @@ def auth_entries(block):
         # has to resolve keys exactly the way validate_origin does: the tx's own key when present, the
         # on-chain key otherwise. Using only the on-chain key would fail every FIRST transaction from an
         # address, which is precisely the case where there is nothing on chain yet.
-        out.append({"height": h, "index": idx, "txid": tx.get("txid", ""), "sender": sender,
-                    "kind": kind, "sig_count": n, "tx_pubkey": tx.get("public_key") or None})
+        e = {"height": h, "index": idx, "txid": tx.get("txid", ""), "sender": sender,
+             "kind": kind, "sig_count": n, "tx_pubkey": tx.get("public_key") or None}
+        if tx.get("alg"):
+            e["alg"] = tx["alg"]          # only when present: an untagged entry keeps its exact shape
+        out.append(e)
     return out
 
 
@@ -207,7 +216,9 @@ def evidence_ok(evidence, block, resolve_pubkey=None, verify_sig=None, verify_pr
             # The KEY comes from the verifier's own PUBKEY-ONCE resolution, never from the leaf and never
             # from the envelope — an envelope that could name its own key would verify against itself.
             pk = entry_pubkey(e, resolve_pubkey)
-            if not verify_sig(sig, pk, e["txid"]):
+            # verified under the tx's OWN scheme, as validate_origin does; an untagged entry calls exactly as before
+            ok = verify_sig(sig, pk, e["txid"], e["alg"]) if e.get("alg") else verify_sig(sig, pk, e["txid"])
+            if not ok:
                 return False, f"signature {e['index']} invalid"
         return True, f"raw evidence ok ({len(wits)} signatures)"
     if verify_proof is None:

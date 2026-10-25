@@ -44,6 +44,8 @@ const env = {
   EXEC_SIGN_ALLOW: ["https://chess.nadochain.com", "https://dice.nadochain.com"],
 };
 const body = [constSrc("DOMAIN_HD_SHADOW"), constSrc("LS_SHADOW"), constSrc("DOMAIN_HD_ACCOUNT"), fnSrc("masterSeedOf"),
+  // accountKeypair reads each derived account's signature scheme (doc/signature-schemes.md)
+  constSrc("SIG_ML44"), constSrc("SIG_NAMES"), constSrc("LS_HD_ALGS"), fnSrc("hdAlgs"), fnSrc("hdAlg"),
   fnSrc("accountChildSeed"), fnSrc("accountKeypair"), fnSrc("shadowOrigins"), fnSrc("shadowOn"), fnSrc("setShadowOn"),
   fnSrc("shadowKeypair"), fnSrc("signerFor"), fnSrc("shadowCandidateOrigins"),
   "return { shadowKeypair, signerFor, setShadowOn, shadowOn, accountKeypair, shadowCandidateOrigins };"].join("\n");

@@ -1267,8 +1267,8 @@ def check_block_auth_evidence(block):
     return _auth.evidence_ok(
         ev, block,
         resolve_pubkey=resolve_sender_pubkey,
-        verify_sig=lambda sig, pk, txid: bool(pk) and bool(
-            _verify_message(signed=sig, public_key=pk, message=_unhex(txid))),
+        verify_sig=lambda sig, pk, txid, alg=None: bool(pk) and bool(
+            _verify_message(signed=sig, public_key=pk, message=_unhex(txid), alg=alg)),
         verify_proof=verify_auth_proof)
 
 

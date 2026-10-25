@@ -52,7 +52,10 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 # reported in /status native, but NEVER required — no refusal to start, no purge on a failed build, not part of
 # native.ok. The class exists for a crate that must reach the fleet BEFORE its gate is set (native/stwo_js was one until
 # STWO_POOL_HEIGHT). INVARIANT: an optional crate's failure must never stop an update or a node — it is not needed yet.
-_OPTIONAL_CRATES = ()
+# native/pqsig (the user-selectable signature schemes, doc/signature-schemes.md) is OPTIONAL while SIG_SCHEMES_HEIGHT is
+# dormant (2^62 on gen 28): every node builds it on this update, nothing needs it yet. The reroll that sets the gate to 1
+# moves it to _CRATES in the same commit — from then on a node without it would refuse a valid tagged transaction.
+_OPTIONAL_CRATES = ("native/pqsig",)
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that

@@ -80,10 +80,12 @@ def main():
     jd = json.loads(js_on)
     check("/protocol.json carries the same names, in order", list(jd) == names)
     # an integer above 2^53 - 1 travels as a decimal string in the JSON (STWO_POOL_HEIGHT was 2^62 while dormant)
+    # recursive, as `want` above: SIG_SCHEME_SIZES is a dict of tuples (the first nested export, 2026-10-25)
     jwant = lambda v: (str(v) if isinstance(v, int) and not isinstance(v, bool) and abs(v) > cp.MAX_SAFE_INTEGER
-                       else list(v) if isinstance(v, tuple) else v)
+                       else [jwant(x) for x in v] if isinstance(v, (list, tuple))
+                       else {k: jwant(x) for k, x in v.items()} if isinstance(v, dict) else v)
     check("/protocol.json carries the same values", all(jd[n] == jwant(getattr(protocol, n)) for n in names),
-          [n for n in names if jd[n] != jwant(getattr(protocol, n))])
+          str([n for n in names if jd[n] != jwant(getattr(protocol, n))]))
     # the documented BigInt rule and the float refusal, on synthetic values
     check("an integer above 2^53 - 1 renders as a BigInt literal in JS", cp._js(2 ** 60) == "1152921504606846976n")
     check("an integer above 2^53 - 1 renders as a decimal string in JSON", cp._jsonable(2 ** 60) == "1152921504606846976")

@@ -83,13 +83,16 @@ const nc = await import(%(crypto)s);
 const js = readFileSync(%(iface)s, "utf8");
 const cut = (a, b) => { const i = js.indexOf(a), j = js.indexOf(b, i + 1); if (i < 0 || j < 0) throw new Error("slice not found: " + a); return js.slice(i, j); };
 const src = cut("function jsonEscapeAscii(", "function blake2bHashLink(")
+  // finalizeTransaction signs through the scheme layer (doc/signature-schemes.md); an ML-DSA-44 wallet takes its default
+  + cut("/* ---- USER-SELECTABLE SIGNATURE SCHEMES", "function ml44Only(")
   + cut("function randNonce(", "// REGISTER is by definition")
   + cut("/* ==== CASH-OUT CLAIM", "/* ==== end CASH-OUT CLAIM ==== */");
 let raw = ""; process.stdin.on("data", (c) => raw += c); process.stdin.on("end", () => {
   const req = JSON.parse(raw);
   const w = new Function("env", `with (env) { ${src}\n return { buildBridgeClaimTx, canonicalize }; }`)({
     blake2b: nc.blake2b, bytesToHex: nc.bytesToHex, hexToBytes: nc.hexToBytes, ml_dsa44: nc.ml_dsa44, TextEncoder,
-    crypto: webcrypto, CHAIN_ID: req.chain_id, TX_INCLUSION_DELAY: 8 });
+    crypto: webcrypto, CHAIN_ID: req.chain_id, TX_INCLUSION_DELAY: 8, P: {}, MIN_TX_FEE: 1000, i18: (k, d) => d,
+    _enc: new TextEncoder() });
   const c = req.claim;
   const tx = w.buildBridgeClaimTx(c.wallet, c.addr, c.amount, c.nonce, c.proof, c.target, c.ts, c.min_block);
   process.stdout.write(w.canonicalize(tx));

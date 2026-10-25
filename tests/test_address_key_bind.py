@@ -71,7 +71,7 @@ def format1():
     swapped for format 1's slice, and each check also shows that under the real format the forgery is dead."""
     from ops import address_ops as _AO
     saved = (_AO.address_body_v2, P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH)
-    _AO.address_body_v2 = lambda public_key, address_length=None: public_key[:address_length or P.ADDRESS_BODY]
+    _AO.address_body_v2 = lambda public_key, address_length=None, alg=None: public_key[:address_length or P.ADDRESS_BODY]
     P.ADDRESS_CHECKSUM, P.ADDRESS_LENGTH = 2, len(P.ADDRESS_PREFIX) + P.ADDRESS_BODY + 4
     try:
         yield

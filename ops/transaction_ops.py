@@ -56,6 +56,22 @@ def get_transaction(txid, logger):
         return None
 
 
+def _seal(tx, keydict):
+    """Finish a built transaction for `keydict`: name its signature scheme, lift a PAYING fee to that scheme's floor,
+    then hash and sign (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES"). An ML-DSA-44 keydict (no "alg") gets exactly
+    the transaction it always got — no `alg`, the fee as built. `alg` and the fee ride in the txid, so both are set
+    first. INVARIANT: every builder that signs with a user's keydict ends here, or an account of another scheme gets an
+    untagged transaction its address cannot verify."""
+    alg = keydict.get("alg")
+    if alg and alg != _P.SIG_DEFAULT:
+        tx["alg"] = alg
+        if tx.get("fee"):
+            tx["fee"] = max(int(tx["fee"]), MIN_TX_FEE * _P.SIG_SCHEME_SIZES[alg][2])
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]), alg=alg)
+    return tx
+
+
 def construct_attestation_tx(keydict, target_epoch, target_hash, max_block):
     """Build a SIGNED FFG attestation tx (#6) from a bonded validator's keydict: attests checkpoint
     (target_epoch, target_hash). Fee-exempt, zero-amount; pubkey-once carries public_key (the node
@@ -65,8 +81,7 @@ def construct_attestation_tx(keydict, target_epoch, target_hash, max_block):
           "data": {"target_epoch": int(target_epoch), "target_hash": target_hash},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -148,8 +163,7 @@ def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None,
           "public_key": keydict["public_key"]}
     if min_block and int(min_block) > 0:
         tx["min_block"] = int(min_block)   # inside the signed body: create_txid below binds it
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -171,8 +185,7 @@ def construct_tpm_tx(keydict, recipient, data, max_block, min_block=0):
           "public_key": keydict["public_key"]}
     if min_block and int(min_block) > 0:
         tx["min_block"] = int(min_block)
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -185,8 +198,7 @@ def construct_slash_tx(keydict, proof, max_block):
           "timestamp": get_timestamp_seconds(), "data": proof, "nonce": create_nonce(),
           "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0,
           "public_key": keydict["public_key"]}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -299,8 +311,7 @@ def construct_bond_tx(keydict, amount, fee, max_block):
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -312,8 +323,7 @@ def construct_unbond_tx(keydict, amount, max_block):
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -335,8 +345,7 @@ def construct_withdraw_tx(keydict, amount, release_block, max_block):
           "data": {"amount": int(amount), "release_block": int(release_block)},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1159,8 +1168,7 @@ def construct_register_tx(keydict, max_block, posw_proof=None, device=None):
         tx["posw"] = posw_proof          # retired at gen 25: ignored by validation, kept for old callers
     if device is not None:
         tx["device"] = device            # {"att", "cdj", "rp"} — committed by the txid like posw
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1175,8 +1183,7 @@ def construct_msgkey_tx(keydict, kem_pub, max_block, fee=0):
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee), "kem_pub": kem_pub}   # fee: a ROTATION pays MIN_TX_FEE
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1228,8 +1235,7 @@ def construct_blob_tx(keydict, payload, max_block, fee, min_block=0):
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
     if int(min_block) > 0:
         tx["min_block"] = int(min_block)
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1247,8 +1253,7 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block, min
         # claiming node includes its own claim the second it exists, before gossip delivers it anywhere,
         # and forks the chain (fork seed h66894). Same rule every flexibly-landing tx already follows.
         tx["min_block"] = int(min_block)
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1263,8 +1268,7 @@ def construct_unshield_tx(keydict, amount, nonce, proof, max_block):
           "data": {"addr": keydict["address"], "amount": int(amount), "nonce": str(nonce), "proof": proof},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1311,8 +1315,7 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
           "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": fee}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1335,8 +1338,7 @@ def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, max_bloc
           "timestamp": get_timestamp_seconds(), "data": body,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1347,8 +1349,7 @@ def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, max_b
           "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce, expiry),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1358,8 +1359,7 @@ def construct_bridge_deposit_tx(keydict, amount, max_block, fee):
           "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
           "public_key": keydict["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": int(fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1374,8 +1374,7 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, max_block,
           "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1394,8 +1393,7 @@ def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, max_block):
           "timestamp": get_timestamp_seconds(), "data": d, "nonce": create_nonce(),
           "public_key": keydict["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": MIN_TX_FEE if int(max_block) >= 1 else 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1409,8 +1407,7 @@ def construct_alias_tx(keydict, op, name, max_block, fee, to=None):
           "timestamp": get_timestamp_seconds(), "data": data,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    _seal(tx, keydict)
     return tx
 
 
@@ -1969,6 +1966,33 @@ def tx_shape_check(transaction, block_height):
     assert size <= cap, f"transaction is {size} bytes, over the {cap}-byte limit for a {recipient if recipient in RESERVED_RECIPIENTS else 'transfer'}"
 
 
+def tx_alg(transaction) -> str:
+    """The signature scheme a transaction signs with: its `alg`, or ML-DSA-44 when absent (protocol.py "USER-SELECTABLE
+    SIGNATURE SCHEMES"). Only meaningful after sig_scheme_check accepted the transaction."""
+    return transaction.get("alg") or _P.SIG_DEFAULT
+
+
+def sig_scheme_check(transaction, block_height):
+    """A transaction's `alg` (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES", doc/signature-schemes.md). Pure shape —
+    no state — so the mempool and block verification agree. Absent: ML-DSA-44, every transaction before the gate and
+    every one that does not choose. Present: the gate is live, the scheme is offered and is NOT the default (absence is
+    the only spelling of ML-DSA-44 — one transaction, one byte string), the tx is signed by its one key (auth configs
+    and multisig members are ML-DSA-44), and it is not a kind whose key the chain verifies off the transaction with
+    ML-DSA-44 only (SIG_ML44_ONLY_RECIPIENTS). INVARIANT: runs before excluded_witness_check, which sizes the witnesses
+    by this scheme."""
+    if "alg" not in transaction:
+        return
+    alg = transaction["alg"]
+    assert block_height is not None and int(block_height) >= _P.SIG_SCHEMES_HEIGHT, \
+        "signature schemes other than ML-DSA-44 are not active"
+    assert isinstance(alg, str) and alg in _P.SIG_SCHEMES_OFFERED and alg != _P.SIG_DEFAULT, \
+        f"alg must be one of {', '.join(a for a in _P.SIG_SCHEMES_OFFERED if a != _P.SIG_DEFAULT)} (absent = {_P.SIG_DEFAULT})"
+    assert not isinstance(transaction.get("signature"), list) and transaction.get("multisig") is None, \
+        "an entry-list or multisig signature is ML-DSA-44 only"
+    assert transaction.get("recipient") not in _P.SIG_ML44_ONLY_RECIPIENTS, \
+        f"a {transaction.get('recipient')} transaction is ML-DSA-44 only"
+
+
 _LOWER_HEX = frozenset("0123456789abcdef")
 
 
@@ -1996,7 +2020,8 @@ def excluded_witness_check(transaction, block_height):
     is 0 on a genesis tip."""
     if block_height is None or int(block_height) < 1:
         return
-    pk_n, sig_n = _P.MLDSA44_PUBKEY_HEX, _P.MLDSA44_SIG_HEX
+    # SIZED BY THE TX'S SCHEME (sig_scheme_check ran first): entry lists are ML-DSA-44 only, so they keep its sizes
+    pk_n, sig_n, _ = _P.SIG_SCHEME_SIZES[tx_alg(transaction)]
     # PRESENT means canonical: an honest client that relies on the key it already published OMITS the field, it never
     # sends null or "" (validate_origin reads both as "omitted", so either was a free re-encoding of an absent key)
     if "public_key" in transaction:
@@ -2039,6 +2064,8 @@ def validate_transaction(transaction, logger, block_height, deep=False):
     # top-level keys, because the txid hashes every key and nothing listed the allowed ones — a fee-exempt message was free AND
     # unbounded in size. Checked first, before any signature or state read, so an oversized body costs one encode.
     tx_shape_check(transaction, block_height)
+    # USER-SELECTABLE SIGNATURE SCHEMES: the `alg` is judged before anything sizes or verifies a witness by it
+    sig_scheme_check(transaction, block_height)
     # ONE TX, ONE BYTE STRING (protocol.py, audit 2026-09-25 "sig/pubkey hex re-encoding"): the
     # witnesses the txid does not hash must have exactly one spelling, BEFORE validate_origin decodes them leniently.
     # INVARIANT: never move this after validate_origin or behind a branch — every tx kind, multisig and auth included.
@@ -2090,6 +2117,13 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         # fee-exempt duty signed by one authenticator stays exempt
         assert transaction.get("fee", 0) >= MIN_TX_FEE * (len(transaction["signature"]) - 1), \
             "fee below the per-signature floor"
+    _fee = transaction.get("fee")
+    if "alg" in transaction and isinstance(_fee, int) and not isinstance(_fee, bool) and _fee != 0:   # type: checked below
+        # a larger witness costs every node more bytes to carry and keep, and the fee is otherwise flat: a PAYING tx pays
+        # its scheme's multiple of the floor. A fee-exempt kind stays exempt (each recipient branch decides whether 0 is
+        # allowed — they are once-only claims from escrow, bounded by their own state, never a repeatable free tx).
+        assert transaction["fee"] >= MIN_TX_FEE * _P.SIG_SCHEME_SIZES[tx_alg(transaction)][2], \
+            f"fee below the {tx_alg(transaction)} floor of {MIN_TX_FEE * _P.SIG_SCHEME_SIZES[tx_alg(transaction)][2]}"
     assert validate_origin(transaction, block_height), "Invalid origin"
     # SENDER must be a real keyed address — never a reserved protocol pseudo-recipient.
     assert validate_address(transaction["sender"], allow_reserved=False), f"Invalid sender {transaction['sender']}"
@@ -3692,9 +3726,14 @@ def validate_origin(transaction: dict, block_height=None):
         public_key = account.get("public_key") if account else None
         assert public_key, "Missing public_key and no on-chain pubkey for sender (first tx must carry it)"
 
+    # THE ADDRESS COMMITS TO THE SCHEME (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES"): a key presented under any other
+    # `alg` than the one its address was made with derives another address, so this one check binds address, scheme and
+    # key — including a later key-less tx, whose `alg` must still be the account's (its stored key derives nothing else)
+    alg = tx_alg(transaction)
     assert proof_sender(
         sender=transaction["sender"],
-        public_key=public_key
+        public_key=public_key,
+        alg=alg,
     ), "Invalid sender"
     # ADDRESS_KEY_BIND_HEIGHT (review 2026-09-25): the address binds only a CHOOSABLE prefix of the key, so a carried
     # key must also equal the one this account already published. Without it, anyone could spend from any address.
@@ -3706,6 +3745,7 @@ def validate_origin(transaction: dict, block_height=None):
         signed=signature,
         message=unhex(transaction["txid"]),
         public_key=public_key,
+        alg=alg,
     ), "Invalid signature"
 
     return True
@@ -3733,15 +3773,20 @@ def validate_txid(transaction, logger):
         return False
 
 
-def create_transaction(draft, private_key, fee):
-    """construct transaction, then add txid, then add signature as last"""
+def create_transaction(draft, private_key, fee, alg=None):
+    """construct transaction, then add txid, then add signature as last. `alg`: the key's signature scheme (None =
+    ML-DSA-44, the transaction exactly as before); another scheme is named in the tx and lifts a paying fee to its floor."""
     transaction_message = draft.copy()
     transaction_message.update(fee=fee)
+    if alg and alg != _P.SIG_DEFAULT:
+        transaction_message["alg"] = alg
+        if fee:
+            transaction_message["fee"] = max(int(fee), MIN_TX_FEE * _P.SIG_SCHEME_SIZES[alg][2])
 
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=unhex(txid))
+    signature = sign(private_key=private_key, message=unhex(txid), alg=alg)
     transaction_message.update(signature=signature)
 
     # from ops.log_ops import get_logger

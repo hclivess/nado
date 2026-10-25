@@ -579,6 +579,8 @@ rest of this is worth building.
 
 ### Track G — Signature-scheme agility (more post-quantum, never less)
 
+**Status 2026-10-25: BUILT, dormant until generation 29 — [doc/signature-schemes.md](doc/signature-schemes.md)** (ML-DSA-65/87 and SLH-DSA-128s offered; FN-DSA-512 built, off until FIPS 206 is final). It supersedes the design below where they differ: the address commits to the scheme (`[domain, alg, pubkey]`) instead of an account field, and there is a fee multiplier per scheme, since the fee is flat, not by byte size.
+
 Today the chain is single-scheme: ML-DSA-44 everywhere, dispatched through the one chokepoint
 (`signatures.py` — `sign`/`verify`/`from_private_key`/`generate_keydict`; every consumer imports those
 four and nothing else). The goal is user choice among **post-quantum** schemes with ML-DSA-44 as the

@@ -1690,6 +1690,9 @@ def split_open_block_reward(reward: int):
 #                                    BLAKE_EXEC_HEIGHT (2^62, DORMANT on gen 28 -> 1: the exec root is the BLAKE2s
 #                                    compressed-tree root of execnode/exec_root_b2.py and exits verify against it;
 #                                    the Goldilocks settle-proof branch is refused — option R, doc/stwo-migration.md)
+#                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
+#                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
+#                                    doc/signature-schemes.md)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -1769,7 +1772,7 @@ DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 
 # INVARIANT: never lower this below 2, or the draw is predictable when the enrolment is built.
 TPM_DRAW_DELAY_EPOCHS = 2
 TX_TOP_KEYS = frozenset(("sender", "recipient", "amount", "fee", "timestamp", "data", "nonce", "public_key",
-                         "max_block", "min_block", "chain_id", "txid", "signature", "multisig"))
+                         "max_block", "min_block", "chain_id", "txid", "signature", "multisig", "alg"))
 TX_TOP_KEYS_BY_RECIPIENT = {"msgkey": frozenset(("kem_pub",)), "register": frozenset(("device", "posw"))}
 # ONE TRANSACTION, ONE BYTE STRING (audit 2026-09-25, MED "sig/pubkey hex re-encoding"). The txid hashes the body WITHOUT
 # `public_key` (PUBKEY-ONCE) and without `signature` (string or entry list), yet the block hash, the upcoming-block hash
@@ -2210,6 +2213,42 @@ EXEC_BUDGET_V2_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
 # DORMANT on generation 28 (2^62: never reached), live from block 1 on generation 29 — the reroll that carries the
 # exec state into this format. Nothing on the live chain changes with this constant.
 BLAKE_EXEC_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+
+# USER-SELECTABLE SIGNATURE SCHEMES (doc/signature-schemes.md, operator 2026-10-25: "multiple (pluggable) scheme options
+# ... let users pick"). ML-DSA-44 stays the default and the only scheme of every surface the CHAIN signs with (blocks,
+# status attestations, duties, registration, auth configs, multisig members, invites, messaging): an account picks its
+# scheme when it is created, and from then on every transaction it sends names that scheme in the top-level `alg` field.
+#   - ABSENT `alg` IS ML-DSA-44, and it is the only spelling of it: `"alg": "mldsa44"` is refused, so one transaction
+#     has one byte string (the rule excluded_witness_check exists for). Every existing transaction is unchanged.
+#   - THE ADDRESS COMMITS TO THE SCHEME. An ML-DSA-44 address is blake2b([DOMAIN_ADDRESS_V2, pubkey]) as before; any
+#     other scheme's is blake2b([DOMAIN_ADDRESS_V2, alg, pubkey]) (ops/address_ops.make_address). So proof_sender binds
+#     (address, alg, key) at once and no account record grows a field (no new state, nothing new for the carry).
+#   - `alg` rides in the txid, so the signature binds it.
+# Each row: public key and signature in HEX characters (the canonical spelling excluded_witness_check pins), and the fee
+# floor multiplier — the fee is otherwise flat (MIN_TX_FEE), and a larger witness costs every node more bytes to carry
+# and keep; the multiplier is ceil((pk + sig) / ML-DSA-44's (pk + sig)), so a key-less later tx pays the same floor.
+# NADO_SIG_IDS are the native/pqsig ids, used only by signatures.py.
+SIG_SCHEMES_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+SIG_DEFAULT = "mldsa44"
+SIG_SCHEME_SIZES = {                       # name -> (pubkey hex, signature hex, fee floor multiplier)
+    "mldsa44": (2 * 1312, 2 * 2420, 1),
+    "mldsa65": (2 * 1952, 2 * 3309, 2),
+    "mldsa87": (2 * 2592, 2 * 4627, 2),
+    "slhdsa128s": (2 * 32, 2 * 7856, 3),
+    "fndsa512": (2 * 897, 2 * 666, 1),
+}
+# FN-DSA-512 (Falcon) is built and tested (native/pqsig) but NOT offered: FIPS 206 is still a draft, and its encoding may
+# change, so no user should hold a key in a pre-standard format (operator 2026-10-25, "plugin now, on at FIPS 206").
+# Adding it here is a consensus change: a gated release, once FIPS 206 is final and the library passes NIST's vectors.
+# tuples, not sets: both go to the wallet through /protocol.js (ops/client_protocol exports lists, never sets)
+SIG_SCHEMES_OFFERED = ("mldsa44", "mldsa65", "mldsa87", "slhdsa128s")
+# What an account of another scheme may NOT send: everything whose key the chain later checks OFF the transaction, with
+# ML-DSA-44 only — a validator's block signatures and status attestations (register, bond, the duty family), the TPM
+# ceremony that enrols a validator, the messaging key and auth configs (key_authorized and ops/auth_ops verify ML-DSA-44
+# keys), and legacy_claim (a format-1 address is a slice of an ML-DSA-44 key). Refused at admission, so nobody holds a
+# stake or an identity the chain cannot later verify. Widening this is a feature per surface, never a one-line change.
+SIG_ML44_ONLY_RECIPIENTS = ("auth", "bond", "register", "attest", "commit", "reveal", "duty", "msgkey",
+                            "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready", "legacy_claim")
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
@@ -2698,4 +2737,6 @@ CLIENT_EXPORTS = (
     # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
     # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js, like STWO_POOL_HEIGHT)
     "BLAKE_EXEC_HEIGHT",
+    # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
+    "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
 )

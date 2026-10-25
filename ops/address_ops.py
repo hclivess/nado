@@ -2,14 +2,11 @@ from hashing import blake2b_hash
 from protocol import RESERVED_RECIPIENTS
 
 
-def proof_sender(public_key, sender):
-    """True iff public_key derives EXACTLY the claimed sender address — the pubkey-to-address binding
-    every signature verification rests on; without it a valid signature under some OTHER key could
-    spend from an address it doesn't own."""
-    if make_address(public_key) == sender:
-        return True
-    else:
-        return False
+def proof_sender(public_key, sender, alg=None):
+    """True iff public_key, under signature scheme `alg` (None = ML-DSA-44), derives EXACTLY the claimed sender address —
+    the pubkey-to-address binding every signature verification rests on; without it a valid signature under some OTHER
+    key (or the same bytes read as another scheme's key) could spend from an address it doesn't own."""
+    return make_address(public_key, alg=alg) == sender
 
 
 def validate_address(address: str, checksum_size: int = None, allow_reserved: bool = True):
@@ -85,6 +82,7 @@ def make_address(
         address_length: int = None,
         checksum_size: int = None,
         prefix: str = None,
+        alg: str = None,
 ) -> str:
     """Derive the canonical address: ADDRESS_PREFIX + address_body_v2(public key) + ADDRESS_CHECKSUM-byte blake2b
     checksum (protocol.py owns all three — the one-constant rebrand point). A MULTISIG address (prefix MSIG_PREFIX)
@@ -102,7 +100,7 @@ def make_address(
     # format 1's first 21 bytes are the key's rho, which a forger chooses. A multisig address (prefix MSIG_PREFIX) is
     # derived from a descriptor hash already and keeps format 1's body rule; its bytes must never change.
     if prefix == ADDRESS_PREFIX:
-        body = address_body_v2(public_key, address_length)
+        body = address_body_v2(public_key, address_length, alg)
     else:
         body = public_key[:address_length]
     address_no_checksum = f"{prefix}{body}"
@@ -110,13 +108,18 @@ def make_address(
     return address
 
 
-def address_body_v2(public_key: str, address_length: int = None) -> str:
-    """Format-2 address body: blake2b over [DOMAIN_ADDRESS_V2, lowercase public-key hex], ADDRESS_BODY/2 bytes.
+def address_body_v2(public_key: str, address_length: int = None, alg: str = None) -> str:
+    """Format-2 address body: blake2b over [DOMAIN_ADDRESS_V2, lowercase public-key hex], ADDRESS_BODY/2 bytes — or, for
+    a key of another signature scheme than ML-DSA-44, over [DOMAIN_ADDRESS_V2, alg, lowercase public-key hex]
+    (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES"): the address commits to its scheme, and the three-element list can
+    never encode like a two-element one, so no ML-DSA-44 address moves and no key reads as another scheme's.
     LOWERCASED so one key has exactly one address (the hex of a key is not unique: 'AB' and 'ab' are the same bytes).
     Mirrored byte-for-byte by static/nadotx.js and static/interface.js (blake2bHash over the same canonical list)."""
-    from protocol import ADDRESS_BODY, DOMAIN_ADDRESS_V2
+    from protocol import ADDRESS_BODY, DOMAIN_ADDRESS_V2, SIG_DEFAULT
     n = ADDRESS_BODY if address_length is None else address_length
-    return blake2b_hash([DOMAIN_ADDRESS_V2, str(public_key).lower()], size=n // 2)
+    if alg is None or alg == SIG_DEFAULT:
+        return blake2b_hash([DOMAIN_ADDRESS_V2, str(public_key).lower()], size=n // 2)
+    return blake2b_hash([DOMAIN_ADDRESS_V2, str(alg), str(public_key).lower()], size=n // 2)
 
 
 def legacy_address(public_key: str) -> str:

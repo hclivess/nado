@@ -91,7 +91,7 @@ def c_send(kd, node, a):
     # lowercase: alias recipients are all-lowercase on-chain, and ndo… addresses are lowercase hex
     # anyway — so `send Alice 1` behaves exactly like `send alice 1`.
     tx = T.create_transaction(_draft(kd, a.to.strip().lower(), raw(a.amount), a.memo or "", _tip(node) + FLEX_MARGIN),
-                              kd["private_key"], raw(a.fee) if a.fee else MIN_TX_FEE)
+                              kd["private_key"], raw(a.fee) if a.fee else MIN_TX_FEE, alg=kd.get("alg"))
     _submit(node, tx)
 
 
