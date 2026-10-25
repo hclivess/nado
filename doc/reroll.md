@@ -191,13 +191,18 @@ contract that would reset (the ledger of whose they are would be lost).
 ```bash
 D=$(mktemp -d); mkdir -p $D/home/nado/index/state $D/home/nado/private
 nado_venv/bin/python -c "import lmdb; e=lmdb.open('index/state', readonly=True, max_dbs=256); e.copy('$D/home/nado/index/state', compact=True)"
+cp -a blocks $D/home/nado/                       # the carry reads invite_lock BODIES from the block files: without them
+                                                 # every open invite's link key is "nowhere" and the carry refuses
 cp exec_state.json $D/exec_state.json            # then, in a scratch worktree of this commit:
 cp $D/exec_state.json ./exec_state.json && HOME=$D/home NADO_EXEC_STATE=$D/x.json NADO_EXEC_DA=$D/da \
   nado_venv/bin/python tools/alphanet6_carryforward.py --l1-tip <exec cursor> ; rm ./exec_state.json
 ```
 
 `env.copy` takes a consistent snapshot under one read transaction; nothing is imported against the live database.
-Read `CONSERVATION: OK (Δ=0)`, the carried/refunded pot lines and every `NOT CARRIED` line. Measured 2026-10-10 (tip
+Read `CONSERVATION: OK (Δ=0)`, the carried/refunded pot lines, the `carried: N open invites` line and every `NOT CARRIED`
+or `REFUSING` line. With `--l1-tip` the dry run runs every refusal `--write` would (since 2026-10-25; before that the
+invite check ran only under `--write`, after it had written `genesis_alloc.dat`). `--help` prints this usage and opens
+nothing. **Never run the tool without assigning HOME and the exec paths** to the copy: it opens `get_home()`'s database. Measured 2026-10-10 (tip
 155141): Δ = 0, 27 contracts by id, 112.53 of 112.67 NADO of contract pots stay with their contracts; blockers: one
 open dice bet, three unsettled hamster races. A rehearsal from that carry (generation bumped, loopback testnet, 6 s
 blocks) built the genesis exactly — supply 166,418,297,612,303 raw = the carry total, BRIDGE_ESCROW = the carried pots,

@@ -526,6 +526,12 @@ def build_extra():
 
 
 def main():
+    # --help NEVER TOUCHES A DATABASE (2026-10-25): this tool parses no arguments, so `--help` used to run the whole carry
+    # — build() opens the LMDB env of get_home() (the live node's, under root's HOME) before anything else. It stopped
+    # on a missing file that time; nothing was written, but a help flag must not be a write-capable open of production.
+    if any(a in ("-h", "--help") for a in sys.argv[1:]):
+        print(__doc__)
+        return
     alloc = build()
     # INTO ADDRESS FORMAT 2 (the gen 27 -> 28 carry, betanet-9): every account and every piece of carried state moved to
     # the format-2 address of its recorded key (tools/rekey_v2.py). That is the ONLY carry that crosses the format switch:
@@ -555,6 +561,12 @@ def main():
               f"{rep['bond_released_raw']} raw of keyless bond released into balance")
         for a in rep.get("dropped_seeds", []):
             print(f"  relay seed {a} dropped: no chain recorded its key, so it cannot produce (its coins carry at its old address)")
+    # EVERY REFUSAL BEFORE ANY WRITE, AND IN THE DRY RUN TOO (gen-29 rehearsal, 2026-10-25): build_extra() is where the
+    # open-invite carry refuses an invite whose link key it cannot recover — and it ran only under --write, AFTER
+    # genesis_alloc.dat was already written. So a dry run reported nothing about invites, and the --write that refused
+    # left a half-written genesis (a new alloc beside the old carry file). It now runs first whenever a tip is given.
+    if extra is None and ("--write" in sys.argv or "--l1-tip" in sys.argv):
+        extra = build_extra()
     if "--write" in sys.argv:
         path = f"{get_home()}/private/genesis_alloc.dat"
         tmp = path + ".tmp"
@@ -567,8 +579,6 @@ def main():
         with open(repo, "w") as f:
             json.dump(alloc, f, indent=0, sort_keys=True)
         print(f"\nWROTE {path} and genesis_data/genesis_alloc.dat  ({len(alloc)} accounts)")
-        if extra is None:
-            extra = build_extra()
         with open(_seeds_path, "w") as f:
             json.dump(_seeds, f, indent=1)
         xpath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
