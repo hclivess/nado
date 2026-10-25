@@ -66,9 +66,12 @@ T.check("2b. no v2 build contains an alghash round opcode", len(v2_clean) == 27,
 T.check("3. the two builds differ only in what the ISA changes (hash rounds, macro RANGE guards), outside the methods a "
         "builder declares in ISA_DIVERGENT_METHODS", not logic, logic[:5])
 declared = {g: getattr(importlib.import_module("execnode.games." + g), "ISA_DIVERGENT_METHODS", ()) for g in GAMES}
-T.check("3b. the declared per-ISA methods are exactly pets' hatch and gene-roll readers (the roll table), hexholm/stormhold.reveal and otc.post/settle (each a reviewed port)",
-        {g: m for g, m in declared.items() if m} == {"pets": ("hatch", "train_resolve", "resolve_battle", "combine", "upgrade", "staff", "collect"), "hexholm": ("reveal",), "stormhold": ("reveal",),
+T.check("3b. the declared per-ISA methods are exactly pets' hatch and gene-roll readers (the roll table), hexholm/stormhold/scrapline.reveal and otc.post/settle (each a reviewed port)",
+        {g: m for g, m in declared.items() if m} == {"pets": ("hatch", "train_resolve", "resolve_battle", "combine", "upgrade", "staff", "collect"), "hexholm": ("reveal",), "stormhold": ("reveal",), "scrapline": ("reveal",),
                                                      "otc": ("post", "settle")},
         {g: m for g, m in declared.items() if m})
+from execnode.games import scrapline as _scr, stormhold as _sto
+T.check("3c. scrapline's v2 reveal is stormhold's reviewed port, instruction for instruction (it reuses the source)",
+        _scr.build("v2")["reveal"] == _sto.build("v2")["reveal"] and _scr.build("v1")["reveal"] == _sto.build("v1")["reveal"])
 T.check("the ISA list is v1 and v2", zkvmasm.ISAS == ("v1", "v2"))
 T.done("ALL PASS — every contract assembles unchanged for the old VM and cleanly for the new one")

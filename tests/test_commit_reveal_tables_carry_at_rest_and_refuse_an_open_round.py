@@ -13,8 +13,9 @@ are old-chain heights. Driving the REAL contracts on a gen-28 ExecState:
      price and contributions (raw NADO, >= 2^32) kept verbatim;
   3. farkle: a table holding antes blocks; once every seat is reclaimed (tp == 0) it carries, and a free roll pending at
      a cancelled table is re-pinned onto the new chain (never blocking, never an old-chain height) and holds there;
-  4. stormhold: a game in play blocks, and a SETTLED hidden-hands game still blocks until both secrets are revealed —
-     reveal() checks the commitment after settlement too; revealed, it carries (move words and cfg kept verbatim).
+  4. stormhold: a game in play blocks; a SETTLED hidden-hands game carries even with its secrets unrevealed (a
+     post-settle reveal moves no value, and blocking on it would let anyone hold the reroll forever), its move words,
+     cfg and commitments kept verbatim.
 
 Run: python3 tests/test_commit_reveal_tables_carry_at_rest_and_refuse_an_open_round.py
 """
@@ -197,12 +198,8 @@ call(st, shc, A, "agree", [G, 3])
 r = call(st, shc, B, "agree", [G, 3])
 why = SH.carry_in_flight(st.contracts[shc]["storage"])
 _r, _c, msg = try_carry(st, shc)
-T.check("stormhold: SETTLED with both hidden-hands commitments unrevealed, it still blocks (reveal checks them after "
-        "settlement, and the gen-29 hash never could)", rd(st, shc, SH.SD, G) == 1 and len(why) == 2
-        and all("unrevealed" in w and "reveal(77" in w for w in why) and msg is not None, (why, msg, r))
-call(st, shc, A, "reveal", [G, x1])
-call(st, shc, B, "reveal", [G, x2])
-T.check("stormhold: both revealed, nothing is in flight", SH.carry_in_flight(st.contracts[shc]["storage"]) == [])
+T.check("stormhold: SETTLED with both hidden-hands commitments unrevealed, nothing is in flight (no reroll hostage)",
+        rd(st, shc, SH.SD, G) == 1 and why == [] and msg is None, (why, msg, r))
 sh_rec, n, msg = try_carry(st, shc)
 ss = (sh_rec or {}).get("storage", {}).get("slots", {})
 T.check("stormhold: at rest the contract carries; the cfg word, move words and commitments kept verbatim",

@@ -260,10 +260,10 @@ def carry_in_flight(storage):
       * an open game (_lib.pvp_games_in_flight) — its move clock is an old-chain height and its shuffles pin old-chain
         block hashes: the opener's cancel(g) in the lobby; agree / resign, or abort(g) once the move clock lapses
         (permissionless, refunds both stakes) after the join;
-      * an UNREVEALED hidden-hands commitment of a joined game, settled or not: reveal() does not check sd (it is the
-        post-game proof every client verifies the hidden game with) and checks the commitment against a FRESH hash,
-        which the gen-29 hash can never match — only that player's reveal(g, x) on the old chain resolves it. A
-        revealed seat has a nonzero half (a secret of exactly 0 reads as unrevealed: reveal it again, it is idempotent).
+    A SETTLED game's unrevealed hidden-hands commitment does NOT block (the rule hexholm and scrapline share): reveal()
+    after settlement is a client-side audit and moves no value, and blocking on it would let anyone hold the reroll
+    forever — open a hidden game between two of their own addresses, settle it, never reveal. The commitment carries
+    verbatim; a reveal of it on gen 29 reverts (the new hash cannot match it), and that is all that is lost.
     Reached through the game index only (slot 0 count, field LIST)."""
     slots = (storage or {}).get("slots") or {}
     g = lambda f, k: int(slots.get(str((f << 32) + k), 0))
@@ -273,10 +273,4 @@ def carry_in_flight(storage):
             out.append(f"game {gid} awaits a joiner - cancel({gid}) (opener)")
         else:
             out.append(f"game {gid} is in play - agree/resign, or abort({gid}) past block {g(DL, gid)} (permissionless)")
-    for gid in _lib.carry_ids(slots, 0, LIST):
-        if g(NN, gid) != 2:
-            continue                       # a lobby game cancelled before a join can never be revealed, on any chain
-        for seat, c, hi, lo in (("p1", C1, R1H, R1L), ("p2", C2, R2H, R2L)):
-            if g(c, gid) and not g(hi, gid) and not g(lo, gid):
-                out.append(f"game {gid}: {seat}'s hidden-hands commitment is unrevealed - reveal({gid}, x) ({seat})")
     return out

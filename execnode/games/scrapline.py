@@ -174,11 +174,21 @@ ABI = {
 }
 
 
+# reveal is stormhold's, so it takes stormhold's v2 port too: its `x - lo32(x)` -> hi split multiplies by the field
+# inverse of 2^32, which the 256-bit word does not have (_lib.port_inv32). Built without the port, scrapline's v2 reveal
+# stored a wrong hi half for every secret (found 2026-10-25 by the carry review). INVARIANT: every method this module
+# takes from stormhold gets exactly the per-ISA treatment stormhold.build gives it.
+ISA_DIVERGENT_METHODS = ("reveal",)
+
+
 def build(isa=None):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    src = SRC
+    if (isa or zkvmasm.default_isa()) == "v2":
+        src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
 
 
 # ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------

@@ -92,9 +92,20 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
 
 ## 2c. Still owed before the reroll (each a refusal today, never a silent loss)
 
-- **Commit-reveal and hashlock contracts have no in-flight hook**: coinflip, holdem, battleship, hexholm, stormhold,
-  farkle and otc (otc's hashlocks also change layout between v1 and v2). With storage, the carry refuses them as "no
-  carry rule"; each needs `carry_in_flight` (an open round blocks) so a contract at rest carries. Empty today.
+- ~~Commit-reveal and hashlock contracts have no in-flight hook~~ — done 2026-10-25: every module now declares its
+  carry rule (coinflip, holdem, farkle, stormhold, battleship, hexholm, scrapline, otc, dex, lend, pool, reserve), each
+  pinned by a test that drives the real contract to an open round (refused, by name) and to rest (carried whole; for
+  coinflip, farkle, the loans, the AMM pools, the vaults and the order book, played on in a gen-29 state and paying
+  exactly what gen 28 pays). Rule shared by every commit-reveal game: an OPEN round blocks; a SETTLED game's unrevealed
+  commitment does not (a post-settle reveal moves no value, and blocking on it would let anyone hold the reroll forever
+  with a self-played game) — it carries verbatim and a reveal of it on gen 29 reverts.
+- **sovereign has no carry rule, on purpose**: its world is re-derived from its log through old-chain block hashes
+  (every raid roll) and the live cursor (the economy), so a world with a log cannot be carried losslessly; the carry
+  refuses it (empty today). Carrying one needs each raid's seed stored and a cursor origin — a redesign, the operator's
+  call if sovereign is ever played before a reroll.
+- **One party can hold up a reroll** (by design of the in-flight rule, the operator's call to change): a taken loan
+  until repaid or due (lend durations up to 2^32 s), an open OTC order until cancelled or expired (up to 1,000,000
+  blocks), an unjoined lobby until its opener cancels it.
 - ~~The autogame Daily Gauntlet replays claims through the VM hash~~ — done 2026-10-25: the Gauntlet is scored
   off-chain, so its road hash is pinned to the gen-28 alghash (`nadodapp.algHashnV1`) for every generation; a claim
   posted on gen 28 replays to the same score on gen 29 (measured without the pin: 196 -> 413). The other daily boards
