@@ -1267,8 +1267,12 @@ ABI = {
     "gear_of": {"args": ["petId", "slot"]},
     "trade_of": {"args": ["petId"]},
     "_view": {
+        # gn (G6): the WHOLE gene. On gen 28 it is below the field prime, so gl|gh already held all of it; on gen 29 it
+        # is a 256-bit word and gl/gh are its low 64 bits only — combine's roll reads all 256 (lo32(H(gn_a + gn_b +
+        # 888888))), so a page previewing it needs gn. Exposure only: the gene was always public (hash of block hashes).
         "maps": {"ow": {"field": OW, "index": "pets"}, "bh": {"field": BH, "index": "pets"},
                  "gl": {"field": GL, "index": "pets"}, "gh": {"field": GH, "index": "pets"},
+                 "gn": {"field": GN, "index": "pets"},
                  "sp": {"field": SP, "index": "pets"}, "si": {"field": SI, "index": "pets"},
                  "ap": {"field": AP, "index": "pets"}, "pw": {"field": PW, "index": "pets"},
                  "fu": {"field": FU, "index": "pets"}, "tf": {"field": TF, "index": "pets"},

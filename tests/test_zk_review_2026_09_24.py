@@ -221,17 +221,17 @@ def t_the_wallet_privacy_guards_are_in_place():
                "async function doReceiveShielded()"):
         i = s.index(fn)
         assert "if (shieldPaused()) return;" in s[i:i + 400], f"{fn} must stop on the pause (no legacy proof)"
-    assert 'const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";' in s, "the wide key needs its own domain"
-    assert "blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey])" in s
-    assert "alghash2.ownerOf(shieldNskWide())" in s, "the wide owner must come from the wide key"
+    # G6: the wallet dropped the legacy and wide pools (both closed and empty); their key domains stay reserved, and the
+    # Stwo key has its own (one pool's leak never opens another's notes)
+    assert 'const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";' in s, "the wide key's domain stays reserved"
+    assert "blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey])" in s, "the Stwo key comes from its own domain"
+    assert "DOMAIN_SHIELD_NSK_WIDE, state" not in s and "DOMAIN_SHIELD_NSK, state" not in s, "no retired key is derived"
     assert "/exec/field_shielded?cm=" not in s, "receiving must not tell the relay which note"
-    # the Stwo pool (73ff9e69) made the filter three-way: a note is legacy, wide or stwo (an explicit tag, since a Stwo
-    # cm is 64-hex like a wide one), and the balance counts the ACTIVE pool's notes only — the same property
-    assert "return all.filter((n) => _notePool(n) === pool);" in s, "the balance must count one pool"
+    # a Stwo note is told from a wide one by its explicit tag (a Stwo cm is 64-hex like a wide one), and the balance
+    # counts Stwo notes only — the property the three-way filter of 73ff9e69 kept
+    assert 'return all.filter((n) => _notePool(n) === "stwo");' in s, "the balance must count one pool"
     assert 'n && n.pool === "stwo" ? "stwo"' in s, "a Stwo note is told from a wide one by its tag, not its shape"
-    assert "J.bindAux(wit.withdraw_addr, wit.public_value, wit.fee)" in s, "the wide prover must bind value and fee"
-    assert "fullQuery: at(\"full_query\")" in s, "the wallet must follow the full-query rule"
-
+    assert "st.proof_rules" not in s and "pr.shield_wide" not in s, "no retired prover's rules are read"
 
 if __name__ == "__main__":
     for name, fn in list(globals().items()):

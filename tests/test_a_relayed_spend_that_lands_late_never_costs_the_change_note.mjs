@@ -55,7 +55,7 @@ const env = {
   shieldStwo: () => true, noteNskWire: () => "k", _stwo: { nullifier: (k, rho) => "nf" + String(rho) },
 };
 const reconcile = new Function(...Object.keys(env),
-  constSrc("SPEND_LAND_GRACE_MS") + "\n" + constSrc("STWO_SPEND_LAND_GRACE_MS") + "\n" + fnSrc("reconcileSpentNotes", true)
+  constSrc("STWO_SPEND_LAND_GRACE_MS") + "\n" + fnSrc("reconcileSpentNotes", true)
   + "\nreturn reconcileSpentNotes;")(...Object.values(env));
 
 now = 21 * 60 * 1000;                 // the relay has said ok, and holds the bundle past the grace window

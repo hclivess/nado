@@ -38,7 +38,7 @@ function harness({ pool, homeUp = true, hashes = {} }) {
   const logs = [];
   const env = {
     relayPool: { list: pool }, state: { latest: 0 }, TX_INCLUSION_DELAY: 2, RELAY_HEIGHT_TOLERANCE: 20,
-    CHAIN_ID: 'c', netAdopted: true, homeRelay: () => 'https://home', relayHost: (u) => u,
+    CHAIN_ID: 'c', PAGE_CHAIN: 'c', netAdopted: true, homeRelay: () => 'https://home', relayHost: (u) => u,
     log: (lvl, m) => logs.push(m), i18: (k, d, v) => String(d).replace(/\{(\w+)\}/g, (_, n) => (v && n in v ? v[n] : '')),
     fetchWithTimeout: async (url) => {
       const base = url.split('/').slice(0, 3).join('/');

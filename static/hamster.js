@@ -90,6 +90,22 @@ function leaderOf(rows) {
   return w;
 }
 
+// A SETTLED RACE IS REDRAWN ONLY WHEN THE REDRAW IS ITS RACE (G6). The genes and steps come from block hashes through
+// the VM hash, and a race carried across the reroll ran on the OLD chain's blocks under gen 28's hash: its heights name
+// other blocks here (or none yet — a carried race can sit above this chain's cursor), so a redraw would give its
+// hamsters other names and speeds, and could crown one the chain did not pay. The stored distances (di) are the race the
+// contract ran: a redraw is kept only when it reaches them exactly; otherwise the lanes are shown plain, by number,
+// at their stored distances. A race settled on THIS chain always redraws to its own di (cursor >= fh, same hash).
+function settledRows(r, rows) {
+  if (!r.sd) return rows;
+  const plain = () => r.di.map((d, l) => ({ lane: l, speed: null, name: window.t("hamster.laneN", "lane {n}", { n: l + 1 }),
+                                            coat: COATS[0], dist: d, blocks: RACE_LEN }));
+  if (r.cur != null && r.cur < r.fh) return plain();          // settled before this chain reached its finish: carried
+  if (!rows) return null;                                     // hashes still loading
+  if (rows.some((row) => row.blocks < RACE_LEN)) return null;
+  return rows.every((row, l) => row.dist === r.di[l]) ? rows : plain();
+}
+
 // ---- reads (hamster storage schema) --------------------------------------------------------------
 function readRace(sto, id) {
   id = String(id); if (!_m(sto, "ra")[id]) return { id: Number(id), exists: false };
@@ -439,7 +455,7 @@ function render() {
   $("raceId").textContent = "#" + active;
   if (!r || !r.exists) { $("raceState").textContent = dapp.whereIs(window.t("hamster.raceWord", "race"), active); $("track").innerHTML = ""; $("betPanel").innerHTML = ""; shareInvite("race", null); return; }
   shareInvite("race", active, window.t("hamster.shareText", "Bet on the hamsters at NADO — race #{r}:", { r: active }), 170);
-  const rows = standings(r);                     // null until genes are known
+  const rows = settledRows(r, standings(r));     // null until genes are known; plain lanes for a carried race
   const wnLane = r.sd ? r.wn - 1 : (rows ? leaderOf(rows) : -1);
   // state line + countdown (in blocks -> time)
   const toTime = (blocks) => blocksToTime(Math.max(0, blocks));
@@ -471,7 +487,7 @@ function render() {
     const win = (r.sd || r.phase === "done") ? (l === wnLane && !r.vd) : (r.phase === "racing" && l === wnLane);
     const mine = (myCache[r.id] && myCache[r.id].stakes && (myCache[r.id].stakes[l] || 0n) > 0n);
     return '<div class="lane' + (win ? " win" : "") + (mine ? " mine" : "") + '">'
-      + '<div class="laneHead"><b>' + esc(row.name) + '</b> <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: row.speed }) + "</span>"
+      + '<div class="laneHead"><b>' + esc(row.name) + "</b>" + (row.speed != null ? ' <span class="dim">' + window.t("hamster.spd", "spd {s}", { s: row.speed }) + "</span>" : "")
       + (mine ? ' <span class="b ok">' + window.t("hamster.yours", "yours") + "</span>" : "") + "</div>"
       + '<div class="rail"><div class="runner" style="left:' + pct + '%">' + hamsterSVG(row.coat, win) + '</div><div class="finish"></div></div>'
       + "</div>";

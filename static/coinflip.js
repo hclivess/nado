@@ -69,7 +69,10 @@ function gameFrom(sto, gid) {
     const both = g.revealed[1] && g.revealed[2];
     const coin = both ? chainResultAlg(hex(s1), hex(s2), gid, 2) : null;
     if (settled) {
-      if (ws) { g.winner_slot = ws; if (coin != null) g.result = coin; else g.forfeit = true; }
+      // A SETTLED FACE IS READ FROM THE STORED WINNER, never re-flipped (G6): the coin is the VM hash of the two secrets,
+      // and a game carried across the reroll was flipped with gen 28's hash — re-flipping it with gen 29's could show
+      // "HEADS" beside the slot tails paid. Slot 1 wins on 0 (heads), as the unsettled branch below reads it.
+      if (ws) { g.winner_slot = ws; if (both) g.result = ws === 1 ? 0 : 1; else g.forfeit = true; }
       else g.refunded = true;
     } else if (nn === 2 && both && coin != null) { g.result = coin; g.winner_slot = coin === 0 ? 1 : 2; g.ready = true; }
     else if (nn === 2 && cur != null && cur >= g.dl) {

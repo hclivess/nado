@@ -112,11 +112,19 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
   seed through blake2b and were never affected.
 - ~~The browser reads pets' traits from the roll table~~ — done 2026-10-25: `static/pets-genes.js` reads the view's
   `r<c>` maps whenever a pet has them (`rollOf`/`rollsFrom`) and the gene only when it has none, which also covers the
-  gen-29 gene-exposure gap (v2 exposes 64 of the gene's 256 bits as gl/gh). Still on the gene: `combineStatOf`'s
-  preview of a future roll — on gen 29 it needs the full gene in the view (G6).
-- **History displays recompute from stored seeds** (coinflip's face, pets' battle replays, hamster's race animation,
-  poker's board): the stored results are right, the replays of pre-reroll history would draw differently. Display
-  only; G6 replays a pre-reroll record with the old hash.
+  gen-29 gene-exposure gap (v2 exposes 64 of the gene's 256 bits as gl/gh). ~~Still on the gene: `combineStatOf`'s
+  preview~~ — done 2026-10-25 (G6): the pets view serves the whole gene (`gn`) and the page reads it; the preview is
+  the stat the real v2 contract raises (tests/test_a_gen29_pet_previews_the_combine_the_contract_rolls.py).
+- ~~History displays recompute from stored seeds~~ — done 2026-10-25 (G6), by a different route than planned: replaying
+  with the old hash is not enough, because hamster's races and holdem's boards also read the OLD chain's block hashes
+  and beacons, which the new chain does not have, and no record says which generation made it. So every page follows
+  one rule: a recompute is shown only when it reaches the stored result exactly, otherwise the stored result stands
+  alone. Coinflip reads a settled face from the stored winner; hamster redraws a settled race only when it reaches the
+  stored distances (plain numbered lanes otherwise, or when the race finished above this chain's cursor); holdem shows
+  a closed hand's board only when it scores every revealed seat's stored hand; pets replays a settled battle only when
+  the replay's winner is the paid one. Records made on gen 29 always reproduce, so they always redraw
+  (tests/test_a_pre_reroll_game_record_is_shown_as_paid_never_redrawn.mjs). Still owed (text only): farkle's fairness
+  line names the gen-28 formula (`alghash … mod P`).
 - **L1 escrows**: open INVITES now carry (2026-10-25: `carried_invites`, genesis re-derives each id under the new
   `CHAIN_ID`). Open HTLC locks are still refunded: carrying one with its expiry rebased would hand the secret-holder
   the reroll's downtime as extra wall-clock time against a foreign-chain lock that kept running (the swap invariant

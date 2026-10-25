@@ -63,7 +63,7 @@ function harness({ search = '', referrer = '', ls = {}, confirmAnswer = false, f
     submitResilient: async () => { rec.submitted++; return { res: { data: { result: true } }, tx: { txid: 't' } }; },
     rawToNado: (x) => String(x), _abShort: (s) => s, MIN_TX_FEE: 1000, TX_TARGET_MARGIN: 300,
     getLatestBlock: async () => ({ block_number: 1 }), buildBlobTx: () => ({}), buildTransferTx: () => ({}),
-    finalizeTransaction: () => ({}), guardFrom: (h) => h, nowSeconds: () => 0, randNonce: () => 'n', CHAIN_ID: 'c',
+    finalizeTransaction: () => ({}), guardFrom: (h) => h, nowSeconds: () => 0, randNonce: () => 'n', CHAIN_ID: 'c', PAGE_CHAIN: 'c', P: { CHAIN_GENERATION: 28 },
     rpcJSON: async (u) => (u === '/get_recommended_fee' ? { ok: true, data: { fee } } : {}), _sha256hex: async () => '',
   };
   const names = Object.keys(env);

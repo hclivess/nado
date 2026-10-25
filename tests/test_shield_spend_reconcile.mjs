@@ -3,9 +3,9 @@
  *
  * L1 admits a shielded blob without checking the proof and the exec node may refuse it later; the wallet used to mark
  * the note spent (and credit the change) the moment the blob reached the mempool, so a refused proof hid the note for
- * good. Pins: an output in the tree confirms the spend; inside the grace window nothing moves; after it, a spend with no
- * landed output restores the note and drops its phantom change; an unreachable tree changes nothing; and the rules
- * fetch never falls back to "all rules off".
+ * good. Pins: an output in the tree confirms the spend; inside the anchor window nothing moves; after it, a spend with
+ * no landed output and an unspent nullifier restores the note and drops its phantom change; a spent nullifier keeps it;
+ * an unreachable tree, or no Stwo module, changes nothing.
  *
  * Run: node tests/test_shield_spend_reconcile.mjs
  */
@@ -17,28 +17,31 @@ const js = readFileSync(join(ROOT, 'static', 'interface.js'), 'utf8');
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS  ' : 'FAIL  ') + name); if (!cond) fails++; };
 const grab = (re) => (js.match(re) || [''])[0];
-const src = grab(/const SPEND_LAND_GRACE_MS = [^\n]*\n/) + grab(/function _markSpendPending\([\s\S]*?\n\}\n/) +
+const src = grab(/const STWO_SPEND_LAND_GRACE_MS = [^\n]*\n/) + grab(/function _markSpendPending\([\s\S]*?\n\}\n/) +
             grab(/async function reconcileSpentNotes\(\)[\s\S]*?\n\}\n/);
 check('the reconcile code is found', src.includes('reconcileSpentNotes') && src.includes('_markSpendPending'));
 
-function harness(notes, leaves, now) {
+// the Stwo pool is the only pool (G6); a note's nullifier is a function of its rho here (the real one: stwo_js.nullifier).
+// The late-landing relay case is tests/test_a_relayed_spend_that_lands_late_never_costs_the_change_note.mjs.
+function harness(notes, leaves, now, { nfs = [], stwo = true } = {}) {
   let saved = null; const logs = [];
   const env = {
     loadNotes: () => JSON.parse(JSON.stringify(notes)), saveNotes: (n) => { saved = n; },
-    execJSON: async () => { if (leaves === null) throw new Error('down'); return { leaves }; },
+    execJSON: async (p) => {
+      if (leaves === null) throw new Error('down');
+      return p === '/exec/stwo_nullifiers' ? { nullifiers: nfs } : { leaves };
+    },
     log: (lvl, m) => logs.push(m), i18: (k, d, v) => d.replace('{n}', v.n),
     Date: { now: () => now },
-    // the pre-Stwo pools' path (wall-clock grace); the Stwo path (nullifier + anchor window) is
-    // tests/test_a_relayed_spend_that_lands_late_never_costs_the_change_note.mjs
-    shieldStwo: () => false,
+    shieldStwo: () => stwo, noteNskWire: () => 'k', _stwo: { nullifier: (k, rho) => 'nf' + String(rho) },
   };
   const f = new Function(...Object.keys(env), src + '; return { reconcileSpentNotes, _markSpendPending };')(...Object.values(env));
   return { f, get saved() { return saved; }, logs };
 }
 
-const GRACE = 20 * 60 * 1000;
-const spentNote = (at) => ({ cm: 'in1', value: '100', spent: true, spentAt: at, spentOuts: ['out1', 'out2'] });
-const change = { cm: 'out1', value: '40', spent: false };
+const GRACE = 3 * 3600 * 1000;
+const spentNote = (at) => ({ cm: 'in1', rho: '7', value: '100', spent: true, spentAt: at, spentOuts: ['out1', 'out2'] });
+const change = { cm: 'out1', rho: '9', value: '40', spent: false };
 
 let h = harness([spentNote(0), change], ['x', 'out1'], GRACE + 5);
 await h.f.reconcileSpentNotes();
@@ -46,7 +49,7 @@ check('an output in the tree confirms the spend', h.saved && h.saved[0].spent ==
 
 h = harness([spentNote(1000), change], ['x'], 1000 + GRACE - 1);
 await h.f.reconcileSpentNotes();
-check('inside the grace window nothing moves', h.saved === null);
+check('inside the anchor window nothing moves', h.saved === null);
 
 h = harness([spentNote(0), change], ['x'], GRACE + 1);
 const r = await h.f.reconcileSpentNotes();
@@ -54,15 +57,21 @@ check('after the window an unlanded spend is restored', r === 1 && h.saved[0].sp
 check('... and its phantom change is dropped', h.saved.length === 1);
 check('... and the user is told', h.logs.length === 1 && h.logs[0].startsWith('1 '));
 
+h = harness([spentNote(0), change], ['x'], GRACE + 1, { nfs: ['nf7'] });
+await h.f.reconcileSpentNotes();
+check('a spent nullifier keeps the spend and its change, whatever the clock', h.saved && h.saved[0].spent === true && h.saved.length === 2);
+
 h = harness([spentNote(0), change], null, GRACE + 1);
 await h.f.reconcileSpentNotes();
 check('an unreachable tree changes nothing', h.saved === null);
 
+h = harness([spentNote(0), change], ['x'], GRACE + 1, { stwo: false });
+await h.f.reconcileSpentNotes();
+check('without the Stwo module nothing is restored (no nullifier to judge by)', h.saved === null);
+
 const n = {}; h.f._markSpendPending(n, { cm_out1: 'a', cm_out2: 'b' });
 check('a spend records both output commitments', JSON.stringify(n.spentOuts) === '["a","b"]' && typeof n.spentAt === 'number');
 
-const rules = grab(/async function _proofRulesNow\(\)[\s\S]*?\n\}\n/);
-check('the rules fetch never falls back to all-off rules', !/bind: false, blockSelector: false/.test(rules) && /throw new Error/.test(rules));
 // every site that proves a spend records its outputs (send, unshield, and the shadow-account funding of 2026-10-18)
 const _proves = (js.match(/=\s*await proveTransfer2\(wit\);/g) || []).length;
 check('every spend site records its outputs', _proves >= 3 && (js.match(/^\s+_markSpendPending\(note, pr\);/gm) || []).length === _proves);

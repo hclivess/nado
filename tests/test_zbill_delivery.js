@@ -48,7 +48,7 @@ check("the zaddr -> contact mapping is sender-local storage only", () => {
 // The zaddr must stay the recipient's OWNER ID in base36 and nothing else. This used to pin shieldAddr's source
 // text, and went red the day a8a720f1 (2026-09-23, the wide pool, SHIELD_WIDE_HEIGHT) rightly gave it a second,
 // 256-bit branch — a pin on the spelling fails on a correct change and passes on a wrong one written the old way.
-// So the property is checked by RUNNING the wallet's own shieldAddr / parseShieldAddr, in both pools: the address
+// So the property is checked by RUNNING the wallet's own shieldAddr / parseShieldAddr: the address
 // is "zaddr" + base36(owner), and parsing it gives back exactly the owner — so no transparent address, alias or
 // kem_pub can be riding inside it.
 function fnSrc(name) {
@@ -59,31 +59,15 @@ function fnSrc(name) {
   return SRC.slice(i, j + 1);
 }
 const zaddrChecks = (async () => {
-  const A2 = await import(path.join(__dirname, "..", "static", "alghash2.js"));
-  // ZADDR_STWO is read from the wallet itself, so a renamed prefix cannot leave this test checking a stale one
+  // ZADDR_STWO is read from the wallet itself, so a renamed prefix cannot leave this test checking a stale one. The
+  // legacy and wide zaddr forms went with their pools (G6): the wallet builds and parses only the Stwo form.
   const ZADDR_STWO = JSON.parse(SRC.match(/const ZADDR_STWO = ("[^"]+")/)[1]);
-  const make = (wide, owner, stwo = false) => new Function("shieldWide", "shieldOwner", "alghash2", "shieldStwo", "ZADDR_STWO",
+  const make = (owner) => new Function("shieldOwner", "ZADDR_STWO", "i18",
     fnSrc("shieldAddr") + fnSrc("_b36") + fnSrc("parseShieldAddr") + "return { shieldAddr, parseShieldAddr };")(
-    () => wide, () => owner, A2, () => stwo, ZADDR_STWO);
-  check("a legacy zaddr is the owner id in base36 and nothing else", () => {
-    const owner = 0xfedcba9876543210n % A2.P;
-    const z = make(false, owner);
-    const a = z.shieldAddr();
-    if (a !== "zaddr" + owner.toString(36)) throw new Error("zaddr is not owner-only: " + a);
-    if (z.parseShieldAddr(a) !== owner) throw new Error("parse does not return the owner");
-  });
-  check("a wide zaddr is the 256-bit owner digest in base36 and nothing else", () => {
-    const owner = [1n, 2n ** 63n, 12345678901234567n, A2.P - 1n];
-    const z = make(true, owner);
-    const a = z.shieldAddr();
-    if (a !== "zaddr" + BigInt("0x" + A2.toHex(owner)).toString(36)) throw new Error("zaddr is not owner-only: " + a);
-    if (!/^zaddr[0-9a-z]+$/.test(a)) throw new Error("zaddr carries more than a base36 number: " + a);
-    const back = z.parseShieldAddr(a);
-    if (back.map(String).join() !== owner.map(String).join()) throw new Error("parse does not return the owner");
-  });
+    () => owner, ZADDR_STWO, (k, d) => d);
   check("a Stwo zaddr is the 256-bit BLAKE2s owner in base36 and nothing else, and refuses the other pool's", () => {
     const owner = "00ff" + "a5".repeat(30);
-    const z = make(false, owner, true);
+    const z = make(owner);
     const a = z.shieldAddr();
     if (a !== ZADDR_STWO + BigInt("0x" + owner).toString(36)) throw new Error("zaddr is not owner-only: " + a);
     if (z.parseShieldAddr(a) !== owner) throw new Error("parse does not return the owner");

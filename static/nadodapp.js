@@ -19,7 +19,7 @@ import * as alghash from "./alghash.js";
 // protocol.py it runs) — never copied here. Every game page is served by a relay, so this adds no trust the page did
 // not already place in it. Re-exported so a game imports them from the SDK like everything else (BLOCK_TIME for its
 // countdowns, EPOCH_LENGTH for beacon seats); tests/test_constant_mirrors.py refuses a literal copy anywhere in static/.
-import { EPOCH_LENGTH, BLOCK_TIME, DENOMINATION, ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM, BLAKE_EXEC_HEIGHT } from "/protocol.js";
+import { EPOCH_LENGTH, BLOCK_TIME, DENOMINATION, ADDRESS_PREFIX, ADDRESS_BODY, ADDRESS_CHECKSUM, BLAKE_EXEC_HEIGHT, CHAIN_ID } from "/protocol.js";
 import { hashWords } from "./blake2s.js";
 export { loadCrypto, blake2bHash, EPOCH_LENGTH, BLOCK_TIME };
 
@@ -1368,8 +1368,12 @@ export class NadoDapp {
   // auto-collect doesn't yank the tab to the wallet and back. The iframe falls back to the redirect the
   // instant the wallet says it needs UI (locked / not autosigned / untrusted) or doesn't answer in time,
   // so the worst case is exactly today's behaviour.
+  // EVERY SIGNING REQUEST NAMES THE CHAIN THIS PAGE'S /protocol.js IS FOR (G6): the wallet refuses one built for another
+  // chain — a tab kept open across a reroll hashes its commitments with the old VM's hash (interface.js PAGE_CHAIN).
+  // INVARIANT: both transports (redirect and the background frame) encode through _payloadOf.
+  _payloadOf(obj) { return btoa(unescape(encodeURIComponent(JSON.stringify({ ...obj, chain: CHAIN_ID })))); }
   _goRedirect(obj, pend) {
-    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+    const payload = this._payloadOf(obj);
     this._redirecting = true;   // a navigation is committed — a later bg-flush must not clobber it (see _bgFlushToRedirect)
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
     // preserve the CURRENT url (path + query) as the return target, so a share-link's ?game=/?table= survives the
@@ -1462,7 +1466,7 @@ export class NadoDapp {
       if (job.onNeedUI) job.onNeedUI("timeout"); else this._goRedirect(job.obj, job.pend);
       this._bgFlushToRedirect();
     }, 9000);
-    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(job.obj))));
+    const payload = this._payloadOf(job.obj);
     try { svc.frame.contentWindow.postMessage({ nadoExecSignReq: 1, payload, ret: base() + "/", app: this.app }, svc.walletOrigin); }
     catch (e) { svc.cur = null; clearTimeout(svc.timer); if (job.onNeedUI) job.onNeedUI("post"); else this._goRedirect(job.obj, job.pend); }
   }

@@ -53,8 +53,8 @@ function device(submit) {
   shadowOrigins: () => [], shadowCandidateOrigins: () => [], shadowKeypair: () => null,   // no private games here
     state: { wallet: { address: ADDR, privateKey: KEY, publicKey: "pk" } }, localStorage, _stwo: stwo,
     blake2bHash: (parts) => crypto.createHash("blake2b512").update(JSON.stringify(parts)).digest("hex").slice(0, 64),
-    shieldStwo: () => true, shieldWide: () => false, ensureShielded: () => {}, refreshShieldRules: async () => {},
-    shieldPaused: () => false, wideDepositClosed: () => false, _shieldTip: 0,
+    shieldStwo: () => true, ensureShielded: () => {}, refreshShieldRules: async () => {},
+    shieldPaused: () => false, _shieldTip: 0,
     nadoToRaw: (s) => BigInt(s) * 10000000000n, rawToNado: (x) => String(x),
     $: () => ({ value: "5" }), log: () => {}, i18: (k, fb) => fb,
     _randField: () => BigInt("0x" + crypto.randomBytes(7).toString("hex")).toString(),
@@ -71,7 +71,7 @@ function device(submit) {
   };
   const body = [constSrc("DOMAIN_SHIELD_NSK_STWO"), constSrc("ZADDR_STWO"), constSrc("STWO_RESTORE_MARGIN"),
     fnSrc("shieldNskStwo"), fnSrc("shieldOwner"), fnSrc("ownerStr"), fnSrc("cmStr"), fnSrc("shieldStoreKey"),
-    fnSrc("_notePool"), fnSrc("_activePool"), fnSrc("loadNotes"), fnSrc("saveNotes"),
+    fnSrc("_notePool"), fnSrc("loadNotes"), fnSrc("saveNotes"),
     fnSrc("stwoDepositNsk"), fnSrc("noteNskWire"), fnSrc("stwoRestoreKey"), fnSrc("_stwoRestoreLoad"), fnSrc("_stwoRestoreSave"),
     fnSrc("stwoCarriedDeposits", true),
     fnSrc("doShield", true), fnSrc("shieldDeposit", true), fnSrc("stwoRecoverDeposits", true),

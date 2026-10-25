@@ -55,31 +55,16 @@ check("3. the Stwo gate is never or above the close", P.STWO_POOL_HEIGHT == 0 or
 check("...and the close reaches clients through /protocol.js", "WIDE_DEPOSIT_CLOSE_HEIGHT" in P.CLIENT_EXPORTS)
 
 SRC = open(os.path.join(ROOT, "static", "interface.js"), encoding="utf-8").read()
-check("4. the wallet imports the close from /protocol.js",
-      re.search(r"import \{[^}]*WIDE_DEPOSIT_CLOSE_HEIGHT[^}]*\} from \"/protocol\.js\"", SRC) is not None)
-# the close is checked where EVERY deposit is built (shieldDeposit: doShield, and a shadow account returning its coins)
+# THE WALLET BUILDS NO WIDE DEPOSIT AT ALL (G6): the wide pool is closed and was measured empty, so the wallet dropped it.
+# Every deposit is built in shieldDeposit (doShield, and a shadow account returning its coins), which stops before the
+# note is built unless the Stwo pool is live, and tags what it builds as a Stwo deposit.
 body = SRC[SRC.index("async function shieldDeposit("):]
 body = body[:body.index("\nasync function ", 10)]
-i_closed, i_build = body.find("wideDepositClosed(_shieldTip)"), body.find("noteCommit(")
-check("...every deposit stops before it is built", 0 < i_closed < i_build, (i_closed, i_build))
-check("...with a translated reason", 'i18("shield.depositsClosed"' in body)
-m = re.search(r"function wideDepositClosed\(tip\) \{.*?\n\}", SRC, re.S)
-if m and shutil.which("node"):
-    probe = """
-const out = [];
-for (const [stwo, close, tip] of JSON.parse(process.argv[1])) {
-  const f = new Function("WIDE_DEPOSIT_CLOSE_HEIGHT", "shieldStwo", %s + "; return wideDepositClosed;")(close, () => stwo);
-  out.push(f(tip));
-}
-console.log(JSON.stringify(out));
-""" % json.dumps(m.group(0))
-    cases = [[False, 1000, 998], [False, 1000, 999], [False, 1000, 5000], [True, 1000, 5000], [False, 0, 5000]]
-    r = subprocess.run(["node", "-e", probe, json.dumps(cases)], capture_output=True, text=True, timeout=60)
-    got = json.loads(r.stdout) if r.returncode == 0 else r.stderr[-500:]
-    check("...the wallet's rule: open below tip + 1 = close, closed from it, never once Stwo is live, never with no gate",
-          got == [False, True, True, False, False], got)
-else:
-    check("...the wallet defines wideDepositClosed (and node runs it)", False, "missing function or node")
+i_gate, i_build = body.find("if (!shieldStwo()) { shieldPaused(); return false; }"), body.find("noteCommit(")
+check("4. every wallet deposit stops before it is built unless the Stwo pool is live", 0 < i_gate < i_build, (i_gate, i_build))
+check("...and is tagged a Stwo deposit", 'data.pool = "stwo";' in body)
+check("...and the wallet has no wide-deposit path left", "alghash2" not in SRC.split("\n// THE WALLET IMPORTS NO RETIRED-POOL CODE")[0]
+      and "wideDepositClosed" not in SRC and "shieldWide" not in SRC)
 
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILED")
 sys.exit(1 if _report.fails else 0)

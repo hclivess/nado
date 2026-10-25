@@ -484,9 +484,18 @@ function renderActive() {
   $("gStatus").textContent = phaseTxt;
 
   // the felt: community + my hole cards
-  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb) : [];
+  const drawn = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb) : [];
+  // A CLOSED HAND IS REDRAWN ONLY WHEN THE REDRAW IS ITS HAND (G6). Cards come from block hashes or beacons through the
+  // VM hash, and a table carried across the reroll was dealt from the OLD chain's blocks and beacons under gen 28's
+  // hash: here its heights name other blocks (or none yet), so a redraw would deal other cards. Every revealed seat's
+  // stored hand value (gsc) is what the contract scored: the board and hole cards are shown only when they score to it;
+  // otherwise the stored result stands alone. A hand closed on THIS chain always redraws to its own values.
+  const redrawn = (h) => !!h && eval7(drawn.concat(h)).v === Number(h.value);
+  const preReroll = tb.exists && tb.closed && !!tb.td && dapp.cursor != null && (drawn.length < 5 || !lastSeats.every((st) => !st.revealed || st.secret == null
+    || redrawn(Object.assign(holeCards(...holeBase(tb), BigInt(st.secret)) || [], { value: st.value }))));
+  const board = preReroll ? [] : drawn;
   $("community").innerHTML = handHTML(board, 5, false);
-  $("communityNote").textContent = !tb.exists ? "" :
+  $("communityNote").textContent = !tb.exists ? "" : preReroll ? window.t("poker.preReroll", "This hand was played before the network upgrade, so its cards are not redrawn here. The result stands as paid.") :
     tb.phase === "join" ? window.t("poker.boardDealsLater", "the board deals street by street once the host deals") :
     tb.tg ? (board.length === 0 ? window.t("poker.flopPendingBeacon", "the flop lands when its epoch beacon is final…") :
       board.length === 3 ? window.t("poker.turnPendingBeacon", "the turn comes from a future epoch beacon") :
@@ -498,8 +507,8 @@ function renderActive() {
   const fk = me && tb.exists ? foldedAt(me, tb) : 0;
   if (me && tb.exists && tb.td) {
     const rec = bg.seatRec(me.g);
-    if (rec && rec.secret) hole = holeCards(...holeBase(tb), BigInt(rec.secret));
-    holeTxt = !rec || !rec.secret ? window.t("poker.secretElsewhere", "your secret lives in the browser you joined with — open this page there to see your cards")
+    if (rec && rec.secret && !preReroll) hole = holeCards(...holeBase(tb), BigInt(rec.secret));
+    holeTxt = preReroll ? "" : !rec || !rec.secret ? window.t("poker.secretElsewhere", "your secret lives in the browser you joined with — open this page there to see your cards")
       : !hole ? (tb.tg ? window.t("poker.holePendingBeacon", "your hole cards land when the deal's epoch beacon is final…")
                        : window.t("poker.holePending", "your hole cards land when the deal blocks finalize…")) : "";
   } else if (me) holeTxt = tb.host === dapp.me ? window.t("poker.hostHitDeal", "hit 🃏 Deal now below when everyone's seated") : window.t("poker.holeAfterStart", "your hole cards deal when the host starts the hand");
@@ -521,7 +530,7 @@ function renderActive() {
     const f = tb.exists ? foldedAt(s, tb) : 0;
     let tag;
     if (s.revealed) {
-      const oppHole = s.secret != null ? holeCards(...holeBase(tb), BigInt(s.secret)) : null;
+      const oppHole = s.secret != null && !preReroll ? holeCards(...holeBase(tb), BigInt(s.secret)) : null;
       const nm = oppHole && board.length === 5 ? eval7(board.concat(oppHole)).name : window.t("poker.shown", "shown");
       tag = '<span class="minihand">' + (oppHole ? handHTML(oppHole, 2, false) : "") + '</span> <span class="b ' + (tb.leader === s.g ? 'ok">👑 ' : 'dimb">') + nm + "</span>";
     }

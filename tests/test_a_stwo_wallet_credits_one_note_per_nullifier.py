@@ -72,8 +72,10 @@ body = SRC[SRC.index("async function doReceiveShielded"):]
 body = body[:body.index("\nasync function ", 10)]
 i_dup, i_push = body.find("shieldDuplicateNote("), body.find("notes.push(")
 check("4. the receive path asks before it banks the note", 0 < i_dup < i_push, (i_dup, i_push))
-check("...only for the Stwo pool, with the wallet's own Stwo key and the real nullifier",
-      "shieldStwo() && shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)" in body)
+# G6: the wallet is Stwo-only (doReceiveShielded stops on shieldPaused() before this unless the Stwo pool is live)
+check("...with the wallet's own Stwo key and the real nullifier",
+      "shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)" in body
+      and body.find("if (shieldPaused()) return;") < body.find("shieldDuplicateNote("))
 check("...and the refusal is a translated string", 'i18("shield.stwoSameNf"' in body)
 
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILED")

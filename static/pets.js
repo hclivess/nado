@@ -603,8 +603,12 @@ const _geneCache = {};
 function petsFrom(sto) {
   const ow = _m(sto, "ow"), cur = dapp.cursor, out = {};
   for (const pid of Object.keys(ow)) {
-    const gl = _m(sto, "gl")[pid], gh = _m(sto, "gh")[pid];
-    const gs = gl != null || gh != null ? G.geneFromHalves(gl || 0, gh || 0).toString() : null;
+    const gl = _m(sto, "gl")[pid], gh = _m(sto, "gh")[pid], gn = _m(sto, "gn")[pid];
+    // THE WHOLE GENE WHEN THE VIEW HAS IT (G6, pets.py _view "gn"): on gen 29 the gene is a 256-bit word and gl/gh are
+    // its low 64 bits, so combine's preview (combineStatOf) needs gn; a view without it (gen 28: gl|gh is the whole gene)
+    // reads the halves. A value >= 2^53 arrives as a decimal string (execnode/state.py), so it is read through BigInt.
+    const gs = gn != null && gn !== 0 ? BigInt(gn).toString()
+      : gl != null || gh != null ? G.geneFromHalves(gl || 0, gh || 0).toString() : null;
     const p = { id: pid, owner: ow[pid], bh: _m(sto, "bh")[pid] || 0, gs, sp: _m(sto, "sp")[pid] || 0,
       si: _m(sto, "si")[pid] || 0, ex: _m(sto, "ex")[pid] || 0,
       ap: _m(sto, "ap")[pid] || 0, pw: _m(sto, "pw")[pid] || 0, fu: _m(sto, "fu")[pid] || 0,
@@ -1459,9 +1463,15 @@ function renderArena() {
   // wm == 1: the duel runs over HASH(s1 + s2 + bid) once BOTH secrets are revealed; a battle issued before the
   // commit-reveal upgrade (wm == 0) still runs over the block-hash pair bh(wh), bh(wh+1).
   const cr = b.wm === 1;
-  const res = !(effA && effB) ? null
+  const res0 = !(effA && effB) ? null
     : cr ? (b.wr1 && b.wr2 ? G.battleOfSeed(G.battleSeedOf(b.wx1, b.wx2, bid), bid, effA, effB) : null)
     : (b.wh ? G.battleOf(dapp.bh(b.wh), dapp.bh(b.wh + 1), bid, effA, effB) : null);
+  // A SETTLED BATTLE IS REPLAYED ONLY WHEN THE REPLAY IS ITS BATTLE (G6). The turns come from the VM hash over its seed
+  // (or block hashes) and the pets' CURRENT stats: a battle carried across the reroll was fought under gen 28's hash
+  // (and a legacy one's blocks were re-pinned to this chain's block 2), and a pet trained since has other stats, so a
+  // replay could show the loser winning. The stored winner (ww) is what the contract paid: a replay that does not reach
+  // it is dropped for the plain flourish (playBattle with no log).
+  const res = b.wn === 3 && res0 && res0.aWins !== (b.ww === b.a) ? null : res0;
   const nRev = (b.wr1 ? 1 : 0) + (b.wr2 ? 1 : 0);
   const past = cr && dapp.cursor != null && dapp.cursor > b.wrd;
   const forfeit = cr && nRev === 1 && (past || (b.wn === 3 && !!b.ww));

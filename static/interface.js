@@ -22,22 +22,14 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, STWO_FEE_TO_HEIGHT } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
-import * as shielded from "./shielded.js";
 import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
-import * as alghash from "./alghash.js";
-import * as sfield from "./stark/field.js";
-import { initHashing as initStarkHashing } from "./stark/hashing.js";
+// THE WALLET IMPORTS NO RETIRED-POOL CODE (G6, doc/stwo-migration.md §9.5): alghash, alghash2, stark/joinsplit2|3,
+// stark/stark|field|hashing|tree and the Goldilocks WASM served only the legacy, field and wide pools, all closed and
+// empty. The Stwo prover (stark/stwo_js.js) is imported on demand. tests/test_the_wallet_builds_only_stwo_notes.mjs.
 import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
-import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
-import { setFieldWasm } from "./stark/field.js";
-import * as sjoinsplit2 from "./stark/joinsplit2.js";
-import * as alghash2 from "./alghash2.js";           // the WIDE pool's hash + note algebra (SHIELD_WIDE_HEIGHT)
-import * as sjoinsplit3 from "./stark/joinsplit3.js";
-import * as sstark from "./stark/stark.js";
-import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
 import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlob, hexToBytes as tpmHex, bytesToHex as tpmToHex } from "./tpmcred.js";   // TPM challenger duty (maybeTpmChallenge); the server versions it by content (ops/static_versions.py)
 /* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
@@ -51,7 +43,17 @@ import { makeCredential as tpmMakeCredential, credentialBlob as tpmCredentialBlo
 // literal had not been touched since betanet-2).
 const LS_CHAIN_ID = "nado_chain_id";
 const CHAIN_ID_SAVED = (() => { try { return localStorage.getItem(LS_CHAIN_ID) || ""; } catch (e) { return ""; } })();
-let CHAIN_ID = CHAIN_ID_SAVED || P.CHAIN_ID;   // the serving relay's protocol.CHAIN_ID until refreshNetIdentity() re-adopts the relay's live chain at boot AND before every automated (auto-bond / epoch-duty) signing
+// A STALE TAB IS REFUSED, NEVER CARRIED ACROSS A REROLL (G6, doc/stwo-migration.md §9.5). /protocol.js is the serving
+// node's protocol module, and every rule this page applies comes with it: the gates, the VM hash a game commits with
+// (nadodapp algHashn), the RANDAO secret's form (randaoSecretFor). A tab loaded before a reroll keeps the OLD module in
+// memory, and adopting the new chain's id from its relay let it sign for the new chain under the old rules — a game
+// commitment hashed with the gen-28 hash can never be revealed on gen 29, so its stake is lost. So the page signs only
+// for PAGE_CHAIN: a relay on another chain is never adopted (relayOnPageChain), nothing is submitted while the current
+// relay is on one (staleChain), and the page reloads by itself, when idle, once its own origin serves the new chain.
+// INVARIANT: CHAIN_ID is PAGE_CHAIN or nothing; tests/test_a_stale_tab_never_signs_for_a_rerolled_chain.mjs.
+const PAGE_CHAIN = P.CHAIN_ID;
+let staleChain = "";                             // the chain the current relay reports when it is not PAGE_CHAIN
+let CHAIN_ID = PAGE_CHAIN;                       // confirmed by refreshNetIdentity() at boot AND before every automated (auto-bond / epoch-duty) signing
 let netAdopted = false;                          // true once a relay's /status has confirmed CHAIN_ID THIS session
 let FINALITY_DEPTH = P.FINALITY_DEPTH;     // protocol.FINALITY_DEPTH (adopted from /status): reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1 (block_ops.py:534)
 // Registration Proof of Sequential Work (POSW_T/S/K/ANCHOR_OFFSET imported above). Non-parallelizable ~1 s chain; the
@@ -116,10 +118,10 @@ const DOMAIN_RANDAO_SECRET = "randao-secret-v1";
 // them, and renaming them silently orphans every derived account / shielded note. FROZEN FOREVER
 // (they are invisible to users); a rename would require explicit migration code, never a sed.
 const DOMAIN_HD_ACCOUNT = "hd-account-v1";        // child-account key derivation
-const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // shielded nullifier-secret derivation
+const DOMAIN_SHIELD_NSK = "shield-nsk-v1";        // RETIRED with the legacy pool (G6); kept so the tag is never reused
 // THE WIDE POOL'S KEY COMES FROM ITS OWN DOMAIN, AND IS FOUR LANES (review 2026-09-24). Every legacy (non-ZK)
 // proof published the v1 key; reusing it for the wide pool would hand anyone holding an old proof the new spend key.
-const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";
+const DOMAIN_SHIELD_NSK_WIDE = "shield-nsk-v2";   // RETIRED with the wide pool (G6); kept so the tag is never reused
 // THE STWO POOL'S KEY COMES FROM ITS OWN DOMAIN TOO (review 2026-10-11). It was the v2 digest taken whole, i.e. the wide
 // key's four lanes before reduction: any leak of a wide witness (the v1 precedent above) would have handed over every
 // Stwo note of the same wallet. Set while the Stwo pool is dormant and empty, so no note was ever made under the old form.
@@ -1826,6 +1828,7 @@ async function probeRelay(url) {
 // of — the best tip we know about, so we never "fail over" onto a node that is itself stuck.
 function relayAcceptable(st) {
   if (CHAIN_ID && netAdopted && st.chain_id !== CHAIN_ID) return false;
+  if (typeof st.chain_id === "string" && st.chain_id && st.chain_id !== PAGE_CHAIN) return false;   // a stale tab never moves onto another chain
   const h = Number(st.latest_block_height);
   if (!Number.isFinite(h)) return false;
   // the MEDIAN, which one lying relay cannot move (the estimate may sit RELAY_LEAD_MAX above it — more than this
@@ -1836,7 +1839,7 @@ function relayAcceptable(st) {
 function adoptRelay(url, st) {
   const before = relayBase();
   relayPool.auto = url; relayPool.fails = 0; relayPool.switchedAt = Date.now();
-  if (st && typeof st.chain_id === "string" && st.chain_id) {
+  if (st && typeof st.chain_id === "string" && st.chain_id && relayOnPageChain(st.chain_id)) {
     CHAIN_ID = st.chain_id; netAdopted = true;
     try { localStorage.setItem(LS_CHAIN_ID, CHAIN_ID); } catch (e) {}
     const el = $("netTag"); if (el) el.textContent = CHAIN_ID;
@@ -2476,6 +2479,25 @@ function reloadWhenIdle() {
   if (walletIdle()) { location.reload(); return; }
   setTimeout(reloadWhenIdle, 5000);
 }
+function staleChainMsg(other) {
+  return i18("net.staleTab", "This page was loaded for {a}, and the network is now {b}. Nothing was sent: reload the page (it reloads by itself when idle).", { a: PAGE_CHAIN, b: other });
+}
+// the current relay's chain (refreshNetIdentity, adoptRelay): true when it is this page's; otherwise the page goes stale
+// once, says so, and reloads when idle IF its own origin now serves the other chain (a reload then brings the matching
+// code; when only a chosen relay is elsewhere, reloading would change nothing). Back on PAGE_CHAIN clears it.
+function relayOnPageChain(cid) {
+  if (cid === PAGE_CHAIN) { staleChain = ""; return true; }
+  if (staleChain !== cid) {
+    staleChain = cid;
+    log("err", staleChainMsg(cid));
+    if (/^https?:/.test(location.protocol)) {
+      fetch(location.origin + "/status", { cache: "no-store" }).then((r) => r.json()).then((st) => {
+        if (st && typeof st.chain_id === "string" && st.chain_id && st.chain_id !== PAGE_CHAIN && !_reloadArmed) { _reloadArmed = true; reloadWhenIdle(); }
+      }).catch(() => {});
+    }
+  }
+  return false;
+}
 async function checkBuild() {
   if (!/^https?:/.test(location.protocol)) return;
   try {
@@ -2547,6 +2569,11 @@ async function submitTransaction(tx) {
   return out;
 }
 async function _submitTransactionRaw(tx) {
+  // THE ONE SUBMIT PATH refuses for a stale tab (see PAGE_CHAIN): nothing signed under this page's rules reaches a chain
+  // whose rules differ, whatever built it
+  if (staleChain || (tx && tx.chain_id !== undefined && tx.chain_id !== PAGE_CHAIN)) {
+    return { ok: false, status: 0, data: { result: false, message: staleChainMsg(staleChain || String(tx.chain_id)) } };
+  }
   const payload = canonicalize(tx);
   // POST the canonical JSON body — the only submit path (a PQ tx is far too large for a GET URL).
   const res = await fetch(relayBase() + "/submit_transaction", {
@@ -5157,6 +5184,14 @@ async function resumePendingExecSign() {
   const back = bg
     ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
     : (params) => { const r = retUrl.href; location.href = r + (r.includes("?") ? "&" : "?") + params; };
+  // A STALE GAME PAGE IS REFUSED (G6; see PAGE_CHAIN). A game builds its call with ITS OWN /protocol.js — the commitments
+  // it hashes follow that module's VM — and the SDK names that chain in every request (nadodapp `chain`). A request for
+  // another chain than this wallet's page is answered "reload", never signed. A request naming no chain comes from a
+  // page older than the field (G6), which on a chain past generation 28 can only be a tab kept open across the reroll.
+  if (call.chain !== undefined ? call.chain !== PAGE_CHAIN : Number(P.CHAIN_GENERATION || 0) >= 29) {
+    back("ok=0&err=" + encodeURIComponent(i18("dapp.stalePage", "This game page is out of date for the network. Reload it and try again.").slice(0, 120)));
+    return;
+  }
   // an htlc_claim is value-free and can only pay THIS wallet, so it rides the same auto-sign switch as a
   // game move; everything else that moves or commits money always opens the visible confirm
   const claimSilently = !!call.htlc_claim && localStorage.getItem("nado_autosign_dapp") !== "0" && silentOk;
@@ -10395,37 +10430,21 @@ function wireAutoVoteToggle() {
 }
 
 /* ----------------------------------------------------------------------------------------------
- * Shielded pool (doc/privacy.md) — deposit/withdraw against the exec-layer zk-STARK pool. Notes are
- * private, so the wallet keeps its OWN notes locally (localStorage per address); the pool never reveals
- * which note is whose. Transparent phase today: the witness is the proof; the STARK slots in later.
+ * Shielded pool (doc/privacy.md, doc/stwo-migration.md §5.1) — deposit/withdraw against the exec layer's Stwo pool.
+ * Notes are private, so the wallet keeps its OWN notes locally (localStorage per address); the pool never reveals
+ * which note is whose.
  * -------------------------------------------------------------------------------------------- */
-let _shInit = false;
-function ensureShielded() { if (!_shInit) { alghash.initAlghash(blake2bHash); alghash2.initAlghash2(blake2bHash); _shInit = true; } }
-/* WHICH POOL (SHIELD_WIDE_HEIGHT, security review 2026-09-23 Z3). From the gate every note, owner id and
- * nullifier is a 256-bit alghash2 digest and the proof is joinsplit3; below it the legacy 64-bit alghash pool
- * and joinsplit2. The node publishes the gate in /status.proof_rules.shield_wide; a note or a proof is built for
- * the NEXT block, so the rule for tip + 1 applies (the same rule _proofRulesNow uses). Resolved once per action
- * (refreshShieldRules, awaited by every shielded entry point) and read synchronously after that, because the
- * owner/address helpers are called from synchronous render paths. Until the first fetch answers, the wallet
- * assumes the legacy pool, exactly as a node that publishes no gate would be judged. */
-let _shieldWide = null, _shieldTip = 0;
-async function refreshShieldRules() {
-  try {
-    const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
-    const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
-    _shieldTip = tip;
-    _shieldWide = pr.shield_wide !== undefined && tip + 1 >= Number(pr.shield_wide);
-    await _refreshStwo(tip);
-  } catch (e) { if (_shieldWide === null) _shieldWide = false; }
-  return _shieldWide;
-}
-function shieldWide() { return _shieldWide === true; }
-/* THE STWO POOL (protocol STWO_POOL_HEIGHT, doc/stwo-migration.md §5.1). From the gate deposits land in the Stwo pool
- * and only a `stwo_js` proof spends from it (execnode/state.py rules_stwo_pool); the wide pool is frozen there. The gate
- * is read from /protocol.js — the relay's own protocol module — and judged by the same tip + 1 rule as the wide pool,
- * because a note or proof built now lands in a later block. While the gate is dormant (2^62) or 0 (never) this is false,
- * the Stwo module is never even downloaded, and every shielded path below is exactly what it was before the pool existed.
- * Once live it takes precedence over shieldWide(): the pools never mix. */
+// ONE POOL (G6, doc/stwo-migration.md §9.5). The legacy, field and wide pools are closed and were measured EMPTY on the
+// live chain (2026-10-25: 0 commitments, pool_value 0), their deposits refused by L1 (PRIVACY_PAUSE_HEIGHT,
+// WIDE_DEPOSIT_CLOSE_HEIGHT) and their spends by the exec layer from STWO_POOL_HEIGHT, and a reroll refuses to carry a
+// note in any of them. So the wallet builds Stwo notes and proofs only: no alghash2, no joinsplit2/3, no proof_rules.
+// INVARIANT: never reintroduce a fallback to another pool — a deposit escrowed under another pool's owner lands in the
+// Stwo pool where no key can ever spend it.
+let _shieldTip = 0;
+function ensureShielded() {}                      // kept for its callers: the Stwo module loads in refreshShieldRules
+/* THE GATE (protocol STWO_POOL_HEIGHT, read from /protocol.js — the relay's own protocol module). Live on gen 28 since
+ * 269000 and from block 1 on a reroll; a fresh testnet below it has no pool open, and the wallet says so (shieldPaused)
+ * exactly as the node refuses. Judged at tip + 1, because a note or proof built now lands in a later block. */
 let _stwoGate = false, _stwo = null;
 function stwoGateLive(tip) {
   const g = BigInt(STWO_POOL_HEIGHT || 0);      // BigInt(): it was a BigInt in /protocol.js while dormant (2^62 > 2^53)
@@ -10435,69 +10454,63 @@ async function _refreshStwo(tip) {
   _stwoGate = stwoGateLive(tip);
   if (_stwoGate && !_stwo) { try { _stwo = await import("./stark/stwo_js.js"); } catch (e) { _stwo = null; } }
 }
+// resolved once per action (awaited by every shielded entry point) and read synchronously after that, because the
+// owner/address helpers are called from synchronous render paths
+async function refreshShieldRules() {
+  try {
+    const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
+    _shieldTip = Number(st.latest_block_height || 0);
+    await _refreshStwo(_shieldTip);
+  } catch (e) { /* relay unreachable: keep what we knew; shieldPaused stops an action that cannot be built */ }
+  return shieldStwo();
+}
 function shieldStwo() { return _stwoGate && !!_stwo; }
-// THE GATE IS LIVE BUT THE MODULE DID NOT LOAD: every shielded action stops (shieldPaused). Falling back to the wide pool
-// here would escrow a deposit behind a wide owner in the Stwo pool — a note no key can ever spend.
+// THE GATE IS LIVE BUT THE MODULE DID NOT LOAD: every shielded action stops (shieldPaused) and the page says why.
 function stwoMissing() { return _stwoGate && !_stwo; }
-// PRIVACY PAUSE (2026-09-24): the legacy field pool is closed — L1 refuses its deposits and the exec layer its
-// transfers (PRIVACY_PAUSE_HEIGHT) — so the wallet must not build a legacy deposit or proof: the deposit would be
-// refused and a legacy proof publishes the spend key. Only the wide pool is open. Every shielded entry point that
-// builds a transaction calls this right after refreshShieldRules().
+// Every shielded entry point that builds a transaction calls this right after refreshShieldRules().
 function shieldPaused() {
+  if (staleChain) { log("err", staleChainMsg(staleChain)); return true; }   // a stale tab proves and relays nothing (PAGE_CHAIN)
   if (stwoMissing()) { log("err", i18("shield.stwoLoadFail", "Private banknotes could not load on this page. Check your connection and reload.")); return true; }
-  if (shieldWide() || shieldStwo()) return false;
+  if (shieldStwo()) return false;
   log("err", i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected."));
   return true;
 }
-// owner ids as the wire carries them: a 64-hex digest (wide, Stwo) or a decimal field element (legacy). A Stwo owner and
-// commitment are 64-hex strings already (static/stark/stwo_js.js), so they pass through.
-function ownerStr(o) { return shieldStwo() ? String(o) : shieldWide() ? alghash2.toHex(o) : o.toString(); }
-function ownerParse(str) { return shieldStwo() ? String(str).toLowerCase() : shieldWide() ? alghash2.fromHex(String(str)) : BigInt(str); }
-function cmStr(cm) { return shieldStwo() ? String(cm) : shieldWide() ? alghash2.toHex(cm) : cm.toString(); }
-function noteCommit(value, owner, rho) {
-  if (shieldStwo()) return _stwo.commit(BigInt(value), owner, BigInt(rho));
-  return shieldWide() ? alghash2.commit(value, owner, rho) : alghash.commit(value, owner, rho);
-}
+// owner ids and commitments as the wire carries them: 64-hex digests (static/stark/stwo_js.js), passed through
+function ownerStr(o) { return String(o); }
+function ownerParse(str) { return String(str).toLowerCase(); }
+function cmStr(cm) { return String(cm); }
+function noteCommit(value, owner, rho) { return _stwo.commit(BigInt(value), owner, BigInt(rho)); }
 function shieldStoreKey() { return "nado.shieldf." + (state.wallet ? state.wallet.address : "none"); }
-// ONLY THE ACTIVE POOL'S NOTES (review 2026-09-24): a wide note's cm is 64 hex, a legacy one a decimal. They were
-// summed together, so after a pool switch the balance counted notes this pool cannot spend. A Stwo note's cm is ALSO
-// 64 hex, so it carries an explicit pool tag (saveNotes stamps it) — without one, a wide note would count as Stwo.
-function _notePool(n) { return n && n.pool === "stwo" ? "stwo" : /^[0-9a-f]{64}$/.test(String(n && n.cm)) ? "wide" : "legacy"; }
-function _activePool() { return shieldStwo() ? "stwo" : shieldWide() ? "wide" : "legacy"; }
+// ONLY STWO NOTES ARE THIS WALLET'S BALANCE. A Stwo note carries an explicit pool tag (saveNotes stamps it): its cm is
+// 64 hex like a wide note's, so without the tag a wide note would count. A wide or legacy note left in a browser's
+// storage is never shown, summed or deleted (both pools were empty on chain when the wallet dropped them, so any such
+// entry is one that never landed or was already spent) — saveNotes keeps it on disk untouched.
+function _notePool(n) { return n && n.pool === "stwo" ? "stwo" : "other"; }
 function loadNotes() {
   let all; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; }
-  const pool = _activePool();
-  return all.filter((n) => _notePool(n) === pool);
+  return all.filter((n) => _notePool(n) === "stwo");
 }
-// keep the OTHER pool's notes on disk untouched: saveNotes only ever receives the active pool's list
+// keep every other entry on disk untouched: saveNotes only ever receives the Stwo list
 function saveNotes(notes) {
   try {
     let all = []; try { all = JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) {}
-    const pool = _activePool();
-    if (pool === "stwo") for (const n of notes) n.pool = "stwo";
-    localStorage.setItem(shieldStoreKey(), JSON.stringify(all.filter((n) => _notePool(n) !== pool).concat(notes)));
+    for (const n of notes) n.pool = "stwo";
+    localStorage.setItem(shieldStoreKey(), JSON.stringify(all.filter((n) => _notePool(n) !== "stwo").concat(notes)));
   } catch (e) {}
 }
-function _randField() {   // a random Goldilocks field element (note randomness rho)
+// a note's randomness rho: a u64, exactly the range L1 admission (transaction_ops.field_shield_check) and the circuit
+// (execnode/shielded_stwo.py: lo(rho), hi(rho)) take
+function _randField() {
   const b = crypto.getRandomValues(new Uint8Array(8)); let x = 0n;
   for (const by of b) x = (x << 8n) | BigInt(by);
-  return (x % alghash.P).toString();
-}
-// STABLE per-wallet shielded spend key, derived from the seed -> recoverable from the recovery phrase, and
-// reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
-function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash([DOMAIN_SHIELD_NSK, state.wallet.privateKey])) % alghash.P; }
-// the wide spend key: 32 bytes of blake2b over the v2 domain, as four 64-bit lanes reduced into the field
-function shieldNskWide() {
-  ensureShielded();
-  const h = blake2bHash([DOMAIN_SHIELD_NSK_WIDE, state.wallet.privateKey]);
-  return [0, 1, 2, 3].map((i) => BigInt("0x" + h.slice(16 * i, 16 * i + 16)) % alghash2.P);
+  return x.toString();
 }
 // THE STWO SPEND KEY (doc/stwo-migration.md §5.1): a 256-bit blake2b digest under ITS OWN domain (DOMAIN_SHIELD_NSK_STWO),
-// taken whole as the circuit's eight u32 words — recoverable from the same recovery phrase, and independent of the wide
-// and legacy keys. INVARIANT: never derive it from another pool's domain; one pool's leak must not open another's notes
-// (review 2026-10-11; the wide key's separation from v1 is the same rule). The Stwo owner is BLAKE2s(21, nsk)
-// (static/stark/stwo_js.js ownerOf), a one-way image, and a Stwo proof is zero-knowledge.
-function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
+// taken whole as the circuit's eight u32 words — recoverable from the same recovery phrase, and independent of the
+// retired pools' keys (DOMAIN_SHIELD_NSK, _WIDE). INVARIANT: never derive it from another pool's domain; one pool's leak
+// must not open another's notes (review 2026-10-11). The Stwo owner is BLAKE2s(21, nsk) (static/stark/stwo_js.js
+// ownerOf), a one-way image, and a Stwo proof is zero-knowledge.
+function shieldNskStwo() { return blake2bHash([DOMAIN_SHIELD_NSK_STWO, state.wallet.privateKey]); }
 // A FRESH OWNER PER DEPOSIT (ZK review 2026-10-11, tests/test_a_stwo_deposit_does_not_publish_the_owner_behind_the_wallets_zaddr.mjs).
 // A deposit publishes its note's owner in the clear, next to the account that signs it. Under the one stable owner (the
 // zaddr) that tied the zaddr — and every deposit, and every note ever paid to it — to the account. A deposit with
@@ -10507,57 +10520,40 @@ function shieldNskStwo() { ensureShielded(); return blake2bHash([DOMAIN_SHIELD_N
 // KEYED ON RHO, NOT ON A COUNTER (review 2026-10-12, tests/test_every_stwo_deposit_is_restorable_from_the_recovery_phrase.mjs):
 // a per-device deposit index was re-used by a second device of the same wallet (one published owner for two deposits),
 // and refused sends burned indices past the restore's gap. rho is fresh per deposit and already public, so there is no
-// state to keep or share. No note was ever made under the index scheme: the pool was never live on the chain (gen 28's
-// STWO_POOL_HEIGHT unreached, and L1 refuses a Stwo-tagged deposit below it), so nothing migrates.
-// INVARIANT: doShield in the Stwo pool never publishes shieldOwner(), and never derives a deposit's key from device state.
+// state to keep or share.
+// INVARIANT: doShield never publishes shieldOwner(), and never derives a deposit's key from device state.
 function stwoDepositNsk(rho) { return _stwo.depositNsk(shieldNskStwo(), BigInt(rho)); }
-// the spend key of THIS note, in the active pool's wire form: a Stwo deposit note is spent with its own nsk_dep; every
-// other note (received payments, change) with the wallet's stable key, which its owner (the zaddr) is the image of
+// the spend key of THIS note: a deposit note is spent with its own nsk_dep; every other note (received payments,
+// change) with the wallet's stable key, which its owner (the zaddr) is the image of
 function noteNskWire(n) {
-  if (shieldStwo() && n && n.dep) return stwoDepositNsk(n.rho);
+  if (n && n.dep) return stwoDepositNsk(n.rho);
   return shieldNskWire();
 }
 // ONE NULLIFIER, ONE NOTE (review 2026-10-11, "faerie gold"): the Stwo circuit leaves an output's rho free and
 // nf = H(nsk, rho) does not depend on the note's position, so a sender can pay two notes to one owner with the SAME rho
 // and the owner can only ever spend one of them. Received notes are counted by NULLIFIER: a note whose nullifier this
 // wallet already holds (spent or not) is refused, so a payment is credited once and the receiver is told why.
-// INVARIANT: every receive path goes through doReceiveShielded, which asks this before banking a Stwo note.
+// INVARIANT: every receive path goes through doReceiveShielded, which asks this before banking a note.
 function shieldDuplicateNote(notes, rho, nskStwo, nullifierOf) {
   const nf = nullifierOf(nskStwo, BigInt(rho));
   // a deposit note (n.dep) is spent with its own nsk_dep, so its nullifier is not nf(nskStwo, rho): compare only stable-key notes
   return notes.some((n) => n.rho !== undefined && !n.dep && nullifierOf(nskStwo, BigInt(n.rho)) === nf);
 }
-// the spend key in the form the active pool's prover takes (wit.nsk): 64-hex (Stwo), four decimal lanes (wide), one (legacy)
-function shieldNskWire() { return shieldStwo() ? shieldNskStwo() : shieldWide() ? shieldNskWide().map(String) : shieldNsk().toString(); }
-function shieldOwner() {
-  if (shieldStwo()) return _stwo.ownerOf(shieldNskStwo());
-  return shieldWide() ? alghash2.ownerOf(shieldNskWide()) : alghash.ownerOf(shieldNsk());
-}
-// a zaddr is the owner id in base36: ~13 chars for a legacy 64-bit id, ~50 for a wide 256-bit digest. A Stwo owner is
-// also 256 bits, so its form is marked: "zaddr_" + base36. Sending to the wrong pool's address makes a note its owner
-// can never spend, so the mark is what lets parseShieldAddr refuse it.
+// the spend key in the form the prover takes (wit.nsk): 64-hex
+function shieldNskWire() { return shieldNskStwo(); }
+function shieldOwner() { return _stwo.ownerOf(shieldNskStwo()); }
+// a zaddr is the owner digest in base36, marked "zaddr_". The mark is what lets parseShieldAddr refuse an address of
+// a retired pool (unmarked "zaddr" + base36): a note sent to it could never be spent.
 const ZADDR_STWO = "zaddr_";
-function shieldAddr() {
-  if (shieldStwo()) return ZADDR_STWO + BigInt("0x" + shieldOwner()).toString(36);
-  return "zaddr" + (shieldWide() ? BigInt("0x" + alghash2.toHex(shieldOwner())) : shieldOwner()).toString(36);
-}
+function shieldAddr() { return ZADDR_STWO + BigInt("0x" + shieldOwner()).toString(36); }
 function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
 function parseShieldAddr(a) {
   a = String(a || "").trim();
   if (!a.startsWith("zaddr")) throw new Error("not a zaddr… shielded address");
-  if (a.startsWith(ZADDR_STWO) !== shieldStwo()) throw new Error(shieldStwo() ? i18("shield.zaddrPrevPool", "that zaddr… is from the previous pool") : i18("shield.zaddrNotLive", "that zaddr… is for a pool that is not live yet"));
-  if (shieldStwo()) {
-    const d = _b36(a.slice(ZADDR_STWO.length));
-    if (d >= (1n << 256n)) throw new Error("bad shielded address");
-    return d.toString(16).padStart(64, "0");   // -> the recipient's Stwo owner digest (64-hex)
-  }
-  const body = a.slice(5), n = _b36(body);
-  // a wide id is 256 bits (its base36 form is longer than any 64-bit legacy id's 13 chars); the pools do not
-  // mix, so an address from the other pool is refused rather than silently sent into a note nobody can spend
-  const wideForm = body.length > 13;
-  if (wideForm !== shieldWide()) throw new Error(shieldWide() ? "that zaddr… is from the previous pool" : "that zaddr… is for the wide pool, not live yet");
-  if (!wideForm) return n;   // -> the recipient's owner id (a field element)
-  return alghash2.fromHex(n.toString(16).padStart(64, "0"));   // -> the recipient's owner digest (4 lanes)
+  if (!a.startsWith(ZADDR_STWO)) throw new Error(i18("shield.zaddrPrevPool", "that zaddr… is from the previous pool"));
+  const d = _b36(a.slice(ZADDR_STWO.length));
+  if (d >= (1n << 256n)) throw new Error("bad shielded address");
+  return d.toString(16).padStart(64, "0");   // -> the recipient's Stwo owner digest (64-hex)
 }
 
 // Shielded receive: amount-aware payment-link QR + link text (mirrors renderReceiveQR; the raw zaddr…
@@ -10577,9 +10573,9 @@ function renderZaddrQR() {
 // shielded blob without checking its proof; the exec node judges it later and may refuse it (a stale proof, two tabs
 // spending one note). The note used to be marked spent — and its change credited — the moment the blob reached the
 // mempool, so a refused proof hid the note for good. Now a spend remembers its output commitments: once one appears in
-// the tree the spend is confirmed; if none has appeared SPEND_LAND_GRACE_MS later, the note is restored and the phantom
-// change dropped. The tree is read whole and searched here (as the claim path does), so the relay learns nothing.
-const SPEND_LAND_GRACE_MS = 20 * 60 * 1000;   // landing window + finality, with room for a slow exec node
+// the tree the spend is confirmed; if none has appeared, its nullifier is unspent and the anchor window has passed
+// (STWO_SPEND_LAND_GRACE_MS), the note is restored and the phantom change dropped. The tree and the spent set are read
+// whole and searched here (as the claim path does), so the relay learns nothing.
 function _markSpendPending(note, pr) {
   note.spentAt = Date.now();
   note.spentOuts = [pr && pr.cm_out1, pr && pr.cm_out2].filter(Boolean).map(String);
@@ -10588,26 +10584,22 @@ const STWO_SPEND_LAND_GRACE_MS = 3 * 3600 * 1000;   // past the anchor window (1
 async function reconcileSpentNotes() {
   const notes = loadNotes();
   const open = notes.filter((n) => n.spent && Array.isArray(n.spentOuts) && n.spentOuts.length);
-  if (!open.length) return 0;
+  if (!open.length || !shieldStwo()) return 0;           // no Stwo module: no nullifier to judge by, so never restore
   let leaves;
   try { leaves = new Set(((await execJSON("/exec/field_leaves")).leaves || []).map(String)); } catch (e) { return 0; }
   // A RELAYED SPEND CAN LAND LATE (review 2026-10-12): its anchor is accepted for ANCHOR_BLOCKS (~2 h), so a relay (or a
-  // stalled exec node) can land it long after SPEND_LAND_GRACE_MS. Restoring the input then deleted the change note for
-  // good. A Stwo input is restored only when its nullifier is NOT spent and the anchor window has passed; a spent one
-  // keeps its outputs.
-  let spentNf = null;
-  if (shieldStwo()) {
-    try { spentNf = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String)); } catch (e) { return 0; }
-  }
+  // stalled exec node) can land it long after a 20-minute grace (the retired pools' rule). Restoring the input then
+  // deleted the change note for good. An input is restored only when its nullifier is NOT spent and the anchor window
+  // has passed; a spent one keeps its outputs.
+  let spentNf;
+  try { spentNf = new Set(((await execJSON("/exec/stwo_nullifiers")).nullifiers || []).map(String)); } catch (e) { return 0; }
   let changed = false, restored = 0;
   for (const n of open) {
     if (n.spentOuts.some((c) => leaves.has(String(c)))) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }
-    if (spentNf) {
-      let nf = null;
-      try { nf = _stwo.nullifier(noteNskWire(n), BigInt(n.rho)); } catch (e) { continue; }   // cannot tell: never restore
-      if (spentNf.has(nf)) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }  // it landed: keep the change
-      if (Date.now() - Number(n.spentAt || 0) < STWO_SPEND_LAND_GRACE_MS) continue;
-    } else if (Date.now() - Number(n.spentAt || 0) < SPEND_LAND_GRACE_MS) continue;
+    let nf = null;
+    try { nf = _stwo.nullifier(noteNskWire(n), BigInt(n.rho)); } catch (e) { continue; }     // cannot tell: never restore
+    if (spentNf.has(nf)) { delete n.spentOuts; delete n.spentAt; changed = true; continue; }    // it landed: keep the change
+    if (Date.now() - Number(n.spentAt || 0) < STWO_SPEND_LAND_GRACE_MS) continue;
     const outs = new Set(n.spentOuts.map(String));
     for (let i = notes.length - 1; i >= 0; i--) if (notes[i] !== n && outs.has(String(notes[i].cm))) notes.splice(i, 1);
     n.spent = false; delete n.spentOuts; delete n.spentAt; changed = true; restored++;
@@ -10767,7 +10759,7 @@ async function renderShield() {
   } catch (e) { $("shieldPool").textContent = "—"; }
   // PRIVACY PAUSE: say so where the pool is described, AFTER the pool line so it is not overwritten.
   if (stwoMissing()) $("shieldPool").textContent = i18("shield.stwoLoadFail", "Private banknotes could not load on this page. Check your connection and reload.");
-  else if (!shieldWide() && !shieldStwo()) $("shieldPool").textContent = i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected.");
+  else if (!shieldStwo()) $("shieldPool").textContent = i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected.");
   claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
   const box = $("shieldNotes"); box.innerHTML = "";
   const mine = notes.filter((n) => !n.spent);
@@ -10780,19 +10772,9 @@ async function renderShield() {
   }
 }
 
-// WIDE DEPOSITS ARE CLOSED (protocol WIDE_DEPOSIT_CLOSE_HEIGHT): between that gate and the Stwo pool's there is no pool to
-// deposit into, so the wallet says so instead of building a deposit L1 refuses. Judged at tip + 1, like every pool rule.
-function wideDepositClosed(tip) {
-  const g = BigInt(WIDE_DEPOSIT_CLOSE_HEIGHT || 0);
-  return !shieldStwo() && g > 0n && BigInt(tip) + 1n >= g;
-}
 async function doShield() {
   if (!state.wallet) return;
   ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return;
-  if (wideDepositClosed(_shieldTip)) {
-    log("err", i18("shield.depositsClosed", "New private deposits are paused while private banknotes move to their new pool. Your public balance is not affected."));
-    return;
-  }
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
   if (await shieldDeposit(rawAmount, state.wallet)) { $("shieldAmount").value = ""; setTimeout(() => renderShield().catch(() => {}), 1500); }
@@ -10800,32 +10782,27 @@ async function doShield() {
 // ONE DEPOSIT, signed by `signer` (the active account, or a shadow account returning its coins to the pool), the note
 // owned by THIS wallet's private keys (a fresh owner from its rho) and banked in this wallet's notes. true on success.
 async function shieldDeposit(rawAmount, signer) {
-  // THE CLOSE IS CHECKED HERE, for every caller (doShield, and doReturnShadow which skips doShield): a deposit built
-  // while the wide pool is closed is refused by L1, but only after it was signed and sent
-  if (wideDepositClosed(_shieldTip)) {          // (false once the Stwo pool is live: wideDepositClosed checks)
-    log("err", i18("shield.depositsClosed", "New private deposits are paused while private banknotes move to their new pool. Your public balance is not affected."));
-    return false;
-  }
+  // THE POOL IS CHECKED HERE, for every caller (doShield, and doReturnShadow which skips doShield): a deposit built with
+  // no Stwo module loaded, or below the gate, has no pool to go to
+  if (!shieldStwo()) { shieldPaused(); return false; }
   const rho = _randField();
-  // STWO: a fresh owner per deposit, from its own rho (stwoDepositNsk) — never the stable owner the zaddr encodes. Older
-  // pools: the stable one.
-  const dep = shieldStwo();
-  const owner = dep ? _stwo.ownerOf(stwoDepositNsk(rho)) : shieldOwner();
-  const cm = noteCommit(rawAmount, owner, BigInt(rho));      // field-native note commitment (wide from the gate)
+  // a fresh owner per deposit, from its own rho (stwoDepositNsk) — never the stable owner the zaddr encodes
+  const owner = _stwo.ownerOf(stwoDepositNsk(rho));
+  const cm = noteCommit(rawAmount, owner, BigInt(rho));
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
     // C-2: send (owner, rho) so the exec node BINDS the note value to the escrowed amount by recomputing
     // commit(amount, owner, rho) itself. `cm` is kept for local reference only; the node does not trust it.
     const data = { field: true, owner: ownerStr(owner), rho: rho.toString(), cm: cmStr(cm) };
     // A STWO DEPOSIT SAYS SO: a wide owner and a Stwo owner are both 64-hex, so L1 cannot tell a deposit from a page that
-    // predates the pool (it would land in the Stwo pool under an owner no key spends). The tag lets the gate's
-    // activation refuse an untagged deposit from the gate (doc/stwo-migration.md §5.1, "OPEN, node side").
-    if (shieldStwo()) data.pool = "stwo";
+    // predates the pool (it would land in the Stwo pool under an owner no key spends). L1 refuses an untagged deposit
+    // from the gate (tests/test_a_stwo_deposit_must_name_its_pool.py).
+    data.pool = "stwo";
     const tx = buildTransferTx(signer, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
-      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), ...(dep ? { dep: true } : {}) });
+      notes.push({ value: rawAmount.toString(), rho, cm: cmStr(cm), spent: false, ts: Date.now(), dep: true });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       return true;
@@ -11027,7 +11004,7 @@ async function doUnshield() {
   // relay cannot be paid in the same spend). To one's own address that reveals nothing new; to SOMEONE ELSE's it tells
   // everyone this account paid them. Said once per account, before the first such withdrawal (operator decision
   // 2026-10-11) — a private payment (Send shielded) is the unlinked way.
-  if (shieldStwo() && to !== state.wallet.address) {
+  if (to !== state.wallet.address) {
     const seen = "nado.stwoPublicPayWarned." + state.wallet.address;
     let warned = false; try { warned = !!localStorage.getItem(seen); } catch (e) {}
     if (!warned) {
@@ -11101,25 +11078,6 @@ async function doUnshield() {
 // removed. All shielded sends/withdrawals go through proveTransfer2, which fails closed when on-device is on.)
 function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
 
-// ON-DEVICE 2-output prover: build the Merkle path from the pool + prove entirely in the browser, so the node
-// never sees the witness. Returns the same shape as the delegated /exec/prove_transfer2. (~20-30s at depth 12.)
-let _starkInit = false;
-async function ensureFastStarkHash() {
-  // route the prover's Merkle/transcript hashing through the WASM BLAKE2b (~50x faster; identical output).
-  if (_starkInit) return;
-  try {
-    const h = await initBlake2bWasm();
-    initStarkHashing((data, size = 32) => (size === 32 ? bytesToHex(h(canonicalBytes(data))) : blake2bHash(data, size)));
-    // NO WASM MERKLE (zk audit 2026-09-26, browser F2): wasm/blake2b's merkle_commit still hashes leaves and nodes with
-    // the retired canonical-JSON scheme, so any root it built was one the node recomputes differently and refuses. The
-    // live wide-pool prover never reached it (salted columns and extension FRI layers are pure JS), but any base-field
-    // caller would have. Pure-JS Merkle below; re-enable only after the wasm packing matches bhash.js leaf/node.
-  } catch (e) {
-    initStarkHashing(blake2bHash);   // wasm unavailable -> pure-JS fallback
-  }
-  try { setFieldWasm(await initGoldilocksWasm()); } catch (e) { /* NTT stays pure-JS BigInt */ }
-  _starkInit = true;
-}
 // DA-only submission (betanet — no legacy single-operator path): publish the ~1-4MB proof to the DA layer
 // (too big for a 16KB blob), then submit an L1 blob carrying ONLY the proof's commitment. Every exec node
 // resolves the proof by that commitment from DA and applies it in L1 ORDER — so the shielded pool is
@@ -11141,70 +11099,16 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
            message: res.data && res.data.message };
 }
 
+// ON-DEVICE prover: the Merkle path is built here from the pool's leaves and the proof made in the browser (the Stwo
+// WASM, in a Worker), so the node never sees the witness. The leaves and the pool tag come from one exec-node answer.
 async function _onDeviceProve2(wit, execBase) {
-  await ensureFastStarkHash();
-  ensureShielded();
+  await refreshShieldRules();
+  if (!shieldStwo()) throw new Error(stwoMissing()
+    ? i18("shield.stwoLoadFail", "Private banknotes could not load on this page. Check your connection and reload.")
+    : i18("shield.paused", "Private banknotes are paused for a security upgrade. Your public balance is not affected."));
   const lv = await execJSON("/exec/field_leaves", { base: execBase });
-  const leaves = lv.leaves || [];
-  const rules = await _proofRulesNow();
-  if ((lv.pool === "stwo") !== shieldStwo()) throw new Error(i18("shield.poolDisagree", "the exec node and the relay disagree on which pool is live — retry in a moment"));
-  if (shieldStwo()) return _onDeviceProveStwo(wit, execBase, leaves);
-  if (!!lv.wide !== shieldWide()) throw new Error("the exec node and the relay disagree on which pool is live — retry in a moment");
-  // the tree depth is the exec node's (ZK_HARDEN_HEIGHT: 12 -> 48), read from the same response as the leaves
-  if (shieldWide()) return _onDeviceProve3(wit, execBase, leaves, rules, alghash2.treeDepth(lv));
-  const cm = BigInt(wit.cm);
-  const idx = leaves.findIndex((l) => BigInt(l) === cm);
-  if (idx < 0) throw new Error("note not in the pool yet");
-  const { sibs, dirs } = treePath(leaves, idx);
-  const J = sjoinsplit2;
-  const bt = J.buildTrace(BigInt(wit.nsk), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
-    BigInt(wit.v1), BigInt(wit.o1), BigInt(wit.r1), BigInt(wit.v2), BigInt(wit.o2), BigInt(wit.r2));
-  const total = J.bounds(bt.D)[2];
-  const consPub = sfield.sub(BigInt(wit.fee), BigInt(wit.public_value));
-  const bnd = [[0, J.S0, alghash.DOM_OWNER], [0, J.S1, alghash.ivVal()], [0, J.AB, alghash.DOM_OWNER], [0, J.CONS, consPub],
-    [total, J.ROOTREG, bt.root], [total, J.NFREG, bt.nf], [total, J.CMOUT1, bt.cm1], [total, J.S0, bt.cm2]];
-  // sstark.NUM_QUERIES is the protocol FRI query count (execnode/stark/fri.py NUM_QUERIES). The node's
-  // verifier REQUIRES exactly this many + the grinding PoW (C-1), so an on-device proof must produce them or
-  // it is rejected. The last arg binds the unshield withdraw_addr into the proof (H-4) so the exit can't be
-  // redirected; null for a transfer.
-  // PROOF RULES BY HEIGHT (2026-09-23): the node judges a proof by the rules of the block it lands in, and
-  // publishes the gate heights in /status.proof_rules rather than have this page hard-code a number that goes
-  // stale. A proof lands above the current tip, so the rules for tip + 1 are the earliest that can apply.
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, wit.withdraw_addr || null, rules);
-  proof.D = bt.D;
-  const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
-  const bundle = { stark: { joinsplit2: { proof: ser(proof), root: bt.root.toString(), nf: bt.nf.toString(),
-    cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString(), public_value: wit.public_value, fee: wit.fee } } };
-  if (wit.withdraw_addr) bundle.withdraw_addr = wit.withdraw_addr;
-  // DA-backed path (falls back to legacy POST-apply on nodes without /da/publish)
-  const res = await _daSubmitFieldTransfer(bundle, execBase);
-  return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
-           cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
-}
-// WIDE on-device prover (SHIELD_WIDE_HEIGHT): the same flow over alghash2 digests and joinsplit3 — leaves and
-// digests are 64-hex, the path is the wide tree's, and the bundle is a `joinsplit3` one. Same shape of result.
-// THE PATH IS BUILT AT THE DEPTH THE EXEC NODE REPORTS (`depth`, from /exec/field_leaves), never a constant here: the
-// pool is depth 12 below ZK_HARDEN_HEIGHT and 48 from it, and the node refuses a proof whose D is not the depth in force.
-async function _onDeviceProve3(wit, execBase, leaves, rules, depth) {
-  const idx = leaves.findIndex((l) => String(l) === String(wit.cm));
-  if (idx < 0) throw new Error("note not in the pool yet");
-  const { sibs, dirs } = alghash2.treePath(leaves, idx, depth);
-  const J = sjoinsplit3;
-  const bt = J.buildTrace(wit.nsk.map(BigInt), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
-    BigInt(wit.v1), alghash2.fromHex(wit.o1), BigInt(wit.r1), BigInt(wit.v2), alghash2.fromHex(wit.o2), BigInt(wit.r2));
-  const bnd = J.boundaries(bt.D, bt.root, bt.nf, bt.cm1, bt.cm2, BigInt(wit.public_value), BigInt(wit.fee));
-  // Z1: the wide circuit proves in ZERO-KNOWLEDGE mode (randomizer columns, random rows, salted leaves)
-  // bindAux: the exit address, public value and fee all enter the transcript (joinsplit3.bind_aux), so no one can
-  // rewrite the exit into a fee after the proof is published.
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, sstark.NUM_QUERIES, J.bindAux(wit.withdraw_addr, wit.public_value, wit.fee), { ...rules, zk: J.ZK_RANDOMIZERS });
-  proof.D = bt.D;
-  const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
-  const bundle = { stark: { joinsplit3: { proof: ser(proof), root: alghash2.toHex(bt.root), nf: alghash2.toHex(bt.nf),
-    cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2), public_value: wit.public_value, fee: wit.fee } } };
-  if (wit.withdraw_addr) bundle.withdraw_addr = wit.withdraw_addr;
-  const res = await _daSubmitFieldTransfer(bundle, execBase);
-  return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
-           cm_out1: alghash2.toHex(bt.cm1), cm_out2: alghash2.toHex(bt.cm2) };
+  if (lv.pool !== "stwo") throw new Error(i18("shield.poolDisagree", "the exec node and the relay disagree on which pool is live — retry in a moment"));
+  return _onDeviceProveStwo(wit, execBase, lv.leaves || []);
 }
 /* PRIVATE STWO SPENDS ARE PUBLISHED BY A RELAY NODE, NEVER BY THIS ACCOUNT (ZK review 2026-10-11, operator decision
  * "nodes relay spends"; ops/stwo_relay.py). The proof hides the spent note and its owner; a `field_transfer` blob signed
@@ -11293,22 +11197,6 @@ async function _onDeviceProveStwo(wit, execBase, leaves) {
   const res = await _daSubmitFieldTransfer(r.bundle, execBase);
   return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment, cm_out1: r.cm1, cm_out2: r.cm2 };
 }
-async function _proofRulesNow() {
-  try {
-    const st = await (await fetch(relayBase() + "/status", { cache: "no-store" })).json();
-    const tip = Number(st.latest_block_height || 0), pr = st.proof_rules || {};
-    const at = (k) => pr[k] !== undefined && tip + 1 >= Number(pr[k]);
-    _shieldWide = at("shield_wide");                                  // keep the pool choice in step with the proof rules
-    await _refreshStwo(tip);
-    return { bind: at("bind"), blockSelector: at("block_selector"), round2: at("round2"), traceLdt: at("trace_ldt"),
-             fullQuery: at("full_query") };   // PROOF_QUERY_FULL_HEIGHT: full-domain openings + the shifted batch
-  } catch (e) {
-    // NEVER prove under guessed rules (zk audit 2026-09-26, browser F1): this fallback used to return every rule OFF,
-    // the wide prover then built a proof no node accepts, L1 took the blob anyway and the note was marked spent. Every
-    // rule is live from block 1, so a failed /status means "try again", not "old rules".
-    throw new Error(i18("err.relayHttp", "The relay is unreachable right now (HTTP {s}). Please try again in a moment.", { s: "status" }));
-  }
-}
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 
 async function proveTransfer2(wit) {   // 2-output proof (send + change) — ALWAYS generated on THIS device
@@ -11332,33 +11220,27 @@ async function doSendShielded() {
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
   // STWO: a relay node publishes the payment (stwoRelays / _onDeviceProveStwo) and is paid its fee once per banknote
   // spent, out of the banknote — so the notes must cover the amount PLUS one fee each, and the user confirms the fee.
-  let relays = [], relayFee = 0n, picks;
-  if (shieldStwo()) {
-    relays = await stwoRelays();
-    if (!relays.length) { log("err", i18("shield.relayNone", "No relay node can publish a private payment right now. Nothing was sent — try again in a minute.")); return; }
-    relayFee = relays[0].fee;
-    picks = selectNotesFor(rawAmount);
-    for (let i = 0; picks && i < 8; i++) {
-      const need = rawAmount + relayFee * BigInt(picks.length), again = selectNotesFor(need);
-      if (!again || again.length === picks.length) { picks = again; break; }
-      picks = again;
-    }
-    if (!picks) { log("err", insufficientMsg(rawAmount + relayFee)); return; }
-    const okc = await uiConfirm({
-      title: i18("shield.zsendTitle", "Send privately"),
-      rows: [
-        { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
-        { k: i18("dlg.to", "To"), v: String($("zsendTo").value || "").trim().slice(0, 18) + "…" },
-        { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(relayFee * BigInt(picks.length)) + " NADO" },
-        { k: i18("shield.relayBy", "Published by"), v: relayHost(relays[0].url) },
-      ],
-      note: i18("shield.zsendNote", "A relay node publishes this payment under its own account, so it is not linked to yours. Its fee comes out of your private balance."),
-    });
-    if (!okc) { log("info", i18("msg.cancelled", "Cancelled.")); return; }
-  } else {
-    picks = selectNotesFor(rawAmount);
-    if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
+  const relays = await stwoRelays();
+  if (!relays.length) { log("err", i18("shield.relayNone", "No relay node can publish a private payment right now. Nothing was sent — try again in a minute.")); return; }
+  const relayFee = relays[0].fee;
+  let picks = selectNotesFor(rawAmount);
+  for (let i = 0; picks && i < 8; i++) {
+    const need = rawAmount + relayFee * BigInt(picks.length), again = selectNotesFor(need);
+    if (!again || again.length === picks.length) { picks = again; break; }
+    picks = again;
   }
+  if (!picks) { log("err", insufficientMsg(rawAmount + relayFee)); return; }
+  const okc = await uiConfirm({
+    title: i18("shield.zsendTitle", "Send privately"),
+    rows: [
+      { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
+      { k: i18("dlg.to", "To"), v: String($("zsendTo").value || "").trim().slice(0, 18) + "…" },
+      { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(relayFee * BigInt(picks.length)) + " NADO" },
+      { k: i18("shield.relayBy", "Published by"), v: relayHost(relays[0].url) },
+    ],
+    note: i18("shield.zsendNote", "A relay node publishes this payment under its own account, so it is not linked to yours. Its fee comes out of your private balance."),
+  });
+  if (!okc) { log("info", i18("msg.cancelled", "Cancelled.")); return; }
   const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     // ONE CLAIM CODE PER NOTE SPENT. The circuit is 1-in/2-out, so an amount spanning several banknotes
@@ -11384,7 +11266,7 @@ async function doSendShielded() {
         v1: take.toString(), o1: ownerStr(recipientOwner), r1,
         v2: change.toString(), o2: ownerStr(shieldOwner()), r2,
         public_value: "0", fee: "0",
-        ...(shieldStwo() ? { relays, relayFee } : {}),      // STWO: published by one of these relays, never this account
+        relays, relayFee,                                  // published by one of these relays, never this account
       };
       const pr = await proveTransfer2(wit);
       if (pr.error || !pr.ok) {
@@ -11446,7 +11328,7 @@ async function doSendShielded() {
  *
  * WHY DELIVERY IS ADDRESSED BY ACCOUNT AND NOT BY zaddr. The obvious move is to make `zaddr`
  * self-addressing so the claim code can be sent to it directly. It is the wrong move: shieldOwner() is
- * alghash.ownerOf(shieldNsk()) — a ONE-WAY hash, not a KEM public key — so nothing can be sealed to it,
+ * BLAKE2s(nsk) (stwo_js ownerOf) — a ONE-WAY hash, not a KEM public key — so nothing can be sealed to it,
  * and the two ways to fix that both undo the point of a shielded address. Embedding the transparent
  * address publishes the link between the two identities to everyone the zaddr is ever given to;
  * registering shieldOwner -> kem_pub on-chain publishes the same link, permanently, in consensus state.
@@ -11552,7 +11434,7 @@ async function doReceiveShielded() {
     if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
     if (notes.some((n) => n.cm === cmStr(cm))) { log("info", i18("shield.already", "You already have that banknote.")); return; }
-    if (shieldStwo() && shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)) {
+    if (shieldDuplicateNote(notes, rho, shieldNskStwo(), _stwo.nullifier)) {
       log("err", i18("shield.stwoSameNf", "This banknote shares its spending tag with one you already hold, so only one of them could ever be spent. It was not added — ask the sender for a new one."));
       return;
     }
@@ -12133,7 +12015,8 @@ async function refreshNetIdentity() {
   try {
     const st = (await rpcJSON("/status")).data;
     if (st && typeof st.chain_id === "string" && st.chain_id) {
-      CHAIN_ID = st.chain_id;                       // adopt the relay's chain — self-resolving upgrades
+      if (!relayOnPageChain(st.chain_id)) return CHAIN_ID;   // a rerolled chain: this page's rules are not its rules
+      CHAIN_ID = st.chain_id;                       // == PAGE_CHAIN (relayOnPageChain)
       netAdopted = true;
       try { localStorage.setItem(LS_CHAIN_ID, CHAIN_ID); } catch (e) {}   // next boot shows THIS, not a literal
       const el = $("netTag"); if (el) el.textContent = CHAIN_ID;

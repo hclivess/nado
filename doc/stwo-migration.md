@@ -648,7 +648,7 @@ phase is done). Nothing below changes the live chain until G7, except where a do
 | **G3 contract runtime** (word decided 2026-10-19: 256-bit wrapping, doc/stwo/g3-vm-word.md) | route from G1 | A: new word + BLAKE2s opcode in `zkvm.py`, zkpy/zkasm, 29 builders, game clients; B: Cairo contracts + runtime adapter | every contract's reference-model test passes on the new runtime (the autogame/pets three-implementation pattern), `test_every_opcode_is_provable` replaced by its route-A/B form, games walked in a headless browser at 412 and 360 px |
 | **G4 Stwo settlement statement** | G1 prototype numbers | statement (pre/post root, call leaves, chain reads, records effects incl. collect_dividend from authenticated pre-state), verifier crate on stable rustc behind `native_guard`, prover on the settler | the forgery suite ported from today's settle tests (wrong pre-root, cid_io, chain-read substitution, PAY/asset io, records shift, counterfeit code) refused by the new verifier; an honest span verifies; verify time and proof size measured |
 | **G5 carry re-encoding** | rerun census | extend `tools/alphanet6_carryforward.py` (→ `tools/carry.py`, §6.5): owner digests and digest keys remapped through `zk_addrs`, hash-valued slots refunded/rebased, assets, registry re-keyed, new genesis root pinned, all pools empty | "a reroll loses nothing" (§6.5) on the live chain, plus: no slot value or key equal to an old digest remains; the remapped digest count equals the census; a carried pet, battle and autogame run playable on a loopback testnet from the carried genesis |
-| **G6 wallet** | — | Stwo pool only; drop legacy/wide UI, `proof_rules` read, alghash2/stark imports; nadodapp hash swap; i18n for any string touched | `node tests/i18n_coverage.mjs`; deposit, private send, unshield walked as a user on the testnet from the served URL (CLAUDE.md rule 6); a stale tab refused cleanly |
+| **G6 wallet** (built 2026-10-25, below the table) | — | Stwo pool only; drop legacy/wide UI, `proof_rules` read, alghash2/stark imports; nadodapp hash swap; i18n for any string touched | `node tests/i18n_coverage.mjs`; deposit, private send, unshield walked as a user on the testnet from the served URL (CLAUDE.md rule 6); a stale tab refused cleanly |
 | **G7 reroll (generation 29)** | fleet `status_pool` uniform; oldest fleet rustc ≥ Stwo's (needs the `/status` field of §5.1 first) | `CHAIN_GENERATION` bump, doc/reroll.md runbook, the gen-28 rehearsal pattern (full suite + testnet + headless walk on the gen-29 tree) | fleet on one genesis; exec root equals the pinned constant on every exec node; first quorum settle lands; exits claim |
 | **G8 Stwo settlement on** | 2 weeks of the G4 prover producing verifying proofs against live gen-29 spans, off-chain | `STWO_SETTLE_HEIGHT` set at the fleet's adoption block (CLAUDE.md rule 3) | proofs land; L1 verify time measured on the slowest fleet node |
 | **G9 deletion** | gen-29 chain replayed block for block on the deletion tree (the gen-27 cleanup recipe) | 9.7 | same hashes and roots at every height; pyflakes zero; `test_no_undefined_names`; suite green |
@@ -662,6 +662,24 @@ evidence for a BLAKE2s root; the settler never builds one). **The calls commitme
 persists per block (`block_summary`) are already BLAKE2b digests of the canonical call; only their FOLD is alghash2,
 and it runs only in settle-with-proof validation, which the gate refuses. G4 defines the Stwo fold over the same
 leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the positions' in-circuit form (with G4).
+
+**G6 status (2026-10-25).** Built, no consensus change:
+- **Stwo pool only.** The legacy, field and wide pools were measured EMPTY on the live chain (0 commitments,
+  `pool_value` 0) and are closed on both layers, so the wallet dropped them: no alghash/alghash2/joinsplit2|3/stark
+  imports, no `/status.proof_rules` read, no wide/legacy zaddr forms, deposits and spends Stwo-only, and a page that
+  cannot load the Stwo prover stops instead of falling back (tests/test_the_wallet_builds_only_stwo_notes.mjs). A spend
+  is restored only by its nullifier (the 20-minute wall-clock rule of the old pools is gone). The retired files stay
+  until G9, with the node verifiers whose crosscheck tests pin them.
+- **A stale tab is refused.** A page signs only for the chain of the `/protocol.js` it loaded (`PAGE_CHAIN`): a relay
+  on another chain is never adopted, nothing is submitted while the current relay is on one, and the page reloads by
+  itself when idle once its own origin serves the new chain. Game pages name their chain in every signing request
+  (nadodapp `_payloadOf`); the wallet refuses one for another chain, and on gen 29 one that names none
+  (tests/test_a_stale_tab_never_signs_for_a_rerolled_chain.mjs).
+- **Carried game records** (doc/stwo/g5-carry.md 2c): the pets combine preview reads the whole gene, and history
+  displays redraw a record only when the redraw reaches its stored result.
+- **Still owed for the exit test:** deposit, private send and unshield walked as a user from the served URL. The Stwo
+  pool opens at 269000 on gen 28, so a loopback testnet (which starts at block 0 under gen-28 constants) has no pool to
+  walk; the walk belongs to the G7 rehearsal on the gen-29 tree, where the gate is 1.
 
 **Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
 in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or
