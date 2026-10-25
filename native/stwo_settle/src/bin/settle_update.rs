@@ -66,7 +66,19 @@ fn main() {
         debug_path_constraints(&us);
         return;
     }
-    let cfg = node_config();
+    // MEASUREMENT ONLY: SETTLE_CFG="pow,log_blowup,queries,fold_step" proves and verifies under another PcsConfig (the
+    // parameter study in doc/stwo/g4-settlement-statement.md); unset, the node's config.
+    let cfg = match std::env::var("SETTLE_CFG") {
+        Ok(v) => {
+            let x: Vec<u32> = v.split(',').map(|t| t.parse().unwrap()).collect();
+            stwo::core::pcs::PcsConfig {
+                pow_bits: x[0],
+                fri_config: stwo::core::fri::FriConfig::new(0, x[1], x[2] as usize, x[3]),
+                min_lifting_log_size: 0,
+            }
+        }
+        Err(_) => node_config(),
+    };
     let t = Instant::now();
     let tamper = match std::env::var("SETTLE_TAMPER").as_deref() {
         Ok("shared_sibling") => Tamper::SharedSibling,

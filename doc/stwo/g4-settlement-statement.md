@@ -97,7 +97,37 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
 - NEW for the ops 2.2 point 3 adds: a withdrawal leaf at a nonce other than the committed counter + 1; an amount other
   than the committed balance; a counter not incremented; a balance not deleted.
 
-## 3. Next steps
+## 3. Proof parameters (2026-10-25)
+
+Measured on the busiest real span (130 updates, 4,708 rows) with the batch prototype. Every configuration verified the
+honest proof and refused all 16 forgeries. Security is Stwo's conjectured count, `pow_bits + log_blowup x n_queries`.
+
+| config (pow, log blowup, queries, fold step) | bits | prove | verify | proof |
+|---|---|---|---|---|
+| 20, 2, 160, 1 (stwo_js's node config) | 340 | 13.3 s | 197 ms | 2.53 MB |
+| 20, 2, 54, 1 | 128 | 12.1 s | 93 ms | 920 KB |
+| **20, 2, 54, 4 (chosen)** | **128** | **11.9 s** | **87 ms** | **860 KB** |
+| 20, 3, 36, 4 | 128 | 19.0 s | 134 ms | 605 KB |
+| 27, 3, 23, 4 (StarkWare's Cairo proof, provably.fast) | 96 | 62.8 s | 149 ms | 412 KB |
+| 26, 2, 35, 4 (StarkWare's recursion circuit) | 96 | 16.8 s | 81 ms | 584 KB |
+
+- **Chosen: 128 bits, blowup 4, 54 queries, fold step 4.** The proof is 66% smaller, verify is 2.3x faster, and proving
+  is slightly faster. 128 rather than 96 bits because these proofs settle balances. The cost of going to 96 bits would
+  be about 30% more proof bytes, which is small.
+- **Grinding stays at 20 bits.** 27 bits added ~50 s per proof here. StarkWare can afford it because provably.fast
+  made their grinding kernel a SIMD one.
+- About 70 ms of every verify time above is the preprocessed commitment being recomputed per statement (section 2.3).
+  A fixed-shape circuit would remove it.
+- **The live Stwo pool (native/stwo_js) still proves at 340 bits.** Moving it to the same config would shrink every
+  private send's proof the same way, which matters most on phones. It is a consensus change, so it needs its own gate
+  at the fleet's adoption block.
+- **The provably.fast prover** (`starknet-innovation/proving`, the `mainnet-season` branch) is about 2x faster than
+  upstream, with peak memory down from 13.9 to 1.13 GiB. Its proofs are byte-identical to upstream's by its own
+  acceptance rule. So it is a prover-only swap: the node's verifier pin does not change. It is built on another
+  upstream revision, so adopting it means moving both crates' Stwo pin, with the verifier re-checked against the
+  forgery suites.
+
+## 4. Next steps
 
 1. The calls fold (2.3) as code beside today's, with its test (dormant, like the rest of gen 29).
 2. A Stwo prototype of the compressed-tree path update (one row per level, BLAKE2s compression with the `NADOcsN1` /
@@ -113,7 +143,7 @@ Ported from today's settle tests (each line one refusal; today's file in bracket
    statement into the channel before any challenge, and returns errors instead of asserting.
    `tests/test_a_stwo_proof_of_a_tree_update_proves_csmt_roots_and_refuses_forgeries.py` drives it with real
    `csmt.Tree` updates: the proven roots equal csmt.py's, and forged new root, old root, key, new/old value hash and
-   swapped roots are refused. Measured (pow 20, blowup 2, 160 queries, this host):
+   swapped roots are refused. Measured under the 340-bit config of the time (pow 20, blowup 4, 160 queries; section 3 replaced it):
 
    | depth | prove | verify | proof |
    |---|---|---|---|
