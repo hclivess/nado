@@ -801,14 +801,36 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   return buildRegisterTx(state.wallet, targetBlock, null, nowSeconds(), device);
 }
 
-// THE CREDENTIAL ID, kept beside the wallet at create() so a later renewal can ask THAT credential to sign (allowCredentials).
+// THE CREDENTIAL ID, kept beside the wallet so a later renewal can ask THAT credential to sign (allowCredentials).
 // Per-viewer convenience only: the chain overrules it — the relay's assert_ok says whether the credential exists on chain,
 // and a get() that fails for any reason falls back to a full statement.
+//
+// SAVED ONLY WHEN A STATEMENT MADE WITH IT IS ACCEPTED (2026-10-22). It used to be saved the moment create() returned —
+// before the pre-flight, before any relay saw it. A statement that never landed (cancelled, refused by the pre-flight or
+// a node, expired) left this browser remembering a credential the chain never stored, and every later signature renewal
+// signed with it: "signature renewal rejected: ES256 signature does not verify", on every renewal, with no way out. Held
+// in memory until acceptedRegisterTx() sees the very statement (matched by its attestationObject) accepted. A statement
+// accepted but never incorporated can still leave the two apart — healSignatureRenewal() below is the net for that.
+let _pendingCred = null;
 function storedCredentialId(address) {
   try { return localStorage.getItem("nado_cred_" + address) || null; } catch (e) { return null; }
 }
-function rememberCredentialId(address, rawId) {
-  try { localStorage.setItem("nado_cred_" + address, btoa(String.fromCharCode(...new Uint8Array(rawId)))); } catch (e) {}
+function rememberCredentialId(address, rawId, att) {
+  _pendingCred = { address, id: btoa(String.fromCharCode(...new Uint8Array(rawId))), att };
+}
+function acceptedRegisterTx(tx) {
+  if (!_pendingCred || !tx || !tx.device || tx.device.att !== _pendingCred.att || tx.sender !== _pendingCred.address) return;
+  try { localStorage.setItem("nado_cred_" + _pendingCred.address, _pendingCred.id); } catch (e) {}
+  _pendingCred = null;
+}
+// THE CHAIN REFUSED A SIGNATURE RENEWAL (tx_validate "signature renewal …"): the saved credential is not the one the chain
+// holds — any of the ways above, or a statement made since on another device. Forget it, so the next attempt attests
+// with a full statement (which, once accepted, saves the credential that is then on chain). Returns true when it did.
+function healSignatureRenewal(tx, message) {
+  if (!tx || !tx.device || !tx.device.sig || !/signature renewal/i.test(message || "")) return false;
+  try { localStorage.removeItem("nado_cred_" + tx.sender); } catch (e) {}
+  log("warn", i18("bind.sigStale", "This browser's saved Windows Hello credential is not the one the chain holds — renewing with a full attestation instead."));
+  return true;
 }
 async function assertCredential(sender, anchorHash, maxBlock, credIdB64) {
   if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.get) return null;
@@ -1428,7 +1450,7 @@ async function attestDevice(sender, anchorHash, maxBlock) {
       attestation: "direct", timeout: 120000 });
     const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
     const att = b64(cred.response.attestationObject), cdj = b64(cred.response.clientDataJSON);
-    rememberCredentialId(sender, cred.rawId);       // so the next renewal can be a signature by this credential
+    rememberCredentialId(sender, cred.rawId, att);  // held until a statement made with it is ACCEPTED (acceptedRegisterTx)
     // PRE-FLIGHT (2026-09-07): have the relay PARSE the statement before anything is submitted. fmt "none" (Windows
     // Hello under VBS or a software key, an Apple passkey), no certificate chain, an unpinned root, or a class the
     // network cannot bind to one identity (FIDO2 batch key) is refused by every node anyway — a user saw the raw
@@ -3613,7 +3635,7 @@ async function broadcastLeaseRenewal(regEpoch) {
     log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing…"));
     // Up to 2 attempts: if the chain outran max_block while the (pure-JS) PoW was computing, recompute
     // against a fresh tip. Each attempt targets tip + POSW_TARGET_MARGIN (max headroom for the proof).
-    let lastMsg = "";
+    let lastMsg = "", healed = false;
     for (let attempt = 0; attempt < 2; attempt++) {
       const latest = await getLatestBlock();
       if (!latest || typeof latest.block_number !== "number") return false;
@@ -3626,11 +3648,14 @@ async function broadcastLeaseRenewal(regEpoch) {
       const tx = await computeRegisterTx(tb, null, _d.reqT);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) {
+        acceptedRegisterTx(tx);
         _renewSubmitted = { targetBlock: tb, atEpoch: regEpoch };   // don't re-broadcast until it lands
         log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓"));
         return true;
       }
       lastMsg = (res.data && res.data.message) || "";
+      // a refused SIGNATURE renewal is fixed by retrying — with a full statement, once (healSignatureRenewal)
+      if (!healed && healSignatureRenewal(tx, lastMsg)) { healed = true; attempt--; continue; }
       if (!/too low/i.test(lastMsg)) break;   // a different rejection won't be fixed by retrying
     }
     log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", { m: lastMsg }));
@@ -4073,6 +4098,7 @@ async function submitRegisterTx(tx, targetBlock) {
     }
     // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
     log("err", i18("log.regRejected", "Register rejected by relay: {m}", {m}));
+    healSignatureRenewal(tx, m);            // the next attempt then attests with a full statement
     // THE DEVICE LINE MUST NOT KEEP SAYING "attested ✓" AFTER THE CHAIN REFUSED THE STATEMENT (2026-09-10). attestDevice()
     // sets ok:true as soon as the pre-flight parses, so a statement the NODE rejects (its rule set is the one that
     // decides, and it is stricter than the probe) left the Mining page claiming success while the log said otherwise —
@@ -4087,6 +4113,7 @@ async function submitRegisterTx(tx, targetBlock) {
     }
     return false;
   }
+  acceptedRegisterTx(tx);
   state.regSubmitted = { targetBlock, txid: tx.txid };
   log("ok", i18("log.regAccepted", "Register tx accepted into mempool: {m}", {m}));
   // Registration only takes effect once the tx is INCORPORATED into a block. We DON'T block here —
