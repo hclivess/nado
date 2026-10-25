@@ -219,8 +219,21 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
                 kv_ops.alias_put(name, owner)
             for addr, ver, keys in sorted(carry.get("auth_history") or []):
                 kv_ops.auth_history_put(addr, 0, int(ver), list(keys))
+            # CARRIED INVITES (tools/alphanet6_carryforward.carried_invites): each open invite under its id on THIS chain —
+            # the id binds CHAIN_ID, which the reroll changed — with its rebased expiry. INVARIANT: INVITE_ESCROW holds
+            # exactly their coins (checked below), so every carried invite can pay and nothing in the escrow is orphaned.
+            from ops.transaction_ops import invite_id_of as _invite_id_of
+            for key, sender, amount, expiry in sorted(carry.get("invites") or []):
+                kv_ops.invite_put(_invite_id_of(key), [sender, int(amount), int(expiry), "open", ""])
+        if "invites" in carry:
+            from protocol import INVITE_ESCROW as _INVITE_ESCROW
+            _inv = sum(int(r[2]) for r in carry["invites"])
+            _iheld = int((kv_ops.get_account(_INVITE_ESCROW) or {}).get("balance", 0))
+            if _iheld != _inv:
+                raise SystemExit(f"genesis: INVITE_ESCROW holds {_iheld} raw but the carried invites total {_inv}")
         logger.warning(f"RELAUNCH: carried {len(carry.get('devbind') or [])} device bindings, "
-                       f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories")
+                       f"{len(carry.get('aliases') or [])} aliases, {len(carry.get('auth_history') or [])} auth histories, "
+                       f"{len(carry.get('invites') or [])} open invites")
 
     # CARRIED CONTRACT POTS (execnode/exec_genesis.py): contracts the reroll carried keep their pots on the exec side, so
     # L1 must start holding exactly those coins in BRIDGE_ESCROW and count them in the default namespace's escrow

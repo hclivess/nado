@@ -104,8 +104,11 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
 - **History displays recompute from stored seeds** (coinflip's face, pets' battle replays, hamster's race animation,
   poker's board): the stored results are right, the replays of pre-reroll history would draw differently. Display
   only; G6 replays a pre-reroll record with the old hash.
-- **L1 escrows are still refunded, not carried**: open invites and HTLC locks (tools/alphanet6_carryforward.py step
-  5b). Same rule: carry them.
+- **L1 escrows**: open INVITES now carry (2026-10-25: `carried_invites`, genesis re-derives each id under the new
+  `CHAIN_ID`). Open HTLC locks are still refunded: carrying one with its expiry rebased would hand the secret-holder
+  the reroll's downtime as extra wall-clock time against a foreign-chain lock that kept running (the swap invariant
+  "the secret-holder's lock outlasts the one they claim" could break). Carry vs. refund vs. wait-until-settled
+  (a lock may run up to HTLC_MAX_TIMELOCK = 1,000,000 blocks) is the operator's decision.
 
 ## 3. The one case no transform reaches
 

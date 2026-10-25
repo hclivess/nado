@@ -153,7 +153,7 @@ itself), with `carry_rebase` moving stored heights for the games that keep them 
 **exec assets** (records, holdings, allowances); the exec layer's **digest→address
 registry** (`zk_addrs`), without which a carried contract's payout to a stored player reverts until that player calls
 again. Every carried slot is an int (a string slot is a KVX record in the root, and no settle proof could extend the
-genesis root). Refunded to whoever funded them: open invites and HTLCs. **A contract with something in flight refuses
+genesis root). **Open invites carry** (since 2026-10-25): each under its id on the new chain (the id binds `CHAIN_ID`, so the carry recovers the link key and genesis re-derives the id), with the blocks it had left; `INVITE_ESCROW` must hold exactly their coins. Refunded to whoever funded them: open HTLC locks (a lock's expiry races a foreign-chain lock that keeps running during the reroll). **A contract with something in flight refuses
 the carry** (since 2026-10-11): the carry names each blocker — "table N has open bets", "race N is not settled", "run N
 has a leg in flight", "game N is open", and for pets every roll whose outcome is already visible at the tip ("hatch(N)",
 "train_resolve(N)", "collect(N)", ... — all permissionless), and for autogame "run N is in the mists" (a live run

@@ -32,6 +32,32 @@ from tools import carry as _carry
 EXEC_STATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exec_state.json")
 
 
+def carried_invites(invites: dict, txs, prev, tip: int) -> list:
+    """[[key, sender, amount, expiry], ...] — every OPEN invite, carried (operator rule 2026-10-20: carry, never refund
+    in place of a carry). An invite's id is blake2b(CHAIN_ID, key) and CHAIN_ID changes at the reroll, while the record
+    keeps only the id, so the key is recovered here — from the old chain's invite_lock transactions (`txs`) or, for an
+    invite carried before, from the previous carry file (`prev`) — and genesis re-derives the id under the new CHAIN_ID
+    (the wallet derives the same id from the link's key). The expiry is rebased to the blocks it had left (at least 1:
+    an expired invite stays refundable by its referrer and unclaimable, exactly as on the old chain). An open invite
+    whose key cannot be found REFUSES: carrying it under an id nobody can claim would lock its coins until expiry."""
+    from ops.transaction_ops import invite_id_of
+    keys = {}
+    for k in ([r[0] for r in prev or []]
+              + [(t.get("data") or {}).get("key") for t in txs or [] if isinstance(t, dict)
+                 and t.get("recipient") == "invite_lock" and isinstance(t.get("data"), dict)]):
+        if isinstance(k, str) and k:
+            keys[invite_id_of(k)] = k
+    out = []
+    for iid, rec in sorted(invites.items()):
+        if rec[3] != "open" or _num(rec[1]) <= 0:
+            continue
+        if iid not in keys:
+            raise SystemExit(f"REFUSING: open invite {iid[:16]} — its link key is in no invite_lock transaction and no "
+                             "previous carry, so it could not be claimed on the new chain")
+        out.append([keys[iid], str(rec[0]), _num(rec[1]), max(1, int(rec[2]) - int(tip))])
+    return sorted(out)
+
+
 def open_escrow_refunds(invites: dict, htlcs: dict):
     """({funder: raw}, {escrow account: raw}) for every OPEN invite (kv_ops.invite_all rows [sender, amount, expiry,
     status, claimant]) and OPEN HTLC lock (kv_ops.htlc_all docs): each goes back to whoever funded it, debited from its
@@ -366,8 +392,10 @@ def build():
     for _n, w in uws.items():
         credit(w["addr"], _num(w["amount"]))
 
-    # 5b) OPEN INVITES AND HTLC LOCKS go back to whoever funded them (their records do not carry)
-    esc_refunds, esc_out = open_escrow_refunds(kv_ops.invite_all(), kv_ops.htlc_all())
+    # 5b) OPEN HTLC LOCKS go back to whoever funded them (their records do not carry: a lock's expiry races a lock on a
+    # foreign chain that keeps running while this one is rerolled). OPEN INVITES CARRY (build_extra -> carried_invites):
+    # their coins stay in INVITE_ESCROW, checked against the carried invites below.
+    esc_refunds, esc_out = open_escrow_refunds({}, kv_ops.htlc_all())
     for a, v in esc_refunds.items():
         credit(a, v)
     for acct, v in esc_out.items():
@@ -422,6 +450,14 @@ def build():
         raise SystemExit(f"bridge escrow would hold {_esc} raw but the carried pots total {sum(kept_pots.values())} — "
                          "the exec bridge invariant does not hold on the source chain; reconcile before carrying")
 
+    # CARRIED INVITES (carried_invites): INVITE_ESCROW keeps exactly the open invites' coins, because genesis seeds them
+    # and refuses a mismatch — a residual would be coins no invite can release, a shortfall an invite that cannot pay.
+    from protocol import INVITE_ESCROW as _INVITE_ESCROW
+    _open_inv = sum(_num(r[1]) for r in kv_ops.invite_all().values() if r[3] == "open")
+    _inv_held = alloc.get(_INVITE_ESCROW, {"balance": 0})["balance"]
+    if _inv_held != _open_inv:
+        raise SystemExit(f"invite escrow holds {_inv_held} raw but the open invites total {_open_inv} — reconcile first")
+
     # IDENTITY CARRY (gen 25 -> 26, operator decision 2026-09-25: "carry them"). Per account: the recorded public key
     # (keeps ADDRESS_KEY_BIND effective from block 1 — without it every account would be "never sent" again), the
     # messaging key, registration + fidelity, the device key/credential and any account-authentication config. Only
@@ -475,9 +511,18 @@ def build_extra():
     present = sorted(get_open_registry(_tip // _EL))
     print(f"carried: {len(devbind)} device bindings, {len(aliases)} aliases, {len(hist)} auth histories, "
           f"{len(present)} present identities")
+    # OPEN INVITES carry with their link keys (carried_invites); a key carried by the previous reroll is in its file
+    from ops import transaction_ops as _tops
+    _prev_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "genesis_data", "genesis_carry.dat")
+    _prev = json.load(open(_prev_path)).get("invites") if os.path.exists(_prev_path) else []
+    invites = carried_invites(kv_ops.invite_all(),
+                              _tops.get_transactions_of_account("invite_lock", 0, limit=1 << 40)["transactions"],
+                              _prev, _tip)
+    print(f"carried: {len(invites)} open invites ({sum(r[2] for r in invites)} raw)")
     from protocol import CHAIN_GENERATION as _G
     # "generation" = the chain this carry SEEDS (the next one); genesis refuses a file naming any other generation.
-    return {"generation": int(_G) + 1, "devbind": devbind, "aliases": aliases, "auth_history": sorted(hist), "present": present}
+    return {"generation": int(_G) + 1, "devbind": devbind, "aliases": aliases, "auth_history": sorted(hist), "present": present,
+            "invites": invites}
 
 
 def main():
