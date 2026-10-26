@@ -39,6 +39,11 @@ for d in ("index", "blocks", "logs", "peers", "private"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 import protocol as P                                                   # noqa: E402
+# THE v1 CHALLENGER POOL (proven challengers), as below TPM_POOL_V2_HEIGHT (100000 on gen 28; block 1 on gen 29, where an
+# enrolment snapshots the online-stake pool of tests/test_tpm_pool_v2.py instead). The commit-then-draw property pinned
+# here holds under both; this file's synthetic history is a v1 pool, so on gen 29 the shipped 1 drew from an empty
+# snapshot (gen-29 rehearsal).
+P.TPM_POOL_V2_HEIGHT = 1 << 62
 import ops.block_ops as B                                              # noqa: E402
 import ops.transaction_ops as T                                        # noqa: E402
 from ops import tpm_enrol as E, tpm_aik                                # noqa: E402

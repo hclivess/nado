@@ -28,6 +28,11 @@ os.makedirs(os.path.join(os.environ["HOME"], "nado", "index"), exist_ok=True)
 
 from ops import kv_ops, tpm_enrol as te, attest_native, account_ops, transaction_ops, block_ops
 import protocol as _P
+# THE LEGACY CHALLENGER POOL, as below TPM_POOL_V2_HEIGHT (100000 on gen 28; block 1 on gen 29, where the pool reads
+# FFG duty presence over a window of applied blocks this test does not build — the node refuses to guess without them,
+# WindowUnavailable). The marker journal pinned here is the same code under either pool (gen-29 rehearsal);
+# tests/test_tpm_pool_v2.py pins the v2 pool.
+_P.TPM_POOL_V2_HEIGHT = 1 << 62
 # COMMIT, THEN DRAW (the only draw since the betanet-9 cleanup deleted TPM_DRAW_UNGRINDABLE_HEIGHT and the enrol-time
 # draw): an enrolment is stored with NO challengers and its first challenge, from draw_opens(h) on, materialises the set.
 # The marker journal this test is about is the same code either way; the challenges below land at the draw epoch.

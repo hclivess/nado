@@ -29,6 +29,7 @@ from ops.attestation_ops import checkpoint_justified, ffg_finalized_checkpoint
 from ops.account_ops import get_bonded_registry
 from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, EPOCH_LENGTH, CHAIN_ID
+import protocol as _P
 
 import _harness
 _report = _harness.Report()
@@ -88,6 +89,13 @@ def t2_finalize():
     """Prove two consecutive justified epochs (each by its own committee) finalize the earlier one."""
     from ops.block_ops import duty_committee_for_epoch
     reg = get_bonded_registry()
+    # THIS STATE APPLIES NO BLOCKS, so no epoch anchor ever froze a registry snapshot (core_loop writes regsnap:<E+1> at
+    # each anchor from REGISTRY_SNAPSHOT_HEIGHT). Epoch 2's committee reads the snapshot from the gate on, which is
+    # block 1 on generation 29: put the row the anchor block (EPOCH_LENGTH) would have written, as a chain from block 1
+    # does — never fall back to the live registry, which the node itself refuses to do (gen-29 rehearsal).
+    if (2 - 1) * EPOCH_LENGTH >= _P.REGISTRY_SNAPSHOT_HEIGHT and kv_ops.regsnap_get(2) is None:
+        with kv_ops.write_txn():
+            kv_ops.regsnap_put(2, get_bonded_registry())
     for E, H in ((1, H_E), (2, H_CHILD)):
         for v in duty_committee_for_epoch(E):          # every committee seat attests -> justified
             kv_ops.attestation_put(E, v, H)

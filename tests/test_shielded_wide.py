@@ -34,6 +34,11 @@ import protocol
 # THE WIDE POOL IS ONLY EVER LIVE WITH THE STWO POOL OFF: from STWO_POOL_HEIGHT deposits land in the Stwo pool and only a
 # stwo_js bundle spends, so this file (heights up to 300,000) pins the Stwo gate off rather than read the live one.
 protocol.STWO_POOL_HEIGHT = 0
+# ...and the rest of generation 28's rules the wide pool lived under: its deposit close and the Goldilocks exec root its
+# exits verify against (exec_root as ER) — explicit, since both are block 1 on gen 29 (rehearsal)
+import _harness as _hg
+protocol.WIDE_DEPOSIT_CLOSE_HEIGHT = _hg.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28)
+protocol.BLAKE_EXEC_HEIGHT = _hg.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
 from execnode import shielded_wide as SW, shielded_field as SF, exec_root as ER

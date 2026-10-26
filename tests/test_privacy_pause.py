@@ -88,12 +88,23 @@ def t_field_shield_admission_is_judged_at_the_block_height_and_never_raises_a_na
             # or — from STWO_POOL_HEIGHT — because an untagged deposit is not a Stwo one
             assert ("wide shield owner" in str(e) or "takes no new deposits" in str(e)
                     or 'must name pool "stwo"' in str(e)), e
-    field_shield_check({"field": True, "owner": "0" * 64, "rho": "7"}, G)          # the wide pool's own deposit
-    for bad in ({"field": True, "owner": "123", "rho": "7"}, {"field": True, "owner": "0" * 64, "rho": "x"}):
+    # THE WIDE POOL'S OWN DEPOSITS are generation 28's history (WIDE_DEPOSIT_CLOSE_HEIGHT 175000, STWO_POOL_HEIGHT 269000
+    # there; both block 1 on gen 29, where no wide deposit is ever admitted) — run under gen 28's gates explicitly
+    with _harness.pinned(WIDE_DEPOSIT_CLOSE_HEIGHT=_harness.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28),
+                         STWO_POOL_HEIGHT=_harness.gate_at("STWO_POOL_HEIGHT", 28)):
+        field_shield_check({"field": True, "owner": "0" * 64, "rho": "7"}, G)      # the wide pool's own deposit
+        for bad in ({"field": True, "owner": "123", "rho": "7"}, {"field": True, "owner": "0" * 64, "rho": "x"}):
+            try:
+                field_shield_check(dict(bad), G); raise RuntimeError(f"malformed wide deposit admitted: {bad}")
+            except AssertionError:
+                pass
+    with _harness.pinned(WIDE_DEPOSIT_CLOSE_HEIGHT=_harness.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 29),
+                         STWO_POOL_HEIGHT=_harness.gate_at("STWO_POOL_HEIGHT", 29)):
         try:
-            field_shield_check(dict(bad), G); raise RuntimeError(f"malformed wide deposit admitted: {bad}")
+            field_shield_check({"field": True, "owner": "0" * 64, "rho": "7"}, G)
+            raise RuntimeError("generation 29 admitted a wide (untagged) deposit")
         except AssertionError:
-            pass
+            pass                                                                   # gen 29: the Stwo pool only
 
 
 if __name__ == "__main__":

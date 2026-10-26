@@ -32,6 +32,12 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")        
 os.environ.setdefault("NADO_ALLOW_PYTHON_KERNELS", "1")
 import sys, json, asyncio, random, traceback, copy
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# THE WIDE POOL IS GENERATION 28's (closed there at 175000, never open on gen 29, retired at G9): this file runs under gen
+# 28's gates explicitly — the wide close, the Stwo gate and the Goldilocks exec root its exits verify against (the gen-29
+# rehearsal read the shipped values, all block 1, and every deposit landed in the Stwo pool against a BLAKE2s root).
+import protocol as _Pg, _harness as _hg
+for _g in ("WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT", "BLAKE_EXEC_HEIGHT"):
+    setattr(_Pg, _g, _hg.gate_at(_g, 28))
 
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, stark

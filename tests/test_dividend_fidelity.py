@@ -28,6 +28,11 @@ from ops.dividend_ops import fidelity_at_epoch, present_at_epoch, weights_at_epo
 from ops.key_ops import generate_keys
 
 import _harness
+# UNSCALED WEIGHTS: this file pins fidelity -> weight, below REFERRAL_HEIGHT's epoch (107000 on gen 28; block 1 on gen 29,
+# where weights_at_epoch scales every weight by REFERRAL_SCALE — tests/test_sybil_rules.py pins that). Explicit, so the
+# gen-29 tree does not read a scale into a fidelity check (rehearsal).
+import protocol as _P
+_P.REFERRAL_HEIGHT = 1 << 62
 _report = _harness.Report()
 check = _report.run
 

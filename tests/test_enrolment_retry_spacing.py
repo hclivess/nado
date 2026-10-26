@@ -31,6 +31,10 @@ FAILED = []
 GATE = 50_000
 P.TPM_ENROL_V3_HEIGHT = GATE
 P.TPM_POOL_V2_HEIGHT = 1 << 62            # the legacy enrol path: no pool snapshot to build
+# the count keyed by CHIP alone, as below TPM_RETRY_OWNER_HEIGHT (175000 on gen 28; block 1 on gen 29, where it is keyed
+# by (chip, opener) — tests/test_a_copied_certificate_cannot_lock_a_chip_out_of_enrolment.py pins that rule). This file
+# pins the spacing itself on the chip-keyed count; on gen 29 it read the shipped 1 and counted nothing (rehearsal).
+P.TPM_RETRY_OWNER_HEIGHT = 1 << 62
 BASE, MAXE = P.TPM_RETRY_COOLDOWN_BASE, P.TPM_RETRY_COOLDOWN_MAX_EXP
 
 

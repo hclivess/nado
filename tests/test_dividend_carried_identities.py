@@ -40,6 +40,9 @@ from ops import dividend_ops as D
 D._CARRIED[0] = None
 
 import _harness
+# UNSCALED WEIGHTS: this file pins carried fidelity -> weight, below REFERRAL_HEIGHT's epoch (107000 on gen 28; block 1
+# on gen 29, where every weight is scaled by REFERRAL_SCALE — tests/test_sybil_rules.py pins that) — explicit (rehearsal).
+P.REFERRAL_HEIGHT = 1 << 62
 _report = _harness.Report()
 check = _report.check
 

@@ -37,6 +37,10 @@ json.dump([], open(os.path.join(H, "nado", "private", "genesis_open.dat"), "w"))
 cpath = os.path.join(H, "carry.json")
 json.dump(carry, open(cpath, "w"))
 os.environ["NADO_GENESIS_CARRY"] = cpath
+# THIS TEST'S OWN EXEC GENESIS (none): genesis.py loads genesis_data/exec_genesis.json when it names the live generation —
+# the REAL chain's carried contracts, whose pots this alloc's BRIDGE_ESCROW does not hold (the gen-29 rehearsal refused
+# this genesis). A path that does not exist = no exec genesis, as before the reroll.
+os.environ["NADO_EXEC_GENESIS"] = os.path.join(H, "no_exec_genesis.json")
 
 from genesis import make_folders, make_genesis
 from ops import kv_ops

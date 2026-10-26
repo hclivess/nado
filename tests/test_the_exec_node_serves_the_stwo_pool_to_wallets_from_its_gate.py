@@ -17,6 +17,9 @@ _T = tempfile.mkdtemp(prefix="nado-test-stwo-endpoints-")
 os.environ["HOME"] = _T
 os.environ["NADO_EXEC_STATE"] = os.path.join(_T, "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(_T, "exec_da")
+# importing the exec node seeds its state from the exec genesis of the live generation: this test's own (none), never the
+# real carried contracts in genesis_data/exec_genesis.json (the gen-29 rehearsal loaded all 27 of them here)
+os.environ["NADO_EXEC_GENESIS"] = os.path.join(_T, "no_exec_genesis.json")
 import atexit, shutil; atexit.register(shutil.rmtree, _T, ignore_errors=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -58,10 +61,15 @@ def ask(cursor, gate):
         P.STWO_POOL_HEIGHT = GATE
 
 
-lv, sh = ask(GATE + 10, SHIPPED)
-check("1. with the shipped (dormant) gate, field_leaves is the wide pool's and names no pool",
+# 1. generation 28's gate (269000, above this fixture's heights): the wide pool's, as before the gate — and on generation
+# 29 (block 1) the Stwo pool's at once. Both read from protocol.py's gate expression, not the shipped value (rehearsal).
+lv, sh = ask(GATE + 10, _harness.gate_at("STWO_POOL_HEIGHT", 28))
+check("1. with generation 28's (dormant) gate, field_leaves is the wide pool's and names no pool",
       "pool" not in lv and lv.get("wide") is True, lv)
 check("...and so is field_shielded", "pool" not in sh and sh.get("wide") is True, sh)
+lv, sh = ask(GATE + 10, _harness.gate_at("STWO_POOL_HEIGHT", 29))
+check("1'. with generation 29's gate (block 1) both serve the Stwo pool",
+      lv.get("pool") == "stwo" and sh.get("pool") == "stwo", (lv.get("pool"), sh.get("pool")))
 lv, sh = ask(GATE - 2, GATE)
 check("2. the block before the gate still serves the wide pool", "pool" not in lv and "pool" not in sh, (lv, sh))
 lv, sh = ask(GATE - 1, GATE)
