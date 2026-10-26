@@ -50,6 +50,8 @@ def classify(storage_slots, digests):
 def contract_names(contracts, root):
     """cid -> game module name, by code equality with the module's gen-28 build (the carry's own match)."""
     os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-carry-census-")
+    import atexit, shutil                     # removed at exit (tools/carry.py _isolate, the same leak)
+    atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
     os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
     os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
     sys.path.insert(0, root)

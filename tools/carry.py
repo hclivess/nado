@@ -49,6 +49,9 @@ def _isolate():
     """Builders import node modules: never against the live node's home or exec files (CLAUDE.md rule 4)."""
     if not os.environ.get("NADO_CARRY_ISOLATED"):
         home = tempfile.mkdtemp(prefix="nado-carry-")
+        # removed at exit: every carry and census run used to leave one of these behind (nine in /tmp, 2026-10-26)
+        import atexit, shutil
+        atexit.register(shutil.rmtree, home, ignore_errors=True)
         os.environ["HOME"] = home
         os.environ["NADO_EXEC_STATE"] = os.path.join(home, "exec_state.json")
         os.environ["NADO_EXEC_DA"] = os.path.join(home, "exec_da")
