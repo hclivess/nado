@@ -4129,8 +4129,20 @@ async def _da_sources(session):
     _l1_port = int(str(L1).rsplit(":", 1)[-1].split("/")[0] or 9173)
     if f"http://127.0.0.1:{PORT}" not in seen:
         seen.add(f"http://127.0.0.1:{PORT}"); out.append(f"http://127.0.0.1:{PORT}")
-    for p in (peers or []):
-        host = str(p).split(":")[0].strip()                 # peer IP, strip any :port
+    # L1's /peers ANSWERS {"peers": [...]} (nado.py _dump_handler), NOT a bare list. Iterating the object walked its KEYS,
+    # so the only "peer" was the string "peers" -> http://peers:9173: no exec node ever fetched a DA blob from another
+    # node, only from its own store. A DA-carried op (every relayed Stwo spend) was then applied by the node that
+    # published it and REFUSED at the DA deadline by every other — an exec-state fork, found by the gen-29 rehearsal's
+    # two-user walk (2026-10-26; the live pool never held a note, so it never fired on the fleet). INVARIANT: unwrap
+    # the object; an IPv6 peer keeps its whole address (split(":")[0] cut 2001:b07:... to "2001").
+    if isinstance(peers, dict):
+        peers = peers.get("peers") or []
+    for p in (peers if isinstance(peers, list) else []):
+        host = str(p).strip()
+        if host.count(":") == 1:
+            host = host.split(":")[0]                       # an IPv4 peer given as ip:port
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"                              # IPv6 in a URL
         url = f"http://{host}:{_l1_port}" if host else ""   # its L1, which proxies /da to its exec node
         if url and url not in seen:
             seen.add(url); out.append(url)
