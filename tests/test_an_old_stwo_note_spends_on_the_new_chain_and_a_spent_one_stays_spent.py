@@ -51,28 +51,47 @@ from execnode import shielded_stwo as SP, exec_genesis as EG
 from ops.address_ops import make_address
 import tools.alphanet6_carryforward as C
 
+from execnode.stark import stwo_js_native as SJ
+
 DEST = make_address("cd" * 1312)
-out = tempfile.mkdtemp(dir=_T)
-r = subprocess.run([exe, "b", DEST, out], capture_output=True, text=True, timeout=900)
-assert r.returncode == 0, r.stderr[-1000:]
-proof = open(os.path.join(out, "proof.bin"), "rb").read()
-pub = json.load(open(os.path.join(out, "public.json")))
-bundle = {"stark": {"stwo_js": {"proof": proof.hex(), "root": pub["root"], "nf": pub["nf"], "cm_out1": pub["cm1"],
-                                "cm_out2": pub["cm2"], "unshield": pub["unshield"], "fee": pub["fee"]}},
-          "withdraw_addr": DEST}
+
+
+def bundle_at(cfg):
+    """Fixture b proved at node config `cfg` -> (bundle, public inputs)."""
+    out = tempfile.mkdtemp(dir=_T)
+    r = subprocess.run([exe, "b", DEST, out, "-", str(cfg)], capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stderr[-1000:]
+    proof = open(os.path.join(out, "proof.bin"), "rb").read()
+    pub = json.load(open(os.path.join(out, "public.json")))
+    return ({"stark": {"stwo_js": {"proof": proof.hex(), "root": pub["root"], "nf": pub["nf"], "cm_out1": pub["cm1"],
+                                   "cm_out2": pub["cm2"], "unshield": pub["unshield"], "fee": pub["fee"]}},
+             "withdraw_addr": DEST}, pub)
+
+
+# EACH CHAIN VERIFIES AT ITS OWN NODE CONFIG (STWO_JS_128_HEIGHT): the old chain at the running generation's rule, the
+# new one at `else 1` — the 128-bit config from block 1. A note carried across is spent there with a NEW proof, made at
+# the new chain's config; the old chain's proof would be refused for its config (tests/
+# test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py). Same witness, so the same public inputs.
+LIVE_128 = P.STWO_JS_128_HEIGHT
+OLD_GATE = 182_000
+old_bundle, pub = bundle_at(SJ.config_id_at(OLD_GATE + 40))
+P.STWO_JS_128_HEIGHT = 1
+bundle, pub_new = bundle_at(SJ.config_id_at(1))
+P.STWO_JS_128_HEIGHT = LIVE_128
+assert pub_new == pub, (pub_new, pub)
 
 # fixture b (native/stwo_js/src/prover.rs fixture_b), as tests/test_a_stwo_spend_applies_end_to_end.py builds it
 w = lambda *x: struct.pack("<8I", *x).hex()
 o1 = SP.owner_of(w(0xFEED, 9, 9, 9, 9, 9, 9, 9))
 nsk = w(0x12345678, 0x9ABCDEF0, 0x0F0F0F0F, 0xDEADBEEF, 0x0BADF00D, 0x77777777, 0x2468ACE0, 0x13579BDF)
 v_in, rho = 0x0123456789ABCDEF & ((1 << 61) - 1), 0x5EED5EED5EED
-OLD_GATE = 182_000
 
 
 def old_chain(spend_too):
     """The old chain: fixture b's eleven notes deposited in two blocks past the gate (so the pool has old-chain marks),
     optionally the spend applied there too."""
     P.STWO_POOL_HEIGHT = OLD_GATE
+    P.STWO_JS_128_HEIGHT = LIVE_128         # the old chain: the running generation's rule
     st = ExecState(os.path.join(_T, f"old{int(spend_too)}.json"))
     st.cursor = OLD_GATE - 1
     for i in range(6):
@@ -83,7 +102,7 @@ def old_chain(spend_too):
     st.apply_field_shield(v_in, SP.owner_of(nsk), rho)
     if spend_too:
         st.cursor = OLD_GATE + 40
-        res = st.apply_field_transfer(copy.deepcopy(bundle))
+        res = st.apply_field_transfer(copy.deepcopy(old_bundle))
         assert "field-transfer stwo" in res, res
         st.unshield_withdrawals.clear()     # the carry folds a pending unshield exit into L1 (debited from the escrow)
     st.cursor = OLD_GATE + 100
@@ -99,6 +118,7 @@ def new_chain(old, escrow):
               open(GEN_FILE, "w"), indent=0, sort_keys=True)
     EG._CACHE.clear()
     P.STWO_POOL_HEIGHT = 1                  # a fresh generation: `STWO_POOL_HEIGHT = ... else 1`
+    P.STWO_JS_128_HEIGHT = 1                # ...and `STWO_JS_128_HEIGHT = ... else 1`: spends prove at 128 bits
     st = ExecState(os.path.join(_T, f"new-{len(os.listdir(_T))}.json"))
     assert EG.apply(st)
     st.cursor = 0                           # block 1 of the new chain

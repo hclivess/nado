@@ -37,17 +37,21 @@ _report = _harness.Report()
 check = _report.check
 
 
-def pinned_root():
+def pinned_root(name):
     src = open(os.path.join(CRATE, "src", "lib.rs")).read()
-    m = re.search(r"pub const NODE_PREPROCESSED_ROOT: \[u8; 32\] = \[([^\]]*)\];", src)
-    assert m, "lib.rs declares NODE_PREPROCESSED_ROOT"
+    m = re.search(r"pub const " + name + r": \[u8; 32\] = \[([^\]]*)\];", src)
+    assert m, f"lib.rs declares {name}"
     b = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{2})", m.group(1)))
     assert len(b) == 32, "the pin is 32 bytes"
     return b.hex()
 
 
-pin = pinned_root()
-check("lib.rs pins a 32-byte preprocessed root that is not a placeholder", pin != "00" * 32, pin)
+# ONE PINNED ROOT PER NODE CONFIG (lib.rs NODE_CFGS; STWO_JS_128_HEIGHT): the tree's sizes follow the query count, so
+# the 56-query config commits a different tree and needs its own pin — each recomputed and carried by its own proofs.
+PINS = {0: pinned_root("NODE_PREPROCESSED_ROOT"), 1: pinned_root("NODE128_PREPROCESSED_ROOT")}
+for cfg, pin in PINS.items():
+    check(f"[cfg {cfg}] lib.rs pins a 32-byte preprocessed root that is not a placeholder", pin != "00" * 32, pin)
+check("the two configs' pins differ (each is its own circuit commitment)", PINS[0] != PINS[1], PINS)
 
 env = Env(_REAL_HOME)
 if not env.have_stable():
@@ -64,27 +68,31 @@ so, secs, log = env.build_verifier()
 check(f"the verifier builds on stable ({secs:.0f} s)", so is not None, log)
 if not exe or not so:
     sys.exit(1)
+os.environ["NADO_STWO_JS_LIB"] = so
+from execnode.stark import stwo_js_native as SJ
+import protocol as PROTO
+HEIGHT = {0: 0, 1: int(PROTO.STWO_JS_128_HEIGHT)}            # a height that selects each config
 
-r1 = subprocess.run([exe, "preroot"], capture_output=True, text=True, timeout=600)
-r2 = subprocess.run([exe, "preroot"], capture_output=True, text=True, timeout=600)
-got = r1.stdout.strip()
-check("1. the root recomputed from the column builders equals the lib.rs pin", r1.returncode == 0 and got == pin,
-      f"recomputed {got!r} vs pinned {pin} {r1.stderr[-300:]}")
-check("2. ...and it is a constant of the config (two recomputations agree)", r2.stdout.strip() == got, r2.stdout)
+for cfg, pin in PINS.items():
+    r1 = subprocess.run([exe, "preroot", str(cfg)], capture_output=True, text=True, timeout=600)
+    r2 = subprocess.run([exe, "preroot", str(cfg)], capture_output=True, text=True, timeout=600)
+    got = r1.stdout.strip()
+    check(f"[cfg {cfg}] 1. the root recomputed from the column builders equals the lib.rs pin",
+          r1.returncode == 0 and got == pin, f"recomputed {got!r} vs pinned {pin} {r1.stderr[-300:]}")
+    check(f"[cfg {cfg}] 2. ...and it is a constant of the config (two recomputations agree)", r2.stdout.strip() == got,
+          r2.stdout)
 
-out = tempfile.mkdtemp(prefix="nado-stwo-js-proof-a-", dir=_T)
-r = subprocess.run([exe, "a", "", out], capture_output=True, text=True, timeout=600)
-check("an honest proof is made", r.returncode == 0, r.stderr[-500:])
-if r.returncode == 0:
-    pa = open(os.path.join(out, "proof.bin"), "rb").read()
-    A = json.load(open(os.path.join(out, "public.json")))
-    # bincode: claimed Vec (8 + 3 x 16), PcsConfig (28), commitments Vec length (8), then commitments[0]
-    check("3. an honest proof's commitments[0] IS the pinned root",
-          pa[84:92] == (4).to_bytes(8, "little") and pa[92:124].hex() == pin, pa[84:124].hex())
-    os.environ["NADO_STWO_JS_LIB"] = so
-    from execnode.stark import stwo_js_native as SJ
-    ok, why = SJ.verify(pa, A["root"], A["nf"], A["cm1"], A["cm2"], A["unshield"], A["fee"], A["dest"])
-    check("...and verifies under the pin", ok, why)
+    out = tempfile.mkdtemp(prefix="nado-stwo-js-proof-a-", dir=_T)
+    r = subprocess.run([exe, "a", "", out, "-", str(cfg)], capture_output=True, text=True, timeout=600)
+    check(f"[cfg {cfg}] an honest proof is made", r.returncode == 0, r.stderr[-500:])
+    if r.returncode == 0:
+        pa = open(os.path.join(out, "proof.bin"), "rb").read()
+        A = json.load(open(os.path.join(out, "public.json")))
+        # bincode: claimed Vec (8 + 3 x 16), PcsConfig (28), commitments Vec length (8), then commitments[0]
+        check(f"[cfg {cfg}] 3. an honest proof's commitments[0] IS the pinned root",
+              pa[84:92] == (4).to_bytes(8, "little") and pa[92:124].hex() == pin, pa[84:124].hex())
+        ok, why = SJ.verify(pa, A["root"], A["nf"], A["cm1"], A["cm2"], A["unshield"], A["fee"], A["dest"], HEIGHT[cfg])
+        check(f"[cfg {cfg}] ...and verifies under the pin", ok, why)
 
 print("ALL PASS — the preprocessed root is pinned, recomputed from the builders, and carried by honest proofs"
       if not _report.fails else f"{_report.fails} FAILURES")

@@ -146,7 +146,7 @@ struct ClassResult {
 }
 
 fn rank_classes(p: &JsProof) -> Vec<ClassResult> {
-    let cfg = node_config();
+    let cfg = probe_cfg();
     let sz = Sizes::new(cfg.fri_config.n_queries);
     let dbg = p.dbg.as_ref().unwrap();
     let lc = sz.log_comp();
@@ -225,7 +225,7 @@ fn rank_classes(p: &JsProof) -> Vec<ClassResult> {
 }
 
 fn l0_resample(p: &JsProof) -> [bool; 3] {
-    let cfg = node_config();
+    let cfg = probe_cfg();
     let sz = Sizes::new(cfg.fri_config.n_queries);
     let dbg = p.dbg.as_ref().unwrap();
     let offs = component_offsets(&sz);
@@ -265,9 +265,16 @@ fn l0_resample(p: &JsProof) -> [bool; 3] {
     constraints_hold(&sz, &dbg.rel, &p.claimed, [pre, orig, int])
 }
 
+/// The node config under measurement: $NADO_ZK_CFG (lib.rs NODE_CFGS id), default NODE_CFG_340 — the test runs every
+/// node config, since the random-row count and the trace sizes follow the query count (STWO_JS_128_HEIGHT).
+fn probe_cfg() -> stwo::core::pcs::PcsConfig {
+    let id = std::env::var("NADO_ZK_CFG").ok().map(|s| s.parse().expect("NADO_ZK_CFG")).unwrap_or(NODE_CFG_340);
+    node_config_of(id).expect("a lib.rs NODE_CFGS id")
+}
+
 fn main() {
     let n_rank: usize = std::env::args().nth(1).map(|s| s.parse().unwrap()).unwrap_or(1);
-    let cfg = node_config();
+    let cfg = probe_cfg();
     let (wa, wb) = (fixture(), fixture_b());
     let (_pa, a1, _) = prove_js(&wa, aux_of(b""), cfg, false, seed(1)).expect("prove a");
     let (_pa2, a2, _) = prove_js(&wa, aux_of(b""), cfg, false, seed(2)).expect("prove a again");

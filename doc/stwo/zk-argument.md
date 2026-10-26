@@ -253,6 +253,13 @@ Rank test over 11 proofs at 1/80/20, 11 proofs at 2/160/20 (the 10-proof loop wi
 
 The tight class is the ROUND running sum D at 2/160/20 (worst case slack 4, measured minimum 7): it passes, but a larger query count or more ROUND real rows would need ROUND at 2^11 rows. Before the fix, the same rank test passed for every class (`before/zkcheck_1_80_20.log`) while L0 and L4 failed: the per-column count was never the problem.
 
+**2/56/20 (STWO_JS_128_HEIGHT, measured 2026-10-26)** by tests/test_a_stwo_proof_reveals_nothing_about_its_witness.py,
+which now runs every node config: all 11 classes PASS (rank on free rows = rank on all rows). 3Q + 8 = 176 random rows
+per component; the JS trace shrinks to 2^8 rows and XOR stays at 2^9, so the tight class becomes the XOR running sum D:
+186 free rows, worst case slack 10, measured rank 175 of 176 (JS D: 201 free, 174 of 176; ROUND D: 492 free, 175 of
+176). Tighter than ROUND's slack at 2/160/20 would suggest, still wider than it; a query count above 59 at these trace
+sizes would need XOR at 2^10 rows.
+
 Re-measured 2026-10-11 (rev-zk) against native/stwo_js itself, since zkcheck is gone:
 tests/test_a_stwo_proof_reveals_nothing_about_its_witness.py re-checks L0 (free rows resampled, constraints hold) and the
 L2/L3 rank condition for all 11 classes at 2/160/20 (rank on free rows = rank on all rows; ROUND D: 478-482 of 482-485

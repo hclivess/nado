@@ -150,12 +150,12 @@ for n, nsk in zip(stored, keys):
              "r1": str(secrets.randbits(64)), "v2": str(v - 1000 - FEE), "o2": zowner, "r2": str(secrets.randbits(64)),
              "unshield": str(FEE), "fee": "0", "dest": RELAY}
     if n is stored[0]:
-        b = wallet_prove(spend, leaves, leaves.index(n["cm"]))["bundle"]
+        b = wallet_prove(spend, leaves, leaves.index(n["cm"]), st.applying_height())["bundle"]
         r = st.apply_field_transfer(json.loads(json.dumps(b)))
         check("...spent privately (paying a relay its fee): the real verifier accepts and the exec layer applies", "field-transfer stwo" in r, r)
         spent_nf = b["stark"]["stwo_js"]["nf"]
     else:
-        b2 = wallet_prove(spend, leaves, leaves.index(n["cm"]))["bundle"]
+        b2 = wallet_prove(spend, leaves, leaves.index(n["cm"]), st.applying_height())["bundle"]
         sv = st.stwo_value
         r = st.apply_field_transfer(json.loads(json.dumps(b2)))
         check("...and the second deposit too", "field-transfer stwo" in r and st.stwo_value == sv - FEE, r)

@@ -1,5 +1,6 @@
 /* One Stwo proof, off the main thread (static/stark/stwo_js.js proveSpend starts one of these per proof and terminates
- * it after the answer). Message in: {witness: Uint8Array (prover.rs wallet_witness), dest: string}. Out: {ok, out} with
+ * it after the answer). Message in: {witness: Uint8Array (prover.rs wallet_witness), dest: string, cfg: node config id
+ * (stwo_js.js CFG_*)}. Out: {ok, out} with
  * the output record, or {ok: false, error}. The seed is 32 bytes of crypto.getRandomValues taken HERE, per proof — the
  * proof's zero-knowledge is that seed, so it never crosses a message and is never reused (the WASM refuses a repeat). */
 import { StwoCore, proveWith, errDownload } from "./stwo_js.js";
@@ -17,9 +18,9 @@ async function core() {
 
 self.onmessage = async (ev) => {
   try {
-    const { witness, dest } = ev.data || {};
+    const { witness, dest, cfg } = ev.data || {};
     const out = await proveWith(await core(), new Uint8Array(witness), dest || "",
-      (n) => crypto.getRandomValues(new Uint8Array(n)));
+      (n) => crypto.getRandomValues(new Uint8Array(n)), cfg);
     self.postMessage({ ok: true, out }, [out.buffer]);
   } catch (e) {
     _core = null;          // a trap leaves the instance unusable; the page terminates this worker anyway

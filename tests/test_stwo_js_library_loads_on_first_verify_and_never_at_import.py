@@ -38,7 +38,7 @@ check("the import mapped no library", SJ._lib is None)
 from execnode.stark.native_guard import NODE_LOCAL_ERRORS, NativeMissing
 
 D = "11" * 32
-for name, call in (("verify", lambda: SJ.verify(b"\x00" * 64, D, D, D, D, 0, 0, "")),
+for name, call in (("verify", lambda: SJ.verify(b"\x00" * 64, D, D, D, D, 0, 0, "", 0)),
                    ("aux_digest", lambda: SJ.aux_digest("")),
                    ("config", lambda: SJ.config())):
     try:
@@ -57,7 +57,7 @@ bogus = os.path.join(_T, "bogus.so")
 open(bogus, "wb").write(b"not an ELF")
 os.environ["NADO_STWO_JS_LIB"] = bogus
 try:
-    SJ.verify(b"\x00", D, D, D, D, 0, 0, "")
+    SJ.verify(b"\x00", D, D, D, D, 0, 0, "", 0)
     got = "returned"
 except NativeMissing:
     got = "NativeMissing"

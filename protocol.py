@@ -1693,6 +1693,8 @@ def split_open_block_reward(reward: int):
 #                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
 #                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
 #                                    doc/signature-schemes.md)
+#                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
+#                                    the 128-bit node config — 56 queries, not 160; 2.5x smaller proofs)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2194,6 +2196,19 @@ WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 # Execnode/shielded_stwo.parse_transfer reads it; ExecState.rules_stwo_fee_to gates it. No circuit or WASM change.
 # `else 1`: live from block 1 after a reroll.
 STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
+
+# PRIVATE SENDS PROVE AT 128 BITS, NOT 340 (operator decision 2026-10-26). A Stwo spend's proof must carry the node
+# config this height selects (execnode/stark/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS): below it
+# NODE_CFG_340 (log_blowup 2, 160 queries, 20 grinding bits: 333.7 bits conjectured, 113.4 provable), from it
+# NODE_CFG_128 (56 queries: 129.8 conjectured, 75.9 provable, by execnode/stark/soundness.py with E = 124 for QM31).
+# 340 bought nothing at the system level: the settlement proofs that guard the same coins run at 128 (125.9 by that model,
+# doc/stwo/g4-settlement-statement.md), and an attacker forges the weakest proof. A proof at the OTHER config is refused
+# even though that config is otherwise valid: the height chooses, never the prover. Measured 2026-10-26: proofs 1.12-1.14 MB
+# vs 2.90-2.92 MB, native verify 8 ms vs 15 ms, the wallet's WASM 0.9-1.4 s vs 1.7 s (doc/stwo/phase0-results.md).
+# The wallet proves at the config of the block its spend lands in
+# (static/interface.js stwoCfgId). `else 1`: live from block 1 after a reroll — the pool is empty at the carry, so no
+# proof made at the old config is ever owed verification on the new chain.
+STWO_JS_128_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
 
 # REVERTS PAY FOR THEIR STEPS (audit 2026-09-24 #13, confirmed 2026-10-18). EXEC_BLOCK_STEP_BUDGET bounds the VM steps a
 # block may make every exec node execute — but a call that REVERTED (or raised) returned before its steps were counted,
@@ -2739,4 +2754,6 @@ CLIENT_EXPORTS = (
     "BLAKE_EXEC_HEIGHT",
     # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
     "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
+    # the wallet proves a Stwo spend at the node config of the block it lands in (static/interface.js stwoCfgId)
+    "STWO_JS_128_HEIGHT",
 )

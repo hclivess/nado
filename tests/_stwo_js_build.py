@@ -162,15 +162,19 @@ const c = JSON.parse(fs.readFileSync(0, "utf8"));
 const core = await S.StwoCore.instantiate(fs.readFileSync(c.wasm));
 const rand = (n) => randomFillSync(new Uint8Array(n));
 const t0 = performance.now();
-const r = await S.proveSpend(c.spend, c.leaves, c.pos, (w, d) => S.proveWith(core, w, d, rand));
+const r = await S.proveSpend(c.spend, c.leaves, c.pos, (w, d, cfg) => S.proveWith(core, w, d, rand, cfg));
 console.log(JSON.stringify({ bundle: r.bundle, ms: performance.now() - t0 }));
 """
 
 
-def wallet_prove(spend, leaves, pos):
+def wallet_prove(spend, leaves, pos, height):
     """One spend proved by the SHIPPED wallet WASM through static/stark/stwo_js.js proveSpend, in Node (no Worker) ->
-    {bundle, ms}. spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest}, all strings. ~20 s a proof."""
+    {bundle, ms}. spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest}, all strings. ~20 s a proof.
+    `height`: the L1 height the spend lands at — it selects the node config the proof is made at, exactly as the wallet's
+    stwoCfgId does (protocol STWO_JS_128_HEIGHT), so a test proves at what its own state will verify on either tree."""
     import json
+    from execnode.stark.stwo_js_native import config_id_at
+    spend = dict(spend, cfg=config_id_at(height))
     probe = _WALLET_PROBE % json.dumps("file://" + os.path.join(ROOT, "static", "stark", "stwo_js.js"))
     case = json.dumps({"wasm": SHIPPED_WASM, "spend": spend, "leaves": leaves, "pos": pos})
     r = subprocess.run(["node", "--input-type=module", "-e", probe], input=case, capture_output=True, text=True,

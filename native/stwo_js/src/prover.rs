@@ -957,11 +957,12 @@ impl SeedBook {
     }
 }
 
-/// Prove one wallet witness with a seed from `book` at the pinned node config -> (rc, output record).
-pub fn wallet_prove(book: &mut SeedBook, witness: &[u8], dest: &[u8]) -> (i32, Vec<u8>) {
+/// Prove one wallet witness with a seed from `book` at node config `cfg_id` (lib.rs NODE_CFGS) -> (rc, output record).
+pub fn wallet_prove(book: &mut SeedBook, witness: &[u8], dest: &[u8], cfg_id: u32) -> (i32, Vec<u8>) {
+    let Some(cfg) = node_config_of(cfg_id) else { return (RC_BAD_ARGS, vec![]) };
     let Some(w) = wallet_witness(witness) else { return (RC_NOT_A_JOINSPLIT, vec![]) };
     let Some(seed) = book.take() else { return (RC_NO_SEED, vec![]) };
-    match prove_js(&w, aux_of(dest), node_config(), false, seed) {
+    match prove_js(&w, aux_of(dest), cfg, false, seed) {
         Ok((public, proof, _)) => (RC_OK, wallet_output(&public, &proof)),
         Err(_) => (RC_NOT_A_JOINSPLIT, vec![]),
     }
@@ -975,14 +976,28 @@ mod wasm {
     use std::sync::Mutex;
     static SEEDS: Mutex<Option<SeedBook>> = Mutex::new(None);
     static OUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    // The node config the next stwo_prove / stwo_verify_out use (stwo_set_config; the wallet sets it from the height the
+    // spend will land at, protocol STWO_JS_128_HEIGHT). Defaults to NODE_CFG_340, the config every ABI-1 page proved at.
+    static CFG: Mutex<u32> = Mutex::new(NODE_CFG_340);
 
     unsafe fn bytes<'a>(p: *const u8, n: usize) -> &'a [u8] {
         if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(p, n) } }
     }
 
+    /// 2: stwo_set_config (STWO_JS_128_HEIGHT).
     #[unsafe(no_mangle)]
     pub extern "C" fn stwo_abi_version() -> u32 {
-        1
+        2
+    }
+    /// Select the node config (lib.rs NODE_CFGS id) for the following stwo_prove / stwo_verify_out. RC_OK, or
+    /// RC_BAD_ARGS for an unknown id (the previous selection stays).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn stwo_set_config(cfg_id: u32) -> i32 {
+        if node_config_of(cfg_id).is_none() {
+            return RC_BAD_ARGS;
+        }
+        *CFG.lock().unwrap() = cfg_id;
+        RC_OK
     }
     #[unsafe(no_mangle)]
     pub extern "C" fn stwo_alloc(n: usize) -> *mut u8 {
@@ -1015,7 +1030,8 @@ mod wasm {
         }
         OUT.lock().unwrap().clear();
         let mut g = SEEDS.lock().unwrap();
-        let (rc, out) = wallet_prove(g.get_or_insert_with(SeedBook::default), unsafe { bytes(wit, wit_len) }, unsafe { bytes(dest, dest_len) });
+        let cfg = *CFG.lock().unwrap();
+        let (rc, out) = wallet_prove(g.get_or_insert_with(SeedBook::default), unsafe { bytes(wit, wit_len) }, unsafe { bytes(dest, dest_len) }, cfg);
         *OUT.lock().unwrap() = out;
         rc
     }
@@ -1027,7 +1043,7 @@ mod wasm {
     pub extern "C" fn stwo_out_len() -> usize {
         OUT.lock().unwrap().len()
     }
-    /// Verify the last output record exactly as a node does (`verify_node`, pinned config) against `dest`: the wallet
+    /// Verify the last output record exactly as a node does (`verify_node`, at the selected config) against `dest`: the wallet
     /// checks its own proof before publishing it, so a bad proof never reaches the chain or marks a note spent.
     #[unsafe(no_mangle)]
     pub extern "C" fn stwo_verify_out(dest: *const u8, dest_len: usize) -> i32 {
@@ -1041,7 +1057,7 @@ mod wasm {
         let d = |i: usize| -> [u8; 32] { o[32 * i..32 * i + 32].try_into().unwrap() };
         let pv = u64::from_le_bytes(o[128..136].try_into().unwrap());
         let fee = u64::from_le_bytes(o[136..144].try_into().unwrap());
-        verify_node(&o[144..], d(0), d(1), d(2), d(3), pv, fee, unsafe { bytes(dest, dest_len) }).0
+        verify_node(&o[144..], d(0), d(1), d(2), d(3), pv, fee, unsafe { bytes(dest, dest_len) }, *CFG.lock().unwrap()).0
     }
     /// The 32-byte aux digest of `dest` into `out` (lib.rs aux_of), for the wallet's cross-check.
     #[unsafe(no_mangle)]

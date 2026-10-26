@@ -22,7 +22,7 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, STWO_FEE_TO_HEIGHT } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
 import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
@@ -11004,6 +11004,10 @@ async function shieldDeposit(rawAmount, signer) {
 // ---- SHADOW ACCOUNTS: fund, collect, return (see shadowKeypair) ----------------------------------------------------
 // whether a relay may be paid by a spend's fee in the block a spend lands in (protocol STWO_FEE_TO_HEIGHT)
 function stwoFeeToLive() { const g = BigInt(STWO_FEE_TO_HEIGHT || 0); return g > 0n && BigInt(_shieldTip || 0) + 1n >= g; }
+// the node config a spend is proven at: the one of the block it lands in (protocol STWO_JS_128_HEIGHT — 56 queries from
+// the gate, 160 below it). The node picks it from the height and refuses a proof at the other, so the wallet must match;
+// tests/test_a_stwo_spend_proves_at_the_config_of_the_height_it_lands_at.mjs.
+function stwoCfgId() { const g = BigInt(STWO_JS_128_HEIGHT || 0); return g > 0n && BigInt(_shieldTip || 0) + 1n >= g ? _stwo.CFG_128 : _stwo.CFG_340; }
 // FUND a game's shadow account from this wallet's private balance: one relayed spend per banknote, each paying the
 // relay by its fee (fee_to) and sending the rest of the amount to the shadow address. Nothing is signed by this
 // account or by the shadow account; the shadow account then claims its exits itself (shadowClaimAll).
@@ -11378,7 +11382,8 @@ async function _onDeviceProveStwo(wit, execBase, leaves) {
   if (pos < 0) throw new Error(i18("shield.stwoNotInPool", "that banknote is not in the pool yet: try again in a minute"));
   const pv = BigInt(wit.public_value);                 // the wallet's sign: negative = coins leaving the pool
   const spend = (unshield, dest, feeTo) => _stwo.proveSpend({ nsk: wit.nsk, vIn: wit.value_in, rho: wit.rho_in, v1: wit.v1,
-    o1: wit.o1, r1: wit.r1, v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: unshield.toString(), fee: wit.fee, dest, feeTo }, leaves, pos);
+    o1: wit.o1, r1: wit.r1, v2: wit.v2, o2: wit.o2, r2: wit.r2, unshield: unshield.toString(), fee: wit.fee, dest, feeTo,
+    cfg: stwoCfgId() }, leaves, pos);
   if (pv < 0n && wit.fee_to_relays) {
     // A WITHDRAWAL A RELAY PUBLISHES (STWO_FEE_TO_HEIGHT; shadow accounts): the relay is paid by the spend's fee
     // (fee_to = the relay), the payout goes to withdraw_addr, and neither this account nor the payee signs anything.

@@ -209,8 +209,10 @@ class StwoRelay:
             from execnode.stark import stwo_js_native
             from execnode.stark.native_guard import NativeMissing
             try:
+                # at the config of the height it is targeted to land at (STWO_JS_128_HEIGHT). A spend can straddle the
+                # gate only on a chain where it is a real height; on gen 28 it is 2^62 and on gen 29 it is 1, so never.
                 ok, reason = stwo_js_native.verify(sp["proof"], sp["root"], nf, sp["cm1"], sp["cm2"], sp["unshield"],
-                                                   sp["fee"], sp["dest"])
+                                                   sp["fee"], sp["dest"], int(land))
             except NativeMissing:
                 raise Refused(503, "this relay has no Stwo verifier: try another relay")
             if not ok:

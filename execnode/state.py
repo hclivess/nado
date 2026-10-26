@@ -1472,7 +1472,9 @@ class ExecState:
             if why:
                 return why
             from execnode.stark import stwo_js_native
-            ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, sp["dest"])
+            # the config is the one of the block this spend is applied in (STWO_JS_128_HEIGHT), never the prover's
+            ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, sp["dest"],
+                                               int(self.applying_height()))
             if not ok:
                 return f"skip field-transfer: {reason}"
             # ---- the mutation: nothing below can raise (every input checked above) ----

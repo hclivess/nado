@@ -61,38 +61,42 @@ check("the ZK probe builds", r.returncode == 0 and os.path.exists(exe), r.stderr
 if _report.fails:
     sys.exit(1)
 
-p = subprocess.run([exe, "1"], capture_output=True, text=True, timeout=3600)
-check("the probe runs", p.returncode == 0, p.stderr[-2000:])
-if _report.fails:
-    sys.exit(1)
-d = json.loads(p.stdout)
+# EVERY NODE CONFIG (STWO_JS_128_HEIGHT): the 56-query config draws 3Q + 8 = 176 random rows per component, not 488,
+# and its JS and XOR traces are smaller — its zero knowledge is measured here, not inferred from the 160-query one.
+for CFG in (0, 1):
+    print(f"---- node config {CFG}")
+    p = subprocess.run([exe, "1"], capture_output=True, text=True, timeout=3600, env=dict(os.environ, NADO_ZK_CFG=str(CFG)))
+    check(f"[cfg {CFG}] the probe runs", p.returncode == 0, p.stderr[-2000:])
+    if _report.fails:
+        sys.exit(1)
+    d = json.loads(p.stdout)
 
-s = d["seeds"]
-check("two seeds, one witness: every salted root (T1-T3) differs", s["roots_differ"], s)
-check("two seeds, one witness: the preprocessed root is the same (it is the public circuit)", s["preprocessed_same"], s)
-check("two seeds, one witness: every claimed LogUp sum differs", s["claimed_differ"], s)
-check("two seeds, one witness: only the 32 public IV columns' OODS samples coincide", s["sampled_equal"] == 32, s)
+    s = d["seeds"]
+    check(f"[cfg {CFG}] two seeds, one witness: every salted root (T1-T3) differs", s["roots_differ"], s)
+    check(f"[cfg {CFG}] two seeds, one witness: the preprocessed root is the same (it is the public circuit)", s["preprocessed_same"], s)
+    check(f"[cfg {CFG}] two seeds, one witness: every claimed LogUp sum differs", s["claimed_differ"], s)
+    check(f"[cfg {CFG}] two seeds, one witness: only the 32 public IV columns' OODS samples coincide", s["sampled_equal"] == 32, s)
 
-check("the wire bytes carry no secret of the witness", d["wire_hits"] == [], d["wire_hits"])
+    check(f"[cfg {CFG}] the wire bytes carry no secret of the witness", d["wire_hits"] == [], d["wire_hits"])
 
-for w in d["witness"]:
-    check(f"proof {w['proof']}: opened values equal to a secret limb at chance rate "
-          f"({w['secret_hits']} vs {w['secret_hits_expected']:.2f} expected)",
-          w["secret_hits"] <= 5 + 4 * w["secret_hits_expected"], w)
-    check(f"proof {w['proof']}: opened values below 2^16 at chance rate ({w['small']} vs {w['small_expected']:.1f})",
-          w["small"] <= 3 * w["small_expected"] + 10, w)
+    for w in d["witness"]:
+        check(f"[cfg {CFG}] proof {w['proof']}: opened values equal to a secret limb at chance rate "
+              f"({w['secret_hits']} vs {w['secret_hits_expected']:.2f} expected)",
+              w["secret_hits"] <= 5 + 4 * w["secret_hits_expected"], w)
+        check(f"[cfg {CFG}] proof {w['proof']}: opened values below 2^16 at chance rate ({w['small']} vs {w['small_expected']:.1f})",
+              w["small"] <= 3 * w["small_expected"] + 10, w)
 
-sl = d["salts"]
-check("every opened salt is distinct within a proof", sl["distinct_within"], sl)
-check("no opened salt is shared by two proofs", sl["shared_across"] == 0, sl)
+    sl = d["salts"]
+    check(f"[cfg {CFG}] every opened salt is distinct within a proof", sl["distinct_within"], sl)
+    check(f"[cfg {CFG}] no opened salt is shared by two proofs", sl["shared_across"] == 0, sl)
 
-check("L0: free rows resampled, every constraint of JS, ROUND and XOR still holds (two proofs)",
-      all(all(x) for x in d["l0"]), d["l0"])
+    check(f"[cfg {CFG}] L0: free rows resampled, every constraint of JS, ROUND and XOR still holds (two proofs)",
+          all(all(x) for x in d["l0"]), d["l0"])
 
-check("L2/L3: a rank row for each of the 11 column classes", len(d["rank"]) == 11, len(d["rank"]))
-for c in d["rank"]:
-    check(f"{c['class']}: bookkeeping reproduces the proof's opened and OODS values", c["bookkeeping_ok"], c)
-    check(f"{c['class']}: rank on free rows = rank on all rows ({c['rank_free']} of {c['functionals']} functionals, "
-          f"{c['free_rows']} free rows)", c["rank_free"] == c["rank_all"], c)
+    check(f"[cfg {CFG}] L2/L3: a rank row for each of the 11 column classes", len(d["rank"]) == 11, len(d["rank"]))
+    for c in d["rank"]:
+        check(f"[cfg {CFG}] {c['class']}: bookkeeping reproduces the proof's opened and OODS values", c["bookkeeping_ok"], c)
+        check(f"[cfg {CFG}] {c['class']}: rank on free rows = rank on all rows ({c['rank_free']} of {c['functionals']} functionals, "
+              f"{c['free_rows']} free rows)", c["rank_free"] == c["rank_all"], c)
 
 sys.exit(1 if _report.fails else 0)

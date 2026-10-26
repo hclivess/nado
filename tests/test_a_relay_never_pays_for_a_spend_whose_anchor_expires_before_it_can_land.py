@@ -120,7 +120,7 @@ relay = R.StwoRelay(keydict_fn=lambda: node, tip_fn=lambda: TIP, exec_get=exec_g
 print("      proving against R0 (shipped wallet WASM)…")
 spend = {"nsk": nsk, "vIn": str(v), "rho": str(rho), "v1": str(v - FEE), "o1": me, "r1": str(secrets.randbits(64)),
          "v2": "0", "o2": me, "r2": str(secrets.randbits(64)), "unshield": str(FEE), "fee": "0", "dest": node["address"]}
-bundle = wallet_prove(spend, leaves0, leaves0.index(SP.commit(v, me, rho)))["bundle"]
+bundle = wallet_prove(spend, leaves0, leaves0.index(SP.commit(v, me, rho)), TIP + P.TX_INCLUSION_DELAY)["bundle"]
 check("setup: the proof is anchored to R0", bundle["stark"]["stwo_js"]["root"] == R0)
 
 res, status = relay.relay({"bundle": bundle}, "203.0.113.7")

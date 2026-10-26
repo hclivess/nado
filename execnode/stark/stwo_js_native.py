@@ -1,7 +1,7 @@
 """ctypes binding for native/stwo_js (libnado_stwo_js.so): the node-side verifier of the Stwo join-split
 (doc/stwo-migration.md section 5.1).
 
-    verify(proof, root, nf, cm1, cm2, unshield, fee, dest) -> (ok: bool, reason: str)
+    verify(proof, root, nf, cm1, cm2, unshield, fee, dest, height) -> (ok: bool, reason: str)
 
   proof               the wire bytes (native/stwo_js/src/wire.rs: bincode of (claimed sums, StarkProof))
   root, nf, cm1, cm2  64-hex BLAKE2s digests, the 32 bytes in the circuit's u32-word little-endian order
@@ -10,8 +10,12 @@
   dest                the unshield destination address ("" when unshield == 0); bound into the transcript as
                       aux = BLAKE2s-256(b"NADO/stwo-js/aux/v1\\0" || dest.encode()) (lib.rs aux_of)
 
-The PcsConfig is NOT an argument: it is pinned in the crate (lib.rs NODE_*: log_blowup 2, 160 queries, 20 pow bits)
-and a proof that carries any other config is refused. `config()` reports the pinned one.
+  height              the L1 height the spend lands at: it selects the node config the proof must carry
+                      (config_id_at, protocol STWO_JS_128_HEIGHT)
+
+The PcsConfig is NOT the prover's to choose: the crate pins one config per id (lib.rs NODE_CFGS — NODE_CFG_340: log_blowup
+2, 160 queries, 20 pow bits; NODE_CFG_128: 56 queries), the HEIGHT picks the id, and a proof that carries any other
+config — the other node config included — is refused. `config(id)` reports a pinned one.
 
 LOADED LAZILY, ON THE FIRST VERIFY, NEVER AT IMPORT. A node whose build of this crate failed (no cargo, a compiler too
 old) must keep running everything else, so importing this module, or any execnode module that imports it, touches no
@@ -20,8 +24,8 @@ stale against its sources, or of another ABI): a fact about this machine, never 
 (native_guard.NODE_LOCAL_ERRORS: a caller defers on it, it never rejects). There is no Python fallback, and
 NADO_ALLOW_PYTHON_KERNELS does not change that (there is nothing to fall back to).
 
-The crate is NOT in ops/self_update._CRATES: that list has no notion of an optional crate (every entry is built and
-required), and whether the fleet builds this one is the operator's deployment decision.
+The crate is REQUIRED (ops/self_update._CRATES since STWO_POOL_HEIGHT): every node rebuilds it when its sources change,
+so an ABI change reaches the fleet through the update path; a node still on another ABI raises NativeMissing (defer).
 """
 import ctypes
 import os
@@ -32,7 +36,9 @@ from execnode.stark.native_guard import NativeMissing, is_stale
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CRATE_DIR = os.path.join(_REPO, "native", "stwo_js")
 DEFAULT_SO = os.path.join(CRATE_DIR, "target", "release", "libnado_stwo_js.so")
-ABI_VERSION = 1
+ABI_VERSION = 2                     # 2: verify and config take a node config id (STWO_JS_128_HEIGHT)
+# lib.rs NODE_CFG_340 / NODE_CFG_128
+CFG_340, CFG_128 = 0, 1
 _U64 = 1 << 64
 
 # Result codes of nado_stwo_js_verify (lib.rs RC_*)
@@ -76,11 +82,12 @@ def _load():
             ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,  # root, nf, cm1, cm2 (32 B each)
             ctypes.c_uint64, ctypes.c_uint64,                                   # unshield (public value), fee
             ctypes.c_char_p, ctypes.c_size_t,                                   # dest
-            ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]  # reason buffer
+            ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),  # reason buffer
+            ctypes.c_uint32]                                                    # node config id
         lib.nado_stwo_js_aux.restype = ctypes.c_int32
         lib.nado_stwo_js_aux.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p]
         lib.nado_stwo_js_config.restype = ctypes.c_int32
-        lib.nado_stwo_js_config.argtypes = [ctypes.POINTER(ctypes.c_uint32)]
+        lib.nado_stwo_js_config.argtypes = [ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
         _lib = lib
         return lib
 
@@ -104,8 +111,19 @@ def _digest(h):
     return b if len(b) == 32 else None
 
 
-def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, fee: int, dest: str):
-    """(True, "") or (False, "<short reason>"). Raises only NativeMissing (see the module docstring)."""
+def config_id_at(height) -> int:
+    """The node config a spend landing at L1 `height` must be proven at (protocol STWO_JS_128_HEIGHT). A pure function of
+    the height, so every node and the wallet agree on it; the prover never chooses."""
+    from protocol import STWO_JS_128_HEIGHT
+    return CFG_128 if int(height) >= int(STWO_JS_128_HEIGHT) else CFG_340
+
+
+def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, fee: int, dest: str, height):
+    """(True, "") or (False, "<short reason>"), for a spend landing at L1 `height`. Raises only NativeMissing (see the
+    module docstring)."""
+    if isinstance(height, bool) or not isinstance(height, int) or height < 0:
+        raise TypeError("height must be the L1 height the spend lands at")    # a caller bug, never a proof verdict
+    cfg_id = config_id_at(height)
     lib = _load()
     if not isinstance(proof, (bytes, bytearray)) or not proof:
         return False, "proof is not bytes"
@@ -128,7 +146,7 @@ def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, 
     reason = ctypes.create_string_buffer(512)
     rlen = ctypes.c_size_t(0)
     rc = lib.nado_stwo_js_verify(bytes(proof), len(proof), ds["root"], ds["nf"], ds["cm1"], ds["cm2"],
-                                 unshield, fee, db, len(db), reason, len(reason), ctypes.byref(rlen))
+                                 unshield, fee, db, len(db), reason, len(reason), ctypes.byref(rlen), cfg_id)
     if rc == RC_OK:
         return True, ""
     msg = reason.raw[:rlen.value].decode("utf-8", "replace") or f"code {rc}"
@@ -145,9 +163,10 @@ def aux_digest(dest: str) -> str:
     return out.raw.hex()
 
 
-def config():
-    """The pinned (log_blowup, n_queries, pow_bits) the library verifies against."""
+def config(cfg_id=CFG_340):
+    """The pinned (log_blowup, n_queries, pow_bits) of node config `cfg_id`."""
     lib = _load()
     out = (ctypes.c_uint32 * 3)()
-    lib.nado_stwo_js_config(out)
+    if lib.nado_stwo_js_config(int(cfg_id), out) != RC_OK:
+        raise ValueError(f"unknown node config {cfg_id}")
     return tuple(out)

@@ -85,7 +85,7 @@ def prove(st, v, rho, dest, unshield=U, fee=FEE):
     spend = {"nsk": nsk, "vIn": str(v), "rho": str(rho), "v1": str(v - unshield - fee), "o1": me,
              "r1": str(secrets.randbits(64)), "v2": "0", "o2": me, "r2": str(secrets.randbits(64)),
              "unshield": str(unshield), "fee": str(fee), "dest": dest}
-    return wallet_prove(spend, leaves, leaves.index(SP.commit(v, me, rho)))["bundle"]
+    return wallet_prove(spend, leaves, leaves.index(SP.commit(v, me, rho)), FEE_GATE)["bundle"]
 
 
 def at(st, h):
@@ -194,7 +194,7 @@ st, v, rho = pool()
 leaves = list(st.stwo_pool.commitments)
 spend = {"nsk": nsk, "vIn": str(v), "rho": str(rho), "v1": str(v - U - FEE), "o1": me, "r1": str(secrets.randbits(64)),
          "v2": "0", "o2": me, "r2": str(secrets.randbits(64)), "unshield": str(U), "fee": str(FEE), "dest": SHADOW, "feeTo": RELAY}
-wb = wallet_prove(spend, leaves, leaves.index(SP.commit(v, me, rho)))["bundle"]
+wb = wallet_prove(spend, leaves, leaves.index(SP.commit(v, me, rho)), FEE_GATE)["bundle"]
 at(st, FEE_GATE)
 n0 = st.uw_nonce
 r = st.apply_field_transfer(copy.deepcopy(wb))

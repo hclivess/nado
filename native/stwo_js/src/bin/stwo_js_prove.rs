@@ -1,7 +1,9 @@
 //! Test prover (feature `prover`): proves one of the two fixture join-splits at the pinned node config and writes
 //!   <out>/proof.bin    the wire bytes (src/wire.rs)
 //!   <out>/public.json  {"root","nf","cm1","cm2": 64-hex, "unshield", "fee": int, "dest": str}
-//! Usage: stwo_js_prove <a|b> <dest> <out_dir> [seed: 64-hex]   (no seed: 32 bytes from /dev/urandom)
+//! Usage: stwo_js_prove <a|b> <dest> <out_dir> [seed: 64-hex] [cfg id]   (no seed, or "-": 32 bytes from /dev/urandom;
+//!        cfg id: lib.rs NODE_CFGS, default NODE_CFG_340)
+//!        stwo_js_prove preroot [cfg id]
 
 use nado_stwo_js::*;
 
@@ -11,10 +13,14 @@ fn hex(b: &[u8]) -> String {
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
-    // `stwo_js_prove preroot`: the preprocessed root recomputed from the column builders (the pin test compares it with
-    // lib.rs NODE_PREPROCESSED_ROOT), as 64-hex on stdout.
+    let cfg_of = |s: Option<&String>| {
+        let id = s.map(|s| s.parse::<u32>().expect("cfg id")).unwrap_or(NODE_CFG_340);
+        node_config_of(id).expect("a lib.rs NODE_CFGS id")
+    };
+    // `stwo_js_prove preroot [cfg id]`: the preprocessed root recomputed from the column builders (the pin test compares
+    // it with that config's root in lib.rs NODE_CFGS), as 64-hex on stdout.
     if a.get(1).map(String::as_str) == Some("preroot") {
-        println!("{}", hex(&preprocessed_root(node_config())));
+        println!("{}", hex(&preprocessed_root(cfg_of(a.get(2)))));
         return;
     }
     if a.len() < 4 {
@@ -31,14 +37,15 @@ fn main() {
         _ => panic!("fixture a, b, mint or zeropre"),
     };
     let dest = a[2].as_bytes();
-    let seed: [u8; 32] = match a.get(4) {
+    let seed: [u8; 32] = match a.get(4).filter(|s| s.as_str() != "-") {
         Some(s) => std::array::from_fn(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()),
         None => os_seed(),
     };
+    let cfg = cfg_of(a.get(5));
     let (public, proof, tm) = if forge {
-        prove_js_cheat(&w, aux_of(dest), node_config(), false, seed, Cheat::ZeroPre).expect("forge")
+        prove_js_cheat(&w, aux_of(dest), cfg, false, seed, Cheat::ZeroPre).expect("forge")
     } else {
-        prove_js(&w, aux_of(dest), node_config(), false, seed).expect("prove")
+        prove_js(&w, aux_of(dest), cfg, false, seed).expect("prove")
     };
     let bytes = wire::encode(&proof);
     std::fs::create_dir_all(&a[3]).unwrap();

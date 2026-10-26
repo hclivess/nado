@@ -50,6 +50,7 @@ const env = {
   _stwo: { proveSpend: async (sp) => { proved.push(sp); return { bundle: { stark: { stwo_js: { proof: "00", root: "11".repeat(32), nf: "22".repeat(32),
     cm_out1: "33".repeat(32), cm_out2: "44".repeat(32), unshield: String(sp.unshield), fee: "0" } }, ...(sp.dest ? { withdraw_addr: sp.dest } : {}) },
     cm1: "33".repeat(32), cm2: "44".repeat(32) }; } },
+  stwoCfgId: () => 1,           // the node config of the landing height (STWO_JS_128_HEIGHT); its own test pins the choice
   execJSON: async () => ({ commitment: "da_commitment" }),
   getLatestBlock: async () => ({ block_number: 100 }),
   buildBlobTx: (wallet, payload) => { signed.push({ sender: wallet.address, public_key: wallet.publicKey, payload }); return { txid: "t" }; },
@@ -69,6 +70,8 @@ const leaves = ["00".repeat(32), cm];
 
 let r = await W._onDeviceProveStwo(wit, "http://exec.invalid", leaves);
 check("the wallet published the private spend (sanity)", r.ok && relayed.length === 1, JSON.stringify(r));
+check("...proved at the node config of its landing height", proved.length > 0 && proved.every((sp) => sp.cfg === 1),
+      JSON.stringify(proved.map((sp) => sp.cfg)));
 check("the field_transfer carrying a private spend is not signed by the spending account",
       signed.every((t) => t.sender !== spender.address && t.public_key !== spender.publicKey) && signed.length === 0,
       `signed by ${signed.map((t) => t.sender)} = the account whose key derives the note's spend key: the input note's owner is public`);

@@ -39,6 +39,7 @@ REROLL = {
     "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
     "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
     "SIG_SCHEMES_HEIGHT": 1,                   # dormant (2^62) on gen 28: an account may sign with another offered scheme
+    "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
     "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll

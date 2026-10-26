@@ -73,9 +73,15 @@ if not so or r.returncode != 0:
     sys.exit(1)
 
 
-def cases(*args):
-    p = subprocess.run([exe, *args], capture_output=True, text=True, timeout=1800)
-    check(f"the harness ({args[0]}) runs to the end without an abort", p.returncode == 0,
+import protocol as PROTO
+os.environ["NADO_STWO_JS_LIB"] = so
+from execnode.stark import stwo_js_native as SJ
+
+
+def cases(cfg, *args):
+    p = subprocess.run([exe, *args], capture_output=True, text=True, timeout=1800,
+                       env=dict(os.environ, NADO_ATTACK_CFG=str(cfg)))
+    check(f"[cfg {cfg}] the harness ({args[0]}) runs to the end without an abort", p.returncode == 0,
           (p.returncode, p.stderr[-1500:]))
     out = {}
     for line in p.stdout.splitlines():
@@ -85,49 +91,51 @@ def cases(*args):
     return out
 
 
-m = cases("mutate")
-check("the honest proof verifies (rc=0), so every refusal below is the mutation's", m.get("honest") == "rc=0", m)
-expected = ["claimed0+1", "claimed1+1", "claimed2+1", "claimed0+x,claimed1-x", "claimed0+x,claimed2-x",
-            "claimed-extra", "pow+1", "fri-first-commit", "fri-first-witness", "fri-first-witness-push",
-            "fri-inner0-witness", "fri-inner-last-pop", "fri-last-poly", "cfg-queries-159", "cfg-pow-0", "cfg-blowup-1",
-            "cfg-lift+1", "cfg-lastlayer-1", "cfg-foldstep-2", "cheaper-config", "cheat-ShiftClaimed",
-            "cheat-ForgeLookup"]
-for t in range(4):
-    expected += [f"commitment{t}", f"sampled{t}", f"sampled{t}-last", f"queried{t}", f"queried{t}-salt",
-                 f"decommit{t}-pop", f"decommit{t}-push"]
-for name in expected:
-    got = m.get(name)
-    check(f"refused: {name}", got is not None and got != "rc=0", got)
+# EVERY NODE CONFIG GETS THE WHOLE BATTERY (STWO_JS_128_HEIGHT): the 56-query config is a new verifier input, so its
+# mutations, cheats and structural refusals are measured, not assumed from the 160-query one.
+for CFG, HEIGHT in ((SJ.CFG_340, 0), (SJ.CFG_128, int(PROTO.STWO_JS_128_HEIGHT))):
+    m = cases(CFG, "mutate")
+    check(f"[cfg {CFG}] the honest proof verifies (rc=0), so every refusal below is the mutation's", m.get("honest") == "rc=0", m)
+    expected = ["claimed0+1", "claimed1+1", "claimed2+1", "claimed0+x,claimed1-x", "claimed0+x,claimed2-x",
+                "claimed-extra", "pow+1", "fri-first-commit", "fri-first-witness", "fri-first-witness-push",
+                "fri-inner0-witness", "fri-inner-last-pop", "fri-last-poly", "cfg-queries-1", "cfg-pow-0", "cfg-blowup-1",
+                "cfg-lift+1", "cfg-lastlayer-1", "cfg-foldstep-2", "cheaper-config", "other-node-config",
+                "cheat-ShiftClaimed", "cheat-ForgeLookup"]
+    for t in range(4):
+        expected += [f"commitment{t}", f"sampled{t}", f"sampled{t}-last", f"queried{t}", f"queried{t}-salt",
+                     f"decommit{t}-pop", f"decommit{t}-push"]
+    for name in expected:
+        got = m.get(name)
+        check(f"[cfg {CFG}] refused: {name}", got is not None and got != "rc=0", got)
 
-s = cases("struct")
-for name in ["queried1-drop-column", "queried1-short-column", "queried-drop-tree", "decommit-drop-tree",
-             "sampled-drop-tree", "commitments-5", "fri-no-inner", "fri-witness-empty", "claimed-empty",
-             "huge-len-prefix", "over-cap"]:
-    got = s.get(name)
-    check(f"refused, not crashed on: {name}", got in ("rc=2", "rc=3", "rc=4"), got)
-pad = dict(kv.split("=") for kv in (s.get("max-size-padded") or "rc=0").split())
-check("a max-size (16 MiB) proof padded with hash witnesses is refused within 5 s (no verify-time DoS)",
-      pad.get("rc") != "0" and int(pad.get("ms", 10 ** 9)) < 5000, pad)
+    s = cases(CFG, "struct")
+    for name in ["queried1-drop-column", "queried1-short-column", "queried-drop-tree", "decommit-drop-tree",
+                 "sampled-drop-tree", "commitments-5", "fri-no-inner", "fri-witness-empty", "claimed-empty",
+                 "huge-len-prefix", "over-cap"]:
+        got = s.get(name)
+        check(f"[cfg {CFG}] refused, not crashed on: {name}", got in ("rc=2", "rc=3", "rc=4"), got)
+    pad = dict(kv.split("=") for kv in (s.get("max-size-padded") or "rc=0").split())
+    check(f"[cfg {CFG}] a max-size (16 MiB) proof padded with hash witnesses is refused within 5 s (no verify-time DoS)",
+          pad.get("rc") != "0" and int(pad.get("ms", 10 ** 9)) < 5000, pad)
+    ht = dict(kv.split("=") for kv in (s.get("honest-timing") or "rc=1").split())
+    print(f"      [cfg {CFG}] honest proof {int(ht.get('bytes', 0)):,} bytes, native verify {ht.get('ms')} ms")
 
-f = cases("fuzz", "400")
-fz = f.get("fuzz", "")
-check("no single-bit flip or truncation of an honest proof is accepted (one proof, one encoding)",
-      "accepted_mutants=0" in fz, fz)
+    f = cases(CFG, "fuzz", "400")
+    fz = f.get("fuzz", "")
+    check(f"[cfg {CFG}] no single-bit flip or truncation of an honest proof is accepted (one proof, one encoding)",
+          "accepted_mutants=0" in fz, fz)
 
-os.environ["NADO_STWO_JS_LIB"] = so
-from execnode.stark import stwo_js_native as SJ
-
-out = tempfile.mkdtemp(prefix="nado-stwo-js-attack-dump-", dir=_T)
-d = cases("dump", out)
-P = json.load(open(os.path.join(out, "public.json")))
-args = (P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"])
-ok, why = SJ.verify(open(os.path.join(out, "honest.bin"), "rb").read(), *args)
-check("through the node's ctypes binding: the honest proof verifies", ok, why)
-ok, why = SJ.verify(open(os.path.join(out, "panic.bin"), "rb").read(), *args)
-check("through the node's ctypes binding: a proof that panics the verifier is a refusal, not a crash",
-      not ok and "panicked" in why, (ok, why))
-ok, why = SJ.verify(open(os.path.join(out, "honest.bin"), "rb").read(), *args)
-check("...and the binding still verifies afterwards (the caller survived the panic)", ok, why)
+    out = tempfile.mkdtemp(prefix="nado-stwo-js-attack-dump-", dir=_T)
+    d = cases(CFG, "dump", out)
+    P = json.load(open(os.path.join(out, "public.json")))
+    args = (P["root"], P["nf"], P["cm1"], P["cm2"], P["unshield"], P["fee"], P["dest"], HEIGHT)
+    ok, why = SJ.verify(open(os.path.join(out, "honest.bin"), "rb").read(), *args)
+    check(f"[cfg {CFG}] through the node's ctypes binding: the honest proof verifies", ok, why)
+    ok, why = SJ.verify(open(os.path.join(out, "panic.bin"), "rb").read(), *args)
+    check(f"[cfg {CFG}] through the node's ctypes binding: a proof that panics the verifier is a refusal, not a crash",
+          not ok and "panicked" in why, (ok, why))
+    ok, why = SJ.verify(open(os.path.join(out, "honest.bin"), "rb").read(), *args)
+    check(f"[cfg {CFG}] ...and the binding still verifies afterwards (the caller survived the panic)", ok, why)
 
 print("ALL PASS — every post-proof mutation and every cheating prover is refused" if not _report.fails
       else f"{_report.fails} FAILURES")

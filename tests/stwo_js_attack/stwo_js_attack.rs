@@ -2,12 +2,18 @@
 //! tests/test_stwo_js_every_post_proof_mutation_and_cheat_is_refused.py into a TEMP copy of native/stwo_js as
 //! src/bin/stwo_js_attack.rs (feature `prover`, nightly) — never into the checkout.
 //! Prints one line per case: `CASE <name> rc=<code>`; the Python test asserts on them.
+//! $NADO_ATTACK_CFG: the node config under attack (lib.rs NODE_CFGS id, default NODE_CFG_340) — the honest proof is made
+//! at it and every verification requires it, so each config gets the whole battery (STWO_JS_128_HEIGHT).
 use nado_stwo_js::*;
 use stwo::core::fields::qm31::SecureField;
 use num_traits::One;
 
+fn cfg_id() -> u32 {
+    std::env::var("NADO_ATTACK_CFG").ok().map(|s| s.parse().expect("NADO_ATTACK_CFG")).unwrap_or(NODE_CFG_340)
+}
+
 fn rc(bytes: &[u8], p: &Public, dest: &[u8]) -> i32 {
-    verify_node(bytes, words_digest(&p.root), words_digest(&p.nf), words_digest(&p.cm1), words_digest(&p.cm2), p.pv, p.fee, dest).0
+    verify_node(bytes, words_digest(&p.root), words_digest(&p.nf), words_digest(&p.cm1), words_digest(&p.cm2), p.pv, p.fee, dest, cfg_id()).0
 }
 
 fn main() {
@@ -16,7 +22,8 @@ fn main() {
     let dest = b"ndo1-attack-destination";
     let seed = [7u8; 32];
     let w = fixture_b();
-    let (p, proof, _) = prove_js(&w, aux_of(dest), node_config(), false, seed).expect("prove");
+    let cfg = node_config_of(cfg_id()).expect("a lib.rs NODE_CFGS id");
+    let (p, proof, _) = prove_js(&w, aux_of(dest), cfg, false, seed).expect("prove");
     let honest = wire::encode(&proof);
     println!("CASE honest rc={}", rc(&honest, &p, dest));
     let one = SecureField::one();
@@ -66,7 +73,7 @@ fn main() {
         case("fri-inner0-witness", enc(&|q| q.stark.0.fri_proof.inner_layers[0].fri_witness[0] += one));
         case("fri-inner-last-pop", enc(&|q| { q.stark.0.fri_proof.inner_layers.pop(); }));
         case("fri-last-poly", enc(&|q| q.stark.0.fri_proof.last_layer_poly[0] += one));
-        case("cfg-queries-159", enc(&|q| q.stark.0.config.fri_config.n_queries = 159));
+        case("cfg-queries-1", enc(&|q| q.stark.0.config.fri_config.n_queries -= 1));
         case("cfg-pow-0", enc(&|q| q.stark.0.config.pow_bits = 0));
         case("cfg-blowup-1", enc(&|q| q.stark.0.config.fri_config.log_blowup_factor = 1));
         case("cfg-lift+1", enc(&|q| q.stark.0.config.min_lifting_log_size += 1));
@@ -76,8 +83,13 @@ fn main() {
         let cheap = config(1, 80, 20);
         let (p2, pr2, _) = prove_js(&w, aux_of(dest), cheap, false, [9u8; 32]).expect("prove cheap");
         println!("CASE cheaper-config rc={}", rc(&wire::encode(&pr2), &p2, dest));
+        // a proof honestly made at the OTHER node config — valid for its own height, never for this one's: the height
+        // chooses the config, so neither the cheaper nor the costlier node config is the prover's to pick
+        let other = NODE_CFGS.iter().find(|c| c.0 != cfg_id()).map(|c| config(c.1, c.2, c.3)).unwrap();
+        let (p3, pr3, _) = prove_js(&w, aux_of(dest), other, false, [13u8; 32]).expect("prove other");
+        println!("CASE other-node-config rc={}", rc(&wire::encode(&pr3), &p3, dest));
         for (name, ch) in [("ShiftClaimed", Cheat::ShiftClaimed), ("ForgeLookup", Cheat::ForgeLookup)] {
-            match prove_js_cheat(&w, aux_of(dest), node_config(), false, [11u8; 32], ch) {
+            match prove_js_cheat(&w, aux_of(dest), cfg, false, [11u8; 32], ch) {
                 Ok((pc, prc, _)) => println!("CASE cheat-{name} rc={}", rc(&wire::encode(&prc), &pc, dest)),
                 Err(e) => println!("CASE cheat-{name} rc=prover-refused({e:?})"),
             }

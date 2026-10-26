@@ -62,14 +62,15 @@ const c = JSON.parse(process.argv[1]);
 const core = await S.StwoCore.instantiate(fs.readFileSync(c.wasm));
 const rand = (n) => randomFillSync(new Uint8Array(n));
 const t0 = performance.now();
-const r = await S.proveSpend(c.spend, c.leaves, c.pos, (w, d) => S.proveWith(core, w, d, rand));
+const r = await S.proveSpend(c.spend, c.leaves, c.pos, (w, d, cfg) => S.proveWith(core, w, d, rand, cfg));
 const ms = performance.now() - t0;
 console.log(JSON.stringify({ bundle: r.bundle, ms, aux_wasm: core.aux(c.spend.dest || ""), aux_js: S.auxOf(c.spend.dest || "") }));
 """ % json.dumps(MODULE)
 
 
-def wallet_prove(spend, leaves, pos):
-    case = {"wasm": SHIPPED_WASM, "spend": spend, "leaves": leaves, "pos": pos}
+def wallet_prove(spend, leaves, pos, height):
+    # at the node config of the height the spend applies at (STWO_JS_128_HEIGHT), as the wallet's stwoCfgId picks it
+    case = {"wasm": SHIPPED_WASM, "spend": dict(spend, cfg=stwo_js_native.config_id_at(height)), "leaves": leaves, "pos": pos}
     r = subprocess.run(["node", "--input-type=module", "-e", PROBE, json.dumps(case)], capture_output=True, text=True,
                        timeout=900)
     assert r.returncode == 0, r.stderr[-2000:]
@@ -107,7 +108,7 @@ change = v_in - take - fee
 r1, r2 = secrets.randbits(64), secrets.randbits(64)
 spend1 = {"nsk": nsk, "vIn": str(v_in), "rho": str(rho), "v1": str(change), "o1": me, "r1": str(r1),
           "v2": "0", "o2": me, "r2": str(r2), "unshield": str(take), "fee": str(fee), "dest": DEST}
-out1 = wallet_prove(spend1, leaves, pos)
+out1 = wallet_prove(spend1, leaves, pos, st.applying_height())
 b1 = out1["bundle"]
 js1 = b1["stark"]["stwo_js"]
 print(f"      WASM prove (Node, single thread, incl. self-verify): {out1['ms'] / 1000:.2f} s, "
@@ -118,7 +119,7 @@ check("2. the bundle has exactly the fields _apply_stwo_transfer reads",
       set(b1) == {"stark", "withdraw_addr"} and set(js1) == {"proof", "root", "nf", "cm_out1", "cm_out2", "unshield", "fee"}
       and b1["withdraw_addr"] == DEST, b1.keys())
 ok, why = stwo_js_native.verify(bytes.fromhex(js1["proof"]), js1["root"], js1["nf"], js1["cm_out1"], js1["cm_out2"],
-                                int(js1["unshield"]), int(js1["fee"]), DEST)
+                                int(js1["unshield"]), int(js1["fee"]), DEST, st.applying_height())
 check("...the WASM proof verifies through execnode/stark/stwo_js_native.verify", ok, why)
 
 st_redirect, _ = fresh_state("s2.json")
@@ -144,7 +145,7 @@ pos2 = leaves2.index(js1["cm_out1"])
 pay = 10 ** 11
 spend2 = {"nsk": nsk, "vIn": str(change), "rho": str(r1), "v1": str(pay), "o1": other, "r1": str(secrets.randbits(64)),
           "v2": str(change - pay), "o2": me, "r2": str(secrets.randbits(64)), "unshield": "0", "fee": "0", "dest": DEST}
-out2 = wallet_prove(spend2, leaves2, pos2)
+out2 = wallet_prove(spend2, leaves2, pos2, st.applying_height())
 b2 = out2["bundle"]
 check("3. a private transfer carries no withdraw_addr (bound to the empty destination)", "withdraw_addr" not in b2, b2.keys())
 v1 = st.pool_value

@@ -49,8 +49,12 @@ check("2. an empty Stwo pool leaves the exec root exactly as before it existed",
 calls = []
 fake = types.ModuleType("execnode.stark.stwo_js_native")
 VERDICT = [True]
-def _verify(proof, root, nf, cm1, cm2, unshield, fee, dest):
+HEIGHTS = []                                 # the height each verify was asked at (STWO_JS_128_HEIGHT picks the config)
+
+
+def _verify(proof, root, nf, cm1, cm2, unshield, fee, dest, height):
     calls.append((root, nf, cm1, cm2, unshield, fee, dest))
+    HEIGHTS.append(height)
     return (True, "") if VERDICT[0] else (False, "proof refused")
 fake.verify = _verify
 sys.modules["execnode.stark.stwo_js_native"] = fake
@@ -95,7 +99,10 @@ r = TF(dict(copy.deepcopy(bundle), stark={"stwo_js": dict(bundle["stark"]["stwo_
 check("...an unknown anchor root changes nothing (and is refused before the proof)", "unknown anchor" in r and st._snapshot() == before, r)
 VERDICT[0] = True
 calls.clear()
+HEIGHTS.clear()
 r = TF(copy.deepcopy(bundle))
+check("...the proof is verified at the height of the block it applies in (which selects its node config)",
+      HEIGHTS == [st.applying_height()], (HEIGHTS, st.applying_height()))
 uw = list(st.unshield_withdrawals.values())
 check("a verified transfer spends the nullifier and appends both outputs",
       st.stwo_pool.has_nullifier(nf) and st.stwo_pool.commitments == [cm_in, c1, c2], r)

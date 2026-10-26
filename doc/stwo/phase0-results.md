@@ -134,8 +134,17 @@ Applying NADO's own calculator (`soundness.conjectured_bits` / `achieved`, with 
 | 4 / 20 / 20 | 100 | 98.8 | 60.0 | 0.51 MB | 1.13 - 1.27 s | - |
 | 1 / 70 / 26 (StarkWare's base-prover shape) | 96 | 94.0 | 60.9 | 1.26 MB | 13.3 s (pow 26 grind, 1 thread) | - |
 | 2 / 160 / 20 (conjectured matched to ours) | 340 | 333.7 | 113.4 | 2.76 MB | 0.51 - 0.55 s | 0.91 - 1.25 s |
+| **2 / 56 / 20** (STWO_JS_128_HEIGHT, 2026-10-26) | 132 | 129.8 | 75.9 | 1.12 - 1.14 MB | native verify 8 ms (vs 15 ms at 2/160/20) | 0.89 - 1.42 s incl. self-verify (vs 1.70 - 1.75 s) |
 | 4 / 80 / 20 | 340 | 335.0 | 101.6 | 1.56 MB | 0.97 - 1.08 s | - |
 | **ours** (16x LDE, rate 1/2, 320 q, 18 grind, GF(p^3)) | - | **332.2** | **157.5** | 16.8 MB bin / 36.4 MB JSON | - | 459.8 s (JS) |
+
+The 2/56/20 row is the node config from STWO_JS_128_HEIGHT (dormant on gen 28, live from block 1 on gen 29), measured on
+the production crate after the change: `soundness.achieved(2, 1, 124, 56, 20, 18)` for the bits (the same calculator
+reproduces the 2/40/20 and 2/160/20 rows above), proof sizes from
+tests/test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py and the attack harness, the WASM time
+from the shipped `static/vendor/stwo_js.wasm` in Node (three runs, this server). 54 queries (Stwo's own "128") would be
+125.9 by NADO's model; 56 is the least count at which both say >= 128. Its provable figure (75.9) is the same footing as
+the settlement proofs at 2/54/20.
 
 Under NADO's provable (Johnson-bound) model the QM31 challenge field caps Stwo at ~113 provable bits whatever the
 query count (commit-phase term), versus our 157.5 from a 192-bit challenge field. On the conjectured count, which is what

@@ -205,7 +205,10 @@ export function auxOf(dest) {
 }
 
 // ---- the WASM ABI (native/stwo_js/src/prover.rs, "the wallet's WASM ABI") ----------------------------------------
-export const ABI_VERSION = 1;
+export const ABI_VERSION = 2;           // 2: stwo_set_config — the node config is chosen per proof (STWO_JS_128_HEIGHT)
+// node config ids (native/stwo_js lib.rs NODE_CFGS): which one a spend is proven at is a function of the height it lands
+// at (protocol STWO_JS_128_HEIGHT; static/interface.js stwoCfgId). A node verifies at that config and refuses any other.
+export const CFG_340 = 0, CFG_128 = 1;
 export const RC = { OK: 0, BAD_ARGS: 1, MALFORMED: 2, REJECTED: 3, PANIC: 4, NO_SEED: 5, SEED_REUSED: 6, NOT_A_JOINSPLIT: 7 };
 export const WITNESS_BYTES = 32 + 8 + 8 + DEPTH * 32 + DEPTH + 8 + 32 + 8 + 8 + 32 + 8 + 8 + 8;
 
@@ -275,6 +278,10 @@ export class StwoCore {
       return { rc, out: new Uint8Array(this.x.memory.buffer, this.x.stwo_out_ptr(), this.x.stwo_out_len()).slice() };
     } finally { this.x.stwo_free(pw, witness.length); this.x.stwo_free(pd, d.length); }
   }
+  /** Select the node config (CFG_340 / CFG_128) for the following prove and verifyOut. */
+  setConfig(id) {
+    if (this.x.stwo_set_config(id >>> 0) !== RC.OK) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: "cfg " + id });
+  }
   verifyOut(dest) { const d = new TextEncoder().encode(String(dest || "")); return this._call(d, (p, n) => this.x.stwo_verify_out(p, n)); }
   aux(dest) {
     const d = new TextEncoder().encode(String(dest || "")), po = this.x.stwo_alloc(32);
@@ -283,8 +290,10 @@ export class StwoCore {
   }
 }
 
-/** One proof, inside a Worker: seed, prove, self-verify. -> output record bytes, or throws with the reason. */
-export async function proveWith(core, witness, dest, randomBytes) {
+/** One proof, inside a Worker: seed, prove, self-verify, at node config `cfg`. -> output record bytes, or throws.
+ *  The self-check runs at the same config, so a proof the node would refuse for its config never leaves the device. */
+export async function proveWith(core, witness, dest, randomBytes, cfg = CFG_340) {
+  core.setConfig(cfg);
   const rcs = core.seed(randomBytes(32));
   if (rcs === RC.SEED_REUSED) throw _err("shield.stwoSeedReused", "the prover refused a reused random seed");
   if (rcs !== RC.OK) throw _err("shield.stwoNoSeed", "the prover got no random seed");
@@ -297,7 +306,8 @@ export async function proveWith(core, witness, dest, randomBytes) {
 }
 
 /** Main-thread entry: prove spending the note at `pos` of `leaves` and return {bundle, root, nf, cm1, cm2, ms}.
- *  spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest}. The proof is made in a Worker; the returned
+ *  spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest, cfg}; cfg is the node config of the height the
+ *  spend lands at (CFG_340 / CFG_128 — required: a proof at the wrong one is refused). The proof is made in a Worker; the returned
  *  public inputs are checked against this file's own algebra (root of the path, nf, both output commitments) before
  *  anything is returned, so a prover and wallet that disagree never publish. `run(witness, dest)` -> output bytes
  *  replaces the Worker (Node tests drive a StwoCore directly); the browser never passes it. */
@@ -309,14 +319,15 @@ export async function proveSpend(spend, leaves, pos, run) {
   const un = BigInt(spend.unshield || 0), payout = un > 0n ? String(spend.dest || "") : "";
   const feeTo = spend.feeTo ? String(spend.feeTo) : "", dest = stwoDest(payout, feeTo);
   const witness = packWitness({ ...spend, sibs: path.sibs, dirs: path.dirs });
+  if (spend.cfg !== CFG_340 && spend.cfg !== CFG_128) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: "cfg" });
   const t0 = Date.now();
-  const out = parseOutput(await (run || _inWorker)(witness, dest));
+  const out = parseOutput(await (run || _inWorker)(witness, dest, spend.cfg));
   const want = { root: path.root, nf: nullifier(spend.nsk, spend.rho), cm1: commit(spend.v1, spend.o1, spend.r1), cm2: commit(spend.v2, spend.o2, spend.r2) };
   for (const k of Object.keys(want)) if (out[k] !== want[k]) throw _err("shield.stwoDisagree", "the prover and the wallet disagree on {k}: nothing was sent", { k });
   return { bundle: buildBundle(out, payout, feeTo), ...want, ms: Date.now() - t0 };
 }
 
-function _inWorker(witness, dest) {
+function _inWorker(witness, dest, cfg) {
   return new Promise((resolve, reject) => {
     let w;
     try { w = new Worker("/static/stark/stwo_worker.js", { type: "module" }); }
@@ -324,6 +335,6 @@ function _inWorker(witness, dest) {
     const done = (f, v) => { try { w.terminate(); } catch (e) { /* already gone */ } f(v); };
     w.onmessage = (ev) => (ev.data && ev.data.ok ? done(resolve, new Uint8Array(ev.data.out)) : done(reject, errFromWorker(ev.data)));
     w.onerror = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); done(reject, _err("shield.stwoStopped", "the prover stopped: {m}", { m: (ev && ev.message) || "worker error" })); };
-    w.postMessage({ witness, dest }, [witness.buffer]);
+    w.postMessage({ witness, dest, cfg }, [witness.buffer]);
   });
 }

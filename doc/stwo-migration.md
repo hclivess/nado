@@ -706,9 +706,14 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
   account" while the wallet said "still settling"; and the wallet assumed every exec node is on :9273 (`/status`
   now advertises `exec_port`). Also fixed: the carry ran its invite refusal only under `--write`, after writing
   `genesis_alloc.dat`; its `--help` ran the carry.
-- **Still open before the real reroll:** the 8 live game calls above; G4's landing prover stays off (option R);
-  `CHAIN_ID` / `GENESIS_TIMESTAMP` / genesis files are recomputed on the day (the rehearsal's are not for main);
-  the wallet's Shield tab does not refresh its pool line while open (cosmetic: a reload shows the landed note).
+- **Closed since (2026-10-26):** the 8 live game calls were sent and applied (blocks 374706-374707; nothing in flight at
+  exec cursor 374760, and the carry dry run on live data at 376003 is Δ = 0 with 27/27 contracts and no refusal); the
+  Shield tab follows the pool while open (465cedec).
+- **Added for the reroll (2026-10-26, operator decision):** `STWO_JS_128_HEIGHT` — private sends prove at the 128-bit
+  node config from block 1 (56 queries; 129.8 bits conjectured, 75.9 provable; proofs 1.14 MB instead of 2.9 MB). Dormant
+  on gen 28. The final pre-reroll pass (suite + testnet + both walks on the final gen-29 tree) covers it.
+- **Still open before the real reroll:** G4's landing prover stays off (option R); `CHAIN_ID` / `GENESIS_TIMESTAMP` /
+  genesis files are recomputed on the day (the rehearsal's are not for main); the final pre-reroll pass above.
 
 **Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
 in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or

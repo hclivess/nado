@@ -45,9 +45,12 @@ from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
 
+from execnode.stark import stwo_js_native as SJ
+
 DEST = make_address("cd" * 1312)
 out = tempfile.mkdtemp(dir=_T)
-r = subprocess.run([exe, "b", DEST, out], capture_output=True, text=True, timeout=900)
+# at the node config of the height it applies at below (GATE; STWO_JS_128_HEIGHT), so the test holds on either tree
+r = subprocess.run([exe, "b", DEST, out, "-", str(SJ.config_id_at(1000))], capture_output=True, text=True, timeout=900)
 assert r.returncode == 0, r.stderr[-1000:]
 proof = open(os.path.join(out, "proof.bin"), "rb").read()
 pub = json.load(open(os.path.join(out, "public.json")))

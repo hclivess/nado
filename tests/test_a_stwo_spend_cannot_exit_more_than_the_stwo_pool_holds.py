@@ -133,7 +133,7 @@ else:
         spend = {"nsk": nsk, "vIn": str(v_in), "rho": str(rho), "v1": str(v_in - take - fee), "o1": me,
                  "r1": str(secrets.randbits(64)), "v2": "0", "o2": me, "r2": str(secrets.randbits(64)),
                  "unshield": str(take), "fee": str(fee), "dest": DEST}
-        out = wallet_prove(spend, leaves, leaves.index(SP.commit(v_in, me, rho)))
+        out = wallet_prove(spend, leaves, leaves.index(SP.commit(v_in, me, rho)), st.applying_height())
         sv0 = st.stwo_value
         r = st.apply_field_transfer(json.loads(json.dumps(out["bundle"])))
         check("2. an honest spend (real proof, real verifier) applies under the cap", "field-transfer stwo" in r, r)

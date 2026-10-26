@@ -801,13 +801,14 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     // root from the proof let a prover commit all-zero columns, which switched off every gated constraint and lookup,
     // and a proof for ANY root, nullifier, outputs and unshield verified (Cheat::ZeroPre). The tree is unsalted and
     // fixed by the config (prover.rs preprocessed_columns), so its root is one constant: refuse anything else BEFORE
-    // it reaches the channel. The constant exists for node_config() only, so no other config is accepted here.
+    // it reaches the channel. Each node config has its own pinned root (the tree's sizes follow the query count), so
+    // only a node config is accepted here, and only with ITS root.
     // INVARIANT: never commit commitments[0] without this comparison; a change to a selector or the table changes the
-    // root and must re-pin NODE_PREPROCESSED_ROOT (the pin test recomputes it from the builders).
-    if cfg != node_config() {
-        return Err("not the node config (the preprocessed root is pinned for it alone)".into());
-    }
-    if proof.stark.commitments[0].0 != NODE_PREPROCESSED_ROOT {
+    // roots and must re-pin every NODE_CFGS root (the pin test recomputes each from the builders).
+    let Some(&(_, _, _, _, pinned)) = NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg) else {
+        return Err("not a node config (the preprocessed root is pinned for those alone)".into());
+    };
+    if proof.stark.commitments[0].0 != pinned {
         return Err("the preprocessed commitment is not the pinned circuit".into());
     }
     let sz = Sizes::new(q);
@@ -853,7 +854,7 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
 
 // ------------------------------------------------------------------------------------------------ node binding
 
-/// THE PcsConfig A NODE ACCEPTS: log_blowup 2, 160 queries, 20 grinding bits, the config whose conjectured security
+/// THE FIRST PcsConfig A NODE ACCEPTS (NODE_CFG_340): log_blowup 2, 160 queries, 20 grinding bits, the config whose conjectured security
 /// matches the current wallet prover's (Stwo security_bits() = 340; NADO's soundness model: 333.7 conjectured, 113.4
 /// provable, capped by the QM31 challenge field). The proof carries its own config and `verify_js` refuses one that
 /// differs from this, so a prover cannot pick a cheaper one. ZK slack at this config (zkproof/ARGUMENT.md section 8):
@@ -874,6 +875,40 @@ pub const NODE_PREPROCESSED_ROOT: [u8; 32] = [
 
 pub fn node_config() -> PcsConfig {
     config(NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS)
+}
+
+/// THE SECOND (NODE_CFG_128, protocol STWO_JS_128_HEIGHT): log_blowup 2, 56 queries, 20 grinding bits. Stwo
+/// security_bits() = 132; NADO's soundness model (execnode/stark/soundness.py, E = 124 for QM31): 129.8 conjectured, 75.9
+/// provable — the same footing as the settlement proofs (doc/stwo/g4-settlement-statement.md), whose 54 queries the
+/// model rates at 125.9, so 56 is the least count at which NADO's own stricter model, not just Stwo's, says >= 128.
+/// Measured 2026-10-26 (doc/stwo/phase0-results.md): proofs 1.12-1.14 MB vs 2.90-2.92 MB at 160 queries, native verify
+/// 8 ms vs 15 ms, the wallet's WASM prove + self-verify 0.9-1.4 s vs 1.7 s. ZK slack: 3Q + 8 = 176 random rows per
+/// component; the JS trace shrinks to 2^8 rows and XOR stays 2^9, so the TIGHTEST class here is the XOR running sum
+/// (186 free rows, worst-case slack 10; measured rank 175 of 176), against ROUND's 4 at 160 queries.
+/// CHANGING THIS IS A CONSENSUS CHANGE.
+pub const NODE128_N_QUERIES: usize = 56;
+/// The preprocessed root at node_config_of(NODE_CFG_128) (the JS and XOR traces are smaller at 56 queries, so the
+/// tree differs from NODE_PREPROCESSED_ROOT's). Pinned and recomputed by the same test. CONSENSUS CONSTANT.
+/// = de4daac249db1c67db3ca2178bd44fe54ca743ff1322bad008ccab758aa91ab9
+pub const NODE128_PREPROCESSED_ROOT: [u8; 32] = [
+    0xde, 0x4d, 0xaa, 0xc2, 0x49, 0xdb, 0x1c, 0x67, 0xdb, 0x3c, 0xa2, 0x17, 0x8b, 0xd4, 0x4f, 0xe5,
+    0x4c, 0xa7, 0x43, 0xff, 0x13, 0x22, 0xba, 0xd0, 0x08, 0xcc, 0xab, 0x75, 0x8a, 0xa9, 0x1a, 0xb9,
+];
+
+/// Node config ids. WHICH ONE a proof must carry is the caller's to say, from the height the spend lands at (protocol
+/// STWO_JS_128_HEIGHT; execnode/stark/stwo_js_native.config_id_at): a node never lets the prover choose, so a proof at
+/// the other config is refused even though that config is otherwise acceptable.
+pub const NODE_CFG_340: u32 = 0;
+pub const NODE_CFG_128: u32 = 1;
+/// (id, log_blowup, n_queries, pow_bits, pinned preprocessed root)
+pub const NODE_CFGS: [(u32, u32, usize, u32, [u8; 32]); 2] = [
+    (NODE_CFG_340, NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS, NODE_PREPROCESSED_ROOT),
+    (NODE_CFG_128, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE_POW_BITS, NODE128_PREPROCESSED_ROOT),
+];
+
+/// The PcsConfig of node config `id`, or None for an unknown id.
+pub fn node_config_of(id: u32) -> Option<PcsConfig> {
+    NODE_CFGS.iter().find(|c| c.0 == id).map(|c| config(c.1, c.2, c.3))
 }
 
 /// Domain tag of the unshield-destination binding (see `aux_of`).
@@ -917,7 +952,18 @@ pub const RC_REJECTED: i32 = 3;
 pub const RC_PANIC: i32 = 4;
 
 /// Verify one join-split proof against its public inputs with the pinned node config. Pure: no I/O, no globals.
-pub fn verify_node(proof: &[u8], root: [u8; 32], nf: [u8; 32], cm1: [u8; 32], cm2: [u8; 32], pv: u64, fee: u64, dest: &[u8]) -> (i32, String) {
+pub fn verify_node(
+    proof: &[u8],
+    root: [u8; 32],
+    nf: [u8; 32],
+    cm1: [u8; 32],
+    cm2: [u8; 32],
+    pv: u64,
+    fee: u64,
+    dest: &[u8],
+    cfg_id: u32,
+) -> (i32, String) {
+    let Some(cfg) = node_config_of(cfg_id) else { return (RC_BAD_ARGS, format!("unknown node config {cfg_id}")) };
     let proof = match wire::decode(proof) {
         Ok(p) => p,
         Err(e) => return (RC_MALFORMED, format!("malformed proof: {e:?}")),
@@ -931,7 +977,7 @@ pub fn verify_node(proof: &[u8], root: [u8; 32], nf: [u8; 32], cm1: [u8; 32], cm
         fee,
         aux: aux_of(dest),
     };
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| verify_js(&public, proof, node_config()))) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| verify_js(&public, proof, cfg))) {
         Ok(Ok(())) => (RC_OK, String::new()),
         Ok(Err(e)) => (RC_REJECTED, e),
         Err(_) => (RC_PANIC, "verifier panicked".into()),
@@ -948,8 +994,10 @@ unsafe fn arr32(p: *const u8) -> Option<[u8; 32]> {
 }
 
 /// C ABI. `root`, `nf`, `cm1`, `cm2`: 32 bytes each. `dest`: the unshield destination's UTF-8 bytes (`dest_len` may be
-/// 0). The reason for a refusal is written to `reason` (at most `reason_cap` bytes, not NUL-terminated); its length
-/// goes to `*reason_len` when that pointer is not null. Returns one of the RC_* codes. Never unwinds into the caller.
+/// 0). `cfg_id`: the node config the proof must carry (NODE_CFG_340 / NODE_CFG_128 — the caller's, from the height the
+/// spend lands at; ABI 2). The reason for a refusal is written to `reason` (at most `reason_cap` bytes, not
+/// NUL-terminated); its length goes to `*reason_len` when that pointer is not null. Returns one of the RC_* codes. Never
+/// unwinds into the caller.
 #[unsafe(no_mangle)]
 pub extern "C" fn nado_stwo_js_verify(
     proof: *const u8,
@@ -965,6 +1013,7 @@ pub extern "C" fn nado_stwo_js_verify(
     reason: *mut u8,
     reason_cap: usize,
     reason_len: *mut usize,
+    cfg_id: u32,
 ) -> i32 {
     let r = std::panic::catch_unwind(|| {
         if proof.is_null() || (dest.is_null() && dest_len != 0) {
@@ -976,7 +1025,7 @@ pub extern "C" fn nado_stwo_js_verify(
         };
         let pb = unsafe { std::slice::from_raw_parts(proof, proof_len) };
         let db: &[u8] = if dest_len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(dest, dest_len) } };
-        verify_node(pb, root, nf, cm1, cm2, public_value, fee, db)
+        verify_node(pb, root, nf, cm1, cm2, public_value, fee, db, cfg_id)
     });
     let (rc, msg) = r.unwrap_or((RC_PANIC, "verifier panicked".into()));
     if !reason.is_null() {
@@ -1001,19 +1050,22 @@ pub extern "C" fn nado_stwo_js_aux(dest: *const u8, dest_len: usize, out: *mut u
     RC_OK
 }
 
-/// C ABI: the pinned node config as (log_blowup, n_queries, pow_bits), so the binding can report what it verifies.
+/// C ABI: node config `cfg_id` as (log_blowup, n_queries, pow_bits), so the binding can report what it verifies.
+/// RC_BAD_ARGS for an unknown id.
 #[unsafe(no_mangle)]
-pub extern "C" fn nado_stwo_js_config(out: *mut u32) -> i32 {
+pub extern "C" fn nado_stwo_js_config(cfg_id: u32, out: *mut u32) -> i32 {
+    let Some(c) = NODE_CFGS.iter().find(|c| c.0 == cfg_id) else { return RC_BAD_ARGS };
     if out.is_null() {
         return RC_BAD_ARGS;
     }
-    let c = [NODE_LOG_BLOWUP, NODE_N_QUERIES as u32, NODE_POW_BITS];
+    let c = [c.1, c.2 as u32, c.3];
     unsafe { std::ptr::copy_nonoverlapping(c.as_ptr(), out, 3) };
     RC_OK
 }
 
-/// C ABI version: bumped on any change to the signatures above.
+/// C ABI version: bumped on any change to the signatures above. 2: verify and config take a node config id
+/// (STWO_JS_128_HEIGHT).
 #[unsafe(no_mangle)]
 pub extern "C" fn nado_stwo_js_abi_version() -> u32 {
-    1
+    2
 }
