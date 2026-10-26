@@ -18,7 +18,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado-test-dasources-")
 import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
-os.environ["NADO_L1_URL"] = "http://127.0.0.1:9173"
+os.environ["NADO_L1_URL"] = "http://127.0.0.1:59173"   # a port nothing listens on: the stub session answers, never a live node
 os.environ["NADO_EXEC_GENESIS"] = os.path.join(os.environ["HOME"], "no_exec_genesis.json")   # not the tree's carried contracts
 import asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -61,17 +61,17 @@ def sources(body):
     return asyncio.run(E._da_sources(s)), s.asked
 
 
-live_shape = {"peers": ["185.100.232.131", "89.143.197.26:9173", "2001:b07:646c:7473:6e4b:90ff:fea2:7bae"]}
+live_shape = {"peers": ["185.100.232.131", "89.143.197.26:59173", "2001:b07:646c:7473:6e4b:90ff:fea2:7bae"]}
 out, asked = sources(live_shape)
 own = f"http://127.0.0.1:{E.PORT}"
-check("it reads L1's /peers", asked == ["http://127.0.0.1:9173/peers"], asked)
+check("it reads L1's /peers", asked == ["http://127.0.0.1:59173/peers"], asked)
 check("its own exec node is asked first", out[:1] == [own], out)
 check("every peer of the live {\"peers\": [...]} answer is asked on its L1 port",
-      "http://185.100.232.131:9173" in out and "http://89.143.197.26:9173" in out, out)
-check("...an IPv6 peer keeps its whole address", "http://[2001:b07:646c:7473:6e4b:90ff:fea2:7bae]:9173" in out, out)
+      "http://185.100.232.131:59173" in out and "http://89.143.197.26:59173" in out, out)
+check("...an IPv6 peer keeps its whole address", "http://[2001:b07:646c:7473:6e4b:90ff:fea2:7bae]:59173" in out, out)
 check("...and no source is the object's key", not any("peers" in u for u in out), out)
 out2, _ = sources(["185.100.232.131"])
-check("a bare list (older L1) still works", out2 == [own, "http://185.100.232.131:9173"], out2)
+check("a bare list (older L1) still works", out2 == [own, "http://185.100.232.131:59173"], out2)
 out3, _ = sources({"error": "x"})
 check("an answer with no peers leaves only the node itself", out3 == [own], out3)
 
