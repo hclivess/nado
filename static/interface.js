@@ -10915,6 +10915,21 @@ async function stwoRecoverDeposits() {
   return added;
 }
 
+// THE OPEN TAB FOLLOWS THE POOL. A deposit or a received note lands only when the exec node applies a FINALIZED block
+// (~45 blocks, ~5 min), long after the one re-render a deposit schedules — so the pool line and the banknote list sat
+// stale until a reload (found by the gen-29 rehearsal's two-user walk, 2026-10-26). While the tab is open and visible,
+// shieldTick reads only the pool summary and re-renders when it moved; a full re-render every tick would re-run the
+// withdrawal sweep (claimUnshields) each time. tests/test_the_shield_tab_follows_the_pool_while_open.mjs.
+let _shieldPoolSeen = null, _shieldTickBusy = false;
+async function shieldTick() {
+  if (_shieldTickBusy || state.activeTab !== "shield" || !state.wallet || document.visibilityState !== "visible") return;
+  _shieldTickBusy = true;
+  try {
+    const p = await execJSON("/exec/field_shielded");
+    if (p && p.notes + ":" + p.root !== _shieldPoolSeen) await renderShield();
+  } catch (e) { /* the next tick retries */ } finally { _shieldTickBusy = false; }
+}
+
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded(); await refreshShieldRules();
@@ -10928,6 +10943,7 @@ async function renderShield() {
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
   try {
     const p = await execJSON("/exec/field_shielded");
+    _shieldPoolSeen = p.notes + ":" + p.root;   // what shieldTick compares against
     $("shieldPool").textContent = i18("shield.poolInfo", "{n} banknotes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
   // PRIVACY PAUSE: say so where the pool is described, AFTER the pool line so it is not overwritten.
@@ -11846,6 +11862,7 @@ function wireEvents() {
     window._statsTickBusy = true;
     Promise.resolve(renderStats()).catch(() => {}).finally(() => { window._statsTickBusy = false; });
   }, 15000);   // blocks land every ~6s; 15s keeps the panel current without hammering the relay
+  if (!window._shieldTimer) window._shieldTimer = setInterval(() => { shieldTick(); }, 15000);   // no-op unless Shield is open + visible
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
     if (a) {

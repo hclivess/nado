@@ -24,13 +24,15 @@ const pageErrors = [];
 // A wallet the page can boot with. The keys are throwaway and never sign anything here — every assertion
 // below stops at a client-side guard or a read, on purpose: this suite must not be able to move funds.
 const WALLET = {
-  address: "mldsa440cc39948f96514d79d58cc591fa38519b36e0d86e03520",
+  address: "13d901ff23ed3bb81032fca3bf58696488cabe9f4f9ccee3ed",   // the format-2 address of publicKey below
   publicKey: "aa".repeat(650),
   privateKey: "bb".repeat(32),
 };
-// a REAL address (valid prefix + checksum) — the wallet's own validateAddress rejects a made-up one,
-// so a fake here would make every guard below fire for the wrong reason
-const PAYEE = "mldsa44e9cedd20a480703e1f0d957219fdfa8d768e6e1d7efacd";
+// a REAL address (format 2: body + checksum, of the throwaway key "cc" x 650) — the wallet's own validateAddress
+// rejects a made-up one, so a fake here makes every guard below fire for the wrong reason. It did: the old 46-char
+// "mldsa44…" form was retired by the gen-28 reroll, and the decimals and overdraft scenarios were answered by the
+// recipient check instead of the guard they test, from 2026-09-29 until the doc review of 2026-10-26 found it.
+const PAYEE = "f2f66e55a17085e580c7cf1cadc5ea49c0d157a827d466ad35";
 const BIG = "1152921504606846976";                       // 2^60 — beyond IEEE-double integer precision
 const ASSETS = {
   held: [
