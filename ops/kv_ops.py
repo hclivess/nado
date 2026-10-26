@@ -1077,6 +1077,52 @@ def exec_summary_get(height: int):
     return _read(_do)
 
 
+# THE MEMO OUTLIVES EVERY PURGE (2026-10-27 incident survey; cometbft/cometbft#6031 is the same class). The LMDB memo
+# lives in index/state, which purge_chain_data(dead_fork=True) deletes wholesale (ops/data_ops.py) — so a node that
+# purged and resynced inside the same epoch had lost the very interlock wipe_non_carried_dbs keeps on a re-anchor, and
+# could sign a second, different attestation for an epoch it had already attested on the fork: a valid equivocation
+# proof against itself. A sidecar under private/ (which no purge touches) mirrors every memo; reads take either.
+# Keyed by CHAIN_ID so a reroll's epoch numbers (restarting at 0) never read an old chain's memos — an attestation
+# pair across chain ids is no equivocation (the CHAIN_ID bind). tests/test_the_attest_memo_survives_a_dead_fork_purge.py.
+_attest_memo_lock = threading.Lock()
+
+
+def _attest_memo_path():
+    return os.path.join(get_home(), "private", "attest_memo.json")
+
+
+def _attest_memo_load():
+    from protocol import CHAIN_ID
+    try:
+        with open(_attest_memo_path()) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(d, dict) or d.get("chain_id") != CHAIN_ID or not isinstance(d.get("memos"), dict):
+        return {}
+    return {str(k): str(v) for k, v in d["memos"].items()}
+
+
+def _attest_memo_store(memos):
+    """Atomic and durable: write a temp file, fsync it, rename over, fsync the directory — a crash leaves the old
+    file or the new one, never a torn one, and the rename itself survives a power cut."""
+    from protocol import CHAIN_ID
+    path = _attest_memo_path()
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"chain_id": CHAIN_ID, "memos": dict(sorted(memos.items(), key=lambda kv: int(kv[0])))}, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fd = os.open(d, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def attest_memo_get(epoch: int):
     """The checkpoint hash this node has ALREADY signed an attestation for at `epoch`, or None.
 
@@ -1091,13 +1137,23 @@ def attest_memo_get(epoch: int):
     def _do(txn):
         raw = txn.get(f"{int(epoch)}".encode(), db=_dbs()["attest_memo"])
         return raw.decode() if raw is not None else None
-    return _read(_do)
+    got = _read(_do)
+    if got is None:                       # the LMDB copy is gone after a dead-fork purge; the sidecar is not
+        with _attest_memo_lock:
+            got = _attest_memo_load().get(str(int(epoch)))
+    return got
 
 
 def attest_memo_put(epoch: int, target_hash: str):
     """Record (epoch -> target_hash) BEFORE signing. Write-then-sign is the crash-safe order: a crash
     after the write costs at most a skipped attestation, whereas a crash after signing but before the
     write would let the node re-sign a DIFFERENT hash for the same epoch — the exact slashable event."""
+    # the SIDECAR FIRST: it is the copy a purge cannot take; then the LMDB copy as before
+    with _attest_memo_lock:
+        memos = _attest_memo_load()
+        memos[str(int(epoch))] = str(target_hash)
+        _attest_memo_store(memos)
+
     def _do(txn):
         txn.put(f"{int(epoch)}".encode(), str(target_hash).encode(), db=_dbs()["attest_memo"])
     _write(_do)
@@ -1114,6 +1170,11 @@ def attest_memo_prune(below_epoch: int):
                 except Exception:
                     continue
     _write(_do)
+    with _attest_memo_lock:
+        memos = _attest_memo_load()
+        kept = {k: v for k, v in memos.items() if int(k) >= int(below_epoch)}
+        if kept != memos:
+            _attest_memo_store(kept)
 
 
 def execsum_revert_put(block_height: int, pruned_height: int, doc):
