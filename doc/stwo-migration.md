@@ -679,7 +679,33 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
   displays redraw a record only when the redraw reaches its stored result.
 - **Still owed for the exit test:** deposit, private send and unshield walked as a user from the served URL. The Stwo
   pool opens at 269000 on gen 28, so a loopback testnet (which starts at block 0 under gen-28 constants) has no pool to
-  walk; the walk belongs to the G7 rehearsal on the gen-29 tree, where the gate is 1.
+  walk; the walk belongs to the G7 rehearsal on the gen-29 tree, where the gate is 1. **Walked 2026-10-26** — see below.
+
+**G7 rehearsal (2026-10-25/26, branch `g7-rehearsal`, not for main).** On a gen-29 tree built from a copy of live data:
+- **Entry:** fleet `status_pool` uniform; oldest fleet rustc 1.97.1 (Stwo needs ≥ 1.85).
+- **Carry** (exec cursor 363091): the contract carry refuses while 8 games are in flight — dice table 587750730 (3
+  open bets), hamster races 23228486 / 347893550 / 79590186, autogame runs 251596310 / 650227869. On the copy they clear
+  with permissionless calls (dice `reclaim` x3, hamster `void` x3, autogame `advance` x2); **on the live chain those
+  are 8 transactions the operator must send before the real carry.** Then: 27/27 contracts carried (2,195 slots), L1
+  Δ = 0 on 204,992,396,024,029 raw, 1,097 accounts, 951 identities, 264 device bindings, 130 aliases, 2 open invites
+  (= INVITE_ESCROW), the Stwo pool. A node boots from the carried genesis with exactly that supply.
+- **Suite** on the gen-29 tree: 61 failures, all fixed — 60 were tests reading a gate's gen-28 value as the shipped one
+  (they now pin it, `tests/_harness.gate_at/pinned`; doc/reroll.md failure mode 10) or building a test genesis that
+  inherited the real carried files (`NADO_GENESIS_CARRY` / `NADO_EXEC_GENESIS`); one was real (faucet's v1 source
+  baked the running generation's digest, so `build("v1")` could not assemble on gen 29). 657/657 then.
+- **Walks** (headless Chrome, loopback testnet): the signature-scheme walk (`scripts/testnet/test_scheme_wallet.py`)
+  and the two-user Stwo walk with exec nodes and the settle quorum (`scripts/testnet/test_shield_wallet.py`: deposit,
+  private send, receive, withdraw with no public NADO, quorum settle, claim) — both PASS, confirmed on every node.
+  **This is G6's exit walk and G7's "first quorum settle lands; exits claim".** The walks found four defects, three of
+  them in code live on the fleet (the pool never held a note, so none fired): exec nodes never fetched DA from peers
+  (L1's `/peers` is an object — every relayed spend would have forked the exec state and frozen settlement); a holder
+  with no public NADO could not withdraw ("Proof failed:" with no reason); its fee-exempt claim was refused "Empty
+  account" while the wallet said "still settling"; and the wallet assumed every exec node is on :9273 (`/status`
+  now advertises `exec_port`). Also fixed: the carry ran its invite refusal only under `--write`, after writing
+  `genesis_alloc.dat`; its `--help` ran the carry.
+- **Still open before the real reroll:** the 8 live game calls above; G4's landing prover stays off (option R);
+  `CHAIN_ID` / `GENESIS_TIMESTAMP` / genesis files are recomputed on the day (the rehearsal's are not for main);
+  the wallet's Shield tab does not refresh its pool line while open (cosmetic: a reload shows the landed note).
 
 **Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
 in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or
