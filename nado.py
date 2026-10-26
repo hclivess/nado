@@ -500,6 +500,11 @@ async def status(request):
             # has SEEN (cached by the last /update or daily check — never fetched inline here), and
             # whether it is running behind it. Lets anyone spot a lagging node from /status alone.
             "running_commit": self_update.running_head(),
+            # WHERE THIS NODE'S EXEC NODE ANSWERS (2026-10-26): the wallet assumed :9273 on the relay's host, so a node run
+            # with another NADO_EXEC_PORT served a wallet that read some OTHER exec node on 9273 — on a box that also runs
+            # the fleet's exec node, the live one (found by the gen-29 rehearsal's loopback walk). The port the node itself
+            # uses to reach its exec node (_EXEC_PORT); static/interface.js execBase reads it.
+            "exec_port": _EXEC_PORT,
             # NATIVE LIBRARIES (2026-09-25): per crate, whether the library the loader opens is present, current
             # against its Rust sources, and newer than this process (rebuilt but not yet loaded). A peer's rebuild
             # after a .rs commit was otherwise unverifiable without a shell on the box.

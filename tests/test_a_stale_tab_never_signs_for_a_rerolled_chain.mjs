@@ -58,6 +58,7 @@ function wallet({ relayChain, originChain }) {
   };
   const src = "let staleChain = ''; let CHAIN_ID = PAGE_CHAIN; let netAdopted = false; let _reloadArmed = false;\n" +
     "let reloads = 0;\n" +
+    "const relayExecPort = new Map();\n" + fnSrc("noteRelayExecPort") +   // refreshNetIdentity notes the relay's exec port
     fnSrc("staleChainMsg") + fnSrc("relayOnPageChain") + fnSrc("refreshNetIdentity", true) +
     fnSrc("_submitTransactionRaw", true) + fnSrc("relayAcceptable") +
     "function reloadWhenIdle() { reloads++; }\n" +

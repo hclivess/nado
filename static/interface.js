@@ -1952,6 +1952,7 @@ function relayAcceptable(st) {
 function adoptRelay(url, st) {
   const before = relayBase();
   relayPool.auto = url; relayPool.fails = 0; relayPool.switchedAt = Date.now();
+  noteRelayExecPort(relayBase(), st);
   if (st && typeof st.chain_id === "string" && st.chain_id && relayOnPageChain(st.chain_id)) {
     CHAIN_ID = st.chain_id; netAdopted = true;
     try { localStorage.setItem(LS_CHAIN_ID, CHAIN_ID); } catch (e) {}
@@ -2010,14 +2011,22 @@ async function relayMaintain() {
     try { const st = await probeRelay(homeRelay()); if (relayAcceptable(st) && st._probeMs <= RELAY_HOME_FAST_MS) adoptRelay(null, st); } catch (e) {}
   }
 }
-// Execution node (presence dividend + contracts) — same host as the relay, exec port 9273 (overridable).
+// Execution node (presence dividend + contracts) — same host as the relay, on the exec port THAT RELAY names.
+// relayExecPort: relay url -> the `exec_port` its /status advertises (nado.py, NADO_EXEC_PORT). The wallet assumed
+// 9273 for every relay, so a node on another exec port served a wallet reading SOME OTHER exec node on 9273 of the same
+// host (the gen-29 rehearsal's loopback walk read the live fleet's pool this way). 9273 when the relay names none.
+const relayExecPort = new Map();
+function noteRelayExecPort(url, st) {
+  const p = st && st.exec_port;
+  if (url && Number.isInteger(p) && p > 0 && p < 65536) relayExecPort.set(url, p);
+}
 function execBase() {
   if (state.execUrl) return state.execUrl.replace(/\/+$/, "");
   const b = relayBase();
-  // Relay reached on an explicit port (a direct node, e.g. http://ip:9173) -> the exec node is on :9273 of the
-  // same host. Relay reached with NO port (served behind a reverse proxy on 80/443, e.g. https://get.nadochain.com)
-  // -> the exec node is proxied at /exec on the SAME origin, so keep the origin as-is.
-  return /:\d+$/.test(b) ? b.replace(/:\d+$/, ":9273") : b;
+  // Relay reached on an explicit port (a direct node, e.g. http://ip:9173) -> the exec node is on the port it names
+  // (default 9273) of the same host. Relay reached with NO port (served behind a reverse proxy on 80/443, e.g.
+  // https://get.nadochain.com) -> the exec node is proxied at /exec on the SAME origin, so keep the origin as-is.
+  return /:\d+$/.test(b) ? b.replace(/:\d+$/, ":" + (relayExecPort.get(b) || 9273)) : b;
 }
 
 /* PRESENCE DIVIDEND (doc/presence-dividend.md). accrued lives off-L1 on the execution node; "Collect" submits
@@ -12175,6 +12184,7 @@ function installBgSignListener() {
 async function refreshNetIdentity() {
   try {
     const st = (await rpcJSON("/status")).data;
+    noteRelayExecPort(relayBase(), st);             // where this relay's exec node answers (execBase)
     if (st && typeof st.chain_id === "string" && st.chain_id) {
       if (!relayOnPageChain(st.chain_id)) return CHAIN_ID;   // a rerolled chain: this page's rules are not its rules
       CHAIN_ID = st.chain_id;                       // == PAGE_CHAIN (relayOnPageChain)
