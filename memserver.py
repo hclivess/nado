@@ -975,12 +975,16 @@ class MemServer:
         #
         # legacy_claim JOINED IT (gen 28): the claimant's format-2 address holds nothing until the claim lands, and the
         # claim is bounded by consensus — one per old address, only an unkeyed old address with a balance, consumed.
+        # unshield JOINED IT (gen-29 rehearsal, 2026-10-26): a recipient whose money arrived PRIVATELY has no L1 account until
+        # its first withdrawal lands, so its fee-exempt claim was refused "Empty account" and the wallet said "still
+        # settling" for ever. The claim is bounded by consensus like legacy_claim: a valid exit proof against the
+        # SETTLED root, its (addr, nonce) nullifier burned, the claimant the exit's own address — once per exit.
         # tpm_ready LEFT THIS LIST (audit 2026-09-27): an announcement from a never-funded address was the one free,
         # unbounded, account-creating message on the chain (protocol.py "NO FREE REPEATABLE TRANSACTIONS"). Its honest
         # sender is a node that already holds an account, and a bonded one. NOTE: this check is mempool policy only —
         # consensus never runs it — so it is never the bound that makes a kind safe; validate_transaction is.
         elif transaction.get("recipient") not in ("register", "heartbeat", "tpm_enrol",
-                                                  "tpm_challenge", "tpm_commit", "tpm_reveal", "legacy_claim") \
+                                                  "tpm_challenge", "tpm_commit", "tpm_reveal", "legacy_claim", "unshield") \
                 and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": "Empty account"}

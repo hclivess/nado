@@ -11666,7 +11666,7 @@ async function claimUnshields(silent, kp) {
       } catch (e) { /* an older relay: claim from the whole list, as before */ }
     }
     if (!pending.length) { if (!silent) $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
-    let claimed = 0;
+    let claimed = 0, refusal = "";
     // Prove against the SETTLED root (root=) — L1 verifies unshield exits against it, and the exec
     // node's live root has usually moved past it (see claimPendingDividends). Older exec nodes ignore
     // the param; the claim then only lands when the live root happens to be the settled one (old behavior).
@@ -11680,8 +11680,12 @@ async function claimUnshields(silent, kp) {
       const tx = buildTransferTx(w, "unshield", 0n, 0n, target, data, nowSeconds());
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) claimed++;
+      else refusal = (res.data && res.data.message) || refusal;
     }
     if (claimed) $("shieldStatus").textContent = i18("shield.claimed", "Received {n} withdrawal(s) ✓ — coins are in your balance.", { n: claimed });
+    // A REFUSED CLAIM SAYS SO: "still settling" was shown for a claim the network had refused ("Empty account", gen-29
+    // rehearsal walk) — a statement about the chain that was false, and a wait that would never end
+    else if (refusal && !silent) $("shieldStatus").textContent = i18("shield.claimRefused", "The network refused the withdrawal claim: {m}", { m: refusal });
     else if (!silent) $("shieldStatus").textContent = i18("shield.notSettled", "Still settling on L1 — it'll arrive automatically in a few minutes.");
     setTimeout(() => { refreshDashboard().catch(() => {}); renderShield().catch(() => {}); }, 1800);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
