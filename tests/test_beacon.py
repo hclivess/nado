@@ -27,15 +27,30 @@ ck("reveal order doesn't matter (sorted)", A.beacons.get(13) == exp)
 ck("an epoch below the beacon floor is unavailable (no partial-witness beacon)", (A.beacon_floor - 1) not in A.beacons)
 
 # the BEACON opcode: a contract reads a finalized beacon; a future/unavailable epoch reverts (no-op)
-st = ExecState(tempfile.mktemp()); st.cursor = 1 * EPOCH_LENGTH; st.advance_beacons(st.cursor)   # floor = 3
-st.record_reveal(4, "zz"); st.cursor = 8 * EPOCH_LENGTH; st.advance_beacons(st.cursor)            # epoch 4 >= floor
 from execnode import zkvmasm
-CODE = zkvmasm.assemble_contract({"getb": "beacon r1 r0\n ret r1"})
-st.apply_blob({"op": "deploy", "code": CODE, "nonce": "b"}, "X", "d")
-cid = list(st.contracts)[0]
 from execnode.stark.field import P as _P
-b4 = int(compute_beacon(GENESIS_BEACON, ["zz", "4"]), 16) % _P
-ck("BEACON(finalized epoch) returns the exec beacon", st.view(cid, "getb", [4]) == b4 and 4 in st.beacons)
+
+
+def beacon_contract():
+    st = ExecState(tempfile.mktemp()); st.cursor = 1 * EPOCH_LENGTH; st.advance_beacons(st.cursor)   # floor = 3
+    st.record_reveal(4, "zz"); st.cursor = 8 * EPOCH_LENGTH; st.advance_beacons(st.cursor)            # epoch 4 >= floor
+    CODE = zkvmasm.assemble_contract({"getb": "beacon r1 r0\n ret r1"})
+    st.apply_blob({"op": "deploy", "code": CODE, "nonce": "b"}, "X", "d")
+    return st, list(st.contracts)[0]
+
+
+# the word the contract sees is the VM's: generation 28's VM reduces the beacon mod the Goldilocks prime, the gen-29
+# 256-bit VM (BLAKE_EXEC_HEIGHT) carries it whole — both run explicitly (the gen-29 rehearsal found this pinned to the old)
+import _harness
+full4 = int(compute_beacon(GENESIS_BEACON, ["zz", "4"]), 16)
+with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 28)):
+    st, cid = beacon_contract()
+    ck("gen 28: BEACON(finalized epoch) returns the exec beacon mod the field prime",
+       st.view(cid, "getb", [4]) == full4 % _P and 4 in st.beacons)
+with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 29)):
+    st, cid = beacon_contract()
+    ck("gen 29: BEACON(finalized epoch) returns the whole 256-bit exec beacon",
+       st.view(cid, "getb", [4]) == full4 and full4 < 1 << 256 and 4 in st.beacons)
 ck("BEACON(finalized) is reproducible (deterministic view)", st.view(cid, "getb", [4]) == st.view(cid, "getb", [4]))
 ck("BEACON(future/unavailable epoch) reverts -> None", st.view(cid, "getb", [9999]) is None)
 ck("a game result HASH(beacon || id) differs per id", st.view(cid, "getb", [4]) is not None)

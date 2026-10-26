@@ -72,7 +72,7 @@ def t4_unshield_provable_exit():
     assert "unshield 40" in res, res
     w = st.unshield_withdrawals.get("1")
     assert w and w["amount"] == 40 and w["addr"] == "ndoAlice", w
-    from execnode import exec_root as ER
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module)
     proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, w["addr"], "1", value=w["amount"])
     assert root == st.state_root() and ER.verify_unshield(root, w["addr"], w["amount"], "1", proof), \
         "unshield exit must be provable against state_root"

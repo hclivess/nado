@@ -88,8 +88,8 @@ def t4_default_determinism_preserved():
 
 def t5_outbox_emit_commit_and_proof():
     """Prove `emit` commits a cross-domain message in state_root and the record_proof_at proof (what /exec/outbox_proof serves) verifies against it."""
-    from execnode import exec_root as ER
     st = _states(["default"])["default"]
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module)
     r0 = st.state_root()
     st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": {"hello": 1}}, A, "e1")
     st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": [1, 2, 3]}, B, "e2")

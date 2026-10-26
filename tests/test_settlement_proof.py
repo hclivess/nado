@@ -8,6 +8,13 @@ Run: python3 tests/test_settlement_proof.py        (~1-2 min: proves several cal
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# GENERATION 28'S SETTLE PATH — the Goldilocks settle proof. From BLAKE_EXEC_HEIGHT a BLAKE2s exec root settles by
+# bonded-quorum attestation only (option R, doc/stwo-migration.md §9.5); what this file pins is the old prover and
+# verifier, which gen 28's history replays through until its cleanup (G9). Run under gen 28's gate explicitly: the
+# gen-29 rehearsal (2026-10-25) found it reading the shipped value, which is 1 from generation 29.
+import _harness as _gen28
+import protocol as _gen28_P
+_gen28_P.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode import settlement_proofs as SP, zkvmasm, runtimes
 from execnode.state import ExecState
 import tempfile

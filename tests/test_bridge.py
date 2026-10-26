@@ -67,7 +67,7 @@ def t2_full_bridge_roundtrip():
     st.apply_blob({"op": "bridge_withdraw", "amount": W}, sender=U["address"], txid="wd")
     assert st.bridge[U["address"]] == D - W, "exec-side balance burned by W"
     assert st.withdrawals.get("1") == {"addr": U["address"], "amount": W}, st.withdrawals
-    from execnode import exec_root as ER       # the proof /exec/withdrawal_proof serves
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module); /exec/withdrawal_proof's
     wd_proof, root = st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=W)
     assert root == st.state_root()
     assert ER.verify_withdrawal(root, U["address"], W, "1", wd_proof), "exec proof self-consistent"
@@ -94,7 +94,7 @@ def t3_withdraw_without_settlement_rejected():
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)
     st.apply_blob({"op": "bridge_withdraw", "amount": 100_000}, sender=U["address"], txid="wd2")
-    from execnode import exec_root as ER
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module)
     p = {"proof": st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=100_000)[0]}
     wtx = construct_bridge_withdraw_tx(U, U["address"], 100_000, "1", p["proof"], max_block=1)
     # this exact (unsettled) root is not the settled one -> proof fails against the settled root
@@ -106,7 +106,7 @@ def t4_forged_amount_rejected():
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)
     st.apply_blob({"op": "bridge_withdraw", "amount": 40_000}, sender=U["address"], txid="wd3")
-    from execnode import exec_root as ER
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module)
     p = {"proof": st.record_proof_at(None, ER.T_BRIDGE_WD, U["address"], "1", value=40_000)[0]}
     root = st.state_root()
     reflect_transaction(construct_settle_tx(V, exec_cursor=99, state_root=root, max_block=1), logger, 1)

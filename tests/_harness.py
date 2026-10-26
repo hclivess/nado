@@ -104,3 +104,16 @@ class pinned:
         for k, v in self.saved.items():
             setattr(protocol, k, v)
         return False
+
+
+def exit_module(cursor=0):
+    """The exit verifier L1 uses for a settled root AT `cursor` — ops.transaction_ops.exit_root_module's own predicate
+    (execnode/exec_root_b2.blake_exec_at), without importing ops. A test that proves an exit with exec_root.py directly
+    tests generation 28's verifier only; the gen-29 rehearsal found six such tests unable to verify a gen-29 exit because
+    they named the old module, not because the exit was wrong."""
+    from execnode.exec_root_b2 import blake_exec_at
+    if blake_exec_at(cursor):
+        from execnode import exec_root_b2 as R2
+        return R2
+    from execnode import exec_root as R1
+    return R1

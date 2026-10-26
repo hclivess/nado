@@ -30,6 +30,13 @@ os.environ.pop("NADO_ALLOW_PYTHON_KERNELS", None)         # the SHIPPED path
 import sys, copy, asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.environ["HOME"])
+# GENERATION 28'S SETTLE PATH — the Goldilocks settle proof. From BLAKE_EXEC_HEIGHT a BLAKE2s exec root settles by
+# bonded-quorum attestation only (option R, doc/stwo-migration.md §9.5); what this file pins is the old prover and
+# verifier, which gen 28's history replays through until its cleanup (G9). Run under gen 28's gate explicitly: the
+# gen-29 rehearsal (2026-10-25) found it reading the shipped value, which is 1 from generation 29.
+import _harness as _gen28
+import protocol as _gen28_P
+_gen28_P.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode import zkvm, zkvmasm, exec_root as ER, settlement_proofs as SP
 from execnode.code_codec import contract_id
 from execnode.state import ExecState, asset_id

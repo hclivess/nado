@@ -74,7 +74,7 @@ def t_legit_unshield_still_ok():
     assert "unshield 40" in res, f"the correctly-signed unshield must be accepted, got: {res!r}"
     w = st.unshield_withdrawals.get("1")
     assert w and w["addr"] == "ndoVictimAddress" and w["amount"] == 40, w
-    from execnode import exec_root as ER       # the proof the /exec/unshield_proof handler serves
+    ER = _harness.exit_module(st.cursor)       # L1's verifier (exit_root_module) for the proof /exec/unshield_proof serves
     proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, w["addr"], "1", value=w["amount"])
     assert ER.verify_unshield(root, w["addr"], w["amount"], "1", proof), "the victim's exit is provable"
 

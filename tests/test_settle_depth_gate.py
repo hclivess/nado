@@ -34,6 +34,13 @@ for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 logging.getLogger("dg").addHandler(logging.NullHandler())
 logger = logging.getLogger("dg")
+# GENERATION 28'S SETTLE PATH — the Goldilocks settle proof. From BLAKE_EXEC_HEIGHT a BLAKE2s exec root settles by
+# bonded-quorum attestation only (option R, doc/stwo-migration.md §9.5); what this file pins is the old prover and
+# verifier, which gen 28's history replays through until its cleanup (G9). Run under gen 28's gate explicitly: the
+# gen-29 rehearsal (2026-10-25) found it reading the shipped value, which is 1 from generation 29.
+import _harness as _gen28
+import protocol as _gen28_P
+_gen28_P.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from genesis import create_indexers
 create_indexers()
 

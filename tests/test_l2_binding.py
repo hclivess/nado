@@ -35,6 +35,10 @@ def _fresh_home(prefix):
     kv_ops.close_all()
     h = tempfile.mkdtemp(prefix=prefix)
     os.environ["HOME"] = h
+    # an EMPTY exec layer and no L1 carry: genesis_data/ holds the real chain's carried genesis on a reroll tree (the
+    # gen-29 rehearsal: a reset loaded its 27 contracts, whose root is not the empty layer's). Paths that do not exist.
+    os.environ["NADO_EXEC_GENESIS"] = os.path.join(h, "no_exec_genesis.json")
+    os.environ["NADO_GENESIS_CARRY"] = os.path.join(h, "no_genesis_carry.dat")
     for d in ("index", "blocks", "logs", "peers", "snapshots"):
         os.makedirs(f"{h}/nado/{d}", exist_ok=True)
     from genesis import create_indexers
@@ -47,13 +51,16 @@ def test_exec_root_in_block_hash():
     from ops import account_ops
     from ops.block_ops import construct_block, block_content_hash
     from ops.settlement_ops import settled_header_commitment
-    from protocol import EXEC_GENESIS_ROOT
+    # the empty sentinel is the GENERATION's empty exec root (exec_root_b2.genesis_canary): protocol.EXEC_GENESIS_ROOT on
+    # gen 28, EXEC_GENESIS_ROOT_B2 from BLAKE_EXEC_HEIGHT — a gen-29 header never carries a Goldilocks root
+    from execnode.exec_root_b2 import genesis_canary
+    EXEC_GENESIS_ROOT = genesis_canary()
 
     account_ops.create_account("a", balance=100)
 
     # Empty chain: no settlement is justified, so the header commits the empty sentinel.
     c, r = settled_header_commitment()
-    check("empty-chain settled commitment is the (-1, EXEC_GENESIS_ROOT) sentinel",
+    check("empty-chain settled commitment is the (-1, the generation's empty exec root) sentinel",
           c == -1 and r == EXEC_GENESIS_ROOT)
 
     blk = construct_block(block_timestamp=123, block_number=1, parent_hash="0" * 64,

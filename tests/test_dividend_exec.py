@@ -50,7 +50,7 @@ def t3_collect_burns_and_proves():
     assert "collect_dividend" in res and st.dividend.get("A", 0) == 0, "collect burns the balance"
     w = st.dividend_withdrawals["1"]
     assert w["addr"] == "A" and w["amount"] == 1000, "records the provable withdrawal"
-    from execnode import exec_root as ER
+    ER = _harness.exit_module(st.cursor)       # L1's verifier for this root (exit_root_module)
     proof, root = st.record_proof_at(None, ER.T_DIV_WD, "A", "1", value=1000)
     assert root == st.state_root() and ER.verify_dividend(root, "A", 1000, "1", proof), \
         "the collection proves against the state_root (== what L1 checks vs the settled root)"

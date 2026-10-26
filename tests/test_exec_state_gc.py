@@ -12,9 +12,9 @@ Run: python3 tests/test_exec_state_gc.py
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
-from execnode import exec_root as ER
 
 import _harness
+ER = _harness.exit_module()                    # L1's verifier for this generation's roots (exit_root_module)
 _report = _harness.Report()
 check = _report.run
 
