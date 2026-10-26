@@ -1693,6 +1693,10 @@ def split_open_block_reward(reward: int):
 #                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
 #                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
 #                                    doc/signature-schemes.md)
+#                                    BLOCK_BUDGET_HEIGHT (2^62, DORMANT on gen 28 -> 1: a block carries at most
+#                                    MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES bytes, built or validated)
+#                                    AGREED_TIME_SEATS_HEIGHT (2^62, DORMANT on gen 28 -> 1: the certificate clock's
+#                                    median weighs duty-committee seats, not distinct senders)
 #                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
 #                                    the 128-bit node config — 56 queries, not 160; 2.5x smaller proofs)
 # ---------------------------------------------------------------------------------------------------------------
@@ -2212,6 +2216,37 @@ STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
 # (static/interface.js stwoCfgId). `else 1`: live from block 1 after a reroll — the pool is empty at the carry, so no
 # proof made at the old config is ever owed verification on the new chain.
 STWO_JS_128_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+
+# THE CERTIFICATE CLOCK WEIGHS SEATS, NOT SENDERS (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon").
+# ops/transaction_ops.agreed_time took one sample per distinct duty sender, so splitting stake into many B_MIN accounts
+# bought clock samples and a seatless reveal-only duty counted; from this height it is the median weighted by each
+# sender's seats in its landing epoch's duty committee (0 seats = no sample). DORMANT on gen 28, from block 1 after
+# the reroll. tests/test_agreed_time_weighs_committee_seats_not_senders.py.
+AGREED_TIME_SEATS_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+
+# A BLOCK-WIDE BUDGET (2026-10-27 incident survey: aleo snarkVM#3443 — a block-wide limit enforced only when building,
+# so every validator accepted an over-limit block; Namada #5050 — a 42 s CheckTx). Each transaction has its own size cap,
+# but nothing bounded the work ONE block demands of every node that validates it. From this height a block carries at
+# most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES canonical bytes, enforced identically when assembling
+# (ops/transaction_ops.cap_block_budget: duty first, then txid order) and when validating (assert_block_budget).
+# Measured over the 20,000 blocks before 2026-10-27: p99 7 transactions, max 19; p99 54 KB (the 27.8 MB maximum is an
+# inline settle proof, a path generation 29 refuses — option R). Signature verification is 0.08-0.22 ms per scheme on
+# the relay, so the bound that matters is count and bytes. Both caps are ~100x honest load; retune at a later gate.
+# DORMANT on gen 28, from block 1 after the reroll. tests/test_a_block_carries_at_most_its_budget_built_or_validated.py.
+BLOCK_BUDGET_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+MAX_BLOCK_TXS = 2000
+MAX_BLOCK_TX_BYTES = 8 * 1024 * 1024
+
+# A STAGED EMERGENCY PAUSE FOR STWO SPENDS (2026-10-27 incident survey: Zcash disabled Orchard by an emergency soft fork
+# after a counterfeiting bug in its circuit, live since 2022; RISC Zero turned affected verifiers off through a
+# pre-built "estop"). From this height every stwo_js spend is refused — by the exec layer and, through the same
+# ExecState.stwo_spend_refusal, by every node relay before it pays an L1 fee. DEPOSITS ARE NOT PAUSED: they escrow coins
+# on L1 before the exec layer sees them, so refusing one there would strand the coins; a paused pool can still grow but
+# nothing leaves it, which is what bounds a counterfeit. (1 << 62) = never, on EVERY generation: this is not a gate
+# that transfers at a reroll but a switch, so an emergency release changes ONLY this number to a height the /update wave
+# reaches first (CLAUDE.md rule 3) — nothing has to be written, reviewed or tested under pressure.
+# tests/test_the_stwo_spend_pause_is_staged_and_refuses_every_spend.py pins the path.
+STWO_PAUSE_HEIGHT = 1 << 62
 
 # REVERTS PAY FOR THEIR STEPS (audit 2026-09-24 #13, confirmed 2026-10-18). EXEC_BLOCK_STEP_BUDGET bounds the VM steps a
 # block may make every exec node execute — but a call that REVERTED (or raised) returned before its steps were counted,

@@ -43,7 +43,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, SpendingLedger, ProofUnavailable, WindowUnavailable)
+    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap, assert_block_budget, SpendingLedger, ProofUnavailable, WindowUnavailable)
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
@@ -5190,6 +5190,13 @@ class CoreClient(threading.Thread):
             assert_block_blob_cap(transactions)
         except Exception as e:
             self.logger.error(f"Block exceeds per-block blob cap: {e}")
+            raise
+        # BLOCK-WIDE BUDGET (BLOCK_BUDGET_HEIGHT): the bound the assembler applies (cap_block_budget), enforced on
+        # EVERY block validated — a limit checked only when building is no limit (aleo snarkVM#3443).
+        try:
+            assert_block_budget(transactions, block["block_number"])
+        except Exception as e:
+            self.logger.error(f"Block exceeds the per-block budget: {e}")
             raise
 
         try:

@@ -1432,6 +1432,11 @@ class ExecState:
         INVARIANT: _apply_stwo_transfer (under the mutate lock, before verifying) and the exec node's
         /exec/stwo_spendable (what the spend relay asks before it pays an L1 fee) both decide through THIS method, so
         the relay refuses exactly what the exec layer would skip."""
+        # THE STAGED EMERGENCY PAUSE (protocol.STWO_PAUSE_HEIGHT, never until an emergency release sets it): first, so
+        # a paused pool refuses every spend before any other check — at the exec layer and at every relay at once.
+        from protocol import STWO_PAUSE_HEIGHT
+        if int(height) >= int(STWO_PAUSE_HEIGHT):
+            return "skip field-transfer: the Stwo pool is paused (STWO_PAUSE_HEIGHT)"
         if not self.stwo_pool.knows_root(root, height):
             return "skip field-transfer: unknown anchor root"
         if self.stwo_pool.has_nullifier(nf):

@@ -250,10 +250,11 @@ def match_transactions_target(transaction_list, block_number, logger):
 
         # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
         # one epoch) so an honest producer never assembles a block verify_block would reject.
-        from ops.transaction_ops import dedupe_reserved, cap_block_blobs
+        from ops.transaction_ops import dedupe_reserved, cap_block_blobs, cap_block_budget
         # DA cap: keep blob txs only up to the per-block byte budget so the assembled block passes
-        # assert_block_blob_cap (excess blobs wait for a later block).
-        return cap_block_blobs(dedupe_reserved(matched_txs), logger)
+        # assert_block_blob_cap (excess blobs wait for a later block). Then the block-wide budget
+        # (BLOCK_BUDGET_HEIGHT): the same bound assert_block_budget enforces on every block validated.
+        return cap_block_budget(cap_block_blobs(dedupe_reserved(matched_txs), logger), block_number, logger)
     except Exception as e:
         logger.error(f"Error when matching transactions to target block: {e}")
         return False

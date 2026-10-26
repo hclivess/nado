@@ -395,7 +395,8 @@ def agreed_time_window(height: int) -> tuple:
 
 def agreed_time(height: int) -> int:
     """AGREED TIME at `height` (protocol.py "CERTIFICATE VALIDITY READS AGREED TIME"): the median, over distinct senders, of the timestamps the
-    bonded committee signed into its own duty transactions in agreed_time_window(height).
+    bonded committee signed into its own duty transactions in agreed_time_window(height) — weighted by each sender's
+    duty-committee SEATS from AGREED_TIME_SEATS_HEIGHT (see the body), one sample per sender below it.
 
     WHY THIS AND NOT THE OTHERS. block_timestamp is outside the block hash and differs node to node for one block
     (measured 12 s apart) and a syncing peer can serve any value. chain_clock(height) is agreed but only assumes a
@@ -410,9 +411,34 @@ def agreed_time(height: int) -> int:
     rule (2026-09-13: guessing from a partial window forked two nodes)."""
     from protocol import CERT_CLOCK_MIN_SAMPLES, chain_clock
     lo, hi = agreed_time_window(height)
-    # keyed on the window's LAST block hash too: a reorg reaching into the window must never be answered from memory
     from ops.block_ops import get_block_hash_by_number
-    key = (lo, hi, get_block_hash_by_number(hi - 1) if hi > lo else None)
+    # SEAT-WEIGHTED FROM AGREED_TIME_SEATS_HEIGHT (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon" is the same
+    # class: a time median taken over a different set or weight than the votes it borrows its trust from). One sample
+    # per DISTINCT SENDER let one holder split its stake into many B_MIN accounts and buy that many clock samples — the
+    # per-key rules are linear (memory: per-key-rules-are-void) — and a seatless reveal-only duty counted too. From the
+    # gate each sender's latest SEATED sample weighs its seats in that tx's landing-epoch duty committee (the same
+    # stake-weighted seats FFG and the committee use), a sender with no seat there weighs 0, and the answer is the
+    # weighted median. Below the gate: one sample per sender, as every committed block was judged.
+    from protocol import AGREED_TIME_SEATS_HEIGHT
+    # keyed on the WINDOW END hi (epoch-quantised), never on `height`: two heights of one epoch share a window and its
+    # cache entry, so a gate falling mid-epoch must not give them different rules (INVARIANT: same window, same rule)
+    seated = int(hi) >= int(AGREED_TIME_SEATS_HEIGHT)
+    if seated:
+        from ops.block_ops import duty_committee_for_epoch
+        from ops.mining_ops import epoch_of
+        committees = {}
+
+        def seats_of(who, tb):
+            e = epoch_of(int(tb))
+            if e not in committees:
+                try:
+                    committees[e] = duty_committee_for_epoch(e)
+                except Exception as exc:          # the anchor is missing here: defer, never guess (as a missing block)
+                    raise WindowUnavailable(f"the certificate clock needs epoch {e}'s duty committee and this node "
+                                            f"cannot derive it ({exc})", lo, hi) from None
+            return int(committees[e].get(who, 0))
+    # keyed on the window's LAST block hash too: a reorg reaching into the window must never be answered from memory
+    key = (lo, hi, get_block_hash_by_number(hi - 1) if hi > lo else None, seated)
     if key in _agreed_time_cache:
         return _agreed_time_cache[key]
     latest = {}
@@ -428,10 +454,26 @@ def agreed_time(height: int) -> int:
             ts, who = t.get("timestamp"), t.get("sender")
             # an unvalidated field: only a sane integer counts (no bool, no float, no pre-2020 or far-future value)
             if who and isinstance(ts, int) and not isinstance(ts, bool) and 1_577_836_800 <= ts < (1 << 40):
-                if ts > latest.get(who, 0):
+                if seated:
+                    w = seats_of(who, t.get("max_block", h))
+                    if w > 0 and ts > latest.get(who, (0, 0))[0]:
+                        latest[who] = (ts, w)
+                elif ts > latest.get(who, 0):
                     latest[who] = ts
-    samples = sorted(latest.values())
-    t = samples[(len(samples) - 1) // 2] if len(samples) >= CERT_CLOCK_MIN_SAMPLES else chain_clock(hi)
+    if seated:
+        pts = sorted((ts, who, w) for who, (ts, w) in latest.items())      # (time, sender): a total, agreed order
+        total = sum(w for _ts, _who, w in pts)
+        t = chain_clock(hi)
+        if len(pts) >= CERT_CLOCK_MIN_SAMPLES:
+            acc = 0
+            for ts, _who, w in pts:                                          # the lower weighted median
+                acc += w
+                if 2 * acc >= total:
+                    t = ts
+                    break
+    else:
+        samples = sorted(latest.values())
+        t = samples[(len(samples) - 1) // 2] if len(samples) >= CERT_CLOCK_MIN_SAMPLES else chain_clock(hi)
     if len(_agreed_time_cache) >= 64:
         _agreed_time_cache.clear()
     _agreed_time_cache[key] = t
@@ -1204,6 +1246,51 @@ def assert_block_blob_cap(transactions):
     assert total <= MAX_BLOB_BYTES_PER_BLOCK, \
         f"Block blob bytes {total} exceed per-block cap {MAX_BLOB_BYTES_PER_BLOCK}"
     return True
+
+
+def block_budget(transactions):
+    """(transaction count, canonical bytes) of a block's set: the two quantities BLOCK_BUDGET_HEIGHT bounds."""
+    return len(transactions), sum(len(canonical_bytes(t)) for t in transactions)
+
+
+def _budget_order(transactions):
+    """Duty transactions first (consensus participation: bounded by the committee, and timing-critical), then the rest,
+    each in txid order — the order every honest producer fills a block in, so all of them drop the same excess."""
+    return sorted(transactions, key=lambda t: (t.get("recipient") != "duty", t.get("txid", "")))
+
+
+def assert_block_budget(transactions, block_number):
+    """CONSENSUS (BLOCK_BUDGET_HEIGHT; 2026-10-27 incident survey: aleo snarkVM#3443 enforced a block-wide limit only
+    when BUILDING, so a malicious producer's block was accepted by every validator; Namada #5050 measured a 42 s
+    CheckTx). Every per-tx cap existed, but nothing bounded the WORK one block can demand of every node that validates it.
+    From the gate a block carries at most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES canonical bytes. The SAME
+    bound is applied when assembling (cap_block_budget), so an honest block always passes."""
+    from protocol import BLOCK_BUDGET_HEIGHT, MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
+    if int(block_number) < int(BLOCK_BUDGET_HEIGHT):
+        return True
+    n, b = block_budget(transactions)
+    assert n <= MAX_BLOCK_TXS, f"Block carries {n} transactions, over the per-block budget of {MAX_BLOCK_TXS}"
+    assert b <= MAX_BLOCK_TX_BYTES, f"Block carries {b} transaction bytes, over the per-block budget of {MAX_BLOCK_TX_BYTES}"
+    return True
+
+
+def cap_block_budget(transactions, block_number, logger=None):
+    """Assembly helper: from BLOCK_BUDGET_HEIGHT keep transactions, in _budget_order, while the block stays within
+    MAX_BLOCK_TXS and MAX_BLOCK_TX_BYTES, so an assembled block always passes assert_block_budget. Every honest producer
+    keeps the same prefix; a dropped transaction waits for a later block (its own max_block permitting)."""
+    from protocol import BLOCK_BUDGET_HEIGHT, MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
+    if int(block_number) < int(BLOCK_BUDGET_HEIGHT):
+        return transactions
+    out, used = [], 0
+    for t in _budget_order(transactions):
+        sz = len(canonical_bytes(t))
+        if len(out) >= MAX_BLOCK_TXS or used + sz > MAX_BLOCK_TX_BYTES:
+            if logger:
+                logger.warning(f"block budget: leaving {t.get('txid', '')[:12]}… for a later block")
+            continue
+        used += sz
+        out.append(t)
+    return out
 
 
 def cap_block_blobs(transactions, logger=None):

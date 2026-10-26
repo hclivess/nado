@@ -39,6 +39,8 @@ REROLL = {
     "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
     "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
     "SIG_SCHEMES_HEIGHT": 1,                   # dormant (2^62) on gen 28: an account may sign with another offered scheme
+    "AGREED_TIME_SEATS_HEIGHT": 1,             # dormant (2^62) on gen 28: the certificate clock weighs committee seats
+    "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
     "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
@@ -110,7 +112,8 @@ def main():
     unkeyed = {n for n in declared - set(REROLL)
                if isinstance(getattr(P, n, None), int) and getattr(P, n) > 1}
     not_gates = {"GENESIS_TIMESTAMP",          # a timestamp, not a switch
-                 "GC_MAX_PER_EPOCH"}           # a per-boundary work bound
+                 "GC_MAX_PER_EPOCH",           # a per-boundary work bound
+                 "STWO_PAUSE_HEIGHT"}          # an emergency switch, never on every generation until a release sets it
     check("no gate constant is missing from the ledger", not (unkeyed - not_gates), sorted(unkeyed - not_gates))
     check("the cleaned-up gates stay deleted", not any(hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M) for n in DELETED),
           [n for n in DELETED if hasattr(P, n) or re.search(r"^" + n + r" = ", src, re.M)])
