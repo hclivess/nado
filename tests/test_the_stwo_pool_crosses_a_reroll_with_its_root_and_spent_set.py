@@ -27,6 +27,10 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 H = os.environ["HOME"]
+# THIS TEST'S OWN GENESIS ONLY: genesis.py seeds genesis_data/genesis_carry.dat when it names the live generation — the
+# REAL chain's carried identities and open invites, whose INVITE_ESCROW a test alloc does not hold (the gen-29 rehearsal
+# refused every genesis here, 2026-10-25). A path that does not exist = no carry file.
+os.environ["NADO_GENESIS_CARRY"] = os.path.join(H, "no_genesis_carry.dat")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 GEN_FILE = os.environ.get("NADO_EXEC_GENESIS") or os.path.join(H, "exec_genesis.json")   # the L1 child inherits it
@@ -202,8 +206,18 @@ for off in (-1, 1):
           bad.returncode == 3 and "SHIELD_ESCROW" in bad.stdout, (bad.returncode, bad.stdout[-300:]))
 json.dump({"generation": P.CHAIN_GENERATION, "contracts": {}, "bridge": {}}, open(GEN_FILE, "w"))
 old_doc = l1(STRANDED)
-check("...a document without the shielded section asserts nothing about SHIELD_ESCROW (as before the carry)",
-      old_doc.returncode == 0, (old_doc.returncode, old_doc.stdout[-300:]))
+# genesis.UNCARRIED_SHIELD_ESCROW is generation 28's OWN stranded allocation (built before the Stwo carry existed); from
+# generation 29 the carry always writes the shielded section, so a document without one may hold nothing in the escrow
+if P.CHAIN_GENERATION == 28:
+    check("...a document without the shielded section accepts gen 28's own stranded escrow (as before the carry)",
+          old_doc.returncode == 0, (old_doc.returncode, old_doc.stdout[-300:]))
+else:
+    check(f"...on generation {P.CHAIN_GENERATION} a document without the shielded section refuses a non-empty escrow "
+          "(gen 28's exception is its own)", old_doc.returncode == 3 and "SHIELD_ESCROW" in old_doc.stdout,
+          (old_doc.returncode, old_doc.stdout[-300:]))
+empty = l1(0)
+check("...and an empty escrow builds without the shielded section on any generation", empty.returncode == 0,
+      (empty.returncode, empty.stdout[-300:]))
 
 print("ALL PASS — the Stwo pool crosses a reroll with its root and spent set" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

@@ -66,3 +66,41 @@ class Report:
         """Print `ok_line`, or the failure count, and exit with the matching status."""
         print(ok_line if not self.fails else f"{self.fails} FAILURES")
         sys.exit(1 if self.fails else 0)
+
+
+# ---- GATES ACROSS A REROLL (gen-29 rehearsal, 2026-10-25) ----------------------------------------------------------
+# A test that pins a gate's DORMANT behaviour used to read the shipped constant ("2^62 on generation 28"), so the day the
+# generation moved every such check failed although nothing was wrong: the old rule is still needed — the previous
+# generation's history replays through it until its cleanup — it is just no longer the shipped value. Two helpers say
+# what such a test means: the gate's value AT a generation (its protocol.py expression, as test_gate_reroll_transfer
+# reads it), and the old rule run explicitly under that value.
+def gate_at(name, generation):
+    """protocol.py's `name = <expr>` evaluated with CHAIN_GENERATION = `generation` (the GATE LEDGER form)."""
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "protocol.py")).read()
+    m = re.search(r"^" + name + r" = ([^#\n]+)", src, re.M)
+    if not m:
+        raise KeyError(f"{name} is not a gate in protocol.py")
+    return eval(m.group(1).strip(), {"CHAIN_GENERATION": int(generation)})   # noqa: S307 - our own constant expression
+
+
+class pinned:
+    """`with pinned(BLAKE_EXEC_HEIGHT=1 << 62): ...` — protocol gates set to these values inside the block, restored after
+    (the module attribute: code that reads `protocol.X` at call time sees it)."""
+
+    def __init__(self, **gates):
+        self.gates = gates
+        self.saved = {}
+
+    def __enter__(self):
+        import protocol
+        for k, v in self.gates.items():
+            self.saved[k] = getattr(protocol, k)
+            setattr(protocol, k, v)
+        return self
+
+    def __exit__(self, *exc):
+        import protocol
+        for k, v in self.saved.items():
+            setattr(protocol, k, v)
+        return False

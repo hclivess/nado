@@ -40,14 +40,17 @@ def fresh(name):
     return st
 
 
-# ---- 1: dormant
-T.check("1a. BLAKE_EXEC_HEIGHT is dormant (2^62) on generation 28", P.CHAIN_GENERATION == 28 and P.BLAKE_EXEC_HEIGHT == 1 << 62)
-T.check("1b. blake_exec_at is False at every real cursor, genesis ones included",
-        not any(R2.blake_exec_at(c) for c in (-1, 0, 1, 273000, 10**12)))
-st = fresh("dormant")
-T.check("1c. the exec root is byte-identical to the alghash2 root (cold)", st.state_root() == R1.state_root_hex(st.contracts, st))
+# ---- 1: dormant — generation 28's rule, run explicitly (its history replays through it until the gen-28 cleanup)
+T.check("1a. BLAKE_EXEC_HEIGHT is dormant (2^62) on generation 28 and live from block 1 on generation 29",
+        _harness.gate_at("BLAKE_EXEC_HEIGHT", 28) == 1 << 62 and _harness.gate_at("BLAKE_EXEC_HEIGHT", 29) == 1)
 from ops import transaction_ops as TX
-T.check("1d. L1 reads every settled root with exec_root.py", TX.exit_root_module(10**9) is R1)
+with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 28)):
+    T.check("1b. dormant: blake_exec_at is False at every real cursor, genesis ones included",
+            not any(R2.blake_exec_at(c) for c in (-1, 0, 1, 273000, 10**12)))
+    st = fresh("dormant")
+    T.check("1c. dormant: the exec root is byte-identical to the alghash2 root (cold)",
+            st.state_root() == R1.state_root_hex(st.contracts, st))
+    T.check("1d. dormant: L1 reads every settled root with exec_root.py", TX.exit_root_module(10**9) is R1)
 
 # ---- 2: canary
 T.check("2. the gen-29 genesis canary matches the empty state's BLAKE2s root",

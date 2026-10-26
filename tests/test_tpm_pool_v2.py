@@ -522,8 +522,12 @@ wipe()
 # === 9. THE GATE ====================================================================================================
 P.TPM_POOL_V2_HEIGHT = LIVE_GATE
 src = open(os.path.join(ROOT, "protocol.py")).read()
-check("the gate is keyed on the live generation, live from block 1 at the reroll",
-      "TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1" in src and P.CHAIN_GENERATION == 28)
+# the gate's VALUES, not "the live generation is 28" (gen-29 rehearsal): 100000 on generation 28, block 1 from 29
+import _harness
+check("the gate is keyed on generation 28 (100000 there), live from block 1 at the reroll",
+      "TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1" in src
+      and _harness.gate_at("TPM_POOL_V2_HEIGHT", 28) == 100000 and _harness.gate_at("TPM_POOL_V2_HEIGHT", 29) == 1
+      and P.TPM_POOL_V2_HEIGHT == _harness.gate_at("TPM_POOL_V2_HEIGHT", P.CHAIN_GENERATION))
 check("the v2 constants: k = 5, presence 50 epochs, one day out, one epoch of reveal grace",
       (P.DEVICE_ATTEST_EK_CHALLENGERS_V2, P.TPM_POOL_PRESENCE_MIN, P.TPM_MISS_EXCLUDE_BLOCKS, P.TPM_REVEAL_GRACE)
       == (5, 50, 14400, 60))

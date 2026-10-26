@@ -68,7 +68,12 @@ finally:
     P.TPM_POOL_CHALLENGER_ACTS_HEIGHT = LIVE
 
 src = open(os.path.join(ROOT, "protocol.py")).read()
-check("the gate is keyed on the live generation (gen 28)",
-      "TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1" in src and P.CHAIN_GENERATION == 28)
+# the gate's VALUES, not "the live generation is 28" (gen-29 rehearsal): 92000 on generation 28, block 1 from 29
+import _harness
+check("the gate is keyed on generation 28 (92000 there) and live from block 1 after it",
+      "TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1" in src
+      and _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", 28) == 92000
+      and _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", 29) == 1
+      and P.TPM_POOL_CHALLENGER_ACTS_HEIGHT == _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", P.CHAIN_GENERATION))
 print("ALL PASS — only challengers earn a seat" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

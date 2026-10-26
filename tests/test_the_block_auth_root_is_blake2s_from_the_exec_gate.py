@@ -46,17 +46,19 @@ def b2_chain(blk):
     return int.from_bytes(node, "big")
 
 
-# ---- 1: dormant
-b = block(273000)
-T.check("1a. dormant: a real block's auth root is the alghash chain it always was", M.auth_commitments(b) == (old_chain(b), 3))
-T.check("1b. dormant: the genesis header's empty root is the alghash IV node",
-        M.auth_root([]) == alghash.merkle_node(alghash.IV, alghash.IV))
-raw = {"type": "raw", "witnesses": ["s0", "s1", "s2"]}
-b["auth_root"], b["auth_count"] = M.auth_commitments(b)
-T.check("1c. dormant: raw evidence checks as before", M.evidence_ok(raw, b)[0])
-T.check("1d. dormant: stark evidence shape still accepted (no verifier supplied)", M.evidence_ok({"type": "stark"}, b)[0])
+# ---- 1: dormant — generation 28's auth root, run explicitly (its history replays through it until the gen-28 cleanup)
+with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 28)):
+    b = block(273000)
+    T.check("1a. dormant: a real block's auth root is the alghash chain it always was", M.auth_commitments(b) == (old_chain(b), 3))
+    T.check("1b. dormant: the genesis header's empty root is the alghash IV node",
+            M.auth_root([]) == alghash.merkle_node(alghash.IV, alghash.IV))
+    raw = {"type": "raw", "witnesses": ["s0", "s1", "s2"]}
+    b["auth_root"], b["auth_count"] = M.auth_commitments(b)
+    T.check("1c. dormant: raw evidence checks as before", M.evidence_ok(raw, b)[0])
+    T.check("1d. dormant: stark evidence shape still accepted (no verifier supplied)", M.evidence_ok({"type": "stark"}, b)[0])
 
 # ---- 2, 3: live
+_SHIPPED = P.BLAKE_EXEC_HEIGHT
 P.BLAKE_EXEC_HEIGHT = 1
 try:
     b = block(5)
@@ -79,5 +81,5 @@ try:
     ok, why = M.evidence_ok({"type": "stark"}, b)
     T.check("3c. live: stark evidence is refused for a BLAKE2s root", not ok and "raw evidence only" in why, why)
 finally:
-    P.BLAKE_EXEC_HEIGHT = 1 << 62
+    P.BLAKE_EXEC_HEIGHT = _SHIPPED
 T.done("ALL PASS — the block auth root is BLAKE2s from the exec gate and unchanged before it")

@@ -40,21 +40,24 @@ def game(name):
     return st, cid, code, r, call
 
 
-# ---- 1: dormant
-T.check("1a. dormant: an address digest is the old field digest", RT.zkvm_addr_digest(A) < F.P)
-T.check("1b. dormant: a bare build() targets v1", zkvmasm.default_isa() == "v1" and tictactoe.build() == tictactoe.build("v1"))
-st, cid, code, r, call = game("dormant")
-T.check("1c. dormant: v1 code deploys and a two-player game opens and joins on zkvm.py",
-        cid in st.contracts and call(A, "1", "open", [7], 500).endswith("-> ok") and call(B, "2", "join", [7], 500).endswith("-> ok"))
-try:
-    RT.get("zkvm").validate_code(tictactoe.build("v2")); v1_gate_takes_v2 = True
-except Exception:
-    v1_gate_takes_v2 = False
-T.check("1d. dormant: the deploy gate refuses v2 code", not v1_gate_takes_v2)
-T.check("1e. dormant: asset_id is the alghash id (a field element)", asset_id(A, 1) < F.P)
-T.check("1f. dormant: a call leaf digests a string arg the old way", CC._arg_field("x") == RT.zkvm_addr_digest("x"))
+# ---- 1: dormant — generation 28's VM, run explicitly (its history replays through it until the gen-28 cleanup)
+_OLD = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)
+with _harness.pinned(BLAKE_EXEC_HEIGHT=_OLD):
+    T.check("1a. dormant: an address digest is the old field digest", RT.zkvm_addr_digest(A) < F.P)
+    T.check("1b. dormant: a bare build() targets v1", zkvmasm.default_isa() == "v1" and tictactoe.build() == tictactoe.build("v1"))
+    st, cid, code, r, call = game("dormant")
+    T.check("1c. dormant: v1 code deploys and a two-player game opens and joins on zkvm.py",
+            cid in st.contracts and call(A, "1", "open", [7], 500).endswith("-> ok") and call(B, "2", "join", [7], 500).endswith("-> ok"))
+    try:
+        RT.get("zkvm").validate_code(tictactoe.build("v2")); v1_gate_takes_v2 = True
+    except Exception:
+        v1_gate_takes_v2 = False
+    T.check("1d. dormant: the deploy gate refuses v2 code", not v1_gate_takes_v2)
+    T.check("1e. dormant: asset_id is the alghash id (a field element)", asset_id(A, 1) < F.P)
+    T.check("1f. dormant: a call leaf digests a string arg the old way", CC._arg_field("x") == RT.zkvm_addr_digest("x"))
 
 # ---- 2: live, as generation 29 runs it
+_SHIPPED = P.BLAKE_EXEC_HEIGHT
 P.BLAKE_EXEC_HEIGHT = 1
 try:
     d2 = RT.zkvm_addr_digest(A, True)
@@ -83,5 +86,5 @@ try:
             asset_id(A, 1, True) == zkvm2.hash_words([d2, 1]))
     T.check("2h. live: a call leaf digests a string arg the v2 way", CC._arg_field("x", True) == RT.zkvm_addr_digest("x", True))
 finally:
-    P.BLAKE_EXEC_HEIGHT = 1 << 62
+    P.BLAKE_EXEC_HEIGHT = _SHIPPED
 T.done("ALL PASS — contracts run on the 256-bit VM from the exec gate and on the old VM before it")

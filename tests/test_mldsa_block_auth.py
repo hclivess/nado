@@ -19,6 +19,12 @@ for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 from execnode.stark import mldsa_block_auth as BA, field as F
+# GENERATION 28'S AUTH ROOT (the alghash chain over field leaves) is what this file pins; from BLAKE_EXEC_HEIGHT the root is
+# BLAKE2s (tests/test_the_block_auth_root_is_blake2s_from_the_exec_gate.py). Run under gen 28's gate explicitly, so the
+# old rule stays tested while its history replays — the gen-29 rehearsal found this file reading the shipped value.
+import _harness
+import protocol as _P
+_P.BLAKE_EXEC_HEIGHT = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)
 
 fails = 0
 def check(name, ok):

@@ -23,6 +23,10 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 H = os.environ["HOME"]
+# THIS TEST'S OWN GENESIS ONLY: genesis.py seeds genesis_data/genesis_carry.dat when it names the live generation — the
+# REAL chain's carried identities and open invites, whose INVITE_ESCROW a test alloc does not hold (the gen-29 rehearsal
+# refused every genesis here, 2026-10-25). A path that does not exist = no carry file.
+os.environ["NADO_GENESIS_CARRY"] = os.path.join(H, "no_genesis_carry.dat")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
