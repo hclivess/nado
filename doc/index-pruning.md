@@ -30,12 +30,12 @@ Roughly twenty call sites read it, and every one of them consumes the **hash its
 |---|---|
 | `ops/block_ops.get_epoch_beacon` | anchors the beacon at `(epoch−1)·EPOCH_LENGTH` |
 | `ops/attestation_ops` | FFG epoch-boundary targets `h_e`, `h_child` |
-| `ops/transaction_ops:126` | asserts a recert's `target_hash` against the epoch boundary |
-| `ops/transaction_ops:1024` | PoSW anchor at `max_block − POSW_ANCHOR_OFFSET` |
-| `loops/core_loop:2148` | checkpoint hash at `X·EPOCH_LENGTH` |
+| `ops/transaction_ops` | asserts a recert's `target_hash` against the epoch boundary |
+| `ops/transaction_ops` | the anchor block at `max_block − POSW_ANCHOR_OFFSET` (the certificate clock) |
+| `loops/core_loop` | checkpoint hash at `X·EPOCH_LENGTH` |
 | `ops/fork_resolution` (via `our_hash_at`) | binary-searches heights for the common ancestor |
-| `ops/peer_ops:332` | serves hash-at-height to peers |
-| `ops/snapshot_ops:657` | verifies a snapshot manifest against local history |
+| `ops/peer_ops` | serves hash-at-height to peers |
+| `ops/snapshot_ops` | verifies a snapshot manifest against local history |
 | exec `BHASH` | hands contracts a finalized block hash as randomness |
 
 So "you get nothing from `get_block_hash_by_number` alone" is false for this half: a 64-char hash *is* the
@@ -44,7 +44,7 @@ while discarding the bodies.
 
 **How deep does it have to reach?** The deepest consensus lookback is `POSW_DIFF_TRAIL = 400` epochs =
 **24 000 blocks**; the exec layer's `_BLOCKHASH_RING` is 20 000. Everything else is far shallower
-(`FINALITY_DEPTH` 45, `POSW_ANCHOR_OFFSET` 30, epoch boundaries 60). **N ≈ 50 000 blocks (~3.5 days)** is
+(`FINALITY_DEPTH` 45, `POSW_ANCHOR_OFFSET` 150, epoch boundaries 60). **N ≈ 50 000 blocks (~3.5 days)** is
 2× the deepest real consumer.
 
 ### `block_by_hash` barely earns anything
@@ -52,7 +52,7 @@ while discarding the bodies.
 The reverse index has **exactly one** non-test reader in the repository:
 
     ops/block_ops.block_already_indexed(block_hash)   ->  kv_ops.block_hash_indexed
-      called from loops/core_loop.py:1867 — the idempotence guard on incorporate_block
+      called from loops/core_loop.py (incorporate path) — the idempotence guard on incorporate_block
 
 That guard answers one question: *"did we already apply this exact block?"*, about a block arriving **now**
 from gossip or a re-fetch. Its useful depth is the reorg horizon — `FINALITY_DEPTH = 45`. A block offered

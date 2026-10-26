@@ -1,7 +1,8 @@
 # nado-tpm-attest — making a Windows TPM usable when Windows Hello will not
 
 `apps/nado-tpm-attest` is a small, dependency-free Windows binary, cross-compiled from the Linux fleet host
-(`cargo build --release --target x86_64-pc-windows-gnu`). It exists because **Windows Hello is the only way a
+with the MSVC target only (`cargo xwin build --release --target x86_64-pc-windows-msvc`, static CRT — see
+`apps/nado-tpm-attest/README.md`). It exists because **Windows Hello is the only way a
 web page can reach a TPM, and on many PCs it refuses to attest.**
 
 ## The problem it works around
@@ -28,13 +29,15 @@ at the `pubKeyCredParams` call site in interface.js).
 Enrols its own **named** AIK the way Microsoft's own sample does (`certreq -enrollaik -f -machine -config ""
 <name>`, per their EnrollAik.ps1), creates the credential key in the TPM through the Microsoft Platform Crypto
 Provider, has the AIK certify it, and emits exactly the `tpm` statement `native/attest` already verifies —
-then drops it on a relay through the existing `/node_attest_drop` path, so the wallet picks it up like a phone
+then drops it on a relay through `/tpm_proof_drop` (which mirrors it into the `node_attest` store), so the wallet picks it up like a phone
 attestation. **Phase 1 changes no consensus rule.**
 
-The current build is a **probe**: it reports what the machine can do and dumps the shape of
+The first build was a **probe**: it reported what the machine can do and dumped the shape of
 `NCryptCreateClaim`'s output (scanning for the `\xffTCG` `TPM_GENERATED` magic to locate the `TPMS_ATTEST`),
 because the claim blob layout is the one piece Microsoft does not publicly specify and must not be guessed.
-It submits nothing.
+That check survives as `diagnose`. The current binary runs the CA-free enrolment by default
+(doc/tpm-attestation-without-a-ca.md): it submits the enrolment through `/tpm_enrol_id` and `/submit_transaction`
+and drops the finished proof on `/tpm_proof_drop` for the wallet to sign.
 
 ## The claim blob, decoded (measured 2026-09-10 — none of this is documented by Microsoft)
 
@@ -130,7 +133,7 @@ never a per-device one.
 ## Building and serving
 
 ```
-cd apps/nado-tpm-attest && cargo build --release --target x86_64-pc-windows-gnu
+cd apps/nado-tpm-attest && RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --target x86_64-pc-windows-msvc
 ```
 
 The binary is NOT committed: the source is, and the relay serves a built copy from `static/` as an untracked

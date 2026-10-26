@@ -26,12 +26,12 @@ One LMDB environment (`index/state/`) holds these named sub-DBs:
 | `recert_by_epoch` | `epoch` (8B BE) | `address` (utf8) | `DUPSORT` | (new — present-set scan) |
 | `meta` | `key` (utf8) | `msgpack(int)` (e.g. `finalized_height`) | — | (new) |
 
-**Presence is a PoSW recert lease, not a heartbeat.** The old `heartbeats` sub-DB
+**Presence is a recert lease, not a heartbeat.** The old `heartbeats` sub-DB
 (`epoch → address`, DUPSORT) and the per-epoch heartbeat tx are **gone** (superseded). Presence is
-now a renewable lease: a `register` tx carrying a fresh sequential PoSW grants OPEN-lane eligibility
-for `POSW_LEASE_EPOCHS` (~1 day), recorded in **two** DUPSORT stores — `recerts` (`address → epoch`,
+now a renewable lease: a `register` tx carrying a fresh device attestation (sequential PoSW until gen 25) grants OPEN-lane eligibility
+for `POSW_LEASE_EPOCHS` (360 epochs, ~36 h), recorded in **two** DUPSORT stores — `recerts` (`address → epoch`,
 for `recert_latest`) and `recert_by_epoch` (`epoch → address`, so `get_open_registry` range-scans the
-currently-leased set). To stay present a node renews (another PoSW recert) each period, else it lapses
+currently-leased set). To stay present a node renews (another attested recert) each period, else it lapses
 out of the open registry. Continuity fidelity is measured over consecutive recerts (see
 `doc/presence-dividend.md`).
 
@@ -98,10 +98,10 @@ independent of the index engine and still apply):
 
 `ops/snapshot_ops.py` lets a joining node download verified account state at a checkpoint and
 replay only the short tail. Import is an atomic wholesale replace inside one LMDB write
-transaction (`kv_ops.clear_accounts_and_totals` + `put_account` per row + totals), replacing the
+transaction (`snapshot_ops.import_snapshot` replaces every `kv_ops.SNAPSHOT_DBS` sub-DB), replacing the
 old SQLite row-replace. The verified `state_root` (a blake2b Merkle root over the rows) includes
-the `bonded` column, so a snapshot commits mining stake too. `reindex_fast.py` rebuilds the KV
-index byte-identically from the block files and is the migration / repair path.
+the `bonded` column, so a snapshot commits mining stake too. (The old `reindex_fast.py`
+full-rebuild tool has been removed.)
 
 The state root is `snapshot_ops.l1_state_root()` — a Merkle root over the **consensus subset** of
 `SNAPSHOT_DBS` only (`SNAPSHOT_DBS − ROOT_EXCLUDED_DBS`). Block storage (`block_by_num`,
@@ -118,7 +118,7 @@ mean different `snapshot_hash` values. Bounding it deterministically in the chec
 
 ## Migration
 
-On a reindex, `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
-store from the block files (mirroring `incorporate_block`: fees-always, the 90/10 split, treasury,
-bond/unbond, no burn). The SQLite→LMDB cut-over itself is documented in
+The `reindex_fast.rebuild_from_blocks` full rebuild is gone. What remains is the resumable
+tx-history reindex (`CoreClient._start_tx_reindex` in `loops/core_loop.py`, marker
+`index/tx_reindex.json`), which rebuilds only the `tx*` history rows from the canonical bodies. The SQLite→LMDB cut-over itself is documented in
 [storage-kv-migration.md](storage-kv-migration.md).

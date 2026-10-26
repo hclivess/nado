@@ -91,15 +91,16 @@ worth considering" are excluded only from the open lane and the dividend, never 
 
 Worth stating plainly because it corrects the obvious intuition. Copies of one certificate all hash to the same
 binding handle (`sha256(leaf DER)`), so the second registration is refused, in a later block or the same one
-(`DEVICE_BIND_STRICT_HEIGHT`). A cloned certificate is never a second identity.
+(the strict rule, gen 25's `DEVICE_BIND_STRICT_HEIGHT`, now from block 1). A cloned certificate is never a second identity.
 
 **So hardware does not lower the identity ceiling.** The ceiling is the number of certificates we sign — the same
 whether the key lives in a secure element, in a Pico's flash, or in a file. Anyone reasoning that silicon caps the
 supply has it backwards: issuance discipline caps the supply, and silicon is irrelevant to it.
 
-What a copy DOES buy, since `DEVICE_REBIND_INSTANT_HEIGHT` (live from block 5400): the copier registers a fresh
+What a copy DOES buy, under instant rebind (gen 25's `DEVICE_REBIND_INSTANT_HEIGHT`; its gate is deleted and the rule
+holds from block 1): the copier registers a fresh
 address, presents the certificate, and the legitimate holder is EVICTED in that block — lease voided, out of the open
-registry and the epoch weights at once (`ops/account_ops.py`, `instant and prev_bind[0] != address`). The victim can
+registry and the epoch weights at once (`ops/account_ops.py`, `prev_bind and prev_bind[0] != address`). The victim can
 re-register and evict the thief straight back, and the thief can re-register again. Neither can hold it; the thief can
 automate it and the owner cannot, and `fidelity_step`'s anti-farm spacing means the owner's rapid recerts renew the
 lease but earn no fidelity. A copied certificate is a hostage, not a duplicate.
@@ -213,8 +214,8 @@ forever. Carrying the statement as **detached evidence** — verified at admissi
 not retained in the body past the reorg and slashing horizon — removes the permanent vendor/serial-to-address linkage
 without any new cryptography.
 
-That pattern is already designed in this repo for signatures (`doc/zk-signature-aggregation-02.md`, "detached
-evidence": the block core carries commitments, the witnesses travel in a separate envelope, and the block hash is
+That pattern is already designed in this repo for signatures ("detached
+evidence" — the -02 design note is not in the repo; `doc/zk-signature-aggregation.md` covers the hash gap): the block core carries commitments, the witnesses travel in a separate envelope, and the block hash is
 identical either way). The same machinery applies here. It is still a consensus change with a real design — a syncing
 node beyond the horizon must accept the commitment rather than re-verify the statement — so it needs the same
 Optional→Mandatory rollout, not a config flag. But it needs no new crypto, and it addresses the leak that actually
@@ -315,7 +316,7 @@ custody and no funds at risk.
 - `doc/device-attestation.md` — the live design: classes, binding modes, "one device, one identity".
 - `doc/scaling-open-lane.md` — the ceilings a new device class would run into.
 - `doc/reroll.md` — the gate ledger and the runbook every gate below must obey.
-- `doc/zk-signature-aggregation.md` / `-02.md` — the in-circuit hash gap, and the detached-evidence pattern.
+- `doc/zk-signature-aggregation.md` — the in-circuit hash gap.
 
 ## Provisioning: how a certificate actually reaches a device
 

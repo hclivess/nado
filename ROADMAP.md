@@ -39,14 +39,14 @@ of it is still open.
 | **AMM / DEX** | Raydium, Orca, Meteora, Pumpswap | **SHIPPED (AMM + order book)** — the constant-product AMM (`execnode/games/dex.py`) and the cross-chain OTC order book (`execnode/games/otc.py`, dex-bridge phase 1, live 2026-08-26 as the dex dApp's Cross-chain mode) are both on-chain; router still open | Needs asset primitive |
 | **Aggregator/router** | Jupiter, $812B routed in 2025 | **ABSENT** | Needs ≥2 venues |
 | **Liquid staking** | Jito, Sanctum, Marinade | **ABSENT** — bonding is BUILT (`bond`/`unbond`, `B_MIN`, slashing, bond-elastic emission) but there is no derivative token, no delegation | Needs asset primitive + delegation |
-| **Lending** | Kamino, Save, Drift, Sentora | **ABSENT** — no collateral/liquidation/interest code, and **no oracle** except the app-specific sports resolver | Needs assets + oracle |
+| **Lending** | Kamino, Save, Drift, Sentora | **PARTIAL** — `execnode/games/lend.py` is peer-to-peer collateralised fixed-term loans with no oracle (terms fixed at offer, default by deadline); no pooled or variable-rate market, and **no price oracle** except the app-specific sports resolver | Needs assets + oracle |
 | **Stablecoin** | USDC/USDT rails | **DESIGN** — `doc/stablecoin.md` (nUSD, CDP + stability pool + stake-secured oracle), explicitly "nothing here is implemented" | Needs assets + oracle |
 | **RWA** | >$2B, +43% QoQ | **ABSENT** | Needs everything above + counterparties |
 | **Bridge / on-ramp** | CEX listings + wrapped everything | **PARTIAL** — HTLC atomic swap BUILT and tested on the NADO leg (`tests/test_htlc.py`), and the OTC order book (maker/taker discovery + dual-hashlock escrow) is LIVE (`execnode/games/otc.py`); still missing: counterparty-chain clients (BTC/ETH leg wiring, dex-bridge phase 2), no listing | The real gate on all demand |
 | **MEV / block engine** | Jito | **N/A by design** — fees are burned, there is no priority-fee auction | See §2 |
 
 **What we have that they don't** (and should not throw away):
-21 provable game contracts on a permissionless zkVM (`execnode/games/`, 788 KB — banked games with a
+27 provable contracts (games and finance) on a permissionless zkVM (`execnode/games/`, 788 KB — banked games with a
 real 1% edge, two parimutuel markets, a full NFT with marketplace and escrowed bids in `pets.py`), a
 shielded pool, post-quantum signatures throughout, HTLC without a custodian, a working forum, and a
 faucet. That is a *product* layer with no *market* layer under it.
@@ -326,8 +326,8 @@ an asset's NADO price without a full-storage poll.
 Axiom is worth $42.4M/quarter for *execution and routing UX*, not custody. That's a front-end
 business built on public state. The prerequisite is not consensus work — it's **an indexer**.
 
-**Reality check on latency:** NADO blocks are 6s (`config.py:119`) with finality at depth 45
-(`protocol.py:469`, ~4.5 min). We will never win a sniping-latency race against 400ms slots, and we
+**Reality check on latency:** NADO blocks are 6s (`config.py` `block_time`) with finality at depth 45
+(`protocol.FINALITY_DEPTH`, ~4.5 min). We will never win a sniping-latency race against 400ms slots, and we
 should not pretend to. What we can offer instead, and should build the terminal *around*:
 - **Deterministic finality** — a fill is final, not probabilistically final.
 - **No priority-fee auction** — nobody outbids you into the front of the block (contingent on Track C
@@ -430,6 +430,11 @@ Mitigated in part since: the draw now prefers nodes that have volunteered (`tpm_
 acted as challengers, so an adversary must run announcing infrastructure rather than merely look like a
 validator. That changes `p`; it does not remove the attack.
 
+Narrowed further from block 100000 (`protocol.TPM_POOL_V2_HEIGHT`, challenger pool v2): the pool is online bonded
+stake (weight `bonded // B_MIN`, a landed duty in >= 50 of the last 100 epochs), k = 5, and a drawn challenger that
+fails a record sits out a day — see doc/tpm-attestation-without-a-ca.md. The table above predates it (k = 3). A
+supersede still redraws, so the resampling weakness is narrower, not gone.
+
 **This is a small-network weakness, which is exactly when it is cheapest to exploit and least likely to
 be noticed.** It does not touch the phone path, which re-verifies a self-contained chain every time.
 
@@ -450,8 +455,7 @@ after a sandwich bot exists.** Position it publicly as a feature — it is one.
 We are permissionless at the protocol level (`_apply_blob_inner` does zero sender checks on deploy;
 cid = `H(deployer, code, nonce)`), but we have **no "build your first dApp" guide, no published SDK
 package, and no versioned API**. The seven apps that made Solana's money were built by *other people*.
-- Split `execnode/games/` → `execnode/apps/` with games and finance side by side; fix the known gap
-  where `hamster` is missing from `deploy.py`'s `GAMES` list.
+- Split `execnode/games/` → `execnode/apps/` with games and finance side by side.
 - Publish `nadodapp.js` as a real package with a version and a changelog.
 - A quickstart: deploy a counter, call it from a webpage, in 15 minutes.
 - Grants/bounties aimed squarely at the categories in §1 that we won't build ourselves.
@@ -471,22 +475,21 @@ Full map, with measured numbers and per-component status:
 |---|---|---|
 | Goldilocks field, FRI, STARK, AIR IR, LogUp | **BUILT** | `NUM_QUERIES=320`, blowup 2, 18 grind bits → ~146 provable bits (Johnson) |
 | alghash2 (in-circuit hash) | **BUILT** | Wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
-| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **26 contracts live on chain** (redeployed at unchanged cids at the betanet-5 reroll) |
+| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **27 contracts** (`execnode/games/deploy.py` `GAMES`) |
 | Shielded pool (join-split, membership) | **BUILT** | The **one** place the full proof→DA→commitment→verify loop already works in production |
 | Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since betanet-14 |
 | K→1 fold | **BUILT, never run** | Needs contract calls to fold; an idle chain has none, so the node falls through to the unfolded prove |
 | State-root binding (sparse tree, calls/records commitment) | **BUILT** | Depth-256 sparse Merkle over alghash2 |
 | Rust prover crates | **BUILT** | `starkprove` (2 222 lines), `alghash2`, `starkcompose`, `mldsa44`. **Rust-only, no fallback** — a Python path shadowing a Rust one is invisible degradation |
 | DA transport (k-of-n + commitment + defer) | **BUILT** | Availability ≠ validity: unresolved defers, never rejects |
-| **Trustless settlement, end to end** | **NOT WORKING** | Rule is live and unconditional; **zero proof-carrying settles have ever completed**. Current stop: `PRE MISMATCH` — the stashed pre-state does not reproduce L1's justified root |
+| **Trustless settlement, end to end** | **LANDED ONCE** | Rule is live and unconditional; block 43153 (2026-08-06) settled on a proof a peer verified (see 2026-08-06 above). Spans that move withdrawals, unshields or xmsgs cannot be proven yet (doc/stwo/g4-settlement-statement.md §1), so routine settlement still rides the bonded quorum |
 | Signature aggregation | **REMOVED** | Built, measured, deleted 2026-07-31 — post-mortem kept deliberately |
-| **Shielded contracts (private application state)** | **MERGED & CONSENSUS-LIVE (f5e4e7c8), NOT YET REACHABLE FROM A CLIENT** | Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
+| **Shielded contracts (private application state)** | **BUILT (f5e4e7c8), PAUSED** | Every `private_call` is refused from block 1 (`ExecState.rules_privacy_pause`; review 2026-09-24: a deposit could commit a note worth more than it paid). Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
 | Program obfuscation (Diamond iO) | **RESEARCH** | Nothing implemented, scheduled, or promised |
 
 **Open work, in the order the measurements justify:**
 
-1. **Land one proof-carrying settle and have a peer verify it.** Everything else here is capability until
-   that happens once. A blob that only exists on the producing box proves nothing to anyone.
+1. ~~**Land one proof-carrying settle and have a peer verify it.**~~ **Done** — block 43153, 2026-08-06.
 2. **Prove cadence vs. prove time.** A prove takes ~250 s while the settle cadence is 30 blocks (~180 s),
    so a new conforming span arrives before the previous prove finishes and hits the in-flight guard. With
    the epoch re-anchor in place a span may safely run up to 59 blocks — roughly one proof per epoch.
@@ -641,10 +644,10 @@ the roster before that build starts, not after.
 
 ### Track H — Account authentication: rotate keys, recover accounts, keep the address
 
-**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25). Status: **BUILT 2026-08-26 (branch `auth-config`), dormant until chain generation 24** — `protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24`; every rule, the wallet panel and the node CLI are in place and tested (core, consensus end-to-end with reorgs, multi-node testnet lifecycle); the next reroll switches it on from block 0 with nothing to delete.
+**Design: [doc/key-rotation.md](doc/key-rotation.md)** (2026-08-25). Status: **LIVE since chain generation 24** (built 2026-08-26) — `protocol.AUTH_ACTIVE = CHAIN_GENERATION >= 24`; every rule, the wallet panel and the node CLI are in place and tested (core, consensus end-to-end with reorgs, multi-node testnet lifecycle).
 
-Today an address *is* its ML-DSA key; a lost or stolen key loses the bonded stake and its ramp, the
-fidelity streak, aliases and every exec-side balance with it, and there is no proactive rotation.
+Before this track an address *was* its ML-DSA key; a lost or stolen key lost the bonded stake and its ramp, the
+fidelity streak, aliases and every exec-side balance with it, and there was no proactive rotation.
 The track makes authentication **state**: an account carries `authenticators` + a `signing` policy
 (who may spend) + a `reconfig` policy (who may change the keys), `ID`/`THRESHOLD` only, hard-capped
 (4 keys, depth 2, one scheme). Recovery is not a mechanism, it is a policy: the wallet's "protected"
@@ -663,8 +666,8 @@ thief lacks — the war of resubmission is settled by policy, not by delay.
   open miners — the identities that cannot be recreated. Everyone else gets a one-time "protect your
   account" prompt and can ignore it.
 - **Sequence:** predicate + tests → config/state/revert → `auth` recipient → evidence `at_height` →
-  `/get_account` fields → wallet Security panel (two presets) → node `rotate-key` CLI. Queue with the
-  next root-changing reroll; do not reroll for it alone.
+  `/get_account` fields → wallet Security panel (two presets) → node `rotate-key` CLI. Shipped with
+  the generation-24 reroll.
 
 ---
 
@@ -703,7 +706,7 @@ honestly is rarer than it should be.
 | C | Fair ordering | **before 2 at scale** | Cheaper to commit now |
 | D | Dev surface | continuous | Other people build the winners |
 | E | Games | continuous | Already shipped; assets make them better |
-| H | Account authentication (key rotation / recovery) | next root-changing reroll | Validators and streaks are unrecoverable today; design done (doc/key-rotation.md) |
+| H | Account authentication (key rotation / recovery) | — | **LIVE since generation 24** (doc/key-rotation.md) |
 
 ---
 
@@ -714,7 +717,8 @@ honestly is rarer than it should be.
    and a bonding curve are the same class of arithmetic with more zeroes attached.
 2. **Bugs are caught by running code, not reading it.** Every phase ships with a live E2E script in
    the `scripts/live/_*_e2e.py` pattern and is proven on betanet before it's called done.
-3. **Upgrade in place, no legacy paths.** Betanet has no activation gates; consensus changes go live.
+3. **Upgrade in place, no legacy paths.** A consensus change goes live behind a generation-keyed gate
+   (`<h> if CHAIN_GENERATION == 28 else 1`, the GATE LEDGER in `protocol.py`), deleted after the next reroll.
 4. **Close the whole usability loop** — ids, results, feedback, history, search, i18n, routes. A
    half-wired swap is worse than no swap.
 5. **No hidden fees, no admin keys, no authority.** If a design needs a privileged address to work,

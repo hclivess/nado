@@ -42,32 +42,31 @@ minted = BASE_SUBSIDY * m(r) // 1        # m(r) ∈ [m_min, 1], r = bonded / tot
   rejected. `rebuild_block` recomputes it from committed state, so a peer can never inject an
   inflated reward.
 
-## The 90/10 split (canonical)
+## The reward split (canonical)
 
-Every block reward `R` is split between the producer and the treasury:
+Every block reward `R` is split three ways, by the lane of the block (`reward_ops.credit_block_reward`):
 
-```python
-def split_block_reward(R):
-    producer_cut = R * (BPS_DENOM - TREASURY_BPS) // BPS_DENOM   # 90%
-    treasury_cut = R - producer_cut                              # exact remainder (10%)
-    return producer_cut, treasury_cut
-```
+| lane | producer | presence-dividend pool | treasury | function |
+|---|---|---|---|---|
+| open | 20 % (`OPEN_TIP_BPS = 2000`) | 70 % (the exact remainder) | 10 % (`TREASURY_BPS = 1000`) | `split_open_block_reward` |
+| bonded | 50 % (the exact remainder) | 40 % (`BONDED_DIVIDEND_BPS = 4000`) | 10 % (`TREASURY_BPS = 1000`) | `split_bonded_block_reward` |
 
-`TREASURY_BPS = 1000` (10.00%), `BPS_DENOM = 10000`. The treasury gets the **remainder**, so
-the two credits sum to exactly `R` (never two independent floors that could lose a unit).
+`BPS_DENOM = 10000`. Two parts are floors and the third is the **remainder**, so the three credits sum to exactly `R`
+(never three independent floors that could lose a unit). The dividend credit is also recorded as the epoch's
+inflow (`/get_dividend_inflow`), which the execution node distributes over that epoch's weights.
 
-- `incorporate_block` credits `producer_cut` to the block creator and `treasury_cut` to the
-  treasury, and `rollback_one_block` reverses with the **identical** integers — so the two
-  paths can never drift and drive a balance negative (which would wedge the core thread).
-- The producer's `produced` counter (the penalty/anti-monopoly metric) tracks its **90% cut**,
-  i.e. what it actually earned. `totals.produced` tracks the **full** emission `R`.
+- `incorporate_block` applies the credits and `rollback_one_block` reverses them with the **identical** integers — so
+  the two paths can never drift and drive a balance negative (which would wedge the core thread).
+- The producer's `produced` counter tracks **its own cut** (the open-lane tip or the bonded producer share), i.e. what
+  it actually earned. `totals.produced` tracks the **full** emission `R`.
+- `protocol.split_block_reward` (a plain 90/10 producer/treasury split) is no longer called by the reward path.
 
 ## Fees
 
 - A transaction's `fee` is **always debited from the sender** (the old `> 111111` activation
   gate is gone — this is a fresh chain).
 - Fees are **destroyed** (credited to no one), counted into `totals.fees`, subtracted from
-  supply, and committed into each block's `cumulative_fees` (which drives the reward above).
+  supply, and committed into each block's `cumulative_fees` (a header counter; the reward does not read it).
 - A **minimum fee** `MIN_TX_FEE = 1000 raw` is enforced in consensus (`validate_transaction`).
   It is a *deterministic integer floor* — deliberately **not** the byte-size "base fee"
   (`get_byte_size = sys.getsizeof(repr(...))` is non-deterministic and unsafe as a consensus

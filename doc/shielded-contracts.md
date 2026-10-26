@@ -1,10 +1,13 @@
 # Shielded contracts — private application state
 
-> **Status: PHASE 2 BUILT.** The state machine, the settled-root binding, the `private_call` op, the
+> **Status: PHASE 2 BUILT, and PAUSED on the live chain.** Every `private_call` is refused from block 1
+> (`ExecState.rules_privacy_pause`, `execnode/state.py`): the 2026-09-24 review reproduced a deposit that commits
+> a note worth more than it paid, against any contract's whole balance. The state machine, the settled-root binding, the `private_call` op, the
 > turnstile and the **transition circuit** are implemented and tested. A private state change proves and
 > verifies as one STARK; `CONSENSUS_ALLOW_TRANSPARENT` stays `False` and the transparent witness path is
 > dev-only scaffolding. Merging changes no root and no snapshot on a chain that holds no private state.
-> What remains is DA transport for the proof, a worked example contract, and client-side proving.
+> What remains is the fix for that finding and the reopening it needs, then client-side proving; DA transport
+> (§9) and the worked example (`tests/test_shielded_vault_e2e.py`) are built.
 
 ## 1. What this is, and what it is not
 
@@ -371,7 +374,7 @@ statement; a general private call is strictly more.
 ## 14. Running the tests from a clean checkout
 
 ```
-bash scripts/build_native_all.sh     # once — builds the five crates a node builds for itself
+bash scripts/build_native_all.sh     # once — builds every required crate a node builds for itself (read from ops/self_update.py)
 python3 tests/test_shielded_state.py # …and the rest
 ```
 

@@ -58,9 +58,9 @@ always stay.
 first guessed the floor was ≈ `FINALITY_DEPTH`; the actual audit of every historical
 `get_block*` call (done before implementing) found it is **`REWARD_WINDOW` (100)**, deeper
 than finality:
-- `get_block_reward` reads `cumulative_fees` from the block at **`tip − REWARD_WINDOW`** — and
-  today reads it by loading that whole **body**. So bodies must be retained past
-  `REWARD_WINDOW`, or the reward calc forks.
+- `get_block_reward` USED TO read `cumulative_fees` from the block at **`tip − REWARD_WINDOW`** by
+  loading that whole **body**. The reward is now flat bond-elastic and reads no body
+  (`ops/block_ops.get_block_reward`); `REWARD_WINDOW` is kept as the prune/rollback safety window.
 - Rollback re-reads bodies within `FINALITY_DEPTH` (45) of the tip.
 - The beacon (~2 epochs) and FFG (`_FFG_LOOKBACK_EPOCHS = 8` → 480 blocks) read only **hashes**
   via `get_block_hash_by_number`, which hits the **`block_by_num` index, not bodies** — so
@@ -147,7 +147,7 @@ the 80% quorum can't be gamed by a colluding minority.
 **IMPLEMENTED** (`ops/gc_ops.py`): deterministic, in-block, revert-safe. Two watermarked sweeps
 run inside the first block of each epoch's write txn — trivially-empty account docs whose lease
 lapsed > `GC_IDLE_EPOCHS` (1000) ago are deleted (schemaless extras like `public_key`/`kem_pub`
-exempt an account permanently); recert rows older than `RECERT_HISTORY_EPOCHS` (10 000) drop by
+exempt an account permanently); recert rows older than `RECERT_HISTORY_EPOCHS` (15 000) drop by
 whole epoch buckets, ordered so rows outlive the account sweep that reads them. Weight safety: a
 continuous recert run crossing the retention horizon necessarily exceeds `FIDELITY_CAP`, so
 `open_shares(fidelity_at_epoch(E))` is byte-identical with or without the pruned rows for every E

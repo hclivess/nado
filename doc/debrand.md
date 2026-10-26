@@ -1,5 +1,12 @@
 # Debrand inventory — every "nado"/"ndo" in the system, classified
 
+> **Status: EXECUTED — kept as the record.** The address prefix is gone (`protocol.ADDRESS_PREFIX = ""` since
+> alphanet-14; addresses are now format 2, [address-format.md](address-format.md)), and every Class 2 and Class 3
+> tag already carries the "candidate" name below (`protocol.py`, `execnode/stark/transcript.py`,
+> `execnode/shielded.py`, `execnode/exec_root.py`, `hashing.py`, `static/interface.js`). Network names in the body
+> (`betanet-6`, the betanet-7 cutover) are those of the time. What still applies: Class 5 cosmetics, and the rule
+> that key-derived tags never rename after mainnet without migration code.
+
 The brand appears in five very different risk classes. Everything below is **centralized behind a
 constant** (nothing else spells it), so each class renames by flipping its constants — but the
 classes rename at different times, and one of them must **never** rename at all.

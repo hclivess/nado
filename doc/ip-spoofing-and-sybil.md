@@ -1,5 +1,12 @@
 # IP spoofing, Sybil identities, and fair distribution of the open lane
 
+> **Status (gen 25 onward): historical.** The sequential-work registration proof (PoSW), its difficulty ramp and the
+> per-IP registration cap (`ratelimit.allow_registration`, `nado.py:_ip_registration_rejection`) were retired at the
+> betanet-7 reroll (tests/test_gen25_retirements.py). Every `register` now carries a hardware device attestation, one
+> identity per device (doc/device-attestation.md, `transaction_ops._validate_register`), and no IP is consulted for
+> registration. The `OPEN_BPS` lane cap (30 %) still holds. Where the sections below say "current" or "shipped" about
+> PoSW, the difficulty ramp or the per-IP cap, they describe the pre-gen-25 design.
+
 **This is a FAIR-DISTRIBUTION concern, not a chain-safety one.** Sybil identities and IP spoofing cannot
 halt the chain, double-spend, or take the bonded lane — the objective consensus and the `OPEN_BPS` lane
 cap prevent that. What they *can* do is let **one entity masquerade as many distinct participants and so

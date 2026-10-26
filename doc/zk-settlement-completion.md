@@ -8,7 +8,8 @@ bonded quorum — the settlement authority.
 ## TL;DR
 
 **UPDATE 2026-07-27 (post-reroll):** Track 1 is **DONE and LIVE** on `betanet-11`. `SETTLE_PROOF_TRUSTLESS`
-is **True**; the self-checking prover loop ships in `execnode.py` (opt-in `NADO_EXEC_SETTLE_PROVE`); the
+is **True**; the self-checking prover loop ships in `execnode.py` (now unconditional: `SETTLE_PROVE = True`, the
+old `NADO_EXEC_SETTLE_PROVE` opt-in is gone); the
 acceptance branch is enabled and proven e2e (`tests/test_settle_trustless_flag.py`,
 `tests/test_settle_prover_sim.py`). A STARK validity proof — not the bonded quorum — can now justify the exec
 root, with quorum retained as the fallback for non-conforming spans.
@@ -18,9 +19,10 @@ root, with quorum retained as the fallback for non-conforming spans.
 into ONE recursion bundle (`recursive_verify` — fold + row-mode composition) that the verifier checks in place
 of K per-segment `stark.verify` calls, at pinned protocol strength — the same wiring already proven by
 `verify_settlement_o1`. It is **backward-compatible** (a folded proof's segments still verify the classic
-K-segment way, and the fold is authoritative, so mixed-version nodes agree) and **opt-in** on the prover
-(`NADO_EXEC_SETTLE_FOLD`, off by default; a folded proof is self-verified before broadcast) — so it needs **no
-reroll**. Proven by `tests/test_settle_sparse_fold.py` (fast: segmentation + sparse binding + K-path;
+K-segment way, and the fold is authoritative, so mixed-version nodes agree). On the prover it is now
+**unconditional** (`execnode.py` `SETTLE_FOLD = True`; it was the opt-in `NADO_EXEC_SETTLE_FOLD` when written), and a
+folded proof is self-verified before broadcast. Honouring the `recursive` field in consensus is
+`protocol.SETTLE_PROOF_RECURSIVE`, enabled at a reroll. Proven by `tests/test_settle_sparse_fold.py` (fast: segmentation + sparse binding + K-path;
 `NADO_HEAVY=1`: the real W=106 K→1 bundle + tamper/weak-policy rejections). The settled root (kv_pre/kv_post)
 is byte-identical folded vs unfolded — folding changes HOW the proof is verified, never WHAT root it settles.
 
@@ -31,7 +33,7 @@ the flag flips on at a reroll, the trustless path proven by test with the flag f
 still missing was a **live prover** emitting conforming proofs. Turning trustless settlement on was: build the
 prover loop → flip the flag at a reroll — *no new cryptography*.
 
-### Status of the acceptance side (implemented in this change)
+### Status of the acceptance side (implemented in this change) — HISTORICAL (2026-07-27, pre-flip)
 
 - `protocol.SETTLE_PROOF_TRUSTLESS` (default **False**) is the master switch. False ⇒ a proof still verifies
   and records its marker, but `settlement_justified` ignores it (quorum-only, no behaviour change).
@@ -44,7 +46,7 @@ prover loop → flip the flag at a reroll — *no new cryptography*.
   instead of fail-swallow, so a non-deterministic (OOM) failure can never leave one node honouring a proof
   its peers reject. Off, the forgiving swallow is retained (the summary is inert).
 
-## What is DONE and WIRED (verified)
+## What is DONE and WIRED (verified) — HISTORICAL (2026-07-27 sweep; line numbers are of that tree)
 
 - **Settle-with-proof validation** — `ops/transaction_ops.py:981-1079`. When a `settle` tx carries a
   `proof`, **every node verifies it deterministically at block-validation** and it is comprehensively
@@ -62,7 +64,7 @@ prover loop → flip the flag at a reroll — *no new cryptography*.
     chain* (`:1024-1048`), so a prover cannot settle a state built on attacker-chosen dice/beacon values.
   - **DA-bound** — `calls_commit.verify_calls_bound_to_summaries(proof, ns, tip_cursor, cursor,
     exec_summary_get, SETTLE_PROOF_MAX_SPAN)` (`:1076-1079`); span fence `SETTLE_PROOF_MAX_SPAN = 240`
-    (`protocol.py:521`) enforced.
+    (now `4 * EPOCH_LENGTH` in `protocol.py`) enforced.
   - **Protocol-parameter verify** — `SS.verify_settlement_sparse(proof, depth=EXEC_TREE_DEPTH)` at the
     protocol query strength, never the bundle's own word (`:1015-1018`).
 - **Apply side** — the proven marker is written at apply (`kv_ops.settlement_proven` set via
@@ -72,7 +74,10 @@ prover loop → flip the flag at a reroll — *no new cryptography*.
   stack, and the native Rust prover (`libnado_starkprove`, ~5× faster / 4.5× less memory) all exist and are
   unit-tested.
 
-## What is NOT wired (the actual remaining work)
+## What is NOT wired (the actual remaining work) — HISTORICAL (2026-07-27)
+
+> Superseded: items 1-3 are done — the prover runs unconditionally (`execnode.py` `SETTLE_PROVE`) and the proof
+> branch is live in `ops/settlement_ops.settlement_justified` behind `SETTLE_PROOF_TRUSTLESS = True`.
 
 1. **No prover runs in production.** `execnode/execnode.py:239` posts `construct_settle_tx(keys, st.cursor,
    st.state_root(), target, ns=ns)` — **no `proof=` argument** — so every settlement today is a bare bonded
@@ -91,7 +96,7 @@ prover loop → flip the flag at a reroll — *no new cryptography*.
 
 ---
 
-## Track 1 — turn trustless settlement ON (the "minor steps")
+## Track 1 — turn trustless settlement ON (the "minor steps") — HISTORICAL (done; see the TL;DR)
 
 Ordered. Each step names files, effort, whether it blocks trustless settlement, and a go/no-go test.
 

@@ -7,7 +7,7 @@
 
 The differentiator, and the reason to build rather than adopt: **your identity is your NADO wallet.** No
 passwords, no email, no CAPTCHA farms — you sign a challenge with your post-quantum ML-DSA key and your
-`ndo…` address *is* your account. That ties the forum to the chain, gives it real Sybil resistance for free,
+NADO address *is* your account. That ties the forum to the chain, gives it real Sybil resistance for free,
 and is something no off-the-shelf forum can do.
 
 ---
@@ -60,17 +60,21 @@ The wallet keys live in the interface's `localStorage` on **get.nadochain.com**;
 
 Flow (already validated end-to-end against the real ML-DSA stack — see `scratchpad/forum_auth_poc.py`):
 
-1. `GET /api/nonce?address=ndo…` → server stores `{address, nonce, issued}` (TTL ~5 min) and returns it.
-2. Client computes `msg = blake2b_hash(["nado-forum-login", address, nonce, issued])` and signs
-   `unhex(msg)` with its ML-DSA private key.
-3. `POST /api/login {address, public_key, signature}` → server:
+As built (`forum/server.py`), login is the interface-SSO handoff of §3 option 2:
+
+1. `GET /api/sso_start` → server stores a one-time challenge `{rid, nonce, issued}` (TTL `CHALLENGE_TTL`),
+   binds `rid` to the browser in a login cookie, and redirects to the interface with
+   `?forum_login=rid&nonce&forum&issued`.
+2. The wallet computes `msg = blake2b_hash([DOMAIN_FORUM_LOGIN, FORUM_ORIGIN, address, nonce, issued])`
+   (`DOMAIN_FORUM_LOGIN` = `"forum-login-v1"`) and signs `unhex(msg)` with its ML-DSA private key.
+3. `POST /api/sso_callback {request_id, address, public_key, signature}` → server:
    - re-derives `msg` from the stored challenge (rejects if expired),
    - `proof_sender(public_key, address)` — the pubkey must hash to the claimed address,
    - `verify(signature, unhex(msg), public_key)` — the ML-DSA signature must check out,
    - on success, issues a session cookie bound to `address`.
 
 Verified rejections: **imposter address**, **wrong pubkey**, **tampered nonce**, **expired challenge** —
-all correctly denied. The domain tag `"nado-forum-login"` makes a login signature unusable as a transaction
+all correctly denied. The domain tag `"forum-login-v1"` makes a login signature unusable as a transaction
 signature and vice-versa (no cross-protocol replay).
 
 ## 5. Data model (SQLite, first cut)
@@ -92,11 +96,11 @@ beyond `data:`/same-origin (keeps the H-5-style XSS surface closed).
 ## 6. Anti-spam / Sybil (the wallet-identity payoff)
 
 - **Posting gates per board** (`post_min_role` / on-chain check): e.g. an "Announcements" board is
-  mod-only; "Governance" requires a **bonded** address; "General" requires a **registered** address (has
-  done the one-time registration PoW). Read is public. The node API already exposes account state to check.
+  mod-only; "Governance" requires a **bonded** address; "General" requires a **registered** address (holds
+  a device-attested registration). Read is public. The node API already exposes account state to check.
 - **Rate limits** keyed to `address` (not IP): N posts / minute, cooldown on new accounts.
-- **No email, no CAPTCHA** — a spammer needs a registered/bonded on-chain identity, which costs sequential
-  PoW or stake. That is the whole point of a wallet-native forum.
+- **No email, no CAPTCHA** — a spammer needs a registered/bonded on-chain identity, which costs an attested
+  device or stake. That is the whole point of a wallet-native forum.
 
 ## 7. Moderation (minimal-intervention, on-brand)
 

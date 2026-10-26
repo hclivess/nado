@@ -19,9 +19,9 @@ irreversible at finality** — the split below is what lets both be true at once
 | **anchored** | The exec node has posted a `settle` attestation of `(cursor, state_root)` to L1, so the state transition is committed and independently re-derivable/provable from the L1 blob order. | after finality, on the settle cadence | **No** — and now *verifiable* by anyone: recompute the root from L1 and it matches | anyone auditing, without trusting a node |
 
 `mempool → provisional` is transport latency (inclusion delay: a tx carries `min_block = tip + TX_INCLUSION_DELAY`,
-so it *cannot* be mined for a couple of blocks — see `construct_blob_tx`). `provisional → final` is the
+so it *cannot* be mined for `TX_INCLUSION_DELAY` (8) blocks, ~48 s — see `construct_blob_tx`). `provisional → final` is the
 finality window. `final → anchored` is the exec settle/proof cadence (`execnode` SETTLE; verified in
-`_verify_settled`). Each gap is real time; **no amount of retrying compresses it**, and re-submitting a tx
+`_validate_settle`, `ops/transaction_ops.py`). Each gap is real time; **no amount of retrying compresses it**, and re-submitting a tx
 that is merely climbing the ladder just spams a duplicate that cannot land any sooner.
 
 ## Randomness has the same ladder — one rung offset

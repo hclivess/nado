@@ -66,8 +66,8 @@ what was announced, and clamping is friendlier than forcing the creator to start
 
 ## 4. The honest gap: the contract cannot see supply
 
-There is no opcode to read an asset's `supply` or its `mintable` flag (`doc/assets.md` §3 is five opcodes;
-neither is among them). So `outstanding` is **declared by the creator at `open()`** and thereafter only
+There is no opcode to read an asset's `supply` or its `mintable` flag (`doc/assets.md` §3 is six opcodes;
+none reads supply or `mintable`). So `outstanding` is **declared by the creator at `open()`** and thereafter only
 falls, as the contract burns.
 
 The contract is never insolvent regardless — payout is always `≤ reserve` and pro-rata — but the *declared*
@@ -80,8 +80,8 @@ belongs in the UI, not the circuit:
 If the creator kept minting, they dilute the floor for everyone including themselves, and the registry says
 so. Show the mismatch loudly; do not show a floor number next to an asset that can still be minted.
 
-This is the strongest argument for the `ARENOUNCE` opcode that `doc/assets.md` §7 already flags as missing:
-with it, a vault could refuse to open against a still-mintable asset in-circuit.
+`ARENOUNCE` exists (`doc/assets.md` §3), but it only lets an issuer seal its own supply. Refusing a still-mintable
+asset in-circuit would need an opcode that READS an asset's `mintable` flag, and none exists.
 
 ---
 

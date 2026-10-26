@@ -221,8 +221,14 @@ the new owner alone can `upgrade`/`transfer_contract`; the old owner can no long
 **Skips if:** no such contract; `sender` is not the current owner; `to` missing/empty.
 
 ```json
-{"op":"transfer_contract","contract":"<cid hex>","to":"ndo…newowner"}
+{"op":"transfer_contract","contract":"<cid hex>","to":"<new owner address>"}
 ```
+
+### Asset ops
+
+The fungible-asset ledger has its own blob ops — `asset_create`, `asset_transfer`, `asset_approve`,
+`asset_transfer_from`, `asset_burn`, `asset_mint`, `asset_renounce`, `asset_set_uri` (`execnode/state.py`
+`_apply_blob_inner`). Their fields, rules and the wallet's Assets tab are specified in [`assets.md`](assets.md).
 
 ---
 
@@ -340,7 +346,7 @@ Each bank escrows **only its own table's bankroll** and receives that table's ex
 to its bridge balance — withdrawable to L1 via `bridge_withdraw` (§4). House winnings are therefore returned
 fairly to whoever funded that table, with no shared pool and no trust. The Roulette dApp
 (`roulette.nadochain.com`) derives table / lobby / scoreboard state from `GET /exec/contract` (§8); there is no
-dedicated read API. The build + full test vector is `tests/test_roulette_contract.py`.
+dedicated read API. The live contract is `execnode/games/roulette.py`.
 
 ```json
 {"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"open","args":[7,<bankCommit>],"value":5000000000000}
@@ -449,7 +455,9 @@ Phase-2 field-native join-split (full STARK proof from the delegated prover). Th
 | `proof_da` | no | DA commitment; the tail loop resolves the bundle from DA before applying (block stalls if unavailable) |
 | `ns` | no | namespace |
 
-Applied via `apply_field_transfer`. **Skips if:** `bundle_json` unparsable; bundle not a dict.
+Applied via `apply_field_transfer`. **Skips if:** `bundle_json` unparsable; bundle not a dict. Since the privacy
+pause (from block 1 on the current generation) only the **wide** pool spends (a `joinsplit3` bundle); the legacy
+field pool is refused (`rules_privacy_pause` / `rules_shield_wide`).
 
 ### `shielded_transfer`
 
@@ -467,7 +475,13 @@ Verified + applied by `apply_transfer` (double-spend + value conservation checke
 `unshield_withdrawals[nonce] = {"addr": withdraw_addr, "amount": -public_value}` is recorded for L1 to release
 from `SHIELD_ESCROW` against the settled root (claim proof at `/exec/unshield_proof?nonce=`).
 
-**Skips if:** `public`/`proof` not dicts; verifier rejects; unshield missing `withdraw_addr`.
+**Skips if:** `public`/`proof` not dicts; `public_value > 0`; a `stark` bundle in `proof` (refused on this op since
+the privacy pause); verifier rejects; unshield missing `withdraw_addr`.
+
+### `private_call`
+
+Shielded contract notes. **Refused** on the current generation: the privacy pause (`PRIVACY_PAUSE_HEIGHT`, from
+block 1) makes every `private_call` a no-op (`skip private_call: shielded contract notes are paused`).
 
 ---
 

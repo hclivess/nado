@@ -1,6 +1,8 @@
 # NADO zk components — the complete map
 
-**Status: reference. Current as of 2026-08-04, chain `betanet-15`.**
+**Status: reference, written 2026-08-04 (pre-Stwo).** Shielded-pool and settlement status has moved since (the live
+private pool is the Stwo pool, and settlement moves to Stwo/BLAKE2s at the next reroll); see
+[`stwo-migration.md`](stwo-migration.md) and [`privacy.md`](privacy.md) for the current state.
 
 Every zero-knowledge / proof-system component in the tree, what it does, where it lives, and — the part
 that matters most — **whether it is actually load-bearing in production right now**. Sizes are `wc -l` of
@@ -29,8 +31,11 @@ it in production today:
 
 And one thing does **not** work yet, despite being fully implemented and switched on:
 
-> **Trustless settlement — settling the exec root on a validity proof instead of a bonded quorum — has
-> never completed end-to-end.** The consensus rule is live and unconditional
+> **Update:** a settle-with-proof first landed at block 43153 (2026-08-06; [`settle-proof-transport.md`](settle-proof-transport.md)).
+> The paragraph and figures below are the history before that.
+>
+> **Trustless settlement — settling the exec root on a validity proof instead of a bonded quorum — had
+> never completed end-to-end (as of 2026-08-04).** The consensus rule is live and unconditional
 > (`SETTLE_PROOF_TRUSTLESS = True`) and the prover produces correct proofs that pass their self-checks.
 > What has never happened is a settle transaction carrying a proof landing on chain and a peer verifying
 > it. §14 documents exactly where it stops.
@@ -92,8 +97,9 @@ classical collision resistance and 128-bit Grover preimage resistance (~2⁸⁵ 
 that needs 2⁸⁵ QRAM). Algebraic degree 7⁵⁴ ≈ 2¹⁵¹·⁶.
 
 > **Backend default is load-bearing.** `BLAKE2B` was once the default and silently put the entire prover
-> in Python — 12+ minutes at 75% of a core, starving L1 into a re-anchor. Fixed in `7afb5728`; the
-> default is now `ALGHASH2`, which the Rust arena covers.
+> in Python — 12+ minutes at 75% of a core, starving L1 into a re-anchor. Fixed in `7afb5728` by having the
+> settle prover (`settlement_sparse`) default to `ALGHASH2`, which the Rust arena covers; `backend.DEFAULT` itself is
+> still `BLAKE2B`.
 
 ---
 
@@ -125,7 +131,9 @@ live on chain): the game suite plus faucet, lending, reserve and sovereign.
 
 | Component | File | Lines | Status |
 |---|---|---|---|
-| Shielded pool state machine | `execnode/shielded.py` | 317 | **LIVE** |
+| Stwo shielded pool (the live private pool) | `execnode/shielded_stwo.py`, `native/stwo_js` | 344 | **LIVE** (`STWO_POOL_HEIGHT`) |
+| Wide alghash2 pool | `execnode/shielded_wide.py`, `execnode/stark/joinsplit3.py` | 252 + 400 | deposits closed (`WIDE_DEPOSIT_CLOSE_HEIGHT`) |
+| Shielded pool state machine (legacy) | `execnode/shielded.py` | 317 | legacy field-pool transfers refused from block 1 (privacy pause) |
 | Join-split AIR | `execnode/stark/joinsplit.py` | 120 | **LIVE** |
 | 1-in/1-out circuit | `execnode/stark/joinsplit_circuit.py` | 386 | **LIVE** |
 | 2-output circuit | `execnode/stark/joinsplit2.py` | 410 | **LIVE** |
@@ -224,7 +232,7 @@ Verifying a proof inside a proof, so an epoch verifies in constant time. Doc: [`
 | Fold-layer io binding | `execnode/stark/io_bind.py` | 79 | **LIVE** |
 | In-circuit `slot_key` | `execnode/stark/slot_key_air.py` | 88 | **LIVE** |
 | State-side io tie | `execnode/stark/state_io_tie.py` | 80 | **LIVE** |
-| State merge | `execnode/stark/state_merge.py` | 165 | **LIVE** |
+| State merge | `execnode/stark/state_merge.py` | 165 | capability (tested, not wired) |
 
 **The K→1 fold is implemented and switched on but has never actually run**, because it needs contract
 calls to fold and the chain has been idle: `settlement_sparse` raises on an empty call span, so the
@@ -389,7 +397,7 @@ visible after the previous was fixed:
 | `106276e7` | **The diagnostic.** "not conforming" named neither half, so three different bugs printed the same line |
 | `08945e50` | **DA encode.** ~30 minutes to erasure-code one proof (§9) |
 
-**Current blocker (2026-08-04, from the `106276e7` diagnostic):**
+**Blocker as of 2026-08-04 (from the `106276e7` diagnostic; resolved — the first proof landed at block 43153):**
 
 ```
 self-check FAILED span 19642->19672 — PRE MISMATCH: proof=2231ff74… justified=af2aba29… |

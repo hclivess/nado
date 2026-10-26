@@ -1,5 +1,11 @@
 # NADO security — remaining-work plan (deferred + in-flight)
 
+> **HISTORICAL (2026-08-11).** A record of the plan as it stood after `SECURITY_AUDIT.md`; it is not a list of
+> current open work. The push in §0 happened long ago, and the §4 DA-carried `proven` marker is fixed
+> (`ops/account_ops.py`, the S4 comment). Open defects are tracked elsewhere. Do not run the §1 commands as
+> written: root never executes anything from the checkout (CLAUDE.md, "Root and ownership"), and the in-place
+> contract upgrade path is `execnode/games/deploy.py --upgrade <cid>`.
+
 Companion to `SECURITY_AUDIT.md`. The 14 fixes in that doc's "applied" log are committed on `main`
 (5 commits, `f95141d1`→`ab68920f`). This plan covers what is NOT yet live: the push, the game-contract
 redeploy, and the items deliberately deferred because they need coordination or a real design pass.

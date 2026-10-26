@@ -28,13 +28,16 @@ Both launch real `nado.py` processes on loopback IPs (`127.0.0.2`, `127.0.0.3`, 
   until both outgrow `max_rollbacks`, then the partition heals via `/announce_peer`: every node must
   end on ONE branch. This models the 2026-08-23 mainnet incident (measured reorg span 84 vs rollback
   cap 40, graft-point mismatch, mid-branch abandonment).
+- **wedge** — a lone node producing alone past the backstop, then losing to a strictly heavier majority
+  after the partition heals: it must rejoin by an ordinary deep reorg, with no dead-fork purge in its log
+  (the backstop external-corroboration clamp).
 - **swarm** — N fully-meshed nodes (default 50) from one genesis must converge and keep producing.
   Run it explicitly; it is not part of the default set.
 - **clean** — kill every stray testnet node from any prior run (matched by `HOME` under
   `/tmp/nado-forknet-*` + `NADO_TESTNET=1` in its environ) and delete their directories.
 
 ```bash
-# default set (behind + split), ~15-25 min
+# default set (behind + split + wedge)
 python3 scripts/testnet/test_fork_resolution.py
 
 # one scenario
@@ -52,7 +55,7 @@ python3 scripts/testnet/test_fork_resolution.py clean
 | env | default | meaning |
 |---|---|---|
 | `NADO_FORKNET_NODES` | scenario-specific | node count for `swarm` |
-| `NADO_TESTNET_BLOCKTIME` | 6 | seconds per block. 2 is faster but starves mempool gossip on a loaded box — same-height forks from divergent tx sets are then the harness's fault, not the node's. |
+| `NADO_TESTNET_BLOCKTIME` | 6 (`test_fork_resolution.py`), 2 (`run_testnet.py`) | seconds per block. 2 is faster but starves mempool gossip on a loaded box — same-height forks from divergent tx sets are then the harness's fault, not the node's. |
 | `NADO_TESTNET_PORT` | 19173 | listen port. Default deliberately ≠ 9173 so the suite runs on a box that also runs a production node (a `0.0.0.0:9173` listener blocks every `127.0.0.x:9173` bind). |
 
 ## Cleanup guarantees

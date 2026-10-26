@@ -216,7 +216,7 @@ as a rule:
 | | create | renounce | mint | move the contract's holdings |
 |---|---|---|---|---|
 | the contract's **deployer** | ✅ | ✅ | ❌ | ❌ |
-| the contract's **code** | ❌ | ❌ (needs an opcode) | ✅ `AMINT` | ✅ `ASEL`+`PAY` / `ABURN` |
+| the contract's **code** | ❌ | ✅ `ARENOUNCE` (in-circuit, issuer-checked) | ✅ `AMINT` | ✅ `ASEL`+`PAY` / `ABURN` |
 | anyone else | ❌ | ❌ | ❌ | ❌ |
 
 `asset_mint`, `asset_transfer` and `asset_burn` all act as `sender`, and the issuer is the *cid*, so the
@@ -324,8 +324,8 @@ This is a stronger trust story than most tokens ship, and it is intended to stay
 **Remaining gaps, with a reasoned disposition** (not everything on this list should be built — where the
 answer is "no", the reason is the deliverable):
 
-1. **Proof settlement for asset calls** (§8) — the prover's half was done long ago; L1 BINDS it only from
-   `ZK_HARDEN_HEIGHT` (records_bind.PinnedAssets). Until then asset spans settle by the bonded quorum.
+1. **Proof settlement for asset calls** (§8) — **DONE.** L1 binds asset io at every height
+   (`records_bind.PinnedAssets`); gen 27's `ZK_HARDEN_HEIGHT` gate was inlined at the gen-28 reroll.
 2. **`ARENOUNCE` opcode** (§3, §7) — **DONE.** A contract seals its own token's supply in-circuit; the exec
    layer applies it through the same authority check as a blob renounce, and the AIR constrains the new io
    (a differential prove/replay/forgery test pins the soundness). A coordinated update, since it is a VM

@@ -587,9 +587,9 @@ size-only run isolates where it goes: openings were **118.97 of 124.43 MiB (95.6
 **Why it needs no verifier change, and is not a consensus change.** Both knobs are recovered *from the
 proof*, not from the caller: `verify_bound_epoch` does `row_commit = "row_roots" in bundle["proof"]`, and
 `vm_circuit` honours `proof["backend"]`. L1 calls `verify_settlement_sparse(proof, depth=…)` and passes
-**neither** (`ops/transaction_ops.py:1251`). So old-format and new-format proofs are interchangeable on the
+**neither** (`ops/transaction_ops.py`, the `verify_settlement_sparse` call in `_validate_settle`). So old-format and new-format proofs are interchangeable on the
 wire, and switching is a producer-side choice — the same argument that justified defaulting to ALGHASH2 in
-the first place. `row_commit` does require the RECURSION backend (`stark.py:377`), so the two move together:
+the first place. `row_commit` does require the RECURSION backend (`stark.py` `row_commit_default`), so the two move together:
 `row_commit=None` now means "match the backend" rather than a bare `False` that silently gave up the win.
 
 **This recontextualises §1 and §6.4.** The doc's rule of thumb — size ≈ 0.381 MiB per FRI query — was
@@ -653,7 +653,7 @@ against the first-ever proof block at **126.6 MiB**. A prove is now **8.9–15.3
 
 ### 11.1 Two things the speed-up exposed
 
-**The landing margin was sized for the old proof.** A settle is an EXACT-LANDING tx (`protocol.py:115` —
+**The landing margin was sized for the old proof.** A settle is an EXACT-LANDING tx (`protocol.py`, the `TX_LANDING_WINDOW` comment —
 it "lands at exactly max_block"), so `SETTLE_PROOF_TX_MARGIN` is not slack: it is how long settlement is
 FROZEN, because the exec node must hold every bare settle until the proven span lands. Measured cost at
 180 blocks: submitted 12:35, next settle 12:55 — **~20 minutes frozen for one proof**. Re-measured

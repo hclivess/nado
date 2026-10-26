@@ -3,15 +3,16 @@
 This is the redesign that opens mining beyond public-IP nodes to **anyone, including phones**,
 without enabling botnet/Sybil farming. It came out of a red-teamed design study ("Option A");
 the **primitives** (S4.1, S4.2) and the **live integration** (S4.3) are implemented and
-testnet-validated; the **browser client** (S4b) is still pending.
+testnet-validated; the **browser client** (S4b) ships in the wallet (`static/interface.js`, `static/nadotx.js`).
 
 > **Current model (2026-07 — supersedes the bond-only framing this doc was first written around).**
 > Mining is now **two-lane**: an **OPEN lane** (zero-capital, hard-capped at `K_OPEN/EPOCH_LENGTH`
 > = 18/60 ≈ **30%** of slots) and a **BONDED lane** (locked stake, ≈ 70%). Two things changed since
 > the original "capped bonded chain" write-up below:
-> - **The OPEN lane is genuinely zero-capital.** Its Sybil cost is a renewable **PoSW recert lease**,
->   not a bond: a `register` transaction carrying a fresh *sequential* proof-of-work
->   (`ops/posw.py`) grants open-lane eligibility for `POSW_LEASE_EPOCHS` (≈ 1 day); you renew by
+> - **The OPEN lane is genuinely zero-capital.** Its Sybil cost is a renewable **recert lease**,
+>   not a bond: a `register` transaction carrying a fresh device attestation (`verify_register_device`;
+>   the sequential PoSW of `ops/posw.py` was retired at gen 25) grants open-lane eligibility for
+>   `POSW_LEASE_EPOCHS` = 360 (≈ 36 h); you renew by
 >   re-registering before it lapses. The recert is the **single** presence + anti-Sybil signal —
 >   there is **no per-epoch heartbeat** and no `PRESENCE_WINDOW` (both removed). See
 >   doc/ip-spoofing-and-sybil.md and doc/node-service-reward.md.
@@ -30,7 +31,7 @@ public-IP peers**. The audit confirmed it is **fully grindable**: `get_penalty` 
 `get_hash_penalty` are a deterministic function of an attacker-chosen address and the
 already-known previous block hash, so an attacker grinds keypairs offline to win blocks at
 near-zero cost (one public IP suffices). The public-IP requirement also excludes NAT/mobile
-nodes entirely. (`get_penalty` still exists, with burn-to-bribe removed, until S4.3 replaces it.)
+nodes entirely. (S4.3 replaced it; `get_penalty` is gone.)
 
 ## The iron triangle
 
@@ -64,18 +65,19 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
    online requirement** — the winner is credited by address and every node builds the block
    itself (there is no proposer), so the reward lands on-chain with no inbound connectivity and a browser closing
    mid-epoch is **never slashed**. On the **open** lane the only recurring action is renewing the
-   **PoSW recert lease** — one `register` with a fresh sequential proof roughly once per
-   `POSW_LEASE_EPOCHS` (≈ 1 day), *not* a per-epoch heartbeat. (The original per-epoch heartbeat
+   **recert lease** — one `register` with a fresh device attestation roughly once per
+   `POSW_LEASE_EPOCHS` (360 ≈ 36 h), *not* a per-epoch heartbeat. (The original per-epoch heartbeat
    tx and `PRESENCE_WINDOW` were removed; presence is now the renewable recert.)
 
    **Renewal timing and fidelity.** A recert earns `+1` fidelity only when it lands at least
    `FIDELITY_MIN_GAP_EPOCHS` (192 ≈ 19.2 h) after the previous one; an earlier recert still renews
    the lease and never reduces fidelity — it just doesn't add the point yet, and the *next* point
    is 19.2 h from it. The
-   wallet renews automatically at 80 % of the lease — exactly that threshold — which shifts the
-   expiry ~4.8 h earlier each day until it falls into the night and a closed wallet lapses (a
-   fidelity reset). The wallet card therefore shows the lease countdown and a **Renew presence
-   now** button that is enabled only inside the earning window (last ~4.8 h of the lease): renewing
+   wallet renews automatically at 80 % of the lease (288 of 360 epochs, past the 192-epoch earning
+   threshold), which shifts the expiry ~7.2 h earlier each renewal until it falls into the night and a
+   closed wallet lapses (a lapse halves fidelity). The wallet card therefore shows the lease countdown
+   and a **Renew presence now** button that is enabled only inside the earning window (from epoch 192
+   of the lease on): renewing
    there earns the same `+1` the automatic path would and pins the expiry to that time of day.
    Nothing changes on-chain — the button simply chooses *when* in the already-rewarded window the
    renewal happens.
@@ -120,8 +122,8 @@ tip):
   `bonded >= B_MIN` from the committed `accounts` KV store (parent state); it is the sole input (with the
   beacon) to `select_producer`. Agreed implicitly via block sync — no new gossip field.
 - **Selection swap** — `block_ops.get_block_candidate` now calls
-  `select_producer(get_bonded_registry(), epoch_beacon(epoch_of(n)), slot=n)` instead of the
-  grindable `pick_best_producer`; `block_ip` is repurposed to the winner address so the hashed
+  `select_producer_two_lane(open_registry, eligible_bonded, beacon, slot=n)` (S4.3 v1 called the
+  bonded-only `select_producer`) instead of the grindable `pick_best_producer`; `block_ip` is repurposed to the winner address so the hashed
   body is identical on every node. Returns `None` (skip) if no eligible bond.
 - **Beacon (v1)** — `block_ops.epoch_beacon`: epochs 0-1 use the fixed `GENESIS_BEACON`; epoch≥2
   chains it with the hash of the first block of the previous epoch (a finalized, non-parent
@@ -138,12 +140,11 @@ tip):
 - Full **on-chain commit-reveal RANDAO** beacon (replace the epoch-boundary anchor with revealed
   secrets + a withholding penalty — the M6-grade fix; pure fns already in `mining_ops`).
 - ~~**Heartbeats + on-chain fidelity** column and enabling the `selection_shares` fidelity ramp.~~
-  **Redesigned & shipped** — heartbeats were removed; presence is now the renewable **PoSW recert
-  lease**. The open registry (`account_ops.get_open_registry`) is derived from the revert-safe
+  **Redesigned & shipped** — heartbeats were removed; presence is now the renewable **recert
+  lease** (device-attested since gen 25). The open registry (`account_ops.get_open_registry`) is derived from the revert-safe
   recert index, and the continuity **fidelity** streak is driven by recerts (`apply_register`;
   continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`; a lapse HALVES it, never below 1 — `protocol.fidelity_step`),
-  feeding `open_shares` (selection, range 2..10) and `protocol.dividend_weight` (the dividend's own convex
-  1..25 curve).
+  feeding `open_shares` (selection, range 2..10) and `protocol.dividend_weight` (min(fidelity, 15)).
   The bonded lane keeps the `selection_shares` fidelity ramp OFF (`fidelity=None`) and instead uses
   the tenure-based **bonded producer ramp** (`bond_ramp_weight`, below).
 - **Consensus-pool reweight** (today one vote per peer, `consensus_loop.py`) by trust/stake.
@@ -153,7 +154,7 @@ tip):
   rollback/snapshot paths (dormant in v1: empty mempool, no in-block bond txs, reward 0).
 - Enforce/document the **`max_rollbacks < EPOCH_LENGTH`** invariant for the epoch≥2 beacon anchor.
 
-### S4b — browser light-miner (pending)
+### S4b — browser light-miner (shipped: `static/interface.js`, `static/nadotx.js`)
 Web-Crypto-hosted ML-DSA-44 (`@noble/post-quantum`), key in browser storage, `fetch()` to relays, reproducing the canonical
 encoding + address derivation in JS (BigInt-safe), offline-at-win.
 
@@ -176,9 +177,9 @@ rationale and the takeover math: **doc/takeover-resistance.md**.
 ## Provisional parameters (simulate before locking)
 
 Bonded lane: `B_MIN = 1e11` (10 NADO), no per-identity cap (removed 2026-08-25),
-`EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 1440`, `BOND_RAMP_EPOCHS = 30`.
+`EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 14400`, `BOND_RAMP_EPOCHS = 30`.
 Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
-`OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 240` (≈ 1 day recert lease).
+`OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 360` (≈ 36 h recert lease).
 Continuity fidelity: `FIDELITY_CAP = 30` consecutive recerts (was 1000 in the heartbeat design),
 `FIDELITY_GAIN = 1` per continuous recert — a lapse **halves** the streak, never below 1 (there is no separate
 `FIDELITY_DECAY` constant any more, and no `FAUCET_STARTER_BOND`: free presence must never mint

@@ -43,19 +43,19 @@ substrate.** What the *VM* cannot do is the problem.
 
 | Stablecoin needs | zkVM today (`execnode/zkvm.py`, with `DIVMOD`/`DIVMODW` + bounded loops) | Verdict |
 |---|---|---|
-| Collateral-ratio / interest math | **No `DIV`** opcode; only `ADD SUB MUL` | ✗ blocker — can't compute `debt·PRECISION/collateral` |
-| Iterate positions for liquidation | **No loops / no jumps** — linear programs only | ✗ blocker |
-| Time-based accrual, oracle staleness | **No block height/timestamp** injected into `run()` | ✗ blocker |
-| Custody NADO collateral; mint/burn the coin | VM only mutates its own `storage` maps — **cannot move coins or mint** | ✗ blocker — needs L1 escrow + a new balance/asset |
+| Collateral-ratio / interest math | `DIVMOD` (1 ≤ b < 2^15, q < 2^48) / `DIVMODW` (1 ≤ b < 2^31, q < 2^32) — bounded divides only | partial — ratios must fit the bounds |
+| Iterate positions for liquidation | `JMP` / `JNZ`, bounded by `GAS_LIMIT` steps per call | partial — a liquidation sweep is bounded per call |
+| Time-based accrual, oracle staleness | `CTX` (cursor, time); `BHASH` / `BEACON` read chain data | ✓ |
+| Custody NADO collateral; mint/burn the coin | `PAY` moves native value out of the contract's pot; `AMINT` / `ABURN` mint and burn exec assets (doc/assets.md) | partial — collateral custody still rests on the contract pot in the L1 bridge escrow |
 | Read a price | **No oracle primitive** | ✗ blocker |
 | Compose (call an oracle/AMM contract) | **No cross-contract calls** | ✗ limiting |
-| Fixed-point precision | ints are unbounded (good) but no rounding/`DIV` | partial |
+| Fixed-point precision | integers plus the bounded `DIVMOD` / `DIVMODW` | partial |
 | Per-user auth | `CALLER` = the blob tx's L1 sender (ML-DSA-authenticated) | ✓ usable |
 | Gas / DoS bound | `GAS_LIMIT` step counter | ✓ |
 
 **Conclusion: the exec node is *not* enough as-is, and the VM is the wrong vehicle.** Forcing a CDP into
-this VM would require adding `DIV`, loops, block context, an oracle opcode, cross-contract calls, and native
-value custody — at which point you've built a second, less-audited EVM. NADO's own precedent points the
+this VM would require an oracle opcode and cross-contract calls on top of the bounded divides, loops, block context and
+pot custody it now has — at which point you've built a second, less-audited EVM. NADO's own precedent points the
 other way: the **shielded pool, bridge, HTLC, and treasury are all native protocol modules**, not VM
 contracts, precisely because they touch value and need custody + settlement. The stablecoin belongs in the
 **same class**: a native, immutable execution-layer module, written in host code (Python, exact-integer,

@@ -48,7 +48,7 @@ At a config whose conjectured security matches ours (log_blowup 2, 160 queries, 
 
 ## Our prover: which path is real
 
-- The **wallet proves** (`static/interface.js` `_onDeviceProve3` -> `sstark.prove(...)` of `static/stark/stark.js` with
+- The **wallet proved at the time of measurement** (since replaced by `_onDeviceProveStwo`, the Stwo WASM prover; then: `static/interface.js` `_onDeviceProve3` -> `sstark.prove(...)` of `static/stark/stark.js` with
   `static/stark/joinsplit3.js`), with the proof rules read from `/status` (all live: round2, trace_ldt, full_query) and
   `zk = 8`. That is the path measured.
 - The node **does not** prove join-splits: `execnode/stark/joinsplit3.prove_transfer` refuses on a node
@@ -112,7 +112,7 @@ falls to 2,683 columns but the big table makes it 4x slower (1.2 s native) and t
 A 4-thread native run (`--features parallel`, RAYON_NUM_THREADS=4) was **slower** on this loaded host (median 0.73 s vs
 0.30 s single-threaded): the trace is too small (under 1 M cells) for rayon to pay off when the cores are contended.
 
-## Side finding in the current wallet (not fixed here; no repo changes were allowed)
+## Side finding in the wallet at the time (since fixed: `airDigest` now uses `b2b32Parts`, static/stark/stark.js)
 
 `static/stark/stark.js` `airDigest` calls `b2b32(...parts)`, spreading every periodic-column value as a separate
 argument: at depth 48 that is 25 x 4096 + ~100 = ~102,500 arguments. It works under Node's default stack and on the

@@ -14,7 +14,7 @@ no per-address grants, no enrollment registry. The loop:
    and anyone can top it up exec-side with the contract's `fund()`.
 2. **Airdrop play** — enrolled games offer free play; the results land on each game's scoreboard.
 3. **Prizes out, daily** — the operator's distributor (`scripts/operator/_faucet_rewards.py`, run by
-   `scripts/nado-faucet-rewards.timer`) tallies every
+   `deploy/units/nado-faucet-rewards.timer`) tallies every
    enrolled game's leaderboard off-chain — a PROVABLE computation: the boards derive from the game
    contracts' on-chain storage, so anyone can recompute them and audit that the right addresses were
    paid — and calls the contract's `reward(idx, day, rank, addr, amount)` per top finisher
@@ -22,7 +22,7 @@ no per-address grants, no enrollment registry. The loop:
 
 ## 2. The contract
 
-Two methods, nothing else:
+Three methods, nothing else (`defund` is described below):
 
 - `fund()[value]` — anyone tops the bank up; zero-value reverts.
 - `reward(idx, day, rank, addr, amount)` — **operator-only**; **idempotent** per `(game, day, rank)`
@@ -56,7 +56,8 @@ double-firing timer cannot double-pay or drain the bank.
 
 Add the game to `scripts/operator/_faucet_rewards.py`'s `GAMES` list with its cid and leaderboard `kind`
 (`duel` — 2-seat winner tally · `table` — N-seat winner seat 1..4 · `banked` — settled won seats ·
-`battleship` — fewest shots to sink the fleet), turn on the scoreboard prize column in the game's
+`battleship` — fewest shots to sink the fleet · a replay-verified `*-daily` kind, e.g. `battleship-daily` or
+`hexholm-daily`, which also needs its oracle in `DAILY_VERIFY`), turn on the scoreboard prize column in the game's
 client (`renderScore(..., prize=true)`), and set `faucet:true` on its hub tile. That's the whole
 enrollment — the prize note on the scoreboard (`sdk.prizeNote`) tells players the top K win daily.
 

@@ -84,7 +84,7 @@ implementation of its case:
 
 | geometry | why the arena cannot take it | live? |
 |---|---|---|
-| **`BLAKE2B` backend** (`backend.DEFAULT`) | the arena's Merkle speaks only the alghash2 family (`hmode` 0 `rleaf`/`rnode`, 1 `hashn`); blake2b leaves are a different hash entirely | **YES** — `joinsplit2.prove_transfer` calls `stark.prove` with no backend, and `shielded_field.py` ships that proof. The shielded pool proves here. |
+| **`BLAKE2B` backend** (`backend.DEFAULT`) | the arena's Merkle speaks only the alghash2 family (`hmode` 0 `rleaf`/`rnode`, 1 `hashn`); blake2b leaves are a different hash entirely | **not any more** — `joinsplit2.prove_transfer` still calls `stark.prove` with no backend, but the legacy/field pool's transfers are refused from block 1 (`ExecState.rules_privacy_pause`) and the live shielded pool is Stwo (`execnode/shielded_stwo.py`, `native/stwo_js`). When this was written it was the shielded pool's prover. |
 | **`commit_periodic`** | committed periodic columns must absorb their roots *before* the trace commitment, but the arena assigns periodic column ids *after* the aux phase — transcript order and arena id layout disagree | no live caller; used by `bound_epoch_o1` (succinct verify) |
 
 ### Closing the BLAKE2B gap — measured, and not the way it looked

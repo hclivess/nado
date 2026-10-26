@@ -21,8 +21,8 @@ whole basis; everything below is about *composing* those proofs safely.
 State is a `storage_tree.SparseStore` — a sparse alghash2 Merkle tree at depth 256, keyed by
 `slot_key(cid, slot)`. Missing keys read 0; writing 0 deletes.
 
-`state_transition.prove_transition(pre_store, updates)` proves an ordered `[(key, new_value), …]` by emitting
-**one `merkle_update` proof per key**, each proving `old→pre_root` and `new→post_root` over ONE shared
+`state_transition.prove_transition(pre_store, updates)` proves an ordered `[(key, new_value), …]` in batches of
+updates that share ONE STARK (`batch`, default `MU.max_batch(depth)`), each update proving `old→pre_root` and `new→post_root` over ONE shared
 authentication path, and chaining them:
 
 ```
@@ -45,7 +45,7 @@ Composition is concatenation. The chain condition `A.roots[-1] == B.roots[0]` is
 constraint is needed, and **K_A and K_B may overlap freely**: if both write key `k`, B simply observes A's
 value as its `old`, because B was proven against A's post-root.
 
-This is what the K→1 fold (`SETTLE_PROOF_RECURSIVE`, betanet-14) collapses: K chained segment proofs
+This is what the K→1 fold (`SETTLE_PROOF_RECURSIVE`, enabled at the alphanet-14 reroll) collapses: K chained segment proofs
 re-verified inside ONE recursion bundle whose verification is O(1). Multi-epoch spans in
 `prove_settlement_sparse` are exactly this shape.
 
@@ -110,8 +110,8 @@ can settle a state where someone else's write never happened.
 
 | | status |
 |---|---|
-| sequential merge | **live** — `prove_settlement_sparse` multi-epoch spans, folded K→1 (`SETTLE_PROOF_RECURSIVE`) |
-| parallel merge | **in progress** — `state_merge.py`, see below |
+| sequential merge | **live** — `prove_settlement_sparse` multi-epoch spans; the K→1 fold is refused under the live proof rules (`recursive_verify._refuse_trace_ldt`, SCHEDULED_CLEANUPS.md) |
+| parallel merge | **implemented, not wired** — `execnode/stark/state_merge.py` (`prove_merge`), tested in `tests/test_state_merge.py`; no settlement path uses it yet |
 | full-state composition | **open** — settlement proves the zkVM projection only; bridge/dividend/shielded settle by their own paths |
 
 That last row is the honest ceiling on all of this: until one proof covers the whole state transition, there

@@ -1,7 +1,8 @@
 # Attesting a TPM without a certificate authority
 
-**Status: core proven end to end against a real TPM 2.0 (2026-09-10). Endpoints, consensus rule and vendor
-root policy are not built.**
+**Status: LIVE. The core was proven end to end against a real TPM 2.0 (2026-09-10); the enrolment transactions,
+the challenger draw (pool v2 from block 100000), `/tpm_enrolment`, `/tpm_duty` and the pinned vendor roots
+(`protocol_roots/ek/`) are in consensus (`ops/tpm_enrol.py`, `ops/transaction_ops.py`, `ops/account_ops.py`).**
 
 This is how a machine proves it holds a genuine, vendor-certified TPM — without Microsoft, and without anyone
 holding a signing key that could mint identities.
@@ -83,7 +84,8 @@ all of them to collude — a property consensus can observe, rather than a key s
 ## What binds an identity
 
 **The endorsement key, never an attestation key we accept.** A chip holds unlimited AIKs; binding to one would
-hand a single machine an identity per enrolment. `ek_identity()` derives from the endorsement key's own
+hand a single machine an identity per enrolment. The endorsement identity (`ek_identity`, returned by `native/attest`'s `ek::verify_ek` through
+`ops/attest_native.verify_ek`) derives from the endorsement key's own
 SubjectPublicKeyInfo. Enrol ten AIKs and they collapse to one identity.
 
 Regenerating the endorsement seed to fake a new chip changes the EK, and the vendor's certificate no longer
@@ -91,7 +93,7 @@ matches it — so it cannot enrol at all.
 
 ## What is checked, and why each check is load-bearing
 
-`verify_ek_chain()` — the vendor signature is the entire basis for trusting hardware. Refuses a certificate
+`ek::verify_ek` (`native/attest/src/ek.rs`, called through `ops/attest_native.verify_ek`) — the vendor signature is the entire basis for trusting hardware. Refuses a certificate
 that is not `tcg-kp-EKCertificate`, that is a CA, or that claims signing capability. Client-supplied
 intermediates are a routing hint; only pinned roots are trust input.
 
@@ -129,19 +131,21 @@ may reject and carries no endorsement certificate at all.
 - **Attestation proves authorisation, not presence.** The chip authorises an identity at registration and
   renewal; mining happens wherever the wallet is. True of the phone path too.
 
-## Known gap before this can run on real hardware
+## Real vendor certificates are not strict DER — so EK parsing is in Rust
 
 Python `cryptography` **refuses to parse a real AMD endorsement certificate**:
 `ParseError { kind: EncodedDefault, ["Certificate::tbs_cert", "TbsCertificate::raw_extensions", 1,
 "Extension::critical"] }` — AMD encodes `critical: FALSE` explicitly where strict DER requires it omitted.
-openssl accepts it. Real vendor certificates are not strictly DER, so EK parsing must move to a lenient parser
-(`x509-parser`, already used by `native/attest`).
+openssl accepts it. Real vendor certificates are not strictly DER, so EK parsing runs in a lenient parser:
+`x509-parser` in `native/attest` (`ek::verify_ek`), never in Python.
 
 ## Where the code is
 
 | | |
 |---|---|
-| `ops/tpm_aik.py` | KDFa, MakeCredential, commit-reveal, EK chain and AIK attribute validation |
+| `ops/tpm_aik.py` | KDFa, MakeCredential, commit-reveal, AIK attribute validation, TPM2_Certify verification |
+| `native/attest/src/ek.rs`, `ops/attest_native.py` | the EK certificate chain to the pinned roots, the endorsement identity |
+| `ops/tpm_enrol.py` | enrolment records, the commit-then-draw challenger set, faults |
 | `apps/nado-tpm-attest/src/tpm.rs` | TPM 2.0 commands, platform-independent |
 | `apps/nado-tpm-attest/src/tbs.rs` | Windows transport |
 | `apps/nado-tpm-attest/src/devtpm.rs` | Linux transport (`/dev/tpmrm0`) |
@@ -153,7 +157,7 @@ openssl accepts it. Real vendor certificates are not strictly DER, so EK parsing
 "Forgery needs all the drawn challengers to collude" is only half the property. The other half is **being
 drawn**, and an attacker can retry that.
 
-An unproven record can be superseded once its window elapses (`transaction_ops.py:1487`), and a supersede
+An unproven record can be superseded once its window elapses (`ops/transaction_ops.py`), and a supersede
 re-publishes at a new height, so the challenger set is redrawn against the duty senders and beacon as of
 THAT height. There is no cap on how many times. An attacker who controls some bonded nodes therefore does
 not need to be lucky once — they resample every 180 blocks, about 20 minutes, until a draw seats only
@@ -210,7 +214,8 @@ So an attacker with pool share `p` spread over >= 3 bonded accounts tries ~`1/P`
 collude with probability P" into "all k collude whenever the attacker has k accounts in the pool", on the
 first attempt, for every endorsement certificate it holds.
 
-**Commit, then draw** (`protocol.TPM_DRAW_UNGRINDABLE_HEIGHT`, `ops/tpm_enrol.py`). From the gate an
+**Commit, then draw** (gen 27's `TPM_DRAW_UNGRINDABLE_HEIGHT`; the gate was deleted and the rule holds from block 1;
+`ops/tpm_enrol.py`). An
 enrolment opened at `h` in epoch `E` is drawn from:
 
 | input | value | why the client cannot aim it |
@@ -272,7 +277,7 @@ is no fallback pool, by design — a fallback is the cheap seat this rule remove
 ## The two proof shapes are not symmetric
 
 There is ONE consensus entry point for granting an attested identity — `verify_register_device`, called
-unconditionally at `transaction_ops.py:1400` from the `register` branch of `validate_transaction`, which
+unconditionally in `ops/transaction_ops.py` from the `register` branch of `validate_transaction`, which
 runs in mempool admission AND in `validate_transactions_in_block`. Everything funnels through it, including
 `ops/node_attest.py`.
 
@@ -282,16 +287,17 @@ Inside, `is_ek_device` dispatches into two shapes that differ in WHEN the vendor
   re-walked to a pinned root on every node at every register. The proof is self-contained in the
   transaction.
 - **CA-free EK**: the EK cannot sign, so the vendor chain is verified during enrolment
-  (`transaction_ops.py:1467`, and again in the apply path at `account_ops.py:887`) and the verdict is
+  (in `ops/transaction_ops.py`, and again in the apply path, `account_ops.apply_tpm_enrol_tx`) and the verdict is
   CERTIFIED INTO CONSENSUS STATE as the enrolment record. Register then asserts `state == "proven"` and
   checks a fresh `TPM2_Certify` against the stored `rec["pub"]`.
 
 So the EK path is only as strong as the rules that wrote the record — which is why the draw weakness above
 is load-bearing in a way it is not for the phone path.
 
-Three call sites verify chains ADVISORILY and grant nothing: `nado.py:1396`, `nado.py:1491`,
-`loops/core_loop.py:2930`. `nado.py:1491` uses `int(time.time())` where consensus uses the anchor block's
-timestamp — deliberate for a pre-flight check, but it means an advisory verdict can disagree with consensus
+Advisory call sites verify chains and grant nothing: the enrolment pre-flight in `nado.py` (two
+`attest_native.verify_ek` calls) and the challenger loop in `loops/core_loop.py`. They stamp `now` from the local
+tip's `block_timestamp` (falling back to `time.time()`), where consensus uses agreed time at the anchor height
+(`transaction_ops`'s certificate clock) — deliberate for a pre-flight check, but it means an advisory verdict can disagree with consensus
 near a certificate's expiry, which reads to a user as "the wallet said yes and the chain said no".
 
 ## Why every EK enrolment stalled at 1/3 (2026-09-11)

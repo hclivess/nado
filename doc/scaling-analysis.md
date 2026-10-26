@@ -58,8 +58,8 @@ not change the canonical encoding;** the cheap win is already in place.
 
 ### 4. Idle-account GC — see `doc/rolling-mode-and-da.md` (consensus-critical)
 Idle-account GC is **IMPLEMENTED** (`ops/gc_ops.py` — deterministic in-block sweeps at epoch boundaries; see rolling-mode-and-da.md §3); presence itself is now self-bounding — the old per-epoch
-heartbeat rows are gone, replaced by the PoSW **recert lease** (`recerts` / `recert_by_epoch`), which
-a node must renew each `POSW_LEASE_EPOCHS` or lapse — and idle **account-row** GC is now shipped (`ops/gc_ops.py`).
+heartbeat rows are gone, replaced by the device-attested **recert lease** (`recerts` / `recert_by_epoch`), which
+an identity must renew each lease (36 h–7 days by device class, `LEASE_EPOCHS_BY_CLASS`) or lapse — and idle **account-row** GC is now shipped (`ops/gc_ops.py`).
 Pruning an account row changes the **state root**, so it must be deterministic and applied identically
 by every node *inside block processing* — not a local maintenance sweep, which would fork
 the chain. It is therefore designed (not blind-wired) as the state-pruning section of
@@ -88,8 +88,8 @@ in N). FFG justification counts committee seats, so the seat supermajority IS a 
 Combined with the native verify backend (§1), consensus overhead is now constant-count + fast-verify.
 
 (The OPEN lane is **no longer** a per-epoch cost. The old per-epoch heartbeat tx was removed:
-OPEN-lane presence is now a renewable PoSW **recert lease** (`register` tx), renewed only once per
-`POSW_LEASE_EPOCHS` (≈ 1 day), so the open-lane message load amortizes to ≈ N_open / `POSW_LEASE_EPOCHS`
+OPEN-lane presence is now a renewable device-attested **recert lease** (`register` tx), renewed only once per
+lease (36 h–7 days by device class), so the open-lane message load amortizes to ≈ N_open / lease-epochs
 per epoch — negligible next to the bonded ~3N. The dominant O(N)-per-epoch term is the bonded
 attest/commit/reveal set.)
 
@@ -119,7 +119,7 @@ split consensus). A succinct proof-of-threshold (one STARK replacing the ≤128 
 optional step — the committee already bounds the cost to a constant.
 
 ### C. Unbounded free-lane state — ✅ BOUNDED (idle-account GC shipped)
-OPEN-lane `register` (PoSW recert) txs are fee-exempt and used to create permanent account state.
+OPEN-lane `register` (recert) txs are fee-exempt and used to create permanent account state.
 Now bounded by the deterministic in-block idle-account GC (`ops/gc_ops.py`, §4 /
 `doc/rolling-mode-and-da.md` §3): trivially-empty docs sweep at `GC_IDLE_EPOCHS`, recert rows at
 `RECERT_HISTORY_EPOCHS`, revert-safe, snapshot-root-identical on every node.

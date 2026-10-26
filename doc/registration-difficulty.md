@@ -1,6 +1,11 @@
 # Registration-rate PoSW difficulty — how expensive a flood gets
 
-> **Status: IMPLEMENTED & CONSENSUS-BOUND.** The sequential Proof-of-Work required to `register` an OPEN-lane
+> **Status: RETIRED at gen 25 (betanet-7).** Registration no longer carries a sequential-work proof: an open-lane
+> `register` carries a hardware device attestation instead (doc/device-attestation.md), `/posw_difficulty` answers
+> `required_t: 0, retired: true`, and `tests/test_gen25_retirements.py` pins that PoSW is not validated. The rest of
+> this note is kept as the record of the rule that ran before gen 25.
+>
+> **Former status: IMPLEMENTED & CONSENSUS-BOUND.** The sequential Proof-of-Work required to `register` an OPEN-lane
 > identity **scales with recent registration volume**, so a sudden flood of identities gets progressively more
 > expensive. It is enforced in `validate_transaction` (`ops/reg_difficulty.py`), not client-side: every node
 > recomputes the requirement from the committed recert index and **rejects an under-worked registration** — a
@@ -88,7 +93,7 @@ pushed the multiplier to `m`) costs `N × m × POSW_T` sequential hashes — and
 show the scale. The point is not to make a flood impossible but **progressively, visibly expensive** — layered on
 top of the two hard bounds that already cap the payoff:
 
-- the **structural 20% (`OPEN_BPS`) cap** — a zero-capital Sybil swarm can never pull more than the open lane's
+- the **structural 30% (`OPEN_BPS`) cap** — a zero-capital Sybil swarm can never pull more than the open lane's
   30% of blocks, no matter how many identities it mints ([reward-capture-theorem.md](reward-capture-theorem.md));
 - the **renewable lease** — each identity must redo the PoSW every `POSW_LEASE_EPOCHS` (~1 day) to stay present,
   so a farm's cost is *size × time*, not a one-off.

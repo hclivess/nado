@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-NADO is **testnet-stage alpha**. Only the tip of `main` (the current chain id named in
-`README.md`) receives fixes. Older chain generations are wiped on every reroll and are
-not supported.
+NADO is a **pre-mainnet betanet**. Only the tip of `main` (the chain id a node reports in `/status` → `chain_id`)
+receives fixes. A reroll starts a new chain generation and carries balances, contracts and identities forward
+(`doc/reroll.md`); older generations are not supported.
 
 ## Reporting a vulnerability
 
@@ -55,8 +55,8 @@ Out of scope:
 Good-faith research conducted against the **testnet** and within scope will not be met with
 legal action by the project. Do not access, modify or exfiltrate other users' data, do not
 attempt to disrupt the network beyond what a proof-of-concept requires, and stop and report
-as soon as you have confirmed an issue. Testnet coins have no value; there is no bug bounty
-at this time.
+as soon as you have confirmed an issue. Betanet balances are real: they carry across rerolls and
+to mainnet. There is no bug bounty at this time.
 
 ## Audits
 

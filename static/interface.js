@@ -9427,13 +9427,16 @@ async function renderSettlement() {
   try { bonded = acct && acct.bonded ? BigInt(acct.bonded) : 0n; } catch (e) { bonded = 0n; }
   let role, note = "";
   if (bonded > 0n && execn && execn.settle_enabled) {
-    role = "Settling — attesting every " + (execn.settle_every || "?") + " blocks";
+    role = i18("rollup.roleSettling", "Settling — attesting every {n} blocks", { n: execn.settle_every || "?" });
   } else if (bonded > 0n) {
-    role = "Bonded, not settling";
-    note = "Your stake is bonded, but this node isn't posting settlement attestations. Set NADO_EXEC_SETTLE=1 on your exec node to help settle the L2.";
+    // Every exec node settles (execnode.SETTLE is unconditional since its opt-in environment flag was deleted), so the only
+    // way here is an exec node that did not answer. Never tell the user to set a variable nothing reads:
+    // tests/test_the_wallet_names_no_setting_nothing_reads.py.
+    role = i18("rollup.roleBonded", "Bonded — settlement status unavailable");
+    note = i18("rollup.noteBonded", "Your stake is bonded. The exec node behind this relay is not answering, so whether it settles can't be shown here.");
   } else {
-    role = "Observer";
-    note = "Bond stake (Stake tab) to become a validator that attests the L2 state root to L1.";
+    role = i18("rollup.roleObserver", "Observer");
+    note = i18("rollup.noteObserver", "Bond stake (Stake tab) to become a validator that attests the L2 state root to L1.");
   }
   setT("settleRole", role);
   setT("settleNote", note);

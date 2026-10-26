@@ -69,8 +69,8 @@ identical winners. The walk stays in the code as the reference.
 
 ## Phase 3 — keep per-block work independent of N
 
-- `open_lane_draw_registry` filters stakers (`bonded >= B_MIN`) out of the open draw per block: precompute the
-  filtered list at the epoch boundary (it only changes with bond/unbond, which 2b already tracks).
+- ~~`open_lane_draw_registry` filters stakers out of the open draw per block~~ — moot: the staker filter was
+  deleted (one device, one open slot, staked or not), so the function returns the registry unchanged.
 - `/mining_status` and the wallet's lane counters read the cached prefix totals; no per-request walk.
 - The identity log and `tools/identity_audit.py` are node-local and can stay O(N).
 

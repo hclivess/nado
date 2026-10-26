@@ -15,7 +15,7 @@ Companion notes: [`execution-layer.md`](execution-layer.md) (why the shape), [`l
 
 ```
    ┌──────────────────────────── NADO L1 (consensus) ───────────────────────────┐
-   │  orders `blob`s (opaque, size-capped, fee-per-byte)                          │
+   │  orders `blob`s (opaque, size-capped, flat DA fee)                           │
    │  `settle` attestations → per-namespace bonded-quorum → latest_settled(ns)    │  ← settlement
    │  `bridge`/`bridge_withdraw` escrow + Merkle-proof exit  (tunnels)            │
    │  never executes an L2 tx · phones validate every block                      │
@@ -58,7 +58,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   ONLY if the state_root recomputed from the payload matches the L1-settled `(cursor, root)`, so the
   bonded quorum (never the donor) vouches for it. Required once L1's idle-GC prunes ancient recert
   rows (`/get_open_weights` refuses epochs it can no longer reconstruct exactly).
-- **Settle.** If run by a bonded validator with `NADO_EXEC_SETTLE=1`, `maybe_settle()` posts a `settle`
+- **Settle.** If run by a bonded validator (settling has no flag — `SETTLE = True`), `maybe_settle()` posts a `settle`
   attestation of `(cursor, state_root)` to L1 every `SETTLE_EVERY` blocks.
 - **Serve.** A read-only `/exec/*` API for wallets/bridges:
 
@@ -164,7 +164,7 @@ split).
 
 Programmability data reaches the exec layer as **opaque blobs** carried in L1 blocks:
 
-- One reserved recipient, `blob`. L1 validates the envelope (real signer, fee ≥ `MIN_TX_FEE` per byte, size ≤
+- One reserved recipient, `blob`. L1 validates the envelope (real signer, a flat burned fee ≥ `MIN_TX_FEE`, size ≤
   `BLOB_MAX_BYTES`) and **never decodes the payload** — it is consensus-*ordered* and consensus-*available*,
   consensus-*opaque*. A blob can therefore never fork L1.
 - **Per-block cap `MAX_BLOB_BYTES_PER_BLOCK` (1 MiB)** keeps block size phone-relayable at slot time.
@@ -208,8 +208,9 @@ by the whole bonded quorum (not a single operator). The wallet's on-device prove
 
 ## 3b. Contract library — the first exec-node contracts — **BUILT**
 
-`execnode/contract_lib.py` is a small assembler abstraction plus **generalized method patterns** and the first
-example contracts built from them, so new contracts compose from patterns instead of hand-rolled opcodes:
+`execnode/zkvm_examples.py` (which replaced the stackvm-era `contract_lib.py`) is the starter zkVM library, assembled
+with `execnode/zkvmasm.py` and served by `/exec/examples` as `{name: {code, abi}}` (`counter`, `tip_jar`,
+`commit_box`). The patterns it descends from:
 
 - **`counter_methods`** → `COUNTER`: a shared integer (`inc`/`get`).
 - **`accumulator_methods`** → `TIP_JAR`: a per-caller running total (`add`/`of`/`mine`) — generalizes tips,
@@ -287,15 +288,16 @@ Contracts run in the RISC-V-class VM off L1 (`execution-layer.md` §5); contract
    a `settle` tx cleanly un-justifies it. Exposed at `/get_settled?ns=`.
 
 **Finality coupling:** exec nodes consume only finalized blocks and settled roots sit below `FINALITY_DEPTH`
-(30), so a settled root is never reorged — settlement inherits L1 finality for free.
+(45), so a settled root is never reorged — settlement inherits L1 finality for free.
 
-**Phase-2b (built, currently disabled).** The old `set_settlement_verifier` DI seam was removed; proof authority is now the on-chain `kv_ops.settlement_proven` marker, which `settlement_justified` deliberately ignores today (quorum-only). Historically a callable
-`(ns, cursor, state_root)->bool`. When set, a root is justified if the **validity proof verifies OR** the
-quorum is met (proof-preferred, quorum as liveness fallback). Default `None` ⇒ pure Phase-2a quorum — **no
-behavioural change until a real verifier is installed.** This is the single line that flips settlement from
-committee-trust to cryptographic-trust. **Honest status:** the arbitrary-execution zkVM prover that would back
-it is a genuine, separate cryptographic build — the existing FRI prover proves the fixed shielded circuit, not
-general VM execution. The seam is wired; the prover is not faked.
+**Phase-2b (built, live).** A `settle` may carry a STARK validity proof. When it verifies at block validation the
+node records the `kv_ops.settlement_proven` marker, and `settlement_justified` accepts a root that is proven **or**
+quorum-attested (`SETTLE_PROOF_TRUSTLESS = True`, `ops/settlement_ops.py`). The prover is the zkVM execution AIR
+(`execnode/stark/vm_circuit.py`, `execnode/settlement_proofs.py`, `execnode/stark/settlement_sparse.py`), folded
+K→1 under `SETTLE_PROOF_RECURSIVE`. A proof-carrying settle first landed at block 43153 (2026-08-06,
+[settle-proof-transport.md](settle-proof-transport.md)); spans that move withdrawals, unshields or xmsgs cannot be
+proven yet ([stwo/g4-settlement-statement.md](stwo/g4-settlement-statement.md) §1), so routine settlement still
+rides the quorum.
 
 ---
 
@@ -389,10 +391,10 @@ routed through i18n.
 | Bridge / shielded / dividend tunnels (Merkle-proof exits) | **built** |
 | **Namespaces (multi-rollup): `ns` on settle/bridge, per-ns pointer, isolation** | **built (this work)** |
 | **Per-`ns` execution node** (registry of states, blob-routed, settle-per-ns, `/exec/*?ns=`) | **built (this work)** |
-| Phase-2b settle-with-proof (on-chain `settlement_proven` marker) | **built, disabled (quorum-only)** |
-| Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
-| **DA erasure-coding + hash-based sampling** (`ops/da.py`: RS k-of-n + Merkle commit + sample verify) | **built (primitive); blob integration designed** |
-| Recursive proof aggregation (one proof settles many rollups) | designed (moot without a zkVM) |
+| Phase-2b settle-with-proof (on-chain `settlement_proven` marker) | **built, live — proof OR quorum** |
+| Phase-2b **validity proof** (zkVM over arbitrary exec) | **built** (`vm_circuit.py`; first landed at block 43153) |
+| **DA erasure-coding + hash-based sampling** (`ops/da.py`: RS k-of-n + Merkle commit + sample verify) | **built** (primitive + the `proof_da` blob integration, §3a) |
+| Recursive proof aggregation | K→1 fold of one span's segments **built** (`SETTLE_PROOF_RECURSIVE`); one proof across rollups designed |
 | **Cross-domain outbox** (`emit` op, committed messages, `/exec/outbox_proof`) | **built (this work)** |
 | **Cross-rollup delivery** (`xmsg`: L1 verifies message vs sender's settled root → receiver inbox) | **built (this work)** |
 | Forced-exit escape hatch; multi-message atomicity | designed |
@@ -413,8 +415,7 @@ routed through i18n.
 | Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/zkvm.py`, `execnode/stark/` |
 | Node API | `nado.py` `/get_settled?ns=`, `/exec/*` proxy |
 | Wallet | `static/interface.html` + `interface.js` Settlement tab; `nado._TAB_PATHS` |
-| Tests | `tests/test_settlement.py` (incl. namespaces), `tests/test_bridge.py`, `tests/test_blob.py`, `tests/test_execnode_vm.py` |
+| Tests | `tests/test_settlement.py` (incl. namespaces), `tests/test_bridge.py`, `tests/test_blob.py`, `tests/test_zkvm.py` |
 
-> Namespaces + the settlement/tunnel stack described here are **implemented and tested**; Phase-2b validity
-> proofs, per-`ns` exec nodes, DA hardening, aggregation, and cross-rollup tunnels are **designed** and clearly
-> marked as such — nothing here is a stub dressed up as done.
+> Everything marked **built** in §10 is implemented and tested; what remains designed is the forced-exit escape
+> hatch, multi-message atomicity and one proof across rollups — nothing here is a stub dressed up as done.

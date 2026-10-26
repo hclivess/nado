@@ -64,8 +64,8 @@ attestations, `att:` meta rows, `divnull`, settlements, `epochw`.
 
 **Embodied fix (mitigation).** Leaf-digest cache in `snapshot_ops.merkle_root` (`497cc816`): only
 ~a dozen rows change between walks, so unchanged rows cost a dict hit — 9× on the leaf phase,
-bit-identical root. **The row growth itself is consensus-bound and remains**: retention windows
-are a REQUIRED gen-22 reroll item (see SCHEDULED_CLEANUPS.md, "STATE-ROOT ROW GROWTH").
+bit-identical root. The row growth itself was consensus-bound and has since been bounded by the root retention window
+(SCHEDULED_CLEANUPS.md, "STATE-ROOT ROW GROWTH — RESOLVED 2026-08-20").
 
 **Rule.** For every per-block computation ask: *what does its input set grow with?* If the answer
 is "chain age", either make it incremental, cache the unchanged part, or bound the input set by

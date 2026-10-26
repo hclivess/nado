@@ -57,7 +57,7 @@ slots.
 
 **2. Open lane — capped at `OPEN_BPS`.** Each open slot's producer is a deterministic draw over the
 present open registry, weighted by `open_shares ∈ [OPEN_BASE_FLOOR, OPEN_BASE_FLOOR+OPEN_FID_BONUS] =
-[1,10]`. A's expected wins among open slots is its weight fraction `w`. Hence A takes `w · N·OPEN_BPS`
+[2,10]`. A's expected wins among open slots is its weight fraction `w`. Hence A takes `w · N·OPEN_BPS`
 open slots. Because honest miners always hold some weight, `w < 1` strictly, but registering more Sybils
 drives `w → 1`; the **supremum** of open-lane capture is therefore `N·OPEN_BPS` — i.e. at most **all of the
 30% lane, and never one slot more**, no matter the identity count. This is the structural, population-

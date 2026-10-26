@@ -99,8 +99,9 @@ settle) instead target a height far enough ahead (`RESERVED_TX_MARGIN` = 30 bloc
 
 ### 3.4 Pool warm-up (`memserver.pool_warmed`)
 A freshly restarted node has an empty pool, and "my pool differs" turns straight into a same-height fork
-under deterministic production. A node does not mint until it has completed one pull reconcile with a
-peer (or 60 s have passed with a mute mesh, for liveness).
+under deterministic production. A node does not mint until it has completed one pull reconcile that
+included an ELDER peer — one up at least `POOL_WARM_ELDER_S` (120 s), since a peer restarted in the same wave is as
+empty as we are — or 60 s have passed since start (a mute mesh must not stall a producer), or it has no peers.
 
 ### 3.5 Pre-assembly reconcile (`memserver.reconcile_next_block_set`, `GET /next_block_txids`) — 2026-09-01
 The layers above converge pools in ~1 s passes; the `/status` agreement signal is polled every ~10 s. Both
@@ -248,7 +249,7 @@ block, the winner may be offline, no signature is required, no party is special.
 
 - `GET /next_block_txids` on any node: `{tip, height, txids}` — ask several nodes on the same tip; the lists
   must be identical when the mesh is converged.
-- `GET /status`: `upcoming_block_hash` (the hash of that set) and, in the consensus loop's debug log,
+- `GET /status`: `upcoming_block_hash` (the hash of that set) and, in the message loop's debug log,
   `Upcoming-block agreement: N%` across same-tip peers.
 - `grep "Pre-build reconcile" logs/log.log` — non-empty only when the reconcile fetched something or saw
   disagreement; `grep -c "Fork state: reorg"` per hour and `/rollback_stats` for the fork rate.

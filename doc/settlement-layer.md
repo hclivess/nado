@@ -1,6 +1,7 @@
 # Settlement layer — implementation spec
 
-**Status: partly BUILT (Phase 2a), this spec drives the rest.** This is the *implementation* companion to the
+**Status: BUILT (Phases 2a and 2b; the checklist in §5 is ticked). Kept as the implementation spec — the §2.2/§2.3
+wire sketches predate the build; [`rollups-and-settlement.md`](rollups-and-settlement.md) has the as-built shape.** This is the *implementation* companion to the
 conceptual notes [`l2-settlement.md`](l2-settlement.md) and [`execution-layer.md`](execution-layer.md): concrete
 data structures, tx/wire formats, the settlement lifecycle, the node ↔ execnode ↔ interface wiring, API
 contracts, a phased checklist of what's built vs. to-build, and the test plan. Where those notes argue *why*,
@@ -47,12 +48,12 @@ by a bonded-stake quorum, later by one STARK proof, behind the same predicate.
 
 | Piece | Location | Contract |
 |---|---|---|
-| `blob` carrier | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 1048576` (1 MiB) | opaque, size-capped, fee-per-byte |
-| `settle` tx | `ops.transaction_ops.construct_settle_tx(keydict, exec_cursor, state_root, target_block)` | `{recipient:"settle", data:{exec_cursor, state_root}, fee:0}`; one attestation per `(validator, cursor)` |
-| verifier seam | `ops.settlement_ops.settlement_justified(cursor, state_root, bonded_registry) -> bool` | `attesting_shares * SETTLE_DEN > active_settler_shares * SETTLE_NUM` (2/3 of ACTIVE settlers — the inactivity leak, `SETTLE_ACTIVITY_CURSORS`) |
+| `blob` carrier | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 1048576` (1 MiB) | opaque, size-capped, flat burned fee (≥ `MIN_TX_FEE`) |
+| `settle` tx | `ops.transaction_ops.construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None, …)` | `{recipient:"settle", data:{exec_cursor, state_root}, fee:0}`; one attestation per `(validator, cursor)` |
+| verifier seam | `ops.settlement_ops.settlement_justified(ns, cursor, state_root, bonded_registry) -> bool` | `attesting_shares * SETTLE_DEN > active_settler_shares * SETTLE_NUM` (2/3 of ACTIVE settlers — the inactivity leak, `SETTLE_ACTIVITY_CURSORS`), **or** a verified proof (`kv_ops.settlement_proven`) |
 | settled pointer | `ops.settlement_ops.latest_settled() -> (cursor, root)` | derived (revert-safe); exposed at `GET /get_settled` |
 | bridge | `bridge` / `bridge_withdraw` recipients; `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) | deposit→credit→burn→Merkle-proof-vs-settled-root→release |
-| exec tail + settle | `execnode/execnode.py` `apply loop`, `maybe_settle()` (`NADO_EXEC_SETTLE`, every `SETTLE_EVERY`) | consumes only FINALIZED blocks |
+| exec tail + settle | `execnode/execnode.py` `apply loop`, `maybe_settle()` (no flag — a bonded node's exec node always settles; every `SETTLE_EVERY` and on entering an epoch) | consumes only FINALIZED blocks |
 | exec state root | `execnode/exec_root.py:state_root()` (depth-256 sparse alghash2) | the object settlement commits to |
 | STARK prover | `execnode/stark/fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py` | **built for privacy today**; reused for Phase-2b settlement |
 | **exec settlement status** | `execnode` `GET /exec/settlement` (**this change**) | `{cursor, state_root, settle_enabled, settle_every, last_settled_cursor, l1}` |
@@ -132,7 +133,7 @@ The interface (`static/interface.html` + `interface.js`) already fetches `relayB
 - **Settled root** (L1) vs **exec tip** (execnode), and the **gap** = `exec.cursor − settled.cursor` (how many
   blocks behind settlement runs) with an OK/lagging indicator.
 - **Your role:** if `account.bonded > 0` and `settle_enabled`, badge *"You are settling (every N blocks)"*; if
-  bonded but not enabled, show how to turn it on (`NADO_EXEC_SETTLE=1`); if not bonded, *"Bond stake to help
+  bonded but not enabled, say this exec node is not settling (there is no flag to set since `74957663`: a bonded validator's exec node always settles); if not bonded, *"Bond stake to help
   settle"* linking the Stake tab.
 - **Contracts**/state summary (count, root prefix) for context.
 - **Match check:** does *your* exec `state_root` at the settled cursor equal the L1 settled root? Green = your
@@ -144,8 +145,8 @@ The interface (`static/interface.html` + `interface.js`) already fetches `relayB
 - `interface.js`: `TAB_NAMES.add("settlement")`; a `renderSettlement()` that does the three fetches inside
   `try/catch` and degrades gracefully (execnode down ⇒ show L1-only view, never throw); call it from `showTab`.
 - Node route: add `"settlement"` to `_TAB_PATHS` in `nado.py` so `/settlement` deep-links like other tabs.
-- Strictly read-only in v1 — no new signing path from the browser. Enabling settling stays an operator env
-  flag; the wallet only *reflects* it.
+- Strictly read-only in v1 — no new signing path from the browser. Settling is not a flag (an exec node
+  run by a bonded validator always settles); the wallet only *reflects* `settle_enabled`.
 
 ---
 
@@ -155,16 +156,16 @@ The interface (`static/interface.html` + `interface.js`) already fetches `relayB
 - [x] `GET /exec/settlement` status endpoint (done).
 - [x] `ns` awareness: per-namespace state registry (`NADO_EXEC_NAMESPACES`), blobs routed by `ns`, per-`ns`
   state + root, one `settle` per namespace, `/exec/*?ns=` (`tests/test_exec_namespaces.py`).
-- [ ] Phase-2b: `prove_settlement(prev_root, blobs, new_root)` over the FRI backend; post proof + root.
+- [x] Phase-2b: `settlement_proofs.prove_settlement` / `settlement_sparse` over the zkVM AIR; the settle tx carries the proof (`construct_settle_tx(..., proof=...)`).
 
 **L1 (`ops/`, `protocol.py`, `nado.py`)**
-- [ ] `settle`/`blob` reflect + validate arms read optional `ns` (default `"default"`); settle index keyed by
+- [x] `settle`/`bridge_withdraw` reflect + validate arms (blobs stay opaque; their `ns` is exec-decoded) read optional `ns` (default `"default"`); settle index keyed by
   `(ns, validator, cursor)`; `latest_settled(ns)`; `/get_settled?ns=`.
-- [ ] `settlement_justified()` gains the 2b proof branch (verify FRI) with the 2a quorum as fallback.
-- [ ] `_TAB_PATHS += ("settlement",)` for interface deep-linking.
+- [x] `settlement_justified()` gains the 2b proof branch (the `settlement_proven` marker, written when the proof verifies at block validation) with the 2a quorum as fallback.
+- [x] `_TAB_PATHS += ("settlement",)` for interface deep-linking.
 
 **interface**
-- [ ] Settlement tab (§4).
+- [x] Settlement tab (§4) — `renderSettlement` in `static/interface.js`.
 
 ---
 

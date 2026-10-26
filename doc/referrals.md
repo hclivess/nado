@@ -74,8 +74,9 @@ carrying it, so an `htlc_claim` can never read an invite as a swap.
   is not read. `"invite"` (the escrow) can never be paid directly — the names became reserved with the gate, and a
   reserved name with no branch would otherwise fall through to an ordinary transfer and be accepted where an older
   node refuses it.
-* **Reroll:** the carry returns every open invite (and every open HTLC lock) to whoever funded it, debited from its
-  escrow (`tools/alphanet6_carryforward.open_escrow_refunds`). Referral links are not carried; a 30-day window does
+* **Reroll:** every open invite is carried under its id, with the blocks it had left and its coins still in
+  `INVITE_ESCROW` (`tools/alphanet6_carryforward.carried_invites`, `genesis.py`; doc/reroll.md). Open HTLC locks are
+  refunded to whoever funded them, debited from their escrow (`open_escrow_refunds`). Referral links are not carried; a 30-day window does
   not outlive a reroll in any meaningful way.
 * `GET /invite?id=`, `GET /invites?address=`, `GET /referrals?address=`.
 * The TPM helper registering its OWN address (`apps/nado-tpm-attest`, not the hand-back to a wallet) sends `data: ""`

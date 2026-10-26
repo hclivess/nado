@@ -4,7 +4,8 @@ Compatibility gates, activation branches and migration shims that are **correct 
 Each entry names the height at which it may go, and — more importantly — **why it cannot go before that**,
 because in every case the early cleanup is the tempting one.
 
-Grep `SCHEDULED-CLEANUP` in the tree to find the corresponding code.
+Live consensus gates are listed in the GATE LEDGER in `protocol.py` (pinned by `tests/test_gate_reroll_transfer.py`);
+this file holds the other deferred deletions.
 
 **Rule for this file:** an entry is removed only when the code is. If a genesis reroll happens, re-read
 every entry — epoch/height numbering restarts and an activation constant that was 2 days out can land
@@ -30,12 +31,6 @@ weeks into the new chain, silently leaving the old behaviour live until then.
   **Status 2026-09-30:** that reroll happened (betanet-9, gen 28). Measured read-only on the relay: `/exec/settlement`
   cursor 19690, last_settled_cursor 19681 — settlement advances on betanet-9. NOT checked: whether the first span
   (from cursor 0) carried a proof or degraded to a bare attestation; that needs the exec log of the first settle.
-- ~~**Two tests fail identically on old and new code**~~ — **closed 2026-09-30.** test_settle_fold_tree is on
-  scripts/run_tests.sh's SLOW list (seeded at its worst measured 2 h 28 min to ALL PASS; the timeout is 3x the last measurement). autogame_model does not
-  reproduce: `python tests/autogame_model.py` exits 0 and tests/test_autogame_contract_matches_the_reference_model.py, which drives the model
-  against the contract and the browser engine, is ALL PASS on this tree. (test_auto_bond, test_emergency_rollback_gating,
-  test_mining_status_lanes_memo, test_own_ips_and_sync_corrob and test_pay_binding were stale on correct code and are
-  fixed, 5e5d48ad.)
 - **install.sh's root→account migration branch** says to delete it by mainnet; it is also what install-timers.sh
   undid (doc/jobs.md). Delete with the next installer pass once no root install remains.
   **Left 2026-09-30:** whether any fleet node still runs a root install cannot be measured from here (fleet operators
@@ -61,35 +56,6 @@ Owed before the refusal may go, IN THIS ORDER:
    2026-10-10): a gate keyed on an older generation evaluates to its `else` branch — 1 — and ships the relaxation
    ungated from block 1.
 Pinned by tests/test_proof_trace_ldt.py (`fold refuses under the rule`) and tests/test_fold_hardening.py.
-
-## 2026-09-02 — gen-24 POSW_ENTRY_COUNT_HEIGHT (1636): DELETED 2026-09-30 (branch q-dead)
-
-The constant, `reg_difficulty.entries_only_at`, the `entries_only` parameters and `required_posw_t`'s
-`landing_height` went together. The expression was `0` on every chain since gen 25, so `entries_only_at` answered
-True for every height a block can have: behaviour-neutral. `tests/test_gen25_retirements.py` now asserts the name
-is gone. Nothing scheduled.
-
-## 2026-09-01 — gen-23 SYBIL RULES gate: RETIRED at the betanet-6 (gen 24) reroll (2026-09-01)
-
-Probation, the 14-day-capped difficulty baseline and account authentication are unconditional from block 0 of
-betanet-6; `tests/test_sybil_rules.py` t1 asserts no gate name survives. Nothing scheduled.
-
-## STATE-ROOT ROW GROWTH — RESOLVED 2026-08-20 (root retention window, live on betanet-4)
-
-Resolved without a reroll and without a height gate: `ops/snapshot_ops._root_triples` commits only the
-last `ROOT_RETENTION_EPOCHS` (60) epochs of the epoch-growing families (RANDAO commits/reveals, FFG
-attestations, att:/divnull:/settle: guards, settlement attestations, recert_by_epoch). The reference
-epoch is the max committed `epochw:<E>` row — a pure function of state, rollback-symmetric by
-construction, nothing deleted (readers keep full history). The rule engages by arithmetic at reference
-epoch 60 (betanet-4 block ~3600); until then old and new code compute identical roots. Per-block root
-work is now O(window), permanently. Test: tests/test_root_retention_window.py. Nothing left to delete
-here — the entry stays only as the record of why the families are windowed.
-
-## 2026-08-25 — gen-22 dividend-rules gate: RETIRED at the betanet-5 (gen 23) reroll
-
-The generation-keyed gate (`DIVIDEND_RULES_HEIGHT = 72_000 if CHAIN_GENERATION == 22 else 0`) that carried the
-convex dividend curve, the halving lapse and the 40 % bonded levy for the last hours of gen 22 was deleted in
-the reroll commit; `tests/test_dividend_rules.py` asserts no such gate exists. Nothing scheduled.
 
 ## Account authentication — activation expression (nothing to delete)
 

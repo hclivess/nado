@@ -12,7 +12,9 @@
 
 Today the runtime is native Python and upgrades happen through `ops/self_update.py`: each node fetches
 `origin/main` of **one pinned repo (`github.com/hclivess/nado`)**, fast-forwards, and restarts. On betanet,
-consensus changes go live immediately with no activation ceremony. That is fine for a fast-moving alpha. It
+consensus changes ship as height gates (`X if CHAIN_GENERATION == <gen> else 1`, listed in the GATE LEDGER in
+`protocol.py`) placed far enough out for the `/update` wave — an operator-chosen activation height, not an on-chain
+enactment. That is fine for a fast-moving alpha. It
 is **not** acceptable for a mature mainnet, on two independent axes:
 
 1. **It is centralized.** Whoever controls that repo controls what code every node runs. "Fast-forward only,

@@ -10,9 +10,10 @@ belong to two or three operators running browser farms on Linux/Windows servers.
 > The rules they switched ON are unconditional from block 1 (cleanup slice 2, 9c6bf717). The savings-lane cap, the
 > bond curve, staking pools and the open-lane exclusion never ran on betanet-8 and their code is deleted (slice 1,
 > e7a17f00): the savings lane is plain stake, and `pool` / `delegate` / `undelegate` are refused. Sections about
-> those mechanisms are kept as the record of what was built and why it was retired. The one live gen-27 gate here is
-> `EK_ENROL_ROOTS_AT_HEIGHT` (1400): from it a TPM enrolment is judged by the same endorsement roots the kernel verified
-> against, so Intel chips whose EK certificate walks to the V2 root can enrol.
+> those mechanisms are kept as the record of what was built and why it was retired. **Status on betanet-9 (gen 28):** no
+> gate named in this document remains. `EK_ENROL_ROOTS_AT_HEIGHT` (gen 27, 1400) was deleted after the betanet-9
+> reroll: from block 1 a TPM enrolment is judged by the same endorsement roots the kernel verified against, so Intel
+> chips whose EK certificate walks to the V2 root can enrol.
 
 The one thing a server cannot fake is genuine hardware's secure element. Four device classes expose it
 to a web page through WebAuthn *attestation* — the device creates a non-exportable key in hardware and
@@ -225,7 +226,7 @@ redundant, and each is a barrier or a cap on honest newcomers:
   identities now cost devices, not IPs, and IP keys penalise CGNAT households;
 - probation (no dividend before the first timely renewal): it existed against mint-and-discard identities,
   which now each cost a device tap. The dividend curve is therefore ONE clean line over every fidelity level,
-  `min(fidelity, 30)`: the first lease pays weight 1, no level is skipped, and the open-lane draw weight is the
+  `min(fidelity, 15)` (`DIVIDEND_WEIGHT_CAP_V2`): the first lease pays weight 1, no level is skipped, and the open-lane draw weight is the
   plain 2..10 floor+bonus curve from the first lease (`protocol.dividend_weight`, `mining_ops.open_shares`;
   pinned by tests/test_sybil_rules.py and tests/test_dividend_rules.py);
 - the generation-24 gate constants (`POSW_ENTRY_COUNT_HEIGHT`, `DIV_CARRY_METER_EPOCH`) — gate hygiene.
@@ -453,7 +454,7 @@ Leased classes (phone, TPM) get the same instant move: their old identity is evi
 
 ### What this does NOT change
 
-Presence semantics (the 36 h lease, `FIDELITY_MIN_GAP_EPOCHS`, `dividend_weight = min(fidelity, 30)`), the
+Presence semantics (the 36 h lease, `FIDELITY_MIN_GAP_EPOCHS`, `dividend_weight = min(fidelity, 15)`), the
 open-lane draw, the one-register-per-epoch rule, the strict CBOR parse and the in-block uniqueness key. A
 permanent identity that stops renewing lapses like any other; the binding stays, so when it returns it renews
 without a statement.
@@ -587,7 +588,7 @@ the free lane and the dividend, which this decision does not touch.
   device needed", the Overview's Savings cartouche and the pool panel likewise; the pool panel shows the solo yield
   next to each pool's "≈ per 100 NADO" so delegating is a visible comparison, not a requirement.
 - **Pools** stay as a feature; above the knee a pool pays each coin at most what solo pays.
-- **Tests**: `tests/test_bond_device_cap.py` pins the slot before the gate (attested-only) and the slot at it.
+- **Tests**: `tests/test_bond_device_cap.py` (deleted with the code, e7a17f00) pinned the slot before the gate (attested-only) and the slot at it.
 
 ## The knee removed (`BOND_CURVE_RETIRE_HEIGHT` = 19400, 2026-09-09)
 
@@ -599,7 +600,7 @@ script. From the gate `bonded_producer_registry` returns the raw registry: weigh
 than a window because nobody was above the knee, so nodes updating minutes apart draw identically; the constant exists
 only so blocks 11800-16900, drawn with the curve while pools sat above the knee, still replay. Keyed on the
 generation: plain stake from genesis at the next reroll. `/mining_status`: `bond_plain` True, `bond_knee` 0,
-`bond_cap_active` False. Tests: `tests/test_bond_device_cap.py` §5.
+`bond_cap_active` False. Tests: `tests/test_bond_device_cap.py` §5 (deleted with the code, e7a17f00).
 
 ## Apple devices
 
@@ -616,7 +617,7 @@ Apple users mine via a hardware wallet on a Mac, or attest from another device.
 > device-free, a pool paid a delegator at most solo yield minus a fee (nadochain.com's delegators at 51 % of solo, ninja
 > pool's at 79 %). From the gate `bonded_producer_registry` ignores `pool_to`/`pooled` (everyone solo, no action needed),
 > `_pool_split` returns the whole producer cut, and the three pool transactions are refused. Account fields stay as dead
-> state. Gate keyed on the generation: never live at the next reroll. Tests: `tests/test_pool_retire.py`. The section
+> state. Gate keyed on the generation: never live at the next reroll. Tests: `tests/test_pool_retire.py` (deleted with the code, e7a17f00). The section
 > below is kept as the record of the feature.
 
 
@@ -658,7 +659,7 @@ producing weight still sits on one real attested device with the 1,000 NADO cap;
 > only taxed the users who did not think of it. From the gate the open draw is the whole attested set again: one
 > device, one slot, capital-free 2..10 by fidelity, `devbind` still one identity per device, `OPEN_BPS` untouched.
 > `OPEN_LANE_EXCLUDE_BONDED_EPOCH` keeps its separate meaning (the fidelity gradient). Tests: the retirement pins in
-> `tests/test_open_lane_exclusion.py`. The section below is the record of the original rule.
+> `tests/test_open_lane_exclusion.py` (deleted with the code, e7a17f00). The section below is the record of the original rule.
 
 
 Operator decisions: (1) "exclude >10 NADO miners from the free lane" — an attested identity with `bonded >= B_MIN` is
@@ -676,7 +677,7 @@ Every gate in this document was written `<live height> if CHAIN_GENERATION == 25
 LEDGER"), so the betanet-8 reroll carried them without an edit: the device rules landed at block 1, and the retired
 ones (`BOND_DEVICE_CAP_HEIGHT`, `BOND_WEIGHT_CURVE_HEIGHT`, `POOL_HEIGHT`, `OPEN_LANE_EXCLUDE_BONDED_HEIGHT`) at 0 —
 never on. The follow-up cleanup is DONE: the never-on code is deleted (e7a17f00) and every block-1 gate is inlined
-(9c6bf717). New gates on this chain are keyed `== 27` (the first: `EK_ENROL_ROOTS_AT_HEIGHT`). Procedure and the full ledger: [doc/reroll.md](reroll.md);
+(9c6bf717). New gates on this chain are keyed `== 28`; the gen-27 gates, `EK_ENROL_ROOTS_AT_HEIGHT` included, were deleted after the betanet-9 reroll. Procedure and the full ledger: [doc/reroll.md](reroll.md);
 pinned by `tests/test_gate_reroll_transfer.py`.
 
 ## Phases

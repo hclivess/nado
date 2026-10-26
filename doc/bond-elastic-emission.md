@@ -33,7 +33,7 @@ minted   = BASE_SUBSIDY * m(r)                            # FLAT base scaled by 
 Emission is a **flat** `BASE_SUBSIDY` (0.1 NADO) scaled by `m(r)`, applied **uniformly to both lanes**
 (open + bonded). There is **no fee-weighted term and no ceiling** — `REWARD_CAP` is removed. Fees are
 destroyed, so raising the mint with fees would print more exactly when more is burned, softening the
-deflation. Since `m(r) <= 1`, **`BASE_SUBSIDY` is the MAX emission/block** and `m_min·BASE_SUBSIDY` (~0.024)
+deflation. Since `m(r) <= 1`, **`BASE_SUBSIDY` is the MAX emission/block** and `m_min·BASE_SUBSIDY` (~0.0166)
 the min (perpetual tail). Implemented as an integer bps multiply: `reward = BASE_SUBSIDY * m_bps // 10000`.
 
 **TUNED (final): `M_MIN = 0.15`, `k = 4.0`, `BASE_SUBSIDY = 0.1 NADO`.** Chosen against explicit criteria —
@@ -193,7 +193,7 @@ def bond_elastic_mult_bps() -> int:
         return BOND_ELASTIC_MULT_BPS[0]                 # r=0 -> full emission (bootstrap)
     return BOND_ELASTIC_MULT_BPS[min(100, (bonded * 100) // supply)]
 
-def get_block_reward(parent_block=None):
+def get_block_reward():
     return BASE_SUBSIDY * bond_elastic_mult_bps() // 10000   # flat base, scaled; no fee term, no cap
 
 # verify_block range guard tightened: a block reward > BASE_SUBSIDY is invalid (m<=1).
@@ -212,7 +212,7 @@ def get_block_reward(parent_block=None):
 - **Denominator:** `total_supply` = `TREASURY_GENESIS + produced − fees` (treasury included; it is a tiny,
   self-burning fraction and excluding it would only make the ratio jitter with treasury flows).
 - **NO hard cap, NO halving-to-zero** — rejected (security cliff). Perpetual tail ~0.0166 NADO/block.
-- Bonded measure = `total_bonded_shares · B_MIN` (`B_MIN = 1,000 NADO`; same measure as `cumulative_weight`);
+- Bonded measure = `total_bonded_shares · B_MIN` (`B_MIN = 10 NADO`; same measure as `cumulative_weight`);
   equilibrium self-limits ~40% via the `OPEN_BPS`=30% siphon. Raising the equilibrium (lower `OPEN_BPS`)
   trades against fair-launch reach and is a *separate* lane decision, out of scope here.
 - **Bootstrap liveness:** when the bonded lane is TOTALLY empty (a fresh no-premine chain has zero bonds at

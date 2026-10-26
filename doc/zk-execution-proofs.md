@@ -23,7 +23,7 @@ calls, emits one per-call proof each, and binds the pre/post **zkVM state roots*
 to the `["kv", cid, "slots", …]` leaves `execnode/state.py` already commits in `state_root`, so `post_root`
 *is* the settled root's zkVM projection. `verify_epoch` checks the whole batch with **no re-execution**
 (verify each proof → replay each authenticated log → recompute the root), and
-`settlement_proofs.settlement_verifier(...)` plugs straight into `ops.settlement_ops.set_settlement_verifier`
+a verified settle-with-proof records the `kv_ops.settlement_proven` marker that `ops.settlement_ops.settlement_justified` honours
 — the Phase-2b seam — so L1 can justify a root by proof instead of by bonded quorum.
 
 **Reboot + game migration (2026-07-14, post-v1.0.0-alpha.9; the chain has since rerolled to betanet-6).** Deleting stackvm made the zkVM the
@@ -91,7 +91,9 @@ authenticated public I/O log, the epoch transition needs **no second in-circuit 
    cryptography — each segment is an ordinary sound aggregated epoch proof, and verification checks each
    segment AND the chain (a tampered boundary root is rejected). So execution over an unbounded epoch is
    fully covered.
-2. **O(1) verification — RECURSION, the remaining milestone.** After segmentation L1 still verifies K
+2. **O(1) verification — RECURSION. Done since this was written:** the wide-sponge `alghash2`, the in-circuit
+   FRI/STARK verifier and the K→1 fold exist and are on the consensus path (`SETTLE_PROOF_RECURSIVE = True`,
+   doc/zk-recursion.md). The original gap analysis follows. After segmentation L1 still verifies K
    segment proofs (each sub-second); folding them into ONE constant-size proof needs **in-VM STARK
    verification** — running a FRI/Merkle/transcript verifier as a zkVM program and proving it. That is
    genuinely gated on new cryptography, not a quick patch: the current alghash sponge is width-2 (~64-bit

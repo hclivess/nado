@@ -91,7 +91,7 @@ total soundness break. Any FRI verifier MUST enforce it.
 
 ### Query / num_queries
 Each FRI query is one random spot-check of the fold tower. More queries = exponentially lower forgery
-probability; the protocol uses 64 (`fri.NUM_QUERIES`). A proof verified at too few queries (e.g. 4 ≈ 20 bits) is
+probability; the protocol uses 320 (`fri.NUM_QUERIES`, with `FRI_BLOWUP = 2` and `GRIND_BITS = 18`). A proof verified at too few queries (e.g. 4 ≈ 20 bits) is
 forgeable.
 
 ### Transcript / Fiat-Shamir
@@ -162,6 +162,6 @@ cure for the whole class of "the proof trusted a prover-supplied public input" s
 
 ### Settlement (Phase-2b) / the seam
 The mechanism by which L1 accepts a settled zkVM state root because a PROOF justifies it, instead of a bonded-stake
-committee attesting it. The proof path (on-chain `kv_ops.settlement_proven` marker, checked in `settlement_ops.settlement_justified`) is built but disabled today — quorum is the only live settlement authority.
+committee attesting it. The proof path (on-chain `kv_ops.settlement_proven` marker, checked in `settlement_ops.settlement_justified`) is live consensus: `settlement_justified` honours it because `SETTLE_PROOF_TRUSTLESS` is True; the bonded quorum is the other branch.
 The fold plugs in here to make that single L1 check O(1) in the epoch size — once the recursion verifier is sound
 AND bound to the state root (composition spot-check for the execution AIR).

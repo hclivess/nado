@@ -32,7 +32,7 @@ structures must never contain floats** — amounts, fees, timestamps, block numb
 
 ## Chain-id binding (audit M3)
 
-A `chain_id` (`CHAIN_ID = "betanet-8"`, and it changes at every reroll) is included in:
+A `chain_id` (`CHAIN_ID` in `protocol.py`, the network name — it changes at every reroll) is included in:
 - every **transaction** body (added in `draft_transaction`, asserted in
   `validate_transaction`), so it is committed by the txid and bound by the signature; and
 - every **block** body (added in `construct_block`, checked in `verify_block`).
@@ -56,11 +56,12 @@ replayed here.
 
 ## Address derivation
 
-`make_address(public_key)` = `"ndo" + public_key[:42] + make_checksum("ndo" + public_key[:42])`,
-where `make_checksum = blake2b_hash(body, size=2)` (canonical). `validate_address` recomputes
-the checksum; the keyless reserved recipients `bond`/`unbond` are also accepted. Because the
-checksum now uses canonical hashing, the genesis/treasury address is the legacy public-key body
-re-checksummed (`…b803280`, see [economics.md](economics.md)).
+`make_address(public_key)` = `body + make_checksum(body)` with **address format 2** (gen 28):
+`body` = `blake2b_hash(["nado-address-v2", public_key.lower()], size=21)` (42 hex; a blake2b *output
+length* of 21 bytes, not a slice of a longer digest) — a hash of the *whole* key, no prefix — and `make_checksum = blake2b_hash(body, size=4)` (canonical), 50 chars in all
+(`ops/address_ops.py`; multisig addresses keep their `msig` prefix). `validate_address` recomputes
+the checksum; the keyless reserved recipients `bond`/`unbond` are also accepted. The treasury
+is the keyless reserved account `treasury`, not a keyed address (see [economics.md](economics.md)).
 
 ## State-root determinism — what the root may commit (CHAIN_GENERATION 7)
 
@@ -139,9 +140,8 @@ absent must `meta_del` at `0`, or rollback will leave a phantom that forks the r
 
 ## In-block transaction ordering — RESOLVED (CO-8)
 
-`construct_block` currently hashes `block_transactions` in the order they came from the local
-pool, while the network only converges the transaction *set*. Equal-fee transactions can
-therefore let two honest nodes compute different block hashes for the same set. The fix
-(**now implemented**) is to canonicalize the order — `construct_block`/`rebuild_block` sort `block_transactions`
-by `txid` in `construct_block` and validate that ordering in `verify_block`. Track this for the
-S4.3 work.
+`construct_block` used to hash `block_transactions` in the order they came from the local
+pool, while the network only converges the transaction *set*, so equal-fee transactions could
+let two honest nodes compute different block hashes for the same set. The fix
+(**implemented**) is to canonicalize the order — `construct_block`/`rebuild_block` sort `block_transactions`
+by `txid` in `construct_block` and validate that ordering in `verify_block`.

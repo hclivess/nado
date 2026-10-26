@@ -1,8 +1,8 @@
 # betanet-5 deployment — the multi-part cutover (zkVM-only, provable contracts, games)
 
 > **HISTORICAL / SUPERSEDED.** This is the runbook for the 2026-07-14 betanet-5 cutover; the chain has
-> since rerolled (currently **betanet-6**). Kept as a record of that event — the general reroll procedure
-> now lives in [updates-and-rerolls.md](updates-and-rerolls.md) and `scripts/purge_resync.sh`.
+> since rerolled several times (read the current network from `CHAIN_ID` in `protocol.py`). Kept as a record of
+> that event — the reroll runbook is now [reroll.md](reroll.md).
 
 This is the operational runbook for the 2026-07-14 cutover that shipped the ZK-execution-proof stack
 (issue #85). It is a **multi-part deployment**: (A) a code release, (B) a destructive L1 chain reboot with

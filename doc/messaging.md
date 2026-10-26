@@ -214,9 +214,9 @@ same cheap-identity defenses the chain already uses:
 
 1. **Registered-sender gate (REQUIRED).** A node accepts an envelope only from an on-chain **registered**
    address (it checks `from` via `get_account`, exactly like the forum's posting gate) — so `from` cannot be
-   sealed/blank in v1 (that rules out sealed-sender until Phase-2). This ties every sender to the one-time
-   registration **sequential PoSW** + the registration-rate difficulty + IP caps: free to *use*, expensive
-   to *Sybil*. This is the primary spam wall; the PoW and rate limits below are secondary.
+   sealed/blank in v1 (that rules out sealed-sender until Phase-2). This ties every sender to an open-lane
+   registration, which needs a **hardware device attestation** (doc/device-attestation.md): free to *use*,
+   expensive to *Sybil*. This is the primary spam wall; the PoW and rate limits below are secondary.
 2. **Per-message proof-of-work (`pow`):** a small hashcash bound to `(from, to, ct, ts)` — negligible for a
    human sending a few messages, painful for a spammer sending millions. Tunable difficulty; raise it
    adaptively if the pool floods.
@@ -279,7 +279,7 @@ Dropping the cleartext `to` means a node can't route by recipient — so each en
 
 The **encryption** side scales trivially (ML-KEM is per-message and fast). The cost of hiding the recipient
 is on **retrieval**: with no cleartext recipient, a client must **scan tags** to find its own, and that scan
-grows with **total network traffic, not the client's own**. Pool ≈ (msgs/day network-wide) × 7-day TTL; at
+grows with **total network traffic, not the client's own**. Pool ≈ (msgs/day network-wide) × the pool's lifetime (bytes-bounded, 90-day backstop); at
 ~24 B/tag a 1M-msg/day network is ~24 MB/day of tag-pulls per client, a 10M/day network ~240 MB/day — too
 heavy for a phone at high volume. **Full recipient-unlinkability (one global scan) does not scale.**
 
@@ -309,8 +309,8 @@ over the registered set) without revealing which — plus a mixnet for timing. D
    `ml_kem768`; the current `nado-crypto.js` bundles only ML-DSA + blake2b). Derive the KEM key from the
    seed; implement encapsulate/decapsulate + the AEAD seal/open.
 2. **Node message pool** (`ops/message_pool.py` + memserver): store/gossip/TTL/anti-spam, mirroring
-   `transaction_pool` but never block-bound. Endpoints: `POST /message`, `GET /messages?to=`,
-   `GET /msg_key?addr=` (announcement lookup), `POST /msg_key` (publish announcement), gossip wiring.
+   `transaction_pool` but never block-bound. Endpoints (as built, `nado.py`): `POST /message`, `GET /tags?since=` (detection tags),
+   `GET /message?id=`, `GET /msg_key?address=` (the recipient's KEM key), `POST /msg_key` (legacy prekey-bundle publish), gossip wiring.
    **No new node crypto** — reuse `signatures.verify` (ML-DSA-44, via `proof_sender`) for `sig` and the PoW check.
 3. **Client "Messages" tab** in the interface (like Quorum/Shield): conversation list, compose (alias-aware),
    local history, poll loop, key-announcement on first use. 16-lang like the rest.
@@ -341,7 +341,8 @@ over the registered set) without revealing which — plus a mixnet for timing. D
 - **Full post-quantum Double Ratchet in v1** (§3) — KEM-based, **pure ML-KEM, no EC / no hybrid**: forward
   secrecy **and** post-compromise security.
 - **Recipient hidden in v1** via detection tags (§9.1) — the node sees the sender, not the recipient.
-- **TTL = 7 days** — how long an undelivered message lives in the pool; also the "not delivered" timeout (§5.1).
+- **Pool lifetime** — bounded first by bytes (`MSG_POOL_MAX_BYTES`, oldest rotated out) with a 90-day TTL backstop
+  (`MSG_TTL_SECONDS`, §4); the client's "not delivered" patience window is 7 days (§5.1).
 - **"Not delivered" sender notification** (§5.1) — immediate on reject/no-key, or on the 7-day timeout.
 
 **Still open:**

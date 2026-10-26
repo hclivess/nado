@@ -59,7 +59,7 @@ tested); the remaining items are documented residuals / future hardening.
 - **Registration / fee-exempt state growth** — `register` writes an account doc; idle-account GC is now implemented
   (deterministic in-block sweeps, `ops/gc_ops.py`); the registration PoW does not bind `target_block`. Bounded today by
   the lane cap (share), per-IP rate limit, mempool cap, and the in-block one-register-per-sender dedup,
-  but idle-account GC + per-sender mempool occupancy caps are future work.
+  but per-sender mempool occupancy caps are future work.
 - **`FIDELITY_DECAY` is unused** (absent identities keep accumulated fidelity); bounded by the open-lane
   ceiling.
 - **Snapshot bootstrap** trusts an 80%-of-peers quorum with no hardcoded-checkpoint cross-check

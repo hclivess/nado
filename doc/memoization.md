@@ -57,7 +57,7 @@ There is no `functools.lru_cache` anywhere in the node; every cache is hand-roll
 | `_pool_hash_cache` | `memserver.py:331` | blake2b of the sorted mempool (majority-vote signal) | `pool_gen` | pool mutation | — |
 | `_upcoming_hash_cache` | `memserver.py:332` | next block's content hash | `(pool_gen, parent hash, write_gen)` | pool or commit | — |
 | `_ENC_MATRIX_CACHE` | `ops/da.py:59` | Reed-Solomon generator matrix | `(k, n)` | never | pure; "~141 million modexps" without it |
-| `_Ledger` (`_acct`, `_spent`, …) | `ops/transaction_ops.py:1873` | balances read once per validation pass | account | dies with the ledger | per-call object |
+| ~~`_Ledger`~~ (`_acct`, `_spent`, …) — the class no longer exists (2026-10-26 check) | `ops/transaction_ops.py:1873` | balances read once per validation pass | account | dies with the ledger | per-call object |
 | `_HASH_ATTEST_CACHE` | `nado.py:698` | signed hash attestation per height | height (+ `as_of` tip) | tip change; `clear()` > 512 | bounds the free-signing oracle |
 | `attest_memo` (LMDB db) | `ops/kv_ops.py:748-781` | epoch → target we attested | epoch | `attest_memo_prune`; **excluded from `wipe_non_carried_dbs`** | persistent anti-equivocation memo, not perf |
 
@@ -70,10 +70,10 @@ There is no `functools.lru_cache` anywhere in the node; every cache is hand-roll
 | `_tx_reject_cache` | `memserver.py:72` | txid → retry-after cooldown | per-entry TTL ~60 s; rebuilt > 20 k | local policy |
 | `recent_tx_rejects` | `memserver.py:474` | last 20 gossip refusals | ring 20 | telemetry |
 | `_attest_watch` | `memserver.py:546` | `(sender, epoch)` → attestation seen (equivocation) | pruned < epoch−2 | — |
-| `_richest_cache`, `_wealth_cache`, `_rich_list_cache` | `nado.py:1006/1050/1372` | full account scans for `/wealth_stats`, rich list | block height | **`_scan_locks` with double-check** — 32 simultaneous requests at a boundary meant 32 scans |
+| `_wealth_cache`, `_rich_list_cache` (`_richest_cache` is gone) | `nado.py:1006/1050/1372` | full account scans for `/wealth_stats`, rich list | block height | **`_scan_locks` with double-check** — 32 simultaneous requests at a boundary meant 32 scans |
 | `_geo_state` + `index/geo_peers.json` | `nado.py:1115` | peer geolocation | TTL 6 h; single-flight `computing` flag | stale served while refreshing |
-| `_js_epoch_cache` | `nado.py:1590` | newest `static/*.js` mtime | TTL 2 s | ran on every request before |
-| `_static_body_cache` | `nado.py:1591` | stamped static body + ETag | `(mtime_ns, size, js_epoch)`; `clear()` > 48 MiB | `_static_cache_lock` on write; a cold i18n.js was 220 ms on the event loop |
+| ~~`_js_epoch_cache`~~ — gone from `nado.py` (2026-10-26 check) | `nado.py:1590` | newest `static/*.js` mtime | TTL 2 s | ran on every request before |
+| ~~`_static_body_cache`~~ — gone from `nado.py` with `_static_cache_lock` (2026-10-26 check) | `nado.py:1591` | stamped static body + ETag | `(mtime_ns, size, js_epoch)`; `clear()` > 48 MiB | `_static_cache_lock` on write; a cold i18n.js was 220 ms on the event loop |
 | `genesis_hash_cached()` | `ops/block_ops.py` | block-0 hash (one memo; `/status` and the peer loop both call it) | never (a reroll restarts the process) | — |
 | `_sync_donor` | `loops/core_loop.py:344` | last selected sync donor | dropped on gate/tip failure | re-verified with one `knows_block` dial |
 | `_genesis_id_cache` | `loops/core_loop.py:1355` | peer → same-genesis verdict | TTL 600 s; expired peers reaped on insert | — |
@@ -87,7 +87,7 @@ There is no `functools.lru_cache` anywhere in the node; every cache is hand-roll
 | `_envs`, `_dbhandles` | `ops/kv_ops.py:100` | LMDB env + db handles | `close_all()` | `_envs_lock` |
 | `_own_ip_cache`, `_own_addresses_cache` | `ops/peer_ops.py:662`, `loops/message_loop.py:76` | own IPs | manual refresh / never | — |
 | `_repo_head_cache`, `_latest_remote`, `_hints`, `_RUNNING_HEAD`, `_stale_since` | `ops/self_update.py` | git state for `/status` and `/update` | TTL 60 s / daily / 3600 s / never / per head | "it cost 1.5 hours of frozen finality on 2026-07-20" to call git inline |
-| `_buckets`, `_reg_levels` | `ops/ratelimit.py:13/34` | per-IP request windows | sliding window; sweep at 100 k keys | IOLoop-only, no lock by design; non-consensus on purpose |
+| `_buckets` (`_reg_levels` is gone with the per-IP registration budget) | `ops/ratelimit.py` | per-IP request windows | sliding window; sweep at 100 k keys | IOLoop-only, no lock by design; non-consensus on purpose |
 | daily/treasury/rollback stats | `ops/daily_stats.py`, `treasury_history.py`, `rollback_stats.py` | per-day aggregates with a cursor + `CHAIN_ID/CHAIN_GENERATION` stamp | chain-stamp mismatch (or, for rollback_stats, a missing stamp) discards the whole file — these files sit on the purge allowlist and would otherwise carry a previous chain's reorg history across a reroll (seen 2026-08-25); retention caps | "a telemetry file must not be able to wedge the node" |
 
 ---
@@ -319,7 +319,7 @@ caches on deploy.
 - Unbounded key growth: `core_loop._genesis_id_cache`, `_excluded_logged`, `self_update._hints`,
   `segment_store.read_files` fd count.
 - `memserver.py:324` comment describes the old list-object key; the code keys on `pool_gen`.
-- `_GENESIS_HASH_CACHE` and `_OUR_GENESIS_CACHE` memoize the same value in two modules.
+- ~~`_GENESIS_HASH_CACHE` and `_OUR_GENESIS_CACHE` memoize the same value in two modules.~~ `_OUR_GENESIS_CACHE` is gone; only `ops/block_ops._GENESIS_HASH_CACHE` remains.
 - Old wallets (pre-`?root=`) still request one proof per nonce per tick; the exec side now answers
   each in ~1 ms against the settled root, so they claim and drain.
 

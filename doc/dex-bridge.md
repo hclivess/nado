@@ -1,6 +1,7 @@
 # Decentralized exchange & bridge — no authority, no custodian
 
-> **Status: DESIGN, building on BUILT primitives.** The trustless cross-chain leg (HTLC atomic swaps) and
+> **Status: phases 0–5 SHIPPED (§13)** — the `otc` order book, the BTC/ETH leg templates and the watchtower;
+> the Solana program is built but not deployed. **It builds on BUILT primitives.** The trustless cross-chain leg (HTLC atomic swaps) and
 > the on-chain contract VM this order book runs on are already implemented and tested — HTLCs in
 > [`htlc.md`](htlc.md) (`tests/test_htlc.py`), the stack-VM + escrow in [`exec-instructions.md`](exec-instructions.md)
 > and the example game contracts (`execnode/games/*.py`). This note specifies the layer *above* them:
@@ -91,7 +92,7 @@ The design is thin because NADO already ships the hard parts.
   │      Anyone can run one; none is trusted.                             │
   ├──────────────────────────────────────────────────────────────────────┤
   │  L2  ORDER BOOK (binding, on-chain exec-layer contract `otc`)         │
-  │      post_order · fill · cancel · expire.  Deterministic matching.    │
+  │      post · fill · cancel · expire.  Deterministic matching.          │
   │      Holds the NADO-side intent + escrow reference; the source of     │
   │      truth for "who agreed to swap what with whom".                   │
   ├──────────────────────────────────────────────────────────────────────┤
@@ -183,7 +184,7 @@ while Bitcoin script can *only* check SHA-256. So the ONE 32-byte secret `s` bin
 time: `H_sha = SHA-256(s)` locks the foreign HTLC and `H_vm = alghash.hashn(limbs(s))` locks the escrow
 here, where `limbs(s)` splits `s` little-endian into five 52-bit field limbs (5×52 ≥ 256; each limb < 2^52
 so every range gate stays inside the VM's LT window). Revealing `s` anywhere opens both. `preimage_limbs` /
-`vm_hashlock` in `execnode/games/otc.py` are the single shared definition for wallet + tests.
+`vm_hashlocks` in `execnode/games/otc.py` are the single shared definition for wallet + tests.
 
 **Timelock note (§6.3 in practice).** `expn` is enforced in-circuit (`[cursor+HTLC_MIN_TIMELOCK,
 cursor+HTLC_MAX_TIMELOCK]`, mirroring the L1 HTLC bounds) and splits claim from refund exactly: settle needs
@@ -241,11 +242,11 @@ can divert a swap. That is the whole point.
 ### 4.4 Reroll survivability & venue
 
 Every escrowed raw is **attributable on-chain**: orders are enumerable and each carries its funder and live
-`esc`, so at a genesis reroll (doc/updates-and-rerolls.md) the carry-forward refunds every open/filled order
-exactly to whoever funded it — `otc.escrow_refunds` is that attribution (the contract module owns its own
-schema), and `tools/alphanet6_carryforward.py` routes any contract whose ABI carries `post/fill/settle/
-expire` through it. Funds always survive a reroll; the *orders* do not carry (their expiry heights belong to
-the dead chain, and the foreign leg falls back to its own refund path) — makers simply re-post.
+`esc`. At a genesis reroll the carry (`tools/carry.py`, doc/stwo/g5-carry.md) carries the contract's whole state
+and refunds nothing: an order still open or filled, or still holding escrow, REFUSES the carry by name
+(`otc.carry_in_flight`) until it is settled, cancelled, released or expired on the old chain — its expiry heights
+and the foreign leg's refund path belong to that chain. (`otc.escrow_refunds` is the per-funder attribution the
+retired `tools/alphanet6_carryforward.py` refunded through.)
 
 **Venue:** the order book is a separate contract from the `dex` AMM (no shared state; separate audit and
 upgrade surfaces) but the SAME user-facing exchange — the cross-chain book ships as a tab inside the
@@ -279,25 +280,26 @@ party. (`ASK_NADO` from Alice.)
 
 ### 6.1 Happy path
 
-1. **Alice posts + escrows.** She picks a secret `s`, computes `H = SHA-256(s)`, and calls
-   `post_order(ASK_NADO, want_chain=btc, want_amt, want_addr=<Alice BTC addr>, hashlock=H, expiry_n=T₁,
-   expiry_f=T₂)` with `VALUE` = her NADO. Her NADO is now in the contract's escrow under `H`. She reveals
-   **only `H`**.
+1. **Alice posts.** She picks a secret `s`, computes `H = SHA-256(s)`, and calls
+   `post(o, ASK_NADO, namt, wch=btc, wamt, wadr=<Alice BTC addr>, hsha=H, <the four alghash images>, expn=T₁,
+   expf=T₂)` with `VALUE` 0 — the order book holds no principal (§4.2). Her NADO leg is an L1 `htlc_lock`
+   under the same `H` (claimant: the taker who fills, expiry `T₁`), recorded on the order with
+   `bind(o, htlcId)` — see WHERE THE MONEY SITS (§4.2). She reveals **only `H`**.
 2. **Bob fills + locks BTC.** Bob calls `fill(o, taker_want_addr=<Bob NADO addr>, foreign_lock_ref)` and, on
    Bitcoin, funds a P2(W)SH HTLC paying **Alice's BTC addr**, hashlock `H`, refund-to-Bob after `T₂`. `T₂` is
    *shorter* than `T₁`.
 3. **Alice verifies Bob's BTC HTLC** (her wallet reads the Bitcoin chain — SPV or a full node she trusts *for
    her own safety only*, never for consensus) and **claims the BTC** by broadcasting the preimage `s` on
    Bitcoin before `T₂`. This **publishes `s`** on the Bitcoin chain.
-4. **Bob reads `s`** from Bitcoin and **claims the NADO**: the contract's escrow is released by an
-   `htlc_claim(s)`-style settle to Bob, because `SHA-256(s) == H` and `height < T₁`.
+4. **Bob reads `s`** from Bitcoin and **claims the NADO** with `htlc_claim(s)` on L1, because `SHA-256(s) == H`
+   and `height < T₁`; anyone holding `s` then `settle`s the order (§4.3).
 
 Both legs complete. Alice got BTC, Bob got NADO. No coin was ever custodied.
 
 ### 6.2 Failure paths — always refund, never one-sided
 
-- **Bob never locks BTC** → Alice's NADO escrow sits `open`; after `T₁` anyone calls `expire(o)` → Alice
-  refunded.
+- **Bob never locks BTC** → after `T₁` Alice reclaims her NADO with `htlc_refund`, and anyone may `expire(o)`
+  the order.
 - **Alice never reveals `s`** (locked BTC exists) → Bob refunds his BTC after `T₂`; Alice's NADO refunds
   after `T₁`. Both whole.
 - **Alice reveals `s` on BTC but Bob is offline** → Bob (or his watchtower, §10) still reads `s` from the
@@ -325,7 +327,7 @@ margin for the second claim to confirm:
 ```
 
 If it were reversed, Bob could refund his BTC after `T₂` *and* still claim the NADO before `T₁` — stealing
-both. The contract **enforces** this at `post_order`/`fill`: `expiry_f`'s wall-clock deadline must be provably
+both. The contract **enforces** this at `post`/`fill`: `expiry_f`'s wall-clock deadline must be provably
 earlier than `expiry_n`'s (heights → seconds via each chain's block time, with a safety buffer). This is the
 single most important consensus check in the whole design.
 
@@ -349,7 +351,7 @@ unlocks the mirror escrow. No message needs to be *trusted* across chains — on
 
 ### 6.5 The foreign-leg templates (concrete)
 
-Both templates use the **same 32-byte SHA-256 hashlock `H`** the NADO side bound at `post_order` — that is
+Both templates use the **same 32-byte SHA-256 hashlock `H`** the NADO side bound at `post` — that is
 the entire cross-chain interface.
 
 **Bitcoin — P2WSH HTLC** (the standard swap script; one witness script, spendable two ways):
@@ -381,11 +383,11 @@ claim(key, s)   require(sha256(s) == H && block.timestamp <  deadline)  -> pay c
 refund(key)     require(block.timestamp >= deadline)                    -> pay refundee
 ```
 
-ERC-20 swaps ship as their own contract, **`scripts/HtlcErc20.sol`** — same hashlock/deadline, escrow moved with `transferFrom`/`transfer`, **live on Sepolia at `0x6d6104704e1956c36851d4c36fdad77ce75a6106`**. Two token behaviours are handled explicitly: non-standard returns (USDT-style tokens return nothing) and fee-on-transfer (the escrow is the MEASURED balance delta, never the requested figure). A reentrancy guard plus delete-before-call contains hostile token code — proven in `tests/test_htlc_erc20.mjs` with a token that re-enters during `transferFrom`. An order names its token inside the network field (`wch = "<network>|<token address>"`), so a token swap needs no contract change on the NADO side. Confirmation
+ERC-20 swaps ship as their own contract, **`scripts/HtlcErc20.sol`** — same hashlock/deadline, escrow moved with `transferFrom`/`transfer`, first deployed on Sepolia at `0x6d6104704e1956c36851d4c36fdad77ce75a6106` (superseded 2026-08-29 — the live addresses are in the table below). Two token behaviours are handled explicitly: non-standard returns (USDT-style tokens return nothing) and fee-on-transfer (the escrow is the MEASURED balance delta, never the requested figure). A reentrancy guard plus delete-before-call contains hostile token code — proven in `tests/test_htlc_erc20.mjs` with a token that re-enters during `transferFrom`. An order names its token inside the network field (`wch = "<network>|<token address>"`), so a token swap needs no contract change on the NADO side. Confirmation
 margin: post-merge finality (~2 epochs, ~13 min) before treating the lock as real; the same §6.3 inequality
 with Ethereum's clock.
 
-> **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via `ETH_HTLC[chainId]`. **DEPLOYED LIVE on Ethereum Sepolia at `0xd5f47927999c31ce4fe3de11bc560678094486e7`** — the dApp's ETH leg is wired to it, so ETH↔NADO swaps run on real Sepolia today: connect an injected wallet on the Sepolia network, or drive it with `scripts/otc_eth_leg.mjs`.
+> **Shipped (2026-08-26):** `scripts/HtlcEth.sol` (compiled to `scripts/HtlcEth.bin`) is the contract; `static/ethsign.js` signs it in-page and `scripts/otc_eth_leg.mjs` from a terminal (both proven end to end against a live EVM). In the dApp the ETH leg uses an **injected wallet** (MetaMask/EIP-1193 — the user's own funded account pays gas, the account model needs it) with the CLI shown as the fallback when no wallet is present. A single ownerless `HtlcEth` per EVM chain is reused via the dApp's network table (`NETS[...].htlc` in `static/dex.js`). First deployed on Ethereum Sepolia at `0xd5f47927999c31ce4fe3de11bc560678094486e7`, since superseded (2026-08-29): the dApp's ETH leg now points at the contracts in the table below, on Sepolia and on Ethereum mainnet — use an injected wallet, or drive it with `scripts/otc_eth_leg.mjs`.
 
 > **Live contracts (deployed 2026-08-29, `revealed(key)` added).** Every address was compared by
 > `eth_getCode` against the build before the dex was pointed at it.
@@ -444,7 +446,7 @@ to `finalized` (~13 s later) — the wrong commitment reports a funded lock as a
 
 None of these templates is NADO consensus code: they are reference legs the wallet constructs and *reads*. The only
 consensus-enforced piece remains the NADO-side escrow and the timelock-ordering check at
-`post_order`/`fill`.
+`post`/`fill`.
 
 ---
 
@@ -592,11 +594,11 @@ reconciler (doc/jobs.md). Its state shows in `/status` → `jobs`.
 | phase | deliverable | tests |
 |---|---|---|
 | **0 (done)** | HTLC tx types + client Swap tab | `tests/test_htlc.py` |
-| **1 (done 2026-08-26)** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/settle/expire + attributable escrow, dual hashlock, claim/refund window split, reroll attribution wired into the carry-forward | `tests/test_otc_order_book_contract.py` (author-in-test + differential-verify vs the real VM, 53 asserts) |
+| **1 (done 2026-08-26)** | `otc` order-book contract (`ASK_NADO`/`BID_NADO`): post/cancel/fill/settle/expire + attributable escrow, dual hashlock, claim/refund window split, reroll attribution (`escrow_refunds`, used by the retired carry-forward; the gen-29 carry refuses open orders instead, §4.4) | `tests/test_otc_order_book_contract.py` (author-in-test + differential-verify vs the real VM, 53 asserts) |
 | **2 (legs done 2026-08-26)** | Foreign legs SHIPPED: `scripts/otc_btc_leg.py` (P2WSH HTLC builder/signer + CLI: address/claim/refund/extract, BIP143, no wallet dependency) and `scripts/HtlcEth.sol` (the one-contract ETH HTLC). The BTC leg is now FULLY AUTOMATIC in the dApp (2026-08-26): per-order swap keys generated in-browser (never typed, never leave the page), pubkeys ride the order's own address fields, every row derives the P2WSH address itself (`btcleg.js`) and offers Send-exactly/Copy/Verify, one-click Claim/Reclaim signs in-page (`btcsign.js` — BIP143 + RFC-6979 via vendored @noble/secp256k1, byte-identical to the Python leg) and broadcasts via the explorer, and Settle auto-reads the revealed secret from the claim witness. The explorer reads are the user's own decision input (§6.4 B), never consensus. the ETH leg is wired too (injected-wallet in the dApp + `scripts/otc_eth_leg.mjs` headless); `scripts/otc_btc_leg.py` / `otc_eth_leg.mjs` stay as the expert paths | `tests/test_otc_swap_e2e.py` — 15/15: regtest bitcoind + anvil + the real otc contract, ONE secret opens all three, both refund paths, both wrong-secret rejections |
 | **3 (contract done 2026-08-26)** | `SWAP_INTRA` SHIPPED: `post_intra`/`fill_intra` — both legs (native↔asset or asset↔asset) in ONE atomic call, open→settled with no middle state; asset-aware cancel/expire refunds; `fill()` gained a kind gate (a 0-value HTLC fill could otherwise freeze an intra escrow until expiry). Cross-namespace tunnel path still open (routes through the L1 bridge, §7) | intra section of `tests/test_otc_order_book_contract.py` (72/72 total) |
 | **4 (daemon done 2026-08-26)** | `scripts/otc_watchtower.py` SHIPPED — expire sweep (escrow always drains home, zero-escrow opens skipped) + BTC secret-scan settle relay (finds a revealed preimage in any claim witness and re-posts settle; payment goes to the recorded party, never the tower) + secrets-file settle; contract discovered by method shape, dry-run default, --submit/--loop for the daemon. On-chain BOUNTIES for towers remain phase 5 (§8) | `tests/test_otc_watchtower.py` (8/8) + live dry-run |
-| **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. §9.1 collateral was shipped and then WITHDRAWN 2026-08-28 (unobservable performance made the forfeit free money for takers — see §9.1). The L3 gossip discovery relay is DROPPED as unnecessary — §5's whole argument is that the on-chain book IS the discovery layer, and it is live. Still future: a dedicated `bridge.nadochain.com` Swap dApp (cosmetic), ETH-leg automation (needs HtlcEth deployed on a real EVM chain — an operator decision, it costs gas) | bounty section of `tests/test_otc_order_book_contract.py` (83/83) |
+| **5 (bounties done 2026-08-26; rest future)** | `boost(o)` bounties SHIPPED (§8) — the watchtower sweeps paying work first. §9.1 collateral was shipped and then WITHDRAWN 2026-08-28 (unobservable performance made the forfeit free money for takers — see §9.1). The L3 gossip discovery relay is DROPPED as unnecessary — §5's whole argument is that the on-chain book IS the discovery layer, and it is live. Still future: a dedicated `bridge.nadochain.com` Swap dApp (cosmetic). ETH-leg automation is done: HtlcEth is live on Ethereum mainnet (§6.5) | bounty section of `tests/test_otc_order_book_contract.py` (83/83) |
 
 **File map (to build):** `execnode/games/otc.py` (+ `tests/test_otc_order_book_contract.py` as its source of
 truth), a cross-chain tab inside the existing `static/dex.{html,js}` exchange dApp (one venue: AMM + book, on the shared `nadodapp.js` SDK), `scripts/otc_watchtower.py`,

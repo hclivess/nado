@@ -32,7 +32,8 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > layer** (a field-native zkVM) is live and carries real dApps — ~20 on-chain games, shielded transfers,
 > and end-to-end-encrypted on-chain messaging. Run it on testnet / at your own risk; do not secure value
 > of consequence with it yet. The betanet **rerolls often** (fresh genesis, balances carried forward) as
-> consensus changes land strictly with no backward-compat; the current chain id is `betanet-6`.
+> consensus changes land strictly with no backward-compat; the current chain id is the `chain_id` field of any
+> node's `/status`.
 
 ---
 
@@ -107,8 +108,8 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   one identity. Identity farming needs genuine hardware and a human tap per identity per lease
   (`doc/device-attestation.md`).
 - **Two-lane "diligence" mining.** A free **OPEN lane** anyone can win with no coins (capped at ~30%
-  of blocks, a *population-independent* Sybil ceiling) plus a **BONDED lane** won with refundable,
-  whale-capped stake. Bonding is **optional** and only boosts the bonded lane — never required.
+  of blocks, a *population-independent* Sybil ceiling) plus a **BONDED lane** won with refundable
+  stake, weighted one-for-one (no per-key cap). Bonding is **optional** and only boosts the bonded lane — never required.
 - **Post-quantum signatures.** ML-DSA-44 (NIST FIPS 204 / Dilithium) via pure-Python `dilithium-py`
   — no native build, in keeping with the lightweight goal. Cross-validated against the browser's
   `@noble/post-quantum` so a phone and a full node verify each other.
@@ -150,7 +151,7 @@ Each epoch's 60 slots are split by a **beacon-keyed permutation of slot indices*
 
 - **OPEN lane** — `K_OPEN = 18` slots (~30%, `OPEN_BPS = 3000`), winnable by any registered, present
   identity for **zero coins**.
-- **BONDED lane** — the remaining 48 slots, won in proportion to locked, refundable stake.
+- **BONDED lane** — the remaining 42 slots, won in proportion to locked, refundable stake.
 
 The split is over *slot indices*, not per-identity weight, so there are always exactly `K_OPEN` open
 slots **no matter how many identities register**. A zero-capital botnet of a million identities still
@@ -236,7 +237,7 @@ live lane nadochain.com's delegators were at 51 % of solo (2,572 NADO staked, cu
 > folded into the persisted rollback floor, so a >2/3-attested checkpoint is **objectively un-reorgable**
 > (remote sync can't adopt a conflicting heavier chain) — it is no longer merely observed. **Honest scope:**
 > FFG does **not** speed up confirmations — confirmation finality is still the depth-based floor at
-> `tip − FINALITY_DEPTH` (**~12 blocks**), and FFG (**epoch-granular**, 60 blocks) normally *trails* that
+> `tip − FINALITY_DEPTH` (**45 blocks**), and FFG (**epoch-granular**, 60 blocks) normally *trails* that
 > floor. FFG is the **objective, accountable, long-range** finality layer on top of the fast **subjective**
 > depth floor, never a latency reduction, and it can never stall the chain: the quorum denominator is the
 > *active* bonded set (validators that attested within `INACTIVITY_WINDOW = 3` epochs), so a bonded validator
@@ -257,7 +258,7 @@ live lane nadochain.com's delegators were at 51 % of solo (2,572 NADO staked, cu
 
 > **Unbond is now timelocked (enforced).** `unbond` is a **release request**, not an instant refund:
 > the stake **stays in the `bonded` column — still slashable** — and a maturity block
-> `release_block = current + BOND_UNLOCK_DELAY (1440)` is recorded. A separate fee-exempt **`withdraw`**
+> `release_block = current + BOND_UNLOCK_DELAY (14400, ~1 day)` is recorded. A separate fee-exempt **`withdraw`**
 > transaction moves the matured amount to spendable balance only **at/after** `release_block`. Keeping
 > the stake bonded through the delay is what keeps a *caught equivocator's* stake slashable while the
 > unbond is in flight. One unbond may be pending at a time.
@@ -366,8 +367,8 @@ by running this again.
 > locations are found automatically: an install at `~/nado` is migrated to `/srv/nado-home/nado` and a
 > symlink keeps the old path working.)
 
-Flags: `--user <name>` runs everything as a dedicated non-root account (recommended, see above); `--exec`
-also runs the execution / shielded-pool node on `:9273` (**recommended for a mining node — without it the
+Flags: `--user <name>` runs everything as a dedicated non-root account (recommended, see above); the
+execution / shielded-pool node on `:9273` is installed **by default** (`--no-exec` leaves it out — **without it the
 presence dividend is never auto-collected**, see below); `--wallet` adds the desktop-wallet deps;
 `--auto-bond <pct>` auto-compounds mined rewards (see below); `--home <dir>` keeps chain data under
 `<dir>/nado` instead of `~/nado`. Run `scripts/install.sh --help` for all options.
@@ -404,19 +405,19 @@ Common variants (re-run the one-liner with these appended, or `sudo scripts/inst
 --service --user nado               # run as a dedicated non-root account (recommended; migrates in place)
 --service --auto-bond 25            # auto-bond 25% of mined rewards
 --service --home /srv/nado-data     # chain data in /srv/nado-data/nado
---service --exec                    # execution / shielded-pool node on :9273 (also enables dividend auto-collect)
+--service --no-exec                 # L1 only: no execution / shielded-pool node (the dividend is then never auto-collected)
 ```
 
 ### Auto-bond — compound mined rewards into stake, hands-free
 
 A miner routes a **percentage of newly-mined rewards straight into bonded stake**, auto-compounding
 their weight in the bonded lane without any manual `bond` transactions. It is **on by default at
-`AUTO_BOND_DEFAULT_PERCENT = 80%`** (a fresh node / browser / wallet with no saved preference joins the
+`AUTO_BOND_DEFAULT_PERCENT = 99%`** (a fresh node / browser / wallet with no saved preference joins the
 bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
 `0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
 only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
-**never stops** (every bonded coin still adds weight — one-for-one below the device's knee, flattening above
-it — so it never needlessly freezes coins). It is available in **all three clients**:
+**never stops** (every bonded coin adds weight one-for-one — there is no cap or curve — so it never
+needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.json`, or the
   `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
@@ -472,8 +473,8 @@ NADO nodes update themselves. Two mechanisms:
   | measurement | state | action |
   |---|---|---|
   | ancestor == our tip | `BEHIND` | ordinary forward sync — **never** a rollback |
-  | ancestor ≥ finalized | `REORG` | roll back to the ancestor, then sync |
-  | ancestor < finalized | `DEAD_FORK` | finality forbids the rollback → **purge chain data + resync** |
+  | ancestor ≥ `hard_finality` | `REORG` | roll back to the ancestor, then sync |
+  | ancestor < `hard_finality` | `DEAD_FORK` | finality forbids the rollback → **purge chain data + resync** |
   | no majority / peers silent | `UNKNOWN` | do nothing |
 
   Hash equality at a height is a fact, not a heuristic, and the binary search costs ~log₂(depth) probes.
@@ -693,8 +694,7 @@ encoding against the live repo on boot.
 ## Clients
 
 - **Command line (`scripts/nado_cli.py`)** — every interface operation from the terminal, signed by your local
-  `keys.dat`: `info`, `send`, `register` (a node cannot attest itself — bind it from the wallet's Mining page
-  instead; the CLI path only renews a hardware-bound lease), `bond`/`unbond`, `alias`,
+  `keys.dat`: `info`, `send`, `bond`/`unbond`/`withdraw`, `alias`, multisig (`msig-*`), `update`,
   `propose`/`vote`/`execute` (treasury governance), `collect` (presence dividend), `bridge-deposit`. It builds
   the *same* signed transaction the browser does and POSTs it to the node's existing `/submit_transaction` —
   no new signing endpoint, no new trust surface. Full reference: **[doc/cli.md](doc/cli.md)**.
@@ -800,10 +800,10 @@ code.
   Peer admission is additionally gated on an exact **`chain_id` match** in `/status` (a missing field
   counts as a mismatch), so nodes from a different chain/relaunch never enter the consensus pools at
   all — a foreign chain's frozen weight can't trip the caught-up gate.
-- **Enforced finality floor** — a block at height H finalizes everything at/below `H - FINALITY_DEPTH`
-  (`FINALITY_DEPTH = 12`); rollback **refuses** to cross the persisted, monotonic finalized height
-  (raises `FinalityViolation`). The ordering `max_rollbacks (10) < FINALITY_DEPTH (12) < EPOCH_LENGTH
-  (60)` means honest reorgs never hit the floor while a long-range reorg is capped below one epoch.
+- **Enforced finality — two floors** ([`doc/finality.md`](doc/finality.md)) — the depth floor
+  `finalized_height = tip − FINALITY_DEPTH` (`FINALITY_DEPTH = 45`) feeds the latency-sensitive consumers and
+  may be crossed by a legal rollback; `hard_finality` = max(FFG checkpoint, `tip − FINALITY_HARD_BACKSTOP`
+  (600)) is what rollback **refuses** to cross (raises `FinalityViolation`).
 - **Corroborated finality + escalated re-anchor (partition-wedge recovery)** — the depth floor now advances
   **only while the peer-majority tip lies on our canonical chain** (`_depth_floor_corroborated`); a node that
   briefly loses the majority (e.g. under load) and keeps producing on its own branch no longer *self-finalizes*
@@ -847,7 +847,7 @@ code.
   **vote** lapses; its **bond is untouched**), so a live attesting majority always finalizes instead of
   being wedged by bonded-but-absent stake. This is what let `ffg_finalized` start advancing despite many
   bonded-but-non-attesting dust accounts. **Honest scope:** FFG is **epoch-granular** and normally
-  *trails* the depth floor, so confirmation latency remains the depth floor (~12 blocks) — FFG is the
+  *trails* the depth floor, so confirmation latency remains the depth floor (45 blocks) — FFG is the
   objective/long-range finality layer on top of the fast subjective floor, never a speedup, and (being
   layered on the always-advancing floor) it can never stall the chain. Exposed at **`/status.ffg_finalized`**.
 - **Commit-reveal RANDAO (voluntary participation)** — bonded validators `commit` a
@@ -866,19 +866,18 @@ code.
   fork-choice or stall finality. Both the node (`maybe_randao`) and the browser interface (for
   bonded wallets, while the tab is open) still contribute automatically.
 - **Pubkey-once** — the 1312-byte ML-DSA `public_key` is **excluded from the txid** and stored once in
-  account state on an address's first tx, so later txs (notably every-epoch heartbeats) omit it;
+  account state on an address's first tx, so later txs omit it;
   validators recover it from committed state. Store/clear is byte-identically revert-symmetric.
-- **Reward recompute-and-enforce**, **registration-PoW enforcement**, **canonical in-block tx
+- **Reward recompute-and-enforce**, **device-attestation enforcement** on registration, **canonical in-block tx
   ordering** (txid-sorted before hashing, so honest nodes selecting the same tx set produce an
   identical block hash).
 - **Anti-DoS / eclipse throttles** — per-IP sliding-window rate limits on `/submit_transaction`
   (30 req/60 s) **and** `/announce_peer` (10 req/60 s), **plus the heavy unauthenticated read endpoints**
   (`/mining_status`, `/get_transactions_of_account`, `/get_blocks_after`/`/get_blocks_before`, added in
   the audit), a **per-/16 peer-diversity cap** (at most `MAX_PEERS_PER_SUBNET = 4` peers per /16 — now
-  enforced on the disk-reload path too, so one network can't fill a victim's peer view), a **progressive
-  per-range IP registration cap** on OPEN-lane onboarding (crowding cost scales with subnet proximity, so
-  a datacenter /24 gets one bounded budget — `max_registrations_per_ip`), a hard mempool cap (150,000),
-  heartbeat-index GC, and an SSRF guard (`check_ip` rejects own-IP and all non-globally-routable
+  enforced on the disk-reload path too, so one network can't fill a victim's peer view; the per-IP
+  registration budget was retired at gen 25, when an identity became an attested device), a hard mempool cap
+  (150,000 txs), and an SSRF guard (`check_ip` rejects own-IP and all non-globally-routable
   addresses).
 
 ### Lightly exercised (implemented + unit-tested, but not yet hardened on a live multi-node net)
@@ -907,21 +906,20 @@ hardening over the previous peer-count fork-choice. Beyond the lightly-exercised
 of FFG/RANDAO and the outstanding eclipse hardening above, the **documented residuals** from the audit
 (see [`doc/security-audit.md`](doc/security-audit.md)) — none a theft or fork vector — are:
 
-- **RANDAO withholder penalty: CLOSED** (2026-07-05). Reveal-for-the-epoch is now a hard eligibility
-  condition for the bonded-lane draw (see above), so suppression costs the withholder its entire
-  epoch of production. The residual is only the classic last-revealer bit: with `m` colluding
-  withholders, up to `2^m` beacon outcomes — each priced at `m` epochs of forfeited rewards, and
-  defeated whenever ≥1 honest secret is revealed after the anchor.
+- **RANDAO withholder penalty: OPEN.** It was closed on 2026-07-05 by making the reveal a hard eligibility
+  condition, but participation is now **voluntary** (`RANDAO_ENFORCED = False`, see above), so withholding a
+  reveal costs nothing beyond the beacon losing that secret. The classic last-revealer bit remains: with `m` colluding
+  withholders, up to `2^m` beacon outcomes, defeated whenever ≥1 honest secret is revealed after the anchor.
 - **FFG slashable-stake backing: CLOSED.** FFG is no longer observational — the finalized checkpoint is
   **enforced** in the rollback floor (objectively un-reorgable), and **attestation-equivocation slashing
   is live**: a validator that signs two conflicting attestations for one epoch loses `SLASH_BOND_PENALTY`
   of bonded stake via the same `slash` path as block-authorship double-signing. On-chain double-voting is
   still blocked by the per-epoch `UNIQUE(validator, epoch)` marker; cross-fork double-voting is now
   punished rather than merely prevented.
-- **The bonded producer curve is per device, not per key** — the old per-key `MAX_SHARES` (removed 2026-08-25)
-  was recovered by sharding across addresses. Since block 11800 of betanet-7 weight is `bond_weight(stake, knee)` per
-  *attested device*; sharding across addresses on one device gains nothing, and more weight needs more real devices.
-  Fork weight and the finality quorum stay capital-proportional and attestation-free.
+- **Bonded producer weight is plain stake** — no per-key cap (`MAX_SHARES`, removed 2026-08-25), no device
+  requirement and no knee curve (both retired on betanet-7 and deleted; `mining_ops.bonded_producer_registry`), so
+  sharding stake across addresses neither gains nor loses weight. Fork weight and the finality quorum are the same
+  linear stake.
 - **Registration / fee-exempt state growth** — `register` writes an account doc; **idle-account GC is implemented**
   (`ops/gc_ops.py`): long-lapsed empty docs and ancient recert rows are swept deterministically
   in-block at epoch boundaries (revert-safe, snapshot-root-identical on every node). Also bounded by the lane cap, per-IP rate limit, mempool cap, and the
@@ -944,11 +942,12 @@ live.)
   Consensus only ever checks `verify(sig, pk, msg) == True`, never signature-byte equality, so hedged
   signatures interoperate across implementations. Signatures authenticate transactions/heartbeats and
   are **deliberately never** the randomness source (a malleable signature would be grindable).
-- **Addresses** — `"ndo"` + 42-hex public-key prefix + a 4-hex `blake2b` checksum (49 chars). The
-  keyless reserved recipients `{bond, unbond, withdraw, register, slash, attest, commit,
-  reveal, alias}` are valid as a recipient/target only, never as a sender.
+- **Addresses** — format 2: a 42-hex body that is a `blake2b` hash of the **whole** public key + an 8-hex
+  `blake2b` checksum (50 chars, no prefix; `ops/address_ops.make_address`). The keyless reserved recipients
+  (`protocol.RESERVED_RECIPIENTS`: `bond`, `unbond`, `withdraw`, `register`, `slash`, `duty`, `alias`, …) are valid
+  as a recipient/target only, never as a sender.
 - **Aliases** — a human-readable name → owner address, so you can **send to a short name instead of the
-  49-char `ndo…` address**. Register / transfer / unregister are on-chain ops (reserved recipient
+  50-char address**. Register / transfer / unregister are on-chain ops (reserved recipient
   `alias`); an ordinary transfer whose recipient is a registered alias credits the alias's current
   owner. See [`doc/aliases.md`](doc/aliases.md); the NADO Interface's Send field accepts an alias and its
   Receive tab manages them.
@@ -962,10 +961,10 @@ live.)
   stays intact. `ops/multisig_ops.py`.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
-  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "betanet-1"`, blocking
-  cross-chain / pre-relaunch replay.
-- **Wire** — transactions submit over **HTTP POST + msgpack** (an ML-DSA-44 tx is too large for a GET
-  URL); msgpack is wire/transport only and never the hashed preimage.
+  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID` (the current network's id —
+  `/status` reports it), blocking cross-chain / pre-relaunch replay.
+- **Wire** — transactions submit over **HTTP POST** with a JSON-codec body (`ops/codec.py`; an ML-DSA-44 tx is
+  too large for a GET URL); the wire encoding is transport only and never the hashed preimage.
 
 ### Zero-knowledge proof stack
 
@@ -1030,9 +1029,11 @@ setup** anywhere. Full component map with measured numbers and per-piece status:
 > **What is still not done:** the landed proofs were **unfolded** (`calls=0`). A span containing a call is
 > refused because the records half moves, and a span crossing a dividend epoch boundary is refused for the
 > same underlying reason — counted over one day, those two are **91 of 146** refusals and are one gate, not
-> two. Lifting it needs `SETTLE_PROOF_RECORDS_VALUE_CALLS`, which is implemented and inert because
-> activating it requires a genesis reroll. So production settlement is still predominantly quorum-carried,
-> and the fold has still never folded more than one proof.
+> two. Lifting it needs `SETTLE_PROOF_RECORDS_VALUE_CALLS`, which was then implemented and inert because
+> activating it requires a genesis reroll. So production settlement was still predominantly quorum-carried,
+> and the fold had still never folded more than one proof. *(Since then `SETTLE_PROOF_RECORDS_VALUE_CALLS` has been
+> enabled at a reroll — `protocol.py`; for the current settlement rules see `protocol.py` and
+> [`doc/stwo-migration.md`](doc/stwo-migration.md).)*
 
 ## Storage
 
@@ -1055,8 +1056,8 @@ keeps phones viable under adoption; see [`doc/rolling-mode-and-da.md`](doc/rolli
 
 ## Private key storage
 
-Keys are post-quantum **ML-DSA-44 (FIPS 204)**; what is stored is the 32-byte seed. Your `ndo…` address
-shape is unchanged (49 chars).
+Keys are post-quantum **ML-DSA-44 (FIPS 204)**; what is stored is the 32-byte seed. Your address is the
+50-char format-2 hash of the public key derived from it.
 
 - Linux: `~/nado/private/keys.dat`
 - Windows: `C:\Users\<username>\nado\private`
@@ -1112,11 +1113,13 @@ shape is unchanged (49 chars).
   Fiat-Shamir transcript**; and **recursion depth** (fold-of-folds) whose root **verifies in ~0.2 s regardless
   of tree size** — the O(1)-verification goal, realized. **Honest status:** the *verify* side is O(1) and the
   mechanisms are validated at small scale. Proving is now **native** (Rust-only, no fallback); a full
-  settlement prove measures **240–270 s** on production state. The settlement rule **is** wired and
-  unconditional (`SETTLE_PROOF_TRUSTLESS` — the ZK feature flags were deleted), but **no proof-carrying
-  settle has ever completed end to end**, so the bonded quorum still carries settlement in practice. The
-  K→1 fold is built and switched on yet has **never run**: it needs contract calls to fold, and an idle
-  chain has none. None of this touches L1 block validity.
+  settlement prove measures **240–270 s** on production state. The settlement rule **is** wired
+  (`SETTLE_PROOF_TRUSTLESS`, `SETTLE_PROOF_RECURSIVE`, `SETTLE_PROOF_RECORDS` and
+  `SETTLE_PROOF_RECORDS_VALUE_CALLS` are all `True` in `protocol.py`), and proof-carrying settles have landed
+  (block 43153 of betanet-15, above). Two limits stand, both recorded in `protocol.py`: settle proofs were closed on
+  gen 25 pending a proof-verifier soundness fix, and the K→1 fold does not carry the trace low-degree term, so it
+  refuses under that rule. The bonded quorum (`settlement_justified`) carries the epochs that ship no proof, and the
+  next reroll moves settlement to Stwo ([`doc/stwo-migration.md`](doc/stwo-migration.md)).
 - **Every ZK component in one place** — [`doc/zk-components.md`](doc/zk-components.md): the arithmetic
   core, algebraic hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding,
   recursion, the four Rust crates, DA transport and the consensus constants — each marked **live /

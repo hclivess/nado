@@ -18,10 +18,10 @@ The price, stated plainly and up front:
 
 1. **No live PvP. Ever, on this substrate.** I grepped: there is no `WebSocket`, no `RTCPeerConnection`, no
    `EventSource` anywhere under `static/`. The only off-chain relay is `ops/message_pool.py`, which demands a
-   *registered* sender with a valid ML-DSA signature (`_msg_is_registered`, `_msg_verify_sig` at
-   `nado.py:1569`/`1579`), 12-bit hashcash per envelope (`MSG_POW_BITS = 12`), and delivery by polling `/tags`
+   *registered* sender with a valid ML-DSA signature (`_msg_is_registered`, `_msg_verify_sig` in
+   `nado.py`), 12-bit hashcash per envelope (`MSG_POW_BITS = 12`), and delivery by polling `/tags`
    at 120/min. An in-page ephemeral key is not registered and is rejected. And the wallet signs through a
-   hidden iframe, strictly one-in-flight with a 9s timeout (`nadodapp.js:1039`, `svc.cur`), so the page cannot
+   hidden iframe, strictly one-in-flight with a 9s timeout (`nadodapp.js`, `svc.cur`), so the page cannot
    sign input frames even if a transport existed.
 2. **Off-chain signed orders are not bearer instruments, so no state channel can close unilaterally.** The
    op list is closed (`execnode/zkvm.py:58-62`) and contains no signature-verify opcode. An opponent's signed

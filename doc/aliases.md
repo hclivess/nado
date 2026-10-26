@@ -1,13 +1,13 @@
 # Aliases — send to a name, not a hash
 
 A human-readable **alias** maps to an owner **address**, so a user can send to `alice` instead of the
-49-char `ndo…` address. It is a first-class, on-chain, consensus-critical feature (not a client-side
+50-character address. It is a first-class, on-chain, consensus-critical feature (not a client-side
 address book).
 
 ## Names
 - 3–32 chars, lowercase `[a-z0-9_-]`, must **start with a letter**.
-- Must **not** be a reserved word (`bond`, `register`, `alias`, …) and must **not** start with `ndo`
-  (so an alias can never be mistaken for an address).
+- Must **not** be a reserved word (`bond`, `register`, `alias`, …) and must **not** be address-shaped (validate as a
+  50-char address) or start with `msig` — so an alias can never be mistaken for an address.
 - Global, first-come namespace.
 
 Constants: `ALIAS_MIN_LEN = 3`, `ALIAS_MAX_LEN = 32`, `ALIAS_REGISTRATION_FEE = 10_000_000` (0.001 NADO).
@@ -43,10 +43,10 @@ the same registry state it saw on apply → resolution is consistent.
 - KV: an `aliases` sub-DB (`name → owner`), with `alias_get / alias_put / alias_del / aliases_of`.
 - Endpoints: **`/resolve_alias?name=`** → `{name, owner}` (owner `null` if unregistered);
   **`/get_aliases_of?address=`** → `{address, aliases[]}`.
-- Client builder: `transaction_ops.construct_alias_tx(keydict, op, name, target_block, fee, to=None)`.
+- Client builder: `transaction_ops.construct_alias_tx(keydict, op, name, max_block, fee, to=None)`.
 
 ## Clients
-The **browser light-miner** accepts an alias name in the Send field (resolves + shows `alias (→ ndo…)`
+The **browser light-miner** accepts an alias name in the Send field (resolves + shows `alias (→ <owner address>)`
 for confirmation) and has an **Aliases** card (Receive tab) to register / transfer / unregister and list
 the names you own. `tests/test_alias.py` covers register, dup-reject, resolution, transfer, owner-only,
 unregister, name validation, and revert of all three ops.

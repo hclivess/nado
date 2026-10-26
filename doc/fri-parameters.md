@@ -189,7 +189,8 @@ A steady-state settle prove is **10.2 s**, not the ~250 s figure quoted in older
 **SCOPE — this is the UNFOLDED path only.** Every figure above comes from
 `prove_settlement_sparse(..., recursive=False, fold=False)`. The K→1 recursion fold is a different and far
 heavier prove: `execnode.py` records a real folded run at **1156.9 s total** with
-`prove_transition=883.6 s`, against a `SETTLE_PROVE_TIMEOUT` of 1200 s. None of the blowup ratios here
+`prove_transition=883.6 s`, against the `SETTLE_PROVE_TIMEOUT` of 1200 s in force at the time (now 2400 s,
+`execnode.py`). None of the blowup ratios here
 have been measured on the folded path, and it would be wrong to assume they carry over — the fold's cost
 sits in `prove_transition`, which the unfolded path reports as 0.0 s. Do not quote 10.2 s or 2.57x for a
 folded prove.
@@ -232,7 +233,7 @@ follow automatically — the model does not need editing, only the constants.
 **Do not raise the FRI blowup** — but be precise about why, because the usual reason is wrong.
 
 *Not* because the prover cost is prohibitive. Natively it is 3.14× on the FRI term and, on a real settle
-prove at today's load, **1.11× overall** (§4a) — that is affordable. The two rounds that rejected this on
+prove at today's load, **2.57× warm** (1.27× cold) (§4a) — a real cost, but not prohibitive. The two rounds that rejected this on
 prove time were both reading Python-prover numbers.
 
 **Because it does not change the architecture.** At protocol strength the lever takes ~97 MiB to ~32 MiB.

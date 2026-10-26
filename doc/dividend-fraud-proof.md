@@ -1,6 +1,7 @@
 # Dividend fraud-proof — from 2/3-bonded-quorum trust to 1-honest-challenger (Phase-2b)
 
-> **Status: BUILDING** (betanet). Upgrades the presence-dividend's per-address allocation from
+> **Status: Part A BUILT (deterministic per-epoch accrual, `/get_open_weights?epoch=`); Parts B and C (receipts,
+> `dividend_challenge`, `CHALLENGE_WINDOW`) NOT BUILT** (betanet). Upgrades the presence-dividend's per-address allocation from
 > *trust the 2/3 bonded settlement quorum* to *trust any single honest challenger*, while keeping the L1
 > happy path **O(1)**. Companion to [presence-dividend.md](presence-dividend.md) (the accrual) and the
 > execution/settlement layer ([execution-layer.md](execution-layer.md)).
@@ -49,8 +50,8 @@ Every honest exec node now computes the **identical** root at a given cursor. `g
 `?epoch=` parameter so the exec node (and the L1 challenge path) read the present set + weights **for a
 specific historical epoch**, from the single L1 source of truth (`get_open_registry(e)`), not the tip.
 
-**Retention bound (idle-GC, 2026-07-12):** recert rows survive `RECERT_HISTORY_EPOCHS` (10 000
-epochs ≈ 6 weeks) — far beyond any challenge window — and the fidelity-saturation argument
+**Retention bound (idle-GC, 2026-07-12):** recert rows survive `RECERT_HISTORY_EPOCHS` (15 000
+epochs ≈ 9 weeks) — far beyond any challenge window — and the fidelity-saturation argument
 (`protocol.py` GC note) keeps every still-served weight byte-exact after pruning.
 `/get_open_weights` REFUSES an epoch whose lookback would cross the pruned horizon (never a
 silently-truncated reconstruction); a cold exec node bootstraps from a settled checkpoint
@@ -111,8 +112,8 @@ off the per-block path, and paid for by the challenger's bond + the slash it tri
   successful challenge (a soft-finality delay on dividend *withdrawals* only — accrual/settlement continue).
 - **Challenger bond.** `dividend_challenge` posts a bond; a *failed* (incorrect) challenge forfeits it →
   no free griefing / L1-spam. A *successful* challenge is refunded + rewarded from the slash.
-- **Determinism of inputs.** Re-derivation reads only finalized, retained state: the recert history (never
-  pruned; rolling mode drops block *bodies*, not the recerts DB) and recent block reward splits (challenge
+- **Determinism of inputs.** Re-derivation reads only finalized, retained state: the recert history (kept for
+  `RECERT_HISTORY_EPOCHS`; rolling mode drops block *bodies*, not the recerts DB) and recent block reward splits (challenge
   window ≪ history-retention window, so those bodies are present).
 - **Revert symmetry.** The challenge, void, slash, and bond flows all reverse exactly on rollback (same
   discipline as every other tx).

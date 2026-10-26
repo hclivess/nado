@@ -85,6 +85,10 @@ the gap an existing product may not fill, and is why the execution-layer proving
 treated as an open research question (next-gen PQ fields like Circle STARKs / Binius, or
 lattice proofs) rather than a settled pick.
 
+**Update (2026-10):** the pick has since been made — Stwo, a Circle STARK over M31 with BLAKE2s commitments. It
+proves the live shielded pool (`native/stwo_js`) and is the generation-29 settlement backend
+([stwo-migration.md](stwo-migration.md)).
+
 ---
 
 > Cross-references: `doc/execution-layer.md` §5.4 (PQ alignment of the execution layer),

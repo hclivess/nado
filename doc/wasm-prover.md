@@ -7,15 +7,15 @@
 > twiddles**, a **cached periodic LDE**, and a **WASM Goldilocks field/NTT** (wasm/goldilocks/), and a **whole-tree WASM Merkle** (one wasm call per
 > column instead of ~16k JS hashes).
 >
-> **The node's delegated prover is bound to the SAME Rust.** wasm/goldilocks also compiles to a native shared
-> library that execnode/stark/goldilocks_native.py loads via ctypes (no new deps), so /exec/prove_transfer2
-> dropped from ~20s to ~3.8s (pure-Python fallback with just batch inversion: ~6.3s). One Rust codebase
-> accelerates both the in-browser (WASM) and the node (native) prover; scripts/install.sh --exec builds it.
+> **The node no longer proves for wallets.** The delegated provers (`/exec/prove_transfer`, `/exec/prove_transfer2`,
+> `/exec/prove_call`) took the wallet's spending key over HTTP; they were unrouted and their handlers deleted
+> (security review 2026-09-23, Z7 — `execnode/execnode.py`). Proving is on-device only. wasm/goldilocks still
+> compiles to a native shared library that execnode/stark/goldilocks_native.py loads via ctypes for the node's own
+> proving; scripts/install.sh --exec builds it.
 
 > **Goal:** generate the shielded-pool join-split STARK **in the user's browser**, so the exec node never sees
 > the witness. This is the privacy endgame — it closes the one remaining gap ("the prover sees your amounts,
-> unless you run your own node"). The UI hook already exists: the *"Prove on this device"* tick calls
-> `window.nadoProve` / `window.nadoProve2`; this doc is the plan to make those real.
+> unless you run your own node"). The hook is `window.nadoProve2`; the sections below are the plan it was built from (Tier A is done).
 
 ## 1. What the prover actually computes (measured)
 
@@ -79,8 +79,8 @@ This is the phone-grade target.
   for `alghash.js` / `shielded.js`): prove in JS, verify in Python, assert acceptance.
 - **Proof size (~1 MB) in the browser.** It's POSTed to the exec node only to *verify+apply* (ms); no L1
   blob. Fine over local HTTP; consider gzip.
-- **Phone speed (Tier A).** Ship with a progress bar + let the user keep the delegated option; Tier B removes
-  the pain.
+- **Phone speed (Tier A).** Ship with a progress bar; Tier B removes the pain. (There is no delegated option
+  any more — the node-side provers were removed because they took the spending key.)
 - **BigInt determinism.** No `Math.random`/floats anywhere in the prover; all randomness is Fiat–Shamir.
 
 ## 6. Recommendation

@@ -3,7 +3,7 @@
 > **Status: LIVE (governance shipped); policy notes below are guidelines.** NADO funds a treasury
 > (10% of every block reward, both lanes — no premine) into a **keyless `treasury` account** (not the
 > genesis address, not any key), and **bonded-quorum spending governance is implemented**
-> (`treasury_vote` / `treasury_execute` reserved recipients; `nado_cli.py propose/vote/execute`;
+> (`treasury_vote` / `treasury_execute` reserved recipients; `scripts/nado_cli.py propose/vote/execute`;
 > `/treasury_status`), with an anti-hoard burn of idle balance each period. The policy discussion below
 > draws on both the treasuried projects that endured (Dash, Decred, Zcash,
 > Polkadot) **and** the treasury-less ones that endured (Bitcoin, Litecoin, Dogecoin, Monero) — and on the
@@ -40,10 +40,13 @@ NADO's history points at the first, so this policy leans toward forcing deployme
 ## 1. What NADO has today
 
 - **Funding:** `TREASURY_BPS = 1000` (10.00%) of every block reward, **both lanes**, credited on-L1 to
-  `TREASURY_ADDRESS = GENESIS_ADDRESS` (`ops/reward_ops.py`). Fair launch: `TREASURY_GENESIS = 0`, no premine
+  the keyless reserved account `TREASURY_ADDRESS = "treasury"` (`protocol.py`). Fair launch: `TREASURY_GENESIS = 0`, no premine
   — it fills purely block-by-block, exactly like Dash/Decred.
-- **Custody:** a single **founder-controlled** ML-DSA (post-quantum) address. Fully centralized today.
-- **Governance:** none. No proposals, no voting, no spend rules, no reporting, no anti-hoard leak.
+- **Custody:** no key at all — coins leave only through a passing bonded-quorum vote (`treasury_vote` →
+  `treasury_execute`), capped per proposal at `TREASURY_MAX_SPEND_BPS` (25 %) of the balance.
+- **Governance:** live — proposals, stake-weighted votes with an activation delay (`TREASURY_VOTE_ACTIVATION_EPOCHS`),
+  and the anti-hoard burn (`TREASURY_BURN_BPS` every `TREASURY_SPEND_PERIOD`). *(Before governance shipped the
+  treasury was the founder-controlled genesis address with no spend rules; the plan below is how it got here.)*
 - **A natural electorate already exists:** the **bonded ("savings") lane** — holders with *locked,
   slashable* stake. That is NADO's structural equivalent of Decred tickets / Dash masternodes: skin in the
   game, already tracked with weight + fidelity, already wired into the settlement quorum machinery.

@@ -210,7 +210,7 @@ Stated so a reader trusts the right amount — over-trust is a worse failure tha
   pool divergence (mempool-full eviction under pressure) is not exercised yet.
   After those fixes the ONE surviving organic class was still duty: exact landing races its own
   propagation whenever the epoch/reveal deadline clamps compress the margin (every 2026-08-19 seed).
-  Two changes close it (see `DUTY_WINDOW_ACTIVATION`): duties land *flexibly* in
+  Two changes close it (the `DUTY_WINDOW_ACTIVATION` gate, deleted after it fired — the window rule now holds unconditionally): duties land *flexibly* in
   `[tip+8, deadline]` from block 81,000 (the deadline cliff, not the margin, was the race), and a
   one-block same-height split now resolves INLINE — `check_mode` runs `_inline_tip_swap`
   (verdict says REORG with ancestor == tip−1 → `_adopt_branch(tip-1)`, the tested
@@ -231,7 +231,7 @@ Stated so a reader trusts the right amount — over-trust is a worse failure tha
 | Emergency gating | `ops/block_ops.knows_block` (tri-state), `core_loop.emergency_mode` / `_rollback_one_for_reorg` | `tests/test_emergency_rollback_gating.py` |
 | Canonical restore | `ops/canonical_restore.py`, `core_loop._restore_canonical_chain/_start_deep_fill/_maybe_refill_archive`, `ops/snapshot_ops.adopt_new_identity`, `ops/kv_ops.wipe_non_carried_dbs` | `tests/test_reanchor_archive_backfill.py`, `tests/test_canonical_restore_executor.py` |
 | Exec revert/rewind | `execnode/execnode.py` (probe, linkage, checkpoints, ladder) | `tests/test_exec_finality_revert_probe.py`, `tests/test_exec_rewind_e2e.py` |
-| Landing margins / fork seeds | `ops/block_ops._lands_flexibly` + `check_target_match` (window vs exact), `ops/transaction_ops.construct_dividend_withdraw_tx` (`min_block`), `protocol.DUTY_TX_MARGIN`, settle targets in `execnode/execnode.py` | `tests/test_fork_seed_landing_margins.py` |
+| Landing margins / fork seeds | `ops/block_ops._lands_flexibly` + `check_target_match` (window vs exact), `ops/transaction_ops.construct_dividend_withdraw_tx` (`min_block`), the duty window (`construct_duty_tx` `min_block`; `DUTY_TX_MARGIN` was deleted with its gate), settle targets in `execnode/execnode.py` | `tests/test_fork_seed_landing_margins.py` |
 
 Every suite above is mutation-checked: the load-bearing rules were each broken deliberately and observed
 to turn the suite red before any of this shipped.

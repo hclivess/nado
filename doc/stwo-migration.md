@@ -1,7 +1,9 @@
 # Stwo migration, and a reroll that carries everything
 
-Status: **proposal, 2026-10-10.** Nothing here is in consensus yet. Each phase below starts with a measurement, and that
-measurement decides whether the phase happens. The proving system and the reroll date are the operator's decisions.
+Status: **proposal of 2026-10-10, partly built (2026-10-26).** The Stwo shielded pool (§5.1) is live on gen 28
+(`STWO_POOL_HEIGHT` 269000). The BLAKE2s exec root is built behind the dormant `BLAKE_EXEC_HEIGHT` and goes live at the
+G7 reroll (generation 29); phase status is in §9.5. Each phase below starts with a measurement, and that measurement
+decides whether the phase happens. The proving system and the reroll date are the operator's decisions.
 
 Two plans live in one document because they depend on each other. Replacing the proof system changes the format of
 every root the chain commits to, so it can only land at a reroll. And a reroll today drops game state, part of fidelity
@@ -229,12 +231,10 @@ same tip + 1 rule as the wide pool and as the exec node's `/exec/field_leaves`, 
   with the one pinned command (nightly-2026-01-15, wasm32 + simd128, three `--remap-path-prefix` so two machines build the
   same bytes — measured: a clean build in another directory is byte-identical) and prints the two sha256 pins that
   tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py checks.
-- OPEN, node side, before the gate is set: L1 admission (`transaction_ops.field_shield_check`) still parses the deposit
-  owner as an alghash2 digest (four lanes each < the Goldilocks prime), so about one Stwo owner in 2^30 is refused at
-  admission (no coins move; that wallet cannot deposit). From the gate it should accept any 64-hex owner. And a wallet tab
-  loaded before the code that knows the gate keeps building wide deposits; the exec layer then puts them in the Stwo pool
-  under a wide owner nobody can spend. L1 cannot tell the two owners apart (both 64-hex), so the Stwo wallet tags its
-  deposits `"pool": "stwo"`; the gate's activation commit should make L1 refuse an untagged field deposit from the gate.
+- DONE at the gate (was OPEN before it was set): from `STWO_POOL_HEIGHT` L1 admission
+  (`transaction_ops.field_shield_check`) accepts any 64-hex owner (it no longer parses it as an alghash2 digest) and
+  refuses a field deposit not tagged `"pool": "stwo"` — a wallet tab loaded before the gate builds a wide owner, which
+  L1 cannot tell apart from a Stwo one, and the exec layer would put its coins under an owner nobody can spend.
 
 **L1 linkage: who publishes, and which owner a deposit names (ZK review 2026-10-11, operator decisions; built
 2026-10-12).** The proof hides the spent note and its owner, but two things around it did not:
@@ -369,10 +369,10 @@ lines that can no longer hold a forgery.
 
 | carried | dropped or refunded |
 |---|---|
-| L1 balances and bonded stake (Δ = 0 enforced) | **all contract state**: contract pots are refunded to players or the deployer, game progress is lost, contracts are redeployed under new ids and the frontends rewired |
-| uncollected dividends, user bridge balances, pending exits (folded into L1) | **open invites and HTLCs** (refunded to the funder) |
+| L1 balances and bonded stake (Δ = 0 enforced) | nothing in contract state: every contract carries by id with all its storage and its pot, or the carry refuses (since 2026-10-20, doc/stwo/g5-carry.md) |
+| uncollected dividends, user bridge balances, pending exits (folded into L1) | **open HTLC locks** (refunded to the funder; open invites carry since 2026-10-25) |
 | device bindings, aliases, account-auth config | **the legacy, field, wide and app-note pools**: the carry *refuses* if they are not empty (the Stwo pool carries since 2026-10-12, §5.1 "The carry") |
-| fidelity, **but only for identities present at the reroll** (47 of the 79 with fidelity at gen 28) | **fidelity of the 32 identities absent at the reroll**, see 6.3 |
+| fidelity of every carried identity (until `CARRY_FIDELITY_ALL_HEIGHT` only those present at the reroll: 47 of the 79 with fidelity at gen 28) | nothing since the fix of 6.3 |
 
 ### 6.2 Exec state carries as a genesis snapshot
 
@@ -392,8 +392,9 @@ lines that can no longer hold a forgery.
   ```
 
   At-rest state (bankroll, pets, nations, scores, settled balances) is kept. In-flight state (open hands, pending
-  seats, open HTLCs) is refunded to whoever funded it. `otc.escrow_refunds` is already this shape. A contract without
-  a hook is refunded and reset, exactly as today, so a missing hook is never worse than now.
+  seats, open HTLCs) is refunded to whoever funded it. `otc.escrow_refunds` is already this shape. **As built
+  (operator rule 2026-10-20) the carry refuses instead:** a contract with something in flight (`carry_in_flight`) or
+  with storage and no carry rule refuses the whole carry (tools/carry.py); nothing is reset or refunded in its place.
 - **Re-keying** is needed only when the address format changes, as it did at gen 28. Then each hook also maps the
   addresses inside its storage, with `tools/rekey_v2.py`'s mapping.
 - Exec state is small: 5.7 MB in total, 27 contracts whose storage totals about 35 KB.
@@ -439,7 +440,9 @@ weights. The permanent carry tool must keep both paths seeded from the same valu
 Built on branch `carry`: §6.2 (every contract by id; storage and pot for carry-safe games; hooks for slots, dice,
 roulette, mines, blackjack, pets, autogame, hamster, tictactoe, connect4, reversi, chess, bet, the faucet and the daily
 boards), exec assets, the refusal of every shielded pool (not only the legacy one), and §6.3 live (CARRY_FIDELITY_ALL_HEIGHT).
-The Stwo pool carries since 2026-10-12 (§5.1 "The carry"); the older pools are still refused unless empty. See
+Since 2026-10-20 every contract carries with all of its storage and its pot, or the carry refuses (tools/carry.py,
+doc/stwo/g5-carry.md). The Stwo pool carries since 2026-10-12 (§5.1 "The carry"); the older pools are still refused
+unless empty. See
 doc/reroll.md "What crosses a reroll".
 
 ### 6.5 Making it permanent

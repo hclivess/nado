@@ -1,7 +1,8 @@
 # Sovereign — a persistent nation-war MMO on NADO
 
-Status: **LIVE** on betanet-6 (`sovereign.nadochain.com`). Engine + tests (`static/sovereign-engine.js`, `tests/test_sovereign_engine.mjs`,
-ALL PASS). Contract + client + practice next.
+Status: **LIVE** (`sovereign.nadochain.com`): engine (`static/sovereign-engine.js`), contract
+(`execnode/games/sovereign.py`), client (`static/sovereign.html`, `static/sovereign.js`) and tests
+(`tests/test_sovereign_engine.mjs`).
 
 ## 1. What it is
 
@@ -113,6 +114,6 @@ practice is the same rules with local opponents.
 
 ## 6. Rollout note
 
-The chain rerolled to **betanet-6 today** (memory: `nado-alphanet6-reroll`), so the whole game fleet
-needs redeploy regardless — Sovereign deploys alongside that pass. Being brand-new, it has no legacy
+At launch the chain had just rerolled to **betanet-6** (memory: `nado-alphanet6-reroll`), so the whole game fleet
+was redeployed and Sovereign deployed alongside that pass. Being brand-new, it has no legacy
 state to carry.

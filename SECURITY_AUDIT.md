@@ -442,7 +442,11 @@ historical replay stays byte-identical. **Measured exploitation: none.** `total_
 open_registry_size` was **2.27** against a maximum of 10.0 (117 miners, weight 266), i.e. essentially
 every identity sat at fidelity 1. Balances were therefore safe to carry.
 
-## OPEN — the open-lane Sybil bound is weaker than documented, and the dividend is the prize
+## SUPERSEDED (gen 25) — the open-lane Sybil bound was weaker than documented, and the dividend is the prize
+
+> Resolved at the betanet-7 reroll: open-lane identity now requires a hardware device attestation, one identity per
+> device (doc/device-attestation.md, `transaction_ops._validate_register`); PoSW registration and the per-IP cap this
+> section cites are retired (tests/test_gen25_retirements.py). The finding below is kept as the record.
 
 **Claim being audited:** `protocol.py` says fidelity "is only a ~5x open-weight booster, NOT the Sybil
 bound (the 30% lane cap is)". The 30% cap bounds the lane's *share of blocks*. It does not bound one

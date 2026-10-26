@@ -1,13 +1,14 @@
 # Address format — and the one-constant rebrand
 
 ```
-address = ADDRESS_PREFIX + first ADDRESS_BODY hex chars of the pubkey + 4-hex blake2b checksum
-          "ndo"           42 chars                                      over prefix+body
-          → 49 chars total today
+address = ADDRESS_PREFIX + ADDRESS_BODY hex of blake2b([nado-address-v2, pubkey]) + 4-byte blake2b checksum
+          ""  (removed)    42 chars                                                 8 hex, over prefix+body
+          → 50 chars total today (format 2, gen 28); a multisig address is "msig" + body + checksum = 54
 ```
 
-`validate_address` is **checksum-based and prefix-agnostic** — it verifies the trailing 4 hex
-against blake2b of everything before them. The prefix only exists in **derivation** and in
+`validate_address` is **checksum-based** — it verifies the trailing 8 hex (`ADDRESS_CHECKSUM` = 4
+bytes) against blake2b of everything before them, and requires the exact length (50, or 54 for an
+`msig` address), so a 46-char format-1 address is rejected by shape. The prefix only exists in **derivation** and in
 UI/consensus string checks, and all of those now read a single constant per language:
 
 | where | constant |
@@ -21,14 +22,17 @@ keep it that way — new code imports the constants.)
 
 ## Why this exists
 
-The `ndo` prefix couples every address string to the current brand. A rebrand (possible: nadohq
+(History: the prefix was `ndo` until it was removed; `ADDRESS_PREFIX` is now `""`.) The `ndo` prefix coupled every address string to the brand. A rebrand (possible: nadohq
 exists, and "nado" ⊂ "tornado" invites tornadocash association) must not orphan the format — so
 the prefix is a deliberate ONE-CONSTANT decision point, changeable in three lines.
 
 ## The switch procedure (whenever the operator pulls the trigger)
 
-Changing any field orphans every existing address **string** while every **key** still owns its
-account (the body is the pubkey), so the switch ships as one commit + one reroll:
+This procedure was written for format 1, where the body was the pubkey itself. Under format 2
+(gen 28) the body is a hash of the key (`protocol.py`, ADDRESS FORMAT 2), so a re-key must re-derive
+each address from its public key, not re-prefix the old string. Changing any field orphans every
+existing address **string** while every **key** still owns its account, so the switch ships as one
+commit + one reroll:
 
 1. Flip `ADDRESS_PREFIX` in `protocol.py` and `ADDR_PREFIX` in `static/nadotx.js` +
    `static/interface.js` (three lines).
@@ -54,13 +58,10 @@ a future scheme migration mints new keys — and therefore new addresses — und
 
 ## Multisig (and future policy accounts)
 
-Today a multisig account is P2SH-style: the SAME prefix, with the "pubkey" slot holding the
-domain-tagged hash of the policy (`blake2b("nado-msig-v1", M, members)`). Nothing marks it
-on-chain until it spends — a keyed account and a policy account are indistinguishable by string.
-
-Under the discriminator model, policy accounts get their OWN prefix (candidate: **`msig`** —
-starts non-hex ✓), exactly the `1`-vs-`3` split: `mldsa44…` = hash of one ML-DSA-44 pubkey,
-`msig…` = hash of an M-of-N policy whose members are themselves `mldsa44…` addresses. Wallets
+A multisig account is P2SH-style: the "pubkey" slot holds the domain-tagged hash of the policy
+(`blake2b(DOMAIN_MSIG, M, members)`, `ops/multisig_ops.py`), and it carries its OWN prefix,
+**`msig`** (`protocol.MSIG_PREFIX` — starts non-hex ✓), exactly the `1`-vs-`3` split: a keyed address = hash of one pubkey,
+`msig…` = hash of an M-of-N policy whose members are themselves keyed addresses. Wallets
 and explorers can then label them, refuse identity ops (bond/mine/vote) client-side before the
 consensus rule even fires, and — critically — future migrations can IDENTIFY them (see below).
 
@@ -77,10 +78,11 @@ any FUTURE format migration can enumerate policy accounts and define their carry
 
 ## Domain-separation tags (rename free at the same reroll)
 
-Consensus domain tags also carry the brand — invisible to users, but they exist:
-`nado-stark`, `nado-msig-v1`, `nado-register`, `nado-randao-commit`/`-secret`, `nado-fx`,
-`nado-rec-digest` (the chain_id is already brand-free — `betanet-6`, and it changes every reroll;
-`nado-relaunch-1` now survives only as the frozen wallet self-test vector), plus non-consensus ones (`nado-forum-login`,
-`nado-lang`, localStorage keys). Outside a reroll, renaming any consensus tag is a fork for zero
+Most consensus domain tags have already been renamed brand-free (`protocol.py`: `msig-v2`, `register-v1`,
+`randao-commit-v1`, `randao-beacon-v1`, `blocksig-v2`, `genesis-beacon-v1`; the forum's non-consensus
+`forum-login-v1`). Some still carry the brand — invisible to users, but they exist: `nado-address-v2`
+(`DOMAIN_ADDRESS_V2`), `nado-auth-v1`, `nado-air-v1`, `nado-epoch-statement-v1` (in `execnode/stark/`), plus
+non-consensus ones (the `nado-lang` event, localStorage keys). The chain_id is already brand-free
+(`protocol.CHAIN_ID`, and it changes every reroll). Outside a reroll, renaming any consensus tag is a fork for zero
 value. AT the reroll everything re-derives from genesis anyway, so renaming them to brand-free
 tags (`chain-stark`, `msig-v2`, …) is free — fold it into the same cutover commit.

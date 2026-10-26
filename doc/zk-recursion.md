@@ -194,8 +194,8 @@ choice is performance, not soundness.
    and its `pre_root` to the namespace's committed settled tip (`EXEC_GENESIS_ROOT` for the first settlement, so
    a proof can never start from a fabricated pre-state). On success it records the on-chain marker
    `kv_ops.settlement_proven`, and `settlement_ops.settlement_justified` is WIRED to accept a root when that marker is set
-   OR the bonded quorum is met — both PURE functions of committed on-chain state — but the proof branch is currently
-   commented out, so the bonded quorum is the only live settlement authority (no prover posts proofs yet). When enabled (this is
+   OR the bonded quorum is met — both PURE functions of committed on-chain state; the proof branch is live behind
+   `protocol.SETTLE_PROOF_TRUSTLESS` (True) and exec nodes prove unconditionally (`execnode.py` `SETTLE_PROVE`). Enabled (this is
    what makes it fork-safe: the old node-local `_EPOCH_PROOFS`/`settlement_verifier` callback — which would have
    forked a node that had a proof from one that didn't — is REMOVED). The soundness hole flagged here before
    (a verifier that ignored the attested full root) is closed: the exact `state_root` is the binding.
@@ -291,7 +291,7 @@ is scoped precisely.
 runs the whole prove (LDE → Merkle → composition → FRI → openings) in u64 buffers, so the Python prover never
 materializes N-sized column lists — the recursion memory wall. Byte-identical to `stark.prove` for every mode
 (column/row, single/two-phase, RECURSION + ALGHASH2), wired into `stark.prove`, shielded/BLAKE2B untouched.
-`tests/test_starkprove.py`, `tests/test_holistic_wired.py`. This is what makes recursion proofs memory-feasible.
+`tests/test_starkprove.py`, `tests/test_native_prover_verifies.py`. This is what makes recursion proofs memory-feasible.
 
 **Authoritative depth (`execnode/stark/recursion_authdepth.py`).** `recursive_verify` applied to a bundle's own
 fold_0 + comp_0 (RECURSION-committed) → a root that attests the bundle verifies — the fold/comp CRYPTO collapsed

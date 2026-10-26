@@ -27,8 +27,8 @@ comfortable on the flash and USB HID of any modern microcontroller.
 
 The signer itself is **not** the hard part. `native/mldsa44` is a thin wrapper over the RustCrypto `ml-dsa` crate, so a
 device implementation is a cross-compile for `thumbv8m.main-none-eabi` (RP2350 / Cortex-M33, 520 KB SRAM) rather than an
-implementation of Dilithium. Address derivation is equally cheap: `ADDRESS_PREFIX` + the first `ADDRESS_BODY` hex chars
-of the public key + a 4-hex blake2b checksum (`ops/address_ops.make_address`).
+implementation of Dilithium. Address derivation is equally cheap: a blake2b over `[DOMAIN_ADDRESS_V2, lowercase public-key hex]`
+truncated to `ADDRESS_BODY` hex, plus a 4-byte blake2b checksum (`ops/address_ops.make_address` / `address_body_v2`).
 
 ### The hard part, and it is not the crypto
 

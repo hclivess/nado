@@ -39,8 +39,8 @@ NADO's identity is structural, not marketing:
   can validate and produce in slot time. A general VM on L1 makes *block validation*
   unbounded — every node must re-execute every contract — which silently demotes phones
   from validators to light clients. That is a different project.
-- **Just-hardened security surface.** Objective fork-choice, the `FINALITY_DEPTH = 30`
-  floor, FFG-lite finality, commit-reveal RANDAO, equivocation slashing, and the
+- **Just-hardened security surface.** Objective fork-choice, the `FINALITY_DEPTH = 45`
+  depth floor (and the un-crossable `hard_finality`), FFG-lite finality, commit-reveal RANDAO, equivocation slashing, and the
   Section 7.4 audit fixes are all *base-layer* guarantees. A VM is the single largest
   consensus-critical surface you can add: the interpreter *becomes* consensus, gas
   metering must be bit-identical across nodes, and any nondeterminism (a JIT, a float, an
@@ -86,7 +86,7 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 >   `transaction_ops`/`account_ops`, `tests/test_blob.py` incl. the **per-block blob-bytes cap** §3.3), a
 >   field-native zkVM (`execnode/zkvm.py`), a contract state store (`execnode/state.py`), a tailing
 >   execution node + query API (`execnode/execnode.py`), submit CLI + example token; determinism tested in
->   `tests/test_execnode_vm.py`. Proven live end-to-end (token deploy + transfer via blobs).
+>   `tests/test_zkvm.py` / `tests/test_zkvm_runtime.py`. Proven live end-to-end (token deploy + transfer via blobs).
 > - **Phase 2 (settled + bridge):** `settle` records a bonded validator's `(exec_cursor, state_root)`;
 >   `ops/settlement_ops.settlement_justified()` (the pluggable verifier seam) settles a root once bonded
 >   shares exceed 2/3 of the ACTIVE settler set (the settlement inactivity leak,

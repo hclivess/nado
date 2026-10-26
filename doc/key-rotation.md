@@ -10,8 +10,9 @@ the policy language hard, because on a 6-second block every signature verified i
 
 ## 0. What is true today
 
-An address *is* its key. `make_address(pubkey)` = the first 42 hex of the ML-DSA public key + a 4-hex
-checksum (`ops/address_ops.py`), and **every** authorization path re-derives that binding:
+An address *is* its key. `make_address(pubkey)` = a 21-byte blake2b of the whole ML-DSA public key + an
+8-hex checksum since address format 2 (gen 28; the first 42 hex of the key + a 4-hex checksum when this was
+written) (`ops/address_ops.py`), and **every** authorization path re-derives that binding:
 
 | path | check |
 |---|---|

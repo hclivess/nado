@@ -73,10 +73,10 @@ address for http-loaded wallets.
 ## `GET /relays`
 
 ```json
-{"chain_id": "betanet-5",
+{"chain_id": "<this chain's id, as in /status>",
  "relays": [
    {"self": true,  "ip": "38.242.201.206", "url": "https://get.nadochain.com", "api": "http://38.242.201.206:9173",
-    "address": "ebd2…", "chain_id": "betanet-5", "height": 82901, "finalized": 82851, "version": "…", "node_type": "archive"},
+    "address": "ebd2…", "chain_id": "…", "height": 82901, "finalized": 82851, "version": "…", "node_type": "archive"},
    {"self": false, "ip": "185.238.249.208", "url": null, "api": "http://185.238.249.208:9173", …}
  ]}
 ```
@@ -105,7 +105,7 @@ server {
 
 **`trusted_proxies` is REQUIRED, not cosmetic.** Add your proxy's address(es) to `trusted_proxies` in
 `private/config.json` (`["127.0.0.1", "::1"]` for a same-host nginx). Without it every proxied request resolves
-to the proxy's own loopback address: the per-IP rate limits and the anti-Sybil registration budget see one
+to the proxy's own loopback address: the per-IP rate limits see one
 client, and — before 2026-09-01 — the loopback-authorized operator endpoints (`/terminate`, `/log`,
 `/force_sync`, `/health`) were open to the world through the proxy. Since 2026-09-01 the node refuses the
 loopback shortcut for any request carrying a forwarding header (`nado._is_local_request`), so a missing

@@ -63,10 +63,10 @@ Three things make this the opposite of Nyzo:
 1. **Farm-neutral.** A coin costs a coin to bond whether you are a bot or a person. There is no Sybil
    discount — running more nodes does not make stake cheaper. This is the one anchor with no friction
    asymmetry.
-2. **Per-address cap, split-neutral — capital only, no PoSW.** Bonded eligibility is purely `bonded >=
-   B_MIN` (100 NADO/share); the bonded lane requires **no registration or PoSW** — that is the OPEN lane's
+2. **No per-address cap, split-neutral — capital only, no PoSW.** Bonded eligibility is purely `bonded >=
+   B_MIN` (10 NADO/share); the bonded lane requires **no registration or PoSW** — that is the OPEN lane's
    cost. There is no per-address weight cap (removed 2026-08-25 — it was per key and never bound a whale with two keys), so a single identity
-   dominates, but a holder above the cap **spreads real stake across addresses** to deploy all of it. That
+   can hold any stake, and **spreading it across addresses changes nothing**. That
    is **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated
    or spread, so splitting buys **no Sybil discount** — total influence is ∝ real capital, which is the PoS
    security model, not an exploit.
@@ -78,7 +78,7 @@ Three things make this the opposite of Nyzo:
    ramp is applied **only to the producer draw**, never to `total_bonded_shares`, so **fork-choice weight and
    the FFG/settlement quorum stay ramp-free** — finality is never made tenure-dependent, and a fresh whale
    still counts its full stake toward slashing/finality the instant it bonds. This only *delays* a patient
-   whale; the ultimate bound stays **cost ∝ network value + whale-cap-per-address + finality/slashing.**
+   whale; the ultimate bound stays **cost ∝ network value + finality/slashing.**
    (Genesis-seeded / pre-existing stakes have an unset age = fully aged, so the bonded lane never stalls at
    chain start; tests: `tests/test_bond_ramp.py`.)
 3. **Bounded even at majority.** Enforced finality (a persisted, un-reorgable finalized floor) plus
@@ -96,7 +96,7 @@ Put the two together and the Nyzo outcome — "one actor takes the whole reward-
 |---|---|---|
 | unlimited cheap identities / IPs / nodes | open-lane wins | **≤ ~30% of emission (proven), spread by the dividend** |
 | unlimited cheap identities *without* stake | bonded-lane wins | **0** — bonded weight requires bonded coins |
-| majority of the coin supply, bonded | bonded-lane control | expensive (∝ network value), whale-capped, and finality+slashing-bounded |
+| majority of the coin supply, bonded | bonded-lane control | expensive (∝ network value), finality+slashing-bounded |
 
 The maximum a *cheap* (Sybil/bot) attacker can ever reach is the 30% open cap. To exceed it they must stop
 being cheap and start buying majority stake — at which point they are a farm-neutral, bonded, slashable
@@ -116,11 +116,11 @@ reward anchored on the two farm-safe things: the 30%-capped open lane and farm-n
 ## 7. Residual risk + what to keep proving
 
 The one honest residual is the PoS universal: an actor who **buys a majority of the bonded stake**. That is
-not free (cost ∝ network value), not farmable (no Sybil discount), whale-capped per address, and bounded by
+not free (cost ∝ network value), not farmable (no Sybil discount), and bounded by
 finality + slashing. There is no cryptographic system that removes it without a trusted identity oracle,
 which NADO refuses (it is not IDENA).
 
-To keep the central guarantee honest rather than merely asserted, the open-lane cap should carry an
-**adversarial regression test**: flood the draw with thousands of Sybil open identities and assert their
-combined win rate never crosses `K_OPEN / EPOCH_LENGTH`. That converts "the theorem says ≤ 30%" into "every
+To keep the central guarantee honest rather than merely asserted, the open-lane cap carries an
+**adversarial regression test** (`tests/test_open_cap_adversarial.py`): it floods the draw with thousands of Sybil
+open identities and asserts their combined win rate never crosses `K_OPEN / EPOCH_LENGTH`. That converts "the theorem says ≤ 30%" into "every
 commit proves ≤ 30% under a Sybil flood" — a standing, machine-checked guard on exactly the Nyzo scenario.

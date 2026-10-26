@@ -1,6 +1,6 @@
 # Consensus-load aggregation — scaling L1 into the mainstream
 
-> **Status: IMPLEMENTED** (live on betanet-6). The two shipped pieces of the scaling envelope from
+> **Status: IMPLEMENTED** (live on the current betanet). The two shipped pieces of the scaling envelope from
 > [scaling-analysis.md](scaling-analysis.md) §A/§B/#1: a **native ML-DSA verify backend** (constant-factor,
 > the immediate win) and the **merged committee-gated epoch duty** (the asymptotic fix, O(N)→O(seats)).
 > Companion to [mining.md](mining.md) (selection), the FFG/RANDAO design, and

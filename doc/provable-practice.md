@@ -15,14 +15,15 @@ reproducibility. (Proven live by Scrapline's daily gauntlet board.)
 ## 2. The two holes plain replay-verification leaves open — and the hardened seed
 
 ```
-seed = provableSeed(slug, day, dayAnchor(day), posterAddress)
+seed = provableSeed(slug, day, anchorOf(sto, _m, day), posterAddress)
      = "daily2-<slug>-<day>-<first16 of anchor hash>-<addr>"
 ```
 
 - **Pre-grind.** A date-string seed (`daily-2026-07-16`) is computable YESTERDAY — a cheater grinds
-  tomorrow's run all night. The **day anchor** — the hash of the *first finalized L1 block with
-  timestamp ≥ UTC midnight* (deterministic binary search over finalized heights, cached; finalized ⇒
-  immutable) — makes the seed unknowable before the day begins. "The chain is heavily used" is the
+  tomorrow's run all night. The **day anchor** — the hash of an L1 block whose height the game's
+  contract pinned in advance for that day (`ah[day]`), then stored in contract storage (`av[day]`;
+  `execnode/games/_lib.daily_anchor`) — makes the seed unknowable before it is pinned, and every verifier
+  reads the same value from the contract, never walking the chain. "The chain is heavily used" is the
   whole trick: block hashes are a free, verifiable, unpredictable daily beacon.
 - **Copy-theft.** Claims are public on-chain; with a shared seed anyone can repost the day's best
   move list under their own address. Binding the **poster's address** into the seed gives every
@@ -55,7 +56,9 @@ the game's rules on that player's own run. That is the whole anti-cheat promise 
 ## 4. What exists (the SDK) and how to add a board to a game
 
 `static/provable.js`:
-- `dayAnchor(base, day)` — the finalized-block day beacon (cached; null until the day's first block).
+- `anchorOf(sto, _m, day)` / `ensureAnchor(dapp, base, sto, _m, day)` — the day anchor stored in the game's
+  contract (`ah[day]` pins a future L1 height, `av[day]` keeps that block's hash); null until resolved.
+  `ensureAnchor` is the permissionless upkeep that pins and resolves it.
 - `provableSeed(slug, day, anchor, addr)` — the consensus seed string. Do not restyle per game.
 - `packMoves/unpackMoves(moves, bits)` — generic k-bit codec, `floor(50/bits)` symbols per word
   (words stay < 2^50: safe through the JSON view's number decoding). Scrapline's 5-bit layout is

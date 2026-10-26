@@ -15,7 +15,7 @@ remote or branch refuses):
   call updates the reachable fleet; current peers don't re-forward, so the wave dies out), then restarts
   its services detached.
 - **Daily self-check** — 10 minutes after boot, then every 24 h.
-- **`nado_cli.py update`** — triggers a wave from the terminal.
+- **`scripts/nado_cli.py update`** — triggers a wave from the terminal.
 - Opt out with `"auto_update": false` in `private/config.json`. Relatedly, `"auto_ip": false` pins the
   configured `"ip"`: self-detection then never overwrites it — the escape hatch for a node whose reachable
   address is one no detector can see from inside (IPv4 CGNAT + native IPv6, #86); detection also skips any
@@ -52,17 +52,20 @@ is operational, not code-level:
 2. **Chain generation bump (full genesis reroll)** — see below.
 
 **The one sanctioned exception: a generation-keyed activation.** A rule that must NOT re-split
-history activates at a height on the CURRENT generation and at block 0 on any later one:
+history activates at a height on the CURRENT generation and from block 1 on any later one:
 
-    RULE_HEIGHT = <height> if CHAIN_GENERATION == <current> else 0
+    RULE_HEIGHT = <height> if CHAIN_GENERATION == <current> else 1
+
+(`else 0` means the rule NEVER turns on — it marks dead code for the cleanup pass, never a new rule. The GATE LEDGER in
+`protocol.py` lists every gate; `tests/test_gate_reroll_transfer.py` pins them.)
 
 This is not a compatibility window — every node enforces the identical rule at every height — it is
 a replay guard: fresh sync, reindex, rollback and the fraud-proof reconstruction must reproduce what
 the fleet applied live before the height. It retires ITSELF: the reroll commit bumps
-`CHAIN_GENERATION`, the expression becomes 0, and the dead branch is deleted in the same commit.
-Used once so far: the 2026-08-25 dividend rules rode the last hours of gen 22 this way and shipped
-ungated at the betanet-5 (gen 23) reroll; `tests/test_dividend_rules.py` now pins that NO gate
-survives for them.
+`CHAIN_GENERATION`, the expression becomes 1 (live from block 1) with no gate edit, and the dead branch is
+deleted in the cleanup pass after the reroll (doc/reroll.md). This is now the form of every consensus gate. The first
+was the 2026-08-25 dividend-rules gate, which rode the last hours of gen 22 and shipped ungated at the betanet-5
+(gen 23) reroll; `tests/test_dividend_rules.py` pins that NO gate survives for it.
 
 ## Chain generations (genesis rerolls)
 
@@ -106,16 +109,15 @@ the numbers are only small because nobody is using contracts yet.
 
 **So, before rerolling:**
 
-1. **Sweep or re-allocate every exec-side claim**, not just L1 balances — bridge, faucet, accrued
-   dividends, asset balances. Either credit each holder directly in the alloc, or land real
-   `bridge_withdraw`/`collect_dividend` transactions *before* the reroll so the value is on L1 when the
-   snapshot is taken. Do not carry the keyless escrow account itself; carry its beneficiaries.
-2. **Decide explicitly about contract-held positions.** They cannot be carried (the contracts are
-   redeployed empty). Either drain them first, or announce that open positions are void — but do not
-   discover it afterwards.
-3. **Redeploy all contracts in the SAME session as the reroll** — but note what that does and does not
-   involve. A reroll wipes every contract, and until they are redeployed each call reverts against
-   nothing, silently. What it does **not** require is rewiring the website: **contract ids are
+1. **Every exec-side claim is carried** (since 2026-10-10; doc/reroll.md "What crosses a reroll"): uncollected
+   dividends and pending exits are folded into L1 balances, exec assets, the Stwo pool and every contract travel in
+   the carry. Do not carry a keyless escrow account as if it were a holder; the carry credits its beneficiaries.
+2. **Resolve contract positions that are in flight.** Every contract is carried by its id with all of its storage
+   and its pot; one with something in flight (open bets, an unsettled game, …) refuses the carry.
+   `python3 tools/carry.py <copy of exec_state.json>` names every blocker — resolve them on the old chain first.
+3. **Contracts are carried, not redeployed** (execnode/exec_genesis.py); `python3 -m execnode.games.redeploy --check`
+   confirms every cid resolves. The background below applies when a contract does have to be deployed fresh:
+   **contract ids are
    deterministic**. `ExecState.contract_id` is `H(deployer, code, nonce)` and the deploy nonce is PINNED
    (`execnode/games/deploy.py --nonce`, default `a5`), so the same deployer key + unchanged code
    reproduces byte-identical cids across a genesis reroll. Every hardcoded cid in `static/*.js` stays
@@ -129,14 +131,14 @@ the numbers are only small because nobody is using contracts yet.
    deploying from a **different key**. Both are ordinary reasons to redeploy; neither is caused by the
    reroll itself.
 
-   Contracts are deployed **upgradable** (`upgradable: True` on all 27 live today, one deployer), so a
+   Contracts are deployed **upgradable** (`upgradable: True`, one deployer), so a
    code change afterwards goes through `deploy.py --upgrade <cid>` and keeps the cid and its storage —
    never a fresh deploy, which would strand the address.
 4. **Re-check every height/epoch-gated constant** — see [`SCHEDULED_CLEANUPS.md`](../SCHEDULED_CLEANUPS.md).
    Epoch numbering restarts, so an activation constant that was 2 days out lands weeks into the new chain
    and silently leaves the old behaviour live until then. Every gated rule must ship **unconditional** at
    a reroll — a fresh chain has no pre-activation history to preserve. A generation-keyed gate (above)
-   does this by itself; delete its dead branch in the reroll commit (gen 22→23: the dividend-rules gate).
+   does this by itself (`else 1`); its dead branch is deleted in the cleanup pass after the reroll.
 5. **Check the carried balances are not exploit-inflated.** Cheap aggregate test for the fidelity case:
    `mining_status` gives `total_open_weight / open_registry_size`. 2.0 means everyone is at fidelity 1;
    10.0 means everyone is maxed. Betanet-2 measured **2.27**, i.e. no meaningful farming, so its balances
