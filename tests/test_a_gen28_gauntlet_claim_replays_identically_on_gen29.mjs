@@ -46,7 +46,9 @@ const run = (over) => JSON.parse(execFileSync(process.execPath, [me], {
 let fails = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  " + JSON.stringify(detail).slice(0, 400)}`); if (!ok) fails++; };
 
-const g28 = run({});
+// generation 28 NAMED (BLAKE_EXEC_HEIGHT = 2^62, its dormant value), never the shipped /protocol.js — on a generation-29
+// tree that is gen 29 (gen-29 rehearsal). 2^62 is exact as a double, and Python reads the JSON back as the exact int.
+const g28 = run({ BLAKE_EXEC_HEIGHT: 2 ** 62 });
 const g29 = run({ BLAKE_EXEC_HEIGHT: 1 });
 check("setup: the two runs are generation 28 and generation 29", g28.v2 === false && g29.v2 === true, [g28.v2, g29.v2]);
 check("1. the same seed gives the same road words under both generations",

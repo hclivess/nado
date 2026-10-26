@@ -7,6 +7,13 @@ field-element-for-field-element. Run: python3 tests/test_air_ir.py
 """
 import os, sys, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
+# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
+# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
+# file reading the shipped value.
+import _harness as _gen28
+import protocol as _P_gen28
+_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.stark import vm_circuit as V, field as F, air_ir, stark
 from execnode import runtimes
 

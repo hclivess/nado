@@ -18,6 +18,10 @@ Run: python3 tests/test_battleship_hexholm_scrapline_carry_at_rest_and_sovereign
 """
 import _harness
 HOME = _harness.isolate("nado-test-carry-hidden-boards-")
+# THE GEN-28 PHASE RUNS UNDER GENERATION 28'S GATE, EXPLICITLY (gen-29 rehearsal): the state this test carries is a
+# generation-28 exec state, which the shipped value no longer describes on a generation-29 tree.
+import protocol as _PR
+_PR.BLAKE_EXEC_HEIGHT = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)
 import json, os, random, tempfile, time
 
 from execnode.state import ExecState

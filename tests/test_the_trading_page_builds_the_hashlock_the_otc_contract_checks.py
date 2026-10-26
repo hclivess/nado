@@ -80,18 +80,21 @@ def run_node(overrides):
 if shutil.which("node") is None:
     print("SKIP  node not installed: the page cannot be run here")
 else:
-    g28 = run_node({})
+    # generation 28 NAMED, never the shipped /protocol.js (on a generation-29 tree that is gen 29 — the rehearsal found it)
+    import _harness
+    g28 = run_node({"BLAKE_EXEC_HEIGHT": _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)})
     T.check("1a. node ran the page's code as generation 28", g28 is not None and g28["v2"] is False, g28 and g28.get("v2"))
     want28 = [O.vm_hashlock_parts(s, "v1") for s in secrets]
     T.check("1b. gen 28: the page's eight halves equal otc.vm_hashlock_parts (four alghash hashlocks)",
             g28 is not None and g28["parts"] == want28)
     g29 = run_node({"BLAKE_EXEC_HEIGHT": 1})
     T.check("2a. node ran the page's code as generation 29", g29 is not None and g29["v2"] is True, g29 and g29.get("v2"))
+    _shipped = P.BLAKE_EXEC_HEIGHT
     P.BLAKE_EXEC_HEIGHT = 1
     try:
         want29 = [O.vm_hashlock_parts(s) for s in secrets]
     finally:
-        P.BLAKE_EXEC_HEIGHT = 1 << 62
+        P.BLAKE_EXEC_HEIGHT = _shipped
     T.check("2b. gen 29: the page's eight pieces equal otc.vm_hashlock_parts (one 256-bit BLAKE2s hashlock)",
             g29 is not None and g29["parts"] == want29)
     T.check("2c. the gen-29 pieces differ from the gen-28 ones (the page really switched)", want29 != want28)

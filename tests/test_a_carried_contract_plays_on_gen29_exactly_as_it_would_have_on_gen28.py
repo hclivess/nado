@@ -25,6 +25,9 @@ import os
 import time
 
 import protocol as PR
+# THE GEN-28 PHASE RUNS UNDER GENERATION 28'S GATE, EXPLICITLY (gen-29 rehearsal): the state this test carries is a
+# generation-28 exec state, which the shipped value no longer describes on a generation-29 tree.
+PR.BLAKE_EXEC_HEIGHT = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState
 from execnode.games import bet as B, pets as P
 from execnode import exec_genesis as EG

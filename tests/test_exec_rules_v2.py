@@ -33,6 +33,13 @@ for d in ("blocks", "index", "private", "peers", "transactions"):
 
 import logging
 import protocol as P
+# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
+# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
+# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
+# file reading the shipped value.
+import _harness as _gen28
+import protocol as _P_gen28
+_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState, asset_id, MAX_EXIT_VALUE
 from execnode import zkvm, zkvmasm
 from execnode.stark import records_bind as RB, stark, vm_circuit, settlement_sparse as SS

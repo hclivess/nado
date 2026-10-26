@@ -25,6 +25,19 @@ for d in ("blocks", "index", "private", "peers", "transactions"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 import protocol as P
+# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
+# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
+# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
+# file reading the shipped value.
+import _harness as _gen28
+import protocol as _P_gen28
+_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
+# ...and generation 28's pools and block budget, which these height-1 rules were written against: there a field shield
+# at height 1 lands in the wide pool and one sender may fill the block's budget; generation 29 opens the Stwo pool,
+# closes the wide one and caps a sender's share from block 1 (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
+# EXEC_BUDGET_V2_HEIGHT), each with its own tests.
+for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "EXEC_BUDGET_V2_HEIGHT"):
+    setattr(_P_gen28, _g, _gen28.gate_at(_g, 28))
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
 from execnode.stark import stark, field as F, settlement_sparse as SS
