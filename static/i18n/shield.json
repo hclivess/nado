@@ -105,7 +105,10 @@
   "shield.zrecv": "Receive",
   "shield.zsend": "Send shielded",
   "shield.zsendNote": "A relay node publishes this payment under its own account, so it is not linked to yours. Its fee comes out of your private balance.",
-  "shield.zsendTitle": "Send privately"
+  "shield.zsendTitle": "Send privately",
+  "shield.unshieldRelayTitle": "Withdraw through a relay",
+  "shield.unshieldRelayBody": "This account has no public NADO to pay the network fee, so a relay node publishes the withdrawal and takes its fee from your private balance.",
+  "shield.publishRefused": "the network refused the withdrawal"
  },
  "cs": {
   "shield.already": "Tuto bankovku už máte.",
@@ -213,7 +216,10 @@
   "shield.zrecv": "Přijmout",
   "shield.zsend": "Odeslat stíněně",
   "shield.zsendNote": "Přenosový uzel zveřejní tuto platbu pod svým vlastním účtem, takže není spojena s vaším. Jeho poplatek se strhne z vašeho soukromého zůstatku.",
-  "shield.zsendTitle": "Odeslat soukromě"
+  "shield.zsendTitle": "Odeslat soukromě",
+  "shield.unshieldRelayTitle": "Výběr přes přenosový uzel",
+  "shield.unshieldRelayBody": "Tento účet nemá veřejné NADO na síťový poplatek, proto výběr zveřejní přenosový uzel a svůj poplatek si vezme z vašeho soukromého zůstatku.",
+  "shield.publishRefused": "síť výběr odmítla"
  },
  "es": {
   "shield.already": "Ya tienes ese billete.",
@@ -321,7 +327,10 @@
   "shield.zrecv": "Recibir",
   "shield.zsend": "Enviar blindado",
   "shield.zsendNote": "Un nodo de retransmisión publica este pago con su propia cuenta, así que no queda vinculado a la tuya. Su comisión sale de tu saldo privado.",
-  "shield.zsendTitle": "Enviar en privado"
+  "shield.zsendTitle": "Enviar en privado",
+  "shield.unshieldRelayTitle": "Retirar mediante un relé",
+  "shield.unshieldRelayBody": "Esta cuenta no tiene NADO público para pagar la comisión de red, así que un nodo relé publica el retiro y cobra su comisión de tu saldo privado.",
+  "shield.publishRefused": "la red rechazó el retiro"
  },
  "pt": {
   "shield.already": "Você já tem essa cédula.",
@@ -429,7 +438,10 @@
   "shield.zrecv": "Receber",
   "shield.zsend": "Enviar blindado",
   "shield.zsendNote": "Um nó de retransmissão publica este pagamento com a própria conta, então ele não fica ligado à sua. A taxa sai do seu saldo privado.",
-  "shield.zsendTitle": "Enviar em privado"
+  "shield.zsendTitle": "Enviar em privado",
+  "shield.unshieldRelayTitle": "Levantar através de um relay",
+  "shield.unshieldRelayBody": "Esta conta não tem NADO público para pagar a taxa de rede, por isso um nó relay publica o levantamento e cobra a sua taxa do seu saldo privado.",
+  "shield.publishRefused": "a rede recusou o levantamento"
  },
  "fr": {
   "shield.already": "Vous avez déjà ce billet.",
@@ -537,7 +549,10 @@
   "shield.zrecv": "Recevoir",
   "shield.zsend": "Envoyer en mode blindé",
   "shield.zsendNote": "Un nœud relais publie ce paiement sous son propre compte, il n'est donc pas lié au vôtre. Ses frais sont prélevés sur votre solde privé.",
-  "shield.zsendTitle": "Envoyer en privé"
+  "shield.zsendTitle": "Envoyer en privé",
+  "shield.unshieldRelayTitle": "Retirer via un relais",
+  "shield.unshieldRelayBody": "Ce compte n'a pas de NADO public pour payer les frais de réseau : un nœud relais publie donc le retrait et prélève ses frais sur votre solde privé.",
+  "shield.publishRefused": "le réseau a refusé le retrait"
  },
  "de": {
   "shield.already": "Du hast diese Banknote bereits.",
@@ -645,7 +660,10 @@
   "shield.zrecv": "Empfangen",
   "shield.zsend": "Abgeschirmt senden",
   "shield.zsendNote": "Ein Relay-Knoten veröffentlicht diese Zahlung unter seinem eigenen Konto, sodass sie nicht mit deinem verknüpft ist. Seine Gebühr geht von deinem privaten Guthaben ab.",
-  "shield.zsendTitle": "Privat senden"
+  "shield.zsendTitle": "Privat senden",
+  "shield.unshieldRelayTitle": "Über ein Relay abheben",
+  "shield.unshieldRelayBody": "Dieses Konto hat kein öffentliches NADO für die Netzwerkgebühr, daher veröffentlicht ein Relay-Knoten die Abhebung und nimmt seine Gebühr aus deinem privaten Guthaben.",
+  "shield.publishRefused": "das Netzwerk hat die Abhebung abgelehnt"
  },
  "it": {
   "shield.already": "Hai già quella banconota.",
@@ -753,7 +771,10 @@
   "shield.zrecv": "Ricevi",
   "shield.zsend": "Invia blindato",
   "shield.zsendNote": "Un nodo relay pubblica questo pagamento con il proprio account, quindi non è collegato al tuo. La sua commissione esce dal tuo saldo privato.",
-  "shield.zsendTitle": "Invia in privato"
+  "shield.zsendTitle": "Invia in privato",
+  "shield.unshieldRelayTitle": "Preleva tramite un relay",
+  "shield.unshieldRelayBody": "Questo account non ha NADO pubblici per pagare la commissione di rete, quindi un nodo relay pubblica il prelievo e trattiene la sua commissione dal tuo saldo privato.",
+  "shield.publishRefused": "la rete ha rifiutato il prelievo"
  },
  "ru": {
   "shield.already": "У вас уже есть эта банкнота.",
@@ -861,7 +882,10 @@
   "shield.zrecv": "Получить",
   "shield.zsend": "Отправить экранированно",
   "shield.zsendNote": "Узел-ретранслятор публикует этот платёж от своего счёта, поэтому он не связан с вашим. Его комиссия списывается с вашего приватного баланса.",
-  "shield.zsendTitle": "Отправить приватно"
+  "shield.zsendTitle": "Отправить приватно",
+  "shield.unshieldRelayTitle": "Вывод через ретранслятор",
+  "shield.unshieldRelayBody": "На этом аккаунте нет публичных NADO для оплаты комиссии сети, поэтому вывод публикует узел-ретранслятор и берёт свою комиссию из вашего приватного баланса.",
+  "shield.publishRefused": "сеть отклонила вывод"
  },
  "zh": {
   "shield.already": "您已拥有该钞票。",
@@ -969,7 +993,10 @@
   "shield.zrecv": "接收",
   "shield.zsend": "私密发送",
   "shield.zsendNote": "中继节点以它自己的账户发布这笔付款，因此不会与您的账户关联。其费用从您的私密余额中扣除。",
-  "shield.zsendTitle": "私密发送"
+  "shield.zsendTitle": "私密发送",
+  "shield.unshieldRelayTitle": "通过中继提现",
+  "shield.unshieldRelayBody": "此账户没有可支付网络手续费的公开 NADO，因此由中继节点发布这笔提现，并从你的私密余额中收取其手续费。",
+  "shield.publishRefused": "网络拒绝了这笔提现"
  },
  "ja": {
   "shield.already": "その紙幣はすでに所持しています。",
@@ -1077,7 +1104,10 @@
   "shield.zrecv": "受け取る",
   "shield.zsend": "シールド送信",
   "shield.zsendNote": "リレーノードがこの送金を自身のアカウントで公開するため、あなたのアカウントとは結び付きません。手数料はあなたのプライベート残高から差し引かれます。",
-  "shield.zsendTitle": "プライベートに送金"
+  "shield.zsendTitle": "プライベートに送金",
+  "shield.unshieldRelayTitle": "リレー経由で引き出す",
+  "shield.unshieldRelayBody": "このアカウントにはネットワーク手数料を払う公開 NADO がないため、リレーノードが引き出しを公開し、手数料をあなたの非公開残高から受け取ります。",
+  "shield.publishRefused": "ネットワークが引き出しを拒否しました"
  },
  "ko": {
   "shield.already": "이미 그 지폐를 보유하고 있습니다.",
@@ -1185,7 +1215,10 @@
   "shield.zrecv": "수령",
   "shield.zsend": "실드 전송",
   "shield.zsendNote": "릴레이 노드가 이 결제를 자신의 계정으로 게시하므로 내 계정과 연결되지 않습니다. 수수료는 비공개 잔액에서 차감됩니다.",
-  "shield.zsendTitle": "비공개로 보내기"
+  "shield.zsendTitle": "비공개로 보내기",
+  "shield.unshieldRelayTitle": "릴레이를 통해 출금",
+  "shield.unshieldRelayBody": "이 계정에는 네트워크 수수료를 낼 공개 NADO가 없으므로, 릴레이 노드가 출금을 게시하고 수수료를 비공개 잔액에서 가져갑니다.",
+  "shield.publishRefused": "네트워크가 출금을 거부했습니다"
  },
  "ar": {
   "shield.already": "لديك تلك الورقة النقدية بالفعل.",
@@ -1293,7 +1326,10 @@
   "shield.zrecv": "استلام",
   "shield.zsend": "إرسال محمي",
   "shield.zsendNote": "تنشر عقدةُ ترحيل هذه الدفعةَ باسم حسابها، فلا ترتبط بحسابك. تُخصم رسومها من رصيدك الخاص.",
-  "shield.zsendTitle": "إرسال بشكل خاص"
+  "shield.zsendTitle": "إرسال بشكل خاص",
+  "shield.unshieldRelayTitle": "السحب عبر مُرحِّل",
+  "shield.unshieldRelayBody": "لا يملك هذا الحساب NADO عامًا لدفع رسوم الشبكة، لذا تنشر عقدة مُرحِّلة عملية السحب وتأخذ رسومها من رصيدك الخاص.",
+  "shield.publishRefused": "رفضت الشبكة عملية السحب"
  },
  "hi": {
   "shield.already": "वह बैंकनोट आपके पास पहले से है।",
@@ -1401,7 +1437,10 @@
   "shield.zrecv": "प्राप्त करें",
   "shield.zsend": "शील्डेड भेजें",
   "shield.zsendNote": "एक रिले नोड यह भुगतान अपने खाते से प्रकाशित करता है, इसलिए यह आपके खाते से जुड़ा नहीं होता। उसका शुल्क आपकी निजी शेष राशि से कटता है।",
-  "shield.zsendTitle": "निजी रूप से भेजें"
+  "shield.zsendTitle": "निजी रूप से भेजें",
+  "shield.unshieldRelayTitle": "रिले के ज़रिए निकासी",
+  "shield.unshieldRelayBody": "इस खाते में नेटवर्क शुल्क चुकाने के लिए कोई सार्वजनिक NADO नहीं है, इसलिए एक रिले नोड निकासी प्रकाशित करता है और अपना शुल्क आपके निजी बैलेंस से लेता है।",
+  "shield.publishRefused": "नेटवर्क ने निकासी अस्वीकार कर दी"
  },
  "tr": {
   "shield.already": "Bu banknot zaten sizde.",
@@ -1509,7 +1548,10 @@
   "shield.zrecv": "Al",
   "shield.zsend": "Gizli gönder",
   "shield.zsendNote": "Bir aktarma düğümü bu ödemeyi kendi hesabıyla yayınlar, bu yüzden sizin hesabınızla ilişkilendirilmez. Ücreti özel bakiyenizden düşülür.",
-  "shield.zsendTitle": "Gizli gönder"
+  "shield.zsendTitle": "Gizli gönder",
+  "shield.unshieldRelayTitle": "Bir aktarıcı üzerinden çek",
+  "shield.unshieldRelayBody": "Bu hesapta ağ ücretini ödeyecek herkese açık NADO yok, bu yüzden çekimi bir aktarıcı düğüm yayımlar ve ücretini özel bakiyenden alır.",
+  "shield.publishRefused": "ağ çekimi reddetti"
  },
  "id": {
   "shield.already": "Anda sudah memiliki uang kertas itu.",
@@ -1617,7 +1659,10 @@
   "shield.zrecv": "Terima",
   "shield.zsend": "Kirim terlindungi",
   "shield.zsendNote": "Node relai menerbitkan pembayaran ini atas nama akunnya sendiri, sehingga tidak terkait dengan akun Anda. Biayanya diambil dari saldo pribadi Anda.",
-  "shield.zsendTitle": "Kirim secara pribadi"
+  "shield.zsendTitle": "Kirim secara pribadi",
+  "shield.unshieldRelayTitle": "Tarik melalui relay",
+  "shield.unshieldRelayBody": "Akun ini tidak punya NADO publik untuk membayar biaya jaringan, jadi node relay yang menerbitkan penarikan dan mengambil biayanya dari saldo pribadi Anda.",
+  "shield.publishRefused": "jaringan menolak penarikan"
  },
  "vi": {
   "shield.already": "Bạn đã có tờ tiền đó rồi.",
@@ -1725,6 +1770,9 @@
   "shield.zrecv": "Nhận",
   "shield.zsend": "Gửi che giấu",
   "shield.zsendNote": "Một nút chuyển tiếp công bố khoản thanh toán này dưới tài khoản của chính nó, nên không liên kết với tài khoản của bạn. Phí được trừ từ số dư riêng tư của bạn.",
-  "shield.zsendTitle": "Gửi riêng tư"
+  "shield.zsendTitle": "Gửi riêng tư",
+  "shield.unshieldRelayTitle": "Rút qua nút chuyển tiếp",
+  "shield.unshieldRelayBody": "Tài khoản này không có NADO công khai để trả phí mạng, vì vậy một nút chuyển tiếp sẽ công bố lệnh rút và lấy phí từ số dư riêng tư của bạn.",
+  "shield.publishRefused": "mạng đã từ chối lệnh rút"
  }
 }

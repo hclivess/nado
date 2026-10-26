@@ -11168,13 +11168,37 @@ async function doUnshield() {
   const to = $("unshieldTo").value.trim() || state.wallet.address;
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
   if (!ADDR_RE_I.test(to)) { log("err", i18("shield.badAddr", "Enter a valid address.")); return; }
-  const picks = selectNotesFor(rawAmount);
-  if (!picks) { log("err", insufficientMsg(rawAmount)); return; }
-  // A WITHDRAWAL IS PUBLISHED BY THIS ACCOUNT (its payout is public anyway, and one proof binds one destination, so a
-  // relay cannot be paid in the same spend). To one's own address that reveals nothing new; to SOMEONE ELSE's it tells
-  // everyone this account paid them. Said once per account, before the first such withdrawal (operator decision
-  // 2026-10-11) — a private payment (Send shielded) is the unlinked way.
-  if (to !== state.wallet.address) {
+  // WHO PUBLISHES IT. An account that can pay the L1 fee publishes its own withdrawal, as it always did. One that CANNOT
+  // — everything it holds arrived privately, which is exactly a recipient's case — could never withdraw: its blob was
+  // refused for the fee and the page said only "Proof failed:" (the gen-29 rehearsal's two-user walk, 2026-10-26). Such a
+  // withdrawal is published by a relay node instead and pays the relay's fee out of the banknote — the fee_to path a
+  // shadow account is funded by (STWO_FEE_TO_HEIGHT: the proof binds the relay's address as the fee's payee).
+  let relays = null, fee = 0n;
+  const accNow = await getAccount(state.wallet.address).catch(() => null);
+  if (BigInt((accNow && accNow.balance) || 0) < BigInt(MIN_TX_FEE)) {
+    relays = await stwoRelays();
+    if (!relays.length) { log("err", i18("shield.relayNone", "No relay node can publish a private payment right now. Nothing was sent — try again in a minute.")); return; }
+    fee = BigInt(relays[0].fee);
+  }
+  let picks = selectNotesFor(rawAmount);
+  for (let i = 0; relays && picks && i < 8; i++) {        // each banknote spent pays the relay once
+    const again = selectNotesFor(rawAmount + fee * BigInt(picks.length));
+    if (!again || again.length === picks.length) { picks = again; break; }
+    picks = again;
+  }
+  if (!picks) { log("err", insufficientMsg(rawAmount + fee)); return; }
+  if (relays) {
+    const okr = await uiConfirm({ title: i18("shield.unshieldRelayTitle", "Withdraw through a relay"),
+      rows: [{ k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" }, { k: i18("dlg.to", "To"), v: to },
+             { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(fee * BigInt(picks.length)) + " NADO" }],
+      body: i18("shield.unshieldRelayBody", "This account has no public NADO to pay the network fee, so a relay node publishes the withdrawal and takes its fee from your private balance."),
+      confirmText: i18("shield.unshield", "Unshield") });
+    if (!okr) { log("info", i18("msg.cancelled", "Cancelled.")); return; }
+  }
+  // A WITHDRAWAL THIS ACCOUNT PUBLISHES names it: to one's own address that reveals nothing new; to SOMEONE ELSE's it
+  // tells everyone this account paid them. Said once per account, before the first such withdrawal (operator decision
+  // 2026-10-11) — a private payment (Send shielded) is the unlinked way. A relayed withdrawal does not name the account.
+  if (!relays && to !== state.wallet.address) {
     const seen = "nado.stwoPublicPayWarned." + state.wallet.address;
     let warned = false; try { warned = !!localStorage.getItem(seen); } catch (e) {}
     if (!warned) {
@@ -11196,8 +11220,10 @@ async function doUnshield() {
       const notes = loadNotes();
       const note = notes.find((n) => n.cm === picks[i].cm && !n.spent);
       if (!note) continue;                                   // already spent by a concurrent tab
-      const take = BigInt(note.value) < (rawAmount - done) ? BigInt(note.value) : (rawAmount - done);
-      const change = BigInt(note.value) - take;
+      const room = BigInt(note.value) - fee;                 // a relayed withdrawal pays the relay out of this note
+      if (room <= 0n) continue;
+      const take = room < (rawAmount - done) ? room : (rawAmount - done);
+      const change = BigInt(note.value) - take - fee;
       const r1 = _randField(), r2 = _randField();
       $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + (picks.length > 1
         ? i18("shield.provingN", "Generating proof {i} of {n}… (~15s each — this amount spans several banknotes)",
@@ -11209,7 +11235,8 @@ async function doUnshield() {
         cm: note.cm, nsk: noteNskWire(note), value_in: note.value, rho_in: note.rho,
         v1: change.toString(), o1: ownerStr(owner), r1,
         v2: "0", o2: ownerStr(owner), r2,
-        public_value: (-take).toString(), fee: "0", withdraw_addr: to,
+        public_value: (-take).toString(), fee: fee.toString(), withdraw_addr: to,
+        ...(relays ? { fee_to_relays: relays } : {}),
       };
       const pr = await proveTransfer2(wit);
       if (pr.error || !pr.ok) {
@@ -11265,8 +11292,11 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
     latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
     guardFrom(latest.block_number));   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
-  return { ok: !!(res.data && res.data.result), da: true, commitment, txid: tx.txid,
-           message: res.data && res.data.message };
+  const ok = !!(res.data && res.data.result);
+  // A REFUSAL SAYS WHY: callers read `error` — this returned only `message`, so a refused withdrawal showed the user
+  // "Proof failed:" and nothing else (the gen-29 rehearsal's walk: an account with no public NADO for the fee)
+  return { ok, da: true, commitment, txid: tx.txid, message: res.data && res.data.message,
+           error: ok ? undefined : ((res.data && res.data.message) || i18("shield.publishRefused", "the network refused the withdrawal")) };
 }
 
 // ON-DEVICE prover: the Merkle path is built here from the pool's leaves and the proof made in the browser (the Stwo
