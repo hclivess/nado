@@ -25,12 +25,30 @@ GAMES = sorted(f[:-3] for f in os.listdir(os.path.join(_harness.ROOT, "execnode"
 T.check("27 contracts are built here", len(GAMES) == 27, GAMES)
 HR = {op for op in zkvm.OPS if op.startswith("HR")}
 
-same, v2_ok, v2_clean, logic = [], [], [], []
+# THE DEFAULT IS THE GENERATION'S (zkvmasm.default_isa): v1 under generation 28's gate, v2 under 29's — checked under
+# each explicitly (the gen-29 rehearsal found this file asserting "bare build() is v1" against the shipped value)
+G28, G29 = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28), _harness.gate_at("BLAKE_EXEC_HEIGHT", 29)
+same, same29, v1_stable, v2_ok, v2_clean, logic = [], [], [], [], [], []
 for g in GAMES:
     mod = importlib.import_module("execnode.games." + g)
-    d, v1, v2 = mod.build(), mod.build("v1"), mod.build("v2")
+    with _harness.pinned(BLAKE_EXEC_HEIGHT=G28):
+        d = mod.build()
+    with _harness.pinned(BLAKE_EXEC_HEIGHT=G29):
+        d29 = mod.build()
+    v1, v2 = mod.build("v1"), mod.build("v2")
+    # the v1 code does not depend on the generation that imports the builder (the carry finds a contract's module by
+    # build("v1") == its code): faucet baked the generation's address digest into its v1 source until the gen-29
+    # rehearsal, and build("v1") could not even assemble on a gen-29 node
+    with _harness.pinned(BLAKE_EXEC_HEIGHT=G28):
+        v1_28 = mod.build("v1")
+    with _harness.pinned(BLAKE_EXEC_HEIGHT=G29):
+        v1_29 = mod.build("v1")
+    if v1_28 == v1_29 == v1:
+        v1_stable.append(g)
     if d == v1:
         same.append(g)
+    if d29 == v2:
+        same29.append(g)
     try:
         zkvm2.validate_code(v2)
         v2_ok.append(g)
@@ -54,12 +72,16 @@ for g in GAMES:
         b = [(o, d_, s_) for o, d_, s_, _ in v2[m]]
         if a != b:
             logic.append((g, m))
-T.check("1. build() is build('v1') for every contract (the live code does not move)", len(same) == 27,
+T.check("1. generation 28: build() is build('v1') for every contract (the live code does not move)", len(same) == 27,
         sorted(set(GAMES) - set(same)))
-hashing = [g for g in GAMES if any(i[0] == "HINIT" for prog in importlib.import_module("execnode.games." + g).build().values()
+T.check("1a. generation 29: build() is build('v2') for every contract (the reroll's redeploy builds bare)", len(same29) == 27,
+        sorted(set(GAMES) - set(same29)))
+T.check("1c. build('v1') is byte-identical under either generation's gate (no generation-dependent constant in v1)",
+        len(v1_stable) == 27, sorted(set(GAMES) - set(v1_stable)))
+hashing = [g for g in GAMES if any(i[0] == "HINIT" for prog in importlib.import_module("execnode.games." + g).build("v1").values()
                                     for i in prog)]
 T.check("1b. every contract that hashes still uses the alghash round opcodes in v1",
-        all(any(i[0] in HR for prog in importlib.import_module("execnode.games." + g).build().values() for i in prog)
+        all(any(i[0] in HR for prog in importlib.import_module("execnode.games." + g).build("v1").values() for i in prog)
             for g in hashing) and len(hashing) >= 15, len(hashing))
 T.check("2a. build('v2') passes zkvm2's deploy gate for every contract", len(v2_ok) == 27, sorted(set(GAMES) - set(v2_ok)))
 T.check("2b. no v2 build contains an alghash round opcode", len(v2_clean) == 27, sorted(set(GAMES) - set(v2_clean)))

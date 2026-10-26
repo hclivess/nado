@@ -30,7 +30,12 @@ from execnode import zkvmasm, runtimes
 OPERATOR_PUBKEY = "ebd27698662f14ee2389e509781d5ff57487f4289a"   # the key's leading body (format 1: the address body)
 from execnode.code_codec import FIXED_CIDS as _FIXED_CIDS
 OPERATOR = _FIXED_CIDS["faucet"]
-OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
+# THE V1 (FIELD) DIGEST, EXPLICITLY — never the generation's format (gen-29 rehearsal, 2026-10-25). SRC is the v1 source
+# and build("v1") must be byte-identical on every generation: the carry finds a contract's module by build("v1") == its
+# code, and v2's build() swaps exactly this literal for the v2 digest. Read with the default (the generation's format),
+# a gen-29 import baked a 256-bit digest into the v1 source and build("v1") could no longer assemble. INVARIANT: a
+# module-level digest baked into SRC names its format (v2=False), as here.
+OP_DIG = runtimes.zkvm_addr_digest(OPERATOR, False)
 
 # fund(): anyone may top the prize bank up exec-side (the call's VALUE is escrowed to this contract by
 # the call machinery itself before the method runs — this body only insists there IS a value).
