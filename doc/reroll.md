@@ -218,7 +218,12 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
    every OTHER shielded pool is empty, and refuses unless supply conserves exactly (Δ = 0).
 3. Rehearse the source edit on a throwaway worktree (symlink `native/` in).
 4. Back up the data directory.
-5. `systemctl stop nado-watchtower nado-exec nado` (a fixed-point snapshot).
+5. **Stop the timers FIRST**, then the services: `systemctl stop nado-exec-keeper.timer nado-restart.path
+   nado-bet-oracle.timer nado-faucet-rewards.timer && systemctl stop nado-watchtower nado-exec nado` (a fixed-point
+   snapshot), and confirm both stay inactive past one keeper cycle (> 2 min). At the gen-29 reroll the services alone were
+   stopped: `nado-exec-keeper.timer` (every 2 min, "start nado-exec if an update left it stopped") restarted `nado-exec` —
+   and `nado` with it — 30 s later, the drain ran against a live node and the carry refused the cursor mismatch (failure
+   mode 11). Back up AFTER the stop (a hot copy of LMDB is not a consistent one). Restart the timers after step 11.
 6. **Drain the exec tail**: `python3 tools/exec_drain.py /root/nado/exec_state.json /root`. The exec node applies only
    finalized blocks, so at any stop it is ~45 blocks behind the tip, and those blocks hold real exec ops (dividend
    claims, deposits). The drain replays them with the exec node's own apply path and prints the tip.
@@ -292,6 +297,11 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
 10. **"Below the gate" tests at a reroll.** Every gen-27 gate becomes 1, so a test that reproduces the old rule at a real
     gen-27 height finds no "below" left and fails. The fix keeps the property: the test sets the gate it probes to the
     gen-27 value for its below-gate half (`GEN27_GATE`, `NARROW_GATE`) and restores the live one — never delete the check.
+
+11. **The exec keeper restarts a stopped node** (gen-29 reroll, 2026-10-27): stopping `nado-exec`/`nado` alone is undone
+    within two minutes by `nado-exec-keeper.timer`, which starts `nado-exec` (and so `nado`). The drain then raced a live
+    exec node, whose own save overwrote the drained state; the carry refused ("exec cursor … is behind the L1 tip") and
+    nothing was lost. Step 5 now stops the timers and the restart bridge first and confirms the services stay down.
 
 ## Gen 28 (betanet-9): address format 2
 
