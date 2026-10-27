@@ -90,7 +90,7 @@ def check(name, cond, detail=""):
 def main():
     import protocol as P
     src = open(os.path.join(ROOT, "protocol.py")).read()
-    check("this test tracks the live generation (gen 28 since the betanet-9 reroll)", P.CHAIN_GENERATION == 28, P.CHAIN_GENERATION)
+    check("this test tracks the live generation (gen 29 since the betanet-10 reroll)", P.CHAIN_GENERATION == 29, P.CHAIN_GENERATION)
 
     for name, want in sorted(REROLL.items()):
         m = re.search(r"^" + name + r" = ([^#\n]+)", src, re.M)

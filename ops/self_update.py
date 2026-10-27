@@ -47,7 +47,7 @@ _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code
 # STALE library rebuilt (a stale verifier is a different verdict, i.e. a fork), and part of native.ok. A node without it
 # still STALLS a block carrying a Stwo spend instead of skipping it (execnode._apply_block).
 _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks",
-           "native/stwo_js")
+           "native/stwo_js", "native/pqsig")
 # OPTIONAL CRATES: built on update like the required ones (when their sources change, or their library was never built),
 # reported in /status native, but NEVER required — no refusal to start, no purge on a failed build, not part of
 # native.ok. The class exists for a crate that must reach the fleet BEFORE its gate is set (native/stwo_js was one until
@@ -55,7 +55,7 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 # native/pqsig (the user-selectable signature schemes, doc/signature-schemes.md) is OPTIONAL while SIG_SCHEMES_HEIGHT is
 # dormant (2^62 on gen 28): every node builds it on this update, nothing needs it yet. The reroll that sets the gate to 1
 # moves it to _CRATES in the same commit — from then on a node without it would refuse a valid tagged transaction.
-_OPTIONAL_CRATES = ("native/pqsig",)
+_OPTIONAL_CRATES = ()   # native/pqsig became required with the gen-29 reroll (SIG_SCHEMES_HEIGHT = 1)
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that
