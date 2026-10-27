@@ -11,6 +11,8 @@
      "files": ["nado-faucet-rewards.service", "nado-faucet-rewards.timer"], "runs": "nado-faucet-rewards.service"},
     {"unit": "nado-bet-oracle.timer",     "role": "operator", "source": "repo",
      "files": ["nado-bet-oracle.service", "nado-bet-oracle.timer"], "runs": "nado-bet-oracle.service"},
+    {"unit": "nado-settle-shadow.timer",  "role": "operator", "source": "repo",
+     "files": ["nado-settle-shadow.service", "nado-settle-shadow.timer"], "runs": "nado-settle-shadow.service"},
     {"unit": "nado-exec-keeper.timer",    "role": "exec",     "source": "repo",
      "files": ["nado-exec-keeper.service", "nado-exec-keeper.timer"], "runs": "nado-exec-keeper.service"}
   ]

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the NADO settlement shadow run every 30 minutes (the exec node keeps ~6 h of settled snapshots)
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=30min
+Unit=nado-settle-shadow.service
+
+[Install]
+WantedBy=timers.target

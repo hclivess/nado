@@ -1,0 +1,24 @@
+# NADO settlement shadow run (G8, doc/stwo-migration.md 9.5): prove every span the exec node settled with the gen-29
+# Stwo settlement prover, verify each proof as L1 would, and compare with the exec node's own root
+# (tools/settle_b2_shadow.py). READ-ONLY: it reads the exec node's settled snapshots, GETs blocks from the local node and
+# appends results to @HOME@/.cache/nado-settle-shadow/results.jsonl; it changes nothing on the chain. Operator go-ahead
+# 2026-10-27, for the two weeks G8 requires. A TEMPLATE: the root reconciler (scripts/reconcile_units.py, doc/jobs.md)
+# fills @USER@ @GROUP@ @HOME@ @REPO@.
+# Low priority on purpose: it shares the relay with the node. An out-of-gas call alone proves at ~19 GB (measured), so
+# memory is capped below the machine's; a span the cap kills is retried at the next run and reported as an error.
+[Unit]
+Description=NADO settlement shadow run — prove and verify each settled exec span off-chain
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+Environment=HOME=@HOME@
+WorkingDirectory=@REPO@
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=24G
+TimeoutStartSec=25min
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/tools/settle_b2_shadow.py --build --out @HOME@/.cache/nado-settle-shadow/results.jsonl

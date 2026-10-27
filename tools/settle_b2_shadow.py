@@ -3,19 +3,23 @@ settled, verify each proof as L1 would, and check the verified root against the 
 exec node's settled snapshots (exec_state.json~stash~<ns>~<cursor>.json) and GETs blocks and accrual inputs from L1; it
 writes only --out. Nothing it finds changes anything on the chain.
 
-    python3 tools/settle_b2_shadow.py --bin <vm_settle> --out <results.jsonl> [--state-dir DIR] [--l1 URL] [--last N]
+    python3 tools/settle_b2_shadow.py (--bin <vm_settle> | --build) --out <results.jsonl> [--state-dir DIR] [--l1 URL]
+                                      [--last N]
 
 One JSON line per span (execnode/settle_b2.shadow_span): "proven" (the verifier accepted, on the exec node's root),
 "unprovable" (with the reason the witness cannot carry it yet), "refused" or "mismatch" (a bug: the prover's own bundle
 must verify and land on the exec node's root), "error", "skipped" (a stash not at its own cursor and root, from before
 execnode._stash_payload). Spans already in --out are skipped, so reruns continue.
 
-`vm_settle` is native/stwo_settle's binary (nightly toolchain: tests/_stwo_settle_build.py builds it).
+`vm_settle` is native/stwo_settle's prover binary (nightly + the `prover` feature). `--build` builds it with the
+account's own nightly (tests/_stwo_settle_build.py: a copy of the crate in ~/.cache, never in the checkout); the operator
+job deploy/units/nado-settle-shadow.service runs it that way every 30 minutes.
 """
 import os
 import sys
 import tempfile
 
+_REAL_HOME = os.path.expanduser("~")    # BEFORE the reassignment below: the toolchain and the build cache live there
 # NEVER the live node's state (CLAUDE.md rule 4): HOME and both exec paths are assigned before any node import, so the
 # imports below open throwaway directories; the snapshots are read by path, as files.
 _TMP = tempfile.mkdtemp(prefix="nado-settle-shadow-")
@@ -49,7 +53,8 @@ def stashes(state_dir, ns):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--bin", required=True, help="native/stwo_settle's vm_settle binary")
+    ap.add_argument("--bin", help="native/stwo_settle's vm_settle binary")
+    ap.add_argument("--build", action="store_true", help="build vm_settle with this account's nightly toolchain")
     ap.add_argument("--out", required=True, help="results, JSON lines (appended)")
     ap.add_argument("--state-dir", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     help="where the exec node keeps exec_state.json and its stashes (default: this checkout)")
@@ -57,7 +62,15 @@ def main():
     ap.add_argument("--ns", default="default")
     ap.add_argument("--last", type=int, default=0, help="only the last N spans (0: all)")
     a = ap.parse_args()
+    if not a.bin:
+        if not a.build:
+            ap.error("give --bin or --build")
+        from tests._stwo_settle_build import build
+        a.bin, log = build(_REAL_HOME, "vm_settle")
+        if a.bin is None:
+            sys.exit(f"cannot build vm_settle: {log or 'no nightly toolchain for this account'}")
 
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     from execnode import settle_b2 as S
     from execnode.state import ExecState
 

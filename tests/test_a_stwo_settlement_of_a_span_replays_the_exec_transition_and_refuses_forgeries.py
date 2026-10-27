@@ -521,6 +521,18 @@ r2 = subprocess.run([sys.executable, os.path.join(_harness.ROOT, "tools", "settl
                      "--state-dir", sd, "--l1", "http://127.0.0.1:9"], capture_output=True, text=True, timeout=600, env=env)
 T.check("6c. a rerun continues where the results file ends (nothing reproven, nothing fetched)",
         r2.returncode == 0 and len(open(outp).read().splitlines()) == len(res), (r2.returncode, r2.stderr[-500:]))
+# the operator job's form (deploy/units/nado-settle-shadow.service): --build compiles the prover with the account's own
+# nightly (its HOME is the real one, as the unit's is), and a results path whose directory does not exist yet
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), L1)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+outb = os.path.join(HOME, "job", "cache", "results.jsonl")
+r3 = subprocess.run([sys.executable, os.path.join(_harness.ROOT, "tools", "settle_b2_shadow.py"), "--build", "--out", outb,
+                     "--state-dir", sd, "--l1", f"http://127.0.0.1:{srv.server_address[1]}"], capture_output=True, text=True,
+                    timeout=3600, env=dict(os.environ, HOME=_REAL_HOME))
+srv.shutdown()
+resb = [json.loads(line) for line in open(outb)] if os.path.exists(outb) else []
+T.check("6d. the job's form (--build, a fresh results directory) builds its own prover and proves the span",
+        any(x.get("result") == "proven" for x in resb), (resb, r3.stderr[-1500:]))
 
 size = len(json.dumps({k: v for k, v in bundle.items() if k != "vm_proof"}))
 print(f"TIME blocks={len(span)} runs={len(bundle['runs'])} steps={sum(r['n_steps'] for r in bundle['runs'])} "
