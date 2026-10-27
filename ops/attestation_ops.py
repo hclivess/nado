@@ -53,7 +53,7 @@ def checkpoint_justified(epoch: int, checkpoint_hash: str, bonded_registry: dict
     total = sum(seats for v, seats in committee.items() if v in active)   # leaked denominator
     if total == 0:
         return False
-    # THE EPOCH'S OWN REGISTRY, not the live one: from REGISTRY_SNAPSHOT_HEIGHT the committee is drawn from the registry
+    # THE EPOCH'S OWN REGISTRY, not the live one: from epoch 2 the committee is drawn from the registry
     # frozen at the epoch's anchor, and filtering by the LIVE registry let a later unbond retroactively un-justify an old
     # checkpoint — two nodes refreshing at different moments derived different finality floors.
     # INVARIANT: justification of epoch E reads only data fixed for E (bonded_registry_for_epoch falls back to the

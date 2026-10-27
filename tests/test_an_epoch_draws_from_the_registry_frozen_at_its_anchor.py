@@ -1,13 +1,14 @@
 """An epoch's producer draw and duty committee read the bonded registry frozen at the epoch's anchor block
-(protocol.REGISTRY_SNAPSHOT_HEIGHT, ops/block_ops.bonded_registry_for_epoch, kv_ops.regsnap_*).
+(ops/block_ops.bonded_registry_for_epoch, kv_ops.regsnap_*; REGISTRY_SNAPSHOT_HEIGHT, gen 28's gate, 1 from gen 29,
+inlined in G9).
 
-  * below the gate bonded_registry_for_epoch(E) is the live registry (old rule);
-  * from the gate it is regsnap:E — a bond after the anchor moves the live registry but not E's draw input, and the
+  * epochs 0 and 1 (anchored at genesis, which writes no row) read the live registry;
+  * from epoch 2 it is regsnap:E — a bond after the anchor moves the live registry but not E's draw input, and the
     duty committee for E follows the snapshot;
-  * a missing snapshot past the gate fails loud (never substitutes the live registry);
+  * a missing snapshot fails loud (never substitutes the live registry);
   * the stored bytes are canonical (insertion order does not matter) and put/del round-trips to canonical-absent;
   * the row enters the L1 state root, inside the root window by its epoch;
-  * incorporate_block writes regsnap:(h/L + 1) at the first block of an epoch from the gate and rollback_one_block
+  * incorporate_block writes regsnap:(h/L + 1) at the first block of an epoch but genesis and rollback_one_block
     deletes exactly that row (source pins: both sides test the same height expression).
 
 Run: python3 tests/test_an_epoch_draws_from_the_registry_frozen_at_its_anchor.py
@@ -32,7 +33,7 @@ from ops.account_ops import get_bonded_registry                        # noqa: E
 
 FAILED = []
 L = P.EPOCH_LENGTH
-GATE = 500 * L
+GATE = 500 * L                         # just a height now: the snapshot holds from block 1
 
 
 def check(name, cond, detail=""):
@@ -42,7 +43,6 @@ def check(name, cond, detail=""):
 
 
 kv_ops.init_env()
-P.REGISTRY_SNAPSHOT_HEIGHT = GATE
 VALS = [f"val{i:02d}" + "q" * 45 for i in range(6)]
 for i, a in enumerate(VALS[:4]):
     kv_ops.account_set(a, "bonded", P.B_MIN * (i + 1))
@@ -50,15 +50,21 @@ for i, a in enumerate(VALS[:4]):
 live0 = get_bonded_registry()
 check("the fixture has a bonded registry", set(live0) == set(VALS[:4]), sorted(live0))
 
-E_below = GATE // L                    # anchor (E-1)*L = GATE - L < GATE: old rule
-check("below the gate the draw reads the live registry", B.bonded_registry_for_epoch(E_below) == live0)
+# the pre-gate half (an epoch anchored below REGISTRY_SNAPSHOT_HEIGHT read the live registry) is retired in G9:
+# generation 28's rules. Epochs 0 and 1 still do — epoch 1's anchor is genesis, which writes no row.
+check("epochs 0 and 1 read the live registry", B.bonded_registry_for_epoch(0) == live0 and B.bonded_registry_for_epoch(1) == live0)
+try:
+    B.bonded_registry_for_epoch(2)
+    check("epoch 2 (anchor block EPOCH_LENGTH) already reads the snapshot", False, "returned")
+except RuntimeError as e:
+    check("epoch 2 (anchor block EPOCH_LENGTH) already reads the snapshot", "missing" in str(e), e)
 
-E = GATE // L + 5                      # anchor (E-1)*L >= GATE
+E = GATE // L + 5
 try:
     B.bonded_registry_for_epoch(E)
-    check("a missing snapshot past the gate fails loud", False, "returned")
+    check("a missing snapshot fails loud", False, "returned")
 except RuntimeError as e:
-    check("a missing snapshot past the gate fails loud", "missing" in str(e), e)
+    check("a missing snapshot fails loud", "missing" in str(e), e)
 
 # the anchor block freezes the registry as it stands after that block
 kv_ops.regsnap_put(E, get_bonded_registry())
@@ -95,11 +101,11 @@ check("the root window reads the row's epoch from its key",
 # incorporate / rollback wiring
 cl = open(os.path.join(ROOT, "loops", "core_loop.py")).read()
 rb = open(os.path.join(ROOT, "rollback.py")).read()
-check("incorporate_block writes regsnap:(h // L + 1) at an epoch's first block from the gate",
-      "if _bn >= REGISTRY_SNAPSHOT_HEIGHT:\n                    kv_ops.regsnap_put(_bn // EPOCH_LENGTH + 1, get_bonded_registry())" in cl
+check("incorporate_block writes regsnap:(h // L + 1) at an epoch's first block but genesis",
+      "if _bn >= 1:\n                    kv_ops.regsnap_put(_bn // EPOCH_LENGTH + 1, get_bonded_registry())" in cl
       and cl.index("if _bn % EPOCH_LENGTH == 0:") < cl.index("kv_ops.regsnap_put("))
 check("rollback_one_block deletes exactly that row under the same test",
-      'if block["block_number"] >= REGISTRY_SNAPSHOT_HEIGHT:\n                kv_ops.regsnap_del(block["block_number"] // _EL + 1)' in rb
+      'if block["block_number"] >= 1:\n                kv_ops.regsnap_del(block["block_number"] // _EL + 1)' in rb
       and rb.index('if block["block_number"] % _EL == 0:') < rb.index("kv_ops.regsnap_del("))
 check("the producer draw reads bonded_registry_for_epoch (inside derive_header)",
       "bonded_registry = bonded_registry_for_epoch(epoch)" in open(os.path.join(ROOT, "ops", "block_ops.py")).read())

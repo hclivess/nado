@@ -1669,13 +1669,6 @@ def split_open_block_reward(reward: int):
 #                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
 #                                    TPM_RETRY_OWNER_HEIGHT (175000 -> 1: the retry count is per (chip, opener) and
 #                                    only a wrong commitment counts as the client's failure)
-#                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
-#                                    epoch with no reveals takes the next revealed epoch's reveals)
-#                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
-#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT (156400 -> 1: an
-#                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
-#                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
-#                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 #                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
 #                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
@@ -1695,8 +1688,6 @@ def split_open_block_reward(reward: int):
 #                                    doc/signature-schemes.md)
 #                                    BLOCK_BUDGET_HEIGHT (2^62, DORMANT on gen 28 -> 1: a block carries at most
 #                                    MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES bytes, built or validated)
-#                                    AGREED_TIME_SEATS_HEIGHT (2^62, DORMANT on gen 28 -> 1: the certificate clock's
-#                                    median weighs duty-committee seats, not distinct senders)
 #                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
 #                                    the 128-bit node config — 56 queries, not 160; 2.5x smaller proofs)
 # KEYED ON GENERATION 29 (live on betanet-10):
@@ -2123,11 +2114,10 @@ REFERRAL_EPOCHS = 7200                   # 30 days at 240 epochs/day: how long a
 REFERRAL_SCALE = 10                      # weights are scaled by this from the gate's epoch so a 10 % slice is an integer
 REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCALE units of the newcomer's weight (10 %)
 
-# EXEC BEACON OF A REVEAL-LESS EPOCH (execnode/state.ExecState.exec_beacon_at): from this height, the BEACON value of
-# an epoch with no RANDAO reveals is computed from the reveals of the first later epoch that has some (at most
-# BEACON_EXTEND_MAX epochs ahead) and is final once that epoch is. Read by the exec node and by the settle-proof
-# chain-read check alike. Live at 132000 (2026-10-08).
-BEACON_EXTEND_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
+# EXEC BEACON OF A REVEAL-LESS EPOCH (execnode/state.ExecState.exec_beacon_at): the BEACON value of an epoch >= 1 with
+# no RANDAO reveals is computed from the reveals of the first later epoch that has some (at most BEACON_EXTEND_MAX
+# epochs ahead) and is final once that epoch is. Read by the exec node and by the settlement's chain reads alike.
+# (BEACON_EXTEND_HEIGHT, 132000 on gen 28, 1 from gen 29: inlined in G9.)
 BEACON_EXTEND_MAX = 8                    # epochs searched ahead; beyond them the plain value stands
 
 # FUNDED INVITE LINKS (same gate, REFERRAL_HEIGHT; doc/referrals.md). A newcomer starts with nothing — not even the fee
@@ -2150,25 +2140,19 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # RANDAO DUTY CONSISTENCY (Release C). A validator commits a secret for epoch E from a duty tx in E-2 (it held a
 # seat then) and reveals it from a duty tx landing in E-1 — which required a seat in E-1's committee, resampled each
 # epoch. Measured 2026-10-08 over target epochs 2072..2178: 358 of 1240 commitments (28.9 %) were never revealed.
-#   REVEAL_SEATLESS_HEIGHT    from here a duty tx carrying ONLY a reveal section needs no committee seat: the reveal
-#                             opens the sender's own commitment, made while seated, so it is already bounded by seats.
-#   RANDAO_MISS_POOL_HEIGHT   from here an address whose commitment for epoch E was not revealed AND that landed no duty
-#                             tx in the reveal epoch E-1 (absent, not merely late) is left out of the TPM challenger pool
-#                             (tpm_pool_v2) for enrolments opened in E. A present validator's miss is a timing casualty
-#                             of the 14-block reveal window, which cannot widen (transaction_ops._randao_unrevealed).
-#   REGISTRY_SNAPSHOT_HEIGHT  from here the bonded registry is frozen into state at each epoch's first block, as the
-#                             registry of the NEXT epoch (whose beacon is anchored at that block): regsnap:<E> is
-#                             written by block (E-1)*EPOCH_LENGTH, and the producer draw and duty committee for E read
-#                             it (block_ops.bonded_registry_for_epoch) instead of the live registry.
-# Live: REVEAL_SEATLESS_HEIGHT and REGISTRY_SNAPSHOT_HEIGHT at 135300 (tip 132206 + ~5 h, 2026-10-09); RANDAO_MISS_POOL_HEIGHT
-# was 164100; moved back to a placeholder before it fired (2026-10-10): re-measured over target epochs 2393..2499 the
-# miss rate fell 28.9 % -> 12.9 %, and 122 of the 173 misses were validators PRESENT in the reveal epoch whose duty
-# missed the 14-block reveal window (E-1)*L .. E*L-FINALITY_DEPTH-1 (TX_INCLUSION_DELAY leaves ~6 blocks to start
-# one). Re-armed at 156400 as ABSENT-ONLY: excluded only if the validator landed no duty tx in the reveal epoch
-# (51 of 1344 commitments in the measurement); a present validator's late miss is never excluded.
-REVEAL_SEATLESS_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
-RANDAO_MISS_POOL_HEIGHT = 156400 if CHAIN_GENERATION == 28 else 1
-REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
+#   seatless reveal     a duty tx carrying ONLY a reveal section needs no committee seat: the reveal opens the
+#                       sender's own commitment, made while seated, so it is already bounded by seats.
+#   miss leaves pool    an address whose commitment for epoch E was not revealed AND that landed no duty tx in the
+#                       reveal epoch E-1 (absent, not merely late) is left out of the TPM challenger pool (tpm_pool_v2)
+#                       for enrolments opened in E. A present validator's miss is a timing casualty of the 14-block
+#                       reveal window, which cannot widen (transaction_ops._randao_unrevealed).
+#   registry snapshot   the bonded registry is frozen into state at each epoch's first block (but genesis), as the
+#                       registry of the NEXT epoch (whose beacon is anchored at that block): regsnap:<E> is written by
+#                       block (E-1)*EPOCH_LENGTH, and the producer draw and duty committee for E >= 2 read it
+#                       (block_ops.bonded_registry_for_epoch) instead of the live registry.
+# Gen 28 gated them (REVEAL_SEATLESS_HEIGHT and REGISTRY_SNAPSHOT_HEIGHT at 135300, RANDAO_MISS_POOL_HEIGHT at 156400 as
+# ABSENT-ONLY after 122 of 173 measured misses proved to be present validators squeezed by the reveal window); all
+# three were 1 from gen 29 and were inlined in G9.
 
 # CARRIED FIDELITY FOR EVERY CARRIED IDENTITY (dividend_ops.fidelity_at_epoch). The live apply
 # (account_ops.apply_register) continues every carried identity from the fidelity the carry wrote into its account; the
@@ -2231,10 +2215,9 @@ STWO_JS_128_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
 
 # THE CERTIFICATE CLOCK WEIGHS SEATS, NOT SENDERS (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon").
 # ops/transaction_ops.agreed_time took one sample per distinct duty sender, so splitting stake into many B_MIN accounts
-# bought clock samples and a seatless reveal-only duty counted; from this height it is the median weighted by each
-# sender's seats in its landing epoch's duty committee (0 seats = no sample). DORMANT on gen 28, from block 1 after
-# the reroll. tests/test_agreed_time_weighs_committee_seats_not_senders.py.
-AGREED_TIME_SEATS_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# bought clock samples and a seatless reveal-only duty counted; it is the median weighted by each
+# sender's seats in its landing epoch's duty committee (0 seats = no sample). AGREED_TIME_SEATS_HEIGHT was dormant on
+# gen 28 and 1 from gen 29; inlined in G9. tests/test_agreed_time_weighs_committee_seats_not_senders.py.
 
 # A BLOCK-WIDE BUDGET (2026-10-27 incident survey: aleo snarkVM#3443 — a block-wide limit enforced only when building,
 # so every validator accepted an over-limit block; Namada #5050 — a 42 s CheckTx). Each transaction has its own size cap,

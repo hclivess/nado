@@ -215,8 +215,8 @@ ROOT_RETENTION_EPOCHS = 60
 ROOT_WINDOWED_DBS = frozenset(("commits", "reveals", "attestations", "settlements", "recert_by_epoch"))
 # gen 24+: the per-epoch weight rows and their accumulator join the window (protocol.EPOCHW_ROOT_WINDOWED —
 # an expression, so on gen 23 this tuple is byte-for-byte the old one and the root is unchanged).
-# regsnap:<E> (protocol.REGISTRY_SNAPSHOT_HEIGHT) grows one row per epoch like epochw and joins the window; no row exists
-# below its gate, so adding the prefix moves no existing root.
+# regsnap:<E> (the registry snapshot, protocol.py "RANDAO DUTY CONSISTENCY") grows one row per epoch like epochw and
+# joins the window; no row existed before its (gen-28) gate, so adding the prefix moved no existing root.
 ROOT_WINDOWED_META_PREFIXES = ((b"att:", b"divnull:", b"settle:", b"regsnap:")
                                + ((b"epochw:", b"epochwacc:") if EPOCHW_ROOT_WINDOWED else ()))
 _EPOCHW_PREFIX = b"epochw:"

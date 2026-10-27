@@ -45,7 +45,7 @@ def main():
     block_ops.mining_status("a1", 100, 6)
     block_ops.mining_status("a1", 100, 6)
     assert calls == {"open": 2, "bonded": 2}, calls
-    # epoch 2's bonded registry is the snapshot its anchor block froze (REGISTRY_SNAPSHOT_HEIGHT; block 1 on gen 29).
+    # epoch 2's bonded registry is the snapshot its anchor block froze (every anchor but genesis).
     # This memo test applies no blocks, so it puts the row the anchor would have written (gen-29 rehearsal) — stubbed
     # like the registries above, so the count it pins is unchanged.
     _snap = kv_ops.regsnap_get

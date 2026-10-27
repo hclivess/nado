@@ -395,7 +395,7 @@ def agreed_time_window(height: int) -> tuple:
 def agreed_time(height: int) -> int:
     """AGREED TIME at `height` (protocol.py "CERTIFICATE VALIDITY READS AGREED TIME"): the median, over distinct senders, of the timestamps the
     bonded committee signed into its own duty transactions in agreed_time_window(height) — weighted by each sender's
-    duty-committee SEATS from AGREED_TIME_SEATS_HEIGHT (see the body), one sample per sender below it.
+    duty-committee SEATS (see the body); a window ending at block 0 keeps one sample per sender.
 
     WHY THIS AND NOT THE OTHERS. block_timestamp is outside the block hash and differs node to node for one block
     (measured 12 s apart) and a syncing peer can serve any value. chain_clock(height) is agreed but only assumes a
@@ -411,17 +411,17 @@ def agreed_time(height: int) -> int:
     from protocol import CERT_CLOCK_MIN_SAMPLES, chain_clock
     lo, hi = agreed_time_window(height)
     from ops.block_ops import get_block_hash_by_number
-    # SEAT-WEIGHTED FROM AGREED_TIME_SEATS_HEIGHT (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon" is the same
+    # SEAT-WEIGHTED (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon" is the same
     # class: a time median taken over a different set or weight than the votes it borrows its trust from). One sample
     # per DISTINCT SENDER let one holder split its stake into many B_MIN accounts and buy that many clock samples — the
-    # per-key rules are linear (memory: per-key-rules-are-void) — and a seatless reveal-only duty counted too. From the
-    # gate each sender's latest SEATED sample weighs its seats in that tx's landing-epoch duty committee (the same
+    # per-key rules are linear (memory: per-key-rules-are-void) — and a seatless reveal-only duty counted too. Each
+    # sender's latest SEATED sample weighs its seats in that tx's landing-epoch duty committee (the same
     # stake-weighted seats FFG and the committee use), a sender with no seat there weighs 0, and the answer is the
-    # weighted median. Below the gate: one sample per sender, as every committed block was judged.
-    from protocol import AGREED_TIME_SEATS_HEIGHT
-    # keyed on the WINDOW END hi (epoch-quantised), never on `height`: two heights of one epoch share a window and its
-    # cache entry, so a gate falling mid-epoch must not give them different rules (INVARIANT: same window, same rule)
-    seated = int(hi) >= int(AGREED_TIME_SEATS_HEIGHT)
+    # weighted median.
+    # AGREED_TIME_SEATS_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): keyed on the WINDOW END hi, which is 0
+    # for every height of epoch 0 — keep `>= 1` so that window keeps the per-sender rule it was judged under (it is
+    # empty there anyway, but `seated` is also in the cache key). INVARIANT: same window, same rule.
+    seated = int(hi) >= 1
     if seated:
         from ops.block_ops import duty_committee_for_epoch
         from ops.mining_ops import epoch_of
@@ -793,17 +793,16 @@ def _duty_senders_in_epoch(e: int) -> frozenset:
 
 def _randao_unrevealed(block_height: int, candidates) -> set:
     """The `candidates` that committed a RANDAO secret for the epoch of `block_height` and were ABSENT from the reveal
-    epoch — no duty tx of theirs landed in epoch E-1 — so the secret went unrevealed (protocol.RANDAO_MISS_POOL_HEIGHT;
-    empty below it). A validator present in E-1 whose reveal still missed is NOT excluded: the reveal window
+    epoch — no duty tx of theirs landed in epoch E-1 — so the secret went unrevealed (empty for epochs 0-1). A validator present in E-1 whose reveal
+    still missed is NOT excluded: the reveal window
     (E-1)*L .. E*L-FINALITY_DEPTH-1 is 14 blocks and TX_INCLUSION_DELAY leaves ~6 to start a duty that carries it,
     so a present validator's miss is a timing casualty, not absence (measured 2026-10-10: 122 of 173 misses).
     The window cannot widen: commits for E land in E-2, so a reveal before E-1 would let a late committer see secrets,
     and L1's epoch_beacon(E) reads E's reveals at block E*L, so they must be final by then.
     INVARIANT: a pure function of committed rows and blocks of epochs E-2..E-1, identical at every block of epoch E."""
-    from protocol import RANDAO_MISS_POOL_HEIGHT
     from ops.mining_ops import beacon_commitment
-    if int(block_height) < RANDAO_MISS_POOL_HEIGHT:
-        return set()
+    # RANDAO_MISS_POOL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): its `block_height < 1` test only ever
+    # caught epoch 0, which `E < 2` below already returns empty for.
     E = int(block_height) // EPOCH_LENGTH
     if E < 2:
         return set()
@@ -2261,10 +2260,10 @@ def _validate_duty(transaction):
     X = epoch_of(tb)
     acc = get_account(transaction["sender"], create_on_error=False)
     assert acc and acc.get("bonded", 0) >= B_MIN, "Duty sender is not a bonded validator"
-    # REVEAL_SEATLESS_HEIGHT: a reveal-only duty opens a commitment the sender made while seated, so it needs no
-    # seat of its own. INVARIANT: every other section still requires the landing epoch's seat.
-    from protocol import REVEAL_SEATLESS_HEIGHT
-    if not (set(sections) == {"reveal"} and tb >= REVEAL_SEATLESS_HEIGHT):
+    # A reveal-only duty opens a commitment the sender made while seated, so it needs no seat of its own.
+    # INVARIANT: every other section still requires the landing epoch's seat. REVEAL_SEATLESS_HEIGHT (gen 28's gate,
+    # 1 from gen 29, inlined in G9): `tb >= 1` stays — max_block is sender-chosen, and a max_block of 0 kept the seat.
+    if not (set(sections) == {"reveal"} and tb >= 1):
         committee = duty_committee_for_epoch(X)
         assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
     if "attest" in sections:
