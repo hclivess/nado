@@ -99,12 +99,14 @@ signs in 666 bytes (protocol SIG_SCHEME_SIZES), a bare vote of about 0.75 KB ins
   counted only from the epoch's committee, frozen at the epoch's start (the registry snapshot), and a 2/3 certificate
   for two different blocks at one height is itself slashing evidence for at least 1/3 of seats.
 
-## 5. Decision for the operator
+## 5. Decision (operator, 2026-10-27): NOT ADOPTED, it does not scale
 
-- **Recommended:** section 3, variant D. Chained 2/3 votes every 10th block from the existing committee, as gossip,
-  feeding the rollback floor, with on-chain checkpoint finality unchanged. Keeps the 1/3 fault tolerance and slashing;
-  about 2 minutes to finality for 60 MB a day per node. The vote spacing is the dial between speed and bandwidth.
-- **Not recommended:** finality every block (1.2 to 2.6 GB a day per node today, up to ~20 GB at 128 voters), and
-  Votor's 80%/60% thresholds (one round faster, at 20% Byzantine tolerance).
-- **Not adopted:** a leader per slot, Rotor, and signature-free consensus (Quantum Cadence / Forget-IT). The last loses
-  slashing evidence and finality anyone outside the voting set can check.
+"if it doesn't scale it's shit." Vote-based fast finality costs traffic linear in the number of voters at every vote
+point, because ML-DSA signatures cannot be aggregated: 60 MB a day per node today grows to 450 MB at 128 voters, and
+per-block votes to gigabytes. Today's epoch checkpoint votes stay as they are: one vote per seat per epoch, bounded by
+the 128-seat committee, constant in the validator count.
+
+The only route that would scale is a constant-size certificate: one proof that more than 2/3 of seats signed, verified
+in place of the signatures. With post-quantum signatures that means proving ML-DSA (or FN-DSA) verification inside a
+STARK, NADO's open in-circuit gap (memory: ML-DSA verify-AIR plan). If that lands, revisit this doc. Not adopted
+either way: a leader per slot, Rotor, Votor's 80%/60% thresholds, and signature-free consensus.
