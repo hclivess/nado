@@ -229,30 +229,12 @@ ABI = {
 }
 
 
-# methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
-# reveal splits the secret into browser halves with the field inverse of 2^32 on v1, a divide on v2 (_lib.port_inv32)
-ISA_DIVERGENT_METHODS = ("reveal",)
-
-
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
-    src = SRC
-    if (isa or zkvmasm.default_isa()) == "v2":
-        src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
-
-
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
-# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the stakes (raw NADO), the creator's cfg word and every move
-# word (both stored exactly as passed, so any field value), and a game's hidden-hands commitments. A revealed secret is
-# stored as two 32-bit halves, so it is never large. The move log's seed heights mh/kh stay old-chain heights: they are
-# read only by the browser replaying a finished game (G6 replays pre-reroll history with the old chain's hashes).
-CARRY_WORDS = {("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
-               ("field", CFG): "the creator's cfg word (stored as passed)",
-               ("field", C1): "p1's hidden-hands commitment H(secret)", ("field", C2): "p2's hidden-hands commitment H(secret)",
-               **{("field", MV_BASE + i): "a recorded move word (stored as passed)" for i in range(MAXMOVES)}}
+    src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))          # no inverse of 2^32 on the 256-bit word
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
 def carry_in_flight(storage):

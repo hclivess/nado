@@ -30,12 +30,12 @@ from execnode import zkvmasm, runtimes
 OPERATOR_PUBKEY = "ebd27698662f14ee2389e509781d5ff57487f4289a"   # the key's leading body (format 1: the address body)
 from execnode.code_codec import FIXED_CIDS as _FIXED_CIDS
 OPERATOR = _FIXED_CIDS["faucet"]
-# THE V1 (FIELD) DIGEST, EXPLICITLY — never the generation's format (gen-29 rehearsal, 2026-10-25). SRC is the v1 source
-# and build("v1") must be byte-identical on every generation: the carry finds a contract's module by build("v1") == its
-# code, and v2's build() swaps exactly this literal for the v2 digest. Read with the default (the generation's format),
-# a gen-29 import baked a 256-bit digest into the v1 source and build("v1") could no longer assemble. INVARIANT: a
-# module-level digest baked into SRC names its format (v2=False), as here.
-OP_DIG = runtimes.zkvm_addr_digest(OPERATOR, False)
+# The operator's VM digest, baked into SRC as `movi rN <OP_DIG>` operands: the 256-bit digest the call boundary computes
+# for the operator's caller (runtimes.zkvm_addr_digest). Until G9 slice 3b this was the gen-28 FIELD digest and build()
+# swapped it for this one at assembly (so build("v1") stayed the carry's match); with the field VM gone the source holds
+# the gen-29 digest directly and build() assembles it as written — the same code (tests/test_every_contract_builds_
+# byte_identical_for_the_256_bit_vm.py).
+OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 
 # fund(): anyone may top the prize bank up exec-side (the call's VALUE is escrowed to this contract by
 # the call machinery itself before the method runs — this body only insists there IS a value).
@@ -50,9 +50,6 @@ DONATED, DEFUNDED = 7, 8
 # are amounts and the reward markers are H(idx, day, rank) with `day` from wall-clock time — so it means the same on the
 # new chain. Re-check before adding any method that reads `cursor`, `timestamp`, BHASH or BEACON.
 CARRY_STORAGE = True
-
-# Values >= 2^32 kept verbatim by the gen-29 carry (tools/carry.py refuses any undeclared one): the two raw amounts.
-CARRY_WORDS = {("slot", DONATED): "raw NADO the operator donated", ("slot", DEFUNDED): "raw NADO defunded"}
 
 FUND = f"""
     ctx r1 value
@@ -147,35 +144,5 @@ ABI = {
 }
 
 
-def build(isa=None):
-    """v2 (the gen-29 zkvm2): the operator check compares the CALLER's 256-bit digest, so the baked operator digest is
-    the v2 one. It appears in the source only as the immediate of `movi rN <OP_DIG>` (asserted, so nothing else can
-    be rewritten by accident); v1 is SRC unchanged."""
-    if (isa or zkvmasm.default_isa()) != "v2":
-        return zkvmasm.assemble_contract(SRC, isa)
-    import re
-    lit, dig2 = str(OP_DIG), str(runtimes.zkvm_addr_digest(OPERATOR, True))
-    src = {}
-    for m, t in SRC.items():
-        assert t.count(lit) == len(re.findall(r"\bmovi r\d " + lit + r"\b", t)), "OP_DIG outside a movi operand"
-        src[m] = re.sub(r"(\bmovi r\d )" + lit + r"\b", lambda x: x.group(1) + dig2, t)
-    return zkvmasm.assemble_contract(src, isa)
-
-
-# the paid-marker domain the carry enumerates (carry_hash_preimages): the distributor's game indexes, its five ranks
-# with headroom, and both day kinds it has keyed on — the block-day (an L1 tip // 14,400, small on every generation's
-# chain: 400 days is 5.76 M blocks) and the UTC day (unix seconds // 86,400; 19,500 is 2023-05, 21,500 is 2028-11)
-CARRY_MARKER_IDX, CARRY_MARKER_RANKS = range(32), range(1, 9)
-CARRY_MARKER_DAYS = (range(0, 400), range(19500, 21500))
-
-
-def carry_hash_preimages(storage, digests):
-    """The paid markers H(idx, day, rank) the faucet can hold (tools/carry.py re-derives each under the new VM hash).
-    The faucet keeps no index of them, so the domain the operator's distributor writes is enumerated (CARRY_MARKER_*);
-    a marker outside it REFUSES the carry, and the domain is widened rather than the marker dropped — a dropped marker
-    would let that (game, day, rank) be paid twice. Measured 2026-10-25: all 93 live markers are in it."""
-    for idx in CARRY_MARKER_IDX:
-        for days in CARRY_MARKER_DAYS:
-            for day in days:
-                for rank in CARRY_MARKER_RANKS:
-                    yield (idx, day, rank)
+def build():
+    return zkvmasm.assemble_contract(SRC)

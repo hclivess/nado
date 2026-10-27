@@ -2,7 +2,7 @@
 NADO execution node (Phase 1) — the "beside the node" process.
 
 It TAILS an L1 NADO node over plain HTTP, pulls the ordered `blob` payloads out of FINALIZED blocks,
-replays them through the deterministic zkVM (execnode.state / execnode.zkvm), and persists the resulting
+replays them through the deterministic zkVM (execnode.state / execnode.zkvm2), and persists the resulting
 contract state. It also serves a small READ-ONLY query API so wallets and tools can read contract state
 and run view methods. It never speaks to L1 consensus — a VM bug here can't fork the chain
 (doc/execution-layer.md §3.2). Run one per operator who wants programmability; phones do not.

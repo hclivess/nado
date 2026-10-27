@@ -629,19 +629,12 @@ ABI = {
 }
 
 
-# methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
-# reveal splits the secret into browser halves with the field inverse of 2^32 on v1, a divide on v2 (_lib.port_inv32)
-ISA_DIVERGENT_METHODS = ("reveal",)
-
-
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "reveal", "leave", "cancel", "abort")}
-    src = SRC
-    if (isa or zkvmasm.default_isa()) == "v2":
-        src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+    src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))          # no inverse of 2^32 on the 256-bit word
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
 # ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
@@ -680,13 +673,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     return out
-
-
-# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1..p4/eaddr are owner digests (remapped).
-# A move's enc is unbounded (> 0 is the only check) and a commitment is a hash value; a revealed secret is stored as
-# 32-bit halves (rh/rl < 2^32 on the Goldilocks word) and mh = (cursor+GAP)*8 + side, so neither needs declaring.
-# No slot is hash-KEYED: the move log is field (1000+mc / 2000+mc) * 2^32 + game id.
-CARRY_WORDS = {**_lib.daily_carry_words(A_V, EW_BASE, CLAIM_WORDS),
-               ("field", ST): "a table's stake (raw NADO)", ("field", PT): "a table's pot (raw NADO)",
-               **{("field", C_BASE + i): f"seat {i}'s scroll commitment (hash value)" for i in (1, 2, 3, 4)},
-               **{("field", MV_BASE + i): "a recorded move (unbounded enc)" for i in range(MAXMOVES)}}

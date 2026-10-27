@@ -1,11 +1,9 @@
-"""The 256-bit contract VM matches the old VM wherever no value wraps, and wraps, compares and hashes as specified.
+"""The 256-bit contract VM wraps, compares and hashes as specified.
 
 execnode/zkvm2.py is the generation-29 VM (Goldilocks retirement G3; operator decision 2026-10-19: a 256-bit wrapping
-word, doc/stwo/g3-vm-word.md). Contracts port to it mechanically only if it is the SAME machine wherever the old one
-did not depend on the field, so:
-  1. DIFFERENTIAL: 3,000 random programs over the instructions both VMs share (arithmetic, compares, division,
-     branches, storage, payouts, args, context, chain reads), with every value small enough that nothing wraps
-     under either word, give identical (ok, return value, storage, io log) on zkvm.py and zkvm2.py;
+word, doc/stwo/g3-vm-word.md), and since G9 slice 3b the only one:
+  1. (the DIFFERENTIAL against the field VM, execnode/zkvm.py — 3,000 random non-wrapping programs identical on both —
+     retired with that VM in G9 slice 3b; it was the port's proof, and the port is done)
   2. the word: ADD/SUB/MUL wrap mod 2^256 (so subtraction-as-equality keeps working); LT is exact on full 256-bit
      operands with no RANGE before it; RANGE still bounds to 2^62; DIVMOD is full-width with the remainder in r7 and
      reverts on a zero divisor; LO32 keeps the low 32 bits;
@@ -13,80 +11,21 @@ did not depend on the field, so:
      the destination may also be a source (`hash r2 <- r2 r1` reads r2 first);
   4. the deploy gate: the 27 alghash round opcodes do not exist, an immediate must fit the word, a lone LT is legal,
      the ASEL pairing rule holds;
-  5. replay_io accepts the run's own log and rejects a tampered one.
+  5. replay_io accepts the run's own log and rejects a tampered one;
+  6. the ported "exact hi half" idiom (games/_lib.port_inv32) computes x >> 32, and the port refuses what it cannot port.
 
-Run: python3 tests/test_the_256_bit_vm_matches_the_old_vm_wherever_no_value_wraps.py
+Run: python3 tests/test_the_256_bit_vm_wraps_compares_and_hashes_as_specified.py
 """
 import _harness
 HOME = _harness.isolate("nado-test-zkvm2-")
 import hashlib
 import random
 
-from execnode import zkvm as V1, zkvm2 as V2
+from execnode import zkvm2 as V2
 
 T = _harness.Report()
 rnd = random.Random(256)
 W = 1 << 256
-
-# ---- 1: differential over the shared instructions, nothing wrapping
-SMALL = 1 << 20
-
-
-def rand_prog(n):
-    prog = []
-    for i in range(n):
-        r = lambda: rnd.randrange(7)                       # never r7 as a DIVMOD destination
-        op = rnd.choice(["MOVI", "MOVI", "MOV", "ADD", "MUL", "EQ", "NEZ", "LT", "DIVMOD", "LO32", "JNZ",
-                         "SLOAD", "SSTORE", "PAY", "ARG", "CTX", "BHASH", "REQUIRE"])
-        if op == "MOVI":
-            prog.append(["MOVI", r(), 0, rnd.randrange(1, 300)])
-        elif op == "JNZ":
-            prog.append(["JNZ", 0, r(), rnd.randrange(i + 1, n + 1)])     # forward only: always terminates
-        elif op == "CTX":
-            prog.append(["CTX", r(), 0, rnd.randrange(4)])
-        elif op == "ARG":
-            prog.append(["MOVI", 6, 0, rnd.randrange(4)]); prog.append(["ARG", r(), 6, 0])
-        elif op == "BHASH":
-            prog.append(["MOVI", 6, 0, rnd.choice([10, 11])]); prog.append(["BHASH", r(), 6, 0])
-        elif op == "DIVMOD":
-            prog.append(["DIVMOD", r(), r(), 0])
-        else:
-            prog.append([op, r(), r(), 0])
-    prog.append(["RET", 0, rnd.randrange(8), 0])
-    # forward jumps may point one past the end; clamp to the RET
-    return [[o, d, s, min(imm, len(prog) - 1) if o == "JNZ" else imm] for o, d, s, imm in prog]
-
-
-diff, window, ran, okc = [], [], 0, 0
-for trial in range(3000):
-    prog = rand_prog(rnd.randrange(3, 30))
-    code = {"m": prog}
-    args = [rnd.randrange(1, 200) for _ in range(4)]
-    store = {rnd.randrange(5): rnd.randrange(1, 50) for _ in range(3)}
-    kw = dict(value=rnd.randrange(100), cursor=rnd.randrange(1000), timestamp=rnd.randrange(1000),
-              block_hashes={10: 12345, 11: 777}, beacons={})
-    a = V1.run(code, "m", 4242, args, store, **kw)
-    b = V2.run(code, "m", 4242, args, store, **kw)
-    # keep only runs where no value got near either modulus (MUL can grow; skip any run that did)
-    big = any(isinstance(x, int) and x >= SMALL ** 3 for e in (a[3] + b[3]) for x in e) or \
-        (a[1] is not None and a[1] >= SMALL ** 3) or (b[1] is not None and b[1] >= SMALL ** 3)
-    if big:
-        continue
-    ran += 1
-    okc += bool(a[0])
-    if a != b:
-        # THE ONE DELIBERATE DIFFERENCE: the old DIVMOD reverts outside its windows (divisor <= 2^15, quotient < 2^48),
-        # which existed only to stop field wrap; the new one divides the whole word. A program where only that
-        # happened is counted apart, re-checked by running the old VM with every DIVMOD's divisor in its window.
-        if a[0] is False and b[0] is True and any(i[0] == "DIVMOD" for i in prog):
-            window.append(trial)
-        else:
-            diff.append((trial, prog, a, b))
-T.check(f"1a. {ran} random non-wrapping programs ({okc} completing, the rest reverting): identical on both VMs, "
-        f"except {len(window)} where only the old DIVMOD window reverted", not diff and ran > 2000 and okc > 300,
-        (len(diff), diff[:1]))
-T.check("1b. the old-window cases are a small minority (the windows rarely bind on small values)", len(window) < ran // 20,
-        len(window))
 
 # ---- 2: the word
 def one(prog, args=(), **kw):
@@ -149,9 +88,9 @@ T.check("5a. replay_io accepts the run's own log: the same storage, payout and r
         and ok[2] == {9: 1 << 255} and ok[3] == [(1 << 255, 9)])
 bad = list(r[3]); bad[1] = (V2.IO_SLOAD, 9, 5)
 T.check("5b. replay_io rejects a log whose read does not match the state", V2.replay_io(bad, {})[0] is False)
-# ---- 6: the ported "exact hi half" idiom (games/_lib.port_inv32 — hexholm/stormhold reveal) equals the v1 one
+# ---- 6: the ported "exact hi half" idiom (games/_lib.port_inv32 — hexholm/stormhold/scrapline reveal)
 from execnode import zkvmasm
-from execnode.games import _lib, hexholm, stormhold
+from execnode.games import _lib, hexholm, stormhold, scrapline
 IDIOM = """
     mov r6 r1
     lo32 r6
@@ -161,12 +100,10 @@ IDIOM = """
     mul r5 r7
     ret r5
 """
-p1 = zkvmasm.assemble(IDIOM, "v1")
-p2 = zkvmasm.assemble(_lib.port_inv32(IDIOM), "v2")
-xs = [0, 1, (1 << 32) - 1, 1 << 32, (1 << 64) - 2 ** 32 - 1] + [rnd.randrange(1 << 64) % V1.F.P for _ in range(2000)]
-mism = [x for x in xs if V1.run({"m": p1}, "m", 1, [0, x], {})[1] != V2.run({"m": p2}, "m", 1, [0, x], {})[1]
-        or V2.run({"m": p2}, "m", 1, [0, x], {})[1] != x >> 32]
-T.check(f"6a. the ported hi-half idiom equals the v1 one (and x >> 32) for {len(xs)} secrets below 2^64", not mism, mism[:3])
+p2 = zkvmasm.assemble(_lib.port_inv32(IDIOM))
+xs = [0, 1, (1 << 32) - 1, 1 << 32, (1 << 64) - 2 ** 32 - 1] + [rnd.randrange(1 << 64) for _ in range(2000)]
+mism = [x for x in xs if V2.run({"m": p2}, "m", 1, [0, x], {})[1] != x >> 32]
+T.check(f"6a. the ported hi-half idiom is x >> 32 for {len(xs)} secrets below 2^64", not mism, mism[:3])
 try:
     _lib.port_inv32("    movi r1 5\n    ret r1\n"); refused = False
 except ValueError:
@@ -177,6 +114,6 @@ try:
 except ValueError:
     refused7 = True
 T.check("6c. port_inv32 refuses a multiply into r7 (DIVMOD's remainder would overwrite it)", refused7)
-T.check("6d. hexholm's and stormhold's v2 reveal carry no field inverse", all(
-    18446744065119617026 not in [i[3] for i in m.build("v2")["reveal"]] for m in (hexholm, stormhold)))
-T.done("ALL PASS — the 256-bit VM matches the old VM wherever no value wraps")
+T.check("6d. hexholm's, stormhold's and scrapline's reveal carry no field inverse", all(
+    18446744065119617026 not in [i[3] for i in m.build()["reveal"]] for m in (hexholm, stormhold, scrapline)))
+T.done("ALL PASS — the 256-bit VM wraps, compares and hashes as specified")

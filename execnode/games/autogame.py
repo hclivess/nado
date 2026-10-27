@@ -1079,7 +1079,7 @@ def _resolve_legs(m):
 
 
 # ── methods ──────────────────────────────────────────────────────────────────────────────────────
-def build(isa=None):
+def build():
     _LBL[0] = 0                                   # deterministic label numbering across rebuilds
     c = zkpy.Contract()
 
@@ -1339,7 +1339,7 @@ def build(isa=None):
                                   max_n=DAILY_HEAD + DAILY_STEPS, max_score=DAILY_MAX_SCORE, e_ts=E_TS))
     c.asm("anchor", _lib.daily_anchor(A_H, A_V, DCNT_SLOT, DLIST))
 
-    return c.build(isa)
+    return c.build()
 
 
 # ── the rules, emitted for the browser ───────────────────────────────────────────────────────────
@@ -1517,21 +1517,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = slots
     return out
-
-
-# The gen-29 carry's re-encoding (tools/carry.py, _lib.CARRY_WORDS note). OWNRUN is the one field keyed by an owner
-# DIGEST (caller -> current run id): its key is re-made over the new digest. RCW and the OVR hash cell hold a leg's
-# committed answer word (16 x 3 bits), kept verbatim like the daily board's anchor and claim words.
-CARRY_OWNER_KEY_FIELDS = (OWNRUN,)
-CARRY_WORDS = {**_lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS),
-               ("field", RCW): "a leg's committed answer word (16 x 3 bits)",
-               ("tag", OVR_TAG): "a leg's committed answer word (16 x 3 bits)"}
-
-
-def carry_hash_preimages(storage, digests):
-    """The answer cells hash(OVR_TAG, run, leg) a run can hold (tools/carry.py re-derives each under the new VM hash):
-    every run the index lists, every leg up to its leg counter (commit writes the cell for the CURRENT leg)."""
-    slots = (storage or {}).get("slots") or {}
-    for rid in _carry_ids(slots, 0, RLIST):
-        for leg in range(int(slots.get(str((RLG << 32) + rid), 0)) + 2):
-            yield (OVR_TAG, rid, leg)

@@ -414,15 +414,11 @@ ABI = {
 }
 
 
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "resign", "abort", "cancel")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
-
-
-# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note): the daily board's anchor and claim words
-CARRY_WORDS = _lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
 
 
 def carry_in_flight(storage):

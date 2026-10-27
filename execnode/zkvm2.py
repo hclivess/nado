@@ -1,10 +1,11 @@
 """
-zkVM2 — the generation-29 contract VM: zkvm.py with a 256-bit WRAPPING word and BLAKE2s instead of Goldilocks
-(Goldilocks retirement G3; operator decision 2026-10-19, doc/stwo/g3-vm-word.md). The reference interpreter the Stwo
-execution AIR (G4) proves. It runs every call of generation 29 (BLAKE_EXEC_HEIGHT, inlined in G9); zkvm.py survives only
-for the carry's v1 builds and tests.
+zkVM2 — the contract VM: the gen-28 field VM (zkvm.py, deleted in G9 slice 3b) with a 256-bit WRAPPING word and BLAKE2s
+instead of Goldilocks (Goldilocks retirement G3; operator decision 2026-10-19, doc/stwo/g3-vm-word.md). The reference
+interpreter the Stwo execution AIR (G4) proves. It runs every call of generation 29 at every cursor (BLAKE_EXEC_HEIGHT,
+inlined in G9), and is the only VM: the I/O vocabulary, the context indices and the error types below moved here from
+zkvm.py with their values unchanged.
 
-WHAT CHANGES FROM zkvm.py, opcode by opcode (everything else — registers, the ARG table, storage, PAY, chain reads,
+WHAT CHANGED FROM THE OLD zkvm.py, opcode by opcode (everything else — registers, the ARG table, storage, PAY, chain reads,
 the asset layer, the ordered public I/O log and its replay — is the same machine):
   word          a register holds an integer in [0, 2^256). Immediates and args are reduced mod 2^256.
   ADD/SUB/MUL   wrap mod 2^256 (EVM-like). The measured contracts rely on wrap — subtraction feeding NEZ/EQ as an
@@ -25,7 +26,7 @@ the asset layer, the ordered public I/O log and its replay — is the same machi
                 still reads r2 before writing it.
   BHASH/BEACON/ABAL  the chain value as supplied, reduced mod 2^256 (a 256-bit block hash or beacon now fits whole).
 
-FROZEN AT THE REROLL with the opcode ids below (APPEND-ONLY after it, like zkvm.py's).
+FROZEN with the opcode ids below (APPEND-ONLY: they are in every deployed contract's code).
 """
 import hashlib
 
@@ -42,10 +43,39 @@ OPS = ["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "RA
        "ASEL", "AMINT", "ABURN", "ABAL", "ACTX", "ARENOUNCE"]
 OP = {name: i for i, name in enumerate(OPS)}
 
-# the I/O vocabulary and the context indices are zkvm.py's, unchanged — one definition
-from execnode.zkvm import (IO_SLOAD, IO_SSTORE, IO_PAY, IO_BHASH, IO_BEACON, IO_RET, IO_ASEL, IO_AMINT,  # noqa: E402
-                           IO_ABURN, IO_ABAL, IO_ARENOUNCE, IO_ASSET_KINDS, CTX_CALLER, CTX_VALUE, CTX_CURSOR,
-                           CTX_TIME, ACTX_ASSET, ACTX_SELF, ZkVMError, ZkVMRevert, method_reads_actx)
+# I/O log kinds — the public effect vocabulary a verifier replays. THE VALUES ARE THE OLD zkvm.py's, unchanged (they were
+# imported from it until G9 slice 3b deleted it): they are in every io log, trace and settlement witness, so they never
+# change. ASSET I/O (doc/assets.md): the VM EMITS the intent, the exec layer checks authority/solvency against the
+# committed asset ledger (ExecState.stage_asset_effects).
+IO_SLOAD, IO_SSTORE, IO_PAY, IO_BHASH, IO_BEACON, IO_RET = 1, 2, 3, 4, 5, 6
+IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL, IO_ARENOUNCE = 7, 8, 9, 10, 11
+IO_ASSET_KINDS = (IO_ASEL, IO_AMINT, IO_ABURN, IO_ABAL, IO_ARENOUNCE)
+
+# CTX indices (imm operand of CTX); ACTX indices (imm operand of ACTX, the asset half of the call context; 2 and 3 are
+# reserved and read 0)
+CTX_CALLER, CTX_VALUE, CTX_CURSOR, CTX_TIME = 0, 1, 2, 3
+ACTX_ASSET, ACTX_SELF = 0, 1
+
+
+class ZkVMError(Exception):
+    pass
+
+
+class ZkVMRevert(ZkVMError):
+    """The call is a no-op: the interpreter reverts exactly where the execution AIR has no satisfying witness, so
+    'provable' and 'executes successfully' are the same set of calls."""
+
+
+def method_reads_actx(code, method):
+    """C1 (2026-09-23): whether `method`'s program ever executes ACTX — the only way a contract can learn which currency
+    its `value` arrived in. A method that never reads it treats an asset-denominated value as native NADO, so the exec
+    layer refuses asset value into such a method. Programs have no inter-method calls, so the method's own instruction
+    list is the whole reachable code."""
+    prog = code.get(method) if isinstance(code, dict) and isinstance(method, str) else None
+    if not isinstance(prog, list):
+        return False
+    return any(isinstance(ins, (list, tuple)) and ins and ins[0] == "ACTX" for ins in prog)
+
 
 __all__ = ["run", "replay_io", "validate_code", "hash_words", "OPS", "OP", "WORD", "GAS_LIMIT", "MAX_ARGS",
            "IO_SLOAD", "IO_SSTORE", "IO_PAY", "IO_BHASH", "IO_BEACON", "IO_RET", "IO_ASEL", "IO_AMINT", "IO_ABURN",
@@ -68,7 +98,7 @@ def hash_words(words):
 
 
 def validate_code(code):
-    """zkvm.validate_code's structural rules for the new ISA: known ops, registers in range, immediates in the word,
+    """The deploy gate's structural rules: known ops, registers in range, immediates in the word,
     jump targets inside the method, DIVMOD never into r7, CTX/ACTX indices, and the ASEL pairing rule (an asset move
     needs its selection on the instruction right before it). The RANGE-before-LT rule is gone: LT is sound alone."""
     if not isinstance(code, dict) or not code:
@@ -112,7 +142,7 @@ REVERT_KINDS = ("REQUIRE", "DIVMOD", "DIVMODW", "NOTB", "RANGE", "ARG", "ASEL", 
 
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
         asset=0, selfd=0, abal=None, witness=False, meter=None):
-    """zkvm.run with the 256-bit word: same signature, same returns, same revert contract — (False, None, storage, [])
+    """Run one call over the 256-bit word — (False, None, storage, [])
     on any revert, a no-op the AIR could not prove either. `witness=True` returns per-step (pc, op, d, s, imm, regs, h,
     io count) for the Stwo trace builder; there are no Goldilocks limb columns."""
     if method not in code:
@@ -202,7 +232,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 res, wr = val, True
             elif op_name == "SSTORE":
                 if rs == 0:
-                    st.pop(rd, None)                      # zero = absence, as in zkvm.py
+                    st.pop(rd, None)                      # zero = absence
                 else:
                     st[rd] = rs
                 io_entry = (IO_SSTORE, rd, rs)
@@ -286,7 +316,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
 
 
 def replay_io(io_log, storage, with_assets=False):
-    """zkvm.replay_io over the 256-bit word: identical rules (one RET, last; reads match the state in order; ASEL spent
+    """Replay an io log without executing: the rules (one RET, last; reads match the state in order; ASEL spent
     by the very next entry; asset entries only with with_assets), entries bounded by 2^256 instead of P."""
     st = dict(storage)
     payouts, chain_reads, effects = [], [], []

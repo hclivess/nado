@@ -5,7 +5,7 @@ the escrow is REFUNDED if the call reverts. So its net records effect is not a f
 records_bind marked such a block NON-DERIVABLE — which is why 78% of skipped spans (measured 2026-08-06)
 were refused for "the RECORDS half moved across the span", on a chain where EVERY call carries value.
 
-The proof is the missing verdict. zkvm.ZkVMRevert: "the interpreter reverts exactly where the AIR
+The proof is the missing verdict. zkvm2.ZkVMRevert: "the interpreter reverts exactly where the AIR
 constraints would have no satisfying witness, so 'provable' and 'executes successfully' are the same set of
 calls." A VALID proof over a span therefore already establishes that every call in it succeeded, so every
 escrow stuck — a pure function of the calldata. And `derivable` is consulted ONLY while a proof is being

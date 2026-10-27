@@ -6,6 +6,14 @@ carrying it. This is the permanent mechanism (`tools/carry.py`) that moves to ma
 The inherited `tools/alphanet6_carryforward.py` resets every contract that has no carry hook and refunds its pot to
 the deployer. That design is the one being replaced.
 
+**Historical since G9 slice 3b (2026-10-28).** The gen-28 -> gen-29 crossing this document designs ran at the gen-29
+reroll and is done. With the field VM (`execnode/zkvm.py`) deleted, its re-encoding went too: `V1Hash`,
+`reencode_storage`, the modules' `CARRY_WORDS` / `CARRY_OWNER_KEY_FIELDS` / `carry_hash_preimages` /
+`carry_v2_storage` hooks, the `isa=` builds and `tools/carry_census.py` (with its test). From gen 29 on every generation
+runs one VM, one hash and one digest, so `tools/carry.py` re-encodes nothing: it matches each contract by `build()`,
+refuses anything in flight, rebases heights, and re-derives (never trusts) the registry and the asset ids. The sections
+below record how the crossing was built; git history holds the code if a generation ever changes the VM hash again.
+
 ## 1. Entry measurement: the census (2026-10-25, exec cursor 357,787)
 
 `tools/carry_census.py` on a copy of the live `exec_state.json`. It is read-only, refuses the live path, and is pinned

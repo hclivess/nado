@@ -2,17 +2,18 @@
 The VM-2.0 capability pass — indexed args (ARG) + wide-divisor division (DIVMODW). Covers:
   · ARG semantics: dynamic-index load, out-of-range revert, MAX_ARGS boundary (1024 ok, 1025 refused)
   · a loop that sums N args through ARG (the variadic pattern packing hacks used to fake)
-  · DIVMODW semantics: pool-sized divisors (the parimutuel payout = stake*total//pool pattern), the
-    q<2^32 / b<2^31 windows, remainder-in-r7.
+  · DIVMODW semantics: pool-sized divisors (the parimutuel payout = stake*total//pool pattern), full-word division
+    with only a zero divisor reverting, remainder-in-r7.
+(The field VM's q<2^32 / b<2^31 DIVMODW windows were pinned here until G9 slice 3b deleted that VM; zkvm2's DIVMODW is
+DIVMOD over the whole 256-bit word.)
 (The prove/verify cases and the args-bus soundness negatives retired in G9 with the Goldilocks exec AIR, vm_circuit.)
 
 Run: python3 tests/test_zkvm_args.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
-# file runs on generation 29's exec layer like the chain does.
-from execnode import zkvm, zkvmasm
+# runs on zkvm2, the VM generation 29 runs every call on (the field VM, execnode/zkvm.py, went in G9 slice 3b)
+from execnode import zkvm2 as zkvm, zkvmasm
 
 import _harness
 _report = _harness.Report()
@@ -104,18 +105,16 @@ def t_dmw_parimutuel():
     ok, ret, _, _ = zkvm.run(code, "m", CALLER, [stake, total, pool], {})
     assert ok and ret == stake * total // pool
 
-def t_dmw_windows():
+def t_dmw_whole_word():
     code = zkvmasm.assemble_contract({"m": "divmodw r1 r2\nret r1"})
-    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, (1 << 31) + 1], {})  # divisor beyond the window
-    assert not ok, "divisor > 2^31 must revert"
-    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 1 << 31], {})        # b == 2^31 is the inclusive edge
-    assert ok, "divisor == 2^31 (window edge) must be accepted — interpreter and AIR agree here"
-    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 0], {})           # divide by zero
+    ok, ret, _, _ = zkvm.run(code, "m", CALLER, [0, 100, (1 << 31) + 1], {})   # a divisor past the field VM's window
+    assert ok and ret == 0, "a wide divisor divides"
+    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, 100, 0], {})                 # divide by zero
     assert not ok, "divisor 0 must revert"
-    ok, _, _, _ = zkvm.run(code, "m", CALLER, [0, (1 << 33) * 3, 2], {}) # quotient too wide
-    assert not ok, "quotient >= 2^32 must revert"
+    ok, ret, _, _ = zkvm.run(code, "m", CALLER, [0, (1 << 200) * 3, 1 << 100], {})   # a quotient past 2^32
+    assert ok and ret == 3 << 100, "a wide quotient divides"
     ok, ret, _, _ = zkvm.run(code, "m", CALLER, [0, ((1 << 32) - 1) * ((1 << 31) - 1), (1 << 31) - 1], {})
-    assert ok and ret == (1 << 32) - 1, "max q * max b must pass"
+    assert ok and ret == (1 << 32) - 1
 
 def t_dmw_rem_r7():
     code = zkvmasm.assemble_contract({"m": "divmodw r1 r2\nmov r1 r7\nret r1"})   # return remainder
@@ -137,7 +136,7 @@ if __name__ == "__main__":
     check("ARG: loop-sum over 12 args", lambda: (t_loop_sum(), None)[1])
     check("DIVMODW: wide-divisor quotient", t_dmw_native)
     check("DIVMODW: parimutuel payout pattern (stake*total//pool)", t_dmw_parimutuel)
-    check("DIVMODW: q/b windows enforced (2^32 / 2^31)", t_dmw_windows)
+    check("DIVMODW: the whole word, only a zero divisor reverts", t_dmw_whole_word)
     check("DIVMODW: remainder in r7 + remw macro", t_dmw_rem_r7)
     print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
     sys.exit(1 if _report.fails else 0)

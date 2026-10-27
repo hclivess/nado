@@ -429,22 +429,14 @@ ABI = {
 }
 
 
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("join", "reveal", "settle", "reclaim", "cancel")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
 
 
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
-# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the stakes, and a FINISHED game's commitments and revealed
-# secrets — history no method reads again (every method refuses sd != 0; coinflip.js recomputes the face from s1 + s2,
-# a display replay G6 runs under the old hash). An UNSETTLED game blocks the carry in carry_in_flight.
-CARRY_WORDS = {("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
-               ("field", C1): "a finished game's commitment HASH(s1)", ("field", C2): "a finished game's commitment HASH(s2)",
-               ("field", S1): "a finished game's revealed secret", ("field", S2): "a finished game's revealed secret"}
-
-
+# ---- the carry (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------------------------------
 def carry_in_flight(storage):
     """Why this contract cannot cross a reroll yet ([] = it can): a game created and not settled. Its commitments are
     gen-28 hashes reveal() checks against a FRESH hash — the gen-29 hash can never verify them — and its reveal window

@@ -23,7 +23,7 @@ class EchoRuntime:
     """A trivial NON-stackvm runtime: set(k,v) stores v at map 'e'[k], get(k) reads it. Its behavior is driven
     by the runtime, not the bytecode — so if a call reaches it, dispatch is genuinely pluggable."""
     name = "echo"
-    def validate_code(self, code, v2=False):      # the exec state passes v2=True at every cursor (G9)
+    def validate_code(self, code):
         if not isinstance(code, dict):
             raise ValueError("code must be an object")
         return True

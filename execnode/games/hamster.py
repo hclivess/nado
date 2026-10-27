@@ -429,11 +429,11 @@ ABI["_view"]["board3"] = {"name": "od", "base": OD_BASE, "cells": NH, "stride": 
 ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": NH, "stride": NH, "index": "races"}
 
 
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("bet", "settle", "claim", "void", "book", "quote", "back", "bclaim", "bsweep", "claimable_of")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
 
 
 def carry_in_flight(storage):
@@ -452,15 +452,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     return out
-
-
-# Values >= 2^32 this contract's storage may hold that are NOT registry digests (tools/carry.py refuses any other): the
-# carry keeps them verbatim (_lib.CARRY_WORDS note).
-CARRY_WORDS = _lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS)
-
-
-def carry_hash_preimages(storage, digests):
-    """Every per-user hash slot a race can hold (tools/carry.py re-derives each under the new VM hash): stake, book
-    stake and book payout per (race, lane, owner); total, claim and book claim per (race, owner)."""
-    return _lib.carry_tote_preimages((storage or {}).get("slots") or {}, 0, RLIST, NH,
-                                     (TG_STK, TG_BSTK, TG_BPAY), (TG_US, TG_CL, TG_BCL), digests)

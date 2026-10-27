@@ -14,8 +14,8 @@ import json
 import os
 import threading
 
-from execnode.zkvm import ZkVMError
-from execnode import zkvm                 # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
+from execnode.zkvm2 import ZkVMError
+from execnode import zkvm2                # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
 from execnode.shielded_state import apply_transition
@@ -148,7 +148,7 @@ def _coerce_fri_value(v):
 # asset composes with the zkVM the way the bridge balance already does — a contract can hold, receive, move,
 # mint and burn assets, and every one of those is a public io entry the settlement machinery replays.
 #
-# The id is DERIVED, never assigned: asset_id = alghash.hashn([issuer_digest, seed]). Two consequences that
+# The id is DERIVED, never assigned: asset_id = zkvm2.hash_words([issuer_digest, seed]). Two consequences that
 # are the whole point: an issuer knows its asset's id before creating it, and a CONTRACT can compute the id
 # of its own assets IN-CIRCUIT with the ordinary `hash` macro (`hash aid <- me seed`) — no registry lookup,
 # no oracle, no id passed in on trust. That is what makes an AMM able to own its LP token and a launchpad
@@ -162,18 +162,13 @@ ASSET_URI_MAX = 128             # a metadata/logo pointer (an https/ipfs/ar URL)
                                 # multi-KB data: URI (which would bloat every committed metadata leaf) impossible.
 
 
-def asset_id(issuer, seed, v2=None):
-    """The deterministic id of `issuer`'s asset number `seed` — the same field element the contract computes
-    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string. v2 (the default): the gen-29
-    VM's hash over its 256-bit digest, so the node's id stays the contract's. An explicit False is generation 28's
-    alghash id, kept only for the carry (tools/carry.py maps a gen-28 asset id to its gen-29 one)."""
-    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): None is v2 at every cursor — the exec state
-    # never asks for the old id, and the v1 branch below is reachable only by naming it
-    if runtimes._gen_v2(v2):
-        from execnode import zkvm2
-        return zkvm2.hash_words([runtimes.zkvm_addr_digest(issuer, True), int(seed)])
-    from execnode.stark import alghash, field as _F
-    return alghash.hashn([runtimes.zkvm_addr_digest(issuer), int(seed) % _F.P]) % _F.P
+def asset_id(issuer, seed):
+    """The deterministic id of `issuer`'s asset number `seed` — the same word the contract computes as
+    `hash aid <- me seed`: the VM's hash over the issuer's 256-bit digest, so the node's id stays the contract's.
+    `issuer` is an L1 address / cid string."""
+    # ONE ID FORMAT: the gen-28 alghash id (and the `v2=` switch that chose it) went with the field VM in G9 slice 3b;
+    # BLAKE_EXEC_HEIGHT was 1 from gen 29 and covered the genesis, so this is the only id generation 29 ever computed
+    return zkvm2.hash_words([runtimes.zkvm_addr_digest(issuer), int(seed)])
 
 
 # ---- asset ledger: the money rules, in ONE place (doc/assets.md §8) --------------------------------------
@@ -1295,7 +1290,7 @@ class ExecState:
         At height 0 it does nothing, exactly as the gated code did."""
         if not (self.rules_r2() and self.rules_budget_v2()):
             return
-        from execnode.zkvm import GAS_LIMIT
+        from execnode.zkvm2 import GAS_LIMIT
         g = int(GAS_LIMIT) if gas is None else int(gas)
         self._block_steps = int(getattr(self, "_block_steps", 0)) + g
         if sender is not None:                          # and against that sender's share (EXEC_SENDER_STEP_SHARE)
@@ -1442,10 +1437,9 @@ class ExecState:
                 self._touch()
 
     def rules_root_v2(self):
-        """The EXEC_ROOT_V2 rules in force for the block being applied (same convention as rules_v2). Every rule
-        under it is MIRRORED in exec_state_bind.apply_event, which the settlement verifier replays over the
-        bound code events; a rule changed here without that mirror makes an honest proof unverifiable, or a
-        dishonest one verifiable. Keep the two together."""
+        """The EXEC_ROOT_V2 rules in force for the block being applied (same convention as rules_v2). (Their mirror,
+        exec_state_bind.apply_event, went with the Goldilocks settle verifier in G9: a settlement prover that replays
+        code events must replay THESE rules.)"""
         return self.applying_height() >= 1
 
     def rules_privacy_pause(self):
@@ -1485,13 +1479,13 @@ class ExecState:
                 if self.rules_r2() and not isinstance(rt_name, str):
                     return "skip: runtime must be a string"                  # F7: never store a raw non-name
                 if self.rules_root_v2() and not runtimes.runtime_name_ok(rt_name):
-                    return f"skip: unknown runtime {rt_name!r}"              # EXEC_ROOT_V2: exact name only (mirrored in apply_event)
+                    return f"skip: unknown runtime {rt_name!r}"              # EXEC_ROOT_V2: exact name only
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 # the gen-29 deploy gate at every cursor (BLAKE_EXEC_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9):
                 # a deploy validates as zkvm2 code, never as the old VM's
-                rt.validate_code(code, v2=True)   # raises ZkVMError (caught below)
+                rt.validate_code(code)   # zkvm2's gate; raises ZkVMError (caught below)
                 # FIXED-NAME deploy (doc/faucet.md §4): a SYSTEM contract may claim a well-known literal
                 # cid instead of the derived hash, so the L1 reserved recipient, the exec ledger key and
                 # the contract address are all the same word. Allowlisted per name to a sole deployer —
@@ -1508,7 +1502,7 @@ class ExecState:
                 storage = {}
                 if "constructor" in code:
                     kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), **kw)
+                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                     elif self.rules_r2() and _fx:
@@ -1575,7 +1569,7 @@ class ExecState:
                 # call is refused identically on every exec node and unprovable in every settle proof.
                 if _v2 and in_asset and value > 0 and not (
                         c.get("runtime", runtimes.DEFAULT_RUNTIME) == "zkvm"
-                        and zkvm.method_reads_actx(c["code"], method)):
+                        and zkvm2.method_reads_actx(c["code"], method)):
                     return (f"skip: asset-denominated value into {cid[:12]}….{method}, which never reads "
                             f"ACTX and would pay it out as native NADO")
                 # VALUE ESCROW: debit the caller's bridge INTO the contract (keyed by cid) BEFORE running, so the
@@ -1610,7 +1604,7 @@ class ExecState:
                         rt, c["code"], method, sender, args, c["storage"],
                         value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
                         block_hashes=self.block_hashes, asset=int(in_asset or 0),
-                        selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), meter=_meter, **kw)
+                        selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), meter=_meter, **kw)
                 except Exception as e:
                     # F2: the VM raising (rather than reverting) must not keep the escrow. Below the gate the
                     # exception keeps propagating to the outer except, exactly as it always did.
@@ -1716,7 +1710,7 @@ class ExecState:
                     if c.get("deployer") != sender:
                         return "skip: only a contract's deployer may issue an asset for it"
                     issuer = for_cid
-                aid = str(asset_id(issuer, seed, True))   # the id the gen-29 VM computes (BLAKE_EXEC_HEIGHT inlined in G9)
+                aid = str(asset_id(issuer, seed))   # the id the gen-29 VM computes (the only one since G9 slice 3b)
                 if aid in self.assets:
                     return f"skip: asset {aid[:12]}… already exists"
                 # MINT AUTHORITY is opt-IN and renounceable, never implicit: an asset created with
@@ -1896,7 +1890,7 @@ class ExecState:
                     return f"skip: contract {cid} is locked (immutable)"
                 rt_name = payload.get("runtime", c.get("runtime", runtimes.DEFAULT_RUNTIME))
                 if self.rules_root_v2():
-                    # EXEC_ROOT_V2 (mirrored in exec_state_bind.apply_event): an absent OR null runtime keeps
+                    # EXEC_ROOT_V2: an absent OR null runtime keeps
                     # the contract's; anything else must be an exact registered name. Before the gate a null
                     # stored None as the runtime and "" stored "" — records the prover could not replay.
                     rt_name = payload.get("runtime")
@@ -1908,7 +1902,7 @@ class ExecState:
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 try:
-                    rt.validate_code(code, v2=True)   # zkvm2 at every cursor (BLAKE_EXEC_HEIGHT inlined in G9)
+                    rt.validate_code(code)   # zkvm2 at every cursor (BLAKE_EXEC_HEIGHT inlined in G9)
                 except Exception as e:
                     return f"skip: invalid code ({e})"
                 c["code"] = code
@@ -1922,7 +1916,7 @@ class ExecState:
                 # reads the same balance. A treasury payout after this line is NOT counted, by design.
                 # GEN-25 ONLY (off from EXEC_ROOT_V2_HEIGHT): it writes a storage slot from the RECORDS half,
                 # which no settlement proof can derive — the verifier replays an upgrade as a code/meta change
-                # and nothing else (exec_state_bind.apply_event), so a span carrying this write would prove a
+                # and nothing else, so a span carrying this write would prove a
                 # root the chain does not hold. The next generation deploys the faucet with DONATED accounting
                 # from block 1 and never needs the seed.
                 if (cid == "faucet" and "defund" in (code or {}) and not self.rules_root_v2()
@@ -2237,5 +2231,5 @@ class ExecState:
         if rt is None:
             return None
         kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
-        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), **kw)
+        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid), abal=self.holder_assets(cid), **kw)
         return ret if ok else None

@@ -113,7 +113,7 @@ def call_leaf(call, cursor=0, timestamp=0, wide=None):
     # different storage transition under a swapped asset with the DA commitment still matching. Bind it in the
     # SAME canonical int form the exec statement uses (_epoch_pub_statement: int(call.asset); 0 == native).
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
-               str(call.get("caller", "epoch")), [_arg_field(a, True) for a in call.get("args", [])],
+               str(call.get("caller", "epoch")), [_arg_field(a) for a in call.get("args", [])],
                int(call.get("value", 0)), cur, ts, _asset_field(call.get("asset", 0))]
     # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from height 1 this leaf is the
     # full 256-bit digest. Never reduce a wide leaf % P or truncate it — a 64-bit leaf is a ~2^32 birthday
@@ -163,7 +163,7 @@ def _asset_field(a):
         return 0
 
 
-def _arg_field(a, v2=False):
+def _arg_field(a):
     """One call arg in the SAME field form the VM boundary gives it (runtimes.zkvm_statement): ints pass
     through, strings are digested.
 
@@ -177,11 +177,12 @@ def _arg_field(a, v2=False):
     cannot appear in a call that executes; digesting its repr keeps the leaf total rather than throwing,
     since this function must never be the reason a block has no summary."""
     from execnode import runtimes
-    # v2 (call_leaf passes True at every cursor — BLAKE_EXEC_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9): the
-    # gen-29 VM's 256-bit digest — the leaf binds the statement the VM actually ran, so it digests as the runtime does
+    # the gen-29 VM's 256-bit digest at every cursor (call_leaf passed v2=True since BLAKE_EXEC_HEIGHT was inlined; the
+    # field digest and the switch went with the field VM in G9 slice 3b) — the leaf binds the statement the VM actually
+    # ran, so it digests as the runtime does
     if isinstance(a, bool) or not isinstance(a, (int, str)):
-        return runtimes.zkvm_addr_digest(repr(a), v2)
-    return a if isinstance(a, int) else runtimes.zkvm_addr_digest(a, v2)
+        return runtimes.zkvm_addr_digest(repr(a))
+    return a if isinstance(a, int) else runtimes.zkvm_addr_digest(a)
 
 
 def _safe_int(v):
@@ -225,7 +226,7 @@ def block_calls(block, ns="default"):
     #     committed data: it depends on nothing but h;
     #   * the block's CODE EVENTS (deploy / upgrade / lock / transfer_contract) ride the list in tx order
     #     between the calls, so a settle proof binds — and its transition carries — every code change of its
-    #     span (S1). Their public fields are exactly what exec_state_bind.apply_event judges.
+    #     span (S1). Their public fields are exactly what ExecState.apply_blob judges.
     # Below the gate the list is calls only with ts=0, exactly as before: the leaves persist in the exec
     # summaries, which feed the L1 state root.
     from execnode.stark.exec_state_bind import root_v2
@@ -254,9 +255,9 @@ def block_calls(block, ns="default"):
 
 def _event_entry(d, tx, op, h, ts):
     """One code event as block_calls carries it: the public fields the chain's admission reads, coerced to
-    the shapes exec_state_bind.apply_event judges (a non-string cid or transferee becomes "", which it
+    the shapes ExecState.apply_blob judges (a non-string cid or transferee becomes "", which it
     refuses exactly as the chain refuses the original). The code is DECODED here — the same bytes the exec
-    layer applies — and None when undecodable, which apply_event refuses as the chain does."""
+    layer applies — and None when undecodable, which the chain refuses."""
     ev = {"op": op, "caller": tx.get("sender"), "cursor": h, "timestamp": ts}
     if op in ("deploy", "upgrade"):
         from execnode.code_codec import decode_code

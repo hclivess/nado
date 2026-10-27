@@ -230,8 +230,8 @@ export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypt
 // ws = HASH([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod 2^256])'s low 32 bits % mod.
 // THE GENERATION'S VM (Goldilocks retirement G3). The gen-29 contracts run on the 256-bit zkvm2: their HASH is a BLAKE2s
 // word chain (static/blake2s.js hashWords == execnode/zkvm2.hash_words), their word wraps at 2^256, and a block hash
-// enters the VM whole. This is the client half of zkvmasm.default_isa, which is v2 at every height (BLAKE_EXEC_HEIGHT,
-// gen 28's gate, inlined in G9 — the gen-28 alghash branches here went with it; a game page that reintroduces one
+// enters the VM whole, at every height (BLAKE_EXEC_HEIGHT, gen 28's gate, inlined in G9; the assembler's field-VM ISA
+// went in slice 3b — the gen-28 alghash branches here went with them; a game page that reintroduces one
 // previews a roll the chain will not settle). INVARIANT: a game page never calls alghash directly — only through these
 // helpers.
 const WORD = 1n << 256n;

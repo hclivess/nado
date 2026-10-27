@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
 # file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState, asset_id, ASSET_SUPPLY_CAP
-from execnode import runtimes, zkvm, zkvm2, zkvmasm
+from execnode import runtimes, zkvm2, zkvmasm
 from execnode.zkpy import Contract, hash as zhash
 
 import _harness
@@ -375,12 +375,12 @@ def t_asset_call_value_refunds_on_revert():
 def t_deploy_gate_enforces_pairing():
     """ASEL binds the instruction AFTER it. Hand-written bytecode that separates them is the
     fund-substitution bug (the PAY moves NADO, not the token), so the deploy gate must refuse it."""
-    ok = lambda code: zkvm.validate_code({"m": code})
+    ok = lambda code: zkvm2.validate_code({"m": code})
 
     def rejects(code, why):
         try:
             ok(code)
-        except zkvm.ZkVMError:
+        except zkvm2.ZkVMError:
             return
         raise AssertionError(f"validate_code accepted {why}")
 
@@ -400,31 +400,31 @@ def t_asel_zero_reverts():
     """`asel r0` with r0 = 0 would mean 'select native' — which is exactly the substitution the pairing
     rule exists to prevent, so the VM reverts rather than quietly paying NADO."""
     code = {"m": [["ASEL", 0, 0, 0], ["PAY", 1, 2, 0], ["RET", 0, 0, 0]]}
-    ok, *_ = zkvm.run(code, "m", 7, [0, 5, 3], {}, abal={0: 10, 9: 10})
+    ok, *_ = zkvm2.run(code, "m", 7, [0, 5, 3], {}, abal={0: 10, 9: 10})
     assert not ok, "ASEL of asset 0 must revert"
-    ok, *_ = zkvm.run(code, "m", 7, [9, 5, 3], {}, abal={9: 10})
+    ok, *_ = zkvm2.run(code, "m", 7, [9, 5, 3], {}, abal={9: 10})
     assert ok, "a real asset id must select fine"
     # and a selection the contract cannot afford reverts too, rather than emitting a log the exec layer
     # would only have to throw away
-    ok, *_ = zkvm.run(code, "m", 7, [9, 5, 3], {}, abal={9: 2})
+    ok, *_ = zkvm2.run(code, "m", 7, [9, 5, 3], {}, abal={9: 2})
     assert not ok, "an unaffordable asset pay must revert in the VM"
 
 
 def t_replay_io_pairing_and_failclosed():
     """replay_io verifies a LOG, not a program, so it re-checks the pairing itself — and by default it
     refuses asset logs outright rather than silently dropping half a state transition."""
-    log = [(zkvm.IO_ASEL, 9, 0), (zkvm.IO_PAY, 5, 3), (zkvm.IO_RET, 1, 0)]
-    ok, *_ = zkvm.replay_io(log, {})
+    log = [(zkvm2.IO_ASEL, 9, 0), (zkvm2.IO_PAY, 5, 3), (zkvm2.IO_RET, 1, 0)]
+    ok, *_ = zkvm2.replay_io(log, {})
     assert not ok, "asset io must be rejected when the caller has not opted in"
-    ok, _ret, _st, payouts, _chain, fx = zkvm.replay_io(log, {}, with_assets=True)
+    ok, _ret, _st, payouts, _chain, fx = zkvm2.replay_io(log, {}, with_assets=True)
     assert ok and payouts == [] and fx == [("pay", 9, 5, 3)], (ok, payouts, fx)
 
-    for bad, why in (([(zkvm.IO_ASEL, 9, 0), (zkvm.IO_RET, 1, 0)], "selection never spent"),
-                     ([(zkvm.IO_ASEL, 0, 0), (zkvm.IO_PAY, 5, 3), (zkvm.IO_RET, 1, 0)], "ASEL of 0"),
-                     ([(zkvm.IO_AMINT, 5, 3), (zkvm.IO_RET, 1, 0)], "mint with no selection"),
-                     ([(zkvm.IO_ASEL, 9, 0), (zkvm.IO_SSTORE, 1, 1), (zkvm.IO_PAY, 5, 3),
-                       (zkvm.IO_RET, 1, 0)], "an entry wedged between selection and spend")):
-        ok, *_ = zkvm.replay_io(bad, {}, with_assets=True)
+    for bad, why in (([(zkvm2.IO_ASEL, 9, 0), (zkvm2.IO_RET, 1, 0)], "selection never spent"),
+                     ([(zkvm2.IO_ASEL, 0, 0), (zkvm2.IO_PAY, 5, 3), (zkvm2.IO_RET, 1, 0)], "ASEL of 0"),
+                     ([(zkvm2.IO_AMINT, 5, 3), (zkvm2.IO_RET, 1, 0)], "mint with no selection"),
+                     ([(zkvm2.IO_ASEL, 9, 0), (zkvm2.IO_SSTORE, 1, 1), (zkvm2.IO_PAY, 5, 3),
+                       (zkvm2.IO_RET, 1, 0)], "an entry wedged between selection and spend")):
+        ok, *_ = zkvm2.replay_io(bad, {}, with_assets=True)
         assert not ok, f"replay_io accepted a log with {why}"
 
 
@@ -451,7 +451,7 @@ def t_proven_call_matches_native():
     ok, ret, new_slots, io = zkvm2.run(code, "sweep", cf, fargs, slots, cursor=st.cursor,
                                        selfd=selfd, abal=abal)
     assert ok and ret == 500, (ok, ret)
-    assert [e[0] for e in io if e[0] in zkvm.IO_ASSET_KINDS] == [zkvm.IO_ABAL, zkvm.IO_ASEL], io
+    assert [e[0] for e in io if e[0] in zkvm2.IO_ASSET_KINDS] == [zkvm2.IO_ABAL, zkvm2.IO_ASEL], io
 
     # (the PROVEN leg — vm_circuit.prove_call/verify_call, incl. the forged-ACTX_SELF refusal — retired in G9:
     #  vm_circuit was deleted with the Goldilocks settle prover; a BLAKE2s root settles by quorum)
@@ -650,7 +650,7 @@ def t_arenounce_proves_and_replays():
     selfd = runtimes.zkvm_addr_digest(cid)
 
     ok, ret, new_slots, io = zkvm2.run(code, "seal", cf, fargs, slots, cursor=st.cursor, selfd=selfd)
-    assert ok and any(k == zkvm.IO_ARENOUNCE for k, _a, _b in io), io
+    assert ok and any(k == zkvm2.IO_ARENOUNCE for k, _a, _b in io), io
 
     # (the PROVEN leg — vm_circuit prove/verify and the forged-self-digest refusal — retired in G9: vm_circuit
     #  was deleted with the Goldilocks settle prover)

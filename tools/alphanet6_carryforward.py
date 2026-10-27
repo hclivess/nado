@@ -127,16 +127,13 @@ def carry_policy(cid: str, contract: dict, tip=None) -> str:
     return "keep"
 
 
-def exec_genesis(contracts: dict, pots: dict, zk_addrs=None, tip: int = 0, dst=None, amap=None) -> tuple:
-    """(genesis records for execnode/exec_genesis.py, {cid: pot} kept in escrow, the re-keyed zk_addrs registry). `tip`
+def exec_genesis(contracts: dict, pots: dict, zk_addrs=None, tip: int = 0) -> tuple:
+    """(genesis records for execnode/exec_genesis.py, {cid: pot} kept in escrow, the checked zk_addrs registry). `tip`
     is the old chain's height the new chain's block 0 replaces (the drained exec cursor); a module's carry_rebase moves
-    stored heights by it. EVERY contract carries under its id with ALL of its storage, re-encoded from the running
-    generation's ISA to `dst` (None = the same ISA: nothing re-encoded), and EVERY pot stays in escrow with it — or
-    tools/carry.Refused names every contract that cannot (operator rule 2026-10-20; the reset-and-refund path that stood
-    here is gone)."""
-    from execnode import zkvmasm
-    src = zkvmasm.default_isa()
-    out, reg, _counts = _carry.carry_contracts(contracts, zk_addrs or {}, int(tip), src=src, dst=dst or src, amap=amap)
+    stored heights by it. EVERY contract carries under its id with ALL of its storage (one VM from gen 29 on: nothing is
+    re-encoded, tools/carry.py), and EVERY pot stays in escrow with it — or tools/carry.Refused names every contract that
+    cannot (operator rule 2026-10-20; the reset-and-refund path that stood here is gone)."""
+    out, reg, _counts = _carry.carry_contracts(contracts, zk_addrs or {}, int(tip))
     stray = sorted(c for c, p in pots.items() if p and c not in out)
     if stray:
         raise _carry.Refused(f"pots of contracts the state does not hold: {stray}")
@@ -145,9 +142,9 @@ def exec_genesis(contracts: dict, pots: dict, zk_addrs=None, tip: int = 0, dst=N
     return out, {c: int(p) for c, p in sorted(pots.items()) if p}, reg
 
 
-def exec_genesis_doc(contracts: dict, pots: dict, tip: int = 0, zk_addrs=None, dst=None) -> tuple:
+def exec_genesis_doc(contracts: dict, pots: dict, tip: int = 0, zk_addrs=None) -> tuple:
     """exec_genesis without the registry: (records, kept pots)."""
-    out, kept, _reg = exec_genesis(contracts, pots, zk_addrs, tip, dst)
+    out, kept, _reg = exec_genesis(contracts, pots, zk_addrs, tip)
     return out, kept
 
 
@@ -166,8 +163,8 @@ def int_slots(storage: dict) -> dict:
 def exec_assets_doc(d: dict, amap=None) -> dict:
     """The exec ASSETS of a snapshot as the exec genesis carries them (execnode/exec_genesis.apply): asset records,
     holdings and allowances — an asset record holds no height — with zero holdings dropped and amounts as decimal
-    strings (never floats). An asset's id derives from (issuer, seed) through the VM hash, so a carry that changes the
-    hash re-keys all three by `amap` (tools/carry.asset_map); None keeps the ids."""
+    strings (never floats). An asset's id derives from (issuer, seed) through the VM hash; `amap` (tools/carry.asset_map,
+    which refuses a record that is not its id's preimage) keys all three by the carried ids; None keeps them unchecked."""
     assets, abal, allow = d.get("assets") or {}, d.get("abal") or {}, d.get("allow") or {}
     if amap is not None:
         assets, abal, allow = _carry.carry_assets(assets, abal, allow, amap)
@@ -356,15 +353,13 @@ def build():
     pot_bridge = {a: _num(v) for a, v in bridge.items() if a in cids}
     for a, v in user_bridge.items():
         credit(a, v)
-    # 3) EVERY CONTRACT CARRIES with all its storage, re-encoded into the new generation's VM formats, and EVERY pot
-    # stays in escrow with it (tools/carry.py; operator rule 2026-10-20). A contract that cannot carry losslessly
-    # refuses the carry here — nothing is reset, nothing refunded in its place.
-    from execnode import zkvmasm as _zasm
-    _src = _zasm.default_isa()
-    _amap = _carry.asset_map(d.get("assets"), _src, "v2")
+    # 3) EVERY CONTRACT CARRIES with all its storage, and EVERY pot stays in escrow with it (tools/carry.py; operator
+    # rule 2026-10-20). A contract that cannot carry losslessly refuses the carry here — nothing is reset, nothing
+    # refunded in its place.
+    _amap = _carry.asset_map(d.get("assets"))
     try:
         _gen_contracts, kept_pots, _reg = exec_genesis(contracts, pot_bridge, d.get("zk_addrs") or {},
-                                                       int(d.get("cursor", 0)), dst="v2", amap=_amap)
+                                                       int(d.get("cursor", 0)))
     except _carry.Refused as e:
         raise SystemExit(f"REFUSING: {e}")
     from protocol import CHAIN_GENERATION as _G
@@ -372,7 +367,7 @@ def build():
                         "bridge": {c: str(v) for c, v in sorted(kept_pots.items())},
                         **exec_assets_doc(d, _amap),
                         # the payee registry carried storage resolves its digests through (execnode/exec_genesis.apply),
-                        # keyed by each string's NEW digest — the one carried storage now holds
+                        # each entry checked to be its own string's digest (tools/carry.digest_map)
                         "zk_addrs": {str(k): str(v) for k, v in sorted(_reg.items())}}
     # ALREADY-CLAIMED EXITS ARE NOT PAID AGAIN (review 2026-09-25, measured). The exec node applies only FINALIZED L1
     # blocks, so exec_state trails L1 by ~45 blocks: a withdrawal claimed on L1 in that gap is already in its owner's

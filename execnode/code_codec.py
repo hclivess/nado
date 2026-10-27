@@ -1,9 +1,8 @@
 """Contract code as it travels in a blob, and the two pure rules a code event's ADMISSION depends on.
 
 Lives outside execnode/state.py so the L1 side (calls_commit.block_calls, which runs inside block
-incorporation and must never import the exec state) and the settlement verifier (exec_state_bind.apply_event)
-can share ONE implementation with the chain (S1, EXEC_ROOT_V2_HEIGHT): the decoder, the cid derivation and
-the fixed-name allowlist. Pure: no state, no network, no disk."""
+incorporation and must never import the exec state) can share ONE implementation with the chain (S1,
+EXEC_ROOT_V2_HEIGHT): the decoder, the cid derivation and the fixed-name allowlist. Pure: no state, no network, no disk."""
 import base64
 import json
 

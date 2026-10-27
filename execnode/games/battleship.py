@@ -420,11 +420,11 @@ ABI["_view"]["board3"] = {"name": "rs1", "base": RS1_BASE, "cells": 100, "stride
 ABI["_view"]["board4"] = {"name": "rs2", "base": RS2_BASE, "cells": 100, "stride": 100, "index": "games"}
 
 
-def build(isa=None):
+def build():
     src = dict(SRC)
     src["answer"] = "\n".join(_answer())
     src["claim"] = "\n".join(_claim())
-    return zkvmasm.assemble_contract(src, isa)
+    return zkvmasm.assemble_contract(src)
 
 
 # ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
@@ -459,12 +459,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     return out
-
-
-# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1/p2/eaddr are owner digests (remapped).
-# The settled roots stay readable to the view but no method checks them again (carry_in_flight blocks the rest).
-# No slot is hash-KEYED: fired flags, results and the claim scratch are all field*2^32 + game id.
-CARRY_WORDS = {**_lib.daily_carry_words(A_V, EW_BASE, DAILY_WORDS),
-               ("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
-               ("field", R1): "p1's settled board root (hash value, never re-checked)",
-               ("field", R2): "p2's settled board root (hash value, never re-checked)"}

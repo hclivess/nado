@@ -28,7 +28,7 @@ import protocol as P
 # Every gen-28 gate this file once pinned (BLAKE_EXEC_HEIGHT, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
 # EXEC_BUDGET_V2_HEIGHT) was inlined in G9: it runs on generation 29's rules, like the chain does.
 from execnode.state import ExecState, asset_id
-from execnode import zkvmasm, zkvm
+from execnode import zkvmasm, zkvm2 as zkvm
 from execnode.stark import stark, field as F
 from execnode.shielded_field import TREE_DEPTH
 

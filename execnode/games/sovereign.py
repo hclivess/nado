@@ -77,8 +77,8 @@ ABI = {
 }
 
 
-def build(isa=None):
-    return zkvmasm.assemble_contract(SRC, isa)
+def build():
+    return zkvmasm.assemble_contract(SRC)
 
 
 # ---- the gen-29 reroll carry: DELIBERATELY NO CARRY RULE (tools/carry.py, doc/stwo/g5-carry.md) ---------------------

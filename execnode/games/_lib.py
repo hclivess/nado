@@ -27,30 +27,24 @@ byte-identical to the originals: they are the originals plus the guard.
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
 
 
-# ---- the reference models' arithmetic, per generation (Goldilocks retirement G3) ---------------------------------------
+# ---- the reference models' arithmetic --------------------------------------------------------------------------------
 # Every game's Python reference model (what tests and the browser mirrors check the contract against) hashes and reduces
-# the way the contract's VM does. On v1 that is alghash.hashn and mod the Goldilocks prime; on the gen-29 v2 VM it is
-# zkvm2.hash_words and mod 2^256. These two follow zkvmasm.default_isa, so a model and the build() it mirrors always
-# agree on the generation. INVARIANT: a model never calls alghash or reduces by F.P directly.
-def vm_hash(words, isa=None):
-    from execnode import zkvmasm
-    if (isa or zkvmasm.default_isa()) == "v2":
-        from execnode import zkvm2
-        return zkvm2.hash_words([int(w) for w in words])
-    from execnode.stark import alghash
-    return alghash.hashn(list(words))
+# the way the contract's VM does: zkvm2.hash_words and mod 2^256 (the wrapping word). The gen-28 field VM's branch
+# (alghash.hashn, mod the Goldilocks prime) and the `isa=` switch went with that VM in G9 slice 3b; BLAKE_EXEC_HEIGHT was 1
+# from gen 29, so the v2 branch is the only one generation 29 ever took. INVARIANT: a model never hashes or reduces any
+# other way.
+def vm_hash(words):
+    from execnode import zkvm2
+    return zkvm2.hash_words([int(w) for w in words])
 
 
-def vm_mod(isa=None):
-    """the modulus a model reduces by: the Goldilocks prime on v1, 2^256 (the wrapping word) on v2"""
-    from execnode import zkvmasm
-    if (isa or zkvmasm.default_isa()) == "v2":
-        return 1 << 256
-    from execnode.stark import field as F
-    return F.P
+def vm_mod():
+    """the modulus a model reduces by: 2^256, the wrapping word"""
+    return 1 << 256
 
 
-INV32_FIELD = 18446744065119617026     # the Goldilocks inverse of 2^32 — the v1 "exact hi half" idiom's constant
+INV32_FIELD = 18446744065119617026     # the Goldilocks inverse of 2^32 — the field-VM "exact hi half" idiom's
+                                       # constant, still in the SOURCE of the contracts port_inv32 rewrites
 
 
 def port_inv32(text):
@@ -125,47 +119,9 @@ def carry_ids(slots: dict, cnt_slot: int, lst: int) -> list:
     return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
 
 
-# ---- the gen-29 carry's re-encoding hooks (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------
-# A hash-keyed slot (bet's stakes, the faucet's paid markers, ...) is addressed by the VM hash of a preimage, and the hash
-# changes with the generation, so the carry must re-derive every such key from its preimage — never decode it from its
-# bits. A module that stores hash-keyed slots declares carry_hash_preimages(storage, digests): every preimage its storage
-# may hold a key for, enumerated from its own index, with each word that is an owner/string DIGEST wrapped in Owner (the
-# carry remaps exactly those words to the gen-29 digest before rehashing). Over-enumerating is harmless (a preimage whose
-# old hash is not a stored key is ignored); a stored hash key no preimage explains REFUSES the carry.
-class Owner(int):
-    """A preimage word that is a zk_addrs digest — remapped to the new generation's digest by the carry."""
-
-
-# CARRY_WORDS: the slots a module's storage may hold a value >= 2^32 in that is NOT a registry digest, each with what it
-# is — {("field", F): why} for F*2^32 + id keys, {("slot", k): why} for a bare slot k < 2^32, {("tag", t): why} for the
-# hash slots whose preimage starts with t. The carry keeps them verbatim and REFUSES any other large value: it is either
-# a digest the registry cannot remap (an owner that would silently be lost) or a hash-derived value nobody has checked
-# for a re-derivation under the new hash (pets' genes were one, doc/stwo/g5-carry.md).
-BANKED_CARRY_WORDS = {("field", TK): "a table's bankroll (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
-                      ("field", TC): "a table's committed cover (raw NADO)"}
-
-
-def daily_carry_words(a_v, ew_base, n_words):
-    """A provable daily board's large values: the resolved anchor (a block-hash VALUE the verifiers read as stored) and
-    the packed claim words (moves, 3-6 bits each)."""
-    out = {("field", a_v): "a resolved day anchor (block-hash value, read as stored)"}
-    out.update({("field", ew_base + j): "a packed daily claim word" for j in range(n_words)})
-    return out
-
-
-def carry_tote_preimages(slots, cnt_slot, lst, n_out, tags_out, tags_own, digests):
-    """The preimages of a tote/book's per-user slots (bet's markets, hamster's races): HASH(tag, id, outcome, owner) for
-    each tag in `tags_out` and HASH(tag, id, owner) for each in `tags_own`, over the ids the index lists, every outcome
-    below `n_out` and every registry digest. The owner word is LAST, so the carry's prefix cache absorbs the shared
-    prefix once per (tag, id[, outcome])."""
-    for i in carry_ids(slots, cnt_slot, lst):
-        for t in tags_own:
-            for d in digests:
-                yield (t, i, Owner(d))
-        for t in tags_out:
-            for o in range(n_out):
-                for d in digests:
-                    yield (t, i, o, Owner(d))
+# (Owner, BANKED_CARRY_WORDS, daily_carry_words and carry_tote_preimages — the gen-28 -> gen-29 carry's re-encoding
+# hooks, which re-derived hash keys and owner digests from the field VM's formats — went with that carry in G9 slice 3b.
+# A carry between two generations of the same VM re-encodes nothing: tools/carry.py.)
 
 
 def rebase_daily_anchors(slots: dict, tip: int, a_h: int, a_v: int, dcnt_slot: int, dlist: int) -> dict:
