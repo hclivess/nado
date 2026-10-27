@@ -14,6 +14,20 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-10-27 — owed BEFORE the next reroll (gen 30): re-pin the carry's refusals for a v2 -> v2 carry
+
+G9 slice 3 inlined BLAKE_EXEC_HEIGHT, and five tests that staged a gen-28 (v1 VM) exec state and carried it to gen 29
+could no longer be built, so they were retired: test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28,
+test_amm_pools_and_reserve_vaults_carry_to_gen29_and_pay_exactly_as_on_gen28,
+test_an_open_swap_a_taken_loan_or_a_live_game_refuses_the_carry_and_a_closed_one_crosses,
+test_commit_reveal_tables_carry_at_rest_and_refuse_an_open_round,
+test_battleship_hexholm_scrapline_carry_at_rest_and_sovereign_refuses. Their PROPERTIES still bind the gen-30 carry
+(tools/carry.py; "the carry carries everything"): an open swap, a taken loan or a live game refuses the carry and a
+closed one crosses; commit-reveal tables cross only at rest; a carried AMM pool / reserve vault pays exactly as before.
+They are now pinned only for the v1 -> v2 path (test_the_carry_rederives_what_it_can_and_refuses_what_it_cannot).
+CONSENSUS-ADJACENT (a wrong carry moves real balances): rewrite each as a v2 -> v2 carry of a live-shaped gen-29 exec
+state and run them in the reroll rehearsal. Raise this loudly at the reroll if it is not done.
+
 ## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
 
 - **Exec-layer `>= 1` helpers keep dead legacy branches** (slice 2, 9c6bf717): the `ExecState.rules_*` helpers, the
