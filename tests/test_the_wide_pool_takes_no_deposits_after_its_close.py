@@ -1,13 +1,13 @@
-"""The wide shielded pool takes no deposits from WIDE_DEPOSIT_CLOSE_HEIGHT (review 2026-10-11, gate blocker 2).
+"""The wide shielded pool takes no deposits (review 2026-10-11, gate blocker 2; ops/transaction_ops.field_shield_check).
 
-From STWO_POOL_HEIGHT only a `stwo_js` bundle spends, so a wide note deposited before that gate could never move again.
-The wide pool never held a note, so closing its deposits well ahead of the Stwo gate keeps it provably empty:
+Only a `stwo_js` bundle spends, so a wide note deposited could never move again. WIDE_DEPOSIT_CLOSE_HEIGHT (175000 on gen
+28) and STWO_POOL_HEIGHT (269000 there) were both 1 from gen 29 and G9 inlined them; generation 28's window pins (a wide
+deposit below the close, the order of the two gates, the close exported to clients) retired with them. Pins:
 
-  1. L1 admits a well-formed wide deposit one block below the close and refuses it at the close (both rule sets);
-  2. a Stwo deposit at the Stwo gate is still judged by the Stwo rules (the close sits after that branch);
-  3. the live gates keep their order: the Stwo gate is never (0) or above the close;
-  4. the wallet reads the close from /protocol.js and stops a wide deposit at tip + 1 >= close with a translated
-     reason, but never once the Stwo pool is live.
+  1. L1 refuses a well-formed wide deposit at every height from block 1;
+  2. a Stwo deposit is judged by the Stwo rules (an untagged deposit is that branch's refusal);
+  3. height 0 (mempool admission on a genesis tip) keeps its old verdict: no shape check;
+  4. the wallet builds no wide deposit at all, and stops every deposit unless the Stwo pool is live.
 
 Run: python3 tests/test_the_wide_pool_takes_no_deposits_after_its_close.py
 """
@@ -37,32 +37,14 @@ def verdict(data, h):
 
 WIDE = {"field": True, "owner": "00" * 31 + "01", "rho": "12345"}
 STWO = {"field": True, "pool": "stwo", "owner": "ab" * 32, "rho": "7"}
-# 1-3 ARE GENERATION 28'S WINDOWS (close 175000, Stwo gate 269000; its history replays through them): run under its
-# gates explicitly — on gen 29 both are block 1 and there is no window between them (gen-29 rehearsal)
-CLOSE = _harness.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28)
-with _harness.pinned(WIDE_DEPOSIT_CLOSE_HEIGHT=CLOSE, STWO_POOL_HEIGHT=_harness.gate_at("STWO_POOL_HEIGHT", 28)):
-
-    check("1. a wide deposit one block below the close is admitted", verdict(WIDE, CLOSE - 1) == "admitted",
-          verdict(WIDE, CLOSE - 1))
-    v = verdict(WIDE, CLOSE)
-    check("...and refused at the close", "takes no new deposits" in v, v)
-    check("...and after it", "takes no new deposits" in verdict(WIDE, CLOSE + 5000))
-    _old = P.STWO_POOL_HEIGHT
-    P.STWO_POOL_HEIGHT = CLOSE + 100
-    check("2. a Stwo deposit at the Stwo gate is judged by the Stwo rules", verdict(STWO, CLOSE + 100) == "admitted",
-          verdict(STWO, CLOSE + 100))
-    check("...and an untagged deposit there is still the Stwo branch's refusal", "must name pool" in verdict(WIDE, CLOSE + 100))
-    P.STWO_POOL_HEIGHT = _old
-    check("3. generation 28's gates keep their order: the Stwo gate is never or above the close",
-          P.STWO_POOL_HEIGHT == 0 or P.STWO_POOL_HEIGHT > CLOSE, (P.STWO_POOL_HEIGHT, CLOSE))
-# GENERATION 29: the Stwo pool and the close are both block 1 — the Stwo gate is never below the close, a wide deposit
-# is never admitted, a Stwo deposit is from the first block
-_c29, _s29 = _harness.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 29), _harness.gate_at("STWO_POOL_HEIGHT", 29)
-check("3'. generation 29: the Stwo gate is not below the close", _s29 >= _c29, (_s29, _c29))
-with _harness.pinned(WIDE_DEPOSIT_CLOSE_HEIGHT=_c29, STWO_POOL_HEIGHT=_s29):
-    check("...a wide deposit is refused from block 1 and a Stwo deposit admitted",
-          verdict(WIDE, 1) != "admitted" and verdict(STWO, 1) == "admitted", (verdict(WIDE, 1), verdict(STWO, 1)))
-check("...and the close reaches clients through /protocol.js", "WIDE_DEPOSIT_CLOSE_HEIGHT" in P.CLIENT_EXPORTS)
+check("1. a wide deposit is refused from block 1", all(verdict(WIDE, h) != "admitted" for h in (1, 2, 175000, 10 ** 9)),
+      [verdict(WIDE, h) for h in (1, 2, 175000, 10 ** 9)])
+check("2. a Stwo deposit is judged by the Stwo rules", all(verdict(STWO, h) == "admitted" for h in (1, 10 ** 9)),
+      verdict(STWO, 1))
+check("...and an untagged deposit is the Stwo branch's refusal", "must name pool" in verdict(WIDE, 1), verdict(WIDE, 1))
+check("3. height 0 keeps its old verdict (no shape check)", verdict(WIDE, 0) == "admitted", verdict(WIDE, 0))
+check("...and the retired gates are not exported to clients",
+      not {"WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT"} & set(P.CLIENT_EXPORTS))
 
 SRC = open(os.path.join(ROOT, "static", "interface.js"), encoding="utf-8").read()
 # THE WALLET BUILDS NO WIDE DEPOSIT AT ALL (G6): the wide pool is closed and was measured empty, so the wallet dropped it.

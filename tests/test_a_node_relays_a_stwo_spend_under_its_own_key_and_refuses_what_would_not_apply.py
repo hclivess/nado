@@ -63,7 +63,6 @@ from signatures import verify as sig_verify, unhex
 import ops.stwo_relay as R
 
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 node = generate_keys()                       # a throwaway NODE key for this test (a node signs with its own key)
 OTHER = make_address("ef" * 1312)
 FEE = R.STWO_RELAY_FEE_RAW

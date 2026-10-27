@@ -2,7 +2,7 @@
 """Headless-BROWSER walk of the Stwo shielded pool, two users, on a throwaway testnet WITH EXEC NODES (G6 exit test:
 "deposit, private send, unshield walked as a user ... from the served URL"; G7: "first quorum settle lands; exits claim").
 
-Run on a tree where STWO_POOL_HEIGHT is live (generation 29: 1). Launches n nodes and, beside each, its own exec node
+The Stwo pool is live from block 1 (gen 28's STWO_POOL_HEIGHT, inlined in G9). Launches n nodes and, beside each, its own exec node
 (execnode/execnode.py on 127.0.0.1:9700+i, its state and DA under that node's home, signing settles with that node's
 bonded key, so the bonded quorum settles exactly as on the fleet), funds every node (a relay pays the L1 fee of the
 private payments it publishes) and wallet A, then drives the REAL wallet served by node1 (A) and node2 (B) — two origins,
@@ -52,10 +52,6 @@ def exec_get(i, path, timeout=8):
 def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     run_seconds = int(sys.argv[2]) if len(sys.argv) > 2 else 2400
-    if P.STWO_POOL_HEIGHT > 1:
-        print(f"[shield-wallet] STWO_POOL_HEIGHT is {P.STWO_POOL_HEIGHT} on this tree (generation {P.CHAIN_GENERATION}): "
-              "a loopback chain never reaches it — run this on the generation-29 tree", flush=True)
-        return 2
     workdir = tempfile.mkdtemp(prefix="nado_shieldwallet_")
     print(f"[shield-wallet] {n} nodes + {n} exec nodes, budget {run_seconds}s, workdir {workdir}", flush=True)
     keys = [generate_keydict() for _ in range(n)]

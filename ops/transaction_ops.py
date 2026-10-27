@@ -1867,12 +1867,16 @@ def field_shield_check(data, block_height):
     # THE LEGACY FIELD POOL TAKES NO DEPOSITS: gen 25 closed it between REVIEW_R2_HEIGHT and SHIELD_WIDE_HEIGHT, and
     # from gen 26 both gates were 1, so that window is empty and every deposit from block 1 is a WIDE one. Height 0
     # (mempool admission on a genesis tip) was below both gates and keeps its old verdict: no shape check.
-    from protocol import STWO_POOL_HEIGHT as _STWO_H
-    if _STWO_H and _sh >= _STWO_H:
-        # THE STWO POOL (STWO_POOL_HEIGHT): the deposit must SAY it is for the Stwo pool (`pool: "stwo"`), the owner is any
+    # STWO_POOL_HEIGHT and WIDE_DEPOSIT_CLOSE_HEIGHT (gen 28's gates, 1 from gen 29, inlined in G9): from block 1 every
+    # deposit is a Stwo one and the wide pool takes none. `>= 1`, not unconditional: height 0 (mempool admission on a
+    # genesis tip) was below both gates — the wide close (`_sh < 1`) passed and the wide shape check (`_sh >= 1`) did
+    # not run — so it keeps its old verdict: no shape check. INVARIANT: never a wide-note branch again; the wide pool is
+    # closed for good and a reroll starts with it closed.
+    if _sh >= 1:
+        # THE STWO POOL: the deposit must SAY it is for the Stwo pool (`pool: "stwo"`), the owner is any
         # 64-hex BLAKE2s digest (no field restriction — the wide check refused ~1 in 2^30 of them) and rho a u64, EXACTLY
-        # what state._apply_stwo_shield computes the note from. INVARIANT: an untagged deposit is refused from the gate,
-        # because a wallet tab loaded before the gate builds a WIDE owner, and L1 cannot tell the two owners apart — the
+        # what state._apply_stwo_shield computes the note from. INVARIANT: an untagged deposit is refused, because a
+        # wallet tab built for the wide pool builds a WIDE owner, and L1 cannot tell the two owners apart — the
         # exec layer would put its coins under an owner nobody can spend.
         assert data.get("pool") == "stwo", "from STWO_POOL_HEIGHT a shield deposit must name pool \"stwo\""
         _ow = data.get("owner")
@@ -1882,24 +1886,6 @@ def field_shield_check(data, block_height):
         assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
             and 0 <= int(_rh) < (1 << 64), "stwo shield rho must be a decimal u64"
         return
-    from protocol import WIDE_DEPOSIT_CLOSE_HEIGHT as _WCLOSE
-    # WIDE_DEPOSIT_CLOSE_HEIGHT: no new wide note, so the Stwo gate can never freeze one (protocol.py). INVARIANT: this
-    # sits AFTER the Stwo branch — from STWO_POOL_HEIGHT a deposit is a Stwo one and is judged above.
-    # It is ALSO what refuses a deposit tagged `pool: "stwo"` below the Stwo gate (review 2026-10-11): the wide branch
-    # ignores the tag and the exec layer would make a wide note under a BLAKE2s owner nobody can spend. That needs the
-    # Stwo gate at or above this close; tests/test_a_deposit_tagged_for_the_stwo_pool_is_refused_below_its_gate pins it.
-    assert _sh < _WCLOSE, "the wide shielded pool takes no new deposits (WIDE_DEPOSIT_CLOSE_HEIGHT)"
-    if _sh >= 1:
-        # THE WIDE POOL (Z3): the owner is a 64-hex alghash2 digest and rho a decimal field element,
-        # EXACTLY what state._apply_wide_shield computes the note from. Admitting any other shape
-        # escrows the coins behind a note the exec layer then refuses to create — coins gone.
-        from execnode.stark import znote as _Z, field as _ZF
-        _ow = data.get("owner")
-        assert isinstance(_ow, str) and len(_ow) == 64 and _ow == _ow.lower(), "wide shield owner must be a 64-hex digest"
-        _Z.from_hex(_ow)                                                 # raises on an out-of-field lane
-        _rh = data.get("rho")
-        assert isinstance(_rh, (str, int)) and not isinstance(_rh, bool) and str(_rh).isdigit() \
-            and 0 <= int(_rh) < _ZF.P, "wide shield rho must be a decimal field element"
 
 def tx_shape_check(transaction, block_height):
     """Only the known top-level keys, and a body no bigger than its kind needs (protocol.py "NO FREE REPEATABLE

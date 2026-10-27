@@ -28,7 +28,6 @@ os.environ["NADO_STWO_JS_LIB"] = os.path.join(os.environ["HOME"], "no-such-libna
 import sys, copy, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.environ["HOME"])
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from execnode.stark import stwo_js_native as SJ
@@ -61,7 +60,6 @@ for bad in ALIASES:
 check("2. the pool stores, spends and appends canonical digests only", not pool.commitments and not pool.nullifiers)
 
 GATE = 700
-P.STWO_POOL_HEIGHT = GATE
 
 
 def gate_state():

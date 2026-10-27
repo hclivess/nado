@@ -73,7 +73,6 @@ if not so or r.returncode != 0:
     sys.exit(1)
 
 
-import protocol as PROTO
 os.environ["NADO_STWO_JS_LIB"] = so
 from execnode.stark import stwo_js_native as SJ
 
@@ -91,9 +90,10 @@ def cases(cfg, *args):
     return out
 
 
-# EVERY NODE CONFIG GETS THE WHOLE BATTERY (STWO_JS_128_HEIGHT): the 56-query config is a new verifier input, so its
-# mutations, cheats and structural refusals are measured, not assumed from the 160-query one.
-for CFG, HEIGHT in ((SJ.CFG_340, 0), (SJ.CFG_128, int(PROTO.STWO_JS_128_HEIGHT))):
+# EVERY NODE CONFIG GETS THE WHOLE BATTERY (stwo_js_native.config_id_at: CFG_340 at height 0, CFG_128 from block 1 —
+# gen 28's STWO_JS_128_HEIGHT, inlined in G9): the 56-query config is a new verifier input, so its mutations, cheats and
+# structural refusals are measured, not assumed from the 160-query one.
+for CFG, HEIGHT in ((SJ.CFG_340, 0), (SJ.CFG_128, 1)):
     m = cases(CFG, "mutate")
     check(f"[cfg {CFG}] the honest proof verifies (rc=0), so every refusal below is the mutation's", m.get("honest") == "rc=0", m)
     expected = ["claimed0+1", "claimed1+1", "claimed2+1", "claimed0+x,claimed1-x", "claimed0+x,claimed2-x",

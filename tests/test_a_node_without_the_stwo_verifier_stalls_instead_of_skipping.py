@@ -2,10 +2,10 @@
 (execnode._apply_block's pre-check, stwo_js_native.ensure_loaded).
 
 apply_blob turns any exception into a "skip". A node missing native/stwo_js would therefore skip a spend every other
-node applies and fork its exec state without a word — the crate is optional until STWO_POOL_HEIGHT is set, so this is
-exactly the node to expect. Pins, driving the real _apply_block with the library pointed at a path that does not exist:
+node applies and fork its exec state without a word — the crate was optional until STWO_POOL_HEIGHT was set (gen 28;
+from block 1 since), so this is exactly the node to expect. Pins, driving the real _apply_block with the library pointed at a path that does not exist:
   1. a block carrying a stwo_js field_transfer, at or above the gate, returns False and moves NOTHING (cursor, pool);
-  2. the same block below the gate applies (the bundle is refused there as not live, deterministically);
+  2. (retired in G9: the same block below generation 28's gate applied — the gate is block 1 now);
   3. a block with no Stwo spend applies above the gate as before;
   4. A JSON-ESCAPED KEY STALLS TOO (review 2026-10-11): `{"stark": {"stwo\\u005fjs": ...}}` carries no "stwo_js"
      substring, yet json.loads makes the key `stwo_js` and apply dispatches it to the verifier. The pre-check decided
@@ -25,7 +25,6 @@ os.environ["NADO_STWO_JS_LIB"] = os.path.join(os.environ["HOME"], "no-such-libna
 import sys, json, copy, asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.environ["HOME"])
-import protocol as P
 from execnode.state import ExecState
 from execnode.execnode import _apply_block
 
@@ -35,7 +34,6 @@ check = _report.check
 
 
 GATE = 500
-P.STWO_POOL_HEIGHT = GATE
 loop = asyncio.new_event_loop()
 blk = lambda h, txs: {"block_number": h, "block_hash": "%064x" % (h * 7919), "block_timestamp": 0, "block_transactions": txs}
 SPEND = {"stark": {"stwo_js": {"proof": "00", "root": "00" * 32, "nf": "11" * 32, "cm_out1": "22" * 32,
@@ -57,10 +55,8 @@ ok = run(st, blk(GATE, [spend_tx("s1")]))
 check("1. at the gate a block carrying a Stwo spend STALLS on a node without the verifier", ok is False, ok)
 check("...and moves nothing (cursor and every pool as before)", st.cursor == GATE - 1 and st._snapshot() == before)
 
-st = state_at(GATE - 3)
-ok = run(st, blk(GATE - 2, [spend_tx("s2")]))
-check("2. below the gate the same block applies (the bundle is refused as not live, identically everywhere)",
-      ok is not False and st.cursor == GATE - 2, ok)
+# 2. (below the gate the same block applied) retired in G9: generation 28's rules — STWO_POOL_HEIGHT is inlined as
+#    block 1, so only genesis is below it and genesis carries no transaction
 
 st = state_at(GATE + 4)
 ok = run(st, blk(GATE + 5, [{"recipient": "blob", "sender": "ndoA" + "a" * 44, "txid": "n1",

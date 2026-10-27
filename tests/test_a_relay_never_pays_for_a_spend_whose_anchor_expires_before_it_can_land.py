@@ -59,7 +59,6 @@ def check(name, ok, detail=""):
 
 
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 node = generate_keys()                       # a throwaway NODE key (the relay signs with its node key)
 FEE = R.STWO_RELAY_FEE_RAW
 

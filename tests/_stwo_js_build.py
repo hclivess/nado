@@ -180,7 +180,7 @@ def wallet_prove(spend, leaves, pos, height):
     """One spend proved by the SHIPPED wallet WASM through static/stark/stwo_js.js proveSpend, in Node (no Worker) ->
     {bundle, ms}. spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest}, all strings. ~20 s a proof.
     `height`: the L1 height the spend lands at — it selects the node config the proof is made at, exactly as the wallet's
-    stwoCfgId does (protocol STWO_JS_128_HEIGHT), so a test proves at what its own state will verify on either tree."""
+    stwoCfgId does (stwo_js_native.config_id_at), so a test proves at what its own state will verify."""
     import json
     from execnode.stark.stwo_js_native import config_id_at
     spend = dict(spend, cfg=config_id_at(height))

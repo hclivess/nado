@@ -1,6 +1,6 @@
 """A Stwo spend PROVED BY THE WALLET'S SHIPPED WASM (static/vendor/stwo_js.wasm, driven by static/stark/stwo_js.js in
 Node) verifies through the node's Python wrapper and applies through the exec layer — the whole wallet path short of
-the browser Worker, against a local ExecState with STWO_POOL_HEIGHT moved to a test height.
+the browser Worker, against a local ExecState at a test height (the Stwo pool is live from block 1).
 
 The pieces each have their own tests (the JS algebra against the Python, the Rust prover against the verifier); this
 walks the path a user's coins take, because the parts can each pass while the path is wrong. Pins:
@@ -47,7 +47,6 @@ if not so:
     print("FAIL  verifier build", (log or "")[-800:]); sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
 
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from execnode.stark import stwo_js_native
@@ -78,7 +77,6 @@ def wallet_prove(spend, leaves, pos, height):
 
 
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 nsk = secrets.token_hex(32)                       # the wallet's 256-bit spend key (never leaves this process)
 me = SP.owner_of(nsk)
 other = SP.owner_of(secrets.token_hex(32))

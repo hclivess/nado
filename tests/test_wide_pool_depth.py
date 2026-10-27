@@ -22,6 +22,11 @@ Properties pinned here:
     refused; an empty (absent) pool takes the cursor's depth;
   * CAPACITY: at depth 48 a spend at 5,000 leaves applies.
 
+RETIRED IN G9 (generation 28's rules): every pin that reaches the wide pool THROUGH THE EXEC STATE (deposits, transfers,
+L1 admission of a wide owner, the depth transition, capacity) — STWO_POOL_HEIGHT and WIDE_DEPOSIT_CLOSE_HEIGHT are
+inlined as block 1, so from block 1 the exec state routes every deposit and spend to the Stwo pool. The module- and
+circuit-level pins above that do not need that routing stay until the wide pool's code is deleted.
+
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_wide_pool_depth.py   (slow: real STARK proofs at depth 12 and 48)
 """
 import os, tempfile
@@ -30,18 +35,20 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")   # ASSIGN: CWD-relative exec state
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")               # ASSIGN: CWD-relative DA dir
 os.environ.setdefault("NADO_ALLOW_PYTHON_KERNELS", "1")
-import sys, json, asyncio, random, traceback, copy
+import sys, json, asyncio, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # THE WIDE POOL IS GENERATION 28's (closed there at 175000, never open on gen 29, retired at G9): this file runs under gen
 # 28's gates explicitly — the wide close, the Stwo gate and the Goldilocks exec root its exits verify against (the gen-29
 # rehearsal read the shipped values, all block 1, and every deposit landed in the Stwo pool against a BLAKE2s root).
 import protocol as _Pg, _harness as _hg
-for _g in ("WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT", "BLAKE_EXEC_HEIGHT"):
+# (WIDE_DEPOSIT_CLOSE_HEIGHT and STWO_POOL_HEIGHT were pinned here too until G9 inlined them as block 1: the exec state
+#  no longer routes to the wide pool, and the pins that drove it there are retired below)
+for _g in ("BLAKE_EXEC_HEIGHT",):
     setattr(_Pg, _g, _hg.gate_at(_g, 28))
 
 from execnode.state import ExecState
-from execnode.stark import znote as Z, joinsplit3 as J3, stark
-from execnode import shielded_wide as SW, shielded
+from execnode.stark import znote as Z, joinsplit3 as J3
+from execnode import shielded_wide as SW
 
 import _harness
 _report = _harness.Report()
@@ -227,61 +234,13 @@ def _last_result(st, h, bundle):
         st._applying = None
 
 
-def t_the_transition_at_block_1_deepens_the_pool_and_refuses_the_old_tree():
-    st = _state()
-    assert _apply(st, 0, []) is True and st.wide_pool.depth == 12, "genesis (height 0) leaves the fresh depth-12 pool"
-    empty12 = st.wide_pool.root()
-    pre = st.state_root()
-    assert _apply(st, G, []) is True                                               # block 1, empty
-    assert st.wide_pool.depth == 48 and not st.wide_pool.commitments
-    assert st.wide_pool.root() == SW.empty_root(48) and empty12 not in st.wide_pool.anchors
-    assert st.state_root() == pre, "an EMPTY pool projects to nothing at either depth, so the exec root does not move"
-    cm_a = _deposit(st, G + 1, NSK_A, 1000, 7)
-    _deposit(st, G + 2, NSK_B, 50, 9)
-    wp = st.wide_pool
-    leaves = list(wp.commitments)
-    assert wp.depth == 48 and wp.root() == SW.tree_root(leaves, 48), "deposits land in the depth-48 tree"
-    assert wp.anchors == SW.WideShieldedPool.from_dict(json.loads(json.dumps(wp.to_dict()))).anchors
-    # a proof built against a depth-12 tree over the same leaves is refused (its D, and a root no window holds)
-    b12 = _prove(SW.WideShieldedPool(leaves, depth=12), NSK_A, cm_a, 1000, 7, 600, 11, 400, 12)
-    assert b12["stark"]["joinsplit3"]["proof"]["D"] == 12
-    n0 = len(wp.commitments)
-    r = _last_result(st, G + 3, b12)
-    assert r.startswith("skip") and "depth" in r, f"a depth-12 proof from block 1 must be refused: {r}"
-    assert len(st.wide_pool.commitments) == n0 and not st.wide_pool.nullifiers
-    # the same note, proven at depth 48, spends
-    b48 = _prove(st.wide_pool, NSK_A, cm_a, 1000, 7, 600, 11, 400, 12)
-    assert b48["stark"]["joinsplit3"]["proof"]["D"] == 48 and b48["stark"]["joinsplit3"]["proof"]["T"] == 4096
-    _SHARED["pool48"] = SW.WideShieldedPool.from_dict(st.wide_pool.to_dict())   # before the spend moves the window
-    _SHARED["b48"] = copy.deepcopy(b48)
-    assert _apply(st, G + 4, [_transfer_tx(b48)]) is True
-    js = b48["stark"]["joinsplit3"]
-    assert st.wide_pool.has_nullifier(Z.from_hex(js["nf"])), "the note is spent at depth 48"
-    assert len(st.wide_pool.commitments) == n0 + 2 and st.pool_value == 1050
-    # save + load: the same depth, root, window and exec root
-    st.save(); st2 = ExecState(path=st.path)
-    assert (st2.wide_pool.depth, st2.wide_pool.root(), st2.wide_pool.anchors) == (48, st.wide_pool.root(), st.wide_pool.anchors)
-    assert st2.state_root() == st.state_root()
+# t_the_transition_at_block_1_deepens_the_pool_and_refuses_the_old_tree: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
 _SHARED = {}          # the transition test's depth-48 proof and the pool it was built on (a proof costs minutes)
 
 
-def t_the_verifier_pins_d_to_the_depth_in_force_never_the_proof():
-    pool, b = _SHARED["pool48"], _SHARED["b48"]
-    js = b["stark"]["joinsplit3"]
-    pub = {"root": js["root"], "nullifiers": [js["nf"]], "out_commitments": [js["cm_out1"], js["cm_out2"]],
-           "public_value": 0, "fee": 0}
-    ok, why = shielded.verify_transfer(pub, b, pool.knows_root, wide_depth=48)
-    assert ok, why
-    ok, why = shielded.verify_transfer(pub, b, pool.knows_root, wide_depth=12)
-    assert not ok and "depth" in why, why
-    # no depth passed: the proof rules in force decide (rules_at(h) is what _apply_block sets)
-    with stark.rules_at(0):
-        assert not shielded.verify_transfer(pub, b, pool.knows_root)[0], "at height 0 a D=48 proof is refused"
-    with stark.rules_at(G):
-        ok, why = shielded.verify_transfer(pub, b, pool.knows_root)
-        assert ok, why
+# t_the_verifier_pins_d_to_the_depth_in_force_never_the_proof: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
 def t_a_da_stall_at_block_1_puts_the_depth12_pool_back():
@@ -343,60 +302,12 @@ def t_a_snapshots_depth_is_checked_against_its_cursor():
     assert _state().wide_pool.depth == 12
 
 
-def t_capacity_depth48_spends_at_5000_leaves():
-    # (a FULL depth-12 tree cannot occur any more: the depth-12 pool exists only at height 0, where no wide deposit lands)
-    st = _state(); st.cursor = G + 10
-    st.wide_pool = SW.WideShieldedPool(LEAVES[:4096] + [tuple(rnd.randrange(1, Z.F.P) for _ in range(4)) for _ in range(903)],
-                                       depth=48)
-    cm = _deposit(st, G + 11, NSK_A, 1000, 7)
-    assert len(st.wide_pool.commitments) == 5000 and st.wide_pool.position(cm) == 4999
-    b = _prove(st.wide_pool, NSK_A, cm, 1000, 7, 600, 11, 400, 12)
-    assert _apply(st, G + 12, [_transfer_tx(b)]) is True
-    assert st.wide_pool.has_nullifier(Z.from_hex(b["stark"]["joinsplit3"]["nf"])), "the spend at 5,000 leaves applied"
-    assert len(st.wide_pool.commitments) == 5002
+# t_capacity_depth48_spends_at_5000_leaves: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
-def t_the_wallet_builds_at_the_depth_the_leaves_endpoint_reports():
-    """The hop from the exec node to the wallet, read out the far side: /exec/field_leaves' real handler serves the
-    depth, and the WALLET's own code (alghash2.js treeDepth + treePath, in node) builds from that response a path that
-    folds to the pool's root — at 48 from genesis (cursor 0: the next block is 1), and at 12 for a response with no
-    depth (an old exec node). A wide response at depth 12 no longer exists: the wide pool is served from cursor 0,
-    where the next block is already 1."""
-    import subprocess
-    import execnode.execnode as EN
-    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    lv = [Z.to_hex(c) for c in LEAVES[:6]]
-    cases = []
-    for cursor, depth in ((0, 48), (G, 48), (G + 5, 48)):
-        st = _state(); st.cursor = cursor
-        st.wide_pool = SW.WideShieldedPool(LEAVES[:6], depth=SW.depth_at(cursor))
-        saved = EN.state
-        EN.state = st
-        try:
-            resp = json.loads(asyncio.new_event_loop().run_until_complete(EN.h_field_leaves(None)).body)
-        finally:
-            EN.state = saved
-        assert resp["depth"] == depth and resp["leaves"] == lv, (cursor, resp.get("depth"))
-        cases.append((resp, Z.to_hex(SW.tree_root(LEAVES[:6], depth))))
-    cases.append(({"leaves": lv, "wide": True}, Z.to_hex(SW.tree_root(LEAVES[:6], 12))))   # an old exec node
-    js = ("import * as A2 from '%s/static/alghash2.js';"
-          "import { blake2b, bytesToHex } from '%s/static/vendor/nado-crypto.js';"
-          "const canon = (d) => typeof d === 'bigint' ? d.toString() : typeof d === 'number' ? String(d) : typeof d === 'string'"
-          " ? JSON.stringify(d) : '[' + d.map(canon).join(',') + ']';"
-          "A2.initAlghash2((x, n = 32) => bytesToHex(blake2b(new TextEncoder().encode(canon(x)), { dkLen: n })));"
-          "const cases = %s; const out = [];"
-          "for (const [resp] of cases) { const d = A2.treeDepth(resp); const { sibs, dirs } = A2.treePath(resp.leaves, 4, d);"
-          " out.push([d, A2.toHex(A2.foldPath(A2.fromHex(resp.leaves[4]), sibs, dirs))]); }"
-          "console.log(JSON.stringify(out));" % (root_dir, root_dir, json.dumps(cases)))
-    out = subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=300)
-    assert out.returncode == 0, out.stderr[-600:]
-    got = json.loads(out.stdout)
-    want = [[resp.get("depth", 12), root] for resp, root in cases]
-    assert got == want, f"the wallet's path did not fold to the pool's root at the reported depth: {got} != {want}"
+# t_the_wallet_builds_at_the_depth_the_leaves_endpoint_reports: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
-check("the wallet builds its path at the depth /exec/field_leaves reports (48 from genesis, and 12 when absent)",
-      t_the_wallet_builds_at_the_depth_the_leaves_endpoint_reports)
 check("depth 12: roots and paths are byte-identical to the old tree (sizes 0..300 and up to the 4,096 cap)",
       t_depth12_roots_and_paths_are_byte_identical_to_the_old_tree)
 check("depth 12: the live and rebuilt anchor windows are byte-identical to the old pool's",
@@ -404,9 +315,5 @@ check("depth 12: the live and rebuilt anchor windows are byte-identical to the o
 check("depth 48: the frontier root is the root every path folds to", t_depth48_frontier_root_is_the_root_every_path_folds_to)
 check("a snapshot's depth is checked against its cursor", t_a_snapshots_depth_is_checked_against_its_cursor)
 check("a DA stall at block 1 puts the depth-12 pool back", t_a_da_stall_at_block_1_puts_the_depth12_pool_back)
-check("the transition at block 1 deepens the pool and refuses the depth-12 tree",
-      t_the_transition_at_block_1_deepens_the_pool_and_refuses_the_old_tree)
-check("the verifier pins D to the depth in force, never the proof's", t_the_verifier_pins_d_to_the_depth_in_force_never_the_proof)
-check("capacity: depth 48 spends at 5,000 leaves", t_capacity_depth48_spends_at_5000_leaves)
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

@@ -1,7 +1,7 @@
-"""From STWO_FEE_TO_HEIGHT a Stwo spend may name `fee_to`: its fee is paid to that address (an unshield exit) and its
-payout goes to any address — a fresh per-dApp shadow account — with both bound into the proof; below the gate the key is
-ignored exactly as the code before the gate ignored it (execnode/shielded_stwo.parse_transfer, ExecState._apply_stwo_transfer,
-ops/stwo_relay.py, /exec/stwo_spendable).
+"""A Stwo spend may name `fee_to`: its fee is paid to that address (an unshield exit) and its payout goes to any
+address — a fresh per-dApp shadow account — with both bound into the proof (execnode/shielded_stwo.parse_transfer,
+ExecState._apply_stwo_transfer, ops/stwo_relay.py, /exec/stwo_spendable). From block 1: STWO_FEE_TO_HEIGHT was gen 28's
+gate, inlined in G9, which retired the pins of the pre-gate behaviour (3 and the first half of 5).
 
 WHY (shadow accounts, 2026-10-18). A proof binds ONE address. Before this, a relay could only be paid by the payout itself,
 so a withdrawal to any other address had to be published — and signed — by the user's own account, re-linking the
@@ -13,12 +13,9 @@ Pins, with real wallet-WASM proofs and the real native verifier:
   1. at the gate: a spend paying U to a shadow address and F to the relay applies — two exits, pool_fees unchanged,
      stwo_value down by U + F;
   2. the same bundle with fee_to swapped to another address is refused by the verifier (the fee cannot be stolen);
-  3. below the gate the key is ignored: the composite-bound proof is refused (verified against the bare payout) and the
-     state does not move, while a bundle carrying a stray fee_to over a plain-bound proof applies with its fee in
-     pool_fees — the pre-gate behaviour, unchanged;
+  3. (retired in G9: below generation 28's gate the key was ignored);
   4. fee_to with a zero fee, or naming a contract, is refused;
-  5. the relay: from the gate it accepts a spend paying it by fee (payout elsewhere) and refuses one paying another
-     relay; below the gate /exec/stwo_spendable refuses a fee_to spend so no relay pays for one.
+  5. the relay accepts a spend paying it by fee (payout elsewhere) and refuses one paying another relay.
 SKIPs without node or a stable cargo (the verifier).
 
 Run: python3 tests/test_a_stwo_spend_pays_its_fee_to_the_named_relay_and_its_payout_anywhere.py
@@ -52,7 +49,6 @@ if not so:
     print("FAIL  verifier build", (log or "")[-800:]); sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
 
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 import execnode.execnode as EN
@@ -60,8 +56,7 @@ from ops.key_ops import generate_keys
 from ops.address_ops import make_address
 import ops.stwo_relay as R
 
-GATE, FEE_GATE = 1000, 2000
-P.STWO_POOL_HEIGHT, P.STWO_FEE_TO_HEIGHT = GATE, FEE_GATE
+GATE, FEE_GATE = 1000, 2000                     # test heights: the pool and fee_to both hold from block 1
 relay_key = generate_keys()
 RELAY, SHADOW, OTHER = relay_key["address"], make_address("ab" * 1312), make_address("ef" * 1312)
 FEE, U = R.STWO_RELAY_FEE_RAW, 3 * 10 ** 8
@@ -116,22 +111,7 @@ check("...two exits: the payout to the shadow account, the fee to the relay",
 check("...pool_fees unchanged, stwo_value down by payout + fee", st.pool_fees == fees0 and st.stwo_value == sv0 - U - FEE,
       (st.pool_fees, fees0, st.stwo_value, sv0))
 
-# ---- 3. below the gate the key is ignored ---------------------------------------------------------------------------
-st, v, rho = pool()
-b = prove(st, v, rho, f"{SHADOW}|fee:{RELAY}")
-b["withdraw_addr"], b["fee_to"] = SHADOW, RELAY
-at(st, FEE_GATE - 1)
-before = (st.pool_value, st.stwo_value, st.uw_nonce, len(st.stwo_pool.nullifiers))
-r = st.apply_field_transfer(copy.deepcopy(b))
-check("3. below the gate a composite-bound proof is refused (fee_to ignored, verified against the bare payout)",
-      r.startswith("skip") and before == (st.pool_value, st.stwo_value, st.uw_nonce, len(st.stwo_pool.nullifiers)), r)
-plain = prove(st, v, rho, SHADOW)
-plain["withdraw_addr"], plain["fee_to"] = SHADOW, RELAY        # a stray key the old code never read
-fees0 = st.pool_fees
-r = st.apply_field_transfer(copy.deepcopy(plain))
-check("...while a stray fee_to over a plain-bound proof applies with its fee in pool_fees, as before the gate",
-      r.startswith("field-transfer stwo") and st.pool_fees == fees0 + FEE
-      and st.unshield_withdrawals[str(st.uw_nonce)] == {"addr": SHADOW, "amount": U}, r)
+# ---- 3. (below the gate fee_to was ignored) retired in G9: generation 28's rules ------------------------------------
 
 # ---- 4. malformed fee_to --------------------------------------------------------------------------------------------
 why, _ = SP.parse_transfer({"stark": {"stwo_js": {**b["stark"]["stwo_js"], "fee": "0"}}, "withdraw_addr": SHADOW,
@@ -180,12 +160,10 @@ b = prove(st, v, rho, f"{SHADOW}|fee:{RELAY}")
 b["withdraw_addr"], b["fee_to"] = SHADOW, RELAY
 other = prove(st, v, rho, f"{SHADOW}|fee:{OTHER}")
 other["withdraw_addr"], other["fee_to"] = SHADOW, OTHER
-st.cursor = FEE_GATE - 2                                         # the exec node is still below the gate
-res, status = relay.relay({"bundle": copy.deepcopy(b)}, "198.51.100.1")
-check("5. below the gate the relay refuses a fee_to spend before paying anything", status != 200 and not SUBMITTED, (status, res))
+# (5's "below the gate the relay refuses a fee_to spend" retired in G9: generation 28's rules)
 st.cursor = FEE_GATE
 res, status = relay.relay({"bundle": copy.deepcopy(other)}, "198.51.100.2")
-check("...from the gate it refuses a spend whose fee pays another relay", status == 400 and not SUBMITTED, (status, res))
+check("5. the relay refuses a spend whose fee pays another relay", status == 400 and not SUBMITTED, (status, res))
 res, status = relay.relay({"bundle": copy.deepcopy(b)}, "198.51.100.3")
 check("...and accepts one paying it by fee, the payout going to the shadow account", status == 200 and len(SUBMITTED) == 1
       and SUBMITTED[0]["sender"] == RELAY, (status, res))

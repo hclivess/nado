@@ -1991,8 +1991,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     # because apply_blob turns any exception into a "skip" — a node missing the library would otherwise skip a spend every
     # other node applies and fork its exec state silently. The crate is optional until the gate is set, so this is the
     # one place its absence must stop the node rather than be survived.
-    from protocol import STWO_POOL_HEIGHT as _STWO_H
-    if _STWO_H and h >= _STWO_H and _block_carries_stwo_spend(block, resolved):
+    # STWO_POOL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `h >= 1` kept so block 0 is judged as before.
+    if h >= 1 and _block_carries_stwo_spend(block, resolved):
         from execnode.stark import stwo_js_native as _sjn
         from execnode.stark.native_guard import NativeMissing as _NM
         try:
@@ -3942,12 +3942,11 @@ def _shield_wide_now():
 
 
 def _stwo_pool_next():
-    """Whether the NEXT block applies the Stwo-pool rules (protocol.STWO_POOL_HEIGHT; 0 = never) — the tip+1 rule of
-    _shield_wide_now, and ExecState.rules_stwo_pool's for the block a wallet's note or proof will land in. From the gate
-    a wallet must deposit into and prove against the Stwo pool, so the field endpoints serve it instead of the frozen
-    wide pool; before it they are byte-for-byte what they were."""
-    from protocol import STWO_POOL_HEIGHT
-    return bool(STWO_POOL_HEIGHT) and int(state.cursor) + 1 >= STWO_POOL_HEIGHT
+    """Whether the NEXT block applies the Stwo-pool rules — the tip+1 rule of _shield_wide_now, and
+    ExecState.rules_stwo_pool's for the block a wallet's note or proof will land in. A wallet deposits into and proves
+    against the Stwo pool, so the field endpoints serve it instead of the frozen wide pool.
+    STWO_POOL_HEIGHT was gen 28's gate, 1 from gen 29, inlined in G9; only a fresh state (cursor -1) is still below it."""
+    return int(state.cursor) + 1 >= 1
 
 
 def _stwo_depth():
@@ -4033,12 +4032,12 @@ async def h_stwo_spendable(request):
     with state._mutate_lock:
         cur = int(state.cursor)
         why = state.stwo_spend_refusal(*digs, un, fee, cur + 1)
-        # fee_to=1: the spend names its fee's payee (STWO_FEE_TO_HEIGHT). Below the gate the exec layer IGNORES fee_to and
-        # verifies against the bare payout, so a proof bound to "<addr>|fee:<payee>" would be refused — the relay would
-        # pay for nothing. The gate must hold at the earliest block the blob can land in, so judge it at cursor + 1.
+        # fee_to=1: the spend names its fee's payee. STWO_FEE_TO_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9):
+        # below it the exec layer IGNORES fee_to and verifies against the bare payout, so a proof bound to
+        # "<addr>|fee:<payee>" would be refused — the relay would pay for nothing. Judged at cursor + 1, the earliest
+        # block the blob can land in; only a fresh state (cursor -1) is still below it.
         if why is None and q.get("fee_to"):
-            from protocol import STWO_FEE_TO_HEIGHT
-            if not (STWO_FEE_TO_HEIGHT and cur + 1 >= STWO_FEE_TO_HEIGHT):
+            if not (cur + 1 >= 1):
                 why = "skip field-transfer: a spend naming fee_to is not accepted yet (STWO_FEE_TO_HEIGHT)"
         if why is None and land is not None:
             until = state.stwo_pool.root_valid_through(digs[0], cur)

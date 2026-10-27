@@ -47,7 +47,6 @@ if not so:
     print("FAIL  verifier build", (log or "")[-800:]); sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
 
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
@@ -122,7 +121,6 @@ KEY = secrets.token_hex(32)                     # a throwaway wallet secret gene
 ADDR = make_address("ab" * 1312)
 RELAY = make_address("cd" * 1312)
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 
 # ---- 1. two deposits through the wallet's own doShield --------------------------------------------------------------
 d = wallet("deposit", amounts=[10 ** 9, 3 * 10 ** 9])

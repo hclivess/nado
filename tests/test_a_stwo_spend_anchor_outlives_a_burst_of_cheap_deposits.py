@@ -30,7 +30,6 @@ fake.verify = lambda *a: (True, "")
 sys.modules["execnode.stark.stwo_js_native"] = fake
 import execnode.stark as _stk
 _stk.stwo_js_native = fake
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
@@ -41,8 +40,6 @@ check = _report.check
 
 
 GATE = 1000
-live = P.STWO_POOL_HEIGHT
-P.STWO_POOL_HEIGHT = GATE
 
 
 def fresh():
@@ -145,6 +142,5 @@ check("...and for ANCHOR_BLOCKS after it stopped being current",
 check("root_valid_through: the current root at least ANCHOR_BLOCKS past the cursor, an intra-block root never vouched",
       st.stwo_pool.root_valid_through(st.stwo_pool.root(), 500) == 500 + SP.ANCHOR_BLOCKS
       and st.stwo_pool.root_valid_through("ab" * 32, 500) is None)
-P.STWO_POOL_HEIGHT = live
 print("ALL PASS — a Stwo anchor outlives a burst of deposits" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

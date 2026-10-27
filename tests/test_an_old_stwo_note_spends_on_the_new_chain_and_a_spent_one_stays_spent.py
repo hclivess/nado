@@ -68,16 +68,12 @@ def bundle_at(cfg):
              "withdraw_addr": DEST}, pub)
 
 
-# EACH CHAIN VERIFIES AT ITS OWN NODE CONFIG (STWO_JS_128_HEIGHT): the old chain at the running generation's rule, the
-# new one at `else 1` — the 128-bit config from block 1. A note carried across is spent there with a NEW proof, made at
-# the new chain's config; the old chain's proof would be refused for its config (tests/
-# test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py). Same witness, so the same public inputs.
-LIVE_128 = P.STWO_JS_128_HEIGHT
+# EACH CHAIN VERIFIES AT ITS OWN NODE CONFIG (stwo_js_native.config_id_at). A note carried across is spent there with a
+# NEW proof, made at the new chain's config. Generation 28's dormant STWO_JS_128_HEIGHT made the two differ; it was
+# inlined in G9 (128-bit from block 1 on every chain since), so both proofs are at CFG_128. Same witness, same inputs.
 OLD_GATE = 182_000
 old_bundle, pub = bundle_at(SJ.config_id_at(OLD_GATE + 40))
-P.STWO_JS_128_HEIGHT = 1
 bundle, pub_new = bundle_at(SJ.config_id_at(1))
-P.STWO_JS_128_HEIGHT = LIVE_128
 assert pub_new == pub, (pub_new, pub)
 
 # fixture b (native/stwo_js/src/prover.rs fixture_b), as tests/test_a_stwo_spend_applies_end_to_end.py builds it
@@ -90,8 +86,6 @@ v_in, rho = 0x0123456789ABCDEF & ((1 << 61) - 1), 0x5EED5EED5EED
 def old_chain(spend_too):
     """The old chain: fixture b's eleven notes deposited in two blocks past the gate (so the pool has old-chain marks),
     optionally the spend applied there too."""
-    P.STWO_POOL_HEIGHT = OLD_GATE
-    P.STWO_JS_128_HEIGHT = LIVE_128         # the old chain: the running generation's rule
     st = ExecState(os.path.join(_T, f"old{int(spend_too)}.json"))
     st.cursor = OLD_GATE - 1
     for i in range(6):
@@ -117,8 +111,6 @@ def new_chain(old, escrow):
     json.dump({"generation": P.CHAIN_GENERATION, "contracts": {}, "bridge": {}, **C.exec_shield_doc(snap, escrow)},
               open(GEN_FILE, "w"), indent=0, sort_keys=True)
     EG._CACHE.clear()
-    P.STWO_POOL_HEIGHT = 1                  # a fresh generation: `STWO_POOL_HEIGHT = ... else 1`
-    P.STWO_JS_128_HEIGHT = 1                # ...and `STWO_JS_128_HEIGHT = ... else 1`: spends prove at 128 bits
     st = ExecState(os.path.join(_T, f"new-{len(os.listdir(_T))}.json"))
     assert EG.apply(st)
     st.cursor = 0                           # block 1 of the new chain

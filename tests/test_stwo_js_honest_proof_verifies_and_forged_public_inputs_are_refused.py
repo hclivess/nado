@@ -58,11 +58,9 @@ os.environ["NADO_STWO_JS_LIB"] = so
 from execnode.stark import stwo_js_native as SJ
 
 
-import protocol as PROTO
-# BOTH NODE CONFIGS (STWO_JS_128_HEIGHT): the whole battery runs at each, at a height that selects it — below the gate
-# NODE_CFG_340, from the gate NODE_CFG_128. The gate is 2^62 on generation 28 and 1 on 29; either way these heights
-# select the two configs, so the test is the same on both trees.
-H340, H128 = 0, int(PROTO.STWO_JS_128_HEIGHT)
+# BOTH NODE CONFIGS (stwo_js_native.config_id_at): the whole battery runs at each, at a height that selects it — height 0
+# NODE_CFG_340, from block 1 NODE_CFG_128 (gen 28's STWO_JS_128_HEIGHT, 1 from gen 29, inlined in G9).
+H340, H128 = 0, 1
 assert SJ.config_id_at(H340) == SJ.CFG_340 and SJ.config_id_at(H128) == SJ.CFG_128
 
 

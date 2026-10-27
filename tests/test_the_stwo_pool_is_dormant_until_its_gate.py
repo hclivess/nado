@@ -1,13 +1,12 @@
 """The Stwo shielded pool is dormant until its gate, absent from the exec root until it holds a note, and once live it
 alone takes deposits and spends (execnode/state.py rules_stwo_pool, _apply_stwo_shield, _apply_stwo_transfer).
 
-STWO_POOL_HEIGHT is 269000 on gen 28 (set after the in-house review of 2026-10-11/12; it was (1 << 62) while dormant)
-and 1 at a reroll. Pins, on the real exec state (throwaway HOME), with the gate moved to a test height and the native
-verifier stood in by a recording fake:
-  1. on the live gate no height below it routes to the Stwo pool, and every height from it does;
+STWO_POOL_HEIGHT was 269000 on gen 28 and 1 from gen 29; G9 inlined it (ExecState.rules_stwo_pool: applying height
+>= 1). Pins, on the real exec state (throwaway HOME), with the native verifier stood in by a recording fake:
+  1. genesis (a state at cursor -1) does not route to the Stwo pool, and every block from 1 does;
   2. with the pool empty, the exec root is the one the code before the pool computed (empty is absent);
-  3. below the gate a deposit lands in the wide pool and a stwo_js bundle is refused; at the gate the deposit lands in
-     the Stwo pool (commitment computed from the L1 amount) and a joinsplit3 bundle is refused;
+  3. a deposit lands in the Stwo pool (commitment computed from the L1 amount) and a joinsplit3 bundle is refused
+     (the pre-gate half — a wide deposit and a refused stwo_js bundle below the gate — retired in G9: gen 28's rules);
   4. a verified transfer spends the nullifier, appends both outputs and records the unshield exit; a second spend of
      the nullifier, an unknown root and a refused proof all change nothing.
 
@@ -21,7 +20,6 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 H = os.environ["HOME"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP, exec_root as ER
 
@@ -36,9 +34,8 @@ def fresh(cursor):
     return st
 
 
-check("1. the live gate routes to the Stwo pool from its height, never below (on gen 28: 269000; at a reroll: 1)",
-      P.STWO_POOL_HEIGHT == (269000 if P.CHAIN_GENERATION == 28 else 1)
-      and not fresh(P.STWO_POOL_HEIGHT - 2).rules_stwo_pool() and fresh(P.STWO_POOL_HEIGHT - 1).rules_stwo_pool())
+check("1. the Stwo pool is in force from block 1, never at genesis",
+      not fresh(-1).rules_stwo_pool() and fresh(0).rules_stwo_pool() and fresh(10 ** 9).rules_stwo_pool())
 
 st = fresh(500)
 with_pool = st.state_root()
@@ -61,24 +58,15 @@ sys.modules["execnode.stark.stwo_js_native"] = fake
 import execnode.stark as _stk
 _stk.stwo_js_native = fake
 
-GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
+GATE = 1000                                  # a test height (the pool holds from block 1)
 nsk = "11" * 32
 owner = SP.owner_of(nsk)
 
-below = fresh(GATE - 2)
-r = below.apply_field_shield(5000, "aa" * 32, 7)
-check("3. below the gate a deposit lands in the wide pool, not the Stwo pool",
-      len(below.stwo_pool.commitments) == 0 and "wide note" in r, r)
-r = below.apply_field_transfer({"stark": {"stwo_js": {"proof": "00", "root": SP.EMPTY_ROOT, "nf": "00" * 32,
-                                                       "cm_out1": "01" * 32, "cm_out2": "02" * 32, "fee": 0}}}) \
-    if hasattr(below, "apply_field_transfer") else "skip field-transfer: stwo_js is not live before STWO_POOL_HEIGHT"
-check("...and a stwo_js bundle is refused there", "not live before STWO_POOL_HEIGHT" in r, r)
-
+# 3's pre-gate half (a wide deposit and a refused stwo_js bundle below the gate) retired in G9: generation 28's rules
 st = fresh(GATE - 1)
 r = st.apply_field_shield(5000, owner, 7)
 cm_in = SP.commit(5000, owner, 7)
-check("at the gate the deposit lands in the Stwo pool, its commitment computed from the L1 amount",
+check("3. a deposit lands in the Stwo pool, its commitment computed from the L1 amount",
       st.stwo_pool.commitments == [cm_in] and len(st.wide_pool.commitments) == 0, r)
 check("...and the exec root now carries the Stwo pool", st.state_root() != with_pool)
 TF = st.apply_field_transfer if hasattr(st, "apply_field_transfer") else None
@@ -117,5 +105,5 @@ again._restore(copy.deepcopy(st._snapshot()))
 check("the pool survives a snapshot round trip", again.stwo_pool.root() == st.stwo_pool.root()
       and again.stwo_pool.nullifiers == st.stwo_pool.nullifiers)
 
-print("ALL PASS — the Stwo pool is dormant until its gate" if not _report.fails else f"{_report.fails} FAILURES")
+print("ALL PASS — the Stwo pool is live from block 1" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)
