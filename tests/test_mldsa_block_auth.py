@@ -18,13 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
-from execnode.stark import mldsa_block_auth as BA, field as F
-# GENERATION 28'S AUTH ROOT (the alghash chain over field leaves) is what this file pins; from BLAKE_EXEC_HEIGHT the root is
-# BLAKE2s (tests/test_the_block_auth_root_is_blake2s_from_the_exec_gate.py). Run under gen 28's gate explicitly, so the
-# old rule stays tested while its history replays — the gen-29 rehearsal found this file reading the shipped value.
-import _harness
-import protocol as _P
-_P.BLAKE_EXEC_HEIGHT = _harness.gate_at("BLAKE_EXEC_HEIGHT", 28)
+from execnode.stark import mldsa_block_auth as BA
+# The auth root is gen 29's BLAKE2s chain at every height (BLAKE_EXEC_HEIGHT inlined in G9; gen 28's alghash chain over
+# field leaves, which this file pinned under gen 28's gate, retired with it).
 
 fails = 0
 def check(name, ok):
@@ -74,7 +70,8 @@ def t_commitments_are_recomputed():
     b = _block()
     root, count = BA.auth_commitments(b)
     check("auth_count equals the number of signing transactions", count == 3)
-    check("auth_root is a field element", isinstance(root, tuple) or (0 <= int(root) < F.P))
+    # "auth_root is a field element" retired in G9: generation 28's rules — gen 29's root is a 256-bit BLAKE2s int
+    check("auth_root is a 256-bit int", isinstance(root, int) and 0 <= root < 1 << 256)
     # changing ANY committed field changes the root
     b2 = _block()
     b2["block_transactions"][1]["txid"] = "ff" * 32
@@ -94,7 +91,8 @@ def t_evidence_checked_against_recomputed_statement():
     ok, why = BA.evidence_ok(BA.raw_evidence(b), b)
     check(f"raw evidence accepted against the recomputed statement ({why})", ok)
     ok2, why2 = BA.evidence_ok(BA.stark_evidence("mldsa44-v1", {"p": 1}), b)
-    check(f"stark evidence accepted against the same statement ({why2})", ok2)
+    # "stark evidence accepted" was generation 28's rule (retired in G9): no Goldilocks proof of a BLAKE2s root exists
+    check(f"stark evidence refused for the BLAKE2s root ({why2})", not ok2 and "raw evidence only" in why2)
     # a LIED commitment must be rejected — the verifier recomputes, it does not trust
     b_bad = dict(b); b_bad["auth_count"] = count + 1
     check("a lied auth_count is rejected", not BA.evidence_ok(BA.raw_evidence(b), b_bad)[0])

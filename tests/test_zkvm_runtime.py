@@ -9,15 +9,10 @@ Run: python3 tests/test_zkvm_runtime.py
 """
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
-# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
-# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
-# file reading the shipped value.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
+# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
+# file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState
-from execnode import runtimes, zkvm, zkvmasm
+from execnode import runtimes, zkvm2, zkvmasm
 
 fails = 0
 def check(name, fn):
@@ -117,12 +112,12 @@ def t4_differential_replayed_call():
     cf, fargs = runtimes.zkvm_statement(ALICE, [200], {})
 
     # (c) bare interpreter
-    ok3, ret3, slots_interp, io3 = zkvm.run(VAULT, "withdraw", cf, fargs, slots_before,
-                                           cursor=st.cursor, timestamp=st.block_ts)
+    ok3, ret3, slots_interp, io3 = zkvm2.run(VAULT, "withdraw", cf, fargs, slots_before,
+                                            cursor=st.cursor, timestamp=st.block_ts)
     assert ok3 and ret3 == 1
 
     # (b) replay the io log against the pre-state — the skip-execution path
-    ok2, ret2, slots_replayed, payouts, _chain = zkvm.replay_io(io3, slots_before)
+    ok2, ret2, slots_replayed, payouts, _chain = zkvm2.replay_io(io3, slots_before)   # the gen-29 VM (G9)
     assert ok2 and ret2 == ret3 == 1
 
     # (a) native runtime apply on the exec state

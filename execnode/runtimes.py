@@ -57,12 +57,12 @@ ADDR_PERSON_V2 = b"NADOvmA1"      # the gen-29 address digest's BLAKE2s personal
 
 
 def _gen_v2(v2):
-    """None -> the generation's format (the gen-29 one when BLAKE_EXEC_HEIGHT covers its genesis), the rule
-    zkvmasm.default_isa uses — so tests, tools and builders that do not name a cursor get the generation's digests.
-    The exec state always passes the flag for its own cursor."""
+    """None -> the generation's format, the gen-29 one — the rule zkvmasm.default_isa uses, so tests, tools and
+    builders that do not name a format get the generation's digests. An explicit False is generation 28's field
+    digest, kept only for the carry and the v1 builders it matches code against (tools/carry.py)."""
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): the gate covered the genesis, so None is v2
     if v2 is None:
-        from execnode.exec_root_b2 import blake_exec_at
-        return blake_exec_at(0)
+        return True
     return bool(v2)
 
 
@@ -70,7 +70,7 @@ def zkvm_addr_digest(addr, v2=None):
     """Deterministic field digest of an L1 address string — how addresses enter the field-native zkVM.
     Computed at the CALL BOUNDARY (never in-circuit): the digest is part of the public statement, so any
     hash works; the digest→address registry (ExecState.zk_addrs) resolves payouts back to L1 addresses.
-    v2 (the gen-29 256-bit zkvm2, BLAKE_EXEC_HEIGHT; Goldilocks retirement G3): the FULL 256-bit BLAKE2s digest, no
+    v2 (the gen-29 256-bit zkvm2; Goldilocks retirement G3): the FULL 256-bit BLAKE2s digest, no
     field reduction — an owner digest of >= 128 bits is what doc/stwo-migration.md 9.2 requires. None = the
     generation's format (_gen_v2)."""
     if _gen_v2(v2):
@@ -165,7 +165,8 @@ class _ZkVM:
     wants_registry = True         # state.py passes its persistent digest→address registry to run()
 
     def validate_code(self, code, v2=False):
-        """v2: the gen-29 zkvm2 deploy gate (BLAKE_EXEC_HEIGHT; the exec state passes it only when the gate is live)"""
+        """v2: the gen-29 zkvm2 deploy gate — the exec state always passes it (BLAKE_EXEC_HEIGHT inlined in G9); False
+        is the old VM's check, still read by execnode/stark/exec_state_bind's event replay"""
         if v2:
             from execnode import zkvm2
             return zkvm2.validate_code(code)
@@ -177,36 +178,25 @@ class _ZkVM:
         """`trace` (a list; the gen-29 settlement prover, execnode/settle_b2.py): every zkvm2 run that executed at least
         one step appends {"ok", "io", "n_steps", "revert"} in call order — the witness the prover's replay consumes; a
         reverted run's io is the log up to its revert and `revert` its kind (zkvm2.REVERT_KINDS). None: nothing."""
-        from execnode import zkvm
-        from execnode.stark.field import P
-        # THE VM FOLLOWS THE CURSOR (BLAKE_EXEC_HEIGHT, dormant on gen 28): from the gate the call runs on the 256-bit
-        # zkvm2 with 256-bit digests and the chain reads unreduced — exec_root_b2.blake_exec_at is the one predicate,
-        # the same the exec root and L1's exits use, so a contract's VM and its root's format never disagree.
-        from execnode.exec_root_b2 import blake_exec_at
-        v2 = blake_exec_at(cursor)
+        from execnode import zkvm2
+        # THE VM IS zkvm2 AT EVERY CURSOR (BLAKE_EXEC_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9): 256-bit
+        # digests and unreduced chain reads, the same format as the BLAKE2s exec root, so a contract's VM and its
+        # root's format never disagree. The old field VM (execnode/zkvm.py) is no longer reachable from a call.
         reg = registry if registry is not None else {}
         try:
-            cf, fargs = zkvm_statement(caller, args, reg, v2)
+            cf, fargs = zkvm_statement(caller, args, reg, True)
         except ValueError:
             return (False, None, storage, [], [])
         slots = {int(k): int(v) for k, v in (storage.get("slots") or {}).items()}
-        if v2:
-            from execnode import zkvm2
-            m = meter if meter is not None else ({} if trace is not None else None)
-            ok, ret, new_slots, io = zkvm2.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
-                                              timestamp=timestamp, beacons=dict(beacons or {}),
-                                              block_hashes=dict(block_hashes or {}),
-                                              asset=asset, selfd=selfd, abal=abal, meter=m)
-            if trace is not None and "gas" in m:
-                rv = m.get("revert") if not ok else None
-                trace.append({"ok": bool(ok), "io": [tuple(e) for e in (rv["io"] if rv else io)], "n_steps": int(m["gas"]),
-                              "revert": rv["kind"] if rv else None})
-        else:
-            ok, ret, new_slots, io = zkvm.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
-                                             timestamp=timestamp,
-                                             beacons={e: v % P for e, v in (beacons or {}).items()},
-                                             block_hashes={h: v % P for h, v in (block_hashes or {}).items()},
-                                             asset=asset, selfd=selfd, abal=abal, meter=meter)
+        m = meter if meter is not None else ({} if trace is not None else None)
+        ok, ret, new_slots, io = zkvm2.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
+                                          timestamp=timestamp, beacons=dict(beacons or {}),
+                                          block_hashes=dict(block_hashes or {}),
+                                          asset=asset, selfd=selfd, abal=abal, meter=m)
+        if trace is not None and "gas" in m:
+            rv = m.get("revert") if not ok else None
+            trace.append({"ok": bool(ok), "io": [tuple(e) for e in (rv["io"] if rv else io)], "n_steps": int(m["gas"]),
+                          "revert": rv["kind"] if rv else None})
         if not ok:
             return (False, None, storage, [], [])
         # ASSET EFFECTS ride the SAME digest→address registry as payouts and revert on the same rule (see

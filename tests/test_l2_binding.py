@@ -51,8 +51,8 @@ def test_exec_root_in_block_hash():
     from ops import account_ops
     from ops.block_ops import construct_block, block_content_hash
     from ops.settlement_ops import settled_header_commitment
-    # the empty sentinel is the GENERATION's empty exec root (exec_root_b2.genesis_canary): protocol.EXEC_GENESIS_ROOT on
-    # gen 28, EXEC_GENESIS_ROOT_B2 from BLAKE_EXEC_HEIGHT — a gen-29 header never carries a Goldilocks root
+    # the empty sentinel is the GENERATION's empty exec root (exec_root_b2.genesis_canary): EXEC_GENESIS_ROOT_B2 at every
+    # height (BLAKE_EXEC_HEIGHT inlined in G9) — a gen-29 header never carries a Goldilocks root
     from execnode.exec_root_b2 import genesis_canary
     EXEC_GENESIS_ROOT = genesis_canary()
 

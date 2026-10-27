@@ -416,7 +416,8 @@ class Oracle:
 
     def run(self, st, rt, code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
             block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None):
-        if getattr(rt, "name", None) != "zkvm" or not B2.blake_exec_at(cursor):
+        # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): every cursor's zkvm call is a zkvm2 call
+        if getattr(rt, "name", None) != "zkvm":
             raise Unprovable("a call on a runtime other than the gen-29 zkvm2")
         reg = registry if registry is not None else {}
         try:

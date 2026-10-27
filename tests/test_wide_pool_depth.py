@@ -44,6 +44,7 @@ import protocol as _Pg, _harness as _hg
 # (WIDE_DEPOSIT_CLOSE_HEIGHT and STWO_POOL_HEIGHT were pinned here too until G9 inlined them as block 1: the exec state
 #  no longer routes to the wide pool, and the pins that drove it there are retired below)
 for _g in ("BLAKE_EXEC_HEIGHT",):
+for _g in ("WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT"):        # BLAKE_EXEC_HEIGHT inlined in G9: exits verify BLAKE2s
     setattr(_Pg, _g, _hg.gate_at(_g, 28))
 
 from execnode.state import ExecState

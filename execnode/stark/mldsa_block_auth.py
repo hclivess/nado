@@ -4,7 +4,7 @@ aggregation (doc/zk-signature-aggregation.md).
 
 THE LOAD-BEARING IDEA. A block's CORE carries its transactions with signatures STRIPPED, plus two commitment
 fields:
-    auth_root   a field-native commitment to the ordered authorization entries
+    auth_root   a BLAKE2s commitment to the ordered authorization entries
     auth_count  the exact number K of signature checks the block requires
 The signatures (or the STARK proof that replaces them) travel in a SEPARATE evidence envelope, exactly one of:
     {"type": "raw",   "witnesses": [...]}      every block can always ship this
@@ -20,9 +20,10 @@ uniqueness, fee, target height, state root, PUBKEY-ONCE resolution — AND the n
 recomputes auth_root and auth_count from the block. So a prover cannot choose the statement: it is derived
 from committed data.
 
-auth_leaf_i = H_field(AUTH_DOMAIN, block_height, tx_index, txid_limbs, sender_limbs,
-                      authorization_kind, signature_count)
-auth_root   = the alghash2 fold over the ordered leaves (the same chain calls_commit uses, domain-separated)
+auth_leaf_i = BLAKE2s(canonical(AUTH_DOMAIN, AUTH_VERSION, block_height, tx_index, txid, sender,
+                                authorization_kind, signature_count))
+auth_root   = the BLAKE2s chain over the ordered leaves (_auth_root_b2; gen 28's alghash fold over field-limb
+              leaves went with BLAKE_EXEC_HEIGHT in G9)
 
 THE LEAF CARRIES NO PUBLIC KEY, DELIBERATELY. It used to hash H(pubkey), and that was wrong the moment
 auth_root entered the block hash preimage: under PUBKEY-ONCE a transaction MAY omit public_key, so resolving
@@ -38,7 +39,6 @@ and core_loop.verify_block independently recomputes both from the block's own tr
 mismatch. Evidence itself is DETACHED (see evidence_ok): raw signatures are what every block ships today, and
 a stark envelope is accepted wherever a prover can supply one — same block hash either way.
 """
-from execnode.stark import alghash, field as F
 
 AUTH_DOMAIN = "nado-auth-v1"          # domain separator; a reroll-time constant
 KIND_SINGLE_MLDSA44 = 1               # one ML-DSA-44 signature by the sender's own key
@@ -48,25 +48,6 @@ KIND_MULTISIG_MLDSA44 = 2             # a descriptor account: M member signature
 # existing leaf, root or block hash moves. INVARIANT: never reuse a kind number — the leaf is in the block-hash preimage.
 KIND_SINGLE_BY_ALG = {"mldsa65": 3, "mldsa87": 4, "slhdsa128s": 5, "fndsa512": 6}
 AUTH_VERSION = 1
-
-
-def _limbs(hex_or_str, n=4):
-    """Split an identifier into field limbs (deterministic, collision-preserving under the leaf hash)."""
-    b = hex_or_str.encode() if isinstance(hex_or_str, str) else bytes(hex_or_str)
-    out, step = [], max(1, (len(b) + n - 1) // n)
-    for i in range(n):
-        chunk = b[i * step:(i + 1) * step]
-        out.append(int.from_bytes(chunk, "little") % F.P if chunk else 0)
-    return out
-
-
-def auth_leaf(block_height, tx_index, txid, sender, kind=KIND_SINGLE_MLDSA44, sig_count=1):
-    """One authorization entry's leaf — a pure function of the block's OWN committed data (no state read).
-    See the module docstring for why the public key is deliberately absent."""
-    from hashing import blake2b_hash
-    payload = [AUTH_DOMAIN, AUTH_VERSION, int(block_height), int(tx_index),
-               _limbs(txid), _limbs(sender), int(kind), int(sig_count)]
-    return int(blake2b_hash(payload), 16) % F.P
 
 
 def auth_entries(block):
@@ -117,18 +98,13 @@ def entry_pubkey(entry, resolve_pubkey=None):
 
 
 def auth_root(entries, height=0):
-    """Fold the ordered leaves into one field element — domain-separated from the calls commitment by starting
-    the chain at merkle_node(IV, IV) with auth-prefixed leaves. From BLAKE_EXEC_HEIGHT (dormant on gen 28; the
-    whole of gen 29, block 0's header included — genesis calls this with height 0) the BLAKE2s chain of
-    _auth_root_b2: the same entries and the same field, a different hash (Goldilocks retirement G2)."""
-    from execnode.exec_root_b2 import blake_exec_at
-    if blake_exec_at(height):
-        return _auth_root_b2(entries)
-    node = alghash.merkle_node(alghash.IV, alghash.IV)
-    for e in entries:
-        node = alghash.merkle_node(node, auth_leaf(e["height"], e["index"], e["txid"], e["sender"],
-                                                   e["kind"], e["sig_count"]))
-    return node
+    """Fold the ordered entries into one commitment — generation 29's root at EVERY height, block 0's header included
+    (genesis calls this with height 0): the BLAKE2s chain of _auth_root_b2, domain-separated from the exec root and the
+    calls chain by its personalizations (Goldilocks retirement G2). `height` stays in the signature because callers
+    pass it."""
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): the alghash chain over field leaves was gen 28's
+    # auth root and is gone; no height of this chain is committed under it
+    return _auth_root_b2(entries)
 
 
 AUTH_PERSON_LEAF = b"NADOauL1"           # BLAKE2s personalizations of the gen-29 auth chain: disjoint from the exec
@@ -137,7 +113,7 @@ AUTH_PERSON_NODE = b"NADOauR1"           # root's (exec_root_b2) and the calls c
 
 def _auth_root_b2(entries):
     """The gen-29 auth commitment: a BLAKE2s chain from 32 zero bytes over each entry's leaf, where the leaf is BLAKE2s
-    of the entry's canonical bytes (the fields auth_leaf hashes, uncompressed: no 52-bit limbs, no mod P). One
+    of the entry's canonical bytes (the fields gen 28's field leaf hashed, uncompressed: no 52-bit limbs, no mod P). One
     compression per step. Returned as an int, so the header field keeps its type."""
     import hashlib
     from hashing import canonical_bytes
@@ -195,16 +171,13 @@ def evidence_ok(evidence, block, resolve_pubkey=None, verify_sig=None, verify_pr
     root, count = auth_commitments(block)
     if int(block.get("auth_count", -1)) != count:
         return False, f"auth_count {block.get('auth_count')} != recomputed {count}"
-    from execnode.exec_root_b2 import blake_exec_at
-    if blake_exec_at(int(block.get("block_number", 0) or 0)):
-        # the BLAKE2s commitment is compared exactly (it is no field element), and there is no Goldilocks validity proof
-        # of it to accept: stark evidence is refused like the settle proof (option R), raw evidence still works
-        if int(block.get("auth_root", -1)) != root:
-            return False, "auth_root does not match the block's own transactions"
-        if evidence["type"] == "stark":
-            return False, "a BLAKE2s auth root has no Goldilocks validity proof (raw evidence only)"
-    elif int(block.get("auth_root", -1)) % F.P != root % F.P:
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9), at every height: the BLAKE2s commitment is
+    # compared exactly (it is no field element — never compare it mod P again), and there is no Goldilocks validity
+    # proof of it to accept: stark evidence is refused like the settle proof (option R), raw evidence still works
+    if int(block.get("auth_root", -1)) != root:
         return False, "auth_root does not match the block's own transactions"
+    if evidence["type"] == "stark":
+        return False, "a BLAKE2s auth root has no Goldilocks validity proof (raw evidence only)"
     if evidence["type"] == "raw":
         entries = auth_entries(block)
         wits = evidence.get("witnesses") or []

@@ -48,8 +48,11 @@ M = W - 1
 EDGE = [0, 1, 2, 3, 0xffff, 0x10000, (1 << 62) - 1, 1 << 64, (1 << 128) + 7, 1 << 255, M - 1, M]
 REAL_TESTS = [
     "tests/test_contracts_run_on_the_256_bit_vm_from_the_exec_gate.py",
-    "tests/test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28.py",
-    "tests/test_amm_pools_and_reserve_vaults_carry_to_gen29_and_pay_exactly_as_on_gen28.py",
+    # the bet market, the dex and the reserve vaults on zkvm2: they were recorded from the gen-28 -> gen-29 carry tests,
+    # retired in G9 with BLAKE_EXEC_HEIGHT (no gen-28 exec state can be staged any more)
+    "tests/test_bet_book_beside_the_tote.py",
+    "tests/test_dex.py",
+    "tests/test_reserve.py",
     "tests/test_a_gen29_pet_previews_the_combine_the_contract_rolls.py",
 ]
 

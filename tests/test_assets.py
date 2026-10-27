@@ -24,17 +24,11 @@ _os.environ["NADO_EXEC_STATE"] = _os.path.join(_os.environ["HOME"], "exec_state.
 _os.environ["NADO_EXEC_DA"] = _os.path.join(_os.environ["HOME"], "exec_da")
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
-# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
-# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
-# file reading the shipped value.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
+# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
+# file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState, asset_id, ASSET_SUPPLY_CAP
-from execnode import runtimes, zkvm, zkvmasm
+from execnode import runtimes, zkvm, zkvm2, zkvmasm
 from execnode.zkpy import Contract, hash as zhash
-from execnode.stark import field as F
 
 import _harness
 _report = _harness.Report()
@@ -224,7 +218,7 @@ def t_actx_and_abal():
     assert st.asset_balance(aid, cid) == 250, "asset call value was not escrowed to the contract"
     assert st.asset_balance(aid, ALICE) == 750
     # ACTX_ASSET saw which currency arrived; ABAL sees the holding
-    assert st.view(cid, "noted", []) == (int(aid) + 1) % F.P
+    assert st.view(cid, "noted", []) == (int(aid) + 1) % (1 << 256)   # the 256-bit word wraps
     assert st.view(cid, "held", [int(aid)]) == 250
     assert st.view(cid, "held", [12345]) == 0, "an asset the contract never held must read 0"
     # a NATIVE call still reports asset 0 — every pre-asset contract is untouched by this
@@ -279,8 +273,7 @@ def t_contract_mints_its_own_asset():
     assert st.asset_balance(aid, BOB) == 500 and st.assets[aid]["supply"] == 500
 
     # the in-circuit derivation must equal the ledger's — this is the whole trick, so pin it
-    from execnode.stark import alghash
-    assert int(aid) == alghash.hashn([runtimes.zkvm_addr_digest(cid), 1]) % F.P
+    assert int(aid) == zkvm2.hash_words([runtimes.zkvm_addr_digest(cid), 1])     # the gen-29 VM's HASH
 
     # a DIFFERENT contract cannot mint it. Two distinct attacks, and both must fail:
     st.apply_blob({"op": "deploy", "code": shop_code(), "nonce": 2}, BOB, "tx")
@@ -329,7 +322,7 @@ def t_abal_sees_its_own_pending_moves():
                    "asset": aid}, ALICE, "tx")
     code = st.contracts[cid]["code"]
     cf, fargs = runtimes.zkvm_statement(ALICE, [int(aid), BOB, 150], dict(st.zk_addrs))
-    ok, ret, _ns, io = zkvm.run(code, "pay_then_read", cf, fargs, {},
+    ok, ret, _ns, io = zkvm2.run(code, "pay_then_read", cf, fargs, {},
                                 selfd=runtimes.zkvm_addr_digest(cid), abal=st.holder_assets(cid))
     assert ok and ret == 250, (ok, ret, "ABAL did not see the pay that preceded it")
 
@@ -455,8 +448,8 @@ def t_proven_call_matches_native():
     abal = st.holder_assets(cid)
 
     # 1) the interpreter
-    ok, ret, new_slots, io = zkvm.run(code, "sweep", cf, fargs, slots, cursor=st.cursor,
-                                      selfd=selfd, abal=abal)
+    ok, ret, new_slots, io = zkvm2.run(code, "sweep", cf, fargs, slots, cursor=st.cursor,
+                                       selfd=selfd, abal=abal)
     assert ok and ret == 500, (ok, ret)
     assert [e[0] for e in io if e[0] in zkvm.IO_ASSET_KINDS] == [zkvm.IO_ABAL, zkvm.IO_ASEL], io
 
@@ -464,10 +457,10 @@ def t_proven_call_matches_native():
     #  vm_circuit was deleted with the Goldilocks settle prover; a BLAKE2s root settles by quorum)
     pio = io
     # 3) the log replay — no execution at all, and it names the same asset move
-    ok3, ret3, st3, pays3, _ch, fx3 = zkvm.replay_io(pio, slots, with_assets=True)
+    ok3, ret3, st3, pays3, _ch, fx3 = zkvm2.replay_io(pio, slots, with_assets=True)
     assert ok3 and ret3 == ret and st3 == new_slots and pays3 == []
-    assert fx3 == [("bal", int(aid) % F.P, 0, 500),
-                   ("pay", int(aid) % F.P, runtimes.zkvm_addr_digest(BOB), 500)], fx3
+    assert fx3 == [("bal", int(aid), 0, 500),
+                   ("pay", int(aid), runtimes.zkvm_addr_digest(BOB), 500)], fx3
 
     # 4) and the exec layer settles that replayed effect to the same balances the native apply reaches
     named = [(k, str(a), reg.get(str(t)) if t else None, amt) for k, a, t, amt in fx3]
@@ -656,14 +649,14 @@ def t_arenounce_proves_and_replays():
     cf, fargs = runtimes.zkvm_statement(ALICE, [], dict(st.zk_addrs))
     selfd = runtimes.zkvm_addr_digest(cid)
 
-    ok, ret, new_slots, io = zkvm.run(code, "seal", cf, fargs, slots, cursor=st.cursor, selfd=selfd)
+    ok, ret, new_slots, io = zkvm2.run(code, "seal", cf, fargs, slots, cursor=st.cursor, selfd=selfd)
     assert ok and any(k == zkvm.IO_ARENOUNCE for k, _a, _b in io), io
 
     # (the PROVEN leg — vm_circuit prove/verify and the forged-self-digest refusal — retired in G9: vm_circuit
     #  was deleted with the Goldilocks settle prover)
     pio = io
-    ok3, _ret, _st, _pay, _ch, fx = zkvm.replay_io(pio, slots, with_assets=True)
-    assert ok3 and ("renounce", int(aid) % F.P, 0, 0) in fx, fx
+    ok3, _ret, _st, _pay, _ch, fx = zkvm2.replay_io(pio, slots, with_assets=True)
+    assert ok3 and ("renounce", int(aid), 0, 0) in fx, fx
     # the exec layer stages that replayed renounce to the same authority decision
     named = [(k, str(a), None, amt) for k, a, t, amt in fx]
     ok4, why4, _d, _s, meta = st.stage_asset_effects(cid, named)

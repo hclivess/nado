@@ -21,8 +21,7 @@ import shutil
 import subprocess
 import time
 
-import protocol as PR
-PR.BLAKE_EXEC_HEIGHT = 1                       # gen 29: the exec layer is BLAKE2s, the VM is v2, from genesis
+# gen 29: the exec layer is BLAKE2s and the VM v2 at every height (BLAKE_EXEC_HEIGHT inlined in G9 — no patch needed)
 from execnode.state import ExecState
 from execnode.games import pets as P
 
@@ -90,7 +89,7 @@ process.exit(0);                               // the SDK starts pollers on impo
 """ % (m.group(0) if m else "")
 out = {}
 if m and shutil.which("node"):
-    env = dict(os.environ, NADO_TEST_PROTOCOL_OVERRIDES=json.dumps({"BLAKE_EXEC_HEIGHT": 1}))
+    env = dict(os.environ)
     r = subprocess.run(["node", "--input-type=module", "-e", js, json.dumps([view, str(keep), str(consume)])],
                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
     out = json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 and r.stdout.strip() else {}

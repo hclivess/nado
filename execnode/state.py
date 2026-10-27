@@ -164,8 +164,11 @@ ASSET_URI_MAX = 128             # a metadata/logo pointer (an https/ipfs/ar URL)
 
 def asset_id(issuer, seed, v2=None):
     """The deterministic id of `issuer`'s asset number `seed` — the same field element the contract computes
-    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string. v2 (BLAKE_EXEC_HEIGHT): the gen-29
-    VM's hash over its 256-bit digest, so the node's id stays the contract's. None = the generation's format."""
+    in-circuit as `hash aid <- me seed`. `issuer` is an L1 address / cid string. v2 (the default): the gen-29
+    VM's hash over its 256-bit digest, so the node's id stays the contract's. An explicit False is generation 28's
+    alghash id, kept only for the carry (tools/carry.py maps a gen-28 asset id to its gen-29 one)."""
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): None is v2 at every cursor — the exec state
+    # never asks for the old id, and the v1 branch below is reachable only by naming it
     if runtimes._gen_v2(v2):
         from execnode import zkvm2
         return zkvm2.hash_words([runtimes.zkvm_addr_digest(issuer, True), int(seed)])
@@ -599,12 +602,6 @@ class ExecState:
         except OSError:
             pass
 
-    def rules_blake_exec(self):
-        """The exec root at this state's cursor is the BLAKE2s root (protocol.BLAKE_EXEC_HEIGHT; dormant on gen 28).
-        exec_root_b2.blake_exec_at is the one predicate, shared with L1's exit verifiers."""
-        from execnode.exec_root_b2 import blake_exec_at
-        return blake_exec_at(self.cursor)
-
     def _blake_trees(self):
         """The two BLAKE2s half-trees (execnode/exec_root_b2.py) diff-applied to the CURRENT state, memoised on the
         mutation generation. Called only under _mutate_lock."""
@@ -778,8 +775,8 @@ class ExecState:
 
     def _record_proof(self, tag, *parts):
         """Sparse exit proof {"kv": hex, "path": packed} for the record at record_key(tag, *parts) —
-        the wire format L1's exec_root.verify_record checks against the settled root. From BLAKE_EXEC_HEIGHT the
-        gen-29 format {"kv", "s", "t"} that exec_root_b2.verify_record checks."""
+        in the gen-29 format {"kv", "s", "t"} that L1's exec_root_b2.verify_record checks against the settled root
+        (at every cursor: BLAKE_EXEC_HEIGHT, gen 28's gate, inlined in G9)."""
         from execnode import exec_root_b2 as R2
         with self._mutate_lock:
             kv, rec = self._blake_trees()
@@ -1492,8 +1489,9 @@ class ExecState:
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
-                # the gen-29 deploy gate from BLAKE_EXEC_HEIGHT; the keyword is passed only then, so a gen-28 call is unchanged
-                rt.validate_code(code, **({"v2": True} if self.rules_blake_exec() else {}))   # raises ZkVMError (caught below)
+                # the gen-29 deploy gate at every cursor (BLAKE_EXEC_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9):
+                # a deploy validates as zkvm2 code, never as the old VM's
+                rt.validate_code(code, v2=True)   # raises ZkVMError (caught below)
                 # FIXED-NAME deploy (doc/faucet.md §4): a SYSTEM contract may claim a well-known literal
                 # cid instead of the derived hash, so the L1 reserved recipient, the exec ledger key and
                 # the contract address are all the same word. Allowlisted per name to a sole deployer —
@@ -1510,7 +1508,7 @@ class ExecState:
                 storage = {}
                 if "constructor" in code:
                     kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
-                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), **kw)
+                    ok, _ret, storage, _pay, _fx = self._rt_run(rt, code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                     elif self.rules_r2() and _fx:
@@ -1612,7 +1610,7 @@ class ExecState:
                         rt, c["code"], method, sender, args, c["storage"],
                         value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons,
                         block_hashes=self.block_hashes, asset=int(in_asset or 0),
-                        selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), meter=_meter, **kw)
+                        selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), meter=_meter, **kw)
                 except Exception as e:
                     # F2: the VM raising (rather than reverting) must not keep the escrow. Below the gate the
                     # exception keeps propagating to the outer except, exactly as it always did.
@@ -1718,7 +1716,7 @@ class ExecState:
                     if c.get("deployer") != sender:
                         return "skip: only a contract's deployer may issue an asset for it"
                     issuer = for_cid
-                aid = str(asset_id(issuer, seed, self.rules_blake_exec()))   # the id the gen-29 VM computes, from the gate
+                aid = str(asset_id(issuer, seed, True))   # the id the gen-29 VM computes (BLAKE_EXEC_HEIGHT inlined in G9)
                 if aid in self.assets:
                     return f"skip: asset {aid[:12]}… already exists"
                 # MINT AUTHORITY is opt-IN and renounceable, never implicit: an asset created with
@@ -1910,7 +1908,7 @@ class ExecState:
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 try:
-                    rt.validate_code(code, **({"v2": True} if self.rules_blake_exec() else {}))
+                    rt.validate_code(code, v2=True)   # zkvm2 at every cursor (BLAKE_EXEC_HEIGHT inlined in G9)
                 except Exception as e:
                     return f"skip: invalid code ({e})"
                 c["code"] = code
@@ -2239,5 +2237,5 @@ class ExecState:
         if rt is None:
             return None
         kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
-        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, self.rules_blake_exec()), abal=self.holder_assets(cid), **kw)
+        ok, ret, _, _, _ = self._rt_run(rt, c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, selfd=runtimes.zkvm_addr_digest(cid, True), abal=self.holder_assets(cid), **kw)
         return ret if ok else None

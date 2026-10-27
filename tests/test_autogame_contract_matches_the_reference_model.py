@@ -49,10 +49,10 @@ BH = {h: int.from_bytes(hashlib.blake2b(b"autogame:%d" % h, digest_size=8).diges
 
 
 def _call(meth, args, storage, caller=1234, cursor=0, timestamp=0):
-    # the generation's VM, as the runtime picks it (zkvm2 for v2 code on gen 29, zkvm otherwise) — running v2 code on
+    # the generation's VM, as the runtime runs every call: zkvm2 (BLAKE_EXEC_HEIGHT inlined in G9) — running v2 code on
     # the v1 interpreter is a different machine, not a test of the contract
-    from execnode import zkvm2, zkvmasm
-    vm = zkvm2 if zkvmasm.default_isa() == "v2" else zkvm
+    from execnode import zkvm2
+    vm = zkvm2
     cf, fa = runtimes.zkvm_statement(caller, args, {})
     return vm.run(CODE, meth, cf, fa, storage, cursor=cursor, timestamp=timestamp, block_hashes=BH)
 

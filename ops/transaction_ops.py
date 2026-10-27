@@ -1845,7 +1845,7 @@ def exit_amount_check(amount, block_height):
 
 def exit_root_module(cursor):
     """The verifier module for a settled exec root AT `cursor`: execnode/exec_root_b2.py, the only exec root format since G9
-    deleted the Goldilocks one (generation 29 is BLAKE2s from genesis, exec_root_b2.blake_exec_at). `cursor` stays in
+    deleted the Goldilocks one (generation 29 is BLAKE2s from genesis; BLAKE_EXEC_HEIGHT inlined in G9). `cursor` stays in
     the signature so a future format change keys on the ROOT's cursor again, not this block's height. INVARIANT: every
     exit verifier call goes through here."""
     from execnode import exec_root_b2 as R2

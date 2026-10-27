@@ -37,7 +37,6 @@ REROLL = {
     "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "WIDE_DEPOSIT_CLOSE_HEIGHT": 1,            # 175000 on gen 28: no new wide-pool deposits (it never held a note)
     "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
-    "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
     "SIG_SCHEMES_HEIGHT": 1,                   # dormant (2^62) on gen 28: an account may sign with another offered scheme
     "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
     "AGREED_TIME_SEATS_HEIGHT": 1,             # dormant (2^62) on gen 28: the certificate clock weighs committee seats

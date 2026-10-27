@@ -184,11 +184,10 @@ def assemble(text, isa="v1"):
 
 
 def default_isa():
-    """The ISA a bare build() targets: v2 on a generation whose exec layer is BLAKE2s from genesis (BLAKE_EXEC_HEIGHT
-    == 1, i.e. generation 29), v1 otherwise — so the reroll's redeploy, which calls build() bare, deploys v2 code, and
-    a gen-28 build() stays byte-identical. exec_root_b2.blake_exec_at(0) is exactly "the gate covers the genesis"."""
-    from execnode.exec_root_b2 import blake_exec_at
-    return "v2" if blake_exec_at(0) else "v1"
+    """The ISA a bare build() targets: v2, the gen-29 zkvm2 — so the reroll's redeploy, which calls build() bare, deploys
+    v2 code. v1 is built only when named (the carry matches a gen-28 contract's code against build("v1"))."""
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): the gate covered the genesis, so this is v2
+    return "v2"
 
 
 def assemble_contract(methods, isa=None):

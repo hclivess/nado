@@ -14,7 +14,7 @@ record tags, the same "zero / empty is absent" rules, so every fact the gen-28 r
 
 FROZEN AT THE REROLL with the tree: every personalization, encoding and tag below is part of the gen-29 genesis root,
 and the Stwo settlement circuit (G4) recomputes these positions. APPEND-ONLY afterwards, like the old tags.
-Nothing imports this module on a consensus path until BLAKE_EXEC_HEIGHT (dormant on generation 28).
+This is generation 29's exec root at every cursor (BLAKE_EXEC_HEIGHT, gen 28's gate, inlined in G9).
 """
 import hashlib
 
@@ -95,23 +95,16 @@ def addr_value(addr) -> bytes:
     return str(addr).encode()
 
 
-def blake_exec_at(cursor) -> bool:
-    """Whether the exec root AT `cursor` is this module's (protocol.BLAKE_EXEC_HEIGHT). ONE predicate for the exec node
-    (which root it computes and proves against) and L1 (which verifier reads a settled root of that cursor), so the two
-    can never disagree about a root's format. 1 = the WHOLE generation, genesis cursors (-1, 0) included — the gen-29
-    genesis exec root is a BLAKE2s root, or Goldilocks would survive the reroll in its very first root; a real height =
-    from that cursor on; 0 = never."""
-    from protocol import BLAKE_EXEC_HEIGHT as H
-    return bool(H) and (H == 1 or int(cursor) >= H)
-
-
 def genesis_canary() -> str:
-    """The empty exec layer's root in THIS generation's format: protocol.EXEC_GENESIS_ROOT_B2 when the gate covers the
-    genesis (generation 29), protocol.EXEC_GENESIS_ROOT otherwise. INVARIANT: every runtime reader of the genesis root
-    goes through here — the exec node's start-up canary and L1's pre-settlement header sentinel both read the alghash
-    constant directly until 2026-10-19, which on generation 29 would have refused every exec node's start."""
+    """The empty exec layer's root in THIS generation's format: protocol.EXEC_GENESIS_ROOT_B2. INVARIANT: every runtime
+    reader of the genesis root goes through here — the exec node's start-up canary and L1's pre-settlement header
+    sentinel both read the alghash constant directly until 2026-10-19, which on generation 29 would have refused every
+    exec node's start."""
+    # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9; it was exec_root_b2.blake_exec_at, deleted with
+    # it): the exec root is this module's at every cursor, genesis cursors -1 and 0 included, so the canary is the
+    # BLAKE2s one. protocol.EXEC_GENESIS_ROOT (the Goldilocks root) is read only by execnode/exec_root.py's tests.
     import protocol
-    return protocol.EXEC_GENESIS_ROOT_B2 if blake_exec_at(0) else protocol.EXEC_GENESIS_ROOT
+    return protocol.EXEC_GENESIS_ROOT_B2
 
 
 def _b2(data, person):

@@ -28,7 +28,6 @@ ck("an epoch below the beacon floor is unavailable (no partial-witness beacon)",
 
 # the BEACON opcode: a contract reads a finalized beacon; a future/unavailable epoch reverts (no-op)
 from execnode import zkvmasm
-from execnode.stark.field import P as _P
 
 
 def beacon_contract():
@@ -39,18 +38,12 @@ def beacon_contract():
     return st, list(st.contracts)[0]
 
 
-# the word the contract sees is the VM's: generation 28's VM reduces the beacon mod the Goldilocks prime, the gen-29
-# 256-bit VM (BLAKE_EXEC_HEIGHT) carries it whole — both run explicitly (the gen-29 rehearsal found this pinned to the old)
-import _harness
+# the word the contract sees is the VM's: the gen-29 256-bit VM carries the beacon whole (the gen-28 half, reduced mod
+# the Goldilocks prime, retired in G9 with BLAKE_EXEC_HEIGHT: generation 28's rules)
 full4 = int(compute_beacon(GENESIS_BEACON, ["zz", "4"]), 16)
-with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 28)):
-    st, cid = beacon_contract()
-    ck("gen 28: BEACON(finalized epoch) returns the exec beacon mod the field prime",
-       st.view(cid, "getb", [4]) == full4 % _P and 4 in st.beacons)
-with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 29)):
-    st, cid = beacon_contract()
-    ck("gen 29: BEACON(finalized epoch) returns the whole 256-bit exec beacon",
-       st.view(cid, "getb", [4]) == full4 and full4 < 1 << 256 and 4 in st.beacons)
+st, cid = beacon_contract()
+ck("gen 29: BEACON(finalized epoch) returns the whole 256-bit exec beacon",
+   st.view(cid, "getb", [4]) == full4 and full4 < 1 << 256 and 4 in st.beacons)
 ck("BEACON(finalized) is reproducible (deterministic view)", st.view(cid, "getb", [4]) == st.view(cid, "getb", [4]))
 ck("BEACON(future/unavailable epoch) reverts -> None", st.view(cid, "getb", [9999]) is None)
 ck("a game result HASH(beacon || id) differs per id", st.view(cid, "getb", [4]) is not None)
