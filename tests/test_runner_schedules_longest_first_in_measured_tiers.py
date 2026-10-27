@@ -81,9 +81,11 @@ check("--slow runs only the slow tier", ran == ["test_aa_long"], r.stdout)
 os.remove(TIMES)
 src = open(RUNNER).read()
 slow = dict(re.findall(r"^(test_\w+) (\d+)$", src, re.M))
-for n in ("test_settlement_proof", "test_recursive_verify_hetero", "test_wide_pool_depth", "test_settle_fold_tree"):
-    check(f"{n} (timed out, or ran within minutes of the old 900 s cap) is on the fallback SLOW list", n in slow)
-r = run(["--fast", os.path.join(ROOT, "tests", "test_settle_fold_tree.py")])
+# (the 2026-10-10 offenders test_settlement_proof, test_recursive_verify_hetero and test_settle_fold_tree were retired
+# with the Goldilocks prover in G9; test_wide_pool_depth is the one left)
+for n in ("test_wide_pool_depth", "test_shielded_wide"):
+    check(f"{n} (ran within minutes of the old 900 s cap) is on the fallback SLOW list", n in slow)
+r = run(["--fast", os.path.join(ROOT, "tests", "test_wide_pool_depth.py")])
 check("with no measurement, a test on the SLOW list is slow tier (deferred by --fast, nothing run)",
       "DEFERRED" in r.stdout and "slow-list" in r.stdout and "0 ok" in r.stdout, r.stdout)
 

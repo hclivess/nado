@@ -63,8 +63,7 @@ check("under 4 threads no satisfying row is evaluated as violated", bad[0] == 0,
 
 check("an out-of-memory is node-local, never a verdict", MemoryError in NODE_LOCAL_ERRORS)
 src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-check("both settle-verify halves catch the whole NODE_LOCAL_ERRORS tuple (KV and records)",
-      src.count("from execnode.stark.native_guard import NODE_LOCAL_ERRORS as _NM") == 2
-      and "import NativeMissing as _NM" not in src)
+# (the two settle-verify halves that caught NODE_LOCAL_ERRORS were the Goldilocks settle verifier, deleted in G9)
+check("no L1 verifier narrows a node-local failure to NativeMissing", "import NativeMissing as _NM" not in src)
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

@@ -117,24 +117,23 @@ def t_row_mode_still_binds_the_public_statement():
 
 def t_there_is_ONE_authority_for_the_default():
     """The defect was one question answered TWICE — settlement_sparse derived row mode from the backend,
-    merkle_update never asked. Both now resolve stark.row_commit_default, so they cannot drift.
+    merkle_update never asked. Both resolved stark.row_commit_default, so they could not drift.
 
     RESOLVE AND CALL, do not grep. The first cut of this check did `inspect.getsource` on a function and
     asserted a substring; it failed against correct code because it read the wrong scope. A textual check
     passes just as happily when the function it claims to guard does not exist."""
-    from execnode.stark import stark as S, settlement_sparse as SS
+    from execnode.stark import stark as S
     fn = getattr(S, "row_commit_default", None)
     assert callable(fn), "stark.row_commit_default must exist as the single authority"
     assert fn(B.RECURSION) is True, "RECURSION must row-commit — that is the 4.1x"
     assert fn(B.ALGHASH2) is False, "ALGHASH2 cannot row-commit (stark.py refuses it)"
-    # settlement_sparse must reach the authority, not keep a private copy of the predicate.
-    assert getattr(SS, "stark", None) is S, "sanity: same stark module object"
+    # merkle_update must reach the authority, not keep a private copy of the predicate. (The other caller,
+    # settlement_sparse, was retired in G9 with the Goldilocks settle proof; merkle_update is the one left.)
+    assert getattr(MU, "stark", None) is S, "sanity: same stark module object"
     import inspect
-    body = inspect.getsource(SS.prove_settlement_sparse) if hasattr(SS, "prove_settlement_sparse") else ""
-    if body:
-        assert "row_commit_default" in body, \
-            "settlement_sparse must call the shared authority, not re-derive the predicate inline"
-
+    for f in (MU.prove_update, MU.prove_updates):
+        assert "row_commit_default" in inspect.getsource(f), \
+            f"merkle_update.{f.__name__} must call the shared authority, not re-derive the predicate inline"
 
 for nm, fn in [("recursion proofs are row-committed", t_recursion_proofs_are_row_committed),
                ("row proof verifies without a mode hint", t_row_proof_verifies_without_being_told_the_mode),

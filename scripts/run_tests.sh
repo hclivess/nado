@@ -59,64 +59,35 @@ JOBS=${NADO_TEST_JOBS:-$(( NCPU / 2 > 0 ? NCPU / 2 : 1 ))}
 FAST_MAX=60
 TIMES=${NADO_TEST_TIMES:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/nado-tests/times.tsv}
 OUT=$(mktemp -d /tmp/nado-tests.XXXXXX)
-NATIVE_ONLY="test_fold_cache_persist"      # FATAL under NADO_ALLOW_PYTHON_KERNELS (certifies the shipped native path)
+NATIVE_ONLY=""      # tests FATAL under NADO_ALLOW_PYTHON_KERNELS (certify the shipped native path); the last, test_fold_cache_persist, retired in G9
 # THE SLOW LIST — the fallback when this machine has no measurement of a test (a fresh clone, CI, a new host): every
 # test measured at 60 s or more, with its seconds. Measured 2026-10-10 (/tmp/nado-tests.Y1P3TF, 12 cores, 2 jobs)
 # unless noted. Keep a test here when it is slow anywhere; a measurement on this machine always wins.
-#   test_settle_fold_tree   proves a K=4 tree fold in Python: 2 h 28 min to ALL PASS on 2026-09-26 at load 60 (the
-#                           worst seen, kept as its seed); 1,990 s on 2026-10-10.
-#   test_settlement_proof   TIMED OUT at the old 900 s default on 2026-10-10 (it was never on this list).
-#   test_recursive_verify_hetero 876 s and test_wide_pool_depth 748 s ran within a minute or three of that 900 s cap.
-#   test_every_opcode_is_provable  3,546 s as 31 separate proofs; ~100 s since its cases are proven as one epoch.
+#   test_wide_pool_depth 748 s ran within a minute or three of the old 900 s cap. (The Goldilocks settle-proof tests that
+#   once topped this list, up to 2 h 28 min each, were retired with that prover in G9.)
 SLOW="
-test_settle_fold_tree 8880
 test_joinsplit3_js_proof_verifies_in_python 1200
-test_games_e2e 2087
 test_shielded_wide 1799
-test_fold_hardening 1393
-test_settlement_proof 1800
-test_recursive_verify_hetero 876
 test_wide_pool_depth 748
 test_recursive_row 605
-test_assets 588
 test_fri_verify 540
-test_zkvm_args 502
 test_recursive_verify 496
-test_io_fingerprint 479
-test_exec_commit_periodic 469
 test_records_transition 417
 test_stark_joinsplit2 408
 test_shielded_state_replay 400
-test_recursion_authdepth 360
 test_records_bind 350
-test_settle_multiblock_da 340
 test_recursion 307
 test_air_ir 293
-test_io_bind_exec 271
-test_bound_epoch_o1 262
-test_settle_pre_contracts_exported 259
 test_stark_joinsplit_circuit 242
-test_settlement_sparse 239
 test_native_prover_verifies 230
-test_zkvm_circuit 221
-test_nop_is_a_provable_step 214
-test_recursion_ext 211
-test_exec_root_v2 195
-test_offchain_bulk_reuptake 185
-test_settle_cid_io_binding 167
 test_shielded_vault_e2e 161
 test_m10_h7 150
 test_zk_review_2026_09_24 148
 test_review_round2 142
 test_comp_verify 140
-test_zkvm_epoch 136
-test_state_merge 132
-test_zkvm_arg_tag_from_one 131
 test_hexholm_engine_conserves_resources 137
 test_msg_ratchet 122
 test_state_transition_batched 121
-test_every_opcode_is_provable 120
-test_asset_ops_settle_by_proof 115
 test_da_shielded_transfer 110
 test_starkprove 109
 test_shielded_field 107
@@ -124,16 +95,13 @@ test_merkle_update 105
 test_fork_resolution_pruned 105
 test_rowcomp_verify 103
 test_shielded_state_da 100
-test_asset_settle_l1 92
 test_native_reduce 91
 test_shielded_state_seam 81
-test_offchain_batch_canon 80
 test_appnote_circuit 77
 test_hexholm_contract_lifecycle 75
 test_joinsplit2_js_proof_verifies_in_python 114
 test_stormhold_engine_referee 73
 test_fri_blowup2_parity 71
-test_settle_proof_live_state_shape 66
 test_zkvm_runtime 65
 test_proof_query_full 63
 "

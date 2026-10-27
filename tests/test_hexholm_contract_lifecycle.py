@@ -4,7 +4,7 @@ same apply_blob path the live exec node runs. Exercises every method: the 2-4 se
 leave/cancel), the KH pin on the filling join, ply-bound free-actor move() with per-move seed records,
 the unanimous-alive agree() payout, the resign cascade (last seat standing takes the pot), the move-clock
 abort() with equal alive-split + remainder-to-caller, and commit-verified reveal(). Reverts must leave
-state untouched. One representative method is STARK-proven (a call is provable).
+state untouched.
 
 Run: python3 tests/test_hexholm_contract_lifecycle.py
 """
@@ -17,8 +17,6 @@ import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState
-from execnode import runtimes
-from execnode.stark import vm_circuit as V
 from execnode.games import hexholm as hx
 
 import _harness
@@ -151,21 +149,8 @@ def t_abort_split():
     assert st.bridge[C] == 1_000_000 - 501 + 751
     assert st.bridge[B] == 1_000_000 - 501                 # the resigner forfeited
 
-def t_prove_move():
-    from execnode.exec_root_b2 import blake_exec_at
-    if blake_exec_at(0):
-        # gen 29: the contract is v2 code (zkvm2) and this is the Goldilocks execution prover, which proves only v1; the
-        # Stwo execution AIR replaces it (doc/stwo-migration.md G4) and gets its own proving test there
-        print("SKIP  the Goldilocks prover proves only v1 code; the gen-29 Stwo prover is G4")
-        return
-    code = hx.build()
-    S = lambda f, k: f * (1 << 32) + k
-    slots = {S(hx.NN, 1): 2, S(hx.CAP, 1): 2, S(hx.MC, 1): 0,
-             S(4, 1): runtimes.zkvm_addr_digest(A), S(5, 1): runtimes.zkvm_addr_digest(B)}
-    cf, fa = runtimes.zkvm_statement(A, [1, 5, 0], {})
-    proof, io, ret, ns = V.prove_call(code, "move", cf, fa, slots, num_queries=6, cursor=300)
-    ok, why = V.verify_call(proof, code, "move", cf, fa, io, num_queries=6, cursor=300)
-    assert ok, f"move proof: {why}"
+# t_prove_move retired in G9: the Goldilocks execution prover (execnode/stark/vm_circuit.py) was deleted; a gen-29 call
+# is proven by the Stwo VM AIR (tests/test_a_stwo_proof_of_contract_execution_proves_its_io_log_and_refuses_forgeries.py)
 
 def t_anchor():
     st, code, cid, rd, call = _fresh(cursor=500)
@@ -198,7 +183,7 @@ def t_anchor():
     assert rd(hx.A_V, day2) == 77 and cnt() == 2 and rd(hx.DLIST, 1) == day2
 
 for t in (t_lobby_and_agree, t_resign_cascade, t_agree_excludes_resigned, t_cancel_refunds,
-          t_abort_split, t_prove_move, t_anchor):
+          t_abort_split, t_anchor):
     check(t.__name__, t)
 print("ALL PASS" if _report.fails == 0 else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

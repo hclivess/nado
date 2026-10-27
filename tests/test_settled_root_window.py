@@ -129,9 +129,8 @@ def t_all_four_claim_branches_use_the_window():
         assert verifier in s, f"{verifier} disappeared"
         seg = s[s.index(verifier) - 1200:s.index(verifier) + 300]
         assert "_window" in seg and "any(" in seg, f"{verifier} does not iterate the window"
-    # the settle-proof pre-state binding must stay EXACT (a proof chains from the committed tip)
-    seg = s[s.index("_tip_cursor, tip_root = latest_settled"):][:200]
-    assert "recent_settled_roots" not in seg, "the settle-proof tip binding was loosened — it must stay exact"
+    # (the settle-proof pre-state binding this also pinned exact went with the Goldilocks verifier in G9; G8's Stwo
+    # settlement must chain from the committed tip again — latest_settled, never the window)
 
 
 def t_zero_cooldown_matcher_still_matches_the_new_messages():

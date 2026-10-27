@@ -19,6 +19,9 @@ declines to settle BARE. Otherwise the pass that notices the pending proof has l
 through to a bare settle, and every landed proof would be followed by a bare one — quietly halving the
 proof rate, the opposite of the intent.
 
+G9 deleted the Goldilocks prove itself, so every settle is bare until the Stwo settlement (G8) builds its proof on
+the SAME pipeline; what remains pinned here is that pipeline's hold and release, which G8 inherits unchanged.
+
 Run: python3 tests/test_settle_no_duplicate_prove.py
 """
 import os
@@ -34,11 +37,7 @@ _report = _harness.Report()
 check = _report.run
 
 
-def t_the_prove_is_gated_on_no_pending_proof():
-    assert "_pend_hold = _settle_pending.get(ns) is not None" in SRC, \
-        "the loop must record whether a proof-carrying settle is already pending"
-    assert "if not _pend_hold and not _quorum_only:\n                    proof = await _build_settlement_proof(" in SRC, \
-        "_build_settlement_proof must not run while a proof is pending its landing block"
+# t_the_prove_is_gated_on_no_pending_proof retired in G9: _build_settlement_proof (the Goldilocks prove) was deleted
 
 
 def t_the_hold_also_covers_the_declined_pass():
@@ -46,10 +45,7 @@ def t_the_hold_also_covers_the_declined_pass():
         "the bare-settle hold must include _pend_hold, or a landed proof is followed by a bare settle"
 
 
-def t_only_one_build_call_exists():
-    """A second call site would route around the gate."""
-    assert SRC.count("await _build_settlement_proof(") == 1, \
-        "there must be exactly one _build_settlement_proof call site for the gate to be sufficient"
+# t_only_one_build_call_exists retired in G9: there is no _build_settlement_proof call site left to count
 
 
 def t_pending_is_always_released():
@@ -79,57 +75,8 @@ def t_the_pending_marker_is_recorded_before_the_lookup():
     assert '_settle_pending[ns]["pre_cursor"] =' in SRC, "pre_cursor must be filled in afterwards"
 
 
-def t_the_hold_is_continuous_from_prove_to_submit():
-    """THE THIRD AND ACTUAL FIX. Three guards cover the pipeline in sequence — _settle_proving (the prove),
-    _settle_publishing (publish+submit), _settle_pending (the wait for the landing block). _settle_proving is
-    cleared by the prove TASK's done-callback, but _settle_publishing was not set until the publish step, and
-    between those two points sit the self-checks, the recursive self-verify and an awaited /get_latest_block.
-    A concurrent maybe_settle pass landing in that gap sees ALL THREE clear and starts a second prove.
-
-    MEASURED 2026-08-06 16:16:43-16:17:12, after both earlier attempts had shipped: the prove for 48650
-    finished 16:16:43, its submit returned 16:17:05, and a prove for 48654 ran inside that 22-second window.
-    Gating on _settle_pending (bd079982) and removing an awaited fetch before the marker (7b612e1e) could
-    not help — the marker legitimately does not exist yet while the proof is still being submitted.
-
-    Setting the publish hold the instant a proof exists makes the hold CONTINUOUS. Safe against a stall: the
-    only `continue` between the set and the release is guarded by `proof is None`, and _pub_active bounds
-    the flag by SETTLE_HOLD_MAX_S regardless."""
-    i = SRC.index("proof = await _build_settlement_proof(")
-    j = SRC.index('globals()["_settle_publishing"] = time.time()', i)
-    k = SRC.index("if proof is None and _hold:", i)     # the disjunction moved into its own `_hold = (...)` line
-    assert j < k, "the publish hold must be taken BEFORE the bare-settle hold is evaluated"
-    seg = SRC[i:j]
-    assert "if proof is not None:" in seg, "the hold must be taken as soon as a proof exists"
-    # STRIP COMMENTS BEFORE LOOKING FOR `await`. The first version of this check searched the raw segment
-    # and matched the word "awaited" inside the explanatory comment right above the hold — the fifth checker
-    # today that was wrong before the code was. Compare CODE, never prose.
-    between = seg.split("if proof is not None:")[0].split("\n", 1)[1]
-    code_only = "\n".join(l for l in between.splitlines() if not l.strip().startswith("#"))
-    assert "await" not in code_only, \
-        f"nothing may await between the prove returning and the hold being taken: {code_only!r}"
-
-
-def t_the_pending_marker_is_RE_CHECKED_at_the_launch_point():
-    """THE ACTUAL BUG, named by instrumentation after three fixes guessed wrong.
-
-        17:47:37  SETTLE-WITH-PROOF cursor 49530                      <- marker recorded
-        17:47:39  prove-gate span 49500->49534 LAUNCH — pending_cursor=49530 proving=False publishing=CLEAR
-
-    The marker WAS set and a prove launched anyway, so the caller-side gate was never violated — it was
-    STALE. `_pend_hold` is snapshotted at the top of a maybe_settle pass; _build_settlement_proof then
-    spends seconds walking the span over HTTP before committing to anything, and a proof submitted inside
-    that walk sets the marker after the snapshot was taken.
-
-    bd079982 added the caller gate, 7b612e1e moved the marker earlier, d4c24872 made the publish hold
-    continuous. None could help: the READ was stale, not the write. The check has to happen at the LAST
-    moment before _settle_proving is set — the same reason _pub_active is re-evaluated there rather than
-    trusted from the caller."""
-    i = SRC.index("_pub_active = (_settle_publishing")
-    j = SRC.index("_settle_proving = True", i)
-    seg = SRC[i:j]
-    assert "_settle_pending.get(ns) is not None" in seg, \
-        "the pending marker must be RE-READ between the _pub_active check and _settle_proving = True"
-    assert "pending-landing" in seg, "the re-check must skip with a named reason"
+# t_the_hold_is_continuous_from_prove_to_submit and t_the_pending_marker_is_RE_CHECKED_at_the_launch_point
+# retired in G9: both pinned statement order around the Goldilocks prove (_build_settlement_proof), which was deleted
 
 
 def t_the_measurement_is_recorded():
@@ -141,13 +88,9 @@ def t_the_measurement_is_recorded():
         "the comment must say WHY only one can land"
 
 
-for nm, fn in [("the prove is gated on no pending proof", t_the_prove_is_gated_on_no_pending_proof),
-               ("the hold also covers the declined pass", t_the_hold_also_covers_the_declined_pass),
-               ("only one _build_settlement_proof call site", t_only_one_build_call_exists),
+for nm, fn in [("the hold also covers the declined pass", t_the_hold_also_covers_the_declined_pass),
                ("the pending entry is always released", t_pending_is_always_released),
                ("the pending marker precedes the lookup", t_the_pending_marker_is_recorded_before_the_lookup),
-               ("the hold is continuous from prove to submit", t_the_hold_is_continuous_from_prove_to_submit),
-               ("the pending marker is RE-CHECKED at the launch point", t_the_pending_marker_is_RE_CHECKED_at_the_launch_point),
                ("the measurement is recorded beside the gate", t_the_measurement_is_recorded)]:
     check(nm, fn)
 

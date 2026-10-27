@@ -1,5 +1,5 @@
 """
-Two-phase aux-column protocol + LogUp (execnode/stark/stark.py aux_spec, execnode/stark/logup.py): a valid
+Two-phase aux-column protocol + LogUp (execnode/stark/stark.py aux_spec): a valid
 byte-table lookup verifies; a value outside the table, a tampered accumulator, a tampered multiplicity, and
 mismatched aux geometry are all rejected; the one-phase path is untouched (legacy proof still verifies and
 its proof dict has no aux columns).
@@ -8,7 +8,7 @@ Run: python3 tests/test_stark_aux.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import field as F, stark, logup
+from execnode.stark import field as F, stark
 
 fails = 0
 def check(name, fn):
@@ -84,10 +84,22 @@ def _aux_spec(tamper=None):
         return cols
     return {"num_challenges": 1, "num_aux": 3 * D, "build": build}
 
+def _multiplicities(values, table):
+    """m_j for the table side: how many lookups target table[j]. It was execnode/stark/logup.multiplicities, deleted
+    in G9 with the Goldilocks VM circuit that was its only caller; the aux protocol under test is stark.py's and stays,
+    so the witness helper lives here."""
+    first = {}
+    for j, t in enumerate(table):
+        first.setdefault(t % F.P, j)
+    m = [0] * len(table)
+    for v in values:
+        m[first[v % F.P]] += 1
+    return m
+
 def _trace(values):
     """Main trace from a list of T-1 active values (last row padding)."""
     assert len(values) == T - 1
-    mult = logup.multiplicities(values, [i for i in range(256)]) + [0] * (T - 256)
+    mult = _multiplicities(values, [i for i in range(256)]) + [0] * (T - 256)
     tr = [[values[i] if i < T - 1 else 0, mult[i]] for i in range(T)]
     return tr
 

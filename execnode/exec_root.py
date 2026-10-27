@@ -27,26 +27,18 @@ An exit proof is {"kv": 64-hex kv-root, "path": packed records path}: L1 recompu
 tx's public fields, folds the packed path (storage_tree.unpack_path — ~1KB, only non-empty siblings), and checks
 rnode(kv, folded) == the settled root. One settled root serves execution AND exits.
 """
-import hashlib
-from hashing import blake2b_hash, canonical_bytes, outbox_leaf
+from hashing import blake2b_hash, outbox_leaf
+# The record tags and leaf encodings are exec_root_b2's since G9 (the BLAKE2s root is the only live one); this module
+# keeps the retired Goldilocks root for the tests that still read it until they are retired with it.
+from execnode.exec_root_b2 import (T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD,  # noqa: F401
+                                   T_UNSHIELD_WD, T_DIGEST, T_KVX, T_ASSET_BAL, T_ASSET_META, T_ASSET_ALLOW,
+                                   T_APP_ROOT, T_APP_NULL, leaf_digest, msg_outbox_leaf, msg_inbox_leaf,
+                                   asset_meta_digest)
 from execnode.stark import field as F, alghash2 as A2, storage_tree as ST, exec_state_bind as ESB
-
-# Leaf-digest domain tag (brand-carrying; renamed only at a CHAIN_GENERATION reroll).
-DOMAIN_REC_DIGEST = b"rec-digest-v1"
 
 DEPTH = 256                       # FROZEN: the full digest — position security = the hash's own strength
 DOM_REC = 8                       # record-position domain (exec_state_bind DOM_KVPOS = 7)
 
-# record tags (FROZEN — APPEND only; an existing tag's number is part of every settled root ever computed)
-T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
-T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
-T_ASSET_ALLOW = 10                 # (asset, owner, spender) -> allowance (delegated-spend authorization)
-# SHIELDED CONTRACTS (execnode/shielded_state.py). Private application state enters the settled root the
-# same way the two pools already do — as a digest IN THE POSITION — so a contract's private note root is
-# provable against one settled root by the SAME bounded verifier as a bridge balance. Appending these two
-# is the whole state-binding cost of the feature: tags 1-10 do not move, so no historical root is
-# invalidated and no CHAIN_GENERATION reroll is required.
-T_APP_ROOT, T_APP_NULL = 11, 12    # (cid, note root) -> 1, and the spent-nullifier set digest -> 1
 
 
 def _limbs(part):
@@ -65,21 +57,6 @@ def record_key(tag, *parts):
     for lane in A2.hashn(els):
         acc = (acc << 64) | int(lane)
     return acc & ((1 << DEPTH) - 1)
-
-
-def leaf_digest(leaf_bytes):
-    """64-hex digest of a canonical message-leaf's bytes — what a digest record commits in its position."""
-    return hashlib.blake2b(DOMAIN_REC_DIGEST + leaf_bytes, digest_size=32).hexdigest()
-
-
-def msg_outbox_leaf(msg):
-    """Canonical bytes for one outbox message (shared with L1 xmsg verification via THIS module)."""
-    return outbox_leaf(msg["seq"], msg["from"], msg["to_ns"], msg.get("data"))
-
-
-def msg_inbox_leaf(i, msg):
-    """Canonical bytes for one DELIVERED cross-domain message (index-tagged, append-only)."""
-    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)), msg.get("data")])
 
 
 def kvx_key(cid, m, k, v):
@@ -127,14 +104,6 @@ def kv_projection(contracts, v2=False):
                         pass
                 out[kvx_key(cid, m, k, v)] = 1
     return out
-
-
-def asset_meta_digest(meta):
-    """The digest an asset's T_ASSET_META leaf is positioned by. ONE encoding, shared by records_projection and
-    records_bind's asset derivation: the settle verifier authenticates a prover-supplied metadata preimage by
-    finding THIS leaf in the pinned projection, and a second copy of the encoding would drift from the first."""
-    return blake2b_hash(["asset", meta["issuer"], int(meta["seed"]), meta["name"], meta["sym"], int(meta["dec"]),
-                         int(meta["supply"]), bool(meta["mintable"]), meta.get("uri", "")])
 
 
 def records_projection(st):

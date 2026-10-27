@@ -80,9 +80,9 @@ check("and fills it and every later epoch once it resolves", sorted(st.beacons) 
 
 # one definition everywhere
 src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-check("the L1 settle-proof check reads BEACON through exec_beacon_at",
-      "_ExecState.exec_beacon_at(_key, kv_ops.reveals_for_epoch, _fin // _EL)" in src
-      and "_ExecState.exec_beacon_int(_key" not in src)
+# (the L1 settle-proof BEACON check that read exec_beacon_at was deleted with that verifier in G9; the Stwo settlement's
+# chain reads go through the same ExecState.exec_beacon_at in execnode/settle_b2.py)
+check("no L1 code reads BEACON through a second definition", "_ExecState.exec_beacon_int(_key" not in src)
 ex = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
 check("/exec/beacon is routed", 'web.get("/exec/beacon", h_beacon)' in ex)
 js = open(os.path.join(ROOT, "static", "nadodapp.js")).read()

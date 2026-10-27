@@ -1,64 +1,36 @@
 """
 Constraint-IR bit-identity (execnode/stark/air_ir.py + native/starkcompose). Guards the ONE thing that
 matters about the native prover: the IR — and its native Rust evaluator — must produce EXACTLY the same
-composition polynomial as the pure-Python stark._composition, for a real two-phase execution AIR. Any
-divergence is a soundness bug (a proof that verifies one way and not the other), so this test compares
-field-element-for-field-element. Run: python3 tests/test_air_ir.py
+composition polynomial as the pure-Python stark._composition, for a real AIR. Any divergence is a soundness
+bug (a proof that verifies one way and not the other), so this test compares field-element-for-field-element.
+
+The AIR is the join-split (execnode/stark/joinsplit_circuit.py), the legacy shielded pool's withdraw proof that
+stark.py still proves. It used to be the two-phase execution AIR (vm_circuit), which G9 deleted with the
+Goldilocks settle proof; no two-phase AIR is left, so the IR is exercised here with zero challenges — the only
+shape any remaining caller hands it. Run: python3 tests/test_air_ir.py
 """
 import os, sys, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
-# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
-# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
-# file reading the shipped value.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
-from execnode.stark import vm_circuit as V, field as F, air_ir, stark
-from execnode import runtimes
+from execnode.stark import joinsplit_circuit as JC, field as F, air_ir, stark
 
 import _harness
 _report = _harness.Report()
 check = _report.run
 
+# tests/test_stark_joinsplit_circuit.py's canonical 900-in / 850-out + 50-fee transfer
+NSK, VIN, RHO = 0xCAFE, 900, 0x9999
+SIBS, DIRS = [111, 222, 333, 444], [0, 1, 0, 1]
+VOUT, OWN_OUT, RHO_OUT = 850, 0xABC, 0x5555
+PUB, FEE = 0, 50
 
-def _real_trace():
-    """A real dice-bet execution-AIR trace + its periodic and (phase-2) aux columns."""
-    code = __import__("execnode.games.dice", fromlist=["build"]).build()
-    cf, fa = runtimes.zkvm_statement("ndoX" + "x" * 44, [88, 3, 50], {})
-    S = lambda f, k: f * (1 << 32) + k
-    slots = {S(1, 3): runtimes.zkvm_addr_digest("ndoA" + "a" * 44), S(2, 3): 50_000_000, S(3, 3): 50_000_000}
-    call = V._norm_call({"code": code, "method": "bet", "caller_f": cf, "args_f": [a % F.P for a in fa],
-                         "caller": "x", "args": [88, 3, 50], "value": 100_000, "cursor": 100, "timestamp": 0,
-                         "beacons": None, "block_hashes": None, "slots": slots})
-    trace, T, blocks, progs, epoch_io, _pc = V.build_epoch_trace([call])
-    periodic = V.build_periodic(blocks, progs, epoch_io, T)
-    beta, gamma = 111111, 222222
-    aux = V.make_aux_builder(periodic)(trace, (beta, gamma))
-    full = [trace[i] + [aux[c][i] for c in range(V.NUM_AUX)] for i in range(T)]
-    return full, periodic, T, (beta, gamma)
-
-
-def t_ir_matches_closures():
-    """eval_program_point == the constraint closures, at random rows."""
-    from execnode.stark import stark as _stark
-    full, periodic, T, chal = _real_trace()
-    dense = [_stark._per_expand(pc, T) for pc in periodic]   # structured range/selector columns → dense
-    trans = V.transitions()
-    prog = air_ir.build_program(trans, V.W_TOTAL, V.num_periodic(), 2)
-    random.seed(1)
-    for _ in range(30):
-        j = random.randrange(T)
-        cur, nxt = full[j], full[(j + 1) % T]
-        per = [dense[c][j] for c in range(V.num_periodic())]
-        ir = air_ir.eval_program_point(prog, cur, nxt, per, list(chal))
-        direct = [con(cur, nxt, per, chal) % F.P for con in trans]
-        assert ir == direct, f"row {j}: IR != closures"
+_CAP = {}
 
 
 def _capture_composition():
-    """Prove a dice bet, intercepting stark._composition to grab its exact inputs + output."""
-    cap = {}
+    """Prove the join-split, intercepting stark._composition to grab its exact inputs + output (once)."""
+    if _CAP:
+        return _CAP
+    cap = _CAP
     real = stark._composition
     def spy(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
             challenges=None, ext_alphas=False):
@@ -75,14 +47,30 @@ def _capture_composition():
         return out
     stark._composition = spy
     try:
-        code = __import__("execnode.games.dice", fromlist=["build"]).build()
-        cf, fa = runtimes.zkvm_statement("ndoX" + "x" * 44, [88, 3, 50], {})
-        S = lambda f, k: f * (1 << 32) + k
-        slots = {S(1, 3): runtimes.zkvm_addr_digest("ndoA" + "a" * 44), S(2, 3): 50_000_000, S(3, 3): 50_000_000}
-        V.prove_call(code, "bet", cf, fa, slots, value=100_000, cursor=100, num_queries=6)
+        JC.prove_transfer(NSK, VIN, RHO, SIBS, DIRS, VOUT, OWN_OUT, RHO_OUT, PUB, FEE, num_queries=6)
     finally:
         stark._composition = real
+    assert cap, "stark.prove never reached _composition"
     return cap
+
+
+def t_ir_matches_closures():
+    """eval_program_point == the constraint closures, at random points of the real proof's LDE (next row is
+    j+blowup there, exactly as stark._composition reads it)."""
+    c = _capture_composition()
+    W, N, bl, trans = c["W"], c["N"], c["blowup"], c["transitions"]
+    nper = len(c["per_lde"])
+    chal = list(c["challenges"] or [])
+    prog = air_ir.build_program(trans, W, nper, len(chal))
+    random.seed(1)
+    for _ in range(30):
+        j = random.randrange(N)
+        cur = [c["col_lde"][k][j] for k in range(W)]
+        nxt = [c["col_lde"][k][(j + bl) % N] for k in range(W)]
+        per = [c["per_lde"][k][j] for k in range(nper)]
+        ir = air_ir.eval_program_point(prog, cur, nxt, per, chal)
+        direct = [(con(cur, nxt, per, chal) if chal else con(cur, nxt, per)) % F.P for con in trans]
+        assert ir == direct, f"point {j}: IR != closures"
 
 
 def _ivz_bnd(c):
@@ -100,10 +88,11 @@ def t_python_ir_composition():
     c = _capture_composition()
     invZ, bnd = _ivz_bnd(c)
     ext = bool(c.get("ext_alphas"))
-    prog = air_ir.build_program(c["transitions"], c["W"], V.num_periodic(), 2, ext_chal=ext)
-    chals = list(c["challenges"])
+    prog = air_ir.build_program(c["transitions"], c["W"], len(c["per_lde"]), len(c["challenges"] or []),
+                                ext_chal=ext)
+    chals = list(c["challenges"] or [])
     if ext:                                  # the IR takes challenges as FLAT limbs, one CHAL leaf each
-        chals = [limb for ch in c["challenges"] for limb in (ch if isinstance(ch, tuple) else (ch, 0))]
+        chals = [limb for ch in (c["challenges"] or []) for limb in (ch if isinstance(ch, tuple) else (ch, 0))]
     got = air_ir.compose_python(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], chals,
                                 c["alphas"], invZ, c["boundaries"], bnd)
     assert got == c["out"], "python-IR composition != stark._composition"
@@ -118,8 +107,8 @@ def t_native_composition():
         print("      (GF(p^2) alphas in use — the native arena is base-field by design; check N/A)")
         return
     invZ, bnd = _ivz_bnd(c)
-    prog = air_ir.build_program(c["transitions"], c["W"], V.num_periodic(), 2)
-    got = air_ir.compose_native(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], list(c["challenges"]),
+    prog = air_ir.build_program(c["transitions"], c["W"], len(c["per_lde"]), len(c["challenges"] or []))
+    got = air_ir.compose_native(prog, c["N"], c["blowup"], c["col_lde"], c["per_lde"], list(c["challenges"] or []),
                                 c["alphas"], invZ, c["boundaries"], bnd)
     if got is None:
         print("      (native lib unbuilt — skipping native check; Python path is the fallback)")
@@ -128,7 +117,7 @@ def t_native_composition():
 
 
 if __name__ == "__main__":
-    check("IR interpreter == constraint closures (execution AIR)", t_ir_matches_closures)
+    check("IR interpreter == constraint closures (join-split AIR)", t_ir_matches_closures)
     check("python-IR composition == stark._composition", t_python_ir_composition)
     check("native composition == stark._composition (bit-identical)", t_native_composition)
     print("ALL PASS" if not _report.fails else f"{_report.fails} FAILED")

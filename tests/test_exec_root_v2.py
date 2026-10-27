@@ -13,11 +13,11 @@ state before and at genesis — still has the v1 layout. Properties:
   * block_calls carries the code events in tx order with the chain clock; at block 0 calls only;
   * exec_state_bind.apply_event reaches the same records as ExecState.apply_blob for the same blobs (the mirror
     the verifier's derivation rests on), including every refusal;
-  * a span with an in-span upgrade, a deploy with a constructor and a lock proves and verifies to EXACTLY the
-    root the chain holds; forging the upgrade's code, its sender, or dropping the event updates from the
-    transition is refused;
-  * a TIME-reading call proves to the chain's root;
-  * a reverting constructor deploys with empty storage on chain and is unprovable (quorum), never mis-proven.
+  * a TIME-reading call reads the block's own chain clock;
+  * a reverting constructor deploys with empty storage on chain.
+(The Goldilocks settle-proof halves — a span proving to the chain root, its forgeries, a TIME call proving, a reverting
+constructor being unprovable — retired in G9 with settlement_sparse / settlement_proofs; gen 29 settles by quorum and
+the C5 meta leaf is pinned on the live BLAKE2s root, execnode/exec_root_b2.py.)
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_exec_root_v2.py
 """
@@ -31,10 +31,10 @@ import sys, copy, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-from execnode import exec_root as ER, settlement_proofs as SP, zkvm, zkvmasm
+from execnode import exec_root as ER, exec_root_b2 as R2, csmt, zkvm, zkvmasm
 from execnode.code_codec import contract_id, FIXED_CIDS
 from execnode.state import ExecState
-from execnode.stark import settlement_sparse as SS, exec_state_bind as ESB, calls_commit as CC, field as F
+from execnode.stark import exec_state_bind as ESB, calls_commit as CC, field as F
 
 import _harness
 _report = _harness.Report()
@@ -85,12 +85,16 @@ def t_the_gate_is_gone_and_only_genesis_keeps_the_v1_layout():
     contracts = {"c" * 32: {"code": BUMP1, "storage": {"slots": {"0": 5}}, "deployer": ALICE, "runtime": "zkvm"}}
     plain = ER.kv_projection(contracts)
     assert ER.kv_projection(contracts, v2=False) == plain and ESB.meta_key("c" * 32, ER.DEPTH) not in plain
-    assert SS.sparse_projection(contracts, DEPTH) == {ESB.code_key("c" * 32, DEPTH): ESB.code_commitment(BUMP1),
-                                                      ESB.slot_key("c" * 32, 0, DEPTH): 5}
+    # (the settlement_sparse v1-projection assert retired in G9: the Goldilocks settle-proof pin was deleted)
     blk = _block(0, [_tx(ALICE, {"op": "deploy", "code": BUMP1}, "t1"),
                      _tx(ALICE, {"op": "call", "contract": "x", "method": "m", "args": []}, "t2")])
     calls = CC.block_calls(blk)
     assert [c.get("op") for c in calls] == [None] and calls[0]["timestamp"] == 0, "block 0: calls only, ts 0"
+
+
+def _kv_root(contracts):
+    """the KV half of the live (gen-29, BLAKE2s) exec root"""
+    return csmt.root_of(R2.kv_projection(contracts))
 
 
 def t_meta_leaf_commits_deployer_lock_and_runtime():
@@ -98,16 +102,17 @@ def t_meta_leaf_commits_deployer_lock_and_runtime():
     base = {cid: {"code": BUMP1, "storage": {"slots": {}}, "deployer": ALICE, "runtime": "zkvm", "upgradable": True}}
     p = ER.kv_projection(base, v2=True)
     assert ESB.meta_key(cid, ER.DEPTH) in p and p[ESB.meta_key(cid, ER.DEPTH)] != 0
+    # the live root carries the same meta leaf (C5 holds on the BLAKE2s root generation 29 settles)
+    assert R2.meta_key(cid) in R2.kv_projection(base)
     roots = set()
     for mut in ({}, {"deployer": BOB}, {"upgradable": False}, {"runtime": "other"}):
         c = copy.deepcopy(base); c[cid].update(mut)
-        roots.add(SS.root_hex(SS.sparse_root(c, DEPTH, v2=True)))
+        roots.add(_kv_root(c))
     assert len(roots) == 4, "deployer, lock flag and runtime must each move the root"
-    # the sparse pin and the exec root's KV half agree leaf-for-leaf at the same depth
-    assert set(SS.sparse_projection(base, ER.DEPTH, v2=True)) == set(ER.kv_projection(base, v2=True))
+    # (the settlement_sparse-pin-agrees-with-the-KV-half assert retired in G9: the Goldilocks settle-proof pin was deleted)
     # a legacy record with no flags commits the exec layer's defaults (upgradable, zkvm)
     legacy = {cid: {"code": BUMP1, "storage": {"slots": {}}, "deployer": ALICE, "runtime": "zkvm"}}
-    assert SS.sparse_root(legacy, DEPTH, v2=True) == SS.sparse_root(base, DEPTH, v2=True)
+    assert _kv_root(legacy) == _kv_root(base)
 
 
 def t_block_calls_carries_code_events():
@@ -171,98 +176,32 @@ def t_apply_event_mirrors_the_chain():
     assert st.contracts[contract_id(ALICE, REVERT_CTOR, "n4")]["storage"] == {} or \
         st.contracts[contract_id(ALICE, REVERT_CTOR, "n4")]["storage"].get("slots", {}) == {}
     # the meta leaves the chain now holds are the ones the mirror derives
-    assert SS.sparse_root(st.contracts, DEPTH, v2=True) == SS.sparse_root(
-        {cid: dict(c, storage=st.contracts[cid]["storage"]) for cid, c in mirror.items()}, DEPTH, v2=True)
+    assert _kv_root(st.contracts) == _kv_root(
+        {cid: dict(c, storage=st.contracts[cid]["storage"]) for cid, c in mirror.items()})
 
 
-def _span():
-    cid1 = contract_id(ALICE, BUMP1, "n1")
-    cid2 = contract_id(ALICE, CTOR, "n2")
-    pre_txs = [_tx(ALICE, {"op": "deploy", "code": BUMP1, "nonce": "n1"}, "p1")]
-    span_txs = [_tx(BOB, {"op": "call", "contract": cid1, "method": "bump", "args": []}, "s1"),
-                _tx(ALICE, {"op": "upgrade", "contract": cid1, "code": BUMP2}, "s2"),
-                _tx(BOB, {"op": "call", "contract": cid1, "method": "bump", "args": []}, "s3"),
-                _tx(ALICE, {"op": "deploy", "code": CTOR, "nonce": "n2"}, "s4"),
-                _tx(BOB, {"op": "call", "contract": cid2, "method": "get", "args": []}, "s5"),
-                _tx(ALICE, {"op": "lock", "contract": cid1}, "s6")]
-    return cid1, cid2, pre_txs, span_txs
+# span_with_code_events_proves_to_the_chain_root retired in G9: settlement_sparse.prove/verify_bound_epoch were deleted
 
 
-def t_span_with_code_events_proves_to_the_chain_root():
-    cid1, cid2, pre_txs, span_txs = _span()
-    st = _chain([_block(H - 1, pre_txs)])
-    pre_contracts = copy.deepcopy(st.contracts)
-    pre_root = SS.sparse_root(st.contracts, DEPTH, v2=True)
-    _chain([_block(H, span_txs)], st)
-    assert st.contracts[cid1]["storage"]["slots"]["0"] == 3, "1 then 2: the second bump ran the UPGRADED code"
-    assert st.contracts[cid2]["storage"]["slots"]["3"] == 42, "the constructor ran"
-    chain_root = SS.sparse_root(st.contracts, DEPTH, v2=True)
-    entries = CC.block_calls(_block(H, span_txs))
-    assert [e.get("op") for e in entries] == [None, "upgrade", None, "deploy", None, "lock"]
-    bundle = SS.prove_bound_epoch(pre_contracts, entries, cursor=H, num_queries=NQ, depth=DEPTH)
-    assert bundle["sparse_pre_root"] == pre_root
-    ok, why, post = SS.verify_bound_epoch(bundle, num_queries=NQ)
-    assert ok, why
-    assert post == chain_root, "the proof settles EXACTLY the root the chain holds"
-    assert len([u for u in ESB.vm_units(bundle["pre_contracts"], bundle["calls"], H, 0)]) == 4, "3 calls + 1 constructor"
-    # the DA binding: L1's per-block summary folds to the bundle's commitment
-    _inert, by_ns = CC.block_summary(_block(H, span_txs))
-    # Folded from the segment's OWN chain start (CC.span_width keys it on the end height, as L1's
-    # verify_calls_bound_to_summaries does). This fold used to start from alghash.IV — the narrow chain, right only
-    # on gen 27; from block 1 H is wide and the bundle carries the
-    # 4-element commitment (gen-28 rehearsal). commitment_matches is the exact comparison the verifiers use.
-    okw, wide = CC.span_width(H - 1, H)
-    assert okw
-    assert CC.commitment_matches(bundle["calls_commitment"], CC.fold_leaves(CC.chain_start(wide), by_ns["default"]))
-    # the lock is in the root: the transition carried a meta update for cid1 and a code+meta pair for cid2
-    lead = ESB.event_updates(pre_contracts, entries, DEPTH)
-    assert {k for k, _o, _n in lead} == {ESB.code_key(cid1, DEPTH), ESB.meta_key(cid1, DEPTH),
-                                         ESB.code_key(cid2, DEPTH), ESB.meta_key(cid2, DEPTH)}
-    assert [tuple(u[:1]) for u in bundle["transition"]["updates"][:len(lead)]] == [(k,) for k, _o, _n in lead]
-
-    # FORGERIES. The upgrade's code swapped (a call proven against code the chain replaced):
-    bad = copy.deepcopy(bundle); bad["calls"][1]["code"] = BUMP1
-    assert not SS.verify_bound_epoch(bad, num_queries=NQ)[0], "swapped upgrade code must be refused"
-    # the upgrade's sender forged to the deployer by a non-deployer (the leaf commits the caller):
-    bad = copy.deepcopy(bundle); bad["calls"][1]["caller"] = BOB
-    assert not SS.verify_bound_epoch(bad, num_queries=NQ)[0], "a forged event sender must be refused"
-    # the pre-state's deployer forged so a non-deployer's upgrade would be admitted: the META pin catches it
-    bad = copy.deepcopy(bundle); bad["pre_contracts"][cid1]["deployer"] = BOB
-    okb, whyb, _ = SS.verify_bound_epoch(bad, num_queries=NQ)
-    assert not okb, whyb                    # (the upgrade is then refused in the replay, so the exec statement fails first)
-    # the transition without the event updates (a prover that ignores the events):
-    bad = copy.deepcopy(bundle); bad["transition"]["updates"] = bad["transition"]["updates"][len(lead):]
-    assert not SS.verify_bound_epoch(bad, num_queries=NQ)[0], "a transition missing the event updates must be refused"
-    # the whole-span dry run agrees the span is provable, and the records half sees the four VM units
-    assert SP.first_unprovable_call(pre_contracts, entries, H) == (None, None)
-    from execnode.stark import records_bind as RB
-    assert RB.pay_effects_from_segment(bundle, {}) == [], "no payouts in the span; the io splits per VM unit"
-
-
-def t_time_reading_call_proves_the_chain_transition():
+def t_time_reading_call_reads_the_blocks_own_clock():
     cid = contract_id(ALICE, TIMER, "n1")
     pre_txs = [_tx(ALICE, {"op": "deploy", "code": TIMER, "nonce": "n1"}, "p1")]
     span_txs = [_tx(BOB, {"op": "call", "contract": cid, "method": "stamp", "args": []}, "s1")]
     # (gen 25 handed the VM the PREVIOUS block's clock below the gate; that half went with the gate)
     st = _chain([_block(H - 1, pre_txs)])
-    pre_contracts = copy.deepcopy(st.contracts)
     _chain([_block(H, span_txs)], st)
     assert st.contracts[cid]["storage"]["slots"]["1"] == protocol.chain_clock(H) % F.P, "F3: the block's own clock"
-    entries = CC.block_calls(_block(H, span_txs))
-    bundle = SS.prove_bound_epoch(pre_contracts, entries, cursor=H, num_queries=NQ, depth=DEPTH)
-    ok, why, post = SS.verify_bound_epoch(bundle, num_queries=NQ)
-    assert ok, why
-    assert post == SS.sparse_root(st.contracts, DEPTH, v2=True), "the proof must match the chain (TIME context)"
+    # the DA binding stamps the same clock on the call, so whatever proves the span reads what the chain applied
+    assert CC.block_calls(_block(H, span_txs))[0]["timestamp"] == protocol.chain_clock(H)
+    # (the settlement_sparse prove/verify of this span retired in G9: the Goldilocks settle proof was deleted)
 
 
-def t_reverting_constructor_is_unprovable_not_misproven():
+def t_reverting_constructor_deploys_with_empty_storage():
     cid = contract_id(ALICE, REVERT_CTOR, "n1")
     span_txs = [_tx(ALICE, {"op": "deploy", "code": REVERT_CTOR, "nonce": "n1"}, "s1")]
     st = _chain([_block(H, span_txs)])
     assert cid in st.contracts and not st.contracts[cid]["storage"].get("slots"), "chain: deployed, empty storage"
-    entries = CC.block_calls(_block(H, span_txs))
-    idx, why = SP.first_unprovable_call({}, entries, H)
-    assert idx == 0 and "reverted" in why, (idx, why)
+    # (the "unprovable, never mis-proven" half retired in G9: settlement_proofs.first_unprovable_call was deleted)
 
 
 def t_faucet_seed_is_off():

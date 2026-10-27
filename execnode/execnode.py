@@ -471,6 +471,9 @@ def _sem():
 # Phase 2: if this node is a BONDED validator, post settlement attestations of its computed state root
 # (needs its keys.dat via HOME). Always on; settles at most every SETTLE_EVERY blocks.
 SETTLE = True                    # settling is what an exec node IS for; not a flag
+# G9 NOTE (2026-10-27): the measurements below were taken on the Goldilocks prover (prove_settlement_sparse,
+# _build_settlement_proof), deleted in G9; every settle is bare until G8 wires the Stwo span settlement. The cadence
+# is kept as it is because G8's span proofs are cut at the same settle points; re-measure it then, not before.
 # CADENCE DEPENDS ON WHETHER WE ARE PROVING, and the difference is 48x in bytes.
 #
 # A bare quorum attestation is a few hundred bytes, so settling often is free and gives bridge exits a
@@ -487,7 +490,7 @@ SETTLE = True                    # settling is what an exec node IS for; not a f
 # to keep a 5-block cadence for.
 if True:
     # THE EPOCH RULE, NOT THE SPAN CAP, IS THE BINDING CONSTRAINT — and defaulting to the span cap made the
-    # prover silently impossible. _build_settlement_proof refuses any span that crosses a dividend epoch
+    # prover silently impossible. _build_settlement_proof (deleted in G9) refused any span that crosses a dividend epoch
     # boundary (`sc // EPOCH_LENGTH != cur // EPOCH_LENGTH`), because a dividend moves the RECORDS half and
     # the proof pins records UNCHANGED across the span. SETTLE_PROOF_MAX_SPAN is 4 * EPOCH_LENGTH, so
     # settling at the cap guarantees every span straddles ~4 boundaries: condition 3 returns None every
@@ -514,124 +517,9 @@ if True:
         _SETTLE_EPOCH_DEFAULT = 60
 SETTLE_EVERY = _SETTLE_EVERY_DEFAULT      # derived from EPOCH_LENGTH; not an operator knob
 SETTLE_EPOCH = _SETTLE_EPOCH_DEFAULT      # the dividend epoch a proven span may not cross
-# VALIDITY PROVING IS UNCONDITIONAL. No flag, no opt-in, no way to run a node that quietly settles on a
-# bonded attestation because someone forgot an env var. A settle carries a STARK validity proof; the bare
-# attestation exists ONLY as the degradation path when a proof cannot be produced or is refused, and every
-# such degradation names its reason in the log.
-#
-# This was opt-in while proving was accidentally running in PYTHON — 12+ minutes for one prove, ~75% of a
-# core, RSS to 1.8 GB, which starved L1 into "Forked above the finality floor — re-anchoring" (2026-08-04).
-# That was never a reason to make proving optional; it was a reason to fix the dispatch. stark.prove only
-# reaches the Rust arena for the "recursion"/"alghash2" backends, and the settle path was defaulting to
-# BLAKE2B, which the arena does not implement. With settlement_sparse defaulting to ALGHASH2 (7afb5728) the
-# same proof takes 110s at protocol strength and verifies in 2s.
-SETTLE_PROVE = True
-# THE K->1 FOLD IS UNCONDITIONAL TOO. It collapses the span's K exec proofs into ONE recursion bundle, so L1
-# verifies a single bundle instead of K per-segment stark.verify calls. It is gated at the call site on
-# there being calls to fold (an empty span takes the unfolded path) and is self-VERIFIED at protocol
-# strength before posting, so an unverifiable bundle is never broadcast. It could not complete in Python.
-#
-# CORRECTION (2026-08-06): this used to end "on the arena it is the only route to a proof small enough to
-# settle on chain". THE FOLD DOES NOT SHRINK THE PROOF — it makes it BIGGER. prove_settlement_sparse keeps
-# `segments` and ADDS `recursive`; nothing strips seg["proof"]. What the bundle replaces is the K
-# per-segment exec-proof VERIFICATIONS, not the bytes (verify_settlement_sparse's docstring says exactly
-# that, and the per-segment transition binding / calls commitment / kv chain still run). Size tracks the
-# FRI query count — 320 queries x 0.381 MiB ~= 122 MiB, matching the 120.31 MiB measured — and the fold's
-# outer proof runs at the SAME protocol strength (settlement_sparse: oq = num_queries), so it adds a second
-# O(queries) object. What actually solved the size problem was carrying the proof INLINE
-# (protocol.MAX_INLINE_TX_BYTES). The fold's real value is L1 verification cost.
-# The size win people expect from "K->1" is still available and unimplemented: if the bundle
-# authoritatively re-verifies each segment's exec proof, the wire may only need each segment's PUBLIC part
-# — see doc/settle-proof-transport.md §7 for the caveat that must be checked first.
-SETTLE_FOLD = True
-# SETTLE_PROVE_TIMEOUT: seconds a single settle-prove may run before we give up on it and post a
-# BARE attestation instead. Without a bound the settle loop never returns and the chain stops settling.
-#
-# RAISED 1200 -> 2400 ON A MEASUREMENT, not a guess. 1200s was sized against an UNFOLDED prove (~1-3 min,
-# calls=0). The first FOLDED prove ever run on live data — 2026-08-06, once the games were driven so a
-# span actually contained calls — came in at:
-#     [settle-prove] cursor=42050 calls=1 net_updates=7 |
-#         prove_epoch=8.9s sparse_projection=264.3s prove_transition=883.6s | total 1156.9s
-# i.e. ONE call with 7 state updates costs ~883 s in prove_transition alone (~126 s per update; that is
-# where the recursion fold lives). The prove SUCCEEDED at 1156.9 s of internal work, but the settle loop
-# measures WALL CLOCK from when it started the worker, and that had already crossed 1200 s — so the first
-# successful real fold was abandoned 43 seconds after finishing:
-#     settle-with-proof SKIPPED cursor 42050 — prove exceeded SETTLE_PROVE_TIMEOUT=1200s (fold=True)
-# 2400 s leaves room for a span with several calls. This is a SAFETY BOUND, not a target: the real fix is
-# making the fold cheaper (see SETTLE_FOLD_FAN_IN and the untouched constant factors — blowup=8 from
-# max_degree=8, the ext-field arena penalty, allocator churn), and the bound must not be raised to hide
-# that. It still sits far below the 5h07m a non-completing fold once burned.
-# HOW MANY RECORDS UPDATES ONE PROOF MAY COVER. prove_transition emits ONE STARK PER UPDATE, so both cost
-# and size are LINEAR in the update count.
-#
-# THE CONSTRAINT CHANGED FROM TIME TO SIZE. This was 6, sized against ~170-240 s per update against
-# SETTLE_PROVE_TIMEOUT=2400 s. That per-update cost was never the AIR's price — it was W=29 separate column
-# Merkle trees, 79.6% of the prove, because merkle_update.prove_update left stark.prove's row_commit at its
-# False default while the KV half had always derived it from the backend (see stark.row_commit_default).
-# Row-committed, one update measures 35-45 s to prove and 10.83 MiB on the wire, so:
-#
-#     TIME:  2400 s / ~45 s          = ~53 updates
-#     SIZE: (191.94 MiB - ~9 MiB KV) / 10.83 MiB = 16 updates      <-- BINDING
-#
-# so the cap is now SIZE-derived, and _RECORDS_CAP_FITS_INLINE below asserts it against the real budget
-# rather than trusting this comment to stay true.
-#
-# WHAT THIS DOES AND DOES NOT UNBLOCK, CORRECTED BY MEASUREMENT. I shipped this cap believing a boundary
-# span was "one T_DIV_BAL position per present miner, plus a few others from ordinary activity", which made
-# SHORTENING THE SPAN the lever: the per-miner part is a floor, the rest is proportional to span length.
-# Logging the tag breakdown killed that immediately — the live line reads
-#
-#     19 net updates from 38 effects [DIV_BAL=38]
-#
-# There are no others. EVERY effect is dividend accrual: 38 effects = two epoch boundaries x 19 present
-# miners, netting to 19 distinct positions. So the update count is simply THE NUMBER OF PRESENT MINERS, one
-# boundary is enough to reach it, and shortening the span cannot go below it. The floor is not 13-and-shrink
-# but 19-and-GROWING, because it tracks fleet size.
-#
-# That makes the remaining gap STRUCTURAL, not a tuning problem: 19 x 10.83 MiB + 9 MiB = 215 MiB against a
-# 191.94 MiB budget. Raising MAX_INLINE_TX_BYTES would cover today's 19 and lose again as miners join, on a
-# wire whose peers already strain to PULL a ~120 MiB tx inside their admit budget. The lever that scales is
-# making K updates cost less than K proofs — either the K->1 recursion bundle (already built by
-# prove_transition(fold=True); today it is carried ALONGSIDE the per-update proofs rather than replacing
-# them, so it costs verification time and not bytes), or one STARK over several updates.
-#
-# WHAT IS NOT THE LEVER: dropping NUM_QUERIES. 88% of the proof is FRI queries (320 x 30.5 KiB), so cutting
-# them would close the gap immediately — and fri.py sizes 320 to clear 128 bits on the PROVABLE
-# (Johnson-bound) branch, 320*0.4 + 18 grind ~ 146 bits, deliberately not the conjectured branch most
-# deployments accept. Buying tx size with security bits is not a prover-side decision.
-# RE-ENABLED. I disabled this believing the landing margin could never cover L1's verification, and that
-# belief rested on a block rate of ~3.74 s measured WHILE THIS NODE WAS STALLED AND CATCHING UP. The steady
-# rate is 6.00 s/block, measured over 60 s with the node healthy — so a 280-block margin is 1680 s against
-# 1017-1073 s of records verification, roughly 600 s of slack rather than the 8 s I reported.
-#
-# What actually lost the proof of 07:09 was ME. It was accepted with max_block ~7360 while the tip was
-# ~7253, i.e. on track to land. The node then stalled at 7364, I restarted it at 07:33:50 to clear the
-# stall, and the restart CLEARED THE MEMPOOL — destroying a pending settle that had already passed both
-# halves of L1's verification. The margin was never the problem.
-#
-# STANDING RULE THAT FOLLOWS: do not restart nado while a proof-carrying settle is waiting for its landing
-# block. It is an exact-landing tx living only in the mempool; a restart throws away ~20 minutes of proving
-# and ~17 minutes of L1 verification.
-SETTLE_RECORDS_MAX_UPDATES = int(os.environ.get("NADO_SETTLE_RECORDS_MAX_UPDATES", "72"))
-# Measured 2026-08-06 at EXEC_TREE_DEPTH=256, row-committed, encoded exactly as the submit path encodes it
-# (json.dumps(separators=(",", ":"), sort_keys=True)). Per PROOF, not per update — several updates now share
-# one STARK (state_transition.DEFAULT_BATCH), and proof size grows with log T, so the marginal update is
-# nearly free while the marginal PROOF is not:
-#
-#     K   T       prove s   MiB     MiB/update   peak RSS
-#     1   16384     35.0    10.82     10.82       ~0.8 GB
-#     2   32768     57.7    11.90      5.95        2.4 GB   <-- shipped
-#     3   65536    215.6    13.03      4.34        6.7 GB
-#     4   65536    332.6    13.03      3.26        8.7 GB
-#
-# K=2 is the knee. It is the last size that is also FASTER per update than not batching at all (28.9 s vs
-# 35 s), because 3 and 4 spill into T=65536 and pay for ~35% padding; and its 2.4 GB peak leaves the exec
-# node and the box's other work alone, where 4's 8.7 GB does not. Bigger K wins on bytes and loses on
-# memory — memory is quadratic in K (a size-N inverse-denominator vector PER BOUNDARY, and boundaries grow
-# with K too) while the byte win is only logarithmic.
-SETTLE_RECORDS_PROOF_BYTES = 15 << 20
-# What the KV half of the same settle tx costs alongside it — 8.77 MiB observed on chain, rounded up.
-SETTLE_KV_HALF_BYTES = 9 << 20
+# The Goldilocks settle prover's switches and size budget (SETTLE_PROVE, SETTLE_FOLD, the records-half caps) were
+# deleted with it in G9; its measured history is in git and doc/settle-proof-transport.md. What stays below is the
+# proof-carrying settle PIPELINE (inline-vs-DA, landing budget, holds), which the Stwo settlement (G8) reuses.
 SETTLE_PROVE_TIMEOUT = 2400      # safety bound, not a feature switch: a prove that outruns this is
                                  # abandoned and the settle goes bare rather than halting the chain.
 # Largest settle tx we will try to submit INLINE. L1's /submit_transaction caps bodies at 8 MiB, so this
@@ -653,30 +541,6 @@ SETTLE_TX_ENVELOPE_MAX = 64 * 1024
 # Derived here, once the envelope size is known: the proof may be as large as the network's tx ceiling
 # minus everything else the tx carries.
 SETTLE_INLINE_MAX = _MAX_INLINE_TX_BYTES - SETTLE_TX_ENVELOPE_MAX
-# THE RECORDS CAP MUST ACTUALLY FIT. SETTLE_RECORDS_MAX_UPDATES is derived from this budget, and a comment
-# claiming so is worth nothing once someone raises the cap by env var or edits MAX_INLINE_TX_BYTES. A proof
-# that is built and then refused for size is the worst outcome available: it costs the full prove (~45 s per
-# update), stalls the settle cadence while it runs, and lands nothing. Fail here, at import, instead.
-def _records_bytes(n_updates):
-    """Wire cost of the records half for `n_updates` — counted in PROOFS, since several updates share one."""
-    from execnode.stark import state_transition as _SX
-    batch = max(1, int(_SX.DEFAULT_BATCH))
-    return -(-int(n_updates) // batch) * SETTLE_RECORDS_PROOF_BYTES     # ceil-div: proofs, not updates
-
-
-_RECORDS_CAP_FITS_INLINE = (SETTLE_KV_HALF_BYTES
-                            + _records_bytes(SETTLE_RECORDS_MAX_UPDATES)) <= SETTLE_INLINE_MAX
-if not _RECORDS_CAP_FITS_INLINE:
-    from execnode.stark import state_transition as _SX0
-    _b = max(1, int(_SX0.DEFAULT_BATCH))
-    _fits = ((SETTLE_INLINE_MAX - SETTLE_KV_HALF_BYTES) // SETTLE_RECORDS_PROOF_BYTES) * _b
-    raise RuntimeError(
-        f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} cannot fit inline: "
-        f"{SETTLE_KV_HALF_BYTES >> 20} MiB KV half + {-(-SETTLE_RECORDS_MAX_UPDATES // _b)} proof(s) x "
-        f"{SETTLE_RECORDS_PROOF_BYTES >> 20} MiB exceeds SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB. "
-        f"At most {_fits} records updates fit at batch={_b} — lower the cap, raise the batch (memory is "
-        f"quadratic in it), or raise protocol.MAX_INLINE_TX_BYTES knowing peers must PULL the whole tx "
-        f"inside their admit budget.")
 # How long to wait for L1's verdict on a PROOF-CARRYING settle. L1 verifies the proof inline before it
 # answers, and that is measured at 94.2 s for a real 118.57 MiB proof, so anything near the bare-settle
 # budget guarantees a client-side timeout on a proof that is perfectly valid. Generous because the settle
@@ -792,7 +656,7 @@ SETTLE_HOLD_MAX_S = SETTLE_SUBMIT_TIMEOUT_PROOF + 900
 _settle_proving = False
 # True while the RECORDS half is being proven. A SEPARATE flag, and the distinction is the whole point.
 #
-# _settle_proving covers the KV prove and is set ~60 lines AFTER _build_records_half is called, so it is
+# _settle_proving covers the KV prove and is set ~60 lines AFTER _build_records_half (deleted in G9) was called, so it is
 # False for the entire multi-minute records window. Guarding the records prove on it — which is exactly what
 # I shipped in 3b2644d8 — checks a flag that NOBODY RAISES during the window being protected, so every
 # settle cadence (~8 s) still walked straight in and started another one. The instrumentation showed it
@@ -1111,54 +975,6 @@ from execnode import exec_genesis as _exec_genesis
 if _exec_genesis.apply(state):
     print(f"[execnode] exec genesis: loaded {len(state.contracts)} carried contract(s)", flush=True)
 
-# WARM THE SINGLETON-FOLD CACHE FROM DISK. Measured 2026-08-13 (betanet-2, 8,376 slots, depth 256, native,
-# a real 30-block span): a settle prove is 58.9 s COLD and 10.2 s WARM, and 50.0 s of the cold number is
-# SparseStore.root() rebuilding folds this process has not seen yet. Without this every restart pays it
-# before its first settle. The cache memoizes a PURE function, so a loaded entry cannot change a root —
-# only how fast it is computed; load_fold_cache validates the file (fingerprint + spot-recompute) and
-# returns 0 on anything suspicious, in which case we simply rebuild cold as before.
-FOLD_CACHE_PATH = f"{STATE_PATH}.folds.json"
-try:
-    from execnode.stark import storage_tree as _STT
-    from protocol import EXEC_TREE_DEPTH as _FOLD_DEPTH
-    _n = _STT.load_fold_cache(FOLD_CACHE_PATH, _FOLD_DEPTH)
-    if _n:
-        print(f"[execnode] fold cache: warmed {_n} folds from disk", flush=True)
-except Exception as _e:                                # never let a cache file stop the node from booting
-    print(f"[execnode] fold cache: load skipped ({type(_e).__name__}: {_e})", flush=True)
-
-
-_fold_saved_at = [0.0, 0]        # [monotonic of last save, cache size at that save]
-FOLD_SAVE_MIN_INTERVAL = 300     # seconds; the file is ~1.5 MB at production size, so this is cheap
-FOLD_SAVE_MIN_GROWTH = 64        # ...and only worth rewriting when meaningfully more folds exist
-
-
-def _maybe_persist_fold_cache():
-    """Persist on a throttle. HOOKED TO BLOCK APPLICATION, not to proving: the cache is filled by any
-    SparseStore.root(), which every applied block performs, whereas a BUILT settle proof can go hours
-    without occurring (0 in the last 2000 log lines when this was written). Tying the save to proving
-    would have meant the cold-start win almost never materialised."""
-    import time as _t
-    from execnode.stark import storage_tree as _STT
-    now = _t.monotonic()
-    n = len(_STT._FOLD_CACHE)
-    if now - _fold_saved_at[0] < FOLD_SAVE_MIN_INTERVAL or n - _fold_saved_at[1] < FOLD_SAVE_MIN_GROWTH:
-        return 0
-    written = _persist_fold_cache()
-    _fold_saved_at[0], _fold_saved_at[1] = now, n
-    return written
-
-
-def _persist_fold_cache():
-    """Write the fold cache back so the NEXT process starts warm. Best-effort by construction: a failure
-    costs a cold rebuild after the next restart and nothing else."""
-    try:
-        from execnode.stark import storage_tree as _STT
-        from protocol import EXEC_TREE_DEPTH as _D
-        return _STT.save_fold_cache(FOLD_CACHE_PATH, _D)
-    except Exception as _e:
-        print(f"[execnode] fold cache: save failed ({type(_e).__name__}: {_e})", flush=True)
-        return 0   # the full-featured default layer; shielded/bridge/dividend endpoints use it
 
 # JOINT-GENESIS CANARY: a freshly-loaded default layer (cursor == -1) MUST hash to the genesis root — EXEC_GENESIS_ROOT
 # for an empty layer, or the root of the carried contracts when the reroll carried some (exec_genesis.genesis_root()).
@@ -1252,178 +1068,6 @@ def _state_for(request):
     return states.get(ns)
 
 
-async def _build_records_half(session, ns, pre_view, span_blocks, sc, cur, rec_hex_expected=None,
-                              calls=None, pre_contracts=None, pre_bridge=None, beacons=None, bhashes=None,
-                              pre_abal=None, pre_assets=None):
-    """Prove the RECORDS half of a span, or return None to leave it frozen.
-
-    THE PROVER HAS NEVER BUILT ONE. records_transition.py has existed for weeks, ops/transaction_ops.py
-    verifies `proof["records"]`, and three test files cover it — but nothing under execnode/ ever SET it, so
-    every span whose records moved was skipped before proving. That is the whole reason a call-carrying span
-    could not settle by proof: not the derivation flag, the missing producer.
-
-    NO POST-STATE IS NEEDED, and that is the point. The KV half never materialises one either — it derives
-    the post from the pre by executing. Here the updates come from the SAME effect derivation L1 will run
-    against its own committed summaries (records_bind.block_records_effects), so `st` mutating under us during the
-    prove cannot desynchronise anything. Building it from a live post-state would reintroduce exactly the
-    "two roots that were never simultaneously true" trap records_root_from_snapshot documents.
-
-    THE VERIFIER SOURCES THE EFFECTS ITSELF (ops/transaction_ops.py: "The effects come from THIS node's
-    committed summaries — never from the proof"), so anything we derive differently simply fails to bind and
-    the span rides the quorum. Refusal, never a forged settlement.
-
-    Returns (transition, rec_post_hex, records_pre_projection) or None.
-    """
-    from execnode.stark import records_bind as RB, state_transition as SX, storage_tree as _SST
-    from execnode import exec_root as _ER
-    from execnode import settlement_proofs as SP
-    from protocol import EXEC_TREE_DEPTH as _D, EPOCH_LENGTH as _EL
-    try:
-        # DERIVE EXACTLY AS L1 DOES: PER BLOCK, via block_records_effects, in block order — NOT via
-        # span_effects (a span-wide derivation since deleted; tests/test_prover_records_half.py pins its absence).
-        #
-        # THIS WAS WRONG AND THE LIVE TEST CAUGHT IT. The two functions do not derive the same thing:
-        # measured on one value call with the flag on, block_records_effects returns the escrow's two
-        # T_BRIDGE_BAL positions while span_effects returns []. L1 builds `records_out` by concatenating the
-        # per-block `rec` lists its summaries stored, and those come from block_records_effects. A prover
-        # using span_effects would therefore omit every value-call escrow, and bind_and_verify_records —
-        # which demands tr["updates"] EQUAL the derived set — would refuse the proof every time. The reroll
-        # would have shipped and delivered nothing.
-        #
-        # A NON-DERIVABLE BLOCK ENDS THE SPAN HERE, matching L1: verify_calls_bound_to_summaries refuses any
-        # non-inert block whose summary is not rd==1, so proving past one could never bind.
-        effects, carry = [], int(getattr(pre_view, "div_carry", 0))
-        for _blk in span_blocks:
-            _eff, _derivable = RB.block_records_effects(_blk)
-            if not _derivable:
-                # SAY WHICH BLOCK AND WHAT IS IN IT. "an effect this node cannot derive" collapses three
-                # different causes into one sentence — a non-derivable block, an unavailable accrual input,
-                # and the empty-effect trap — and they call for different responses. block_records_effects
-                # refuses on a bridge_withdraw, a shield, an xmsg or a value>0 call, so naming the block and
-                # its recipients turns "records unprovable" into a specific, actionable class.
-                _rs = sorted({str((_t or {}).get("recipient", "?"))[:24]
-                              for _t in (_blk.get("block_transactions") or [])})
-                print(f"[execnode] records NOT DERIVABLE at block {_blk.get('block_number')}: "
-                      f"{len(_blk.get('block_transactions') or [])} tx, recipients {_rs[:8]}", flush=True)
-                return None                       # L1 will refuse this block too -> quorum
-            effects.extend(_eff or ())
-            # ...AND THE ACCRUAL, on a boundary block, exactly where core_loop appends it. Inputs come from
-            # L1 consensus state, never from us: records_bind's header records that a verifier taking them
-            # from the proof would be trusting the prover's unauthenticated HTTP client.
-            _E = RB.epoch_accrual_due(_blk.get("block_number"), _EL)
-            if _E is None:
-                continue
-            try:
-                _inflow, _weights = await _get_l1_accrual_inputs(session, _E)
-            except L1Unavailable as e:
-                print(f"[execnode] records NOT DERIVABLE: epoch {_E} accrual inputs unavailable at block "
-                      f"{_blk.get('block_number')} ({e}) — never guessed", flush=True)
-                return None                       # pruned recert history / an L1 refusal -> quorum, never a guess
-            _aeff, carry = RB.dividend_accrual_effects(_inflow, _weights or {}, carry, _E)
-            effects.extend(_aeff)
-        # ...AND THE CONTRACT PAYOUTS. A PAY is an EXECUTION outcome: it never appears in the calldata, so
-        # block_records_effects above — which reads calldata only — is structurally blind to it. L1 derives
-        # the same payouts from the proof's own io log (records_bind.pay_effects_from_proof), so a records
-        # half built without them would be missing exactly what the verifier expects and could never bind.
-        #
-        # Derived by DRY-RUNNING the span through the SAME _run_call the prover uses, so the two sides go
-        # through one reader (runtimes.split_io) rather than two implementations that have to agree.
-        if calls:
-            try:
-                # ...AND THE ASSET MOVES (zk audit 2026-09-26): pre_abal/pre_assets are the asset ledgers at the
-                # span's start; without them an asset call raises here.
-                effects.extend(SP.span_payout_effects(
-                    pre_contracts or {}, calls, cursor=cur, beacons=beacons, block_hashes=bhashes,
-                    pre_bridge=pre_bridge, pre_abal=pre_abal, pre_assets=pre_assets))
-            except Exception as _pe:
-                # An unprovable call makes the whole span unprovable anyway; declining here just reaches
-                # that answer before paying for the records prove.
-                print(f"[execnode] records NOT DERIVABLE: payout dry-run refused the span "
-                      f"({type(_pe).__name__}: {_pe})", flush=True)
-                return None
-        if not effects:
-            # EMPTY-EFFECT TRAP: with nothing to prove L1 REQUIRES rec_post == rec_hex, which collapses to
-            # the frozen case. Attaching an empty transition would move the half on nobody's authority.
-            return None
-        # EVERYTHING BELOW IS CPU-BOUND AND MUST NOT TOUCH THE EVENT LOOP.
-        #
-        # I SHIPPED IT ON THE LOOP AND IT HUNG THE NODE. prove_transition is a full STARK — measured 167.6 s
-        # for a SINGLE records update — and calling it inline from this coroutine blocked block application,
-        # HTTP and settlement outright: the exec node sat at 208% CPU, silent, stuck at cursor 60 while L1
-        # ran to 221, with no crash and no traceback to show for it. Every other heavy call in this file
-        # already goes through asyncio.to_thread (the KV prove, the pre-flight, DA put); this one did not.
-        # The first accrual on the fresh chain — "dividend epoch 0: +8444800000 raw to 13 miner(s)" — was
-        # what finally gave it something to prove, so the defect could only ever surface post-cutover.
-        def _cpu():
-            # ONE projection, reused. Computing it inside pre_get would rebuild the whole records map on
-            # every record lookup — quadratic in a large state, inside the prove's critical path.
-            proj = _ER.records_projection(pre_view)
-            store = _SST.SparseStore(_D, proj)
-            return proj, store, _SST.digest_hex(store.root())
-        proj, store, pre_root_hex = await asyncio.to_thread(_cpu)
-        if rec_hex_expected is not None and pre_root_hex != rec_hex_expected:
-            # The stash must be the state at the JUSTIFIED cursor. If its records root is not the one the
-            # tip committed, every update below would be derived against the wrong pre-values and the
-            # binding would fail on L1 anyway — catch it here, cheaply, with a reason.
-            print(f"[execnode] records half PRE MISMATCH for span {sc}->{cur}: stash {pre_root_hex[:16]}… "
-                  f"!= tip {rec_hex_expected[:16]}… — quorum", flush=True)
-            return None
-        net = RB.net_records_updates(lambda tag, parts: int(proj.get(_ER.record_key(tag, *parts), 0)),
-                                     effects, _D)
-        if not net:
-            return None                           # effects that cancel out move nothing; stay frozen
-        # DECLINE A PROVE THAT CANNOT FINISH, BEFORE STARTING IT.
-        #
-        # prove_transition emits ONE STARK PER UPDATE (records_transition: "one RECURSION-committed
-        # merkle-update proof per update, chaining the roots"), so its cost is LINEAR and predictable:
-        # measured 167.6 s for 1 update and 712.2 s for 3, i.e. ~170-240 s each. SETTLE_PROVE_TIMEOUT is
-        # 2400 s, so anything past ~10 updates cannot finish.
-        #
-        # STARTING ONE ANYWAY IS NOT MERELY WASTEFUL, IT STALLS SETTLEMENT. Observed live 2026-08-06: a
-        # span with a dividend accrual (one T_DIV_BAL position per PRESENT MINER — 13 on this chain) ran
-        # the full 2400 s, timed out, and left its worker thread running; the in-flight flag only clears
-        # when that thread ENDS, so no settle of any kind proceeded. The settled tip sat at 557 while L1
-        # reached 1060 — 503 blocks, far past SETTLE_PROOF_MAX_SPAN — which makes every later span
-        # unprovable too. One doomed prove poisons the whole cadence.
-        #
-        # SINCE ROW-COMMITTING THE UPDATE PROOFS, THIS CAP IS ABOUT SIZE, NOT TIME. One update is ~45 s and
-        # 10.83 MiB, so 16 of them fit under SETTLE_INLINE_MAX while ~53 would fit in SETTLE_PROVE_TIMEOUT.
-        # A span that declines here still settles by bonded quorum, which is always correct and merely
-        # slower — and declining is still far better than proving something that gets refused for size.
-        if len(net) > SETTLE_RECORDS_MAX_UPDATES:
-            _mib = (len(net) * SETTLE_RECORDS_PROOF_BYTES + SETTLE_KV_HALF_BYTES) >> 20
-            # SAY WHAT THE UPDATES ARE, not just how many. The plan for closing the remaining gap rests on
-            # the claim that a boundary span is "13 dividend positions + a few others" — if that is wrong,
-            # shortening the span buys nothing, and a count alone can never tell us. Counted over `effects`
-            # (pre-netting) by tag, which is the only place the tag still exists: `net` is keyed by the
-            # HASHED record key, from which no tag can be recovered.
-            _by_tag = {}
-            for _e in (effects or ()):
-                _by_tag[_e[0]] = _by_tag.get(_e[0], 0) + 1
-            _names = {1: "BRIDGE_BAL", 2: "DIV_BAL", 3: "BRIDGE_WD", 4: "DIV_WD", 5: "UNSHIELD_WD",
-                      6: "DIGEST", 7: "KVX", 8: "ASSET_BAL", 9: "ASSET_META", 10: "ASSET_ALLOW"}
-            _brk = " ".join(f"{_names.get(t, t)}={n}" for t, n in sorted(_by_tag.items()))
-            print(f"[execnode] records half DECLINED for span {sc}->{cur}: {len(net)} net updates from "
-                  f"{len(effects or ())} effects [{_brk}] exceeds "
-                  f"SETTLE_RECORDS_MAX_UPDATES={SETTLE_RECORDS_MAX_UPDATES} — at ~{SETTLE_RECORDS_PROOF_BYTES >> 20}"
-                  f" MiB per update that is ~{_mib} MiB against SETTLE_INLINE_MAX={SETTLE_INLINE_MAX >> 20} MiB, "
-                  f"so the proof would be built (~{45 * len(net)}s) and then refused. Riding the bonded quorum",
-                  flush=True)
-            return None
-        # prove_transition APPLIES the updates to `store`, so its root afterwards IS the post root — the
-        # same way settlement_sparse reads sparse_post_root straight off pre_store after proving.
-        tr = await asyncio.to_thread(SX.prove_transition, store, [(k, n) for (k, _o, n) in net])
-        tr["half"] = "records"
-        return tr, _SST.digest_hex(store.root()), {str(k): int(v) for k, v in proj.items()}
-    except RB.Unbindable as e:
-        print(f"[execnode] records half not bindable for span {sc}->{cur}: {e} — quorum", flush=True)
-        return None
-    except Exception as e:
-        print(f"[execnode] records half FAILED for span {sc}->{cur} ({type(e).__name__}: {e}) — quorum",
-              flush=True)
-        return None
-
-
 def state_owes_accrual(st, cur, epoch_length):
     """The epoch this state still owes, or None when it is settle-consistent.
 
@@ -1447,489 +1091,6 @@ def state_owes_accrual(st, cur, epoch_length):
     if owed < 0:
         return None
     return owed if int(getattr(st, "last_div_epoch", -1)) < owed else None
-
-
-async def _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur=None):
-    """Best-effort SELF-CHECKING settle-with-proof for (ns, cur, root), or None to fall back to quorum.
-
-    Builds a sparse validity proof over the span (L1-justified settled tip, cur] from the DA calldata
-    (calls_commit.block_calls — per-block cursor, ts=0, which matches L1's da_calls_commitment), then
-    posts it ONLY if it verifiably (a) extends the L1-justified settled root and (b) reproduces THIS
-    node's real root. Any mismatch — a TIME-reading call, a records-moving call, an epoch-boundary
-    dividend accrual, a stale pre-state — makes a self-check fail and returns None, so a wrong proof is
-    never posted and the quorum path (unchanged) settles instead. Proving runs in a worker thread under
-    the proving semaphore. Validated end-to-end in tests/test_settle_prover_sim.py."""
-    # Declared HERE, not at the later assignment: the in-flight guard is now read twice — once before the
-    # records prove and once at the last moment before launching the KV prove — and Python requires the
-    # global statement to precede the first use in the function.
-    global _settle_proving, _records_proving
-    if not SETTLE_PROVE:
-        return None
-    from execnode.stark import settlement_sparse as SS, calls_commit as CC, storage_tree as SST
-    from execnode import exec_root as ER
-    from execnode import settlement_proofs as SP
-    from execnode.stark import field as _F
-    from protocol import EXEC_TREE_DEPTH, SETTLE_PROOF_MAX_SPAN, EPOCH_LENGTH, SETTLE_PROOF_RECURSIVE
-    # 1. L1's JUSTIFIED settled tip for this namespace (the proof must extend exactly this).
-    settled = await _get_json(session, f"/get_settled?ns={ns}")
-    sc, sr = int((settled or {}).get("exec_cursor", -1)), (settled or {}).get("state_root")
-    # A SKIPPED PROOF MUST SAY WHY. Every gate below used to `return None` silently, so an operator who
-    # switched the prover on saw ordinary bare settles forever with nothing anywhere to distinguish
-    # "disabled", "waiting for a conforming span" and "broken" — the exact failure this codebase already
-    # names elsewhere: a fallback nobody can observe is indistinguishable from one that never fires.
-    # Rate-limited per (ns, reason) so a standing condition says so once, not once per settle.
-    def _skip(reason, cls=None):
-        # THE THROTTLE MUST DEDUPE ON THE CONDITION, NOT ON THE SENTENCE. It compared the whole formatted
-        # reason, and several reasons embed the moving cursor ("span 25399 -> 25496 crosses …"), so the
-        # string differed on every poll and the standing condition logged once per poll instead of once:
-        # 25 identical epoch-boundary lines in one cycle, which is precisely what "rate-limited so a
-        # standing condition says so once" was written to prevent. `cls` names the condition; it falls back
-        # to the full reason for one-off skips that carry no moving value.
-        _k = (ns, "skip")
-        _key = cls or reason
-        if _settle_skip_logged.get(_k) != _key:
-            _settle_skip_logged[_k] = _key
-            print(f"[execnode] settle-with-proof SKIPPED ns={ns} cursor {cur} — {reason}", flush=True)
-        return None
-
-    # NOTHING MAY BE PROVEN WHILE A RECORDS PROVE IS IN FLIGHT — not even a records-FREE span.
-    #
-    # The in-flight check further down sits inside `if rec_pre_root != rec_root`, so a span whose records
-    # half did not move never reaches it: it proves its KV half, lands, and walks the justified tip forward
-    # while an EARLIER records proof is still being built. That proof then cannot extend the settled tip and
-    # is refused — the whole point of the hold. Observed 01:13:57, with the records prove at batch 5/13:
-    #     [settle-prove] cursor=3630 calls=0 net_updates=0 | … | total 25.5s
-    #     settle-with-proof BUILT span 3600->3630 … SETTLE-WITH-PROOF cursor 3630 → L1
-    # The 25.5 s KV proof for a later span overtook the ~12-minute records proof for an earlier one.
-    #
-    # So the gate belongs HERE, before any span is examined, rather than in the branch that happens to run
-    # the records prove. This also covers the concurrent-invocation case the flag was introduced for, since
-    # a second pass now returns before doing any work at all.
-    if _records_proving:
-        return _skip("a RECORDS prove is in flight; no settle proof may be built until it finishes, or it "
-                     "would advance the justified tip past the span that prove extends",
-                     cls="records-prove-inflight")
-    if sc < 0 or not sr:
-        return _skip("no L1-justified settled tip yet; the first settlement in a namespace rides the quorum")
-    # 2. our stashed exec state AT that justified cursor (pre-state). Only proceed if we hold exactly it.
-    # Look the justified cursor up in the HISTORY, not just the newest stash: L1 justifies a settle some
-    # time after we make it, so by the time we prove, our newest stash is typically one settle AHEAD of
-    # the tip the proof has to extend. Falling back to the newest keeps the pre-e1000cbd behaviour for a
-    # node that has settled exactly once.
-    raw = (_settled_history.get(ns) or {}).get(sc) or _settled_snapshots.get(ns)
-    if not raw:
-        return _skip("no stashed pre-state (the stash is in-memory and empties on restart; it refills on "
-                     "the next accepted settle)")
-    snap = json.loads(raw)
-    if int(snap.get("cursor", -2)) != sc:
-        return _skip(f"stashed pre-state is at cursor {snap.get('cursor')}, not the justified tip {sc} "
-                     f"(history holds {sorted((_settled_history.get(ns) or {}).keys())})", cls="stale-stash")
-    pre_contracts = (snap.get("state") or {}).get("contracts") or {}
-    pre_bridge = (snap.get("state") or {}).get("bridge")
-    # 3. conformance the validator enforces: advances, within the span cap, no epoch boundary (dividend).
-    if cur <= sc:
-        return _skip(f"span does not advance ({sc} -> {cur})", cls="no-advance")
-    if (cur - sc) > SETTLE_PROOF_MAX_SPAN:
-        return _skip(f"span {cur - sc} exceeds SETTLE_PROOF_MAX_SPAN {SETTLE_PROOF_MAX_SPAN}", cls="span-cap")
-    # THE EPOCH-BOUNDARY SKIP IS GONE, and it was the single largest refusal class — 55 of 146 over one
-    # measured day, larger than "the RECORDS half moved" (36), and the two were always ONE problem: a
-    # dividend accrues at every boundary block and moves records with NO transaction behind it.
-    # It existed only because the accrual was INVISIBLE, not because it was unprovable. It is now derived at
-    # incorporate time (records_bind.epoch_accrual_due + dividend_accrual_effects, committed into the
-    # boundary block's exec summary), the prover reproduces it per block in _build_records_half, and L1's
-    # epoch assert is conditional on the proof binding the records half. A span that crosses a boundary is
-    # now refused only if the accrual genuinely cannot be derived — which _build_records_half reports with a
-    # reason — rather than refused on sight.
-    # 4. the span's DA calls, per block (block_calls stamps cursor=h, ts=0 — the DA-binding form).
-    calls = []
-    span_blocks = []       # the span's blocks in order — the RECORDS half derives PER BLOCK, like L1
-    for h in range(sc + 1, cur + 1):
-        blk = await _get_json(session, f"/get_block?number={h}")
-        if not blk or not blk.get("block_hash"):
-            return None
-        calls += CC.block_calls(blk, ns)
-        span_blocks.append(blk)          # the RECORDS half derives PER BLOCK, exactly as L1 does
-    # 4b. DETECT AN UNPROVABLE CALL BEFORE PAYING FOR THE PROVE.
-    #
-    # A call the live chain SKIPS (sender cannot cover the escrow) or that REVERTS in the VM is a no-op on
-    # chain, but the prover cannot represent one: settlement_proofs._run_call raises, and so does
-    # vm_circuit.prove_epoch_calls. So ONE such call anywhere in the span means the span yields NO PROOF AT
-    # ALL — folded or unfolded — and we only found out after ~1000 s of proving:
-    #     fold FAILED span 42261->42291 (call 0 reverted — nothing to prove) — re-proving UNFOLDED
-    #     settle-prove worker ended with ValueError: call 1 reverted — nothing to prove
-    # One interpreter pass over the span's calls tells us that up front, for a fraction of the cost. The
-    # proper fix (the AIR proving a reverting execution, or the verifier re-deriving which calls were
-    # no-ops) is a consensus/circuit change; see settlement_proofs.first_unprovable_call.
-    if calls:
-        try:
-            # Same chain randomness the real prove passes, computed here because the dry run must execute
-            # the calls EXACTLY as the prove will — a BEACON/BHASH read against None would revert a call
-            # that is actually fine and make us skip a provable span.
-            _pf_beacons = {e: v % _F.P for e, v in st.beacons.items()}
-            _pf_bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
-            _bad_i, _why = await asyncio.to_thread(
-                SP.first_unprovable_call, pre_contracts, calls, cur, 0, _pf_beacons, _pf_bhashes,
-                pre_bridge, (snap.get("state") or {}).get("abal"), (snap.get("state") or {}).get("assets"))
-        except Exception as e:                       # a dry-run failure must never block settling
-            _bad_i, _why = None, f"pre-flight error {type(e).__name__}: {e}"
-        if _bad_i is not None:
-            _bad_h = int(calls[_bad_i].get("cursor", cur))
-            # SKIP EARLY rather than narrow the span. Narrowing looks obvious and is WRONG here: the caller
-            # captured `root` AND `rec_root_at_cur` at `cur` under the state's mutate lock, so moving `cur`
-            # down would make the settle claim a post-root belonging to a different cursor — the "two roots
-            # that were never simultaneously true" failure the records comment below describes. Proving the
-            # clean prefix needs the snapshot RE-CAPTURED at the narrowed cursor, which only the caller
-            # (ExecState.settle_snapshot) can do; until then, skipping costs one cadence instead of ~1000 s
-            # of proving thrown away at the end.
-            return _skip(f"span {sc} -> {cur} contains an unprovable call at block {_bad_h} (call {_bad_i}: "
-                         f"{_why}). A call the chain SKIPS or REVERTS is a no-op on chain but the prover "
-                         f"cannot represent one, so this span can yield no proof at all — folded or not. "
-                         f"Skipping now instead of discovering it after the prove",
-                         cls="unprovable-call")
-    # 5. records half (frozen) + finalized chain randomness the proof reads.
-    #
-    # USE THE RECORDS ROOT CAPTURED WITH `root`, NOT A FRESH ONE. Recomputing it here reads the LIVE `st`,
-    # which the detached tail has been advancing throughout step 4's per-block fetches and will keep
-    # advancing through the prove. `root` is rnode(kv, records) AT `cur`; pairing it with a records half
-    # from a later cursor makes the self-check compare two roots that were never simultaneously true, and
-    # it failed exactly that way on spans wholly inside one dividend epoch. The caller captures both under
-    # the state's mutate lock (ExecState.settle_snapshot). The fallback keeps standalone callers working.
-    rec_root = (rec_root_at_cur if rec_root_at_cur is not None
-                else SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(st)).root())
-    # THE STATE OWES AN ACCRUAL -> ITS RECORDS ROOT IS MID-UPDATE. REFUSE.
-    #
-    # The accrual loop advances the cursor FIRST and applies the dividend AFTER, with two HTTP awaits in
-    # between (/get_dividend_inflow and /get_open_weights). So there is a window where state.cursor has
-    # already reached a boundary but that epoch has not landed, and anything reading the records root in
-    # that window sees a root that is real for no block.
-    #
-    # Measured exactly, by the records DIFF diagnostic (4ed7d0b4) on span (4064, 4080]:
-    #     records DIFF at 4080: 25 key(s) disagree (derived 35 entries vs actual 35)
-    #         …512…  89276075280 vs 87914257097   Δ 1361818183
-    #         …331…   6538626417 vs  6266262781   Δ  272363636
-    #         …749…  11197358394 vs 10924994758   Δ  272363636   (and so on)
-    # 25 keys — exactly the present-miner count — SAME key set, values only, and the derived side uniformly
-    # HIGHER by one epoch's share. The prover derived epoch 67 for block 4080 and was right to: both
-    # records_bind.epoch_accrual_due(4080) and the exec loop's `while last_div_epoch < cursor//L - 1` name
-    # epoch 67. Attribution was never the problem; the state had simply not applied it yet.
-    #
-    # `last_div_epoch` is the deterministic watermark of the highest epoch already accrued, so the condition
-    # is exact rather than a heuristic: if the cursor has fully passed epoch E, E must be accrued before
-    # this state can be settled against. A quiet skip and the next cadence proceeds — the alternative is a
-    # ~15-minute prove that the self-check then throws away.
-    _owed = state_owes_accrual(st, cur, EPOCH_LENGTH)
-    if _owed is not None:
-        return _skip(f"the state at {cur} still owes dividend accrual (last_div_epoch="
-                     f"{getattr(st, 'last_div_epoch', None)}, cursor has passed epoch {_owed}) — its "
-                     f"records root is mid-update and true for no block", cls="accrual-pending")
-    # THE RECORDS HALF AT THE JUSTIFIED CURSOR, from the stash. prove_settlement_sparse pins ONE records
-    # root for the whole span ("the (unchanged) records half"), so this is load-bearing twice over:
-    #
-    #  1. THE SELF-CHECK MUST COMPARE LIKE WITH LIKE. `sr` is L1's justified root at `sc`, i.e.
-    #     rnode(kv_pre, records AT sc). Building pre_full from records at CUR compares two roots that were
-    #     never simultaneously true — the exact `PRE MISMATCH` observed live on spans with ZERO calls,
-    #     where the kv half provably had not moved and the POST side matched to the byte.
-    #  2. IF THE RECORDS ACTUALLY MOVED, THE SPAN IS UNPROVABLE. The proof would assert a records half
-    #     that was not constant across the span, so it must not be built at all. That is a clean skip with
-    #     a reason, not a self-check failure discovered minutes later after a full prove.
-    try:
-        rec_pre_root = type(st).records_root_from_snapshot(snap["state"])
-    except Exception as _e:
-        return _skip(f"could not derive the records half at the justified cursor {sc} from the stash "
-                     f"({type(_e).__name__}: {_e})")
-    # rec_hex IS THE PRE ROOT. pre_full = rnode(kv_pre, rec_hex) must equal L1's JUSTIFIED root, which was
-    # composed with the records half AT sc. It only happened to be safe to write digest_hex(rec_root) here
-    # while the two were forced equal by the skip below.
-    rec_hex = SST.digest_hex(rec_pre_root)
-    # ASSET CALLS SETTLE BY PROOF (zk audit 2026-09-26; records_bind.PinnedAssets binds them on L1), so the asset
-    # ledgers at the span's start ride the prove. No landing-height check: gen 27's ZK_HARDEN_HEIGHT (1 from gen 28,
-    # deleted) withheld them below the gate, and a settle always lands at tip + 1 >= 1 (_settle_landing_height).
-    _pre_abal = (snap.get("state") or {}).get("abal")
-    _pre_assets = (snap.get("state") or {}).get("assets")
-    _records_half = None
-    if rec_pre_root != rec_root:
-        # THE RECORDS HALF MOVED — which used to end the span here. It no longer has to: the prover can
-        # now PROVE the half instead of pinning it (_build_records_half), and L1 checks that transition
-        # against the effects IT derived from its own committed summaries. This is the change that lets a
-        # span carrying calls, a bridge deposit or a dividend accrual settle by proof at all.
-        # ────────────────────────────────────────────────────────────────────────────────────────────
-        # THE IN-FLIGHT GUARD HAS TO BE HERE TOO, NOT ONLY ~60 LINES BELOW.
-        #
-        # _build_records_half runs prove_transition — a multi-minute, CPU-bound, multi-GB STARK — and the
-        # `if _settle_proving` check sits AFTER it. So every settle cadence (~8 s) started ANOTHER records
-        # prove while the previous one was still running. The per-batch instrumentation caught it in one
-        # run; the batch index never advances:
-        #
-        #     00:45:48  batch 1/13 K=2 T=32768  76.4s (cum  76.4s) rss=1.07GB
-        #     00:47:08  batch 1/13 K=2 T=32768 147.0s (cum 147.0s) rss=1.63GB
-        #     00:48:16  batch 1/13 K=2 T=32768 207.9s (cum 207.9s) rss=1.79GB
-        #     00:49:19  batch 1/13 K=2 T=32768 261.8s (cum 261.8s) rss=1.96GB
-        #
-        # Four SEPARATE prove_transition calls, each restarting at batch 1 (cum == the batch time, so _t0
-        # is fresh each line), all running CONCURRENTLY: identical work taking 76 -> 147 -> 208 -> 262 s as
-        # they contend for cores. That is the whole mystery of tonight — the RSS climb to 14.6 GB, the ~4x
-        # slowdown, and the prove that blew SETTLE_PROVE_TIMEOUT=2400s and was abandoned. None of it was
-        # batching, and none of it was the AIR; it was N concurrent copies of the same proof.
-        #
-        # The comment on the later guard already states the rule — "without it a timeout every settle would
-        # stack a new fold thread every cadence and the box would grind to a halt" — it simply guarded the
-        # KV prove and left the records prove, added later and just as expensive, in front of it.
-        #
-        # The LATER check stays. It is not redundant: it re-reads at the last moment because the caller's
-        # copy goes stale while this function walks the span over HTTP (that was its own bug, three fixes
-        # deep). This one is the cheap early-out that stops the stacking; that one keeps the race honest.
-        if _records_proving:
-            return _skip("a RECORDS prove is already in flight; not starting a second one over the same "
-                         "pre-state", cls="records-prove-inflight")
-        if _settle_proving:
-            return _skip("a previous settle-prove is still running; not starting a second RECORDS prove "
-                         "over the same pre-state", cls="records-prove-inflight")
-        if _settle_publishing and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S:
-            return _skip("the previous proof is still publishing/submitting; a records prove started now "
-                         "would extend the same pre-state and could never land", cls="records-prove-inflight")
-        _records_proving = True
-        try:
-            _records_half = await _build_records_half(
-                session, ns, type(st).snapshot_view(snap["state"]), span_blocks, sc, cur,
-                rec_hex_expected=rec_hex, calls=calls, pre_contracts=pre_contracts, pre_bridge=pre_bridge,
-                beacons={e: v % _F.P for e, v in st.beacons.items()},
-                bhashes={h: v % _F.P for h, v in st.block_hashes.items()},
-                pre_abal=_pre_abal, pre_assets=_pre_assets)
-        finally:
-            # `finally`, not a trailing assignment: _build_records_half can return None, raise, or be
-            # cancelled, and any path that leaves this True would wedge the records half permanently — a
-            # far worse failure than the stacking it prevents.
-            _records_proving = False
-        if _records_half is None:
-            return _skip(f"the RECORDS half moved across the span {sc} -> {cur} "
-                         f"({rec_hex[:16]}… -> {SST.digest_hex(rec_root)[:16]}…) and could not be PROVEN "
-                         f"(an effect this node cannot derive, or an unavailable accrual input); the proof "
-                         f"would have to pin one records root for the whole span, which would assert "
-                         f"something false. Riding the bonded quorum", cls="records-unprovable")
-        if _records_half[1] != SST.digest_hex(rec_root):
-            # The derived effects must land on the records root we actually captured at `cur`. If they do
-            # not, our derivation disagrees with our own apply — refuse HERE rather than ship a proof that
-            # can only fail to bind on L1 after every peer has paid to verify it.
-            # SAY WHICH RECORDS DISAGREE, not just that some do. Two roots differing is unactionable: it
-            # cannot distinguish a wrong dividend carry from a missed bridge deposit from an effect derived
-            # at the wrong block. The pre-state projection and the derived updates are both in hand here,
-            # so apply them and diff against what we actually hold at `cur`. Runs ONLY on this failure
-            # path, and prints a bounded sample.
-            try:
-                _derived = dict(_records_half[2] or {})
-                for (_k, _o, _n) in (_records_half[0].get("updates") or ()):
-                    _derived[str(_k)] = int(_n)
-                _actual = {str(_k): int(_v) for _k, _v in ER.records_projection(st).items()}
-                _keys = set(_derived) | set(_actual)
-                _diff = [(k, _derived.get(k), _actual.get(k)) for k in _keys
-                         if int(_derived.get(k, 0)) != int(_actual.get(k, 0))]
-                _diff.sort(key=lambda r: str(r[0]))
-                print(f"[execnode] records DIFF at {cur}: {len(_diff)} key(s) disagree "
-                      f"(derived {len(_derived)} entries vs actual {len(_actual)}); first few "
-                      f"[key, derived, actual]: "
-                      + "; ".join(f"{k[:18]}… {d} vs {a}" for k, d, a in _diff[:6]), flush=True)
-            except Exception as _e:
-                print(f"[execnode] records DIFF unavailable: {type(_e).__name__}: {_e}", flush=True)
-            return _skip(f"the derived RECORDS half lands on {_records_half[1][:16]}… but our state at "
-                         f"{cur} has {SST.digest_hex(rec_root)[:16]}… — derivation disagrees with apply",
-                         cls="records-derivation-mismatch")
-    beacons = {e: v % _F.P for e, v in st.beacons.items()}
-    bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
-
-    # only fold when BOTH the operator opted in (SETTLE_FOLD) AND the chain honours folds (SETTLE_PROOF_RECURSIVE);
-    # otherwise the `recursive` bundle is ignored by verifiers and the proving effort is wasted.
-    # A FOLD NEEDS SOMETHING TO FOLD. settlement_sparse raises ValueError("recursive settlement over an
-    # empty call span") when the span carries no exec calls, while the UNFOLDED path proves an empty span
-    # perfectly well. So on an idle chain, switching the fold on strictly REDUCED what we produce: spans
-    # that had been yielding a (refused, 97.45 MiB) proof started yielding no proof at all. Observed live
-    # within minutes of enabling the fold on 2026-08-04.
-    #
-    # Fold only when there is real traffic; otherwise fall through to the unfolded prove, which is what the
-    # 61 proofs before this were. The fold is an upgrade to a proof we want either way, never a precondition
-    # for producing one — the same shape as 82a8ab29 (a refused proof must still settle).
-    _fold = SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and bool(calls)
-    # NO FOLD THE CHAIN WILL REFUSE (review 2026-09-24). recursive_verify refuses under PROOF_TRACE_LDT_HEIGHT (and the
-    # full-query rule), so a folded prove raised and the span was proven a SECOND time unfolded, doubling the cost
-    # against SETTLE_PROVE_TIMEOUT. Ask the rules of the block the proof lands in, and skip the doomed fold up front.
-    if _fold:
-        from execnode.stark import recursive_verify as _RVf
-        if _RVf.fold_refused_at(int(cur) + 1):
-            _fold = False
-    if SETTLE_FOLD and SETTLE_PROOF_RECURSIVE and not calls:
-        _k = (ns, "foldskip")
-        if _settle_skip_logged.get(_k) != cur:
-            _settle_skip_logged[_k] = cur
-            print(f"[execnode] fold skipped ns={ns} span {sc}->{cur}: no exec calls to fold — proving "
-                  f"UNFOLDED (the recursive path refuses an empty call span)", flush=True)
-    # THE PROOF MUST BE IN THE FORMAT ITS LANDING BLOCK WILL JUDGE (PROOF_BIND_HEIGHT, stark.rules_at). A settle
-    # is exact-landing at a block ABOVE the L1 tip at submit time, so the rules for tip+1 at prove START are the
-    # earliest that can apply; a proof begun within the last ~minute before the gate lands after it in the old
-    # format, is refused once, and the next cadence re-proves — bounded waste, never a fork. The context is
-    # entered INSIDE the worker thread (a thread does not inherit it) and again for the self-verify below.
-    _land_h = await _settle_landing_height(session, cur)
-    def _prove():
-        def _run(fold):
-            with SS.stark.rules_at(_land_h):
-                return SS.prove_settlement_sparse(pre_contracts, calls, cursor=cur, rec_hex=rec_hex,
-                                                  beacons=beacons, block_hashes=bhashes, pre_bridge=pre_bridge,
-                                                  depth=EXEC_TREE_DEPTH, recursive=fold, fold=fold,
-                                                  pre_abal=_pre_abal, pre_assets=_pre_assets)
-        if not _fold:
-            return _run(False)
-        try:
-            return _run(True)
-        except Exception as e:
-            # A FOLD FAILURE MUST NOT COST US THE PROOF. The fold is a verification-strategy upgrade on top
-            # of a proof we want regardless, so if the recursive path refuses, prove the SAME span unfolded
-            # rather than returning nothing and settling bare. Retried inside the worker thread on purpose:
-            # it keeps this to ONE task and ONE in-flight guard rather than restructuring the guard.
-            print(f"[execnode] fold FAILED ns={ns} span {sc}->{cur} ({type(e).__name__}: {e}) — "
-                  f"re-proving UNFOLDED", flush=True)
-            return _run(False)
-    # TIME-BOUND THE PROVE, and never run two at once. Without this, enabling the K->1 fold is an OUTAGE
-    # rather than a feature: a fold over the W=106 exec AIR measured 5h07m at 492% CPU / 8.2 GB WITHOUT
-    # COMPLETING (2026-08-02), and this call had no timeout — maybe_settle would simply never return, so
-    # no settle of any kind would be posted. The bare-attestation fallback is downstream of here and would
-    # never be reached. latest_settled() backs bridge_withdraw / unshield / dividend_withdraw, so that is
-    # an outage, not a degraded mode.
-    #
-    # asyncio.wait_for CANNOT kill the worker thread, so the abandoned prove keeps burning a core until it
-    # finishes. That makes the IN-FLIGHT GUARD the essential half: without it a timeout every settle would
-    # stack a new fold thread every cadence and the box would grind to a halt. With it, at most ONE prove
-    # is ever outstanding; while it runs, settles continue as bare attestations.
-    if _settle_proving:
-        return _skip("a previous settle-prove is still running; the settle is HELD until it finishes")
-    # AND NOT WHILE THE PREVIOUS PROOF IS STILL PUBLISHING OR SUBMITTING. _settle_proving is cleared by the
-    # prove THREAD's done-callback, i.e. at "BUILT", while ~112-139 s of DA publish and up to
-    # SETTLE_SUBMIT_TIMEOUT_PROOF of submit still lie ahead — so a second prove started inside that window
-    # every single cadence. Measured live 2026-08-04, two BUILTs about two minutes apart on every cycle:
-    #     21:47:40 BUILT   21:49:57 BUILT   21:51:49 PUBLISHED   21:52:43 SETTLE
-    # Both extend the SAME pre-state, so at most one of them could ever land — the second is a wasted
-    # 118 MiB proof and a wasted core, on the node that also has to keep up with block production. This box
-    # sat at 100% CPU and drifted 1-2 blocks off the tip because of it.
-    _pub_active = (_settle_publishing
-                   and (time.time() - _settle_publishing) < SETTLE_HOLD_MAX_S)
-    if _pub_active:
-        return _skip("the previous proof is still publishing/submitting; not starting a second prove that "
-                     "extends the same pre-state and could never land")
-    # ...AND RE-CHECK THE PENDING MARKER HERE, because the caller's copy is STALE BY THE TIME IT MATTERS.
-    #
-    # NAMED BY THE DIAGNOSTIC, after three fixes had guessed wrong:
-    #   17:47:37 SETTLE-WITH-PROOF cursor 49530            <- marker recorded
-    #   17:47:39 prove-gate span 49500->49534 LAUNCH — pending_cursor=49530 proving=False publishing=CLEAR
-    # The caller computes `_pend_hold` at the TOP of its pass and then this function spends seconds walking
-    # the span over HTTP before it commits to anything. A proof submitted inside that walk sets the marker
-    # after the snapshot was taken, so the gate it was checked against no longer describes reality.
-    # bd079982 added the caller-side gate, 7b612e1e moved the marker earlier, d4c24872 made the publish hold
-    # continuous — none of them could help, because the read itself was stale, not the write.
-    # Re-reading at the LAST moment before _settle_proving is set is what makes the check meaningful; that
-    # is the same reason _pub_active is re-evaluated here rather than trusted from the caller.
-    if _settle_pending.get(ns) is not None:
-        return _skip("a proof-carrying settle is already waiting for its landing block; a second proof over "
-                     "the same pre-state could never also land", cls="pending-landing")
-    # WHY WAS THIS PROVE ALLOWED? Three fixes for the duplicate-prove race have shipped and the duplicate
-    # survived all three (bd079982, 7b612e1e, d4c24872 — the last VERIFIED loaded: committed 16:21:22, exec
-    # started 16:21:40, duplicate at 16:33-16:34). That means the open window is somewhere I have not
-    # traced, not that the same place needs a fourth patch. Print the full guard state at the ONE moment a
-    # prove is actually launched, so the next occurrence names its own cause instead of being
-    # reverse-engineered from timestamps. One line per prove, and proves are minutes apart.
-    _pg_pend = _settle_pending.get(ns)
-    _pg_pub = f"{time.time() - _settle_publishing:.1f}s" if _settle_publishing else "CLEAR"
-    print(f"[execnode] prove-gate ns={ns} span {sc}->{cur} LAUNCH — "
-          f"pending_cursor={_pg_pend.get('cursor') if _pg_pend else None} "
-          f"proving={_settle_proving} publishing={_pg_pub}", flush=True)
-    _settle_proving = True
-    # The flag must track the THREAD's lifetime, not this coroutine's. Clearing it in a `finally` would
-    # release the guard the moment wait_for gives up — while the thread is still burning a core — and the
-    # next cadence would start another. So clear it from a done-callback on the task, and SHIELD the task
-    # from wait_for's cancellation (cancelling would not stop the thread regardless, but it would detach
-    # the callback and lose the only signal we have that the prove really ended).
-    _task = asyncio.ensure_future(asyncio.to_thread(_prove))
-    _task.add_done_callback(_clear_settle_proving)
-    try:
-        async with _sem():                                 # bound concurrent proving (H-7)
-            proof = await asyncio.wait_for(asyncio.shield(_task), timeout=SETTLE_PROVE_TIMEOUT)
-    except asyncio.TimeoutError:
-        return _skip(f"prove exceeded SETTLE_PROVE_TIMEOUT={SETTLE_PROVE_TIMEOUT}s "
-                     f"(fold={_fold}); the worker thread is abandoned and settles stay BARE until it ends")
-    # 6. THE SELF-CHECKS — never post a proof that doesn't extend the justified tip AND reproduce our root.
-    # PRE pairs with the records half at `sc`, POST with the records half at `cur`. They are equal here —
-    # the gate above refuses the span otherwise — but writing it explicitly is what keeps the comparison
-    # honest if that ever stops being true.
-    pre_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_pre"]), rec_pre_root)
-    post_full = ER.full_root_hex(SST.digest_from_hex(proof["kv_post"]), rec_root)
-    # SAY WHICH SIDE FAILED. "not conforming" named neither half, so three separate hypotheses (epoch
-    # boundary, records-half skew, kv-half mismatch) all produced the identical line and could not be told
-    # apart — the records-half fix (6a903a09) was deployed and this message looked exactly the same
-    # afterwards. PRE failing means our stashed pre-state does not reproduce L1's justified root, i.e. the
-    # stash is wrong for that cursor. POST failing means replaying the span's calls from that pre-state
-    # does not land on the root we captured, i.e. the proof's semantics differ from the node's own apply.
-    # Those are completely different bugs and they now print differently.
-    _pre_ok, _post_ok = (pre_full == sr), (post_full == root)
-    if not (_pre_ok and _post_ok):
-        _rec_hex = f"{rec_hex[:16]}…->{SST.digest_hex(rec_root)[:16]}…"   # pre->post; they can differ now
-        print(f"[execnode] settle-with-proof ns={ns} self-check FAILED span {sc}->{cur} — "
-              f"PRE {'ok' if _pre_ok else 'MISMATCH'}: proof={pre_full[:16]}… justified={str(sr)[:16]}… | "
-              f"POST {'ok' if _post_ok else 'MISMATCH'}: proof={post_full[:16]}… ours={str(root)[:16]}… | "
-              f"kv_pre={str(proof.get('kv_pre'))[:16]}… kv_post={str(proof.get('kv_post'))[:16]}… "
-              f"rec={_rec_hex} calls={len(calls)} — falling back to quorum", flush=True)
-        return None
-    # SAY THAT THE PROOF SURVIVED. Between "[settle-prove] ... total 239.9s" and the DA publish there was
-    # NO log line at all, so a prove that completed and then went nowhere was indistinguishable from one
-    # that was still running — which is how a garbage-collected settle task hid for hours. Every outcome
-    # after a completed prove is now named: this line, the self-check line above, the DA publish/FAILED
-    # lines, or the REFUSED retry.
-    print(f"[execnode] settle-with-proof BUILT ns={ns} span {sc}->{cur} — self-checks passed", flush=True)
-    # The cache is at its most complete right here, so force a write regardless of the throttle. The
-    # routine save is on block application (_maybe_persist_fold_cache) — see the note there.
-    _persist_fold_cache()
-    # 6a. ATTACH THE RECORDS HALF, if the span moved it. The three fields are exactly what
-    # ops/transaction_ops.py reads: the transition, the claimed post root, and the PRE projection that
-    # records_bind.pinned_pre_get hashes against the tip's records root so every value the binding
-    # arithmetic touches is authenticated rather than taken on the prover's word.
-    # Attached only when there IS a transition — L1 requires rec_post == rec_hex for a span that committed
-    # no effects, so an absent records half is the frozen case and stays byte-identical to before.
-    if _records_half is not None:
-        _rtr, _rpost, _rproj = _records_half
-        proof["records"], proof["rec_post"], proof["records_pre"] = _rtr, _rpost, _rproj
-        print(f"[execnode] settle-with-proof ns={ns} span {sc}->{cur} carries a RECORDS half: "
-              f"{rec_hex[:16]}… -> {_rpost[:16]}… ({len(_rtr.get('updates') or ())} update(s))", flush=True)
-    # 6a'. ASSET IO is bound on L1 against the pinned pre-state (records_bind.PinnedAssets): ship the metadata
-    # preimages of the assets the io names, and — for a records-FROZEN proof, whose asset io must net to nothing
-    # (e.g. a span that only reads balances) — the pre projection the reads are checked against.
-    from execnode.stark import records_bind as _RBa
-    _has_aio, _aids = _RBa.proof_asset_ids(proof)
-    if _has_aio:
-        _pa = _pre_assets or {}
-        proof["asset_meta_pre"] = {a: _pa[a] for a in sorted(_aids) if a in _pa}
-        if "records_pre" not in proof:
-            proof["records_pre"] = await asyncio.to_thread(
-                lambda: ER.records_projection(type(st).snapshot_view(snap["state"])))
-    # 6b. FOLDED proofs: self-VERIFY the recursion bundle at PROTOCOL strength (exactly what L1 runs) before
-    # posting — a malformed fold is never broadcast; fall back to quorum. Runs in the worker thread.
-    if proof.get("recursive") is not None:
-        def _self_verify():
-            with SS.stark.rules_at(_land_h):               # the rules the proof was built under (see _prove)
-                return SS.verify_settlement_sparse(proof, depth=EXEC_TREE_DEPTH)[:2]
-        ok_v, why_v = await asyncio.to_thread(_self_verify)
-        if not ok_v:
-            print(f"[execnode] recursive settle-with-proof ns={ns} self-verify failed ({why_v}) "
-                  f"— falling back to quorum", flush=True)
-            return None
-    return proof
-
-
-async def _settle_landing_height(session, cur):
-    """The lowest L1 height a settle proven NOW can land in: the L1 tip + 1 (a settle is exact-landing above
-    the tip at submit, which is after the prove). Falls back to the span end + 1 if /status is unreachable —
-    the exec cursor is at most the tip, so that is never ABOVE the true landing block, i.e. it can only pick
-    the older rules, never newer ones the fleet does not yet judge by."""
-    try:
-        st = await _get_json(session, "/status")
-        tip = int((st or {}).get("latest_block_height") or 0)
-    except Exception:
-        tip = 0
-    return max(int(tip), int(cur)) + 1
 
 
 async def maybe_settle(session):
@@ -2049,46 +1210,11 @@ async def maybe_settle(session):
             # `_settle_pending[ns]` is cleared by the resolution block below when the proof lands, when it
             # is resubmitted, or when it gives up after SETTLE_RESUBMIT_MAX_S — so this can never wedge.
             _pend_hold = _settle_pending.get(ns) is not None
-            # OPTION R (BLAKE_EXEC_HEIGHT, dormant on gen 28): a BLAKE2s root settles by quorum attestation only — L1
-            # refuses a Goldilocks proof for it (transaction_ops _validate_settle), so never spend a prove on one.
-            from execnode.exec_root_b2 import blake_exec_at as _blake_exec_at
-            _quorum_only = _blake_exec_at(cur)
+            # OPTION R (doc/stwo-migration.md 9.3): a BLAKE2s root settles by quorum attestation only — L1 refuses a
+            # Goldilocks proof for it (transaction_ops _validate_settle), and G9 deleted that prover. The proof-carrying
+            # machinery below (_settle_pending, _settle_publishing, the DA publish) stays for the Stwo settlement (G8),
+            # which builds its proof with execnode/settle_b2.py; until it is wired in, every settle here is bare.
             proof = None
-            try:
-                if not _pend_hold and not _quorum_only:
-                    proof = await _build_settlement_proof(session, ns, st, cur, root, rec_root_at_cur)
-                    # HOLD THE TIP THE INSTANT A PROOF EXISTS — not later, at the publish step.
-                    #
-                    # THIRD ATTEMPT AT THIS BUG, and the first two missed because I pattern-matched instead
-                    # of tracing the flag LIFECYCLE. Three guards cover the pipeline in sequence:
-                    # _settle_proving (the prove), _settle_publishing (publish+submit), _settle_pending (the
-                    # wait for the landing block). _settle_proving is cleared by the prove TASK's
-                    # done-callback, but _settle_publishing was not set until the publish step — and between
-                    # those two points sit the self-checks, the recursive self-verify, and an awaited
-                    # /get_latest_block. A concurrent maybe_settle pass landing in that gap sees all three
-                    # clear and starts a second prove.
-                    # MEASURED 2026-08-06 16:16:43-16:17:12, AFTER both earlier fixes: prove for 48650
-                    # finished 16:16:43, its submit returned 16:17:05, and a prove for 48654 ran inside that
-                    # 22-second window. bd079982 gated the prove on _settle_pending and 7b612e1e removed an
-                    # awaited fetch before the marker — neither could help, because the marker legitimately
-                    # does not exist yet while the proof is still being submitted.
-                    # Setting it here makes the hold CONTINUOUS from prove-start to submit-end; the publish
-                    # step re-stamps it, which is idempotent.
-                    if proof is not None:
-                        globals()["_settle_publishing"] = time.time()
-            except Exception as e:
-                # BEST-EFFORT, BUT NOT SILENT. A bare attestation always works, so swallowing here is
-                # correct for liveness — but swallowing it QUIETLY meant an operator who switched the
-                # prover on saw "SETTLE" instead of "SETTLE-WITH-PROOF" forever with no reason anywhere,
-                # and no way to tell a disabled prover from a broken one. Rate-limited per (ns, reason) so
-                # a persistent fault says so once rather than once per settle.
-                proof = None
-                if SETTLE_PROVE:
-                    _k = (ns, f"{type(e).__name__}: {e}")
-                    if _settle_skip_logged.get(_k) != _k[1]:
-                        _settle_skip_logged[_k] = _k[1]
-                        print(f"[execnode] settle-with-proof UNAVAILABLE ns={ns} cursor {cur} — falling "
-                              f"back to a bare quorum attestation: {type(e).__name__}: {e}", flush=True)
             # DO NOT BARE-SETTLE PAST A PROOF THAT IS STILL IN FLIGHT.
             #
             # A proof for span sc->cur is only acceptable while the justified tip is STILL sc: L1 checks
@@ -2305,7 +1431,7 @@ async def maybe_settle(session):
             # proof-carrying tx and any bare retry are submitted against the CURRENT height.
             #
             # REFRESH UNCONDITIONALLY. Gating this on `proof is not None` missed the case that matters most:
-            # when the prove TIMES OUT, _build_settlement_proof returns None, so the refresh was skipped and
+            # when the prove TIMES OUT, _build_settlement_proof (deleted in G9) returned None, so the refresh was skipped and
             # the bare settle went out carrying a max_block from before a 20-MINUTE prove. Observed live
             # 2026-08-04: "prove exceeded SETTLE_PROVE_TIMEOUT=1200s" immediately followed by
             # "settle ns=default not accepted: 'Target block too low'". The settle we fell back to in order
@@ -3767,7 +2893,6 @@ async def tail_loop():
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)"
                           + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)
-                    _maybe_persist_fold_cache()
                     if SETTLE:
                         # NEVER AWAIT SETTLING FROM THE TAIL. maybe_settle can spend MINUTES proving, and
                         # awaiting it here stops block application for that whole time — the tail is a
@@ -3778,7 +2903,7 @@ async def tail_loop():
                         #
                         # Settling is a SIDE EFFECT of following the chain, never a precondition for it. So
                         # it runs detached: the tail keeps applying blocks at full speed while the proof
-                        # builds. The in-flight guard inside _build_settlement_proof bounds concurrent
+                        # builds. The in-flight guard inside _build_settlement_proof (deleted in G9) bounded concurrent
                         # PROVES to one — but it does NOT bound concurrent maybe_settle TASKS, which this
                         # comment used to claim. Every poll spawns one; while a prove is outstanding the
                         # rest fall straight through the guard to a bare settle, which is the intent.
@@ -4412,7 +3537,7 @@ async def h_outbox_proof(request):
     st = states.get(request.query.get("ns", "default"))
     if st is None:
         return _NS404()
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     try:
         msg = st.outbox[str(int(request.query.get("seq", "")))]
     except (KeyError, ValueError, TypeError):
@@ -4523,7 +3648,7 @@ async def h_withdrawal_proof(request):
     pass L1's settled root) or the CURRENT state_root (also returned); the claim only succeeds on L1 once
     a settled root covers it. 404 if the nonce is unknown; 409 if ?root= is not held."""
     # the Merkle proof a user submits to L1's bridge_withdraw to claim their exit against the settled root
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     nonce = str(request.query.get("nonce", ""))
     w = state.withdrawals.get(nonce)
     if not w:
@@ -4550,7 +3675,7 @@ async def h_withdrawals(request):
     provable. A record disappears here when its claim FINALIZES on L1 (state.drop_claimed), so "gone after a claim"
     is the landed signal. Cheap for the common case: an address with nothing pending costs one dict scan and no L1
     read; the proofs reuse the per-root tree cache (state.record_proof_at)."""
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     addr = request.query.get("address", "")
     if not addr:
         return web.json_response({"error": "address required"}, status=400)
@@ -4619,7 +3744,7 @@ async def _settled_root_hint(ns="default"):
 def _dividend_proof_one(nonce, root_hex):
     """({addr, amount, nonce, proof, state_root} | None, status) for one collected dividend withdrawal
     against `root_hex` (None = live). status: 200, 404 (unknown nonce), 409 (root not held / record postdates it)."""
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     w = state.dividend_withdrawals.get(nonce)
     if not w:
         return None, 404
@@ -4647,10 +3772,15 @@ def _seed_root_ring_sync(ns, cursor, root_hex):
     """Remember `root_hex` (L1's justified root at `cursor`) in the ring from its stash payload, so exit
     proofs against the SETTLED root are servable right after a restart. The ring is in-memory: a node
     restarted after the justified cursor has no entry for it until the NEXT settle justifies — one
-    settle interval during which every claim silently waits (the old client shape) or 409s. Cost: one
-    copy of the live KV half-tree diff-applied to the stash's contracts (O(changed·depth)), not the
-    ~70s cold build — and the result is checked against the stash's own root before it is trusted."""
-    from execnode import exec_root as ER
+    settle interval during which every claim silently waits (the old client shape) or 409s. The two BLAKE2s
+    half-trees are rebuilt from the stash and the result is checked against the stash's own root before it is
+    trusted.
+
+    G9 (2026-10-27): this rebuilt the GOLDILOCKS root, which can never equal a gen-29 BLAKE2s root, so every seed
+    since the reroll was refused and the window above was paid after every restart. The entry has
+    ExecState.note_root_point's BLAKE2s shape ("b2", kv root, records projection), the one record_proof_at reads.
+    INVARIANT: seed exactly what note_root_point records, or the seeded root serves proofs nobody can verify."""
+    from execnode import csmt, exec_root_b2 as R2
     st = states.get(ns)
     if st is None or root_hex in getattr(st, "_root_ring", {}):
         return False
@@ -4661,26 +3791,19 @@ def _seed_root_ring_sync(ns, cursor, root_hex):
         payload = json.load(f)
     if str(payload.get("state_root")) != root_hex or int(payload.get("cursor", -1)) != int(cursor):
         return False
-    snap = payload.get("state") or {}
-    view = ExecState.snapshot_view(snap)
+    view = ExecState.snapshot_view(payload.get("state") or {})
+    kv_root = csmt.Tree(R2.kv_projection(view.contracts)).root()
+    rec_p = R2.records_projection(view)
+    rec = csmt.Tree(rec_p)
+    if R2.full_root(kv_root, rec.root()).hex() != root_hex:
+        print(f"[execnode] root-ring seed REFUSED ns={ns} cursor={cursor}: stash does not reproduce "
+              f"{root_hex[:16]}…", flush=True)
+        return False
     with st._mutate_lock:
-        st.state_root()                                  # ensures the live half-trees exist
-        live_kv = st._kv_store
-        kv = live_kv.__class__.__new__(live_kv.__class__)
-        kv.depth, kv.e = live_kv.depth, live_kv.e
-        kv.values, kv._keys, kv._memo = dict(live_kv.values), list(live_kv._keys), dict(live_kv._memo)
-        ER.apply_projection(kv, ER.kv_projection(view.contracts, v2=ER.root_v2(cursor)))   # the stash's own height picks the layout
-        rec_p = ER.records_projection(view)
-        from execnode.stark import storage_tree as SST
-        rec = SST.SparseStore(ER.DEPTH, rec_p)
-        if ER.full_root_hex(kv.root(), rec.root()) != root_hex:
-            print(f"[execnode] root-ring seed REFUSED ns={ns} cursor={cursor}: stash does not reproduce "
-                  f"{root_hex[:16]}…", flush=True)
-            return False
         ring = getattr(st, "_root_ring", None)
         if ring is None:
             ring = st._root_ring = {}
-        ring[root_hex] = (kv.root(), rec_p)
+        ring[root_hex] = ("b2", kv_root, rec_p)
         cache = getattr(st, "_ring_stores", None)
         if cache is None:
             cache = st._ring_stores = {}
@@ -4973,7 +4096,7 @@ async def h_unshield_proof(request):
     pass L1's settled root) or the CURRENT state_root, submitted to L1's `unshield` to release
     SHIELD_ESCROW coins once settled. 404 if the nonce is unknown; 409 if ?root= is not held."""
     # the Merkle proof a user submits to L1's `unshield` to release SHIELD_ESCROW coins against the settled root
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     nonce = str(request.query.get("nonce", ""))
     w = state.unshield_withdrawals.get(nonce)
     if not w:
@@ -4985,71 +4108,6 @@ async def h_unshield_proof(request):
     proof, root = got
     return web.json_response({"addr": w["addr"], "amount": w["amount"], "nonce": nonce,
                               "proof": proof, "state_root": root})
-
-
-def _zkvm_contract(st, cid):
-    """The (contract, error-response) pair for a zkvm-runtime contract id."""
-    c = st.contracts.get(cid)
-    if not c:
-        return None, web.json_response({"error": f"no contract {cid}"}, status=404)
-    if c.get("runtime") != "zkvm":
-        return None, web.json_response({"error": "contract is not on the zkvm runtime"}, status=400)
-    return c, None
-
-
-async def h_verify_call(request):
-    """Verify a proven zkvm call WITHOUT executing it, then check its I/O log against THIS node's current
-    state (zkvm.replay_io + chain-randomness cross-check). Body: {bundle_json} (from /exec/prove_call) or
-    the same fields inline. Returns {ok, reason, ret, state_match, payouts} — ok = the proof is sound for
-    the stated call; state_match = the log also applies cleanly to this node's state right now."""
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "bad json"}, status=400)
-    st = _state_for(request)
-    if st is None:
-        return _NS404()
-    from execnode import runtimes as _rt, zkvm
-    from execnode.stark import vm_circuit, field as _F
-    try:
-        b = json.loads(body["bundle_json"]) if "bundle_json" in body else body
-        c, err = _zkvm_contract(st, b["cid"])
-        if err:
-            return err
-        cf, fargs = _rt.zkvm_statement(b.get("caller", "prover"), b.get("args", []), {})
-        io = [tuple(int(x) for x in e) for e in b["io"]]
-
-        def _verify():
-            return vm_circuit.verify_call(b["proof"], c["code"], b["method"], cf, fargs, io,
-                                          value=int(b.get("value", 0)), cursor=int(b.get("cursor", 0)),
-                                          timestamp=int(b.get("timestamp", 0)),
-                                          asset=int(b.get("asset") or 0),
-                                          selfd=_rt.zkvm_addr_digest(b["cid"]))
-        async with _sem():
-            ok, why = await asyncio.to_thread(_verify)
-        if not ok:
-            return web.json_response({"ok": False, "reason": why})
-        slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-        ok2, ret, _new_slots, payouts, chain, effects = zkvm.replay_io(io, slots, with_assets=True)
-        chain_ok = all(
-            (k == zkvm.IO_BHASH and st.block_hashes.get(a) is not None and st.block_hashes[a] % _F.P == v) or
-            (k == zkvm.IO_BEACON and st.beacons.get(a) is not None and st.beacons[a] % _F.P == v)
-            for k, a, v in chain)
-        # The asset half of state_match: the log's ABAL reads must match this node's ledger and every move
-        # it declares must be one the contract is actually allowed to make. Staged, never committed — this
-        # is a query endpoint; it reports whether the call WOULD apply, it does not apply it.
-        named = [(k, a, st.zk_addrs.get(str(t)) if t else None, amt) for k, a, t, amt in effects]
-        assets_ok, assets_why, _d, _s, _m = st.stage_asset_effects(b["cid"], named)
-        pays = [[st.zk_addrs.get(str(to)), amt] for to, amt in payouts]
-        return web.json_response({"ok": True, "reason": "ok", "ret": str(ret),
-                                  "state_match": bool(ok2 and chain_ok and assets_ok),
-                                  "assets_reason": assets_why or "ok",
-                                  "payouts": pays,
-                                  "asset_effects": [[k, a, t, amt] for k, a, t, amt in named]})
-    except KeyError as e:
-        return web.json_response({"error": f"missing field {e}"}, status=400)
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
 
 
 async def main():
@@ -5073,7 +4131,7 @@ async def main():
                     # routes only remained as a way to hand a secret to a server. Unrouted for good and the
                     # handlers deleted (h_prove_transfer, h_prove_transfer2, h_prove_call): never re-add a route
                     # that takes a spending key or a note witness. A private key is never sent anywhere (CLAUDE.md §8).
-                    web.post("/exec/verify_call", h_verify_call),
+                    # /exec/verify_call (a Goldilocks call proof) went with its verifier in G9.
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),

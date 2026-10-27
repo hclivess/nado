@@ -392,16 +392,14 @@ class ExecState:
         # committed bridge leaves).
         self.zk_addrs = {}        # str(field digest) -> addr
         # STATE-ROOT CACHE: state_root() is a pure function of the root-committed state. The root is the
-        # FROZEN betanet-6 scheme (execnode/exec_root.py): rnode(kv half, records half), two persistent
-        # depth-256 sparse alghash2 trees that are DIFF-APPLIED per recompute — O(changed·depth) hashing
+        # gen-29 BLAKE2s scheme (execnode/exec_root_b2.py): (kv half, records half), two persistent
+        # compressed sparse trees (execnode/csmt.py) that are DIFF-APPLIED per recompute — O(changed·depth) hashing
         # per block, never a whole-state rebuild (the cold build happens once, at load/bootstrap). Every
         # root-affecting mutator calls _touch() (under _mutate_lock) to invalidate the cached hex; the
         # trees themselves persist across touches. _mut_gen versions the whole state so the provisional
         # rebuild can skip cloning when nothing changed.
         self._root_cache = None
-        self._kv_store = None            # persistent KV half-tree (lazy cold build, then incremental)
-        self._rec_store = None           # persistent RECORDS half-tree
-        self._b2_trees = None            # the BLAKE2s halves (BLAKE_EXEC_HEIGHT), same lazy/incremental life
+        self._b2_trees = None            # the BLAKE2s halves: lazy cold build, then diff-applied (incremental)
         self._mut_gen = 0
         self.load()
 
@@ -411,9 +409,6 @@ class ExecState:
         across touches and are diff-applied on the next state_root()."""
         self._root_cache = None
         self._mut_gen = getattr(self, "_mut_gen", 0) + 1
-        if not hasattr(self, "_kv_store"):
-            self._kv_store = None
-            self._rec_store = None
         if not hasattr(self, "_b2_trees"):
             self._b2_trees = None
 
@@ -611,8 +606,8 @@ class ExecState:
         return blake_exec_at(self.cursor)
 
     def _blake_trees(self):
-        """The two BLAKE2s half-trees (execnode/exec_root_b2.py) diff-applied to the CURRENT state — _sparse_stores's
-        twin, memoised on the mutation generation the same way. Called only under _mutate_lock."""
+        """The two BLAKE2s half-trees (execnode/exec_root_b2.py) diff-applied to the CURRENT state, memoised on the
+        mutation generation. Called only under _mutate_lock."""
         from execnode import csmt, exec_root_b2 as R2
         gen = getattr(self, "_mut_gen", 0)
         if self._b2_trees is not None and getattr(self, "_b2_gen", None) == gen:
@@ -625,37 +620,6 @@ class ExecState:
             self._b2_trees[1].apply(rec_p)
         self._b2_gen = gen
         return self._b2_trees
-
-    def _sparse_stores(self):
-        """The two persistent depth-256 half-trees of the FROZEN root scheme (execnode/exec_root.py),
-        diff-applied to the CURRENT state: contract storage in the KV half; bridged/dividend balances,
-        withdrawal records, pool digests and cross-domain messages in the RECORDS half. Every honest node
-        derives identical projections → identical root. Called ONLY under _mutate_lock (state_root), so a
-        concurrent thread-apply can never tear the diff. First call is the cold build; afterwards each
-        recompute hashes only what changed (O(changed·depth))."""
-        from execnode import exec_root as ER
-        from execnode.stark import storage_tree as SST
-        # MEMO ON THE MUTATION GENERATION. The diff-apply below is cheap, but the PROJECTIONS feeding it
-        # are not: kv_projection re-derives one alghash2 slot_key per storage slot (10k slots = 0.34s idle,
-        # several seconds under load) — and every /exec/dividend_proof on the live root came through here
-        # (state_root is cached; _record_proof was not). Measured 2026-08-24: ~2 such requests/s from
-        # wallets with hundreds of unclaimed nonces pinned the event loop, the finalized tail's 64 block
-        # fetches queued behind them, and the exec cursor advanced in 6-minute lurches (56/44 behind L1).
-        # Nothing changed between two calls at the same _mut_gen — _touch bumps it on every mutator, the
-        # same trust state_root's cache already rests on — so the stores are returned as they stand.
-        gen = getattr(self, "_mut_gen", 0)
-        if self._kv_store is not None and getattr(self, "_stores_gen", None) == gen:
-            return self._kv_store, self._rec_store
-        kv_p = ER.kv_projection(self.contracts, v2=ER.root_v2(self.cursor))   # the layout follows the cursor's height (EXEC_ROOT_V2)
-        rec_p = ER.records_projection(self)
-        if self._kv_store is None:
-            self._kv_store = SST.SparseStore(ER.DEPTH, kv_p)
-            self._rec_store = SST.SparseStore(ER.DEPTH, rec_p)
-        else:
-            ER.apply_projection(self._kv_store, kv_p)
-            ER.apply_projection(self._rec_store, rec_p)
-        self._stores_gen = gen
-        return self._kv_store, self._rec_store
 
     def unshields_for(self, addr):
         """Pending unshield exits recorded for an L1 address — a wallet uses this to find the nonce(s) of its
@@ -696,15 +660,11 @@ class ExecState:
             root = self.state_root()
             if root in ring:
                 return root
-            if self.rules_blake_exec():
-                # a BLAKE2s root remembers its format with it: record_proof_at must rebuild THAT tree for it
-                from execnode import exec_root_b2 as R2
-                kv, _rec = self._blake_trees()
-                ring[root] = ("b2", kv.root(), R2.records_projection(self))
-            else:
-                from execnode import exec_root as ER
-                kv, _rec = self._sparse_stores()
-                ring[root] = (kv.root(), ER.records_projection(self))
+            # a BLAKE2s root remembers its format with it ("b2"): record_proof_at rebuilds THAT tree for it, and
+            # execnode._seed_root_ring_sync seeds the same shape (INVARIANT: keep the two identical)
+            from execnode import exec_root_b2 as R2
+            kv, _rec = self._blake_trees()
+            ring[root] = ("b2", kv.root(), R2.records_projection(self))
             while len(ring) > self._ROOT_RING_KEEP:
                 del ring[next(iter(ring))]
             return root
@@ -715,9 +675,6 @@ class ExecState:
         held (too old, or this node has not applied the settled cursor yet) OR if `value` is given and the
         record did not yet hold it under that root (e.g. a withdrawal collected after the settle): a proof
         built from those siblings could never verify, so the caller waits for the next settle instead."""
-        from execnode import exec_root as ER
-        from execnode.stark import storage_tree as SST
-        from execnode.stark import field as F
         with self._mutate_lock:
             live = self.state_root()
             if not root_hex or root_hex == live:
@@ -725,25 +682,8 @@ class ExecState:
             ent = getattr(self, "_root_ring", {}).get(root_hex)
             if not ent:
                 return None
-            if len(ent) == 3 and ent[0] == "b2":
-                return self._b2_record_proof_at(root_hex, ent, tag, *parts, value=value)
-            kv_root, proj = ent
-            key = ER.record_key(tag, *parts)
-            if value is not None and proj.get(key, 0) != int(value) % F.P:
-                return None
-            # ONE TREE PER REMEMBERED ROOT, not one per request: building the records half from its
-            # projection is 4.5s idle (706 leaves, depth 256) and was paid again for every ?root= proof.
-            # Cached beside the ring and pruned with it, so a root that is no longer held frees its tree.
-            cache = getattr(self, "_ring_stores", None)
-            if cache is None:
-                cache = self._ring_stores = {}
-            store = cache.get(root_hex)
-            if store is None:
-                store = cache[root_hex] = SST.SparseStore(ER.DEPTH, proj)
-                ring = self._root_ring
-                for k in [k for k in cache if k not in ring]:
-                    del cache[k]
-            return ER.record_proof(kv_root, store, key), root_hex
+            # every ring entry is BLAKE2s ("b2", kv root, records projection) since G9 deleted the Goldilocks root
+            return self._b2_record_proof_at(root_hex, ent, tag, *parts, value=value)
 
     def accrue_dividend_epoch(self, inflow, weights, epoch=None):
         with self._mutate_lock:
@@ -769,22 +709,17 @@ class ExecState:
         return distributed
 
     def state_root(self):
-        """THE settled execution-layer root (frozen betanet-6 scheme, execnode/exec_root.py):
-        rnode(kv half, records half) of the two depth-256 sparse alghash2 trees, 64-hex — identical on
+        """THE settled execution-layer root (the gen-29 BLAKE2s scheme, execnode/exec_root_b2.py):
+        full_root(kv half, records half) of the two compressed sparse trees, 64-hex — identical on
         every honest node at the same cursor. This is the root the bonded quorum settles on L1 and every
         bridge/dividend/unshield/xmsg exit is proven against. Cached; invalidated by _touch."""
         root = self._root_cache
         if root is None:
             with self._mutate_lock:
                 if self._root_cache is None:
-                    if self.rules_blake_exec():               # BLAKE_EXEC_HEIGHT: the gen-29 root (dormant on gen 28)
-                        from execnode import exec_root_b2 as R2
-                        kv, rec = self._blake_trees()
-                        self._root_cache = R2.full_root(kv.root(), rec.root()).hex()
-                    else:
-                        from execnode import exec_root as ER
-                        kv, rec = self._sparse_stores()
-                        self._root_cache = ER.full_root_hex(kv.root(), rec.root())
+                    from execnode import exec_root_b2 as R2
+                    kv, rec = self._blake_trees()
+                    self._root_cache = R2.full_root(kv.root(), rec.root()).hex()
                 root = self._root_cache
         return root
 
@@ -803,25 +738,6 @@ class ExecState:
         v.block_ts = 0                      # not in _snapshot() and not in the root; see clone()
         return v
 
-    @staticmethod
-    def records_root_from_snapshot(d):
-        """The RECORDS-half root of a serialized snapshot payload — disk-free, no mutation of any instance.
-
-        A settle-with-proof extends L1's JUSTIFIED root, which was computed as
-        rnode(kv-half, records-half) AT THE JUSTIFIED CURSOR. The proof's own pre-root must therefore be
-        paired with the records half AS OF THAT CURSOR, which lives in the stashed pre-state — not with
-        the records half as of now. Pairing a pre-root with today's records compares two roots that were
-        never simultaneously true, and that is exactly the `PRE MISMATCH` seen live 2026-08-04: the POST
-        side matched exactly while the PRE side did not, on spans carrying ZERO calls, where the kv half
-        provably had not moved at all.
-
-        Built the same way clone() builds a view — __new__ + _restore, so it never reads or writes disk."""
-        v = ExecState.snapshot_view(d)
-        from execnode import exec_root as ER
-        from execnode.stark import storage_tree as SST
-        from protocol import EXEC_TREE_DEPTH
-        return SST.SparseStore(EXEC_TREE_DEPTH, ER.records_projection(v)).root()
-
     def settle_snapshot(self):
         """(cursor, state_root_hex, records_root, mut_gen) captured ATOMICALLY under the mutate lock.
 
@@ -837,9 +753,9 @@ class ExecState:
         dividend moved the records at all.
 
         mut_gen lets a caller confirm afterwards that the state did not advance under it."""
-        with self._mutate_lock:                       # RLock: state_root/_sparse_stores re-enter safely
+        with self._mutate_lock:                       # RLock: state_root/_blake_trees re-enter safely
             root = self.state_root()
-            _kv, rec = self._sparse_stores()
+            _kv, rec = self._blake_trees()
             return self.cursor, root, rec.root(), getattr(self, "_mut_gen", 0)
 
     def _b2_record_proof_at(self, root_hex, ent, tag, *parts, value=None):
@@ -864,15 +780,10 @@ class ExecState:
         """Sparse exit proof {"kv": hex, "path": packed} for the record at record_key(tag, *parts) —
         the wire format L1's exec_root.verify_record checks against the settled root. From BLAKE_EXEC_HEIGHT the
         gen-29 format {"kv", "s", "t"} that exec_root_b2.verify_record checks."""
-        if self.rules_blake_exec():
-            from execnode import exec_root_b2 as R2
-            with self._mutate_lock:
-                kv, rec = self._blake_trees()
-                return R2.record_proof(kv.root(), rec, R2.record_key(tag, *parts))
-        from execnode import exec_root as ER
+        from execnode import exec_root_b2 as R2
         with self._mutate_lock:
-            kv, rec = self._sparse_stores()
-            return ER.record_proof(kv.root(), rec, ER.record_key(tag, *parts))
+            kv, rec = self._blake_trees()
+            return R2.record_proof(kv.root(), rec, R2.record_key(tag, *parts))
 
     def apply_xmsg(self, from_ns, message):
         """Deliver an L1-VERIFIED cross-domain message into this rollup's inbox. L1 already verified the

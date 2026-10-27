@@ -41,7 +41,7 @@ def main():
     witness = [n.name for n in tree.body if isinstance(n, ast.AsyncFunctionDef)
                and re.search(r'w\["nsk"\]|body\["nsk"\]|\["nsk"\]', ast.get_source_segment(src, n) or "")]
     check("no handler reads a nullifier key from a request", not witness, witness)
-    check("the verify-only route stays", "/exec/verify_call" in routes)
+    # /exec/verify_call verified a Goldilocks call proof and was deleted with that verifier in G9 (2026-10-27)
 
 
 if __name__ == "__main__":

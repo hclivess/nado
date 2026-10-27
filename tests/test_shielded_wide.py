@@ -34,14 +34,14 @@ import protocol
 # THE WIDE POOL IS ONLY EVER LIVE WITH THE STWO POOL OFF: from STWO_POOL_HEIGHT deposits land in the Stwo pool and only a
 # stwo_js bundle spends, so this file (heights up to 300,000) pins the Stwo gate off rather than read the live one.
 protocol.STWO_POOL_HEIGHT = 0
-# ...and the rest of generation 28's rules the wide pool lived under: its deposit close and the Goldilocks exec root its
-# exits verify against (exec_root as ER) — explicit, since both are block 1 on gen 29 (rehearsal)
+# ...and the deposit close the wide pool lived under on generation 28. Its exits verify against the BLAKE2s exec root
+# (exec_root_b2 as ER): G9 deleted the Goldilocks one, and the exec state computes only BLAKE2s whatever the gate says.
 import _harness as _hg
 protocol.WIDE_DEPOSIT_CLOSE_HEIGHT = _hg.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28)
 protocol.BLAKE_EXEC_HEIGHT = _hg.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
-from execnode import shielded_wide as SW, shielded_field as SF, exec_root as ER
+from execnode import shielded_wide as SW, shielded_field as SF, exec_root_b2 as ER
 
 import _harness
 _report = _harness.Report()
@@ -88,8 +88,8 @@ def t_empty_root_and_snapshot_unchanged_by_the_wide_pool():
     st = _state()
     assert not hasattr(protocol, "SHIELD_WIDE_HEIGHT"), "the gate is deleted: the wide pool is the pool from block 1"
     assert not st.rules_shield_wide(), "a fresh state (cursor -1) applies genesis, below the deleted gate"
-    from protocol import EXEC_GENESIS_ROOT
-    assert st.state_root() == EXEC_GENESIS_ROOT, "an empty state (with an empty wide pool) is still the genesis root"
+    from protocol import EXEC_GENESIS_ROOT_B2
+    assert st.state_root() == EXEC_GENESIS_ROOT_B2, "an empty state (with an empty wide pool) is still the genesis root"
     assert "wide_pool" not in st._snapshot(), "empty is absent in the snapshot too"
     # a legacy deposit at height 0 (below the deleted gate) lands in the legacy pool, exactly as before
     _apply(st, 0, [_shield_tx(1000, str(alghash.owner_of(NSK_A)), 7)])

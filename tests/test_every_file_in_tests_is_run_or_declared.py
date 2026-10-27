@@ -50,7 +50,6 @@ DECLARED = {
     "joinsplit3_js_crosscheck.sh": ("library", "driven by test_joinsplit3_js_proof_verifies_in_python"),
     "starkjs_crosscheck.sh": ("library", "driven by test_stark_js_prover_matches_python"),
     "mutation_check.py": ("library", "the mutation harness test_tests_can_fail drives"),
-    "opcode_programs.py": ("library", "one program per zkVM opcode, for test_every_opcode_is_provable / _settles_natively"),
     "pets_js_crosscheck.mjs": ("library", "the JS leg of test_game_clients_compute_what_the_contracts_pay"),
     "pets_js_crosscheck_gen.py": ("library", "vector generator for test_game_clients_compute_what_the_contracts_pay"),
     "pets_ref.py": ("library", "the pets reference model pets_js_crosscheck_gen.py builds vectors from"),

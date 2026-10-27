@@ -96,7 +96,8 @@ The exec `state_root` is now a **Merkle root** over all state, so any leaf (a wi
 
 Built + tested: `tests/test_blob.py` (DA channel + per-block cap), `tests/test_zkvm*.py` (VM, execution AIR,
 epoch aggregation, runtime + 3-way differential), `tests/test_stark_aux.py` (LogUp), `tests/test_settlement.py`
-(bonded-quorum) + `tests/test_settlement_proof.py` (epoch validity proof), `tests/test_bridge.py` (Merkle +
+(bonded-quorum; the Goldilocks epoch validity proof and its tests were retired in G9 — the Stwo settlement is
+`execnode/settle_b2.py`), `tests/test_bridge.py` (Merkle +
 full deposit→withdraw→settle→release round-trip), `tests/test_zkvm_args.py` (the `ARG` indexed-args bus +
 `DIVMODW`, with soundness negatives). **Provable execution is live** (per-call + epoch proofs,
 `/exec/prove_call`, the settlement seam). Epochs larger than one trace **segment and chain their state

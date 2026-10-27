@@ -70,7 +70,7 @@ def derive(txs, accruals=(), div_carry=0):
     calls_commit.block_summary commits and L1 concatenates), then each epoch's accrual through
     dividend_accrual_effects with the carry chained. (records_bind.span_effects, which these tests used to
     call, was deleted: nothing in production called it, and it derived value-call escrows as [] where
-    block_records_effects does not — see execnode._build_records_half.) A non-derivable block raises
+    block_records_effects does not — as gen 28's execnode._build_records_half did, deleted in G9.) A non-derivable block raises
     Unbindable, which is how a span that cannot be bound is refused."""
     eff, ok = RB.block_records_effects({"block_transactions": list(txs or ())})
     if not ok:

@@ -2,7 +2,7 @@
 
 doc/security-review-2026-09-23.md — exec: Z6 duplicate note commitments, Z9 the field path's exit address,
 Z4 the field pool's capacity, F7 runtime typing, F10 the lock flag, F8 constructor asset effects, F4 the
-per-block execution budget (with its prover mirror); L1: S4 the DA-carried proven marker, A4 canonical
+per-block execution budget (its prover mirror and A4 retired in G9 with the Goldilocks settle prover); L1: S4 the DA-carried proven marker, A4 canonical
 pre_contracts keys; proof: P2 aux as digest lanes, P3/Z8 the AIR identity in the transcript, P4 path lengths.
 
 Every rule is shown differing across the gate and nowhere else. The proof-format ones are shown on a toy AIR
@@ -40,7 +40,7 @@ for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "EXEC_BUDGET_V2_HEIG
     setattr(_P_gen28, _g, _gen28.gate_at(_g, 28))
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
-from execnode.stark import stark, field as F, settlement_sparse as SS
+from execnode.stark import stark, field as F
 from execnode.shielded_field import TREE_DEPTH
 
 import _harness
@@ -101,7 +101,7 @@ def t_f8_constructor_asset_effects_are_committed():
 
 
 # ---- F4 per-block execution budget ---------------------------------------------------------------------------
-def t_f4_block_budget_reverts_the_call_that_exceeds_it_and_the_prover_mirrors():
+def t_f4_block_budget_reverts_the_call_that_exceeds_it():
     # a tight loop that burns ~GAS_LIMIT steps: jmp to itself until the gas limit reverts? No — a call that
     # executes many steps and RETURNS: count down from a big number.
     loop = zkvmasm.assemble("movi r1 60000\n movi r2 1\n loop:\n sub r1 r2\n jnz r1 @loop\n ret r0")
@@ -125,15 +125,7 @@ def t_f4_block_budget_reverts_the_call_that_exceeds_it_and_the_prover_mirrors():
     st_old._block_steps = 0
     for i in range(fits + 1):
         assert st_old.apply_blob({"op": "call", "contract": cid, "method": "burn", "args": [], "value": 1}, ALICE, f"c{i}").endswith("-> ok")
-    # the prover: the same calls in one block are unprovable past the budget, provable below the gate
-    from execnode import settlement_proofs as SP
-    pre = {cid: {"code": code, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    calls = [{"cid": cid, "method": "burn", "caller": ALICE, "args": [], "cursor": GATE} for _ in range(fits + 1)]
-    try:
-        SP.prove_epoch(pre, calls, cursor=GATE, num_queries=2)
-        assert False, "the prover must refuse what the chain reverted"
-    except ValueError as e:
-        assert "budget" in str(e), e
+    # the prover-mirrors half retired in G9: the Goldilocks settlement prover (settlement_proofs.prove_epoch) was deleted
 
 
 # ---- Z6 / Z9 / Z4 (shielded) ---------------------------------------------------------------------------------
@@ -185,34 +177,8 @@ def t_s4_da_proof_records_the_marker_from_the_gate():
 
 
 # ---- A4 canonical pre_contracts keys ---------------------------------------------------------------------------
-def t_a4_non_canonical_pre_contracts_keys_are_refused():
-    ok, why = SS._canonical_pre_contracts({"c" * 32: {"storage": {"slots": {"05": 1}}}})
-    assert not ok and "slot key" in why
-    ok, why = SS._canonical_pre_contracts({"C" * 32: {"storage": {"slots": {"5": 1}}}})
-    assert not ok and "cid" in why
-    ok, why = SS._canonical_pre_contracts({"c" * 32: {"storage": {"slots": {"5": 1, "0": 7}}}})
-    assert ok
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "execnode", "stark", "settlement_sparse.py")).read()
-    assert "if stark.current_rules().round2:" in src and "okc, whyc = _canonical_pre_contracts(bundle[\"pre_contracts\"]," in src
-
-
-def t_a4_fixed_name_contracts_pass_from_their_gate_and_nothing_else_does():
-    """THE FIXED NAMES (gen 25's PROOF_FIXED_CID_HEIGHT, from settle cursor 1 since): live state holds `faucet` and
-    `sovereign`, so the hex-only check refused EVERY honest settle proof from 214000. Exactly those names pass; a
-    near-miss spelling never does; a settle at cursor 0 keeps the refusal."""
-    import protocol as P
-    pre = {"c" * 32: {"storage": {"slots": {"5": 1}}}, "faucet": {"storage": {"slots": {"1": 2}}},
-           "sovereign": {"storage": {"slots": {}}}}
-    ok, why = SS._canonical_pre_contracts(pre)
-    assert not ok and "faucet" in why, "without the fixed names (cursor 0) the refusal stands"
-    ok, why = SS._canonical_pre_contracts(pre, fixed_names=True)
-    assert ok, why
-    for bad in ("Faucet", "faucet ", "0xab", "FAUCET", "faucet2"):
-        ok, why = SS._canonical_pre_contracts({bad: {"storage": {"slots": {}}}}, fixed_names=True)
-        assert not ok, f"{bad!r} must stay refused"
-    assert not hasattr(P, "PROOF_FIXED_CID_HEIGHT")
-    assert 'fixed_names=int(bundle["cursor"]) >= 1)' in open(
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "execnode", "stark", "settlement_sparse.py")).read()
+# a4_non_canonical_pre_contracts_keys_are_refused and a4_fixed_name_contracts_pass_from_their_gate_and_nothing_else_does
+# retired in G9: settlement_sparse (the Goldilocks settle-proof verifier that read pre_contracts) was deleted
 
 
 # ---- proof rules: P2 aux lanes, P3/Z8 AIR identity, P4 path lengths ----------------------------------------------

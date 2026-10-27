@@ -6,14 +6,13 @@
 
 This file covers:
   * a node-local failure (a missing/stale native kernel, or memory) is RAISED through every verify layer, never
-    returned as "invalid" — and the settle branch turns it into ProofUnavailable (defer, not reject);
+    returned as "invalid";
   * exit claims are bounded (no amount + k*P aliasing), from PROOF_QUERY_FULL_HEIGHT;
-  * a settle proof carries no PAY when records-frozen (its asset io is left to the settle branch's pinned binding);
-  * io attribution requires exactly one RET segment per VM unit;
   * the wide spend key is four lanes (algebra and a real proof), and the browser binds the same aux string;
   * the Rust compose kernels return NEGATIVE error codes (a positive one was read as a column id);
-  * the exec node never builds a fold the chain would refuse;
   * the wallet's privacy guards are in place (pause, v2 key domain, pool-separated notes, local receive lookup).
+The settle-proof cases (the settle branch's deferral, its PAY / io-attribution checks, the exec node's fold decision)
+were retired in G9 with the Goldilocks settle proof: a BLAKE2s exec root settles by quorum attestation only.
 
 Run: python3 tests/test_zk_review_2026_09_24.py
 """
@@ -65,6 +64,7 @@ def t_a_missing_kernel_inside_fri_is_raised_not_returned():
             "stark.verify (or the fri.verify inside it) turned a node-local failure into a verdict"
     finally:
         merkle.verify = real
+    assert NG.NativeMissing in NG.NODE_LOCAL_ERRORS and MemoryError in NG.NODE_LOCAL_ERRORS
 
 
 def t_memory_errors_inside_fri_are_raised_too():
@@ -81,27 +81,8 @@ def t_memory_errors_inside_fri_are_raised_too():
         merkle.verify = real
 
 
-def t_the_settlement_verifiers_raise_node_local_failures():
-    from execnode.stark import settlement_sparse as SS, vm_circuit as V
-    real = V.verify_epoch_calls
-    def boom(*a, **k):
-        raise NG.NativeMissing("simulated")
-    V.verify_epoch_calls = boom
-    try:
-        seg = {"depth": 256, "proof": {}, "calls": [], "io": [], "cursor": 1, "pre_contracts": {}}
-        assert _raises(NG.NativeMissing, lambda: SS.verify_bound_epoch(seg)), "verify_bound_epoch swallowed it"
-        assert _raises(NG.NativeMissing, lambda: SS.verify_settlement_sparse({"segments": [seg]}, depth=256)), \
-            "verify_settlement_sparse swallowed it"
-    finally:
-        V.verify_epoch_calls = real
-    assert NG.NativeMissing in NG.NODE_LOCAL_ERRORS and MemoryError in NG.NODE_LOCAL_ERRORS
-
-
-def t_the_settle_branch_defers_instead_of_rejecting():
-    """The L1 settle branch cannot run without a chain; pin that both in-process verify calls convert the node-local
-    failure into ProofUnavailable (defer) rather than letting it become a rejection."""
-    src = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    assert src.count("raise ProofUnavailable(f\"this node cannot verify settle proofs yet:") == 2
+# the settlement verifiers raise node local failures retired in G9: settlement_sparse and vm_circuit were deleted
+# the settle branch defers instead of rejecting retired in G9: L1 no longer verifies a settle proof (it refuses one)
 
 
 # ---- exit claims and settle io -----------------------------------------------------------------------------------
@@ -114,39 +95,8 @@ def t_exit_claims_are_bounded_from_the_gate():
     assert _raises(AssertionError, lambda: exit_amount_check(5 + F.P, GATE)), "amount + P must be refused"
 
 
-def t_settle_proofs_carry_no_pay_when_frozen_and_asset_io_is_left_to_the_binding():
-    from ops.transaction_ops import settle_proof_io_check
-    from execnode import zkvm as Z
-    pay = {"segments": [{"io": [[Z.IO_PAY, 1, 2]]}]}
-    assert _raises(AssertionError, lambda: settle_proof_io_check(pay, False, GATE - 1)), "frozen proof with a PAY"
-    assert _raises(AssertionError, lambda: settle_proof_io_check(pay, False, GATE)), "frozen proof with a PAY"
-    settle_proof_io_check(pay, True, GATE)                # a records-bound proof derives the payout instead
-    # "no asset io in any settle proof" (this review) was superseded by the zk audit 2026-09-26 (gen 27's
-    # ZK_HARDEN_HEIGHT, 1 from gen 28 and deleted): asset io is BOUND against the pinned records pre-state
-    # (records_bind.PinnedAssets) in the settle branch, and a records-frozen proof's asset io must net to nothing
-    # there — tests/test_asset_settle_l1.py pins both. The io check itself admits it at every height.
-    for kind in Z.IO_ASSET_KINDS:
-        prf = {"segments": [{"io": [[Z.IO_SSTORE, 1, 2], [kind, 3, 4]]}]}
-        for h in (GATE - 1, GATE):
-            settle_proof_io_check(prf, True, h)
-            settle_proof_io_check(prf, False, h)
-    settle_proof_io_check({"segments": [{"io": [[Z.IO_SSTORE, 1, 2], [Z.IO_RET, 0, 0]]}]}, False, GATE)
-
-
-def t_io_attribution_needs_one_segment_per_vm_unit():
-    from execnode.stark import settlement_sparse as SS, exec_state_bind as ESB
-    from execnode import zkvm as Z
-    real = ESB.vm_units
-    ESB.vm_units = lambda pre, calls, cursor, ts: [("c" * 32, {})]
-    try:
-        ok_bundle = {"pre_contracts": {}, "calls": [], "cursor": 1, "io": [[Z.IO_SSTORE, 1, 2], [Z.IO_RET, 0, 0]]}
-        assert SS._cid_io(ok_bundle) == [("c" * 32, Z.IO_SSTORE, 1, 2), ("c" * 32, Z.IO_RET, 0, 0)]
-        extra = dict(ok_bundle, io=ok_bundle["io"] + [[Z.IO_SSTORE, 9, 9], [Z.IO_RET, 0, 0]])
-        assert _raises(ValueError, lambda: SS._cid_io(extra)), "io past the last VM unit was silently dropped"
-        short = dict(ok_bundle, io=[[Z.IO_SSTORE, 1, 2]])
-        assert _raises(ValueError, lambda: SS._cid_io(short)), "a VM unit with no RET segment"
-    finally:
-        ESB.vm_units = real
+# settle proofs carry no pay when frozen retired in G9: settle_proof_io_check was deleted with the L1 settle-proof verifier
+# io attribution needs one segment per vm unit retired in G9: settlement_sparse._cid_io was deleted
 
 
 # ---- the wide spend key ------------------------------------------------------------------------------------------
@@ -202,14 +152,7 @@ def t_the_compose_kernels_return_negative_error_codes():
     assert rc < 0, f"a validation failure returned {rc}, which the wrapper would read as a column id"
 
 
-def t_the_exec_node_never_builds_a_fold_the_chain_refuses():
-    from execnode.stark import recursive_verify as RV
-    # every proof rule holds from block 1 (the gen-25 gates are deleted): the fold is refused from there, and only
-    # height 0 — below every deleted gate — is not
-    assert not RV.fold_refused_at(0)
-    assert RV.fold_refused_at(1) and RV.fold_refused_at(GATE) and RV.fold_refused_at(10 ** 6)
-    src = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
-    assert "_RVf.fold_refused_at(int(cur) + 1)" in src
+# the exec node never builds a fold the chain refuses retired in G9: the exec node's fold (SETTLE_FOLD) was deleted
 
 
 # ---- the wallet --------------------------------------------------------------------------------------------------

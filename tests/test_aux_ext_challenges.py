@@ -20,8 +20,7 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from execnode.stark import (stark, extf as ext2, logup, logup_bind as LB, vm_circuit as VC,
-                            soundness, backend as BK, field as F)
+from execnode.stark import stark, soundness, backend as BK
 
 fails = []
 
@@ -33,6 +32,7 @@ def check(cond, label):
 
 
 # ---------------------------------------------------------------- which layout is active
+from execnode.stark import extf as ext2
 D = ext2.DEGREE
 check(stark.ext_challenges_active(BK.DEFAULT),
       f"the default backend draws aux/alpha challenges from GF(p^{D})")
@@ -44,54 +44,10 @@ check(stark.ext_challenges_active(BK.RECURSION) == stark.ext_challenges_active(B
 check(stark.ext_challenges_active(None) == stark.ext_challenges_active(BK.DEFAULT),
       "None resolves to the default backend, so prover and verifier agree when it is omitted")
 
-# ---------------------------------------------------------------- combine follows the challenge field
-base = logup.combine([1, 2, 3], 5)
-lifted = logup.combine([1, 2, 3], ext2.lift(5))
-check(lifted == ext2.lift(base),
-      "combine over a LIFTED base gamma equals the base result (the ext path is a faithful extension)")
-check(isinstance(logup.combine([1, 2, 3], (5, 7)), tuple),
-      "combine with a true ext gamma returns an ext element")
-
-# ---------------------------------------------------------------- geometry doubles, degree does not
-check(LB._aux_spec(ext=True)["num_aux"] == D * LB._aux_spec(ext=False)["num_aux"],
-      f"logup_bind: each logical aux column becomes {D} base columns under ext")
-check(VC._aux_spec([], ext=True)["num_aux"] == D * VC._aux_spec([], ext=False)["num_aux"],
-      "vm_circuit: same widening")
-check(VC.W_TOTAL_EXT == VC.W_MAIN + D * VC.NUM_AUX,
-      f"vm_circuit: the ext trace width is main + {D}*aux")
-check(len(VC.transitions(ext=True)) == len(VC.transitions(ext=False)),
-      "the constraint COUNT is unchanged — this is a field change, not a circuit redesign")
-
-# ---------------------------------------------------------------- BOTH accumulator limbs are pinned
-# The whole statement is "the buses balance", expressed as Z = 0 at both ends. Under ext, Z is a GF(p^2)
-# value: pinning only the lo limb would let a prover park an unbalanced bus in the hi limb and still satisfy
-# the boundary. That is a total loss of the argument, and it produces perfectly valid-looking proofs.
-lb_bnd = LB._boundaries(64, ext=True)
-acc_limbs = [LB._aux(LB._LOG_ACC, i) for i in range(D)]
-for row in (0, 63):
-    check(all(any(b == (row, c, 0) for b in lb_bnd) for c in acc_limbs),
-          f"logup_bind: ALL {D} limbs of the accumulator are pinned at row {row}")
-
-vc_bnd = VC._boundaries(64, ext=True)
-for row in (0, 63):
-    check(all(any(b == (row, c, 0) for b in vc_bnd) for c in VC._aux_limbs(VC.Z)),
-          f"vm_circuit: ALL {D} limbs of Z are pinned at row {row}")
-
-# The base layout must be untouched — the recursion backend still relies on it.
-lb_base = LB._boundaries(64, ext=False)
-check(lb_base == [(0, LB.ACC, 0), (63, LB.ACC, 0)],
-      "the base layout's boundaries are unchanged (RECURSION still proves through them)")
-
-# ---------------------------------------------------------------- the argument still works, both layouts
-A = [(1, 2, 3), (4, 5, 6), (7, 8, 9), (4, 5, 6)]
-for name, bk in (("ext (default)", None), ("base (recursion)", BK.RECURSION)):
-    proof = LB.prove_multiset_eq(A, list(reversed(A)), num_queries=8, backend=bk)
-    ok, why = LB.verify_multiset_eq(proof, expect_n=len(A), num_queries=8, backend=bk)
-    check(ok, f"{name}: a true multiset equality verifies ({why})")
-
-    bad = LB.prove_multiset_eq(A, [(9, 9, 9), (4, 5, 6), (7, 8, 9), (4, 5, 6)], num_queries=8, backend=bk)
-    ok2, _ = LB.verify_multiset_eq(bad, expect_n=len(A), num_queries=8, backend=bk)
-    check(not ok2, f"{name}: an UNEQUAL multiset is rejected (the argument still binds)")
+# combine-follows-the-challenge-field, aux-geometry-widening, both-accumulator-limbs-pinned and the
+# multiset-equality round trips retired in G9: logup, logup_bind and vm_circuit (the only aux_spec circuits) were
+# deleted with the Goldilocks settle proof. The single-authority flag above and the calculator below remain live:
+# stark.py, recursive_verify and stark_native still read ext_challenges_active.
 
 # ---------------------------------------------------------------- the calculator reports what the code does
 check(soundness.aux_bits(17, ext=True) > soundness.aux_bits(17, ext=False),

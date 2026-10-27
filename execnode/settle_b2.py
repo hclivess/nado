@@ -50,7 +50,7 @@ from collections.abc import MutableMapping
 from execnode import block_apply, csmt, runtimes, zkvm2
 from execnode import exec_root_b2 as B2
 from execnode.csmt_partial import Missing, PartialTree, opener_for
-from execnode.exec_root import (T_ASSET_ALLOW, T_ASSET_BAL, T_ASSET_META, T_BRIDGE_BAL, T_BRIDGE_WD, T_DIGEST,
+from execnode.exec_root_b2 import (T_ASSET_ALLOW, T_ASSET_BAL, T_ASSET_META, T_BRIDGE_BAL, T_BRIDGE_WD, T_DIGEST,
                                 T_DIV_BAL, T_DIV_WD, T_UNSHIELD_WD, asset_meta_digest, leaf_digest, msg_outbox_leaf)
 from execnode.state import ExecState
 

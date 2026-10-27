@@ -19,10 +19,45 @@ Nothing imports this module on a consensus path until BLAKE_EXEC_HEIGHT (dormant
 import hashlib
 
 from execnode import csmt
-from execnode.exec_root import (T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_ASSET_BAL,
-                                T_ASSET_META, T_ASSET_ALLOW, T_APP_ROOT, T_APP_NULL, asset_meta_digest, leaf_digest,
-                                msg_outbox_leaf, msg_inbox_leaf)
-from hashing import canonical_bytes, outbox_leaf
+from hashing import blake2b_hash, canonical_bytes, outbox_leaf
+
+# Leaf-digest domain tag (brand-carrying; renamed only at a CHAIN_GENERATION reroll).
+DOMAIN_REC_DIGEST = b"rec-digest-v1"
+
+# record tags (FROZEN — APPEND only; an existing tag's number is part of every settled root ever computed)
+T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
+T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
+T_ASSET_ALLOW = 10                 # (asset, owner, spender) -> allowance (delegated-spend authorization)
+# SHIELDED CONTRACTS (execnode/shielded_state.py). Private application state enters the settled root the
+# same way the two pools already do — as a digest IN THE POSITION — so a contract's private note root is
+# provable against one settled root by the SAME bounded verifier as a bridge balance. Appending these two
+# is the whole state-binding cost of the feature: tags 1-10 do not move, so no historical root is
+# invalidated and no CHAIN_GENERATION reroll is required.
+T_APP_ROOT, T_APP_NULL = 11, 12    # (cid, note root) -> 1, and the spent-nullifier set digest -> 1
+
+
+def leaf_digest(leaf_bytes):
+    """64-hex digest of a canonical message-leaf's bytes — what a digest record commits in its position."""
+    return hashlib.blake2b(DOMAIN_REC_DIGEST + leaf_bytes, digest_size=32).hexdigest()
+
+
+def msg_outbox_leaf(msg):
+    """Canonical bytes for one outbox message (shared with L1 xmsg verification via THIS module)."""
+    return outbox_leaf(msg["seq"], msg["from"], msg["to_ns"], msg.get("data"))
+
+
+def msg_inbox_leaf(i, msg):
+    """Canonical bytes for one DELIVERED cross-domain message (index-tagged, append-only)."""
+    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)), msg.get("data")])
+
+
+def asset_meta_digest(meta):
+    """The digest an asset's T_ASSET_META leaf is positioned by. ONE encoding, shared by records_projection and
+    records_bind's asset derivation: the settle verifier authenticates a prover-supplied metadata preimage by
+    finding THIS leaf in the pinned projection, and a second copy of the encoding would drift from the first."""
+    return blake2b_hash(["asset", meta["issuer"], int(meta["seed"]), meta["name"], meta["sym"], int(meta["dec"]),
+                         int(meta["supply"]), bool(meta["mintable"]), meta.get("uri", "")])
+
 
 PERSON_SLOT = b"NADOkvS1"         # contract slot position
 PERSON_CODE = b"NADOkvC1"         # contract code position

@@ -803,7 +803,7 @@ class MemServer:
             return {"message": "Already present", "result": True}
         # IN-FLIGHT DEDUPE (2026-09-02): the pool-membership check above is blind to a tx whose FIRST
         # validation is still running — nine peers pushing the same settle tx within a second put nine
-        # copies through full proof verification at once (see transaction_ops._SETTLE_VERIFY_GATE for what
+        # copies through full proof verification at once (the Goldilocks settle verifier, deleted in G9, for what
         # that cost). The second arrival of an in-flight txid is acknowledged, not re-validated.
         if isinstance(_txid, str):
             with self._inflight_lock:

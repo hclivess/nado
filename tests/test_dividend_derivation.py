@@ -105,13 +105,7 @@ def t_fails_closed_on_every_missing_input():
         "both the missing-carry path and the error path must fail closed"
 
 
-def t_l1_epoch_refusal_is_conditional_now():
-    """The blanket refusal was the 55-refusal class. It must remain for a records-FROZEN proof, which pins
-    one records root across the span and so would assert something false, and lift only for a bound one."""
-    tx = open(os.path.join(ROOT, "ops", "transaction_ops.py")).read()
-    assert "if not _records_bound:" in tx, "the epoch refusal must be conditional on the records binding"
-    i = tx.index("if not _records_bound:")
-    assert "crosses an epoch boundary" in tx[i:i + 600], "the conditional must guard the epoch assert"
+# t_l1_epoch_refusal_is_conditional_now retired in G9: the L1 settle-proof verifier it read was deleted
 
 
 for nm, fn in [("attribution matches the tail loop", t_attribution_matches_the_tail_loop),
@@ -121,8 +115,7 @@ for nm, fn in [("attribution matches the tail loop", t_attribution_matches_the_t
                ("zero weight is floored to one", t_zero_weight_is_floored_to_one),
                ("effects are T_DIV_BAL positions", t_effects_are_div_bal_positions),
                ("the carry rides the summary, not a new meta row", t_carry_is_stored_in_the_summary_not_a_new_meta_row),
-               ("every missing input fails closed", t_fails_closed_on_every_missing_input),
-               ("the L1 epoch refusal is conditional", t_l1_epoch_refusal_is_conditional_now)]:
+               ("every missing input fails closed", t_fails_closed_on_every_missing_input)]:
     check(nm, fn)
 
 print()

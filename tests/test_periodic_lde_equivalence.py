@@ -114,7 +114,7 @@ def t_the_lde_cache_is_bounded_and_compact():
 def t_the_cache_key_binds_the_column_bytes():
     """Keying on (T, D, K) or on the column's index would return the wrong polynomial the moment a caller's
     layout differed — and the verifier would then check a proof against values nobody derived from the
-    statement. Same rule settle_verify_key follows for verdicts: bind the BYTES."""
+    statement. Same rule settle_verify_key followed for verdicts (deleted in G9): bind the BYTES."""
     src = open(os.path.join(ROOT, "execnode/stark/stark.py")).read()
     seg = src[src.index("def _per_lde_key"):src.index("def _per_lde_cached")]
     assert "blake2b" in seg, "the key must be a digest of the column contents"

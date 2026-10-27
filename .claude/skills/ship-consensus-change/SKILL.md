@@ -179,15 +179,15 @@ outage as a check that admits a forgery — it just fails silently, into the bar
 Before shipping any verifier check:
 
 ```bash
-python3 tests/test_settle_proof_verifies_live_stash.py     # the real settle stash, under EVERY scheduled rule
-python3 tests/test_settle_proof_live_state_shape.py        # every contract-id kind the deploy path creates
+python3 tools/settle_b2_shadow.py --help                    # prove + verify REAL settled spans off-chain (the G8 shadow job)
+python3 tests/test_a_stwo_settlement_of_a_span_replays_the_exec_transition_and_refuses_forgeries.py
 ```
 
-The first proves from the newest real stash at a cursor above every finite gen-25 gate, so a check scheduled
-for a FUTURE height is judged against today's state before it fires. The second is the synthetic version for
-machines without a stash: its pre-state comes from the chain's own deploy and call paths, round-tripped through
-JSON like the stash, never from a dict written for the test. When you add a new way to name or store anything
-a verifier reads, add it to that file's pre-state.
+The shadow run proves and verifies the live chain's own settled spans (`~nado/.cache/nado-settle-shadow/results.jsonl`
+holds its verdicts every 30 min), so a check is judged against today's real state before it fires. The span test is the
+synthetic version, with the forgery suite. (The Goldilocks pair this section used to name, the live-stash and
+live-state-shape tests, were retired with that verifier in G9; the lesson stands: when you add a new way to name or
+store anything a verifier reads, add it to the span test's pre-state.)
 
 And never trust a timing claim in a comment about the verifier: `storage_tree` said "a sparse verifier never
 rebuilds the tree" long after the pre-state pin made it rebuild the whole tree cold in every verify child — the

@@ -128,7 +128,7 @@ async def main():
     check("...and discards it on completion", "_settle_tasks.discard" in src)
     check("the stale 'detaching cannot pile tasks up' claim is gone",
           "detaching cannot pile tasks up" not in src)
-    check("a completed prove now announces itself", "settle-with-proof BUILT" in src)
+    # ("a completed prove now announces itself" pinned the Goldilocks prover's log line; that prover was deleted in G9)
 
 
 asyncio.run(main())

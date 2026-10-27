@@ -2,10 +2,10 @@
 End-to-end tests for the ported zkVM games (execnode/games/*). For each game this deploys the real contract
 through the normal blob path on a fresh ExecState, plays a FULL game via `apply_blob` calls (the same path
 the live exec node runs), and asserts: escrow moves correctly, the winner is paid, the banker's accounting
-balances, and the `decode_view` output matches what each game's frontend reads. It also STARK-proves one
-representative method per game (the whole point — a call is provable). Reverts are exercised too.
+balances, and the `decode_view` output matches what each game's frontend reads. Reverts are exercised too. (The
+per-game "one representative method STARK-proves" cases retired in G9 with the Goldilocks exec AIR, vm_circuit.)
 
-Run: python3 tests/test_games_e2e.py        (~2-3 min: several real proofs at reduced query count)
+Run: python3 tests/test_games_e2e.py
 """
 import os, sys, tempfile, traceback
 import atexit, shutil
@@ -26,7 +26,6 @@ import protocol as _P_gen28
 _P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState
 from execnode import runtimes
-from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
                             battleship as bs, pets as ptz, holdem as hd, stormhold as sh, scrapline as sc,
@@ -44,7 +43,6 @@ import _harness
 _report = _harness.Report()
 check = _report.run
 
-NQ = 6
 A = "ndoAAAA" + "A" * 41
 B = "ndoBBBB" + "B" * 41
 
@@ -56,14 +54,6 @@ def _fresh(mod, deployer=A, cursor=100):
     cid = st.contract_id(deployer, code, "n")
     rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
     return st, code, cid, rd
-
-def _prove(code, method, caller, args, slots, **kw):
-    cf, fa = runtimes.zkvm_statement(caller, args, {})
-    proof, io, ret, ns = V.prove_call(code, method, cf, fa, slots, num_queries=NQ, **kw)
-    vkw = {k: v for k, v in kw.items() if k in ("value", "cursor", "timestamp")}   # verify: context only
-    ok, why = V.verify_call(proof, code, method, cf, fa, io, num_queries=NQ, **vkw)
-    assert ok, f"{method} proof: {why}"
-
 
 # ---- coinflip ----------------------------------------------------------------------------------
 def t_coinflip():
@@ -89,15 +79,7 @@ def t_coinflip():
     st.apply_blob({"op": "call", "contract": cid, "method": "cancel", "args": [9]}, A, "5")
     assert st.bridge.get(cid, 0) == 0
 
-def t_coinflip_prove():
-    code = coinflip.build()
-    S = lambda f, k: f * (1 << 32) + k
-    slots = {S(1, 1): 2, S(2, 1): 500, S(7, 1): 102,
-             S(4, 1): runtimes.zkvm_addr_digest(A), S(5, 1): runtimes.zkvm_addr_digest(B)}
-    _prove(code, "settle", A, [1], slots, cursor=104, block_hashes={102: 1, 103: 2})     # a legacy (md == 0) game
-    cr = {S(1, 2): 2, S(2, 2): 500, S(3, 2): 1000, S(12, 2): 1, S(13, 2): 700, S(14, 2): 0xABC, S(15, 2): 0xDEF,
-          S(16, 2): 1, S(17, 2): 1, S(4, 2): runtimes.zkvm_addr_digest(A), S(5, 2): runtimes.zkvm_addr_digest(B)}
-    _prove(code, "settle", A, [2], cr, cursor=104)                                       # commit-reveal, both revealed
+# coinflip_prove retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- dice / roulette (banked) ------------------------------------------------------------------
@@ -139,15 +121,7 @@ def t_dice_overbet_reverts():
     rc = st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "4")
     assert "revert" in rc, "close with an open bet (tc>0) must revert"
 
-def t_dice_prove():
-    code = dice.build(); S = lambda f, k: f * (1 << 32) + k
-    slots = {S(1, 3): runtimes.zkvm_addr_digest(A), S(2, 3): 50_000_000, S(3, 3): 50_000_000}
-    _prove(code, "bet", B, [88, 3, 50], slots, value=100_000, cursor=100)
-    # Release B: a beacon seat's settle (seed_q -> BEACON(gb)) proves too — gb 3, gh 179, the bet's reservation in tc
-    st = {**slots, S(2, 3): 50_000_000, S(3, 3): 50_100_000, S(4, 3): 100_000 * 99 // 50,
-          S(dice.GG, 88): 3, S(dice.GM, 88): 50, S(dice.GS, 88): 100_000, S(dice.GA, 88): runtimes.zkvm_addr_digest(B),
-          S(dice.GH, 88): 179, S(dice.GB, 88): 3}
-    _prove(code, "settle", B, [88], st, cursor=180, beacons={3: 0xBEAC0})
+# dice_prove retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- tictactoe / connect4 (PvP board) ----------------------------------------------------------
@@ -182,13 +156,7 @@ def t_tictactoe_wrongturn_reverts():
     r = st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [7, 0, 9]}, A, "4")  # wrong ply
     assert "revert" in r
 
-def t_tictactoe_prove():
-    code = ttt.build(); S = lambda f, k: f * (1 << 32) + k
-    B_ = lambda cell, g: (ttt.BD_BASE + cell) * (1 << 32) + g
-    slots = {S(1, 42): 2, S(8, 42): 4, S(3, 42): 200000,
-             S(4, 42): runtimes.zkvm_addr_digest(A), S(5, 42): runtimes.zkvm_addr_digest(B),
-             B_(0, 42): 1, B_(1, 42): 1, B_(3, 42): 2, B_(4, 42): 2}
-    _prove(code, "move", A, [42, 2, 4], slots, cursor=100)
+# tictactoe_prove retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- slots / mines (banked reveal) -------------------------------------------------------------
@@ -352,11 +320,7 @@ def t_sovereign():
     assert v["lc"]["3"] == 5000 + sv.GAP, "raid pins a future seed height"
 
 
-def t_sovereign_act_proves():
-    from execnode.games import sovereign as sv
-    code = sv.build()
-    S = lambda f, k: f * (1 << 32) + k
-    _prove(code, "act", A, [6, 0, 0], {S(sv.MC, 0): 0}, cursor=100)
+# sovereign_act_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 def t_faucet():
@@ -385,16 +349,7 @@ def t_faucet():
     assert "paid=450" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [0, 56, 1, W1, 450]}, OP, "rw4"), "next day pays again"
     assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "reward", "args": [1, 55, 1, W1, 10 ** 12]}, OP, "rw5"), "underfunded fails closed"
 
-def t_faucet_reward_proves():
-    """The faucet's money path must be PROVABLE, not merely replayable.
-
-    This used to prove `claim`, the self-serve PoW grind — which was ripped out (the faucet is the
-    airdrop-play prize bank, nothing else), leaving the test referencing constants the contract no longer
-    defines. It had been failing on an AttributeError ever since, i.e. proving nothing. `reward` is the
-    method that actually moves money now, so it is the one that has to carry a proof."""
-    from execnode.games import faucet as fc
-    code = fc.build()
-    _prove(code, "reward", fc.OPERATOR, [0, 55, 1, "mldsa44" + "1" * 42, 450], {}, cursor=100_000)
+# faucet_reward_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 def t_scrapline():
@@ -473,11 +428,7 @@ def t_pool():
     assert rd(pl.WR, G2) == 1 and st.bridge.get(A, 0) == ab + 80_000
 
 
-def t_stormhold_move_proves():
-    code = sh.build(); S = lambda f, k: f * (1 << 32) + k
-    slots = {S(sh.NN, 77): 2, S(sh.MC, 77): 3, S(sh.P1, 77): runtimes.zkvm_addr_digest(A),
-             S(sh.P2, 77): runtimes.zkvm_addr_digest(B)}
-    _prove(code, "move", B, [77, 12345, 3], slots, cursor=200)
+# stormhold_move_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 def t_farkle():
@@ -581,24 +532,7 @@ def t_blackjack_hit_bust():
             break
     assert busted >= 2, "expected some hit-then-bust hands"
 
-def t_blackjack_prove():
-    import random as _r
-    st, code, cid, rd = _fresh(bj, deployer=A)
-    st.credit_deposit(A, 10_000_000_000); st.credit_deposit(B, 10_000_000)
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "o")
-    _r.seed(3); g = 100; st.cursor = 500
-    st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 100_000}, B, "d")
-    _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
-    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
-    assert not rd(bj.GD, g)
-    st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, "s")
-    _bj_land(st, rd, g, lambda: _r.randint(1, 2**60))
-    slots = {int(k): int(vv) for k, vv in st.contracts[cid]["storage"]["slots"].items()}
-    cf, fa = runtimes.zkvm_statement(B, [g], {})
-    proof, io, ret, ns = V.prove_call(code, "settle", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
-                                      beacons=st.beacons, block_hashes=st.block_hashes)
-    ok, why = V.verify_call(proof, code, "settle", cf, fa, io, num_queries=NQ, cursor=st.cursor)
-    assert ok, f"settle proof: {why}"
+# blackjack_prove retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- bet (parimutuel — the whole pot splits pro-rata among the winning outcome's backers) --------
@@ -734,36 +668,7 @@ def t_bet():
     assert str(M1) in v["mk"] and v["pl"][str(M1 * 8 + 0)] == 800 and v["mcr"][str(M1)] == ADM
 
 
-def t_bet_prove():
-    # prove BOTH new-VM capabilities inside a real contract: create_market's 11 args ride the ARG bus,
-    # claim's pro-rata payout rides DIVMODW.
-    U = bt.UNIT
-    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
-    T0 = 1_000_000; st.block_ts = T0
-    code = bt.build()
-    st.credit_deposit(A, 10_000 * U); st.credit_deposit(B, 10_000 * U)
-    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": bt.ABI, "nonce": "n"}, A, "d")
-    cid = st.contract_id(A, code, "n")
-    call = lambda m, args, val, who: st.apply_blob(
-        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who)
-    M = 7001
-    cargs = [M, 2, T0 + 100, T0 + 400, "P\nH\nA", "src", "ev", 0, 0, 0, 0]
-    # prove create_market against the PRE state (fresh slots)
-    cf, fa = runtimes.zkvm_statement(A, cargs, {})
-    proof, io, ret, ns = V.prove_call(code, "create_market", cf, fa, {}, num_queries=NQ, timestamp=T0)
-    ok, why = V.verify_call(proof, code, "create_market", cf, fa, io, num_queries=NQ, timestamp=T0)
-    assert ok, f"create_market proof: {why}"
-    # play the market for real, then prove the claim (DIVMODW payout)
-    call("create_market", cargs, None, A)
-    call("bet", [M, 0], 300 * U, B); call("bet", [M, 1], 700 * U, A)
-    st.block_ts = T0 + 120
-    call("resolve", [M, 0], None, A)
-    slots = {int(k): int(vv) for k, vv in st.contracts[cid]["storage"]["slots"].items()}
-    cf, fa = runtimes.zkvm_statement(B, [M], {})
-    proof, io, ret, ns = V.prove_call(code, "claim", cf, fa, slots, num_queries=NQ, timestamp=st.block_ts)
-    assert ret == 300 * 1000 // 300 * U, "pro-rata payout"
-    ok, why = V.verify_call(proof, code, "claim", cf, fa, io, num_queries=NQ, timestamp=st.block_ts)
-    assert ok, f"claim proof: {why}"
+# bet_prove retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- battleship (hidden boards, merkle-sum proofs per shot, reveal-at-claim fleet check) ----------
@@ -838,20 +743,7 @@ def t_battleship_stall_paths():
     assert "ok" in call("forfeit", [G], None, B)
     assert st.bridge.get(B, 0) - b0 == 600
 
-def t_battleship_answer_proves():
-    st, code, cid, shipsA, shipsB, bA, bB, seedA, seedB, sA, sB, rootA, rootB = _bs_setup()
-    call = lambda m, args, val, who: st.apply_blob(
-        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who)
-    G = 42
-    call("open", [G, rootA], 500, A); call("join", [G, rootB], 500, B)
-    cell0 = [c for c in range(100) if bB[c]][0]
-    call("fire", [G, cell0], None, A)
-    isS, salt, flat = bs.make_proof(bB, sB, cell0)
-    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
-    cf, fa = runtimes.zkvm_statement(B, [G, isS, salt] + flat, {})
-    proof, io, ret, ns = V.prove_call(code, "answer", cf, fa, slots, num_queries=NQ, cursor=st.cursor)
-    ok, why = V.verify_call(proof, code, "answer", cf, fa, io, num_queries=NQ, cursor=st.cursor)
-    assert ok, f"answer proof (17 ARG args): {why}"
+# battleship_answer_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- pets (tamagotchi NFTs: gene/tier/stats, feeding, training, battles, marketplace) -------------
@@ -957,25 +849,7 @@ def t_pets():
     assert v["nm"][str(21)] == "Rex" and "tb" in v
     assert not [k for k in st.contracts[cid]["storage"]["slots"] if int(k) >> 32 == ptz.SC], "scratch"
 
-def t_pets_hatch_proves():
-    import random as _r
-    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
-    code = ptz.build()
-    st.credit_deposit(A, 10**12)
-    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": ptz.ABI, "nonce": "n"}, A, "d")
-    cid = st.contract_id(A, code, "n")
-    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
-    st.apply_blob({"op": "call", "contract": cid, "method": "mint", "args": [7], "value": ptz.MINT_FEE}, A, "m")
-    gh = rd(ptz.BH, 7)
-    _r.seed(3)
-    bhs = {gh: _r.randint(1, 2**60), gh + 1: _r.randint(1, 2**60)}
-    st.block_hashes.update(bhs); st.cursor = gh + 2
-    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
-    cf, fa = runtimes.zkvm_statement(A, [7], {})
-    proof, io, ret, ns = V.prove_call(code, "hatch", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
-                                      block_hashes=st.block_hashes)
-    ok, why = V.verify_call(proof, code, "hatch", cf, fa, io, num_queries=NQ, cursor=st.cursor)
-    assert ok, f"hatch proof: {why}"
+# pets_hatch_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- hold'em (multiplayer table stakes, side pots, on-chain 7-card showdown) ----------------------
@@ -1118,18 +992,7 @@ def t_holdem_full():
     v = st.decode_view(st.contracts[cid])
     assert v["ta"][str(T)] == H and "cs" in v
 
-def t_holdem_open_proves():
-    # `open` is holdem's representative proof — small + fast. (`reveal` also proves: it fits the 131k gas
-    # ceiling at ~16k rows, but the Python prover takes minutes on that trace, so it's exercised natively
-    # via the 1500-hand rank_of fuzz + full-game differential rather than proven in the suite.)
-    from execnode.stark import alghash
-    code = hd.build()
-    T, G1 = 7, 71
-    args = [T, G1, alghash.hashn([12345]), 1000]
-    cf, fa = runtimes.zkvm_statement(A, args, {})
-    proof, io, ret, ns = V.prove_call(code, "open", cf, fa, {}, num_queries=NQ, value=5000)
-    ok, why = V.verify_call(proof, code, "open", cf, fa, io, num_queries=NQ, value=5000)
-    assert ok, f"open proof: {why}"
+# holdem_open_proves retired in G9: the exec AIR (execnode/stark/vm_circuit.py) that proved a call was deleted
 
 
 # ---- horizon reclaim: a bet/hand/game whose block-hash height ages past ~20000 can never settle (bhash
@@ -1349,42 +1212,31 @@ def t_farkle_reclaim():
 
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
-    check("coinflip: settle proves", t_coinflip_prove)
     check("dice: open/bet/settle/close banker accounting + view", t_dice)
     check("roulette: masked bet/settle/close + view", t_roulette)
-    check("dice: bet proves (divmod + bankroll)", t_dice_prove)
     check("dice: over-max bet + unsafe close revert (solvency)", t_dice_overbet_reverts)
     check("tictactoe: full game, p1 wins, pot paid + view", t_tictactoe)
     check("connect4: vertical win, pot paid + view", t_connect4)
     check("tictactoe: wrong turn / wrong ply revert", t_tictactoe_wrongturn_reverts)
-    check("tictactoe: winning move proves", t_tictactoe_prove)
     check("slots: spin/settle paytable matches reference", t_slots)
     check("mines: bet/pick/resolve multiplier + mine-hit vs reference", t_mines)
     check("reversi: flip board matches reference", t_reversi)
     check("chess: move record + agree settlement", t_chess)
     check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
-    check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
     check("scrapline: duel contract reuse + move-log cap", t_scrapline)
     check("pool: stake-optional open + free-frame settle", t_pool)
     check("sovereign: persistent nation world — global log, ply binding, address resolution", t_sovereign)
-    check("sovereign: act proves", t_sovereign_act_proves)
     check("faucet: fixed-name deploy, PoW claims, budgets, pause, solvency", t_faucet)
-    check("faucet: reward proves", t_faucet_reward_proves)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)
-    check("blackjack: settle proves (dealer loop trace)", t_blackjack_prove)
     check("bet: parimutuel markets, resolver panels, voids, pro-rata claims", t_bet)
-    check("bet: create (ARG bus) + claim (DIVMODW) prove", t_bet_prove)
     check("battleship: full hidden-board game, lie/overlap rejected, pot paid", t_battleship)
     check("battleship: timeout + forfeit stall paths", t_battleship_stall_paths)
-    check("battleship: answer proves (17-arg merkle proof on the ARG bus)", t_battleship_answer_proves)
     check("pets: gene/tier/stat/feed/train/battle differentials + marketplace", t_pets)
-    check("pets: hatch proves (12-hash gene derivation)", t_pets_hatch_proves)
     check("holdem: 7-card evaluator differential (300 hands + shapes)", t_holdem_eval)
     check("holdem: layered side pots, ties, uncalled bets, fold refunds", t_holdem_sidepots)
     check("holdem: full table-stakes hand, showdown differential, settle", t_holdem_full)
-    check("holdem: open proves (representative call)", t_holdem_open_proves)
     check("dice: a bet unsettled past its window goes to the bank and unblocks close", t_dice_reclaim)
     check("roulette: a bet unsettled past its window goes to the bank and unblocks close", t_roulette_reclaim)
     check("blackjack: horizon reap closes a stale hand for the bank, releases cover", t_blackjack_reap)

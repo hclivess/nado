@@ -8,13 +8,14 @@ that was really open:
 
   C1  an asset-denominated value into a method that never reads ACTX is booked as native value; below the gate
       the tokens are escrowed and the call runs (the drain); at the gate it is refused before any ledger moves,
-      while a method that reads ACTX still takes asset value. The settlement prover mirrors the refusal.
+      while a method that reads ACTX still takes asset value. (The Goldilocks settlement prover's mirror of the
+      refusal was deleted in G9 with the prover.)
   F2  a non-string `method` used to be DEBITED and then raise at the VM (escrow kept); at the gate it is refused
       first, a VM exception refunds, and L1 admission refuses to order it.
   Z2  a `stark` bundle with no join-split proof used to pass "output well-formedness" and record an unbacked
       unshield exit; at the gate it is refused, and an exit is bounded by MAX_EXIT_VALUE.
-  S2  the records fold refuses a running balance below zero when asked to (the settle branch asks from the gate).
-  S3  the cheap settle checks (tip extension, root, chain reads, calldata) come BEFORE the cryptographic verify.
+  S2/S3 (the settle branch's records fold and the order of its checks before the proof verify) were retired in G9 with
+      the L1 settle-proof verifier: a BLAKE2s exec root settles by quorum attestation only.
   S5  a MemoryError inside any verifier layer propagates instead of becoming a (False, ...) verdict.
 
 Run: python3 tests/test_exec_rules_v2.py
@@ -42,8 +43,7 @@ import protocol as _P_gen28
 _P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState, asset_id, MAX_EXIT_VALUE
 from execnode import zkvm, zkvmasm
-from execnode.stark import records_bind as RB, stark, vm_circuit, settlement_sparse as SS
-from execnode import exec_root as ER, settlement_proofs as SP
+from execnode.stark import stark
 
 import _harness
 _report = _harness.Report()
@@ -122,25 +122,7 @@ def t_c1_native_value_is_untouched_by_the_gate():
     assert st.bridge[cid] == 500
 
 
-def t_c1_prover_mirrors_the_refusal():
-    """A prover more permissive than the chain proves a transition the chain never applied; the mirror makes
-    the refused call UNPROVABLE at the same height and provable below it."""
-    contracts = {"c" * 32: {"code": CODE, "storage": {"slots": {}}, "runtime": "zkvm"}}
-    aid = str(asset_id(ALICE, 7))
-    assets = {aid: {"sym": "WRT", "supply": 10 ** 9, "dec": 0, "issuer": ALICE}}
-    abal = {aid: {ALICE: 10 ** 9}}
-    call = {"cid": "c" * 32, "method": "book", "caller": ALICE, "args": [], "value": 500, "asset": int(aid)}
-    try:
-        SP._run_call(dict(contracts), {}, {k: dict(v) for k, v in abal.items()}, dict(assets), {},
-                     dict(call, cursor=GATE), 0, GATE, 0, None, None, False)
-        assert False, "the prover must refuse what the chain refuses"
-    except ValueError as e:
-        assert "ACTX" in str(e), e
-    ec, pc, _ = SP._run_call(dict(contracts), {}, {k: dict(v) for k, v in abal.items()}, dict(assets), {},
-                             dict(call, cursor=GATE - 1), 0, GATE - 1, 0, None, None, False)
-    assert pc["asset"] == int(aid), "below the gate the prover still executes it (legacy parity)"
-    assert zkvm.method_reads_actx(CODE, "aware") and not zkvm.method_reads_actx(CODE, "book")
-    assert not zkvm.method_reads_actx(CODE, ["book"]) and not zkvm.method_reads_actx(None, "book")
+# c1 prover mirrors the refusal retired in G9: the Goldilocks settle prover (settlement_proofs._run_call) was deleted
 
 
 # ---- F2 ----------------------------------------------------------------------------------------------------
@@ -233,34 +215,11 @@ def t_z2_gate_bounds_the_exit():
     assert st.pool_value == 0 and not st.unshield_withdrawals
 
 
-# ---- S2 ----------------------------------------------------------------------------------------------------
-def t_s2_records_fold_refuses_a_negative_running_balance():
-    pre = {("s" * 40,): 100}
-    pre_get = lambda tag, parts: pre.get(tuple(parts), 0)
-    eff = [(ER.T_BRIDGE_BAL, ("s" * 40,), -150)]
-    legacy = RB.net_records_updates(pre_get, eff, depth=8)
-    assert legacy and legacy[0][2] == (100 - 150) % stark.F.P, "legacy folds to a field residue"
-    try:
-        RB.net_records_updates(pre_get, eff, depth=8, nonneg=True)
-        assert False, "must be unbindable"
-    except RB.Unbindable as e:
-        assert "below zero" in str(e), e
-    ok = RB.net_records_updates(pre_get, [(ER.T_BRIDGE_BAL, ("s" * 40,), -100)], depth=8, nonneg=True)
-    assert ok[0][2] == 0, "reaching exactly zero is fine"
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops", "transaction_ops.py")).read()
-    assert "nonneg=(int(block_height) >= 1))" in src
-
-
-# ---- S3 ----------------------------------------------------------------------------------------------------
-def t_s3_cheap_settle_checks_precede_the_cryptographic_verify():
-    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops", "transaction_ops.py")).read()
-    i_tip = src.index("Settle proof pre_root must extend the settled tip")
-    i_da = src.index("Settle proof not bound to the on-chain calldata")
-    i_reads = src.index("for _kind, _key, _val in SS.chain_reads(proof)")
-    i_verify = src.index("verify_sparse_out_of_process(proof, _protocol.EXEC_TREE_DEPTH")
-    i_pin = src.index("assert kv_pre == kv_pre_claim and kv_post == kv_post_claim")
-    assert i_tip < i_verify and i_da < i_verify and i_reads < i_verify, "cheap checks first"
-    assert i_verify < i_pin, "...and the claims are pinned to the proven halves after the verify"
+# ---- S2 / S3 -----------------------------------------------------------------------------------------------
+# s2 records fold refuses a negative running balance retired in G9: the settle branch's records fold (records_bind
+#   net_records_updates over a Goldilocks records-bound proof) was deleted with the L1 settle-proof verifier
+# s3 cheap settle checks precede the cryptographic verify retired in G9: a settle carrying a proof is refused
+#   unconditionally on gen 29, so there is no cryptographic verify left to order the cheap checks before
 
 
 # ---- S5 ----------------------------------------------------------------------------------------------------
@@ -273,10 +232,9 @@ class _OOM(dict):
 
 
 def t_s5_memory_error_propagates_out_of_every_verifier_layer():
-    for fn in (lambda: stark.verify(_OOM(), [], []),
-               lambda: vm_circuit.verify_epoch_calls(_OOM(), [], []),
-               lambda: SS.verify_bound_epoch(_OOM()),
-               lambda: SS.verify_settlement_sparse({"segments": [_OOM()]}, depth=8)):
+    # vm_circuit.verify_epoch_calls and settlement_sparse.verify_bound_epoch / verify_settlement_sparse retired in G9:
+    # those verifier layers were deleted; stark.verify is the one that remains
+    for fn in (lambda: stark.verify(_OOM(), [], []),):
         try:
             res = fn()
             assert False, f"a resource failure became a verdict: {res}"

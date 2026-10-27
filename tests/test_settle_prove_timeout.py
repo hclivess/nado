@@ -48,7 +48,8 @@ def check(name, ok):
 
 # ---- a faithful model of the shipped control flow ----------------------------------------------------
 class Prover:
-    """Mirrors _build_settlement_proof's prove section: in-flight guard, shielded task, wait_for, and a
+    """Mirrors the settle prove section (gen 28's _build_settlement_proof, deleted in G9; the guard and the bound are
+    kept for the Stwo settlement, G8): in-flight guard, shielded task, wait_for, and a
     done-callback that releases the guard only when the THREAD really ends."""
 
     def __init__(self, timeout):
@@ -154,36 +155,9 @@ check("default bound is far below the 5h07m a non-completing fold burned",
 check("the in-flight guard starts released", EX._settle_proving is False)
 
 
-# ---- A FOLD MUST NEVER COST US THE PROOF ------------------------------------------------------------
-# Observed live 2026-08-04, minutes after enabling NADO_EXEC_SETTLE_FOLD on an idle chain:
-#   settle-prove worker ended with ValueError: recursive settlement over an empty call span
-# The UNFOLDED path proves an empty span fine (61 such proofs had been built), but the recursive path
-# refuses one — so switching the fold ON strictly REDUCED output: spans that yielded a proof yielded none.
-# The fold is an upgrade to a proof we want either way, never a precondition for producing one.
-def prove_model(fold_requested, calls, fold_raises):
-    """Mirrors _prove: gate the fold on there being calls, and on any fold failure re-prove unfolded."""
-    fold = fold_requested and bool(calls)
-    if not fold:
-        return {"proof": "unfolded"}
-    if fold_raises:
-        return {"proof": "unfolded"}          # retry inside the worker thread
-    return {"proof": "folded"}
-
-
-check("EMPTY call span + fold on -> still produces an UNFOLDED proof (the regression)",
-      prove_model(True, calls=[], fold_raises=True) == {"proof": "unfolded"})
-check("...which is what the 61 pre-fold proofs were", prove_model(False, calls=[], fold_raises=False)
-      == {"proof": "unfolded"})
-check("real traffic + working fold -> a FOLDED proof",
-      prove_model(True, calls=["c"], fold_raises=False) == {"proof": "folded"})
-check("real traffic + fold that fails -> falls back to UNFOLDED, never nothing",
-      prove_model(True, calls=["c"], fold_raises=True) == {"proof": "unfolded"})
-check("fold off entirely is unchanged", prove_model(False, calls=["c"], fold_raises=False)
-      == {"proof": "unfolded"})
-check("NO input combination yields no proof at all",
-      all(prove_model(f, c, r) for f in (True, False) for c in ([], ["c"]) for r in (True, False)))
+# 'a fold must never cost us the proof' cases retired in G9: the K->1 fold (SETTLE_FOLD) and the Goldilocks prover were deleted
 
 print()
-print("ALL PASS — a non-completing prove degrades to a bare settle, and a fold never costs us the proof"
+print("ALL PASS — a non-completing prove degrades to a bare settle"
       if not fails else f"{fails} FAILURES")
 sys.exit(1 if fails else 0)

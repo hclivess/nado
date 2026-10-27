@@ -208,8 +208,8 @@ and it needs a real reason — then runs the core guards and every test the push
   the HOME rule and the no-live-paths rule true for every test.
 - **A consensus change is tested under BOTH rule sets**: the new rules refuse the attack / accept the honest case, and
   the pre-gate rules keep the old behaviour so history replays (the zk-audit tests of 2026-09-26 are the pattern).
-- **An instruction, endpoint or page that exists must be exercised**: `tests/test_every_opcode_is_provable.py` fails
-  the day an opcode is added without a proving program; a headless walk of every page found the lend page broken for
+- **An instruction, endpoint or page that exists must be exercised**: `tests/test_a_stwo_proof_of_contract_execution_proves_its_io_log_and_refuses_forgeries.py`
+  (check 0b) fails the day a VM opcode is added without a proving program; a headless walk of every page found the lend page broken for
   eight weeks.
 
 *Why:* on 2026-09-26 an audit of one session's 43 commits found 8 code changes with no test of their own, 60 tests

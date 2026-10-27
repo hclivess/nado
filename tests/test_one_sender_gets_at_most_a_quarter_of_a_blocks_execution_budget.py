@@ -1,6 +1,6 @@
 """One sender gets at most EXEC_SENDER_STEP_SHARE (a quarter) of a block's execution budget, so a sender that grinds its
-txids to the front of a block cannot burn the budget every later call needs (execnode/state.py; the settlement prover
-mirrors it in settlement_proofs.prove_epoch; audit 2026-09-24 #18, operator 2026-10-18 "Per-sender share").
+txids to the front of a block cannot burn the budget every later call needs (execnode/state.py; gen 28's settlement
+prover mirrored it in settlement_proofs.prove_epoch, deleted in G9; audit 2026-09-24 #18, operator 2026-10-18 "Per-sender share").
 
 Shown under both rule sets on the real ExecState and zkVM: one block below EXEC_BUDGET_V2_HEIGHT a single sender's heavy
 calls run until the whole block budget is gone; at the gate the same sender is stopped at its share (its call reverted,
@@ -59,12 +59,5 @@ for i in range(FITS_SHARE):
     call(st, cid, A, "burnrev", i)                     # reverting calls
 x = call(st, cid, A, "burn", 0)
 T.check("a sender's REVERTED steps count toward its share too", "sender's share" in x, x)
-from execnode import settlement_proofs as SPF
-pre = {cid: {"code": CODE, "storage": {"slots": {}}, "runtime": "zkvm"}}
-calls = [{"cid": cid, "method": "burn", "caller": A, "args": [], "cursor": GATE} for _ in range(FITS_SHARE + 1)]
-try:
-    SPF.prove_epoch(pre, calls, cursor=GATE, num_queries=2)
-    T.check("the prover refuses what the chain refused (a sender past its share)", False, "proved")
-except ValueError as e:
-    T.check("the prover refuses what the chain refused (a sender past its share)", "share" in str(e), str(e)[:120])
+# 'the prover refuses what the chain refused' case retired in G9: the Goldilocks settlement prover (settlement_proofs.prove_epoch) was deleted
 T.done("ALL PASS — one sender gets at most a quarter of a block's execution budget")

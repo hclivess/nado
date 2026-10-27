@@ -82,7 +82,7 @@ with _tf.TemporaryDirectory() as _d:
 for ln in _syntax:
     print("     " + ln)
 
-# The three sites that motivated this file, pinned by import rather than by grep — a grep for the call would
+# The sites that motivated this file (the third was deleted in G9), pinned by import rather than by grep — a grep for the call would
 # pass just as happily against a file that still cannot resolve it.
 import importlib
 
@@ -92,8 +92,7 @@ for mod, name in (("ops.address_ops", "is_address"),):
     check(hasattr(m, name), f"{mod}.{name} exists to be imported in the first place")
 
 for path, name in (("nado.py", "is_address"),
-                   ("forum/server.py", "is_address"),
-                   ("execnode/settlement_proofs.py", "_bk")):
+                   ("forum/server.py", "is_address")):    # (settlement_proofs.py and its `_bk` were deleted in G9)
     src = open(os.path.join(ROOT, path)).read()
     uses = name + "(" in src or name + "." in src
     imported = (f"import {name}" in src or f", {name}" in src

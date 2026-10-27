@@ -11,15 +11,12 @@ What this pins down, in the order the money can go wrong:
   * the PAIRING that makes a 2-register instruction able to move a 3-value asset transfer: an ASEL binds
     exactly the instruction after it, enforced at the deploy gate AND again in the verifier's log replay,
     because an unpaired PAY moves NADO where the contract meant to move a token;
-  * the DIFFERENTIAL guarantee for the new opcodes — natively-applied call, interpreter, and the PROVEN
-    call's replayed io log all agree (doc/nado-dev-approaches: money code verified 3 ways).
+  * the DIFFERENTIAL guarantee for the new opcodes — natively-applied call, interpreter, and the call's
+    replayed io log all agree (doc/nado-dev-approaches: money code verified 3 ways). The fourth leg, the PROVEN
+    call (vm_circuit) and the four settlement-prover cases, retired in G9 with the Goldilocks settle prover.
 
 Run: python3 tests/test_assets.py
-SLOW BY NATURE, not hung (measured 2026-09-28, gen-28 rehearsal): it makes six real proofs on the blake2b backend,
-which the native arena does not implement, so every one is the Python prove body — ~630 s of CPU in total (ARENOUNCE
-~113 s, native==proven ~106 s, settle asset io ~211 s, mint+burn ~199 s; identical under CHAIN_GENERATION 27 and 28).
-On a loaded host that is 45+ min of wall time, so the suite's 900-1200 s ceiling reports it as a TIMEOUT: it belongs
-in scripts/run_tests.sh's SLOW list. (The old "~40s: one real proof" predates the four settlement-prover checks.)
+(Was slow while it made six Goldilocks proofs; G9 deleted the prover, and nothing here proves any more.)
 """
 import os as _os, tempfile as _tempfile  # ISOLATION FIRST (CLAUDE.md rule 4): never the live node's HOME or exec files
 _os.environ["HOME"] = _tempfile.mkdtemp(prefix="nado-test-")
@@ -37,7 +34,7 @@ _P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState, asset_id, ASSET_SUPPLY_CAP
 from execnode import runtimes, zkvm, zkvmasm
 from execnode.zkpy import Contract, hash as zhash
-from execnode.stark import vm_circuit, field as F
+from execnode.stark import field as F
 
 import _harness
 _report = _harness.Report()
@@ -440,8 +437,8 @@ def t_replay_io_pairing_and_failclosed():
 
 # ---- 4. the differential guarantee -------------------------------------------------------------------
 def t_proven_call_matches_native():
-    """Native apply == interpreter == PROVEN call replayed from its io log, for a call that uses every one
-    of the new opcodes. This is the check that the AIR columns actually constrain what the VM did."""
+    """Native apply == interpreter == the call replayed from its io log, for a call that uses every one of the
+    new opcodes. (It also checked the AIR columns constrained what the VM did — that PROVEN leg retired in G9.)"""
     st = fresh()
     cid = deploy_shop(st)
     aid = create(st, supply=1000)
@@ -463,19 +460,9 @@ def t_proven_call_matches_native():
     assert ok and ret == 500, (ok, ret)
     assert [e[0] for e in io if e[0] in zkvm.IO_ASSET_KINDS] == [zkvm.IO_ABAL, zkvm.IO_ASEL], io
 
-    # 2) the proof — and the verifier accepts it for exactly this public statement
-    proof, pio, pret, _ns = vm_circuit.prove_call(code, "sweep", cf, fargs, slots, cursor=st.cursor,
-                                                  selfd=selfd, abal=abal, num_queries=8)
-    assert pret == ret and list(pio) == list(io)
-    okv, why = vm_circuit.verify_call(proof, code, "sweep", cf, fargs, pio, cursor=st.cursor,
-                                      selfd=selfd, num_queries=8)
-    assert okv, why
-    # a verifier that is told the WRONG self digest must reject: ACTX_SELF is a public column, so lying
-    # about it changes the statement the proof was made for
-    okv2, _ = vm_circuit.verify_call(proof, code, "sweep", cf, fargs, pio, cursor=st.cursor,
-                                     selfd=selfd + 1, num_queries=8)
-    assert not okv2, "verify accepted a forged ACTX_SELF"
-
+    # (the PROVEN leg — vm_circuit.prove_call/verify_call, incl. the forged-ACTX_SELF refusal — retired in G9:
+    #  vm_circuit was deleted with the Goldilocks settle prover; a BLAKE2s root settles by quorum)
+    pio = io
     # 3) the log replay — no execution at all, and it names the same asset move
     ok3, ret3, st3, pays3, _ch, fx3 = zkvm.replay_io(pio, slots, with_assets=True)
     assert ok3 and ret3 == ret and st3 == new_slots and pays3 == []
@@ -527,122 +514,9 @@ def t_supply_invariant_catches_a_mismatch():
     assert ok, "the check did not go green again"
 
 
-def _pre(st, *cids):
-    return {c: {"code": st.contracts[c]["code"], "storage": st.contracts[c]["storage"], "runtime": "zkvm"}
-            for c in cids}
-
-
-def t_settlement_prover_settles_asset_io():
-    """§8 CLOSED: the epoch prover now carries an asset shadow, so an asset-touching call is PROVEN (and its
-    proof verifies), not refused. Two shapes: an asset-DENOMINATED call (its `asset` rides in the public
-    statement, the escrow path), and a held-asset PAYOUT (moves the ledger; storage post_root matches a
-    native apply)."""
-    import copy
-    from execnode import settlement_proofs as SP
-    st = fresh()
-    cid = deploy_shop(st)
-    aid = create(st, supply=1000)
-
-    # (1) an asset-denominated call — `note` deposits 500 of `aid`. pre-state is BEFORE the deposit; the
-    #     call's asset must appear in the public statement (it drives ACTX_ASSET / ABAL).
-    pre = _pre(st, cid)
-    bundle = SP.prove_epoch(pre, [{"cid": cid, "method": "note", "caller": ALICE, "args": [],
-                                   "value": 500, "asset": int(aid)}], cursor=st.cursor,
-                            pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-    okv, why, _ = SP.verify_epoch(bundle, num_queries=8)
-    assert okv, why
-    assert bundle["calls"][0]["asset"] == int(aid), "the call-value asset is not in the public statement"
-    st.apply_blob({"op": "call", "contract": cid, "method": "note", "args": [], "value": 500, "asset": aid}, ALICE, "tx")
-    assert bundle["post_root"] == SP.zkvm_root({cid: st.contracts[cid]}), "post_root != native storage root"
-
-    # (2) a held-asset payout — moves the ledger (asset=0 on the call, since nothing is sent WITH it).
-    bundle2 = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "payout", "caller": ALICE,
-                                             "args": [int(aid), BOB, 120]}], cursor=st.cursor,
-                             pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-    okv2, why2, _ = SP.verify_epoch(bundle2, num_queries=8)
-    assert okv2, why2
-    st.apply_blob({"op": "call", "contract": cid, "method": "payout", "args": [int(aid), BOB, 120]}, ALICE, "tx")
-    assert bundle2["post_root"] == SP.zkvm_root({cid: st.contracts[cid]})
-    assert (st.asset_balance(aid, cid), st.asset_balance(aid, BOB)) == (380, 120)
-
-
-def t_settlement_prover_mint_burn():
-    """The prover settles a contract minting its OWN asset and burning from its holding — the launchpad
-    shapes. Authority (issuer==cid, mintable) is enforced by the shadow, which the VM does not check."""
-    import copy
-    from execnode import settlement_proofs as SP
-    st = fresh()
-    cid = deploy_shop(st)
-    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
-                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
-    aid = str(asset_id(cid, 1))
-    st.apply_blob({"op": "call", "contract": cid, "method": "issue", "args": [0, cid, 400]}, ALICE, "tx")  # cid holds 400
-    # prove a burn of 150 of its own holding
-    bundle = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "scorch", "caller": ALICE,
-                                             "args": [int(aid), 0, 150]}], cursor=st.cursor,
-                            pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-    okv, why, _ = SP.verify_epoch(bundle, num_queries=8)
-    assert okv, why
-    # prove a mint of 500 to BOB (the contract issuing its own token)
-    bundle2 = SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "issue", "caller": ALICE,
-                                             "args": [0, BOB, 500]}], cursor=st.cursor,
-                             pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-    okv2, why2, _ = SP.verify_epoch(bundle2, num_queries=8)
-    assert okv2, why2
-
-
-def t_settlement_prover_rejects_overdraw():
-    """A payout exceeding the contract's holding is a VM revert — the prover raises, exactly as the native
-    apply reverts. (Holder-side solvency IS enforced by the VM.)"""
-    import copy
-    from execnode import settlement_proofs as SP
-    st = fresh()
-    cid = deploy_shop(st)
-    aid = create(st, supply=1000)
-    st.apply_blob({"op": "call", "contract": cid, "method": "note", "args": [], "value": 100, "asset": aid}, ALICE, "tx")
-    try:
-        SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "payout", "caller": ALICE,
-                                        "args": [int(aid), BOB, 101]}], cursor=st.cursor,
-                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-    except ValueError:
-        return
-    raise AssertionError("the prover proved a payout larger than the holding")
-
-
-def t_settlement_prover_enforces_mint_authority():
-    """THE CRITICAL ASSERTION. The VM emits a well-formed AMINT for ANY asset — it does NOT check who may
-    mint. Only stage_asset_effects does, and on the proof path the shadow is the SOLE enforcer. A second
-    contract naming a victim's asset (issue_at) produces a valid mint log the shadow must reject on issuer,
-    and a renounced asset a mint the shadow must reject on mintable — either would let the prover prove a
-    transition the chain reverts if the shadow stopped mirroring authority."""
-    import copy
-    from execnode import settlement_proofs as SP
-    st = fresh()
-    cid = deploy_shop(st)
-    st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
-                   "supply": 0, "mintable": True, "for": cid}, ALICE, "tx")
-    aid = str(asset_id(cid, 1))
-    st.apply_blob({"op": "deploy", "code": shop_code(), "nonce": 2}, BOB, "tx")
-    other = [k for k in st.contracts if k != cid][0]
-
-    # (a) a DIFFERENT contract mints the victim's asset by naming it — the shadow rejects on issuer
-    try:
-        SP.prove_epoch(_pre(st, other), [{"cid": other, "method": "issue_at", "caller": BOB,
-                                          "args": [int(aid), BOB, 1]}], cursor=st.cursor,
-                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-        raise AssertionError("the prover minted a victim's asset from another contract")
-    except ValueError as e:
-        assert "issuer" in str(e), e
-
-    # (b) the issuer contract itself, but AFTER renounce — the shadow rejects on mintable
-    st.apply_blob({"op": "asset_renounce", "asset": aid}, ALICE, "tx")
-    try:
-        SP.prove_epoch(_pre(st, cid), [{"cid": cid, "method": "issue", "caller": ALICE,
-                                        "args": [0, BOB, 1]}], cursor=st.cursor,
-                       pre_abal=copy.deepcopy(st.abal), pre_assets=copy.deepcopy(st.assets), num_queries=8)
-        raise AssertionError("the prover minted a renounced asset")
-    except ValueError as e:
-        assert "renounced" in str(e), e
+# t_settlement_prover_settles_asset_io, t_settlement_prover_mint_burn, t_settlement_prover_rejects_overdraw and
+# t_settlement_prover_enforces_mint_authority retired in G9: execnode/settlement_proofs.py (the Goldilocks epoch
+# prover and its asset shadow) was deleted — a BLAKE2s exec root settles by quorum attestation only.
 
 
 def t_uri_metadata():
@@ -769,9 +643,9 @@ def t_arenounce_opcode():
 
 
 def t_arenounce_proves_and_replays():
-    """DIFFERENTIAL soundness for the new opcode: interpreter == proof == replay for a call that renounces.
-    This is the check that the AIR actually CONSTRAINS the ARENOUNCE io (a new opcode that under-constrains
-    would let a prover forge it); it verifies for the honest statement and REJECTS a tampered self digest."""
+    """DIFFERENTIAL soundness for the new opcode: interpreter == replay for a call that renounces, and the
+    replayed renounce stages to the ledger's authority decision. (The AIR leg — that the proof CONSTRAINS the
+    ARENOUNCE io and rejects a tampered self digest — retired in G9 with vm_circuit.)"""
     st = fresh()
     cid = deploy_shop(st)
     st.apply_blob({"op": "asset_create", "seed": 1, "name": "LP", "sym": "LP", "dec": 0,
@@ -785,16 +659,9 @@ def t_arenounce_proves_and_replays():
     ok, ret, new_slots, io = zkvm.run(code, "seal", cf, fargs, slots, cursor=st.cursor, selfd=selfd)
     assert ok and any(k == zkvm.IO_ARENOUNCE for k, _a, _b in io), io
 
-    proof, pio, pret, _ns = vm_circuit.prove_call(code, "seal", cf, fargs, slots, cursor=st.cursor,
-                                                  selfd=selfd, num_queries=8)
-    assert list(pio) == list(io)
-    okv, why = vm_circuit.verify_call(proof, code, "seal", cf, fargs, pio, cursor=st.cursor,
-                                      selfd=selfd, num_queries=8)
-    assert okv, why
-    okv2, _ = vm_circuit.verify_call(proof, code, "seal", cf, fargs, pio, cursor=st.cursor,
-                                     selfd=selfd + 1, num_queries=8)
-    assert not okv2, "verify accepted a forged ACTX_SELF for a renounce"
-
+    # (the PROVEN leg — vm_circuit prove/verify and the forged-self-digest refusal — retired in G9: vm_circuit
+    #  was deleted with the Goldilocks settle prover)
+    pio = io
     ok3, _ret, _st, _pay, _ch, fx = zkvm.replay_io(pio, slots, with_assets=True)
     assert ok3 and ("renounce", int(aid) % F.P, 0, 0) in fx, fx
     # the exec layer stages that replayed renounce to the same authority decision
@@ -806,7 +673,7 @@ def t_arenounce_proves_and_replays():
 if __name__ == "__main__":
     check("metadata uri: optional, issuer-only, committed", t_uri_metadata)
     check("ARENOUNCE opcode: a contract seals its own asset", t_arenounce_opcode)
-    check("ARENOUNCE proves and replays (AIR soundness)", t_arenounce_proves_and_replays)
+    check("ARENOUNCE replays and stages (proof leg retired in G9)", t_arenounce_proves_and_replays)
     check("allowance: approve / transfer_from, two gates, exact decrement", t_allowance_approve_transfer_from)
     check("allowance committed in root + survives reload", t_allowance_committed_in_root)
     check("asset create + transfer + canonical absence", t_create_and_transfer)
@@ -824,11 +691,7 @@ if __name__ == "__main__":
     check("deploy gate enforces the ASEL pairing", t_deploy_gate_enforces_pairing)
     check("ASEL of asset 0 reverts", t_asel_zero_reverts)
     check("replay_io: pairing re-checked, fail-closed by default", t_replay_io_pairing_and_failclosed)
-    check("native == interpreter == proven-and-replayed", t_proven_call_matches_native)
+    check("native == interpreter == replayed (proof leg retired in G9)", t_proven_call_matches_native)
     check("supply invariant catches a mismatch", t_supply_invariant_catches_a_mismatch)
-    check("settlement prover SETTLES asset io (§8 closed)", t_settlement_prover_settles_asset_io)
-    check("settlement prover: mint + burn", t_settlement_prover_mint_burn)
-    check("settlement prover: overdraw reverts", t_settlement_prover_rejects_overdraw)
-    check("settlement prover: shadow enforces mint authority", t_settlement_prover_enforces_mint_authority)
     print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURE(S)")
     sys.exit(1 if _report.fails else 0)

@@ -58,15 +58,11 @@ def check(name, ok):
         fails += 1
 
 
-# GENERATION 28'S SETTLE PATH — the Goldilocks settle proof. From BLAKE_EXEC_HEIGHT a BLAKE2s exec root settles by
-# bonded-quorum attestation only (option R, doc/stwo-migration.md §9.5); what this file pins is the old prover and
-# verifier, which gen 28's history replays through until its cleanup (G9). Run under gen 28's gate explicitly: the
-# gen-29 rehearsal (2026-10-25) found it reading the shipped value, which is 1 from generation 29.
-import _harness as _gen28
-import protocol as _gen28_P
-_gen28_P.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
-from execnode import exec_root as ER            # noqa: E402
-from execnode.stark import storage_tree as SST  # noqa: E402
+# GENERATION 29: the exec root is BLAKE2s (execnode/exec_root_b2.py) and records_root is the BLAKE2s records tree root
+# (csmt.Tree.root(), bytes). The Goldilocks proof builder that consumed the captured records root was deleted in G9;
+# the atomic capture is kept because the proof-carrying settle pipeline (G8, the Stwo settlement) pins the same
+# (cursor, root) pair across a long detached build, and the same drift hazard applies to it.
+from execnode import exec_root_b2 as R2, csmt  # noqa: E402
 from execnode.state import ExecState            # noqa: E402
 
 st = ExecState(os.path.join(os.environ["HOME"], "exec_state.json"))
@@ -76,12 +72,14 @@ st._touch()
 
 # ---- the capture is internally consistent ----------------------------------------------------------
 cur, root, rec_root, gen = st.settle_snapshot()
-kv_store, rec_store = st._sparse_stores()
+with st._mutate_lock:
+    kv_root = st._blake_trees()[0].root()        # bytes, taken now: the trees are diff-applied in place later
 check("settle_snapshot returns the CURRENT cursor", cur == st.cursor)
 check("settle_snapshot's root equals state_root()", root == st.state_root())
-check("settle_snapshot's records root equals the live records half", rec_root == rec_store.root())
-check("root really is rnode(kv, records) of the captured halves",
-      ER.full_root_hex(kv_store.root(), rec_root) == root)
+check("settle_snapshot's records root equals the live records half",
+      rec_root == csmt.root_of(R2.records_projection(st)))
+check("root really is full_root(kv, records) of the captured halves",
+      R2.full_root(kv_root, rec_root).hex() == root)
 
 # ---- THE CORE PROPERTY: the captured pair survives later mutation ------------------------------------
 # This is the whole bug. Advance the state the way the detached tail does, then check that the captured
@@ -89,34 +87,32 @@ check("root really is rnode(kv, records) of the captured halves",
 st.bridge["carol"] = 55                        # the tail applies a block that moves a balance
 st._touch()
 
-fresh_rec = SST.SparseStore(ER.DEPTH, ER.records_projection(st)).root()
+fresh_rec = csmt.root_of(R2.records_projection(st))
 check("the records half genuinely moved (the test is exercising the hazard)", fresh_rec != rec_root)
 check("the CAPTURED records root still reconstructs the CAPTURED root",
-      ER.full_root_hex(kv_store.root(), rec_root) == root)
+      R2.full_root(kv_root, rec_root).hex() == root)
 check("a FRESHLY recomputed records root does NOT reconstruct the captured root — the shipped bug",
-      ER.full_root_hex(kv_store.root(), fresh_rec) != root)
+      R2.full_root(kv_root, fresh_rec).hex() != root)
 
 # ---- mut_gen exposes that drift ---------------------------------------------------------------------
 cur2, root2, rec2, gen2 = st.settle_snapshot()
 check("mut_gen advances when the state is mutated", gen2 > gen)
 check("a re-capture after mutation yields a different root", root2 != root)
-check("...and its own records root reconstructs ITS root",
-      ER.full_root_hex(st._sparse_stores()[0].root(), rec2) == root2)
+with st._mutate_lock:
+    kv2 = st._blake_trees()[0].root()
+check("...and its own records root reconstructs ITS root", R2.full_root(kv2, rec2).hex() == root2)
 
 # ---- an untouched state is stable -------------------------------------------------------------------
 a = st.settle_snapshot()
 b = st.settle_snapshot()
 check("two captures with no mutation between them are identical", a == b)
 
-# ---- the builder must actually accept and prefer the passed-in root ----------------------------------
-import inspect                                                    # noqa: E402
+# ---- the settle loop captures through settle_snapshot ------------------------------------------------
+# (the "_build_settlement_proof takes and prefers the captured records root" checks retired in G9: the
+# Goldilocks proof builder was deleted)
 import execnode.execnode as E                                     # noqa: E402
-sig = inspect.signature(E._build_settlement_proof)
-check("_build_settlement_proof takes the captured records root", "rec_root_at_cur" in sig.parameters)
 src = open(E.__file__).read()
 check("the capture site uses settle_snapshot", "st.settle_snapshot()" in src)
-check("the builder prefers the passed-in records root",
-      "rec_root_at_cur if rec_root_at_cur is not None" in src)
 # The stale claim is QUOTED in the replacement comment (that is how the correction explains itself), so
 # its mere presence proves nothing. What must be true is that it is no longer asserted as CURRENT.
 check("the single-task claim is now marked as no longer true",

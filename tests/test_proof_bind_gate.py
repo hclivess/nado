@@ -16,7 +16,7 @@ nowhere else, and it BUILDS the P0 forgery rather than trusting the reviewer's t
       FORMAT, so an old-format proof is refused at the gate and a new-format one below it — prover and verifier
       flip on the same block, and the memo/child verifier carry the rules explicitly.
 
-Run: python3 tests/test_proof_bind_gate.py        (~1 min: one toy STARK in Python + two small real epochs)
+Run: python3 tests/test_proof_bind_gate.py        (one toy STARK in Python; the real-epoch half retired in G9 with the exec AIR)
 """
 import os
 import sys
@@ -30,9 +30,8 @@ os.environ["NADO_ALLOW_PYTHON_KERNELS"] = "1"                        # the toy A
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol as P
-from execnode.stark import stark, fri, field as F, settlement_sparse as SS, storage_tree as ST, vm_circuit
+from execnode.stark import stark, fri, field as F
 from execnode.stark import extf as ext2
-from execnode import zkvmasm
 
 import _harness
 _report = _harness.Report()
@@ -173,94 +172,19 @@ def t_toy_statement_binds_the_transcript():
     assert stark.statement_lanes(bytes(32)) == (0,) * 8
 
 
-D8, NQ = 8, 2
-CID = "c" * 32
-ALICE = "ndoAAAA" + "A" * 41
-COUNTER = {"bump": zkvmasm.assemble("movi r1 0\n sload r2 r1\n movi r3 1\n add r2 r3\n sstore r1 r2\n ret r2")}
-REC = ST.digest_hex(ST.SparseStore(D8, {}).root())
-CALLS = [{"cid": CID, "method": "bump", "caller": ALICE, "args": [], "cursor": h} for h in (1, 2) for _ in range(2)]
-
-
-def _pre():
-    return {CID: {"code": COUNTER, "storage": {"slots": {}}, "runtime": "zkvm"}}
-
-
-def _prove(rules):
-    with stark.with_rules(rules):
-        return SS.prove_settlement_sparse(_pre(), CALLS, cursor=2, rec_hex=REC, num_queries=NQ, depth=D8)
-
-
-def _verify(proof, rules):
-    with stark.with_rules(rules):
-        return SS.verify_settlement_sparse(proof, num_queries=NQ, depth=D8)
-
-
-_NEW = _prove(STRICT)
-_OLD = _prove(LEGACY)
-
-
-def t_epoch_format_flips_at_the_gate():
-    ok, why, _, _ = _verify(_NEW, STRICT); assert ok, f"new-format proof at the gate: {why}"
-    ok, why, _, _ = _verify(_OLD, LEGACY); assert ok, f"old-format proof below the gate: {why}"
-    ok, why, _, _ = _verify(_OLD, STRICT); assert not ok, "an old-format proof must be refused AT the gate"
-    ok, why, _, _ = _verify(_NEW, LEGACY); assert not ok, "a new-format proof must be refused BELOW the gate"
-    assert _NEW["kv_pre"] == _OLD["kv_pre"] and _NEW["kv_post"] == _OLD["kv_post"], \
-        "the settled root — the only thing consensus sees — is identical either side of the gate"
-
-
-def t_statement_tamper_is_refused_at_the_gate():
-    """Present the proven epoch with a different io log: the rebuilt statement digest differs, so the replayed
-    challenges differ and nothing lines up. (The legacy verifier also refuses THIS crude edit through the
-    spot-checks; the review's attack is the linear-system rewrite that the crude edit stands in for.)"""
-    bad = copy.deepcopy(_NEW)
-    seg = bad["segments"][0]
-    for i, e in enumerate(seg["io"]):
-        if int(e[0]) == 1:                           # IO_SSTORE: bump the stored value
-            seg["io"][i] = [e[0], e[1], (int(e[2]) + 1) % F.P]; break
-    assert seg["io"] != _NEW["segments"][0]["io"]
-    ok, why, _, _ = _verify(bad, STRICT)
-    assert not ok, "a proof presented with a statement it was not bound to must fail"
-
-
-def t_statement_digest_is_what_both_sides_build():
-    """Prover and verifier digest the BUILT tables, so they agree by construction; the digest moves with the io."""
-    seg = _NEW["segments"][0]
-    from execnode import settlement_proofs as SP
-    pub_calls, epoch_io = SP._epoch_pub_statement(seg)
-    from execnode.stark import backend as _bk
-    ok, why, per, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io,
-                                                  ext=stark.ext_challenges_active(_bk.RECURSION))
-    assert ok, why
-    d1 = vm_circuit.statement_digest(seg["proof"]["T"], per, bl)
-    io2 = list(epoch_io); io2[0] = (io2[0][0], io2[0][1], (int(io2[0][2]) + 1) % F.P)
-    ok, why, per2, bl2 = vm_circuit.epoch_statement(seg["proof"], pub_calls, io2,
-                                                    ext=stark.ext_challenges_active(_bk.RECURSION))
-    assert ok, why
-    assert vm_circuit.statement_digest(seg["proof"]["T"], per2, bl2) != d1
-    assert len(d1) == 32
-
-
-# ---- 4. the child verifier judges by the rules it is handed, not by its own defaults -----------------------------
-def t_child_verifier_carries_the_rules():
-    """The out-of-process verifier has no context of its own; the rules ride in the request. The child pins
-    PROTOCOL query strength, so this NQ=2 bundle is refused for strength either way — what this checks is that
-    a request carrying `rules` round-trips to a VERDICT (a malformed request crashes the child to None), and
-    the source checks pin that the child enters exactly the rules it was handed."""
-    from ops.proof_child import verify_sparse_out_of_process
-    res = verify_sparse_out_of_process(_NEW, D8, rules=STRICT)
-    assert res is not None and res[0] is False and "query" in str(res[1]).lower(), res
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    src = open(os.path.join(root, "ops", "proof_child.py")).read()
-    assert '"rules": _r' in src and "_stk.with_rules(" in src and 'req.get("rules")' in src
+# epoch format flips at the gate / statement tamper / statement digest is what both sides build retired in G9: the
+# exec AIR (vm_circuit) and the Goldilocks settlement prover/verifier (settlement_sparse, settlement_proofs) were deleted
+# child verifier carries the rules retired in G9: ops/proof_child.py (the out-of-process settle-proof verifier) was deleted
 
 
 def t_settle_branch_and_exec_apply_set_the_rules():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tx = open(os.path.join(root, "ops", "transaction_ops.py")).read()
     ex = open(os.path.join(root, "execnode", "execnode.py")).read()
-    assert "_stk.rules_at(block_height)" in tx, "L1 judges a settle proof under the rules of ITS block"
+    # (the L1 settle-proof branch and the settler's landing-height format retired in G9: L1 refuses every settle
+    # proof on gen 29, and the Goldilocks settle prover was deleted)
+    assert "settle_verify_key" not in tx, "L1 no longer verifies a Goldilocks settle proof, under any rules"
     assert '_stk.rules_at(block["block_number"])' in ex, "the exec layer applies a block under ITS rules"
-    assert "SS.stark.rules_at(_land_h)" in ex, "the settler proves in the format its landing block will judge"
 
 
 for name, fn in list(globals().items()):

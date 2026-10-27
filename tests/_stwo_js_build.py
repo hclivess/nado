@@ -193,25 +193,6 @@ def wallet_prove(spend, leaves, pos, height):
     return json.loads(r.stdout)
 
 
-if __name__ == "__main__":
-    # python3 tests/_stwo_js_build.py --ship : rebuild the wallet WASM and copy it to static/vendor/stwo_js.wasm
-    import sys
-    if sys.argv[1:] != ["--ship"]:
-        print("usage: python3 tests/_stwo_js_build.py --ship"); sys.exit(2)
-    e = Env(os.path.expanduser("~"))
-    nb = e.nightly_bin()
-    if not nb or not e.have_wasm_target(nb):
-        print(f"need {NIGHTLY} with the wasm32-unknown-unknown target (or $NADO_STWO_NIGHTLY_BIN)"); sys.exit(1)
-    w, secs, log = e.build_wasm(nb)
-    if not w:
-        print(log); sys.exit(1)
-    shutil.copyfile(w, SHIPPED_WASM)
-    import hashlib
-    print(f"built in {secs:.0f} s -> {SHIPPED_WASM}\n  WASM_SHA256    = \"{hashlib.sha256(open(w, 'rb').read()).hexdigest()}\"\n"
-          f"  SOURCES_SHA256 = \"{wasm_sources_digest()}\"\n"
-          "pin both in tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py")
-
-
 def invalidate_if_changed(src, target, pkg):
     """CARGO DECIDES "FRESH" FROM THE LAST BUILD'S RECORDED SOURCE PATHS AND THEIR MTIMES, NOT FROM THIS COPY. Every test
     build copies the crate to a new or refreshed directory, and cargo's dep-info for `pkg` still names the previous copy;
@@ -243,3 +224,24 @@ def invalidate_if_changed(src, target, pkg):
         with open(stamp, "w") as f:
             f.write(digest)
     return done
+
+
+# LAST, after every definition: run as a script (`--ship`), the module body above this line must already have bound
+# every name it calls (invalidate_if_changed sat below this block and --ship died on a NameError, 2026-10-27).
+if __name__ == "__main__":
+    # python3 tests/_stwo_js_build.py --ship : rebuild the wallet WASM and copy it to static/vendor/stwo_js.wasm
+    import sys
+    if sys.argv[1:] != ["--ship"]:
+        print("usage: python3 tests/_stwo_js_build.py --ship"); sys.exit(2)
+    e = Env(os.path.expanduser("~"))
+    nb = e.nightly_bin()
+    if not nb or not e.have_wasm_target(nb):
+        print(f"need {NIGHTLY} with the wasm32-unknown-unknown target (or $NADO_STWO_NIGHTLY_BIN)"); sys.exit(1)
+    w, secs, log = e.build_wasm(nb)
+    if not w:
+        print(log); sys.exit(1)
+    shutil.copyfile(w, SHIPPED_WASM)
+    import hashlib
+    print(f"built in {secs:.0f} s -> {SHIPPED_WASM}\n  WASM_SHA256    = \"{hashlib.sha256(open(w, 'rb').read()).hexdigest()}\"\n"
+          f"  SOURCES_SHA256 = \"{wasm_sources_digest()}\"\n"
+          "pin both in tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py")

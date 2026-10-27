@@ -3,16 +3,18 @@
 protocol.BLAKE_EXEC_HEIGHT (Goldilocks retirement G2) switches the exec root to execnode/exec_root_b2.py, L1's exit
 verifiers to match, and refuses the Goldilocks settle proof (option R). It is 2^62 on generation 28 and 1 on 29. Both
 rule sets are pinned (CLAUDE.md rule 11):
-  1. DORMANT: blake_exec_at is False at every real cursor (including -1 and 0); an exec state's root is byte-identical
-     to the alghash2 root computed cold; L1 picks exec_root.py for every settled root;
+  1. DORMANT: blake_exec_at is False at every real cursor (including -1 and 0) under gen 28's gate value. (An exec
+     state's root matching the alghash2 root, and L1 picking exec_root.py, retired in G9: the exec state and L1 are
+     BLAKE2s only, generation 29 having run BLAKE2s from genesis);
   2. the gen-29 genesis canary: exec_root_b2 over an empty state equals protocol.EXEC_GENESIS_ROOT_B2;
   3. LIVE (the gate patched to 1, as generation 29 runs it): the genesis cursors use the new root too (Goldilocks must
      not survive in the first root); state_root is the BLAKE2s root, follows every mutation, and equals the cold
      computation; an exit proof from the live state verifies on L1's path; a root remembered in the ring still proves
      after the state moves on, and refuses a value the record did not hold;
-  4. a window straddling a real gate height reads each root in its own cursor's format;
-  5. the settle path: L1 refuses a Goldilocks proof for a BLAKE2s cursor and the settler never builds one (source
-     order), and no exit verifier is called except through exit_root_module.
+  4. L1 reads every settled root, at every cursor, with exec_root_b2 (the straddling-window case retired in G9 with the
+     Goldilocks branch of exit_root_module);
+  5. the settle path: L1 refuses a Goldilocks proof after the cursor's type check, at every cursor, and the settler
+     never builds one (source), and no exit verifier is called except through exit_root_module.
 
 Run: python3 tests/test_the_blake2s_exec_root_is_dormant_now_and_whole_from_its_gate.py
 """
@@ -47,10 +49,8 @@ from ops import transaction_ops as TX
 with _harness.pinned(BLAKE_EXEC_HEIGHT=_harness.gate_at("BLAKE_EXEC_HEIGHT", 28)):
     T.check("1b. dormant: blake_exec_at is False at every real cursor, genesis ones included",
             not any(R2.blake_exec_at(c) for c in (-1, 0, 1, 273000, 10**12)))
-    st = fresh("dormant")
-    T.check("1c. dormant: the exec root is byte-identical to the alghash2 root (cold)",
-            st.state_root() == R1.state_root_hex(st.contracts, st))
-    T.check("1d. dormant: L1 reads every settled root with exec_root.py", TX.exit_root_module(10**9) is R1)
+    # 1c (an exec state's root equals the alghash2 root) and 1d (L1 reads it with exec_root.py) retired in G9: the
+    # Goldilocks exec-state root and exit_root_module's Goldilocks branch were deleted
 
 # ---- 2: canary
 T.check("2. the gen-29 genesis canary matches the empty state's BLAKE2s root",
@@ -84,13 +84,9 @@ try:
 finally:
     P.BLAKE_EXEC_HEIGHT = 1 << 62
 
-# ---- 4: a straddling window
-P.BLAKE_EXEC_HEIGHT = 100
-try:
-    T.check("4. a window across a real gate height reads each root in its own cursor's format",
-            TX.exit_root_module(99) is R1 and TX.exit_root_module(100) is R2 and TX.exit_root_module(-1) is R1)
-finally:
-    P.BLAKE_EXEC_HEIGHT = 1 << 62
+# ---- 4: every settled root is BLAKE2s (the straddling-window case retired in G9 with the Goldilocks branch)
+T.check("4. L1 reads every settled root with exec_root_b2, whatever the cursor and whatever the gate reads",
+        all(TX.exit_root_module(c) is R2 for c in (-1, 0, 99, 100, 10**9)))
 
 # ---- 5: settle proofs and the exit invariant, by source
 txs = open(os.path.join(_harness.ROOT, "ops", "transaction_ops.py")).read()
@@ -98,12 +94,13 @@ exn = open(os.path.join(_harness.ROOT, "execnode", "execnode.py")).read()
 v = txs[txs.index("def _validate_settle("):txs.index("def _validate_bridge(")]
 i_type = v.index("Settle exec_cursor must be an int in [0, 2**64-1)")
 i_ref = v.find("a BLAKE2s exec root settles by quorum attestation only")
-i_proof = v.index('proof = data.get("proof")')
-T.check("5a. L1 refuses a Goldilocks proof for a BLAKE2s cursor, after the cursor's type check and before any proof work",
-        i_type < i_ref < i_proof)
-T.check("5b. the settler never builds a Goldilocks proof for a BLAKE2s cursor",
-        re.search(r"_quorum_only = _blake_exec_at\(cur\).*?if not _pend_hold and not _quorum_only:\s*\n\s*proof = await _build_settlement_proof",
-                  exn, re.S) is not None)
+# from G9 the refusal is unconditional — no gate or cursor test guards it — and no proof verifier is left behind it
+T.check("5a. L1 refuses a Goldilocks proof after the cursor's type check, at every cursor, with no proof work left",
+        i_type < i_ref and "blake_exec_at" not in v and "settle_verify_key" not in txs
+        and 'assert data.get("proof") is None and data.get("proof_da") is None' in v)
+ms = exn[exn.index("async def maybe_settle("):]
+T.check("5b. the settler never builds a Goldilocks proof",
+        not re.search(r"(def |await |\b= )_build_settlement_proof\b", exn) and re.search(r"_pend_hold = .*?\n\s*proof = None\n", ms, re.S) is not None)
 direct = re.findall(r"\bER\.verify_(?:withdrawal|dividend|unshield|outbox_msg|record)\(", txs)
 T.check("5c. no exit verifier is called except through exit_root_module", not direct, direct)
 # ---- 6: the genesis canary follows the generation (2026-10-19: the exec node's start-up check and L1's pre-settlement
