@@ -1699,6 +1699,9 @@ def split_open_block_reward(reward: int):
 #                                    median weighs duty-committee seats, not distinct senders)
 #                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
 #                                    the 128-bit node config — 56 queries, not 160; 2.5x smaller proofs)
+# KEYED ON GENERATION 29 (live on betanet-10):
+#                                    EXEC_ADDR_ROOT_HEIGHT (8500, exec cursor; -> 1: the zkvm digest registry is committed in
+#                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2266,6 +2269,16 @@ EXEC_BUDGET_V2_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
 # DORMANT on generation 28 (2^62: never reached), live from block 1 on generation 29 — the reroll that carries the
 # exec state into this format. Nothing on the live chain changes with this constant.
 BLAKE_EXEC_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+
+# THE DIGEST REGISTRY IN THE EXEC ROOT (G4, 2026-10-27; doc/stwo/g4-settlement-statement.md section 5). A zkvm PAY names
+# its payee by a 256-bit digest, and the exec node resolves it through ExecState.zk_addrs, the digest -> address registry
+# that every call boundary feeds; a digest the registry lacks reverts the call. So the registry decides outcomes, yet no
+# root committed it, and a settlement proof (execnode/settle_b2.py) could not tell a payout the chain made from one it
+# reverted: a payout to anyone registered before the span was unprovable. From this exec cursor every registry entry is a
+# record leaf (exec_root_b2.T_ADDR), and a span's replay resolves payees from the witness exactly as the chain does. The
+# first root at the gate inserts the whole registry (240 entries on 2026-10-27); a span that crosses the gate settles by
+# the quorum. Exec-root consensus only: L1 rules and every exit format are unchanged.
+EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at 5487 when this shipped (2026-10-27)
 
 # USER-SELECTABLE SIGNATURE SCHEMES (doc/signature-schemes.md, operator 2026-10-25: "multiple (pluggable) scheme options
 # ... let users pick"). ML-DSA-44 stays the default and the only scheme of every surface the CHAIN signs with (blocks,

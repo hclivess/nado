@@ -302,11 +302,143 @@ needs no pin move: Stwo's `parallel` feature takes this batch from 8.8 s to 3.8 
       pre-state: each contract's code leaf, authenticated against the pre root.
    3. The calls are public here. Next they are bound to L1's calls fold (2.3): the call leaf's contract, method,
       caller, args, value, asset, cursor and timestamp against the CTX, ACTX and arg tables.
-   4. A REVERTING call cannot be proven yet. Its statement has to prove the failing condition (a REQUIRE on zero, a
-      zero divisor, the gas limit, a pc off the end, an ARG out of range, an asset overspend), or a prover could claim
-      a revert to drop a call's effects. Until then, a span with a reverted call cannot settle by proof.
+   4. ~~A REVERTING call cannot be proven yet.~~ Done 2026-10-27 (section 5): every one of zkvm2's 13 revert paths has
+      a row that proves it.
    5. Not checked here, by design: BHASH and BEACON values (L1's chain reads), SLOAD values (the storage component),
       and ABAL values and asset overspends (the records half).
    6. As for the tree component, a dishonest witness is refused by the prover's own constraint check here. FRI
       catching a prover that skips that check is not exercised separately.
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.
+
+## 5. The span settlement: a stateless replay with a Stwo VM proof (2026-10-27)
+
+`execnode/settle_b2.py`, with `execnode/block_apply.py` and `execnode/csmt_partial.py`. This replaces the plan of 2.1,
+where storage, records and the calls fold would each be bound inside the circuit, with a smaller and safer split:
+
+- **The Stwo proof covers only contract execution**, the one part of a span that is expensive to redo: every call ran on
+  zkvm2 and produced exactly its io log in its step count (section 4 step 3, `vm_air.rs`). A call may run up to 131,070
+  steps; everything else a span does is a few dictionary updates.
+- **Everything else is replayed by the verifier, through the exec node's own code.** The block dispatch moved out of
+  `execnode/execnode.py` into `execnode/block_apply.py` unchanged, and the exec node and the verifier both call it. The
+  verifier runs it on a `WitnessState`: an `ExecState` whose maps hold only the entries the span touched (the
+  OPENINGS), each authenticated by a compressed-tree proof against a half of the pre root. A second implementation of
+  the transition is how a prover and a chain come to disagree (CLAUDE.md: re-deriving is a second implementation, with
+  its own bugs), so there is none.
+- **A contract call does not run the VM in the replay.** The oracle takes the call's io log and step count from the
+  witness and checks every io entry the VM reads against the replayed state: SLOAD values, ABAL values and asset
+  overspends, BHASH and BEACON values against what L1 itself says the call could read at that height. It applies the
+  SSTOREs, and adds the call to the VM statement. The code, args and context in that statement are the replay's own
+  (the code from the authenticated code leaf, the args from the block), never the prover's. The statement is then
+  checked against the one Stwo proof.
+- **The post root** is the pre root with the replay's net leaf changes applied to a partial tree (`csmt_partial`): the
+  paths the proofs reveal, every other subtree an opaque hash. A delete that collapses a sibling leaf needs that
+  sibling's preimage, which the prover supplies and the verifier hashes.
+- **Missing a witness entry is never a skip.** Reading an entry that is not opened raises `Unprovable`, a BaseException,
+  so no `except Exception` in the transition can turn "the witness lacks a key" into "the transaction was skipped", which
+  would settle a root the chain never had. The absent marker raises the same way if it ever reaches the transition as a
+  value. It did once during development, as a TypeError the transition turned into two skipped calls. The run count
+  and the root caught it, and the marker now fails loudly.
+- **The prover is the same replay.** It applies the span to a copy of the full state (recording each VM run through a
+  `trace` hook on `runtimes._ZkVM.run`), replays on a WitnessState whose source is the real pre-state (which records
+  exactly the openings), proves the VM statement, and runs the verifier on its own bundle before returning it. A span the
+  verifier would refuse is found unprovable before anything is submitted.
+
+The cost of the split is that the verifier does work linear in the span (the replay) and the witness travels with the
+proof. Both are small next to the VM proof: on the span below the witness is 57 KB of JSON and the replay takes ~0.1 s.
+The tree circuit of step 2 is not used here. It is the way to a constant-size settlement when that matters, and nothing
+in this format stops a later version from proving the tree updates instead of replaying them.
+
+**Measured** on a 239-block span played through the real transition
+(`tests/test_a_stwo_settlement_of_a_span_replays_the_exec_transition_and_refuses_forgeries.py`):
+- the span holds a tictactoe game to a win and its payout, a dice bet bound to an epoch beacon and settled from it,
+  RANDAO reveals, six asset ops on an asset created before the span, an emit, a bridge withdrawal, the L1 claim that
+  garbage-collects an older one, a deploy, transfer_contract and lock, the dividend accrual across an epoch boundary and
+  a collect_dividend;
+- 9 VM runs, 1,251 steps, 39 openings. Prove 6.8 s, verify 0.11 s, VM proof 1.18 MB, witness 57 KB;
+- the verifier lands on exactly the exec node's post root;
+- refused, each for its own reason: an opening's value; an opening claimed absent; an opening dropped; a slot; the
+  contract code; a tree proof; the pre halves swapped; an SLOAD value; an SSTORE value (the Stwo proof); a step count
+  (the Stwo proof); a VM run dropped or added; the VM proof corrupted, or another span's; a BEACON value the chain does
+  not hold; a call's argument changed in the block; a transaction removed from a block; the claimed post root;
+- the partial tree lands on `csmt.Tree`'s root for 400 random write batches, including inserts beside deep shared
+  prefixes and collapsing deletes, and refuses an opening that does not hash to its node.
+
+**What a span cannot carry yet** (`Unprovable`, named in the message; such a span settles by the quorum, as every span
+does today):
+1. ~~A reverting call.~~ **Proven since 2026-10-27**, see "Reverting calls" below.
+2. **Below `EXEC_ADDR_ROOT_HEIGHT`, a payout to an address registered before the span.** A PAY resolves its payee
+   digest through `zk_addrs`, and a payee the registry lacks makes the chain revert the call, so the registry decides
+   outcomes. No root committed it, and a prover-supplied preimage would have let a proof pay where the chain did not.
+   From the gate (the first live gen-29 gate, exec cursor) every entry is a record (`exec_root_b2.T_ADDR`, positioned
+   by the digest, valued by the address). The replay then reads the registry like any other ledger, and a payout to an
+   address registered long before the span proves (test section 5). A span crossing the gate is unprovable: the root at
+   the gate inserts the whole registry, which no witness carries, and the verifier refuses it outright rather than
+   compute a root without that insert.
+3. **Creating an asset.** `asset_create` refuses an existing id, and an asset's leaf key includes its metadata digest,
+   so no single leaf shows that an id is absent.
+4. **The shielded pools, private calls, deliveries INTO this namespace, non-integer storage (KVX).** Their state is
+   committed as digests or lists, not one leaf per entry.
+
+**One encoding per proof (2026-10-27).** Stwo's FRI last layer carries a size field beside its coefficients that the
+transcript does not cover, so a proof had more than one byte encoding. `native/stwo_settle` refuses anything but the
+canonical field. `native/stwo_js` maps every encoding to the canonical one where its verifier already treated them
+alike, and refuses the rest, which it always refused. Old and new libraries were measured on the same encodings with the
+same verdicts, so this is not a consensus change.
+
+The test build helpers had a related problem. `tests/_stwo_js_build.py` and `tests/_stwo_settle_build.py` copy the crate
+and build it in a shared target dir. Cargo judged freshness by the PREVIOUS copy's paths and mtimes, so it could link
+another tree's library: a test of the live checkout's verifier ran a worktree's newer one. Each build now stamps a
+sha256 of its sources and drops the crate's fingerprints when the stamp changes.
+
+**Reverting calls (2026-10-27).** A revert has to be proven, or a prover could claim one to drop a call's effects, and
+its step count too, since a reverted call's steps count against the block budget. zkvm2 reverts in 13 ways
+(`zkvm2.REVERT_KINDS`, which records the kind in the run's meter for the prover). A call the statement says reverts
+ends in a REVERT row (`vm_air.rs` module comment):
+- REQUIRE, DIVMOD, DIVMODW and ASEL on a zero operand, through the zero test;
+- NOTB, RANGE and ARG outside their small range: either the high limbs' sum has an inverse, or the low limb minus the
+  bound is range-checked;
+- a pc past the method's end (equal to the program's length, from the table: jumps stay inside, so only a fall-through
+  gets there);
+- the step budget (clk is GAS_LIMIT).
+
+The row emits END_REVERT, carrying the kind and the gas, in place of a next state. Four kinds depend on state the
+circuit does not hold: an asset PAY or ABURN beyond the holding, and a BHASH or BEACON the chain does not hold yet. For
+those the row emits the step's io entry, and the oracle accepts the revert only if that entry fails exactly as zkvm2
+fails it. The replay discards a reverted call's writes, refunds its escrow and charges its steps, through the exec node's
+own code.
+
+Measured (`tests/test_a_stwo_proof_of_contract_execution_proves_its_io_log_and_refuses_forgeries.py` section 6):
+- one reverting call per kind, the range kinds from both sides, proven and verified;
+- 103 forged statements refused, 52 of them about a revert: its kind, a return claimed, its step count, its io entry;
+- ten dishonest provers that claim a revert where the instruction does not fail, one per kind the circuit judges, all
+  refused;
+- the free-cell probe on revert rows: 112,500 perturbations, none harmful;
+- an out-of-gas call (131,070 steps) proves in 36.7 s and verifies in 0.22 s, at 19 GB peak memory. The block step
+  budget bounds how many of those a block holds.
+
+In the span test a tictactoe move out of turn reverts inside the span. A span whose only call reverts lands on the exec
+node's root with the call value back in its sender's balance. The oracle refuses a PAY, ABURN, BHASH or BEACON revert
+whose entry does not fail.
+
+**The shadow run (`tools/settle_b2_shadow.py`, 2026-10-27): G8's two weeks of off-chain proofs.** It proves every
+span between two of the exec node's settled snapshots (`exec_state.json~stash~<ns>~<cursor>.json`), verifies each proof
+as L1 would, and compares the verified root with the exec node's own root at the span's end. It only reads the
+snapshots and GETs blocks and accrual inputs, and it writes nothing but its results file. One JSON line per span:
+proven, unprovable (and why), refused or mismatch (each a bug), skipped.
+
+The first run, against the live chain (exec cursors 4920 to 5220):
+- **Two spans proven** on exactly the exec node's root. Each was 60 blocks with dividend accrual and no contract call:
+  the live chain is quiet. Prove 0.4 s, verify 5 ms, 49 KB witness.
+- **Three spans skipped**, which exposed an exec-node bug: a stash did not always hold the state of its own label. A
+  quorum settle attests the latest epoch-boundary pair, but the stash serialized the LIVE state after the submit's
+  await. 2 of the 6 stashes on disk were at another cursor (4980 held 4981, 5220 held 5223). Both a joiner, which
+  verifies a stash against its pair, and this prover depend on that match. Fixed in `execnode/execnode.py`:
+  `_record_boundary` serializes the state in the same step that records the boundary root, and `_stash_payload` stashes
+  only a payload at the attested pair, never a mismatched one
+  (`tests/test_a_settle_stash_hashes_to_its_own_cursor_and_root.py`).
+
+**Next:**
+1. L1's side: the Chain inputs from L1's own state (the accrual inputs and carry are derived there already, for the
+   gen-28 records binding; chain reads through `ExecState.exec_beacon_at` and the block-hash ring rule), the verifier
+   behind a native entry point instead of a subprocess, and the settle-tx format.
+2. The shadow run on a schedule for the two weeks (an operator job: it needs the go-ahead), with the results reported.

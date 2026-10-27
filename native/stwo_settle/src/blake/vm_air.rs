@@ -26,8 +26,18 @@
 //!   NEZ/EQ/JNZ/...   a word is zero iff its 16 limbs sum to zero (16 x 2^16 < p, all non-negative).
 //! Every constraint is degree <= 3 (selector x two witness terms): log + 1, as path.rs.
 //!
-//! WHAT IT DOES NOT CHECK (the consumer of the io log does; see crate::vm): BHASH/BEACON values (L1's chain reads), SLOAD
-//! values (the storage component), ABAL and asset spends (the records half). A REVERTING call cannot be proven here.
+//! REVERTS (2026-10-27). A call the statement says reverts ends in a REVERT row instead of a RET: its opcode one-hot is
+//! all zero and a revert one-hot (`rsel`, crate::vm::revert) names the instruction and why it fails, so no opcode
+//! constraint applies and each kind's own constraint proves the failure: REQUIRE / DIVMOD / DIVMODW / ASEL on a zero
+//! operand (the zero test), NOTB / RANGE / ARG outside their small range (rb: the high limbs' sum is invertible, or the low
+//! limb minus the bound is range-checked), OOB (no instruction; the pc is the program's length from TAB), OOG (no
+//! instruction; clk is GAS_LIMIT). The row emits END_REVERT (cix, gas, kind, io count) instead of a next state, and the
+//! verifier consumes it for exactly the calls the statement says revert. PAY / ABURN (an asset overspend) and BHASH /
+//! BEACON (a chain read not available) depend on state the circuit does not hold: their REVERT row proves the step and
+//! emits its io entry, and the verifier judges that entry (execnode/settle_b2.py Oracle._walk).
+//!
+//! WHAT IT DOES NOT CHECK (the consumer of the io log does): BHASH/BEACON values (L1's chain reads), SLOAD values (the
+//! replayed state), ABAL and asset spends (the ledger), and the four judged reverts above.
 
 use std::collections::HashMap;
 use std::ops::{Add, Neg, Sub};
@@ -81,11 +91,17 @@ relation!(RangeElements, 1);
 
 const TAG_STATE: u32 = 1;
 const TAG_END: u32 = 2;
+/// a reverted call's end: (cix, its gas, the revert kind in the pc slot, prog, its io count)
+const TAG_REVERT: u32 = 3;
 const TAB_PROG: u32 = 1;
 const TAB_DATA: u32 = 2;
+/// (prog, its length): an OOB row's pc must equal it
+const TAB_LEN: u32 = 3;
 const DATA_CTX: u32 = 0;
 const DATA_ACTX: u32 = 1;
 const DATA_ARG: u32 = 2;
+/// (cix, NARGS, 0, the arg count): an ARG revert's index must reach it
+const DATA_NARGS: u32 = 3;
 
 // ---------------------------------------------------------------------------------------------------------------
 // the CPU row's columns: ONE definition, read by the constraint evaluator and written by the trace generator
@@ -143,6 +159,20 @@ pub struct Cols<T> {
     io_a: Vec<T>,
     io_b: Vec<T>,
     cidx: T,
+    /// REVERTS (crate::vm::revert): a one-hot over the instruction-level kinds, in place of the opcode one-hot
+    rsel: Vec<T>,
+    /// a pc past the method's end; the step budget spent (neither executes an instruction)
+    oob: T,
+    oog: T,
+    /// the "outside a small range" test of NOTB / RANGE / ARG reverts: rb = 1, the low limb minus the bound is the
+    /// range-checked rr; rb = 0, the high limbs' sum is nonzero (m = it, rinv its inverse)
+    rb: T,
+    m: T,
+    rinv: T,
+    rr: T,
+    /// the call's arg count (an ARG revert) and the program's length (an OOB row), both looked up in TAB
+    nargs: T,
+    plen: T,
 }
 
 fn take<T>(it: &mut impl Iterator<Item = T>, n: usize) -> Vec<T> {
@@ -188,9 +218,11 @@ impl<T: Clone> Cols<T> {
         let io_a = take(it, 16);
         let io_b = take(it, 16);
         let cidx = one(it);
+        let rsel = take(it, vm::revert::N_OP);
+        let (oob, oog, rb, m, rinv, rr, nargs, plen) = (one(it), one(it), one(it), one(it), one(it), one(it), one(it), one(it));
         Cols {
             active, cix, clk, pc, prog, ioc, sel, dsel, ssel, imm, regs, h, rd, rs, res, nregs, nh, npc, ax, ay, az, cy,
-            nz, rem, rq, ab, bb, cb, pb, mc, out, dg, io_a, io_b, cidx,
+            nz, rem, rq, ab, bb, cb, pb, mc, out, dg, io_a, io_b, cidx, rsel, oob, oog, rb, m, rinv, rr, nargs, plen,
         }
     }
     fn flat(&self) -> Vec<T> {
@@ -229,12 +261,15 @@ impl<T: Clone> Cols<T> {
         v.extend(self.io_a.iter().cloned());
         v.extend(self.io_b.iter().cloned());
         v.push(self.cidx.clone());
+        v.extend(self.rsel.iter().cloned());
+        v.extend([self.oob.clone(), self.oog.clone(), self.rb.clone(), self.m.clone(), self.rinv.clone(), self.rr.clone(),
+                  self.nargs.clone(), self.plen.clone()]);
         v
     }
 }
 
 pub const N_COLS: usize = 6 + N_OPS + 2 * NUM_REGS + 16 + NUM_REGS * 16 + 16 + 48 + NUM_REGS * 16 + 16 + 1 + 64 + 6 + 16
-    + 1 + 32 * 3 + 64 * 2 + 32 + 96 + 32 + 1;
+    + 1 + 32 * 3 + 64 * 2 + 32 + 96 + 32 + 1 + vm::revert::N_OP + 8;
 
 impl<T: Fe> Cols<T> {
     fn s(&self, o: usize) -> T {
@@ -250,11 +285,23 @@ impl<T: Fe> Cols<T> {
     fn immn(&self) -> T {
         self.imm[0].clone() + self.imm[1].clone() * k::<T>(65536)
     }
+    fn r(&self, kind: u32) -> T {
+        self.rsel[kind as usize].clone()
+    }
+    /// any revert: an instruction's own, OOB or OOG (the row ends its call without a next state)
+    fn term(&self) -> T {
+        self.rsel.iter().fold(T::zero(), |a, x| a + x.clone()) + self.oob.clone() + self.oog.clone()
+    }
+    /// the reverts that emit their step's io entry (crate::vm::revert: the verifier judges it)
+    fn rv_emit(&self) -> T {
+        RV_EMIT.iter().fold(T::zero(), |a, &k| a + self.r(k))
+    }
     fn emit(&self) -> T {
-        self.g(&IO_OPS)
+        self.g(&IO_OPS) + self.rv_emit()
     }
     fn kind(&self) -> T {
         IO_OPS.iter().fold(T::zero(), |a, &o| a + self.sel[o].clone() * k::<T>(vm::io_kind(o)))
+            + RV_EMIT.iter().fold(T::zero(), |a, &kd| a + self.r(kd) * k::<T>(vm::io_kind(vm::revert::OP[kd as usize])))
     }
     fn word_of_bytes(b: &[T], l: usize) -> T {
         b[2 * l].clone() + b[2 * l + 1].clone() * k::<T>(256)
@@ -277,6 +324,7 @@ impl<T: Fe> Cols<T> {
     }
 }
 
+const RV_EMIT: [u32; 4] = [vm::revert::PAY, vm::revert::ABURN, vm::revert::BHASH, vm::revert::BEACON];
 const IO_OPS: [usize; 11] =
     [op::SLOAD, op::SSTORE, op::PAY, op::BHASH, op::BEACON, op::RET, op::ASEL, op::AMINT, op::ABURN, op::ABAL, op::ARENOUNCE];
 /// ops that write nothing: res = rd keeps r[d]
@@ -292,12 +340,20 @@ fn cpu_constraints<T: Fe>(c: &Cols<T>) -> Vec<T> {
     let bool_ = |x: &T| x.clone() * (x.clone() - T::one());
     let a = c.active.clone();
     z.push(bool_(&a));
-    // the opcode and register selectors: one-hot on an active row, all zero on padding
-    for v in [&c.sel, &c.dsel, &c.ssel] {
+    // the opcode and register selectors: one-hot on an active row that executes an instruction, all zero on padding.
+    // A REVERT row takes its op from the revert one-hot instead (rsel), so no opcode constraint applies to it; OOB and
+    // OOG rows execute nothing at all (no op, no registers).
+    let term = c.term();
+    let noins = c.oob.clone() + c.oog.clone();
+    for x in chain![c.rsel.iter(), [&c.oob, &c.oog, &c.rb]] {
+        z.push(bool_(x));
+    }
+    z.push(bool_(&term));
+    for (v, want) in [(&c.sel, a.clone() - term.clone()), (&c.dsel, a.clone() - noins.clone()), (&c.ssel, a.clone() - noins.clone())] {
         for x in v.iter() {
             z.push(bool_(x));
         }
-        z.push(v.iter().fold(T::zero(), |s, x| s + x.clone()) - a.clone());
+        z.push(v.iter().fold(T::zero(), |s, x| s + x.clone()) - want);
     }
     // rd, rs: the selected registers
     for l in 0..16 {
@@ -435,6 +491,39 @@ fn cpu_constraints<T: Fe>(c: &Cols<T>) -> Vec<T> {
         z.push(gm.clone() * (s - c.pb[kc].clone() - c.mc[kc].clone() * k::<T>(256)));
     }
     z.push(gm * c.mc[63].clone());
+
+    // ---- REVERTS (crate::vm::revert). Each kind proves its instruction FAILS on these operands; the row then ends the
+    // call (cpu_lookups: END_REVERT instead of a next state).
+    use vm::revert as rk;
+    // REQUIRE / DIVMOD / DIVMODW / ASEL: rs is zero
+    z.push((c.r(rk::REQUIRE) + c.r(rk::DIVMOD) + c.r(rk::DIVMODW) + c.r(rk::ASEL)) * nz_rs.clone());
+    // NOTB (rd not 0 or 1), RANGE (rd >= 2^62), ARG (rs >= the arg count): either the high limbs are not all zero (rb = 0:
+    // their sum m has an inverse; canonical limbs, so the sum is zero iff they are), or the low limb minus the bound is
+    // in [0, 2^16) (rb = 1: rr, range-checked; below the bound it would be p minus something, outside the range)
+    let hs = |w: &[T], from: usize| w[from..].iter().fold(T::zero(), |s, x| s + x.clone());
+    let g3 = c.r(rk::NOTB) + c.r(rk::RANGE) + c.r(rk::ARG);
+    let x = c.r(rk::NOTB) * hs(&c.rd, 1) + c.r(rk::RANGE) * hs(&c.rd, 4) + c.r(rk::ARG) * hs(&c.rs, 1);
+    z.push(c.m.clone() - c.rb.clone() - (one() - c.rb.clone()) * x);
+    z.push(g3.clone() * (c.m.clone() * c.rinv.clone() - one()));
+    z.push((one() - g3.clone()) * c.rinv.clone());
+    z.push((one() - g3) * c.rb.clone());
+    z.push(c.rr.clone() - c.rb.clone() * (c.r(rk::NOTB) * (c.rd[0].clone() - k::<T>(2))
+        + c.r(rk::RANGE) * (c.rd[3].clone() - k::<T>(1 << 14)) + c.r(rk::ARG) * (c.rs[0].clone() - c.nargs.clone())));
+    z.push((one() - c.r(rk::ARG)) * c.nargs.clone());
+    // OOB: the pc is the method's length (jumps stay inside it, so only a fall-through gets past the end)
+    z.push(c.oob.clone() * (c.pc.clone() - c.plen.clone()));
+    z.push((one() - c.oob.clone()) * c.plen.clone());
+    // OOG: the run has spent the whole budget (zkvm2 checks it before the next fetch)
+    z.push(c.oog.clone() * (c.clk.clone() - k::<T>(vm::GAS_LIMIT as u32)));
+    // the io entry a reverting PAY / ABURN / BHASH / BEACON emits: as the op would (PAY d s), or the key read (BHASH s, 0)
+    let rw = c.r(rk::PAY) + c.r(rk::ABURN);
+    let rmiss = c.r(rk::BHASH) + c.r(rk::BEACON);
+    for l in 0..16 {
+        z.push(rw.clone() * (c.io_a[l].clone() - c.rd[l].clone()));
+        z.push(rw.clone() * (c.io_b[l].clone() - c.rs[l].clone()));
+        z.push(rmiss.clone() * (c.io_a[l].clone() - c.rs[l].clone()));
+        z.push(rmiss.clone() * c.io_b[l].clone());
+    }
     z
 }
 
@@ -465,15 +554,28 @@ fn cpu_lookups<T: Fe>(c: &Cols<T>) -> Vec<(T, Rel, Vec<T>)> {
     v.push((-a.clone(), Rel::State, st(TAG_STATE, c.clk.clone(), c.pc.clone(), c.ioc.clone(), regs(&c.regs), c.h.clone())));
     let clk1 = c.clk.clone() + T::one();
     let ioc1 = c.ioc.clone() + emit.clone();
-    v.push((a.clone() - ret.clone(), Rel::State,
+    let term = c.term();
+    v.push((a.clone() - ret.clone() - term.clone(), Rel::State,
             st(TAG_STATE, clk1.clone(), c.npc.clone(), ioc1.clone(), regs(&c.nregs), c.nh.clone())));
-    v.push((ret, Rel::State, st(TAG_END, clk1, T::zero(), ioc1, vec![T::zero(); NUM_REGS * 16], vec![T::zero(); 16])));
-    // the instruction at (prog, pc)
+    v.push((ret, Rel::State, st(TAG_END, clk1.clone(), T::zero(), ioc1.clone(), vec![T::zero(); NUM_REGS * 16], vec![T::zero(); 16])));
+    // a REVERT ends the call: its gas (the reverting step counts; an OOG row executes nothing) and its kind
+    let kind = (0..vm::revert::N_OP).fold(T::zero(), |s, j| s + c.rsel[j].clone() * k::<T>(j as u32))
+        + c.oob.clone() * k::<T>(vm::revert::OOB) + c.oog.clone() * k::<T>(vm::revert::OOG);
+    v.push((term, Rel::State, st(TAG_REVERT, clk1 - c.oog.clone(), kind, ioc1, vec![T::zero(); NUM_REGS * 16], vec![T::zero(); 16])));
+    // the instruction at (prog, pc): its op from the opcode one-hot, or from the revert one-hot on a revert row
     let num = |sel: &[T]| (0..sel.len()).fold(T::zero(), |s, i| s + sel[i].clone() * k::<T>(i as u32));
-    let mut ins = vec![k::<T>(TAB_PROG), c.prog.clone(), c.pc.clone(), num(&c.sel), num(&c.dsel), num(&c.ssel)];
+    let rop = (0..vm::revert::N_OP).fold(T::zero(), |s, j| s + c.rsel[j].clone() * k::<T>(vm::revert::OP[j] as u32));
+    let mut ins = vec![k::<T>(TAB_PROG), c.prog.clone(), c.pc.clone(), num(&c.sel) + rop, num(&c.dsel), num(&c.ssel)];
     ins.extend(c.imm.iter().cloned());
     ins.push(T::zero());
-    v.push((-a, Rel::Tab, ins));
+    v.push((-(a - c.oob.clone() - c.oog.clone()), Rel::Tab, ins));
+    // an OOB row's program length; an ARG revert's arg count
+    let mut len = vec![k::<T>(TAB_LEN), c.prog.clone(), c.plen.clone()];
+    len.resize(TAB_W, T::zero());
+    v.push((-c.oob.clone(), Rel::Tab, len));
+    let mut na = vec![k::<T>(TAB_DATA), c.cix.clone(), k::<T>(DATA_NARGS), T::zero(), c.nargs.clone()];
+    na.resize(TAB_W, T::zero());
+    v.push((-c.r(vm::revert::ARG), Rel::Tab, na));
     // the call's data: CTX / ACTX / ARG -> res
     let dk = c.s(op::ACTX) * k::<T>(DATA_ACTX) + c.s(op::ARG) * k::<T>(DATA_ARG) + c.s(op::CTX) * k::<T>(DATA_CTX);
     let mut d = vec![k::<T>(TAB_DATA), c.cix.clone(), dk, c.cidx.clone()];
@@ -514,7 +616,7 @@ fn cpu_lookups<T: Fe>(c: &Cols<T>) -> Vec<(T, Rel, Vec<T>)> {
         v.push((T::one(), Rel::Xor8, vec![x.clone(), T::zero(), x.clone()]));
     }
     // 16-bit values
-    for x in chain![c.res.iter(), c.ax.iter(), c.mc.iter(), [&c.rq]] {
+    for x in chain![c.res.iter(), c.ax.iter(), c.mc.iter(), [&c.rq, &c.rr]] {
         v.push((-T::one(), Rel::Range, vec![x.clone()]));
     }
     v
@@ -642,8 +744,11 @@ fn carries(a: &W, b: &W) -> Vec<u32> {
 
 /// The CPU row of one step, as field values. (A padding row is all zero.)
 fn cpu_row(s: &Step) -> Cols<BaseField> {
-    let o = s.ins.op;
-    let (rd, rs) = (s.regs[s.ins.d], s.regs[s.ins.s]);
+    use vm::revert as rk;
+    // a revert row executes no opcode's semantics (o = none below); OOB/OOG rows execute no instruction at all
+    let terminal = matches!(s.revert, Some(rk::OOB) | Some(rk::OOG));
+    let o = if s.revert.is_some() { usize::MAX } else { s.ins.op };
+    let (rd, rs) = if terminal { (vm::ZERO, vm::ZERO) } else { (s.regs[s.ins.d], s.regs[s.ins.s]) };
     let onehot = |n: usize, i: usize| (0..n).map(|j| f((j == i) as u32)).collect_vec();
     // the adder's operands, by op
     let z = vm::ZERO;
@@ -714,6 +819,22 @@ fn cpu_row(s: &Step) -> Cols<BaseField> {
         _ => 0,
     };
     let fu = |v: &[u32]| v.iter().map(|x| f(*x)).collect_vec();
+    // the revert columns (nargs / plen are the caller's: Step does not carry them)
+    let rkind = s.revert.filter(|&k| (k as usize) < rk::N_OP);
+    let hs = |w: &W, from: usize| vm::limbs16(w)[from..].iter().sum::<u32>();
+    let (rb, m, rinv, rr) = match rkind {
+        Some(k) if k == rk::NOTB || k == rk::RANGE || k == rk::ARG => {
+            let (hi, lo) = match k {
+                rk::NOTB => (hs(&rd, 1), vm::limbs16(&rd)[0] as i64 - 2),
+                rk::RANGE => (hs(&rd, 4), vm::limbs16(&rd)[3] as i64 - (1 << 14)),
+                _ => (hs(&rs, 1), vm::limbs16(&rs)[0] as i64), // minus nargs: set by the caller (prove_vm)
+            };
+            if hi != 0 { (f(0), f(hi), f(hi).inverse(), f(0)) } else { (f(1), f(1), f(1), f(lo.max(0) as u32)) }
+        }
+        _ => (f(0), f(0), f(0), f(0)),
+    };
+    let rsel = (0..rk::N_OP).map(|j| f((rkind == Some(j as u32)) as u32)).collect_vec();
+    let zeros = |n: usize| vec![f(0); n];
     Cols {
         active: f(1),
         cix: f(s.cix as u32),
@@ -721,10 +842,10 @@ fn cpu_row(s: &Step) -> Cols<BaseField> {
         pc: f(s.pc as u32),
         prog: f(0), // set by the caller (the call's program index)
         ioc: f(s.ioc as u32),
-        sel: onehot(N_OPS, o),
-        dsel: onehot(NUM_REGS, s.ins.d),
-        ssel: onehot(NUM_REGS, s.ins.s),
-        imm: fw(&s.ins.imm),
+        sel: if s.revert.is_some() { zeros(N_OPS) } else { onehot(N_OPS, o) },
+        dsel: if terminal { zeros(NUM_REGS) } else { onehot(NUM_REGS, s.ins.d) },
+        ssel: if terminal { zeros(NUM_REGS) } else { onehot(NUM_REGS, s.ins.s) },
+        imm: if terminal { fw(&vm::ZERO) } else { fw(&s.ins.imm) },
         regs: s.regs.iter().map(fw).collect(),
         h: fw(&s.h),
         rd: fw(&rd),
@@ -750,6 +871,42 @@ fn cpu_row(s: &Step) -> Cols<BaseField> {
         io_a: fw(&io_a),
         io_b: fw(&io_b),
         cidx: f(cidx),
+        rsel,
+        oob: f((s.revert == Some(rk::OOB)) as u32),
+        oog: f((s.revert == Some(rk::OOG)) as u32),
+        rb,
+        m,
+        rinv,
+        rr,
+        nargs: f(0),
+        plen: f(0),
+    }
+}
+
+/// A step's row in the context of its call: the program index, and what a revert row reads from the call (the arg count)
+/// or its program (the length). The ONE row builder for the prover, the constraint debugger and the probe.
+fn step_row(st: &VmStatement, call: &vm::Call, s: &Step) -> Cols<BaseField> {
+    let mut r = cpu_row(s);
+    r.prog = f(call.prog as u32);
+    if s.revert == Some(vm::revert::ARG) {
+        r.nargs = f(call.args.len() as u32);
+        if r.rb == f(1) {
+            r.rr -= r.nargs; // the low limb minus the arg count (cpu_row left the limb)
+        }
+    }
+    if s.revert == Some(vm::revert::OOB) {
+        r.plen = f(st.progs[call.prog].len() as u32);
+    }
+    r
+}
+
+/// a step's label in debug output and the probe: the op, or the revert kind
+fn step_label(s: &Step) -> String {
+    match s.revert {
+        Some(vm::revert::OOB) => "OOB".into(),
+        Some(vm::revert::OOG) => "OOG".into(),
+        Some(_) => format!("{}!REVERT", vm::OPS[s.ins.op]),
+        None => vm::OPS[s.ins.op].into(),
     }
 }
 
@@ -772,6 +929,8 @@ pub enum Tamper {
     HashState,
     /// an LT that answers the opposite
     LtFlipped,
+    /// a REVERT where the instruction does not fail (vm::run_forced builds the revert row the statement asks for)
+    ForceRevert,
 }
 
 /// The table rows (programs, then each call's data), in order, as TAB_W values each.
@@ -784,6 +943,9 @@ fn table_rows(st: &VmStatement) -> Vec<Vec<u32>> {
             r.push(0);
             rows.push(r);
         }
+        let mut r = vec![TAB_LEN, p as u32, prog.len() as u32];
+        r.resize(TAB_W, 0);
+        rows.push(r);
     }
     for (cix, call) in st.calls.iter().enumerate() {
         let mut data = |kind: u32, idx: usize, w: &W| {
@@ -801,6 +963,7 @@ fn table_rows(st: &VmStatement) -> Vec<Vec<u32>> {
         for (i, w) in call.args.iter().enumerate() {
             data(DATA_ARG, i, w);
         }
+        data(DATA_NARGS, 0, &vm::from_u64(call.args.len() as u64));
     }
     rows
 }
@@ -811,7 +974,8 @@ fn log_for(n: usize) -> u32 {
 
 /// The sizes of the statement's components: (cpu, table, scheduler) logs.
 fn logs(st: &VmStatement) -> (u32, u32, u32) {
-    let steps: usize = st.calls.iter().map(|c| c.n_steps).sum();
+    // an out-of-gas call has one row past its gas (the terminal row, which executes nothing)
+    let steps: usize = st.calls.iter().map(|c| c.n_steps + (c.revert == Some(vm::revert::OOG)) as usize).sum();
     (log_for(steps), log_for(table_rows(st).len()), LOG_N_LANES)
 }
 
@@ -1053,7 +1217,7 @@ impl VmStatement {
         }
         push(&[self.calls.len() as u32]);
         for c in &self.calls {
-            push(&[c.prog as u32, c.n_steps as u32, c.args.len() as u32, c.io.len() as u32]);
+            push(&[c.prog as u32, c.n_steps as u32, c.args.len() as u32, c.io.len() as u32, c.revert.map_or(0, |k| k + 1)]);
             for x in chain![c.args.iter(), c.ctx.iter(), c.actx.iter()] {
                 w(&mut push, x);
             }
@@ -1089,11 +1253,11 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
     let mut tampered = false;
     for (cix, call) in st.calls.iter().enumerate() {
         let prog = st.progs.get(call.prog).ok_or("no such program")?;
-        let steps = vm::run(prog, call, cix)?;
+        let steps = if tamper == Tamper::ForceRevert { vm::run_forced(prog, call, cix)? } else { vm::run(prog, call, cix)? };
+        tampered |= tamper == Tamper::ForceRevert && call.revert.is_some();
         for s in &steps {
-            let mut r = cpu_row(s);
-            r.prog = f(call.prog as u32);
-            if s.ins.op == op::HABS {
+            let mut r = step_row(st, call, s);
+            if s.revert.is_none() && s.ins.op == op::HABS {
                 habs.push(vm::absorb_msg(&s.h, &s.regs[s.ins.s]));
             }
             if !tampered {
@@ -1359,7 +1523,11 @@ fn public_sum(st: &VmStatement, el: &Elements) -> SecureField {
         }
         init.extend([0u32; 16]);
         s += inv(Rel::State, init);
-        let mut end = vec![TAG_END, cix as u32, c.n_steps as u32, 0, c.prog as u32, c.io.len() as u32];
+        // the call's end: RET's (gas, pc 0), or a revert's (gas, its kind in the pc slot)
+        let mut end = match c.revert {
+            None => vec![TAG_END, cix as u32, c.n_steps as u32, 0, c.prog as u32, c.io.len() as u32],
+            Some(kd) => vec![TAG_REVERT, cix as u32, c.n_steps as u32, kd, c.prog as u32, c.io.len() as u32],
+        };
         end.resize(STATE_W, 0);
         s -= inv(Rel::State, end);
         for (j, e) in c.io.iter().enumerate() {
@@ -1384,8 +1552,9 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
         return Err(VmVerifyError::Static("no calls".into()));
     }
     for c in &st.calls {
+        // a returning run's io ends in RET, so it is never empty; a reverting run's may be
         if c.prog >= st.progs.len() || c.args.len() > vm::MAX_ARGS || c.n_steps == 0 || c.n_steps > vm::GAS_LIMIT
-            || c.io.is_empty() || c.io.len() > c.n_steps
+            || (c.revert.is_none() && c.io.is_empty()) || c.io.len() > c.n_steps
         {
             return Err(VmVerifyError::Static("a call outside the VM's bounds".into()));
         }
@@ -1427,11 +1596,10 @@ pub fn debug_cpu_constraints(st: &VmStatement) -> Result<(), String> {
     for (cix, call) in st.calls.iter().enumerate() {
         let steps = vm::run(&st.progs[call.prog], call, cix)?;
         for s in &steps {
-            let mut r = cpu_row(s);
-            r.prog = f(call.prog as u32);
+            let r = step_row(st, call, s);
             for (i, x) in cpu_constraints(&r).iter().enumerate() {
                 if !x.is_zero() {
-                    return Err(format!("call {cix} clk {} pc {} op {}: constraint {i} = {}", s.clk, s.pc, vm::OPS[s.ins.op], x.0));
+                    return Err(format!("call {cix} clk {} pc {} op {}: constraint {i} = {}", s.clk, s.pc, step_label(s), x.0));
                 }
             }
         }
@@ -1487,6 +1655,15 @@ fn col_names() -> Vec<String> {
         io_a: v("io_a", 16),
         io_b: v("io_b", 16),
         cidx: one("cidx"),
+        rsel: (0..vm::revert::N_OP).map(|j| format!("rsel_{}", vm::OPS[vm::revert::OP[j]])).collect(),
+        oob: one("oob"),
+        oog: one("oog"),
+        rb: one("rb"),
+        m: one("m"),
+        rinv: one("rinv"),
+        rr: one("rr"),
+        nargs: one("nargs"),
+        plen: one("plen"),
     }
     .flat()
 }
@@ -1507,14 +1684,14 @@ pub fn probe_free_cells(st: &VmStatement, per_op: usize) -> Result<ProbeReport, 
     assert_eq!(names.len(), N_COLS);
     let tab: std::collections::HashSet<Vec<u32>> = table_rows(st).into_iter().collect();
     let mut sample: Vec<(String, Cols<BaseField>)> = vec![];
-    let mut count = vec![0usize; N_OPS];
+    let mut count: HashMap<String, usize> = HashMap::new();
     for (cix, call) in st.calls.iter().enumerate() {
         for s in vm::run(&st.progs[call.prog], call, cix)? {
-            if count[s.ins.op] < per_op {
-                count[s.ins.op] += 1;
-                let mut r = cpu_row(&s);
-                r.prog = f(call.prog as u32);
-                sample.push((vm::OPS[s.ins.op].to_string(), r));
+            let label = step_label(&s);
+            let n = count.entry(label.clone()).or_default();
+            if *n < per_op {
+                *n += 1;
+                sample.push((label, step_row(st, call, &s)));
             }
         }
     }

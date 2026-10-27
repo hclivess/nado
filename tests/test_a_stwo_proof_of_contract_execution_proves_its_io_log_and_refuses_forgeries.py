@@ -62,15 +62,65 @@ def record_real():
     return recs, r.stdout[-400:] + r.stderr[-1500:]
 
 
-def rec(code, method, args, ctx, actx, beacons=None, block_hashes=None, abal=None):
+def rec(code, method, args, ctx, actx, beacons=None, block_hashes=None, abal=None, storage=None, reverts=False):
     zkvm2.validate_code(code)
     m = {}
-    ok, ret, st, io = zkvm2.run(code, method, ctx[0], args, {}, value=ctx[1], cursor=ctx[2], timestamp=ctx[3],
+    ok, ret, st, io = zkvm2.run(code, method, ctx[0], args, storage or {}, value=ctx[1], cursor=ctx[2], timestamp=ctx[3],
                                 beacons=beacons, block_hashes=block_hashes, asset=actx[0], selfd=actx[1], abal=abal,
                                 meter=m)
-    assert ok, (method, "reverted")
+    assert ok != reverts, (method, "reverted" if not ok else "returned")
+    rv = m.get("revert") if not ok else None
     return {"method": method, "code": [[zkvm2.OP[i[0]], i[1], i[2], i[3]] for i in code[method]], "args": args,
-            "ctx": ctx, "actx": actx, "io": [list(e) for e in io], "gas": m["gas"]}
+            "ctx": ctx, "actx": actx, "io": [list(e) for e in (rv["io"] if rv else io)], "gas": m["gas"],
+            "revert": rv["kind"] if rv else None}
+
+
+# ONE REVERTING CALL PER REVERT KIND (zkvm2.REVERT_KINDS, native/stwo_settle vm::revert), the "outside a small range"
+# ones from both sides (a low limb past the bound, a high limb set): each is the program's last step but the OOB
+# fall-through and the out-of-gas loop (131,070 steps: its own statement, it is the expensive one)
+SELF = 0xabc
+REVERTING = {
+    "REQUIRE": [["MOVI", 1, 0, 5], ["SSTORE", 1, 1, 0], ["MOVI", 2, 0, 0], ["REQUIRE", 0, 2, 0], ["RET", 0, 0, 0]],
+    "DIVMOD": [["MOVI", 1, 0, 9], ["MOVI", 2, 0, 0], ["DIVMOD", 1, 2, 0], ["RET", 0, 0, 0]],
+    "DIVMODW": [["MOVI", 1, 0, 9], ["MOVI", 2, 0, 0], ["DIVMODW", 1, 2, 0], ["RET", 0, 0, 0]],
+    "NOTB (2..)": [["MOVI", 1, 0, 7], ["NOTB", 1, 1, 0], ["RET", 0, 0, 0]],
+    "NOTB (>= 2^16)": [["MOVI", 1, 0, 1 << 100], ["NOTB", 1, 1, 0], ["RET", 0, 0, 0]],
+    "RANGE (= 2^62)": [["MOVI", 1, 0, 1 << 62], ["RANGE", 1, 0, 0], ["RET", 0, 0, 0]],
+    "RANGE (>= 2^64)": [["MOVI", 1, 0, 1 << 200], ["RANGE", 1, 0, 0], ["RET", 0, 0, 0]],
+    "ARG (= nargs + 1)": [["MOVI", 2, 0, 3], ["ARG", 1, 2, 0], ["RET", 0, 0, 0]],
+    "ARG (>= 2^16)": [["MOVI", 2, 0, 1 << 70], ["ARG", 1, 2, 0], ["RET", 0, 0, 0]],
+    "ASEL": [["MOVI", 2, 0, 0], ["ASEL", 0, 2, 0], ["PAY", 1, 3, 0], ["RET", 0, 0, 0]],
+    "PAY": [["MOVI", 2, 0, 555], ["MOVI", 1, 0, 0xdef], ["MOVI", 3, 0, 10**9], ["ASEL", 0, 2, 0], ["PAY", 1, 3, 0],
+            ["RET", 0, 0, 0]],
+    "ABURN": [["MOVI", 2, 0, 555], ["MOVI", 3, 0, 10**9], ["ABURN", 2, 3, 0], ["RET", 0, 0, 0]],
+    "BHASH": [["MOVI", 2, 0, 77], ["BHASH", 1, 2, 0], ["RET", 0, 0, 0]],
+    "BEACON": [["MOVI", 2, 0, 5], ["SLOAD", 3, 2, 0], ["BEACON", 1, 2, 0], ["RET", 0, 0, 0]],
+    "OOB": [["MOVI", 1, 0, 1], ["SSTORE", 1, 1, 0]],
+}
+OOG = [["MOVI", 1, 0, 1], ["JMP", 0, 0, 0]]
+
+
+def reverting(progs):
+    ctx, actx = [0x1234, 0, 10, 20], [0, SELF, 0, 0]
+    return [rec({"m": p}, "m", [11, 22], ctx, actx, beacons={}, block_hashes={}, abal={555: 3}, storage={5: 9}, reverts=True)
+            for p in progs] + [rec({"m": [["MOVI", 1, 0, 1], ["SSTORE", 1, 1, 0], ["RET", 0, 1, 0]]}, "m", [11, 22], ctx,
+                                   actx)]
+
+
+# A DISHONEST PROVER's revert (VM_TAMPER=force_revert, vm::run_forced): the statement says the step reverts and the
+# instruction does NOT fail. Every kind the circuit judges itself must be refused.
+NOT_FAILING = {
+    "REQUIRE on a nonzero word": ([["MOVI", 2, 0, 5], ["REQUIRE", 0, 2, 0], ["RET", 0, 0, 0]], 2, "REQUIRE"),
+    "DIVMOD by a nonzero divisor": ([["MOVI", 1, 0, 9], ["MOVI", 2, 0, 3], ["DIVMOD", 1, 2, 0], ["RET", 0, 0, 0]], 3, "DIVMOD"),
+    "DIVMODW by a nonzero divisor": ([["MOVI", 1, 0, 9], ["MOVI", 2, 0, 3], ["DIVMODW", 1, 2, 0], ["RET", 0, 0, 0]], 3, "DIVMODW"),
+    "NOTB on 1": ([["MOVI", 1, 0, 1], ["NOTB", 1, 1, 0], ["RET", 0, 0, 0]], 2, "NOTB"),
+    "NOTB on 0": ([["MOVI", 1, 0, 0], ["NOTB", 1, 1, 0], ["RET", 0, 0, 0]], 2, "NOTB"),
+    "RANGE on 2^62 - 1": ([["MOVI", 1, 0, (1 << 62) - 1], ["RANGE", 1, 0, 0], ["RET", 0, 0, 0]], 2, "RANGE"),
+    "ARG inside the args": ([["MOVI", 2, 0, 1], ["ARG", 1, 2, 0], ["RET", 0, 0, 0]], 2, "ARG"),
+    "ASEL of a nonzero asset": ([["MOVI", 2, 0, 555], ["ASEL", 0, 2, 0], ["PAY", 1, 3, 0], ["RET", 0, 0, 0]], 2, "ASEL"),
+    "OOB inside the method": ([["MOVI", 1, 0, 1], ["MOVI", 2, 0, 2], ["RET", 0, 0, 0]], 2, "OOB"),
+    "OOG after 5 steps": ([["MOVI", 1, 0, 1], ["JMP", 0, 0, 0]], 5, "OOG"),
+}
 
 
 class Asm:
@@ -178,16 +228,24 @@ def statement(recs):
         lines.append(f"PROG {len(p)}")
         lines += [f"I {o} {d} {s} {h(i)}" for o, d, s, i in p]
     for r in recs:
-        lines += [f"CALL {pidx[json.dumps(r['code'])]} {r['gas']}", "ARGS " + " ".join(h(a) for a in r["args"]),
+        rv = f" REVERT {r['revert']}" if r.get("revert") is not None else ""
+        lines += [f"CALL {pidx[json.dumps(r['code'])]} {r['gas']}{rv}", "ARGS " + " ".join(h(a) for a in r["args"]),
                   "CTX " + " ".join(h(a) for a in r["ctx"]), "ACTX " + " ".join(h(a) for a in r["actx"])]
         lines += [f"IO {k} {h(a)} {h(b)}" for k, a, b in r["io"]]
     return "\n".join(lines) + "\n"
 
 
 def drive(binp, recs, **env):
+    """-> (stdout, stderr tail). A run that exits non-zero gets an EXIT line appended, so a check that looks for its
+    verdict line also sees that it did not finish (vm_prove once panicked after printing `HONEST ok`, mid-forgeries)."""
     r = subprocess.run([binp], input=statement(recs), capture_output=True, text=True, timeout=3600,
                        env=dict(os.environ, **env))
-    return r.stdout, r.stderr[-2000:]
+    return r.stdout + ("" if r.returncode == 0 else f"\nEXIT {r.returncode}"), r.stderr[-2000:]
+
+
+def finished(out):
+    """the full forgery run completed: its summary and timing lines are there and it exited cleanly"""
+    return "FORGED total=" in out and "\nTIME " in out and "\nEXIT " not in out
 
 
 # The cells a row may leave free BY DESIGN: the ones that row never reads. col -> the ops that DO read it (on those, the
@@ -202,6 +260,14 @@ READERS = {
 }
 
 
+# A REVERT row (label "<op>!REVERT", "OOB", "OOG") reads its operands and, for the four kinds the verifier judges, its io
+# entry; nothing else of it reaches a tuple (no next state). Free on it by design: the convolution bytes, the
+# remainder, the RANGE quotient, the data index, the inverses of zero words, and on OOB/OOG (no instruction) the result
+# and the immediate. Its io fields are free only where it emits nothing.
+REVERT_FREE = {"ab", "bb", "cb", "pb", "mc", "rem", "rq", "cidx", "inv_rd", "inv_rs", "inv_x", "io_a", "io_b"}
+REVERT_EMITS = {"PAY!REVERT", "ABURN!REVERT", "BHASH!REVERT", "BEACON!REVERT"}
+
+
 def probe_ok(out):
     """-> (ok, detail): no HARMFUL line, and every HARMLESS class is a by-design one (padding rows aside)"""
     bad = [l for l in out.splitlines() if l.startswith("HARMFUL")]
@@ -209,6 +275,12 @@ def probe_ok(out):
         if l.startswith("HARMLESS"):
             op, col = l.split()[1].split(":")
             if op == "PAD":
+                continue
+            if op.endswith("!REVERT") or op in ("OOB", "OOG"):
+                free = REVERT_FREE - ({"io_a", "io_b"} if op in REVERT_EMITS else set())
+                free |= {"res", "imm"} if op in ("OOB", "OOG") else set()
+                if col not in free:
+                    bad.append(l)
                 continue
             if col not in READERS or op in READERS[col]:
                 bad.append(l)
@@ -241,19 +313,52 @@ for name, recs in (("real", real), ("synthetic", syn[:3])):
     out, err = drive(binp, recs)
     forged = [l for l in out.splitlines() if l.startswith("FORGED")]
     acc = [l for l in out.splitlines() if l.startswith("FORGE ") and l.endswith("ACCEPTED")]
-    T.check(f"2. {name}: the honest proof verifies", "HONEST ok" in out, (out[-800:], err))
+    T.check(f"2. {name}: the honest proof verifies", "HONEST ok" in out and finished(out), (out[-800:], err))
     T.check(f"3. {name}: every forged statement is refused ({forged[0] if forged else '?'})",
             bool(forged) and not acc and int(forged[0].split("total=")[1].split()[0]) >= 100, (acc[:5], forged, err))
     print("     " + " ".join(l for l in out.splitlines() if l.startswith("TIME")))
 
 for t in ("mul_result", "jnz_not_taken", "stray_write", "hash_state", "lt_flipped"):
     out, err = drive(binp, syn[:3], VM_TAMPER=t)
-    T.check(f"4. a dishonest prover ({t}) is refused", "HONEST" in out and "HONEST ok" not in out, (out, err))
+    T.check(f"4. a dishonest prover ({t}) is refused", "HONEST" in out and "HONEST ok" not in out and "\nEXIT " not in out,
+            (out, err))
 
 for name, recs in (("real", real), ("synthetic", syn)):
     out, err = drive(binp, recs, VM_PROBE="3")
     ok, detail = probe_ok(out)
     T.check(f"5. {name}: the free-cell probe finds no perturbation that changes what a row does, and only by-design "
             f"free cells ({detail[1][0] if detail[1] else '?'})", ok, (detail, err))
+
+# ---- 6. REVERTING calls: every kind (zkvm2.REVERT_KINDS), proven; forged and forced reverts refused ------------------
+rv = reverting(REVERTING.values())
+T.check("6a. zkvm2 reverts each program the way its name says",
+        [zkvm2.REVERT_KINDS[r["revert"]] for r in rv[:-1]] == [n.split(" ")[0] for n in REVERTING], [r["revert"] for r in rv])
+out, err = drive(binp, rv, VM_DEBUG="1")
+T.check(f"6b. the Rust reference agrees with zkvm2 on {len(rv) - 1} reverting calls (and every CPU constraint holds)",
+        "every CPU constraint holds" in out, (out, err))
+out, err = drive(binp, rv)
+forged = [l for l in out.splitlines() if l.startswith("FORGED")]
+acc = [l for l in out.splitlines() if l.startswith("FORGE ") and l.endswith("ACCEPTED")]
+nrv = sum(1 for l in out.splitlines() if l.startswith("FORGE call") and "revert" in l)
+T.check("6c. their proof verifies", "HONEST ok" in out and finished(out), (out[-800:], err))
+T.check(f"6d. every forged statement is refused, {nrv} of them about a revert (its kind, a return claimed, its step "
+        f"count, its io entry) ({forged[0] if forged else '?'})", bool(forged) and not acc and nrv >= 3 * 15, (acc[:5], forged))
+oog = reverting([OOG])[:1]
+out, err = drive(binp, oog)
+T.check(f"6e. an out-of-gas call ({oog[0]['gas']} steps) proves and verifies, and its forgeries are refused",
+        oog[0]["gas"] == zkvm2.GAS_LIMIT and "HONEST ok" in out and finished(out) and "ACCEPTED" not in out,
+        (out[-600:], err))
+print("     " + " ".join(l for l in out.splitlines() if l.startswith("TIME")))
+for name, (prog, n, kind) in NOT_FAILING.items():
+    fake = {"method": "m", "code": [[zkvm2.OP[i[0]], i[1], i[2], i[3]] for i in prog], "args": [11, 22],
+            "ctx": [0x1234, 0, 10, 20], "actx": [0, SELF, 0, 0], "io": [], "gas": n,
+            "revert": zkvm2.REVERT_KINDS.index(kind)}
+    out, err = drive(binp, [fake], VM_TAMPER="force_revert")
+    T.check(f"6f. a dishonest prover's revert is refused: {name}",
+            "HONEST" in out and "HONEST ok" not in out and "\nEXIT " not in out, (out, err))
+out, err = drive(binp, rv, VM_PROBE="3")
+ok, detail = probe_ok(out)
+T.check(f"6g. the free-cell probe on every revert kind finds no perturbation that changes what a row does, and only "
+        f"by-design free cells ({detail[1][0] if detail[1] else '?'})", ok, (detail, err))
 
 T.done("ALL PASS — a Stwo proof of zkvm2 execution proves its io log, refuses forgeries and dishonest provers")

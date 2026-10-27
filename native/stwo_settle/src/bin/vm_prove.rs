@@ -7,49 +7,16 @@
 //!                                              and nothing else runs)
 //!   FORGE <name> refused|ACCEPTED              each forged statement against the honest proof
 //!   TIME calls=<..> steps=<..> prove_ms=<..> verify_ms=<..> proof_bytes=<..>
-use std::io::{self, BufRead};
+use std::io::{self, Read};
 use std::time::Instant;
 
 use nado_stwo_settle::blake::vm_air::{Tamper, debug_cpu_constraints, node_config, probe_free_cells, prove_vm, verify_vm};
-use nado_stwo_settle::vm::{self, Call, Instr, IoEntry, VmStatement, W};
-
-fn w(s: &str) -> W {
-    let b: Vec<u8> = (0..32).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).expect("hex")).collect();
-    vm::from_bytes_be(&b.try_into().unwrap())
-}
+use nado_stwo_settle::vm::{self, VmStatement, W};
 
 fn parse() -> VmStatement {
-    let mut st = VmStatement { progs: vec![], calls: vec![] };
-    for line in io::stdin().lock().lines() {
-        let line = line.unwrap();
-        let p: Vec<&str> = line.split_whitespace().collect();
-        if p.is_empty() {
-            continue;
-        }
-        match p[0] {
-            "PROG" => st.progs.push(vec![]),
-            "I" => st.progs.last_mut().unwrap().push(Instr {
-                op: p[1].parse().unwrap(),
-                d: p[2].parse().unwrap(),
-                s: p[3].parse().unwrap(),
-                imm: w(p[4]),
-            }),
-            "CALL" => st.calls.push(Call {
-                prog: p[1].parse().unwrap(),
-                n_steps: p[2].parse().unwrap(),
-                args: vec![],
-                ctx: [vm::ZERO; 4],
-                actx: [vm::ZERO; 4],
-                io: vec![],
-            }),
-            "ARGS" => st.calls.last_mut().unwrap().args = p[1..].iter().map(|x| w(x)).collect(),
-            "CTX" => st.calls.last_mut().unwrap().ctx = std::array::from_fn(|i| w(p[1 + i])),
-            "ACTX" => st.calls.last_mut().unwrap().actx = std::array::from_fn(|i| w(p[1 + i])),
-            "IO" => st.calls.last_mut().unwrap().io.push(IoEntry { kind: p[1].parse().unwrap(), a: w(p[2]), b: w(p[3]) }),
-            x => panic!("unknown line {x}"),
-        }
-    }
-    st
+    let mut text = String::new();
+    io::stdin().read_to_string(&mut text).expect("stdin");
+    vm::parse_statement(&text).expect("statement")
 }
 
 fn main() {
@@ -84,6 +51,7 @@ fn main() {
         Ok("stray_write") => Tamper::StrayWrite,
         Ok("hash_state") => Tamper::HashState,
         Ok("lt_flipped") => Tamper::LtFlipped,
+        Ok("force_revert") => Tamper::ForceRevert,
         Ok(x) => panic!("unknown tamper {x}"),
         Err(_) => Tamper::None,
     };
@@ -125,7 +93,8 @@ fn main() {
             forged.push((format!("{tag}.io_swapped"), edit(&|s| s.calls[ci].io.swap(0, 1))));
         }
         forged.push((format!("{tag}.io_added"), edit(&|s| {
-            let e = s.calls[ci].io[0];
+            // a copy of the first entry, or (an empty log: a call that reverts before any io) an SSTORE of 0 to 0
+            let e = s.calls[ci].io.first().copied().unwrap_or(vm::IoEntry { kind: vm::io::SSTORE, a: vm::ZERO, b: vm::ZERO });
             s.calls[ci].io.insert(0, e);
         })));
         for i in 0..c.args.len() {
@@ -160,6 +129,18 @@ fn main() {
             s.calls[1].io = a;
         })));
         forged.push(("call_dropped".into(), edit(&|s| { s.calls.pop(); })));
+    }
+    for (ci, c) in st.calls.iter().enumerate() {
+        if let Some(kd) = c.revert {
+            forged.push((format!("call{ci}.revert_kind"), edit(&|s| s.calls[ci].revert = Some((kd + 1) % 13))));
+            forged.push((format!("call{ci}.revert_to_return"), edit(&|s| s.calls[ci].revert = None)));
+            forged.push((format!("call{ci}.revert_n_steps+1"), edit(&|s| s.calls[ci].n_steps += 1)));
+            if !c.io.is_empty() {
+                forged.push((format!("call{ci}.revert_io_dropped"), edit(&|s| { s.calls[ci].io.pop(); })));
+            }
+        } else {
+            forged.push((format!("call{ci}.return_to_revert"), edit(&|s| s.calls[ci].revert = Some(vm::revert::REQUIRE))));
+        }
     }
     let mut accepted = 0;
     for (name, fst) in &forged {

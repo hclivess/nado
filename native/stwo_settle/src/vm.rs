@@ -6,11 +6,12 @@
 //!
 //! What zkvm2 reverts on and how a successful run here relates to it:
 //!   NOTB on a non-bit, RANGE >= 2^62, a zero divisor, REQUIRE 0, ARG out of range, ASEL of asset 0, the gas limit, a
-//!   pc off the method's end: refused here (Err), and the circuit has no row that could prove them;
+//!   pc off the method's end: a run that hits one where the statement says it returns is refused here (Err);
 //!   BHASH / BEACON not available, an asset move beyond the holding: those depend on chain and ledger state the
-//!   consumer of the io log checks (chain reads by L1, asset effects by the records half). NOT checked here.
-//! A REVERTING call is out of this component's scope for now (its statement would have to prove the failing condition;
-//! see the doc's open items).
+//!   consumer of the io log checks (execnode/settle_b2.py: chain reads against L1, asset moves against the ledger).
+//! A REVERTING call (2026-10-27): the statement says so (`Call::revert`, the kinds in `revert`), and the run must revert
+//! exactly there, at its last step, for that reason; the circuit proves the failing condition for every kind it can
+//! judge, and emits the reverting step's io entry for the four the verifier judges.
 
 use crate::csmt_ref::compress;
 
@@ -82,6 +83,32 @@ pub mod io {
     pub const ARENOUNCE: u32 = 11;
 }
 
+/// WHY A CALL REVERTS (the statement's `REVERT <kind>`; zkvm2.run's revert paths, one each). Kinds 0..N_OP are an
+/// instruction's own failure, the op at the reverting pc (`OP`); OOB is a pc past the method's end (a method may fall off
+/// it: validate_method bounds jumps, not fall-through); OOG is the step budget, checked before the next fetch. The asset
+/// overspends (PAY, ABURN) and the chain-read misses (BHASH, BEACON) are what the circuit cannot judge: it proves the
+/// step, its operands and its io entry, and the verifier judges the entry against the ledger or the chain.
+pub mod revert {
+    use super::op;
+    pub const REQUIRE: u32 = 0;
+    pub const DIVMOD: u32 = 1;
+    pub const DIVMODW: u32 = 2;
+    pub const NOTB: u32 = 3;
+    pub const RANGE: u32 = 4;
+    pub const ARG: u32 = 5;
+    pub const ASEL: u32 = 6;
+    pub const PAY: u32 = 7;
+    pub const ABURN: u32 = 8;
+    pub const BHASH: u32 = 9;
+    pub const BEACON: u32 = 10;
+    /// the instruction-level kinds
+    pub const N_OP: usize = 11;
+    pub const OOB: u32 = 11;
+    pub const OOG: u32 = 12;
+    pub const OP: [usize; N_OP] =
+        [op::REQUIRE, op::DIVMOD, op::DIVMODW, op::NOTB, op::RANGE, op::ARG, op::ASEL, op::PAY, op::ABURN, op::BHASH, op::BEACON];
+}
+
 /// The io kind an opcode emits (0: none).
 pub fn io_kind(o: usize) -> u32 {
     match o {
@@ -125,8 +152,11 @@ pub struct Call {
     /// ACTX 0..3: the call's asset, the contract's own digest, 0, 0
     pub actx: [W; 4],
     pub io: Vec<IoEntry>,
-    /// the number of instructions the run executes (its gas), RET included
+    /// the run's gas: the instructions it executes, RET or the reverting one included (an out-of-gas run: GAS_LIMIT)
     pub n_steps: usize,
+    /// None: the run ends in RET. Some(kind): it reverts (crate::vm::revert) at its last step, and its io log is the
+    /// entries before that, plus the reverting step's own entry for PAY, ABURN, BHASH and BEACON.
+    pub revert: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -308,10 +338,22 @@ pub struct Step {
     pub h_next: W,
     pub pc_next: usize,
     pub emitted: Option<IoEntry>,
+    /// the step that reverts the call (crate::vm::revert); OOB and OOG steps execute no instruction
+    pub revert: Option<u32>,
 }
 
-/// Run `call` io-driven (module comment) and return its steps. Err names why the run is not a successful one.
+/// Run `call` io-driven (module comment) and return its steps. Err names why the run is not the one the statement states.
 pub fn run(prog: &[Instr], call: &Call, cix: usize) -> Result<Vec<Step>, String> {
+    run_with(prog, call, cix, false)
+}
+
+/// TEST ONLY (a dishonest prover, vm_air::Tamper::ForceRevert): the revert row the statement asks for, at the stated step,
+/// whether or not the instruction there fails. The circuit must refuse every such witness its constraints can judge.
+pub fn run_forced(prog: &[Instr], call: &Call, cix: usize) -> Result<Vec<Step>, String> {
+    run_with(prog, call, cix, true)
+}
+
+fn run_with(prog: &[Instr], call: &Call, cix: usize, force: bool) -> Result<Vec<Step>, String> {
     if call.args.len() > MAX_ARGS {
         return Err("too many args".into());
     }
@@ -319,13 +361,72 @@ pub fn run(prog: &[Instr], call: &Call, cix: usize) -> Result<Vec<Step>, String>
     let mut h = ZERO;
     let mut pc = 0usize;
     let mut ioc = 0usize;
-    let mut steps = vec![];
+    let mut steps: Vec<Step> = vec![];
+    // a terminal step that executes no instruction (OOB, OOG)
+    let terminal = |steps: &[Step], pc: usize, regs: [W; NUM_REGS], h: W, ioc: usize, kind: u32| Step {
+        cix, clk: steps.len(), pc, ins: Instr { op: 0, d: 0, s: 0, imm: ZERO }, regs, h, ioc, res: ZERO, rem: ZERO,
+        regs_next: regs, h_next: h, pc_next: pc + 1, emitted: None, revert: Some(kind),
+    };
     loop {
+        if force && call.revert == Some(revert::OOG) && steps.len() == call.n_steps {
+            steps.push(terminal(&steps, pc, regs, h, ioc, revert::OOG));
+            break;
+        }
+        if force && call.revert == Some(revert::OOB) && steps.len() + 1 == call.n_steps {
+            steps.push(terminal(&steps, pc, regs, h, ioc, revert::OOB));
+            break;
+        }
         if steps.len() >= GAS_LIMIT {
+            if call.revert == Some(revert::OOG) {
+                steps.push(terminal(&steps, pc, regs, h, ioc, revert::OOG));
+                break;
+            }
             return Err("gas limit exceeded".into());
         }
-        let ins = *prog.get(pc).ok_or("pc off the method's end")?;
+        // the step the statement says reverts: the last one (an out-of-gas run reverts after its last)
+        let last = steps.len() + 1 == call.n_steps && call.revert.is_some_and(|k| k != revert::OOG);
+        let Some(&ins) = prog.get(pc) else {
+            if last && call.revert == Some(revert::OOB) {
+                steps.push(terminal(&steps, pc, regs, h, ioc, revert::OOB));
+                break;
+            }
+            return Err("pc off the method's end".into());
+        };
         let (rd, rs) = (regs[ins.d], regs[ins.s]);
+        // does this instruction revert here, and is that what the statement says?
+        let fails = match ins.op {
+            op::REQUIRE | op::DIVMOD | op::DIVMODW | op::ASEL => is_zero(&rs),
+            op::NOTB => !(rd == ZERO || rd == from_u64(1)),
+            op::RANGE => !lt(&rd, &from_u64(1 << 62)),
+            op::ARG => !(rs[1] == 0 && rs[2] == 0 && rs[3] == 0 && (rs[0] as usize) < call.args.len()),
+            _ => false,
+        };
+        let want = if last { call.revert.and_then(|k| revert::OP.get(k as usize).map(|&o| (k, o))) } else { None };
+        if let Some((k, o)) = want {
+            if o != ins.op {
+                return Err(format!("the statement says the run reverts at op {o}, the step is op {}", ins.op));
+            }
+            // PAY/ABURN (an overspend) and BHASH/BEACON (a miss) are the verifier's to judge (module revert)
+            let emitted = match ins.op {
+                op::PAY | op::ABURN => Some(IoEntry { kind: io_kind(ins.op), a: rd, b: rs }),
+                op::BHASH | op::BEACON => Some(IoEntry { kind: io_kind(ins.op), a: rs, b: ZERO }),
+                _ if fails || force => None,
+                _ => return Err("the statement says the run reverts here, and the instruction does not fail".into()),
+            };
+            if let Some(e) = emitted {
+                if call.io.get(ioc) != Some(&e) {
+                    return Err(format!("io entry {ioc} differs from what the reverting step emits"));
+                }
+            }
+            steps.push(Step {
+                cix, clk: steps.len(), pc, ins, regs, h, ioc, res: rd, rem: ZERO, regs_next: regs, h_next: h,
+                pc_next: pc + 1, emitted, revert: Some(k),
+            });
+            if emitted.is_some() {
+                ioc += 1;
+            }
+            break;
+        }
         let mut res = rd;
         let mut rem = ZERO;
         let mut h_next = h;
@@ -437,8 +538,12 @@ pub fn run(prog: &[Instr], call: &Call, cix: usize) -> Result<Vec<Step>, String>
             h_next,
             pc_next,
             emitted,
+            revert: None,
         });
         if ins.op == op::RET {
+            if call.revert.is_some() {
+                return Err("the statement says the run reverts, and it returns".into());
+            }
             break;
         }
         regs = regs_next;
@@ -448,8 +553,103 @@ pub fn run(prog: &[Instr], call: &Call, cix: usize) -> Result<Vec<Step>, String>
     if ioc != call.io.len() {
         return Err("io log longer than the run".into());
     }
-    if steps.len() != call.n_steps {
-        return Err(format!("the run takes {} steps, the statement says {}", steps.len(), call.n_steps));
+    // the gas: every step, except that an out-of-gas run's terminal step executes nothing
+    let gas = steps.len() - (call.revert == Some(revert::OOG)) as usize;
+    if gas != call.n_steps {
+        return Err(format!("the run takes {gas} steps, the statement says {}", call.n_steps));
     }
     Ok(steps)
+}
+
+/// The statement's text form (`src/bin/vm_prove.rs` and `src/bin/vm_settle.rs`; execnode/settle_b2.py writes it), 256-bit
+/// values as 64 hex digits, big-endian:
+///   PROG <n>                       a method; then n lines   I <op id> <d> <s> <imm>
+///   CALL <prog index> <n_steps> [REVERT <kind>]   a call (crate::vm::revert: it reverts at its last step); then
+///                                  ARGS <v>...   CTX <4 v>   ACTX <4 v>   IO <kind> <a> <b> (each)
+/// Errors instead of panics: the verifier builds this text itself, but a parser that panics on a bad line is one bad
+/// caller away from a crash on a consensus path.
+pub fn parse_statement(text: &str) -> Result<VmStatement, String> {
+    fn word(s: &str) -> Result<W, String> {
+        if s.len() != 64 || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!("bad word {s:?}"));
+        }
+        let mut b = [0u8; 32];
+        for i in 0..32 {
+            b[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(|e| e.to_string())?;
+        }
+        Ok(from_bytes_be(&b))
+    }
+    fn num<T: std::str::FromStr>(s: Option<&&str>) -> Result<T, String> {
+        s.ok_or("missing field")?.parse().map_err(|_| format!("bad number {s:?}"))
+    }
+    let mut st = VmStatement { progs: vec![], calls: vec![] };
+    for (ln, line) in text.lines().enumerate() {
+        let p: Vec<&str> = line.split_whitespace().collect();
+        if p.is_empty() {
+            continue;
+        }
+        let err = |e: String| format!("line {}: {e}", ln + 1);
+        match p[0] {
+            "PROG" => st.progs.push(vec![]),
+            "I" => {
+                let ins = Instr {
+                    op: num(p.get(1)).map_err(err)?,
+                    d: num(p.get(2)).map_err(err)?,
+                    s: num(p.get(3)).map_err(err)?,
+                    imm: word(p.get(4).ok_or_else(|| err("missing imm".into()))?).map_err(err)?,
+                };
+                st.progs.last_mut().ok_or_else(|| err("I before PROG".into()))?.push(ins);
+            }
+            "CALL" => {
+                let revert = match (p.get(3), p.get(4)) {
+                    (None, None) => None,
+                    (Some(&"REVERT"), Some(_)) => {
+                        let k: u32 = num(p.get(4)).map_err(err)?;
+                        if k > revert::OOG {
+                            return Err(err(format!("no revert kind {k}")));
+                        }
+                        Some(k)
+                    }
+                    _ => return Err(err("CALL p n [REVERT kind]".into())),
+                };
+                st.calls.push(Call {
+                    prog: num(p.get(1)).map_err(err)?,
+                    n_steps: num(p.get(2)).map_err(err)?,
+                    args: vec![],
+                    ctx: [ZERO; 4],
+                    actx: [ZERO; 4],
+                    io: vec![],
+                    revert,
+                })
+            }
+            "ARGS" | "CTX" | "ACTX" | "IO" => {
+                let c = st.calls.last_mut().ok_or_else(|| err("call data before CALL".into()))?;
+                match p[0] {
+                    "ARGS" => c.args = p[1..].iter().map(|x| word(x)).collect::<Result<_, _>>().map_err(err)?,
+                    "CTX" | "ACTX" => {
+                        if p.len() != 5 {
+                            return Err(err("CTX/ACTX take 4 words".into()));
+                        }
+                        let v: [W; 4] = [word(p[1]).map_err(err)?, word(p[2]).map_err(err)?, word(p[3]).map_err(err)?,
+                                         word(p[4]).map_err(err)?];
+                        if p[0] == "CTX" { c.ctx = v } else { c.actx = v }
+                    }
+                    _ => {
+                        if p.len() != 4 {
+                            return Err(err("IO takes kind a b".into()));
+                        }
+                        c.io.push(IoEntry { kind: num(p.get(1)).map_err(err)?, a: word(p[2]).map_err(err)?,
+                                            b: word(p[3]).map_err(err)? });
+                    }
+                }
+            }
+            x => return Err(err(format!("unknown line {x:?}"))),
+        }
+    }
+    for c in &st.calls {
+        if c.prog >= st.progs.len() {
+            return Err(format!("call names program {} of {}", c.prog, st.progs.len()));
+        }
+    }
+    Ok(st)
 }

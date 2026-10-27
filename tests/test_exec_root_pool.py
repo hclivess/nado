@@ -40,12 +40,16 @@ def t1_ring_persisted_and_root_neutral():
 
 
 def t2_pin_recording_site():
+    # the recording lives in execnode._record_boundary since 2026-10-27 (it serializes the state in the same step, for the
+    # settle stash); the tail loop calls it after the boundary block applies
     tl = _SRC[_SRC.index("async def tail_loop"):]
-    i = tl.index("boundary_roots[_st.cursor] = _st.state_root()")
+    i = tl.index("_record_boundary(_ns, _st)")
     assert tl.index("_apply_block(session, states, state, block") < i, \
         "boundary root must be recorded AFTER the boundary block applies"
-    seg = tl[max(0, i - 400):i + 400]
-    assert "% _EPOCH_LENGTH == 0" in seg and "[:-32]" in seg, "epoch-aligned + bounded ring"
+    rb = _SRC[_SRC.index("def _record_boundary(ns, st):"):]
+    rb = rb[:rb.index("\ndef ")]
+    assert "st.boundary_roots[st.cursor] = st.state_root()" in rb, "the root is the state's own"
+    assert "% _EPOCH_LENGTH != 0" in rb and "[:-32]" in rb, "epoch-aligned + bounded ring"
 
 
 def t3_pin_endpoint_and_probe():

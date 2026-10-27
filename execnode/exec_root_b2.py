@@ -42,6 +42,23 @@ ONE = b"\x01"                     # the value of a digest-in-position record
 T_COUNTER = 13
 COUNTERS = ("wd_nonce", "dw_nonce", "uw_nonce", "outbox_seq")
 
+# THE DIGEST REGISTRY (protocol.EXEC_ADDR_ROOT_HEIGHT, G4 2026-10-27): one record per ExecState.zk_addrs entry, positioned
+# by the digest (its decimal string, the registry's own key) and valued by the address. A PAY to a digest the registry
+# lacks reverts, so the registry decides outcomes; committed, a settlement proof reads it from the pre-state like any
+# other record (execnode/settle_b2.py). From the gate's cursor only, so every root before it is unchanged.
+T_ADDR = 14
+
+
+def addr_root_at(cursor) -> bool:
+    """Whether the root AT `cursor` commits the digest registry (protocol.EXEC_ADDR_ROOT_HEIGHT). ONE predicate for the
+    exec node's root and the settlement replay."""
+    from protocol import EXEC_ADDR_ROOT_HEIGHT as H
+    return bool(H) and int(cursor) >= H
+
+
+def addr_value(addr) -> bytes:
+    return str(addr).encode()
+
 
 def blake_exec_at(cursor) -> bool:
     """Whether the exec root AT `cursor` is this module's (protocol.BLAKE_EXEC_HEIGHT). ONE predicate for the exec node
@@ -203,6 +220,9 @@ def records_projection(st):
             out[record_key(T_APP_NULL, app.nullifier_digest())] = ONE
     for name in COUNTERS:                                  # the nonces new records are positioned by (T_COUNTER)
         _amount(out, record_key(T_COUNTER, name), getattr(st, name, 0) or 0)
+    if addr_root_at(getattr(st, "cursor", -1)):            # the digest registry (T_ADDR), from its gate
+        for d, a in (getattr(st, "zk_addrs", None) or {}).items():
+            out[record_key(T_ADDR, d)] = addr_value(a)
     for _s, msg in st.outbox.items():
         out[record_key(T_DIGEST, "outbox", leaf_digest(msg_outbox_leaf(msg)))] = ONE
     for i, msg in enumerate(st.inbox):

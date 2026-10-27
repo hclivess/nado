@@ -719,10 +719,18 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
   (doc/stwo/g4-settlement-statement.md section 4 step 3). It is measured on 79 real game calls: 12.4 s to prove, 0.1 s
   to verify, 1.1 MB. Every forged statement and dishonest prover tested is refused.
 
+- **G4, the span settlement (2026-10-27).** A verifier holding no exec state replays a span of L1 blocks through the exec
+  node's own transition on a witness of authenticated openings, and checks every contract call against one Stwo proof
+  (doc/stwo/g4-settlement-statement.md section 5). On a 239-block span of real game, asset, withdrawal and dividend
+  traffic it lands on exactly the exec node's root: prove 6.8 s, verify 0.11 s. Every forgery tested is refused.
+
+  The digest registry is committed in the exec root from `EXEC_ADDR_ROOT_HEIGHT`, so a payout to an address registered
+  before the span proves from then on.
+
+  A reverting call is proven too, every one of zkvm2's 13 revert paths.
+
   Still to build for G4:
-  - the storage, records and calls-fold bindings (the io log, code and calls are public in this version);
-  - a proof for a reverting call;
-  - one settlement proof joining the VM and tree components.
+  - L1's side of it: the chain inputs from L1's own state, a native entry point, the settle-tx format.
 
   G8's two weeks of off-chain proofs against live spans start only after all of that is built.
 

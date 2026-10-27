@@ -31,7 +31,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
-from protocol import chain_clock as _chain_clock
+from execnode import block_apply as _BA
 from protocol import EPOCH_LENGTH as _EPOCH_LENGTH
 from aiohttp import web
 
@@ -925,6 +925,43 @@ _settled_snapshots = {}
 # Bounded: these are full state payloads, and only the last few cursors can ever be the justified tip.
 _settled_history = {}
 _SETTLED_HISTORY_KEEP = 6
+# THE SNAPSHOT AT EACH EPOCH BOUNDARY (2026-10-27), serialized in the same synchronous step that records the boundary's
+# root (the tail loop, ExecState.boundary_roots), keyed per ns by cursor -> (root, payload). A quorum settle attests the
+# latest boundary pair, not the live cursor, and its stash used to serialize the LIVE state after the submit's await:
+# measured 2026-10-27, the stash labeled (4980, root@4980) held a state at cursor 4981. A stash must hash to its own
+# (cursor, root) — a joiner verifies it against exactly that, and the gen-29 settlement prover (execnode/settle_b2.py,
+# tools/settle_b2_shadow.py) starts its span from it. _stash_payload picks the matching one; bounded like the history.
+_boundary_snaps = {}
+_BOUNDARY_SNAPS_KEEP = 4
+
+
+def _record_boundary(ns, st):
+    """At an epoch-boundary cursor: the root (ExecState.boundary_roots, the exec hash pool's entry) and the serialized
+    state, in one synchronous step, so the pair and the payload are of the same state. Called right after the boundary
+    block applies; nothing at any other cursor."""
+    if st.cursor < 0 or st.cursor % _EPOCH_LENGTH != 0:
+        return
+    st.boundary_roots[st.cursor] = st.state_root()
+    for _old in sorted(st.boundary_roots)[:-32]:
+        del st.boundary_roots[_old]
+    bs = _boundary_snaps.setdefault(ns, {})
+    bs[st.cursor] = (st.boundary_roots[st.cursor], json.dumps(
+        {"ns": ns, "cursor": st.cursor, "state_root": st.boundary_roots[st.cursor], "state": st._snapshot()},
+        sort_keys=True))
+    for _old in sorted(bs)[:-_BOUNDARY_SNAPS_KEEP]:
+        del bs[_old]
+
+
+def _stash_payload(ns, st, cur, root):
+    """The serialized snapshot AT (cur, root) for the settle stash, or None when this node holds none: the boundary
+    snapshot recorded with that root, else the live state only if it is still exactly there. INVARIANT: never a payload
+    whose state does not hash to `root` at `cur` (the mismatch this replaced)."""
+    hit = (_boundary_snaps.get(ns) or {}).get(cur)
+    if hit is not None and hit[0] == root:
+        return hit[1]
+    if int(st.cursor) == int(cur) and st.state_root() == root:
+        return json.dumps({"ns": ns, "cursor": cur, "state_root": root, "state": st._snapshot()}, sort_keys=True)
+    return None
 
 # ---- THE STASH SURVIVES A RESTART ------------------------------------------------------------------
 # It used to be purely in-memory, so every restart threw it away and the node could not prove ANYTHING
@@ -2534,18 +2571,23 @@ async def maybe_settle(session):
                     del st.attested[_oc]
                 # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
                 # payload that is verifiable against exactly this (cursor, root) once justified — AND it is
-                # the pre-state the NEXT settle-with-proof extends. Serialized NOW — the live dicts keep
-                # mutating, a reference stash would drift.
-                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": cur, "state_root": root,
-                                                     "state": st._snapshot()}, sort_keys=True)
-                # ...and keep it addressable by cursor so the next prove can find the pre-state at
-                # whatever cursor L1 ends up justifying, not only at our newest one.
-                _h = _settled_history.setdefault(ns, {})
-                _h[cur] = _settled_snapshots[ns]
-                for _old in sorted(_h)[:-_SETTLED_HISTORY_KEEP]:
-                    del _h[_old]
-                # ...and to DISK, so a restart does not blind the prover for a whole settle cadence.
-                _stash_persist(ns, cur, _settled_snapshots[ns])
+                # the pre-state the NEXT settle-with-proof extends. The payload AT (cur, root), never the live
+                # state after the await above (_stash_payload; a stash that does not hash to its own pair is
+                # worse than none, so none is stashed when this node no longer holds it).
+                _payload = _stash_payload(ns, st, cur, root)
+                if _payload is None:
+                    print(f"[execnode] settle stash SKIPPED ns={ns} cursor {cur}: no snapshot at that (cursor, root) "
+                          f"here (live cursor {st.cursor})", flush=True)
+                else:
+                    _settled_snapshots[ns] = _payload
+                    # ...and keep it addressable by cursor so the next prove can find the pre-state at
+                    # whatever cursor L1 ends up justifying, not only at our newest one.
+                    _h = _settled_history.setdefault(ns, {})
+                    _h[cur] = _settled_snapshots[ns]
+                    for _old in sorted(_h)[:-_SETTLED_HISTORY_KEEP]:
+                        del _h[_old]
+                    # ...and to DISK, so a restart does not blind the prover for a whole settle cadence.
+                    _stash_persist(ns, cur, _settled_snapshots[ns])
                 # NAME THE THREE OUTCOMES DISTINCTLY. This read `'-WITH-PROOF' if proof else ''`, but the
                 # DA path sets `proof = None` the moment the proof moves to DA — so a settle carrying a DA
                 # commitment logged as a bare "SETTLE", byte-identical to a quorum attestation. The one
@@ -2752,20 +2794,11 @@ async def _apply_block(session, states_map, default_state, block, verbose=True, 
 
 async def _apply_block_inner(session, states_map, default_state, block, verbose=True, finalized=None):
     h = block["block_number"]
-    from protocol import chain_clock as _cc
     # The context each state had BEFORE this block, so a DA stall below can put it back exactly (EXEC-2, review
     # 2026-09-25): under EXEC_CTX_CURRENT the cursor is advanced to h up front, and returning False with it at h made
     # the tail loop resume at h+1 — every transaction in the stalled block silently lost, on the nodes that stalled.
     _prev_ctx = {id(_st): (_st.cursor, getattr(_st, "block_ts", 0)) for _st in states_map.values()}
-    for _st in states_map.values():
-        _st._applying = h              # the height every rules_* helper judges by (see ExecState.applying_height)
-        _st._block_steps = 0           # F4: the per-block execution budget starts fresh
-        _st._block_steps_by = {}       # ...and every sender's share of it (EXEC_BUDGET_V2_HEIGHT)
-        if int(h) >= 1:
-            # F3: the context a call sees is the block it executes in — what block_calls stamps and the settlement
-            # prover replays — not the previous one. `>= 1`: gen 25's EXEC_CTX_CURRENT_HEIGHT, 1 from gen 26
-            # (deleted); genesis (h = 0, applied from cursor -1) keeps the order it always had.
-            _st.cursor, _st.block_ts = h, _cc(h)
+    _BA.begin(states_map, h)
     # THE WIDE POOL'S DEPTH FOLLOWS THE BLOCK (shielded_wide.depth_at: 12 at genesis, 48 from block 1), for every block
     # and in step with the cursor above, so no await below ever exposes a state whose cursor is at 1 and whose pool is
     # not deepened (a snapshot taken then would be refused by _restore). The replaced pool is kept so a DA stall puts
@@ -2846,118 +2879,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                 if _prev_wide.get(id(_st)) is not None:
                     _st.wide_restore(_prev_wide[id(_st)])
             return False
-    for _pos, tx in enumerate(block.get("block_transactions", [])):
-      # PER-TX GUARD (halt-class, audit 2026-07): this DISPATCH code — not apply_blob, which is already
-      # fully guarded — used a payload field (`ns`) as a dict key with no type check, so a blob carrying an
-      # unhashable ns raised TypeError HERE and aborted the whole block before the cursor advance below. The
-      # tail loop then refetched the same block forever: a permanent, fleet-wide exec halt for one
-      # MIN_TX_FEE tx. L1 admission now refuses such a payload; this ensures ONE bad tx can never freeze the
-      # cursor regardless (a block from history, or any future field this loop reads without checking).
-      try:
-        if _pos in refused:
-            # REFUSED AT THE EXEC DA DEADLINE (see the pre-resolve): not dispatched at all — not even to apply_blob
-            # without its bytes, where an inline `bundle` riding beside the proof_da would apply in its place.
-            continue
-        if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
-            _field, _bytes = resolved[tx["txid"]]
-            tx = {**tx, "data": {**tx["data"], _field: _bytes}}
-        r = tx.get("recipient")
-        if r == "blob":
-            d = tx.get("data")
-            bns = d.get("ns", "default") if isinstance(d, dict) else "default"
-            tgt = states_map.get(bns) if isinstance(bns, str) else None
-            if tgt is not None:
-                res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
-                if verbose:
-                    print(f"[execnode] block {h} ns={bns}: {res}", flush=True)
-        elif r == "xmsg":
-            d = tx.get("data") or {}
-            tgt = states_map.get(d.get("to_ns"))
-            if tgt is not None:
-                res = tgt.apply_xmsg(d.get("from_ns", "default"), d.get("message") or {})
-                if verbose:
-                    print(f"[execnode] block {h} ns={d.get('to_ns')}: {res}", flush=True)
-            # the delivery burned the (from_ns, seq) L1 nullifier — GC the SOURCE outbox record too
-            src = states_map.get(d.get("from_ns", "default"))
-            if src is not None:
-                src.drop_consumed_outbox((d.get("message") or {}).get("seq"))
-        elif r in ("bridge_withdraw", "dividend_withdraw", "unshield"):
-            # a FINALIZED claim burned its L1 nullifier — the exec-side exit record is dead weight
-            # in state_root now; GC it (state.drop_claimed). ns-aware for bridge_withdraw.
-            d = tx.get("data") or {}
-            ns = d.get("ns", "default") if r == "bridge_withdraw" else "default"
-            tgt = states_map.get(ns)
-            if tgt is not None:
-                tgt.drop_claimed(r, d.get("nonce"))
-        elif r == "bridge":
-            default_state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
-            if verbose:
-                print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
-        elif r == "faucet":
-            # FAUCET DONATION (doc/faucet.md): an L1 tx to the reserved name locked `amount` in the L1
-            # faucet escrow; mirror it as spendable balance of the FIXED-NAME faucet CONTRACT ("faucet"
-            # is its literal cid — see state.FIXED_CIDS), whose claim() method PAYs grants to players.
-            default_state.credit_deposit("faucet", tx.get("amount", 0))
-            # an L1 donation FROM THE OPERATOR counts toward what defund() may take back (faucet.py slot 7)
-            try:
-                from execnode.games.faucet import OPERATOR as _FAUCET_OP
-                if tx.get("sender") == _FAUCET_OP:
-                    default_state.bump_contract_slot("faucet", 7, int(tx.get("amount", 0)))
-            except Exception:
-                pass
-            if verbose:
-                print(f"[execnode] block {h}: faucet donation {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
-        elif r == "treasury_execute":
-            # TREASURY -> FAUCET payout: a MINED treasury_execute is a completed payout (L1 validation gated
-            # the 2/3 quorum, funding and the one-shot pid nullifier, and apply credited the L1 faucet
-            # escrow). When the approved spend targets the reserved faucet name, mirror it into the faucet
-            # CONTRACT's spendable balance exactly like a donation, so game grants/prizes can pay from it.
-            spend = (tx.get("data") or {}).get("spend") or {}
-            if spend.get("recipient") == "faucet":
-                default_state.credit_deposit("faucet", int(spend.get("amount") or 0))
-                if verbose:
-                    print(f"[execnode] block {h}: treasury->faucet payout {spend.get('amount')}", flush=True)
-        elif r == "shield":
-            d = tx.get("data") or {}
-            if d.get("field"):
-                res = default_state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
-            else:
-                res = default_state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []), d.get("openings", []))
-            if verbose:
-                print(f"[execnode] block {h}: {res}", flush=True)
-        elif r == "reveal":
-            # RANDAO reveal (#randao): accumulate the secret into every namespace's beacon accumulator, so the
-            # BEACON opcode can read the same grind-resistant chain randomness consensus derives.
-            d = tx.get("data") or {}
-            for _st in states_map.values():
-                _st.record_reveal(d.get("target_epoch"), d.get("secret"))
-        elif r == "duty":
-            # The live path emits attest/commit/reveal MERGED into one `duty` tx (core_loop), and L1 records
-            # its carried reveal via reveal_put — but this loop only saw STANDALONE `reveal` txs, so every exec
-            # BEACON was computed reveal-free (predictable + grind-able) AND mismatched L1's with-reveals value,
-            # so a settle-with-proof over a BEACON contract could never pass the chain-read cross-check. Feed
-            # the duty-carried reveal in exactly like a standalone one so the exec beacon == L1's.
-            rv = (tx.get("data") or {}).get("reveal")
-            if rv:
-                for _st in states_map.values():
-                    _st.record_reveal(rv.get("target_epoch"), rv.get("secret"))
-      except Exception as e:
-        # A single malformed tx must never abort the block — that is the permanent-wedge bug. Skip it and
-        # go on; the cursor still advances below. Deterministic: every node hits the same exception on the
-        # same tx and skips identically, so no fork. (apply_blob's own effects are already guarded upstream.)
-        if verbose:
-            print(f"[execnode] block {h}: skipped tx {(tx.get('txid') or '')[:12]}… ({type(e).__name__}: {e})", flush=True)
-    for _st in states_map.values():
-        _st.cursor = h
-        _st._applying = None
-        # TIME opcode: the DETERMINISTIC chain clock, NOT block_timestamp. block_timestamp sits outside the
-        # block-hash preimage (so honest clock skew cannot fork the chain) and therefore differs between
-        # honest nodes for the SAME block — measured live at 1 s apart. Feeding it to the VM made any
-        # contract that reads TIME able to diverge exec state, and with it exec_root and the settle quorum.
-        # chain_clock(h) is a pure function of block height, so every node runs the contract identically.
-        _st.block_ts = _chain_clock(h)
-        _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
-        _st.record_block_hash(h, block.get("block_hash"))   # BLOCKHASH randomness for this finalized height
+    _BA.dispatch(states_map, default_state, block, resolved, refused, verbose)
+    _BA.close(states_map, h, block.get("block_hash"))
     if finalized is not None:
         # the finalized tail owns pin expiry: the provisional one must not release what finality still needs
         try:
@@ -3826,11 +3749,8 @@ async def tail_loop():
                     # record the root — the exactly-comparable point the root-pool probe below compares
                     # across peers, L1-hash-pool style. Recorded AFTER the boundary block applies, so it is
                     # a pure function of the block stream (canonical accrual already ran for h if due).
-                    for _st in states.values():
-                        if _st.cursor >= 0 and _st.cursor % _EPOCH_LENGTH == 0:
-                            _st.boundary_roots[_st.cursor] = _st.state_root()
-                            for _old in sorted(_st.boundary_roots)[:-32]:
-                                del _st.boundary_roots[_old]
+                    for _ns, _st in states.items():
+                        _record_boundary(_ns, _st)
                     # PERSIST MID-BATCH. A long catch-up (hundreds of blocks after a restart or an L1
                     # stall) used to reach disk only at the epilogue — one interruption anywhere and the
                     # whole batch replayed again next restart. ~5.7 MB dump every 200 blocks is noise

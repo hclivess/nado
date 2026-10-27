@@ -173,7 +173,10 @@ class _ZkVM:
         return zkvm.validate_code(code)
 
     def run(self, code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
-            block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None):
+            block_hashes=None, registry=None, asset=0, selfd=0, abal=None, meter=None, trace=None):
+        """`trace` (a list; the gen-29 settlement prover, execnode/settle_b2.py): every zkvm2 run that executed at least
+        one step appends {"ok", "io", "n_steps", "revert"} in call order — the witness the prover's replay consumes; a
+        reverted run's io is the log up to its revert and `revert` its kind (zkvm2.REVERT_KINDS). None: nothing."""
         from execnode import zkvm
         from execnode.stark.field import P
         # THE VM FOLLOWS THE CURSOR (BLAKE_EXEC_HEIGHT, dormant on gen 28): from the gate the call runs on the 256-bit
@@ -189,10 +192,15 @@ class _ZkVM:
         slots = {int(k): int(v) for k, v in (storage.get("slots") or {}).items()}
         if v2:
             from execnode import zkvm2
+            m = meter if meter is not None else ({} if trace is not None else None)
             ok, ret, new_slots, io = zkvm2.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
                                               timestamp=timestamp, beacons=dict(beacons or {}),
                                               block_hashes=dict(block_hashes or {}),
-                                              asset=asset, selfd=selfd, abal=abal, meter=meter)
+                                              asset=asset, selfd=selfd, abal=abal, meter=m)
+            if trace is not None and "gas" in m:
+                rv = m.get("revert") if not ok else None
+                trace.append({"ok": bool(ok), "io": [tuple(e) for e in (rv["io"] if rv else io)], "n_steps": int(m["gas"]),
+                              "revert": rv["kind"] if rv else None})
         else:
             ok, ret, new_slots, io = zkvm.run(code, method, cf, fargs, slots, value=value, cursor=cursor,
                                              timestamp=timestamp,

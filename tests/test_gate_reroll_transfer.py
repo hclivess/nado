@@ -42,6 +42,7 @@ REROLL = {
     "AGREED_TIME_SEATS_HEIGHT": 1,             # dormant (2^62) on gen 28: the certificate clock weighs committee seats
     "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
     "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
+    "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
     "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll
@@ -128,10 +129,16 @@ def main():
     #     can never precede the context switch. Both gates are inlined as `>= 1` (genesis, h = 0, below both):
     #     pin that the two sites still switch at the same height. Read as SOURCE — importing execnode.execnode would
     #     open the exec state relative to the working directory (CLAUDE.md rule 4).
+    #     The F3 site lives in execnode/block_apply.py since 2026-10-27 (the exec node and the gen-29 span verifier share
+    #     it), so it is read there, and execnode.py must still open every block through it.
     esb = open(os.path.join(ROOT, "execnode", "stark", "exec_state_bind.py")).read()
-    exn = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
+    exn = open(os.path.join(ROOT, "execnode", "block_apply.py")).read()
     rv = re.search(r"def root_v2\(height\):.*?return int\(height\) >= (\d+)", esb, re.S)
     cv = re.search(r"_st\._applying = h.*?if int\(h\) >= (\d+):\n\s+# F3", exn, re.S)
+    en = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
+    sb = open(os.path.join(ROOT, "execnode", "settle_b2.py")).read()
+    check("the exec node and the span verifier both open each block through block_apply.begin",
+          "_BA.begin(states_map, h)" in en and "block_apply.begin(states, h)" in sb)
     check("the exec root v2 layout switches at height 1", bool(rv) and rv.group(1) == "1", rv and rv.group(1))
     check("the F3 call context switches at height 1", bool(cv) and cv.group(1) == "1", cv and cv.group(1))
     check("the root layout never precedes the call context", bool(rv and cv) and int(rv.group(1)) >= int(cv.group(1)))

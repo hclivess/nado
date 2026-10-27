@@ -106,6 +106,10 @@ def validate_code(code):
     return True
 
 
+# the revert kinds, in native/stwo_settle's vm::revert order (the settlement circuit proves each)
+REVERT_KINDS = ("REQUIRE", "DIVMOD", "DIVMODW", "NOTB", "RANGE", "ARG", "ASEL", "PAY", "ABURN", "BHASH", "BEACON", "OOB", "OOG")
+
+
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
         asset=0, selfd=0, abal=None, witness=False, meter=None):
     """zkvm.run with the 256-bit word: same signature, same returns, same revert contract — (False, None, storage, [])
@@ -133,12 +137,16 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
     st = dict(storage)
     io, steps = [], []
     pc, h, gas, ret = 0, 0, 0, None
+    stage = "run"                                  # where a revert happened (meter["revert"]): "gas", "fetch" or the op
     try:
         while True:
             if gas >= GAS_LIMIT:
+                stage = "gas"
                 raise ZkVMRevert("gas limit exceeded")
             gas += 1
+            stage = "fetch"
             op_name, d, s, imm = prog[pc]
+            stage = "run"
             rd, rs = regs[d], regs[s]
             io_entry, nxt_pc, res, wr = None, pc + 1, None, False
             if op_name == "NOP":
@@ -262,6 +270,18 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
     except (ZkVMRevert, IndexError, KeyError):
         if meter is not None:
             meter["gas"] = gas
+            # WHY IT REVERTED, for the settlement prover (execnode/settle_b2.py): the kind (REVERT_KINDS, the order of
+            # native/stwo_settle's vm::revert) and the io log up to the revert, plus the reverting step's own entry where
+            # the circuit leaves the judgement to the verifier (an asset overspend, a chain read that is not available).
+            # Read by no consensus path; the result above is what the chain uses.
+            kind = "OOG" if stage == "gas" else "OOB" if stage == "fetch" else op_name
+            entry = None
+            if kind in ("PAY", "ABURN"):
+                entry = (IO_PAY if kind == "PAY" else IO_ABURN, regs[d], regs[s])
+            elif kind in ("BHASH", "BEACON"):
+                entry = (IO_BHASH if kind == "BHASH" else IO_BEACON, regs[s], 0)
+            meter["revert"] = {"kind": REVERT_KINDS.index(kind) if kind in REVERT_KINDS else None,
+                               "io": list(io) + ([entry] if entry else [])}
         return (False, None, storage, []) + (([],) if witness else ())
 
 
