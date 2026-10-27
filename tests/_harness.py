@@ -113,3 +113,19 @@ def exit_module(cursor=0):
     not because the exit was wrong."""
     from execnode import exec_root_b2 as R2
     return R2
+
+
+def seed_legacy_notes(st, amount, out_commitments, outputs):
+    """Put an escrow-backed deposit's notes into the LEGACY (transparent) pool of ExecState `st`, as the deleted
+    ExecState.apply_shield did (G9 slice 5): a join-split with no inputs and public_value = `amount`. No transaction can do
+    this any more (the exec layer skips every legacy shield), so a test that needs a funded legacy note — to pin the
+    still-live `shielded_transfer` path's guards — seeds it here. Returns apply_transfer's (ok, reason)."""
+    from execnode.shielded import apply_transfer
+    public = {"root": st.shielded.root(), "nullifiers": [], "out_commitments": list(out_commitments),
+              "public_value": int(amount), "fee": 0}
+    with st._mutate_lock:
+        ok, reason = apply_transfer(st.shielded, public, {"inputs": [], "outputs": list(outputs)}, st.shielded.knows_root)
+        if ok:
+            st.pool_value += int(amount)
+        st._touch()
+    return ok, reason

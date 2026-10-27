@@ -36,7 +36,6 @@ from protocol import EPOCH_LENGTH as _EPOCH_LENGTH
 from aiohttp import web
 
 from execnode.state import ExecState
-from execnode import shielded_state as _appstate
 
 L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
@@ -1826,25 +1825,18 @@ prov_states = None
 PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if this node is far behind the tip)
 
 # Blob ops whose proof rides the DA layer rather than L1: op -> the payload field the fetched bytes are
-# injected into before apply_blob sees them. Both proofs are far past the 64 KiB blob cap — a shielded
-# transfer 1-4 MB per doc/privacy.md, and a private-call transition proof MEASURED at 24.7 MiB against a
-# 183-byte public statement — so the blob carries a commitment and the bytes travel k-of-n.
+# injected into before apply_blob sees them. A Stwo spend's bundle is past the 64 KiB blob cap, so the blob carries a
+# commitment and the bytes travel k-of-n.
+# private_call LEFT THIS TABLE WITH ITS POOL (G9 slice 5): apply_blob refuses it at every height without reading the
+# proof, and from block 1 the pre-resolve below already never fetched it (the old _da_op_refused_at), so it never
+# stalled a block on generation 29. INVARIANT: an op apply_blob refuses unread is never in this table — a fetch for it
+# would let one MIN_TX_FEE blob naming a proof_da nobody holds stall every exec node (review 2026-09-25).
 #
 # ONE TABLE, not two branches, because the all-or-nothing stall in _apply_block is what keeps every node
 # applying the identical bundle: a per-op difference there is a fork. Adding an op here is all it takes to
 # give it those semantics — INCLUDING the bounded wait (_da_deadline_passed): an op added here can never stall
 # the tail past the exec DA deadline, so never give one its own resolver that waits unboundedly.
-_DA_BLOB_OPS = {"field_transfer": "bundle_json", "private_call": "proof_json"}
-
-
-def _da_op_refused_at(op, h):
-    """True when apply_blob refuses `op` at height h WITHOUT reading its proof: private_call, from height 1. Mirrors
-    ExecState.rules_privacy_pause / rules_shield_wide exactly (both `>= 1`: gen 25's PRIVACY_PAUSE_HEIGHT and
-    SHIELD_WIDE_HEIGHT, 1 from gen 26 and deleted — so the legacy field_transfer window between them is empty); the DA
-    pre-resolve uses it so a refused op can never stall a block."""
-    if int(h) < 1:
-        return False
-    return op == "private_call"
+_DA_BLOB_OPS = {"field_transfer": "bundle_json"}
 
 
 # LOCAL GRACE before the deadline refusal (liveness only, never a verdict input): a node that reaches block h long
@@ -1925,11 +1917,6 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     # the tail loop resume at h+1 — every transaction in the stalled block silently lost, on the nodes that stalled.
     _prev_ctx = {id(_st): (_st.cursor, getattr(_st, "block_ts", 0)) for _st in states_map.values()}
     _BA.begin(states_map, h)
-    # THE WIDE POOL'S DEPTH FOLLOWS THE BLOCK (shielded_wide.depth_at: 12 at genesis, 48 from block 1), for every block
-    # and in step with the cursor above, so no await below ever exposes a state whose cursor is at 1 and whose pool is
-    # not deepened (a snapshot taken then would be refused by _restore). The replaced pool is kept so a DA stall puts
-    # it back with the cursor.
-    _prev_wide = {id(_st): _st.wide_enter(h) for _st in states_map.values() if hasattr(_st, "wide_enter")}
     # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
     # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
     resolved = {}
@@ -1938,12 +1925,9 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
         d = tx.get("data")
         # Which ops ride DA, and the field each one's bytes are injected back into — see _DA_BLOB_OPS.
         inject = _DA_BLOB_OPS.get(d.get("op")) if isinstance(d, dict) else None
-        # AN OP THIS HEIGHT REFUSES IS NEVER FETCHED (review 2026-09-25, reproduced). apply_blob refuses private_call
-        # and legacy field transfers from PRIVACY_PAUSE_HEIGHT without reading the proof, but this pre-resolve ran
-        # FIRST and stalled on an unavailable proof_da — so one MIN_TX_FEE blob naming a proof_da nobody holds froze
-        # the exec cursor on every node for good. Same predicate as apply_blob, so every node skips identically.
-        if inject and isinstance(d, dict) and _da_op_refused_at(d.get("op"), h):
-            inject = None
+        # AN OP apply_blob REFUSES UNREAD IS NEVER FETCHED (review 2026-09-25, reproduced): this pre-resolve runs FIRST,
+        # and fetching private_call's proof stalled on an unavailable proof_da — one MIN_TX_FEE blob froze the exec cursor
+        # on every node. Such an op is simply not in _DA_BLOB_OPS (private_call left it in G9 slice 5).
         if (tx.get("recipient") == "blob" and isinstance(d, dict)
                 and inject and d.get("proof_da") and inject not in d):
             # A MALFORMED proof_da (path chars -> DaStore._dir raises) or non-UTF-8 DA bytes are NOT a
@@ -1972,8 +1956,6 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                         print(f"[execnode] block {h}: a {d['op']} proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
                     for _st in states_map.values():           # EXEC-2: nothing of block h applied, so h is NOT done
                         _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
-                        if _prev_wide.get(id(_st)) is not None:    # ...and so is the pool it deepened (block 1)
-                            _st.wide_restore(_prev_wide[id(_st)])
                     return False
                 _DA_MISS_SINCE.pop(str(d["proof_da"]), None)
                 # PIN what an on-chain op needed (the eviction route): a node that applies this block later must
@@ -2002,8 +1984,6 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
                   f"STALLING at {h} (build the crate: cargo build --release in native/stwo_js)", flush=True)
             for _st in states_map.values():               # nothing of block h applied, so h is NOT done
                 _st.cursor, _st.block_ts = _prev_ctx[id(_st)]
-                if _prev_wide.get(id(_st)) is not None:
-                    _st.wide_restore(_prev_wide[id(_st)])
             return False
     _BA.dispatch(states_map, default_state, block, resolved, refused, verbose)
     _BA.close(states_map, h, block.get("block_hash"))
@@ -2850,7 +2830,6 @@ async def tail_loop():
                         # attestations until a quorum-verified bootstrap replaces the state.
                         state.replay_gap = True
                         state.cursor = h
-                        state.wide_enter(h)        # depth_at: the pool's depth follows the cursor, body or not
                         continue
                     _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
                     # `finalized` IS WHAT BOUNDS THE DA STALL (audit 2026-09-25): without it _apply_block waits for an
@@ -3897,55 +3876,22 @@ async def _cors(request, handler):
     return resp
 
 
-async def h_shielded(request):
-    """Phase-1 pool status: root, note/nullifier counts, recent anchors — aggregate data only, nothing
-    per-note."""
-    # Public shielded-pool state: the current Merkle root (an anchor), note count, and spent-nullifier count.
-    # Reveals NOTHING about individual notes/owners/values (doc/privacy.md).
-    return web.json_response({"root": state.shielded.root(), "notes": state.shielded.size(),
-                             "nullifiers": len(state.shielded.nullifiers), "cursor": state.cursor,
-                             "anchors": state.shielded.anchor_list[-8:]})
-
-
 async def h_field_shielded(request):
-    """Field-native pool status; with ?cm=<int> also that commitment's leaf position (None if absent).
-    Big field ints are returned as strings."""
-    # Phase-2 field-native pool status + (optionally) a commitment's position.
-    cm = request.query.get("cm")
-    if _stwo_pool_next():
-        # STWO_POOL_HEIGHT: the Stwo pool (execnode/shielded_stwo.py) — the pool a wallet's note and proof are for from
-        # the gate; "pool": "stwo" is how the wallet tells it from the wide pool (both carry 64-hex digests)
-        sp = state.stwo_pool
-        return web.json_response({"root": sp.root(), "notes": len(sp.commitments), "nullifiers": len(sp.nullifiers),
-                                  "cursor": state.cursor, "pos": None, "wide": False, "pool": "stwo",
-                                  "depth": _stwo_depth()})
-    if _shield_wide_now():
-        # SHIELD_WIDE_HEIGHT: the wide pool; a commitment is a 64-hex digest
-        wp = state.wide_pool
-        pos = wp.position(cm) if (cm and len(cm) == 64) else None
-        from execnode.stark import znote as _Z
-        return web.json_response({"root": _Z.to_hex(wp.root()), "notes": len(wp.commitments),
-                                  "nullifiers": len(wp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": True,
-                                  "depth": _wide_depth_next()})
-    fp = state.field_pool
-    # a field element is < 2^64 (20 digits); CPython's int() refuses > 4300 digits with a ValueError -> 500
-    pos = fp.position(int(cm)) if (cm and len(cm) <= 32 and cm.lstrip("-").isdigit()) else None
-    return web.json_response({"root": str(fp.root()), "notes": len(fp.commitments),
-                              "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos, "wide": False})
-
-
-def _shield_wide_now():
-    """Whether the NEXT block applies the wide-pool rules — what a wallet building a note or a proof for the next
-    block needs to know (the same tip+1 rule the wallet applies to /status.proof_rules). From height 1: gen 25's
-    SHIELD_WIDE_HEIGHT was 1 from gen 26 and is deleted; only a fresh state (cursor -1) is still below it."""
-    return int(state.cursor) + 1 >= 1
+    """The shielded pool a wallet deposits into and proves against: the Stwo pool (execnode/shielded_stwo.py) — root, note
+    and spent counts, its depth. "pool": "stwo" is how the wallet recognises it (static/interface.js).
+    The legacy field and wide pools this endpoint served below STWO_POOL_HEIGHT are deleted (G9 slice 5): a gen-29 exec
+    node answers for the Stwo pool at every cursor (only a fresh state at cursor -1 was ever below the gate, and its
+    pools were all empty). "pos" stays None and "wide" False for wallets that still read them."""
+    sp = state.stwo_pool
+    return web.json_response({"root": sp.root(), "notes": len(sp.commitments), "nullifiers": len(sp.nullifiers),
+                              "cursor": state.cursor, "pos": None, "wide": False, "pool": "stwo",
+                              "depth": _stwo_depth()})
 
 
 def _stwo_pool_next():
-    """Whether the NEXT block applies the Stwo-pool rules — the tip+1 rule of _shield_wide_now, and
-    ExecState.rules_stwo_pool's for the block a wallet's note or proof will land in. A wallet deposits into and proves
-    against the Stwo pool, so the field endpoints serve it instead of the frozen wide pool.
-    STWO_POOL_HEIGHT was gen 28's gate, 1 from gen 29, inlined in G9; only a fresh state (cursor -1) is still below it."""
+    """Whether the NEXT block applies the Stwo-pool rules — ExecState.rules_stwo_pool's for the block a wallet's spend
+    will land in (the tip+1 rule). STWO_POOL_HEIGHT was gen 28's gate, 1 from gen 29, inlined in G9; only a fresh state
+    (cursor -1) is still below it."""
     return int(state.cursor) + 1 >= 1
 
 
@@ -3954,54 +3900,12 @@ def _stwo_depth():
     return DEPTH
 
 
-def _wide_depth_next():
-    """The wide tree depth a wallet must build its path and proof at: the depth in force for the NEXT block (the tip+1
-    rule of _shield_wide_now), shielded_wide.depth_at: 48 from block 1. At genesis (cursor 0) it is 48 while the pool is
-    still 12 — correct for the proof, which can only land at block 1 or later, where the pool is deepened over the same
-    leaves and a depth-48 root over them is an anchor. The wallet reads this and never hard-codes a depth; a response
-    without it means an exec node from before the field (depth 12)."""
-    from execnode.shielded_wide import depth_at
-    return max(state.wide_pool.depth, depth_at(int(state.cursor) + 1))
-
-
-async def h_private_state(request):
-    """Shielded-contract state: per-contract note counts and roots, and the size of the spent set.
-
-    Everything here is ALREADY public — a note root and a nullifier count are what the settled state root
-    commits, so serving them reveals nothing a chain observer could not derive. What is deliberately NOT
-    served is any per-note data: no commitments, no positions, no ownership. The field pool's endpoint
-    answers ?cm= with a leaf position because its wallet needs that to build a path; a shielded-contract
-    wallet builds its path from notes it already holds, so there is no reason to offer a lookup that would
-    let an observer confirm a guessed commitment is in the tree.
-
-    ?cid=<id> narrows to one contract. Big field ints are returned as strings (JS precision)."""
-    ap = getattr(state, "app_state", None)
-    if ap is None:
-        return web.json_response({"contracts": {}, "nullifiers": 0, "cursor": state.cursor})
-    want = request.query.get("cid")
-    cids = [want] if want else sorted(ap.trees)
-    return web.json_response({
-        "contracts": {c: {"notes": len(ap.trees.get(c, [])), "root": str(ap.root(c))} for c in cids},
-        "nullifiers": len(ap.nullifiers), "cursor": state.cursor,
-        "tree_depth": _appstate.TREE_DEPTH, "kinds": sorted(_appstate.PREDICATES)})
-
-
 async def h_field_leaves(request):
-    """The field pool's full commitment list (public; big ints as strings) so a browser can build its own
-    Merkle path and prove ON-DEVICE — the witness never reaches this node."""
-    # the field pool's commitment list (public) so the browser can build the Merkle path itself and prove
-    # ON-DEVICE (the node never sees the witness). Big ints as strings.
-    if _stwo_pool_next():
-        # STWO_POOL_HEIGHT: the Stwo pool's leaves (64-hex BLAKE2s digests, depth 48); "wide": False so a wallet that
-        # does not know this pool refuses to prove against it rather than build a joinsplit3 proof the gate refuses
-        return web.json_response({"leaves": list(state.stwo_pool.commitments), "wide": False, "pool": "stwo",
-                                  "depth": _stwo_depth()})
-    if _shield_wide_now():
-        from execnode.stark import znote as _Z
-        # "depth": the tree the wallet must build its path and proof at (48 from block 1); see _wide_depth_next
-        return web.json_response({"leaves": [_Z.to_hex(c) for c in state.wide_pool.commitments], "wide": True,
-                                  "depth": _wide_depth_next()})
-    return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments], "wide": False})
+    """The Stwo pool's full commitment list (public, 64-hex BLAKE2s digests) so a browser builds its own Merkle path and
+    proves ON-DEVICE — the witness never reaches this node. "wide": False so a wallet that does not know this pool
+    refuses to prove against it. At every cursor (see h_field_shielded)."""
+    return web.json_response({"leaves": list(state.stwo_pool.commitments), "wide": False, "pool": "stwo",
+                              "depth": _stwo_depth()})
 
 
 async def h_stwo_spendable(request):
@@ -4069,21 +3973,6 @@ async def h_stwo_carried_deposits(request):
     return web.json_response({"deposits": _EG.carried_deposits(addr)})
 
 
-async def h_shielded_note(request):
-    """Spend witness for a Phase-1 note (?cm=): position + Merkle path (public data, leaks nothing);
-    with ?nf= also whether that nullifier is already spent. 404 if the commitment isn't in the pool."""
-    # a wallet's spend witness: position + Merkle path for its note commitment (public data, leaks nothing),
-    # plus whether the note's nullifier is already spent (the wallet passes its own nf).
-    cm = request.query.get("cm", "")
-    p = state.shielded_note_proof(cm)
-    if not p:
-        return web.json_response({"error": "not found"}, status=404)
-    nf = request.query.get("nf")
-    if nf:
-        p["spent"] = state.shielded.has_nullifier(nf)
-    return web.json_response(p)
-
-
 async def h_unshields(request):
     """Pending unshield exits for an L1 address (?addr=) — how a wallet finds the nonce(s) to claim."""
     # a wallet lists its own pending unshield exits (by L1 address) to find the nonce(s) to claim
@@ -4118,9 +4007,7 @@ async def main():
                     web.get("/exec/accounting", h_accounting),
                     web.get("/exec/state_snapshot", h_state_snapshot),
                     web.get("/exec/settlement", h_settlement),
-                    web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
-                    web.get("/exec/private_state", h_private_state),
                     web.get("/exec/field_leaves", h_field_leaves),
                     web.get("/exec/stwo_spendable", h_stwo_spendable),
                     web.get("/exec/stwo_nullifiers", h_stwo_nullifiers),
@@ -4131,7 +4018,6 @@ async def main():
                     # handlers deleted (h_prove_transfer, h_prove_transfer2, h_prove_call): never re-add a route
                     # that takes a spending key or a note witness. A private key is never sent anywhere (CLAUDE.md §8).
                     # /exec/verify_call (a Goldilocks call proof) went with its verifier in G9.
-                    web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),
                     web.get("/exec/examples", h_examples),

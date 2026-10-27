@@ -4,8 +4,6 @@
 # nothing is dropped — it is moved. Remove a line when its test runs without the kernels in under 5 minutes.
 # A reason starting with [box] means the test judges the machine it runs on (timing, the node's own install), so it
 # runs in NEITHER CI job — only on a node's own box (scripts/run_tests.sh there runs everything).
-test_appnote_circuit                         needs the Rust kernels (native/, wasm/goldilocks)
-test_appnote_deposit_vin                     needs the Rust kernels (native/, wasm/goldilocks)
 test_arena_ext_identity                      needs the Rust kernels (native/, wasm/goldilocks)
 test_attest_kernel_contract                  needs the Rust kernels (native/, wasm/goldilocks)
 test_aux_ext_challenges                      needs the Rust kernels (native/, wasm/goldilocks)
@@ -33,26 +31,15 @@ test_records_transition                      needs the Rust kernels (native/, wa
 test_recursive_row                           needs the Rust kernels (native/, wasm/goldilocks)
 test_recursive_verify                        needs the Rust kernels (native/, wasm/goldilocks)
 test_rowcomp_verify                          needs the Rust kernels (native/, wasm/goldilocks)
-test_shielded_state_da                       needs the Rust kernels (native/, wasm/goldilocks)
-test_shielded_state_replay                   needs the Rust kernels (native/, wasm/goldilocks)
-test_shielded_state_seam                     needs the Rust kernels (native/, wasm/goldilocks)
-test_shielded_vault_e2e                      needs the Rust kernels (native/, wasm/goldilocks)
 test_stark_periodic                          needs the Rust kernels (native/, wasm/goldilocks)
 test_state_transition                        needs the Rust kernels (native/, wasm/goldilocks)
 test_state_transition_batched                needs the Rust kernels (native/, wasm/goldilocks)
 test_assets                                  proves in Python kernels: over 5 minutes
 test_fri_verify                              proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
-test_m10_h7                                  proves in Python kernels: over 5 minutes
 test_native_prover_verifies                  proves in Python kernels: over 5 minutes
 test_recursion                               proves in Python kernels: over 5 minutes
-test_shielded_field                          proves in Python kernels: over 5 minutes
-test_shielded_wide                           proves in Python kernels: over 5 minutes
 test_snapshot_anchors_rebuilt                proves in Python kernels: over 5 minutes
-test_stark_joinsplit2                        proves in Python kernels: over 5 minutes
-test_stark_joinsplit_circuit                 proves in Python kernels: over 5 minutes
-test_wide_pool_depth                         proves in Python kernels: over 5 minutes
 test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes
 test_zkvm_args                               proves in Python kernels: over 5 minutes
-test_joinsplit3_js_proof_verifies_in_python  proves in the browser's JS prover at two depths: ~9 min each
 test_updatability                            [box] judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box

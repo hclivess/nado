@@ -14,6 +14,18 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+## 2026-10-28 — the legacy BLAKE2b pool is still LIVE: close `shielded_transfer` at a gate, then delete it (G9 slice 5)
+
+G9 slice 5 deleted the field, wide and shielded-contract pools, but NOT `execnode/shielded.py`: the transparent
+`shielded_transfer` blob op still applies on generation 29. L1 orders any blob, and a transfer with no inputs and value-0
+outputs balances (0 + 0 == 0 + 0), so any sender can append zero-value notes to the legacy pool (and later spend them),
+moving shield_root and every exec root after it (tests/test_shielded_exec.py t2). No value can enter — the legacy
+shield is skipped at every height — but deleting the op would change the root such a blob produces, so it cannot be a
+plain deletion. To remove it: a gate `LEGACY_TRANSFER_CLOSE_HEIGHT = <h> if CHAIN_GENERATION == 29 else 1` from which
+the exec layer refuses the op (adopted by the whole fleet first), a measurement that the chain carries no
+`shielded_transfer` below <h>, then delete shielded.py and pin shield_root / shield_nfset as constants beside
+exec_root_b2.RETIRED_FIELD_ROOT. Not consensus-critical for value; owed for the G9 deletion to finish.
+
 ## 2026-10-27 — owed BEFORE the next reroll (gen 30): re-pin the carry's refusals for a v2 -> v2 carry
 
 G9 slice 3 inlined BLAKE_EXEC_HEIGHT, and five tests that staged a gen-28 (v1 VM) exec state and carried it to gen 29

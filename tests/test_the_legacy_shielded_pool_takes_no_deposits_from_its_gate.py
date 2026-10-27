@@ -3,7 +3,9 @@
 G9 (doc/stwo-migration.md 9.7) deletes the legacy pool, which is only sound if it stays empty. Its transfers were paused
 and the wallet no longer offered it, yet L1 still accepted a `shield` with `out_commitments` and the exec layer added the
 notes: coins that could only be locked. Measured, generation 29 never carried one (blocks 0..7608). Both rule sets:
-  1. BELOW the gate a valid legacy shield validates on L1 and the exec layer adds its note (history replays unchanged);
+  1. BELOW the gate a valid legacy shield validates on L1 (mempool admission on a genesis tip keeps its verdict), and the
+     exec layer skips it there too since G9 slice 5 deleted the deposit path: no legacy shield exists in 0..10533
+     (measured 2026-10-28), a final range, so history replays unchanged (tools/replay_exec.py, IDENTICAL);
   2. FROM the gate L1 refuses it, naming the gate, and the exec layer skips it: the pool, its root records and the exec
      root do not move;
   3. a Stwo-pool deposit (`field`) validates on both sides of the gate;
@@ -56,7 +58,7 @@ T.check("4. the gate is generation-keyed: live on 29, from block 1 at a reroll",
         and GATE > 1, GATE)
 T.check("1a. below the gate a valid legacy shield validates on L1", l1(legacy, GATE - 1) == "ok", l1(legacy, GATE - 1))
 b, a = exec_apply(legacy, GATE - 1)
-T.check("1b. ...and the exec layer adds its note (history replays unchanged)", a[1] == [cm] and a[0] != b[0], (b, a))
+T.check("1b. ...but the exec layer adds no note at any height (the deposit path is deleted)", a == b and a[1] == [], (b, a))
 r = l1(legacy, GATE)
 T.check("2a. from the gate L1 refuses a legacy shield, naming the gate", r.startswith("refused") and "LEGACY_SHIELD_CLOSE" in r, r)
 b, a = exec_apply(legacy, GATE)

@@ -37,7 +37,6 @@ class FakeState:
 
     def __init__(self, bridge=None, dividend=None, div_carry=0):
         from execnode.shielded import ShieldedPool
-        from execnode.shielded_field import FieldShieldedPool
         self.bridge = dict(bridge or {})
         self.dividend = dict(dividend or {})
         self.div_carry = int(div_carry)
@@ -48,7 +47,6 @@ class FakeState:
         self.dividend_withdrawals = {}
         self.unshield_withdrawals = {}
         self.shielded = ShieldedPool()
-        self.field_pool = FieldShieldedPool()
         self.outbox = {}
         self.inbox = []
 

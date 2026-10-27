@@ -1,14 +1,13 @@
 """Every remaining fix from the 2026-09-24 zero-knowledge review, driven where the code allows it
 (doc/security-review-2026-09-24-zk.md). The larger fixes have their own files:
 
-  test_proof_query_full.py (findings 1, 2) · test_privacy_pause.py (3-5) · test_appnote_deposit_vin.py (3) ·
-  test_fold_hardening.py (7) · test_shielded_wide.py (4: bind_aux) · joinsplit{2,3}_js_crosscheck.sh (browser parity)
+  test_proof_query_full.py (findings 1, 2) · test_privacy_pause.py (3-5) · test_fold_hardening.py (7)
+  (finding 4's bind_aux, the appnote deposit and the browser parity cross-checks went with their pools in G9 slice 5)
 
 This file covers:
   * a node-local failure (a missing/stale native kernel, or memory) is RAISED through every verify layer, never
     returned as "invalid";
   * exit claims are bounded (no amount + k*P aliasing), from PROOF_QUERY_FULL_HEIGHT;
-  * the wide spend key is four lanes (algebra and a real proof), and the browser binds the same aux string;
   * the Rust compose kernels return NEGATIVE error codes (a positive one was read as a column id);
   * the wallet's privacy guards are in place (pause, v2 key domain, pool-separated notes, local receive lookup).
 The settle-proof cases (the settle branch's deferral, its PAY / io-attribution checks, the exec node's fold decision)
@@ -22,7 +21,7 @@ import atexit, shutil; atexit.register(shutil.rmtree, os.environ["HOME"], ignore
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")   # never the live exec files
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 os.environ["NADO_ALLOW_PYTHON_KERNELS"] = "1"
-import sys, json, subprocess, traceback
+import sys, traceback
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
@@ -99,40 +98,8 @@ def t_exit_claims_are_bounded_from_the_gate():
 # io attribution needs one segment per vm unit retired in G9: settlement_sparse._cid_io was deleted
 
 
-# ---- the wide spend key ------------------------------------------------------------------------------------------
-def t_the_wide_spend_key_is_four_lanes():
-    from execnode.stark import znote as Z
-    assert Z.nsk_lanes(7) == (7, 0, 0, 0) and Z.owner_of(7) == Z.owner_of((7, 0, 0, 0))
-    k = (11, 22, 33, 44)
-    assert Z.owner_of(k) != Z.owner_of(11), "the upper lanes must enter the owner"
-    assert Z.nullifier(k, 5) != Z.nullifier(11, 5), "the upper lanes must enter the nullifier"
-    assert _raises(ValueError, lambda: Z.nsk_lanes((1, 2, 3))), "three lanes is not a key"
-
-
-def t_a_wide_transfer_proves_and_verifies_with_a_four_lane_key():
-    from execnode.stark import znote as Z, joinsplit3 as J3
-    from execnode import shielded_wide as SW
-    k = (0x1111, 0x2222, 0x3333, 0x4444)
-    pool = SW.WideShieldedPool()
-    oa = Z.owner_of(k)
-    cm = Z.commit(1000, oa, 7); pool.append(cm)
-    sibs, dirs = SW.tree_path(pool.commitments, 0)
-    proof, root, nf, cm1, cm2 = J3.prove_transfer(k, 1000, 7, sibs, dirs, 600, oa, 11, 400, oa, 12, 0, 0)
-    assert nf == Z.nullifier(k, 7)
-    ok, why = J3.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, pool.knows_root)
-    assert ok, why
-    assert proof["W"] == J3.NCOLS_TOTAL == 39
-
-
-def t_the_browser_binds_the_same_aux_string_as_python():
-    from execnode.stark import joinsplit3 as J3
-    cases = [("ndo" + "A" * 45, -100, 0), (None, 0, 0), ("x", -5, 7)]
-    js = ("import { bindAux } from '%s/static/stark/joinsplit3.js';"
-          "const cases = %s; console.log(JSON.stringify(cases.map(([a, v, f]) => bindAux(a, BigInt(v), BigInt(f)))));"
-          % (ROOT, json.dumps([[a, v, f] for a, v, f in cases])))
-    out = subprocess.run(["node", "--input-type=module", "-e", js], capture_output=True, text=True, timeout=60)
-    assert out.returncode == 0, out.stderr[-400:]
-    assert json.loads(out.stdout) == [J3.bind_aux(a, v, f) for a, v, f in cases]
+# the wide spend key is four lanes / a wide transfer proves with a four-lane key / the browser binds the same aux string:
+# retired in G9 slice 5 with the wide pool (znote, joinsplit3, static/stark/joinsplit3.js are deleted)
 
 
 # ---- native kernels and the fold decision ------------------------------------------------------------------------

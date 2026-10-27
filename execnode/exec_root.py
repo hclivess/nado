@@ -32,7 +32,7 @@ from hashing import blake2b_hash, outbox_leaf
 # keeps the retired Goldilocks root for the tests that still read it until they are retired with it.
 from execnode.exec_root_b2 import (T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD,  # noqa: F401
                                    T_UNSHIELD_WD, T_DIGEST, T_KVX, T_ASSET_BAL, T_ASSET_META, T_ASSET_ALLOW,
-                                   T_APP_ROOT, T_APP_NULL, leaf_digest, msg_outbox_leaf, msg_inbox_leaf,
+                                   leaf_digest, msg_outbox_leaf, msg_inbox_leaf,
                                    asset_meta_digest)
 from execnode.stark import field as F, alghash2 as A2, storage_tree as ST, exec_state_bind as ESB
 
@@ -137,22 +137,11 @@ def records_projection(st):
         out[record_key(T_UNSHIELD_WD, w["addr"], nonce)] = int(w["amount"]) % F.P
     out[record_key(T_DIGEST, "shield_root", st.shielded.root())] = 1
     out[record_key(T_DIGEST, "shield_nfset", st.shielded.nullifier_digest())] = 1
-    out[record_key(T_DIGEST, "field_root", str(int(st.field_pool.root()) % F.P))] = 1
-    out[record_key(T_DIGEST, "field_nfset",
-                   blake2b_hash(["field_nfset", *sorted(str(n) for n in st.field_pool.nullifiers)]))] = 1
-    # WIDE POOL (SHIELD_WIDE_HEIGHT, Z3): its root and spent set, as digests in the POSITION. EMPTY IS ABSENT —
-    # the app_state rule — so a state that never held a wide note projects to the root it always did.
-    # THE ROOT ALREADY BINDS THE POOL'S DEPTH (shielded_wide.depth_at, 12 at genesis -> 48 from block 1): the depth-48
-    # root over the same leaves is the depth-12 root folded up 36 more levels against empty subtrees, a different
-    # digest (equal only by a collision in the tree hash), so two nodes that disagree on the depth disagree on
-    # wide_root and therefore on this root. No separate depth record: one would have moved the root of every non-empty
-    # depth-12 pool. An EMPTY pool of either depth projects to nothing, which is sound because an empty tree has no
-    # note to spend at any depth — and the first note makes wide_root, which binds the depth, appear.
-    wp = getattr(st, "wide_pool", None)
-    if wp is not None and (wp.commitments or wp.nullifiers):
-        from execnode.stark import znote as _Z
-        out[record_key(T_DIGEST, "wide_root", _Z.to_hex(wp.root()))] = 1
-        out[record_key(T_DIGEST, "wide_nfset", wp.nullifier_digest())] = 1
+    # the field pool is deleted (G9 slice 5): its two records are the constants it held empty (exec_root_b2), and the
+    # deleted wide pool and shielded-contract state projected nothing while empty
+    from execnode.exec_root_b2 import RETIRED_FIELD_ROOT, RETIRED_FIELD_NFSET
+    out[record_key(T_DIGEST, "field_root", RETIRED_FIELD_ROOT)] = 1
+    out[record_key(T_DIGEST, "field_nfset", RETIRED_FIELD_NFSET)] = 1
     # STWO POOL (STWO_POOL_HEIGHT): root and spent set as digests in the POSITION, EMPTY IS ABSENT exactly as the wide
     # pool's — the projection is byte-identical to today's until its first note, so the code ships without moving a root.
     sp = getattr(st, "stwo_pool", None)
@@ -169,26 +158,6 @@ def records_projection(st):
     sv = int(getattr(st, "stwo_value", 0) or 0)
     if sv:
         out[record_key(T_DIGEST, "stwo_value", str(sv))] = 1
-    # SHIELDED CONTRACTS: one record per contract that holds private state, plus one for the spent set.
-    # getattr, because an exec state built before this feature simply has no pool and must project to the
-    # same root it always did — an absent attribute is not an empty pool, it is "this half is unchanged".
-    # Roots go in the POSITION rather than the value for the reason the module header gives: a note root is
-    # a 64-bit field element, and a 64-bit value would bound binding far below the position's 256 bits.
-    #
-    # EMPTY IS ABSENT, and this is the load-bearing part. If the feature emitted a record unconditionally —
-    # even just the digest of an empty nullifier set — then every node's state root would move the instant
-    # the code shipped, and a fleet that upgrades over minutes rather than atomically would split. Emitting
-    # nothing until a contract actually holds private state makes the projection byte-identical to today's
-    # on a chain that has none, so this ships as an ordinary update: no activation height, no reroll. It is
-    # the same "zero == absent" convention the withdrawal records already use.
-    app = getattr(st, "app_state", None)
-    if app is not None:
-        for cid in sorted(app.trees):                       # sorted: the projection is order-independent,
-            if not app.trees[cid]:                          # but a stable walk keeps diffs readable
-                continue                                    # a contract with no notes contributes nothing
-            out[record_key(T_APP_ROOT, cid, str(int(app.root(cid)) % F.P))] = 1
-        if app.nullifiers:
-            out[record_key(T_APP_NULL, app.nullifier_digest())] = 1
     for _s, msg in st.outbox.items():
         out[record_key(T_DIGEST, "outbox", leaf_digest(msg_outbox_leaf(msg)))] = 1
     for i, msg in enumerate(st.inbox):

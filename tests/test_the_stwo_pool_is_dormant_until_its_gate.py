@@ -67,7 +67,7 @@ st = fresh(GATE - 1)
 r = st.apply_field_shield(5000, owner, 7)
 cm_in = SP.commit(5000, owner, 7)
 check("3. a deposit lands in the Stwo pool, its commitment computed from the L1 amount",
-      st.stwo_pool.commitments == [cm_in] and len(st.wide_pool.commitments) == 0, r)
+      st.stwo_pool.commitments == [cm_in] and not hasattr(st, "wide_pool"), r)   # (the wide pool is deleted, G9 slice 5)
 check("...and the exec root now carries the Stwo pool", st.state_root() != with_pool)
 TF = st.apply_field_transfer if hasattr(st, "apply_field_transfer") else None
 r = TF({"stark": {"joinsplit3": {}}})

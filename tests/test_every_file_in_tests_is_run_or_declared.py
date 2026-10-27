@@ -43,11 +43,7 @@ DECLARED = {
     "bankedgame_scoreboard_test.mjs": ("library", "the JS leg of test_game_clients_compute_what_the_contracts_pay"),
     "beacon_client_cache.mjs": ("library", "the JS leg of test_exec_beacon_reaches_the_game_client"),
     "farkle_client_rolls_the_contracts_dice.mjs": ("library", "the JS leg of test_farkle_client_rolls_the_contracts_dice"),
-    "joinsplit2_js_crosscheck.mjs": ("library", "the JS prover leg of test_joinsplit2_js_proof_verifies_in_python"),
-    "joinsplit3_js_crosscheck.mjs": ("library", "the JS prover leg of test_joinsplit3_js_proof_verifies_in_python"),
     "protocol_hook.mjs": ("library", "Node resolve hook mapping /protocol.js to the rendered module for the .mjs tests"),
-    "joinsplit2_js_crosscheck.sh": ("library", "driven by test_joinsplit2_js_proof_verifies_in_python"),
-    "joinsplit3_js_crosscheck.sh": ("library", "driven by test_joinsplit3_js_proof_verifies_in_python"),
     "starkjs_crosscheck.sh": ("library", "driven by test_stark_js_prover_matches_python"),
     "mutation_check.py": ("library", "the mutation harness test_tests_can_fail drives"),
     "pets_js_crosscheck.mjs": ("library", "the JS leg of test_game_clients_compute_what_the_contracts_pay"),
@@ -56,8 +52,6 @@ DECLARED = {
     "posw_xlang.mjs": ("library", "the browser leg of test_posw_js_and_python_agree"),
     "roulette_and_dice_previews_equal_the_paid_result.mjs": ("library", "the JS leg of test_roulette_and_dice_previews_equal_the_paid_result"),
     "scrapline_sim_lab.mjs": ("library", "the combat sim test_scrapline_engine_referee imports"),
-    "shielded_js_crosscheck.mjs": ("library", "the JS leg of test_shielded_js_matches_the_pool"),
-    "shielded_js_crosscheck_gen.py": ("library", "vector generator for test_shielded_js_matches_the_pool"),
     "stormhold_bot.mjs": ("library", "the move generator the stormhold engine tests play with"),
     # ---- suite: run by scripts/run_tests.sh by name
     "i18n_coverage.mjs": ("suite", "every wallet key in all 16 languages; CLAUDE.md, the pre-push hook, CI and the wallet skill call it by name"),
@@ -130,7 +124,7 @@ def drivers_name_their_libraries(declared):
             continue
         stem = n.rsplit(".", 1)[0]
         needles = [n] + ([f"import {stem}", f"from {stem} import", f"tests.{stem} import"] if n.endswith(".py") else [])
-        # a same-stem sibling does not count (joinsplit2_js_crosscheck.mjs and .sh name each other; neither ran)
+        # a same-stem sibling does not count (joinsplit2_js_crosscheck.mjs and .sh, retired, named each other; neither ran)
         if not any(nd in src for m, src in texts.items() if m.rsplit(".", 1)[0] != stem for nd in needles):
             bad.append(f"{n}: declared a library, but no test (or library a test drives) names it")
     return bad

@@ -3,13 +3,13 @@
 A review of the proof system found value-creating flaws on the privacy paths (a shielded-contract deposit that could
 commit a note worth more than it paid, reproduced against a 1,000,000-unit contract balance, among others). None of
 these paths carries value today, so they closed at a gate while the fixes ship. On gen 25 that gate was 226400; from
-gen 26 it (and the wide pool's and REVIEW_R2's) was 1, and all three were deleted after the betanet-8 reroll, so the
-rules hold from block 1 and only height 0 is still below them:
+gen 26 it (and the wide pool's and REVIEW_R2's) was 1, and all three were deleted after the betanet-8 reroll. G9 slice 5
+deleted the field, wide and shielded-contract pools, and with them the height-0 exception: the refusals below hold at
+EVERY height (below block 1 only genesis is applied, which carries no transaction on generation 29):
 
   * the exec layer refuses `private_call` and a `stark` bundle on the transparent `shielded_transfer` op — before
     parsing anything or moving any balance, so a refusal is a no-op;
-  * `field_transfer` belongs to the wide pool from block 1 (the legacy pool's pause window, between the pause and the
-    wide pool, is empty), so it is never refused as paused;
+  * `field_transfer` is a Stwo spend from block 1 and is never refused as paused;
   * L1 admits only a WIDE field-shield deposit from block 1 (transaction_ops.field_shield_check), judged at the block's
     own height. That check used to read an unbound `h` and raised on EVERY field shield, wide ones included — this
     file drives it at every height kind, so a NameError/UnboundLocalError fails here first.
@@ -46,25 +46,28 @@ def t_the_gates_are_deleted_and_the_rules_hold_from_block_1():
     for name in ("PRIVACY_PAUSE_HEIGHT", "SHIELD_WIDE_HEIGHT", "REVIEW_R2_HEIGHT"):
         assert not hasattr(P, name), f"{name} is back"
     st0, st1 = _state_at(0), _state_at(1)
-    assert not (st0.rules_privacy_pause() or st0.rules_shield_wide() or st0.rules_r2()), "height 0: below every one"
-    assert st1.rules_privacy_pause() and st1.rules_shield_wide() and st1.rules_r2(), "block 1: all three in force"
+    assert not st0.rules_r2() and st1.rules_r2(), "REVIEW_R2: below at height 0, in force from block 1"
+    # the pause and wide-pool helpers went with their pools (G9 slice 5): nothing may consult them again
+    assert not hasattr(st1, "rules_privacy_pause") and not hasattr(st1, "rules_shield_wide")
 
 
-def t_private_call_is_refused_from_the_gate_before_any_parsing():
+def t_private_call_is_refused_at_every_height_before_any_parsing():
     blob = {"op": "private_call", "public_json": json.dumps({"cid": "c" * 32, "public_delta": 5}),
             "proof_json": json.dumps({"stark": {}})}
     st = _state_at(G)
     r = st.apply_blob(dict(blob), USER, "t1")
     assert "paused" in r, r
     assert st.bridge[USER] == 10 ** 6, "a refused private call moves nothing"
-    r = _state_at(G - 1).apply_blob(dict(blob), USER, "t2")
-    assert "paused" not in r, f"below the gate the pause must not apply: {r}"
+    st0 = _state_at(G - 1)                       # height 0 too since G9 slice 5: the transition code is deleted
+    r = st0.apply_blob(dict(blob), USER, "t2")
+    assert "paused" in r, f"a private call is refused at every height: {r}"
+    assert st0.bridge[USER] == 10 ** 6
 
 
-def t_field_transfer_belongs_to_the_wide_pool_and_is_never_refused_as_paused():
+def t_field_transfer_is_a_stwo_spend_and_is_never_refused_as_paused():
     blob = {"op": "field_transfer", "bundle_json": json.dumps({"kind": "joinsplit2"})}
     r = _state_at(G).apply_blob(dict(blob), USER, "t5")
-    assert "paused" not in r, f"the wide pool must stay open under the pause: {r}"
+    assert "paused" not in r and "stwo_js" in r, f"a field_transfer is judged as a Stwo spend: {r}"
     assert "paused" not in _state_at(G - 1).apply_blob(dict(blob), USER, "t4")
 
 
@@ -73,6 +76,7 @@ def t_stark_bundles_are_refused_on_the_transparent_op_but_signed_transfers_are_n
     assert "stark bundles are refused" in _state_at(G).apply_blob(dict(stark_blob), USER, "t6")
     signed = {"op": "shielded_transfer", "public": {"public_value": 0}, "proof": {"sig": "x"}}
     assert "stark bundles are refused" not in _state_at(G).apply_blob(dict(signed), USER, "t7")
+    assert "stark bundles are refused" in _state_at(G - 1).apply_blob(dict(stark_blob), USER, "t8"), "at every height"
 
 
 def t_field_shield_admission_is_judged_at_the_block_height_and_never_raises_a_name_error():

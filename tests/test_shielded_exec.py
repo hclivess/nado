@@ -46,17 +46,24 @@ def transfer_blob(in_specs, out_notes, public_value=0, fee=0, withdraw_addr=None
 
 
 def t1_shield_adds_a_note():
-    """Prove apply_shield accepts a funded deposit and adds its note commitment to the pool."""
-    res = st.apply_shield(100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
-    assert "shield 100" in res, res
+    """Seed a funded legacy note (what the deleted apply_shield did; no transaction can since G9 slice 5)."""
+    ok, why = _harness.seed_legacy_notes(st, 100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
+    assert ok, why
     assert st.shielded.size() == 1
 
-def t2_shield_underfunded_rejected():
-    """Prove a shield whose note value does not match the deposited amount is skipped (value conservation) and adds nothing."""
-    n = st.shielded.size()
-    res = st.apply_shield(100, [cm(50, ALICE, "re")], [out_open(50, ALICE, "re")])
+def t2_a_transfer_with_no_inputs_appends_zero_value_notes_and_nothing_else():
+    """WHY THE LEGACY POOL IS STILL LIVE ON GENERATION 29 (G9 slice 5): a shielded_transfer with no inputs balances when its
+    outputs are worth 0, so any sender appends notes and moves shield_root — while a non-zero output cannot balance.
+    (On a separate state: the pool `st` carries the notes t3.. spend.)"""
+    s2 = ExecState(path=os.path.join(os.environ["HOME"], "exec_shield_zero.json"))
+    s2.cursor = 5000                                    # a gen-29 height, past every gate
+    root = s2.state_root()
+    res = s2.apply_blob(transfer_blob([], [(5, BOB, "rz5")]), sender="anyone", txid="t2a")
     assert "skip" in res and "conserved" in res, res
-    assert st.shielded.size() == n
+    assert s2.shielded.size() == 0 and s2.state_root() == root
+    res = s2.apply_blob(transfer_blob([], [(0, BOB, "rz0")]), sender="anyone", txid="t2b")
+    assert res == "shielded_transfer ok (1 out)", res
+    assert s2.shielded.commitments == [cm(0, BOB, "rz0")] and s2.state_root() != root and s2.pool_value == 0
 
 def t3_private_transfer():
     """Prove a private 2-output transfer applies through ExecState, growing the tree and spending the input nullifier."""

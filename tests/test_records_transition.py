@@ -35,12 +35,11 @@ check = _report.run
 
 class FakeState:
     """Duck-typed exec state. records_projection reads bridge/dividend/assets/withdrawals AND commits the
-    shielded + field pool ROOTS, so those need real (empty) pools rather than None — an empty pool still has
+    legacy pool ROOT (the deleted field pool's two records are constants), so it needs a real (empty) pool — an empty pool has
     a root, and committing it is the point."""
 
     def __init__(self, bridge=None, dividend=None):
         from execnode.shielded import ShieldedPool
-        from execnode.shielded_field import FieldShieldedPool
         self.bridge = dict(bridge or {})
         self.dividend = dict(dividend or {})
         self.abal = {}
@@ -50,7 +49,6 @@ class FakeState:
         self.dividend_withdrawals = {}
         self.unshield_withdrawals = {}
         self.shielded = ShieldedPool()
-        self.field_pool = FieldShieldedPool()
         self.outbox = {}
         self.inbox = {}
 

@@ -64,42 +64,28 @@ NATIVE_ONLY=""      # tests FATAL under NADO_ALLOW_PYTHON_KERNELS (certify the s
 # test measured at 60 s or more, with its seconds. Measured 2026-10-10 (/tmp/nado-tests.Y1P3TF, 12 cores, 2 jobs)
 # unless noted. Keep a test here when it is slow anywhere; a measurement on this machine always wins.
 #   test_wide_pool_depth 748 s ran within a minute or three of the old 900 s cap. (The Goldilocks settle-proof tests that
-#   once topped this list, up to 2 h 28 min each, were retired with that prover in G9.)
+#   once topped this list, up to 2 h 28 min each, were retired with that prover in G9, and the pool tests — wide, field,
+#   join-split, shielded-contract — with their pools in G9 slice 5.)
 SLOW="
-test_joinsplit3_js_proof_verifies_in_python 1200
-test_shielded_wide 1799
-test_wide_pool_depth 748
 test_recursive_row 605
 test_fri_verify 540
 test_recursive_verify 496
 test_records_transition 417
-test_stark_joinsplit2 408
-test_shielded_state_replay 400
 test_records_bind 350
 test_recursion 307
-test_air_ir 293
-test_stark_joinsplit_circuit 242
 test_native_prover_verifies 230
-test_shielded_vault_e2e 161
-test_m10_h7 150
 test_zk_review_2026_09_24 148
 test_review_round2 142
 test_comp_verify 140
 test_hexholm_engine_conserves_resources 137
 test_msg_ratchet 122
 test_state_transition_batched 121
-test_da_shielded_transfer 110
 test_starkprove 109
-test_shielded_field 107
 test_merkle_update 105
 test_fork_resolution_pruned 105
 test_rowcomp_verify 103
-test_shielded_state_da 100
 test_native_reduce 91
-test_shielded_state_seam 81
-test_appnote_circuit 77
 test_hexholm_contract_lifecycle 75
-test_joinsplit2_js_proof_verifies_in_python 114
 test_stormhold_engine_referee 73
 test_fri_blowup2_parity 71
 test_zkvm_runtime 65
