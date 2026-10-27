@@ -7043,10 +7043,10 @@ function dutyWindow(latest, X, revealPossible) {
   return { minBlock, tb: hi, revealHi };
 }
 
-/* A seatless REVEAL-ONLY duty (protocol.REVEAL_SEATLESS_HEIGHT): a wallet without a seat in epoch X still reveals the
+/* A seatless REVEAL-ONLY duty (protocol.py "RANDAO DUTY CONSISTENCY"): a wallet without a seat in epoch X still reveals the
  * secret it committed for X+1 — committed from epoch X-1, so only when it was seated in X-1 — as long as the landing
- * window lies inside the reveal window. The node refuses this form before the gate ("no seat"), which ends the epoch's
- * attempt; from the gate it lands. Pure, so tests/test_duty_seatless_reveal.mjs can lift it. Returns the duty data
+ * window lies inside the reveal window. The node accepts it (REVEAL_SEATLESS_HEIGHT, gen 28's gate, inlined in G9);
+ * a refusal ends the epoch's attempt. Pure, so tests/test_duty_seatless_reveal.mjs can lift it. Returns the duty data
  * (reveal section ONLY: an unseated attest or commit is refused) or null. */
 function seatlessRevealData(X, seatedPrev, revealPossible, win, secretFor) {
   if (!seatedPrev || !revealPossible) return null;
@@ -7075,7 +7075,7 @@ async function maybeRandao() {
     } catch (e) { return; }                                    // relay hiccup — try next poll
     if (!inCommittee) {
       // NO SEAT THIS EPOCH: still reveal the secret committed while seated (seatlessRevealData). One attempt per
-      // epoch: accepted, refused as seatless (before REVEAL_SEATLESS_HEIGHT) or dead, the epoch is done.
+      // epoch: accepted, refused (a max_block of 0 still needs the seat) or dead, the epoch is done.
       let seatedPrev = false;
       try {
         const r0 = await fetch(relayBase() + "/duty_committee?epoch=" + (X - 1) + "&address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });

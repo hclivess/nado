@@ -1,5 +1,5 @@
 /* A wallet without a committee seat still reveals the RANDAO secret it committed while seated (static/interface.js
- * seatlessRevealData, the twin of the node's maybe_epoch_duty under protocol.REVEAL_SEATLESS_HEIGHT).
+ * seatlessRevealData, the twin of the node's maybe_epoch_duty for a reveal-only duty, which needs no seat).
  *
  * Measured 2026-10-08: 28.9 % of commitments were never revealed, because the reveal for X+1 must land from a duty tx
  * in epoch X and that required a seat in X's resampled committee. The node and the wallet both stopped at "no seat".

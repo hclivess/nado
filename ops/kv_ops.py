@@ -854,7 +854,8 @@ def epoch_weights_commit(epoch: int, weights: dict = None, revert: bool = False)
 
 
 def regsnap_put(epoch: int, registry: dict):
-    """Freeze the bonded registry an epoch's producer draw and duty committee read (protocol.REGISTRY_SNAPSHOT_HEIGHT):
+    """Freeze the bonded registry an epoch's producer draw and duty committee read (epoch >= 2,
+    protocol.py "RANDAO DUTY CONSISTENCY"):
     meta regsnap:<epoch>, canonical JSON (sort_keys, no spaces), written by the epoch's anchor block
     (epoch - 1) * EPOCH_LENGTH. INVARIANT: the stored bytes are independent of dict order, so the root is too."""
     blob = json.dumps({str(a): dict(i) for a, i in (registry or {}).items()},

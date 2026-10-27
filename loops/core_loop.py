@@ -3957,11 +3957,12 @@ class CoreClient(threading.Thread):
                 from ops.dividend_ops import weights_at_epoch
                 _E = _bn // EPOCH_LENGTH - 1
                 kv_ops.epoch_weights_commit(_E, weights_at_epoch(_E))
-                # REGISTRY SNAPSHOT (protocol.REGISTRY_SNAPSHOT_HEIGHT): this block anchors the NEXT epoch's beacon,
+                # REGISTRY SNAPSHOT: this block anchors the NEXT epoch's beacon,
                 # so it also freezes the bonded registry that epoch's draw and committee read — after this block's
                 # own bonds applied (in-txn read). rollback_one_block deletes it; re-apply rewrites the same bytes.
-                from protocol import REGISTRY_SNAPSHOT_HEIGHT
-                if _bn >= REGISTRY_SNAPSHOT_HEIGHT:
+                # REGISTRY_SNAPSHOT_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1` stays because block 0
+                # is an epoch boundary too and never wrote regsnap:1 — rollback.py tests the same expression.
+                if _bn >= 1:
                     kv_ops.regsnap_put(_bn // EPOCH_LENGTH + 1, get_bonded_registry())
 
             totals = get_totals(block=block)  # produced = full reward = total emission
@@ -4158,13 +4159,10 @@ class CoreClient(threading.Thread):
             latest = self.memserver.latest_block
             X = epoch_of(latest["block_number"])
             from ops.block_ops import duty_committee_for_epoch
-            # REVEAL_SEATLESS_HEIGHT: without a seat this epoch, a commitment made while seated is still revealed by
-            # a reveal-only duty. INVARIANT: the seatless tx carries no attest/commit section (validation refuses one).
+            # REVEAL_SEATLESS_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9; a duty lands at tip + 8 >= 1, so it
+            # always held): without a seat this epoch, a commitment made while seated is still revealed by a
+            # reveal-only duty. INVARIANT: the seatless tx carries no attest/commit section (validation refuses one).
             seated = me in duty_committee_for_epoch(X)
-            if not seated:
-                from protocol import REVEAL_SEATLESS_HEIGHT
-                if latest["block_number"] + TX_INCLUSION_DELAY < REVEAL_SEATLESS_HEIGHT:
-                    return  # no seat this epoch — the committee is resampled from beacon(X+1) next epoch
             if self._reserved_tx_pending("duty", X):
                 return  # our duty tx is already in flight — don't mint a duplicate every loop
             kd = self.memserver.keydict

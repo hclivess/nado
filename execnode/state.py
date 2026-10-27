@@ -867,18 +867,21 @@ class ExecState:
     @classmethod
     def exec_beacon_at(cls, epoch, reveals_of, final_epoch):
         """The BEACON value for `epoch`, or None while it is not final at `final_epoch` (the epoch the reader's
-        finalized position is in). Below protocol.BEACON_EXTEND_HEIGHT it is exec_beacon_int(epoch, reveals[epoch]).
-        From it, an epoch with NO reveals takes the reveals of the first later epoch that has some — searched up
+        finalized position is in). Epoch 0, and any epoch with reveals, is exec_beacon_int(epoch, reveals[epoch]).
+        Any later epoch with NO reveals takes the reveals of the first later epoch that has some — searched up
         to BEACON_EXTEND_MAX epochs ahead, after which the plain value stands so a chain with no reveals at all
         still settles — and is final once that epoch is.
         INVARIANT: the exec node (advance_beacons) and the L1 settle-proof check (transaction_ops) both read the
         BEACON value through this one function, so they agree for every epoch."""
-        from protocol import BEACON_EXTEND_HEIGHT, BEACON_EXTEND_MAX, EPOCH_LENGTH
+        from protocol import BEACON_EXTEND_MAX
         e0 = int(epoch)
         if e0 > int(final_epoch):
             return None
         reveals = list(reveals_of(e0) or ())
-        if reveals or e0 * EPOCH_LENGTH < BEACON_EXTEND_HEIGHT:
+        # BEACON_EXTEND_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): the test was `e0 * EPOCH_LENGTH < 1`, i.e.
+        # only epoch 0 keeps its plain value when reveal-less. Keep `e0 < 1`: the exec node and the settlement's
+        # chain reads both come through here, so epoch 0's value must stay what every committed exec root used.
+        if reveals or e0 < 1:
             return cls.exec_beacon_int(e0, reveals)
         for e in range(e0 + 1, e0 + 1 + BEACON_EXTEND_MAX):
             if e > int(final_epoch):
@@ -905,7 +908,7 @@ class ExecState:
             self.beacon_floor = cur_epoch + 2
         start = max(self.beacon_floor, (max(self.beacons) + 1) if self.beacons else 0)
         for e in range(start, cur_epoch + 1):
-            # BEACON_EXTEND_HEIGHT: a reveal-less epoch waits for a later epoch's reveals, and every epoch after it
+            # BEACON EXTEND: a reveal-less epoch waits for a later epoch's reveals, and every epoch after it
             # waits too (start resumes at the first missing epoch), so beacons stays a gap-free range.
             v = self.exec_beacon_at(e, lambda x: self.randao_reveals.get(x, set()), cur_epoch)
             if v is None:

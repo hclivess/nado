@@ -31,15 +31,10 @@ REROLL = {
     "EVICT_VOIDS_EPOCH_HEIGHT": 1,             # 132000 on gen 28: a device move voids through the epoch
     "TPM_ENROL_V3_HEIGHT": 1,                  # 132000 on gen 28: failed commitments, retry cooldown
     "TPM_RETRY_OWNER_HEIGHT": 1,               # 175000 on gen 28: retry count per (chip, opener), only a wrong commit counts
-    "BEACON_EXTEND_HEIGHT": 1,                 # 132000 on gen 28: a reveal-less epoch's beacon waits for reveals
-    "REVEAL_SEATLESS_HEIGHT": 1,               # 135300 on gen 28: a reveal-only duty needs no seat
-    "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool
-    "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "WIDE_DEPOSIT_CLOSE_HEIGHT": 1,            # 175000 on gen 28: no new wide-pool deposits (it never held a note)
     "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
     "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
     "SIG_SCHEMES_HEIGHT": 1,                   # dormant (2^62) on gen 28: an account may sign with another offered scheme
-    "AGREED_TIME_SEATS_HEIGHT": 1,             # dormant (2^62) on gen 28: the certificate clock weighs committee seats
     "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
     "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)

@@ -1,10 +1,10 @@
 """The exec BEACON of an epoch with no RANDAO reveals is computed from the next revealed epoch's reveals
-(protocol.BEACON_EXTEND_HEIGHT, execnode/state.ExecState.exec_beacon_at).
+(execnode/state.ExecState.exec_beacon_at; BEACON_EXTEND_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9).
 
-  * below the gate every epoch keeps exec_beacon_int(epoch, its own reveals) — replay unchanged;
-  * from the gate a reveal-less epoch is None (not final) until a later epoch with reveals is final, then takes its
+  * epoch 0 keeps exec_beacon_int(0, its own reveals) even when reveal-less (the gate's `< 1` at height 0);
+  * from epoch 1 a reveal-less epoch is None (not final) until a later epoch with reveals is final, then takes its
     reveals; past BEACON_EXTEND_MAX empty epochs the plain value stands;
-  * an epoch WITH reveals is unchanged by the gate;
+  * an epoch WITH reveals keeps its own reveals;
   * advance_beacons stops at an unresolved epoch and fills it (and everything after) once it resolves — the beacon
     map stays a gap-free range;
   * the L1 settle-proof check, the exec node and the client all read the same definitions.
@@ -28,8 +28,7 @@ from execnode.state import ExecState                                   # noqa: E
 
 FAILED = []
 L = P.EPOCH_LENGTH
-GATE_E = 1000
-P.BEACON_EXTEND_HEIGHT = GATE_E * L
+GATE_E = 1000                          # just an epoch number now: the rule holds from epoch 1
 
 
 def check(name, cond, detail=""):
@@ -48,20 +47,20 @@ def rv(e):
 at = ExecState.exec_beacon_at
 plain = ExecState.exec_beacon_int
 
-# below the gate
-E0 = GATE_E - 10
-check("below the gate a reveal-less epoch keeps its plain value", at(E0, rv, E0) == plain(E0, []))
-check("below the gate a future epoch is not final", at(E0 + 1, rv, E0) is None)
+# the pre-gate half (a reveal-less epoch below BEACON_EXTEND_HEIGHT kept its plain value) is retired in G9: generation
+# 28's rules. Epoch 0 is the one epoch that still does — the inlined gate's `e0 < 1`.
+check("epoch 0 keeps its plain value when reveal-less", at(0, rv, 0) == plain(0, []) and at(0, rv, 5) == plain(0, []))
+check("epoch 1 reveal-less is not final while later epochs are empty", at(1, rv, 1) is None)
+check("a future epoch is not final", at(GATE_E + 1, rv, GATE_E) is None)
 
-# from the gate
 E = GATE_E + 5
 REV[E + 2] = {"s1", "s2"}
-check("from the gate a reveal-less epoch is not final while later epochs are empty", at(E, rv, E + 1) is None)
+check("a reveal-less epoch is not final while later epochs are empty", at(E, rv, E + 1) is None)
 check("it takes the first revealed later epoch's reveals once that epoch is final",
       at(E, rv, E + 2) == plain(E, ["s1", "s2"]) and at(E, rv, E + 2) != plain(E, []))
 check("the epoch number stays in the value (two empty epochs extending to one reveal set differ)",
       at(E + 1, rv, E + 2) == plain(E + 1, ["s1", "s2"]) and at(E + 1, rv, E + 2) != at(E, rv, E + 2))
-check("an epoch with reveals is unchanged by the gate", at(E + 2, rv, E + 2) == plain(E + 2, ["s1", "s2"]))
+check("an epoch with reveals keeps its own reveals", at(E + 2, rv, E + 2) == plain(E + 2, ["s1", "s2"]))
 E2 = GATE_E + 100
 check("past BEACON_EXTEND_MAX empty epochs the plain value stands",
       at(E2, rv, E2 + P.BEACON_EXTEND_MAX + 3) == plain(E2, []))

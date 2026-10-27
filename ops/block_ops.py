@@ -574,16 +574,17 @@ def epoch_beacon(epoch):
 
 
 def bonded_registry_for_epoch(epoch: int) -> dict:
-    """The bonded registry epoch `epoch`'s producer draw and duty committee read. From protocol.REGISTRY_SNAPSHOT_HEIGHT
-    it is the registry FROZEN by the epoch's anchor block (epoch - 1) * EPOCH_LENGTH (kv_ops.regsnap_put, written in
-    incorporate_block) — the same block the epoch's beacon is anchored on — so a bond landing after the anchor cannot
-    move that epoch's draw. Below the gate (and for epochs 0-1) it is the live registry, as before.
-    FAIL-LOUD like epoch_beacon: a missing row past the gate means this node has not applied the anchor block, and
+    """The bonded registry epoch `epoch`'s producer draw and duty committee read. From epoch 2 it is the registry
+    FROZEN by the epoch's anchor block (epoch - 1) * EPOCH_LENGTH (kv_ops.regsnap_put, written in incorporate_block) —
+    the same block the epoch's beacon is anchored on — so a bond landing after the anchor cannot move that epoch's
+    draw. Epochs 0-1 read the live registry (epoch 1's anchor is genesis, which writes no row).
+    FAIL-LOUD like epoch_beacon: a missing row from epoch 2 means this node has not applied the anchor block, and
     substituting the live registry would draw a different set than synced nodes.
     INVARIANT: block production, block verification and the duty committee all read the registry through this."""
-    from protocol import REGISTRY_SNAPSHOT_HEIGHT
     e = int(epoch)
-    if e < 2 or (e - 1) * EPOCH_LENGTH < REGISTRY_SNAPSHOT_HEIGHT:
+    # REGISTRY_SNAPSHOT_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `(e - 1) * EPOCH_LENGTH < 1` cannot hold
+    # for e >= 2, so `e < 2` alone decides — and must keep matching incorporate_block's `_bn >= 1` anchor test.
+    if e < 2:
         return get_bonded_registry()
     snap = kv_ops.regsnap_get(e)
     if snap is None:
