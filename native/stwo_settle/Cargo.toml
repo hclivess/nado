@@ -2,18 +2,45 @@
 name = "nado-stwo-settle"
 version = "0.1.0"
 edition = "2024"
-description = "NADO gen-29 settlement prototype (doc/stwo/g4-settlement-statement.md): compressed-tree path updates proven on Stwo over upstream's BLAKE2s components. Prototype only: nightly, prover-only, nothing on a consensus path."
+description = "NADO gen-29 settlement (doc/stwo/g4-settlement-statement.md section 5): the zkvm2 execution proof. The node-side verifier builds on stable Rust; the prover (and the old tree-path prototype) is behind the `prover` feature (nightly)."
 license = "AGPL-3.0-or-later"
 publish = false
 
 [lib]
 name = "nado_stwo_settle"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+# The binaries prove (or drive the prover): nightly + `prover` only. The node loads the library's C entry point (ffi.rs).
+[[bin]]
+name = "vm_prove"
+path = "src/bin/vm_prove.rs"
+required-features = ["prover"]
+
+[[bin]]
+name = "vm_settle"
+path = "src/bin/vm_settle.rs"
+required-features = ["prover"]
+
+[[bin]]
+name = "settle_update"
+path = "src/bin/settle_update.rs"
+required-features = ["prover"]
+
+[[bin]]
+name = "csmt_ref_roots"
+path = "src/bin/csmt_ref_roots.rs"
+required-features = ["prover"]
+
+[features]
+# NEVER a default feature: a node builds this crate on stable Rust (ops/self_update), and the verifier must not pull
+# Stwo's prover (tests/test_the_stwo_settle_verifier_builds_on_stable_without_the_prover.py).
+prover = ["stwo/prover", "stwo-constraint-framework/prover"]
 
 [dependencies]
-# Pinned upstream Stwo, the same commit native/stwo_js uses.
-stwo = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", features = ["prover"] }
-stwo-constraint-framework = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", features = ["prover"] }
+# Pinned upstream Stwo, the same commit native/stwo_js uses; the prover only with the feature above.
+stwo = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", default-features = false, features = ["std"] }
+stwo-constraint-framework = { git = "https://github.com/starkware-libs/stwo", rev = "826591c6c371376810ca8213b5812d5daf6d5092", default-features = false }
 num-traits = "0.2.19"
 itertools = "0.12"
 tracing = "0.1"

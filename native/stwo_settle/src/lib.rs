@@ -3,10 +3,11 @@
 //! `blake` is upstream Stwo's BLAKE2s example AIR (crates/examples/src/blake at the pinned revision, Apache-2.0, see
 //! LICENSE-stwo-apache-2.0), vendored so the settlement circuit proves its compressions with the components G1 measured.
 //! NOTE: upstream example code, not StarkWare's audited core; it gets the same forgery tests as everything we add.
-#![feature(portable_simd, iter_array_chunks)]
+#![cfg_attr(feature = "prover", feature(portable_simd, iter_array_chunks))]
 #![allow(clippy::too_many_arguments)]
 
 pub mod blake;
 pub mod csmt_ref;
 pub mod vm;
 pub mod wire;
+pub mod ffi;

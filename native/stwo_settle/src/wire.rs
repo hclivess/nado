@@ -1,7 +1,8 @@
 //! The settlement VM proof's byte format (G4), and the decode a verifier runs on bytes it did not make. The same rules as
 //! native/stwo_js/src/wire.rs, whose checking serializer is copied below unchanged:
 //!
-//! FORMAT: bincode 1 (fixed-int, little-endian) of `(blake_log: u32, sums: Vec<SecureField>, stark: StarkProof)`.
+//! FORMAT: bincode 1 (fixed-int, little-endian) of `(blake_log: u32, tab_mult: Vec<u32>, sums: Vec<SecureField>,
+//! stark: StarkProof)`.
 //!
 //! DECODE IS STRICT because the bytes are a stranger's:
 //!  - the input length is capped (MAX_PROOF_BYTES) before anything is allocated;
@@ -23,7 +24,7 @@ const P: u32 = (1 << 31) - 1;
 pub const MAX_PROOF_BYTES: usize = 16 << 20;
 
 pub fn encode(proof: &VmProof) -> Vec<u8> {
-    bincode::serialize(&(&proof.blake_log, &proof.sums, &proof.stark)).expect("serialize")
+    bincode::serialize(&(&proof.blake_log, &proof.tab_mult, &proof.sums, &proof.stark)).expect("serialize")
 }
 
 #[derive(Debug)]
@@ -38,7 +39,8 @@ pub fn decode(bytes: &[u8]) -> Result<VmProof, DecodeError> {
     if bytes.len() > MAX_PROOF_BYTES {
         return Err(DecodeError::TooLarge);
     }
-    let (blake_log, sums, stark): (u32, Vec<SecureField>, StarkProof<Blake2sMerkleHasher>) = bincode::DefaultOptions::new()
+    let (blake_log, tab_mult, sums, stark): (u32, Vec<u32>, Vec<SecureField>, StarkProof<Blake2sMerkleHasher>) =
+        bincode::DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
         .with_limit(bytes.len() as u64)
@@ -46,7 +48,7 @@ pub fn decode(bytes: &[u8]) -> Result<VmProof, DecodeError> {
         .deserialize(bytes)
         .map_err(|e| DecodeError::Malformed(format!("{e}")))?;
     let mut chk = Canon { ok: true };
-    (&sums, &stark).serialize(&mut chk).map_err(|e| DecodeError::Malformed(e.0))?;
+    (&tab_mult, &sums, &stark).serialize(&mut chk).map_err(|e| DecodeError::Malformed(e.0))?;
     if !chk.ok {
         return Err(DecodeError::NonCanonical);
     }
@@ -60,7 +62,7 @@ pub fn decode(bytes: &[u8]) -> Result<VmProof, DecodeError> {
     if !n.is_power_of_two() || field != n.ilog2() {
         return Err(DecodeError::NonCanonical);
     }
-    Ok(VmProof { blake_log, sums, stark })
+    Ok(VmProof { blake_log, tab_mult, sums, stark })
 }
 
 /// A serializer that writes nothing and records whether every u32 it is shown is a canonical M31 (< P).

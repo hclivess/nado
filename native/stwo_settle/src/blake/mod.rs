@@ -3,22 +3,31 @@
 
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Sub};
+#[cfg(feature = "prover")]
 use std::simd::u32x16;
 
 use num_traits::One;
 use stwo::core::channel::Channel;
 use stwo::core::fields::FieldExpOps;
 use stwo::core::fields::m31::BaseField;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::m31::PackedBaseField;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::qm31::PackedSecureField;
-use stwo_constraint_framework::{EvalAtRow, Relation, RelationEntry, relation};
+use stwo_constraint_framework::{EvalAtRow, RelationEntry, relation};
+#[cfg(feature = "prover")]
+use stwo_constraint_framework::Relation;
+#[cfg(feature = "prover")]
 use xor_table::{xor4, xor7, xor8, xor9, xor12};
 
+#[cfg(feature = "prover")]
 mod air;
 mod preprocessed_columns;
 mod round;
 mod scheduler;
+#[cfg(feature = "prover")]
 pub mod path;
+#[cfg(feature = "prover")]
 pub mod settle;
 pub mod vm_air;
 mod xor_table;
@@ -33,6 +42,7 @@ const N_ROUNDS: usize = 10;
 /// A splitting N_ROUNDS into several powers of 2.
 const ROUND_LOG_SPLIT: [u32; 2] = [3, 1];
 
+#[cfg(feature = "prover")]
 #[derive(Default)]
 struct XorAccums {
     xor12: xor12::XorAccumulator<12, 4>,
@@ -41,6 +51,7 @@ struct XorAccums {
     xor7: xor7::XorAccumulator<7, 2>,
     xor4: xor4::XorAccumulator<4, 0>,
 }
+#[cfg(feature = "prover")]
 impl XorAccums {
     fn add_input(&mut self, w: u32, a: u32x16, b: u32x16) {
         match w {
@@ -115,6 +126,7 @@ impl BlakeXorElements {
         };
     }
 
+    #[cfg(feature = "prover")]
     fn combine(&self, w: u32, values: &[PackedBaseField]) -> PackedSecureField {
         match w {
             12 => self.xor12.combine(values),
@@ -158,6 +170,7 @@ where
 }
 
 /// Utility for splitting a u32 into 2 field elements in trace generation.
+#[cfg(feature = "prover")]
 fn to_felts(x: &u32x16) -> [PackedBaseField; 2] {
     [unsafe { PackedBaseField::from_simd_unchecked(x & u32x16::splat(0xffff)) }, unsafe {
         PackedBaseField::from_simd_unchecked(x >> 16)

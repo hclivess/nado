@@ -1,4 +1,5 @@
 mod constraints;
+#[cfg(feature = "prover")]
 mod trace_gen;
 
 use num_traits::Zero;
@@ -6,6 +7,7 @@ use stwo::core::fields::qm31::SecureField;
 use stwo_constraint_framework::{
     EvalAtRow, FrameworkComponent, FrameworkEval, InfoEvaluator, relation,
 };
+#[cfg(feature = "prover")]
 pub use trace_gen::{BlakeRoundInput, generate_interaction_trace, generate_trace};
 
 use super::{BlakeXorElements, N_ROUND_INPUT_FELTS};
@@ -50,7 +52,7 @@ pub fn blake_round_info() -> InfoEvaluator {
     component.evaluate(InfoEvaluator::empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "prover"))]
 mod tests {
     use std::simd::Simd;
 

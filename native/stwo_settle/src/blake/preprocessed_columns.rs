@@ -1,11 +1,19 @@
+#[cfg(feature = "prover")]
 use stwo::core::ColumnVec;
+#[cfg(feature = "prover")]
 use stwo::core::fields::m31::BaseField;
+#[cfg(feature = "prover")]
 use stwo::core::poly::circle::CanonicCoset;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::SimdBackend;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::column::BaseColumn;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::BitReversedOrder;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::circle::CircleEvaluation;
 use stwo_constraint_framework::preprocessed_columns::PreProcessedColumnId;
+#[cfg(feature = "prover")]
 use tracing::{Level, span};
 
 /// A preprocessed table for the xor operation of 2 n_bits numbers.
@@ -43,6 +51,7 @@ impl XorTable {
 
     /// Generates the Preprocessed trace for the xor table.
     /// Returns the Preprocessed trace, the Preprocessed trace, and the claimed sum.
+    #[cfg(feature = "prover")]
     pub fn generate_constant_trace(
         &self,
     ) -> ColumnVec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>> {

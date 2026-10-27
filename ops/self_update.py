@@ -55,7 +55,11 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 # native/pqsig (the user-selectable signature schemes, doc/signature-schemes.md) is OPTIONAL while SIG_SCHEMES_HEIGHT is
 # dormant (2^62 on gen 28): every node builds it on this update, nothing needs it yet. The reroll that sets the gate to 1
 # moves it to _CRATES in the same commit — from then on a node without it would refuse a valid tagged transaction.
-_OPTIONAL_CRATES = ()   # native/pqsig became required with the gen-29 reroll (SIG_SCHEMES_HEIGHT = 1)
+# native/pqsig became required with the gen-29 reroll (SIG_SCHEMES_HEIGHT = 1). native/stwo_settle (2026-10-27): the
+# gen-29 settlement VM verifier (execnode/stark/stwo_settle_native.py), stable Rust, default features (its prover is behind
+# a nightly-only feature no node enables). Optional until the settlement gate needs it: every node builds it now so the
+# gate can be set at a height the fleet already verifies at; nothing requires it before then.
+_OPTIONAL_CRATES = ("native/stwo_settle",)
 
 # Service-account installs (install.sh --user) run the node unprivileged, so it cannot call
 # `systemctl restart` itself. The installer writes a root-owned path unit (nado-restart.path) that

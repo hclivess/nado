@@ -729,8 +729,10 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
 
   A reverting call is proven too, every one of zkvm2's 13 revert paths.
 
+  The node's verifier builds on stable Rust and every node builds it (an optional crate until the gate).
+
   Still to build for G4:
-  - L1's side of it: the chain inputs from L1's own state, a native entry point, the settle-tx format.
+  - L1's side of it: the chain inputs from L1's own state, and the settle-tx format and branch behind the gate.
 
   G8's two weeks of off-chain proofs against live spans start only after all of that is built.
 

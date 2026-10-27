@@ -11,8 +11,10 @@
 //! The rest of the lookups are computed based on these constant columns.
 
 mod constraints;
+#[cfg(feature = "prover")]
 mod trace_gen;
 
+#[cfg(feature = "prover")]
 use std::simd::u32x16;
 
 use itertools::Itertools;
@@ -22,22 +24,34 @@ use stwo::core::fields::qm31::SecureField;
 use stwo::core::pcs::{TreeSubspan, TreeVec};
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::{ColumnVec, Fraction};
+#[cfg(feature = "prover")]
 use stwo::prover::backend::Column;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::SimdBackend;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::column::BaseColumn;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::m31::{LOG_N_LANES, PackedBaseField};
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::qm31::PackedSecureField;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::BitReversedOrder;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::circle::CircleEvaluation;
 use stwo_constraint_framework::{
     EvalAtRow, FrameworkComponent, FrameworkEval, INTERACTION_TRACE_IDX, InfoEvaluator,
-    LogupTraceGenerator, PREPROCESSED_TRACE_IDX, Relation, RelationEntry, relation,
+    PREPROCESSED_TRACE_IDX, Relation, RelationEntry, relation,
 };
+#[cfg(feature = "prover")]
+use stwo_constraint_framework::LogupTraceGenerator;
+#[cfg(feature = "prover")]
 use tracing::{Level, span};
 
 use super::preprocessed_columns::XorTable;
 use crate::blake::{XorElements4, XorElements7, XorElements8, XorElements9, XorElements12};
-use crate::{xor_table_eval, xor_table_gen};
+use crate::xor_table_eval;
+#[cfg(feature = "prover")]
+use crate::xor_table_gen;
 
 macro_rules! xor_table_component {
     ($modname:tt, $elements:tt, $elem_bits:literal, $expand_bits:literal) => {
@@ -53,11 +67,13 @@ macro_rules! xor_table_component {
         }
 
         /// Accumulator that keeps track of the number of times each input has been used.
+        #[cfg(feature = "prover")]
         pub struct XorAccumulator<const ELEM_BITS: u32, const EXPAND_BITS: u32> {
             /// 2^(2*EXPAND_BITS) multiplicity columns. Index (al, bl) of column (ah, bh) is the
             /// number of times ah||al ^ bh||bl has been used.
             pub mults: Vec<BaseColumn>,
         }
+        #[cfg(feature = "prover")]
         impl<const ELEM_BITS: u32, const EXPAND_BITS: u32> Default
             for XorAccumulator<ELEM_BITS, EXPAND_BITS>
         {
@@ -73,6 +89,7 @@ macro_rules! xor_table_component {
                 }
             }
         }
+        #[cfg(feature = "prover")]
         impl<const ELEM_BITS: u32, const EXPAND_BITS: u32> XorAccumulator<ELEM_BITS, EXPAND_BITS> {
             pub fn add_input(&mut self, a: u32x16, b: u32x16) {
                 // Split a and b into high and low parts, according to ELEMENT_BITS and EXPAND_BITS.
@@ -136,6 +153,7 @@ macro_rules! define_xor_table {
             use super::*;
             xor_table_component!($modname, $elements, $elem_bits, $expand_bits);
             xor_table_eval!($modname, $elements, $elem_bits, $expand_bits);
+            #[cfg(feature = "prover")]
             xor_table_gen!($modname, $elements, $elem_bits, $expand_bits);
         }
     };
@@ -147,7 +165,7 @@ define_xor_table!(xor8, XorElements8, 8, 2);
 define_xor_table!(xor7, XorElements7, 7, 2);
 define_xor_table!(xor4, XorElements4, 4, 0);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "prover"))]
 mod tests {
     use std::simd::u32x16;
 

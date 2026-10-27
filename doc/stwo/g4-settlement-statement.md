@@ -437,8 +437,30 @@ The first run, against the live chain (exec cursors 4920 to 5220):
   only a payload at the attested pair, never a mismatched one
   (`tests/test_a_settle_stash_hashes_to_its_own_cursor_and_root.py`).
 
+**The node's verifier builds on stable Rust (2026-10-27).** A node builds every crate with stable cargo. The settlement
+crate was nightly-only because its verifier recomputed a per-statement preprocessed commitment (the TAB table: programs,
+call data), which takes Stwo's prover machinery. The table is now not a column at all:
+- the proof states each table row's multiplicity;
+- the transcript fixes them before any lookup challenge is drawn;
+- the verifier adds `m / (a - row)` for each row as a public LogUp term. With the multiplicities fixed first, the sum
+  vanishes only if every looked-up tuple is a table row.
+
+The remaining preprocessed columns, the XOR tables and the range column, are constant, so their root is pinned
+(`vm_air::PREPROCESSED_ROOT`). The prover, the trace generation and the old path prototype sit behind a `prover` feature
+(nightly). The default build is the verifier plus a C entry point (`ffi.rs`, bound by
+`execnode/stark/stwo_settle_native.py`). `ops/self_update` builds it on every node as an OPTIONAL crate: built and
+reported, required by nothing until the settlement gate.
+
+Measured: all VM and span tests pass on the new circuit, and four mutations of a proof's multiplicities are refused.
+Verify is faster without the recomputed commitment (79 real calls: 124 to 53 ms; the 239-block span: 0.11 to 0.03 s).
+`tests/test_the_stwo_settle_verifier_builds_on_stable_without_the_prover.py` covers the node's path:
+- the library builds on stable, and no package in that build has Stwo's prover feature on;
+- the pinned root is the one the prover recomputes;
+- an honest proof verifies through ctypes, and forged statements and proof bytes are refused;
+- `settle_b2.verify_span` with no prover binary verifies a real span on the exec node's root.
+
 **Next:**
 1. L1's side: the Chain inputs from L1's own state (the accrual inputs and carry are derived there already, for the
-   gen-28 records binding; chain reads through `ExecState.exec_beacon_at` and the block-hash ring rule), the verifier
-   behind a native entry point instead of a subprocess, and the settle-tx format.
+   gen-28 records binding; chain reads through `ExecState.exec_beacon_at` and the block-hash ring rule), and the
+   settle-tx format and branch behind the settlement gate. The native verifier is done (above).
 2. The shadow run on a schedule for the two weeks (an operator job: it needs the go-ahead), with the results reported.

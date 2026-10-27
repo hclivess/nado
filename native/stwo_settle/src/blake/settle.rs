@@ -53,14 +53,7 @@ use super::xor_table::{xor4, xor7, xor8, xor9, xor12};
 use super::{BlakeXorElements, N_ROUNDS, ROUND_LOG_SPLIT, XorAccums, round};
 use crate::csmt_ref::{PERSON_LEAF, PERSON_NODE, bit, compress, h0, rounds, v_init};
 
-/// The node's settlement proof configuration: 128 conjectured bits = 20 grinding + log_blowup 2 x 54 queries, FRI fold
-/// step 4 (doc/stwo/g4-settlement-statement.md, "Proof parameters", 2026-10-25). It was stwo_js's 340-bit config
-/// (160 queries, fold 1). On the 130-update span the study measured 2.53 MB -> 0.86 MB, verify 197 -> 87 ms, and prove
-/// 13.3 -> 11.9 s, with every forgery still refused. 128 rather than StarkWare's 96 (provably.fast's settings) because
-/// these proofs settle balances. Grinding stays at 20 bits: 27 bits cost ~50 s per proof on this prover.
-pub fn node_config() -> PcsConfig {
-    PcsConfig { pow_bits: 20, fri_config: stwo::core::fri::FriConfig::new(0, 2, 54, 4), min_lifting_log_size: 0 }
-}
+pub use super::vm_air::node_config;
 
 /// One write's witness. Absent value hashes (an insert's old, a delete's new) are zero.
 #[derive(Clone, Debug)]

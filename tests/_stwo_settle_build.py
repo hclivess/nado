@@ -64,13 +64,55 @@ def _build_locked(real_home, nbin, target, binary):
                PATH=nbin + os.pathsep + os.environ.get("PATH", ""))
     env.pop("RUSTUP_TOOLCHAIN", None)
     stamped = invalidate_if_changed(src, target, "nado-stwo-settle")
-    r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked", "--bin", binary], cwd=src,
-                       capture_output=True, text=True, timeout=3600, env=env)
+    r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked", "--features", "prover", "--bin",
+                        binary], cwd=src, capture_output=True, text=True, timeout=3600, env=env)
     exe = os.path.join(target, "release", binary)
     if r.returncode != 0 or not os.path.exists(exe):
         return None, r.stderr[-3000:] or "build failed with no output"
     stamped()
     return exe, ""
+
+
+def stable_bin(real_home):
+    """the stable toolchain's bin dir under the real HOME's rustup, or None (the node builds this crate with stable)"""
+    rustup_home = os.environ.get("RUSTUP_HOME") or os.path.join(real_home, ".rustup")
+    for d in sorted(glob.glob(os.path.join(rustup_home, "toolchains", "stable-*", "bin"))):
+        if os.access(os.path.join(d, "cargo"), os.X_OK):
+            return d
+    return None
+
+
+def build_verifier(real_home):
+    """THE NODE'S BUILD: the library on STABLE Rust, default features (no prover), as ops/self_update builds it ->
+    (path to libnado_stwo_settle.so or None, log). None with an empty log: no stable toolchain (SKIP)."""
+    sbin = stable_bin(real_home)
+    if sbin is None:
+        return None, ""
+    target = os.path.join(os.environ.get("NADO_STWO_SETTLE_TEST_TARGET") or os.path.join(real_home, ".cache",
+                                                                                        "nado-stwo-settle-target"), "stable")
+    import fcntl
+    os.makedirs(target, exist_ok=True)
+    with open(os.path.join(target, ".build-lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        src = os.path.join(target, "src-copy")
+        if os.path.isdir(os.path.join(src, "src")):
+            shutil.rmtree(os.path.join(src, "src"))
+        os.makedirs(src, exist_ok=True)
+        shutil.copytree(os.path.join(CRATE, "src"), os.path.join(src, "src"))
+        for f in ("Cargo.toml", "Cargo.lock"):
+            shutil.copy(os.path.join(CRATE, f), src)
+        env = dict(os.environ, CARGO_TARGET_DIR=target, RUSTC=os.path.join(sbin, "rustc"), CARGO_BUILD_JOBS="4",
+                   CARGO_HOME=os.environ.get("CARGO_HOME") or os.path.join(real_home, ".cargo"),
+                   PATH=sbin + os.pathsep + os.environ.get("PATH", ""))
+        env.pop("RUSTUP_TOOLCHAIN", None)
+        stamped = invalidate_if_changed(src, target, "nado-stwo-settle")
+        r = subprocess.run([os.path.join(sbin, "cargo"), "build", "--release", "--locked", "--lib"], cwd=src,
+                           capture_output=True, text=True, timeout=3600, env=env)
+        so = os.path.join(target, "release", "libnado_stwo_settle.so")
+        if r.returncode != 0 or not os.path.exists(so):
+            return None, r.stderr[-3000:] or "build failed with no output"
+        stamped()
+        return so, r.stderr[-3000:]
 
 
 def invalidate_if_changed(src, target, pkg):

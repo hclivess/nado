@@ -39,11 +39,15 @@
 //! WHAT IT DOES NOT CHECK (the consumer of the io log does): BHASH/BEACON values (L1's chain reads), SLOAD values (the
 //! replayed state), ABAL and asset spends (the ledger), and the four judged reverts above.
 
+#[cfg(feature = "prover")]
 use std::collections::HashMap;
 use std::ops::{Add, Neg, Sub};
+#[cfg(feature = "prover")]
 use std::simd::u32x16;
 
-use itertools::{Itertools, chain, multiunzip};
+use itertools::{Itertools, chain};
+#[cfg(feature = "prover")]
+use itertools::multiunzip;
 use num_traits::Zero;
 use stwo::core::air::Component;
 use stwo::core::channel::{Blake2sChannel, Channel};
@@ -51,32 +55,63 @@ use stwo::core::fields::FieldExpOps;
 use stwo::core::fields::m31::BaseField;
 use stwo::core::fields::qm31::SecureField;
 use stwo::core::pcs::{CommitmentSchemeVerifier, PcsConfig, TreeVec};
+#[cfg(feature = "prover")]
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs_lifted::blake2_merkle::{Blake2sMerkleChannel, Blake2sMerkleHasher};
 use stwo::core::verifier::{VerificationError, verify};
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::SimdBackend;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::column::BaseColumn;
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::m31::{LOG_N_LANES, PackedBaseField};
+#[cfg(feature = "prover")]
 use stwo::prover::backend::simd::qm31::PackedSecureField;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::BitReversedOrder;
+#[cfg(feature = "prover")]
 use stwo::prover::poly::circle::{CircleEvaluation, PolyOps};
+#[cfg(feature = "prover")]
 use stwo::prover::{CommitmentSchemeProver, ComponentProver, prove};
 use stwo_constraint_framework::preprocessed_columns::PreProcessedColumnId;
 use stwo_constraint_framework::{
-    EvalAtRow, FrameworkComponent, FrameworkEval, InfoEvaluator, LogupTraceGenerator, PREPROCESSED_TRACE_IDX, Relation,
-    RelationEntry, TraceLocationAllocator, relation,
+    EvalAtRow, FrameworkComponent, FrameworkEval, InfoEvaluator, PREPROCESSED_TRACE_IDX, Relation, RelationEntry,
+    TraceLocationAllocator, relation,
 };
+#[cfg(feature = "prover")]
+use stwo_constraint_framework::LogupTraceGenerator;
 
 use super::preprocessed_columns::XorTable;
 use super::round::{BlakeRoundComponent, BlakeRoundEval, RoundElements, blake_round_info};
-use super::scheduler::{self, BlakeElements, BlakeInput, BlakeSchedulerComponent, BlakeSchedulerEval, blake_scheduler_info};
+use super::scheduler::{BlakeElements, BlakeSchedulerComponent, BlakeSchedulerEval, blake_scheduler_info};
+#[cfg(feature = "prover")]
+use super::scheduler::{self, BlakeInput};
 use super::xor_table::{xor4, xor7, xor8, xor9, xor12};
-use super::{BlakeXorElements, ROUND_LOG_SPLIT, XorAccums, round};
-use crate::csmt_ref::{h0, rounds, v_init};
-use crate::vm::{self, N_OPS, NUM_REGS, PERSON_HASH, Step, VmStatement, W, op};
+use super::{BlakeXorElements, ROUND_LOG_SPLIT};
+#[cfg(feature = "prover")]
+use super::{XorAccums, round};
+use crate::csmt_ref::{h0, v_init};
+#[cfg(feature = "prover")]
+use crate::csmt_ref::rounds;
+use crate::vm::{self, N_OPS, NUM_REGS, PERSON_HASH, VmStatement, W, op};
+#[cfg(feature = "prover")]
+use crate::vm::Step;
 
-pub use super::settle::node_config;
+/// Stwo's SIMD lane count, log 2 (its prover's LOG_N_LANES; the verifier needs only the number). log_for floors every
+/// component at it.
+const LANES_LOG: u32 = 4;
+#[cfg(feature = "prover")]
+const _: () = assert!(LANES_LOG == LOG_N_LANES);
+
+/// The node's settlement proof configuration: 128 conjectured bits = 20 grinding + log_blowup 2 x 54 queries, FRI fold
+/// step 4 (doc/stwo/g4-settlement-statement.md, "Proof parameters", 2026-10-25). It was stwo_js's 340-bit config
+/// (160 queries, fold 1). On the 130-update span the study measured 2.53 MB -> 0.86 MB, verify 197 -> 87 ms, and prove
+/// 13.3 -> 11.9 s, with every forgery still refused. 128 rather than StarkWare's 96 (provably.fast's settings) because
+/// these proofs settle balances. Grinding stays at 20 bits: 27 bits cost ~50 s per proof on this prover.
+pub fn node_config() -> PcsConfig {
+    PcsConfig { pow_bits: 20, fri_config: stwo::core::fri::FriConfig::new(0, 2, 54, 4), min_lifting_log_size: 0 }
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // relations and tags
@@ -225,6 +260,7 @@ impl<T: Clone> Cols<T> {
             nz, rem, rq, ab, bb, cb, pb, mc, out, dg, io_a, io_b, cidx, rsel, oob, oog, rb, m, rinv, rr, nargs, plen,
         }
     }
+    #[cfg(feature = "prover")]
     fn flat(&self) -> Vec<T> {
         let mut v = vec![self.active.clone(), self.cix.clone(), self.clk.clone(), self.pc.clone(), self.prog.clone(),
                          self.ioc.clone()];
@@ -666,6 +702,8 @@ impl FrameworkEval for CpuEval {
     }
 }
 
+#[cfg(feature = "prover")]
+#[allow(dead_code)]
 fn tab_id(i: usize) -> PreProcessedColumnId {
     PreProcessedColumnId { id: format!("vm_tab_{i}") }
 }
@@ -674,28 +712,6 @@ fn range_id() -> PreProcessedColumnId {
 }
 
 /// The statement's table (programs, then the calls' data): +mult x each row.
-pub struct TabEval {
-    pub log_size: u32,
-    pub tab: TabElements,
-    pub claimed_sum: SecureField,
-}
-pub type TabComponent = FrameworkComponent<TabEval>;
-impl FrameworkEval for TabEval {
-    fn log_size(&self) -> u32 {
-        self.log_size
-    }
-    fn max_constraint_log_degree_bound(&self) -> u32 {
-        self.log_size + 1
-    }
-    fn evaluate<E: EvalAtRow>(&self, mut e: E) -> E {
-        let vals: Vec<E::F> = (0..TAB_W).map(|i| e.get_preprocessed_column(tab_id(i))).collect();
-        let mult = e.next_trace_mask();
-        e.add_to_relation(RelationEntry::new(&self.tab, E::EF::from(mult), &vals));
-        e.finalize_logup_in_pairs();
-        e
-    }
-}
-
 pub const RANGE_LOG: u32 = 16;
 pub const MAX_BLAKE_LOG: u32 = 22;
 pub struct RangeEval {
@@ -725,11 +741,13 @@ impl FrameworkEval for RangeEval {
 fn f(x: u32) -> BaseField {
     BaseField::from_u32_unchecked(x)
 }
+#[cfg(feature = "prover")]
 fn fw(w: &W) -> Vec<BaseField> {
     vm::limbs16(w).iter().map(|x| f(*x)).collect()
 }
 
 /// limbwise a + b = c + 2^256 cout: the carries
+#[cfg(feature = "prover")]
 fn carries(a: &W, b: &W) -> Vec<u32> {
     let (la, lb) = (vm::limbs16(a), vm::limbs16(b));
     let mut c = 0u32;
@@ -743,6 +761,7 @@ fn carries(a: &W, b: &W) -> Vec<u32> {
 }
 
 /// The CPU row of one step, as field values. (A padding row is all zero.)
+#[cfg(feature = "prover")]
 fn cpu_row(s: &Step) -> Cols<BaseField> {
     use vm::revert as rk;
     // a revert row executes no opcode's semantics (o = none below); OOB/OOG rows execute no instruction at all
@@ -885,6 +904,7 @@ fn cpu_row(s: &Step) -> Cols<BaseField> {
 
 /// A step's row in the context of its call: the program index, and what a revert row reads from the call (the arg count)
 /// or its program (the length). The ONE row builder for the prover, the constraint debugger and the probe.
+#[cfg(feature = "prover")]
 fn step_row(st: &VmStatement, call: &vm::Call, s: &Step) -> Cols<BaseField> {
     let mut r = cpu_row(s);
     r.prog = f(call.prog as u32);
@@ -901,6 +921,7 @@ fn step_row(st: &VmStatement, call: &vm::Call, s: &Step) -> Cols<BaseField> {
 }
 
 /// a step's label in debug output and the probe: the op, or the revert kind
+#[cfg(feature = "prover")]
 fn step_label(s: &Step) -> String {
     match s.revert {
         Some(vm::revert::OOB) => "OOB".into(),
@@ -910,12 +931,14 @@ fn step_label(s: &Step) -> String {
     }
 }
 
+#[cfg(feature = "prover")]
 fn zero_row() -> Cols<BaseField> {
     Cols::from_iter(&mut std::iter::repeat_n(BaseField::zero(), N_COLS))
 }
 
 /// TEST ONLY: a dishonest prover's witness. Each breaks exactly one thing the honest run does, on the first row it fits,
 /// and leaves the rest of the trace as the honest one: the circuit must refuse it.
+#[cfg(feature = "prover")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tamper {
     None,
@@ -969,40 +992,42 @@ fn table_rows(st: &VmStatement) -> Vec<Vec<u32>> {
 }
 
 fn log_for(n: usize) -> u32 {
-    (n.max(1).next_power_of_two().trailing_zeros()).max(LOG_N_LANES)
+    (n.max(1).next_power_of_two().trailing_zeros()).max(LANES_LOG)
 }
 
 /// The sizes of the statement's components: (cpu, table, scheduler) logs.
 fn logs(st: &VmStatement) -> (u32, u32, u32) {
     // an out-of-gas call has one row past its gas (the terminal row, which executes nothing)
     let steps: usize = st.calls.iter().map(|c| c.n_steps + (c.revert == Some(vm::revert::OOG)) as usize).sum();
-    (log_for(steps), log_for(table_rows(st).len()), LOG_N_LANES)
+    (log_for(steps), log_for(table_rows(st).len()), LANES_LOG)
 }
 
+#[cfg(feature = "prover")]
 type Evals = Vec<CircleEvaluation<SimdBackend, BaseField, BitReversedOrder>>;
 
+#[cfg(feature = "prover")]
 fn evals(cols: Vec<Vec<BaseField>>, log: u32) -> Evals {
     let dom = CanonicCoset::new(log).circle_domain();
     cols.into_iter().map(|c| CircleEvaluation::new(dom, c.into_iter().collect::<BaseColumn>())).collect()
 }
 
-fn preprocessed_ids(_tlog: u32) -> Vec<PreProcessedColumnId> {
+/// THE PREPROCESSED COLUMNS ARE CONSTANT (2026-10-27): the XOR tables and the 16-bit range column, the same for every
+/// statement, so their commitment is a constant the verifier pins (PREPROCESSED_ROOT) instead of recomputing (which takes
+/// Stwo's prover machinery, nightly only; a node verifies on stable). The statement's own table (programs, call data,
+/// lengths) is not a column at all: see table_rows / public_sum.
+fn preprocessed_ids() -> Vec<PreProcessedColumnId> {
     let mut ids = vec![];
     for (w, ex) in [(12, 4), (9, 2), (8, 2), (7, 2), (4, 0)] {
         for c in 0..3 {
             ids.push(XorTable::new(w, ex, c).id());
         }
     }
-    ids.extend((0..TAB_W).map(tab_id));
     ids.push(range_id());
     ids
 }
 
-fn preprocessed_evals(st: &VmStatement, tlog: u32) -> Evals {
-    let rows = table_rows(st);
-    let n = 1usize << tlog;
-    let tab: Vec<Vec<BaseField>> =
-        (0..TAB_W).map(|i| (0..n).map(|r| f(rows.get(r).map(|x| x[i]).unwrap_or(0))).collect()).collect();
+#[cfg(feature = "prover")]
+fn preprocessed_evals() -> Evals {
     let range: Vec<Vec<BaseField>> = vec![(0..1u32 << RANGE_LOG).map(f).collect()];
     chain![
         XorTable::new(12, 4, 0).generate_constant_trace(),
@@ -1010,7 +1035,6 @@ fn preprocessed_evals(st: &VmStatement, tlog: u32) -> Evals {
         XorTable::new(8, 2, 0).generate_constant_trace(),
         XorTable::new(7, 2, 0).generate_constant_trace(),
         XorTable::new(4, 0, 0).generate_constant_trace(),
-        evals(tab, tlog),
         evals(range, RANGE_LOG),
     ]
     .collect()
@@ -1048,6 +1072,7 @@ impl Elements {
             range: RangeElements::dummy(),
         }
     }
+    #[cfg(feature = "prover")]
     fn combine_packed(&self, rel: Rel, vals: &[PackedBaseField]) -> PackedSecureField {
         match rel {
             Rel::State => self.state.combine(vals),
@@ -1069,16 +1094,15 @@ struct Components {
     xor7: xor7::XorTableComponent<7, 2>,
     xor4: xor4::XorTableComponent<4, 0>,
     cpu: CpuComponent,
-    tab: TabComponent,
     range: RangeComponent,
 }
 
-const N_SUMS: usize = 1 + ROUND_LOG_SPLIT.len() + 5 + 3;
+const N_SUMS: usize = 1 + ROUND_LOG_SPLIT.len() + 5 + 2;
 
 impl Components {
-    fn new(logs: (u32, u32, u32), tlog: u32, el: &Elements, sums: &[SecureField]) -> Self {
+    fn new(logs: (u32, u32, u32), el: &Elements, sums: &[SecureField]) -> Self {
         let (clog, _, blog) = logs;
-        let alloc = &mut TraceLocationAllocator::new_with_preprocessed_columns(&preprocessed_ids(tlog));
+        let alloc = &mut TraceLocationAllocator::new_with_preprocessed_columns(&preprocessed_ids());
         let s = |i: usize| sums[i];
         let scheduler = BlakeSchedulerComponent::new(
             alloc,
@@ -1129,18 +1153,18 @@ impl Components {
                 },
                 s(kx + 5),
             ),
-            tab: TabComponent::new(alloc, TabEval { log_size: tlog, tab: el.tab.clone(), claimed_sum: s(kx + 6) }, s(kx + 6)),
-            range: RangeComponent::new(alloc, RangeEval { range: el.range.clone(), claimed_sum: s(kx + 7) }, s(kx + 7)),
+            range: RangeComponent::new(alloc, RangeEval { range: el.range.clone(), claimed_sum: s(kx + 6) }, s(kx + 6)),
         }
     }
     fn components(&self) -> Vec<&dyn Component> {
         chain![
             [&self.scheduler as &dyn Component],
             self.rounds.iter().map(|c| c as &dyn Component),
-            [&self.xor12 as &dyn Component, &self.xor9, &self.xor8, &self.xor7, &self.xor4, &self.cpu, &self.tab, &self.range]
+            [&self.xor12 as &dyn Component, &self.xor9, &self.xor8, &self.xor7, &self.xor4, &self.cpu, &self.range]
         ]
         .collect()
     }
+    #[cfg(feature = "prover")]
     fn provers(&self) -> Vec<&dyn ComponentProver<SimdBackend>> {
         chain![
             [&self.scheduler as &dyn ComponentProver<SimdBackend>],
@@ -1152,7 +1176,6 @@ impl Components {
                 &self.xor7,
                 &self.xor4,
                 &self.cpu,
-                &self.tab,
                 &self.range
             ]
         ]
@@ -1161,7 +1184,7 @@ impl Components {
 }
 
 fn log_sizes(logs: (u32, u32, u32)) -> TreeVec<Vec<u32>> {
-    let (clog, tlog, blog) = logs;
+    let (clog, _, blog) = logs;
     let mut sizes = vec![];
     sizes.push(blake_scheduler_info().mask_offsets.as_cols_ref().map_cols(|_| blog));
     for l in ROUND_LOG_SPLIT {
@@ -1185,8 +1208,6 @@ fn log_sizes(logs: (u32, u32, u32)) -> TreeVec<Vec<u32>> {
         claimed_sum: z,
     };
     sizes.push(cpu.evaluate(InfoEvaluator::empty()).mask_offsets.as_cols_ref().map_cols(|_| clog));
-    let tab = TabEval { log_size: tlog, tab: el.tab.clone(), claimed_sum: z };
-    sizes.push(tab.evaluate(InfoEvaluator::empty()).mask_offsets.as_cols_ref().map_cols(|_| tlog));
     let range = RangeEval { range: el.range.clone(), claimed_sum: z };
     sizes.push(range.evaluate(InfoEvaluator::empty()).mask_offsets.as_cols_ref().map_cols(|_| RANGE_LOG));
     let mut out = TreeVec::concat_cols(sizes.into_iter());
@@ -1196,7 +1217,6 @@ fn log_sizes(logs: (u32, u32, u32)) -> TreeVec<Vec<u32>> {
             pre.push(XorTable::new(w, ex, c).column_bits());
         }
     }
-    pre.extend((0..TAB_W).map(|_| tlog));
     pre.push(RANGE_LOG);
     out[PREPROCESSED_TRACE_IDX] = pre;
     out
@@ -1236,14 +1256,20 @@ pub struct VmProof {
     /// the BLAKE2s scheduler's log size: the number of HABS rows is not public, so the prover states it (any value in
     /// [LOG_N_LANES, MAX_BLAKE_LOG] is sound: a scheduler too small for the HABS rows leaves the LogUp sum nonzero)
     pub blake_log: u32,
+    /// how many times the trace looks up each row of the statement's table (table_rows order). Mixed into the
+    /// transcript before any lookup challenge is drawn, then added by the verifier as public LogUp terms m / (a - row):
+    /// with the multiplicities fixed first, the sum vanishes only if every looked-up tuple IS a table row.
+    pub tab_mult: Vec<u32>,
     pub sums: Vec<SecureField>,
     pub stark: StarkProof<Blake2sMerkleHasher>,
 }
 
 /// One CPU row's entries (numerator, relation, values) as field values, plus the row itself.
+#[cfg(feature = "prover")]
 type Entries = Vec<(BaseField, Rel, Vec<BaseField>)>;
 
 /// Prove the statement. The witness is the reference run of every call (crate::vm::run), optionally tampered.
+#[cfg(feature = "prover")]
 pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<VmProof, String> {
     for p in &st.progs {
         vm::validate_method(p)?;
@@ -1286,14 +1312,14 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
     cs.set_store_polynomials_coefficients();
 
     let mut tb = cs.tree_builder();
-    tb.extend_evals(preprocessed_evals(st, tlog));
+    tb.extend_evals(preprocessed_evals());
     tb.commit(channel);
 
     // the CPU entries (one generic definition with the evaluator), and the tables' multiplicities from them
     let entries: Vec<Entries> = rows.iter().map(cpu_lookups).collect();
     let tab_rows = table_rows(st);
     let tab_index: HashMap<Vec<u32>, usize> = tab_rows.iter().enumerate().map(|(i, r)| (r.clone(), i)).collect();
-    let mut tab_mult = vec![0u32; 1 << tlog];
+    let mut tab_mult = vec![0u32; tab_rows.len()];
     let mut range_mult = vec![0u32; 1 << RANGE_LOG];
     let mut xor = XorAccums::default();
     let mut xor_pairs: Vec<Vec<(u32, u32)>> = vec![vec![]; n];
@@ -1354,17 +1380,16 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
         let flats = rows.iter().map(|r| r.flat()).collect_vec();
         (0..N_COLS).map(|i| flats.iter().map(|r| r[i]).collect()).collect()
     };
-    let tab_trace = evals(vec![tab_mult.iter().map(|x| f(*x)).collect()], tlog);
     let range_trace = evals(vec![range_mult.iter().map(|x| f(*x)).collect()], RANGE_LOG);
     channel.mix_u64(((clog as u64) << 16) | ((tlog as u64) << 8) | blog as u64);
     let mut tb = cs.tree_builder();
     tb.extend_evals(
-        chain![sched_trace, round_traces.into_iter().flatten(), x12, x9, x8, x7, x4, evals(cpu_cols, clog), tab_trace,
-               range_trace]
+        chain![sched_trace, round_traces.into_iter().flatten(), x12, x9, x8, x7, x4, evals(cpu_cols, clog), range_trace]
         .collect_vec(),
     );
     tb.commit(channel);
 
+    channel.mix_u32s(&tab_mult);
     let el = Elements::draw(channel);
     let (s_tr, s_sum) = scheduler::gen_interaction_trace(blog, sched_lookup, &el.round, &el.blake);
     let (r_tr, r_sums): (Vec<_>, Vec<_>) = multiunzip(
@@ -1376,19 +1401,19 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
     let (i7, s7) = xor7::generate_interaction_trace(xl7, &el.xor.xor7);
     let (i4, s4) = xor4::generate_interaction_trace(xl4, &el.xor.xor4);
     let (c_tr, c_sum) = cpu_interaction(&entries, clog, &el);
-    let (t_tr, t_sum) = table_interaction(&tab_rows, &tab_mult, tlog, &el);
     let (g_tr, g_sum) = range_interaction(&range_mult, &el);
-    let sums: Vec<SecureField> = chain![[s_sum], r_sums, [s12, s9, s8, s7, s4, c_sum, t_sum, g_sum]].collect();
+    let sums: Vec<SecureField> = chain![[s_sum], r_sums, [s12, s9, s8, s7, s4, c_sum, g_sum]].collect();
     let mut tb = cs.tree_builder();
-    tb.extend_evals(chain![s_tr, r_tr.into_iter().flatten(), i12, i9, i8, i7, i4, c_tr, t_tr, g_tr].collect_vec());
+    tb.extend_evals(chain![s_tr, r_tr.into_iter().flatten(), i12, i9, i8, i7, i4, c_tr, g_tr].collect_vec());
     channel.mix_felts(&sums);
     tb.commit(channel);
 
-    let comps = Components::new(lg, tlog, &el, &sums);
+    let comps = Components::new(lg, &el, &sums);
     let stark = prove::<SimdBackend, Blake2sMerkleChannel>(&comps.provers(), channel, cs).map_err(|e| format!("{e:?}"))?;
-    Ok(VmProof { blake_log: blog, sums, stark })
+    Ok(VmProof { blake_log: blog, tab_mult, sums, stark })
 }
 
+#[cfg(feature = "prover")]
 fn apply_tamper(r: &mut Cols<BaseField>, s: &Step, t: Tamper) -> bool {
     let o = s.ins.op;
     match t {
@@ -1420,10 +1445,12 @@ fn apply_tamper(r: &mut Cols<BaseField>, s: &Step, t: Tamper) -> bool {
     }
 }
 
+#[cfg(feature = "prover")]
 fn pack(vals: impl Fn(usize) -> BaseField) -> PackedBaseField {
     PackedBaseField::from_array(std::array::from_fn(vals))
 }
 
+#[cfg(feature = "prover")]
 fn cpu_interaction(entries: &[Entries], log: u32, el: &Elements) -> (Evals, SecureField) {
     let mut lg = LogupTraceGenerator::new(log);
     let n_ent = entries[0].len();
@@ -1452,19 +1479,7 @@ fn cpu_interaction(entries: &[Entries], log: u32, el: &Elements) -> (Evals, Secu
     lg.finalize_last()
 }
 
-fn table_interaction(rows: &[Vec<u32>], mult: &[u32], log: u32, el: &Elements) -> (Evals, SecureField) {
-    let mut lg = LogupTraceGenerator::new(log);
-    let mut col = lg.new_col();
-    let val = |r: usize, i: usize| f(rows.get(r).map(|x| x[i]).unwrap_or(0));
-    for vr in 0..(1usize << (log - LOG_N_LANES)) {
-        let vals: Vec<PackedBaseField> = (0..TAB_W).map(|i| pack(|l| val((vr << LOG_N_LANES) + l, i))).collect();
-        let num = PackedSecureField::from(pack(|l| f(mult[(vr << LOG_N_LANES) + l])));
-        col.write_frac(vr, num, el.tab.combine(&vals));
-    }
-    col.finalize_col();
-    lg.finalize_last()
-}
-
+#[cfg(feature = "prover")]
 fn range_interaction(mult: &[u32], el: &Elements) -> (Evals, SecureField) {
     let mut lg = LogupTraceGenerator::new(RANGE_LOG);
     let mut col = lg.new_col();
@@ -1477,20 +1492,29 @@ fn range_interaction(mult: &[u32], el: &Elements) -> (Evals, SecureField) {
     lg.finalize_last()
 }
 
-/// The commitment of the preprocessed trace for this statement (the XOR tables, its table, the range column).
-pub fn preprocessed_root(st: &VmStatement, config: PcsConfig) -> <Blake2sMerkleHasher as stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted>::Hash {
-    let (_, tlog, _) = logs(st);
-    let log_max = [tlog + 1, RANGE_LOG + 1, 17].into_iter().max().unwrap();
+/// The commitment of the preprocessed trace (the XOR tables and the range column): the same for every statement, so the
+/// verifier compares a proof's with PREPROCESSED_ROOT, and tests recompute it here.
+#[cfg(feature = "prover")]
+pub fn preprocessed_root(config: PcsConfig) -> <Blake2sMerkleHasher as stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted>::Hash {
+    let log_max = [RANGE_LOG + 1, 17].into_iter().max().unwrap();
     let twiddles = SimdBackend::precompute_twiddles(
         CanonicCoset::new(log_max + config.fri_config.log_blowup_factor).circle_domain().half_coset,
     );
     let channel = &mut Blake2sChannel::default();
     let mut cs = CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(config, &twiddles);
     let mut tb = cs.tree_builder();
-    tb.extend_evals(preprocessed_evals(st, tlog));
+    tb.extend_evals(preprocessed_evals());
     tb.commit(channel);
     cs.roots()[0]
 }
+
+/// The preprocessed commitment at the node config (the XOR tables and the range column; preprocessed_ids). Pinned so a
+/// verifier never recomputes it (that takes Stwo's prover, nightly only). tests/test_a_stwo_proof_of_contract_execution_...
+/// recomputes it with preprocessed_root(node_config()) and compares.
+pub const PREPROCESSED_ROOT: <Blake2sMerkleHasher as stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted>::Hash =
+    stwo::core::vcs::blake2_hash::Blake2sHash([
+        0xe0, 0x20, 0x1b, 0xa9, 0x20, 0xef, 0x9c, 0x6c, 0xeb, 0xc8, 0x2e, 0x86, 0x26, 0x22, 0x60, 0x1f, 0x57, 0x4a, 0x32, 0xbc, 0x31, 0x95, 0xd5, 0x56, 0x4b, 0xa8, 0xa4, 0x63, 0xda, 0xb7, 0x8a, 0xe8,
+    ]);
 
 #[derive(Debug)]
 pub enum VmVerifyError {
@@ -1503,14 +1527,16 @@ pub enum VmVerifyError {
     Stark(VerificationError),
 }
 
-/// The public LogUp terms: each call's initial state (+1, produced by the verifier), its END (-1, consumed), and every
-/// io entry (+1, the CPU consumes each exactly once).
-fn public_sum(st: &VmStatement, el: &Elements) -> SecureField {
+/// The public LogUp terms: each call's initial state (+1, produced by the verifier), its END (-1, consumed), every io
+/// entry (+1, the CPU consumes each exactly once), and every row of the statement's table with the multiplicity the
+/// proof states (+m: the CPU consumes each lookup once; the multiplicities were fixed in the transcript first).
+fn public_sum(st: &VmStatement, el: &Elements, tab_mult: &[u32]) -> SecureField {
     let inv = |rel: Rel, t: Vec<u32>| -> SecureField {
         let v: Vec<BaseField> = t.into_iter().map(f).collect();
         let d: SecureField = match rel {
             Rel::State => <StateElements as Relation<BaseField, SecureField>>::combine(&el.state, &v),
             Rel::Io => <IoElements as Relation<BaseField, SecureField>>::combine(&el.io, &v),
+            Rel::Tab => <TabElements as Relation<BaseField, SecureField>>::combine(&el.tab, &v),
             _ => unreachable!(),
         };
         d.inverse()
@@ -1537,6 +1563,11 @@ fn public_sum(st: &VmStatement, el: &Elements) -> SecureField {
             s += inv(Rel::Io, t);
         }
     }
+    for (row, &m) in table_rows(st).into_iter().zip(tab_mult) {
+        if m != 0 {
+            s += inv(Rel::Tab, row) * SecureField::from(f(m));
+        }
+    }
     s
 }
 
@@ -1560,18 +1591,18 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
         }
     }
     let (clog, tlog, _) = logs(st);
-    if proof.sums.len() != N_SUMS || proof.stark.commitments.len() < 3 {
+    if proof.sums.len() != N_SUMS || proof.stark.commitments.len() < 3 || proof.tab_mult.len() != table_rows(st).len() {
         return Err(VmVerifyError::Shape);
     }
     // the scheduler's size is the prover's (the number of HABS rows is not public): bounded by the CPU's
     let channel = &mut Blake2sChannel::default();
     config.mix_into(channel);
     st.mix_into(channel);
-    if proof.stark.commitments[0] != preprocessed_root(st, config) {
+    if proof.stark.commitments[0] != PREPROCESSED_ROOT {
         return Err(VmVerifyError::Preprocessed);
     }
     let blog = proof.blake_log;
-    if !(LOG_N_LANES..=MAX_BLAKE_LOG).contains(&blog) {
+    if !(LANES_LOG..=MAX_BLAKE_LOG).contains(&blog) {
         return Err(VmVerifyError::Shape);
     }
     let lg = (clog, tlog, blog);
@@ -1580,18 +1611,20 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
     cs.commit(proof.stark.commitments[0], &sizes[0], channel);
     channel.mix_u64(((clog as u64) << 16) | ((tlog as u64) << 8) | blog as u64);
     cs.commit(proof.stark.commitments[1], &sizes[1], channel);
+    channel.mix_u32s(&proof.tab_mult);
     let el = Elements::draw(channel);
     channel.mix_felts(&proof.sums);
     cs.commit(proof.stark.commitments[2], &sizes[2], channel);
-    let total: SecureField = proof.sums.iter().copied().sum::<SecureField>() + public_sum(st, &el);
+    let total: SecureField = proof.sums.iter().copied().sum::<SecureField>() + public_sum(st, &el, &proof.tab_mult);
     if total != SecureField::zero() {
         return Err(VmVerifyError::Sum);
     }
-    let comps = Components::new(lg, tlog, &el, &proof.sums);
+    let comps = Components::new(lg, &el, &proof.sums);
     verify(&comps.components(), channel, &mut cs, proof.stark).map_err(VmVerifyError::Stark)
 }
 
 /// DEBUG: evaluate every CPU constraint on the honest witness (field arithmetic, row by row), naming the first that fails.
+#[cfg(feature = "prover")]
 pub fn debug_cpu_constraints(st: &VmStatement) -> Result<(), String> {
     for (cix, call) in st.calls.iter().enumerate() {
         let steps = vm::run(&st.progs[call.prog], call, cix)?;
@@ -1616,6 +1649,7 @@ pub fn debug_cpu_constraints(st: &VmStatement) -> Result<(), String> {
 // ---------------------------------------------------------------------------------------------------------------
 // the free-cell probe (the stwo_js pattern, tests/test_stwo_js_every_post_proof_mutation...)
 
+#[cfg(feature = "prover")]
 fn col_names() -> Vec<String> {
     let v = |p: &str, n: usize| (0..n).map(|i| format!("{p}{i}")).collect_vec();
     let one = |p: &str| p.to_string();
@@ -1671,6 +1705,7 @@ fn col_names() -> Vec<String> {
 /// What a probe found: the perturbations no constraint and no lookup refused, split by whether the row's externally
 /// visible behaviour (its State, Io and Tab tuples) changed. `harmful` must be empty; `harmless` lists cells whose
 /// value nothing reads on that row (e.g. a MUL byte on an ADD row) — free by design.
+#[cfg(feature = "prover")]
 pub struct ProbeReport {
     pub probed: usize,
     pub harmful: Vec<String>,
@@ -1679,6 +1714,7 @@ pub struct ProbeReport {
 
 /// Perturb every cell of a sample of real rows (up to `per_op` rows of each opcode, plus a padding row) by several
 /// deltas, and record each perturbation the row's constraints and lookups would still accept.
+#[cfg(feature = "prover")]
 pub fn probe_free_cells(st: &VmStatement, per_op: usize) -> Result<ProbeReport, String> {
     let names = col_names();
     assert_eq!(names.len(), N_COLS);

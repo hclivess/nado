@@ -1,6 +1,8 @@
 use itertools::{Itertools, chain};
 use num_traits::One;
-use stwo::prover::backend::simd::blake2s::SIGMA;
+// the BLAKE2s message schedule: csmt_ref's copy (stwo's lives in its prover module, which a stable verifier lacks;
+// an honest proof would not verify if the two differed)
+use crate::csmt_ref::SIGMA;
 use stwo_constraint_framework::{EvalAtRow, RelationEntry};
 
 use super::BlakeElements;
@@ -20,7 +22,8 @@ pub fn eval_blake_scheduler_constraints<E: EvalAtRow>(
     let mult = eval.next_trace_mask();
 
     // Schedule.
-    for [i, j] in (0..N_ROUNDS).array_chunks::<2>() {
+    // pairs (0, 1), (2, 3), ...: array_chunks is nightly-only and this evaluator builds on stable (N_ROUNDS is even)
+    for [i, j] in (0..N_ROUNDS).step_by(2).map(|i| [i, i + 1]) {
         // Use triplet in round lookup.
         let [elems_i, elems_j] = [i, j].map(|idx| {
             let input_state = &states[idx];

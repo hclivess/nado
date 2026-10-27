@@ -10,7 +10,7 @@
 use std::io::{self, Read};
 use std::time::Instant;
 
-use nado_stwo_settle::blake::vm_air::{Tamper, debug_cpu_constraints, node_config, probe_free_cells, prove_vm, verify_vm};
+use nado_stwo_settle::blake::vm_air::{self, Tamper, debug_cpu_constraints, node_config, probe_free_cells, prove_vm, verify_vm};
 use nado_stwo_settle::vm::{self, VmStatement, W};
 
 fn parse() -> VmStatement {
@@ -20,6 +20,12 @@ fn parse() -> VmStatement {
 }
 
 fn main() {
+    if std::env::var("VM_PREROOT").is_ok() {
+        // the preprocessed commitment at the node config, for vm_air::PREPROCESSED_ROOT (no statement needed)
+        let r = nado_stwo_settle::blake::vm_air::preprocessed_root(node_config());
+        println!("PREROOT {}", r.0.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        return;
+    }
     let st = parse();
     if std::env::var("VM_DEBUG").is_ok() {
         match debug_cpu_constraints(&st) {
@@ -141,6 +147,29 @@ fn main() {
         } else {
             forged.push((format!("call{ci}.return_to_revert"), edit(&|s| s.calls[ci].revert = Some(vm::revert::REQUIRE))));
         }
+    }
+    // the PROOF's own data that is not a STARK: the table multiplicities (fixed in the transcript before the lookup
+    // challenges). Each mutation of the honest proof must be refused.
+    let mut mutants: Vec<(String, vm_air::VmProof)> = vec![];
+    if let Some(i) = proof.tab_mult.iter().position(|&m| m > 0) {
+        let mut p1 = proof.clone();
+        p1.tab_mult[i] += 1;
+        mutants.push(("tab_mult+1".into(), p1));
+        let mut p2 = proof.clone();
+        p2.tab_mult[i] -= 1;
+        mutants.push(("tab_mult-1".into(), p2));
+        if let Some(j) = proof.tab_mult.iter().position(|&m| m == 0) {
+            let mut p3 = proof.clone();
+            p3.tab_mult.swap(i, j);
+            mutants.push(("tab_mult_moved".into(), p3));
+        }
+        let mut p4 = proof.clone();
+        p4.tab_mult.push(0);
+        mutants.push(("tab_mult_extra".into(), p4));
+    }
+    for (name, mp) in mutants {
+        let r = verify_vm(&st, mp, cfg);
+        println!("MUTATE {name} {}", if r.is_ok() { "ACCEPTED".to_string() } else { format!("refused {}", short(&format!("{:?}", r.unwrap_err()))) });
     }
     let mut accepted = 0;
     for (name, fst) in &forged {

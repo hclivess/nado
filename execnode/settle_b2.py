@@ -699,6 +699,21 @@ def _vm_settle(binary, mode, text, proof_bytes=None):
         return last
 
 
+def _vm_verify(text, proof_bytes, binary=None):
+    """"OK" or "REFUSED <why>": the node's native verifier (execnode/stark/stwo_settle_native.py, a stable build of
+    native/stwo_settle) when this machine has it; else, only when the caller names one, the prover's vm_settle binary
+    (tests and the shadow run). A node with neither raises NativeMissing: a fact about the machine, never a verdict."""
+    from execnode.stark import stwo_settle_native as N
+    from execnode.stark.native_guard import NativeMissing
+    try:
+        ok, why = N.verify(text, proof_bytes)
+        return "OK" if ok else f"REFUSED {why}"
+    except NativeMissing:
+        if binary is None:
+            raise
+        return _vm_settle(binary, "verify", text, proof_bytes)
+
+
 # ---- the bundle (JSON) ---------------------------------------------------------------------------------------------------
 def _enc(v):
     return None if v is ABSENT else v
@@ -896,9 +911,11 @@ def _verifier_store(bundle):
     return store
 
 
-def verify_span(cursor, pre_root, blocks, chain, bundle, binary):
+def verify_span(cursor, pre_root, blocks, chain, bundle, binary=None):
     """(ok, reason, post_root hex) for the span `blocks` after `cursor` from `pre_root`, under `chain`'s inputs.
-    ok False with a reason on any refusal; Unprovable is also a refusal here (the bundle does not prove the span)."""
+    ok False with a reason on any refusal; Unprovable is also a refusal here (the bundle does not prove the span).
+    The VM proof is checked by the native verifier (_vm_verify; `binary` only as the fallback a prover or a test has).
+    NativeMissing (no verifier on this machine) propagates: it is not a verdict."""
     try:
         if not isinstance(bundle, dict) or bundle.get("v") != 1 or int(bundle.get("cursor", -2)) != int(cursor):
             return False, "malformed bundle or wrong cursor", None
@@ -924,7 +941,7 @@ def verify_span(cursor, pre_root, blocks, chain, bundle, binary):
             pb = bundle.get("vm_proof")
             if not isinstance(pb, str):
                 return False, "no VM proof for a span with contract calls", None
-            verdict = _vm_settle(binary, "verify", vm_statement_text(oracle.calls), bytes.fromhex(pb))
+            verdict = _vm_verify(vm_statement_text(oracle.calls), bytes.fromhex(pb), binary)
             if verdict != "OK":
                 return False, f"the VM proof: {verdict}", None
         elif bundle.get("vm_proof") is not None:

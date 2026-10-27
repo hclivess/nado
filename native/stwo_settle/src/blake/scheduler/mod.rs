@@ -1,4 +1,5 @@
 mod constraints;
+#[cfg(feature = "prover")]
 mod trace_gen;
 
 use constraints::eval_blake_scheduler_constraints;
@@ -7,6 +8,7 @@ use stwo::core::fields::qm31::SecureField;
 use stwo_constraint_framework::{
     EvalAtRow, FrameworkComponent, FrameworkEval, InfoEvaluator, relation,
 };
+#[cfg(feature = "prover")]
 pub use trace_gen::{BlakeInput, gen_interaction_trace, gen_trace};
 
 use super::N_ROUND_INPUT_FELTS;
@@ -51,7 +53,7 @@ pub fn blake_scheduler_info() -> InfoEvaluator {
     component.evaluate(InfoEvaluator::empty())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "prover"))]
 mod tests {
     use std::simd::Simd;
 

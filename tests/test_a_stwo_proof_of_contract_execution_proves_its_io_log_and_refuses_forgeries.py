@@ -11,7 +11,9 @@ a statement, run on zkvm2 (the gen-29 VM), produces the stated io log and ends i
 Checks:
   1. the Rust reference agrees with zkvm2 on every call (vm::run replays each call io-driven and refuses on the first io
      entry or step count that differs), and every CPU constraint holds on every row of the honest witness;
-  2. the honest proof of the real calls, and of the synthetic ones, verifies;
+  2. the honest proof of the real calls, and of the synthetic ones, verifies, and the proof's table multiplicities (the
+     statement's table is public LogUp terms, not a column: vm_air.rs preprocessed_ids) are bound: a mutated vector is
+     refused;
   3. every forged statement is refused: each io entry's value, key and kind, an io entry dropped / added / swapped, each
      arg, an appended arg, each CTX and ACTX value, the step count +-1, another program, a MOVI immediate or a
      destination register changed in the code, two calls swapped, io logs moved between calls, a call dropped;
@@ -314,6 +316,10 @@ for name, recs in (("real", real), ("synthetic", syn[:3])):
     forged = [l for l in out.splitlines() if l.startswith("FORGED")]
     acc = [l for l in out.splitlines() if l.startswith("FORGE ") and l.endswith("ACCEPTED")]
     T.check(f"2. {name}: the honest proof verifies", "HONEST ok" in out and finished(out), (out[-800:], err))
+    muts = [l for l in out.splitlines() if l.startswith("MUTATE ")]
+    T.check(f"2b. {name}: the proof's table multiplicities are bound: each of {len(muts)} mutations of the honest proof is "
+            "refused (one more, one fewer, moved to another row, an extra row)",
+            len(muts) >= 3 and all(" refused " in l for l in muts), muts)
     T.check(f"3. {name}: every forged statement is refused ({forged[0] if forged else '?'})",
             bool(forged) and not acc and int(forged[0].split("total=")[1].split()[0]) >= 100, (acc[:5], forged, err))
     print("     " + " ".join(l for l in out.splitlines() if l.startswith("TIME")))
