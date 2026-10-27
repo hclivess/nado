@@ -1243,7 +1243,7 @@ def assert_block_blob_cap(transactions):
 
 
 def block_budget(transactions):
-    """(transaction count, canonical bytes) of a block's set: the two quantities BLOCK_BUDGET_HEIGHT bounds."""
+    """(transaction count, canonical bytes) of a block's set: the two quantities the block budget bounds."""
     return len(transactions), sum(len(canonical_bytes(t)) for t in transactions)
 
 
@@ -1254,13 +1254,15 @@ def _budget_order(transactions):
 
 
 def assert_block_budget(transactions, block_number):
-    """CONSENSUS (BLOCK_BUDGET_HEIGHT; 2026-10-27 incident survey: aleo snarkVM#3443 enforced a block-wide limit only
+    """CONSENSUS (the block budget; 2026-10-27 incident survey: aleo snarkVM#3443 enforced a block-wide limit only
     when BUILDING, so a malicious producer's block was accepted by every validator; Namada #5050 measured a 42 s
     CheckTx). Every per-tx cap existed, but nothing bounded the WORK one block can demand of every node that validates it.
-    From the gate a block carries at most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES canonical bytes. The SAME
+    From block 1 a block carries at most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES canonical bytes. The SAME
     bound is applied when assembling (cap_block_budget), so an honest block always passes."""
-    from protocol import BLOCK_BUDGET_HEIGHT, MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
-    if int(block_number) < int(BLOCK_BUDGET_HEIGHT):
+    from protocol import MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
+    # BLOCK_BUDGET_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `< 1` kept so genesis answers as before, and
+    # it must match cap_block_budget's test below — the assembler and the validator apply one bound or none.
+    if int(block_number) < 1:
         return True
     n, b = block_budget(transactions)
     assert n <= MAX_BLOCK_TXS, f"Block carries {n} transactions, over the per-block budget of {MAX_BLOCK_TXS}"
@@ -1269,11 +1271,11 @@ def assert_block_budget(transactions, block_number):
 
 
 def cap_block_budget(transactions, block_number, logger=None):
-    """Assembly helper: from BLOCK_BUDGET_HEIGHT keep transactions, in _budget_order, while the block stays within
+    """Assembly helper: from block 1 keep transactions, in _budget_order, while the block stays within
     MAX_BLOCK_TXS and MAX_BLOCK_TX_BYTES, so an assembled block always passes assert_block_budget. Every honest producer
     keeps the same prefix; a dropped transaction waits for a later block (its own max_block permitting)."""
-    from protocol import BLOCK_BUDGET_HEIGHT, MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
-    if int(block_number) < int(BLOCK_BUDGET_HEIGHT):
+    from protocol import MAX_BLOCK_TXS, MAX_BLOCK_TX_BYTES
+    if int(block_number) < 1:                  # BLOCK_BUDGET_HEIGHT, inlined in G9: the same test as assert_block_budget
         return transactions
     out, used = [], 0
     for t in _budget_order(transactions):
@@ -1940,8 +1942,8 @@ def tx_alg(transaction) -> str:
 
 def sig_scheme_check(transaction, block_height):
     """A transaction's `alg` (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES", doc/signature-schemes.md). Pure shape —
-    no state — so the mempool and block verification agree. Absent: ML-DSA-44, every transaction before the gate and
-    every one that does not choose. Present: the gate is live, the scheme is offered and is NOT the default (absence is
+    no state — so the mempool and block verification agree. Absent: ML-DSA-44, every one that does not choose.
+    Present: the height is at least 1, the scheme is offered and is NOT the default (absence is
     the only spelling of ML-DSA-44 — one transaction, one byte string), the tx is signed by its one key (auth configs
     and multisig members are ML-DSA-44), and it is not a kind whose key the chain verifies off the transaction with
     ML-DSA-44 only (SIG_ML44_ONLY_RECIPIENTS). INVARIANT: runs before excluded_witness_check, which sizes the witnesses
@@ -1949,7 +1951,9 @@ def sig_scheme_check(transaction, block_height):
     if "alg" not in transaction:
         return
     alg = transaction["alg"]
-    assert block_height is not None and int(block_height) >= _P.SIG_SCHEMES_HEIGHT, \
+    # SIG_SCHEMES_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1` kept — mempool admission against a
+    # genesis tip and a None height still refuse a tagged tx, as the gate did.
+    assert block_height is not None and int(block_height) >= 1, \
         "signature schemes other than ML-DSA-44 are not active"
     assert isinstance(alg, str) and alg in _P.SIG_SCHEMES_OFFERED and alg != _P.SIG_DEFAULT, \
         f"alg must be one of {', '.join(a for a in _P.SIG_SCHEMES_OFFERED if a != _P.SIG_DEFAULT)} (absent = {_P.SIG_DEFAULT})"
@@ -3011,12 +3015,10 @@ def register_referrer(transaction: dict):
 
 
 def validate_register_referrer(transaction: dict, block_height: int):
-    """REFERRALS (protocol.REFERRAL_HEIGHT): from the gate a register's `data` is "" or exactly {"referrer": <keyed
-    address other than the sender>}. Before it, `data` is left as it always was (nothing read it), so every older block
-    validates byte for byte as before. Whether the link is WRITTEN is apply's call (first attested registration only);
+    """REFERRALS: from block 1 a register's `data` is "" or exactly {"referrer": <keyed address other than the
+    sender>}. At height 0 `data` is left as it always was (nothing read it). Whether the link is WRITTEN is apply's call (first attested registration only);
     a renewal naming a referrer is accepted and simply writes nothing, so a wallet that retries is never stuck."""
-    from protocol import REFERRAL_HEIGHT
-    if int(block_height) < REFERRAL_HEIGHT:
+    if int(block_height) < 1:                  # REFERRAL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9)
         return
     d = transaction.get("data")
     if d in ("", None):
@@ -3043,14 +3045,14 @@ def invite_claim_message(invite_id: str, claimant: str) -> bytes:
 def validate_invite(transaction: dict, block_height: int):
     """invite_lock / invite_claim / invite_refund (protocol.py "FUNDED INVITE LINKS"). Raises AssertionError.
 
-    BEFORE REFERRAL_HEIGHT EVERY ONE IS REFUSED, and "invite" (the escrow) always is: these names became reserved with
-    the gate, and a reserved name with no branch falls through to the ordinary-transfer path — which would ACCEPT a
+    AT HEIGHT 0 EVERY ONE IS REFUSED, and "invite" (the escrow) always is: these names became reserved with
+    REFERRAL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9), and a reserved name with no branch falls through to the ordinary-transfer path — which would ACCEPT a
     send to "invite" that an older node refuses as an unknown alias. INVARIANT: keep the refusal first."""
-    from protocol import (REFERRAL_HEIGHT, INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, INVITE_KEY_HEX)
+    from protocol import (INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, INVITE_KEY_HEX)
     from signatures import verify
     recipient = transaction["recipient"]
     assert recipient != "invite", "the invite escrow cannot be paid directly — use invite_lock"
-    assert int(block_height) >= REFERRAL_HEIGHT, "invites are not enabled yet"
+    assert int(block_height) >= 1, "invites are not enabled yet"      # `>= 1` kept: admission on a genesis tip
     data = transaction.get("data") or {}
     assert isinstance(data, dict), "invite data must be an object"
     h = transaction["max_block"]                          # deterministic landing height (mempool == build)

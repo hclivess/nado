@@ -79,7 +79,7 @@ check("a fresh identity is unaffected", D.fidelity_at_epoch(FRESH, max(G, r2)) =
       (D.fidelity_at_epoch(FRESH, max(G, r2)), kv_ops.get_account(FRESH)["fidelity"]))
 E = max(G, r2)
 w = D.weights_at_epoch(E)
-scale = P.REFERRAL_SCALE if E >= P.REFERRAL_HEIGHT // P.EPOCH_LENGTH else 1     # weights are scaled from the referral gate
+scale = P.REFERRAL_SCALE                    # every epoch's weights are scaled (REFERRAL_HEIGHT, inlined in G9)
 check("the dividend weight follows the carried fidelity", w.get(ABSENT) == scale * P.dividend_weight(after_renew, E),
       (w.get(ABSENT), scale, after_renew))
 

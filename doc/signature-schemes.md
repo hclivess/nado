@@ -1,7 +1,7 @@
 # User-selectable signature schemes
 
 Status: **built 2026-10-25, dormant on generation 28, live from block 1 on generation 29** (`SIG_SCHEMES_HEIGHT`,
-GATE LEDGER). The operator asked for it on 2026-10-25: *"i would like multiple (pluggable) scheme options for NADO ...
+inlined in G9: the rule holds from block 1). The operator asked for it on 2026-10-25: *"i would like multiple (pluggable) scheme options for NADO ...
 let users pick"*. It supersedes the design in ROADMAP.md Track G (2026-08-10), which predates format-2 addresses.
 
 ## What a user gets

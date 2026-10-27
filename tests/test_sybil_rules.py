@@ -69,17 +69,11 @@ def t3_weights_at_epoch_lists_day_one():
     kv_ops.recert_put(a, E - 1)                                 # fresh: one recert -> fidelity 1 -> weight 1
     kv_ops.recert_put(b, E - 1 - P.FIDELITY_MIN_GAP_EPOCHS)     # renewed timely -> fidelity 2 -> weight 2
     kv_ops.recert_put(b, E - 1)
-    # UNSCALED WEIGHTS, as before REFERRAL_HEIGHT's epoch (107000 on gen 28; block 1 on gen 29, where every weight is
-    # scaled by REFERRAL_SCALE so a referral's slice is an integer — shares unchanged). Pinned explicitly, then gen 29's.
-    _ref = P.REFERRAL_HEIGHT
-    P.REFERRAL_HEIGHT = 1 << 62
-    w = weights_at_epoch(E)
-    check("a day-one identity is IN the committed weight set at weight 1; the renewed one at 2", w.get(a) == 1 and w.get(b) == 2, w)
-    P.REFERRAL_HEIGHT = 1
+    # Every weight is scaled by REFERRAL_SCALE so a referral's slice is an integer — shares unchanged (REFERRAL_HEIGHT,
+    # gen 28's gate, inlined in G9). The unscaled pre-gate reading is retired in G9: generation 28's rules.
     w29 = weights_at_epoch(E)
-    check("...and from the referral gate (gen 29: block 1) the same set scaled by REFERRAL_SCALE, shares unchanged",
-          w29 == {k: P.REFERRAL_SCALE * v for k, v in w.items()}, w29)
-    P.REFERRAL_HEIGHT = _ref
+    check("a day-one identity is IN the committed weight set at weight 1; the renewed one at 2, each scaled by REFERRAL_SCALE",
+          w29 == {a: P.REFERRAL_SCALE * 1, b: P.REFERRAL_SCALE * 2}, w29)
     kv_ops.close_all()
 
 

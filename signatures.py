@@ -268,7 +268,7 @@ def _keypair_from_seed(seed: bytes):
 # ---- the other user-selectable schemes (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES", doc/signature-schemes.md) ----
 # ML-DSA-44 keeps the backend above, unchanged: every existing account signs with it and nothing below touches it. The
 # other schemes come from native/pqsig (nado_pqsig.py), loaded on FIRST USE — a node that never meets a tagged tx never
-# maps the library, and below SIG_SCHEMES_HEIGHT consensus refuses every tagged tx before it reaches verify(). Same key
+# maps the library, and at height 0 (or None) consensus refuses every tagged tx before it reaches verify(). Same key
 # model as ML-DSA-44: one 32-byte seed per account; the scheme's own expansion is in native/pqsig/src/lib.rs.
 _SCHEME_IDS = {"mldsa65": 1, "mldsa87": 2, "slhdsa128s": 3, "fndsa512": 4}
 # KNOWN ANSWERS: blake2b-128 of each scheme's public key for the seed 0x42*32. An address is a hash of the public key, so
@@ -312,7 +312,7 @@ def _scheme_selftest(lib) -> str:
 
 def _schemes():
     """native/pqsig, self-tested once. Raises when it is missing, stale or fails the test — and verify() turns that into
-    False, so a node without it refuses a tagged tx rather than guessing (from SIG_SCHEMES_HEIGHT the crate is required,
+    False, so a node without it refuses a tagged tx rather than guessing (since gen 29 the crate is required,
     ops/self_update._CRATES, so a live node has it)."""
     with _pqs_lock:
         if _pqs[0] is None:

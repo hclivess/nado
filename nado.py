@@ -2752,7 +2752,7 @@ async def referrals(request):
         from ops import kv_ops
         from ops.mining_ops import epoch_of
         from ops.account_ops import get_open_registry
-        from protocol import REFERRAL_EPOCHS, REFERRAL_SCALE, REFERRAL_SHARE, REFERRAL_HEIGHT, EPOCH_LENGTH
+        from protocol import REFERRAL_EPOCHS, REFERRAL_SCALE, REFERRAL_SHARE, EPOCH_LENGTH
         tip = memserver.latest_block["block_number"]
         epoch = epoch_of(tip)
         mine = kv_ops.referral_get(addr)
@@ -2765,7 +2765,9 @@ async def referrals(request):
                              "in_window": start <= epoch < start + REFERRAL_EPOCHS, "present": who in present})
         return {"address": addr, "referrer": None if mine is None else {"address": mine[0], "since_height": mine[1]},
                 "referred": referred, "share": [REFERRAL_SHARE, REFERRAL_SCALE], "window_epochs": REFERRAL_EPOCHS,
-                "active_from": REFERRAL_HEIGHT, "tip": tip, "epoch": epoch, "self_present": addr in present}
+                # active_from: REFERRAL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9). The wallet offers invite
+                # creation only while tip >= active_from, so it stays 1 — the chain refuses an invite at height 0.
+                "active_from": 1, "tip": tip, "epoch": epoch, "self_present": addr in present}
     return _resp(await asyncio.to_thread(_work))
 
 

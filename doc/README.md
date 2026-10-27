@@ -45,7 +45,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [governance.md](governance.md) | **Draft policy** — the human layer of treasury governance (addendum to treasury.md) |
 | [address-format.md](address-format.md) | How an address is derived (format 2: a hash of the whole key plus a checksum) |
 | [aliases.md](aliases.md) | On-chain aliases: send to a name instead of an address |
-| [referrals.md](referrals.md) | Referrals and funded invite links (live from `REFERRAL_HEIGHT`) |
+| [referrals.md](referrals.md) | Referrals and funded invite links (live from block 1) |
 | [signature-schemes.md](signature-schemes.md) | User-selectable post-quantum signature schemes — built, dormant on generation 28, live from block 1 on generation 29 |
 | [htlc.md](htlc.md) | HTLC transactions (`htlc_lock` / `htlc_claim` / `htlc_refund`) for cross-chain atomic swaps |
 | [tpm-attestation-without-a-ca.md](tpm-attestation-without-a-ca.md) | CA-free TPM enrolment: commit-reveal challengers instead of a certificate authority (live) |

@@ -28,11 +28,10 @@ from ops.dividend_ops import fidelity_at_epoch, present_at_epoch, weights_at_epo
 from ops.key_ops import generate_keys
 
 import _harness
-# UNSCALED WEIGHTS: this file pins fidelity -> weight, below REFERRAL_HEIGHT's epoch (107000 on gen 28; block 1 on gen 29,
-# where weights_at_epoch scales every weight by REFERRAL_SCALE — tests/test_sybil_rules.py pins that). Explicit, so the
-# gen-29 tree does not read a scale into a fidelity check (rehearsal).
-import protocol as _P
-_P.REFERRAL_HEIGHT = 1 << 62
+# SCALED WEIGHTS: weights_at_epoch scales every weight by REFERRAL_SCALE from block 1 (REFERRAL_HEIGHT, gen 28's gate,
+# inlined in G9; tests/test_sybil_rules.py pins the scale), so each expected weight below is SCALE * dividend_weight.
+# The unscaled (pre-gate) reading is retired in G9: generation 28's rules.
+from protocol import REFERRAL_SCALE as SCALE
 _report = _harness.Report()
 check = _report.run
 
@@ -84,9 +83,9 @@ def t4b_reconstruction_agrees_with_live_get_open_registry():
 def t5_weights_are_open_shares_of_reconstructed_fidelity():
     """Prove weights_at_epoch equals open_shares of the fidelity AS OF that epoch (historical, not current)."""
     e = SEQ[-1]
-    assert weights_at_epoch(e).get(A) == (dividend_weight(fidelity_at_epoch(A, e), e) or None), "weight == dividend_weight(fidelity@e) (0 = absent)"
+    assert weights_at_epoch(e).get(A) == (SCALE * dividend_weight(fidelity_at_epoch(A, e), e) or None), "weight == dividend_weight(fidelity@e) (0 = absent)"
     # a mid-history epoch weighs by THAT epoch's fidelity (3), not the current one (2)
-    assert weights_at_epoch(SEQ[2]).get(A) == dividend_weight(3, SEQ[2]), "historical weight uses historical fidelity"
+    assert weights_at_epoch(SEQ[2]).get(A) == SCALE * dividend_weight(3, SEQ[2]), "historical weight uses historical fidelity"
 
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():

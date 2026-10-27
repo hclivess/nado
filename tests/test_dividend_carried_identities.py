@@ -40,9 +40,10 @@ from ops import dividend_ops as D
 D._CARRIED[0] = None
 
 import _harness
-# UNSCALED WEIGHTS: this file pins carried fidelity -> weight, below REFERRAL_HEIGHT's epoch (107000 on gen 28; block 1
-# on gen 29, where every weight is scaled by REFERRAL_SCALE — tests/test_sybil_rules.py pins that) — explicit (rehearsal).
-P.REFERRAL_HEIGHT = 1 << 62
+# SCALED WEIGHTS: every weight is scaled by REFERRAL_SCALE from block 1 (REFERRAL_HEIGHT, gen 28's gate, inlined in G9;
+# tests/test_sybil_rules.py pins the scale), so each expected weight is S * dividend_weight. The unscaled (pre-gate)
+# reading is retired in G9: generation 28's rules.
+S = P.REFERRAL_SCALE
 _report = _harness.Report()
 check = _report.check
 
@@ -61,14 +62,14 @@ E = R
 at_zero, after = D.weights_at_epoch(0), D.weights_at_epoch(E)
 check("a genesis seed earns nothing, at epoch 0 or later", SEED not in at_zero and SEED not in after, (at_zero, after))
 check("a carried identity earns from epoch 0", CARRIED in at_zero and CARRIED in after, (at_zero, after))
-check("...at its carried fidelity", at_zero.get(CARRIED) == P.dividend_weight(15, 0) and after.get(CARRIED) == P.dividend_weight(15, E),
+check("...at its carried fidelity", at_zero.get(CARRIED) == S * P.dividend_weight(15, 0) and after.get(CARRIED) == S * P.dividend_weight(15, E),
       (at_zero.get(CARRIED), after.get(CARRIED), P.dividend_weight(15, 0)))
 check("a carried veteran is carried at epoch 0 too", D.fidelity_at_epoch(VETERAN, 0) == 12, D.fidelity_at_epoch(VETERAN, 0))
 live = P.fidelity_step(12, True, R - 0, R)             # what apply_register computed: continuing from the carried 12
 check("a carried veteran who renewed replays to the live apply's fidelity, not a newcomer's",
       R <= E and D.fidelity_at_epoch(VETERAN, E) == live, (R, E, D.fidelity_at_epoch(VETERAN, E), live))
-check("...and weighs accordingly", after.get(VETERAN) == P.dividend_weight(live, E), after.get(VETERAN))
-check("a fresh identity is unaffected", after.get(FRESH) == P.dividend_weight(P.fidelity_step(0, False, R + 1, R), E),
+check("...and weighs accordingly", after.get(VETERAN) == S * P.dividend_weight(live, E), after.get(VETERAN))
+check("a fresh identity is unaffected", after.get(FRESH) == S * P.dividend_weight(P.fidelity_step(0, False, R + 1, R), E),
       after.get(FRESH))
 
 # THE CARRY IS READ FROM THE REPOSITORY ONLY, AND IS FROZEN FOR THE GENERATION. carried_identities feeds committed epoch

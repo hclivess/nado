@@ -36,16 +36,17 @@ REROLL = {
     "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool
     "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "WIDE_DEPOSIT_CLOSE_HEIGHT": 1,            # 175000 on gen 28: no new wide-pool deposits (it never held a note)
-    "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
     "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
     "SIG_SCHEMES_HEIGHT": 1,                   # dormant (2^62) on gen 28: an account may sign with another offered scheme
     "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
+    "AGREED_TIME_SEATS_HEIGHT": 1,             # dormant (2^62) on gen 28: the certificate clock weighs committee seats
     "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
     "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
     "REFERRAL_HEIGHT": 1,                      # 107000 on gen 28: referral links, the 10 % slice, funded invites
+    "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

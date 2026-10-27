@@ -1,11 +1,11 @@
-"""From EXEC_BUDGET_V2_HEIGHT a reverting (or raising) exec call counts its steps against the block's execution
+"""From block 1 a reverting (or raising) exec call counts its steps against the block's execution
 budget, so a block of calls that burn GAS_LIMIT and revert can no longer make every exec node execute without bound
 (execnode/state.py ExecState._charge_reverted_steps; audit 2026-09-24 #13, confirmed 2026-10-18).
 
 EXEC_BLOCK_STEP_BUDGET (F4) bounded what applied calls cost, but a revert returned before its steps were counted: the
-budget only ever saw calls that succeeded. Shown under both rule sets, on the real ExecState and zkVM: one block below
-the gate, any number of burn-then-revert calls leave the budget untouched and a heavy call still applies; at the gate
-the same reverts fill the budget and the next heavy call is refused as "budget exhausted" (escrow refunded).
+budget only ever saw calls that succeeded. Shown on the real ExecState and zkVM: burn-then-revert calls fill the budget
+and the next heavy call is refused as "budget exhausted" (escrow refunded). EXEC_BUDGET_V2_HEIGHT (gen 28's gate) was
+inlined in G9; the below-the-gate half is retired in G9: generation 28's rules.
 
 Run: python3 tests/test_reverting_calls_count_against_the_block_execution_budget.py
 """
@@ -19,8 +19,7 @@ from execnode.state import ExecState
 from execnode import zkvmasm, zkvm
 
 T = _harness.Report()
-GATE = 3000
-P.EXEC_BUDGET_V2_HEIGHT = GATE
+GATE = 3000                                                 # any applied height from 1 (EXEC_BUDGET_V2_HEIGHT, inlined in G9)
 ALICE = "mldsa44" + "a" * 42
 CODE = {
     "burn": zkvmasm.assemble("movi r1 60000\n movi r2 1\n loop:\n sub r1 r2\n jnz r1 @loop\n ret r0"),
@@ -46,15 +45,12 @@ def call(st, cid, method, i):
 
 
 T.check("setup: the burn-then-revert call executes ~60k steps and reverts", 100_000 < PER < zkvm.GAS_LIMIT, PER)
-st, cid = block(GATE - 1)
-r = [call(st, cid, "burnrev", i) for i in range(REVERTS)]
-T.check("below the gate the calls revert", all("revert" in x for x in r), r[:2])
-T.check("...and leave the block budget untouched (the pre-gate behaviour)", st._block_steps == 0, st._block_steps)
-T.check("...so a heavy call still applies after them", call(st, cid, "burn", 0).endswith("-> ok"))
+# the below-the-gate half (reverts left the budget untouched) is retired in G9: generation 28's rules
 st, cid = block(GATE)
 bal0 = st.bridge[ALICE]
 r = [call(st, cid, "burnrev", i) for i in range(REVERTS)]
-T.check("at the gate the reverts are charged their executed steps", st._block_steps >= REVERTS * PER - PER, (st._block_steps, REVERTS * PER))
+T.check("the burn-then-revert calls revert", all("revert" in x for x in r), r[:2])
+T.check("the reverts are charged their executed steps", st._block_steps >= REVERTS * PER - PER, (st._block_steps, REVERTS * PER))
 x = call(st, cid, "burn", 0)
 T.check("...so the next heavy call is refused as budget exhausted", "budget exhausted" in x, x)
 T.check("...and every reverted call's escrow came back", st.bridge[ALICE] == bal0, (st.bridge[ALICE], bal0))
