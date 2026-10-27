@@ -1657,61 +1657,42 @@ def split_open_block_reward(reward: int):
 #   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
 #                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
-# GEN-28 GATES INLINED IN G9 (slice 3c; the rule is unconditional, `>= 1` kept only where height 0 reaches):
-#   TPM_POOL_CHALLENGER_ACTS_HEIGHT  the challenger pool counts only challengers' own acts (window hi = 0 scans nothing)
-#   TPM_POOL_V2_HEIGHT               online-stake pool, k = 5, misses excluded (`>= 1` at enrol validation: admission
-#                                    on a genesis tip judges the legacy pool, as it did)
-#   TPM_ENROL_V3_HEIGHT              a wrong commitment fails the record, client-failed retries cool down (`>= 1` at
-#                                    validation, as above)
-#   TPM_RETRY_OWNER_HEIGHT           retry count per (chip, opener) (`< 1` / None kept in tpm_enrol.client_failed and
-#                                    retry_key, `>= 1` at validation)
-#   EVICT_VOIDS_EPOCH_HEIGHT         a device move voids the evicted identity through the epoch (`>= 1` with None kept)
-#   CARRY_FIDELITY_ALL_HEIGHT        the dividend replay starts an absent carried identity from its carried fidelity
-#                                    (`epoch >= 0` kept: a negative epoch still reads 0)
-# GEN-28 GATES (betanet-9) are keyed `== 28`:  REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
-#                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
-#                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
-# GEN-28 GATES INLINED IN G9 (gen 29; each group replayed the live betanet-10 chain through 7608 and matched main):
-#   the shielded pools (x = 1)       STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT:
-#                                    `>= 1` kept in transaction_ops.field_shield_check (mempool on a genesis tip — no shape
-#                                    check at 0), ExecState.rules_stwo_pool / rules_stwo_fee_to and execnode's
-#                                    _stwo_pool_next / fee_to check (cursor -1), stwo_js_native.config_id_at (0 -> CFG_340)
-# GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
-#                                    only challengers' own acts, never the enrollee's tpm_commit),
-#                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
-#                                    stake, k = 5, a challenger that failed a draw sits out a day)
-#                                    EVICT_VOIDS_EPOCH_HEIGHT (132000 -> 1: a device move voids the
-#                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT (132000 ->
-#                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
-#                                    TPM_RETRY_OWNER_HEIGHT (175000 -> 1: the retry count is per (chip, opener) and
-#                                    only a wrong commitment counts as the client's failure)
-#                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
-#                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
-#                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
-#                                    epoch with no reveals takes the next revealed epoch's reveals)
-#                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
-#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT (156400 -> 1: an
-#                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
-#                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
-#                                    duty committee read the bonded registry frozen at the epoch's anchor block)
-#                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
-#                                    deposits; it held none, so the Stwo gate can freeze nothing)
-#                                    STWO_POOL_HEIGHT (269000 -> 1: the Stwo shielded pool is ON after the in-house
-#                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
-#                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
-#                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
-#                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
-#                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
-#                                    EXEC_BUDGET_V2_HEIGHT (285000 -> 1: a reverting or raising exec call counts
-#                                    its steps against the block's execution budget, so reverts cannot escape it,
-#                                    and no sender may use more than EXEC_SENDER_STEP_SHARE of a block's budget)
-#                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
-#                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
-#                                    doc/signature-schemes.md)
-#                                    BLOCK_BUDGET_HEIGHT (2^62, DORMANT on gen 28 -> 1: a block carries at most
-#                                    MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES bytes, built or validated)
-#                                    AGREED_TIME_SEATS_HEIGHT (2^62, DORMANT on gen 28 -> 1: the certificate clock's
-#                                    median weighs duty-committee seats, not distinct senders)
+# GEN-28 GATES INLINED IN G9 (slice 3, gen 29): every `<h> if CHAIN_GENERATION == 28 else 1` gate is gone and its rule
+# is unconditional. Each group replayed the live betanet-10 chain through 7608 (L1 and exec roots) IDENTICAL to main.
+# `>= 1` (or its twin) survives only where height 0, cursor -1 or no height reaches the check:
+#   TPM_POOL_CHALLENGER_ACTS_HEIGHT  challenger pool counts only challengers' own acts (a window ending at 0 scans nothing)
+#   TPM_POOL_V2_HEIGHT               online-stake pool, k = 5, misses excluded — `>= 1` at enrol validation (admission on
+#                                    a genesis tip judges the legacy pool, as it did)
+#   TPM_ENROL_V3_HEIGHT              a wrong commitment fails the record; client-failed retries cool down — `>= 1` at
+#                                    validation
+#   TPM_RETRY_OWNER_HEIGHT           retry count per (chip, opener) — `< 1` / None kept in tpm_enrol.client_failed and
+#                                    retry_key, `>= 1` at validation
+#   EVICT_VOIDS_EPOCH_HEIGHT         a device move voids through the epoch — `>= 1` with None kept (_evict_voids)
+#   CARRY_FIDELITY_ALL_HEIGHT        the dividend replay starts an absent carried identity from its carried fidelity —
+#                                    `epoch >= 0` kept (a negative epoch still reads 0)
+#   BEACON_EXTEND_HEIGHT             a reveal-less epoch's exec BEACON waits for the next reveals — epoch 0 keeps its plain
+#                                    value (`e0 < 1` in ExecState.exec_beacon_at)
+#   REVEAL_SEATLESS_HEIGHT           a reveal-only duty needs no seat — `tb >= 1` kept in _validate_duty (max_block is
+#                                    sender-chosen, 0 still required a seat)
+#   RANDAO_MISS_POOL_HEIGHT          an unrevealed commitment leaves the TPM pool for its epoch (no `>= 1` left: E < 2
+#                                    already returns empty)
+#   REGISTRY_SNAPSHOT_HEIGHT         draws read the registry frozen at the epoch's anchor — `>= 1` kept in incorporate and
+#                                    rollback (block 0 never wrote regsnap:1)
+#   AGREED_TIME_SEATS_HEIGHT         the certificate clock weighs committee seats — `seated = int(hi) >= 1` (epoch 0's
+#                                    window is empty)
+#   STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT   the Stwo pool, wide-pool close,
+#                                    fee_to, 128-bit config — `>= 1` kept in field_shield_check (no shape check at 0),
+#                                    rules_stwo_pool / rules_stwo_fee_to, execnode _stwo_pool_next / fee_to (cursor -1),
+#                                    stwo_js_native.config_id_at (0 -> CFG_340)
+#   REFERRAL_HEIGHT                  referrals, the 10 % slice, funded invites — `< 1` / `>= 1` kept in
+#                                    validate_register_referrer, validate_invite, referral_to_write; referral_split
+#                                    `epoch < 0`; /get_referrals still answers active_from 1
+#   BLOCK_BUDGET_HEIGHT              MAX_BLOCK_TXS / MAX_BLOCK_TX_BYTES — `< 1` kept in assert_block_budget and
+#                                    cap_block_budget (one test, both sides)
+#   EXEC_BUDGET_V2_HEIGHT            reverting calls pay into the exec budget — rules_budget_v2 is applying_height() >= 1
+#   SIG_SCHEMES_HEIGHT               an account signs with its address's scheme — `>= 1` with None kept in sig_scheme_check
+#   BLAKE_EXEC_HEIGHT                the BLAKE2s exec root and the 256-bit VM — unconditional at EVERY height (the gate's
+#                                    predicate already covered cursors -1 and 0); exec_root_b2.blake_exec_at is deleted
 # KEYED ON GENERATION 29 (live on betanet-10):
 #                                    EXEC_ADDR_ROOT_HEIGHT (8500, exec cursor; -> 1: the zkvm digest registry is committed in
 #                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
@@ -2783,21 +2764,11 @@ CLIENT_EXPORTS = (
     "BASE_SUBSIDY", "BOND_ELASTIC_MULT_BPS",
     "ALIAS_REGISTRATION_FEE", "AUTO_BOND_MIN_RAW", "AUTO_BOND_DEFAULT_PERCENT",
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
-    # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT and STWO_JS_128_HEIGHT were exported until G9
-    # inlined them: the wallet's Stwo pool, fee_to and 128-bit config are on from block 1, static/interface.js)
     "CHAIN_GENERATION",
-    # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
-    # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js)
-    "BLAKE_EXEC_HEIGHT",
     # the wallet offers a signature scheme per account (doc/signature-schemes.md)
     "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
-    # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
-    # dormant, which /protocol.js carries as a BigInt
-    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "CHAIN_GENERATION",
-    # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
-    "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
-    # the wallet proves a Stwo spend at the node config of the block it lands in (static/interface.js stwoCfgId)
-    "STWO_JS_128_HEIGHT",
-    # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
-    "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
+    # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT, BLAKE_EXEC_HEIGHT and
+    # SIG_SCHEMES_HEIGHT were exported until G9 inlined them: on generation 29 the wallet's Stwo pool, fee_to, 128-bit
+    # config, the 256-bit VM digests and the scheme picker are on from block 1 — static/interface.js, nadodapp.js.
+    # Safe to drop: the wallet page is no-cache, so a browser always pairs the current importer with this module.)
 )

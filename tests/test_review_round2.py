@@ -25,25 +25,8 @@ for d in ("blocks", "index", "private", "peers", "transactions"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 import protocol as P
-# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
-# file runs on generation 29's exec layer like the chain does.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
-# ...and generation 28's pools, which these height-1 rules were written against: there a field shield at height 1 lands
-# in the wide pool; generation 29 opens the Stwo pool and closes the wide one from block 1 (STWO_POOL_HEIGHT,
-# WIDE_DEPOSIT_CLOSE_HEIGHT), each with its own tests. (EXEC_BUDGET_V2_HEIGHT, the per-sender share, was inlined in G9.)
-for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT"):
-# ...and generation 28's block budget, which these height-1 rules were written against: there one sender may fill the
-# block's budget; generation 29 caps a sender's share from block 1 (EXEC_BUDGET_V2_HEIGHT), with its own tests. (Gen 28's
-# pools — a field shield at height 1 in the wide pool — retired in G9 with STWO_POOL_HEIGHT / WIDE_DEPOSIT_CLOSE_HEIGHT.)
-for _g in ("EXEC_BUDGET_V2_HEIGHT",):
-# ...and generation 28's pools and block budget, which these height-1 rules were written against: there a field shield
-# at height 1 lands in the wide pool and one sender may fill the block's budget; generation 29 opens the Stwo pool,
-# closes the wide one and caps a sender's share from block 1 (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
-# EXEC_BUDGET_V2_HEIGHT), each with its own tests.
-for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "EXEC_BUDGET_V2_HEIGHT"):
-    setattr(_P_gen28, _g, _gen28.gate_at(_g, 28))
+# Every gen-28 gate this file once pinned (BLAKE_EXEC_HEIGHT, STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
+# EXEC_BUDGET_V2_HEIGHT) was inlined in G9: it runs on generation 29's rules, like the chain does.
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
 from execnode.stark import stark, field as F

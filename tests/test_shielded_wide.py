@@ -36,18 +36,10 @@ import sys, copy, json, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-# THE WIDE POOL WAS ONLY EVER LIVE WITH THE STWO POOL OFF. STWO_POOL_HEIGHT and WIDE_DEPOSIT_CLOSE_HEIGHT were inlined
-# in G9 as block 1, so the exec state never routes a deposit or spend to the wide pool again: the pins that drove it
-# there are retired; what remains tests the wide pool's own module and circuit (deleted with it in a later slice).
-import _harness as _hg
-protocol.BLAKE_EXEC_HEIGHT = _hg.gate_at("BLAKE_EXEC_HEIGHT", 28)
-# THE WIDE POOL IS ONLY EVER LIVE WITH THE STWO POOL OFF: from STWO_POOL_HEIGHT deposits land in the Stwo pool and only a
-# stwo_js bundle spends, so this file (heights up to 300,000) pins the Stwo gate off rather than read the live one.
-protocol.STWO_POOL_HEIGHT = 0
-# ...and the deposit close the wide pool lived under on generation 28. Its exits verify against the BLAKE2s exec root
-# (exec_root_b2 as ER): G9 deleted the Goldilocks one (and inlined BLAKE_EXEC_HEIGHT), so the exec state computes only BLAKE2s.
-import _harness as _hg
-protocol.WIDE_DEPOSIT_CLOSE_HEIGHT = _hg.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28)
+# THE WIDE POOL WAS ONLY EVER LIVE WITH THE STWO POOL OFF. STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT and
+# BLAKE_EXEC_HEIGHT were inlined in G9 as block 1, so the exec state never routes a deposit or spend to the wide pool
+# again: the pins that drove it there are retired; what remains tests the wide pool's own module and circuit (deleted
+# with it in a later slice).
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
 from execnode import shielded_wide as SW, shielded_field as SF
