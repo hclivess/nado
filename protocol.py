@@ -1698,6 +1698,8 @@ def split_open_block_reward(reward: int):
 #                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
 #                                    LEGACY_SHIELD_CLOSE_HEIGHT (10000; -> 1: the legacy BLAKE2b shielded pool takes no new
 #                                    deposits, refused on L1 and skipped on exec, so G9 can delete it)
+#                                    LEGACY_TRANSFER_CLOSE_HEIGHT (14000; -> 1: the exec layer skips the legacy pool's
+#                                    transparent shielded_transfer, so the pool is frozen and execnode/shielded.py can go)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2171,12 +2173,20 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # 2026-10-11/12) and WIDE_DEPOSIT_CLOSE_HEIGHT (175000 on gen 28) were 1 from gen 29 and were inlined in G9; the rules
 # hold from block 1 (transaction_ops.field_shield_check, ExecState.rules_stwo_pool).
 # THE LEGACY POOL TAKES NO NEW DEPOSITS (G9, 2026-10-27). The phase-1 BLAKE2b shielded pool (execnode/shielded.py) was
-# retired with the move to Stwo: its transfers are paused (PRIVACY_PAUSE) and the wallet no longer offers it, yet L1
-# still accepted a `shield` with `out_commitments` (no `field`) and the exec node added the notes, coins that could only
+# retired with the move to Stwo: its stark-bundle transfers are paused (PRIVACY_PAUSE) and the wallet no longer offers
+# it, yet L1 still accepted a `shield` with `out_commitments` (no `field`) and the exec node added the notes, coins that could only
 # be locked there. Measured: no such deposit on generation 29 (blocks 0..7608). From this height L1 refuses it and the
 # exec layer skips it, so the pool stays empty for good, its two root records are constants, and its code can be
 # deleted (doc/stwo-migration.md 9.7). A Stwo pool deposit (`field`) is unaffected. `else 1`: a reroll starts closed.
 LEGACY_SHIELD_CLOSE_HEIGHT = 10000 if CHAIN_GENERATION == 29 else 1   # L1 was at 7798 when this shipped (2026-10-27)
+# ...AND NO TRANSFERS (G9 slice 5, 2026-10-28). "Paused" above covered only the STARK bundle: the TRANSPARENT
+# `shielded_transfer` blob op stayed live, and a transfer with no inputs and value-0 outputs balances (0 + 0 == 0 + 0), so
+# any sender could append zero-value notes to the legacy pool for MIN_TX_FEE — moving shield_root and every exec root
+# after it — and spend them later. No value could enter (coins arrive only by an L1 shield, closed above). From this
+# height the exec layer skips the op, so the pool is frozen for good and execnode/shielded.py can be deleted with its two
+# root records pinned as constants. Exec-only: L1 never decodes blob payloads. Measured: no shielded_transfer on
+# generation 29 (blocks 0..10533). `else 1`: a reroll starts with it closed.
+LEGACY_TRANSFER_CLOSE_HEIGHT = 14000 if CHAIN_GENERATION == 29 else 1   # L1 was at 10994 when this was written (2026-10-28)
 
 # A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). A bundle may carry `fee_to`: the proof is bound
 # to the destination string "<withdraw_addr>|fee:<fee_to>" (the circuit's aux is BLAKE2s of that string, so neither

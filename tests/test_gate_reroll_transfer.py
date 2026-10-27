@@ -27,6 +27,7 @@ REROLL = {
     # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed). Every gen-27 and gen-28 gate is gone (see DELETED).
     "DEVICE_ATTEST_HEIGHT": 1,
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
+    "LEGACY_TRANSFER_CLOSE_HEIGHT": 1,         # gen 29: the legacy pool's transparent transfers are skipped (G9)
     "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)

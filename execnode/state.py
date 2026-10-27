@@ -1750,9 +1750,14 @@ class ExecState:
             if op == "shielded_transfer":
                 # STILL LIVE ON GENERATION 29 (G9 slice 5): the TRANSPARENT legacy-pool transfer. A transfer with no inputs
                 # and value-0 outputs balances (0 + 0 == 0 + 0), so any sender can append zero-value notes to the legacy
-                # pool and later spend them — that moves shield_root, so this path and execnode/shielded.py stay until a
-                # gate closes the op (it is not closed today). Nothing of value can enter: coins arrive only by an L1
+                # pool and later spend them — that moves shield_root, so this path and execnode/shielded.py stay until
+                # LEGACY_TRANSFER_CLOSE_HEIGHT has passed on the live chain, then go together. Nothing of value can enter: coins arrive only by an L1
                 # shield, and the legacy shield is skipped (block_apply).
+                # LEGACY_TRANSFER_CLOSE_HEIGHT (protocol.py): skipped from the gate, before anything is parsed, so a refused
+                # transfer is a pure no-op and the pool is frozen. INVARIANT: nothing after this may run from the gate.
+                from protocol import LEGACY_TRANSFER_CLOSE_HEIGHT as _LTCLOSE
+                if self.applying_height() >= _LTCLOSE:
+                    return "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
                 public = payload.get("public")
                 proof = payload.get("proof")
                 if not isinstance(public, dict) or not isinstance(proof, dict):

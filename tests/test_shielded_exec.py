@@ -65,6 +65,28 @@ def t2_a_transfer_with_no_inputs_appends_zero_value_notes_and_nothing_else():
     assert res == "shielded_transfer ok (1 out)", res
     assert s2.shielded.commitments == [cm(0, BOB, "rz0")] and s2.state_root() != root and s2.pool_value == 0
 
+def t7_the_legacy_transfer_closes_at_its_gate_and_freezes_the_pool():
+    """LEGACY_TRANSFER_CLOSE_HEIGHT (G9 slice 5, 2026-10-28) closes what t2 pins. Both rule sets: one block BELOW the gate the
+    zero-value transfer still applies (history replays unchanged); FROM the gate the exec layer skips it before parsing,
+    naming the gate, and neither the pool nor the exec root moves — so a bare malformed blob is skipped the same way. The
+    gate is the generation-keyed form, live on generation 29 and from block 1 at a reroll."""
+    import protocol as P
+    G = P.LEGACY_TRANSFER_CLOSE_HEIGHT
+    assert _harness.gate_at("LEGACY_TRANSFER_CLOSE_HEIGHT", 29) == G > 1
+    assert _harness.gate_at("LEGACY_TRANSFER_CLOSE_HEIGHT", 30) == 1
+    below = ExecState(path=os.path.join(os.environ["HOME"], "exec_shield_below.json"))
+    below.cursor = G - 2                                # applying_height() = cursor + 1 = G - 1
+    root = below.state_root()
+    res = below.apply_blob(transfer_blob([], [(0, BOB, "rb0")]), sender="anyone", txid="t7a")
+    assert res == "shielded_transfer ok (1 out)" and below.state_root() != root, res
+    at = ExecState(path=os.path.join(os.environ["HOME"], "exec_shield_at.json"))
+    at.cursor = G - 1                                   # applying the gate's own block
+    root = at.state_root()
+    for i, blob in enumerate((transfer_blob([], [(0, BOB, "ra0")]), {"op": "shielded_transfer"})):
+        res = at.apply_blob(blob, sender="anyone", txid=f"t7b{i}")
+        assert res == "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)", res
+    assert at.shielded.size() == 0 and at.state_root() == root
+
 def t3_private_transfer():
     """Prove a private 2-output transfer applies through ExecState, growing the tree and spending the input nullifier."""
     res = st.apply_blob(transfer_blob([(100, ALICE, "r0", 0)], [(60, BOB, "rb"), (40, ALICE, "rc")]),
