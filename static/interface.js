@@ -858,7 +858,16 @@ async function helperDrops(tipHint) {
     return live;
   } catch (e) { return []; }
 }
-async function computeRegisterTx(targetBlock, onProgress, requiredT) {
+// THE AUTOMATIC RENEWAL NEVER OPENS A DEVICE PROMPT ON ITS OWN (found 2026-10-27 by
+// tests/test_every_identity_class_can_renew.py). maybeRenewLease fires on a timer, with no user gesture; when neither
+// the statement-free, the signature nor the helper path applied it fell through to attestDevice — a create() the browser
+// refuses without a gesture (so the lease simply lapsed: "unable to renew"), or, on a vouched-for wallet whose voucher
+// had not dropped a proof yet, this device's own prompt or a device.required error every few minutes. Now the timer
+// stops before the prompt with RenewNeedsTap and tells the owner the one thing that renews it: press Renew, or attest
+// on the vouching device. A press (renewLeaseManually) arms the tap and goes through as before.
+class RenewNeedsTap extends Error { constructor(m) { super(m); this.name = "RenewNeedsTap"; } }
+
+async function computeRegisterTx(targetBlock, onProgress, requiredT, opts) {   // opts: { noPrompt } (the renewal timer)
   // gen 25: the registration proof IS the device attestation (doc/device-attestation.md). The sequential-work
   // proof was retired at the betanet-7 reroll; `requiredT` and `onProgress` stay in the signature for callers.
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
@@ -904,6 +913,7 @@ async function computeRegisterTx(targetBlock, onProgress, requiredT) {
         "Renewing with the proof from the enrolment helper — no prompt needed."));
     return buildRegisterTx(state.wallet, Number(fresh.max_block), null, nowSeconds(), fresh.device);
   }
+  if (opts && opts.noPrompt && !state.tapArmed) throw new RenewNeedsTap("a device prompt needs a tap");
   const device = await attestDevice(state.wallet.address, anchorHash, targetBlock);
   if (!device) {
     // SAY THE REAL REASON. attestDevice() has just stored the verdict (fmt none under Windows Hello VBS, no chain,
@@ -3750,7 +3760,7 @@ let _renewFailedAt = 0;
 // as renewal being broken. _renewingLease alone could never catch this: it is cleared as soon as the
 // SUBMIT returns, not when the tx lands.
 let _renewSubmitted = null;
-async function maybeRenewLease(acc) {
+async function maybeRenewLease(acc) {   // the timer: { noPrompt } — see RenewNeedsTap
   if (_renewingLease || state.registering || state.regSubmitted || !state.mining) return;
   const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
   const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
@@ -3771,14 +3781,14 @@ async function maybeRenewLease(acc) {
   // The lease has hours of headroom at this point (renewal begins at 80% of it), so waiting minutes
   // between attempts costs nothing and is the difference between a retry and a spin.
   if (_renewFailedAt && Date.now() - _renewFailedAt < RENEW_RETRY_MS) return;
-  const ok = await broadcastLeaseRenewal(regEpoch);
+  const ok = await broadcastLeaseRenewal(regEpoch, { noPrompt: true });
   _renewFailedAt = ok ? 0 : Date.now();
 }
 
 // The renewal itself — shared by the automatic path above and the manual button below. Returns true once a
 // register tx was accepted by the relay (it then lands EXACTLY at its target block; _renewSubmitted holds
 // off any re-broadcast until it does).
-async function broadcastLeaseRenewal(regEpoch) {
+async function broadcastLeaseRenewal(regEpoch, opts) {   // opts: passed to computeRegisterTx
   if (_renewingLease) return false;
   _renewingLease = true;
   try {
@@ -3798,7 +3808,7 @@ async function broadcastLeaseRenewal(regEpoch) {
       // landing EXACTLY at max_block, so the whole margin is time the tx sits in the mempool.
       const _d = await registrationDifficulty(state.wallet.address);
       const tb = latest.block_number + REG_TARGET_MARGIN;
-      const tx = await computeRegisterTx(tb, null, _d.reqT);   // quiet: no UI takeover; still prove at the required difficulty
+      const tx = await computeRegisterTx(tb, null, _d.reqT, opts);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) {
         acceptedRegisterTx(tx);
@@ -3812,7 +3822,16 @@ async function broadcastLeaseRenewal(regEpoch) {
       if (!/too low/i.test(lastMsg)) break;   // a different rejection won't be fixed by retrying
     }
     log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", { m: lastMsg }));
-  } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message })); }
+  } catch (e) {
+    if (e && e.name === "RenewNeedsTap") {
+      // say the one thing that renews it (the timer backs off; the Renew button stays live)
+      log("info", state.attestVia === "remote"
+        ? i18("lease.remoteRenew", "Renewal earns now: on the other device open Collecting → \"Attest another wallet or node\" (it lists this address) and press Attest again. Nothing to press here.")
+        : i18("lease.tapToRenew", "Your presence lease needs renewing: press Renew and confirm the device prompt."));
+    } else {
+      log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message }));
+    }
+  }
   finally { _renewingLease = false; }
   return false;
 }
