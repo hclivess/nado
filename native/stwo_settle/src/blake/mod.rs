@@ -20,6 +20,7 @@ mod round;
 mod scheduler;
 pub mod path;
 pub mod settle;
+pub mod vm_air;
 mod xor_table;
 
 const STATE_SIZE: usize = 16;

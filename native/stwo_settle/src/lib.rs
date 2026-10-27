@@ -8,3 +8,4 @@
 
 pub mod blake;
 pub mod csmt_ref;
+pub mod vm;

@@ -715,6 +715,16 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
 - **G7 EXECUTED 2026-10-27** (commit 23b2aa00, betanet-10): every contract carried, the fleet on one genesis within ~3 min,
   the exec root at genesis equal to the carried root on L1 (the first settle landed), invariants Δ = 0 — doc/reroll.md
   "Gen 29 (betanet-10)". G4's landing prover stays off (option R); G8 and G9 follow.
+- **G4, the VM component (2026-10-27).** A Stwo proof that a list of zkvm2 calls produces exactly a stated io log
+  (doc/stwo/g4-settlement-statement.md section 4 step 3). It is measured on 79 real game calls: 12.4 s to prove, 0.1 s
+  to verify, 1.1 MB. Every forged statement and dishonest prover tested is refused.
+
+  Still to build for G4:
+  - the storage, records and calls-fold bindings (the io log, code and calls are public in this version);
+  - a proof for a reverting call;
+  - one settlement proof joining the VM and tree components.
+
+  G8's two weeks of off-chain proofs against live spans start only after all of that is built.
 
 **Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
 in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or

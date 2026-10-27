@@ -232,4 +232,81 @@ needs no pin move: Stwo's `parallel` feature takes this batch from 8.8 s to 3.8 
    4. A refusal by the prover's own consistency check (`ConstraintsNotSatisfied`) shows the constraint is violated.
       A prover that skips the check is caught by FRI, which this test does not exercise separately.
 3. The VM step component for `zkvm2` (the CPU row, the storage and io buses by lookup, the BLAKE2s accumulator).
+
+   **v1 done (2026-10-27): the execution of a list of calls, against a PUBLIC io log** (`native/stwo_settle`
+   `src/blake/vm_air.rs`; the reference interpreter is `src/vm.rs`). The proof says that each call, run on zkvm2 with
+   its method, args, CTX and ACTX values, produces exactly the stated io log and ends in RET after the stated number
+   of steps. The values the VM reads from outside (SLOAD, BHASH, BEACON, ABAL) are the io log's own. That is the
+   interface the storage and records components will consume by lookup, and here it is public, as the gen-28 settle
+   proof's `cid_io` was. The soundness argument is at the top of `vm_air.rs`. In outline:
+   - **One row per executed instruction.** The machine state (call, clk, pc, program, io count, r0..r7, the hash
+     accumulator) is chained by LogUp rather than by adjacent rows. Each row consumes its state and produces the next.
+     The verifier produces each call's start state and consumes its END tuple, which only a RET row emits. So a call's
+     rows form a single path: a branch would need some state produced twice, and a cycle would need clk to wrap
+     modulo p. Row order is free, so there are no offset masks.
+   - **The tables the rows look up:**
+     - the programs and the calls' data (CTX, ACTX and args), as preprocessed columns the verifier recomputes from the
+       statement, as `path.rs`'s selectors;
+     - a 16-bit range table;
+     - upstream's BLAKE2s components, one compression per HABS row.
+   - **Words are 16 limbs of 16 bits,** each range-checked where a row introduces it, so the limb equations hold over
+     the integers:
+     - ADD, SUB, EQ, LT and DIVMOD's `rem < rs` share one adder with a carry per limb;
+     - MUL and DIVMOD use a byte convolution with 16-bit carries;
+     - a word is zero iff its limbs sum to zero.
+
+     Every constraint is degree 3 or less.
+
+   `tests/test_a_stwo_proof_of_contract_execution_proves_its_io_log_and_refuses_forgeries.py` drives it on two sets
+   of calls:
+   - **Real calls:** 79 successful zkvm2 runs (17,034 steps) recorded while four gen-29 contract tests play
+     tictactoe, bet, pets, dex and reserve.
+   - **Synthetic calls,** covering what no game flow reaches: all 34 opcodes (NOP, RANGE, BEACON, AMINT, ABAL and
+     ARENOUNCE appear in no game), each arithmetic op on the word's edges, and 33 random programs, with every result
+     SSTOREd so the io log carries it.
+
+   Results:
+   - **The Rust reference agrees with zkvm2 on every call.**
+   - **Every forged statement is refused:** 184 on the real set and 4,467 on the synthetic one, covering every io
+     entry's value, key and kind; dropped, added and swapped entries; args; CTX and ACTX; the step count; the code;
+     and calls swapped or dropped.
+   - **Five dishonest provers are refused:**
+     - a MUL off by one;
+     - a taken JNZ falling through;
+     - a stray register write;
+     - a HABS state that is not the digest;
+     - a flipped LT.
+   - **The free-cell probe** perturbs every cell of sampled rows of each opcode, 674,000 perturbations in all. None
+     that the row's constraints and lookups accept changes the row's state, io or table tuples. The cells that are
+     free are exactly the ones that row never reads, such as a MUL byte on an ADD row, or an inverse when the tested
+     word is zero.
+   - **The test catches a broken circuit.** With MUL's operand binding deleted, `MUL:ab` shows up as a new free class
+     and the test fails.
+
+   Measured on this host (12 threads), node config (128 bits):
+
+   | calls | steps | trace rows | prove | verify | proof | peak RSS |
+   |---|---|---|---|---|---|---|
+   | 3 (tictactoe) | 139 | 256 | 6.5 s | 75 ms | 1.11 MB | — |
+   | 3 (synthetic, the edge program) | 2,343 | 4,096 | 6.2 s | 72 ms | 1.12 MB | — |
+   | 79 (real) | 17,034 | 32,768 | 12.4-12.8 s | 100-112 ms | 1.11 MB | 3.3 GB |
+
+   Most of the fixed ~6 s is the BLAKE2s XOR tables and the 2^16 range table, which every proof carries. A CPU row is
+   881 columns wide, plus 164 interaction columns (secure-field, from 328 lookups). MUL, DIVMOD and HABS keep their operand bytes and compression in
+   every row; moving them to their own components is the obvious cut when traces grow.
+
+   **Open in this component:**
+   1. The io log is public. Next, SLOAD and SSTORE go to the storage component (the path updates of step 2) by
+      lookup, and PAY and the asset ops go to the records component.
+   2. The code is public here, so the verifier is handed the programs. In the settlement statement they come from the
+      pre-state: each contract's code leaf, authenticated against the pre root.
+   3. The calls are public here. Next they are bound to L1's calls fold (2.3): the call leaf's contract, method,
+      caller, args, value, asset, cursor and timestamp against the CTX, ACTX and arg tables.
+   4. A REVERTING call cannot be proven yet. Its statement has to prove the failing condition (a REQUIRE on zero, a
+      zero divisor, the gas limit, a pc off the end, an ARG out of range, an asset overspend), or a prover could claim
+      a revert to drop a call's effects. Until then, a span with a reverted call cannot settle by proof.
+   5. Not checked here, by design: BHASH and BEACON values (L1's chain reads), SLOAD values (the storage component),
+      and ABAL values and asset overspends (the records half).
+   6. As for the tree component, a dishonest witness is refused by the prover's own constraint check here. FRI
+      catching a prover that skips that check is not exercised separately.
 4. The records ops of 2.2 point 3 as a component, and the forgery suite of 2.4 against the prototype verifier.
