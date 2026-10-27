@@ -58,11 +58,11 @@ let rhoOk = true;
 for (let i = 0; i < 2000; i++) { const r = randRho(); if (!/^[0-9]+$/.test(r) || BigInt(r) >= (1n << 64n)) { rhoOk = false; break; } }
 check("rho is a decimal u64", rhoOk);
 
-// ---- 4. no pool, no deposit: below the gate or without the prover the wallet stops and says why -----------------
-function poolApi({ gate, module }) {
+// ---- 4. no pool, no deposit: without the prover the wallet stops and says why ------------------------------------
+function poolApi({ module }) {
   const logs = [], sent = [];
   const env = {
-    STWO_POOL_HEIGHT: gate, staleChain: "",
+    staleChain: "",
     log: (lvl, m) => logs.push(m), i18: (k, d) => d,
     relayBase: () => "https://relay",
     fetch: async () => ({ json: async () => ({ latest_block_height: 1000 }) }),
@@ -74,14 +74,11 @@ function poolApi({ gate, module }) {
   const api = new Function(...Object.keys(env), src + "\nreturn { refreshShieldRules, shieldPaused, shieldDeposit, shieldStwo };")(...Object.values(env));
   return { api, logs, sent };
 }
-let p = poolApi({ gate: 1001, module: async () => ({}) });
+let p = poolApi({ module: async () => ({}) });
 await p.api.refreshShieldRules();
-check("at the gate (tip + 1 = gate) the pool is live", p.api.shieldStwo() === true && p.api.shieldPaused() === false);
-p = poolApi({ gate: 5000, module: async () => ({}) });
-await p.api.refreshShieldRules();
-check("below the gate every shielded action stops with a reason", p.api.shieldPaused() === true && /paused/.test(p.logs[0] || ""));
-check("...and a deposit is never built or sent", (await p.api.shieldDeposit(10n, {})) === false && p.sent.length === 0);
-p = poolApi({ gate: 1, module: async () => { throw new Error("offline"); } });
+check("the pool is live (from block 1)", p.api.shieldStwo() === true && p.api.shieldPaused() === false);
+// "below the gate every shielded action stops" retired in G9: generation 28's STWO_POOL_HEIGHT is inlined as block 1
+p = poolApi({ module: async () => { throw new Error("offline"); } });
 await p.api.refreshShieldRules();
 check("a prover that does not load stops every action, never falls back", p.api.shieldPaused() === true && /could not load/.test(p.logs[0] || ""));
 check("...and a deposit is never built or sent", (await p.api.shieldDeposit(10n, {})) === false && p.sent.length === 0);

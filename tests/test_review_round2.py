@@ -32,11 +32,10 @@ import protocol as P
 import _harness as _gen28
 import protocol as _P_gen28
 _P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
-# ...and generation 28's pools and block budget, which these height-1 rules were written against: there a field shield
-# at height 1 lands in the wide pool and one sender may fill the block's budget; generation 29 opens the Stwo pool,
-# closes the wide one and caps a sender's share from block 1 (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
-# EXEC_BUDGET_V2_HEIGHT), each with its own tests.
-for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "EXEC_BUDGET_V2_HEIGHT"):
+# ...and generation 28's block budget, which these height-1 rules were written against: there one sender may fill the
+# block's budget; generation 29 caps a sender's share from block 1 (EXEC_BUDGET_V2_HEIGHT), with its own tests. (Gen 28's
+# pools — a field shield at height 1 in the wide pool — retired in G9 with STWO_POOL_HEIGHT / WIDE_DEPOSIT_CLOSE_HEIGHT.)
+for _g in ("EXEC_BUDGET_V2_HEIGHT",):
     setattr(_P_gen28, _g, _gen28.gate_at(_g, 28))
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
@@ -129,45 +128,14 @@ def t_f4_block_budget_reverts_the_call_that_exceeds_it():
 
 
 # ---- Z6 / Z9 / Z4 (shielded) ---------------------------------------------------------------------------------
-def t_z6_duplicate_field_note_refused_and_z4_pool_full():
-    # From block 1 a field shield lands in the WIDE pool (gen 25's SHIELD_WIDE_HEIGHT, deleted with REVIEW_R2's gate),
-    # where Z6 and Z4 apply exactly as they did on the legacy pool; the legacy pool is reachable only at height 0,
-    # below every deleted gate, where the duplicate was historically admitted.
-    from execnode.stark import znote as _Z
-    from execnode.shielded_wide import depth_at as _depth_at
-    owner = _Z.to_hex(_Z.owner_of(7))
-    st = fresh(GATE)
-    assert st.apply_field_shield(1000, owner, 9).startswith("field-shield")
-    assert st.apply_field_shield(1000, owner, 9) == "skip field-shield: duplicate note commitment"
+def t_z6_the_legacy_pool_at_height_0_keeps_its_old_verdict():
+    # Z6 / Z4 / Z9 on the WIDE pool from block 1 retired in G9: generation 28's rules — from block 1 every field shield
+    # and transfer is the Stwo pool's (STWO_POOL_HEIGHT, inlined as 1), whose own tests pin duplicates, capacity and the
+    # exit address. The legacy pool is reachable only at height 0, below every deleted gate, where the duplicate was
+    # historically admitted.
     st_old = fresh(GATE - 1)
     assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield")
     assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield"), "height 0: the legacy pool admits the duplicate"
-    # Z4 at the depth IN FORCE at GATE (shielded_wide.depth_at): 48 from block 1 (12 only at height 0, where no wide
-    # deposit lands). Enter it first, then fill to THAT capacity — 2^48 leaves cannot be materialised, so a list that
-    # reports the full length, which is the one quantity the Z4 line (len(commitments) >= 1 << depth) reads. Real fills:
-    # tests/test_wide_pool_depth.py.
-    st = fresh(GATE)
-    st.wide_enter(GATE)
-    cap = st.wide_pool.capacity()
-    assert cap == 1 << _depth_at(GATE) == 1 << 48
-
-    class _FullTree(list):
-        def __len__(self):
-            return cap
-    st.wide_pool.commitments = _FullTree()
-    assert st.apply_field_shield(5, owner, 2) == "skip field-shield: the wide pool is full"
-
-
-def t_z9_field_exit_address_validated():
-    # From block 1 field transfers spend the WIDE pool (a joinsplit3 bundle); Z9 holds there, before the proof runs.
-    st = fresh(GATE)
-    bundle = {"stark": {"joinsplit3": {"proof": {}, "root": "0" * 64, "nf": "1" * 64, "cm_out1": "2" * 64,
-                                       "cm_out2": "3" * 64, "public_value": -5, "fee": 0}}, "withdraw_addr": "not-an-address"}
-    r = st.apply_field_transfer(bundle)
-    assert "withdraw_addr is not a spendable account" in r, r
-    legacy = {"stark": {"joinsplit2": {"proof": {}, "root": "0", "nf": "1", "cm_out1": "2", "cm_out2": "3",
-                                       "public_value": -5, "fee": 0}}, "withdraw_addr": "not-an-address"}
-    assert "joinsplit3" in st.apply_field_transfer(legacy), "the legacy bundle is refused outright from block 1"
 
 
 # ---- S4 the DA-carried proven marker -------------------------------------------------------------------------

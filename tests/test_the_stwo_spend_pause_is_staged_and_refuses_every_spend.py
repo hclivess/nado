@@ -45,7 +45,6 @@ import execnode.stark as _stk
 _stk.stwo_js_native = fake
 
 GATE, PAUSE = 1000, 1100
-P.STWO_POOL_HEIGHT = GATE
 nsk = "11" * 32
 owner = SP.owner_of(nsk)
 DEST = make_address("ab" * 1312)

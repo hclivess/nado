@@ -11,7 +11,7 @@
                       aux = BLAKE2s-256(b"NADO/stwo-js/aux/v1\\0" || dest.encode()) (lib.rs aux_of)
 
   height              the L1 height the spend lands at: it selects the node config the proof must carry
-                      (config_id_at, protocol STWO_JS_128_HEIGHT)
+                      (config_id_at; gen 28's STWO_JS_128_HEIGHT, 1 from gen 29)
 
 The PcsConfig is NOT the prover's to choose: the crate pins one config per id (lib.rs NODE_CFGS — NODE_CFG_340: log_blowup
 2, 160 queries, 20 pow bits; NODE_CFG_128: 56 queries), the HEIGHT picks the id, and a proof that carries any other
@@ -36,7 +36,7 @@ from execnode.stark.native_guard import NativeMissing, is_stale
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CRATE_DIR = os.path.join(_REPO, "native", "stwo_js")
 DEFAULT_SO = os.path.join(CRATE_DIR, "target", "release", "libnado_stwo_js.so")
-ABI_VERSION = 2                     # 2: verify and config take a node config id (STWO_JS_128_HEIGHT)
+ABI_VERSION = 2                     # 2: verify and config take a node config id (config_id_at)
 # lib.rs NODE_CFG_340 / NODE_CFG_128
 CFG_340, CFG_128 = 0, 1
 _U64 = 1 << 64
@@ -112,10 +112,10 @@ def _digest(h):
 
 
 def config_id_at(height) -> int:
-    """The node config a spend landing at L1 `height` must be proven at (protocol STWO_JS_128_HEIGHT). A pure function of
-    the height, so every node and the wallet agree on it; the prover never chooses."""
-    from protocol import STWO_JS_128_HEIGHT
-    return CFG_128 if int(height) >= int(STWO_JS_128_HEIGHT) else CFG_340
+    """The node config a spend landing at L1 `height` must be proven at. A pure function of the height, so every node and
+    the wallet agree on it; the prover never chooses. STWO_JS_128_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9):
+    CFG_128 from block 1; `>= 1` kept because height 0 was below it (CFG_340), and a future config change keys here."""
+    return CFG_128 if int(height) >= 1 else CFG_340
 
 
 def verify(proof: bytes, root: str, nf: str, cm1: str, cm2: str, unshield: int, fee: int, dest: str, height):

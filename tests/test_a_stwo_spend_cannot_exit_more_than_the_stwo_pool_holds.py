@@ -34,23 +34,23 @@ def check(name, ok, detail=""):
     fails += 0 if ok else 1
 
 
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP, exec_root as ER
 from execnode.stark import stwo_js_native
 from ops.address_ops import make_address
 
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 DEST = make_address("cd" * 1312)
 rh = lambda: secrets.token_hex(32)
 
 
 def fresh(name, stwo_deposits):
-    """A state with value in the frozen wide pool (deposited below the gate) and `stwo_deposits` Stwo notes."""
+    """A state with value in another (frozen) pool and `stwo_deposits` Stwo notes. The other pool's note is deposited at
+    height 0, the only height below the Stwo pool since G9 inlined STWO_POOL_HEIGHT as block 1 (it lands in the legacy
+    field pool there); generation 28 put a wide note below its gate instead — the cap must hold against either."""
     s = ExecState(os.path.join(_T, name))
-    s.cursor = 5
-    r = s.apply_field_shield(10 ** 12, rh(), 1)                     # a wide note: value pool_value counts, Stwo must not reach
+    s.cursor = -1
+    r = s.apply_field_shield(10 ** 12, 7, 1)                        # a non-Stwo note: value pool_value counts, Stwo must not reach
     assert "skip" not in r, r
     s.cursor = GATE - 1
     for (v, owner, rho) in stwo_deposits:

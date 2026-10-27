@@ -1,4 +1,5 @@
-/* A Stwo spend is proven at the node config of the height it lands at (protocol STWO_JS_128_HEIGHT;
+/* A Stwo spend is proven at the node config of the height it lands at (gen 28's STWO_JS_128_HEIGHT, 1 from gen 29,
+ * inlined in G9: CFG_128 from block 1, CFG_340 only at height 0;
  * static/interface.js stwoCfgId, static/stark/stwo_js.js proveSpend / proveWith, static/stark/stwo_worker.js).
  *
  * A node verifies a spend at the config its landing height selects (execnode/stark/stwo_js_native.config_id_at) and
@@ -6,10 +7,10 @@
  * (400) and the user is told the proof does not verify. The wallet picks the config the same way stwoFeeToLive picks
  * the fee_to rule: from the pool tip + 1, the block the spend can land in.
  *
- * Pins, by RUNNING the wallet's own code: stwoCfgId is CFG_340 below the gate, CFG_128 from it (and at gate 1, every
- * block of a fresh generation); proveSpend refuses a spend that names no config, and hands the named one to the prover
+ * Pins, by RUNNING the wallet's own code: stwoCfgId is CFG_128 for every spend landing in block 1 or later (generation
+ * 28's gate-below / gate-at pins retired in G9); proveSpend refuses a spend that names no config, and hands the named one to the prover
  * (the `run` hook the Worker path takes); proveWith selects it in the WASM core before proving and self-verifying;
- * the worker forwards `cfg` from its message; and the page imports the gate from /protocol.js.
+ * the worker forwards `cfg` from its message; and the page no longer imports the retired gate.
  *
  * Run: node tests/test_a_stwo_spend_proves_at_the_config_of_the_height_it_lands_at.mjs
  */
@@ -28,17 +29,14 @@ const S = await import(pathToFileURL(path.join(ROOT, "static", "stark", "stwo_js
 check("the driver names the two node configs as the crate does (lib.rs NODE_CFG_340 = 0, NODE_CFG_128 = 1)",
   S.CFG_340 === 0 && S.CFG_128 === 1 && S.ABI_VERSION === 2, JSON.stringify([S.CFG_340, S.CFG_128, S.ABI_VERSION]));
 
-// ---- stwoCfgId, run with the tip and the gate stubbed ---------------------------------------------------------------
+// ---- stwoCfgId, run with the tip stubbed ------------------------------------------------------------------------------
 const m = SRC.match(/function stwoCfgId\(\) \{[^\n]*\}/);
 check("interface.js defines stwoCfgId", !!m);
-const cfgAt = (tip, gate) => new Function("STWO_JS_128_HEIGHT", "_shieldTip", "_stwo", m[0] + "\nreturn stwoCfgId();")(gate, tip, S);
-const G = 4611686018427387904n;                       // 2^62: the gate on generation 28 (dormant), a BigInt in /protocol.js
-check("on generation 28 (gate 2^62) every spend proves at 340", cfgAt(376000, G) === S.CFG_340 && cfgAt(0, G) === S.CFG_340);
-check("on a fresh generation (gate 1) the first block's spend already proves at 128", cfgAt(0, 1) === S.CFG_128);
-check("at a real gate: the block before it proves at 340, the gate's own block at 128",
-  cfgAt(998, 1000) === S.CFG_340 && cfgAt(999, 1000) === S.CFG_128 && cfgAt(5000, 1000) === S.CFG_128);
-check("the page imports the gate from /protocol.js (never a hard-coded height)",
-  /STWO_JS_128_HEIGHT \} from "\/protocol\.js"/.test(SRC) || /STWO_JS_128_HEIGHT\s*\}\s*from\s*"\/protocol\.js"/.test(SRC));
+const cfgAt = (tip) => new Function("_shieldTip", "_stwo", m[0] + "\nreturn stwoCfgId();")(tip, S);
+check("the first block's spend already proves at 128", cfgAt(0) === S.CFG_128);
+check("...and every later one", cfgAt(999) === S.CFG_128 && cfgAt(376000) === S.CFG_128);
+check("the page no longer imports the retired gate from /protocol.js", !/STWO_JS_128_HEIGHT[\s,]*\}?\s*from\s*"\/protocol\.js"/.test(SRC)
+  && !/import \{[^}]*STWO_JS_128_HEIGHT/.test(SRC));
 check("the wallet's spend passes stwoCfgId() to proveSpend", /cfg: stwoCfgId\(\)/.test(SRC));
 
 // ---- proveSpend: refuses a spend without a config, hands the named one to the prover ----------------------------------

@@ -1657,6 +1657,11 @@ def split_open_block_reward(reward: int):
 #   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
 #                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
+# GEN-28 GATES INLINED IN G9 (gen 29; each group replayed the live betanet-10 chain through 7608 and matched main):
+#   the shielded pools (x = 1)       STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT:
+#                                    `>= 1` kept in transaction_ops.field_shield_check (mempool on a genesis tip — no shape
+#                                    check at 0), ExecState.rules_stwo_pool / rules_stwo_fee_to and execnode's
+#                                    _stwo_pool_next / fee_to check (cursor -1), stwo_js_native.config_id_at (0 -> CFG_340)
 # GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
 #                                    only challengers' own acts, never the enrollee's tpm_commit),
 #                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
@@ -1678,12 +1683,6 @@ def split_open_block_reward(reward: int):
 #                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 #                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
-#                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
-#                                    deposits; it held none, so the Stwo gate can freeze nothing)
-#                                    STWO_POOL_HEIGHT (269000 -> 1: the Stwo shielded pool is ON after the in-house
-#                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
-#                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
-#                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
 #                                    EXEC_BUDGET_V2_HEIGHT (285000 -> 1: a reverting or raising exec call counts
 #                                    its steps against the block's execution budget, so reverts cannot escape it,
 #                                    and no sender may use more than EXEC_SENDER_STEP_SHARE of a block's budget)
@@ -1697,8 +1696,6 @@ def split_open_block_reward(reward: int):
 #                                    MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES bytes, built or validated)
 #                                    AGREED_TIME_SEATS_HEIGHT (2^62, DORMANT on gen 28 -> 1: the certificate clock's
 #                                    median weighs duty-committee seats, not distinct senders)
-#                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
-#                                    the 128-bit node config — 56 queries, not 160; 2.5x smaller proofs)
 # KEYED ON GENERATION 29 (live on betanet-10):
 #                                    EXEC_ADDR_ROOT_HEIGHT (8500, exec cursor; -> 1: the zkvm digest registry is committed in
 #                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
@@ -2179,22 +2176,12 @@ REGISTRY_SNAPSHOT_HEIGHT = 135300 if CHAIN_GENERATION == 28 else 1
 # Weights of epochs before it are unchanged: no back-pay (operator, 2026-10-10). The first block of epoch 2667.
 CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
 
-# THE STWO SHIELDED POOL (doc/stwo-migration.md §5.1; execnode/shielded_stwo.py, native/stwo_js). From this height
-# deposits land in the Stwo pool and only a `stwo_js` bundle spends from it. ON from 269000 (operator, 2026-10-11: "you
-# are the only one who will review it"): the in-house adversarial review (soundness, zero knowledge, integration —
-# doc/stwo-migration.md §5.1 "Review 2026-10-11") came back with every reproduced finding fixed, and spends reach the
-# chain through node relays so no spend names its spender. Chosen after WIDE_DEPOSIT_CLOSE_HEIGHT fired (the wide pool
-# measured empty for good) and with every node reporting native/stwo_js ok — a node without it STALLS at the first
-# Stwo spend (execnode._apply_block), it never skips one. `else 1`: a reroll starts with the pool live.
-STWO_POOL_HEIGHT = 269000 if CHAIN_GENERATION == 28 else 1
-# THE WIDE POOL TAKES NO NEW DEPOSITS (review 2026-10-11, gate blocker 2 of doc/stwo-migration.md §5.1). From
-# STWO_POOL_HEIGHT only a `stwo_js` bundle spends, so a wide note deposited before that gate could never move again, and
-# reopening wide spends after it would expose the escrow the two pools share to the old Goldilocks verifier. The wide
-# pool has never held a note (0 at 2026-10-11), so closing its deposits well ahead of the Stwo gate keeps it provably
-# empty: nothing can be frozen, and no wide verifier stays reachable. Spends are untouched (there is nothing to spend).
-# `else 1`: a reroll starts with the wide pool closed — its deposits return only through the Stwo pool's gate.
-# INVARIANT: STWO_POOL_HEIGHT, when set, is above this, and the wide pool is measured empty before that gate is set.
-WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
+# THE STWO SHIELDED POOL (doc/stwo-migration.md §5.1; execnode/shielded_stwo.py, native/stwo_js). Deposits land in the
+# Stwo pool and only a `stwo_js` bundle spends from it; a node without native/stwo_js STALLS at the first Stwo spend
+# (execnode._apply_block), it never skips one. The wide pool takes no new deposits: it never held a note, so nothing is
+# frozen and no wide verifier stays reachable. STWO_POOL_HEIGHT (269000 on gen 28, after the in-house review of
+# 2026-10-11/12) and WIDE_DEPOSIT_CLOSE_HEIGHT (175000 on gen 28) were 1 from gen 29 and were inlined in G9; the rules
+# hold from block 1 (transaction_ops.field_shield_check, ExecState.rules_stwo_pool).
 # THE LEGACY POOL TAKES NO NEW DEPOSITS (G9, 2026-10-27). The phase-1 BLAKE2b shielded pool (execnode/shielded.py) was
 # retired with the move to Stwo: its transfers are paused (PRIVACY_PAUSE) and the wallet no longer offers it, yet L1
 # still accepted a `shield` with `out_commitments` (no `field`) and the exec node added the notes, coins that could only
@@ -2203,31 +2190,22 @@ WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
 # deleted (doc/stwo-migration.md 9.7). A Stwo pool deposit (`field`) is unaffected. `else 1`: a reroll starts closed.
 LEGACY_SHIELD_CLOSE_HEIGHT = 10000 if CHAIN_GENERATION == 29 else 1   # L1 was at 7798 when this shipped (2026-10-27)
 
-# A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). Below this a spend's `fee` stays in the escrow as
-# pool_fees and its one bound address is the unshield payout — so a relay could only be paid by the payout itself, and a
-# withdrawal to any OTHER address (a fresh per-dApp "shadow" account) had to be signed by the user's own account,
-# re-linking it. From this height a bundle may carry `fee_to`: the proof is bound to the destination string
-# "<withdraw_addr>|fee:<fee_to>" (the circuit's aux is BLAKE2s of that string, so neither address can be swapped and a
-# copied bundle cannot redirect the fee), and the fee is recorded as an unshield exit to `fee_to` instead of pool_fees.
-# Execnode/shielded_stwo.parse_transfer reads it; ExecState.rules_stwo_fee_to gates it. No circuit or WASM change.
-# `else 1`: live from block 1 after a reroll.
-STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
+# A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). A bundle may carry `fee_to`: the proof is bound
+# to the destination string "<withdraw_addr>|fee:<fee_to>" (the circuit's aux is BLAKE2s of that string, so neither
+# address can be swapped and a copied bundle cannot redirect the fee), and the fee is recorded as an unshield exit to
+# `fee_to` instead of pool_fees — so a relay is paid by `fee` and the payout goes to any (shadow) address without the
+# user's own account signing. execnode/shielded_stwo.parse_transfer reads it; ExecState.rules_stwo_fee_to allows it.
+# STWO_FEE_TO_HEIGHT (280000 on gen 28, 1 from gen 29) was inlined in G9.
 
 # PRIVATE SENDS PROVE AT 128 BITS, NOT 340 (operator decision 2026-10-26). A Stwo spend's proof must carry the node
-# config this height selects (execnode/stark/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS): below it
-# NODE_CFG_340 (log_blowup 2, 160 queries, 20 grinding bits), from it NODE_CFG_128 (56 queries plus a 16-bit grind
-# before the OODS point). By execnode/stark/soundness.py (E = 124 for QM31) the FRI query terms are 333.7 and 129.8 bits
-# conjectured (113.4 / 75.9 provable), but the DEEP/OODS term (~124 - log_comp = ~113) caps the 340 config near 113;
-# the grind lifts it to ~129 on the 128 config, so its overall figure is ~129 conjectured (2026-10-27 incident survey;
-# upstream starkware-libs/proving f0bf0195).
-# 340 bought nothing at the system level: the settlement proofs that guard the same coins run at 128 (125.9 by that model,
-# doc/stwo/g4-settlement-statement.md), and an attacker forges the weakest proof. A proof at the OTHER config is refused
-# even though that config is otherwise valid: the height chooses, never the prover. Measured 2026-10-26: proofs 1.12-1.14 MB
-# vs 2.90-2.92 MB, native verify 8 ms vs 15 ms, the wallet's WASM 0.9-1.4 s vs 1.7 s (doc/stwo/phase0-results.md).
-# The wallet proves at the config of the block its spend lands in
-# (static/interface.js stwoCfgId). `else 1`: live from block 1 after a reroll — the pool is empty at the carry, so no
-# proof made at the old config is ever owed verification on the new chain.
-STWO_JS_128_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# config its landing height selects (execnode/stark/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS):
+# NODE_CFG_128 (56 queries plus a 16-bit grind before the OODS point) from block 1, NODE_CFG_340 only at height 0. By
+# execnode/stark/soundness.py (E = 124 for QM31) the 340 config was capped near 113 bits by its DEEP/OODS term; the
+# grind lifts the 128 config to ~129 conjectured (2026-10-27 incident survey; upstream starkware-libs/proving f0bf0195),
+# matching the settlement proofs that guard the same coins (doc/stwo/g4-settlement-statement.md). A proof at the OTHER
+# config is refused: the height chooses, never the prover. Measured 2026-10-26: proofs 1.12-1.14 MB vs 2.90-2.92 MB,
+# native verify 8 ms vs 15 ms (doc/stwo/phase0-results.md). The wallet proves at CFG_128 (static/interface.js stwoCfgId).
+# STWO_JS_128_HEIGHT (dormant 2^62 on gen 28, 1 from gen 29) was inlined in G9.
 
 # THE CERTIFICATE CLOCK WEIGHS SEATS, NOT SENDERS (2026-10-27 incident survey; cometbft CSA-2026-001 "Tachyon").
 # ops/transaction_ops.agreed_time took one sample per distinct duty sender, so splitting stake into many B_MIN accounts
@@ -2806,14 +2784,12 @@ CLIENT_EXPORTS = (
     "BASE_SUBSIDY", "BOND_ELASTIC_MULT_BPS",
     "ALIAS_REGISTRATION_FEE", "AUTO_BOND_MIN_RAW", "AUTO_BOND_DEFAULT_PERCENT",
     "INVITE_MIN_TIMELOCK", "INVITE_MAX_TIMELOCK",
-    # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
-    # dormant, which /protocol.js carries as a BigInt
-    "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "CHAIN_GENERATION",
+    # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT and STWO_JS_128_HEIGHT were exported until G9
+    # inlined them: the wallet's Stwo pool, fee_to and 128-bit config are on from block 1, static/interface.js)
+    "CHAIN_GENERATION",
     # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
-    # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js, like STWO_POOL_HEIGHT)
+    # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js)
     "BLAKE_EXEC_HEIGHT",
     # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
     "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
-    # the wallet proves a Stwo spend at the node config of the block it lands in (static/interface.js stwoCfgId)
-    "STWO_JS_128_HEIGHT",
 )

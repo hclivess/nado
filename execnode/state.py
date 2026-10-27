@@ -1302,15 +1302,16 @@ class ExecState:
             _by = self.__dict__.setdefault("_block_steps_by", {})
             _by[sender] = _by.get(sender, 0) + g
 
+    # STWO_FEE_TO_HEIGHT and STWO_POOL_HEIGHT (gen 28's gates, 1 from gen 29, inlined in G9): the same `>= 1` as the
+    # helpers above, for the same reason — applying_height() is 0 for a state at cursor -1 applying genesis, where both
+    # were off; every live blob sits in a block >= 1. INVARIANT: never a height above 1 here again without a new gate.
     def rules_stwo_fee_to(self):
-        """A Stwo spend may name its fee's payee (protocol.STWO_FEE_TO_HEIGHT) in the block being applied."""
-        from protocol import STWO_FEE_TO_HEIGHT
-        return bool(STWO_FEE_TO_HEIGHT) and self.applying_height() >= STWO_FEE_TO_HEIGHT
+        """A Stwo spend may name its fee's payee in the block being applied (from block 1)."""
+        return self.applying_height() >= 1
 
     def rules_stwo_pool(self):
-        """The Stwo pool in force for the block being applied (protocol.STWO_POOL_HEIGHT; 0 = never)."""
-        from protocol import STWO_POOL_HEIGHT
-        return bool(STWO_POOL_HEIGHT) and self.applying_height() >= STWO_POOL_HEIGHT
+        """The Stwo pool in force for the block being applied (from block 1)."""
+        return self.applying_height() >= 1
 
     def _apply_stwo_shield(self, amount, owner, rho):
         """STWO_POOL_HEIGHT: the deposit's note in the Stwo pool, cm = shielded_stwo.commit(amount, owner, rho) computed

@@ -19,6 +19,11 @@ Properties:
     random rows and 8 randomizer columns, two proofs of one witness share no commitment, a tampered randomizer
     opening is refused, and a violated constraint is still refused with the randomizers present.
 
+RETIRED IN G9 (generation 28's rules): every pin that reaches the wide pool THROUGH THE EXEC STATE (deposits, transfers,
+L1 admission of a wide owner, the depth transition, capacity) — STWO_POOL_HEIGHT and WIDE_DEPOSIT_CLOSE_HEIGHT are
+inlined as block 1, so from block 1 the exec state routes every deposit and spend to the Stwo pool. The module- and
+circuit-level pins above that do not need that routing stay until the wide pool's code is deleted.
+
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_shielded_wide.py   (slow: real STARK proofs)
 """
 import os, tempfile
@@ -31,17 +36,14 @@ import sys, copy, json, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-# THE WIDE POOL IS ONLY EVER LIVE WITH THE STWO POOL OFF: from STWO_POOL_HEIGHT deposits land in the Stwo pool and only a
-# stwo_js bundle spends, so this file (heights up to 300,000) pins the Stwo gate off rather than read the live one.
-protocol.STWO_POOL_HEIGHT = 0
-# ...and the deposit close the wide pool lived under on generation 28. Its exits verify against the BLAKE2s exec root
-# (exec_root_b2 as ER): G9 deleted the Goldilocks one, and the exec state computes only BLAKE2s whatever the gate says.
+# THE WIDE POOL WAS ONLY EVER LIVE WITH THE STWO POOL OFF. STWO_POOL_HEIGHT and WIDE_DEPOSIT_CLOSE_HEIGHT were inlined
+# in G9 as block 1, so the exec state never routes a deposit or spend to the wide pool again: the pins that drove it
+# there are retired; what remains tests the wide pool's own module and circuit (deleted with it in a later slice).
 import _harness as _hg
-protocol.WIDE_DEPOSIT_CLOSE_HEIGHT = _hg.gate_at("WIDE_DEPOSIT_CLOSE_HEIGHT", 28)
 protocol.BLAKE_EXEC_HEIGHT = _hg.gate_at("BLAKE_EXEC_HEIGHT", 28)
 from execnode.state import ExecState
 from execnode.stark import znote as Z, joinsplit3 as J3, field as F, stark, alghash
-from execnode import shielded_wide as SW, shielded_field as SF, exec_root_b2 as ER
+from execnode import shielded_wide as SW, shielded_field as SF
 
 import _harness
 _report = _harness.Report()
@@ -104,42 +106,10 @@ def _deposit(st, nsk, amount, rho, h=H):
     return cm
 
 
-def t_deposit_lands_in_the_wide_pool():
-    st = _state()
-    cm = _deposit(st, NSK_A, 1000, 7)
-    assert not st.field_pool.commitments and st.pool_value == 1000
-    # at the depth in force for the deposit's block (SW.depth_at): 48 from block 1 and 12 at height 0; the default
-    # depth (a fresh pool) is the height-0 one
-    assert st.wide_pool.root() == SW.tree_root([cm], SW.depth_at(H))
-    # the root now carries the wide records, and the snapshot round-trips them
-    assert st.state_root() != ER.state_root_hex({}, _state())
-    snap = st._snapshot(); assert "wide_pool" in snap
-    st2 = _state(); st2._restore(json.loads(json.dumps(snap)))
-    assert st2.wide_pool.root() == st.wide_pool.root() and st2.state_root() == st.state_root()
-    # a malformed owner (the legacy int form) is skipped by the exec layer...
-    n = len(st.wide_pool.commitments)
-    _apply(st, H + 1, [_shield_tx(5, str(alghash.owner_of(NSK_A)), 9)])
-    assert len(st.wide_pool.commitments) == n
+# t_deposit_lands_in_the_wide_pool: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
-def t_l1_admission_pins_the_owner_shape():
-    # DRIVEN, NOT GREPPED. This used to assert on the branch's SOURCE TEXT, which stayed green for a day while the
-    # branch read an unbound `h` and raised on every field shield (2026-09-24). Call the real check instead.
-    from ops.transaction_ops import field_shield_check
-    field_shield_check({"field": True, "owner": Z.to_hex(Z.owner_of(NSK_A)), "rho": "5"}, 10)
-    try:
-        field_shield_check({"field": True, "owner": str(alghash.owner_of(NSK_A)), "rho": "5"}, 10)
-        raise RuntimeError("a legacy-shaped owner was admitted under the wide rule")
-    except AssertionError:
-        pass
-    # the check itself, driven directly: a wide owner parses, the legacy int form does not
-    Z.from_hex(Z.to_hex(Z.owner_of(NSK_A)))
-    refused = False
-    try:
-        Z.from_hex(str(alghash.owner_of(NSK_A)))
-    except ValueError:
-        refused = True
-    assert refused, "an int owner must not parse as a digest"
+# t_l1_admission_pins_the_owner_shape: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
 def _prove(st, nsk, cm, v_in, rho_in, v1, o1, r1, v2, o2, r2, pv, fee, addr=None):
@@ -149,52 +119,10 @@ def _prove(st, nsk, cm, v_in, rho_in, v1, o1, r1, v2, o2, r2, pv, fee, addr=None
     return bundle
 
 
-def t_wide_transfer_and_unshield_apply_end_to_end():
-    st = _state()
-    cm = _deposit(st, NSK_A, 1000, 7)
-    oa, ob = Z.owner_of(NSK_A), Z.owner_of(NSK_B)
-    bundle = _prove(st, NSK_A, cm, 1000, 7, 600, ob, 11, 400, oa, 12, 0, 0)
-    js = bundle["stark"]["joinsplit3"]
-    pre_root = st.state_root()
-    _apply(st, H + 1, [_transfer_tx(bundle)])
-    assert st.wide_pool.has_nullifier(Z.from_hex(js["nf"])), "the nullifier is spent"
-    assert st.wide_pool.position(Z.from_hex(js["cm_out1"])) == 1 and st.wide_pool.position(Z.from_hex(js["cm_out2"])) == 2
-    assert st.pool_value == 1000 and st.state_root() != pre_root
-    # replay = double-spend, refused before any mutation
-    n_root = st.state_root()
-    _apply(st, H + 2, [_transfer_tx(bundle)])
-    assert st.state_root() == n_root and len(st.wide_pool.commitments) == 3
-    # Bob spends his 600: 250 to Alice, 350 change, and Alice unshields her 400 change note to BOB's L1 address
-    cm_b = Z.from_hex(js["cm_out1"])
-    b2 = _prove(st, NSK_B, cm_b, 600, 11, 250, oa, 21, 350, ob, 22, 0, 0)
-    cm_a = Z.from_hex(js["cm_out2"])
-    b3 = _prove(st, NSK_A, cm_a, 400, 12, 0, oa, 31, 0, oa, 32, -400, 0, addr=BOB)
-    _apply(st, H + 3, [_transfer_tx(b2), _transfer_tx(b3)])
-    assert len(st.wide_pool.commitments) == 7 and len(st.wide_pool.nullifiers) == 3
-    assert st.pool_value == 600 and st.unshield_withdrawals == {"1": {"addr": BOB, "amount": 400}}
-    proof, root = st.record_proof_at(None, ER.T_UNSHIELD_WD, BOB, "1", value=400)
-    assert root == st.state_root() and ER.verify_unshield(root, BOB, 400, "1", proof), "the exit is provable"
-    # the wide pool state survives a save/load with an identical root
-    st.save(); st2 = ExecState(path=st.path)
-    assert st2.wide_pool.root() == st.wide_pool.root() and st2.state_root() == st.state_root()
-    # a bundle redirected to another destination is refused (the address rides the transcript)
-    bad = copy.deepcopy(b3); bad["withdraw_addr"] = ALICE
-    r = st.apply_blob({"op": "field_transfer", "bundle_json": json.dumps(bad, default=str)}, ALICE, "x")
-    assert r.startswith("skip"), r
-    # an exit to a non-address is refused before the proof runs
-    bad = copy.deepcopy(b3); bad["withdraw_addr"] = "faucet"
-    assert "spendable" in st.apply_blob({"op": "field_transfer", "bundle_json": json.dumps(bad, default=str)}, ALICE, "y")
+# t_wide_transfer_and_unshield_apply_end_to_end: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
-def t_bundle_kinds_flip_at_the_gate():
-    # a joinsplit2 bundle from block 1, a joinsplit3 bundle at height 0: both refused without running a proof
-    st = _state()
-    st._applying = H
-    r = st.apply_field_transfer({"stark": {"joinsplit2": {"proof": {}, "root": 1, "nf": 1, "cm_out1": 1, "cm_out2": 1, "public_value": 0, "fee": 0}}})
-    assert "joinsplit3 bundle" in r, r
-    st = _state(); st._applying = 0
-    r = st.apply_field_transfer({"stark": {"joinsplit3": {"proof": {}, "root": "0" * 64, "nf": "0" * 64, "cm_out1": "0" * 64, "cm_out2": "0" * 64, "public_value": 0, "fee": 0}}})
-    assert "not live before" in r, r
+# t_bundle_kinds_flip_at_the_gate: retired in G9: generation 28's rules (the wide pool reached through the exec state; STWO_POOL_HEIGHT is block 1)
 
 
 def t_circuit_soundness():

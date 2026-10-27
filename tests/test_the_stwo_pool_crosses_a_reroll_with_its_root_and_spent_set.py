@@ -65,8 +65,7 @@ from execnode import exec_genesis as EG, exec_root as ER, shielded_stwo as SP
 from ops import invariants as INV
 import tools.alphanet6_carryforward as C
 
-GATE = 182_000
-P.STWO_POOL_HEIGHT = GATE
+GATE = 182_000                           # a test height on the old chain (the pool holds from block 1)
 own = SP.owner_of("11" * 32)
 
 # ---- the old chain: seven deposits over three blocks, two of the notes spent (pool.spend, as the transfer does) ----
@@ -169,7 +168,6 @@ check("...loading twice is a no-op", not EG.apply(new))
 
 # ---- 5. anchors and the first append on the new chain ----
 new.cursor = 0                           # block 1 of the new chain
-P.STWO_POOL_HEIGHT = 1                   # a fresh generation: `STWO_POOL_HEIGHT = ... else 1`
 check("5. the carried root is a spend anchor at the new chain's first block",
       new.stwo_pool.knows_root(old.stwo_pool.root(), 1))
 r = new.apply_field_shield(29, own, 999)

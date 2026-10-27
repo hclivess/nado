@@ -22,7 +22,7 @@ import * as P from "/protocol.js";
 import { EPOCH_LENGTH, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_TARGET_MARGIN, MSIG_PREFIX, DOMAIN_ADDRESS_V2,
          DOMAIN_MSIG, DOMAIN_REGISTER, DOMAIN_RANDAO_COMMIT, MIN_TX_FEE, TX_INCLUSION_DELAY, TX_TARGET_MARGIN,
          BOND_UNLOCK_DELAY, ALIAS_REGISTRATION_FEE, FIDELITY_CAP, TREASURY_BPS, OPEN_TIP_BPS, BONDED_DIVIDEND_BPS,
-         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK, STWO_POOL_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT } from "/protocol.js";
+         INVITE_MIN_TIMELOCK, INVITE_MAX_TIMELOCK } from "/protocol.js";
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import { share as sdkShare, autoEnhanceSelects } from "./nadodapp.js";   // THE one share implementation (SDK) + the shared select picker
 import { flagSvg, ccBadge } from "./flags.js";   // drawn country flags (emoji flags do not render on Windows)
@@ -389,7 +389,7 @@ function masterSeedOf() { return state.masterSeed || (state.wallet && state.wall
 // ---- SHADOW ACCOUNTS: one private account per dApp, unlinkable to this wallet (2026-10-18) ------------------------
 // "Play privately" for a game signs that game's requests with an account derived from the MASTER seed and the game's
 // origin — so the recovery phrase restores it, every game sees a different player, and nothing on chain ties it to
-// this wallet: it is FUNDED from the Stwo pool by a relayed spend (protocol STWO_FEE_TO_HEIGHT: the relay is paid by
+// this wallet: it is FUNDED from the Stwo pool by a relayed spend (a spend's fee_to: the relay is paid by
 // the spend's fee, the payout goes to the shadow address) and RETURNS to the pool by its own deposit. Its activity is
 // public (it is an ordinary account); the link to the wallet is what is hidden. Wallet-only derivation, like the HD
 // accounts above; the seed never leaves the device.
@@ -10627,20 +10627,20 @@ function wireAutoVoteToggle() {
  * which note is whose.
  * -------------------------------------------------------------------------------------------- */
 // ONE POOL (G6, doc/stwo-migration.md §9.5). The legacy, field and wide pools are closed and were measured EMPTY on the
-// live chain (2026-10-25: 0 commitments, pool_value 0), their deposits refused by L1 (PRIVACY_PAUSE_HEIGHT,
-// WIDE_DEPOSIT_CLOSE_HEIGHT) and their spends by the exec layer from STWO_POOL_HEIGHT, and a reroll refuses to carry a
+// live chain (2026-10-25: 0 commitments, pool_value 0), their deposits refused by L1 and their spends by the exec layer
+// from block 1 (gen 28's PRIVACY_PAUSE / WIDE_DEPOSIT_CLOSE / STWO_POOL gates, inlined), and a reroll refuses to carry a
 // note in any of them. So the wallet builds Stwo notes and proofs only: no alghash2, no joinsplit2/3, no proof_rules.
 // INVARIANT: never reintroduce a fallback to another pool — a deposit escrowed under another pool's owner lands in the
 // Stwo pool where no key can ever spend it.
 let _shieldTip = 0;
 function ensureShielded() {}                      // kept for its callers: the Stwo module loads in refreshShieldRules
-/* THE GATE (protocol STWO_POOL_HEIGHT, read from /protocol.js — the relay's own protocol module). Live on gen 28 since
- * 269000 and from block 1 on a reroll; a fresh testnet below it has no pool open, and the wallet says so (shieldPaused)
- * exactly as the node refuses. Judged at tip + 1, because a note or proof built now lands in a later block. */
+/* THE GATE: the Stwo pool is live from block 1 (gen 28's STWO_POOL_HEIGHT, 1 from gen 29, inlined in G9 — no longer in
+ * /protocol.js). Judged at tip + 1, because a note or proof built now lands in a later block; BigInt() keeps the old
+ * verdict on a tip that is not a number (it throws, and refreshShieldRules keeps what it knew). INVARIANT: the same
+ * height the node uses (ExecState.rules_stwo_pool, execnode._stwo_pool_next). */
 let _stwoGate = false, _stwo = null;
 function stwoGateLive(tip) {
-  const g = BigInt(STWO_POOL_HEIGHT || 0);      // BigInt(): it was a BigInt in /protocol.js while dormant (2^62 > 2^53)
-  return g > 0n && BigInt(tip) + 1n >= g;
+  return BigInt(tip) + 1n >= 1n;
 }
 async function _refreshStwo(tip) {
   _stwoGate = stwoGateLive(tip);
@@ -11021,12 +11021,14 @@ async function shieldDeposit(rawAmount, signer) {
 }
 
 // ---- SHADOW ACCOUNTS: fund, collect, return (see shadowKeypair) ----------------------------------------------------
-// whether a relay may be paid by a spend's fee in the block a spend lands in (protocol STWO_FEE_TO_HEIGHT)
-function stwoFeeToLive() { const g = BigInt(STWO_FEE_TO_HEIGHT || 0); return g > 0n && BigInt(_shieldTip || 0) + 1n >= g; }
-// the node config a spend is proven at: the one of the block it lands in (protocol STWO_JS_128_HEIGHT — 56 queries from
-// the gate, 160 below it). The node picks it from the height and refuses a proof at the other, so the wallet must match;
+// whether a relay may be paid by a spend's fee in the block a spend lands in: from block 1 (gen 28's STWO_FEE_TO_HEIGHT,
+// 1 from gen 29, inlined in G9; the node's ExecState.rules_stwo_fee_to)
+function stwoFeeToLive() { return BigInt(_shieldTip || 0) + 1n >= 1n; }
+// the node config a spend is proven at: the one of the block it lands in — CFG_128 (56 queries) from block 1, CFG_340
+// only at height 0 (gen 28's STWO_JS_128_HEIGHT, 1 from gen 29, inlined in G9; stwo_js_native.config_id_at). The node
+// picks it from the height and refuses a proof at the other, so the wallet must match;
 // tests/test_a_stwo_spend_proves_at_the_config_of_the_height_it_lands_at.mjs.
-function stwoCfgId() { const g = BigInt(STWO_JS_128_HEIGHT || 0); return g > 0n && BigInt(_shieldTip || 0) + 1n >= g ? _stwo.CFG_128 : _stwo.CFG_340; }
+function stwoCfgId() { return BigInt(_shieldTip || 0) + 1n >= 1n ? _stwo.CFG_128 : _stwo.CFG_340; }
 // FUND a game's shadow account from this wallet's private balance: one relayed spend per banknote, each paying the
 // relay by its fee (fee_to) and sending the rest of the amount to the shadow address. Nothing is signed by this
 // account or by the shadow account; the shadow account then claims its exits itself (shadowClaimAll).

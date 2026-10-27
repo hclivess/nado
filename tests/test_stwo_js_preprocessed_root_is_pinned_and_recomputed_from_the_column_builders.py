@@ -70,8 +70,7 @@ if not exe or not so:
     sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
 from execnode.stark import stwo_js_native as SJ
-import protocol as PROTO
-HEIGHT = {0: 0, 1: int(PROTO.STWO_JS_128_HEIGHT)}            # a height that selects each config
+HEIGHT = {0: 0, 1: 1}            # a height that selects each config (stwo_js_native.config_id_at)
 
 for cfg, pin in PINS.items():
     r1 = subprocess.run([exe, "preroot", str(cfg)], capture_output=True, text=True, timeout=600)

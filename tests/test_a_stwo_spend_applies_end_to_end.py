@@ -40,7 +40,6 @@ if not so or not exe:
     print("FAIL  build", (log or "")[-500:], (plog or "")[-500:]); sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
 
-import protocol as P
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
@@ -63,7 +62,6 @@ nsk = w(0x12345678, 0x9ABCDEF0, 0x0F0F0F0F, 0xDEADBEEF, 0x0BADF00D, 0x77777777, 
 v_in, rho = 0x0123456789ABCDEF & ((1 << 61) - 1), 0x5EED5EED5EED
 
 GATE = 1000
-P.STWO_POOL_HEIGHT = GATE
 st = ExecState(os.path.join(_T, "s.json"))
 st.cursor = GATE - 1
 for i in range(10):
