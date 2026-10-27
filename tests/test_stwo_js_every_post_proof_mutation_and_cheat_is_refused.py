@@ -122,6 +122,27 @@ for CFG, HEIGHT in ((SJ.CFG_340, 0), (SJ.CFG_128, int(PROTO.STWO_JS_128_HEIGHT))
     ht = dict(kv.split("=") for kv in (s.get("honest-timing") or "rc=1").split())
     print(f"      [cfg {CFG}] honest proof {int(ht.get('bytes', 0)):,} bytes, native verify {ht.get('ms')} ms")
 
+    # THE FREE-CELL PROBE (Cheat::Flip; Zcash Orchard's counterfeiting bug, live 2022-2026, was one unconstrained witness
+    # cell): one real-row cell tampered in EVERY original-trace column of JS and ROUND plus the XOR multiplicity column,
+    # each proven by a prover that skips its own checks. None may verify. A probe the pipeline cannot even prove
+    # (prover-refused / -panicked) is counted, not passed: most must reach the verifier for this to mean anything.
+    # The three by-design classes (held-register range pieces probed on row 0, carry helpers probed with +2, ZK blinding
+    # excluded by count) are explained in the harness, stwo_js_attack.rs "flip".
+    fl = cases(CFG, "flip")
+    wd = fl.pop("widths", "")
+    ex = dict(kv.split("=") for kv in fl.pop("excluded", "").split())
+    probes = {k: v for k, v in fl.items() if k.startswith("flip-")}
+    accepted = sorted(k for k, v in probes.items() if v == "rc=0")
+    verified = [k for k, v in probes.items() if v in ("rc=2", "rc=3", "rc=4")]
+    widths = {k: int(v) for k, v in (x.split("=") for x in wd.split())}
+    check(f"[cfg {CFG}] every witness column was probed but the 12 blinding columns ({wd}; {len(probes)} probes)",
+          bool(wd) and ex.get("js_blind") == "4" and ex.get("round_blind") == "8" and ex.get("carry_plus2") == "32"
+          and len(probes) == widths["js"] + widths["round"] - 12 + 1, (wd, ex, len(probes)))
+    check(f"[cfg {CFG}] no tampered witness cell yields an accepted proof (no free cell)", not accepted, accepted)
+    check(f"[cfg {CFG}] ...and at least 90 % of the probes reached the verifier and were refused there",
+          len(verified) * 10 >= len(probes) * 9,
+          (len(verified), len(probes), sorted({v for v in probes.values() if v not in ("rc=2", "rc=3", "rc=4")})[:5]))
+
     f = cases(CFG, "fuzz", "400")
     fz = f.get("fuzz", "")
     check(f"[cfg {CFG}] no single-bit flip or truncation of an honest proof is accepted (one proof, one encoding)",

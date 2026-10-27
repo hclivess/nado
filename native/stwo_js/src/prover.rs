@@ -519,6 +519,12 @@ pub enum Cheat {
     /// lookup vanishes) and claimed sums that cancel the public LogUp sum: before the preprocessed root was pinned
     /// (lib.rs NODE_PREPROCESSED_ROOT, review 2026-10-11) this verified for ANY public inputs. A forgery, test-only.
     ZeroPre,
+    /// THE FREE-CELL PROBE (2026-10-27 incident survey: Zcash Orchard's counterfeiting bug was one witness cell the
+    /// circuit never constrained, live 2022-2026). Add `delta` to one cell of a REAL row — `comp` 0 = JS, 1 = ROUND, 2 = the
+    /// XOR multiplicity column — BEFORE the lookup entries and the interaction trace are derived, so everything
+    /// downstream is consistent with the tampered value and only the AIR's constraints and lookups can catch it. The
+    /// prover's own self-checks are skipped, as a malicious prover would skip them. Test-only (the attack harness).
+    Flip { comp: u8, col: u16, row: u16, delta: u32 },
 }
 /// Column of the first nibble piece of message word 0, low limb (its range check is an xor-table lookup).
 pub const JS_NIB0_COL: usize = JS_NSK_COL + JS_NREG + 1;
@@ -532,6 +538,18 @@ pub fn preprocessed_columns(sz: &Sizes) -> (Vec<Vec<BaseField>>, Vec<Vec<BaseFie
         to_storage(&plain_selectors(sz.log_round, R_ROUND), sz.log_round),
         to_storage(&xor_table_rows(sz.log_xor), sz.log_xor),
     )
+}
+
+/// The number of ORIGINAL-trace columns of the JS and ROUND components at `cfg`, read from the AIR itself
+/// (trace_locations), so the free-cell probe (Cheat::Flip) covers every column the circuit declares and cannot drift
+/// from it.
+pub fn witness_widths(cfg: PcsConfig) -> (usize, usize) {
+    let sz = Sizes::new(cfg.fri_config.n_queries);
+    let zero3 = [SecureField::zero(); 3];
+    let dummy = Comps::new(&sz, &Rel::dummy(), &zero3, true);
+    let js = &dummy.js.trace_locations()[ORIGINAL_TRACE_IDX];
+    let rd = &dummy.round.trace_locations()[ORIGINAL_TRACE_IDX];
+    (js.col_end - js.col_start, rd.col_end - rd.col_start)
 }
 
 /// The root of the preprocessed tree at `cfg`, recomputed from the column builders exactly as prove_js commits it.
@@ -594,6 +612,10 @@ pub fn prove_js_cheat(
         }
         js_r.push(row);
     }
+    if let Cheat::Flip { comp: 0, col, row, delta } = cheat {
+        let c = &mut js_r[row as usize][col as usize];
+        *c = ((*c as u64 + delta as u64) % ((1u64 << 31) - 1)) as u32;
+    }
     let js = to_storage(&js_r, sz.log_js);
     let js_r = js_r;
 
@@ -615,6 +637,10 @@ pub fn prove_js_cheat(
         }
         rd_r.push(row);
     }
+    if let Cheat::Flip { comp: 1, col, row, delta } = cheat {
+        let c = &mut rd_r[row as usize][col as usize];
+        *c = ((*c as u64 + delta as u64) % ((1u64 << 31) - 1)) as u32;
+    }
     let rd = to_storage(&rd_r, sz.log_round);
 
     let (sel_js, sel_rd, xt) = preprocessed_columns(&sz);
@@ -635,9 +661,20 @@ pub fn prove_js_cheat(
         if en.values[0] == m31(TAG_XOR) && en.mult.0 != 0 {
             assert_eq!(en.mult, m31(1));
             let [w_, a, b] = [en.values[1].0, en.values[2].0, en.values[3].0];
+            if matches!(cheat, Cheat::Flip { .. }) {
+                // a tampered cell may make a lookup that is not in the table: a malicious prover just leaves its
+                // multiplicity out (the LogUp argument is what must catch it)
+                let in_table = matches!(w_, 4 | 3 | 1) && a < (1 << w_) && b < (1 << w_) && en.values[4].0 == a ^ b;
+                if !in_table {
+                    continue;
+                }
+            }
             assert!(en.values[4].0 == a ^ b, "xor lookup not in table: {w_} {a} {b}");
             mult[xor_index_small(w_, a, b)] += 1;
         }
+    }
+    if let Cheat::Flip { comp: 2, row, delta, .. } = cheat {
+        mult[row as usize] += delta;
     }
     let xr: Vec<Vec<u32>> = (0..nx)
         .map(|r| {
@@ -707,7 +744,9 @@ pub fn prove_js_cheat(
     }
     let total: SecureField = claimed.iter().copied().sum::<SecureField>() + public_sum(&rel, &public);
     if !total.is_zero() {
-        return Err(ProveError::NotAJoinSplit("LogUp does not balance"));
+        if !matches!(cheat, Cheat::Flip { .. }) {
+            return Err(ProveError::NotAJoinSplit("LogUp does not balance"));
+        }
     }
     ch.mix_felts(&claimed);
     if check {

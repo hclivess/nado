@@ -100,6 +100,43 @@ fn main() {
                 Err(e) => println!("CASE cheat-{name} rc=prover-refused({e:?})"),
             }
         }
+    } else if mode == "flip" {
+        // THE FREE-CELL PROBE (Cheat::Flip; Zcash Orchard's bug class): one cell of a real row tampered in EVERY
+        // original-trace column of JS and ROUND, and the XOR multiplicity column, each proven by a prover that skips
+        // its own checks. Every one must be refused; an accepted one is a cell the circuit does not constrain.
+        // THREE COLUMN CLASSES ARE PROBED WHERE THEY BITE (the first run of 2026-10-27 accepted 68 +1 flips, every one in
+        // these classes, none changing a constrained value — each verified against the AIR):
+        //  - JS held-register range pieces (pv, fee, sm: the 36 columns before the blinding): range-checked on row 0
+        //    ONLY (s_first) because the registers are held equal on every real row (s_hold) — dead cells elsewhere, so
+        //    they are probed on row 0;
+        //  - ROUND add3 carry helpers (bl, bh of each add3: 64 + 98 g + {2, 3, 48, 49}): the carry is DERIVED from the sum
+        //    and pinned; the helper bit is non-unique when the carry is 1 (bl in {0,1} and cl - bl in {0,1} both hold), so a
+        //    +1 flip can be legal — they are probed with +2, which no constraint admits;
+        //  - ZK blinding columns (the last 4 of JS, the last 8 of ROUND): random by design, no part of the statement —
+        //    excluded, by exact count.
+        let (wj, wr) = witness_widths(cfg);
+        println!("CASE widths js={wj} round={wr}");
+        let (js_blind, rd_blind, js_held) = (4usize, 8usize, 12 * 3usize);
+        let carry = |c: usize| c >= 64 && c < wr - rd_blind && [2, 3, 48, 49].contains(&((c - 64) % 98));
+        let mut probes: Vec<(u8, usize, usize, u32)> = vec![];
+        for c in 0..wj - js_blind {
+            let row = if c >= wj - js_blind - js_held { 0 } else { (c * 37 + 5) % R_JS };
+            probes.push((0, c, row, 1));
+        }
+        for c in 0..wr - rd_blind {
+            probes.push((1, c, (c * 37 + 5) % R_ROUND, if carry(c) { 2 } else { 1 }));
+        }
+        probes.push((2, 0, 7 % R_XOR, 1));
+        println!("CASE excluded js_blind={js_blind} round_blind={rd_blind} carry_plus2={}", (0..wr).filter(|c| carry(*c)).count());
+        for (comp, col, row, delta) in probes {
+            let ch = Cheat::Flip { comp, col: col as u16, row: row as u16, delta };
+            let r = std::panic::catch_unwind(|| prove_js_cheat(&w, aux_of(dest), cfg, false, [17u8; 32], ch));
+            match r {
+                Ok(Ok((pc, prc, _))) => println!("CASE flip-{comp}-{col}-{row} rc={}", rc(&wire::encode(&prc), &pc, dest)),
+                Ok(Err(e)) => println!("CASE flip-{comp}-{col}-{row} rc=prover-refused({e:?})"),
+                Err(_) => println!("CASE flip-{comp}-{col}-{row} rc=prover-panicked"),
+            }
+        }
     } else if mode == "struct" {
         // structurally inconsistent proofs: each must be REFUSED (rc 2/3/4), never accepted, never abort the process
         case("queried1-drop-column", enc(&|q| { q.stark.0.queried_values[1].pop(); }));
