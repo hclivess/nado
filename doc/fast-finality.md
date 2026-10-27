@@ -49,27 +49,40 @@ What does not fit:
 - **The 80%/60% thresholds.** A second voting round costs NADO one round-trip, tens to a few hundred milliseconds,
   against 6-second blocks. Saving that round is not worth giving up a third of the fault tolerance.
 
-## 3. Proposal: two-round 2/3 votes per block, by the committee, kept off-chain
+## 3. Proposal: chained 2/3 votes every 10th block, by the committee, off-chain
 
-1. **Who votes:** the epoch's 128-seat committee, weighted by seats, as FFG already counts. The load stays constant in
-   the number of validators.
-2. **What:** after receiving block h, a seat holder signs `PREPARE(h, hash)`. On seeing prepares for more than 2/3 of
-   seats, it signs `COMMIT(h, hash)`. More than 2/3 of seats committing makes the block final. This is the classic two
-   rounds (Tendermint, HotStuff), with its 1/3 Byzantine bound.
-3. **Votes are gossip, not transactions.** Today's 17 voters at 5.5 KB each, twice per block, would add about 190 KB per
-   block. As transactions that is about 2.7 GB of chain per day; as gossip it is about 30 KB/s per node, and nothing is
-   stored once the block is final. The signatures still exist, so a node that sees two conflicting votes from one seat
-   holds portable evidence and submits it as today's slash transaction. That keeps the accountability a signature-free
-   design (Quantum Cadence, 2026-10) gives up, without putting certificates on-chain.
-4. **Effect on the floors:** a block with a commit certificate raises the rollback floor to its height. The epoch
-   checkpoint attestations stay on-chain unchanged, so a joining node, a wallet or the settlement verifier still checks
-   stake-backed finality from chain data alone. Fast finality is the live path; FFG remains the record and the
-   fallback.
-5. **Liveness:** with no certificate (a partition, under 2/3 of seats online) nothing changes: the depth floor and FFG
-   advance as today.
+PER-BLOCK FINALITY IS TOO EXPENSIVE, and storing the votes off-chain does not fix it: every vote still reaches every
+node. ML-DSA-44's 2,420-byte signature is the floor for each vote (it cannot be aggregated). Traffic per node:
 
-Expected result: a block final about one to two round-trips after it arrives, under a second on this fleet, against
-4.6 minutes (rollback floor) and 10.7 minutes (stake-backed) today.
+| variant | per node per day, 17 voters (today) | at 128 voters | finality |
+|---|---|---|---|
+| A: every block, 2 rounds, votes as transactions (5.5 KB) | 2.6 GB | 19.8 GB | ~1 s |
+| B: every block, 2 rounds, bare votes (2.5 KB) | 1.2 GB | 9 GB | ~1 s |
+| C: every 10th block, 2 rounds, bare | 120 MB | 900 MB | under 1 min |
+| **D: every 10th block, 1 round, chained (as FFG), bare** | **60 MB** | **450 MB** | **~2 min** |
+| today: 1 vote per epoch (60 blocks), as transactions | 17 MB | 165 MB | ~10.7 min |
+
+(Blocks per day at 6.0 s: 14,400. Operator, 2026-10-27, on variant A: "unacceptable".)
+
+Recommended: D.
+1. **Who votes:** the epoch's 128-seat committee, weighted by seats, as FFG counts today. The load is bounded by the seat
+   count, not the validator count.
+2. **What:** every 10th block is a vote point. A seat holder signs one bare message, `VOTE(h, hash, prev)`, where `prev`
+   is the vote point it voted before (FFG's source-target link, at 10-block spacing). A vote point is justified when
+   more than 2/3 of seats vote for it, and final when it and the next vote point are both justified, linked. That is
+   the classic 1/3 Byzantine bound, with no leader.
+3. **Votes are gossip, not transactions,** and nothing is kept once the point is final. They are signed, so two
+   conflicting votes from one seat are portable evidence for today's slash transaction.
+4. **The on-chain record is unchanged:** the epoch checkpoint attestations stay, so a joining node, a wallet or the
+   settlement verifier still checks stake-backed finality from chain data alone. Fast finality raises the rollback
+   floor; FFG remains the record and the fallback.
+5. **Liveness:** with no certificate (a partition, under 2/3 of seats online), the depth floor and FFG advance as today.
+
+Result: finality in about 2 minutes instead of 10.7, for 60 MB a day per node today.
+
+**Smaller signatures would cut it further.** FN-DSA-512 (Falcon), already built in native/pqsig and waiting for FIPS 206,
+signs in 666 bytes (protocol SIG_SCHEME_SIZES), a bare vote of about 0.75 KB instead of 2.5. With it, variant C
+(under a minute) costs about 36 MB a day and D about 18 MB.
 
 ## 4. Costs and open points, to measure in the build
 
@@ -88,10 +101,10 @@ Expected result: a block final about one to two round-trips after it arrives, un
 
 ## 5. Decision for the operator
 
-- **Recommended:** section 3. Two-round 2/3 votes per block from the existing committee, as gossip, with fast finality
-  feeding the rollback floor, and on-chain checkpoint finality unchanged. Keeps the 1/3 fault tolerance and slashing,
-  gives sub-second finality.
-- **Alternative:** Votor's 80%/60% thresholds. One round faster (tens of milliseconds here), at 20% Byzantine
-  tolerance. Not recommended at NADO's block time.
+- **Recommended:** section 3, variant D. Chained 2/3 votes every 10th block from the existing committee, as gossip,
+  feeding the rollback floor, with on-chain checkpoint finality unchanged. Keeps the 1/3 fault tolerance and slashing;
+  about 2 minutes to finality for 60 MB a day per node. The vote spacing is the dial between speed and bandwidth.
+- **Not recommended:** finality every block (1.2 to 2.6 GB a day per node today, up to ~20 GB at 128 voters), and
+  Votor's 80%/60% thresholds (one round faster, at 20% Byzantine tolerance).
 - **Not adopted:** a leader per slot, Rotor, and signature-free consensus (Quantum Cadence / Forget-IT). The last loses
   slashing evidence and finality anyone outside the voting set can check.
