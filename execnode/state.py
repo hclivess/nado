@@ -18,9 +18,6 @@ from execnode.zkvm import ZkVMError
 from execnode import zkvm                 # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
-from execnode.shielded_state import apply_transition
-from execnode.shielded_field import TREE_DEPTH as TREE_DEPTH_FIELD
-from ops.address_ops import validate_address
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
 # define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
@@ -319,30 +316,23 @@ class ExecState:
         self.div_carry = 0         # undistributed remainder carried to the next accrual (no dust lost)
         self.dividend_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable dividend claims
         self.dw_nonce = 0          # monotonic dividend-withdrawal nonce counter (deterministic)
-        # SHIELDED POOL (doc/privacy.md): a Zerocash-style commitment tree + nullifier set built from L1
-        # `shield` deposits + `shielded_transfer` blobs. Only the pool ROOT + a nullifier DIGEST are committed
-        # in state_root (compact — not one leaf per note/nullifier), so this scales independently of pool size.
+        # THE LEGACY BLAKE2b POOL (doc/privacy.md, historical): no deposit reaches it on generation 29 (the legacy shield is
+        # skipped, block_apply), but the transparent `shielded_transfer` op is STILL LIVE for zero-value notes — a transfer
+        # with no inputs and value-0 outputs balances, so it appends notes and moves shield_root. Kept for that reason only
+        # (G9 slice 5): deleting it would change the exec root on a blob any sender can post. Only the pool ROOT + a
+        # nullifier DIGEST are committed in state_root.
         self.shielded = ShieldedPool()
         self.unshield_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable unshield exits
         self.uw_nonce = 0          # monotonic unshield-withdrawal nonce counter (deterministic)
-        # PHASE-2 FIELD-NATIVE POOL (doc/privacy.md): notes over the STARK-friendly hash; the exec node acts as
-        # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
-        from execnode.shielded_field import FieldShieldedPool
-        self.field_pool = FieldShieldedPool()
-        # WIDE POOL (SHIELD_WIDE_HEIGHT, Z3): the field pool over alghash2 digests. Present on every state so
-        # the code path is uniform; it contributes to the root and the snapshot ONLY once it holds a note, so
-        # a gen-25 root is byte-identical with or without this attribute (exec_root.records_projection).
-        from execnode.shielded_wide import WideShieldedPool
-        self.wide_pool = WideShieldedPool()
+        # THE FIELD, WIDE AND SHIELDED-CONTRACT POOLS ARE GONE (G9 slice 5): on generation 29 no entry point could add a
+        # note to any of them (a field shield lands in the Stwo pool from block 1, their transfers and private_call are
+        # refused from block 1), so they were empty at every height. Their only trace is the empty field pool's two
+        # constant records in exec_root_b2.records_projection; an old snapshot's field_pool / wide_pool / app_state keys
+        # are ignored by _restore.
         # STWO POOL (STWO_POOL_HEIGHT, doc/stwo-migration.md §5.1): present on every state for a uniform code path,
         # in the root and the snapshot only once it holds a note or a nullifier (empty is absent).
         from execnode.shielded_stwo import StwoShieldedPool
         self.stwo_pool = StwoShieldedPool()
-        # SHIELDED CONTRACTS (execnode/shielded_state.py): private application STATE, as against the pools
-        # above which hold private VALUE. Per-contract note trees + one spent set. Contributes nothing to
-        # the settled root until a contract actually holds a note, so its mere existence cannot move a root.
-        from execnode.shielded_state import ShieldedStatePool
-        self.app_state = ShieldedStatePool()
         # Shielded aggregate supply — see _restore. Note VALUES are private; every CHANGE to their total is
         # public, so the pool's total is auditable without seeing into it (ops/invariants.py).
         self.pool_value = 0        # live total value of all notes in both pools
@@ -420,7 +410,6 @@ class ExecState:
         """Populate every field from a payload dict (what load() does after json.load). Every key is
         optional with an empty default, so old snapshots (pre-dividend/shielded/…) still load AND it works
         on a bare (un-__init__'d) instance — see clone()."""
-        from execnode.shielded_field import FieldShieldedPool
         self.contracts = d.get("contracts", {})
         self.cursor = d.get("cursor", -1)
         # THE CLOCK FOLLOWS THE CURSOR (review 2026-09-25, reproduced): block_ts is not in the snapshot, so a restored
@@ -461,24 +450,11 @@ class ExecState:
         self.shielded = ShieldedPool.from_dict(d["shielded"]) if "shielded" in d else ShieldedPool()
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = _floor(d.get("uw_nonce", 0), d.get("unshield_withdrawals"))
-        self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
-        from execnode.shielded_wide import WideShieldedPool, depth_at as _wide_depth_at
-        # THE WIDE POOL'S DEPTH IS CHECKED AGAINST THE CURSOR, NEVER TAKEN FROM THE SNAPSHOT (zk audit 2026-09-26).
-        # After block c is applied the pool is depth_at(c): a snapshot claiming depth 12 at cursor >= 1 (or 48 at
-        # cursor -1 / 0) is a tree the protocol never put there — a donor's, or a node that crossed block 1 on old
-        # code — and adopting it would verify spends at the wrong D against the wrong roots. Refused loudly, like a
-        # legacy outbox shape. An empty pool is absent from the snapshot (empty is absent) and takes the depth the
-        # cursor says.
-        _want = _wide_depth_at(self.cursor) if int(self.cursor) >= 0 else _wide_depth_at(0)
-        self.wide_pool = WideShieldedPool.from_dict(d["wide_pool"]) if "wide_pool" in d else WideShieldedPool(depth=_want)
-        if self.wide_pool.depth != _want:
-            raise ValueError(f"exec state's wide pool is depth {self.wide_pool.depth} at cursor {self.cursor}, where the "
-                             f"protocol puts depth {_want} — refusing the snapshot (re-bootstrap this node)")
+        # "field_pool", "wide_pool" and "app_state" are IGNORED (G9 slice 5): every gen-29 snapshot on the fleet carries
+        # an empty "field_pool" (and an old one may carry the others), and those pools no longer exist. They were empty
+        # on every gen-29 state, so nothing they held is dropped. INVARIANT: never fail a load on these keys.
         from execnode.shielded_stwo import StwoShieldedPool
         self.stwo_pool = StwoShieldedPool.from_dict(d["stwo_pool"]) if "stwo_pool" in d else StwoShieldedPool()
-        from execnode.shielded_state import ShieldedStatePool
-        self.app_state = (ShieldedStatePool.from_dict(d["app_state"]) if "app_state" in d
-                          else ShieldedStatePool())
         # SHIELDED SUPPLY (ops/invariants.py). Individual note VALUES are private, but every CHANGE to the
         # pool's total is public by construction — a deposit carries its L1 amount, and a transfer's
         # public_value/fee are public inputs. So the pool's aggregate value is auditable even though its
@@ -513,12 +489,9 @@ class ExecState:
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
-            # An EMPTY app_state is omitted entirely, so a node that holds no private state writes the same
-            # snapshot bytes it always did — the on-disk twin of the "empty is absent" rule the settled-root
-            # projection follows (execnode/exec_root.py). from_dict treats an absent key as an empty pool.
-            extra = {"app_state": self.app_state.to_dict()} if self.app_state.trees or self.app_state.nullifiers else {}
-            return {**extra,
-                    "contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+            # NO "field_pool" (G9 slice 5): the pool is gone. Nothing hashes this payload — a peer that adopts it
+            # recomputes the root — and an older node reading it treats the absent key as the empty pool it always was.
+            return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                     "assets": self.assets, "abal": self.abal, "allow": self.allow,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
@@ -526,9 +499,7 @@ class ExecState:
                     "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                     "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
-                    "field_pool": self.field_pool.to_dict(),
-                    # EMPTY IS ABSENT (the app_state rule): a gen-25 snapshot must not change by a key it never needed
-                    **({"wide_pool": self.wide_pool.to_dict()} if self.wide_pool.commitments or self.wide_pool.nullifiers else {}),
+                    # EMPTY IS ABSENT: a snapshot must not change by a key it never needed
                     **({"stwo_pool": self.stwo_pool.to_dict()} if self.stwo_pool.commitments or self.stwo_pool.nullifiers else {}),
                     # zero is absent: a snapshot from before the Stwo pool's first deposit keeps its exact bytes
                     **({"stwo_value": self.stwo_value} if self.stwo_value else {}),
@@ -623,17 +594,6 @@ class ExecState:
         own unshields, then fetches /exec/unshield_proof?nonce= (record_proof_at) to claim once the root is settled."""
         return [{"nonce": n, "amount": w["amount"]} for n, w in sorted(self.unshield_withdrawals.items())
                 if w["addr"] == addr]
-
-    def shielded_note_proof(self, cm):
-        """Locate a note commitment in the pool and return its position + Merkle authentication path against
-        the current root — what a wallet needs to SPEND the note (build the input witness). Commitments are
-        public, so this leaks nothing about value/owner. None if the commitment isn't in the pool."""
-        try:
-            pos = self.shielded.commitments.index(cm)
-        except ValueError:
-            return None
-        from execnode.shielded import merkle_path
-        return {"pos": pos, "path": merkle_path(self.shielded.commitments, pos), "root": self.shielded.root()}
 
     # RECENT-ROOT RING (exit proofs against a SETTLED root). Every exit proof — bridge/dividend/unshield
     # withdrawals, outbox messages — must verify against the root L1 has SETTLED, but this state keeps
@@ -982,218 +942,41 @@ class ExecState:
             pass
 
     def apply_field_shield(self, amount, owner, rho):
-        """Add a field-native note for an L1 field-shield deposit. C-2: the note value is BOUND to the L1
-        escrow — the exec node computes the commitment itself as commit(amount, owner, rho) from the
-        authoritative on-chain `amount`, rather than trusting a client-supplied `cm` (which let a 1-coin
-        deposit mint a note "worth" anything). The depositor supplies only (owner, rho); they know `amount`
-        from their own tx, so they can still reconstruct and spend the note."""
-        from execnode.stark import alghash, field as _F
+        """Add the note of an L1 field-shield deposit. C-2: the note value is BOUND to the L1 escrow — the commitment is
+        computed here from the authoritative on-chain `amount`; the depositor supplies only (owner, rho).
+        From block 1 (rules_stwo_pool) the note lands in the Stwo pool. The legacy field pool (and the wide pool) that a
+        deposit below block 1 reached are DELETED (G9 slice 5): only genesis is applied below block 1, and generation 29's
+        genesis carries no transaction, so that branch never ran on the chain. INVARIANT: the amount bound is checked
+        FIRST, before the pool dispatch, with its own string — the order generation 29 always judged in."""
         try:
             amount = int(amount)
             if not (0 < amount < MAX_EXIT_VALUE):     # note values must be < 2^61 to satisfy the range gadget
                 return f"skip field-shield: amount out of range ({amount})"
             if self.rules_stwo_pool():
                 return self._apply_stwo_shield(amount, owner, rho)
-            if self.rules_shield_wide():
-                return self._apply_wide_shield(amount, owner, rho)
-            cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
-            with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
-                if self.rules_r2():
-                    # Z6: a duplicate commitment (sender-chosen rho) would share one leaf between two notes —
-                    # the second is a griefing lock on the first. Z4: past 2^TREE_DEPTH leaves the fixed-depth
-                    # tree silently dropped the leaf, and every later note was a permanent lock; fail closed.
-                    if self.field_pool.position(cm) is not None:
-                        return "skip field-shield: duplicate note commitment"
-                    if len(self.field_pool.commitments) >= (1 << TREE_DEPTH_FIELD):
-                        return "skip field-shield: the field pool is full"
-                self.field_pool.append(cm)
-                self.pool_value += amount                 # shielded supply (ops/invariants): escrow-backed entry
-                self._touch()
-            return f"field-shield {amount} -> field note #{len(self.field_pool.commitments)}"
+            return "skip field-shield: no shielded pool before block 1"
         except Exception as e:
             return f"skip field-shield: {e}"
 
-    def _apply_wide_shield(self, amount, owner, rho):
-        """SHIELD_WIDE_HEIGHT: the deposit's note in the WIDE pool — cm = znote.commit(amount, owner, rho) with
-        the owner a 64-hex alghash2 digest (L1 admission pins that shape from the same height, so a deposit
-        can no longer escrow coins behind a note this line refuses). Z6 and Z4 apply as on the legacy pool."""
-        from execnode.stark import znote as _Z, field as _F
-        cm = _Z.commit(amount, _Z.from_hex(owner), int(rho) % _F.P)
-        with self._mutate_lock:
-            self.wide_enter(self.applying_height())       # idempotent: the pool at the depth in force (see wide_enter)
-            if self.wide_pool.position(cm) is not None:
-                return "skip field-shield: duplicate note commitment"
-            # Z4 at the POOL's depth (2^12 at genesis, 2^48 from block 1) — never the module's legacy constant
-            if len(self.wide_pool.commitments) >= (1 << self.wide_pool.depth):
-                return "skip field-shield: the wide pool is full"
-            self.wide_pool.append(cm)
-            self.pool_value += amount
-            self._touch()
-        return f"field-shield {amount} -> wide note #{len(self.wide_pool.commitments)}"
-
-    def _apply_wide_transfer(self, bundle):
-        """SHIELD_WIDE_HEIGHT: apply a joinsplit3 bundle against the WIDE pool — the same order of checks as
-        apply_field_transfer (destination, proof, value bounds, double-spend, mutate), with digests as 64-hex.
-        The nullifier set, the note tree and the exit record are the wide pool's; pool_value / pool_fees /
-        unshield_withdrawals are shared with the legacy pool, which is frozen from this height."""
-        from execnode import shielded
-        from execnode.stark import znote as _Z
-        js = (bundle.get("stark") or {}).get("joinsplit3") or {}
-        try:
-            # js["root"] is PARSED FOR ITS REFUSAL, not its value (the verifier reads the hex itself): a bundle whose
-            # root is not a digest is refused here as malformed, before any proof work. Keep the parse.
-            _Z.from_hex(js["root"])
-            nf = _Z.from_hex(js["nf"])
-            cm_outs = [_Z.from_hex(js["cm_out1"]), _Z.from_hex(js["cm_out2"])]
-            pv, fee = int(js["public_value"]), int(js["fee"])
-        except Exception as e:
-            return f"skip field-transfer: malformed joinsplit3 bundle ({e})"
-        addr = None
-        if pv < 0:
-            addr = bundle.get("withdraw_addr")
-            if not addr or not validate_address(addr, allow_reserved=False) or addr in self.contracts:
-                return "skip field-transfer: withdraw_addr is not a spendable account"
-        if not (-MAX_EXIT_VALUE <= pv <= 0) or not (0 <= fee <= MAX_EXIT_VALUE):
-            return "skip field-transfer: public_value/fee out of range"
-        public = {"root": js["root"], "nullifiers": [js["nf"]], "out_commitments": [js["cm_out1"], js["cm_out2"]],
-                  "public_value": pv, "fee": fee}
-        # THE PROOF'S DEPTH IS THE POOL'S, AND THE POOL'S IS THE HEIGHT'S (depth_at): wide_enter puts the pool at
-        # depth_at(applying height) first, then the verifier pins D to that depth — read from here, never from the proof.
-        with self._mutate_lock:
-            self.wide_enter(self.applying_height())
-            wide_depth = self.wide_pool.depth
-        ok, reason = shielded.verify_transfer(public, bundle, self.wide_pool.knows_root, wide_depth=wide_depth)
-        if not ok:
-            return f"skip field-transfer: {reason}"
-        with self._mutate_lock:
-            if self.wide_pool.has_nullifier(nf):
-                return "skip field-transfer: nullifier already spent (double-spend)"
-            if any(self.wide_pool.position(c) is not None for c in cm_outs) or cm_outs[0] == cm_outs[1]:
-                return "skip field-transfer: duplicate note commitment"          # Z6, on the wide pool
-            if len(self.wide_pool.commitments) + 2 > (1 << self.wide_pool.depth):
-                return "skip field-transfer: the wide pool is full"              # Z4, at the pool's depth
-            self.wide_pool.spend(nf)
-            for c in cm_outs:
-                self.wide_pool.append(c)
-            self.pool_value += pv - fee
-            self.pool_fees += fee
-            if pv < 0:
-                self.uw_nonce += 1
-                self.unshield_withdrawals[str(self.uw_nonce)] = {"addr": addr, "amount": -pv}
-            self._touch()
-        return (f"field-transfer ok (wide): nf {js['nf'][:12]}… spent, {len(cm_outs)} note(s) added"
-                + (f", unshield {-pv} -> {addr}" if pv < 0 else ""))
-
     def apply_field_transfer(self, bundle):
-        """Apply a Phase-2 STARK transfer: verify the join-split proof, reject a double-spend, then record the
-        nullifier + append the output commitment. public_value<0 records a provable unshield exit."""
-        from execnode import shielded
+        """Apply a `stwo_js` spend (from block 1, rules_stwo_pool). The legacy field pool's joinsplit / joinsplit2 and the
+        wide pool's joinsplit3 paths are DELETED (G9 slice 5): from block 1 every bundle without `stwo_js` was already
+        refused here, and below block 1 only genesis is applied, which carries no transaction on generation 29."""
+        # KEPT, AND KEPT FIRST (G9 slice 5): _normalize_bundle int()s any joinsplit2/joinsplit3 member a bundle carries, and
+        # a bundle whose such member does not coerce RAISES here — apply_blob's catch-all then makes the whole spend a
+        # "skip", even a valid stwo_js spend riding beside it. That refusal is part of generation 29's verdict on a stwo
+        # bundle; dropping the call would apply spends every gen-29 node skipped.
         _normalize_bundle(bundle)   # browser bundles carry big ints as strings (JS can't JSON BigInt) -> ints
         stark_b = bundle.get("stark") or {}
-        # SHIELD_WIDE_HEIGHT (Z3): one pool per generation. From the gate only a joinsplit3 bundle spends, and
-        # only from the wide pool; below it a joinsplit3 bundle is refused (there is no wide pool to spend
-        # from) and the legacy path below runs unchanged.
         if not isinstance(stark_b, dict):
             return "skip field-transfer: bad bundle"
-        # STWO_POOL_HEIGHT: one pool again — from the gate only a `stwo_js` bundle spends, and only from the Stwo pool; the
-        # wide pool is frozen there exactly as the legacy pool was frozen at SHIELD_WIDE_HEIGHT.
         if self.rules_stwo_pool():
             if "stwo_js" not in stark_b:
                 return "skip field-transfer: the Stwo pool takes a stwo_js bundle"
             return self._apply_stwo_transfer(bundle)
         if "stwo_js" in stark_b:
             return "skip field-transfer: stwo_js is not live before STWO_POOL_HEIGHT"
-        if self.rules_shield_wide():
-            if "joinsplit3" not in stark_b:
-                return "skip field-transfer: the wide pool takes a joinsplit3 bundle"
-            return self._apply_wide_transfer(bundle)
-        if "joinsplit3" in stark_b:
-            return "skip field-transfer: joinsplit3 is not live before SHIELD_WIDE_HEIGHT"
-        if "joinsplit2" in stark_b:                     # 2-output transfer (send + change)
-            js = stark_b["joinsplit2"]
-            cm_outs = [int(js["cm_out1"]), int(js["cm_out2"])]
-        else:                                           # 1-output transfer / unshield
-            js = stark_b.get("joinsplit") or {}
-            cm_outs = [int(js["cm_out"])]
-        public = {"root": js.get("root"), "nullifiers": [js.get("nf")], "out_commitments": [str(c) for c in cm_outs],
-                  "public_value": js.get("public_value"), "fee": js.get("fee")}
-        # Z9 (REVIEW_R2_HEIGHT): validate the exit destination BEFORE the (expensive) proof verification, the
-        # way the transparent path does. This path stored whatever string arrived, and an exit to a contract
-        # id or a malformed address is coins gone. The later missing-address check stays for the legacy rule.
-        if self.rules_r2():
-            try:
-                _pv0 = int(js.get("public_value") or 0)
-            except (TypeError, ValueError):
-                return "skip field-transfer: bad public_value"
-            if _pv0 < 0:
-                _addr0 = bundle.get("withdraw_addr")
-                if not _addr0 or not validate_address(_addr0, allow_reserved=False) or _addr0 in self.contracts:
-                    return "skip field-transfer: withdraw_addr is not a spendable account"
-        ok, reason = shielded.verify_transfer(public, bundle, self.field_pool.knows_root)
-        if not ok:
-            return f"skip field-transfer: {reason}"
-        from execnode.stark import field as _F
-        # C-3: the circuit constrains only public_value % P and fee % P, but the exit payout below uses the
-        # RAW signed value — so public_value = -P proves as "balanced" yet would record a P-coin exit. Bound
-        # both to a real coin range BEFORE any state mutation, so no field residue can be inflated into a P·k
-        # payout. (Note VALUES are field elements mod P; the only realizable exit is via public_value.)
-        pv, fee = int(js["public_value"]), int(js["fee"])
-        # UNBACKED-MINT FENCE: public_value > 0 means coins ENTER the pool, and the ONLY thing that may
-        # authorise that is an L1 `shield` tx whose escrowed amount drives apply_field_shield. A transfer
-        # blob is user-supplied and escrow-free, so a positive public_value here would let anyone conjure
-        # notes from nothing (the circuit happily proves 0 + pv == v_out + fee — `pv` is a PUBLIC INPUT the
-        # prover chooses, not a fact about escrow) and unshield them back out against SHIELD_ESCROW,
-        # draining every other depositor. Entry is escrow-driven; a transfer may only be neutral or exiting.
-        if not (-MAX_EXIT_VALUE <= pv <= 0) or not (0 <= fee <= MAX_EXIT_VALUE):
-            return "skip field-transfer: public_value/fee out of range"
-        # Validate the exit destination BEFORE any mutation: the old order added the nullifier + appended the
-        # outputs and only then rejected a missing withdraw_addr, burning the note for a malformed unshield.
-        addr = None
-        if pv < 0:
-            addr = bundle.get("withdraw_addr")
-            if not addr:
-                return "skip field-transfer: unshield missing withdraw_addr"
-        nf = int(js["nf"]) % _F.P
-        # M-10: the check->add->append must be atomic vs concurrent thread-applies (two racing identical
-        # unshields could otherwise both pass has_nullifier and each record an exit for one spent note).
-        with self._mutate_lock:
-            if self.field_pool.has_nullifier(nf):
-                return "skip field-transfer: nullifier already spent (double-spend)"
-            self.field_pool.nullifiers.add(nf)
-            for c in cm_outs:
-                self.field_pool.append(c)
-            # shielded supply: pv is <=0 (fenced above), so this only ever DECREASES the live note total.
-            # fee leaves the notes but never leaves escrow, so it is tracked separately.
-            self.pool_value += pv - fee
-            self.pool_fees += fee
-            if pv < 0:
-                self.uw_nonce += 1
-                nonce = str(self.uw_nonce)
-                self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
-            self._touch()
-        if pv < 0:
-            return f"field-unshield {-pv} -> {addr[:12]}… nonce {nonce}"
-        return "field-transfer ok"
-
-    def apply_shield(self, amount, out_commitments, outputs):
-        """Add the output notes of an L1 `shield` deposit (read from the ordered stream). A shield is a
-        join-split with NO inputs and public_value = the escrowed `amount`, so the verifier enforces
-        sum(output values) == amount (transparent phase). Never raises; a malformed shield is skipped (the
-        depositor's escrowed coins are then simply unspendable — their own risk)."""
-        try:
-            public = {"root": self.shielded.root(), "nullifiers": [], "out_commitments": list(out_commitments),
-                      "public_value": int(amount), "fee": 0}
-            proof = {"inputs": [], "outputs": list(outputs)}
-            with self._mutate_lock:
-                if self.rules_r2() and any(cm in self.shielded.commitments for cm in out_commitments):
-                    return "skip shield: duplicate note commitment"          # Z6 (REVIEW_R2_HEIGHT)
-                ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
-                if ok:
-                    self.pool_value += int(amount)        # shielded supply (ops/invariants)
-                self._touch()
-            return f"shield {amount} -> {len(out_commitments)} note(s)" if ok else f"skip shield: {reason}"
-        except Exception as e:
-            return f"skip shield: {e}"
+        return "skip field-transfer: no shielded pool before block 1"
 
     @staticmethod
     def _rt_run(rt, *a, **kw):
@@ -1273,16 +1056,10 @@ class ExecState:
         h = getattr(self, "_applying", None)
         return int(h) if h is not None else int(self.cursor) + 1
 
-    # THE RULE HELPERS BELOW ALL HOLD FROM HEIGHT 1. Each was a gen-25 gate (SHIELD_WIDE_HEIGHT, EXEC_ROOT_V2_HEIGHT,
-    # PRIVACY_PAUSE_HEIGHT, REVIEW_R2_HEIGHT, EXEC_RULES_V2_HEIGHT) whose value from gen 26 is 1; the constants are
+    # THE RULE HELPERS BELOW ALL HOLD FROM HEIGHT 1. Each was a gen-25 gate (EXEC_ROOT_V2_HEIGHT, REVIEW_R2_HEIGHT,
+    # EXEC_RULES_V2_HEIGHT; SHIELD_WIDE_HEIGHT and PRIVACY_PAUSE_HEIGHT went with their pools in G9 slice 5) whose value from gen 26 is 1; the constants are
     # deleted. The `>= 1` stays because applying_height() is 0 for a state at cursor -1 applying genesis, where every
     # one of them was off — every live blob sits in a block >= 1, so on the chain they are always on.
-    def rules_shield_wide(self):
-        """The wide pool in force for the block being applied: deposits land in the wide pool and only a
-        joinsplit3 bundle spends; below it the legacy field pool and joinsplit/joinsplit2 (same convention as
-        rules_v2)."""
-        return self.applying_height() >= 1
-
     def rules_budget_v2(self):
         """Reverting and raising calls count against the block's step budget, and each sender has a share of it
         (protocol.EXEC_SENDER_STEP_SHARE). EXEC_BUDGET_V2_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1`
@@ -1414,44 +1191,11 @@ class ExecState:
             self._touch()
         return f"field-transfer stwo nf {nf[:12]}… unshield {unshield} fee {fee}"
 
-    def wide_enter(self, height):
-        """Put the wide pool at the depth in force for block `height` (shielded_wide.depth_at): at block 1 the
-        depth-12 pool a fresh state (cursor -1, genesis applied at 0) holds becomes a depth-48 pool over the SAME
-        leaves and spent set — a new root, the anchor window rebuilt at the new depth (no depth-12 root survives it).
-        Idempotent; a no-op at height 0, so nothing moves there. Returns the pool it replaced (None if none), so a
-        caller that un-applies the block (_apply_block's DA stall) can put the old one back exactly. Called by
-        _apply_block for EVERY block, whether or not it touches the pool, so a snapshot's depth always matches its
-        cursor (_restore checks exactly that), and by the wide shield/transfer paths so a state driven without
-        _apply_block (tests, tooling) is judged the same. Never shrinks a pool: a depth-48 pool at height 0 is a state
-        _restore refuses, not one to repair here."""
-        from execnode.shielded_wide import depth_at
-        want = depth_at(height)
-        wp = self.wide_pool
-        if wp.depth >= want:
-            return None
-        with self._mutate_lock:
-            self.wide_pool = wp.deepened(want)
-            self._touch()                                 # the wide root moved: the cached state root must too
-        return wp
-
-    def wide_restore(self, pool):
-        """Undo wide_enter (the block that deepened the pool was not applied after all)."""
-        if pool is not None:
-            with self._mutate_lock:
-                self.wide_pool = pool
-                self._touch()
-
     def rules_root_v2(self):
         """The EXEC_ROOT_V2 rules in force for the block being applied (same convention as rules_v2). Every rule
         under it is MIRRORED in exec_state_bind.apply_event, which the settlement verifier replays over the
         bound code events; a rule changed here without that mirror makes an honest proof unverifiable, or a
         dishonest one verifiable. Keep the two together."""
-        return self.applying_height() >= 1
-
-    def rules_privacy_pause(self):
-        """The privacy pause in force for the block being applied (same convention as rules_v2): private_call,
-        the legacy field pool's transfers and stark bundles on shielded_transfer are refused. The wide pool is not
-        paused — callers test rules_shield_wide() alongside this."""
         return self.applying_height() >= 1
 
     def rules_r2(self):
@@ -1992,12 +1736,10 @@ class ExecState:
             # the VALUE/PAY escrow primitive; see doc/exec-instructions.md)
 
             if op == "field_transfer":
-                # PRIVACY_PAUSE_HEIGHT: the LEGACY field pool is closed (its proofs are not safe to accept); only
-                # the wide pool spends from the gate. Refused before the bundle is even parsed, so nothing moves.
-                if self.rules_privacy_pause() and not self.rules_shield_wide():
-                    return "skip field_transfer: the legacy field pool is paused (PRIVACY_PAUSE_HEIGHT)"
-                # PHASE-2: a full join-split STARK proof (delegated-prover output). The bundle rides as an
-                # OPAQUE JSON STRING so its big field ints survive JSON (JS would lose >2^53 precision).
+                # A Stwo spend (apply_field_transfer). The privacy pause that once stood here refused the LEGACY field
+                # pool's transfers between PRIVACY_PAUSE_HEIGHT and SHIELD_WIDE_HEIGHT, a window that was empty from gen
+                # 26 (both 1), so on generation 29 it never fired; it went with the pool (G9 slice 5).
+                # The bundle rides as an OPAQUE JSON STRING so its big ints survive JSON.
                 # THE ONE PARSE (field_transfer_bundle): execnode._block_carries_stwo_spend decides whether to stall on
                 # exactly this bundle, so the two can never disagree about what a payload carries.
                 bundle, err = field_transfer_bundle(payload)
@@ -2006,39 +1748,38 @@ class ExecState:
                 return self.apply_field_transfer(bundle)
 
             if op == "shielded_transfer":
-                # PRIVATE transfer / UNSHIELD (doc/privacy.md): apply a join-split to the pool (double-spend +
-                # value-conservation checked by the verifier). If public_value < 0 the coins LEAVE the pool ->
-                # record a provable unshield exit for L1 to release from SHIELD_ESCROW against the settled root.
+                # STILL LIVE ON GENERATION 29 (G9 slice 5): the TRANSPARENT legacy-pool transfer. A transfer with no inputs
+                # and value-0 outputs balances (0 + 0 == 0 + 0), so any sender can append zero-value notes to the legacy
+                # pool and later spend them — that moves shield_root, so this path and execnode/shielded.py stay until
+                # LEGACY_TRANSFER_CLOSE_HEIGHT has passed on the live chain, then go together. Nothing of value can enter: coins arrive only by an L1
+                # shield, and the legacy shield is skipped (block_apply).
+                # LEGACY_TRANSFER_CLOSE_HEIGHT (protocol.py): skipped from the gate, before anything is parsed, so a refused
+                # transfer is a pure no-op and the pool is frozen. INVARIANT: nothing after this may run from the gate.
+                from protocol import LEGACY_TRANSFER_CLOSE_HEIGHT as _LTCLOSE
+                if self.applying_height() >= _LTCLOSE:
+                    return "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
                 public = payload.get("public")
                 proof = payload.get("proof")
                 if not isinstance(public, dict) or not isinstance(proof, dict):
                     return "skip: bad shielded_transfer"
-                # UNBACKED-MINT FENCE (see apply_field_transfer): coins may only ENTER the pool via an L1
-                # `shield` tx, whose escrowed amount drives apply_shield. A transfer blob is user-supplied
-                # and escrow-free, so public_value > 0 here would mint notes backed by nothing. Checked
+                # UNBACKED-MINT FENCE: coins may only ENTER the pool via an L1 `shield` tx. A transfer blob is
+                # user-supplied and escrow-free, so public_value > 0 here would mint notes backed by nothing. Checked
                 # BEFORE apply_transfer so a rejected blob never mutates the pool.
                 pv = int(public.get("public_value", 0))
                 if pv > 0:
                     return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
-                # PRIVACY_PAUSE_HEIGHT: the transparent pool keeps its signed transfers, but a STARK bundle on this op
-                # is refused outright — it was verified against the bundle's own values while the pool was mutated
-                # from the unrelated `public` dict (review 2026-09-24), and it has no legitimate producer.
-                if self.rules_privacy_pause() and proof.get("stark") is not None:
+                # A STARK BUNDLE IS REFUSED AT EVERY HEIGHT (PRIVACY_PAUSE_HEIGHT, 1 from gen 26): it was verified against
+                # the bundle's own values while the pool was mutated from the unrelated `public` dict (review 2026-09-24),
+                # and its verifier (joinsplit_transfer) is deleted (G9 slice 5). Below block 1 only genesis is applied,
+                # which carries no transaction on generation 29, so dropping the `>= 1` changes no verdict.
+                if proof.get("stark") is not None:
                     return "skip shielded_transfer: stark bundles are refused on this op (PRIVACY_PAUSE_HEIGHT)"
                 if self.rules_v2():
-                    # Z2 (2026-09-23, reproduced): a `stark` bundle with neither join-split key fell through
-                    # verify_transfer to "output well-formedness only", which `[]` satisfies, and the branch
-                    # below then recorded an unbacked exit against the shield escrow for one fee. Fail closed:
-                    # a stark bundle must carry the proof, and an exit is bounded like every other value.
-                    _stk = proof.get("stark")
-                    if _stk is not None and not (isinstance(_stk, dict) and ("joinsplit" in _stk or "joinsplit2" in _stk)):
-                        return "skip shielded_transfer: stark bundle carries no join-split proof"
                     if pv < 0 and not (-pv < MAX_EXIT_VALUE):
                         return "skip shielded_transfer: exit exceeds MAX_EXIT_VALUE"
                 # Validate the exit destination BEFORE any mutation. apply_transfer records the nullifier and
                 # appends the output commitments, so a missing withdraw_addr checked AFTERWARDS burned the note
-                # for a malformed unshield with no exit recorded — the exact ordering apply_field_transfer was
-                # already fixed for. Mirror it here on the transparent path.
+                # for a malformed unshield with no exit recorded — the exact ordering the field path was fixed for.
                 addr = None
                 if pv < 0:
                     addr = public.get("withdraw_addr")
@@ -2061,99 +1802,13 @@ class ExecState:
                 return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
 
             if op == "private_call":
-                # PRIVACY_PAUSE_HEIGHT: shielded contract notes are closed — a deposit could commit a note worth more
-                # than it paid, against ANY contract's whole balance (review 2026-09-24, reproduced). Refused before
-                # any parsing or balance movement, so a refused call is a pure no-op.
-                if self.rules_privacy_pause():
-                    return "skip private_call: shielded contract notes are paused (PRIVACY_PAUSE_HEIGHT)"
-                # SHIELDED CONTRACT transition (execnode/shielded_state.py): spend private notes, create
-                # private notes. Nothing about the transition is visible but its nullifiers, its output
-                # commitments and its public delta.
-                #
-                # DELIBERATELY ITS OWN OP, NOT op == "call". calls_commit.block_calls collects only
-                # op == "call" into the settlement calls list, and a call the chain SKIPS or REVERTS makes
-                # the whole span unprovable (ROADMAP, 2026-08-06: "a span containing a call the chain skips
-                # or reverts is currently unprovable at all"). A private call is rejected whenever its proof
-                # does not verify — which is a thing any user can cause at will — so routing it through the
-                # zkVM call path would hand every user a lever to switch the chain off validity proofs, one
-                # bad proof per span. As its own op it is invisible to block_calls, so a rejection here is a
-                # pure no-op and cannot poison settlement. Do not "simplify" this into a contract call.
-                #
-                # public/proof ride as OPAQUE JSON STRINGS for the same reason field_transfer's bundle does:
-                # they carry Goldilocks field elements, and JS loses integer precision above 2^53.
-                pj, prj = payload.get("public_json"), payload.get("proof_json")
-                try:
-                    public = json.loads(pj) if pj is not None else payload.get("public")
-                    proof = json.loads(prj) if prj is not None else payload.get("proof")
-                except Exception:
-                    return "skip: bad private_call json"
-                if not isinstance(public, dict) or not isinstance(proof, dict):
-                    return "skip: bad private_call"
-                cid = public.get("cid")
-                # TYPE-CHECK BEFORE USING IT AS A KEY. An unhashable cid (a list, a dict) raises TypeError
-                # on the `in` below. apply_blob's catch-all would turn that into a skip, so nothing breaks
-                # — but this dispatch has been here before: a blob carrying an unhashable `ns` once raised
-                # in the block loop and froze the exec cursor fleet-wide for one MIN_TX_FEE transaction.
-                # Checking the type is what that was fixed with, and a catch-all is not the same guarantee.
-                if not isinstance(cid, str):
-                    return "skip private_call: contract id must be a string"
-                if cid not in self.contracts:
-                    return "skip private_call: no such contract"
-                # THE TURNSTILE. public_delta is the ONLY way value crosses between the public ledger and a
-                # contract's private state, and every unit of it is escrowed on the public side by the
-                # contract itself — so `bridge[cid]` is, at every height, exactly the total of that
-                # contract's private notes. Individual note values stay private; the aggregate is public by
-                # construction, which is the same auditability the pools have (ops/invariants.py).
-                #
-                #   delta > 0  DEPOSIT    debit the blob's sender, escrow into the contract
-                #   delta < 0  WITHDRAW   release from the contract's escrow to a NAMED destination
-                #
-                # A blob is user-supplied and escrow-free, so without this the delta would create or
-                # destroy value nothing on the other side accounts for — the hole apply_field_transfer
-                # fences with "coins enter only via an L1 shield".
-                delta = int(public.get("public_delta", 0))
-                dest = public.get("withdraw_addr")
-                if delta < 0:
-                    # THE DESTINATION MUST BE A SPENDABLE ACCOUNT. Unlike the pool's unshield — which
-                    # records an exit for L1 to release and lets L1 check the address — this credits an
-                    # exec-layer balance DIRECTLY, so whatever string lands here IS the account. Unvalidated,
-                    # two things happen, both reachable by any user:
-                    #   * a destination that is not an address (a typo, a truncation) creates a balance
-                    #     under a key no bridge_withdraw can ever move — a silent burn;
-                    #   * a destination that is a CONTRACT ID credits that contract's escrow while it holds
-                    #     no matching notes, which breaks the turnstile invariant this feature documents
-                    #     (bridge[cid] == that contract's private total) and strands the coins, since
-                    #     spending contract escrow requires a note under that cid.
-                    # The cid exclusion is not redundant with the checksum: a cid passes validate_address
-                    # with probability ~1/65536, which is not a guarantee.
-                    if not dest:
-                        return "skip private_call: withdrawal names no destination"
-                    if not validate_address(dest, allow_reserved=False) or dest in self.contracts:
-                        return "skip private_call: withdrawal destination is not a spendable account"
-                with self._mutate_lock:                    # M-10: serialize against thread-applies, exactly
-                    # SOLVENCY IS CHECKED BEFORE THE TRANSITION, and the funds move only after it succeeds.
-                    # Both halves matter: checking after would let a transition apply that the ledger then
-                    # could not fund, and moving before would have to be unwound on a verification failure.
-                    if delta > 0 and self.bridge.get(sender, 0) < delta:
-                        return f"skip private_call: insufficient bridge balance for the deposit ({sender[:12]}…)"
-                    if delta < 0 and self.bridge.get(cid, 0) < -delta:
-                        return "skip private_call: contract escrow cannot cover the withdrawal"
-                    reason = apply_transition(public, proof, self.app_state)
-                    if reason is not None:
-                        return f"skip private_call: {reason}"
-                    if delta > 0:
-                        self.bridge[sender] -= delta
-                        if self.bridge[sender] == 0:       # zero is ABSENT — a lingering 0 row is a
-                            del self.bridge[sender]        # non-block-derived value in the settled root
-                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
-                    elif delta < 0:
-                        self.bridge[cid] = self.bridge.get(cid, 0) + delta
-                        if self.bridge[cid] == 0:
-                            del self.bridge[cid]
-                        self.bridge[dest] = self.bridge.get(dest, 0) - delta
-                flow = "" if not delta else (f" +{delta} in" if delta > 0 else f" {-delta} out -> {str(dest)[:12]}…")
-                return (f"private_call {str(cid)[:12]}… "
-                        f"{len(public.get('nullifiers', []))} in / {len(public.get('out_commitments', []))} out{flow}")
+                # SHIELDED CONTRACT NOTES ARE CLOSED AT EVERY HEIGHT (PRIVACY_PAUSE_HEIGHT, 1 from gen 26): a deposit could
+                # commit a note worth more than it paid, against ANY contract's whole balance (review 2026-09-24,
+                # reproduced). Refused before any parsing or balance movement, so a refused call is a pure no-op. The
+                # transition code (shielded_state.py, appnote_circuit) is deleted (G9 slice 5); below block 1 only
+                # genesis is applied, which carries no transaction on generation 29. INVARIANT: keep it its own op — a
+                # `call` the chain refuses would poison the settlement calls list (calls_commit.block_calls).
+                return "skip private_call: shielded contract notes are paused (PRIVACY_PAUSE_HEIGHT)"
 
             return f"skip: unknown op {op!r}"
         except ZkVMError as e:

@@ -1,5 +1,7 @@
 # Privacy — a post-quantum zk-STARK shielded pool
 
+> **HISTORICAL (G9 slice 5, 2026-10-28):** the legacy field pool, the wide pool and their join-split circuits described below are deleted; the live pool is the Stwo pool (`execnode/shielded_stwo.py`, doc/stwo-migration.md §5.1), and the transparent BLAKE2b pool (`execnode/shielded.py`) survives only because `shielded_transfer` can still append zero-value notes to it.
+
 > **Status (betanet-9, gen 28): LIVE through the Stwo shielded pool** (`STWO_POOL_HEIGHT`, `execnode/shielded_stwo.py`,
 > doc/stwo-migration.md §5.1): deposits land in it and spends are zero-knowledge proofs made on the device. The wide
 > alghash2 pool takes no new deposits (`WIDE_DEPOSIT_CLOSE_HEIGHT`), and the legacy field pool's transfers and a

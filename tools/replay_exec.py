@@ -13,7 +13,7 @@ replay   Runs a CHILD (`_child`) with cwd=<tree>, PYTHONPATH=<tree>, a throwaway
          inside it, every inherited NADO_* variable removed, and every outbound connection refused. The child builds the
          exec layer exactly as execnode.py boots one (a fresh ExecState + exec_genesis.apply) and applies each block the
          way execnode._apply_block_inner does: the canonical dividend accrual owed before it, rules_at(h), block_apply.begin,
-         the wide pool's depth for the block, block_apply.dispatch, block_apply.close. A block carrying a DA-resolved op
+         the wide pool's depth for the block (trees that still have one), block_apply.dispatch, block_apply.close. A block carrying a DA-resolved op
          the exec node would have fetched (field_transfer / private_call not refused at its height) stops the replay:
          the replay holds no DA, and guessing would be a different chain. Records the exec root after every block.
 compare  The first height where the roots differ, or IDENTICAL through the last common height.
@@ -126,7 +126,8 @@ def cmd_child(blocks_path, accrual_path, out, upto):
             st.last_div_epoch = E
         with _stk.rules_at(h):
             block_apply.begin(states, h)
-            st.wide_enter(h)
+            if hasattr(st, "wide_enter"):      # a tree from before G9 slice 5 deepens its (empty) wide pool here
+                st.wide_enter(h)
             block_apply.dispatch(states, st, b, {}, set(), verbose=False)
             block_apply.close(states, h, b.get("block_hash"))
         rows["roots"][str(h)] = st.state_root()

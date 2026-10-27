@@ -18,7 +18,7 @@ mutations are restored from an in-memory copy of the ORIGINAL bytes, signal hand
 SIGTERM/SIGINT, and the run ends by asserting `git status` is clean and SAYING SO. A harness that can leave
 a guard switched off is more dangerous than any bug it might find.
 
-    python3 tests/mutation_check.py       # ~25 min; every line must read CAUGHT
+    python3 tests/mutation_check.py       # a few minutes; every line must read CAUGHT
 """
 import os, shutil, signal, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -52,88 +52,22 @@ signal.signal(signal.SIGTERM, lambda *a: (restore_all(), sys.exit(143)))
 signal.signal(signal.SIGINT, lambda *a: (restore_all(), sys.exit(130)))
 
 MUTATIONS = [
-    ("duplicate-commitment guard", "execnode/shielded_state.py",
-     "        if pool.has_commitment(cid, cm):", "        if False:", "test_shielded_state_replay"),
-    ("delta bound", "execnode/shielded_state.py",
-     "        if not -VALUE_MAX < delta < VALUE_MAX:", "        if False:", "test_shielded_state_replay"),
-    ("arity pin", "execnode/shielded_state.py",
-     '        if want_arity is not None and stark.get("arity") != want_arity:', "        if False:",
-     "test_shielded_state_replay"),
-    ("depth pin", "execnode/shielded_state.py",
-     '        if nfs and stark.get("D") != TREE_DEPTH:', "        if False:", "test_shielded_state_replay"),
-    ("destination validation", "execnode/state.py",
-     "                    if not validate_address(dest, allow_reserved=False) or dest in self.contracts:",
-     "                    if False:", "test_shielded_state_replay"),
-    ("empty-is-absent projection", "execnode/exec_root.py",
-     "            if not app.trees[cid]:", "            if False:", "test_shielded_state_root"),
-    ("nullifier-set absence", "execnode/exec_root.py",
-     "        if app.nullifiers:", "        if True:", "test_shielded_state_root"),
-    ("geometry bound (circuit)", "execnode/stark/appnote_circuit.py",
-     "    if not (1 <= arity <= MAX_FIELDS) or not (1 <= D <= MAX_DEPTH):", "    if False:",
-     "test_shielded_state_replay"),
-    ("transparent-path switch", "execnode/shielded_state.py",
-     "CONSENSUS_ALLOW_TRANSPARENT = False", "CONSENSUS_ALLOW_TRANSPARENT = True", "test_shielded_state"),
-    # THE DOUBLE-SPEND GUARD AND THE RECORDING THAT MAKES IT WORK. Omitted from the first version of this
-    # list, which is the worst possible omission: a shielded system's entire integrity rests on a
-    # nullifier being checked once and recorded once. Added after re-reading the list against the 28
-    # guards that actually reject.
-    ("double-spend check", "execnode/shielded_state.py",
-     "        if pool.has_nullifier(nf):", "        if False:", "test_shielded_state"),
-    ("nullifier recording", "execnode/shielded_state.py",
-     "    for nf in public.get(\"nullifiers\", []):\n        pool.spend(nf)",
-     "    for nf in []:\n        pool.spend(nf)", "test_shielded_state"),
-    ("commitment recording", "execnode/shielded_state.py",
-     "    for cm in public.get(\"out_commitments\", []):\n        pool.append(cid, cm)",
-     "    for cm in []:\n        pool.append(cid, cm)", "test_shielded_state"),
-    ("same-transition double spend", "execnode/shielded_state.py",
-     "    if len(set(nfs)) != len(nfs):", "    if False:", "test_shielded_state"),
-    ("statement-shape check", "execnode/shielded_state.py",
-     "        elif len(nfs) == 1 and len(cms) == 1:", "        elif True:", "test_shielded_state"),
-    ("contract must exist", "execnode/state.py",
-     "                if cid not in self.contracts:", "                if False:",
-     "test_shielded_state_exec"),
-    ("cid type check", "execnode/state.py",
-     "                if not isinstance(cid, str):", "                if False:",
-     "test_shielded_state_replay"),
-    ("deposit solvency", "execnode/state.py",
-     "                    if delta > 0 and self.bridge.get(sender, 0) < delta:",
-     "                    if False:", "test_shielded_state_exec"),
-    ("withdrawal solvency", "execnode/state.py",
-     "                    if delta < 0 and self.bridge.get(cid, 0) < -delta:",
-     "                    if False:", "test_shielded_state_exec"),
-    ("anchor freshness", "execnode/shielded_state.py",
-     "    if nfs and not pool.knows_root(cid, root):", "    if False:", "test_shielded_state"),
-    # LIVE-PATH STRUCTURAL GUARDS, added after cross-referencing the harness against every `if` in
-    # verify_transition whose body returns — 22 guards, 7 covered before this. Derived from the source
-    # rather than recalled, which is how the double-spend omission was found one commit ago.
-    #
-    # NOT listed, deliberately: the six checks reachable only through the TRANSPARENT verifier
-    # (fold_path != root, nullifier/commitment derivation, path length, witness shape). They are covered
-    # behaviourally by the forged-membership, unbound-nullifier and unopened-commitment tests, and the path
-    # is off in consensus. Recorded here so their absence is a decision rather than an oversight.
-    ("kind has a circuit", "execnode/shielded_state.py",
-     "        if kind not in STARK_KINDS:", "        if False:", "test_shielded_state_seam"),
-    ("input/output bound", "execnode/shielded_state.py",
-     "    if len(raw_nfs) > MAX_INPUTS or len(raw_cms) > MAX_OUTPUTS:", "    if False:",
-     "test_shielded_state"),
-    ("duplicate output commitment", "execnode/shielded_state.py",
-     "    if len(set(cms)) != len(cms):", "    if False:", "test_shielded_state_replay"),
-    ("statement names a contract", "execnode/shielded_state.py",
-     "    if not cid:", "    if False:", "test_shielded_state_atomicity"),
-    ("statement is a dict", "execnode/shielded_state.py",
-     "    if not isinstance(public, dict) or not isinstance(proof, dict):", "    if False:",
-     "test_shielded_state_atomicity"),
-    ("lists are lists", "execnode/shielded_state.py",
-     "    if not isinstance(raw_nfs, list) or not isinstance(raw_cms, list):", "    if False:",
-     "test_shielded_state_replay"),
-    ("empty transition", "execnode/shielded_state.py",
-     "    if not nfs and not cms:", "    if False:", "test_shielded_state"),
-    ("kind has a predicate", "execnode/shielded_state.py",
-     "    if predicate is None:", "    if False:", "test_shielded_state"),
-    ("no-mutation-on-rejection", "execnode/shielded_state.py",
-     "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        return reason",
-     "    reason = verify_transition(public, proof, pool)\n    if reason is not None:\n        pool.spend(999)\n        return reason",
-     "test_shielded_state_atomicity"),
+    # The shielded-contract guards this table held (shielded_state.py, appnote_circuit, private_call's ledger checks,
+    # exec_root's app-state projection) went with that code in G9 slice 5. What is left is the LEGACY transparent pool,
+    # still live on generation 29 for zero-value notes (ExecState "shielded_transfer"): its guards, each with the suite
+    # that claims it.
+    ("unbacked-mint fence", "execnode/state.py",
+     "                if pv > 0:\n                    return \"skip shielded_transfer: public_value > 0",
+     "                if False:\n                    return \"skip shielded_transfer: public_value > 0", "test_unbacked_mint"),
+    ("stark bundle refusal", "execnode/state.py",
+     '                if proof.get("stark") is not None:', "                if False:", "test_privacy_pause"),
+    ("duplicate commitment (Z6)", "execnode/state.py",
+     "                if self.rules_r2() and any(cm in self.shielded.commitments",
+     "                if False and any(cm in self.shielded.commitments", "test_review_round2"),
+    ("double-spend check", "execnode/shielded.py",
+     "        if pool.has_nullifier(nf):", "        if False:", "test_shielded_exec"),
+    ("value conservation", "execnode/shielded.py",
+     "    if in_sum + pub_val != out_sum + fee:", "    if False:", "test_shielded_exec"),
 ]
 
 print(f"{'guard broken':32s} {'suite':30s} result", flush=True)

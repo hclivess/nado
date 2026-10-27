@@ -68,7 +68,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   | `/exec/contracts`, `/exec/contract`, `/exec/view` | deployed contracts (+ runtime) + storage + read-only calls |
   | `/exec/examples`, `/exec/runtimes` | the starter contract library + the pluggable runtimes this node can run |
   | `/exec/bridge`, `/exec/withdrawal_proof` | bridge credit view + the Merkle exit proof (tunnels, §7) |
-  | `/exec/shielded*`, `/exec/field_leaves`, `/exec/unshield*` | shielded pool (the wallet proves on-device; no delegated prover) |
+  | `/exec/field_shielded`, `/exec/field_leaves`, `/exec/stwo_*`, `/exec/unshield*` | shielded pool (the wallet proves on-device; no delegated prover) |
   | `/exec/dividend*` | presence-dividend accrual + exit proof |
   | `/da/publish`, `/da/meta`, `/da/shard`, `/da/get`, `/da/accept` | erasure-coded DA store/serving (§3a) |
 

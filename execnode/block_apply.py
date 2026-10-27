@@ -101,14 +101,15 @@ def dispatch(states_map, default_state, block, resolved, refused, verbose=True):
                     print(f"[execnode] block {h}: treasury->faucet payout {spend.get('amount')}", flush=True)
         elif r == "shield":
             d = tx.get("data") or {}
-            from protocol import LEGACY_SHIELD_CLOSE_HEIGHT as _LCLOSE
             if d.get("field"):
                 res = default_state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
-            elif int(h) >= _LCLOSE:
-                # the legacy pool is closed (protocol.LEGACY_SHIELD_CLOSE_HEIGHT; L1 refuses these too): nothing moves
-                res = "skip shield: the legacy shielded pool takes no new deposits"
             else:
-                res = default_state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []), d.get("openings", []))
+                # THE LEGACY POOL TAKES NO DEPOSIT AT ANY HEIGHT (G9 slice 5). L1 refuses a legacy shield from
+                # protocol.LEGACY_SHIELD_CLOSE_HEIGHT (10000 on gen 29), and the gen-29 chain carries NO shield tx in
+                # 0..10533 (measured 2026-10-28), a final range — so the deposit path below the close (the deleted
+                # ExecState.apply_shield) never ran. INVARIANT: never apply a legacy deposit again. A result string is only
+                # logged, never committed.
+                res = "skip shield: the legacy shielded pool takes no new deposits"
             if verbose:
                 print(f"[execnode] block {h}: {res}", flush=True)
         elif r == "reveal":

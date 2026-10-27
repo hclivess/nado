@@ -17,7 +17,6 @@ os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.transaction_ops import field_shield_check
-from execnode.stark import znote as Z
 
 import _harness
 _report = _harness.Report()
@@ -32,13 +31,10 @@ def admitted(data, h):
         return False
 
 
-# an owner the wide (alghash2) parser refuses: a lane at or above the field prime
+# an owner the old wide (alghash2) parser refused: a 64-bit lane at or above the Goldilocks prime. The parser (znote)
+# went with the wide pool (G9 slice 5); the lane test it applied is restated here so the owner stays the hard case.
 bad_lane = ("ff" * 8) + ("00" * 24)
-try:
-    Z.from_hex(bad_lane); wide_refuses = False
-except Exception:
-    wide_refuses = True
-check("setup: the wide parser refuses this 64-hex owner", wide_refuses)
+check("setup: this 64-hex owner has a lane the wide parser refused", int(bad_lane[:16], 16) >= (1 << 64) - (1 << 32) + 1)
 
 GATE = 900                                 # a test height: the Stwo rule holds from block 1
 good_wide = "0" * 63 + "1"

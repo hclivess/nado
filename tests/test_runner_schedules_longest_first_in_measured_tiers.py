@@ -82,10 +82,11 @@ os.remove(TIMES)
 src = open(RUNNER).read()
 slow = dict(re.findall(r"^(test_\w+) (\d+)$", src, re.M))
 # (the 2026-10-10 offenders test_settlement_proof, test_recursive_verify_hetero and test_settle_fold_tree were retired
-# with the Goldilocks prover in G9; test_wide_pool_depth is the one left)
-for n in ("test_wide_pool_depth", "test_shielded_wide"):
-    check(f"{n} (ran within minutes of the old 900 s cap) is on the fallback SLOW list", n in slow)
-r = run(["--fast", os.path.join(ROOT, "tests", "test_wide_pool_depth.py")])
+# with the Goldilocks prover in G9, and test_wide_pool_depth / test_shielded_wide with the wide pool in G9 slice 5;
+# test_recursive_row is the longest left)
+for n in ("test_recursive_row",):
+    check(f"{n} (over 10 minutes when measured) is on the fallback SLOW list", n in slow)
+r = run(["--fast", os.path.join(ROOT, "tests", "test_recursive_row.py")])
 check("with no measurement, a test on the SLOW list is slow tier (deferred by --fast, nothing run)",
       "DEFERRED" in r.stdout and "slow-list" in r.stdout and "0 ok" in r.stdout, r.stdout)
 

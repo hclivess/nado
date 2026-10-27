@@ -140,12 +140,11 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 ### Shielded pools (privacy)
 | Method | Path | Params | Returns |
 |---|---|---|---|
-| GET | `/exec/shielded` · `/exec/shielded_note` | `?ns=&…` / `?cm=` or `?nf=` | Zerocash-style pool (root + notes) |
 | GET | `/exec/unshields` · `/exec/unshield_proof` | `?addr=` / `?nonce=[&root=]` | unshield exits + proofs |
 | GET | `/exec/stwo_spendable` | `?root=&nf=&cm1=&cm2=&unshield=&fee=` | would a Stwo spend with these public inputs apply now (the live pool, doc/stwo-migration.md §5.1) |
 | GET | `/exec/stwo_nullifiers` | — | the Stwo pool's spent set, sorted (checked locally by the wallet) |
 | GET | `/exec/stwo_carried_deposits` | `[?addr=]` | the public records of Stwo deposits carried across the last reroll |
-| GET | `/exec/field_shielded` · `/exec/field_leaves` | `?ns=` | Phase-2 STARK-friendly pool |
+| GET | `/exec/field_shielded` · `/exec/field_leaves` | `?ns=` | the Stwo shielded pool (status · leaves) |
 
 ### Cross-domain messaging
 | Method | Path | Params | Returns |

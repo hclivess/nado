@@ -1,4 +1,10 @@
 """
+THE LEGACY (BLAKE2b, TRANSPARENT) SHIELDED POOL (doc/privacy.md, historical). On generation 29 it takes no deposit (the
+legacy shield is skipped, execnode/block_apply.py), but the `shielded_transfer` blob op still applies a balanced transfer
+here, and a transfer with no inputs and value-0 outputs balances — so this pool is LIVE for zero-value notes and its root
+is computed, not pinned (exec_root_b2.records_projection). It stays until a gate closes that op (G9 slice 5).
+The Phase-2 text below is history: the STARK pools it anticipated were built, closed and deleted.
+
 zk-STARK SHIELDED POOL — post-quantum confidential transactions (doc/privacy.md). Execution-layer feature.
 
 WHAT THIS IS. The privacy-preserving state machine for a Zerocash-style shielded pool, plus a PLUGGABLE
@@ -238,19 +244,15 @@ class ShieldedPool:
 # INVARIANT proven: every input commitment is in the tree at `root`; each nullifier = H(spend_secret,rho) and
 # matches its input; each out_commitment = H(value,owner,rho); and  sum(inputs)+public_value == sum(outputs)+fee.
 
-def verify_transfer(public: dict, proof: dict, root_is_known, wide_depth=None) -> tuple:
-    """Verify a shielded transfer. `root_is_known(root)` -> bool tells us the `root` is one the pool actually
+def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
+    """Verify a TRANSPARENT shielded transfer. `root_is_known(root)` -> bool tells us the `root` is one the pool actually
     held (anchor freshness). Returns (ok, reason).
 
-    PHASE-2 SEAM (doc/privacy.md): if `proof` carries a "stark" bundle it routes to the zk-STARK verifier
-    (execnode/stark/joinsplit_transfer) instead of re-checking the transparent witness in the clear. The
-    join-split hash gadget is arithmetised + proven in ZK today; composing the FULL statement (membership +
-    value conservation + nullifier) into one circuit is the remaining Phase-2 work, so the transparent path
-    below stays authoritative for real spends until then. The signature of THIS function does not change."""
+    THE STARK SEAM IS GONE (G9 slice 5): a `stark` bundle routed to execnode/stark/joinsplit_transfer, which served only
+    the deleted field and wide pools. Its one remaining caller, the `shielded_transfer` op, refuses a stark bundle before
+    it gets here (ExecState._apply_blob_inner), so a stark bundle is refused here too rather than read as a witness."""
     if isinstance(proof, dict) and proof.get("stark"):
-        from execnode.stark import joinsplit_transfer
-        # wide_depth: the WIDE pool's depth in force for the block being judged (shielded_wide.depth_at), from the pool
-        return joinsplit_transfer.verify_transfer(public, proof, root_is_known, wide_depth=wide_depth)
+        return False, "stark bundles are not verified by the transparent pool"
     try:
         root = public["root"]
         nfs = public["nullifiers"]

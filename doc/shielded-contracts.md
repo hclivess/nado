@@ -1,5 +1,7 @@
 # Shielded contracts — private application state
 
+> **HISTORICAL (G9 slice 5, 2026-10-28):** this feature is deleted — `execnode/shielded_state.py`, `appnote_circuit`, `/exec/private_state` and the `private_call` transition are gone, and `private_call` is refused at every height. Nothing was ever committed under tags 11/12 on generation 29.
+
 > **Status: PHASE 2 BUILT, and PAUSED on the live chain.** Every `private_call` is refused from block 1
 > (`ExecState.rules_privacy_pause`, `execnode/state.py`): the 2026-09-24 review reproduced a deposit that commits
 > a note worth more than it paid, against any contract's whole balance. The state machine, the settled-root binding, the `private_call` op, the

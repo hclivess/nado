@@ -28,12 +28,18 @@ DOMAIN_REC_DIGEST = b"rec-digest-v1"
 T_BRIDGE_BAL, T_DIV_BAL, T_BRIDGE_WD, T_DIV_WD, T_UNSHIELD_WD, T_DIGEST, T_KVX = 1, 2, 3, 4, 5, 6, 7
 T_ASSET_BAL, T_ASSET_META = 8, 9   # (asset, holder) -> balance, and asset -> a digest of its metadata
 T_ASSET_ALLOW = 10                 # (asset, owner, spender) -> allowance (delegated-spend authorization)
-# SHIELDED CONTRACTS (execnode/shielded_state.py). Private application state enters the settled root the
-# same way the two pools already do — as a digest IN THE POSITION — so a contract's private note root is
-# provable against one settled root by the SAME bounded verifier as a bridge balance. Appending these two
-# is the whole state-binding cost of the feature: tags 1-10 do not move, so no historical root is
-# invalidated and no CHAIN_GENERATION reroll is required.
-T_APP_ROOT, T_APP_NULL = 11, 12    # (cid, note root) -> 1, and the spent-nullifier set digest -> 1
+# 11/12 were the shielded-contract state's (cid, note root) and spent-set digest (deleted in G9 slice 5, never
+# populated on generation 29). The numbers stay RESERVED: a tag is never reused for another record kind.
+T_APP_ROOT, T_APP_NULL = 11, 12
+
+# THE RETIRED FIELD POOL'S RECORDS (G9 slice 5). The Goldilocks field pool (and the wide pool and shielded-contract state
+# that tags 11/12 served) are deleted: on generation 29 no entry point could add a note to them, so they were empty at
+# every height. The empty field pool still projected two T_DIGEST records into every gen-29 root, so they are committed
+# here BYTE-IDENTICALLY as constants — its root (a field element, as the decimal string it always was) and the digest of
+# its empty spent set, blake2b_hash(["field_nfset"]). INVARIANT: every gen-29 root depends on these two; a reroll may
+# drop them only together with a CHAIN_GENERATION bump (tests/test_the_retired_pools_commit_their_empty_digests.py).
+RETIRED_FIELD_ROOT = "12068980620996700996"
+RETIRED_FIELD_NFSET = "caeaaec45c69de5493ca19f3967f5706552b5840fa46f33a33681f97d0f72b37"
 
 
 def leaf_digest(leaf_bytes):
@@ -215,20 +221,14 @@ def records_projection(st):
         _amount(out, record_key(T_DIV_WD, w["addr"], nonce), w["amount"])
     for nonce, w in st.unshield_withdrawals.items():
         _amount(out, record_key(T_UNSHIELD_WD, w["addr"], nonce), w["amount"])
-    # the legacy pools must be EMPTY at the gen-29 carry (doc/stwo-migration.md 6.4b; the carry refuses otherwise), so
-    # on generation 29 these two digests are the empty pools' — committed anyway, so the root still binds "empty"
+    # the LEGACY BLAKE2b pool is empty at the gen-29 carry (doc/stwo-migration.md 6.4b) but still LIVE for zero-value
+    # notes (ExecState "shielded_transfer"), so its two digests are computed from the pool, never pinned
     out[record_key(T_DIGEST, "shield_root", st.shielded.root())] = ONE
     out[record_key(T_DIGEST, "shield_nfset", st.shielded.nullifier_digest())] = ONE
-    from execnode.stark import field as _F                  # the field pool's root is a field element by nature;
-    out[record_key(T_DIGEST, "field_root", str(int(st.field_pool.root()) % _F.P))] = ONE   # same string as before
-    from hashing import blake2b_hash
-    out[record_key(T_DIGEST, "field_nfset",
-                   blake2b_hash(["field_nfset", *sorted(str(n) for n in st.field_pool.nullifiers)]))] = ONE
-    wp = getattr(st, "wide_pool", None)
-    if wp is not None and (wp.commitments or wp.nullifiers):
-        from execnode.stark import znote as _Z
-        out[record_key(T_DIGEST, "wide_root", _Z.to_hex(wp.root()))] = ONE
-        out[record_key(T_DIGEST, "wide_nfset", wp.nullifier_digest())] = ONE
+    # THE DELETED FIELD POOL'S TWO RECORDS, as the constants they were on every gen-29 state (see RETIRED_FIELD_ROOT)
+    out[record_key(T_DIGEST, "field_root", RETIRED_FIELD_ROOT)] = ONE
+    out[record_key(T_DIGEST, "field_nfset", RETIRED_FIELD_NFSET)] = ONE
+    # (the deleted wide pool and shielded-contract state were empty on every gen-29 state, and empty projected nothing)
     sp = getattr(st, "stwo_pool", None)
     if sp is not None and (sp.commitments or sp.nullifiers):
         out[record_key(T_DIGEST, "stwo_root", sp.root())] = ONE
@@ -238,14 +238,6 @@ def records_projection(st):
     sv = int(getattr(st, "stwo_value", 0) or 0)
     if sv:
         out[record_key(T_DIGEST, "stwo_value", str(sv))] = ONE
-    app = getattr(st, "app_state", None)
-    if app is not None:
-        for cid in sorted(app.trees):
-            if not app.trees[cid]:
-                continue
-            out[record_key(T_APP_ROOT, cid, str(int(app.root(cid)) % _F.P))] = ONE
-        if app.nullifiers:
-            out[record_key(T_APP_NULL, app.nullifier_digest())] = ONE
     for name in COUNTERS:                                  # the nonces new records are positioned by (T_COUNTER)
         _amount(out, record_key(T_COUNTER, name), getattr(st, name, 0) or 0)
     if addr_root_at(getattr(st, "cursor", -1)):            # the digest registry (T_ADDR), from its gate

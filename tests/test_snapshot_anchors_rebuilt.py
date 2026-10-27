@@ -1,14 +1,13 @@
 """A pool loaded from a snapshot holds exactly the anchors an honest replay holds, and never a donor's extra root
-(execnode/shielded_wide.py, shielded_field.py, shielded.py from_dict; execnode/state.py exit-counter floors).
+(execnode/shielded.py from_dict; execnode/state.py exit-counter floors and retired-pool keys).
 
 The exec state root commits the commitment tree and the nullifier set but not the anchor window, so a node adopting a
 peer's snapshot used to take the donor's anchors on faith: the root of a fake tree let a real proof against it through
 (zk audit 2026-09-26 F2, reproduced: forged note, pool_value negative, a forged exit). Pins: after any number of appends,
 save+load reproduces the live anchor window exactly (an honest restart changes nothing); an injected fake root is
 dropped; and an exit counter below a pending record's key is floored so the next exit cannot overwrite it.
-The wide pool is pinned at both of its depths (12 at height 0, 48 from block 1): the snapshot carries the depth, a
-pool deepened at block 1 holds exactly the window a restart rebuilds, and the depth-48 rebuild is O(n) tree hashes
-(through the incremental frontier), not one tree per window prefix.
+An exec_state.json from before G9 slice 5 still carries the deleted pools' keys ("field_pool" on every gen-29 node, and
+possibly "wide_pool" / "app_state"): it loads, the keys are ignored, and the state root is the one it always had.
 
 Run: python3 tests/test_snapshot_anchors_rebuilt.py
 """
@@ -19,10 +18,7 @@ os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.jso
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 import sys, random, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.shielded_wide import WideShieldedPool, ANCHOR_WINDOW
-from execnode.shielded_field import FieldShieldedPool
 from execnode.shielded import ShieldedPool, _h as sh_h
-from execnode.stark import znote as Z
 
 import _harness
 _report = _harness.Report()
@@ -30,60 +26,8 @@ check = _report.check
 
 
 rnd = random.Random(7)
-wide_cm = lambda: tuple(rnd.randrange(1, 2**63) for _ in range(4))
-# at BOTH depths the wide pool can have (12 at height 0, 48 from block 1): the snapshot carries the depth, and the
-# window is rebuilt at it
-for depth in (12, 48):
-    for n in (0, 1, 5, ANCHOR_WINDOW - 1, ANCHOR_WINDOW, ANCHOR_WINDOW + 7):
-        live = WideShieldedPool(depth=depth)
-        for _ in range(n):
-            live.append(wide_cm())
-        back = WideShieldedPool.from_dict(json.loads(json.dumps(live.to_dict())))
-        check(f"wide pool d{depth}, {n} notes: a restart reproduces the depth, root and anchor window exactly",
-              (back.depth, back.root(), back.anchors) == (depth, live.root(), live.anchors))
-        fake = live.to_dict()
-        fake["anchors"] = fake["anchors"] + [Z.to_hex(wide_cm())]
-        check(f"wide pool d{depth}, {n} notes: a donor's extra root is dropped",
-              WideShieldedPool.from_dict(fake).anchors == live.anchors)
-
-# a pool DEEPENED at the gate (12 -> 48) holds exactly the window a restart rebuilds — else a node that restarted after
-# the switch and one that did not would accept different anchors, and an anchor decides whether a transfer applies
-for n in (0, 3, ANCHOR_WINDOW + 20):
-    live = WideShieldedPool()
-    for _ in range(n):
-        live.append(wide_cm())
-    old_roots = set(live.anchors)
-    deep = live.deepened(48)
-    for _ in range(3):
-        deep.append(wide_cm())
-    back = WideShieldedPool.from_dict(json.loads(json.dumps(deep.to_dict())))
-    check(f"deepened pool, {n}+3 notes: a restart reproduces the window", (back.anchors, back.depth) == (deep.anchors, 48))
-    check(f"deepened pool, {n}+3 notes: no depth-12 root survives the switch", not (old_roots & set(deep.anchors)))
-
-# the depth-48 rebuild is O(n) once, not one tree per window prefix (O(128·n)): count the tree hashes
-import execnode.shielded_wide as _SW
-_calls = [0]
-_real = _SW.Z.merkle_node
-def _counting(a, b):
-    _calls[0] += 1
-    return _real(a, b)
-big = [wide_cm() for _ in range(3000)]
-_SW.Z.merkle_node = _counting
-try:
-    WideShieldedPool.from_dict({"commitments": [Z.to_hex(c) for c in big], "depth": 48})
-finally:
-    _SW.Z.merkle_node = _real
-bound = 2 * len(big) + (ANCHOR_WINDOW + 1) * 48 + 48
-check(f"a 3,000-note depth-48 snapshot rebuilds in O(n) tree hashes ({_calls[0]} <= {bound})", _calls[0] <= bound, _calls[0])
-
-for n in (0, 3, 130):
-    live = FieldShieldedPool()
-    for _ in range(n):
-        live.append(rnd.randrange(1, 2**63))
-    back = FieldShieldedPool.from_dict(json.loads(json.dumps(live.to_dict())))
-    check(f"field pool, {n} notes: a restart reproduces the anchor window exactly", back.anchors == live.anchors)
-    fake = live.to_dict(); fake["anchors"] = fake["anchors"] + [str(rnd.randrange(1, 2**63))]
-    check(f"field pool, {n} notes: a donor's extra root is dropped", FieldShieldedPool.from_dict(fake).anchors == live.anchors)
+# (the wide pool's two depths, the deepened-window and O(n)-rebuild pins, and the field pool's window: retired in G9 slice 5
+# with those pools; the legacy pool below is the one still live besides the Stwo pool, which has its own tests)
 
 # the phase-1 pool remembers once per TRANSFER (several outputs), like shielded.apply_transfer
 for transfers in (0, 4, 70):
@@ -111,6 +55,22 @@ if d is not None:
     check("an honest counter above every key is left alone", st2.dw_nonce == 7)
 else:
     check("ExecState exposes _snapshot for the counter test", False)
+
+# THE FLEET'S STATE FILES CARRY THE DELETED POOLS' KEYS (G9 slice 5): every gen-29 exec_state.json has an empty
+# "field_pool", and an older one may hold "wide_pool" (at either depth — the depth check that refused a mismatch went
+# with the pool) and "app_state". _restore must load them and ignore the keys, and the root must not move.
+st3 = ExecState(os.path.join(os.environ["HOME"], "s3.json"))
+st3.cursor = 10576
+root3, snap3 = st3.state_root(), json.loads(json.dumps(st3._snapshot(), default=str))
+old = dict(snap3, field_pool={"commitments": [], "nullifiers": [], "anchors": ["12068980620996700996"]},
+           wide_pool={"commitments": [], "nullifiers": [], "depth": 12}, app_state={"trees": {}, "nullifiers": []})
+json.dump(old, open(os.path.join(os.environ["HOME"], "s4.json"), "w"))
+st4 = ExecState(os.path.join(os.environ["HOME"], "s4.json"))
+check("an old state file with field_pool / wide_pool / app_state keys loads, with the root it always had",
+      st4.cursor == 10576 and st4.state_root() == root3, (st4.cursor, st4.state_root(), root3))
+check("...and the pools are gone from the state and its snapshot",
+      not any(hasattr(st4, k) for k in ("field_pool", "wide_pool", "app_state"))
+      and not any(k in st4._snapshot() for k in ("field_pool", "wide_pool", "app_state")))
 
 print("ALL PASS" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

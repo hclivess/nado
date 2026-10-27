@@ -42,7 +42,7 @@ def _victim_unshield_blob(withdraw_addr):
 def setup():
     """Shield 100 coins to Alice, then split them so pos 2 holds her 40-coin change note."""
     # a note Alice can later unshield (pos 0), plus a private transfer so pos 1 = Alice's 40-coin change
-    st.apply_shield(100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
+    _harness.seed_legacy_notes(st, 100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
     st.apply_blob({"op": "shielded_transfer", **_split_100()}, sender="relay", txid="setup")
 
 def _split_100():

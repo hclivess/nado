@@ -30,7 +30,6 @@ import protocol as P
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
 from execnode.stark import stark, field as F
-from execnode.shielded_field import TREE_DEPTH
 
 import _harness
 _report = _harness.Report()
@@ -123,14 +122,22 @@ def t_f4_block_budget_reverts_the_call_that_exceeds_it():
 
 
 # ---- Z6 / Z9 / Z4 (shielded) ---------------------------------------------------------------------------------
-def t_z6_the_legacy_pool_at_height_0_keeps_its_old_verdict():
-    # Z6 / Z4 / Z9 on the WIDE pool from block 1 retired in G9: generation 28's rules — from block 1 every field shield
-    # and transfer is the Stwo pool's (STWO_POOL_HEIGHT, inlined as 1), whose own tests pin duplicates, capacity and the
-    # exit address. The legacy pool is reachable only at height 0, below every deleted gate, where the duplicate was
-    # historically admitted.
+def t_z6_the_legacy_pool_refuses_a_duplicate_commitment_and_nothing_is_below_block_1():
+    # Z6 / Z4 / Z9 on the WIDE pool from block 1 retired in G9: from block 1 every field shield and transfer is the Stwo
+    # pool's, whose own tests pin duplicates, capacity and the exit address. The legacy FIELD pool that height 0 reached is
+    # deleted (G9 slice 5), so a field shield below block 1 lands nowhere. Z6 still guards the transparent legacy pool,
+    # live for zero-value notes (ExecState "shielded_transfer").
+    from execnode.shielded import note_commitment
     st_old = fresh(GATE - 1)
-    assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield")
-    assert st_old.apply_field_shield(1000, 7, 9).startswith("field-shield"), "height 0: the legacy pool admits the duplicate"
+    assert st_old.apply_field_shield(1000, 7, 9).startswith("skip field-shield"), "height 0: no pool below block 1"
+    st = fresh(GATE)
+    blob = {"op": "shielded_transfer",
+            "public": {"root": st.shielded.root(), "nullifiers": [], "out_commitments": [note_commitment(0, "o", "r")],
+                       "public_value": 0, "fee": 0},
+            "proof": {"inputs": [], "outputs": [{"value": 0, "owner": "o", "rho": "r"}]}}
+    assert st.apply_blob(dict(blob), ALICE, "z6a").startswith("shielded_transfer ok")
+    assert st.apply_blob(dict(blob), ALICE, "z6b") == "skip shielded_transfer: duplicate note commitment"
+    assert st.shielded.size() == 1
 
 
 # ---- S4 the DA-carried proven marker -------------------------------------------------------------------------

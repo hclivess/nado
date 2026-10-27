@@ -2,15 +2,16 @@
 Shielded pool — UNBACKED-MINT fence (doc/privacy.md, execnode/state.py).
 
 Coins may only ENTER the shielded pool via an L1 `shield` tx, whose escrowed amount drives
-apply_shield / apply_field_shield. A transfer BLOB is user-supplied and escrow-free, so a positive
+apply_field_shield. A transfer BLOB is user-supplied and escrow-free, so a positive
 `public_value` there would mint notes backed by nothing: the join-split circuit faithfully proves
 `v_in + public_value == v_out + fee`, but `public_value` is a PUBLIC INPUT the prover chooses, not a
 fact about escrow. Without the fence, one MIN_TX_FEE blob mints an arbitrary note and unshields it
 straight back out against SHIELD_ESCROW — draining every other depositor (L1's `escrow.balance >=
 amount` floor bounds the loss to the escrow, but that IS everyone's deposits).
 
-These tests assert the fence on BOTH blob paths, and that the LEGITIMATE escrow-driven deposit
-(apply_shield, whose public_value comes from the authoritative on-chain amount) still works.
+These tests assert the fence on the transparent blob path (still live on generation 29, G9 slice 5), and that the
+LEGITIMATE escrow-driven deposit (apply_field_shield, whose value comes from the authoritative on-chain amount) still
+works. A Stwo spend cannot carry value in at all: its public values are an unshield and a fee, both u64.
 
 Run: python3 tests/test_unbacked_mint.py
 """
@@ -64,55 +65,19 @@ def t2():
     assert before == after, f"pool state moved on a rejected mint: {before} -> {after}"
 
 
-def t3():
-    """The field (STARK) path bounds public_value to <= 0 too.
-
-    This MUST use a GENUINELY VALID proof. A malformed bundle is rejected by verify_transfer long before
-    the public_value bound is reached, so it would pass with or without the fence and prove nothing. Here
-    the circuit is fully satisfied — v_in(1000) + public_value(MINT) == v_out(1000+MINT) + fee(0) — and the
-    ONLY thing standing between the prover and MINT coins from nothing is the bound. Slow: real proving."""
-    from execnode.stark import alghash
-    from execnode import shielded_field as SF
-    nsk, rho, VIN = 0x1111, 0x2222, 1000
-    st = _fresh()
-    st.field_pool.append(alghash.commit(VIN, alghash.owner_of(nsk), rho))     # one honestly-deposited note
-    pos = st.field_pool.position(alghash.commit(VIN, alghash.owner_of(nsk), rho))
-    bundle, public = SF.prove_transfer(st.field_pool, nsk, VIN, rho, pos,
-                                       VIN + MINT, alghash.owner_of(0x3333), 0x4444,
-                                       public_value=MINT, fee=0)
-    # Sanity: the proof itself is sound — the circuit is happy to prove this statement.
-    ok, why = __import__("execnode.shielded", fromlist=["x"]).verify_transfer(
-        public, bundle, st.field_pool.knows_root)
-    assert ok, f"test is not exercising the fence — the proof itself failed to verify: {why}"
-    before = len(st.field_pool.commitments)
-    res = st.apply_field_transfer(bundle)
-    assert "out of range" in res, f"a VALID proof with public_value > 0 was accepted: {res!r}"
-    assert len(st.field_pool.commitments) == before, "rejected field mint appended a commitment"
-    assert not st.unshield_withdrawals, "rejected field mint recorded an unshield exit"
-
-
-def t4():
-    """REGRESSION GUARD: the legitimate escrow-driven deposit still works — apply_shield carries a
-    positive public_value derived from the AUTHORITATIVE on-chain amount, and must NOT be fenced."""
-    st = _fresh()
-    owner, rho = owner_id(EVE["public_key"]), "rdep"
-    res = st.apply_shield(1234, [note_commitment(1234, owner, rho)], [{"value": 1234, "owner": owner, "rho": rho}])
-    assert not res.startswith("skip"), f"legitimate L1 shield deposit was wrongly rejected: {res!r}"
-    assert st.shielded.size() == 1, f"legitimate deposit did not append its note (size {st.shielded.size()})"
-
-
 def t5():
-    """REGRESSION GUARD: the field-native escrow deposit path is likewise unaffected."""
+    """REGRESSION GUARD: the escrow-driven field deposit is unaffected — from block 1 it lands in the Stwo pool, with the
+    note's value taken from the on-chain amount. (The field-path mint check, t3, and the legacy deposit, t4, went with the
+    field pool and ExecState.apply_shield in G9 slice 5; the legacy pool takes no deposit at any height.)"""
     st = _fresh()
-    res = st.apply_field_shield(4321, 0x1111, 0x2222)
-    assert not res.startswith("skip"), f"legitimate field-shield deposit was wrongly rejected: {res!r}"
-    assert len(st.field_pool.commitments) == 1, "legitimate field deposit did not append its note"
+    st.cursor = 5000                                    # a gen-29 height, past every gate
+    res = st.apply_field_shield(4321, "ab" * 32, 0x2222)
+    assert "stwo note" in res, f"legitimate field-shield deposit was wrongly rejected: {res!r}"
+    assert len(st.stwo_pool.commitments) == 1 and st.pool_value == 4321, "legitimate field deposit did not append its note"
 
 
 for name, fn in [("transparent mint (public_value > 0) rejected", t1),
                  ("rejected mint leaves pool state untouched", t2),
-                 ("field-path mint (public_value > 0) rejected", t3),
-                 ("legitimate L1 shield deposit still works", t4),
                  ("legitimate field-shield deposit still works", t5)]:
     check(name, fn)
 

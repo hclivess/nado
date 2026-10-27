@@ -45,13 +45,11 @@ rh = lambda: secrets.token_hex(32)
 
 
 def fresh(name, stwo_deposits):
-    """A state with value in another (frozen) pool and `stwo_deposits` Stwo notes. The other pool's note is deposited at
-    height 0, the only height below the Stwo pool since G9 inlined STWO_POOL_HEIGHT as block 1 (it lands in the legacy
-    field pool there); generation 28 put a wide note below its gate instead — the cap must hold against either."""
+    """A state with value pool_value counts outside the Stwo pool and `stwo_deposits` Stwo notes. That value once came from
+    a field or wide note deposited below the Stwo gate; those pools are deleted (G9 slice 5), so it is set directly — the
+    cap must still hold against any value pool_value counts that Stwo deposits did not put in."""
     s = ExecState(os.path.join(_T, name))
-    s.cursor = -1
-    r = s.apply_field_shield(10 ** 12, 7, 1)                        # a non-Stwo note: value pool_value counts, Stwo must not reach
-    assert "skip" not in r, r
+    s.pool_value += 10 ** 12                                        # value pool_value counts, Stwo must not reach
     s.cursor = GATE - 1
     for (v, owner, rho) in stwo_deposits:
         r = s.apply_field_shield(v, owner, rho)
@@ -104,7 +102,7 @@ check("...and a revert through the snapshot restores it exactly", st.stwo_value 
 # ---- 4. the exec root ------------------------------------------------------------------------------------------
 a = fresh("ra.json", [(900, "11" * 32, 3)])
 b = fresh("rb.json", [(900, "11" * 32, 3)])
-b.wide_pool, b.field_pool = a.wide_pool, a.field_pool            # identical but for what we set next
+# (the two states are identical: the field and wide pools whose objects this line once shared are deleted, G9 slice 5)
 check("4. two identical states project identically (sanity)", ER.records_projection(a) == ER.records_projection(b))
 b.stwo_value = 901
 check("...and differ when only stwo_value differs", ER.records_projection(a) != ER.records_projection(b))

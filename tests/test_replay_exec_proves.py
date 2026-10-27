@@ -102,7 +102,6 @@ for b in blocks:
         st.last_div_epoch = E
     with _stk.rules_at(h):
         block_apply.begin({"default": st}, h)
-        st.wide_enter(h)
         block_apply.dispatch({"default": st}, st, b, {}, set(), verbose=False)
         block_apply.close({"default": st}, h, b["block_hash"])
     want[str(h)] = st.state_root()

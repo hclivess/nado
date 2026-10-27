@@ -1,11 +1,12 @@
-"""From block 1 the exec node's wallet endpoints (/exec/field_leaves, /exec/field_shielded) serve the Stwo pool (gen 28's
-STWO_POOL_HEIGHT, 1 from gen 29, inlined in G9), and before it — a fresh state, genesis next — the wide pool's.
+"""The exec node's wallet endpoints (/exec/field_leaves, /exec/field_shielded) serve the Stwo pool (gen 28's
+STWO_POOL_HEIGHT, 1 from gen 29, inlined in G9) — at every cursor since G9 slice 5 deleted the wide pool a fresh state
+(genesis next) used to serve.
 
 A wallet builds its Merkle path from /exec/field_leaves and decides which pool it is proving for from the same answer.
 With the gate live, the exec layer only accepts `stwo_js` spends against the Stwo pool, so serving the frozen wide pool
 there would hand the wallet a tree no spend can anchor to. Pins:
   1. (retired in G9: generation 28's dormant gate);
-  2. on a fresh state (tip + 1 == 0) they are still the wide pool's;
+  2. on a fresh state (tip + 1 == 0) they are the Stwo pool's too (the wide pool is deleted);
   3. from tip + 1 == 1 they are the Stwo pool's: its leaves in order, "pool": "stwo", "wide": False (so a wallet that
      does not know the pool refuses to build a joinsplit3 proof against it), depth 48, and the pool's own root;
   4. (retired in G9: a gate of 0).
@@ -59,8 +60,8 @@ def ask(cursor):
 # 1 (generation 28's dormant gate served the wide pool) and 4 (a gate of 0) retired in G9: generation 28's rules.
 # STWO_POOL_HEIGHT is inlined as block 1 (execnode._stwo_pool_next: cursor + 1 >= 1).
 lv, sh = ask(-1)
-check("2. a fresh state (cursor -1, the next block is genesis) still serves the wide pool",
-      "pool" not in lv and "pool" not in sh, (lv, sh))
+check("2. a fresh state (cursor -1, the next block is genesis) serves the Stwo pool too (the wide pool is deleted)",
+      lv.get("pool") == "stwo" and sh.get("pool") == "stwo" and lv.get("leaves") == st.stwo_pool.commitments, (lv, sh))
 lv, sh = ask(0)
 check("3. from tip + 1 == 1 field_leaves serves the Stwo pool's leaves, in order",
       lv.get("pool") == "stwo" and lv.get("leaves") == st.stwo_pool.commitments, lv)

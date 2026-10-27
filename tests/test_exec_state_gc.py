@@ -60,16 +60,18 @@ def t2_drop_consumed_outbox_and_monotonic_seq():
     st.drop_consumed_outbox("bogus")               # malformed seq -> no-op
 
 
-def t3_field_nfset_digest_bounded():
+def t3_shield_nfset_digest_bounded():
+    # on the legacy pool, the one spent set left besides the Stwo pool's (the field pool's was pinned here until it was
+    # deleted, G9 slice 5; its digest is a constant now)
     st = _st()
     r_empty = st.state_root()
-    st.field_pool.nullifiers.update(range(1, 500))
+    st.shielded.nullifiers.update(str(i) for i in range(1, 500))
     st._touch()
     r_full = st.state_root()
     assert r_full != r_empty, "the digest still BINDS the nullifier set"
     # the committed projection stays the same SIZE regardless of set size (one digest record, not one per nf)
     n_records_full = len(ER.records_projection(st))
-    st.field_pool.nullifiers.update(range(500, 1000))
+    st.shielded.nullifiers.update(str(i) for i in range(500, 1000))
     st._touch()
     assert len(ER.records_projection(st)) == n_records_full, "record count must not grow with the nullifier set"
     assert st.state_root() != r_full, "...but the digest changes with the set"

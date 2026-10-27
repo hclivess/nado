@@ -13,7 +13,7 @@ that was really open:
   F2  a non-string `method` used to be DEBITED and then raise at the VM (escrow kept); at the gate it is refused
       first, a VM exception refunds, and L1 admission refuses to order it.
   Z2  a `stark` bundle with no join-split proof used to pass "output well-formedness" and record an unbacked
-      unshield exit; at the gate it is refused, and an exit is bounded by MAX_EXIT_VALUE.
+      unshield exit; a stark bundle is now refused at every height, and an exit is bounded by MAX_EXIT_VALUE.
   S2/S3 (the settle branch's records fold and the order of its checks before the proof verify) were retired in G9 with
       the L1 settle-proof verifier: a BLAKE2s exec root settles by quorum attestation only.
   S5  a MemoryError inside any verifier layer propagates instead of becoming a (False, ...) verdict.
@@ -179,12 +179,14 @@ def _exit_blob(pv, stark_bundle):
             "proof": {"stark": stark_bundle}}
 
 
-def t_z2_legacy_records_an_unbacked_exit_for_an_empty_bundle():
-    """THE FINDING. No note was ever spent, yet the pool goes negative and an exit is recorded."""
+def t_z2_a_stark_bundle_is_refused_even_below_block_1():
+    """THE FINDING (an empty stark bundle recorded an unbacked exit) is unreachable at every height now: the stark
+    refusal holds below block 1 too (G9 slice 5 deleted the stark seam it fell through to). Below block 1 only genesis is
+    applied, which carries no transaction on generation 29, so this changes no gen-29 verdict."""
     st, _, _ = fresh(GATE - 1)
     r = st.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx")
-    assert r.startswith("unshield"), r
-    assert st.pool_value == -1_000_000 and len(st.unshield_withdrawals) == 1
+    assert r.startswith("skip shielded_transfer") and "stark bundle" in r, r
+    assert st.pool_value == 0 and not st.unshield_withdrawals
 
 
 def t_z2_gate_refuses_a_bundle_without_a_join_split_proof():

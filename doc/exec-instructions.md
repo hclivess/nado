@@ -507,9 +507,8 @@ must be read from the **finalized** state for a valid claim.
 | `/exec/dividend_proof` | Merkle proof for a collected dividend withdrawal | `nonce` |
 | `/exec/unshields` | pending unshield exits for an L1 `?addr=` | `addr` |
 | `/exec/unshield_proof` | Merkle proof for an unshield exit vs current `state_root` | `nonce` |
-| `/exec/shielded` | phase-1 pool status (root, note/nullifier counts, recent anchors) | — |
-| `/exec/field_shielded` | phase-2 field-pool status; `?cm=` also a commitment's position | `cm` |
-| `/exec/field_leaves` | full field-pool commitment list (build a Merkle path on-device) | — |
+| `/exec/field_shielded` | Stwo pool status (root, note/nullifier counts, depth, `"pool": "stwo"`) | — |
+| `/exec/field_leaves` | full Stwo-pool commitment list (build a Merkle path on-device) | — |
 | `/exec/examples` | starter contract library (`contract_lib.LIBRARY`) | — |
 | `/exec/runtimes` | available runtimes + default | — |
 
