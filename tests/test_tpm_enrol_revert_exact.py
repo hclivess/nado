@@ -28,11 +28,9 @@ os.makedirs(os.path.join(os.environ["HOME"], "nado", "index"), exist_ok=True)
 
 from ops import kv_ops, tpm_enrol as te, attest_native, account_ops, transaction_ops, block_ops
 import protocol as _P
-# THE LEGACY CHALLENGER POOL, as below TPM_POOL_V2_HEIGHT (100000 on gen 28; block 1 on gen 29, where the pool reads
-# FFG duty presence over a window of applied blocks this test does not build — the node refuses to guess without them,
-# WindowUnavailable). The marker journal pinned here is the same code under either pool (gen-29 rehearsal);
-# tests/test_tpm_pool_v2.py pins the v2 pool.
-_P.TPM_POOL_V2_HEIGHT = 1 << 62
+# EVERY RECORD IS v2 (TPM_POOL_V2_HEIGHT, gen 28's gate, inlined in G9): apply snapshots tpm_pool_v2, which reads FFG
+# duty presence over a window of applied blocks this test does not build (the node refuses to guess without them,
+# WindowUnavailable), so the pool is stubbed below. tests/test_tpm_pool_v2.py pins the v2 pool itself.
 # COMMIT, THEN DRAW (the only draw since the betanet-9 cleanup deleted TPM_DRAW_UNGRINDABLE_HEIGHT and the enrol-time
 # draw): an enrolment is stored with NO challengers and its first challenge, from draw_opens(h) on, materialises the set.
 # The marker journal this test is about is the same code either way; the challenges below land at the draw epoch.
@@ -52,12 +50,12 @@ def _identity(cert: bytes) -> str:
 
 attest_native.verify_ek = lambda chain, now, roots=None, height=None: {"ok": True, "identity": _identity(chain[0])}
 attest_native.ek_public_der = lambda der: b"\x30\x03" + der[:3]
-A, B, C = "a" * 46, "b" * 46, "c" * 46
+A, B, C, D, F = "a" * 46, "b" * 46, "c" * 46, "d" * 46, "f" * 46
 account_ops._tpm_anchor_time = lambda h: 0
 # the pool as of the enrol block (it reads committed blocks this temp chain does not hold) and the draw epoch's beacon:
-# exactly k weighted members, so exact sampling seats all three
-assert _P.DEVICE_ATTEST_EK_CHALLENGERS == 3
-transaction_ops._tpm_pool = lambda h: {A: 1, B: 1, C: 1}
+# exactly k weighted members, so exact sampling seats all five
+assert _P.DEVICE_ATTEST_EK_CHALLENGERS_V2 == 5
+transaction_ops.tpm_pool_v2 = lambda h: {A: 1, B: 1, C: 1, D: 1, F: 1}
 block_ops.epoch_beacon = lambda epoch: "beacon-%d" % epoch
 
 CERT_X = b"chip-X-endorsement-certificate"

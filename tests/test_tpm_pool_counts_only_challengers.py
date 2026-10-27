@@ -1,5 +1,5 @@
 """Only a challenger's own acts earn a seat in the TPM challenger pool — never the enrollee's commit
-(ops/transaction_ops._proven_challengers, protocol.TPM_POOL_CHALLENGER_ACTS_HEIGHT).
+(ops/transaction_ops._proven_challengers; gen 28's TPM_POOL_CHALLENGER_ACTS_HEIGHT, inlined in G9).
 
 WHY (2026-10-05, operator: "make sure there is no way to exploit it"). The pool counted every tpm_commit sender as a
 challenger that had "acted". The commit is the ENROLLEE's message (tpm_enrol.apply_commit: sender == owner) and any
@@ -8,11 +8,9 @@ bought a seat for the whole 6000-block window: no bond, no node. Cheap seats dil
 honest enrolments, and, often enough, all three seats of one enrolment.
 
 Pins, on a synthetic chain (the draw reads committed blocks only):
-  1. BELOW the gate the old rule holds (replay keeps every verdict): a commit sender is in the pool — the hole, shown;
-  2. FROM the gate a commit sender is not, however many commits it lands;
-  3. challengers' own acts still earn a seat: tpm_challenge, tpm_reveal, a recent tpm_ready;
-  4. the rule is keyed on the draw's window, not on the scanned block (one window, one rule);
-  5. the gate is keyed on the live generation.
+  1. a commit sender is never in the pool, however many commits it lands, in any window;
+  2. challengers' own acts still earn a seat: tpm_challenge, tpm_reveal, a recent tpm_ready;
+  3. the gate is gone: the rule holds from block 1 (a window ending at block 0 scans nothing).
 
 Run: python3 tests/test_tpm_pool_counts_only_challengers.py
 """
@@ -49,31 +47,17 @@ def chain(top):
     T._tpm_proven_cache[0] = None
 
 
-LIVE = P.TPM_POOL_CHALLENGER_ACTS_HEIGHT
-GATE = 30 * L                                     # a gate inside the synthetic chain
-P.TPM_POOL_CHALLENGER_ACTS_HEIGHT = GATE
-try:
-    chain(GATE + 10 * L)
-    below = T._proven_challengers(GATE - 2 * L)
-    check("BELOW the gate an enrollee's commit bought a seat (the hole, shown on the old rule)", SQUAT in below, below)
+# The pre-gate half (a commit sender DID earn a seat below 92000) is retired in G9: generation 28's rules.
+chain(40 * L)
+for top in (2 * L, 10 * L, 40 * L):
     T._tpm_proven_cache[0] = None
-    above = T._proven_challengers(GATE + 2 * L)
-    check("FROM the gate an enrollee's commit buys no seat", SQUAT not in above, above)
-    check("...while a challenge, a reveal and a recent tpm_ready still earn one",
-          {NODE, CHAL, REV} <= set(above), above)
-    lo, hi = T.proven_window(GATE + 2 * L)
-    check("one window, one rule: a window that starts below the gate but is drawn from it already excludes commits",
-          lo < GATE <= hi and SQUAT not in above, (lo, hi))
-finally:
-    P.TPM_POOL_CHALLENGER_ACTS_HEIGHT = LIVE
-
-src = open(os.path.join(ROOT, "protocol.py")).read()
-# the gate's VALUES, not "the live generation is 28" (gen-29 rehearsal): 92000 on generation 28, block 1 from 29
-import _harness
-check("the gate is keyed on generation 28 (92000 there) and live from block 1 after it",
-      "TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1" in src
-      and _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", 28) == 92000
-      and _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", 29) == 1
-      and P.TPM_POOL_CHALLENGER_ACTS_HEIGHT == _harness.gate_at("TPM_POOL_CHALLENGER_ACTS_HEIGHT", P.CHAIN_GENERATION))
+    pool = T._proven_challengers(top)
+    check(f"an enrollee's commit buys no seat (window drawn at {top})", SQUAT not in pool, pool)
+    check(f"...while a challenge, a reveal and a recent tpm_ready still earn one (window drawn at {top})",
+          {NODE, CHAL, REV} <= set(pool), pool)
+T._tpm_proven_cache[0] = None
+check("a window ending at block 0 scans nothing (the inlined gate never had a block to judge there)",
+      T._proven_challengers(0) == {}, T._proven_challengers(0))
+check("the gate is deleted (gen 29: the rule holds from block 1)", not hasattr(P, "TPM_POOL_CHALLENGER_ACTS_HEIGHT"))
 print("ALL PASS — only challengers earn a seat" if not _report.fails else f"{_report.fails} FAILURES")
 sys.exit(1 if _report.fails else 0)

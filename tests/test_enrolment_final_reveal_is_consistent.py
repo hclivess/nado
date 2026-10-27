@@ -1,11 +1,12 @@
-"""The final reveal of an enrolment gets the same verdict in validation and in apply (protocol.TPM_ENROL_V3_HEIGHT).
+"""The final reveal of an enrolment gets the same verdict in validation and in apply (TPM ENROLMENT v3; gen 28's TPM_ENROL_V3_HEIGHT, inlined in G9).
 
-  * before the gate a last reveal whose joined secrets miss the client's commitment raises (the old rule, kept for replay);
-  * from the gate it is accepted and the RECORD fails: state "failed", and faults() names nobody;
-  * a matching commitment still proves, in both regimes;
+  * a last reveal whose joined secrets miss the client's commitment is accepted and the RECORD fails: state "failed",
+    and faults() names nobody (validation and apply pass fail_on_mismatch for every block_height >= 1);
+  * with fail_on_mismatch off — validation at block_height 0, admission on a genesis tip — it still raises;
+  * a matching commitment still proves, either way;
   * two reveals in ONE block each validate against the parent record (neither is the last there), then apply in
-    sequence: from the gate the block applies and the record fails; before the gate apply raised where validation
-    passed — the inconsistency the gate removes.
+    sequence: the block applies and the record fails.
+The pre-gate half (apply raised where validation passed) is retired in G9: generation 28's rules.
 
 Real credential blobs (tpm_aik.make_credential on a throwaway RSA key), a real throwaway state DB.
 Run: python3 tests/test_enrolment_final_reveal_is_consistent.py
@@ -31,8 +32,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa              # noqa: E
 from cryptography.hazmat.primitives import serialization               # noqa: E402
 
 FAILED = []
-GATE = 50_000
-P.TPM_ENROL_V3_HEIGHT = GATE
+GATE = 50_000                                          # a height of the story (the gate is inlined; nothing to set)
 
 
 def check(name, cond, detail=""):
@@ -84,17 +84,16 @@ def reveal_all(rec, h, fail):
 
 # --- the pure transition ---------------------------------------------------------------------------------------------
 pre = GATE - 100
-check("before the gate a mismatching last reveal raises",
-      raises(lambda: reveal_all(committed(pre, BAD), pre + 4, pre + 4 >= GATE)))
+check("with fail_on_mismatch off (validation at block_height 0) a mismatching last reveal raises",
+      raises(lambda: reveal_all(committed(pre, BAD), pre + 4, False)))
 post = GATE + 100
-r = reveal_all(committed(post, BAD), post + 4, post + 4 >= GATE)
-check("from the gate a mismatching last reveal fails the record", r["state"] == E.STATE_FAILED, r["state"])
+r = reveal_all(committed(post, BAD), post + 4, True)
+check("a mismatching last reveal fails the record", r["state"] == E.STATE_FAILED, r["state"])
 check("a failed record faults nobody", E.faults(r, CH) == [], E.faults(r, CH))
 check("a failed record is not a proof", raises(lambda: E.proven_key(r)))
-for h0 in (pre, post):
-    ok = reveal_all(committed(h0, GOOD), h0 + 4, h0 + 4 >= GATE)
-    check(f"a matching commitment still proves ({'from' if h0 >= GATE else 'before'} the gate)",
-          ok["state"] == E.STATE_PROVEN, ok["state"])
+for fail in (False, True):
+    ok = reveal_all(committed(post, GOOD), post + 4, fail)
+    check(f"a matching commitment still proves (fail_on_mismatch={fail})", ok["state"] == E.STATE_PROVEN, ok["state"])
 
 
 # --- two reveals in one block: validation reads the parent, apply runs in sequence -----------------------------------
@@ -106,7 +105,7 @@ def same_block(h0, commitment):
     eid = hashlib.sha256(b"rec%d" % h0).hexdigest()[:32]      # one row per case
     kv_ops.tpm_enrol_set(eid, rec)
     hb = h0 + 4
-    fail = hb >= GATE
+    fail = True                                        # validation's flag for every block_height >= 1
     parent = kv_ops.tpm_enrol_get(eid)
     validated = all(not raises(lambda c=c: E.apply_reveal(parent, c, SECRETS[c], SEEDS[c], hb, fail_on_mismatch=fail))
                     for c in CH)
@@ -121,13 +120,13 @@ def same_block(h0, commitment):
 
 
 v, a, rec = same_block(GATE + 1000, BAD)
-check("from the gate: both reveals validate against the parent and the block applies", v and a, (v, a))
-check("from the gate: the record ends failed", rec["state"] == E.STATE_FAILED, rec["state"])
+check("both reveals validate against the parent and the block applies", v and a, (v, a))
+check("the record ends failed", rec["state"] == E.STATE_FAILED, rec["state"])
 v, a, rec = same_block(GATE + 2000, GOOD)
-check("from the gate: a matching pair in one block proves", v and a and rec["state"] == E.STATE_PROVEN, (v, a, rec["state"]))
-v, a, _ = same_block(GATE - 1000, BAD)
-check("before the gate: validation passed both and apply raised (the old, inconsistent rule is replayed as it was)",
-      v and not a, (v, a))
+check("a matching pair in one block proves", v and a and rec["state"] == E.STATE_PROVEN, (v, a, rec["state"]))
+v, a, rec = same_block(1, BAD)
+check("at block 1 apply already fails the record (the inlined gate's value)", v and a and rec["state"] == E.STATE_FAILED,
+      (v, a, rec["state"]))
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)

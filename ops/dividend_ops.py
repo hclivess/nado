@@ -78,11 +78,11 @@ def fidelity_at_epoch(address: str, epoch: int) -> int:
     prev = -1
     # INVARIANT: an identity the carry wrote a fidelity for but did NOT name present (no epoch-0 recert) starts from that
     # carried value with no previous recert, so its first recert here is a lapse through fidelity_step — exactly what
-    # account_ops.apply_register did live from the account field the carry wrote (CARRY_FIDELITY_ALL_HEIGHT; before
-    # it they replayed as newcomers, and those epochs' weights stand: no back-pay). Exact while the identity's first
+    # account_ops.apply_register did live from the account field the carry wrote. Exact while the identity's first
     # recert row is retained (RECERT_HISTORY_EPOCHS_V2 = 55,000 epochs); past that horizon a run is capped either way.
-    from protocol import CARRY_FIDELITY_ALL_HEIGHT, EPOCH_LENGTH
-    if epoch >= CARRY_FIDELITY_ALL_HEIGHT // EPOCH_LENGTH:
+    # CARRY_FIDELITY_ALL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9) judged `epoch >= 1 // EPOCH_LENGTH`, i.e.
+    # every epoch >= 0: kept, so a negative epoch still reads 0 rather than the carried value.
+    if epoch >= 0:
         fid = int(carried_absent_fidelity().get(address, 0))
     # Every epoch: gen 27's DIVIDEND_CARRY_EPOCH was 0 from gen 28 (deleted). A negative epoch holds no recert, so the
     # loop below never reads the carry there.

@@ -2598,7 +2598,7 @@ def devbind_revert_pop(epoch: int, address: str):
 # wire format: append to it, never reorder it.
 _TPM_ENROL_FIELDS = ("state", "ek", "ekpub", "name", "pub", "owner", "h", "challengers", "blobs",
                      "commit", "hc", "reveals", "hp")
-# A v2 RECORD (protocol.TPM_POOL_V2_HEIGHT, ops/tpm_enrol.is_v2) APPENDS three fields: the pool it is drawn from
+# A v2 RECORD (protocol.py "TPM CHALLENGER POOL v2", ops/tpm_enrol.is_v2) APPENDS three fields: the pool it is drawn from
 # ("pool": sorted [address, weight] pairs), its k, and the misses it carried from the expired record it superseded
 # ("missed": sorted [expiry, address] pairs). APPENDED, so every record written before the gate keeps its 13-field
 # bytes — and the state root of every block before it — exactly. INVARIANT: a row is 13 fields (legacy) or 16 (v2),
@@ -2635,7 +2635,7 @@ def _is_enrol_record(rec) -> bool:
     so a node replaying the chain would write them under a different key than the nodes that applied
     those blocks live, and the two would disagree on the root. Telling them apart by SHAPE changes no
     stored byte. A binding is 2 or 3 elements; an enrolment is exactly as many as _TPM_ENROL_FIELDS, or as
-    _TPM_ENROL_FIELDS_V2 for a record opened from protocol.TPM_POOL_V2_HEIGHT."""
+    _TPM_ENROL_FIELDS_V2 for a v2 record (every record apply writes from gen 29's block 1)."""
     return isinstance(rec, (list, tuple)) and len(rec) in (len(_TPM_ENROL_FIELDS), len(_TPM_ENROL_FIELDS_V2))
 
 
@@ -3139,7 +3139,7 @@ def auth_revert_pop(txid: str):
     return _write(_do)
 
 
-# --- TPM RETRY COUNT (protocol.TPM_ENROL_V3_HEIGHT): "tpmretry:<ek identity>" in the devbind DB -> msgpack [n], the
+# --- TPM RETRY COUNT (ops/tpm_enrol retry spacing): "tpmretry:<ek identity>" in the devbind DB -> msgpack [n], the
 # chip's client-failed enrolments, counted. Consensus state; devbind_rows skips the prefix.
 def tpm_retry_get(ek_identity: str) -> int:
     def _do(txn):
@@ -3160,7 +3160,7 @@ def tpm_retry_set(ek_identity: str, n: int):
 
 def tpm_retry_revert_put(height: int, ek_identity: str, prev: int, count_key=None):
     """Journal the retry count as it stood BEFORE the block (first write wins, node-local devbind_revert). `count_key`
-    is the row it belongs to when that is not the chip's own (protocol.TPM_RETRY_OWNER_HEIGHT: "<ek>:<owner>").
+    is the row it belongs to when that is not the chip's own (tpm_enrol.retry_key, per opener: "<ek>:<owner>").
     INVARIANT: revert restores this value into this row; it never re-derives the count or the row."""
     def _do(txn):
         k = be8(int(height)) + ("tpmretry:" + str(ek_identity)).encode()

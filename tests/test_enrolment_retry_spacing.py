@@ -1,12 +1,15 @@
 """A chip whose last enrolment its own client did not complete waits a growing spacing before enrolling again
-(protocol.TPM_ENROL_V3_HEIGHT, TPM_RETRY_COOLDOWN_BASE, TPM_RETRY_COOLDOWN_MAX_EXP).
+(TPM ENROLMENT v3 — gen 28's TPM_ENROL_V3_HEIGHT, inlined in G9 — TPM_RETRY_COOLDOWN_BASE, TPM_RETRY_COOLDOWN_MAX_EXP).
 
-  * client_failed: a failed record, or a v2 record still open with every challenge posted and no commit — never one
-    held up by a missing challenge, never a legacy or proven one;
+  * client_failed (judged with no height): a failed record, or a v2 record still open with every challenge posted and
+    no commit — never one held up by a missing challenge, never a legacy or proven one (from block 1 only a wrong
+    commitment counts: tests/test_a_copied_certificate_cannot_lock_a_chip_out_of_enrolment.py);
   * retry_ready_at = expiry + BASE * 2^min(n, MAX) when client-failed, else expiry (the cap holds);
-  * the count lives in the devbind row "tpmretry:<ek>", which devbind_rows never reads as a binding;
-  * apply raises the count when a new enrolment replaces a client-failed one, and revert restores its exact prior value
-    (also for a re-open under the same id); a record held up by a missing challenge leaves it unchanged.
+  * the count lives in the devbind row "tpmretry:<ek>:<opener>", which devbind_rows never reads as a binding;
+  * apply raises the opener's count when a new enrolment replaces a client-failed one, and revert restores its exact
+    prior value (also for a re-open under the same id); a record held up by a missing challenge, or every challenge
+    answered and never committed, leaves it unchanged.
+The pre-gate halves (no spacing below TPM_ENROL_V3_HEIGHT) are retired in G9: generation 28's rules.
 
 Real apply path (account_ops.apply_tpm_enrol_tx) over a throwaway state DB; the endorsement-chain kernel is stubbed.
 Run: python3 tests/test_enrolment_retry_spacing.py
@@ -28,13 +31,7 @@ import ops.account_ops as A                                            # noqa: E
 from ops import tpm_enrol as E, kv_ops, attest_native                  # noqa: E402
 
 FAILED = []
-GATE = 50_000
-P.TPM_ENROL_V3_HEIGHT = GATE
-P.TPM_POOL_V2_HEIGHT = 1 << 62            # the legacy enrol path: no pool snapshot to build
-# the count keyed by CHIP alone, as below TPM_RETRY_OWNER_HEIGHT (175000 on gen 28; block 1 on gen 29, where it is keyed
-# by (chip, opener) — tests/test_a_copied_certificate_cannot_lock_a_chip_out_of_enrolment.py pins that rule). This file
-# pins the spacing itself on the chip-keyed count; on gen 29 it read the shipped 1 and counted nothing (rehearsal).
-P.TPM_RETRY_OWNER_HEIGHT = 1 << 62
+GATE = 50_000                             # a height of the story (the gates are inlined; nothing to set)
 BASE, MAXE = P.TPM_RETRY_COOLDOWN_BASE, P.TPM_RETRY_COOLDOWN_MAX_EXP
 
 
@@ -52,8 +49,8 @@ def pub(tag):
     return b"\x00\x01pub-" + tag.encode()
 
 
-def v2(ek, h, blobs=2, state=None, commit=False, tag="a"):
-    rec = E.new_record(ek, EK_SPKI, E.aik_name_hex(pub(tag)), pub(tag), "owner", h, list(CH),
+def v2(ek, h, blobs=2, state=None, commit=False, tag="a", owner="owner"):
+    rec = E.new_record(ek, EK_SPKI, E.aik_name_hex(pub(tag)), pub(tag), owner, h, list(CH),
                        pool=[[c, 1] for c in CH], k=2)
     rec["blobs"] = sorted([[c, "11", "22", h + 1 + i] for i, c in enumerate(CH[:blobs])])
     if commit:
@@ -91,6 +88,9 @@ CUR = {"ek": None}
 attest_native.verify_ek = lambda chain, t, height=None: {"ok": True, "identity": CUR["ek"]}
 attest_native.ek_public_der = lambda der: EK_SPKI
 A._tpm_anchor_time = lambda h: 1_800_000_000
+import ops.transaction_ops as T                                        # noqa: E402
+# the v2 pool apply snapshots and validation checks (every enrolment is v2 from block 1; the synthetic chain has no blocks)
+T.tpm_pool_v2 = lambda h: {f"pool{i:02d}" + "q" * 44: 5 for i in range(12)}
 
 
 def enrol_tx(tag):
@@ -107,19 +107,20 @@ def case(ek, old, new_tag, start=0):
     CUR["ek"] = ek
     old_id = eid_of(ek, old["_tag"])
     rec = {k: v for k, v in old.items() if k != "_tag"}
+    row = f"{ek}:{rec['owner']}"                       # the failed record's OPENER's row (retry per opener)
     kv_ops.tpm_enrol_set(old_id, rec)
     kv_ops.tpm_enrol_open_set(ek, old_id)
-    kv_ops.tpm_retry_set(ek, start)
+    kv_ops.tpm_retry_set(row, start)
     h = E.retry_ready_at(rec, start) + 3
     A.apply_tpm_enrol_tx(enrol_tx(new_tag), h)
-    after = kv_ops.tpm_retry_get(ek)
+    after = kv_ops.tpm_retry_get(row)
     A.apply_tpm_enrol_tx(enrol_tx(new_tag), h, revert=True)
-    return after, kv_ops.tpm_retry_get(ek), kv_ops.tpm_enrol_open_for_ek(ek), old_id
+    return after, kv_ops.tpm_retry_get(row), kv_ops.tpm_enrol_open_for_ek(ek), old_id
 
 
 EK1 = "e1" * 32
-a, r, m, oid = case(EK1, dict(v2(EK1, GATE + 10, tag="x"), _tag="x"), "y")
-check("replacing a client-failed enrolment counts one", a == 1, a)
+a, r, m, oid = case(EK1, dict(v2(EK1, GATE + 10, commit=True, state=E.STATE_FAILED, tag="x"), _tag="x"), "y")
+check("replacing a client-failed enrolment (a wrong commitment) counts one", a == 1, a)
 check("revert restores the count to its exact prior value (0: the row is gone)", r == 0, r)
 check("revert restores the marker", m == oid, (m, oid))
 
@@ -132,28 +133,26 @@ EK3 = "e3" * 32
 a, r, _m, _o = case(EK3, dict(v2(EK3, GATE + 10, blobs=1, tag="x"), _tag="x"), "y", start=2)
 check("a record held up by a missing challenge does not count", a == 2 and r == 2, (a, r))
 
+EK3b = "e7" * 32
+a, r, _m, _o = case(EK3b, dict(v2(EK3b, GATE + 10, tag="x"), _tag="x"), "y", start=2)
+check("every challenge answered and never committed does not count (ambiguous: charged to nobody)",
+      a == 2 and r == 2, (a, r))
+
 EK4 = "e4" * 32
-a, r, m, oid = case(EK4, dict(v2(EK4, GATE + 10, tag="same"), _tag="same"), "same", start=1)
+a, r, m, oid = case(EK4, dict(v2(EK4, GATE + 10, commit=True, state=E.STATE_FAILED, tag="same"), _tag="same"), "same",
+                    start=1)
 check("a re-open under the same id counts from the superseded record", a == 2, a)
 check("and its revert restores the count and the record", r == 1 and m == oid
       and E.client_failed(kv_ops.tpm_enrol_get(oid)), (r, m))
 
-EK5 = "e5" * 32
-old5 = v2(EK5, 1000, tag="x")                         # opened and replaced before the gate
-CUR["ek"] = EK5
-kv_ops.tpm_enrol_set(eid_of(EK5, "x"), old5)
-kv_ops.tpm_enrol_open_set(EK5, eid_of(EK5, "x"))
-A.apply_tpm_enrol_tx(enrol_tx("y"), E.expiry(old5) + 1)
-check("before the gate nothing is counted", kv_ops.tpm_retry_get(EK5) == 0)
+# ("before the gate nothing is counted" is retired in G9: generation 28's rules)
 
 # --- validation: a signed tpm_enrol through validate_transaction -----------------------------------------------------
 import logging as _lg                                                  # noqa: E402
 import struct                                                          # noqa: E402
-import ops.transaction_ops as T                                        # noqa: E402
 from signatures import generate_keydict, sign, unhex                   # noqa: E402
 
 T._anchor_time = lambda tx, h: 1_800_000_000
-T._tpm_pool = lambda h: {f"pool{i:02d}" + "q" * 44: 5 for i in range(12)}
 _ROOT = sorted(P.DEVICE_ATTEST_EK_ROOTS)[0]
 attest_native.verify_ek = lambda chain, t, roots=None, height=None: {"ok": True, "root_sha256": _ROOT,
                                                                      "identity": CUR["ek"], "ek_identity": CUR["ek"]}
@@ -183,11 +182,11 @@ def verdict(h):
 
 EK6 = "e6" * 32
 CUR["ek"] = EK6
-old6 = v2(EK6, GATE + 10, tag="x")                    # client-failed: every challenge posted, no commit
+old6 = v2(EK6, GATE + 10, commit=True, state=E.STATE_FAILED, tag="x", owner=opener["address"])   # its client failed it
 kv_ops.tpm_enrol_set(eid_of(EK6, "x"), old6)
 kv_ops.tpm_enrol_open_set(EK6, eid_of(EK6, "x"))
-kv_ops.tpm_retry_set(EK6, 2)
-ready = E.retry_ready_at(old6, 2)
+kv_ops.tpm_retry_set(f"{EK6}:{opener['address']}", 2)
+ready = E.retry_ready_at(old6, 2, GATE)
 check("retry_ready_at with a count of 2 is expiry + 4 * BASE", ready == E.expiry(old6) + 4 * BASE)
 v = verdict(ready - 1)
 check("validation refuses a re-enrol one block before retry_ready_at", "can enrol again from block %d" % ready in v, v)
@@ -196,11 +195,7 @@ check("validation accepts it at retry_ready_at", v == "accepted", v)
 view = T.tpm_retry_view(old6, ready - 10)
 check("/tpm_enrolment serves the block validation accepts (tpm_retry_view)",
       view == {"client_failed": True, "retry_ready_at": ready}, view)
-P.TPM_ENROL_V3_HEIGHT = 1 << 62
-check("before the gate it serves the plain expiry", T.tpm_retry_view(old6, ready - 10)["retry_ready_at"] == E.expiry(old6))
-v = verdict(E.expiry(old6))
-check("before the gate validation applies no spacing (expiry is enough)", v == "accepted", v)
-P.TPM_ENROL_V3_HEIGHT = GATE
+# ("before the gate: plain expiry, no spacing" is retired in G9: generation 28's rules)
 
 kv_ops.tpm_retry_set(EK1, 2)
 check("the count row is never read as a device binding",
