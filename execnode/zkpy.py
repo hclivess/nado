@@ -211,7 +211,8 @@ def _mat(self, m):
         # a·b//c in ONE divmodw, the pro-rata shape (`bet.py`, `hamster.py` both hand-rolled it in raw asm).
         # Not expressible as `a * b // c`: `//` is DIVMOD, whose divisor must be < 2^15 — a share count or a
         # pool size is data-sized, not a small constant. DIVMODW is the op for that, and it carries its own
-        # budget: 1 <= c < 2^31 and the quotient < 2^32 (zkvm.py). Out of range is not a wrong answer, it is
+        # budget: 1 <= c < 2^31 and the quotient < 2^32 (the field VM's windows; zkvm2 divides the whole word, so these
+        # are now conservative). Out of range is not a wrong answer, it is
         # an UNPROVABLE trace, so the caller must `require` those bounds — this wrapper cannot check them,
         # since all three operands are runtime values.
         la, lo = self.a[0].materialize(m)
@@ -280,7 +281,7 @@ Val.materialize = _mat
 
 
 def hash(*elements):
-    """hash(a, b, …) -> the alghash sponge digest of the elements (each a Val or int)."""
+    """hash(a, b, …) -> the VM hash (zkvm2.hash_words) of the elements (each a Val or int)."""
     return Val("hash", *[_wrap(e) for e in elements])
 
 
@@ -491,5 +492,5 @@ class Contract:
         """The generated zkasm text per method (for inspection / golden tests)."""
         return dict(self._src)
 
-    def build(self, isa=None):
-        return zkvmasm.assemble_contract(self._src, isa)        # isa: zkvmasm.ISAS (v2 = the gen-29 zkvm2)
+    def build(self):
+        return zkvmasm.assemble_contract(self._src)             # zkvm2 code (the only ISA since G9 slice 3b)

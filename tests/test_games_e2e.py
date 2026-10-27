@@ -853,12 +853,12 @@ def t_holdem_eval():
     for _ in range(300):
         cards = [_r.randrange(52) for _ in range(7)]           # multi-deck: duplicates legal
         cf, fa = runtimes.zkvm_statement("fuzz", cards, {})
-        ok, ret, _s, _io = __import__("execnode.zkvm", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
+        ok, ret, _s, _io = __import__("execnode.zkvm2", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
         assert ok and ret == hd.eval7_ref(cards), f"eval7 differential {cards}: {ret} vs {hd.eval7_ref(cards)}"
     for cards in ([0, 13, 26, 39, 1, 2, 3], [8, 9, 10, 11, 12, 20, 33], [0, 2, 4, 6, 8, 10, 12],
                   [12, 0, 1, 2, 3, 30, 40], [0, 0, 13, 13, 26, 26, 39], [5, 5, 5, 5, 18, 31, 44]):
         cf, fa = runtimes.zkvm_statement("fuzz", cards, {})
-        ok, ret, _s, _io = __import__("execnode.zkvm", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
+        ok, ret, _s, _io = __import__("execnode.zkvm2", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
         assert ok and ret == hd.eval7_ref(cards), f"shape {cards}"
 
 def _holdem_settle(seats, ante):

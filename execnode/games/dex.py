@@ -54,7 +54,7 @@ MIN_SEED = 1000                    # units each side must stage to SEED a pool (
 FEE_NUM, FEE_DEN = 9970, 10000
 
 
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+# ---- the carry (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------------------------------
 # CARRY_STORAGE: nothing this contract stores names the old chain. No method reads the cursor, a block hash or TIME;
 # positions are SLOT-keyed by a plain id (no hash key, no owner-keyed field); a position's owner is a caller digest
 # (remapped by the carry) and a pool's asset an asset id (remapped by the carry's asset map). Every quantity — reserves,
@@ -63,13 +63,8 @@ FEE_NUM, FEE_DEN = 9970, 10000
 # deadline. So the pools, the shares and the pot cross as they are, and every LP exits on gen 29 for exactly the slice
 # they would have taken on gen 28.
 CARRY_STORAGE = True
-# AST is listed only for an asset id that names NO asset: open() never checks the id exists, so a stranger can open a
-# pool on a made-up id (it can never hold a token: fundt and swapt require that asset to arrive). A REAL asset's id is
-# remapped by tools/carry.py's asset map before CARRY_WORDS is consulted; the made-up one names nothing on gen 29
-# either, and refusing it would let one free open() veto the whole carry.
-CARRY_WORDS = {("field", AST): "a pool asset id that names no asset (a real one is remapped)"}
 
-def build(isa=None):
+def build():
     c = zkpy.Contract()
 
     # open(pid, asset) — claim a pool id for a NADO/asset pair. Carries no value; an empty pool is just a
@@ -295,7 +290,7 @@ def build(isa=None):
         m.pay(m.caller(), out * UNIT)
         m.ret(out)
 
-    return c.build(isa)
+    return c.build()
 
 
 ABI = {

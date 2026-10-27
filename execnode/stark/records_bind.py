@@ -246,7 +246,7 @@ def block_records_effects(block):
                 # REFUNDED when the call reverts, so the net records effect depends on the execution
                 # outcome, not on the calldata. Deriving it needs the exec proof's own verdict.
                 #
-                # THE PROOF IS THAT VERDICT (protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS). zkvm.ZkVMRevert:
+                # THE PROOF IS THAT VERDICT (protocol.SETTLE_PROOF_RECORDS_VALUE_CALLS). zkvm2.ZkVMRevert:
                 # "the interpreter reverts exactly where the AIR constraints would have no satisfying
                 # witness, so 'provable' and 'executes successfully' are the same set of calls." A VALID
                 # proof over a span therefore already establishes that every call in it succeeded, so every
@@ -410,159 +410,9 @@ class PinnedAssets:
         return asset_records_effects(self.abal, self.assets, actor, fx)
 
 
-def proof_asset_ids(proof):
-    """(carries_asset_io, {asset id}) over a settle proof's segment io logs AND its asset-valued calls (which move
-    the ledger before any io). The ids are those an op or a call NAMES —
-    ASEL/ABURN/ABAL/ARENOUNCE carry the asset in their first word (AMINT and a paired PAY name the recipient;
-    their asset is the preceding ASEL's). A proof with asset io carries `records_pre` and
-    `asset_meta_pre` for these ids; the exec prover and L1 both ask this one function."""
-    from execnode import zkvm as _z
-    named = (_z.IO_ASEL, _z.IO_ABURN, _z.IO_ABAL, _z.IO_ARENOUNCE)
-    found, ids = False, set()
-    for seg in (proof.get("segments") or ()):
-        for c in (seg.get("calls") or ()):
-            # an asset-valued call moves the asset ledger before any io — it needs the pinned ledger too
-            try:
-                ca, cv = int((c or {}).get("asset") or 0), int((c or {}).get("value") or 0)
-            except (TypeError, ValueError, AttributeError):
-                continue
-            if ca and cv > 0:
-                found = True
-                ids.add(str(ca))
-        for e in (seg.get("io") or ()):
-            if not (isinstance(e, (list, tuple)) and len(e) == 3):
-                continue                          # malformed entries are refused by the io/replay checks
-            try:
-                k, a = int(e[0]), int(e[1])
-            except (TypeError, ValueError):
-                continue
-            if k in _z.IO_ASSET_KINDS:
-                found = True
-                if k in named:
-                    ids.add(str(a))
-    return found, ids
-
-
-def pay_effects_from_segment(seg, reg=None, assets=None):
-    """Records effects of every native PAY proven in ONE settle segment, as [(tag, parts, delta), ...].
-
-    WHY THIS CAN BE DERIVED AT ALL, when block_records_effects cannot. A payout is an EXECUTION outcome: it
-    never appears in the calldata, so L1 — which does not execute contracts — is blind to it at incorporate
-    time. That is why a PAY has always made a span unprovable. But the io log IS the proof: the STARK
-    commits to it, and settlement_proofs._run_call "raises on revert/bad payout" using the SAME rules the
-    live path applies (over-pay reverts and refunds, unresolvable payee reverts). So a VALID proof over a
-    span already establishes that each payout was affordable and actually applied — exactly the argument
-    SETTLE_PROOF_RECORDS_VALUE_CALLS makes for the escrow.
-
-    THE PAYEE RESOLVES WITHOUT TRUSTING THE PROVER. `zkvm_statement` registers digest→address for the
-    caller and every string arg of each call, and the prover starts from `registry = {}` and accumulates
-    only within the span (settlement_proofs). Rebuilding that registry here from the segment's own COMMITTED
-    calls therefore resolves exactly what the prover resolved — no more (a digest registered by some older
-    call is unprovable for the prover too, so this can never refuse an honest proof) and no less. Nothing is
-    read from the prover's side of the proof except the io log the STARK vouches for.
-
-    Attribution uses the io log's own structure: replay_io requires exactly one RET, last, per call, so the
-    flat epoch io splits into one RET-terminated chunk per call, in call order. The chunk count must equal
-    the call count — that equality is the check that the split is real and not a coincidence.
-
-    ASSET effects (ASEL-paired PAY, AMINT, ABURN, ABAL, ARENOUNCE) are derived through `assets`, a
-    PinnedAssets over the pinned pre-state (zk audit 2026-09-26: settle_proof_io_check admits asset io because this
-    binds it). Without one they refuse the span, as they always did — half-deriving the asset ledger would let a
-    prover settle a root that silently omits the rest.
-
-    `reg` is the digest→address registry, SHARED across a proof's segments by pay_effects_from_proof. It is
-    accumulated span-wide rather than reset per segment so the prover can derive the same set from one
-    dry-run without reproducing the segmenter's boundaries. That cannot accept a payout the prover rejected:
-    prove_epoch resets its registry per segment, so a payee resolvable only via an EARLIER segment makes
-    split_io return None, _run_call raise, and the whole prove fail — there is no such proof to verify.
-    """
-    from execnode import runtimes as _rt
-    from execnode import zkvm as _z
-    from execnode.stark import exec_state_bind as _ESB
-    calls = seg.get("calls") or []
-    if _ESB.root_v2(int(seg.get("cursor", 0))):
-        # EXEC_ROOT_V2: the entries carry code events, which run no VM — except an admitted deploy's
-        # constructor, which runs one. The io splits per VM UNIT, derived from the pinned pre-state and the
-        # bound entries exactly as the KV verifier derives it (vm_units), never from a prover-supplied list.
-        try:
-            calls = [dict(pc, cid=cid) for cid, pc in _ESB.vm_units(seg.get("pre_contracts") or {}, calls,
-                                                                    int(seg.get("cursor", 0)), int(seg.get("timestamp", 0)))]
-        except Exception as e:
-            raise Unbindable(f"span entries do not walk: {e}")
-    io = []
-    for e in (seg.get("io") or ()):
-        if not (isinstance(e, (list, tuple)) and len(e) == 3):
-            raise Unbindable("malformed io entry in settle proof")
-        io.append(tuple(int(x) for x in e))
-    chunks, cur = [], []
-    for e in io:
-        cur.append(e)
-        if e[0] == _z.IO_RET:
-            chunks.append(cur)
-            cur = []
-    if cur or len(chunks) != len(calls):
-        raise Unbindable(f"proof io does not split into one RET-terminated log per call "
-                         f"({len(chunks)} logs vs {len(calls)} calls)")
-    if reg is None:
-        reg = {}
-    effects = []
-    for call, chunk in zip(calls, chunks):
-        try:
-            _rt.zkvm_statement(call.get("caller", "epoch"), call.get("args", []) or [], reg)
-        except Exception as e:
-            raise Unbindable(f"call statement not encodable: {e}")
-        split = _rt.split_io(chunk, reg)
-        if split is None:
-            raise Unbindable("proof io is not a settleable log (pairing or payee resolution failed)")
-        payouts, asset_fx = split
-        cid = call.get("cid")
-        if not cid:
-            raise Unbindable("segment call has no cid to debit")
-        try:
-            _in_asset, _in_value = int(call.get("asset") or 0), int(call.get("value") or 0)
-        except (TypeError, ValueError):
-            raise Unbindable("segment call has a malformed value/asset")
-        if _in_asset and _in_value > 0:
-            # AN ASSET-VALUED CALL escrows before its VM runs. The live apply also SKIPS such a call into a method
-            # that never reads ACTX (C1, 2026-09-23) — a rule only the prover's _run_call mirrors, so it is
-            # re-checked here against the code the verifier itself derived (vm_units over the pinned pre-state).
-            if assets is None:
-                raise Unbindable("asset-denominated call value in a proof whose asset ledger is not pinned")
-            _code = call.get("code")
-            if not isinstance(_code, dict) or not _z.method_reads_actx(_code, call.get("method")):
-                raise Unbindable("asset-denominated value into a method that never reads ACTX (the chain skips it)")
-            assets.escrow(call.get("caller"), cid, _in_asset, _in_value)
-        for addr, amt in payouts:
-            amt = int(amt)
-            if amt <= 0:
-                continue                       # split_io already drops non-positive bare payouts
-            # The exact pair execnode/state.py writes: bridge[cid] -= amt, bridge[to] += amt.
-            effects.append((ER.T_BRIDGE_BAL, (str(cid),), -amt))
-            effects.append((ER.T_BRIDGE_BAL, (str(addr),), amt))
-        if asset_fx:
-            # The live apply stages a call's asset effects AFTER its payouts (execnode/state.py) and the two
-            # touch disjoint positions, so appending them after the payouts is the same net transition.
-            if assets is None:
-                raise Unbindable("asset effects in a proof whose asset ledger is not pinned")
-            effects.extend(assets.derive(cid, asset_fx))
-    return effects
-
-
-def pay_effects_from_proof(proof, assets=None):
-    """Every native PAY effect across a settle proof's segments, in order.
-
-    Raises Unbindable if any segment's io cannot be settled — fail-closed, so a span this cannot fully
-    account for keeps riding the bonded quorum rather than settling a partial root.
-
-    ONE registry for the whole proof, so execnode's prover-side derivation (a single dry-run over the span,
-    settlement_proofs.span_payout_effects) produces the identical set without having to reproduce the
-    segmenter's boundaries. See pay_effects_from_segment for why span-wide accumulation cannot admit a
-    payout the prover itself rejected.
-    """
-    reg, out = {}, []
-    for seg in (proof.get("segments") or ()):
-        out.extend(pay_effects_from_segment(seg, reg, assets))
-    return out
+# proof_asset_ids / pay_effects_from_segment / pay_effects_from_proof (the records effects of a Goldilocks settle proof's
+# io log) were deleted in G9 slice 3b with the field VM they read: the settle-proof verifier that called them went in
+# slice 2, and nothing on generation 29 derives records from a proof's io.
 
 
 def net_records_updates(pre_get, effects, depth=ER.DEPTH, nonneg=False):

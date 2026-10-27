@@ -899,7 +899,7 @@ ABI["_view"]["board3"] = {"name": "cs", "base": CS_BASE, "cells": 5, "stride": 8
 ABI["_view"]["board4"] = {"name": "ti", "base": TI_BASE, "cells": MAXP, "stride": 16, "index": "tables"}
 
 
-def build(isa=None):
+def build():
     src = {
         "open": OPEN,
         "join": "\n".join(_join()),
@@ -916,21 +916,10 @@ def build(isa=None):
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("join", "start", "leave", "bet", "close_street", "reveal", "settle", "reclaim", "cancel")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
-# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the ante, pot, street prices, stacks and street contributions
-# (raw NADO), and a CLOSED table's seat commitments and revealed secrets — history: every method refuses a closed table
-# (tz) and poker.js redraws the board from them only as a display replay (G6, old hash). The timeline/eval scratch
-# (fields 800-999) is scrubbed to 0 by every successful call, so it never holds a large value at rest.
-CARRY_WORDS = {("field", TS): "a table's ante (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
-               ("field", GC): "a closed table's seat commitment H(x)", ("field", GK): "a seat's stack (raw NADO)",
-               ("field", GR): "a closed table's revealed seat secret",
-               **{("field", MS_BASE + k): f"street {k}'s price (raw NADO)" for k in range(1, 5)},
-               **{("field", CS_BASE + k): f"a seat's street-{k} contribution (raw NADO)" for k in range(1, 5)}}
-
-
+# ---- the carry (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------------------------------
 def carry_in_flight(storage):
     """Why this contract cannot cross a reroll yet ([] = it can): a table opened and not closed (tz). Its seats hold
     stakes behind gen-28 commitments gc that reveal() checks against a FRESH hash (unverifiable under the gen-29 hash),

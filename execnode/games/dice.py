@@ -22,10 +22,6 @@ GB = 17
 TLIST, GLIST = 15, 16
 
 
-# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note): the table's and the seat's amounts
-CARRY_WORDS = {**_lib.BANKED_CARRY_WORDS, ("field", GS): "a bet's stake (raw NADO)", ("field", GW): "a bet's win (raw NADO)"}
-
-
 def carry_in_flight(storage):
     """Why this contract's storage cannot cross a reroll yet ([] = it can, as is): a table with open bets. Settle them
     on the old chain first (settle is permissionless); see _lib.banked_tables_in_flight."""
@@ -230,8 +226,8 @@ ABI = {
 }
 
 
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {"bet": ["r0", "r1"], "settle": ["r0"], "reclaim": ["r0"]}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

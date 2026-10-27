@@ -1,29 +1,25 @@
-"""The carry: every contract crosses the reroll with ALL of its state, re-encoded into the new generation's formats.
+"""The carry: every contract crosses the reroll with ALL of its state.
 
 Operator rule (2026-10-20): "everything should be carried ... this should be the carry mechanism we perfect now and can
 move to mainnet". Nothing is reset to fresh-deploy storage and no pot is refunded in place of carrying it; a contract
-the carry cannot re-encode losslessly REFUSES the carry instead, naming why, so the operator settles it on the old chain
-(or the module gains the hook it lacks) and the carry runs again. doc/stwo/g5-carry.md is the design; the census that
-measured what live storage holds is tools/carry_census.py.
+the carry cannot move losslessly REFUSES the carry instead, naming why, so the operator settles it on the old chain
+(or the module gains the hook it lacks) and the carry runs again. doc/stwo/g5-carry.md is the design.
 
-Gen 28 -> gen 29 (the Goldilocks -> BLAKE2s/M31 exec layer), per contract (carry_contract):
-  1. the module is found by CODE: the game module whose build("v1") is exactly the contract's code. No module, no carry.
-  2. in flight: the module's carry_in_flight(storage[, tip]) must be [] — a refusal, never a reset.
-  3. heights: the module's carry_rebase(storage, tip) moves old-chain heights onto the new chain (unchanged hooks);
-     then carry_v2_storage(storage), where a module's v2 code reads as state what v1 re-derived through the hash
-     (pets: the gene's rolls -> the roll table, so a carried pet keeps every trait).
-  4. storage, slot by slot (reencode_storage):
-       key   a hash key (the module's carry_hash_preimages explains it) -> zkvm2.hash_words(preimage with every Owner
-             word remapped); an owner-keyed field (CARRY_OWNER_KEY_FIELDS: (F*2^32 + digest) mod P) -> F*2^32 + new
-             digest; a plain key (< 2^32, or F*2^32 + id with F < 2^20) unchanged; anything else REFUSES.
-       value a registry digest -> the new digest; any other value >= 2^32 must be declared in the module's CARRY_WORDS
-             (kept verbatim) or it REFUSES; small values unchanged.
-  5. code: mod.build("v2"), and the module's ABI with it (its view schema describes the new code's state); deployer,
-     runtime and upgradable carry as they are.
-and the registry (zk_addrs) is re-keyed by the new digest of every string it holds (digest_map).
+From generation 29 on, every generation runs the same VM (zkvm2), the same hash and the same address digest, so the carry
+RE-ENCODES NOTHING: it re-derives and checks, it never rewrites a key or a value. Per contract (carry_contract):
+  1. the module is found by CODE: the game module whose build() is exactly the contract's code. No module, no carry.
+  2. in flight: the module's carry_in_flight(storage[, tip]) must be [] — a refusal, never a reset; a module with no carry
+     rule refuses whenever it holds storage.
+  3. heights: the module's carry_rebase(storage, tip) moves old-chain heights onto the new chain.
+  4. storage: every slot an int (the root commits int slots only); code: mod.build(); abi, deployer, runtime and
+     upgradable as they are.
+The registry (zk_addrs) and the asset ids are re-derived from their own strings and records and refused if any entry is
+not its own digest / id (digest_map, asset_map): the carry never trusts what it can recompute.
 
-The new digest of a string is runtimes.zkvm_addr_digest(s, v2=True) — what the gen-29 call boundary computes for the same
-caller or string argument, so a carried owner is recognised by their first call on the new chain.
+(The gen-28 -> gen-29 crossing — the field VM to the 256-bit one, which re-hashed keys, remapped owner digests and asset
+ids and rebuilt the code for the new ISA — was deleted in G9 slice 3b with the field VM: V1Hash, reencode_storage and the
+modules' CARRY_WORDS / carry_hash_preimages / carry_v2_storage hooks. git history holds it if a generation ever changes
+the VM hash again.)
 
 READ-ONLY on its input: pass a COPY of exec_state.json; the tool refuses the live path. Nothing here opens the live
 database (CLAUDE.md rule 4): the game builders are imported under a throwaway HOME and exec paths.
@@ -35,9 +31,6 @@ import os
 import sys
 import tempfile
 
-P = 2**64 - 2**32 + 1          # the gen-28 VM word (Goldilocks)
-WORD = 1 << 256                 # the gen-29 VM word
-PLAIN_FIELD_MAX = 1 << 20       # tools/carry_census.py: composite keys carry field tags up to ~1,050 today
 LIVE_STATE = "/srv/nado-home/nado/exec_state.json"
 
 
@@ -61,71 +54,36 @@ def _isolate():
         sys.path.insert(0, root)
 
 
-class V1Hash:
-    """alghash.hashn — the gen-28 `hash` — with every short prefix's sponge state cached. The preimage hooks enumerate
-    in nested order with the varying word last, so each candidate costs one permutation instead of one per word (the
-    faucet's ~600k marker candidates: minutes -> seconds)."""
-
-    def __init__(self):
-        from execnode.stark import alghash, field
-        self._a, self._f = alghash, field
-        self._cache = {(): (0, alghash.IV)}
-
-    def _state(self, prefix):
-        st = self._cache.get(prefix)
-        if st is None:
-            s0, s1 = self._state(prefix[:-1])
-            st = tuple(self._a.permute([self._f.add(s0, prefix[-1] % P), s1]))
-            if len(prefix) <= 4:
-                self._cache[prefix] = st
-        return st
-
-    def __call__(self, words):
-        words = tuple(int(w) for w in words)
-        s0, s1 = self._state(words[:-1])
-        return self._a.permute([self._f.add(s0, words[-1] % P), s1])[0]
-
-
-def digest_map(zk_addrs, src="v1", dst="v2"):
-    """({old digest: new digest}, the re-keyed registry {str(new): string}). Every entry must be the `src` digest of
-    its own string — a registry the carry cannot re-derive is refused, not trusted. src == dst: the identity."""
+def digest_map(zk_addrs):
+    """({digest: digest}, the registry {str(digest): string}). Every entry must be the digest of its own string — a
+    registry the carry cannot re-derive is refused, not trusted. The digest is the same on both chains (one VM), so the
+    map is the identity: it exists so a carry that ever changes the digest has one place to remap."""
     from execnode.runtimes import zkvm_addr_digest
     dmap, reg = {}, {}
     for k, s in sorted((zk_addrs or {}).items(), key=lambda kv: int(kv[0])):
-        old = int(k)
-        if not isinstance(s, str) or zkvm_addr_digest(s, src == "v2") != old:
-            raise Refused(f"zk_addrs entry {k} is not the {src} digest of its string {s!r}")
-        if src == dst:
-            dmap[old], reg[k] = old, s
-            continue
-        if old < 1 << 32:
-            # a digest this small could not be told from a plain value or id in storage
-            raise Refused(f"zk_addrs digest {k} is below 2^32 — ambiguous with plain storage values")
-        new = zkvm_addr_digest(s, True)
-        if str(new) in reg:
-            raise Refused(f"two registry strings share the gen-29 digest {new}")
-        dmap[old] = new
-        reg[str(new)] = s
+        d = int(k)
+        if not isinstance(s, str) or zkvm_addr_digest(s) != d:
+            raise Refused(f"zk_addrs entry {k} is not the digest of its string {s!r}")
+        dmap[d], reg[k] = d, s
     return dmap, reg
 
 
-def asset_map(assets, src="v1", dst="v2"):
-    """{old asset id: new asset id}: an id is DERIVED from (issuer, seed) through the VM hash (state.asset_id), so the
-    new generation's id of the same asset is recomputed from its own record. Every record must be its id's preimage."""
+def asset_map(assets):
+    """{asset id: asset id}: an id is DERIVED from (issuer, seed) through the VM hash (state.asset_id), so every record
+    must be its own id's preimage, or the carry refuses. The identity on a same-VM carry, like digest_map."""
     from execnode.state import asset_id
     amap = {}
     for aid, rec in sorted((assets or {}).items()):
-        old = asset_id(rec["issuer"], rec["seed"], src == "v2")
-        if old != int(aid):
-            raise Refused(f"asset {aid} is not the {src} id of its own (issuer, seed)")
-        amap[old] = old if src == dst else asset_id(rec["issuer"], rec["seed"], dst == "v2")
-    if len(set(amap.values())) != len(amap):
-        raise Refused("two assets share a new id")
+        d = asset_id(rec["issuer"], rec["seed"])
+        if d != int(aid):
+            raise Refused(f"asset {aid} is not the id of its own (issuer, seed)")
+        amap[d] = d
     return amap
 
 
 def carry_assets(assets, abal, allow, amap):
-    """(assets, abal, allow) re-keyed by the new asset ids — records, balances and allowances unchanged."""
+    """(assets, abal, allow) keyed by the carried asset ids — records, balances and allowances unchanged. A balance or
+    allowance of an asset with no record refuses."""
     def rk(d):
         out = {}
         for aid, v in sorted((d or {}).items()):
@@ -136,71 +94,8 @@ def carry_assets(assets, abal, allow, amap):
     return rk(assets), rk(abal), rk(allow)
 
 
-def reencode_storage(mod, storage, dmap, v1hash=None, amap=None):
-    """(gen-29 storage, counts) for one contract's (already rebased) gen-28 storage — the slot rules in the module
-    docstring, step 4 (an asset id held as a value is remapped like a digest, through `amap`). Raises Refused on any
-    slot it cannot explain."""
-    from execnode import zkvm2
-    from execnode.games._lib import Owner
-    name = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
-    v1hash = v1hash or V1Hash()
-    slots = {int(k): int(v) for k, v in ((storage or {}).get("slots") or {}).items()}
-    words = getattr(mod, "CARRY_WORDS", {})
-    owner_fields = tuple(getattr(mod, "CARRY_OWNER_KEY_FIELDS", ()))
-    big_keys = {k for k in slots if k >= 1 << 32}
-    hashed = {}                                       # old key -> (new key, tag)
-    if big_keys and hasattr(mod, "carry_hash_preimages"):
-        for pre in mod.carry_hash_preimages(storage, sorted(dmap)):
-            old = v1hash(pre)
-            if old in big_keys and old not in hashed:
-                try:
-                    new_pre = [dmap[w] if isinstance(w, Owner) else int(w) for w in pre]
-                except KeyError as e:
-                    raise Refused(f"{name}: a hash preimage names digest {e} the registry does not hold")
-                hashed[old] = (zkvm2.hash_words(new_pre), int(pre[0]))
-    out, n = {}, {"slots": len(slots), "key_rehashed": 0, "key_owner": 0, "value_remapped": 0, "value_kept_word": 0}
-    for k, v in sorted(slots.items()):
-        if k in hashed:
-            nk, where = hashed[k][0], ("tag", hashed[k][1])
-            n["key_rehashed"] += 1
-        else:
-            nk = where = None
-            for F in owner_fields:
-                d = (k - (F << 32)) % P
-                if d in dmap:
-                    nk, where = ((F << 32) + dmap[d]) % WORD, ("field", F)
-                    n["key_owner"] += 1
-                    break
-            if nk is None:
-                if k < 1 << 32:
-                    nk, where = k, ("slot", k)
-                elif (k >> 32) < PLAIN_FIELD_MAX:
-                    nk, where = k, ("field", k >> 32)
-                else:
-                    raise Refused(f"{name}: slot key {k} is no plain key, no owner-keyed field and no hash key its "
-                                  "carry_hash_preimages explains — the carry cannot re-derive it")
-        if v in dmap or v in (amap or {}):
-            nv = dmap[v] if v in dmap else amap[v]
-            n["value_remapped"] += 1
-        elif v >= 1 << 32:
-            if where not in words:
-                raise Refused(f"{name}: slot {k} ({where[0]} {where[1]}) holds {v}, a value >= 2^32 that is no registry "
-                              "digest and is not declared in CARRY_WORDS — an unregistered owner, or a hash-derived "
-                              "value nobody has checked for re-derivation under the new hash")
-            nv = v
-            n["value_kept_word"] += 1
-        else:
-            nv = v
-        if str(nk) in out:
-            raise Refused(f"{name}: two gen-28 slots map to the gen-29 key {nk}")
-        out[str(nk)] = int(nv)
-    res = dict(storage or {})
-    res["slots"] = out
-    return res, n
-
-
-def module_of(contract, isa="v1"):
-    """The execnode.games module whose `isa` build is exactly this contract's code, or None (the census's match)."""
+def module_of(contract):
+    """The execnode.games module whose build() is exactly this contract's code, or None."""
     import importlib
     import pkgutil
     import execnode.games as _g
@@ -209,20 +104,18 @@ def module_of(contract, isa="v1"):
         if m.name.startswith("_") or m.name in ("deploy", "redeploy"):
             continue
         mod = importlib.import_module(f"execnode.games.{m.name}")
-        if hasattr(mod, "build") and json.loads(json.dumps(mod.build(isa))) == code:
+        if hasattr(mod, "build") and json.loads(json.dumps(mod.build())) == code:
             return mod
     return None
 
 
-def carry_contract(cid, contract, dmap, tip, v1hash=None, src="v1", dst="v2", amap=None):
-    """(the new generation's genesis record, counts) for one contract — the module docstring's five steps. src == dst
-    (every carry after gen 29: one VM, one hash, one digest) re-encodes nothing; v1 -> v2 is the gen-29 crossing."""
+def carry_contract(cid, contract, tip):
+    """(the new generation's genesis record, counts) for one contract — the module docstring's four steps. Raises
+    Refused naming the contract and why."""
     import inspect
-    if (src, dst) not in (("v1", "v2"), ("v1", "v1"), ("v2", "v2")):
-        raise Refused(f"no carry is defined from ISA {src} to {dst}")
-    mod = module_of(contract, src)
+    mod = module_of(contract)
     if mod is None:
-        raise Refused(f"{cid}: its code is no game module's {src} build — the carry cannot rebuild it")
+        raise Refused(f"{cid}: its code is no game module's build — the carry cannot rebuild it")
     storage = json.loads(json.dumps(contract.get("storage") or {}))
     slots = storage.get("slots") or {}
     rules = getattr(mod, "CARRY_STORAGE", False) or hasattr(mod, "carry_in_flight") or hasattr(mod, "carry_rebase")
@@ -236,40 +129,22 @@ def carry_contract(cid, contract, dmap, tip, v1hash=None, src="v1", dst="v2", am
             raise Refused(f"{cid} ({mod.__name__}): in flight — settle on the old chain first: " + "; ".join(why))
     if hasattr(mod, "carry_rebase") and slots:
         storage = json.loads(json.dumps(mod.carry_rebase(storage, int(tip))))
-    if src == dst:
-        storage = dict(storage)
-        storage["slots"] = {str(k): int(v) for k, v in (storage.get("slots") or {}).items()}   # ints: the root rule
-        n = {"slots": len(storage["slots"]), "key_rehashed": 0, "key_owner": 0, "value_remapped": 0,
-             "value_kept_word": 0}
-    else:
-        if hasattr(mod, "carry_v2_storage") and slots:
-            # state the new code reads where the old code re-derived it from a hash (pets' roll table)
-            storage = json.loads(json.dumps(mod.carry_v2_storage(storage)))
-        storage, n = reencode_storage(mod, storage, dmap, v1hash, amap)
+    storage = dict(storage)
+    storage["slots"] = {str(k): int(v) for k, v in (storage.get("slots") or {}).items()}   # ints: the root rule
     rec = {k: contract[k] for k in ("abi", "deployer", "runtime", "upgradable") if k in contract}
-    rec["code"] = json.loads(json.dumps(mod.build(dst)))
-    if src != dst and hasattr(mod, "ABI"):
-        # the ABI travels with the code it describes: a view schema for state the new code keeps (pets' roll table)
-        rec["abi"] = json.loads(json.dumps(mod.ABI))
+    rec["code"] = json.loads(json.dumps(mod.build()))
     rec["storage"] = storage
-    n["module"] = mod.__name__.rsplit(".", 1)[-1]
-    return rec, n
+    return rec, {"slots": len(storage["slots"]), "module": mod.__name__.rsplit(".", 1)[-1]}
 
 
-def carry_contracts(contracts, zk_addrs, tip, src=None, dst="v2", amap=None):
-    """({cid: new record}, the re-keyed registry, {cid: counts}) — every contract, or Refused listing every one that
-    cannot carry (all of them at once, so the operator settles everything in one pass). src defaults to the running
-    generation's ISA; dst to v2 — every generation from 29 on runs the BLAKE2s VM from its genesis (BLAKE_EXEC_HEIGHT,
-    gen 28's gate, inlined in G9: zkvmasm.default_isa is v2)."""
-    if src is None:
-        from execnode import zkvmasm
-        src = zkvmasm.default_isa()
-    dmap, reg = digest_map(zk_addrs, src, dst)
-    v1hash = V1Hash()
+def carry_contracts(contracts, zk_addrs, tip):
+    """({cid: new record}, the registry, {cid: counts}) — every contract, or Refused listing every one that cannot carry
+    (all of them at once, so the operator settles everything in one pass)."""
+    _dmap, reg = digest_map(zk_addrs)
     out, counts, refused = {}, {}, []
     for cid in sorted(contracts):
         try:
-            out[cid], counts[cid] = carry_contract(cid, contracts[cid], dmap, tip, v1hash, src, dst, amap)
+            out[cid], counts[cid] = carry_contract(cid, contracts[cid], tip)
         except Refused as e:
             refused.append(str(e))
     if refused:
@@ -292,21 +167,16 @@ def main():
     try:
         amap = asset_map(s.get("assets"))
         carry_assets(s.get("assets"), s.get("abal"), s.get("allow"), amap)
-        contracts, reg, counts = carry_contracts(s.get("contracts") or {}, s.get("zk_addrs") or {}, int(s.get("cursor", 0)),
-                                                 src="v1", amap=amap)
+        contracts, reg, counts = carry_contracts(s.get("contracts") or {}, s.get("zk_addrs") or {}, int(s.get("cursor", 0)))
     except Refused as e:
         sys.exit(str(e))
-    cols = ["slots", "key_rehashed", "key_owner", "value_remapped", "value_kept_word"]
-    print(f"{'contract':12} {'cid':12} " + " ".join(f"{c:>15}" for c in cols))
-    tot = dict.fromkeys(cols, 0)
+    tot = 0
     for cid, n in sorted(counts.items(), key=lambda x: x[1]["module"]):
-        for c in cols:
-            tot[c] += n[c]
+        tot += n["slots"]
         if n["slots"]:
-            print(f"{n['module']:12} {cid[:12]:12} " + " ".join(f"{n[c]:>15}" for c in cols))
-    print(f"{'TOTAL':25} " + " ".join(f"{tot[c]:>15}" for c in cols))
-    print(f"contracts carried: {len(contracts)} (every one); registry re-keyed: {len(reg)} entries; "
-          f"assets re-keyed: {len(amap)}")
+            print(f"{n['module']:12} {cid[:12]:12} {n['slots']:>8} slots")
+    print(f"{'TOTAL':25} {tot:>8} slots")
+    print(f"contracts carried: {len(contracts)} (every one); registry entries: {len(reg)}; assets: {len(amap)}")
     if "--out" in sys.argv:
         dest = sys.argv[sys.argv.index("--out") + 1]
         with open(dest, "w") as f:

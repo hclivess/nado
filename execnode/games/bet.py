@@ -396,16 +396,8 @@ ABI["_view"]["board4"] = {"name": "bp", "base": BP_BASE, "cells": MAX_OUT, "stri
                           "index": "markets"}
 
 
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("book", "quote", "back", "bclaim", "bsweep", "bet", "resolve", "void", "claim", "claimable_of")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
-
-
-def carry_hash_preimages(storage, digests):
-    """Every per-user hash slot a market can hold (tools/carry.py re-derives each under the new VM hash): stake, book
-    stake and book payout per (market, outcome, owner); total, claim, vote, resolver and book claim per (market, owner).
-    Every outcome below MAX_OUT, because bclaim reads all eight book-stake cells whatever the market's outcome count."""
-    return _lib.carry_tote_preimages((storage or {}).get("slots") or {}, 0, MLIST, MAX_OUT,
-                                     (TG_STK, TG_BSTK, TG_BPAY), (TG_US, TG_CL, TG_VT, TG_RES, TG_BCL), digests)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

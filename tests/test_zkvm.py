@@ -1,14 +1,15 @@
 """
-zkVM (execnode/zkvm.py + zkvmasm.py): field-native semantics, the soundness windows (LT/DIVMOD/LO32) revert
-exactly where the AIR would be unsatisfiable, the I/O log replays to the identical state WITHOUT execution,
-and malformed code/logs are rejected.
+zkVM (execnode/zkvm2.py + zkvmasm.py): assembled-code semantics, the I/O log replays to the identical state WITHOUT
+execution, and malformed code/logs are rejected. (Until G9 slice 3b this ran the field VM, execnode/zkvm.py, and pinned
+its soundness windows — LT's 63-bit window, DIVMOD's 48/15-bit one, LO32's canonical split of p-1 and the AIR witness
+limbs. Those went with that VM; the 256-bit word's own rules are pinned in tests/test_the_256_bit_vm_wraps_compares_and_
+hashes_as_specified.py.)
 
 Run: python3 tests/test_zkvm.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import field as F, alghash
-from execnode import zkvm, zkvmasm
+from execnode import zkvm2 as zkvm, zkvmasm
 
 fails = 0
 def check(name, fn):
@@ -28,9 +29,9 @@ def t1_arithmetic():
     ok, ret, st, io = _run("movi r1 20\n add r0 r1\n movi r2 3\n mul r0 r2\n ret r0", args=[22])
     assert ok and ret == (22 + 20) * 3, (ok, ret)
 
-def t2_hash_matches_alghash():
+def t2_hash_matches_hash_words():
     ok, ret, st, io = _run("hash r2 <- r0 r1\n ret r2", args=[11, 12])
-    assert ok and ret == alghash.hashn([11, 12]), "HASH macro must equal alghash.hashn"
+    assert ok and ret == zkvm.hash_words([11, 12]), "HASH macro must equal zkvm2.hash_words"
 
 def t3_compare_ops():
     ok, ret, *_ = _run("lt r0 r1\n ret r0", args=[5, 9])
@@ -43,8 +44,8 @@ def t3_compare_ops():
     assert ok and ret == 1
     ok, ret, *_ = _run("nez r0\n ret r0", args=[0])
     assert ok and ret == 0
-    ok, *_ = _run("lt r0 r1\n ret r0", args=[F.P - 2, 5])     # outside the 63-bit window -> revert
-    assert not ok, "LT beyond the window must revert"
+    ok, ret, *_ = _run("lt r0 r1\n ret r0", args=[(1 << 256) - 2, 5])   # exact over the whole word, no window
+    assert ok and ret == 0
 
 def t4_divmod():
     ok, ret, st, io = _run("divmod r0 r1\n mov r2 r7\n ret r2", args=[1000003, 37])
@@ -53,17 +54,15 @@ def t4_divmod():
     assert ok and ret == 1000003 // 37
     ok, *_ = _run("divmod r0 r1\n ret r0", args=[5, 0])                     # b = 0
     assert not ok
-    ok, *_ = _run("divmod r0 r1\n ret r0", args=[5, 1 << 31])               # b too big
-    assert not ok
-    ok, *_ = _run("divmod r0 r1\n ret r0", args=[1 << 62, 3])               # q >= 2^32
-    assert not ok
+    ok, ret, *_ = _run("divmod r0 r1\n ret r0", args=[1 << 200, 1 << 31])   # the whole word: no window
+    assert ok and ret == 1 << 169
 
 def t5_lo32():
     v = (0xDEADBEEF << 32) | 0xCAFEBABE
     ok, ret, *_ = _run("lo32 r0\n ret r0", args=[v])
     assert ok and ret == 0xCAFEBABE
-    ok, ret, *_ = _run("lo32 r0\n ret r0", args=[F.P - 1])    # p-1 = (2^32-1)*2^32: hi tops out, lo = 0
-    assert ok and ret == 0
+    ok, ret, *_ = _run("lo32 r0\n ret r0", args=[(1 << 256) - 1])
+    assert ok and ret == 0xFFFFFFFF
 
 def t6_storage_and_replay():
     src = ("movi r1 100\n sload r2 r1\n add r2 r0\n sstore r1 r2\n"
@@ -106,35 +105,22 @@ def t9_chain_randomness():
 
 def t10_validate_code():
     for bad in ([["XX", 0, 0, 0]], [["MOVI", 9, 0, 0]], [["JMP", 0, 0, 99]], [["DIVMOD", 7, 1, 0]],
-                [["MOVI", 0, 0, F.P]]):
+                [["MOVI", 0, 0, 1 << 256]], [["HR0", 0, 0, 0]]):
         try:
             zkvm.validate_code({"m": bad}); raise AssertionError(f"{bad} must be rejected")
         except zkvm.ZkVMError:
             pass
 
-def t11_witness_limbs():
-    code = {"m": zkvmasm.assemble("divmod r0 r1\n ret r0")}
-    ok, ret, st, io, steps = zkvm.run(code, "m", 7, [1000003, 37], {}, witness=True)
-    assert ok and len(steps) == 2
-    s = steps[0]
-    q = sum(s["bl"][k] << (8 * k) for k in range(6))                 # 48-bit quotient
-    bm1 = s["bl"][6] + (s["sl"][1] << 8)                             # b-1  (byte + 7-bit)
-    rem = s["bl"][7] + (s["sl"][2] << 8)                             # rem
-    assert q == 1000003 // 37 and bm1 == 36 and rem == 1000003 % 37, "witness limbs must recompose"
-    assert all(0 <= b < 256 for b in s["bl"]) and all(0 <= x < 128 for x in s["sl"])
-
-
 if __name__ == "__main__":
     check("arithmetic", t1_arithmetic)
-    check("HASH macro == alghash.hashn", t2_hash_matches_alghash)
-    check("compare ops + window revert", t3_compare_ops)
-    check("DIVMOD semantics + soundness bounds", t4_divmod)
-    check("LO32 canonical split", t5_lo32)
+    check("HASH macro == zkvm2.hash_words", t2_hash_matches_hash_words)
+    check("compare ops, exact over the word", t3_compare_ops)
+    check("DIVMOD semantics, zero divisor reverts", t4_divmod)
+    check("LO32 keeps the low 32 bits", t5_lo32)
     check("storage + payout io round-trips through replay_io", t6_storage_and_replay)
     check("replay_io rejects stale read / missing RET / trailing entries", t7_replay_rejects)
     check("control flow + gas + REQUIRE", t8_control_flow_and_gas)
     check("BHASH/BEACON chain randomness", t9_chain_randomness)
-    check("validate_code rejections", t10_validate_code)
-    check("witness limbs recompose", t11_witness_limbs)
+    check("validate_code rejections (incl. an alghash round opcode)", t10_validate_code)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

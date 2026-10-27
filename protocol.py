@@ -540,7 +540,7 @@ POSW_ENTRY_MULT = 32
 #   (all 25 game contracts; zero zero-value calls), so proof-carrying settlement could only ever cover
 #   CALL-FREE spans — a couple of windows a day.
 #   WHAT CHANGES: records_bind now derives a native value call's escrow (sender -v, cid +v as two
-#   T_BRIDGE_BAL positions) instead of returning non-derivable. THE PROOF IS THE VERDICT — zkvm.ZkVMRevert
+#   T_BRIDGE_BAL positions) instead of returning non-derivable. THE PROOF IS THE VERDICT — zkvm2.ZkVMRevert
 #   states that the interpreter reverts exactly where the AIR would have no satisfying witness, so a VALID
 #   PROOF over a span already establishes every call in it succeeded, hence every escrow stuck, which IS a
 #   pure function of the calldata.
@@ -1026,7 +1026,7 @@ SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see gene
 # the calldata — you need to know whether the call succeeded. records_bind says exactly this: "deriving it
 # needs the exec proof's own verdict".
 #
-# THE PROOF *IS* THE VERDICT. zkvm.ZkVMRevert states the invariant: "the interpreter reverts exactly where
+# THE PROOF *IS* THE VERDICT. zkvm2.ZkVMRevert states the invariant: "the interpreter reverts exactly where
 # the AIR constraints would have no satisfying witness, so 'provable' and 'executes successfully' are the
 # same set of calls." So a VALID PROOF over a span already establishes that every call in it succeeded —
 # hence every escrow stuck, with no refund, which IS a pure function of the calldata. And `derivable` is
@@ -1057,7 +1057,7 @@ SETTLE_PROOF_RECORDS = True     # ENABLED at the alphanet-15 reroll — see gene
 # escrow for EVERY value call, including one the VM REVERTS or the chain SKIPS — for those the chain
 # refunds, so the derived effects are WRONG and the block is nonetheless marked derivable. That is sound
 # only because of the same invariant the flag rests on: `provable` and `executes successfully` are the SAME
-# set of calls (zkvm.ZkVMRevert), so NO valid proof exists over a span containing such a call —
+# set of calls (zkvm2.ZkVMRevert), so NO valid proof exists over a span containing such a call —
 # settlement_proofs._run_call raises and vm_circuit.prove_epoch_calls raises. The wrong derivation can
 # therefore only ever cause a REFUSAL, never the acceptance of a false root. It fails closed.
 # The consequence is that a reverting call still costs the whole span, which is NOT fixed here and cannot
@@ -2245,8 +2245,9 @@ STWO_PAUSE_HEIGHT = 1 << 62
 
 # THE BLAKE2s EXEC ROOT AND THE 256-BIT VM (Goldilocks retirement G2/G3) are generation 29's rules at every height:
 # BLAKE_EXEC_HEIGHT (2^62 on gen 28, 1 from gen 29) was inlined in G9 — execnode/exec_root_b2.py is the exec root and
-# the exit verifier, zkvm2 runs every call, zkvmasm.default_isa is v2. The Goldilocks root/VM survive only as modules
-# the carry and tests name explicitly (execnode/exec_root.py, execnode/zkvm.py, build("v1")).
+# the exit verifier, zkvm2 runs every call. The field VM (execnode/zkvm.py), its ISA in the assembler, the field digest
+# and the v1 -> v2 carry were deleted in G9 slice 3b; the Goldilocks root (execnode/exec_root.py) survives only as a
+# module tests and the records binding still name.
 
 # THE DIGEST REGISTRY IN THE EXEC ROOT (G4, 2026-10-27; doc/stwo/g4-settlement-statement.md section 5). A zkvm PAY names
 # its payee by a 256-bit digest, and the exec node resolves it through ExecState.zk_addrs, the digest -> address registry

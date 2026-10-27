@@ -3,7 +3,7 @@ Bind a state-transition proof to the EPOCH's writes (state-root binding, doc/zk-
 
 state_transition.py proves that a set of (key, old, new) updates turns pre_root into post_root. On its own that
 could be ANY set of updates; this binds them to the epoch's ACTUAL storage writes so the transition provably IS
-the epoch's transition. The epoch's public io log (SLOAD/SSTORE per call — execnode/zkvm.replay_io) determines
+the epoch's transition. The epoch's public io log (SLOAD/SSTORE per call — execnode/zkvm2.replay_io) determines
 the NET change of every touched (cid, slot): its old value (the pre-state) and its final value (last write).
 `net_updates` derives exactly that ordered set; `bind_and_verify` requires the transition to prove that set and
 nothing else, then verifies it. The io itself is proven correct by the epoch STARK, so binding the transition to
@@ -110,140 +110,9 @@ def contract_meta(c):
     return (c.get("deployer", ""), c.get("upgradable", True) is not False, c.get("runtime", "zkvm"))
 
 
-def apply_event(contracts, ev):
-    """Apply ONE code event (a block_calls entry with op in EVENT_OPS) to `contracts`, in place, under EXACTLY
-    the chain's admission rules at EXEC_ROOT_V2_HEIGHT (execnode/state.py: deploy / upgrade / lock /
-    transfer_contract; a refused event is a no-op there and here). Returns (admitted, cid, before) where
-    `before` is a deep copy of the record as it stood (None for a fresh deploy).
-
-    THE VERIFIER'S ONLY SOURCE OF TRUTH for what a code event did. It runs over events the calls_commitment
-    authenticated against the on-chain calldata and a pre-state pinned to the settled root, so nothing the
-    prover says enters the derivation. A deploy's constructor is NOT run here: vm_units turns it into a
-    proven VM call. Any rule added to the chain's four ops must be added here in the same commit."""
-    import copy
-    from execnode import runtimes
-    from execnode.code_codec import FIXED_CIDS, contract_id
-    op, sender = ev.get("op"), ev.get("caller")
-    if op == "deploy":
-        code = ev.get("code")
-        rt_name = ev.get("runtime", runtimes.DEFAULT_RUNTIME)
-        if not isinstance(code, dict) or not runtimes.runtime_name_ok(rt_name):
-            return False, None, None
-        try:
-            runtimes.get(rt_name).validate_code(code)
-        except Exception:
-            return False, None, None                        # the chain's outer except: "skip"
-        at = ev.get("at")
-        if at is not None:
-            if FIXED_CIDS.get(at) != sender:
-                return False, None, None
-            cid = at
-        else:
-            cid = contract_id(sender, code, ev.get("nonce"))
-        if cid in contracts:
-            return False, cid, None
-        contracts[cid] = {"code": code, "storage": {"slots": {}}, "deployer": sender, "runtime": rt_name,
-                          "upgradable": bool(ev.get("upgradable", True))}
-        return True, cid, None
-    cid = ev.get("cid")
-    c = contracts.get(cid) if isinstance(cid, str) else None
-    if not c or c.get("deployer") != sender:
-        return False, cid, None
-    before = copy.deepcopy(c)
-    if op == "upgrade":
-        code = ev.get("code")
-        if c.get("upgradable", True) is False or not isinstance(code, dict):
-            return False, cid, None
-        rt_name = ev.get("runtime")
-        if rt_name is None:
-            rt_name = c.get("runtime", runtimes.DEFAULT_RUNTIME)
-        if not runtimes.runtime_name_ok(rt_name):
-            return False, cid, None
-        try:
-            runtimes.get(rt_name).validate_code(code)
-        except Exception:
-            return False, cid, None
-        c["code"] = code
-        c["runtime"] = rt_name
-        return True, cid, before
-    if op == "lock":
-        c["upgradable"] = False
-        return True, cid, before
-    if op == "transfer_contract":
-        to = ev.get("to")
-        if not isinstance(to, str) or not to:
-            return False, cid, None
-        c["deployer"] = to
-        return True, cid, before
-    return False, cid, None
-
-
-def event_updates(pre_contracts, entries, depth):
-    """The code- and meta-leaf updates a span's CODE EVENTS cause, as [(key, old, new), ...] NETTED per leaf
-    in first-touch order (a deploy then an upgrade of one cid is one code update 0 -> final), over a deep copy
-    of `pre_contracts`. `entries` is the span's ordered block_calls list; calls are ignored. Both the prover
-    (prove_bound_epoch) and the verifier (verify_bound_epoch) derive the transition's leading updates from
-    this, so the transition proves exactly what the events did and nothing the prover chose."""
-    import copy
-    contracts = copy.deepcopy(pre_contracts)
-    order, first, cur = [], {}, {}
-
-    def _touch(key, old, new):
-        if key not in first:
-            first[key] = old; order.append(key)
-        cur[key] = new
-
-    for ev in entries:
-        if ev.get("op") not in EVENT_OPS:
-            continue
-        admitted, cid, before = apply_event(contracts, ev)
-        if not admitted:
-            continue
-        after = contracts[cid]
-        pc = code_commitment(before["code"]) if before else 0
-        pm = meta_commitment(*contract_meta(before)) if before else 0
-        nc, nm = code_commitment(after["code"]), meta_commitment(*contract_meta(after))
-        if pc != nc:
-            _touch(code_key(cid, depth), pc, nc)
-        if pm != nm:
-            _touch(meta_key(cid, depth), pm, nm)
-    return [(k, first[k], cur[k]) for k in order if first[k] != cur[k]]
-
-
-def vm_units(pre_contracts, entries, cursor=0, timestamp=0):
-    """The VM executions a span's ordered entries stand for, as [(cid, pub_call), ...] with `pub_call` in the
-    form _epoch_pub_statement hands the AIR (code, method, caller, args, value, cursor, timestamp, asset,
-    selfd), walking the code events over a deep copy of `pre_contracts` as it goes — so a call after an
-    in-span upgrade is judged against the code the upgrade left, and an admitted deploy whose code has a
-    `constructor` contributes one unit (caller = the deployer, no args, no value; the chain runs it exactly
-    so). A refused event, or a deploy without a constructor, contributes none. Raises ValueError on a call
-    to an unknown or non-zkvm contract, as the pub statement always did."""
-    import copy
-    from execnode import runtimes
-    contracts = copy.deepcopy(pre_contracts)
-    units = []
-    for e in entries:
-        if e.get("op") in EVENT_OPS:
-            admitted, cid, _before = apply_event(contracts, e)
-            if admitted and e.get("op") == "deploy" and "constructor" in contracts[cid]["code"]:
-                units.append((cid, {"code": contracts[cid]["code"], "method": "constructor",
-                                    "caller": e.get("caller"), "args": [], "value": 0,
-                                    "cursor": int(e.get("cursor", cursor)), "timestamp": int(e.get("timestamp", timestamp)),
-                                    "asset": 0, "selfd": runtimes.zkvm_addr_digest(cid)}))
-            continue
-        c = contracts.get(e["cid"])
-        if not c or c.get("runtime") != "zkvm":
-            raise ValueError("unknown contract")
-        # `selfd` is DERIVED from the cid, never carried in the bundle: the verifier recomputes the callee's
-        # own digest from public data, so a prover cannot choose what ACTX_SELF reads.
-        # PER-CALL context (the block the call executed in), falling back to the epoch-wide cursor/ts — must
-        # match _run_call's prove-time context, else verify_epoch_calls rebuilds a different statement than was
-        # proven. A multi-block span carries a distinct cursor per call (block_calls stamps height).
-        units.append((e["cid"], {"code": c["code"], "method": e["method"], "caller": e.get("caller", "epoch"),
-                                 "args": e.get("args", []), "value": int(e.get("value", 0)),
-                                 "cursor": int(e.get("cursor", cursor)), "timestamp": int(e.get("timestamp", timestamp)),
-                                 "asset": int(e.get("asset", 0)), "selfd": runtimes.zkvm_addr_digest(e["cid"])}))
-    return units
+# apply_event / event_updates / vm_units (the settlement verifier's replay of a span's code events, and the VM units it
+# derived from them) were deleted in G9 slice 3b: their only reader, the Goldilocks settle-proof verifier, went in slice 2,
+# and apply_event still judged a deploy by the field VM's gate. The chain's own admission rules are ExecState.apply_blob's.
 
 
 def code_commitment(code):

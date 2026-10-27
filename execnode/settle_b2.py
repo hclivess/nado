@@ -421,7 +421,7 @@ class Oracle:
             raise Unprovable("a call on a runtime other than the gen-29 zkvm2")
         reg = registry if registry is not None else {}
         try:
-            cf, fargs = runtimes.zkvm_statement(caller, args, reg, True)
+            cf, fargs = runtimes.zkvm_statement(caller, args, reg)
         except ValueError:
             return (False, None, storage, [], [])      # runtimes.run: refused before the VM, no steps
         if method not in code or len(fargs) > zkvm2.MAX_ARGS:

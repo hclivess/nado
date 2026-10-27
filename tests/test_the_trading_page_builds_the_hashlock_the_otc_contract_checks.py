@@ -6,7 +6,7 @@ the page is unsettleable and the maker's collateral sits until expiry. So: otcLi
 from dex.js, run under Node with the real nadodapp.js (algHashn) and /protocol.js rendered by the protocol hook, and
 compared with execnode.games.otc.vm_hashlock_parts over random secrets:
   1. (generation 28: four 64-bit alghash hashlocks — retired in G9 with BLAKE_EXEC_HEIGHT; the page has no gen-28 form)
-  2. generation 29: one 256-bit BLAKE2s hashlock as eight pieces — and not the gen-28 v1 pieces.
+  2. generation 29: one 256-bit BLAKE2s hashlock as eight pieces — the VM hash of the secret's five limbs.
 
 Run: python3 tests/test_the_trading_page_builds_the_hashlock_the_otc_contract_checks.py
 """
@@ -83,7 +83,11 @@ else:
     T.check("2a. node ran the page's code", g29 is not None)
     want29 = [O.vm_hashlock_parts(s) for s in secrets]
     T.check("2b. gen 29: the page's eight pieces equal otc.vm_hashlock_parts (one 256-bit BLAKE2s hashlock)",
-            g29 is not None and g29["parts"] == want29 and want29 == [O.vm_hashlock_parts(s, "v2") for s in secrets])
-    T.check("2c. the pieces are not the gen-28 v1 ones (no alghash form is left on the page)",
-            want29 != [O.vm_hashlock_parts(s, "v1") for s in secrets])
+            g29 is not None and g29["parts"] == want29)
+    # (2c compared against the gen-28 four-digest pieces; that form went with the field VM in G9 slice 3b, so the check
+    # is now positive: the eight pieces ARE the VM hash of the five limbs, most significant first)
+    from execnode import zkvm2
+    T.check("2c. the pieces recombine to the 256-bit VM hash of the secret's five limbs",
+            all(sum(p << (32 * (7 - i)) for i, p in enumerate(parts)) == zkvm2.hash_words(O.preimage_limbs(s))
+                for s, parts in zip(secrets, want29)))
 T.done("ALL PASS — the trading page builds the hashlock the otc contract checks")

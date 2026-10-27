@@ -5,10 +5,10 @@ move back to whoever funded it (cancel/expire) or forward to the counterparty on
 HOW A SWAP WORKS (ASK_NADO: Alice sells NADO for BTC):
   Alice generates a 32-byte secret s and posts the order, escrowing her NADO here under TWO commitments to
   the SAME secret: SHA-256(s) for the Bitcoin leg (Bitcoin script can only check SHA-256) and the zkVM's
-  alghash of s's limbs for this contract (the VM's only in-circuit hash — see DUAL HASHLOCK below). Bob
+  VM hash of s's limbs for this contract (the VM's only in-circuit hash — see DUAL HASHLOCK below). Bob
   fill()s, pinning his Bitcoin HTLC's outpoint; Alice verifies that lock on Bitcoin, claims it, and by
   claiming REVEALS s on Bitcoin. Bob (or any watchtower) now calls settle(o, s-limbs) here: the contract
-  checks alghash(limbs) == the posted hashlock and pays the escrow to Bob. One secret, two chains, no oracle:
+  checks H(limbs) == the posted hashlock and pays the escrow to Bob. One secret, two chains, no oracle:
   the preimage IS the bridge (§6.4). BID_NADO is the mirror (the NADO comes from the taker at fill time and
   settle pays the maker — who knows s — so revealing s on NADO is what lets the taker claim the foreign leg).
 
@@ -18,13 +18,13 @@ verifies `sha256(preimage) == hashlock` natively, so the NADO leg and the foreig
 the SAME SHA-256 image and one revealed secret provably opens both. This contract only ever holds the
 maker's COLLATERAL and any tips — never the swap principal.
 
-An earlier version escrowed the principal here, gated on an alghash image the maker supplied ALONGSIDE the
+An earlier version escrowed the principal here, gated on a VM-hash image the maker supplied ALONGSIDE the
 SHA-256 one. Nothing forced the two to come from the same secret (the VM cannot compute SHA-256 to check),
 so a maker could post two unrelated hashlocks, claim the foreign coin with one, and leave the NADO side
 permanently unclaimable — keeping both sides. An audit proved it. Moving the principal to the L1 HTLC
 removes the class outright: there is ONE hashlock, checked by code that can actually compute it.
 
-The four alghash digests survive, but now they gate only the COLLATERAL: proving knowledge of the secret
+The VM hashlock survives, but now it gates only the COLLATERAL: proving knowledge of the secret
 returns the maker their own deposit. Forging that image would let an attacker hand the maker their money
 back — nothing to steal, so the weaker hash is harmless exactly here.
 
@@ -49,14 +49,14 @@ Storage (order id `o` = a frontend random int < 2^32; all slot-keyed => enumerab
   1 mk  2 kind(1=ASK_NADO maker gives NADO / 2=BID_NADO maker wants NADO)  3 maker(caller digest)
   4 esc(live NADO escrow, raw)  5 namt(the NADO side amount, raw)  6 wch(foreign chain digest)
   7 wamt(foreign amount digest)  8 wadr(maker's foreign receiving addr digest)  9 hsha(SHA-256 hashlock
-  digest)  10 hvm + 31/32/33 hv1..hv3(the FOUR alghash hashlocks — one field element each)  11 expn(NADO refund height)  12 expf(foreign deadline,
+  digest)  10 hvm(the 256-bit VM hashlock; 31/32/33 hv1..hv3 are the field VM's, empty)  11 expn(NADO refund height)  12 expf(foreign deadline,
   opaque)  13 st(1 open 2 filled 3 settled 4 refunded 5 cancelled)  14 taker(digest)  15 tadr(taker's
   foreign addr digest)  16 fref(foreign HTLC txid/outpoint digest)  18 LIST  20..24 s0..s4(revealed limbs)
   25 gast/26 wast/27 want(SWAP_INTRA: give-asset, want-asset — 0 = native — and want amount)
   28 bnty(§8 bounty) 29 prem/30 pheld(§9.1 maker collateral: promised / held).
 Methods (fill of a BID carries VALUE = the taker bond, 1% of namt / min 0.01 NADO; back at bind, to the
-maker at release/expire-unbound): post(o,kind,namt,wch,wamt,wadr,hsha,hi0,lo0,hi1,lo1,hi2,lo2,hi3,lo3,expn,expf) — the four
-  alghash hashlocks ride as 32-bit halves because a JS JSON number only holds 2^53 exactly. NO VALUE —
+maker at release/expire-unbound): post(o,kind,namt,wch,wamt,wadr,hsha,p0..p7,expn,expf) — the
+  VM hashlock rides as eight 32-bit pieces because a JS JSON number only holds 2^53 exactly. NO VALUE —
   the principal is in the L1 HTLC · cancel(o) maker/open · fill(o,tadr,fref)[no VALUE] ·
   bind(o,htlcId) records the L1 HTLC holding the NADO leg · settle(o,l0..l4) anyone with the preimage,
   closes the order and returns the collateral · expire(o) anyone late ·
@@ -75,7 +75,8 @@ MK, KIND, MAKER, ESC, NAMT, WCH, WAMT, WADR, HSHA, HVM = 1, 2, 3, 4, 5, 6, 7, 8,
 EXPN, EXPF, ST, TAKER, TADR, FREF, LIST = 11, 12, 13, 14, 15, 16, 18
 S0 = 20                            # fields 20..24: the revealed preimage limbs (public after settle)
 GAST, WAST, WANT = 25, 26, 27      # SWAP_INTRA sides: give-asset, want-asset (0 = native), want amount
-HV1, HV2, HV3 = 31, 32, 33         # the other three digests of the WIDE hashlock (HVM/10 holds the first)
+HV1, HV2, HV3 = 31, 32, 33         # the field VM's three extra hashlock digests: never written on gen 29 (one 256-bit
+                                   # hashlock in HVM), kept as field ids so the page's view schema reads them as empty
 HID = 34                           # the L1 HTLC that actually carries the NADO leg (txid digest)
 FILLH = 35                         # the block the fill landed in — starts the taker's window to bind their side
 FILL_WINDOW = 600                  # blocks (~1 h) a taker has to bind the NADO leg before the maker may release the order
@@ -88,12 +89,9 @@ ASK, BID, INTRA = 1, 2, 3
 OPEN, FILLED, SETTLED, REFUNDED, CANCELLED = 1, 2, 3, 4, 5
 ID_MAX = 1 << 32
 LIMB_BITS, LIMBS = 52, 5           # 5x52 = 260 >= 256 secret bits; each limb < 2^52 (LT-safe)
-# WIDE HASHLOCK. One alghash digest is a single field element (~64 bits) and the sponge's state is only
-# 128 bits wide, so an audit put a forged preimage at roughly 2^44 work — far below the SHA-256 side of
-# the same swap. The VM has no wider hash opcode, so the lock is FOUR digests of the same secret, each
-# over a differently-offset first limb: a forger must satisfy four independent 64-bit constraints with
-# one tuple of limbs, which puts the generic cost back out of reach. Costs four HASH blocks per settle.
-HDOM = [0, 0x10000000001, 0x20000000003, 0x30000000007]
+# ONE HASHLOCK. The gen-28 field VM's lock was FOUR 64-bit alghash digests over differently-offset first limbs (HDOM;
+# an audit put one digest's forgery at ~2^44 work). On the 256-bit VM one BLAKE2s hash over the five limbs is a 256-bit
+# lock, stronger than the four together, so the four-domain construction went with the field VM (G9 slice 3b).
 # §6.3 TIMELOCK ORDERING, now enforced in-circuit (it used to be a wallet-side promise the wallet never
 # kept). The foreign leg must be refundable well BEFORE the NADO escrow unlocks, or a maker can reclaim
 # their NADO and still claim the foreign coin. The VM knows the chain clock (TIME) and the block cadence,
@@ -112,32 +110,17 @@ def preimage_limbs(s_hex):
     return [(v >> (LIMB_BITS * i)) & ((1 << LIMB_BITS) - 1) for i in range(LIMBS)]
 
 
-def _v2(isa=None):
-    from execnode import zkvmasm
-    return (isa or zkvmasm.default_isa()) == "v2"
+def vm_hashlocks(s_hex):
+    """The digest that locks the secret in-contract: ONE 256-bit VM hash over the five limbs (ONE HASHLOCK above), as a
+    one-element list (the field VM's four-digest form went with it in G9 slice 3b)."""
+    return [_lib.vm_hash(preimage_limbs(s_hex))]
 
 
-def vm_hashlocks(s_hex, isa=None):
-    """The digests that lock the secret in-contract. v1: the FOUR alghash digests of WIDE HASHLOCK above (each one
-    ~64-bit field element). v2 (the gen-29 256-bit VM): ONE BLAKE2s word chain over the same five limbs — a 256-bit
-    digest, stronger than the four 64-bit ones together, so the four-domain construction retires."""
-    limbs = preimage_limbs(s_hex)
-    if _v2(isa):
-        return [_lib.vm_hash(limbs, "v2")]
-    return [_lib.vm_hash([limbs[0] + d] + limbs[1:], "v1") for d in HDOM]
-
-
-def vm_hashlock_parts(s_hex, isa=None):
-    """The eight 32-bit pieces post() takes — a JS JSON number is exact only to 2^53, so a digest crosses the wire in
-    32-bit pieces and the contract recombines. v1: the four hashlocks as (hi32, lo32) halves. v2: the one 256-bit
-    hashlock as eight pieces, most significant first. Eight either way, so post()'s argument list never changes."""
-    if _v2(isa):
-        (h,) = vm_hashlocks(s_hex, "v2")
-        return [(h >> (32 * (7 - i))) & 0xFFFFFFFF for i in range(8)]
-    out = []
-    for h in vm_hashlocks(s_hex, "v1"):
-        out.extend(divmod(h, 1 << 32))
-    return out
+def vm_hashlock_parts(s_hex):
+    """The eight 32-bit pieces post() takes — a JS JSON number is exact only to 2^53, so the 256-bit hashlock crosses the
+    wire in eight pieces, most significant first, and the contract recombines them."""
+    (h,) = vm_hashlocks(s_hex)
+    return [(h >> (32 * (7 - i))) & 0xFFFFFFFF for i in range(8)]
 
 
 def escrow_refunds(storage, zk_addrs):
@@ -165,13 +148,12 @@ def escrow_refunds(storage, zk_addrs):
     return out
 
 
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+# ---- the carry (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------------------------------
 def carry_in_flight(storage):
     """Why this contract cannot cross the reroll yet ([] = it can): every order that is OPEN or FILLED, and every order
     still holding a live escrow (the same ledger escrow_refunds attributes). An open HTLC order is tied to a foreign
     lock with real money and to a NADO expiry in OLD-CHAIN heights (expn, fillh), and its hashlock is compared against a
-    FRESH VM hash in settle — v1 stores four alghash digests (HVM/HV1-3), v2 reads one BLAKE2s word from HVM — so a
-    carried open order could be filled but never settled on gen 29. Nothing about it can be re-derived (the preimage is
+    FRESH VM hash in settle — so a carried open order whose VM hash changed could be filled but never settled. Nothing about it can be re-derived (the preimage is
     the maker's secret), so it is resolved on the old chain: cancel (maker, while open), settle (anyone with the secret,
     while filled), release (maker, nothing bound after the fill window) or expire (anyone, at/after expn).
     INVARIANT: a SETTLED/REFUNDED/CANCELLED order is history — every method that reads its hashlock, expiry or fill
@@ -193,39 +175,7 @@ def carry_in_flight(storage):
     return out
 
 
-# Values >= 2^32 an order may hold that are NOT registry digests and NOT asset ids remapped by the carry. Kept verbatim:
-#   - raw NADO amounts (escrow, advertised amount, want amount, bounty, collateral, taker bond);
-#   - the foreign-side references (chain, amount, addresses, SHA-256 lock, foreign ref, L1 HTLC id). The wallet sends
-#     them as STRINGS, so they are registry digests and remapped; a caller who sent a raw int stored a raw int, which
-#     names nothing on either chain's registry and is kept as given (a refusal here would let any poster veto the
-#     carry with one cancelled order);
-#   - expf, an opaque foreign-chain deadline (a BID's has no upper bound);
-#   - the closed orders' VM hashlocks (HVM, HV1-3) — read only by settle, which requires FILLED (carry_in_flight);
-#   - the revealed preimage limbs (< 2^52 each, public history);
-#   - WAST: an asset id held by a real asset is remapped by tools/carry.py's asset map BEFORE this table is consulted;
-#     only an id that names no asset (post_intra never checks the WANT side exists) reaches it, and it names none on
-#     gen 29 either. GAST is not listed: the give side arrived as call value, so it is always a real asset (remapped).
-CARRY_WORDS = {("field", f): why for f, why in (
-    (ESC, "an intra order's escrow (raw)"), (NAMT, "the NADO side amount (raw)"), (WANT, "the intra want amount"),
-    (BNTY, "a bounty (raw NADO)"), (PREM, "the maker's promised collateral (raw)"), (PHELD, "collateral held (raw)"),
-    (TB, "the taker bond (raw)"),
-    (WCH, "foreign chain (opaque int when not sent as a string)"), (WAMT, "foreign amount (opaque int)"),
-    (WADR, "maker's foreign address (opaque int)"), (HSHA, "SHA-256 hashlock (opaque int)"),
-    (TADR, "taker's foreign address (opaque int)"), (FREF, "foreign HTLC ref (opaque int)"),
-    (HID, "the L1 HTLC id (opaque int)"), (EXPF, "the foreign deadline (opaque)"),
-    (HVM, "a closed order's VM hashlock (history)"), (HV1, "a closed order's VM hashlock (history)"),
-    (HV2, "a closed order's VM hashlock (history)"), (HV3, "a closed order's VM hashlock (history)"),
-    (WAST, "a want-asset id that names no asset"))}
-CARRY_WORDS.update({("field", S0 + i): "a revealed preimage limb (< 2^52)" for i in range(LIMBS)})
-
-
-# methods whose SOURCE differs between the ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm):
-# post/settle use one 256-bit BLAKE2s hashlock on v2 instead of v1's four 64-bit alghash ones (vm_hashlocks)
-ISA_DIVERGENT_METHODS = ("post", "settle")
-
-
-def build(isa=None):
-    v2 = _v2(isa)
+def build():
     c = zkpy.Contract()
 
     # post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf) [VALUE = namt for ASK_NADO]
@@ -277,20 +227,14 @@ def build(isa=None):
         m.slot(WAMT, o).set(m.arg(4))
         m.slot(WADR, o).set(m.arg(5))
         m.slot(HSHA, o).set(m.arg(6))
-        if v2:
-            # ONE 256-bit hashlock from the eight 32-bit pieces, most significant first. Each piece is bounded, so the
-            # eight have exactly one reading (an unbounded piece would let two piece lists combine to one hashlock).
-            for i in range(7, 15):
-                m.require(m.arg(i) < m.const(1 << 32))
-            hl = m.arg(7)
-            for i in range(8, 15):
-                hl = hl * (1 << 32) + m.arg(i)
-            m.slot(HVM, o).set(hl)
-        else:
-            m.slot(HVM, o).set(m.arg(7) * (1 << 32) + m.arg(8))
-            m.slot(HV1, o).set(m.arg(9) * (1 << 32) + m.arg(10))
-            m.slot(HV2, o).set(m.arg(11) * (1 << 32) + m.arg(12))
-            m.slot(HV3, o).set(m.arg(13) * (1 << 32) + m.arg(14))
+        # ONE 256-bit hashlock from the eight 32-bit pieces, most significant first. Each piece is bounded, so the
+        # eight have exactly one reading (an unbounded piece would let two piece lists combine to one hashlock).
+        for i in range(7, 15):
+            m.require(m.arg(i) < m.const(1 << 32))
+        hl = m.arg(7)
+        for i in range(8, 15):
+            hl = hl * (1 << 32) + m.arg(i)
+        m.slot(HVM, o).set(hl)
         m.slot(EXPN, o).set(m.arg(15))
         m.slot(EXPF, o).set(m.arg(16))
         m.slot(ST, o).set(m.const(OPEN))
@@ -459,16 +403,9 @@ def build(isa=None):
         m.require(m.arg(3) < m.const(1 << LIMB_BITS))
         m.require(m.arg(4) < m.const(1 << LIMB_BITS))
         m.require(m.arg(5) < m.const(1 << LIMB_BITS))
-        if v2:
-            # one 256-bit BLAKE2s hashlock over the five limbs (vm_hashlocks v2); the limb bounds above keep the
-            # secret -> limbs map one-to-one, exactly as before
-            m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
-        else:
-            # all four constraints, on the SAME limbs — see WIDE HASHLOCK
-            m.require(zkpy.hash(m.arg(1) + HDOM[0], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
-            m.require(zkpy.hash(m.arg(1) + HDOM[1], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV1, o).get())
-            m.require(zkpy.hash(m.arg(1) + HDOM[2], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV2, o).get())
-            m.require(zkpy.hash(m.arg(1) + HDOM[3], m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HV3, o).get())
+        # one 256-bit BLAKE2s hashlock over the five limbs (vm_hashlocks); the limb bounds above keep the secret -> limbs
+        # map one-to-one
+        m.require(zkpy.hash(m.arg(1), m.arg(2), m.arg(3), m.arg(4), m.arg(5)) == m.slot(HVM, o).get())
         m.jnz(m.slot(PHELD, o).get() == 0, "pskip")             # COMPLETION: the collateral goes home
         m.pay(m.slot(MAKER, o).get(), m.slot(PHELD, o).get())
         m.label("pskip")
@@ -629,7 +566,7 @@ def build(isa=None):
         m.label("bdone")
         m.ret(esc)
 
-    return c.build(isa)
+    return c.build()
 
 
 ABI = {

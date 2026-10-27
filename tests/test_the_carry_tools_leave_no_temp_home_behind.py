@@ -1,9 +1,9 @@
-"""The carry tools leave no throwaway HOME behind (tools/carry.py _isolate, tools/carry_census.py contract_names).
+"""The carry tool leaves no throwaway HOME behind (tools/carry.py _isolate).
 
-Both make a temporary HOME so the game builders never import against the live node's database (CLAUDE.md rule 4) — and
-neither removed it: nine nado-carry-* directories had piled up in /tmp by 2026-10-26. Pins, by running _isolate in a
-child process: the directory exists while the tool runs and is gone after it exits; and the census registers the same
-removal (source pin — it needs a real exec state to run).
+It makes a temporary HOME so the game builders never import against the live node's database (CLAUDE.md rule 4) — and
+did not remove it: nine nado-carry-* directories had piled up in /tmp by 2026-10-26. Pins, by running _isolate in a
+child process: the directory exists while the tool runs and is gone after it exits. (The gen-28 census,
+tools/carry_census.py, had the same leak and the same fix; it was deleted with the field VM in G9 slice 3b.)
 
 Run: python3 tests/test_the_carry_tools_leave_no_temp_home_behind.py
 """
@@ -31,8 +31,5 @@ home = lines[-2] if len(lines) >= 2 else ""
 check("_isolate makes a throwaway HOME that exists while the tool runs", r.returncode == 0 and lines[-1:] == ["True"]
       and "nado-carry-" in home, (r.returncode, r.stdout[-300:], r.stderr[-300:]))
 check("...and it is gone once the tool exits", bool(home) and not os.path.exists(home), home)
-src = open(os.path.join(ROOT, "tools", "carry_census.py"), encoding="utf-8").read()
-i = src.index('tempfile.mkdtemp(prefix="nado-carry-census-")')
-check("the census removes its throwaway HOME at exit too", "atexit.register(shutil.rmtree, os.environ[\"HOME\"]" in src[i:i + 400])
-print("\nALL PASS — the carry tools leave no temp home behind" if not fails else f"\nFAILED: {fails}")
+print("\nALL PASS — the carry tool leaves no temp home behind" if not fails else f"\nFAILED: {fails}")
 sys.exit(1 if fails else 0)

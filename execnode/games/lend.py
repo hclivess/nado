@@ -267,7 +267,7 @@ ABI = {
 }
 
 
-# ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md, _lib.CARRY_WORDS note) -------------------------------
+# ---- the carry (tools/carry.py, doc/stwo/g5-carry.md) ------------------------------------------------------------
 def carry_in_flight(storage):
     """Why this contract cannot cross the reroll yet ([] = it can): every TAKEN loan. Its deadline `dl` is in TIME, and
     TIME is protocol.chain_clock(height) = GENESIS_TIMESTAMP + height * cadence — the new generation restarts it from a
@@ -284,13 +284,8 @@ def carry_in_flight(storage):
             for i in _lib.carry_ids(slots, 0, LLIST) if g(ST, i) == ST_TAKEN]
 
 
-# Values >= 2^32 a loan may hold that are NOT registry digests (lr/bw are remapped): the due time, TIME + duration, with
-# duration up to 2^32 - 1 seconds, kept on every loan that was ever taken. Every amount is in UNITs below 2^31, and the
-# claimable balances are credited once per loan (lc <= principal + interest < 2^32, bc = collateral).
-CARRY_WORDS = {("field", DL): "a loan's due TIME (time + duration may pass 2^32)"}
-
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("cancel", "take", "repay", "default", "claim", "claimable_of", "state_of", "due_of")}
-    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))

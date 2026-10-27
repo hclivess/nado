@@ -16,7 +16,7 @@ os.environ["NADO_ALLOW_PYTHON_KERNELS"] = "1"
 import tempfile
 import protocol as P
 from execnode.state import ExecState
-from execnode import zkvmasm, zkvm
+from execnode import zkvmasm, zkvm2 as zkvm
 
 T = _harness.Report()
 GATE = 3000                                                 # any applied height from 1 (EXEC_BUDGET_V2_HEIGHT, inlined in G9)

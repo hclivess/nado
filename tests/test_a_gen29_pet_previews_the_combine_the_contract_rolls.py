@@ -33,7 +33,7 @@ st = ExecState(os.path.join(HOME, "g29.json"))
 st.cursor, st.block_ts = 3000, int(time.time())
 st.block_hashes = {h: ((h * 0x9E3779B97F4A7C15) ^ (h << 200)) % (1 << 256) for h in range(0, 9000)}   # 256-bit hashes
 st.credit_deposit(OWN, 10**15)
-code = P.build("v2")
+code = P.build()
 st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": P.ABI, "nonce": "p"}, OWN, "dp")
 pc = st.contract_id(OWN, code, "p")
 slot = lambda f, k: int((st.contracts[pc]["storage"].get("slots") or {}).get(str((f << 32) + k), 0))

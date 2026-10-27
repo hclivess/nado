@@ -37,7 +37,7 @@ import protocol as P
 # BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
 # file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState, asset_id, MAX_EXIT_VALUE
-from execnode import zkvm, zkvmasm
+from execnode import zkvmasm
 from execnode.stark import stark
 
 import _harness

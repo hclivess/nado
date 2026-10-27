@@ -39,7 +39,6 @@ Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid)[0.1 NADO] · feed(pid)[
 """
 from execnode import zkvmasm
 from execnode.games import _lib
-from execnode.stark import field as F
 
 # economic + game constants (mirrored by static/pets-genes.js and the reference functions below)
 MINT_FEE = 10**10
@@ -76,13 +75,13 @@ REVEAL_WINDOW = 1200          # blocks after acceptance in which BOTH sides reve
                               # misses it forfeits, and when neither reveals the battle is void (stakes back)
 REBIRTH_FEE = 10**9           # 0.1 NADO per rebirth, burned into the slot-1 tally like every other pets fee
 PLIST, OLIST, WLIST = 60, 61, 62
-# THE GENE'S ROLLS ARE STATE on v2 (gen 29; doc/stwo/g5-carry.md). Every trait of a pet is a roll of its gene,
-# roll32(gn + c): tier 555, species 777, base stats 1000+i, and the browser's coat 7000 and shiny 9000. On v1 they are
-# recomputed from the gene on every read — through the VM hash, which the generation changes, so a pet carried to gen
-# 29 would have silently become another pet (new stats, new species, new look, new building yield). v2 hatch writes
-# each roll into the ROLL TABLE, field RT_BASE + j keyed pid for c = ROLL_OFFSETS[j], and every v2 method reads the
-# table instead of re-hashing the gene; the carry fills the table of every carried pet with its gen-28 rolls
-# (carry_v2_storage). INVARIANT: no v2 method hashes GN + c for a c in ROLL_OFFSETS — a new trait roll is added here.
+# THE GENE'S ROLLS ARE STATE (gen 29; doc/stwo/g5-carry.md). Every trait of a pet is a roll of its gene, roll32(gn + c):
+# tier 555, species 777, base stats 1000+i, and the browser's coat 7000 and shiny 9000. The gen-28 field VM recomputed
+# them from the gene on every read — through the VM hash, which a generation may change, so a carried pet would have
+# silently become another pet (new stats, new species, new look, new building yield). hatch writes each roll into the
+# ROLL TABLE, field RT_BASE + j keyed pid for c = ROLL_OFFSETS[j], and every method reads the table instead of
+# re-hashing the gene; the gen-29 carry filled the table of every carried pet with its gen-28 rolls. INVARIANT: no
+# method hashes GN + c for a c in ROLL_OFFSETS — a new trait roll is added here.
 ROLL_OFFSETS = (555, 777) + tuple(1000 + i for i in range(10)) + (7000, 9000)
 RT_BASE = 100                 # 100..113
 
@@ -95,7 +94,6 @@ SC = 950
 COMBINE_SALT = 888888         # fixed salt for combine()'s random stat pick (distinct from the 555/777/1000 rolls)
 DEBUG_PROBE = False           # test-only: resolve_battle persists its combat scratch to field 990 slots
 _2_32 = 1 << 32
-_INV232 = pow(1 << 32, F.P - 2, F.P)      # field inverse of 2^32 — exact hi-half extraction after LO32
 
 
 # ---- python reference (the single source of truth; pets-genes.js and the E2E mirror THESE) ----------
@@ -206,12 +204,9 @@ def _roll32(src_reg, out):
     return [f"hash {out} <- {src_reg}", f"lo32 {out}"]
 
 
-def _gene_roll(isa, c, gene_reg, out, pid_reg="r0"):
-    """out = roll32(gn + c) during hatch (the gene in gene_reg): computed on v1, read from the roll table on v2 (hatch has
-    just written it). Clobbers r4/r6."""
-    if isa == "v2":
-        return [f"slot r4 {_rt(c)} {pid_reg}", f"sload {out} r4"]
-    return [f"mov {out} {gene_reg}", f"movi r6 {c}", f"add {out} r6"] + _roll32(out, out)
+def _gene_roll(c, out, pid_reg="r0"):
+    """out = roll32(gn + c) during hatch, read back from the roll table hatch has just written. Clobbers r4."""
+    return [f"slot r4 {_rt(c)} {pid_reg}", f"sload {out} r4"]
 
 
 def _alive_pid(pid_reg):
@@ -235,13 +230,7 @@ MINT = "\n".join(
        "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
 
 
-# methods whose SOURCE differs between the two ISAs on purpose (tests/test_every_contract_assembles_unchanged_for_the_old_vm
-# compares every other method strictly): hatch splits the gene with the field inverse of 2^32 on v1 and a divide on v2
-# hatch, and every method that reads a gene roll, read the ROLL TABLE on v2 instead of re-hashing the gene (RT_BASE)
-ISA_DIVERGENT_METHODS = ("hatch", "train_resolve", "resolve_battle", "combine", "upgrade", "staff", "collect")
-
-
-def _hatch(isa="v1"):
+def _hatch():
     L = _sl(OW) + ["sload r5 r4", "require r5"]                                  # exists
     L += _sl(GN) + ["sload r5 r4", "nez r5", "notb r5", "require r5"]            # not hatched
     L += _sl(BH) + ["sload r5 r4", "movi r6 1", "add r5 r6",
@@ -253,18 +242,14 @@ def _hatch(isa="v1"):
     L += _sl(GN) + ["sstore r4 r3"]
     # gl/gh: exact 32-bit halves for the browser (JS floats can't carry a field element)
     L += ["mov r5 r3", "lo32 r5"] + _sl(GL) + ["sstore r4 r5"]
-    if isa == "v2":
-        # the 256-bit word has no inverse of 2^32 (it is not odd): gh = the gene's NEXT 32 bits by a full-width divide,
-        # kept 32-bit so the browser can still carry it; the whole gene is in GN for clients reading 256-bit values
-        L += ["mov r6 r3", "movi r4 4294967296", "divmod r6 r4", "lo32 r6"] + _sl(GH) + ["sstore r4 r6"]
-    else:
-        L += ["mov r6 r3", "sub r6 r5", f"movi r4 {_INV232}", "mul r6 r4"] + _sl(GH) + ["sstore r4 r6"]
-    if isa == "v2":
-        # the roll table (RT_BASE): every trait roll of the gene, written once — the traits below read it back
-        for c in ROLL_OFFSETS:
-            L += ["mov r5 r3", f"movi r6 {c}", "add r5 r6"] + _roll32("r5", "r5") + _sl(_rt(c)) + ["sstore r4 r5"]
+    # the 256-bit word has no inverse of 2^32 (it is not odd): gh = the gene's NEXT 32 bits by a full-width divide, kept
+    # 32-bit so the browser can still carry it; the whole gene is in GN for clients reading 256-bit values
+    L += ["mov r6 r3", "movi r4 4294967296", "divmod r6 r4", "lo32 r6"] + _sl(GH) + ["sstore r4 r6"]
+    # the roll table (RT_BASE): every trait roll of the gene, written once — the traits below read it back
+    for c in ROLL_OFFSETS:
+        L += ["mov r5 r3", f"movi r6 {c}", "add r5 r6"] + _roll32("r5", "r5") + _sl(_rt(c)) + ["sstore r4 r5"]
     # tier: rt = roll32(gn+555) % 100000 ; sp = 1 + Σ(rt >= T)
-    L += _gene_roll(isa, 555, "r3", "r5")
+    L += _gene_roll(555, "r5")
     L += ["movi r6 100000", "divmodw r5 r6", "mov r5 r7"]                        # rt
     L += ["movi r2 1"]
     for t in TIER_CUM:
@@ -281,13 +266,13 @@ def _hatch(isa="v1"):
         L += ["mov r5 r2", f"movi r6 {t}", "lt r5 r6", "notb r5",               # sp >= t
               f"movi r6 {TIER_COUNT[t - 1]}", "mul r5 r6",
               f"movi r4 {_sc(0)}", "sload r6 r4", "add r6 r5", "sstore r4 r6"]   # base += COUNT[t-1]·flag
-    L += _gene_roll(isa, 777, "r3", "r5")
+    L += _gene_roll(777, "r5")
     L += ["divmod r5 r1", f"movi r4 {_sc(0)}", "sload r6 r4", "add r6 r7"]       # si = base + roll%count
     L += _sl(SI) + ["sstore r4 r6"]
     # stats: ap = stat9 ; pw = Σ stats. stat_i = roll32(gn+1000+i)%60 + 1 + (sp-1)*6
     L += ["movi r1 0"]                                                           # r1 = power accumulator
     for i in range(10):
-        L += _gene_roll(isa, 1000 + i, "r3", "r5")
+        L += _gene_roll(1000 + i, "r5")
         L += ["movi r6 60", "rem r5 r6", "movi r6 1", "add r5 r6",
               "mov r6 r2", "movi r4 1", "sub r6 r4", f"movi r4 {STAT_TIER_BONUS}", "mul r6 r4",
               "add r5 r6", "add r1 r5"]
@@ -414,16 +399,11 @@ TRAIN = "\n".join(
     + _sl(TF) + ["sload r5 r4", f"movi r6 {TRAIN_FEE}", "add r5 r6", "sstore r4 r5", "ret r0"])
 
 
-def _eff_stat(pid_reg, i_sc, out, isa="v1"):
+def _eff_stat(pid_reg, i_sc, out):
     """out = effective stat: roll32(gn+1000+i)%60 + 1 + (sp-1)*6 + tb[pid,i]. The stat index comes from
-    scratch slot i_sc (runtime). Clobbers r4/r5/r6/r7 (+ out). v2 reads the roll from the roll table (RT_BASE)."""
-    if isa == "v2":
-        roll = [f"movi r4 {_rt(1000)}", f"movi r5 {i_sc}", "sload r5 r5", "add r4 r5",
-                f"movi r5 {_2_32}", "mul r4 r5", f"add r4 {pid_reg}", f"sload {out} r4"]
-    else:
-        roll = ([f"slot r4 {GN} {pid_reg}", f"sload {out} r4",
-                 f"movi r5 {i_sc}", "sload r5 r5", "movi r6 1000", "add r5 r6", f"add {out} r5"]
-                + _roll32(out, out))
+    scratch slot i_sc (runtime). Clobbers r4/r5/r6/r7 (+ out). The roll is read from the roll table (RT_BASE)."""
+    roll = [f"movi r4 {_rt(1000)}", f"movi r5 {i_sc}", "sload r5 r5", "add r4 r5",
+            f"movi r5 {_2_32}", "mul r4 r5", f"add r4 {pid_reg}", f"sload {out} r4"]
     return (roll
             + ["movi r5 60", f"divmod {out} r5", f"mov {out} r7", "movi r5 1", f"add {out} r5",
                f"slot r4 {SP} {pid_reg}", "sload r5 r4", "movi r6 1", "sub r5 r6",
@@ -439,13 +419,13 @@ def _eff_stat(pid_reg, i_sc, out, isa="v1"):
                f"movi r5 {_2_32}", "mul r4 r5", f"add r4 {pid_reg}", "sload r5 r4", f"add {out} r5"])
 
 
-def _train_resolve(isa="v1"):
+def _train_resolve():
     L = _sl(TH) + ["sload r5 r4", "require r5"]
     L += _sl(TH) + ["sload r5 r4", "movi r6 1", "add r5 r6",
                     "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     # i -> SC1 ; cur = eff stat -> r1
     L += _sl(TI) + ["sload r5 r4", "movi r6 1", "sub r5 r6", f"movi r4 {_sc(1)}", "sstore r4 r5"]
-    L += _eff_stat("r0", _sc(1), "r1", isa)
+    L += _eff_stat("r0", _sc(1), "r1")
     # roll = roll32(bh(th)+bh(th+1)+pid*16+i) % 100 -> r2
     L += _sl(TH) + ["sload r5 r4", "bhash r2 r5", "movi r6 1", "add r5 r6", "bhash r6 r5", "add r2 r6",
                     "mov r5 r0", "movi r6 16", "mul r5 r6", "add r2 r5",
@@ -466,7 +446,7 @@ def _train_resolve(isa="v1"):
     return L
 
 
-def _combine(isa="v1"):
+def _combine():
     """combine(keep=r0, consume=r1): merge two SAME-SPECIES pets you own — BURN consume and grant keep +1
     to a random trained stat (index from both genes). Species match = same tier AND same species-roll
     within that tier's band, both recomputed from the immutable gene (robust to any roster remap). A pure
@@ -488,10 +468,7 @@ def _combine(isa="v1"):
     for t in range(1, 7):
         L += ["mov r5 r2", f"movi r6 {t}", "eq r5 r6", f"movi r6 {TIER_COUNT[t]}", "mul r5 r6", "add r3 r5"]
     for pid in ("r0", "r1"):
-        if isa == "v2":
-            L += [f"slot r4 {_rt(777)} {pid}", "sload r5 r4"]                     # the species roll, from the table
-        else:
-            L += [f"slot r4 {GN} {pid}", "sload r5 r4", "movi r6 777", "add r5 r6"] + _roll32("r5", "r5")
+        L += [f"slot r4 {_rt(777)} {pid}", "sload r5 r4"]                         # the species roll, from the table
         if pid == "r0":
             L += ["divmod r5 r3", f"movi r4 {_sc(2)}", "sstore r4 r7"]            # rA = roll%count -> SC2
     L += ["divmod r5 r3", "mov r6 r7", f"movi r4 {_sc(2)}", "sload r5 r4", "eq r5 r6", "require r5"]   # rA == rB
@@ -633,7 +610,7 @@ def _refund_stakes():
             + _sl(WN) + ["movi r5 3", "sstore r4 r5"] + _sl(WP) + ["movi r5 0", "sstore r4 r5"])
 
 
-def _resolve_battle(isa="v1"):
+def _resolve_battle():
     """resolve_battle(bid): permissionless. Replays the whole 12-turn duel from the battle seed, mirroring
     ref_battle_turns exactly (HP shifted +1024 for field-positive math).
       wm == 0 (issued before the commit-reveal upgrade): seed pair bh(wh), bh(wh+1), once wh+1 is final.
@@ -667,7 +644,7 @@ def _resolve_battle(isa="v1"):
         L += [f"slot r4 {pid_field} r0", "sload r1 r4"]                          # r1 = pid
         for i in range(10):
             L += [f"movi r4 {_bsl(_IDX)}", f"movi r5 {i}", "sstore r4 r5"]
-            L += _eff_stat("r1", _bsl(_IDX), "r2", isa)
+            L += _eff_stat("r1", _bsl(_IDX), "r2")
             L += [f"movi r4 {_bsl(base + i)}", "sstore r4 r2"]
     # maxes + shifted HP + turn-share span
     def eff(side, i):
@@ -910,7 +887,7 @@ def _res_take(kind, amt_reg):
 # _accrue banks everything a building earned since it was last touched, and is shared by collect(), staff()
 # and upgrade() — every path that changes what a building produces must first pay out what it already
 # produced at the OLD terms, or the change would silently rewrite history.
-def _accrue(isa="v1"):
+def _accrue():
     """Pay out building r0's production and reset its clock. Produces nothing (and still resets the clock)
     when the building is unstaffed. Emits NO ret — the caller continues. Clobbers r1..r7."""
     L = _sl(BSI) + ["sload r1 r4"]                                          # r1 = since
@@ -924,7 +901,7 @@ def _accrue(isa="v1"):
     # rate = level * (10 + operator's trade stat) * rarity
     L += _sl(BP) + ["sload r1 r4"]                                          # r1 = operator pid
     L += _sl(BT) + ["sload r5 r4", f"movi r4 {_sc(0)}", "sstore r4 r5"]     # scratch0 = trade index
-    L += _eff_stat("r1", _sc(0), "r2", isa) + ["movi r5 10", "add r2 r5"]   # r2 = 10 + trade stat
+    L += _eff_stat("r1", _sc(0), "r2") + ["movi r5 10", "add r2 r5"]   # r2 = 10 + trade stat
     # rarity is ADDITIVE, not another multiplier. Multiplying level x stat x rarity compounded to a 57x
     # spread: a maxed base with a top-tier worker fed FIFTY pets forever, which permanently destroys the
     # NADO food-burn sink for that whole herd in exchange for a one-time 7.5 NADO build. Additive keeps
@@ -1031,7 +1008,7 @@ BUILD = "\n".join(
 
 # upgrade(bid, builderPid)[value]: +1 level, which multiplies output. Banks the old level's production
 # FIRST — changing the rate without settling what the building already earned would rewrite history.
-def _upgrade_b(isa="v1"):
+def _upgrade_b():
     return "\n".join(
     _sl(BO) + ["sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     + _sl(BL) + ["sload r5 r4", f"movi r6 {MAX_LEVEL}", "lt r5 r6", "require r5"]
@@ -1049,20 +1026,20 @@ def _upgrade_b(isa="v1"):
     # ore only from level 4 up: (new_level >= 4) x UPG_ORE x new_level
     + ["mov r1 r3", "movi r5 4", "lt r1 r5", "notb r1", "mul r1 r3",
        f"movi r5 {UPG_ORE}", "mul r1 r5"] + _res_take(3, "r1")
-    + _accrue(isa)
+    + _accrue()
     + _sl(BL) + ["sload r5 r4", "movi r6 1", "add r5 r6", "sstore r4 r5", "ret r5"])
 
 
 UPGRADE_B = _upgrade_b()
 
 # staff(bid, pid): put a pet to work (pid 0 clocks the current one off). Banks first, for the same reason.
-def _staff(isa="v1"):
+def _staff():
     return "\n".join(
     _sl(BO) + ["sload r5 r4", "ctx r6 caller", "eq r5 r6", "require r5"]
     # _accrue needs r1 for its own bookkeeping, so the incoming pet is parked in scratch across the payout
     # and read back. (Without this, staff() re-assigned whatever the PREVIOUS operator was.)
     + [f"movi r4 {_sc(1)}", "sstore r4 r1"]
-    + _accrue(isa)
+    + _accrue()
     + [f"movi r4 {_sc(1)}", "sload r1 r4"]
     + ["mov r5 r1", "nez r5", "notb r5", "jnz r5 @clear"]                       # pid 0 -> just clear it
     + _owned_alive("r1")
@@ -1074,7 +1051,7 @@ STAFF = _staff()
 
 # collect(bid): permissionless — anyone may settle a base, the yield always goes to its OWNER. That keeps
 # a shared "collect all" possible without handing anyone else's harvest to the caller.
-COLLECT = "\n".join(_accrue() + _item_drop())     # v2: build() re-emits it with _accrue("v2")
+COLLECT = "\n".join(_accrue() + _item_drop())
 
 # provision(pid, units): feed from the barn's own stores instead of from the wallet. This is the point of
 # farming — fodder a farm produced costs nothing to use, so a working base feeds itself.
@@ -1311,23 +1288,20 @@ ABI = {
 
 # the ROLL TABLE (RT_BASE) to the page: r555 (tier), r777 (species), r1000..r1009 (base stats), r7000 (coat), r9000
 # (shiny). On gen 29 the page reads a pet's traits from here, never from its gene — the gene's rolls are the contract's
-# state there (and the browser could not re-derive them: v2 exposes only 64 of the gene's 256 bits as gl/gh). Empty on v1.
+# state there (and the browser could not re-derive them: the contract exposes only 64 of the gene's 256 bits as gl/gh).
 ABI["_view"]["maps"].update({f"r{c}": {"field": _rt(c), "index": "pets"} for c in ROLL_OFFSETS})
 
 
-def build(isa=None):
-    isa = isa or zkvmasm.default_isa()
+def build():
     src = dict(SRC)
-    src["hatch"] = "\n".join(_hatch(isa))
-    src["train_resolve"] = "\n".join(_train_resolve(isa))
-    src["resolve_battle"] = "\n".join(_resolve_battle(isa))
-    src["combine"] = "\n".join(_combine(isa))
-    if isa == "v2":
-        src.update(upgrade=_upgrade_b(isa), staff=_staff(isa), collect="\n".join(_accrue(isa) + _item_drop()))
+    src["hatch"] = "\n".join(_hatch())
+    src["train_resolve"] = "\n".join(_train_resolve())
+    src["resolve_battle"] = "\n".join(_resolve_battle())
+    src["combine"] = "\n".join(_combine())
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {**{m: ["r0"] for m in ("hatch", "rebirth", "feed", "transfer", "name", "list", "unlist", "buy", "accept_offer", "cancel_offer", "train", "train_resolve", "accept", "resolve_battle", "cancel_battle", "refund_battle", "reveal_battle", "collect", "provision", "unequip", "scrap", "reroll", "trade_of")}, "offer": ["r1"], "challenge": ["r1", "r2"], "build": ["r2"], "upgrade": ["r0", "r1"], "staff": ["r0", "r1"], "equip": ["r0", "r1"], "fuse": ["r0", "r1"]}
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
 # ---- reroll carry (tools/alphanet6_carryforward.carry_policy, doc/stwo-migration.md §6.2) ------------------------
@@ -1451,44 +1425,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = slots
     return out
-
-
-# ---- the gen-29 carry (tools/carry.py, _lib.CARRY_WORDS note) ---------------------------------------------------------
-# Values >= 2^32 kept verbatim: the raw-NADO amounts, the gene itself (its rolls move to the roll table, below; v2 reads
-# GN only for future randomness — combine's reward roll, which has not happened yet), and the commit-reveal secrets of
-# settled battles (history; an UNSETTLED battle blocks the carry in carry_in_flight).
-CARRY_WORDS = {("slot", BURN_SLOT): "the burned-fee tally (raw NADO)", ("field", TF): "a pet's total fees (raw NADO)",
-               ("field", MP): "a listing price (raw NADO)", ("field", OV): "an offer's escrowed bid (raw NADO)",
-               ("field", WS): "a battle stake (raw NADO)", ("field", GN): "a pet's gene (its rolls: the roll table)",
-               ("field", WX1): "a settled battle's revealed secret", ("field", WX2): "a settled battle's revealed secret"}
-
-
-def carry_v2_storage(storage):
-    """The gen-28 storage with every hatched pet's ROLL TABLE filled (RT_BASE): roll32(gn + c) under the gen-28 hash
-    (alghash, the gene word reduced mod the Goldilocks prime as v1 added it), for every c in ROLL_OFFSETS. v2 reads its
-    traits from the table, so a carried pet keeps exactly the tier, species, stats, coat and building yield it had —
-    by construction, not by a re-derivation. An unhatched egg has no gene yet and hatches under the v2 rules."""
-    from execnode.stark import alghash, field as _F
-    slots = {str(k): v for k, v in ((storage or {}).get("slots") or {}).items()}
-    for pid in _lib.carry_ids(slots, 0, PLIST):
-        gn = int(slots.get(str((GN << 32) + pid), 0))
-        if not gn:
-            continue
-        for c in ROLL_OFFSETS:
-            slots[str((_rt(c) << 32) + pid)] = alghash.hashn([(gn + c) % _F.P]) & 0xFFFFFFFF
-    out = dict(storage or {})
-    out["slots"] = slots
-    return out
-
-
-def carry_hash_preimages(storage, digests):
-    """The hash cells pets can hold (tools/carry.py re-derives each under the new VM hash): an owner's resource balance
-    HASH(TG_RES, owner, kind) for every registry digest and resource, and a pet's equipped item HASH(TG_GEAR, pid, slot)
-    for every pet the index lists and every gear slot."""
-    slots = (storage or {}).get("slots") or {}
-    for d in digests:
-        for kind in range(NJOBS):
-            yield (TG_RES, _lib.Owner(d), kind)
-    for pid in _lib.carry_ids(slots, 0, PLIST):
-        for gs in range(GEAR_SLOTS):
-            yield (TG_GEAR, pid, gs)

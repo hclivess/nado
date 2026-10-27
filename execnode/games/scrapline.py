@@ -174,21 +174,12 @@ ABI = {
 }
 
 
-# reveal is stormhold's, so it takes stormhold's v2 port too: its `x - lo32(x)` -> hi split multiplies by the field
-# inverse of 2^32, which the 256-bit word does not have (_lib.port_inv32). Built without the port, scrapline's v2 reveal
-# stored a wrong hi half for every secret (found 2026-10-25 by the carry review). INVARIANT: every method this module
-# takes from stormhold gets exactly the per-ISA treatment stormhold.build gives it.
-ISA_DIVERGENT_METHODS = ("reveal",)
-
-
-def build(isa=None):
+def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
-    src = SRC
-    if (isa or zkvmasm.default_isa()) == "v2":
-        src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))      # no inverse of 2^32 on the 256-bit word
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+    src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))          # no inverse of 2^32 on the 256-bit word
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
 # ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------
@@ -219,17 +210,3 @@ def carry_rebase(storage, tip):
     out = dict(storage or {})
     out["slots"] = _lib.rebase_daily_anchors(slots, tip, A_H, A_V, DCNT_SLOT, DLIST)
     return out
-
-
-# values >= 2^32 the gen-29 carry keeps verbatim (_lib.CARRY_WORDS note). p1/p2/eaddr are owner digests (remapped).
-# The daily claim words sit in two runs (ea0..ea4, ea5..ea7), so they are listed here rather than by
-# _lib.daily_carry_words; the client keeps them < 2^50 but the contract does not bound them. cfg/c1/c2 are open's and
-# join's extra args (unbounded; a commitment is a hash value). Revealed halves (r1h..r2l) are < 2^32 on the Goldilocks
-# word. No slot is hash-KEYED.
-CARRY_WORDS = {("field", A_V): "a resolved day anchor (block-hash value, read as stored)",
-               **{("field", f): "a packed daily claim word" for f in list(range(E_A, E_A + 5)) + list(range(E_A2, E_A2 + 3))},
-               ("field", ST): "a game's stake (raw NADO)", ("field", PT): "a game's pot (raw NADO)",
-               ("field", _s.CFG): "the creator's config word (open's extra arg, unbounded)",
-               ("field", _s.C1): "p1's hidden-hands commitment (hash value)",
-               ("field", _s.C2): "p2's hidden-hands commitment (hash value)",
-               **{("field", MV_BASE + i): "a recorded move (unbounded enc)" for i in range(MAXMOVES)}}

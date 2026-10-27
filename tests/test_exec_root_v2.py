@@ -11,8 +11,6 @@ state before and at genesis — still has the v1 layout. Properties:
   * the empty root still equals EXEC_GENESIS_ROOT (a fresh state is at cursor -1, v1 layout);
   * the KV half commits deployer, lock flag and runtime — changing any one moves the root (C5);
   * block_calls carries the code events in tx order with the chain clock; at block 0 calls only;
-  * exec_state_bind.apply_event reaches the same records as ExecState.apply_blob for the same blobs (the mirror
-    the verifier's derivation rests on), including every refusal;
   * a TIME-reading call reads the block's own chain clock;
   * a reverting constructor deploys with empty storage on chain.
 (The Goldilocks settle-proof halves — a span proving to the chain root, its forgeries, a TIME call proving, a reverting
@@ -31,7 +29,7 @@ import sys, copy, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-from execnode import exec_root as ER, exec_root_b2 as R2, csmt, zkvm, zkvmasm
+from execnode import exec_root as ER, exec_root_b2 as R2, csmt, zkvmasm
 from execnode.code_codec import contract_id, FIXED_CIDS
 from execnode.state import ExecState
 from execnode.stark import exec_state_bind as ESB, calls_commit as CC, field as F
@@ -142,44 +140,8 @@ def t_block_calls_carries_code_events():
     assert [c.get("op") for c in CC.block_calls(_block(0, txs))] == [None], "block 0 (genesis, below the deleted gate): calls only"
 
 
-def t_apply_event_mirrors_the_chain():
-    """The verifier's replay (apply_event) must reach the SAME records as ExecState.apply_blob for the same
-    blobs — admitted and refused alike — because it is what the settle proof's transition is checked against."""
-    cid1 = contract_id(ALICE, BUMP1, "n1")
-    faucet_owner = FIXED_CIDS["faucet"]
-    txs = [_tx(ALICE, {"op": "deploy", "code": BUMP1, "nonce": "n1"}, "t1"),
-           _tx(ALICE, {"op": "deploy", "code": BUMP1, "nonce": "n1"}, "t1b"),                  # exists -> skip
-           _tx(BOB, {"op": "upgrade", "contract": cid1, "code": BUMP2}, "t2"),                    # not deployer
-           _tx(ALICE, {"op": "upgrade", "contract": cid1, "code": BUMP2, "runtime": None}, "t3"),  # keep runtime
-           _tx(ALICE, {"op": "upgrade", "contract": cid1, "code": BUMP1, "runtime": ""}, "t3b"),   # v2: not a name
-           _tx(ALICE, {"op": "transfer_contract", "contract": cid1, "to": BOB}, "t4"),
-           _tx(ALICE, {"op": "lock", "contract": cid1}, "t5"),                                    # no longer owner
-           _tx(BOB, {"op": "lock", "contract": cid1}, "t6"),
-           _tx(BOB, {"op": "upgrade", "contract": cid1, "code": BUMP1}, "t7"),                    # locked
-           _tx(BOB, {"op": "deploy", "code": CTOR, "at": "faucet"}, "t8"),                        # not allowlisted
-           _tx(faucet_owner, {"op": "deploy", "code": CTOR, "at": "faucet", "upgradable": "no"}, "t9"),
-           _tx(ALICE, {"op": "deploy", "code": {"m": "junk"}, "nonce": "n2"}, "t10"),             # invalid code
-           _tx(ALICE, {"op": "deploy", "code": BUMP1, "nonce": "n3", "runtime": "nope"}, "t11"),  # unknown runtime
-           _tx(ALICE, {"op": "transfer_contract", "contract": cid1, "to": ""}, "t12"),
-           _tx(ALICE, {"op": "deploy", "code": REVERT_CTOR, "nonce": "n4"}, "t13")]                # empty storage
-    st = _chain([_block(H, txs)])
-    mirror = {}
-    entries = CC.block_calls(_block(H, txs))
-    for e in entries:
-        ESB.apply_event(mirror, e)
-    strip = lambda cs: {cid: (c["code"], c.get("deployer"), c.get("upgradable", True) is not False, c.get("runtime"))
-                        for cid, c in cs.items()}
-    assert strip(mirror) == strip(st.contracts), f"\nchain  {strip(st.contracts)}\nmirror {strip(mirror)}"
-    assert set(mirror) == {cid1, "faucet", contract_id(ALICE, REVERT_CTOR, "n4")}
-    assert mirror[cid1]["code"] == BUMP2 and mirror[cid1]["deployer"] == BOB and mirror[cid1]["upgradable"] is False
-    assert mirror["faucet"]["upgradable"] is False
-    assert st.contracts[contract_id(ALICE, REVERT_CTOR, "n4")]["storage"] == {} or \
-        st.contracts[contract_id(ALICE, REVERT_CTOR, "n4")]["storage"].get("slots", {}) == {}
-    # the meta leaves the chain now holds are the ones the mirror derives
-    assert _kv_root(st.contracts) == _kv_root(
-        {cid: dict(c, storage=st.contracts[cid]["storage"]) for cid, c in mirror.items()})
-
-
+# apply_event_mirrors_the_chain retired in G9 slice 3b: exec_state_bind.apply_event (the settle verifier's replay of the
+# chain's code-event rules) was deleted, its reader having gone with the Goldilocks settle proof in slice 2
 # span_with_code_events_proves_to_the_chain_root retired in G9: settlement_sparse.prove/verify_bound_epoch were deleted
 
 

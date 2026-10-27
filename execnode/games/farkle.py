@@ -567,22 +567,17 @@ ABI = {
 }
 
 
-def build(isa=None):
+def build():
     src = dict(SRC)
     src["hold"] = "\n".join(_hold())
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {**{m: ["r0"] for m in ("roll", "hold", "settle", "reclaim", "cancel")}, "join": ["r0", "r1"]}
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS), isa)
+    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
 
 
 # ---- the gen-29 carry (tools/carry.py, doc/stwo/g5-carry.md) ----------------------------------------------------------
 CARRY_PIN_FLOOR = _lib.CARRY_PIN_FLOOR
-# Values >= 2^32 kept verbatim (_lib.CARRY_WORDS note): the ante and pot (raw NADO), and hold()'s scratch row (field
-# SC keyed 0..35: the last roll's seed bh+bh+..., and `cont` stored as passed) — every hold rewrites a scratch cell
-# before it reads it, so a carried value is never read.
-CARRY_WORDS = {("field", TS): "a table's ante (raw NADO)", ("field", TP): "a table's pot (raw NADO)",
-               ("field", SC): "hold()'s scratch (rewritten before every read)"}
 
 
 def _carry_view(storage):

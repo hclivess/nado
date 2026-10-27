@@ -25,7 +25,7 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from execnode.games import _lib   # the contract's hash and word, per generation
-from execnode import runtimes, zkvm
+from execnode import runtimes, zkvm2 as zkvm   # the VM the runtime runs: lowering ITS GAS_LIMIT is what stresses the calls
 from execnode.games import autogame as A
 from tests import autogame_model as M
 
