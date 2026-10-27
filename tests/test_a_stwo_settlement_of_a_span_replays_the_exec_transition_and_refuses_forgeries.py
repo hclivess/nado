@@ -217,8 +217,8 @@ T.check("4c. a proof for a value the tree does not hold is refused", refused)
 # ---- the Stwo part --------------------------------------------------------------------------------------------------------
 BIN, log = build(_REAL_HOME, "vm_settle")
 if BIN is None and not log:
-    T.skip(f"the Stwo span settlement (needs the {NIGHTLY} toolchain to build native/stwo_settle)")
-    T.done()
+    print(f"SKIP  no {NIGHTLY} toolchain: the Stwo span settlement cannot be run here (native/stwo_settle needs it)")
+    T.done("SKIPPED (no toolchain)")
 T.check("the vm_settle binary builds", BIN is not None, log)
 if BIN is None:
     T.done()
