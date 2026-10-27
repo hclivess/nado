@@ -123,7 +123,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         if device_key and not revert:
             from ops.device_attest import credential_public_key
             cred_pub = credential_public_key(transaction.get("device") or {})
-        # REFERRAL LINK (protocol.REFERRAL_HEIGHT): judged BEFORE apply_register writes the recert and stamps the device,
+        # REFERRAL LINK (protocol.py "REFERRALS"): judged BEFORE apply_register writes the recert and stamps the device,
         # because "first" is a statement about the state this tx found. Revert deletes the row only when it was written
         # by THIS block (the stored height names it), so a rollback is the exact inverse.
         if revert:
@@ -796,15 +796,15 @@ def get_open_registry(current_epoch: int):
 
 def referral_to_write(transaction: dict, block_height: int, device_key, legacy_key):
     """The referrer to link for this register, or None — only on the identity's FIRST attested registration
-    (protocol.py "REFERRALS"). First means all of: past REFERRAL_HEIGHT; the tx names a referrer; it carries a real
+    (protocol.py "REFERRALS"). First means all of: height at least 1; the tx names a referrer; it carries a real
     device statement (device_key set — not a signature or statement-free renewal); the sender never recerted; its
     account carries no device stamp; no link exists yet; and the DEVICE is fresh — bound to no identity under its
     canonical or its carried raw-bytes key. A device moving to a new address is a move, not a newcomer: counting it
     would let one phone mint a new "newcomer" (and a new slice for someone) every time it re-registered elsewhere.
     Read against the state before this tx applies — call it BEFORE apply_register."""
-    from protocol import REFERRAL_HEIGHT
     from ops.transaction_ops import register_referrer
-    if int(block_height) < REFERRAL_HEIGHT or not device_key:
+    # REFERRAL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `< 1` kept so a height-0 register writes no link.
+    if int(block_height) < 1 or not device_key:
         return None
     ref = register_referrer(transaction)
     if not ref:

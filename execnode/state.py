@@ -1285,14 +1285,14 @@ class ExecState:
 
     def rules_budget_v2(self):
         """Reverting and raising calls count against the block's step budget, and each sender has a share of it
-        (protocol.EXEC_BUDGET_V2_HEIGHT, EXEC_SENDER_STEP_SHARE)."""
-        from protocol import EXEC_BUDGET_V2_HEIGHT
-        return bool(EXEC_BUDGET_V2_HEIGHT) and self.applying_height() >= EXEC_BUDGET_V2_HEIGHT
+        (protocol.EXEC_SENDER_STEP_SHARE). EXEC_BUDGET_V2_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1`
+        is kept because a fresh exec state applies at height 0, where the old gate answered False."""
+        return self.applying_height() >= 1
 
     def _charge_reverted_steps(self, gas, sender=None):
         """Add a reverted call's steps (None = it raised: GAS_LIMIT, the most one call may execute) to the block's
-        budget count, from EXEC_BUDGET_V2_HEIGHT and under the same rules_r2 the budget itself lives under.
-        Below the gate it does nothing, exactly as the code before it."""
+        budget count, from block 1 (rules_budget_v2) and under the same rules_r2 the budget itself lives under.
+        At height 0 it does nothing, exactly as the gated code did."""
         if not (self.rules_r2() and self.rules_budget_v2()):
             return
         from execnode.zkvm import GAS_LIMIT

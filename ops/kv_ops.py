@@ -1873,7 +1873,7 @@ def htlc_get(htlc_id: str):
     """The HTLC doc for `htlc_id` (the lock tx's txid), or None if no such lock."""
     # INVARIANT: an id is client-supplied (htlc_claim / htlc_refund data), and the invite rows share this DB under
     # "invite:<id>" — never answer one as a swap, or an htlc_claim naming it would read an invite record as an HTLC.
-    # (No such row exists before protocol.REFERRAL_HEIGHT, so this answers exactly as before on every older block.)
+    # (Invite rows exist from block 1, protocol.py "FUNDED INVITE LINKS".)
     if str(htlc_id).encode().startswith(_INVITE_PREFIX):
         return None
     def _do(txn):
@@ -1911,7 +1911,7 @@ def htlc_all():
     return _read(_do)
 
 
-# --- INVITES (protocol.REFERRAL_HEIGHT; doc/referrals.md): "invite:<id>" in the htlcs DB -> msgpack LIST
+# --- INVITES (protocol.py "FUNDED INVITE LINKS"; doc/referrals.md): "invite:<id>" in the htlcs DB -> msgpack LIST
 # [sender, amount, expiry, status, claimant]. A list, never a dict: two nodes building the record in a different key
 # order would commit two byte strings for one state. Mutated in place by claim/refund (status "open" -> "claimed" /
 # "refunded", claimant "" -> address) and restored exactly on revert, like an HTLC doc. Same DB as the HTLCs so no new
@@ -2466,7 +2466,7 @@ def devbind_del(key: str):
     _write(_do)
 
 
-# --- REFERRAL LINKS (protocol.REFERRAL_HEIGHT): "referral:<newcomer>" in the devbind DB -> msgpack [referrer, height].
+# --- REFERRAL LINKS (protocol.py "REFERRALS"): "referral:<newcomer>" in the devbind DB -> msgpack [referrer, height].
 # Written once, by the newcomer's FIRST attested registration (account_ops), never changed; deleted only by the
 # rollback of that same block (the stored height names it). Consensus state like every devbind row. devbind_rows skips
 # the prefix — a two-field record would otherwise read as a device binding of the referrer.

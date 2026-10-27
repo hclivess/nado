@@ -7,7 +7,7 @@ the node accepts, signed in the convention the node verifies (FIPS 204/205 INTER
 The wallet's own code is RUN: static/interface.js's scheme layer (schemeKeygen/Sign/Verify, makeAddress, keypairFromPriv,
 accountChildSeed, schemeFee, finalizeTransaction) extracted and evaluated under node with the vendored bundle
 (static/vendor/nado-crypto.js) — the files a browser loads. The node side is signatures.py over native/pqsig, with the
-gate opened as on generation 29 (SIG_SCHEMES_HEIGHT = 1). Pins:
+generation 29's rules (SIG_SCHEMES_HEIGHT, inlined in G9: the rule holds from block 1). Pins:
   - for ML-DSA-44/65/87 and SLH-DSA-128s, the browser's public key and address for a seed equal the node's, and the
     known-answer digests signatures.py refuses a library without (_SCHEME_KAT) hold in the browser too;
   - a wallet-built transfer of every scheme validates in the node (tagged, fee lifted to the floor; ML-DSA-44 untagged),
@@ -71,7 +71,6 @@ def const_line(prefix):
     return SRC[i:SRC.index("\n", i)]
 
 
-P.SIG_SCHEMES_HEIGHT = 1                             # generation 29's rule set
 PAYEE = S.generate_keydict()["address"]
 node_side = {}
 for a in SCHEMES:

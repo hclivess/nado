@@ -1,15 +1,14 @@
-"""Referrals (protocol.py "REFERRALS", gate REFERRAL_HEIGHT): the referrer earns a slice of the NEWCOMER'S OWN dividend
+"""Referrals (protocol.py "REFERRALS", from block 1): the referrer earns a slice of the NEWCOMER'S OWN dividend
 weight, never a bonus from the pool — so a farm that refers itself gains nothing.
 
 Pins, through the real apply path (reflect_transaction on a register, with only the certificate parser stubbed to give
 each fake device a fixed key):
-  * the link is written only on a FIRST attested registration — not before the gate, not on a renewal, not for a
+  * the link is written only on a FIRST attested registration — not at height 0, not on a renewal, not for a
     device already bound to another identity (a move is not a newcomer), never twice — and is immutable;
   * the link's revert is exact: the rollback of the block that wrote it deletes it, and nothing else does;
-  * register data: from the gate "" or exactly {"referrer": <keyed address, not the sender>}; before it, untouched;
+  * register data: from block 1 "" or exactly {"referrer": <keyed address, not the sender>}; at height 0, untouched;
 then on the weights (dividend_ops.referral_split, the one function every weight consumer uses):
-  * before the gate's epoch the weights are byte-for-byte what they were;
-  * from it every weight is scaled by REFERRAL_SCALE and the total is exactly SCALE x the old total;
+  * every epoch's weights are scaled by REFERRAL_SCALE and the total is exactly SCALE x the old total;
   * an identity outside any referral keeps exactly its share;
   * a FARM RING (each identity refers the next) moves nothing out of or into the ring as a whole, and with equal
     weights every member ends exactly where it started;
@@ -37,9 +36,10 @@ from ops.transaction_ops import validate_register_referrer
 from ops.dividend_ops import referral_split
 from signatures import generate_keydict
 
-GATE = 6000                                   # block 6000 = epoch 100
-P.REFERRAL_HEIGHT = GATE
-E0 = GATE // P.EPOCH_LENGTH                    # the gate's epoch
+# REFERRAL_HEIGHT (gen 28's gate, 1 from gen 29) was inlined in G9; the pre-gate heights and epochs of generation 28 are
+# retired in G9: generation 28's rules. What `>= 1` still refuses is pinned at height 0.
+GATE = 6000                                   # a base height: block 6000 = epoch 100
+E0 = GATE // P.EPOCH_LENGTH                    # the base epoch
 SCALE, SHARE, WIN = P.REFERRAL_SCALE, P.REFERRAL_SHARE, P.REFERRAL_EPOCHS
 
 # the certificate parser, stubbed: a fake statement {"k": <device key>} binds to that key (the real parse is pinned by
@@ -88,8 +88,8 @@ def t_first_registration_links():
 
 def t_no_link_before_gate_or_without_device_or_on_a_moved_device():
     b = addr()
-    register(b, GATE - 60, device="webauthn:dev-b", referrer=REF)
-    assert kv_ops.referral_get(b) is None, "no link before the gate"
+    register(b, 0, device="webauthn:dev-b", referrer=REF)
+    assert kv_ops.referral_get(b) is None, "no link at height 0"
     c = addr()
     register(c, GATE + 120, device="webauthn:dev-c")
     d = addr()                                                       # dev-c MOVES to d: a move, not a newcomer
@@ -108,7 +108,7 @@ def t_register_data_shape():
     s = generate_keydict()["address"]
     ok = lambda d, h=GATE: validate_register_referrer({"sender": s, "data": d}, h)
     ok(""); ok({"referrer": REF})
-    ok({"anything": [1, 2]}, GATE - 1)                               # before the gate: untouched
+    ok({"anything": [1, 2]}, 0)                                      # height 0: untouched
     for bad, why in (({"referrer": s}, "cannot name itself"), ({"referrer": "nope"}, "keyed address"),
                      ({"referrer": REF, "x": 1}, "must be"), ("junk", "must be"), ({"referrer": "bond"}, "keyed address")):
         try:
@@ -124,7 +124,8 @@ def link(newcomer, referrer, epoch):
 def t_split_rules():
     A, B, C, X, Y, Z = (f"w{i}" for i in "ABCXYZ")
     base = {A: 15, B: 9, C: 4, X: 7}
-    assert referral_split(dict(base), E0 - 1) == base, "before the gate's epoch the weights are untouched"
+    assert referral_split(dict(base), -1) == base, "an epoch before genesis is untouched (the inlined `< 0`)"
+    assert referral_split(dict(base), 0) == {k: SCALE * v for k, v in base.items()}, "epoch 0 is scaled"
     assert referral_split(dict(base), E0) == {k: SCALE * v for k, v in base.items()}, "no links: scaled only"
     # farm ring A <- B <- C <- A
     link(B, A, E0); link(C, B, E0); link(A, C, E0)
@@ -168,8 +169,8 @@ def t_link_rows_are_not_devices():
 
 for name, fn in [("the link is written on the first attested registration only, immutable, reverted exactly",
                   t_first_registration_links),
-                 ("no link before the gate, for a moved device, or an already-stamped account", t_no_link_before_gate_or_without_device_or_on_a_moved_device),
-                 ("register data is \"\" or exactly {referrer: <other keyed address>} from the gate", t_register_data_shape),
+                 ("no link at height 0, for a moved device, or an already-stamped account", t_no_link_before_gate_or_without_device_or_on_a_moved_device),
+                 ("register data is \"\" or exactly {referrer: <other keyed address>} from block 1", t_register_data_shape),
                  ("the split: scaled, total-preserving, farm-ring neutral, windowed, one level", t_split_rules),
                  ("one split function feeds every weight consumer", t_one_function_everywhere),
                  ("a referral row is never mistaken for a device binding", t_link_rows_are_not_devices)]:

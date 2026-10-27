@@ -1,13 +1,11 @@
 """An account signs with the scheme its address commits to (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES",
 doc/signature-schemes.md; operator 2026-10-25: "multiple (pluggable) scheme options ... let users pick").
 
-Driven on the real tables (throwaway HOME) with real signatures from every offered scheme (native/pqsig), under BOTH rule
-sets, as every consensus change here is:
+Driven on the real tables (throwaway HOME) with real signatures from every offered scheme (native/pqsig). The rule holds
+from block 1 (SIG_SCHEMES_HEIGHT, gen 28's gate, inlined in G9); the DORMANT half (gen 28's rule set) is retired in G9:
+generation 28's rules. What the inlined `>= 1` still refuses is pinned: a tagged tx at height 0 or with no height.
 
-  DORMANT (gen 28, SIG_SCHEMES_HEIGHT = 2^62): a tagged transaction is refused at every height, an ML-DSA-44 transaction
-  validates exactly as before, and an ML-DSA-44 address is the one it always was.
-
-  ACTIVE (the gate at 1, gen 29): for ML-DSA-65, ML-DSA-87 and SLH-DSA-SHA2-128s —
+  ACTIVE (from block 1): for ML-DSA-65, ML-DSA-87 and SLH-DSA-SHA2-128s —
     - an honest first transfer (carrying the key) and a later key-less one validate;
     - the address commits to the scheme: the same key under another `alg`, or untagged, derives another address and is
       refused — so is a later key-less tx naming the wrong scheme for the stored key;
@@ -99,21 +97,22 @@ for a, kd in KEYS.items():
           kd["alg"] == a and kd["address"] == make_address(kd["public_key"], alg=a) != make_address(kd["public_key"]))
     check(f"{a}: the seed alone restores the account under its scheme", from_private_key(kd["private_key"], a) == kd)
 
-# ---- DORMANT: the gen-28 rule set --------------------------------------------------------------------------------------
-check("dormant: the gate is 2^62 on generation 28 (live consensus unchanged)",
-      P.CHAIN_GENERATION != 28 or P.SIG_SCHEMES_HEIGHT == 1 << 62, P.SIG_SCHEMES_HEIGHT)
-_live_gate = P.SIG_SCHEMES_HEIGHT
-P.SIG_SCHEMES_HEIGHT = 1 << 62
-honest44 = T.create_transaction(body(ML44), ML44["private_key"], P.MIN_TX_FEE)
-check("dormant: an ML-DSA-44 transfer validates as before (no alg field)", "alg" not in honest44 and verdict(honest44) is None,
-      verdict(honest44))
+# ---- the DORMANT half (gen 28's rule set) is retired in G9: generation 28's rules ------------------------------------
+# ---- height 0 (a genesis tip) and no height: the inlined `>= 1` still refuses a tagged tx --------------------------------
 for a, kd in KEYS.items():
-    v = verdict(signed(body(kd), kd, a))
-    check(f"dormant: a {a} transfer is refused at every height", v is not None and "not active" in v, v)
+    tx = signed(body(kd), kd, a)
+    for h in (0, None):
+        try:
+            T.sig_scheme_check(tx, h)
+            v = None
+        except AssertionError as e:
+            v = str(e)
+        check(f"a {a} transaction is refused at height {h}", v is not None and "not active" in v, v)
 
-# ---- ACTIVE: the gen-29 rule set -----------------------------------------------------------------------------------------
-P.SIG_SCHEMES_HEIGHT = 1
-check("active: the ML-DSA-44 transfer still validates", verdict(honest44) is None, verdict(honest44))
+# ---- ACTIVE: from block 1 -------------------------------------------------------------------------------------------------
+honest44 = T.create_transaction(body(ML44), ML44["private_key"], P.MIN_TX_FEE)
+check("active: an ML-DSA-44 transfer validates (no alg field)", "alg" not in honest44 and verdict(honest44) is None,
+      verdict(honest44))
 for a, kd in KEYS.items():
     units = P.SIG_SCHEME_SIZES[a][2]
     first = signed(body(kd), kd, a, fee=P.MIN_TX_FEE * units)
@@ -182,6 +181,5 @@ bad = dict(blk, block_transactions=[honest44, dict(tx65, signature=signed(body(K
 ok, why = A.evidence_ok(A.raw_evidence(bad), bad, resolve_pubkey=pks.get, verify_sig=vsig)
 check("raw evidence refuses a tagged signature over another txid", not ok, why)
 
-P.SIG_SCHEMES_HEIGHT = _live_gate
 print("\nALL PASS — an account signs with the scheme its address commits to" if not fails else f"\nFAILED: {fails}")
 sys.exit(1 if fails else 0)

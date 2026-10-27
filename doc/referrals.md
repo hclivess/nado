@@ -1,6 +1,6 @@
 # Referrals and funded invite links
 
-Live from `protocol.REFERRAL_HEIGHT` — block 107000 on betanet-9 (one gate for both halves). Operator-approved 2026-10-06.
+Live from block 1 on betanet-10 (`REFERRAL_HEIGHT`, block 107000 on betanet-9, was inlined in G9). Operator-approved 2026-10-06.
 
 ## What a user sees
 
@@ -70,8 +70,8 @@ carrying it, so an `htlc_claim` can never read an invite as a swap.
 
 ## Gate, reroll, endpoints
 
-* `REFERRAL_HEIGHT = <h> if CHAIN_GENERATION == 28 else 1`. Before it every invite tx is refused and register `data`
-  is not read. `"invite"` (the escrow) can never be paid directly — the names became reserved with the gate, and a
+* `REFERRAL_HEIGHT` (gen 28's gate, 1 from gen 29) was inlined in G9: at height 0 every invite tx is refused and
+  register `data` is not read. `"invite"` (the escrow) can never be paid directly — the names became reserved with the gate, and a
   reserved name with no branch would otherwise fall through to an ordinary transfer and be accepted where an older
   node refuses it.
 * **Reroll:** every open invite is carried under its id, with the blocks it had left and its coins still in

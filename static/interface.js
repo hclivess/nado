@@ -313,11 +313,6 @@ function schemeSign(alg, secretKey, m) {
   return alg === "slhdsa128s" ? lib.sign(secretKey, m, crypto.getRandomValues(new Uint8Array(16))) : lib.sign(secretKey, m);
 }
 function schemeVerify(alg, publicKey, m, sig) { return schemeLib(alg).verify(publicKey, m, sig); }
-// offered from SIG_SCHEMES_HEIGHT (a BigInt in /protocol.js while dormant: 2^62 > 2^53)
-function schemesLive() {
-  try { return BigInt(P.SIG_SCHEMES_HEIGHT || 0) > 0n && BigInt(Number(state.latest) || 0) + 1n >= BigInt(P.SIG_SCHEMES_HEIGHT); }
-  catch (e) { return false; }
-}
 function schemeOf(w) { return (w && w.alg) || SIG_ML44; }
 // the fee floor a PAYING tx of this scheme must meet (protocol SIG_SCHEME_SIZES[alg][2] x MIN_TX_FEE); exempt stays 0
 function schemeFee(alg, fee) {
@@ -454,21 +449,20 @@ function switchAccount(i) {
 async function addAccount() {
   const n = hdCount() + 1;
   let alg;
-  if (schemesLive()) {
-    // ONE CHOICE, DEFAULT FIRST: most people never need another scheme; the picker says what each one costs
-    const offered = (P.SIG_SCHEMES_OFFERED || [SIG_ML44]).filter((a) => SIG_NAMES[a]);
-    const units = (a) => ((P.SIG_SCHEME_SIZES || {})[a] || [0, 0, 1])[2];
-    alg = await uiChoose({
-      title: i18("sig.pickTitle", "Signature scheme for the new account"),
-      body: i18("sig.pickBody", "Every scheme here is post-quantum. The scheme is part of the account's address and cannot be changed later. To restore this account from your recovery phrase, add it again with the same scheme."),
-      choices: offered.map((a) => ({ value: a, label: SIG_NAMES[a],
-        note: a === SIG_ML44 ? i18("sig.note44", "Default. Smallest signatures, works everywhere in the wallet.")
-          : a === "slhdsa128s" ? i18("sig.noteSlh", "Hash-based: safe even if lattice schemes are broken. Large signatures — fees x{n}.", { n: units(a) })
-          : i18("sig.noteMl", "Higher security level than ML-DSA-44. Fees x{n}.", { n: units(a) }) })),
-      confirmText: i18("acct.add", "+ Add"),
-    });
-    if (alg == null) return;
-  }
+  // SIG_SCHEMES_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): every account picks its scheme when it is added
+  // ONE CHOICE, DEFAULT FIRST: most people never need another scheme; the picker says what each one costs
+  const offered = (P.SIG_SCHEMES_OFFERED || [SIG_ML44]).filter((a) => SIG_NAMES[a]);
+  const units = (a) => ((P.SIG_SCHEME_SIZES || {})[a] || [0, 0, 1])[2];
+  alg = await uiChoose({
+    title: i18("sig.pickTitle", "Signature scheme for the new account"),
+    body: i18("sig.pickBody", "Every scheme here is post-quantum. The scheme is part of the account's address and cannot be changed later. To restore this account from your recovery phrase, add it again with the same scheme."),
+    choices: offered.map((a) => ({ value: a, label: SIG_NAMES[a],
+      note: a === SIG_ML44 ? i18("sig.note44", "Default. Smallest signatures, works everywhere in the wallet.")
+        : a === "slhdsa128s" ? i18("sig.noteSlh", "Hash-based: safe even if lattice schemes are broken. Large signatures — fees x{n}.", { n: units(a) })
+        : i18("sig.noteMl", "Higher security level than ML-DSA-44. Fees x{n}.", { n: units(a) }) })),
+    confirmText: i18("acct.add", "+ Add"),
+  });
+  if (alg == null) return;
   localStorage.setItem(LS_HD_COUNT, String(n));
   setHdAlg(n, alg);
   switchAccount(n);
@@ -7725,7 +7719,7 @@ function resumePendingClaim() {
   if (req.code && req.code.startsWith("zbill")) applyClaimRequest(req);
 }
 
-/* ==== FUNDED INVITE LINKS + REFERRALS (protocol.py "FUNDED INVITE LINKS" and "REFERRALS", gate REFERRAL_HEIGHT) ====
+/* ==== FUNDED INVITE LINKS + REFERRALS (protocol.py "FUNDED INVITE LINKS" and "REFERRALS", from block 1) ====
  *
  * The referrer escrows NADO under a THROWAWAY ML-DSA-44 key generated here from a fresh random 32-byte seed for that
  * one link — never derived from, or related to, the wallet's own key (CLAUDE.md rule 8). The seed travels in the
@@ -7949,7 +7943,7 @@ function inviteSeedsLoad(addr) { try { return JSON.parse(localStorage.getItem(in
 function inviteSeedsSave(addr, m) { try { localStorage.setItem(inviteSeedsKey(addr), JSON.stringify(m)); return true; } catch (e) { return false; } }
 
 // What the card shows. Pure: tests pin it. Invite creation is OFFERED only once the chain accepts invites
-// (tip >= active_from, protocol.REFERRAL_HEIGHT) — never something the chain refuses — and the list only when
+// (tip >= active_from: 1 since REFERRAL_HEIGHT was inlined in G9) — never something the chain refuses — and the list only when
 // there is something in it.
 function inviteUiState(ref, invites) {
   const from = ref ? Number(ref.active_from) : NaN, tip = ref ? Number(ref.tip) : NaN;

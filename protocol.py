@@ -1661,9 +1661,6 @@ def split_open_block_reward(reward: int):
 #                                    only challengers' own acts, never the enrollee's tpm_commit),
 #                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
 #                                    stake, k = 5, a challenger that failed a draw sits out a day)
-#                                    REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
-#                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
-#                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
 #                                    EVICT_VOIDS_EPOCH_HEIGHT (132000 -> 1: a device move voids the
 #                                    evicted identity through the current epoch), TPM_ENROL_V3_HEIGHT (132000 ->
 #                                    1: a wrong commitment fails the enrolment; client-failed retries cool down)
@@ -1684,17 +1681,9 @@ def split_open_block_reward(reward: int):
 #                                    review of 2026-10-11/12; a reroll starts with it live from block 1)
 #                                    STWO_FEE_TO_HEIGHT (280000 -> 1: a Stwo spend may name the address its fee is
 #                                    paid to, so a relay is paid by `fee` and the payout goes anywhere — shadow accounts)
-#                                    EXEC_BUDGET_V2_HEIGHT (285000 -> 1: a reverting or raising exec call counts
-#                                    its steps against the block's execution budget, so reverts cannot escape it,
-#                                    and no sender may use more than EXEC_SENDER_STEP_SHARE of a block's budget)
 #                                    BLAKE_EXEC_HEIGHT (2^62, DORMANT on gen 28 -> 1: the exec root is the BLAKE2s
 #                                    compressed-tree root of execnode/exec_root_b2.py and exits verify against it;
 #                                    the Goldilocks settle-proof branch is refused — option R, doc/stwo-migration.md)
-#                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
-#                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
-#                                    doc/signature-schemes.md)
-#                                    BLOCK_BUDGET_HEIGHT (2^62, DORMANT on gen 28 -> 1: a block carries at most
-#                                    MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES bytes, built or validated)
 #                                    AGREED_TIME_SEATS_HEIGHT (2^62, DORMANT on gen 28 -> 1: the certificate clock's
 #                                    median weighs duty-committee seats, not distinct senders)
 #                                    STWO_JS_128_HEIGHT (2^62, DORMANT on gen 28 -> 1: a Stwo spend's proof is at
@@ -2105,7 +2094,7 @@ TPM_REVEAL_GRACE = 60
 # onboarded identity is a per-identity rule, and per-identity rules are linear (doc/device-attestation.md): N attested
 # devices refer each other in a ring and EVERY one collects the bump, so the pool moves from honest non-referrers to
 # farms. So the referrer's reward comes out of the newcomer's weight instead:
-#   LINK      a register tx from REFERRAL_HEIGHT may carry data {"referrer": <address>}. It is written only on the
+#   LINK      a register tx from block 1 may carry data {"referrer": <address>}. It is written only on the
 #             identity's FIRST attested registration (no recert ever, no device stamp on the account, a fresh device),
 #             immutable, one level (transaction_ops validates the shape; account_ops writes devbind "referral:<newcomer>").
 #   SPLIT     for REFERRAL_EPOCHS epochs from the link, the newcomer's dividend weight w is paid as
@@ -2116,11 +2105,10 @@ TPM_REVEAL_GRACE = 60
 #             what someone else's referral moved, so it never chains.
 #   FARM RING a ring of N identities each gives REFERRAL_SHARE * w and receives one slice: net zero by construction.
 # One function applies it (dividend_ops.referral_split) for the committed epoch weights, the exec accrual and the live
-# /get_open_weights. 107000 on gen 28: shipped at tip ~104250 with ~6.3 s blocks — about five hours for the /update wave
-# (first set to 103000; the release waited past it, so it moved before the push — never gate below the live tip).
-REFERRAL_HEIGHT = 107000 if CHAIN_GENERATION == 28 else 1
+# /get_open_weights. REFERRAL_HEIGHT (107000 on gen 28, 1 from gen 29) was inlined in G9: the rule holds from block 1
+# (`>= 1` kept where height 0 reaches: transaction_ops register/invite checks, account_ops.referral_to_write).
 REFERRAL_EPOCHS = 7200                   # 30 days at 240 epochs/day: how long a referrer earns from one newcomer
-REFERRAL_SCALE = 10                      # weights are scaled by this from the gate's epoch so a 10 % slice is an integer
+REFERRAL_SCALE = 10                      # every epoch's weights are scaled by this so a 10 % slice is an integer
 REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCALE units of the newcomer's weight (10 %)
 
 # EXEC BEACON OF A REVEAL-LESS EPOCH (execnode/state.ExecState.exec_beacon_at): from this height, the BEACON value of
@@ -2130,7 +2118,7 @@ REFERRAL_SHARE = 1                       # the referrer's slice, in REFERRAL_SCA
 BEACON_EXTEND_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
 BEACON_EXTEND_MAX = 8                    # epochs searched ahead; beyond them the plain value stands
 
-# FUNDED INVITE LINKS (same gate, REFERRAL_HEIGHT; doc/referrals.md). A newcomer starts with nothing — not even the fee
+# FUNDED INVITE LINKS (from block 1, as REFERRALS; doc/referrals.md). A newcomer starts with nothing — not even the fee
 # for a first transfer — so the referrer pays the start:
 #   "invite_lock"   the referrer escrows `amount` in INVITE_ESCROW under a THROWAWAY ML-DSA-44 key the wallet generates
 #                   for this one link (data {"key": pubkey hex, "expiry": height}); the invite id is blake2b(pubkey).
@@ -2244,8 +2232,8 @@ AGREED_TIME_SEATS_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
 # Measured over the 20,000 blocks before 2026-10-27: p99 7 transactions, max 19; p99 54 KB (the 27.8 MB maximum is an
 # inline settle proof, a path generation 29 refuses — option R). Signature verification is 0.08-0.22 ms per scheme on
 # the relay, so the bound that matters is count and bytes. Both caps are ~100x honest load; retune at a later gate.
-# DORMANT on gen 28, from block 1 after the reroll. tests/test_a_block_carries_at_most_its_budget_built_or_validated.py.
-BLOCK_BUDGET_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# BLOCK_BUDGET_HEIGHT (dormant on gen 28, 1 from gen 29) was inlined in G9: the bound holds from block 1.
+# tests/test_a_block_carries_at_most_its_budget_built_or_validated.py.
 MAX_BLOCK_TXS = 2000
 MAX_BLOCK_TX_BYTES = 8 * 1024 * 1024
 
@@ -2266,7 +2254,7 @@ STWO_PAUSE_HEIGHT = 1 << 62
 # From this height a reverting call's executed steps (the VM meters them on revert too) and a raising call's GAS_LIMIT
 # count against the block's budget. The settlement prover needs no mirror: any reverted call already makes its span
 # unprovable (settlement_proofs._run_call raises), so the chain's later budget refusals only fall in quorum spans.
-EXEC_BUDGET_V2_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
+# EXEC_BUDGET_V2_HEIGHT (285000 on gen 28, 1 from gen 29) was inlined in G9: ExecState.rules_budget_v2 holds from block 1.
 
 # THE BLAKE2s EXEC ROOT (Goldilocks retirement G2, doc/stwo-migration.md 9.5; the tree shape the operator chose on
 # 2026-10-19 after G1, doc/stwo/g1-tree-shape.md). From this height the exec layer's settled root is
@@ -2302,8 +2290,8 @@ EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L
 # Each row: public key and signature in HEX characters (the canonical spelling excluded_witness_check pins), and the fee
 # floor multiplier — the fee is otherwise flat (MIN_TX_FEE), and a larger witness costs every node more bytes to carry
 # and keep; the multiplier is ceil((pk + sig) / ML-DSA-44's (pk + sig)), so a key-less later tx pays the same floor.
-# NADO_SIG_IDS are the native/pqsig ids, used only by signatures.py.
-SIG_SCHEMES_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# NADO_SIG_IDS are the native/pqsig ids, used only by signatures.py. SIG_SCHEMES_HEIGHT (dormant on gen 28, 1 from
+# gen 29) was inlined in G9: transaction_ops.sig_scheme_check keeps `>= 1` (admission on a genesis tip, None heights).
 SIG_DEFAULT = "mldsa44"
 SIG_SCHEME_SIZES = {                       # name -> (pubkey hex, signature hex, fee floor multiplier)
     "mldsa44": (2 * 1312, 2 * 2420, 1),
@@ -2538,7 +2526,7 @@ EXEC_BLOCK_STEP_BUDGET = 1 << 21   # F4: executed VM steps per block per namespa
                                    # 1 MiB block of cheap calls measured ~2 h of exec CPU before this existed
 # ONE SENDER, AT MOST A QUARTER OF THE BLOCK (audit 2026-09-24 #18; operator 2026-10-18 "Per-sender share"). The budget is
 # spent in tx order and txids are grindable, so one sender could land first and burn the whole budget, reverting every
-# later call in the block. From EXEC_BUDGET_V2_HEIGHT a sender's calls (applied and reverted) may use at most this share;
+# later call in the block. From block 1 a sender's calls (applied and reverted) may use at most this share;
 # its next call is reverted with its escrow refunded, and the rest of the block stays open to everyone else.
 EXEC_SENDER_STEP_SHARE = EXEC_BLOCK_STEP_BUDGET // 4
 
@@ -2812,8 +2800,8 @@ CLIENT_EXPORTS = (
     # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
     # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js, like STWO_POOL_HEIGHT)
     "BLAKE_EXEC_HEIGHT",
-    # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
-    "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
+    # the wallet offers a signature scheme per account (doc/signature-schemes.md)
+    "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
     # the wallet proves a Stwo spend at the node config of the block it lands in (static/interface.js stwoCfgId)
     "STWO_JS_128_HEIGHT",
 )

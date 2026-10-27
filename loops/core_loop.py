@@ -5191,7 +5191,7 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Block exceeds per-block blob cap: {e}")
             raise
-        # BLOCK-WIDE BUDGET (BLOCK_BUDGET_HEIGHT): the bound the assembler applies (cap_block_budget), enforced on
+        # BLOCK-WIDE BUDGET (from block 1): the bound the assembler applies (cap_block_budget), enforced on
         # EVERY block validated — a limit checked only when building is no limit (aleo snarkVM#3443).
         try:
             assert_block_budget(transactions, block["block_number"])

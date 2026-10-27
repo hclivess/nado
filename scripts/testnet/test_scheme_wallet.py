@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless-BROWSER walk of user-selectable signature schemes on a throwaway testnet (doc/signature-schemes.md).
 
-Run on a tree where SIG_SCHEMES_HEIGHT is live (generation 29: 1). Launches n nodes, funds — from node0, with a plain
+Run on a generation-29 tree (the schemes hold from block 1). Launches n nodes, funds — from node0, with a plain
 ML-DSA-44 transfer — the SLH-DSA-128s account the node derives for a fresh master seed's first derived account, then
 drives the REAL wallet page served by node1 (scripts/testnet/wallet_schemes.mjs): the master opens as Main, Account ->
 "+ Add" offers the schemes with ML-DSA-44 first, the user picks SLH-DSA-128s, the wallet lands on exactly the address
@@ -55,10 +55,6 @@ def post(i, path, body):
 def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     run_seconds = int(sys.argv[2]) if len(sys.argv) > 2 else 900
-    if P.SIG_SCHEMES_HEIGHT > 1:
-        print(f"[scheme-wallet] SIG_SCHEMES_HEIGHT is {P.SIG_SCHEMES_HEIGHT} on this tree (generation {P.CHAIN_GENERATION}): "
-              "the schemes are dormant here — run this on the generation-29 tree", flush=True)
-        return 2
     workdir = tempfile.mkdtemp(prefix="nado_schemewallet_")
     print(f"[scheme-wallet] {n} nodes, budget {run_seconds}s, workdir {workdir}", flush=True)
     keys = [generate_keydict() for _ in range(n)]

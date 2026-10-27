@@ -1,12 +1,12 @@
-"""A block carries at most its budget, built or validated (protocol.BLOCK_BUDGET_HEIGHT; ops/transaction_ops
+"""A block carries at most its budget, built or validated (from block 1; ops/transaction_ops
 cap_block_budget / assert_block_budget; ops/block_ops.match_transactions_target; loops/core_loop validation).
 
 Every transaction had its own size cap, but nothing bounded the work ONE block demands of every node validating it
 (2026-10-27 incident survey: aleo snarkVM#3443 enforced a block-wide limit only when building, so every validator
-accepted an over-limit block). From the gate a block carries at most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES
+accepted an over-limit block). From block 1 a block carries at most MAX_BLOCK_TXS transactions and MAX_BLOCK_TX_BYTES
 canonical bytes, enforced identically when assembling and when validating.
 
-Pins: below the gate (the live chain) neither function changes anything; from the gate an over-budget set is refused
+Pins: at height 0 (genesis) neither function changes anything; from block 1 an over-budget set is refused
 by assert_block_budget, the assembler keeps exactly a passing prefix (duty first, then txid order) whatever order it is
 handed, a set inside the budget is untouched, the byte bound holds as well as the count, and both the assembly path and
 the block-validation path call the budget (a limit checked only when building is no limit).
@@ -44,16 +44,18 @@ def tx(i, recipient="xyz", pad=0):
     return {"txid": f"{i:064x}", "recipient": recipient, "sender": f"{i:050x}", "amount": 1, "data": "x" * pad}
 
 
-GATE = 1000
-P.BLOCK_BUDGET_HEIGHT = GATE
+# BLOCK_BUDGET_HEIGHT (gen 28's gate, 1 from gen 29) was inlined in G9; the pre-gate heights of generation 28 are retired
+# in G9: generation 28's rules. Height 0 keeps the old answer (the inlined `< 1`), pinned below.
+GATE = 1000                                  # a base height past block 1
 P.MAX_BLOCK_TXS = 50                         # small budgets for the test; the shipped values are pinned below
 P.MAX_BLOCK_TX_BYTES = 40_000
 
 many = [tx(i) for i in range(80)] + [tx(1000 + i, "duty") for i in range(5)]
 random.Random(7).shuffle(many)
-check("below the gate an over-budget set passes validation unchanged (the live chain is untouched)",
-      T.assert_block_budget(many, GATE - 1) is True and T.cap_block_budget(many, GATE - 1) == many)
-check("from the gate a set over MAX_BLOCK_TXS is refused", refused(lambda: T.assert_block_budget(many, GATE)))
+check("at height 0 an over-budget set passes validation unchanged",
+      T.assert_block_budget(many, 0) is True and T.cap_block_budget(many, 0) == many)
+check("from block 1 a set over MAX_BLOCK_TXS is refused",
+      refused(lambda: T.assert_block_budget(many, 1)) and refused(lambda: T.assert_block_budget(many, GATE)))
 kept = T.cap_block_budget(many, GATE)
 check("the assembler keeps exactly MAX_BLOCK_TXS, which validation accepts", len(kept) == 50
       and T.assert_block_budget(kept, GATE) is True, len(kept))
@@ -77,9 +79,6 @@ check("...and block validation enforces it on every block (validate_transactions
       "assert_block_budget(" in inspect.getsource(C.CoreClient.validate_transactions_in_block))
 
 src = open(os.path.join(os.path.dirname(P.__file__), "protocol.py")).read()
-expr = src.split("\nBLOCK_BUDGET_HEIGHT = ")[1].split("\n")[0]
-check("the gate is dormant on generation 28 and live from block 1 on the next",
-      eval(expr, {"CHAIN_GENERATION": 28}) == 1 << 62 and eval(expr, {"CHAIN_GENERATION": 29}) == 1, expr)
 check("the shipped budget is far above honest load (measured max 19 txs, p99 54 KB per block)",
       "MAX_BLOCK_TXS = 2000" in src and "MAX_BLOCK_TX_BYTES = 8 * 1024 * 1024" in src)
 

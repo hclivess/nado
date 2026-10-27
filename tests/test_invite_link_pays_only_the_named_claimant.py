@@ -1,10 +1,10 @@
-"""Funded invite links (protocol.py "FUNDED INVITE LINKS", gate REFERRAL_HEIGHT) — consensus tests.
+"""Funded invite links (protocol.py "FUNDED INVITE LINKS", from block 1) — consensus tests.
 
 A referrer escrows NADO under a throwaway ML-DSA key whose seed travels in the link; an ATTESTED identity claims it
 with that key's signature naming ITSELF; after expiry the referrer refunds. Pins:
-  * before the gate every invite tx is refused, and a send to the "invite" escrow is always refused (the names are
-    reserved now, and a reserved name with no branch would fall through to an ordinary transfer and be ACCEPTED where
-    an older node refuses it as an unknown alias — a fork before the gate);
+  * at height 0 every invite tx is refused (REFERRAL_HEIGHT, gen 28's gate, inlined in G9 as `>= 1`), and a send to
+    the "invite" escrow is always refused (the names are reserved, and a reserved name with no branch would fall
+    through to an ordinary transfer and be ACCEPTED);
   * the lock escrows exactly the amount and burns the fee; claim / refund move exactly that amount; every one of the
     three reverts exactly;
   * a copied claim cannot be re-pointed: the signature names the claimant, so a rival (even an attested one) is refused;
@@ -32,8 +32,7 @@ from ops.transaction_ops import (validate_transaction, reserved_uniqueness_key, 
 from hashing import canonical_bytes
 from signatures import generate_keydict, sign, unhex
 
-GATE = 1000
-P.REFERRAL_HEIGHT = GATE
+GATE = 1000                  # a base height past block 1, where invites are live (REFERRAL_HEIGHT, inlined in G9)
 
 import _harness
 _report = _harness.Report()
@@ -91,10 +90,11 @@ def claim_tx(kd, sig=None, target=GATE + 20, iid=IID, key=LINK):
 
 
 def t_gate():
-    expect_reject(lock_tx(target=GATE - 5), "not enabled yet")
+    # below GATE, the pre-gate heights of generation 28, retired in G9: generation 28's rules. Height 0 still refuses.
+    expect_reject(lock_tx(target=0), "not enabled yet")
     expect_reject(signed(RK, "invite", "", amount=AMT, fee=MIN_TX_FEE, target=GATE + 5), "escrow cannot be paid directly")
-    expect_reject(signed(RK, "invite", "", amount=AMT, fee=MIN_TX_FEE, target=GATE - 5), "escrow cannot be paid directly")
-    expect_reject(claim_tx(NK, target=GATE - 3), "not enabled yet")
+    expect_reject(signed(RK, "invite", "", amount=AMT, fee=MIN_TX_FEE, target=0), "escrow cannot be paid directly")
+    expect_reject(claim_tx(NK, target=0), "not enabled yet")
 
 
 def t_lock_fits_and_validates():
@@ -171,7 +171,7 @@ def t_block_uniqueness_and_htlc_isolation():
     assert IID in kv_ops.invite_all()
 
 
-for name, fn in [("before the gate every invite tx is refused; the escrow is never paid directly", t_gate),
+for name, fn in [("at height 0 every invite tx is refused; the escrow is never paid directly", t_gate),
                  ("a lock with a real key validates, fits, and keeps its window", t_lock_fits_and_validates),
                  ("a lock escrows the amount, burns the fee, and reverts exactly", t_lock_escrows_and_reverts),
                  ("a claim must be signed for its own claimant (a copied claim is refused)", t_claim_names_its_claimant),

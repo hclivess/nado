@@ -32,11 +32,10 @@ import protocol as P
 import _harness as _gen28
 import protocol as _P_gen28
 _P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
-# ...and generation 28's pools and block budget, which these height-1 rules were written against: there a field shield
-# at height 1 lands in the wide pool and one sender may fill the block's budget; generation 29 opens the Stwo pool,
-# closes the wide one and caps a sender's share from block 1 (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT,
-# EXEC_BUDGET_V2_HEIGHT), each with its own tests.
-for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "EXEC_BUDGET_V2_HEIGHT"):
+# ...and generation 28's pools, which these height-1 rules were written against: there a field shield at height 1 lands
+# in the wide pool; generation 29 opens the Stwo pool and closes the wide one from block 1 (STWO_POOL_HEIGHT,
+# WIDE_DEPOSIT_CLOSE_HEIGHT), each with its own tests. (EXEC_BUDGET_V2_HEIGHT, the per-sender share, was inlined in G9.)
+for _g in ("STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT"):
     setattr(_P_gen28, _g, _gen28.gate_at(_g, 28))
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm
@@ -114,13 +113,18 @@ def t_f4_block_budget_reverts_the_call_that_exceeds_it():
     zkvm.run(code, "burn", 1, [], {}, meter=meter)
     per_call = meter["gas"]; assert 100_000 < per_call < zkvm.GAS_LIMIT, per_call
     fits = int(EXEC_BLOCK_STEP_BUDGET) // per_call
-    st._block_steps = 0
+    st._block_steps, st._block_steps_by = 0, {}
+    # ONE CALL PER SENDER: from block 1 a sender may use only EXEC_SENDER_STEP_SHARE of the block (EXEC_BUDGET_V2_HEIGHT,
+    # gen 28's gate, inlined in G9), so the block budget is filled by many senders, as on generation 29.
+    senders = ["mldsa44" + format(i, "042x") for i in range(fits + 1)]
+    for a in senders:
+        st.bridge[a] = 10 ** 9
     for i in range(fits):
-        assert st.apply_blob({"op": "call", "contract": cid, "method": "burn", "args": [], "value": 1}, ALICE, f"c{i}").endswith("-> ok")
-    r = st.apply_blob({"op": "call", "contract": cid, "method": "burn", "args": [], "value": 1}, ALICE, "cx")
+        assert st.apply_blob({"op": "call", "contract": cid, "method": "burn", "args": [], "value": 1}, senders[i], f"c{i}").endswith("-> ok")
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "burn", "args": [], "value": 1}, senders[fits], "cx")
     assert "budget exhausted" in r, r
-    assert st.bridge[ALICE] == 10 ** 9 - fits, "the reverted call's escrow came back"
-    st_old = fresh(GATE - 1)
+    assert st.bridge[senders[fits]] == 10 ** 9, "the reverted call's escrow came back"
+    st_old = fresh(GATE - 1)                    # height 0: neither the budget nor the per-sender share applies
     st_old.apply_blob({"op": "deploy", "code": code, "nonce": 4}, ALICE, "t")
     st_old._block_steps = 0
     for i in range(fits + 1):
