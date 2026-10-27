@@ -16,6 +16,7 @@
 
 use serde::ser::{self, Serialize};
 use stwo::core::fields::qm31::SecureField;
+use stwo::core::poly::line::LinePoly;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs_lifted::blake2_merkle::Blake2sMerkleHasher;
 
@@ -70,7 +71,51 @@ pub fn decode(bytes: &[u8]) -> Result<JsProof, DecodeError> {
     if !chk.ok {
         return Err(DecodeError::NonCanonical);
     }
+    let mut stark = stark;
+    last_layer_size(&mut stark, true)?;
     Ok(JsProof { claimed, stark, oods_nonce, dbg: None })
+}
+
+/// THE FRI LAST LAYER'S SIZE FIELD (2026-10-27): ONE ENCODING PER PROOF. Stwo's LinePoly stores `log_size` beside its
+/// coefficients and derives Deserialize, so the field arrives unchecked, and the transcript mixes only the coefficients.
+/// The verifier reads the field as `1 << log_size` (a shift masked to 6 bits on a 64-bit node) for the degree bound and
+/// as the number of doublings before its fold. So:
+///  * coefficient count a power of two n, field congruent to log2(n) mod 64: the verifier already treats it exactly as the
+///    canonical proof (same masked degree, the fold uses the same first log2(n) doublings). With `rewrite` the field is
+///    set to log2(n): the same verdict, and the work is the canonical proof's;
+///  * anything else was refused in every case (the degree bound, an earlier FRI check, or the fold's length assertion, a
+///    panic nado_stwo_js_verify turns into a refusal), and is refused here.
+/// INVARIANT: this must never refuse what the verifier would accept, or nodes that update and nodes that have not disagree
+/// on a pool spend, a fork of the exec root. The two bullets are the whole case split; tests/test_stwo_js_honest_proof_
+/// verifies_and_forged_public_inputs_are_refused.py drives both against the verifier.
+pub fn last_layer_size(stark: &mut StarkProof<Blake2sMerkleHasher>, rewrite: bool) -> Result<(), DecodeError> {
+    let poly = &stark.0.fri_proof.last_layer_poly;
+    let n = poly.len_coeffs();
+    let enc = bincode::serialize(poly).map_err(|e| DecodeError::Malformed(format!("{e}")))?;
+    let field = u32::from_le_bytes(enc[enc.len() - 4..].try_into().unwrap());
+    if !n.is_power_of_two() {
+        return Err(DecodeError::NonCanonical);
+    }
+    let lg = n.ilog2();
+    if field == lg {
+        return Ok(());
+    }
+    if rewrite && field % 64 == lg {
+        stark.0.fri_proof.last_layer_poly = LinePoly::new(poly.to_vec());
+        return Ok(());
+    }
+    Err(DecodeError::NonCanonical)
+}
+
+/// the coefficient count of a LinePoly (its slice; `len()` reads the size field this module distrusts)
+trait CoeffCount {
+    fn len_coeffs(&self) -> usize;
+}
+impl CoeffCount for LinePoly {
+    fn len_coeffs(&self) -> usize {
+        let s: &[SecureField] = self;
+        s.len()
+    }
 }
 
 /// A serializer that writes nothing and records whether every u32 it is shown is a canonical M31 (< P).

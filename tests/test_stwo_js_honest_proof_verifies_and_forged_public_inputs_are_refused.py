@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import subprocess
+import time
 
 from tests._stwo_js_build import Env
 
@@ -118,6 +119,27 @@ for CFG, HEIGHT, TAG in ((SJ.CFG_340, H340, "340"), (SJ.CFG_128, H128, "128")):
     check(f"[{TAG}] a non-canonical field element is refused", not ok and "NonCanonical" in why, why)
     ok, why = run(pb[: len(pb) // 2], P)
     check(f"[{TAG}] a truncated proof is refused, not crashed on", not ok and why, why)
+    # THE FRI LAST LAYER'S SIZE FIELD (wire.rs last_layer_size): the stark's last 4 bytes, before the 8-byte OODS nonce at
+    # the 128-bit config. Raised by a multiple of 64 the verifier always accepted it as the honest proof; it must still,
+    # with the honest proof's work. Any other value was always refused and must still be.
+    end = len(pb) - (8 if CFG == SJ.CFG_128 else 0)
+    field = int.from_bytes(pb[end - 4:end], "little")
+    check(f"[{TAG}] the last layer's size field is where the test reads it (1 coefficient: log2 = 0)", field == 0, field)
+
+    def with_field(proof, x):
+        return proof[:end - 4] + x.to_bytes(4, "little") + proof[end:]
+    for k in (64, 1 << 26, (((1 << 31) - 2) // 64) * 64):
+        t0 = time.time()
+        ok, why = run(with_field(pb, field + k), P)
+        dt = time.time() - t0
+        check(f"[{TAG}] the size field + {k} verifies exactly as the honest proof, with the honest proof's work",
+              ok and why == "" and dt < 2.0, (ok, why, round(dt, 2)))
+    ok, why = run(with_field(pb, field + (1 << 26)), P, fee=P["fee"] + 1)
+    check(f"[{TAG}] ... and a forged statement with that field is still refused", not ok and why, why)
+    for k in (1, 63, 65, (1 << 26) + 1):
+        ok, why = run(with_field(pb, field + k), P)
+        check(f"[{TAG}] the size field + {k} (not a multiple of 64) is refused, as the verifier always refused it",
+              not ok and why, why)
     ok, why = run(pb, P, root="zz" * 32)
     check(f"[{TAG}] a digest that is not hex is refused by the wrapper", not ok and "root" in why, why)
     ok, why = run(pb, P, fee=1 << 64)

@@ -75,10 +75,13 @@ class Env:
     def build_verifier(self):
         """`cargo +stable build --release --locked` -> (so_path or None, seconds, log)."""
         t0 = time.time()
+        stamped = invalidate_if_changed(self.source(), os.path.join(self.target, "stable"), "nado-stwo-js")
         r = subprocess.run([self.cargo, "+stable", "build", "--release", "--locked"], cwd=self.source(),
                            capture_output=True, text=True, timeout=1800,
                            env=self.base_env({"CARGO_TARGET_DIR": os.path.join(self.target, "stable")}))
         so = os.path.join(self.target, "stable", "release", "libnado_stwo_js.so")
+        if r.returncode == 0 and os.path.exists(so):
+            stamped()
         return (so if r.returncode == 0 and os.path.exists(so) else None), time.time() - t0, r.stderr[-3000:]
 
     def feature_tree(self, features=None):
@@ -97,10 +100,13 @@ class Env:
         env = self.base_env({"CARGO_TARGET_DIR": os.path.join(self.target, "prover"), "RUSTC": os.path.join(nbin, "rustc"),
                              "PATH": nbin + os.pathsep + os.environ.get("PATH", "")})
         env.pop("RUSTUP_TOOLCHAIN", None)
+        stamped = invalidate_if_changed(self.source(), os.path.join(self.target, "prover"), "nado-stwo-js")
         r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked", "--features", "prover",
                             "--bin", "stwo_js_prove"], cwd=self.source(), capture_output=True, text=True,
                            timeout=1800, env=env)
         exe = os.path.join(self.target, "prover", "release", "stwo_js_prove")
+        if r.returncode == 0 and os.path.exists(exe):
+            stamped()
         return (exe if r.returncode == 0 and os.path.exists(exe) else None), time.time() - t0, r.stderr[-3000:]
 
     # ---- the wallet's WASM prover --------------------------------------------------------------------------------
@@ -132,10 +138,13 @@ class Env:
         env = self.base_env({"CARGO_TARGET_DIR": os.path.join(self.target, "wasm"), "RUSTC": os.path.join(nbin, "rustc"),
                              "RUSTFLAGS": flags, "PATH": nbin + os.pathsep + os.environ.get("PATH", "")})
         env.pop("RUSTUP_TOOLCHAIN", None)
+        stamped = invalidate_if_changed(src, os.path.join(self.target, "wasm"), "nado-stwo-js")
         r = subprocess.run([os.path.join(nbin, "cargo"), "build", "--release", "--locked", "--lib", "--features", "prover",
                             "--target", "wasm32-unknown-unknown"], cwd=src, capture_output=True, text=True,
                            timeout=3600, env=env)
         out = os.path.join(self.target, "wasm", "wasm32-unknown-unknown", "release", "nado_stwo_js.wasm")
+        if r.returncode == 0 and os.path.exists(out):
+            stamped()
         return (out if r.returncode == 0 and os.path.exists(out) else None), time.time() - t0, r.stderr[-3000:]
 
 
@@ -201,3 +210,36 @@ if __name__ == "__main__":
     print(f"built in {secs:.0f} s -> {SHIPPED_WASM}\n  WASM_SHA256    = \"{hashlib.sha256(open(w, 'rb').read()).hexdigest()}\"\n"
           f"  SOURCES_SHA256 = \"{wasm_sources_digest()}\"\n"
           "pin both in tests/test_the_shipped_stwo_wasm_is_a_build_of_the_committed_sources.py")
+
+
+def invalidate_if_changed(src, target, pkg):
+    """CARGO DECIDES "FRESH" FROM THE LAST BUILD'S RECORDED SOURCE PATHS AND THEIR MTIMES, NOT FROM THIS COPY. Every test
+    build copies the crate to a new or refreshed directory, and cargo's dep-info for `pkg` still names the previous copy;
+    if that copy is still on disk and older than the artifact, cargo links the old library for new sources. Measured
+    2026-10-27: a test of the live checkout's stwo_js verifier ran a worktree's newer one. So the sha256 of the copied
+    sources is stamped in the target dir; when it differs, `pkg`'s fingerprints are deleted (cargo then rebuilds that one
+    crate; its dependencies stay cached). Returns the function that writes the stamp, called after a successful build."""
+    import glob
+    import hashlib
+    h = hashlib.sha256()
+    for root, _dirs, names in sorted(os.walk(src)):
+        if os.path.relpath(root, src).split(os.sep)[0] == "target":
+            continue
+        for n in sorted(names):
+            p = os.path.join(root, n)
+            h.update(os.path.relpath(p, src).encode() + b"\0")
+            with open(p, "rb") as f:
+                h.update(f.read())
+    digest = h.hexdigest()
+    stamp = os.path.join(target, ".nado-src-stamp-" + pkg)
+    if (open(stamp).read() if os.path.exists(stamp) else None) != digest:
+        for fp in glob.glob(os.path.join(target, "**", ".fingerprint", pkg + "-*"), recursive=True):
+            shutil.rmtree(fp, ignore_errors=True)
+        if os.path.exists(stamp):
+            os.remove(stamp)
+
+    def done():
+        os.makedirs(target, exist_ok=True)
+        with open(stamp, "w") as f:
+            f.write(digest)
+    return done
