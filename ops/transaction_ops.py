@@ -3434,7 +3434,12 @@ def _validate_shield(transaction, block_height):
     data = transaction.get("data") or {}
     if data.get("field"):                                        # Phase-2 field-native note (single commitment)
         field_shield_check(data, block_height)
-    else:                                                        # transparent-phase note openings
+    else:                                                        # transparent-phase note openings (the legacy pool)
+        # LEGACY_SHIELD_CLOSE_HEIGHT: the legacy pool takes no new deposits (protocol.py). INVARIANT: refused here AND
+        # skipped by the exec layer (execnode/block_apply.py), so the pool stays provably empty.
+        from protocol import LEGACY_SHIELD_CLOSE_HEIGHT as _LCLOSE
+        assert block_height is None or int(block_height) < _LCLOSE, \
+            "the legacy shielded pool takes no new deposits (LEGACY_SHIELD_CLOSE_HEIGHT): shield into the Stwo pool"
         assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
 
 

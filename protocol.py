@@ -1702,6 +1702,8 @@ def split_open_block_reward(reward: int):
 # KEYED ON GENERATION 29 (live on betanet-10):
 #                                    EXEC_ADDR_ROOT_HEIGHT (8500, exec cursor; -> 1: the zkvm digest registry is committed in
 #                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
+#                                    LEGACY_SHIELD_CLOSE_HEIGHT (10000; -> 1: the legacy BLAKE2b shielded pool takes no new
+#                                    deposits, refused on L1 and skipped on exec, so G9 can delete it)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2193,6 +2195,13 @@ STWO_POOL_HEIGHT = 269000 if CHAIN_GENERATION == 28 else 1
 # `else 1`: a reroll starts with the wide pool closed — its deposits return only through the Stwo pool's gate.
 # INVARIANT: STWO_POOL_HEIGHT, when set, is above this, and the wide pool is measured empty before that gate is set.
 WIDE_DEPOSIT_CLOSE_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
+# THE LEGACY POOL TAKES NO NEW DEPOSITS (G9, 2026-10-27). The phase-1 BLAKE2b shielded pool (execnode/shielded.py) was
+# retired with the move to Stwo: its transfers are paused (PRIVACY_PAUSE) and the wallet no longer offers it, yet L1
+# still accepted a `shield` with `out_commitments` (no `field`) and the exec node added the notes, coins that could only
+# be locked there. Measured: no such deposit on generation 29 (blocks 0..7608). From this height L1 refuses it and the
+# exec layer skips it, so the pool stays empty for good, its two root records are constants, and its code can be
+# deleted (doc/stwo-migration.md 9.7). A Stwo pool deposit (`field`) is unaffected. `else 1`: a reroll starts closed.
+LEGACY_SHIELD_CLOSE_HEIGHT = 10000 if CHAIN_GENERATION == 29 else 1   # L1 was at 7798 when this shipped (2026-10-27)
 
 # A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). Below this a spend's `fee` stays in the escrow as
 # pool_fees and its one bound address is the unshield payout — so a relay could only be paid by the payout itself, and a

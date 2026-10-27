@@ -43,6 +43,7 @@ REROLL = {
     "BLOCK_BUDGET_HEIGHT": 1,                  # dormant (2^62) on gen 28: a block-wide transaction count and byte budget
     "STWO_JS_128_HEIGHT": 1,                   # dormant (2^62) on gen 28: a Stwo spend proves at the 128-bit node config
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
+    "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
     "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll

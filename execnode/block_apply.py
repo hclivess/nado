@@ -101,8 +101,12 @@ def dispatch(states_map, default_state, block, resolved, refused, verbose=True):
                     print(f"[execnode] block {h}: treasury->faucet payout {spend.get('amount')}", flush=True)
         elif r == "shield":
             d = tx.get("data") or {}
+            from protocol import LEGACY_SHIELD_CLOSE_HEIGHT as _LCLOSE
             if d.get("field"):
                 res = default_state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
+            elif int(h) >= _LCLOSE:
+                # the legacy pool is closed (protocol.LEGACY_SHIELD_CLOSE_HEIGHT; L1 refuses these too): nothing moves
+                res = "skip shield: the legacy shielded pool takes no new deposits"
             else:
                 res = default_state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []), d.get("openings", []))
             if verbose:
