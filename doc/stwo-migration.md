@@ -712,8 +712,9 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
 - **Added for the reroll (2026-10-26, operator decision):** `STWO_JS_128_HEIGHT` — private sends prove at the 128-bit
   node config from block 1 (56 queries and a 16-bit OODS grind: ~129 bits conjectured, where the 340-bit config was
   capped near 113 by its ungrounded OODS term; 75.9 provable; proofs 1.14 MB instead of 2.9 MB). Dormant on gen 28. The final pre-reroll pass (suite + testnet + both walks on the final gen-29 tree) covers it.
-- **Still open before the real reroll:** G4's landing prover stays off (option R); `CHAIN_ID` / `GENESIS_TIMESTAMP` /
-  genesis files are recomputed on the day (the rehearsal's are not for main); the final pre-reroll pass above.
+- **G7 EXECUTED 2026-10-27** (commit 23b2aa00, betanet-10): every contract carried, the fleet on one genesis within ~3 min,
+  the exec root at genesis equal to the carried root on L1 (the first settle landed), invariants Δ = 0 — doc/reroll.md
+  "Gen 29 (betanet-10)". G4's landing prover stays off (option R); G8 and G9 follow.
 
 **Order.** G1 before G2 (the tree shape is part of the root). G2 and G4's statement before G5 (the carry pins a root
 in the final format). G3, G5, G6 before G7. G4's landing prover and G8 after G7 (option R, recommended by 9.3), or

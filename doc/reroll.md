@@ -303,6 +303,22 @@ carried fidelity intact — and finalized 16 blocks on 4 nodes.
     exec node, whose own save overwrote the drained state; the carry refused ("exec cursor … is behind the L1 tip") and
     nothing was lost. Step 5 now stops the timers and the restart bridge first and confirms the services stay down.
 
+## Gen 29 (betanet-10): the Stwo reroll
+
+EXECUTED 2026-10-27 ~06:00 CET (commit 23b2aa00 on main; genesis block hash 328a2f12…, GENESIS_TIMESTAMP 1793077097).
+Carried at L1 tip 380389 (exec drained 380344..380389): 208,232,765,104,524 raw, Δ = 0; 1,099 accounts (1,285 alloc
+rows), identity fields for 953, 269 device bindings, 130 aliases, 3 auth histories, 54 present identities (the open lane
+held exactly 54 at block 0), 2 open invites; 27 contracts carried by id into the BLAKE2s/M31 exec layer with every slot
+and pot (1,112,315,207,119 raw escrowed); the Stwo pool empty. All six fleet nodes on 23b2aa00 within ~3 min of the push,
+one block-11 hash (5bbb8085…) on every node; finality engaged (finalized 16 at tip 61); /invariants all five domains ok
+(supply, bridge, shielded Δ = 0); the first settle (exec cursor 0, the carried genesis root ab3a99f4…) landed on L1;
+every frontend CID resolves to a live contract; a headless walk of all 26 public sites found no script error and no
+failed request. Backup: /root/reroll-backup-gen28-final-1793076975.
+Pre-reroll pass: the full suite on the release and on the gen-29 tree, the toolchain Stwo set and the free-cell probe,
+the loopback testnet on both trees, both wallet walks on gen 29, a 60,000-block replay IDENTICAL, the carry dry run.
+The one incident was failure mode 11 (the exec keeper restarted the stopped node; caught by the carry's refusal, step 5
+now stops the timers first).
+
 ## Gen 28 (betanet-9): address format 2
 
 Every address changes (`tools/rekey_v2.py`, `tools/recover_keys.py`). Carried 2026-09-29 at L1 tip 45872 (exec drained
