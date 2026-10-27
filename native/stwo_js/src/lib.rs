@@ -682,6 +682,8 @@ impl FrameworkEval for XorEval {
 pub struct JsProof {
     pub claimed: Vec<SecureField>,
     pub stark: StarkProof<Blake2sMerkleHasher>,
+    /// the OODS grind nonce (NODE128_OODS_POW_BITS); 0 and never on the wire for a config without one
+    pub oods_nonce: u64,
     /// prover-side debug data for zktest (never serialized, not part of the proof)
     pub dbg: Option<Debug>,
 }
@@ -805,7 +807,7 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     // only a node config is accepted here, and only with ITS root.
     // INVARIANT: never commit commitments[0] without this comparison; a change to a selector or the table changes the
     // roots and must re-pin every NODE_CFGS root (the pin test recomputes each from the builders).
-    let Some(&(_, _, _, _, pinned)) = NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg) else {
+    let Some(&(_, _, _, _, pinned, _)) = NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg) else {
         return Err("not a node config (the preprocessed root is pinned for those alone)".into());
     };
     if proof.stark.commitments[0].0 != pinned {
@@ -832,6 +834,15 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     assert_eq!(lc, sz.log_comp());
     let random_coeff = ch.draw_secure_felt();
     cs.commit(proof.stark.commitments[3], &[lc; SECURE_EXTENSION_DEGREE + N_RND + N_RND2 + N_SALT], ch);
+    // THE OODS GRIND (NODE128_OODS_POW_BITS): checked, then mixed, before the OODS point is drawn — the prover's
+    // order exactly (prover.rs prove_zk). A config without one draws w straight after the composition commit.
+    let ob = oods_pow_bits(cfg);
+    if ob > 0 {
+        if !ch.verify_pow_nonce(ob, proof.oods_nonce) {
+            return Err("OODS proof of work".into());
+        }
+        ch.mix_u64(proof.oods_nonce);
+    }
     let w = CirclePoint::<SecureField>::get_random_point(ch);
     let mut sp = components.mask_points(w, lc, false);
     sp[ORIGINAL_TRACE_IDX].extend(vec![vec![]; N_SALT]);
@@ -856,7 +867,8 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
 
 /// THE FIRST PcsConfig A NODE ACCEPTS (NODE_CFG_340): log_blowup 2, 160 queries, 20 grinding bits, the config whose conjectured security
 /// matches the current wallet prover's (Stwo security_bits() = 340; NADO's soundness model: 333.7 conjectured, 113.4
-/// provable, capped by the QM31 challenge field). The proof carries its own config and `verify_js` refuses one that
+/// provable, capped by the QM31 challenge field). Those are its FRI query terms: with no OODS grind its DEEP/OODS term
+/// (~124 - log_comp = ~113) caps it near 113 conjectured bits (see NODE128_OODS_POW_BITS). The proof carries its own config and `verify_js` refuses one that
 /// differs from this, so a prover cannot pick a cheaper one. ZK slack at this config (zkproof/ARGUMENT.md section 8):
 /// the tightest column class, the ROUND running sum D, has a worst-case slack of 4 free rows (measured minimum 7); a
 /// larger query count or more ROUND real rows would need ROUND at 2^11 rows. CHANGING THIS IS A CONSENSUS CHANGE.
@@ -877,9 +889,10 @@ pub fn node_config() -> PcsConfig {
     config(NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS)
 }
 
-/// THE SECOND (NODE_CFG_128, protocol STWO_JS_128_HEIGHT): log_blowup 2, 56 queries, 20 grinding bits. Stwo
-/// security_bits() = 132; NADO's soundness model (execnode/stark/soundness.py, E = 124 for QM31): 129.8 conjectured, 75.9
-/// provable — the same footing as the settlement proofs (doc/stwo/g4-settlement-statement.md), whose 54 queries the
+/// THE SECOND (NODE_CFG_128, protocol STWO_JS_128_HEIGHT): log_blowup 2, 56 queries, 20 grinding bits, a 16-bit OODS
+/// grind. Stwo security_bits() = 132; NADO's soundness model (execnode/stark/soundness.py, E = 124 for QM31): FRI query
+/// term 129.8 conjectured, 75.9 provable; OODS term ~113 + 16 = ~129 with the grind — so ~129 conjectured overall. The
+/// same query footing as the settlement proofs (doc/stwo/g4-settlement-statement.md), whose 54 queries the
 /// model rates at 125.9, so 56 is the least count at which NADO's own stricter model, not just Stwo's, says >= 128.
 /// Measured 2026-10-26 (doc/stwo/phase0-results.md): proofs 1.12-1.14 MB vs 2.90-2.92 MB at 160 queries, native verify
 /// 8 ms vs 15 ms, the wallet's WASM prove + self-verify 0.9-1.4 s vs 1.7 s. ZK slack: 3Q + 8 = 176 random rows per
@@ -900,11 +913,28 @@ pub const NODE128_PREPROCESSED_ROOT: [u8; 32] = [
 /// the other config is refused even though that config is otherwise acceptable.
 pub const NODE_CFG_340: u32 = 0;
 pub const NODE_CFG_128: u32 = 1;
-/// (id, log_blowup, n_queries, pow_bits, pinned preprocessed root)
-pub const NODE_CFGS: [(u32, u32, usize, u32, [u8; 32]); 2] = [
-    (NODE_CFG_340, NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS, NODE_PREPROCESSED_ROOT),
-    (NODE_CFG_128, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE_POW_BITS, NODE128_PREPROCESSED_ROOT),
+/// A PROOF-OF-WORK GRIND BEFORE THE OODS POINT (NODE_CFG_128 only; upstream starkware-libs/proving f0bf0195,
+/// 2026-09-15). The DEEP/OODS step is a Schwartz-Zippel draw over QM31: its soundness term is ~124 - log_comp = ~113
+/// bits at log_comp 11, independent of the query count — so without a grind BOTH node configs are capped near 113
+/// conjectured bits whatever their FRI query term says (333.7 at 160 queries, 129.8 at 56; found by the 2026-10-27
+/// incident survey). The grind makes a prover pay 2^16 work per re-roll of the OODS point, lifting that term to ~129,
+/// so the 128-bit config's weakest term is ~129 (OODS) / 129.8 (FRI queries). The 340-bit config is the live gen-28
+/// format and stays as it is (0 bits: its bytes and its ~113-bit cap unchanged). The grind is Stwo's own
+/// (GrindOps::grind / Channel::verify_pow_nonce, as the PCS's final pow), the nonce is mixed after it is checked, and
+/// it travels as 8 bytes after the bincode pair ONLY for a config that grinds (wire.rs).
+pub const NODE128_OODS_POW_BITS: u32 = 16;
+
+/// (id, log_blowup, n_queries, pow_bits, pinned preprocessed root, OODS grind bits)
+pub const NODE_CFGS: [(u32, u32, usize, u32, [u8; 32], u32); 2] = [
+    (NODE_CFG_340, NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS, NODE_PREPROCESSED_ROOT, 0),
+    (NODE_CFG_128, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE_POW_BITS, NODE128_PREPROCESSED_ROOT, NODE128_OODS_POW_BITS),
 ];
+
+/// The OODS grind width a proof at `cfg` carries: the node config's, 0 for any other config (a non-node config is
+/// refused by verify_js anyway; prover tests at ad-hoc configs prove without one).
+pub fn oods_pow_bits(cfg: PcsConfig) -> u32 {
+    NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg).map(|c| c.5).unwrap_or(0)
+}
 
 /// The PcsConfig of node config `id`, or None for an unknown id.
 pub fn node_config_of(id: u32) -> Option<PcsConfig> {

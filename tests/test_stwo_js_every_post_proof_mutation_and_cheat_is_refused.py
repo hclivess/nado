@@ -104,6 +104,8 @@ for CFG, HEIGHT in ((SJ.CFG_340, 0), (SJ.CFG_128, int(PROTO.STWO_JS_128_HEIGHT))
     for t in range(4):
         expected += [f"commitment{t}", f"sampled{t}", f"sampled{t}-last", f"queried{t}", f"queried{t}-salt",
                      f"decommit{t}-pop", f"decommit{t}-push"]
+    if CFG == SJ.CFG_128:                      # the OODS grind (lib.rs NODE128_OODS_POW_BITS): only this config grinds
+        expected += ["oods-nonce+1", "oods-nonce-zero"]
     for name in expected:
         got = m.get(name)
         check(f"[cfg {CFG}] refused: {name}", got is not None and got != "rc=0", got)

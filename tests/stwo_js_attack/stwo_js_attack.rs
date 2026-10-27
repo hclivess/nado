@@ -79,6 +79,12 @@ fn main() {
         case("cfg-lift+1", enc(&|q| q.stark.0.config.min_lifting_log_size += 1));
         case("cfg-lastlayer-1", enc(&|q| q.stark.0.config.fri_config.log_last_layer_degree_bound = 1));
         case("cfg-foldstep-2", enc(&|q| q.stark.0.config.fri_config.fold_step = 2));
+        // THE OODS GRIND (lib.rs NODE128_OODS_POW_BITS): a nonce that does not meet the bits, on a config that grinds,
+        // is refused before the OODS point is drawn. On a config without a grind the nonce is not on the wire.
+        if oods_pow_bits(cfg) > 0 {
+            case("oods-nonce+1", enc(&|q| q.oods_nonce = q.oods_nonce.wrapping_add(1)));
+            case("oods-nonce-zero", enc(&|q| q.oods_nonce = 0));
+        }
         // a proof honestly made at a CHEAPER config (1/80/20): the verifier must refuse it outright
         let cheap = config(1, 80, 20);
         let (p2, pr2, _) = prove_js(&w, aux_of(dest), cheap, false, [9u8; 32]).expect("prove cheap");

@@ -146,6 +146,14 @@ from the shipped `static/vendor/stwo_js.wasm` in Node (three runs, this server).
 125.9 by NADO's model; 56 is the least count at which both say >= 128. Its provable figure (75.9) is the same footing as
 the settlement proofs at 2/54/20.
 
+**The OODS term (corrected 2026-10-27).** The columns above are FRI query terms. A Stwo proof also draws one out-of-domain
+point over QM31, a Schwartz-Zippel term of ~124 - log_comp = ~113 bits at log_comp 11 that no query count changes. So
+2/160/20 was in fact capped near **113** conjectured bits, not 333.7, and 2/56/20 would be too. The 128-bit node config
+therefore adds a **16-bit proof-of-work grind before the OODS point** (`NODE128_OODS_POW_BITS`, the same change as
+upstream starkware-libs/proving f0bf0195), lifting that term to ~129: its overall figure is ~129 conjectured. Found by
+the 2026-10-27 incident survey; pinned by tests/test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py
+and the attack harness (`oods-nonce+1`, `oods-nonce-zero` refused).
+
 Under NADO's provable (Johnson-bound) model the QM31 challenge field caps Stwo at ~113 provable bits whatever the
 query count (commit-phase term), versus our 157.5 from a 192-bit challenge field. On the conjectured count, which is what
 StarkWare runs production on (96 bits), 2/160/20 matches ours.

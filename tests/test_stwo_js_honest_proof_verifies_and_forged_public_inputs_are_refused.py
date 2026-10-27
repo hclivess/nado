@@ -167,6 +167,21 @@ try:
     check("verify without a height is a caller error, never a verdict", False)
 except TypeError:
     check("verify without a height is a caller error, never a verdict", True)
+# THE OODS GRIND (lib.rs NODE128_OODS_POW_BITS, 16 bits; upstream starkware-libs/proving f0bf0195): the 128-bit proof
+# carries its 8-byte nonce after the bincode pair, the 340-bit proof carries nothing (the live format, byte-identical).
+args128 = (Q128["root"], Q128["nf"], Q128["cm1"], Q128["cm2"], Q128["unshield"], Q128["fee"], Q128["dest"])
+nonce = int.from_bytes(p128[-8:], "little")
+bad = p128[:-8] + ((nonce + 1) % (1 << 64)).to_bytes(8, "little")
+ok, why = SJ.verify(bad, *args128, height=H128)
+check("a 128-bit proof whose OODS nonce does not meet the 16 bits is refused (before the OODS point is drawn)",
+      not ok and "OODS" in why, (ok, why))
+ok, why = SJ.verify(p128[:-8], *args128, height=H128)
+check("...and one without its nonce is refused as malformed (one proof, one encoding)", not ok and "nonce" in why, (ok, why))
+ok, why = SJ.verify(p340 + b"\x00" * 8, Q340["root"], Q340["nf"], Q340["cm1"], Q340["cm2"], Q340["unshield"], Q340["fee"],
+                    Q340["dest"], height=H340)
+check("a 340-bit proof with 8 bytes appended is refused: the live format carries no nonce", not ok and "trailing" in why,
+      (ok, why))
+
 # THE POINT OF THE CHANGE, MEASURED: the 128-bit proof is smaller (doc/stwo/phase0-results.md has the numbers)
 check(f"the 128-bit proof is at most half the 340-bit one ({len(p128):,} vs {len(p340):,} bytes)",
       len(p128) * 2 <= len(p340), (len(p128), len(p340)))

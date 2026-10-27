@@ -10,6 +10,7 @@ use rand_core::{RngCore, SeedableRng};
 use stwo::core::pcs::TreeVec;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::utils::{bit_reverse_index, coset_index_to_circle_domain_index};
+use stwo::core::proof_of_work::GrindOps;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::backend::simd::column::BaseColumn;
 use stwo::prover::backend::Column;
@@ -734,7 +735,8 @@ pub fn prove_js_cheat(
 
     let t3 = now_ms();
     let comps = Comps::new(&sz, &rel, &claimed, false);
-    let (stark, oods, queries, comp_tree, comp_coeff) = prove_zk(&comps.provers(), ch, cs, rng, cheat == Cheat::No)?;
+    let (stark, oods, queries, comp_tree, comp_coeff, oods_nonce) =
+        prove_zk(&comps.provers(), ch, cs, rng, cheat == Cheat::No, oods_pow_bits(cfg))?;
     tm.prove_ms = now_ms() - t3;
     let ts = tree_log_sizes(&sz);
     let trees = vec![
@@ -748,7 +750,7 @@ pub fn prove_js_cheat(
         assert_eq!(trees[t].len(), tree_logs[t].len(), "debug tree {t} layout");
     }
     let dbg = Debug { oods, queries, js_rows: js_r, trees, tree_logs, comp_coeff: comp_coeff, rel };
-    Ok((public, JsProof { claimed, stark, dbg: Some(dbg) }, tm))
+    Ok((public, JsProof { claimed, stark, oods_nonce, dbg: Some(dbg) }, tm))
 }
 
 trait EvalRef<E> {
@@ -787,7 +789,8 @@ fn prove_zk(
     mut cs: CommitmentSchemeProver<'_, SimdBackend, Blake2sMerkleChannel>,
     rng: &mut impl RngCore,
     sanity: bool,
-) -> Result<(StarkProof<Blake2sMerkleHasher>, CirclePoint<SecureField>, Vec<usize>, Vec<Vec<BaseField>>, SecureField), ProveError> {
+    oods_bits: u32,
+) -> Result<(StarkProof<Blake2sMerkleHasher>, CirclePoint<SecureField>, Vec<usize>, Vec<Vec<BaseField>>, SecureField, u64), ProveError> {
     let n_pre = cs.trees[PREPROCESSED_TRACE_IDX].polynomials.len();
     let cps = ComponentProvers { components: components.to_vec(), n_preprocessed_columns: n_pre };
     let random_coeff = ch.draw_secure_felt();
@@ -806,6 +809,15 @@ fn prove_zk(
     tb.extend_polys(comp_polys);
     tb.extend_evals(evals(&rnd, lc));
     tb.commit(ch);
+    // THE OODS GRIND (lib.rs NODE128_OODS_POW_BITS): after the composition commit, before w — verify_js checks it at
+    // the same point of the transcript, then mixes it, as this does.
+    let oods_nonce = if oods_bits > 0 {
+        let n = SimdBackend::grind(ch, oods_bits);
+        ch.mix_u64(n);
+        n
+    } else {
+        0
+    };
     let w = CirclePoint::<SecureField>::get_random_point(ch);
     let mut sp = cps.components().mask_points(w, lc, false);
     sp[ORIGINAL_TRACE_IDX].extend(vec![vec![]; N_SALT]);
@@ -818,7 +830,7 @@ fn prove_zk(
     if sanity && got != cps.components().eval_composition_polynomial_at_point(w, &proof.sampled_values, random_coeff, lc) {
         return Err(ProveError::NotAJoinSplit("DEEP-ALI identity fails: constraints not satisfied"));
     }
-    Ok((proof, w, queries, comp_tree, random_coeff))
+    Ok((proof, w, queries, comp_tree, random_coeff, oods_nonce))
 }
 
 pub fn fixture() -> Witness {
@@ -1272,6 +1284,9 @@ pub fn replay_challenges(public: &Public, proof: &JsProof, cfg: PcsConfig) -> (S
     cs.commit(proof.stark.commitments[2], &sizes[2], ch);
     let comp_coeff = ch.draw_secure_felt();
     cs.commit(proof.stark.commitments[3], &[sz.log_comp(); SECURE_EXTENSION_DEGREE + N_RND + N_RND2 + N_SALT], ch);
+    if oods_pow_bits(cfg) > 0 {
+        ch.mix_u64(proof.oods_nonce);       // verify_js checks it first; replay only mirrors the transcript
+    }
     let w = CirclePoint::<SecureField>::get_random_point(ch);
     ch.mix_felts(&proof.stark.sampled_values.clone().flatten_cols());
     let deep = ch.draw_secure_felt();

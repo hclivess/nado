@@ -2199,8 +2199,11 @@ STWO_FEE_TO_HEIGHT = 280000 if CHAIN_GENERATION == 28 else 1
 
 # PRIVATE SENDS PROVE AT 128 BITS, NOT 340 (operator decision 2026-10-26). A Stwo spend's proof must carry the node
 # config this height selects (execnode/stark/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS): below it
-# NODE_CFG_340 (log_blowup 2, 160 queries, 20 grinding bits: 333.7 bits conjectured, 113.4 provable), from it
-# NODE_CFG_128 (56 queries: 129.8 conjectured, 75.9 provable, by execnode/stark/soundness.py with E = 124 for QM31).
+# NODE_CFG_340 (log_blowup 2, 160 queries, 20 grinding bits), from it NODE_CFG_128 (56 queries plus a 16-bit grind
+# before the OODS point). By execnode/stark/soundness.py (E = 124 for QM31) the FRI query terms are 333.7 and 129.8 bits
+# conjectured (113.4 / 75.9 provable), but the DEEP/OODS term (~124 - log_comp = ~113) caps the 340 config near 113;
+# the grind lifts it to ~129 on the 128 config, so its overall figure is ~129 conjectured (2026-10-27 incident survey;
+# upstream starkware-libs/proving f0bf0195).
 # 340 bought nothing at the system level: the settlement proofs that guard the same coins run at 128 (125.9 by that model,
 # doc/stwo/g4-settlement-statement.md), and an attacker forges the weakest proof. A proof at the OTHER config is refused
 # even though that config is otherwise valid: the height chooses, never the prover. Measured 2026-10-26: proofs 1.12-1.14 MB

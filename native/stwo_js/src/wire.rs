@@ -2,7 +2,9 @@
 //!
 //! FORMAT: bincode 1 (fixed-int, little-endian) of the pair `(claimed: Vec<SecureField>, stark: StarkProof)`, i.e.
 //! the prototype's two serialized pieces (`bincode::serialize(&proof.stark)` and the three claimed LogUp sums)
-//! concatenated, claimed first. Nothing in either piece changes.
+//! concatenated, claimed first. Nothing in either piece changes. A proof at a config with an OODS grind
+//! (lib.rs oods_pow_bits, NODE_CFG_128) is followed by its 8-byte little-endian nonce; a proof at any other config by
+//! nothing — so the live 340-bit format is byte-identical to what it always was.
 //!
 //! DECODE IS STRICTER THAN THE PROTOTYPE, on purpose, because a node decodes attacker bytes:
 //!  - trailing bytes are refused, so one proof has one encoding (a txid over the proof bytes is not malleable);
@@ -25,7 +27,11 @@ const P: u32 = (1 << 31) - 1;
 pub const MAX_PROOF_BYTES: usize = 16 << 20;
 
 pub fn encode(proof: &JsProof) -> Vec<u8> {
-    bincode::serialize(&(&proof.claimed, &proof.stark)).expect("serialize")
+    let mut b = bincode::serialize(&(&proof.claimed, &proof.stark)).expect("serialize");
+    if crate::oods_pow_bits(proof.stark.config) > 0 {
+        b.extend_from_slice(&proof.oods_nonce.to_le_bytes());
+    }
+    b
 }
 
 #[derive(Debug)]
@@ -40,19 +46,31 @@ pub fn decode(bytes: &[u8]) -> Result<JsProof, DecodeError> {
     if bytes.len() > MAX_PROOF_BYTES {
         return Err(DecodeError::TooLarge);
     }
+    // The pair, then EXACTLY the bytes its config calls for: none, or the 8-byte OODS nonce. Anything else is refused,
+    // so one proof still has one encoding.
+    let mut rest: &[u8] = bytes;
     let (claimed, stark): (Vec<SecureField>, StarkProof<Blake2sMerkleHasher>) = bincode::DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
         .with_limit(bytes.len() as u64)
-        .reject_trailing_bytes()
-        .deserialize(bytes)
+        .allow_trailing_bytes()
+        .deserialize_from(&mut rest)
         .map_err(|e| DecodeError::Malformed(format!("{e}")))?;
+    let oods_nonce = if crate::oods_pow_bits(stark.config) > 0 {
+        let n: [u8; 8] = rest.try_into().map_err(|_| DecodeError::Malformed(format!("expected the 8-byte OODS nonce, got {} trailing bytes", rest.len())))?;
+        u64::from_le_bytes(n)
+    } else {
+        if !rest.is_empty() {
+            return Err(DecodeError::Malformed(format!("{} trailing bytes", rest.len())));
+        }
+        0
+    };
     let mut chk = Canon { ok: true };
     (&claimed, &stark).serialize(&mut chk).map_err(|e| DecodeError::Malformed(e.0))?;
     if !chk.ok {
         return Err(DecodeError::NonCanonical);
     }
-    Ok(JsProof { claimed, stark, dbg: None })
+    Ok(JsProof { claimed, stark, oods_nonce, dbg: None })
 }
 
 /// A serializer that writes nothing and records whether every u32 it is shown is a canonical M31 (< P).

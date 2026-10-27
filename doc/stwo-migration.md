@@ -710,8 +710,8 @@ leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the
   exec cursor 374760, and the carry dry run on live data at 376003 is Δ = 0 with 27/27 contracts and no refusal); the
   Shield tab follows the pool while open (465cedec).
 - **Added for the reroll (2026-10-26, operator decision):** `STWO_JS_128_HEIGHT` — private sends prove at the 128-bit
-  node config from block 1 (56 queries; 129.8 bits conjectured, 75.9 provable; proofs 1.14 MB instead of 2.9 MB). Dormant
-  on gen 28. The final pre-reroll pass (suite + testnet + both walks on the final gen-29 tree) covers it.
+  node config from block 1 (56 queries and a 16-bit OODS grind: ~129 bits conjectured, where the 340-bit config was
+  capped near 113 by its ungrounded OODS term; 75.9 provable; proofs 1.14 MB instead of 2.9 MB). Dormant on gen 28. The final pre-reroll pass (suite + testnet + both walks on the final gen-29 tree) covers it.
 - **Still open before the real reroll:** G4's landing prover stays off (option R); `CHAIN_ID` / `GENESIS_TIMESTAMP` /
   genesis files are recomputed on the day (the rehearsal's are not for main); the final pre-reroll pass above.
 
