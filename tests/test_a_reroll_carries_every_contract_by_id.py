@@ -66,9 +66,8 @@ from execnode.games import faucet, dice
 from tools.alphanet6_carryforward import exec_genesis_doc, carry_policy
 from tools.carry import Refused
 
-# the empty exec state's root in this generation's format: the alghash canary on gen 28, the BLAKE2s one on gen 29
-from execnode.exec_root_b2 import blake_exec_at as _bea
-GENESIS_ROOT = P.EXEC_GENESIS_ROOT_B2 if _bea(0) else P.EXEC_GENESIS_ROOT
+# the empty exec state's root in this generation's format: the BLAKE2s one (BLAKE_EXEC_HEIGHT inlined in G9)
+GENESIS_ROOT = P.EXEC_GENESIS_ROOT_B2
 check("1. without a carried genesis the genesis root is EXEC_GENESIS_ROOT", EG.genesis_root() == GENESIS_ROOT)
 
 OP = FIXED_CIDS["faucet"]

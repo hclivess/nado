@@ -1,8 +1,8 @@
 """
 zkVM2 — the generation-29 contract VM: zkvm.py with a 256-bit WRAPPING word and BLAKE2s instead of Goldilocks
 (Goldilocks retirement G3; operator decision 2026-10-19, doc/stwo/g3-vm-word.md). The reference interpreter the Stwo
-execution AIR (G4) will prove; it coexists with zkvm.py until the reroll, and nothing on a consensus path runs it
-before BLAKE_EXEC_HEIGHT.
+execution AIR (G4) proves. It runs every call of generation 29 (BLAKE_EXEC_HEIGHT, inlined in G9); zkvm.py survives only
+for the carry's v1 builds and tests.
 
 WHAT CHANGES FROM zkvm.py, opcode by opcode (everything else — registers, the ARG table, storage, PAY, chain reads,
 the asset layer, the ordered public I/O log and its replay — is the same machine):

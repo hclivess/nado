@@ -93,4 +93,4 @@ def build(isa=None):
 # re-roll every raid. So a sovereign holding a log cannot be carried losslessly, and tools/carry.py refuses it as
 # holding storage with no carry rule — the honest answer until the game stores what it reads (each raid's seed value,
 # and a cursor origin). An EMPTY world carries as its v2 build. Do not add CARRY_STORAGE = True here: it would carry
-# the log verbatim and silently replay a different world (tests/test_battleship_hexholm_scrapline_carry_at_rest_and_sovereign_refuses.py).
+# the log verbatim and silently replay a different world (pinned by the gen-28 carry test, retired in G9 with BLAKE_EXEC_HEIGHT).

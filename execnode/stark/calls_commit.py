@@ -113,7 +113,7 @@ def call_leaf(call, cursor=0, timestamp=0, wide=None):
     # different storage transition under a swapped asset with the DA commitment still matching. Bind it in the
     # SAME canonical int form the exec statement uses (_epoch_pub_statement: int(call.asset); 0 == native).
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
-               str(call.get("caller", "epoch")), [_arg_field(a, _blake_exec_at(cur)) for a in call.get("args", [])],
+               str(call.get("caller", "epoch")), [_arg_field(a, True) for a in call.get("args", [])],
                int(call.get("value", 0)), cur, ts, _asset_field(call.get("asset", 0))]
     # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from height 1 this leaf is the
     # full 256-bit digest. Never reduce a wide leaf % P or truncate it — a 64-bit leaf is a ~2^32 birthday
@@ -163,12 +163,6 @@ def _asset_field(a):
         return 0
 
 
-def _blake_exec_at(cursor):
-    """exec_root_b2.blake_exec_at, imported here lazily (this module is on incorporate_block's path)"""
-    from execnode.exec_root_b2 import blake_exec_at
-    return blake_exec_at(cursor)
-
-
 def _arg_field(a, v2=False):
     """One call arg in the SAME field form the VM boundary gives it (runtimes.zkvm_statement): ints pass
     through, strings are digested.
@@ -183,8 +177,8 @@ def _arg_field(a, v2=False):
     cannot appear in a call that executes; digesting its repr keeps the leaf total rather than throwing,
     since this function must never be the reason a block has no summary."""
     from execnode import runtimes
-    # v2 (BLAKE_EXEC_HEIGHT, keyed on the call's own cursor by call_leaf): the gen-29 VM's 256-bit digest — the leaf
-    # binds the statement the VM actually ran, so it digests the way the runtime digests at that cursor
+    # v2 (call_leaf passes True at every cursor — BLAKE_EXEC_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9): the
+    # gen-29 VM's 256-bit digest — the leaf binds the statement the VM actually ran, so it digests as the runtime does
     if isinstance(a, bool) or not isinstance(a, (int, str)):
         return runtimes.zkvm_addr_digest(repr(a), v2)
     return a if isinstance(a, int) else runtimes.zkvm_addr_digest(a, v2)

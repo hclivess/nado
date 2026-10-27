@@ -285,7 +285,7 @@ SETTLE_ACTIVITY_CURSORS = 1440
 # (The settle path no longer consumes this: a first settlement must come from the bonded quorum, so a proof
 # always extends a real committed tip. Kept because the canary is worth more than the one call site was.)
 EXEC_GENESIS_ROOT = "076885ee6a32444b8f3aeb99829c7f8994e6436ce69be7080af1ebaa4726a4a8"
-# ...and the same canary for the BLAKE2s exec root (BLAKE_EXEC_HEIGHT): execnode/exec_root_b2.state_root_hex({}, empty
+# ...and the same canary for the BLAKE2s exec root (gen 29's, at every cursor): execnode/exec_root_b2.state_root_hex({}, empty
 # ExecState). tests/test_the_blake2s_exec_root_is_dormant_now_and_whole_from_its_gate.py recomputes it; a change to the gen-29 scheme fails there before a reroll.
 EXEC_GENESIS_ROOT_B2 = "ea3f3636c2d399b4c011456f8a6158a915d7fd50391e141abe6bccf68877500d"
 
@@ -1687,9 +1687,6 @@ def split_open_block_reward(reward: int):
 #                                    EXEC_BUDGET_V2_HEIGHT (285000 -> 1: a reverting or raising exec call counts
 #                                    its steps against the block's execution budget, so reverts cannot escape it,
 #                                    and no sender may use more than EXEC_SENDER_STEP_SHARE of a block's budget)
-#                                    BLAKE_EXEC_HEIGHT (2^62, DORMANT on gen 28 -> 1: the exec root is the BLAKE2s
-#                                    compressed-tree root of execnode/exec_root_b2.py and exits verify against it;
-#                                    the Goldilocks settle-proof branch is refused — option R, doc/stwo-migration.md)
 #                                    SIG_SCHEMES_HEIGHT (2^62, DORMANT on gen 28 -> 1: an account may sign with a
 #                                    scheme other than ML-DSA-44 — tx `alg`, an address that commits to its scheme;
 #                                    doc/signature-schemes.md)
@@ -2268,16 +2265,10 @@ STWO_PAUSE_HEIGHT = 1 << 62
 # unprovable (settlement_proofs._run_call raises), so the chain's later budget refusals only fall in quorum spans.
 EXEC_BUDGET_V2_HEIGHT = 285000 if CHAIN_GENERATION == 28 else 1
 
-# THE BLAKE2s EXEC ROOT (Goldilocks retirement G2, doc/stwo-migration.md 9.5; the tree shape the operator chose on
-# 2026-10-19 after G1, doc/stwo/g1-tree-shape.md). From this height the exec layer's settled root is
-# execnode/exec_root_b2.py: the same leaves as exec_root.py, BLAKE2s positions, exact integer values, compressed sparse
-# trees — and every exit (bridge/dividend/unshield withdrawal, outbox message) verifies against it. A settled root is
-# read in the format of ITS OWN cursor, so an exit window that straddles the gate checks each root as it was made. The
-# Goldilocks settle-proof branch is refused from here (option R: the bonded quorum settles until the Stwo settlement
-# prover turns on by its own gate); a proof for the old format could never prove a new-format root anyway.
-# DORMANT on generation 28 (2^62: never reached), live from block 1 on generation 29 — the reroll that carries the
-# exec state into this format. Nothing on the live chain changes with this constant.
-BLAKE_EXEC_HEIGHT = (1 << 62) if CHAIN_GENERATION == 28 else 1
+# THE BLAKE2s EXEC ROOT AND THE 256-BIT VM (Goldilocks retirement G2/G3) are generation 29's rules at every height:
+# BLAKE_EXEC_HEIGHT (2^62 on gen 28, 1 from gen 29) was inlined in G9 — execnode/exec_root_b2.py is the exec root and
+# the exit verifier, zkvm2 runs every call, zkvmasm.default_isa is v2. The Goldilocks root/VM survive only as modules
+# the carry and tests name explicitly (execnode/exec_root.py, execnode/zkvm.py, build("v1")).
 
 # THE DIGEST REGISTRY IN THE EXEC ROOT (G4, 2026-10-27; doc/stwo/g4-settlement-statement.md section 5). A zkvm PAY names
 # its payee by a 256-bit digest, and the exec node resolves it through ExecState.zk_addrs, the digest -> address registry
@@ -2809,9 +2800,6 @@ CLIENT_EXPORTS = (
     # the wallet shows the Stwo shielded pool only from this height (static/interface.js stwoGateLive); 2^62 while
     # dormant, which /protocol.js carries as a BigInt
     "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "CHAIN_GENERATION",
-    # the game clients recompute contract hashes in the generation's VM format (static/nadodapp.js vmV2): 1 = the whole
-    # generation is the gen-29 256-bit VM; 2^62 while dormant (a BigInt in /protocol.js, like STWO_POOL_HEIGHT)
-    "BLAKE_EXEC_HEIGHT",
     # the wallet offers a signature scheme per account from this height (doc/signature-schemes.md); 2^62 while dormant
     "SIG_SCHEMES_HEIGHT", "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
     # the wallet proves a Stwo spend at the node config of the block it lands in (static/interface.js stwoCfgId)

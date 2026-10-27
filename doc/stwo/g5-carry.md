@@ -69,7 +69,7 @@ construction, and a pet hatched on gen 29 rolls under BLAKE2s. The v1 build is b
 read a roll are declared per-ISA (`ISA_DIVERGENT_METHODS`). What still reads the gene on v2 is randomness for events
 that have not happened yet (combine's reward roll), which may change freely.
 
-Pinned end to end by `tests/test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28.py`: a farm
+Pinned end to end (until G9 retired it with `BLAKE_EXEC_HEIGHT`, when a gen-28 exec state could no longer be staged) by `tests/test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28.py`: a farm
 staffed on gen 28, carried through the real genesis loader, harvests EXACTLY its gen-28 yield on gen 29 after the
 same blocks; and the bet market beside it reports the same positions and pays every claim exactly as gen 28 would.
 

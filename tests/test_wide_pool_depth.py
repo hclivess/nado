@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 28's gates explicitly — the wide close, the Stwo gate and the Goldilocks exec root its exits verify against (the gen-29
 # rehearsal read the shipped values, all block 1, and every deposit landed in the Stwo pool against a BLAKE2s root).
 import protocol as _Pg, _harness as _hg
-for _g in ("WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT", "BLAKE_EXEC_HEIGHT"):
+for _g in ("WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_POOL_HEIGHT"):        # BLAKE_EXEC_HEIGHT inlined in G9: exits verify BLAKE2s
     setattr(_Pg, _g, _hg.gate_at(_g, 28))
 
 from execnode.state import ExecState

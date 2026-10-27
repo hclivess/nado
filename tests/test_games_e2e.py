@@ -17,13 +17,8 @@ atexit.register(shutil.rmtree, os.environ["HOME"], ignore_errors=True)
 os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.json")
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
-# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
-# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
-# file reading the shipped value.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
+# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
+# file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState
 from execnode import runtimes
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
@@ -58,18 +53,18 @@ def _fresh(mod, deployer=A, cursor=100):
 # ---- coinflip ----------------------------------------------------------------------------------
 def t_coinflip():
     # commit-reveal (Release B): each player commits HASH(secret), both reveal, settle pays HASH(s1+s2+g) parity
-    from execnode.stark import alghash, field as F
     st, code, cid, rd = _fresh(coinflip)
+    H = games_lib.vm_hash                              # the gen-29 VM's HASH (zkvm2.hash_words), as the contract hashes
     st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
     G, s1, s2 = 12345, 0xABC, 0xDEF
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G, alghash.hashn([s1])], "value": 500}, A, "1")
-    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G, alghash.hashn([s2])], "value": 500}, B, "2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G, H([s1])], "value": 500}, A, "1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G, H([s2])], "value": 500}, B, "2")
     assert rd(coinflip.NN, G) == 2 and st.bridge[cid] == 1000
     st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G, s1]}, A, "r1")
     st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G, s2]}, B, "r2")
     st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [G]}, A, "3")
     ws = rd(coinflip.WS, G); winner = A if ws == 1 else B
-    assert ws == (alghash.hashn([(s1 + s2 + G) % F.P]) & 0xFFFFFFFF) % 2 + 1
+    assert ws == (H([(s1 + s2 + G) % games_lib.vm_mod()]) & 0xFFFFFFFF) % 2 + 1
     assert rd(coinflip.SD, G) == 1 and st.bridge.get(cid, 0) == 0
     assert st.bridge[winner] == 1_000_000 - 500 + 1000
     v = st.decode_view(st.contracts[cid])
@@ -279,10 +274,9 @@ def t_stormhold():
     assert rd(sh.CFG, 790) == 0, "cfg-less open must default to 0 (random kingdom)"
     assert rd(sh.C1, 790) == 0, "commit-less open must default to 0 (open-hand)"
 
-    # HIDDEN HANDS: commits stored at open/join; reveal requires alghash(x) == commit; a wrong x reverts
-    from execnode.stark import alghash
+    # HIDDEN HANDS: commits stored at open/join; reveal requires HASH(x) == commit; a wrong x reverts
     XA, XB = 123456789, 987654321
-    ca, cb = alghash.hashn([XA]), alghash.hashn([XB])
+    ca, cb = games_lib.vm_hash([XA]), games_lib.vm_hash([XB])
     G3 = 79
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G3, 0, ca], "value": 10_000}, A, "oh")
     assert rd(sh.C1, G3) == ca, "opener commit stored"
@@ -749,7 +743,6 @@ def t_battleship_stall_paths():
 # ---- pets (tamagotchi NFTs: gene/tier/stats, feeding, training, battles, marketplace) -------------
 def t_pets():
     import random as _r
-    from execnode.stark import alghash as _alg
     st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
     code = ptz.build()
     st.credit_deposit(A, 10**13); st.credit_deposit(B, 10**13)
@@ -769,7 +762,7 @@ def t_pets():
         st.block_hashes[gh] = h0; st.block_hashes[gh + 1] = h1; st.cursor = max(st.cursor, gh + 2)
         assert "ok" in call("hatch", [pid], None, who)
         gene = ptz.ref_gene(h0, h1, pid); sp = ptz.ref_tier(gene)
-        assert rd(ptz.GL, pid) == (gene & 0xFFFFFFFF) and rd(ptz.GH, pid) == (gene >> 32)
+        assert rd(ptz.GL, pid) == (gene & 0xFFFFFFFF) and rd(ptz.GH, pid) == (gene >> 32) & 0xFFFFFFFF   # v2: lo32 of the high word
         assert rd(ptz.SP, pid) == sp and rd(ptz.SI, pid) == ptz.ref_si(gene, sp)
         assert rd(ptz.AP, pid) == ptz.ref_stat(gene, sp, 9) and rd(ptz.PW, pid) == ptz.ref_power(gene, sp)
         genes[pid] = (gene, sp)
@@ -804,9 +797,9 @@ def t_pets():
         # commit-reveal battle (Release B): each owner commits HASH(secret); both reveal; the duel runs over
         # HASH(s1 + s2 + bid) in place of the block-hash pair
         s1, s2 = _r.randint(1, 2**60), _r.randint(1, 2**60)
-        if "revert" in call("challenge", [bid, pa, pb, _alg.hashn([s1])], 1000, A):
+        if "revert" in call("challenge", [bid, pa, pb, games_lib.vm_hash([s1])], 1000, A):
             continue
-        if "revert" in call("accept", [bid, _alg.hashn([s2])], 1000, B):
+        if "revert" in call("accept", [bid, games_lib.vm_hash([s2])], 1000, B):
             continue
         assert "ok" in call("reveal_battle", [bid, s1], None, A) and "ok" in call("reveal_battle", [bid, s2], None, B)
         effA = [ptz.ref_stat(*genes[pa], i) + rd(ptz.TB_BASE + i, pa) for i in range(10)]
@@ -916,7 +909,6 @@ def t_holdem_sidepots():
 
 def t_holdem_full():
     import random as _r
-    from execnode.stark import alghash
     st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
     code = hd.build()
     H, X, Y = "ndoHH" + "H" * 43, "ndoXX" + "X" * 43, "ndoYY" + "Y" * 43
@@ -931,10 +923,10 @@ def t_holdem_full():
     _r.seed(9)
     T, G1, G2, G3 = 500, 501, 502, 503
     xh, xa, xb = _r.randint(1, 2**60), _r.randint(1, 2**60), _r.randint(1, 2**60)
-    assert "ok" in call("open", [T, G1, alghash.hashn([xh]), 1000], 10000, H)
-    assert "ok" in call("join", [T, G2, alghash.hashn([xa])], 5000, X)
-    assert "ok" in call("join", [T, G3, alghash.hashn([xb])], 3000, Y)
-    assert "revert" in call("join", [T, 999, alghash.hashn([1])], 3000, Y), "one seat per address"
+    assert "ok" in call("open", [T, G1, games_lib.vm_hash([xh]), 1000], 10000, H)
+    assert "ok" in call("join", [T, G2, games_lib.vm_hash([xa])], 5000, X)
+    assert "ok" in call("join", [T, G3, games_lib.vm_hash([xb])], 3000, Y)
+    assert "revert" in call("join", [T, 999, games_lib.vm_hash([1])], 3000, Y), "one seat per address"
     assert "ok" in call("start", [T], None, H)
     d0, tg = rd(hd.TD, T), rd(hd.TG, T)
     assert tg == 100 // 60 + 2, "the deal pins the beacon epoch two ahead"

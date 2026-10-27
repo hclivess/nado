@@ -259,8 +259,8 @@ def carry_contract(cid, contract, dmap, tip, v1hash=None, src="v1", dst="v2", am
 def carry_contracts(contracts, zk_addrs, tip, src=None, dst="v2", amap=None):
     """({cid: new record}, the re-keyed registry, {cid: counts}) — every contract, or Refused listing every one that
     cannot carry (all of them at once, so the operator settles everything in one pass). src defaults to the running
-    generation's ISA; dst to v2 — every generation from 29 on runs the BLAKE2s VM from its genesis
-    (protocol.BLAKE_EXEC_HEIGHT is 1 on every generation but 28)."""
+    generation's ISA; dst to v2 — every generation from 29 on runs the BLAKE2s VM from its genesis (BLAKE_EXEC_HEIGHT,
+    gen 28's gate, inlined in G9: zkvmasm.default_isa is v2)."""
     if src is None:
         from execnode import zkvmasm
         src = zkvmasm.default_isa()

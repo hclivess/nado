@@ -34,13 +34,8 @@ for d in ("blocks", "index", "private", "peers", "transactions"):
 
 import logging
 import protocol as P
-# GENERATION 28'S EXEC LAYER is what this file pins (zkvm.py v1, the Goldilocks prover, alghash, field digests); from
-# BLAKE_EXEC_HEIGHT the exec layer is BLAKE2s/zkvm2 and has its own tests. Run under gen 28's gate explicitly, so the old
-# path stays tested while gen 28's history replays through it (until G9 deletes it) — the gen-29 rehearsal found this
-# file reading the shipped value.
-import _harness as _gen28
-import protocol as _P_gen28
-_P_gen28.BLAKE_EXEC_HEIGHT = _gen28.gate_at("BLAKE_EXEC_HEIGHT", 28)
+# BLAKE_EXEC_HEIGHT's gen-28 pin retired in G9: generation 28's rules (the v1 VM, field digests) are gone, so this
+# file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState, asset_id, MAX_EXIT_VALUE
 from execnode import zkvm, zkvmasm
 from execnode.stark import stark
@@ -112,7 +107,7 @@ def t_c1_gate_still_admits_asset_value_into_an_actx_aware_method():
                        "asset": aid}, ALICE, "tx")
     assert r.endswith("-> ok"), r
     assert st.asset_balance(aid, cid) == 500
-    assert int(st.contracts[cid]["storage"]["slots"]["1"]) == int(aid) % stark.F.P, "ACTX saw the asset"
+    assert int(st.contracts[cid]["storage"]["slots"]["1"]) == int(aid), "ACTX saw the asset (whole: the 256-bit VM)"
 
 
 def t_c1_native_value_is_untouched_by_the_gate():

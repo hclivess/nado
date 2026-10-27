@@ -3,7 +3,7 @@
 Operator decision 2026-10-19 after the G1 measurement (doc/stwo/g1-tree-shape.md): the exec root moves from a
 depth-256 sparse tree (512 compressions per path update) to a compressed one (~40 at a million leaves). This module is
 the node-side definition — the Stwo settlement circuit (G4) proves exactly these functions — and it is FROZEN at the
-generation-29 reroll with the root. Nothing here is consensus until a gate uses it (BLAKE_EXEC_HEIGHT, G2).
+generation-29 reroll with the root. It is consensus at every height of generation 29 (BLAKE_EXEC_HEIGHT, G2, inlined in G9).
 
 THE SHAPE (canonical: a function of the key/value set alone, never of insertion order). Keys are 32 bytes, read as 256
 bits most-significant first. The node at a bit prefix p is
