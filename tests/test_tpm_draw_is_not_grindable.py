@@ -39,11 +39,10 @@ for d in ("index", "blocks", "logs", "peers", "private"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 import protocol as P                                                   # noqa: E402
-# THE v1 CHALLENGER POOL (proven challengers), as below TPM_POOL_V2_HEIGHT (100000 on gen 28; block 1 on gen 29, where an
-# enrolment snapshots the online-stake pool of tests/test_tpm_pool_v2.py instead). The commit-then-draw property pinned
-# here holds under both; this file's synthetic history is a v1 pool, so on gen 29 the shipped 1 drew from an empty
-# snapshot (gen-29 rehearsal).
-P.TPM_POOL_V2_HEIGHT = 1 << 62
+# Sections 2-3 draw LEGACY records (no "k": the proven-challenger pool, k = 3) through the pure draw; the apply and
+# validation paths write v2 records (online-stake pool, k = 5 — TPM_POOL_V2_HEIGHT, gen 28's gate, inlined in G9), so
+# every synthetic member is bonded there and lands duties in enough distinct epochs (tests/test_tpm_pool_v2.py pins the
+# pool itself). The commit-then-draw property pinned here holds for both.
 import ops.block_ops as B                                              # noqa: E402
 import ops.transaction_ops as T                                        # noqa: E402
 from ops import tpm_enrol as E, tpm_aik                                # noqa: E402
@@ -102,6 +101,7 @@ def build(until, members, late=()):
     T.get_block_number = lambda n: BLOCKS.get(int(n))
     T._tpm_proven_cache[0] = None
     T._tpm_producer_cache[0] = None
+    T._tpm_presence_cache[0] = None
 
 
 def aik_pub_area(policy: bytes = b""):
@@ -216,6 +216,8 @@ def consensus_path():
     from ops.account_ops import apply_tpm_enrol_tx
     import ops.account_ops as A
     kv_ops.init_env()
+    for a in HONEST + EVIL:                           # the v2 pool is online STAKE: every synthetic member is bonded
+        kv_ops.account_set(a, "bonded", P.B_MIN)
     pub = aik_pub_area(b"honest")
     name_hex = E.aik_name_hex(pub)
     attest_native.verify_ek = lambda chain, now, height=None: {"ok": True, "identity": EK_ID}

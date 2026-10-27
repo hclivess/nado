@@ -54,7 +54,7 @@ from ops.tpm_aik import aik_name, credential_commitment, make_credential, valida
 STATE_OPEN = "open"          # published, waiting for its challengers
 STATE_COMMITTED = "commit"   # the client answered; waiting for the reveals
 STATE_PROVEN = "proven"      # every secret reproduced its blob and the commitment holds
-STATE_FAILED = "failed"      # every secret reproduced its blob but the commitment did not match (TPM_ENROL_V3_HEIGHT)
+STATE_FAILED = "failed"      # every secret reproduced its blob but the commitment did not match (TPM ENROLMENT v3)
 
 
 def enrol_id(chain_id: str, ek_identity: str, aik_name_hex: str) -> str:
@@ -138,9 +138,10 @@ def new_record(ek_identity: str, ek_spki: bytes, aik_name_hex: str, aik_pub: byt
     the record also means the reveal check never re-parses a certificate — the kernel read it once, when the
     vendor signature was verified, and consensus reads the same bytes forever after.
 
-    A v2 RECORD (protocol.TPM_POOL_V2_HEIGHT) also carries its frozen pool, its k and the misses it inherited
-    (`pool` / `k` / `missed`, all given together). Without them the record is the legacy 13-field one, byte for byte —
-    INVARIANT: a record opened below the gate never carries "k" (kv_ops packs it in the short form by that test)."""
+    A v2 RECORD (protocol.py "TPM CHALLENGER POOL v2"; every record apply writes) also carries its frozen pool, its k
+    and the misses it inherited (`pool` / `k` / `missed`, all given together). Without them the record is the legacy
+    13-field one, byte for byte — INVARIANT: a legacy record never carries "k" (kv_ops packs it in the short form by
+    that test)."""
     rec = {"state": STATE_OPEN, "ek": str(ek_identity), "ekpub": ek_spki.hex(),
            "name": str(aik_name_hex),
            "pub": aik_pub.hex(), "owner": str(owner), "h": int(height),
@@ -274,7 +275,7 @@ def apply_reveal(rec: dict, challenger: str, secret: bytes, seed: bytes, height:
         # exactly the k-of-k requirement dissolving into 1-of-k.
         joined = b"".join(bytes.fromhex(r[1]) for r in rec["reveals"])
         if credential_commitment(joined) != rec["commit"] and fail_on_mismatch:
-            # TPM_ENROL_V3_HEIGHT: the last reveal is accepted like every other one and the RECORD fails — the
+            # TPM ENROLMENT v3: the last reveal is accepted like every other one and the RECORD fails — the
             # commitment is the client's message, so the mismatch is the client's, never the last challenger's.
             # INVARIANT: validation and apply take this same branch, so a reveal never passes one and raises in the other.
             rec["state"], rec["hp"] = STATE_FAILED, int(height)
@@ -339,10 +340,10 @@ def aik_name_hex(aik_pub: bytes) -> str:
 
 
 def client_failed(rec: dict, height=None) -> bool:
-    """True when an enrolment ended without proof through its CLIENT (TPM_ENROL_V3_HEIGHT retry cooldown): its commitment
+    """True when an enrolment ended without proof through its CLIENT (TPM ENROLMENT v3 retry cooldown): its commitment
     did not match, or every drawn challenger answered and the client never committed. An enrolment held up by a
-    challenger is not the client's failure and retries at no cost. `height` is the block judging it: from
-    protocol.TPM_RETRY_OWNER_HEIGHT only a WRONG COMMITMENT is the client's failure. An all-answered record the client
+    challenger is not the client's failure and retries at no cost. `height` is the block judging it: from block 1
+    (TPM RETRY PER OPENER) only a WRONG COMMITMENT is the client's failure. An all-answered record the client
     never committed is ambiguous — a challenger can post a valid blob with a sealed secret no chip can open (the
     RSA-OAEP `enc` is randomised and cannot be checked), or post it in the record's last block — so it is charged to
     nobody; a stranger with a copied certificate rotates addresses anyway, so counting it bound only honest clients."""
@@ -354,24 +355,24 @@ def client_failed(rec: dict, height=None) -> bool:
                 and len(_pairs(rec, "blobs")) == len(rec.get("challengers") or []))
     if not answered:
         return False
-    from protocol import TPM_RETRY_OWNER_HEIGHT
     # INVARIANT: a party is charged only for what it could have done and verifiably did not (faults() is the
     # challengers' half of the same rule).
-    return height is None or int(height) < TPM_RETRY_OWNER_HEIGHT
+    # TPM_RETRY_OWNER_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `< 1` and None kept — admission on a genesis
+    # tip and a caller with no height still judge by the chip-wide rule, as they did.
+    return height is None or int(height) < 1
 
 
 def retry_key(rec: dict, height) -> str:
-    """The retry-count identity a failure of `rec` is charged to: the chip (TPM_ENROL_V3_HEIGHT), or from
-    protocol.TPM_RETRY_OWNER_HEIGHT the chip AND the identity that opened it, "<ek>:<owner>" — a certificate is public,
-    so a stranger's failed enrolments must not cool the owner's chip down. Below the gate it is the chip alone, byte for
-    byte the row the chain already holds."""
-    from protocol import TPM_RETRY_OWNER_HEIGHT
+    """The retry-count identity a failure of `rec` is charged to: from block 1 the chip AND the identity that opened
+    it, "<ek>:<owner>" — a certificate is public, so a stranger's failed enrolments must not cool the owner's chip
+    down. At height 0 it is the chip alone, as before the rule."""
     ek = str(rec.get("ek") or "")
-    return ek if int(height) < TPM_RETRY_OWNER_HEIGHT else f"{ek}:{rec.get('owner')}"
+    # TPM_RETRY_OWNER_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `< 1` kept for admission on a genesis tip
+    return ek if int(height) < 1 else f"{ek}:{rec.get('owner')}"
 
 
 def retry_ready_at(rec: dict, failures: int, height=None) -> int:
-    """The first height a chip may enrol again after `rec` (TPM_ENROL_V3_HEIGHT): the record's expiry, plus
+    """The first height a chip may enrol again after `rec` (TPM ENROLMENT v3): the record's expiry, plus
     TPM_RETRY_COOLDOWN_BASE * 2^failures (capped) when the client failed it (judged at `height`, see client_failed)."""
     from protocol import TPM_RETRY_COOLDOWN_BASE, TPM_RETRY_COOLDOWN_MAX_EXP
     end = expiry(rec)

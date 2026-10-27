@@ -31,6 +31,10 @@ REROLL = {
     "EVICT_VOIDS_EPOCH_HEIGHT": 1,             # 132000 on gen 28: a device move voids through the epoch
     "TPM_ENROL_V3_HEIGHT": 1,                  # 132000 on gen 28: failed commitments, retry cooldown
     "TPM_RETRY_OWNER_HEIGHT": 1,               # 175000 on gen 28: retry count per (chip, opener), only a wrong commit counts
+    "BEACON_EXTEND_HEIGHT": 1,                 # 132000 on gen 28: a reveal-less epoch's beacon waits for reveals
+    "REVEAL_SEATLESS_HEIGHT": 1,               # 135300 on gen 28: a reveal-only duty needs no seat
+    "RANDAO_MISS_POOL_HEIGHT": 1,              # 156400 on gen 28 (absent-only; 164100 was withdrawn before firing): an unrevealed commitment leaves the TPM pool
+    "REGISTRY_SNAPSHOT_HEIGHT": 1,             # 135300 on gen 28: draws read the registry frozen at the anchor
     "WIDE_DEPOSIT_CLOSE_HEIGHT": 1,            # 175000 on gen 28: no new wide-pool deposits (it never held a note)
     "EXEC_BUDGET_V2_HEIGHT": 1,           # 285000 on gen 28: reverting calls pay their steps into the block budget
     "BLAKE_EXEC_HEIGHT": 1,                    # dormant (2^62) on gen 28: the BLAKE2s exec root and exits (Goldilocks G2)
@@ -41,7 +45,6 @@ REROLL = {
     "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     "STWO_FEE_TO_HEIGHT": 1,                   # 280000 on gen 28: a Stwo spend may name its fee's payee (shadow accounts)
     "STWO_POOL_HEIGHT": 1,                     # 269000 on gen 28 (after the 2026-10-11/12 review): the Stwo shielded pool
-    "CARRY_FIDELITY_ALL_HEIGHT": 1,            # 160020 on gen 28: the dividend replay carries identities absent at the reroll
     "REFERRAL_HEIGHT": 1,                      # 107000 on gen 28: referral links, the 10 % slice, funded invites
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
@@ -75,6 +78,10 @@ DELETED = (
     "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
     "ZK_HARDEN_HEIGHT",      # `>= 1` kept where height 0 reaches: calls_commit.wide_binding, shielded_wide.depth_at,
                              # stark.rules_for_height
+    # G9 slice 3c (gen 29): gen-28 TPM / eviction / carry-fidelity gates, reroll value 1 — `>= 1` kept at enrolment
+    # validation (admission on a genesis tip), in tpm_enrol.client_failed / retry_key and account_ops._evict_voids
+    "TPM_POOL_CHALLENGER_ACTS_HEIGHT", "TPM_POOL_V2_HEIGHT", "TPM_ENROL_V3_HEIGHT", "TPM_RETRY_OWNER_HEIGHT",
+    "EVICT_VOIDS_EPOCH_HEIGHT", "CARRY_FIDELITY_ALL_HEIGHT",
 )
 
 

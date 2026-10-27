@@ -1657,11 +1657,18 @@ def split_open_block_reward(reward: int):
 #   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
 #                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
 #                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
-# GEN-28 GATES (betanet-9) are keyed `== 28`:  TPM_POOL_CHALLENGER_ACTS_HEIGHT (92000 -> 1: the challenger pool counts
-#                                    only challengers' own acts, never the enrollee's tpm_commit),
-#                                    TPM_POOL_V2_HEIGHT (100000 -> 1: the TPM challenger pool is online
-#                                    stake, k = 5, a challenger that failed a draw sits out a day)
-#                                    REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
+# GEN-28 GATES INLINED IN G9 (slice 3c; the rule is unconditional, `>= 1` kept only where height 0 reaches):
+#   TPM_POOL_CHALLENGER_ACTS_HEIGHT  the challenger pool counts only challengers' own acts (window hi = 0 scans nothing)
+#   TPM_POOL_V2_HEIGHT               online-stake pool, k = 5, misses excluded (`>= 1` at enrol validation: admission
+#                                    on a genesis tip judges the legacy pool, as it did)
+#   TPM_ENROL_V3_HEIGHT              a wrong commitment fails the record, client-failed retries cool down (`>= 1` at
+#                                    validation, as above)
+#   TPM_RETRY_OWNER_HEIGHT           retry count per (chip, opener) (`< 1` / None kept in tpm_enrol.client_failed and
+#                                    retry_key, `>= 1` at validation)
+#   EVICT_VOIDS_EPOCH_HEIGHT         a device move voids the evicted identity through the epoch (`>= 1` with None kept)
+#   CARRY_FIDELITY_ALL_HEIGHT        the dividend replay starts an absent carried identity from its carried fidelity
+#                                    (`epoch >= 0` kept: a negative epoch still reads 0)
+# GEN-28 GATES (betanet-9) are keyed `== 28`:  REFERRAL_HEIGHT (107000 -> 1: a first registration may name a
 #                                    referrer, who earns 10 % of the newcomer's dividend weight for 30 days; weights
 #                                    are scaled by 10 from the gate's epoch, REFERRAL_HEIGHT // EPOCH_LENGTH)
 #                                    EVICT_VOIDS_EPOCH_HEIGHT (132000 -> 1: a device move voids the
@@ -1671,6 +1678,13 @@ def split_open_block_reward(reward: int):
 #                                    only a wrong commitment counts as the client's failure)
 #                                    CARRY_FIDELITY_ALL_HEIGHT (160020 -> 1: the dividend replay continues an
 #                                    identity ABSENT at the reroll from its carried fidelity, as the live apply does)
+#                                    BEACON_EXTEND_HEIGHT (132000 -> 1: the exec BEACON of an
+#                                    epoch with no reveals takes the next revealed epoch's reveals)
+#                                    REVEAL_SEATLESS_HEIGHT (135300 -> 1: a reveal-only duty needs
+#                                    no committee seat), RANDAO_MISS_POOL_HEIGHT (156400 -> 1: an
+#                                    unrevealed commitment for epoch E leaves the TPM challenger pool for E),
+#                                    REGISTRY_SNAPSHOT_HEIGHT (135300 -> 1: the producer draw and the
+#                                    duty committee read the bonded registry frozen at the epoch's anchor block)
 #                                    WIDE_DEPOSIT_CLOSE_HEIGHT (175000 -> 1: the wide shielded pool takes no new
 #                                    deposits; it held none, so the Stwo gate can freeze nothing)
 #                                    STWO_POOL_HEIGHT (269000 -> 1: the Stwo shielded pool is ON after the in-house
@@ -2055,8 +2069,8 @@ DEVICE_ATTEST_EK_PROVEN_WINDOW = 6000
 # answered. Each such seat weighs 1 against ~100 for a node, but costs nothing, so enough of them dilute the pool — dead
 # draws that fail honest enrolments, and, held often enough, all three seats of one enrolment (a forged identity).
 # From this height the pool counts tpm_challenge and tpm_reveal (sent only by DRAWN challengers) and the bonded
-# tpm_ready; never the enrollee's commit. Keyed on the window the draw reads, so a replay keeps every earlier verdict.
-TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
+# tpm_ready; never the enrollee's commit. TPM_POOL_CHALLENGER_ACTS_HEIGHT (gen 28's gate, 1 from gen 29) was inlined in
+# G9: the rule holds for every window (one ending at block 0 scans nothing).
 
 # AND A FALLBACK, OR A FRESH CHAIN DEADLOCKS. Eligibility earned by acting, where acting requires being
 # drawn, excludes everyone at genesis and after any long quiet period. When fewer than
@@ -2065,8 +2079,8 @@ TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
 # DEVICE_ATTEST_EK_PROVEN_HEIGHT: gen 25 gate at 59400; 1 from gen 26 — deleted after the betanet-8 reroll, the rule holds from block 1.
 
 # TPM CHALLENGER POOL v2 (operator-approved 2026-10-06): ONLINE STAKE, k = 5, MISSES EXCLUDED.
-# An enrolment opened at h >= TPM_POOL_V2_HEIGHT is a "v2" record (ops/tpm_enrol.is_v2); every older record keeps
-# exactly the draw above (_tpm_pool, including TPM_POOL_CHALLENGER_ACTS_HEIGHT), so a replay moves no verdict.
+# Every enrolment applied from block 1 is a "v2" record (ops/tpm_enrol.is_v2). TPM_POOL_V2_HEIGHT (gen 28's gate, 1
+# from gen 29) was inlined in G9; the legacy draw above (_tpm_pool) answers only admission against a genesis tip.
 #   POOL      an account is eligible when it holds bonded >= B_MIN at the enrol block AND landed an FFG duty tx in at
 #             least TPM_POOL_PRESENCE_MIN DISTINCT epochs of the DEVICE_ATTEST_EK_PROVEN_WINDOW / EPOCH_LENGTH epochs
 #             before the enrol block's epoch (transaction_ops._duty_presence) AND is not excluded. Weight = bonded //
@@ -2079,9 +2093,8 @@ TPM_POOL_CHALLENGER_ACTS_HEIGHT = 92000 if CHAIN_GENERATION == 28 else 1
 #             record's expiry (transaction_ops._tpm_excluded). Read from state only; no new transaction type. A record
 #             whose challengers all answered and whose CLIENT never committed faults nobody, and neither does a commit
 #             that landed within TPM_REVEAL_GRACE of expiry (the client picks when to commit; nobody can reveal after).
-# 100000 on gen 28: shipped at tip ~96980 (7.5 s blocks, ~6 h of /update wave); measured then: 10 eligible accounts,
-# total weight 272, so k = 5 seats (an enrol is refused when it cannot).
-TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1
+# Shipped on gen 28 at 100000 (tip ~96980); measured then: 10 eligible accounts, total weight 272, so k = 5 seats (an
+# enrol is refused when it cannot).
 DEVICE_ATTEST_EK_CHALLENGERS_V2 = 5      # k for a v2 record: forging needs all five drawn parties to collude
 TPM_POOL_PRESENCE_MIN = 50               # distinct epochs (of the 100 the proven window covers) with a landed duty tx
 TPM_MISS_EXCLUDE_BLOCKS = 14400          # one day: how long a failed challenger stays out of the v2 pool
@@ -2160,8 +2173,8 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # at the gen-28 reroll replayed as newcomers — measured 2026-10-10: account fidelity 16 vs dividend fidelity 12. OUR BUG
 # (the a344f923 fix covered the present ones only). From this height's epoch the replay starts an absent carried
 # identity from its carried value, so its first recert is a lapse through fidelity_step exactly as the live apply did.
-# Weights of epochs before it are unchanged: no back-pay (operator, 2026-10-10). The first block of epoch 2667.
-CARRY_FIDELITY_ALL_HEIGHT = 160020 if CHAIN_GENERATION == 28 else 1
+# Weights of epochs before it were unchanged: no back-pay (operator, 2026-10-10). 160020 on gen 28 (epoch 2667); from
+# gen 29 every epoch (CARRY_FIDELITY_ALL_HEIGHT inlined in G9).
 
 # THE STWO SHIELDED POOL (doc/stwo-migration.md §5.1; execnode/shielded_stwo.py, native/stwo_js). From this height
 # deposits land in the Stwo pool and only a `stwo_js` bundle spends from it. ON from 269000 (operator, 2026-10-11: "you
@@ -2311,9 +2324,8 @@ SIG_ML44_ONLY_RECIPIENTS = ("auth", "bond", "register", "attest", "commit", "rev
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
 # wrong client commitment fails the record instead of refusing the last reveal, and a chip whose enrolment failed by
-# its own client waits a growing cooldown before enrolling again. Live at 132000 (2026-10-08, tip 128965 + ~5 h for the update wave).
-EVICT_VOIDS_EPOCH_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
-TPM_ENROL_V3_HEIGHT = 132000 if CHAIN_GENERATION == 28 else 1
+# its own client waits a growing cooldown before enrolling again. Live at 132000 on gen 28; from block 1 on gen 29
+# (EVICT_VOIDS_EPOCH_HEIGHT and TPM_ENROL_V3_HEIGHT inlined in G9).
 TPM_RETRY_COOLDOWN_BASE = 300            # blocks; doubles per consecutive client-failed enrolment of one chip
 TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6.3 s)
 # TPM RETRY PER OPENER (review 2026-10-11). An endorsement certificate is public and tpm_enrol is free, so a stranger
@@ -2325,7 +2337,7 @@ TPM_RETRY_COOLDOWN_MAX_EXP = 8           # cap: 300 * 2^8 blocks (~4.5 days at 6
 # window. And only a WRONG COMMITMENT counts against a client: an all-answered record it never committed is ambiguous
 # (an unopenable sealed secret is indistinguishable from a client that walked away), and the address-rotating stranger
 # was never bound by it. INVARIANT: a failure is charged to the party that verifiably failed, never to the chip's name.
-TPM_RETRY_OWNER_HEIGHT = 175000 if CHAIN_GENERATION == 28 else 1
+# 175000 on gen 28; from block 1 on gen 29 (TPM_RETRY_OWNER_HEIGHT inlined in G9).
 
 # AT-MOST-ONCE, STRICT FROM HERE (2026-09-13). The canonical chain carries transactions included TWICE —
 # measured: 13 txids at 69056/69057 and 78078, each a replay of a tx mined ~150 blocks earlier, exactly at

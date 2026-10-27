@@ -1,11 +1,13 @@
-"""A device move ends the previous identity's lease for the whole epoch (protocol.EVICT_VOIDS_EPOCH_HEIGHT).
+"""A device move ends the previous identity's lease for the whole epoch (gen 28's EVICT_VOIDS_EPOCH_HEIGHT,
+inlined in G9: the rule holds at every block).
 
 Through the real apply path (reflect_transaction on register txs; only the certificate parser is stubbed so a fake
 statement {"k": key} binds to that key):
-  * from the gate, identity X whose device moved to Y in epoch E is absent from present_at_epoch(E) even when X's own
-    statement-free renewal is applied after the move at the same height; before the gate the old rule holds;
+  * identity X whose device moved to Y in epoch E is absent from present_at_epoch(E) even when X's own statement-free
+    renewal is applied after the move at the same height (from the earliest epochs on);
   * X counts again after a register of its own in a later epoch;
   * reverting the move restores X's eviction list exactly.
+The pre-gate half (an eviction voided only the latest recert) is retired in G9: generation 28's rules.
 
 Run: python3 tests/test_device_move_ends_lease_for_the_epoch.py
 """
@@ -28,8 +30,6 @@ from ops.dividend_ops import present_at_epoch
 from signatures import generate_keydict
 
 L = P.EPOCH_LENGTH
-GATE = 600 * L
-P.EVICT_VOIDS_EPOCH_HEIGHT = GATE
 DA.device_binding_key = lambda dev, *_a, **_k: dev["k"]
 DA.credential_public_key = lambda dev: None
 
@@ -64,16 +64,12 @@ def scenario(base_epoch, key):
     return x, y, e, h
 
 
-def t_before_gate():
-    x, y, e, _h = scenario(10, "ledger:before")
-    assert x in present_at_epoch(e) and y in present_at_epoch(e), "before the gate the old rule holds"
-
-
 def t_from_gate():
-    x, y, e, _h = scenario(700, "ledger:after")
-    pres = present_at_epoch(e)
-    assert x not in pres and y in pres, "from the gate the moved-from identity is absent for the epoch"
-    assert x not in present_at_epoch(e + 1)
+    for base, key in ((0, "ledger:early"), (700, "ledger:after")):    # epoch 400 (block ~24000) and epoch 1100
+        x, y, e, _h = scenario(base, key)
+        pres = present_at_epoch(e)
+        assert x not in pres and y in pres, f"the moved-from identity is absent for the epoch (epoch {e})"
+        assert x not in present_at_epoch(e + 1)
 
 
 def t_counts_again_after_a_later_register():
@@ -93,8 +89,7 @@ def t_revert_is_exact():
     assert kv_ops.devevict_get(x) == before, "revert restores the eviction list"
 
 
-for name, fn in [("before the gate an eviction voids only the latest recert", t_before_gate),
-                 ("from the gate the moved-from identity is absent for the whole epoch", t_from_gate),
+for name, fn in [("the moved-from identity is absent for the whole epoch", t_from_gate),
                  ("a register in a later epoch counts again", t_counts_again_after_a_later_register),
                  ("reverting the move restores the eviction list exactly", t_revert_is_exact)]:
     check(name, fn)

@@ -821,13 +821,14 @@ def referral_to_write(transaction: dict, block_height: int, device_key, legacy_k
 
 
 def _evict_voids(evicted: str, epoch: int, height) -> int:
-    """The recert epoch an eviction voids (protocol.EVICT_VOIDS_EPOCH_HEIGHT): from the gate, EVERY recert of the evicted
-    identity up to and including this epoch. Before it, only its latest recert as the parent block left it — which a
-    renewal of the evicted identity applied later in the SAME block (renewals bind no device, so they share a block
-    with the move) slipped past, keeping it present for a whole lease while another identity held the device.
+    """The recert epoch an eviction voids: EVERY recert of the evicted identity up to and including this epoch. Voiding
+    only its latest recert as the parent block left it let a renewal of the evicted identity applied later in the SAME
+    block (renewals bind no device, so they share a block with the move) slip past, keeping it present for a whole lease
+    while another identity held the device.
     INVARIANT: an identity a device left counts again only with a register in a LATER epoch."""
-    from protocol import EVICT_VOIDS_EPOCH_HEIGHT
-    if height is not None and int(height) >= EVICT_VOIDS_EPOCH_HEIGHT:
+    # EVICT_VOIDS_EPOCH_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1` and the None case kept, so a call
+    # without a block height (height=None, apply_register's default) still voids only the latest recert, as it did.
+    if height is not None and int(height) >= 1:
         return int(epoch)
     return kv_ops.recert_latest(evicted)
 
@@ -1026,7 +1027,7 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # same id left the marker on that id instead of the one it replaced. The marker is in devbind, so in the
         # L1 root: a state-root split from a one-block reorg. INVARIANT: revert restores what apply journaled
         # (kv_ops.tpm_enrol_open_revert_put); it never re-derives a prior value.
-        # INVARIANT: the retry count (TPM_ENROL_V3_HEIGHT) is restored from its own journal, popped by the first
+        # INVARIANT: the retry count (retry spacing) is restored from its own journal, popped by the first
         # revert of this block to reach the chip, because apply journaled the value before the block changed it.
         rfound, rprev, rkey = kv_ops.tpm_retry_revert_pop(h, ek_id)
         if rfound:
@@ -1049,21 +1050,19 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # COMMIT, THEN DRAW (ops/tpm_enrol, audit 2026-09-27): the record is written with NO challengers — its dice
         # are two epochs away — and the first tpm_challenge materialises them.
         # INVARIANT: never draw here; a draw at the enrol is a draw the client could predict.
-        from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
-        if h >= TPM_POOL_V2_HEIGHT:
-            # TPM POOL v2: the POOL is frozen here (the dice are still two epochs away) and stored in the record with
-            # its k, so the draw reads this snapshot and nothing later can move it; and the misses of the expired
-            # record this one supersedes (same chip, same key, same id) are carried, or a retry would erase them.
-            # INVARIANT: tpm_pool_v2 is the function validation checked pool_can_seat against; the journal above
-            # holds `prev` whole, so a rollback restores the superseded record and its fields exactly.
-            from ops.transaction_ops import tpm_pool_v2, tpm_carry_misses
-            rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
-                                 _te.aik_name_hex(pub), pub, sender, h, [],
-                                 pool=sorted(tpm_pool_v2(h).items()), k=DEVICE_ATTEST_EK_CHALLENGERS_V2,
-                                 missed=tpm_carry_misses(prev, h))
-        else:
-            rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
-                                 _te.aik_name_hex(pub), pub, sender, h, [])
+        from protocol import DEVICE_ATTEST_EK_CHALLENGERS_V2
+        # TPM POOL v2: the POOL is frozen here (the dice are still two epochs away) and stored in the record with
+        # its k, so the draw reads this snapshot and nothing later can move it; and the misses of the expired
+        # record this one supersedes (same chip, same key, same id) are carried, or a retry would erase them.
+        # TPM_POOL_V2_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): unconditional, since a block applying a
+        # tx is never block 0 (genesis carries none). INVARIANT: every record written by apply is a v2 record.
+        # INVARIANT: tpm_pool_v2 is the function validation checked pool_can_seat against; the journal above
+        # holds `prev` whole, so a rollback restores the superseded record and its fields exactly.
+        from ops.transaction_ops import tpm_pool_v2, tpm_carry_misses
+        rec = _te.new_record(str(ek["identity"]), attest_native.ek_public_der(chain[0]),
+                             _te.aik_name_hex(pub), pub, sender, h, [],
+                             pool=sorted(tpm_pool_v2(h).items()), k=DEVICE_ATTEST_EK_CHALLENGERS_V2,
+                             missed=tpm_carry_misses(prev, h))
     elif recipient == "tpm_challenge":
         # The journal above holds `prev` as it was — for a delayed record, with its set still empty — so a rollback
         # of the materialising challenge restores the undrawn record exactly (Rollback must be the exact inverse).
@@ -1074,9 +1073,10 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
     elif recipient == "tpm_commit":
         rec = _te.apply_commit(prev, sender, str(data["commit"]), h)
     else:
-        from protocol import TPM_ENROL_V3_HEIGHT
+        # TPM_ENROL_V3_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): a wrong commitment FAILS the record at
+        # every applied block (h >= 1). INVARIANT: validation passes the same flag for every block_height >= 1.
         rec = _te.apply_reveal(prev, sender, bytes.fromhex(data["secret"]), bytes.fromhex(data["seed"]), h,
-                               fail_on_mismatch=h >= TPM_ENROL_V3_HEIGHT)
+                               fail_on_mismatch=True)
     kv_ops.tpm_enrol_set(eid, rec)
     if recipient == "tpm_enrol":
         # INVARIANT: journal the marker this overwrites BEFORE overwriting it — revert restores exactly that value
@@ -1084,13 +1084,13 @@ def apply_tpm_enrol_tx(transaction, block_height, revert=False):
         # chip's second enrolment). Node-local journal; the devbind write below is unchanged.
         _ek_id = str(ek["identity"])
         _old = kv_ops.tpm_enrol_open_for_ek(_ek_id)
-        # TPM_ENROL_V3_HEIGHT: a chip enrolling again after its CLIENT failed the last enrolment counts one more failure
+        # RETRY SPACING: a chip enrolling again after its CLIENT failed the last enrolment counts one more failure
         # (validation already held it to retry_ready_at). The prior count is journaled; revert restores it.
-        from protocol import TPM_ENROL_V3_HEIGHT
-        if h >= TPM_ENROL_V3_HEIGHT and _old:
+        # TPM_ENROL_V3_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): unconditional, an applied block is h >= 1.
+        if _old:
             _old_rec = prev if str(_old) == eid else kv_ops.tpm_enrol_get(str(_old))
             if _te.client_failed(_old_rec, h):
-                # charged to retry_key: the chip below TPM_RETRY_OWNER_HEIGHT, (chip, the failed record's opener) from it.
+                # charged to retry_key: (chip, the failed record's opener) — TPM_RETRY_OWNER_HEIGHT, inlined in G9.
                 # The journal names the row it saved, so revert restores that row and never re-derives which one it was.
                 _key = _te.retry_key(_old_rec, h)
                 _n = kv_ops.tpm_retry_get(_key)

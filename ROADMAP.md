@@ -430,7 +430,7 @@ Mitigated in part since: the draw now prefers nodes that have volunteered (`tpm_
 acted as challengers, so an adversary must run announcing infrastructure rather than merely look like a
 validator. That changes `p`; it does not remove the attack.
 
-Narrowed further from block 100000 (`protocol.TPM_POOL_V2_HEIGHT`, challenger pool v2): the pool is online bonded
+Narrowed further by challenger pool v2 (block 100000 on gen 28, block 1 since gen 29): the pool is online bonded
 stake (weight `bonded // B_MIN`, a landed duty in >= 50 of the last 100 epochs), k = 5, and a drawn challenger that
 fails a record sits out a day — see doc/tpm-attestation-without-a-ca.md. The table above predates it (k = 3). A
 supersede still redraws, so the resampling weakness is narrower, not gone.

@@ -594,11 +594,10 @@ def _proven_challengers(block_height: int) -> dict:
     if wkey in entry:
         return dict(entry[wkey])
     acted, duties = set(), {}
-    # ONLY A CHALLENGER'S OWN ACTS (protocol.TPM_POOL_CHALLENGER_ACTS_HEIGHT): tpm_commit is the ENROLLEE's message, so
-    # counting it let anyone buy a free seat by opening an enrolment and committing garbage. Keyed on `hi` (the draw's
-    # window), never on the scanned block, so one window has one rule. INVARIANT: never count an enrollee's tx here.
-    from protocol import TPM_POOL_CHALLENGER_ACTS_HEIGHT
-    _acts_only = hi >= TPM_POOL_CHALLENGER_ACTS_HEIGHT
+    # ONLY A CHALLENGER'S OWN ACTS (TPM_POOL_CHALLENGER_ACTS_HEIGHT, gen 28's gate, 1 from gen 29, inlined in G9):
+    # tpm_commit is the ENROLLEE's message, so counting it let anyone buy a free seat by opening an enrolment and
+    # committing garbage. The gate was keyed on `hi`, and a window with hi = 0 scans no block, so the rule is
+    # unconditional. INVARIANT: never count an enrollee's tx here.
     for h in range(lo, hi):
         block = get_block_number(h)
         if not block:
@@ -622,7 +621,7 @@ def _proven_challengers(block_height: int) -> dict:
             r, who = t.get("recipient"), t.get("sender")
             if not who:
                 continue
-            if r in ("tpm_challenge", "tpm_reveal") or (r == "tpm_commit" and not _acts_only):
+            if r in ("tpm_challenge", "tpm_reveal"):
                 # ACTED. Having answered a challenge proves the loop was running, and it counts for the
                 # full window because a challenger only acts when it is drawn — a node willing for hours
                 # may simply not have been picked.
@@ -667,7 +666,7 @@ _tpm_presence_cache = [None]           # [{(lo, hi, hash of block hi-1): {addres
 
 def _duty_presence(block_height: int) -> dict:
     """{address: DISTINCT EPOCHS with a landed FFG duty tx} over proven_window(block_height) — the presence half of
-    the v2 challenger pool (protocol.TPM_POOL_V2_HEIGHT).
+    the v2 challenger pool (protocol.py "TPM CHALLENGER POOL v2").
 
     EPOCHS, NOT TRANSACTIONS. A count of duty txs rewards whoever lands the most of them; a distinct-epoch count asks
     the only question the pool needs — was this validator's loop running, epoch after epoch — and a burst cannot buy
@@ -819,8 +818,8 @@ def _randao_unrevealed(block_height: int, candidates) -> set:
 
 
 def tpm_pool_v2(block_height: int) -> dict:
-    """{address: weight} a v2 enrolment opened at `block_height` is drawn from (protocol.TPM_POOL_V2_HEIGHT): ONLINE
-    STAKE — bonded >= B_MIN now, an FFG duty landed in >= TPM_POOL_PRESENCE_MIN distinct epochs of the proven window,
+    """{address: weight} a v2 enrolment opened at `block_height` is drawn from (protocol.py "TPM CHALLENGER POOL
+    v2"): ONLINE STAKE — bonded >= B_MIN now, an FFG duty landed in >= TPM_POOL_PRESENCE_MIN distinct epochs of the proven window,
     not excluded for a recent miss — weighted bonded // B_MIN.
 
     STAKE PRICES THE SEAT. Weighting by duty count let thin accounts earn seats cheaply; weighting by bonded stake
@@ -872,18 +871,15 @@ def tpm_drawn_challengers(rec: dict, block_height: int):
 
 
 def tpm_retry_view(rec: dict, tip: int) -> dict:
-    """The retry fields /tpm_enrolment serves (protocol.TPM_ENROL_V3_HEIGHT): {"client_failed", "retry_ready_at"} — the
-    first block a new enrolment of this chip validates at, by the SAME rule validate_transaction enforces (the record's
-    expiry, plus the spacing when its client failed it, from the gate on).
+    """The retry fields /tpm_enrolment serves (retry spacing, TPM ENROLMENT v3): {"client_failed", "retry_ready_at"} —
+    the first block a new enrolment of this chip validates at, by the SAME rule validate_transaction enforces (the
+    record's expiry, plus the spacing when its client failed it).
     INVARIANT: a client told retry_ready_at = N is accepted at N and refused at N - 1."""
-    from protocol import TPM_ENROL_V3_HEIGHT
     from ops import tpm_enrol as _te
+    # TPM_ENROL_V3_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): h = tip + 1 >= 1, so the spacing always applies
     h = int(tip) + 1
     failed = bool(_te.client_failed(rec, h))
-    if h < TPM_ENROL_V3_HEIGHT:
-        return {"client_failed": failed, "retry_ready_at": int(_te.expiry(rec))}
-    # the OPENER's view (it is the one a retry spacing can hold back; from TPM_RETRY_OWNER_HEIGHT anyone else waits
-    # for the expiry alone)
+    # the OPENER's view (it is the one a retry spacing can hold back; anyone else waits for the expiry alone)
     return {"client_failed": failed,
             "retry_ready_at": int(_te.retry_ready_at(rec, kv_ops.tpm_retry_get(_te.retry_key(rec, h)), h))}
 
@@ -1083,7 +1079,7 @@ def verify_register_device_ek(transaction: dict, anchor_hash: str) -> dict:
     # bytes, exactly like every other device class: apply and revert then derive the same key with no DB read,
     # and a record that changed underneath could never move a binding.
     assert dev.get("ek") == rec["ek"], "the declared endorsement identity is not this enrolment's"
-    # the record's OWN k: 3 for a legacy record (unchanged), 5 for a v2 one (protocol.TPM_POOL_V2_HEIGHT)
+    # the record's OWN k: 3 for a legacy record (unchanged), 5 for a v2 one (protocol.py "TPM CHALLENGER POOL v2")
     assert len(rec["challengers"]) == record_k(rec), \
         "this enrolment was proved against the wrong number of challengers"
     cert_info = _hex_bytes(dev.get("certinfo"), 2048, "certInfo")
@@ -2500,12 +2496,12 @@ def _validate_tpm_ceremony(transaction, block_height, recipient):
             assert not (_prev and _prev.get("state") != "proven"
                         and block_height < int(_prev["h"]) + _te.enrol_window(_prev["h"])), \
                 "this chip already has an enrolment in progress — finish it or wait for it to expire"
-            from protocol import TPM_ENROL_V3_HEIGHT
-            if _prev and block_height >= TPM_ENROL_V3_HEIGHT:
-                from protocol import TPM_RETRY_OWNER_HEIGHT
-                # TPM_RETRY_OWNER_HEIGHT: the cooldown is the OPENER's, so it holds back only the identity that
-                # failed; anyone else waits for the record's expiry alone (one open enrolment per chip still holds).
-                if block_height >= TPM_RETRY_OWNER_HEIGHT and str(_prev.get("owner")) != str(sender):
+            # TPM_ENROL_V3_HEIGHT / TPM_RETRY_OWNER_HEIGHT (gen 28's gates, 1 from gen 29, inlined in G9): `>= 1` kept,
+            # since mempool admission on a genesis tip judges at block_height 0, where neither rule held.
+            if _prev and block_height >= 1:
+                # RETRY PER OPENER: the cooldown is the OPENER's, so it holds back only the identity that failed;
+                # anyone else waits for the record's expiry alone (one open enrolment per chip still holds).
+                if str(_prev.get("owner")) != str(sender):
                     _ready = _te.expiry(_prev)
                 else:
                     _ready = _te.retry_ready_at(
@@ -2519,8 +2515,10 @@ def _validate_tpm_ceremony(transaction, block_height, recipient):
         # (exact sampling always does when it has k weighted members).
         # INVARIANT: never draw here from anything the client chose (eid hashes its public area) or from a beacon
         # it already knows (this epoch's) — that is the grind the delayed draw closes.
-        from protocol import TPM_POOL_V2_HEIGHT, DEVICE_ATTEST_EK_CHALLENGERS_V2
-        if block_height >= TPM_POOL_V2_HEIGHT:
+        from protocol import DEVICE_ATTEST_EK_CHALLENGERS_V2
+        # TPM_POOL_V2_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1` kept, because admission on a genesis
+        # tip judges at block_height 0 against the legacy pool. INVARIANT: apply builds the v2 record at every block.
+        if block_height >= 1:
             # TPM POOL v2: the pool this enrolment will be drawn from is the snapshot apply stores (tpm_pool_v2,
             # the same function), and it must seat k = 5. INVARIANT: the same call here and in apply.
             assert _te.pool_can_seat(tpm_pool_v2(block_height), DEVICE_ATTEST_EK_CHALLENGERS_V2), \
@@ -2547,10 +2545,11 @@ def _validate_tpm_ceremony(transaction, block_height, recipient):
         elif recipient == "tpm_commit":
             _te.apply_commit(rec, sender, str(data.get("commit") or ""), block_height)
         else:
-            from protocol import TPM_ENROL_V3_HEIGHT
+            # TPM_ENROL_V3_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `>= 1` kept for admission on a genesis
+            # tip. INVARIANT: apply (account_ops.apply_tpm_enrol_tx) fails the record on a mismatch exactly as this does.
             _te.apply_reveal(rec, sender, _hex_bytes(data.get("secret"), 64, "secret"),
                              _hex_bytes(data.get("seed"), 64, "seed"), block_height,
-                             fail_on_mismatch=int(block_height) >= TPM_ENROL_V3_HEIGHT)
+                             fail_on_mismatch=int(block_height) >= 1)
 
 
 def _validate_pool_delegation():

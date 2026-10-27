@@ -1,7 +1,7 @@
-"""TPM challenger pool v2: online stake, k = 5, misses excluded (protocol.TPM_POOL_V2_HEIGHT, operator-approved
-2026-10-06).
+"""TPM challenger pool v2: online stake, k = 5, misses excluded (operator-approved 2026-10-06; gen 28's
+TPM_POOL_V2_HEIGHT, inlined in G9 — every enrolment applied from block 1 is a v2 record).
 
-An enrolment opened at h >= the gate is a v2 record:
+An enrolment is a v2 record:
   POOL      bonded >= B_MIN at the enrol block AND an FFG duty landed in >= TPM_POOL_PRESENCE_MIN DISTINCT epochs of the
             proven window AND not excluded; weight bonded // B_MIN;
   SNAPSHOT  the record stores "pool" and "k" (5) and the delayed draw reads them, never a recomputation;
@@ -9,7 +9,7 @@ An enrolment opened at h >= the gate is a v2 record:
             without its reveal) sits out v2 pools for TPM_MISS_EXCLUDE_BLOCKS from that record's expiry — and a record
             whose CLIENT abandoned it, or committed too late to leave a reveal window, faults nobody;
   DUTIES    GET /tpm_duty?address= tells a wallet challenger what it owes, with the node loop's own bounds.
-Older records keep exactly the gen-28 draw (replay must not move).
+A legacy (13-field) record still decodes and faults nobody; the gen-28 halves (below the gate) are retired.
 
 Synthetic chain (the pool reads committed blocks only) over a real throwaway state DB.
 Run: python3 tests/test_tpm_pool_v2.py
@@ -59,8 +59,8 @@ def refused(fn, needle=""):
 
 
 # --- the synthetic chain --------------------------------------------------------------------------------------------
-GATE = 7200
-H = GATE + 2 * L + 13                                  # a v2 enrol
+BASE = 7200                                            # where the synthetic chain's story starts (no gate any more)
+H = BASE + 2 * L + 13                                  # a v2 enrol
 HI_E = (H // L)                                        # the enrol block's epoch: the window is the 100 epochs before it
 TOP = H + 3 * X                                        # far enough for every exclusion window below
 
@@ -111,8 +111,6 @@ kv_ops.account_set(BURST, "bonded", 50 * BM)
 kv_ops.account_set(POOR, "bonded", BM - 1)
 kv_ops.account_set(EXACT, "bonded", BM)
 
-LIVE_GATE = P.TPM_POOL_V2_HEIGHT
-P.TPM_POOL_V2_HEIGHT = GATE
 
 # === 1. POOL ELIGIBILITY ============================================================================================
 reset_caches()
@@ -297,11 +295,11 @@ check("a proven record faults nobody", T._tpm_excluded(EXP) == set())
 wipe()
 
 legacy_pub = aik_pub_area(b"legacy")
-legacy = E.new_record(EK, EK_SPKI, E.aik_name_hex(legacy_pub), legacy_pub, OWNER, GATE - 500, [])
+legacy = E.new_record(EK, EK_SPKI, E.aik_name_hex(legacy_pub), legacy_pub, OWNER, BASE - 500, [])
 with kv_ops.write_txn():
     kv_ops.tpm_enrol_set(eid_of(legacy_pub), legacy)
 check("a legacy record that expired open faults nobody (old records keep their behaviour)",
-      T._tpm_excluded(GATE - 500 + E.enrol_window(GATE - 500)) == set())
+      T._tpm_excluded(BASE - 500 + E.enrol_window(BASE - 500)) == set())
 wipe()
 
 # a short pool (stake moved inside the enrol block between validation and apply) could never be drawn: nobody at fault
@@ -332,7 +330,7 @@ check("the exclusion seen in validation (parent state) equals the one apply saw 
       T._tpm_excluded(RETRY) == set(d_first))
 wipe()
 
-# === 4. VALIDATION: k = 5 must be seatable; below the gate the old rule holds =======================================
+# === 4. VALIDATION: k = 5 must be seatable ============================================================================
 from signatures import generate_keydict, sign, unhex                       # noqa: E402
 T._anchor_time = lambda tx, h: 1_790_000_000
 opener = generate_keydict()
@@ -364,30 +362,13 @@ reset_caches()
 v = verdict(H)
 check("a v2 enrol against four eligible challengers is REFUSED (k = 5)", "not enough independent challengers" in v, v)
 check("...the same chain would still have seated the old k = 3", E.pool_can_seat(T._tpm_pool(H), 3))
-P.TPM_POOL_V2_HEIGHT = 1 << 62
-v_old = verdict(H)
-P.TPM_POOL_V2_HEIGHT = GATE
-check("below the gate the old rule decides (the same tx is accepted): replay keeps its verdict", v_old == "accepted", v_old)
+# "below the gate the old k = 3 rule decides" is retired in G9: generation 28's rules.
 for a, b in saved.items():
     kv_ops.account_set(a, "bonded", b)
 reset_caches()
 
-# === 5. BELOW THE GATE: byte-identical legacy records, the old draw ==================================================
-P.TPM_POOL_V2_HEIGHT = 1 << 62
-LPUB = aik_pub_area(b"old")
-LEID = eid_of(LPUB)
-apply(enrol_tx(LPUB), H)
-old = kv_ops.tpm_enrol_get(LEID)
-check("below the gate the record is the legacy 13-field row, byte for byte",
-      len(raw_row(LEID)) == 13 and "k" not in old and "pool" not in old
-      and kv_ops._read(lambda txn: txn.get(kv_ops._tpm_enrol_key(LEID), db=kv_ops._dbs()["devbind"]))
-      == kv_ops._pack([old[f] for f in kv_ops._TPM_ENROL_FIELDS]))
-od = T.tpm_drawn_challengers(old, opens)
-check("below the gate the draw is the old one: _tpm_pool at the enrol block, k = 3",
-      od == E.challenger_set_exact(E.draw_key(EK), T._tpm_pool(H), B.epoch_beacon(E.draw_epoch(H)), 3) and len(od) == 3)
-check("a legacy record needs 3 challengers", E.record_k(old) == 3)
-P.TPM_POOL_V2_HEIGHT = GATE
-wipe()
+# === 5. (retired in G9: generation 28's rules — below the gate apply wrote the legacy 13-field record and drew k = 3
+#     from _tpm_pool; from gen 29 every applied enrolment is the v2 record pinned in section 2)
 
 # === 6. REGISTER: the record's own k ================================================================================
 def register_reason(n):
@@ -519,15 +500,8 @@ view = T.tpm_challengers_view(rec, opens - 1)
 check("the client view waits on five placeholders for a v2 record", len(view["challengers"]) == 5 and view["draw_pending"])
 wipe()
 
-# === 9. THE GATE ====================================================================================================
-P.TPM_POOL_V2_HEIGHT = LIVE_GATE
-src = open(os.path.join(ROOT, "protocol.py")).read()
-# the gate's VALUES, not "the live generation is 28" (gen-29 rehearsal): 100000 on generation 28, block 1 from 29
-import _harness
-check("the gate is keyed on generation 28 (100000 there), live from block 1 at the reroll",
-      "TPM_POOL_V2_HEIGHT = 100000 if CHAIN_GENERATION == 28 else 1" in src
-      and _harness.gate_at("TPM_POOL_V2_HEIGHT", 28) == 100000 and _harness.gate_at("TPM_POOL_V2_HEIGHT", 29) == 1
-      and P.TPM_POOL_V2_HEIGHT == _harness.gate_at("TPM_POOL_V2_HEIGHT", P.CHAIN_GENERATION))
+# === 9. THE GATE IS GONE ===========================================================================================
+check("TPM_POOL_V2_HEIGHT is deleted (gen 28's gate, 1 from gen 29, inlined in G9)", not hasattr(P, "TPM_POOL_V2_HEIGHT"))
 check("the v2 constants: k = 5, presence 50 epochs, one day out, one epoch of reveal grace",
       (P.DEVICE_ATTEST_EK_CHALLENGERS_V2, P.TPM_POOL_PRESENCE_MIN, P.TPM_MISS_EXCLUDE_BLOCKS, P.TPM_REVEAL_GRACE)
       == (5, 50, 14400, 60))

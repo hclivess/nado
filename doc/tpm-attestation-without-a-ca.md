@@ -242,8 +242,8 @@ beacon quality, and far from the free, offline, unbounded grind it replaces.
 
 ## Challenger pool v2: online stake, k = 5, misses excluded (2026-10-06)
 
-From `protocol.TPM_POOL_V2_HEIGHT` (block 100000 on the live generation) an enrolment is a **v2 record** (`tpm_enrol.is_v2`: it carries `k`). Older
-records keep the draw above byte for byte, so a replay moves nothing.
+Every enrolment is a **v2 record** (`tpm_enrol.is_v2`: it carries `k`) — from block 100000 on gen 28 (`TPM_POOL_V2_HEIGHT`),
+from block 1 since gen 29 (the gate was inlined in G9). The legacy draw above answers only mempool admission on a genesis tip.
 
 | | v2 rule | where |
 |---|---|---|

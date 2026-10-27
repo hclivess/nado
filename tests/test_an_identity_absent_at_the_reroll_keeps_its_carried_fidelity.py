@@ -1,4 +1,5 @@
-"""An identity absent at the reroll keeps its carried fidelity in the dividend (CARRY_FIDELITY_ALL_HEIGHT).
+"""An identity absent at the reroll keeps its carried fidelity in the dividend (gen 28's
+CARRY_FIDELITY_ALL_HEIGHT, inlined in G9: every epoch >= 0).
 
 OUR BUG (found 2026-10-10). The carry wrote every identity's fidelity into its account, and the live apply
 (account_ops.apply_register) continued from it, so the open-lane draw saw the carried value. The dividend replay
@@ -6,12 +7,12 @@ OUR BUG (found 2026-10-10). The carry wrote every identity's fidelity into its a
 identities absent at the gen-28 reroll were paid as newcomers: account fidelity 16, dividend fidelity 12.
 
 Pins, on the real tables (throwaway HOME) with a scripted carry, driving the REAL live apply:
-  1. from the gate's epoch, the replay of an absent carried identity equals the account field the live apply wrote,
-     after its first recert (a lapse from the carried value) and after a continuous renewal;
-  2. below the gate it still replays as a newcomer: epochs already paid keep their weights (no back-pay, operator
-     2026-10-10);
+  1. from epoch 0, the replay of an absent carried identity equals the account field the live apply wrote, after its
+     first recert (a lapse from the carried value) and after a continuous renewal;
+  2. a negative epoch still replays 0 (the inlined gate's `epoch >= 0` is kept);
   3. an absent carried identity with no recert yet replays 0, never its bare carried value;
   4. an identity present at the reroll and a fresh identity are unaffected.
+The pre-gate half (below 160020 an absent identity replayed as a newcomer) is retired in G9: generation 28's rules.
 
 Run: python3 tests/test_an_identity_absent_at_the_reroll_keeps_its_carried_fidelity.py
 """
@@ -41,9 +42,8 @@ _report = _harness.Report()
 check = _report.check
 
 
-G = P.CARRY_FIDELITY_ALL_HEIGHT // P.EPOCH_LENGTH         # the first epoch the rule judges
-check("the gate is keyed on the live generation (a reroll needs no edit)",
-      P.CARRY_FIDELITY_ALL_HEIGHT == (160020 if P.CHAIN_GENERATION == 28 else 1), P.CARRY_FIDELITY_ALL_HEIGHT)
+G = 0                                                     # the first epoch the rule judges: every epoch since gen 29
+check("the gate is deleted (gen 28's CARRY_FIDELITY_ALL_HEIGHT, inlined in G9)", not hasattr(P, "CARRY_FIDELITY_ALL_HEIGHT"))
 
 # genesis as the carry writes it: every carried account holds its fidelity; only PRESENT gets the epoch-0 lease
 with kv_ops.write_txn():
@@ -52,7 +52,7 @@ with kv_ops.write_txn():
     A.create_account(PRESENT, fidelity=15)
     A.create_account(FRESH)
     kv_ops.recert_put(PRESENT, 0)
-# The absent identity comes back BEFORE the gate (as the 32 real ones did), then renews continuously after it.
+# The absent identity comes back in an early epoch, then renews continuously.
 r1 = max(1, G - 3)
 r2 = r1 + P.FIDELITY_MIN_GAP_EPOCHS
 with kv_ops.write_txn():
@@ -65,10 +65,9 @@ after_renew = kv_ops.get_account(ABSENT)["fidelity"]
 
 check("the live apply continued from the carried value (a lapse halves it)", after_first == P.fidelity_step(12, False, r1 + 1, r1),
       after_first)
-if G >= 1 and r1 < G:
-    check("below the gate an absent carried identity still replays as a newcomer (no back-pay)",
-          D.fidelity_at_epoch(ABSENT, G - 1) == P.fidelity_step(0, False, r1 + 1, r1), D.fidelity_at_epoch(ABSENT, G - 1))
-check("from the gate its replay equals the live apply's account field after its first recert",
+check("a negative epoch replays 0, never the carried value", D.fidelity_at_epoch(ABSENT, -1) == 0,
+      D.fidelity_at_epoch(ABSENT, -1))
+check("its replay equals the live apply's account field after its first recert",
       D.fidelity_at_epoch(ABSENT, max(G, r1)) == after_first, (D.fidelity_at_epoch(ABSENT, max(G, r1)), after_first))
 check("...and after a continuous renewal", D.fidelity_at_epoch(ABSENT, max(G, r2)) == after_renew,
       (D.fidelity_at_epoch(ABSENT, max(G, r2)), after_renew))

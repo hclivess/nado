@@ -1,17 +1,19 @@
-"""A copied endorsement certificate cannot lock a chip's owner out of enrolment (protocol.TPM_RETRY_OWNER_HEIGHT).
+"""A copied endorsement certificate cannot lock a chip's owner out of enrolment (gen 28's
+TPM_RETRY_OWNER_HEIGHT, inlined in G9: the rule holds from block 1).
 
-A certificate is public and tpm_enrol is free, so before this gate a stranger could open an enrolment with a copied
+A certificate is public and tpm_enrol is free, so before this rule a stranger could open an enrolment with a copied
 certificate, never commit, and have the chip's retry count raised: a cooldown doubling to ~5.5 days per round against
 the real owner. And a challenger posting its blob in the record's last blocks charged the client a failure it had no
 time to avoid (review 2026-10-11).
 
-  * the count row is the chip below the gate and (chip, opener) from it;
-  * apply charges a failed record's OWN opener from the gate, and revert restores exactly that row;
+  * the count row is (chip, opener) from block 1 — the chip alone only at height 0 (admission on a genesis tip);
+  * apply charges a failed record's OWN opener, and revert restores exactly that row;
   * validation holds back only the opener that failed: a stranger's failures leave the owner free at expiry, while the
     failing opener still waits its own spacing;
-  * from the gate only a wrong commitment is the client's failure: an all-answered record never committed is ambiguous
-    (a challenger can seal a secret no chip opens, or post in the last block) and charges nobody; below the gate it
-    still counted (history replays unchanged).
+  * only a wrong commitment is the client's failure: an all-answered record never committed is ambiguous (a
+    challenger can seal a secret no chip opens, or post in the last block) and charges nobody — judged at height 0 or
+    with no height it still counts, as it did (the `< 1` / None the inlined gate kept).
+The gen-28 halves (apply and validation below the gate) are retired in G9: generation 28's rules.
 
 Real apply path (account_ops.apply_tpm_enrol_tx) and validate_transaction over a throwaway state DB; the endorsement-
 chain kernel is stubbed, as in test_enrolment_retry_spacing.
@@ -39,10 +41,7 @@ from ops import tpm_enrol as E, kv_ops, attest_native                  # noqa: E
 from signatures import generate_keydict, sign, unhex                   # noqa: E402
 
 FAILED = []
-V3, GATE = 50_000, 60_000
-P.TPM_ENROL_V3_HEIGHT = V3
-P.TPM_RETRY_OWNER_HEIGHT = GATE
-P.TPM_POOL_V2_HEIGHT = 1 << 62
+GATE = 60_000                                          # a height of the story (the gates are inlined; nothing to set)
 BASE = P.TPM_RETRY_COOLDOWN_BASE
 
 
@@ -82,22 +81,25 @@ def put_open(ek, rec, tag="x"):
 kv_ops.init_env()
 attest_native.ek_public_der = lambda der: EK_SPKI
 A._tpm_anchor_time = lambda h: 1_800_000_000
+# the v2 pool apply snapshots and validation checks (every enrolment is v2 from block 1; the synthetic chain has no blocks)
+T.tpm_pool_v2 = lambda h: {f"pool{i:02d}" + "q" * 44: 5 for i in range(12)}
 
 # --- the row a failure is charged to -------------------------------------------------------------------------------
 r = failed_rec("aa" * 32, GATE + 10, "stranger")
-check("below the gate the count row is the chip alone", E.retry_key(r, GATE - 1) == "aa" * 32)
-check("from the gate it is (chip, opener)", E.retry_key(r, GATE) == "aa" * 32 + ":stranger")
+check("at height 0 (admission on a genesis tip) the count row is the chip alone", E.retry_key(r, 0) == "aa" * 32)
+check("from block 1 it is (chip, opener)", E.retry_key(r, 1) == "aa" * 32 + ":stranger"
+      and E.retry_key(r, GATE) == "aa" * 32 + ":stranger")
 
 # --- only a wrong commitment is the client's failure -------------------------------------------------------------
 h0 = GATE + 100
 late = failed_rec("ab" * 32, h0, "o", last_blob=E.expiry(failed_rec("ab" * 32, h0, "o")) - 10)
 early = failed_rec("ab" * 32, h0, "o", last_blob=h0 + 3)
 wrong = dict(early, state=E.STATE_FAILED)
-check("an all-answered, never-committed record charges nobody from the gate (late or early challenge)",
-      not E.client_failed(late, GATE) and not E.client_failed(early, GATE))
+check("an all-answered, never-committed record charges nobody from block 1 (late or early challenge)",
+      not E.client_failed(late, GATE) and not E.client_failed(early, GATE) and not E.client_failed(early, 1))
 check("a wrong commitment still does", E.client_failed(wrong, GATE))
-check("below the gate the all-answered record still counted (history replays unchanged)",
-      E.client_failed(late, GATE - 1) and E.client_failed(early))
+check("judged at height 0 or with no height the all-answered record still counts (the kept `< 1` / None)",
+      E.client_failed(late, 0) and E.client_failed(early))
 check("retry_ready_at follows: no spacing after an unanswered commit", E.retry_ready_at(early, 3, GATE) == E.expiry(early))
 check("and the doubling after a wrong commitment", E.retry_ready_at(wrong, 3, GATE) == E.expiry(wrong) + BASE * 8)
 
@@ -109,7 +111,7 @@ EK1 = "e1" * 32
 CUR["ek"] = EK1
 old = dict(failed_rec(EK1, GATE + 10, "stranger"), state=E.STATE_FAILED)
 put_open(EK1, old)
-kv_ops.tpm_retry_set(EK1, 4)                                          # a pre-gate chip-wide count stays untouched
+kv_ops.tpm_retry_set(EK1, 4)                                          # a chip-wide count row stays untouched
 h = E.expiry(old) + 1
 tx = {"recipient": "tpm_enrol", "sender": "owner", "data": {"ek": ["00"], "pub": pub("y").hex()}}
 A.apply_tpm_enrol_tx(tx, h)
@@ -119,19 +121,10 @@ A.apply_tpm_enrol_tx(tx, h, revert=True)
 check("revert restores exactly the row apply charged", kv_ops.tpm_retry_get(EK1 + ":stranger") == 0
       and kv_ops.tpm_retry_get(EK1) == 4, (kv_ops.tpm_retry_get(EK1 + ":stranger"), kv_ops.tpm_retry_get(EK1)))
 
-EK0 = "e0" * 32                                                       # below the gate: the chip-wide row, as before
-CUR["ek"] = EK0
-old0 = failed_rec(EK0, V3 + 10, "stranger")
-put_open(EK0, old0)
-A.apply_tpm_enrol_tx(tx, E.expiry(old0) + 1)
-check("below the gate apply still charges the chip", kv_ops.tpm_retry_get(EK0) == 1
-      and kv_ops.tpm_retry_get(EK0 + ":stranger") == 0)
-A.apply_tpm_enrol_tx(tx, E.expiry(old0) + 1, revert=True)
-check("and its revert restores the chip row", kv_ops.tpm_retry_get(EK0) == 0)
+# (apply below the gate charging the chip-wide row is retired in G9: generation 28's rules)
 
 # --- validation: the owner is free at expiry; the failing opener waits its own spacing --------------------------------
 T._anchor_time = lambda tx, h: 1_800_000_000
-T._tpm_pool = lambda h: {f"pool{i:02d}" + "q" * 44: 5 for i in range(12)}
 
 
 def aik_area(policy):
@@ -167,11 +160,7 @@ v = verdict(stranger, end, "s1")
 check("the stranger waits its own spacing", f"can enrol again from block {ready}" in v and ready > end, v)
 v = verdict(stranger, ready, "s2")
 check("and is accepted at it", v == "accepted", v)
-P.TPM_RETRY_OWNER_HEIGHT = 1 << 62                                     # below the gate: the chip-wide rule, as before
-kv_ops.tpm_retry_set(EK2, 8)
-v = verdict(victim, end, "v2")
-check("below the gate the owner was held to the chip-wide spacing (the hole this closes)", "can enrol again" in v, v)
-P.TPM_RETRY_OWNER_HEIGHT = GATE
+# (below the gate the owner was held to the chip-wide spacing — the hole this closed; retired in G9: generation 28's rules)
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILURES")
 sys.exit(1 if FAILED else 0)
