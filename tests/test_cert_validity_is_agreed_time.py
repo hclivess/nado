@@ -42,6 +42,18 @@ import protocol as P
 from ops import attest_native as AN
 from ops import transaction_ops as T
 from ops import account_ops as A
+from ops import block_ops as _B
+
+# THE SEAT-WEIGHTED CLOCK (protocol.AGREED_TIME_SEATS_HEIGHT; dormant on gen 28, live from block 1 after the reroll)
+# reads each epoch's duty committee. This test's synthetic duty senders are not in a real registry, so each is given ONE
+# seat: the weighted median is then the plain median, and the test means the same under both rule sets
+# (tests/test_agreed_time_weighs_committee_seats_not_senders.py pins the weighting itself).
+class _OneSeatEach(dict):
+    def get(self, _who, _default=None):
+        return 1
+
+
+_B.duty_committee_for_epoch = lambda _epoch: _OneSeatEach()
 
 fails = []
 

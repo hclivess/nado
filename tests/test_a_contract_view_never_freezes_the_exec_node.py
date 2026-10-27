@@ -37,6 +37,12 @@ async def main():
     async with TestClient(TestServer(app)) as c:
         r = await c.get(f"/exec/view?cid={CID}&method=burn")
         T.check("a view still answers exactly what the contract returns", (await r.json()).get("result") == "42")
+        # EVERY VIEW HOLDS ITS SLOT FOR 0.5 s from here. The burn view was slow enough on the gen-28 VM to overlap; on the gen-29
+        # one (zkvm2) it takes 0.022 s (measured), so the overlap this test needs was an accident of the VM's speed and broke
+        # (2026-10-27): a slot freed before the fifth request arrived. Holding each view deterministically keeps the
+        # property under test — the slot counter, not the VM's speed — the same on every generation.
+        _real_view = st.view
+        st.view = lambda *a, **k: (time.sleep(0.5), _real_view(*a, **k))[1]
         t0 = time.monotonic()
         views = [asyncio.create_task(c.get(f"/exec/view?cid={CID}&method=burn")) for _ in range(EN._VIEW_SLOTS + 3)]
         await asyncio.sleep(0.05)
