@@ -830,6 +830,7 @@ def check_and_update(trigger: str) -> dict:
 
         local, remote = _git("rev-parse", "HEAD"), _git("rev-parse", f"origin/{_BRANCH}")
         _latest_remote[0] = remote[:12]
+        _remove_retired_build_dirs()
         if local == remote:
             # UP TO DATE IN GIT IS NOT THE SAME AS ABLE TO RUN. A node can sit on the right commit and still
             # be missing a REQUIRED native library, and then it silently cannot do its job: measured
@@ -1173,6 +1174,37 @@ def _has_shared_lib(crate_path):
     """True if this crate already has a compiled shared library. Used to tell "unchanged, already built"
     (skip) apart from "unchanged, NEVER built" (must build) — see _rebuild_native_if_changed."""
     return bool(_shared_libs(crate_path))
+
+
+# THE GOLDILOCKS CRATES G9 DELETED (slice 6). Their target/ dirs are git-ignored, so every node kept the compiled
+# Goldilocks libraries after the update that removed the sources — inert (nothing loads them; native_report and the
+# stale/missing checks iterate _CRATES only), but Goldilocks code on every disk of the fleet (measured on the relay
+# 2026-10-28: ~1.1 MB under native/{alghash2,starkprove,starkcompose}, plus wasm/goldilocks/target).
+_RETIRED_BUILD_DIRS = ("native/alghash2", "native/starkcompose", "native/starkprove", "wasm/goldilocks")
+
+
+def _remove_retired_build_dirs():
+    """Delete each retired crate's build output (<crate>/target), then the crate dir if that left it empty. Only when
+    git tracks NOTHING under the crate: a path a later commit tracks again is a live crate, never a leftover.
+    INVARIANT: removes only `target/` and empty dirs, under _REPO_DIR, at the four fixed paths above — a hand-made
+    file left in a retired crate (a Cargo.toml, a src/) is the operator's and stays. Never raises; returns the
+    paths removed."""
+    removed = []
+    for crate in _RETIRED_BUILD_DIRS:
+        path = os.path.join(_REPO_DIR, crate)
+        try:
+            if not os.path.isdir(path) or _git("ls-files", "--", crate):
+                continue
+            target = os.path.join(path, "target")
+            if os.path.isdir(target) and not os.path.islink(target):
+                shutil.rmtree(target)
+                removed.append(f"{crate}/target")
+            if not os.listdir(path):
+                os.rmdir(path)
+                removed.append(crate)
+        except Exception:
+            continue
+    return removed
 
 
 def _purge_shared_libs(crate_path):
