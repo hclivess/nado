@@ -45,19 +45,25 @@ OWED:
    projection_gate_at now would move the replayed roots at 8500..8519. At the reroll, inline both gates (1 from gen 30,
    at which point the registry and the carry are empty, so the shape vanishes) or name both in projection_gate_at.
 
-## 2026-10-27 — owed BEFORE the next reroll (gen 30): re-pin the carry's refusals for a v2 -> v2 carry
+## 2026-10-27 — owed BEFORE the next reroll (gen 30): a pets building loses its unbanked production in the carry
 
-G9 slice 3 inlined BLAKE_EXEC_HEIGHT, and five tests that staged a gen-28 (v1 VM) exec state and carried it to gen 29
-could no longer be built, so they were retired: test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28,
-test_amm_pools_and_reserve_vaults_carry_to_gen29_and_pay_exactly_as_on_gen28,
-test_an_open_swap_a_taken_loan_or_a_live_game_refuses_the_carry_and_a_closed_one_crosses,
-test_commit_reveal_tables_carry_at_rest_and_refuse_an_open_round,
-test_battleship_hexholm_scrapline_carry_at_rest_and_sovereign_refuses. Their PROPERTIES still bind the gen-30 carry
-(tools/carry.py; "the carry carries everything"): an open swap, a taken loan or a live game refuses the carry and a
-closed one crosses; commit-reveal tables cross only at rest; a carried AMM pool / reserve vault pays exactly as before.
-They are now pinned only for the v1 -> v2 path (test_the_carry_rederives_what_it_can_and_refuses_what_it_cannot).
-CONSENSUS-ADJACENT (a wrong carry moves real balances): rewrite each as a v2 -> v2 carry of a live-shaped gen-29 exec
-state and run them in the reroll rehearsal. Raise this loudly at the reroll if it is not done.
+The v2 -> v2 re-pins of the five retired gen-28 -> gen-29 carry tests landed 2026-10-28 (branch carry-v2):
+tests/test_an_open_swap_a_taken_loan_or_a_live_game_refuses_a_reroll_carry_and_a_closed_one_crosses_it.py,
+tests/test_commit_reveal_tables_cross_a_reroll_only_at_rest.py,
+tests/test_amm_pools_and_reserve_vaults_carry_across_a_reroll_and_pay_exactly_as_before.py,
+tests/test_battleship_hexholm_and_scrapline_cross_a_reroll_at_rest_and_a_sovereign_world_refuses_it.py and
+tests/test_a_carried_contract_plays_exactly_as_it_would_have_without_the_carry.py — live-shaped zkvm2 states through
+tools/carry.py (on a saved copy) and alphanet6_carryforward.exec_genesis into the real genesis loader. Every property
+holds EXCEPT ONE, which the last test states and which FAILS until the carry is fixed:
+
+**A building staffed before the tip loses the production it accrued and had not banked.** pets.carry_rebase writes
+BSI (a building's since-block) as max(0, BSI - tip) = 0, so on the new chain _accrue counts from block 0 and the
+(tip - BSI) blocks earned on the old chain — up to ACCRUE_CAP = 20000 blocks per building — are dropped. Measured:
+farm staffed at old height 3006, carry at tip 5000, collect 900 blocks later: old chain 13 fodder, new chain 4. (The
+retired gen-28 test hid it by carrying at tip = the staffing height, not at the state's cursor as build() does.)
+CONSENSUS-ADJACENT (the carry moves owned resources): fix in pets (e.g. refuse while a staffed building has unbanked
+production — collect() is permissionless — or bank it in the carry) and run the test in the reroll rehearsal. Raise
+this loudly at the reroll if it is not done.
 
 ## 2026-09-26 — owed after the betanet-8 (gen 27) cleanup
 

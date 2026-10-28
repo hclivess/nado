@@ -5,7 +5,8 @@ cannot account for is a refusal that names it.
 From generation 29 on every generation runs one VM, one hash and one address digest, so the carry re-encodes nothing.
 (The gen-28 -> gen-29 halves of this test — hash keys re-derived under the new hash, owner-keyed fields re-keyed, the
 CARRY_WORDS rule for large values, asset ids remapped — were retired in G9 slice 3b with the field VM and the v1 -> v2
-path they exercised. SCHEDULED_CLEANUPS.md owes the game-level v2 -> v2 refusal tests before the gen-30 reroll.)
+path they exercised. The game-level v2 -> v2 refusals are pinned by the tests/test_*cross*_a_reroll* and
+test_a_carried_contract_plays_exactly_as_it_would_have_without_the_carry.py tests.)
 
 Pins, on the real game modules (throwaway HOME):
   1. a registry entry that is not its own string's digest REFUSES (the carry re-derives the registry, it never trusts

@@ -80,6 +80,9 @@ that have not happened yet (combine's reward roll), which may change freely.
 Pinned end to end (until G9 retired it with `BLAKE_EXEC_HEIGHT`, when a gen-28 exec state could no longer be staged) by `tests/test_a_carried_contract_plays_on_gen29_exactly_as_it_would_have_on_gen28.py`: a farm
 staffed on gen 28, carried through the real genesis loader, harvests EXACTLY its gen-28 yield on gen 29 after the
 same blocks; and the bet market beside it reports the same positions and pays every claim exactly as gen 28 would.
+Its v2 -> v2 successor is `tests/test_a_carried_contract_plays_exactly_as_it_would_have_without_the_carry.py`, which
+carries at the state's own cursor and found that a farm staffed BEFORE the tip loses its unbanked production
+(SCHEDULED_CLEANUPS.md, 2026-10-27).
 
 ## 2b. Measured on the live state (2026-10-25, a copy at exec cursor 357,787)
 
