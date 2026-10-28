@@ -58,7 +58,7 @@ accrued off-L1 and collected on demand — so participation, not a rare jackpot,
 what an open miner feels. Consensus hashing is over canonical JSON so a vendored-crypto browser
 client reproduces addresses, transaction IDs, and verification byte-for-byte.
 Derived state lives in a single schemaless, memory-mapped, ACID **LMDB** key-value
-store. Beyond payments, a **field-native zkVM execution layer** settles to L1 against a
+store. Beyond payments, a **provable zkVM execution layer** settles to L1 against a
 bonded-stake-quorum-justified state root and already runs a real ecosystem — **~20
 provably-fair on-chain games**, a **shielded private-transfer pool**, and
 **end-to-end-encrypted on-chain messaging** — with STARK-provable execution and single-proof
@@ -1137,8 +1137,8 @@ Additional hardening and feature items, all currently **planned/partial**:
   phone-mining/finality/simplicity are preserved. The contract engine is **pluggable**
   (`execnode/runtimes.py`): a contract records the runtime it deployed under and every
   call/view dispatches back to it, so the VM is swappable without touching consensus. The
-  live runtime is a **field-native zkVM** (`execnode/zkvm.py`) whose every execution is
-  **STARK-provable**, and it already carries a real ecosystem rather than toy examples:
+  live runtime is a **zkVM** (`execnode/zkvm2.py`: a 256-bit wrapping word and a BLAKE2s hash)
+  whose every execution is **STARK-provable** (Stwo), and it already carries a real ecosystem rather than toy examples:
   **~20 provably-fair on-chain games** (dice, roulette, poker/hold'em, blackjack, mines, an
   original settlers-genre strategy game, an auto-battler, a deck-builder, tamagotchi-style NFT
   pets, and more), a **shielded (private) transfer pool**, and **end-to-end-encrypted on-chain
@@ -1175,26 +1175,22 @@ Additional hardening and feature items, all currently **planned/partial**:
   (256 KiB) and 6 s blocks, and rising **independently** as erasure-coded DA sampling
   raises the blob budget without making phones store more. The live mining wallet surfaces
   this at the **Settlement** tab (`/exec/settlement` + `/get_settled`).
-- **The execution layer is a provable zkVM (shipped).** NADO's contract runtime is a field-native,
-  STARK-**provable** register VM — the *only* runtime; there is no legacy interpreter. Contracts are
-  written in **zkasm** (the zkVM assembly, `execnode/zkvmasm.py`), one execution step maps to one STARK
-  trace row, and the sole hash is an in-circuit alghash sponge. A **validity proof** can attest that the
-  ordered calls produce a settled state root (`execnode/settlement_proofs.py`); an epoch of N calls
-  aggregates into **one** proof (verify once, replaying only the tiny public I/O log, never re-executing),
-  and epochs larger than one trace **segment and chain their state roots**, so proof size is
-  unbounded-epoch-safe. **Honest status:** today the settled root is accepted by the **bonded-stake quorum**
-  (`settlement_justified`); the validity-proof pipeline is **built as capability but NOT yet installed as the
-  settlement rule** (the `settlement_verifier` seam exists; wiring it needs a decision on binding the claimed
-  full-state root, so the quorum still governs). The **recursion** that makes an epoch verify in O(1) is now
-  **built and tested off the L1 path** (`doc/zk-recursion.md`): a verifier-authoritative in-circuit STARK
-  verifier over the wide-sponge **alghash2**, T-independent ("succinct") verification, a **K→1** collapse of
-  the K segment proofs into one bundle, an in-circuit Fiat-Shamir transcript, and **recursion depth**
-  (fold-of-folds) whose root **verifies in ~0.2 s regardless of depth** — the O(1)-verify goal, realized on
-  the verify side. What remains is a **Rust prover for throughput**: proving is asymmetric by design — **heavy
-  to produce, trivial to verify.** The 10⁴–10⁶× proving overhead lives on **specialized exec/settlement nodes
-  with real hardware, never on a phone** (a phone only ever *verifies*, cheaply, or mines — which is a draw /
-  a sequential hash, no STARKs); the pure-Python reference hits a memory/time wall at execution-AIR scale
-  (measured; the native prover is the fix, and the native NTT already cut recursion-prover memory ~4.5×). The
+- **The execution layer is a provable zkVM (shipped).** NADO's contract runtime is a STARK-**provable**
+  register VM — the *only* runtime; there is no legacy interpreter. Contracts are written in **zkasm** (the
+  zkVM assembly, `execnode/zkvmasm.py`); a register holds a **256-bit word that wraps mod 2²⁵⁶**, and the sole
+  hash is **BLAKE2s**, one compression per absorbed word, which is what the proof system's BLAKE2s component
+  proves. Proofs are **Stwo** (StarkWare's Circle STARK over the Mersenne-31 field), adopted at the generation-29
+  reroll in place of our own Goldilocks STARK, its algebraic sponge (`alghash2`) and its recursion, all deleted
+  in G9 ([stwo-migration.md](stwo-migration.md)). The exec state root is BLAKE2s over a compressed sparse Merkle
+  tree (`execnode/exec_root_b2.py`). A span of L1 blocks can settle on **one** Stwo proof: the verifier replays
+  the span's exec transition against openings of the pre-root, and the proof attests that every contract call
+  ran on the VM and produced exactly its io log (`execnode/settle_b2.py`, `native/stwo_settle`). **Honest
+  status:** that rule is built and **dormant** behind `STWO_SETTLE_HEIGHT` until two weeks of shadow proofs
+  verify; until then the settled root is accepted by the **bonded-stake quorum** (`settlement_justified`).
+  Proving is asymmetric by design — **heavy to produce, cheap to verify** — and lives on **exec/settlement
+  nodes with real hardware, never on a phone** (a phone only ever *verifies*, or mines — which is a draw /
+  a sequential hash, no STARKs). The one proof a phone does make is its own shielded spend, built in the
+  wallet with Stwo compiled to WebAssembly. The
   bonded quorum remains available for rollups whose value doesn't yet warrant a proof. On the zkVM as the game
   layer: 15 example contracts — coin flip, dice, roulette, slots, mines, blackjack, tic-tac-toe, Connect
   Four, reversi, chess, farkle, parimutuel sports betting, battleship, tamagotchi-NFT pets, and multiplayer

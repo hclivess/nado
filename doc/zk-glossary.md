@@ -1,21 +1,36 @@
 # NADO zk glossary — every term in the proof stack
 
-Plain-language definitions of the acronyms and terms used across `execnode/stark/*`, `doc/zk-*.md`, and the
-settlement layer. Each entry says what the thing IS, why it's here, and where it lives in the code. Read
-top-to-bottom the first time — later terms build on earlier ones.
+Plain-language definitions of the acronyms and terms used across `doc/zk-*.md`, `doc/stwo/*` and the settlement
+layer. Each entry says what the thing IS, why it's here, and where it lives in the code. Read top-to-bottom the
+first time — later terms build on earlier ones.
+
+> **Since generation 29 the proofs are Stwo's (a Circle STARK over M31), and G9 deleted our own Goldilocks STARK.**
+> The concepts below (trace, AIR, LDE, Merkle commitment, FRI, Fiat–Shamir, grinding, LogUp, recursion) are the same
+> in Stwo, which implements them in its own crates. Code pointers into `execnode/stark/`, `native/alghash2`,
+> `native/starkcompose` or `wasm/goldilocks` name the deleted implementation and are kept as history; see
+> [`stwo-migration.md`](stwo-migration.md) for what replaced each piece.
 
 ---
 
-### Field (Goldilocks)
-The set of numbers all the math happens in: integers mod the prime `p = 2^64 − 2^32 + 1` (`execnode/stark/field.py`).
-Chosen because `p − 1 = 2^32·(2^32 − 1)`, so there is a "2^k-th root of unity" for every k ≤ 32 — exactly what
-the NTT/FRI need to build evaluation domains of size 2^k. Every value in the prover is a plain integer in `[0, p)`;
-a phone can verify with cheap 64-bit modular arithmetic.
+### Field (M31) and the VM word
+The set of numbers a proof's math happens in. Stwo works over **Mersenne-31**, integers mod `p = 2^31 − 1`, with
+Fiat–Shamir challenges drawn from its degree-4 extension **QM31** (one M31 element alone is too few challenges for
+soundness). M31 has no large power-of-two multiplicative subgroup; the **circle group** over it has order
+`p + 1 = 2^31`, and that is what gives the FFT and FRI their 2^k-sized domains. An element fits a 32-bit lane and
+reduces with shifts and adds, which is why Stwo's SIMD backend runs well on phones and in WebAssembly.
+
+The **contract VM's word** is a separate thing: a 256-bit integer that wraps mod 2^256 (`execnode/zkvm2.py`,
+[`stwo/g3-vm-word.md`](stwo/g3-vm-word.md)). The execution AIR carries each word as 16 range-checked 16-bit limbs
+in M31 (`native/stwo_settle`, `vm_air.rs`); a contract never sees M31.
+
+*History:* until generation 29 both were the Goldilocks field `p = 2^64 − 2^32 + 1` (`execnode/stark/field.py`),
+the field of our own STARK and the word of the old VM; it was deleted in G9.
 
 ### NTT (Number-Theoretic Transform)
 The finite-field analogue of the FFT: converts a polynomial between its **coefficients** and its **evaluations**
-on a root-of-unity domain in `O(n log n)` (`field.ntt`, native Rust in `wasm/goldilocks`). It's how the prover
-evaluates trace polynomials on the large domain fast.
+on a root-of-unity domain in `O(n log n)`. It's how the prover evaluates trace polynomials on the large domain
+fast. Stwo uses the **circle FFT** over the M31 circle group; the Goldilocks NTT (`field.ntt`, `wasm/goldilocks`) was
+deleted in G9.
 
 ### Trace
 The table of numbers a computation produces: `T` rows × `W` columns, where each row is the machine's state at one
@@ -52,8 +67,10 @@ whole vector: you can later reveal one value plus the sibling hashes up to the r
 **path**) and the verifier recomputes the root to check it (`execnode/stark/merkle.py`). This is how the prover
 commits to a polynomial's evaluations and later reveals a few without being able to change them.
 
-### Hash backends (blake2b / alghash2 / recursion)
-The stack is hash-agnostic — it needs a leaf/node hash + a Fiat-Shamir transcript, supplied by a `backend`
+### Hash backends (blake2b / alghash2 / recursion) — historical
+*Deleted in G9 with `execnode/stark/`. The one hash of the live stack is BLAKE2s: the VM's `hash`, the exec root,
+the shielded notes and Stwo's own Merkle commitments, each domain-separated by its personalization.*
+The old stack was hash-agnostic — it needs a leaf/node hash + a Fiat-Shamir transcript, supplied by a `backend`
 (`execnode/stark/backend.py`):
 - **blake2b** (default) — a fast byte-oriented hash; used everywhere a proof is verified NATIVELY (L1, browsers).
 - **alghash2** — a wide **algebraic** sponge over the field (`execnode/stark/alghash2.py`, width 12, capacity 4
@@ -129,10 +146,11 @@ The log-derivative lookup argument the VM execution AIR uses for memory-checking
 balances iff the multisets match. Drawn with a challenge after the trace is committed (two-phase protocol).
 
 ### zkVM / zkasm / zkpy
-The provable virtual machine whose one step = one trace row (`execnode/zkvm.py`); **zkasm** is its assembly
-(`execnode/zkvmasm.py`); **zkpy** is a Python-to-zkasm compiler with automatic register allocation
-(`execnode/zkpy.py`). Contracts (the games, settlement) run on it; the execution AIR (`vm_circuit.py`) proves a
-run happened without re-executing it.
+The provable virtual machine whose one step = one trace row (`execnode/zkvm2.py`: a 256-bit wrapping word and a
+BLAKE2s `hash`); **zkasm** is its assembly (`execnode/zkvmasm.py`); **zkpy** is a Python-to-zkasm compiler with
+automatic register allocation (`execnode/zkpy.py`). Contracts (the games, settlement) run on it; the Stwo execution
+AIR (`native/stwo_settle`, `vm_air.rs`) proves a run produced its io log without re-executing it. (Until G9 the VM was
+the Goldilocks-word `execnode/zkvm.py`, proved by `execnode/stark/vm_circuit.py`.)
 
 ### Epoch / aggregation
 An epoch is N contract calls concatenated into ONE trace so L1 verifies ONE proof for the whole batch instead of N

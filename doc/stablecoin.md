@@ -35,13 +35,17 @@ oracle reliance drops sharply — see §4.3.
 
 ## 2. Can the execution node host it? — capability audit
 
-The execution layer (`doc/execution-layer.md`) is a field-native zkVM (`execnode/zkvm.py`) replaying ordered
+The execution layer (`doc/execution-layer.md`) is a zkVM (`execnode/zkvm.py` when this was written, `execnode/zkvm2.py` since generation 29) replaying ordered
 L1 `blob` payloads, with a bonded-quorum-settled `state_root` and a bridge for value in/out
 (`SHIELD_ESCROW` / `BRIDGE_ESCROW` patterns). What it gives us for free is real: **deterministic replay,
 L1-ordered execution, quorum settlement, a value-escrow bridge, and an existing bonded-stake + slashing
 substrate.** What the *VM* cannot do is the problem.
 
-| Stablecoin needs | zkVM today (`execnode/zkvm.py`, with `DIVMOD`/`DIVMODW` + bounded loops) | Verdict |
+> The table was measured on the Goldilocks VM. Since generation 29 (`execnode/zkvm2.py`, a 256-bit wrapping word)
+> `DIVMOD`/`DIVMODW` divide over the whole word and `LT` is sound over it, so the bounded-divide limits below no
+> longer apply; the rest of the audit stands.
+
+| Stablecoin needs | zkVM as audited (`execnode/zkvm.py`, with `DIVMOD`/`DIVMODW` + bounded loops) | Verdict |
 |---|---|---|
 | Collateral-ratio / interest math | `DIVMOD` (1 ≤ b < 2^15, q < 2^48) / `DIVMODW` (1 ≤ b < 2^31, q < 2^32) — bounded divides only | partial — ratios must fit the bounds |
 | Iterate positions for liquidation | `JMP` / `JNZ`, bounded by `GAS_LIMIT` steps per call | partial — a liquidation sweep is bounded per call |
@@ -227,9 +231,8 @@ weakest link.
 NADO already ships a hash-based zk-STARK shielded pool. Once `nUSD` exists as an exec-layer asset, it can be
 **shielded exactly like NADO** — `nUSD` notes in the same commitment tree, spent with the same join-split
 proofs. That yields a **post-quantum, privacy-preserving, autonomous stablecoin** — a combination nothing in
-the market has. It should be a stated Phase-2 goal, not an afterthought. (Blocked on the `alghash`
-width/audit fix first — see the security notes — since the shielded pool must be sound before it carries a
-dollar-denominated asset.)
+the market has. It should be a stated Phase-2 goal, not an afterthought. (Written when it was blocked on the `alghash`
+width/audit fix; that pool is deleted, and the live shielded pool is the Stwo one, which holds only NADO today.)
 
 ---
 

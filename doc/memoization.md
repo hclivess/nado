@@ -1,5 +1,14 @@
 # Memoization and caches
 
+> **HISTORICAL IN PART (G9, 2026-10-28):** the Goldilocks stack is deleted — `execnode/stark/` (the depth-256
+> `storage_tree`, `alghash2`, `air_ir`, `stark`, `goldilocks_native`, `stark_native`, `field`), `native/starkprove`,
+> `native/alghash2`, the browser's `static/stark/{field,stark}.js` and `joinsplit2.js`, and the legacy, field and
+> shielded-contract pools (`shielded.py`, `shielded_field.py`, `shielded_state.py`). Rows naming them are marked
+> **DELETED (G9)** and kept for the incidents they record. The exec root is now `execnode/exec_root_b2.py` over
+> `execnode/csmt.py` (BLAKE2s; a cold root measured 0.06 s against the alghash2 tree's 12.2 s on the same state,
+> stwo-migration.md 9.5, so the fold cache has no successor), and the live pool is `execnode/shielded_stwo.py`. The
+> rest is current as of its date (line numbers drift; grep the name).
+
 Every cache in the codebase, what it memoizes, what invalidates it, and whether a stale or mis-keyed
 entry can change consensus. Line numbers are as of 2026-08-24; grep the name if they drift.
 
@@ -142,10 +151,10 @@ which is why `h_root` refuses to compute one (`execnode.py` "the 20 s-freeze les
 
 | name | file | memoizes | eviction |
 |---|---|---|---|
-| `_EMPTY` / `EMPTY_ROOT` | `shielded.py:53`, `shielded_field.py:26`, `shielded_state.py:91` | empty-subtree roots per depth | never (pure) |
-| `_cached_root` | `shielded.py:158` | commitment-list Merkle root | invalidated on append |
-| `anchor_list` / `anchors` | `shielded.py:159`, `shielded_field.py:69`, `shielded_state.py:227` | ring of roots a proof may target (`knows_root`) | last 128 (field pool hard-codes 128 instead of `ANCHOR_WINDOW`) |
-| `_cmset` | `shielded_state.py:230` | commitment membership index | rebuilt from `trees`, never persisted |
+| `_EMPTY` / `EMPTY_ROOT` **DELETED (G9)** | `shielded.py:53`, `shielded_field.py:26`, `shielded_state.py:91` | empty-subtree roots per depth | never (pure) |
+| `_cached_root` **DELETED (G9)** | `shielded.py:158` | commitment-list Merkle root | invalidated on append |
+| `anchor_list` / `anchors` **DELETED (G9)** | `shielded.py:159`, `shielded_field.py:69`, `shielded_state.py:227` | ring of roots a proof may target (`knows_root`) | last 128 (field pool hard-codes 128 instead of `ANCHOR_WINDOW`) |
+| `_cmset` **DELETED (G9)** | `shielded_state.py:230` | commitment membership index | rebuilt from `trees`, never persisted |
 | `FieldShieldedPool.root()`, `ShieldedStatePool.root()` | — | **deliberately not cached** (O(n) per call) | — |
 
 ---
@@ -154,18 +163,18 @@ which is why `h_root` refuses to compute one (`execnode.py` "the 20 s-freeze les
 
 | name | file | memoizes | key | eviction | note |
 |---|---|---|---|---|---|
-| `_FOLD_CACHE` | `stark/storage_tree.py:94` | `(depth, key, value)` → `(high-water level, digest)` singleton fold | the triple | `clear()` at 2¹⁷; **persisted** to `<state>.folds.json` | pure function → cannot change a root, only its cost (58.9 s cold vs 10.2 s warm settle prove). Not locked; KV and records halves prove in parallel threads — a lost update costs recompute, not correctness |
-| `save_fold_cache` / `load_fold_cache` | `storage_tree.py:152/171` | the above across restarts | file fingerprint `(format, depth, WIDTH, CAPACITY, ROUNDS, blake2b(empty roots))` | fingerprint mismatch, malformed row, or one failed spot-recompute of 64 samples discards the **whole file** | "'pure function' protects against a STALE cache, not a WRONG file." `tests/test_fold_cache_persist.py` |
-| `SparseStore._memo` | `storage_tree.py:264` | `(level, index)` → subtree digest | — | `set()` pops exactly the changed ancestor chain | per instance |
-| `_E_CACHE` (`empty_roots`) | `storage_tree.py:40` | depth → empty-subtree digests | depth | never | pure |
-| `_PER_LDE_CACHE` (32) / `_PER_LDE_SEEN` (256) | `stark/stark.py:181-183` | dense periodic column → coset LDE; admission on **second** use | `(N, T, blake2b(col))` | LRU | 97.6 % of verify was Horner-per-query on these (1267 s → 188 s). **Key omits `offset`** — correct only while every caller passes `OFF=F.GENERATOR` |
-| `_PER_HINTED`, `_NATIVE_FALLBACKS` | `stark.py:193/389` | log-once sets | — | clear > 512 / never | diagnostics |
-| `_NATIVE`, `_LIB` handles | `alghash2.py:78`, `air_ir.py:188`, `goldilocks_native.py:18`, `stark_native.py:17` | dlopen results, `False` sticky | — | never | guarded by `native_guard.is_stale`; see [native crate staleness] |
-| `RC`, `IV`, `_MDS` | `alghash2.py:42-47` | consensus constants (BLAKE2b NUMS) | — | immutable | not a cache, but the Rust side mirrors them in `static mut` |
-| `_Builder._intern` / `_cintern` | `air_ir.py:30-32` | SSA CSE / constant pool | `(op,a,b)` / value | per builder | exact structural CSE |
-| `goldilocks_native._LOCK`, `stark_native._LOCK` | — | serialize the **static Rust scratch buffer / global arena** | — | — | "NOTHING EVER ACQUIRED IT" was a live bug: two proves clobbered each other's retained columns |
-| `static ARENA`, `static FRI` | `native/starkprove/src/lib.rs:325, 1574` | retained LDE columns + Merkle trees by positional id; the FRI result between calls | integer ids — **no generation tag** | `sp_reset` wipes | a stale id after reset aliases a different column; safety rests entirely on the Python `_LOCK` |
-| `static mut RC/IV/MDS` (+`HASH_READY` in starkprove only) | `native/alghash2/src/lib.rs:19`, `starkprove:204` | hash constants handed in by `init()` | — | overwritten by `init` | alghash2 has no init check: pre-init hashing would give well-formed wrong digests |
+| `_FOLD_CACHE` **DELETED (G9)** | `stark/storage_tree.py:94` | `(depth, key, value)` → `(high-water level, digest)` singleton fold | the triple | `clear()` at 2¹⁷; **persisted** to `<state>.folds.json` | pure function → cannot change a root, only its cost (58.9 s cold vs 10.2 s warm settle prove). Not locked; KV and records halves prove in parallel threads — a lost update costs recompute, not correctness |
+| `save_fold_cache` / `load_fold_cache` **DELETED (G9)** | `storage_tree.py:152/171` | the above across restarts | file fingerprint `(format, depth, WIDTH, CAPACITY, ROUNDS, blake2b(empty roots))` | fingerprint mismatch, malformed row, or one failed spot-recompute of 64 samples discards the **whole file** | "'pure function' protects against a STALE cache, not a WRONG file." `tests/test_fold_cache_persist.py` |
+| `SparseStore._memo` **DELETED (G9)** | `storage_tree.py:264` | `(level, index)` → subtree digest | — | `set()` pops exactly the changed ancestor chain | per instance |
+| `_E_CACHE` (`empty_roots`) **DELETED (G9)** | `storage_tree.py:40` | depth → empty-subtree digests | depth | never | pure |
+| `_PER_LDE_CACHE` (32) / `_PER_LDE_SEEN` (256) **DELETED (G9)** | `stark/stark.py:181-183` | dense periodic column → coset LDE; admission on **second** use | `(N, T, blake2b(col))` | LRU | 97.6 % of verify was Horner-per-query on these (1267 s → 188 s). **Key omits `offset`** — correct only while every caller passes `OFF=F.GENERATOR` |
+| `_PER_HINTED`, `_NATIVE_FALLBACKS` **DELETED (G9)** | `stark.py:193/389` | log-once sets | — | clear > 512 / never | diagnostics |
+| `_NATIVE`, `_LIB` handles **DELETED (G9)** | `alghash2.py:78`, `air_ir.py:188`, `goldilocks_native.py:18`, `stark_native.py:17` | dlopen results, `False` sticky | — | never | guarded by `native_guard.is_stale`; see [native crate staleness] |
+| `RC`, `IV`, `_MDS` **DELETED (G9)** | `alghash2.py:42-47` | consensus constants (BLAKE2b NUMS) | — | immutable | not a cache, but the Rust side mirrors them in `static mut` |
+| `_Builder._intern` / `_cintern` **DELETED (G9)** | `air_ir.py:30-32` | SSA CSE / constant pool | `(op,a,b)` / value | per builder | exact structural CSE |
+| `goldilocks_native._LOCK`, `stark_native._LOCK` **DELETED (G9)** | — | serialize the **static Rust scratch buffer / global arena** | — | — | "NOTHING EVER ACQUIRED IT" was a live bug: two proves clobbered each other's retained columns |
+| `static ARENA`, `static FRI` **DELETED (G9)** | `native/starkprove/src/lib.rs:325, 1574` | retained LDE columns + Merkle trees by positional id; the FRI result between calls | integer ids — **no generation tag** | `sp_reset` wipes | a stale id after reset aliases a different column; safety rests entirely on the Python `_LOCK` |
+| `static mut RC/IV/MDS` (+`HASH_READY` in starkprove only) **DELETED (G9)** | `native/alghash2/src/lib.rs:19`, `starkprove:204` | hash constants handed in by `init()` | — | overwritten by `init` | alghash2 has no init check: pre-init hashing would give well-formed wrong digests |
 | **absent**: Python `field.domain`/`ntt` twiddles, Rust `ntt` twiddles, `compose_setup` batch inversions | `field.py:76-119`, `starkprove:134, 598` | recomputed per call | — | — | pure perf headroom, no staleness risk |
 
 ---
@@ -244,11 +253,11 @@ Still open: old wallets (pre-`?root=`) request one dividend proof per nonce per 
 answers each in ~1 ms against the settled root, so they claim and drain.
 
 [native crate staleness] |
-| `RC`, `IV`, `_MDS` | `alghash2.py:42-47` | consensus constants (BLAKE2b NUMS) | — | immutable | not a cache, but the Rust side mirrors them in `static mut` |
-| `_Builder._intern` / `_cintern` | `air_ir.py:30-32` | SSA CSE / constant pool | `(op,a,b)` / value | per builder | exact structural CSE |
-| `goldilocks_native._LOCK`, `stark_native._LOCK` | — | serialize the **static Rust scratch buffer / global arena** | — | — | "NOTHING EVER ACQUIRED IT" was a live bug: two proves clobbered each other's retained columns |
-| `static ARENA`, `static FRI` | `native/starkprove/src/lib.rs:325, 1574` | retained LDE columns + Merkle trees by positional id; the FRI result between calls | integer ids — **no generation tag** | `sp_reset` wipes | a stale id after reset aliases a different column; safety rests entirely on the Python `_LOCK` |
-| `static mut RC/IV/MDS` (+`HASH_READY` in starkprove only) | `native/alghash2/src/lib.rs:19`, `starkprove:204` | hash constants handed in by `init()` | — | overwritten by `init` | alghash2 has no init check: pre-init hashing would give well-formed wrong digests |
+| `RC`, `IV`, `_MDS` **DELETED (G9)** | `alghash2.py:42-47` | consensus constants (BLAKE2b NUMS) | — | immutable | not a cache, but the Rust side mirrors them in `static mut` |
+| `_Builder._intern` / `_cintern` **DELETED (G9)** | `air_ir.py:30-32` | SSA CSE / constant pool | `(op,a,b)` / value | per builder | exact structural CSE |
+| `goldilocks_native._LOCK`, `stark_native._LOCK` **DELETED (G9)** | — | serialize the **static Rust scratch buffer / global arena** | — | — | "NOTHING EVER ACQUIRED IT" was a live bug: two proves clobbered each other's retained columns |
+| `static ARENA`, `static FRI` **DELETED (G9)** | `native/starkprove/src/lib.rs:325, 1574` | retained LDE columns + Merkle trees by positional id; the FRI result between calls | integer ids — **no generation tag** | `sp_reset` wipes | a stale id after reset aliases a different column; safety rests entirely on the Python `_LOCK` |
+| `static mut RC/IV/MDS` (+`HASH_READY` in starkprove only) **DELETED (G9)** | `native/alghash2/src/lib.rs:19`, `starkprove:204` | hash constants handed in by `init()` | — | overwritten by `init` | alghash2 has no init check: pre-init hashing would give well-formed wrong digests |
 | **absent**: Python `field.domain`/`ntt` twiddles, Rust `ntt` twiddles, `compose_setup` batch inversions | `field.py:76-119`, `starkprove:134, 598` | recomputed per call | — | — | pure perf headroom, no staleness risk |
 
 ---

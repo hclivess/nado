@@ -391,7 +391,7 @@ fi
 
 echo "==> dependencies installed."
 
-# ---- Rust toolchain helper (shared by the native ML-DSA verify backend + the Goldilocks prover) ---
+# ---- Rust toolchain helper (used by the native ML-DSA verify backend build below) ------------------
 # Ensures a C LINKER (`cc`) is present. cargo needs it to link ANY binary, and pure-Rust build scripts
 # (getrandom, libc) compile C stubs — so a minimal box with rustup but no gcc fails with
 # "error: linker `cc` not found". rustup's minimal profile does NOT provide one. Returns 0 if cc is

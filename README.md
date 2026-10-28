@@ -29,7 +29,7 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
 > is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
 > bootstrap binding to a finalized signed checkpoint). On top of consensus, a **STARK-proven execution
-> layer** (a field-native zkVM) is live and carries real dApps — ~20 on-chain games, shielded transfers,
+> layer** (a zkVM with a 256-bit word and BLAKE2s, proved with Stwo) is live and carries real dApps — ~20 on-chain games, shielded transfers,
 > and end-to-end-encrypted on-chain messaging. Run it on testnet / at your own risk; do not secure value
 > of consequence with it yet. The betanet **rerolls often** (fresh genesis, balances carried forward) as
 > consensus changes land strictly with no backward-compat; the current chain id is the `chain_id` field of any
@@ -58,9 +58,9 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   participant: generate a post-quantum wallet, mine, send/receive, register a human-readable **alias**,
   and browse the chain, all from one link on any phone or laptop.
 
-- **A real execution layer, already live.** Beyond payments, NADO runs a **field-native zkVM** whose
-  state is settled to L1 under **STARK proofs** (objective, stake-backed finality — L1 verifies a Merkle
-  proof against a bonded-quorum-settled root, not a re-execution). On it today: **~20 provably-fair
+- **A real execution layer, already live.** Beyond payments, NADO runs a **provable zkVM** whose
+  state is settled to L1 by a bonded quorum today and by Stwo **STARK proofs** once that rule is switched on
+  (objective, stake-backed finality — L1 verifies a Merkle proof against the settled root, not a re-execution). On it today: **~20 provably-fair
   on-chain games** (dice, roulette, poker/hold'em, blackjack, mines, an original settlers-genre strategy
   game, an auto-battler, a deck-builder, tamagotchi-style NFT pets, and more — each with its own
   subdomain), **shielded transfers** (a private payments pool), and **end-to-end-encrypted on-chain
@@ -972,26 +972,31 @@ Everything below is **hash-based and post-quantum** — no elliptic curves, no p
 setup** anywhere. Full component map with measured numbers and per-piece status:
 [`doc/zk-components.md`](doc/zk-components.md); vocabulary: [`doc/zk-glossary.md`](doc/zk-glossary.md).
 
-- **Arithmetic core** — the Goldilocks field (p = 2⁶⁴ − 2³² + 1) with a GF(p^d) extension for challenge
-  soundness, Merkle commitments, a Fiat–Shamir transcript, and **FRI** underneath every proof. Protocol
-  strength is 320 queries at blowup 2 with 18 grinding bits ≈ **146 provable bits** (Johnson).
-- **alghash2** — the algebraic hash the recursion layer needs, because a STARK that verifies another
-  STARK must hash *inside* a circuit and BLAKE2b is far too expensive there. Wide sponge over Goldilocks
-  (WIDTH 12, RATE 8, CAPACITY 4, α = 7, 54 rounds); 256-bit capacity ⇒ 128-bit collision and 128-bit
-  Grover preimage resistance.
-- **A field-native execution zkVM** — the only contract runtime, with an AIR that proves "running this
-  public program on this input yields this output". ~20 game contracts run on it today.
-- **A shielded pool** — join-split circuits (1-in/1-out and 2-output) plus a Merkle-membership AIR for
-  private transfers. This is the one subsystem where the whole loop — prove → publish to DA → carry only
-  the commitment on chain → verify — **already works in production**.
-- **Recursion, for O(1) verification** — a verifier-authoritative in-circuit STARK/FRI verifier, an
-  in-circuit Fiat–Shamir transcript, a K→1 collapse and fold-of-folds, so an epoch's root verifies in
-  constant time regardless of how much executed. Live on the consensus path since betanet-14.
-- **Rust proving, no fallback** — `native/starkprove` (2 222 lines), `native/alghash2`,
-  `native/starkcompose`, `native/mldsa44`. The guard **fail-stops** rather than degrading quietly,
-  because a Python path shadowing a Rust one is invisible degradation, not a safety net.
-- **On-device proving** — 650 lines of JS in `static/stark/` let a phone build a shielded-transfer proof
-  in the browser with no install.
+- **Proof system** — **Stwo**, StarkWare's Circle STARK prover/verifier (Rust, Apache-2.0), over the
+  Mersenne-31 field (p = 2³¹ − 1) with challenges drawn from its degree-4 extension QM31. We use it rather
+  than our own STARK because every serious proving hole this repository ever had was in code we wrote
+  ourselves ([`doc/stwo-migration.md`](doc/stwo-migration.md) §1).
+- **One hash: BLAKE2s** — the contract VM's hash opcode, the exec root and the shielded pool's commitments
+  are all BLAKE2s-256 (domain-separated by personalization), because Stwo has a production BLAKE2s
+  component and one compression per absorbed word is what it proves.
+- **The exec root** — `execnode/exec_root_b2.py` over a compressed sparse Merkle tree (`execnode/csmt.py`,
+  ~40 compressions per update at a million leaves, against 512 for a depth-256 tree).
+- **A provable contract VM** — `execnode/zkvm2.py`, the only contract runtime: a register machine with a
+  **256-bit word that wraps mod 2²⁵⁶** (as in the EVM; [`doc/stwo/g3-vm-word.md`](doc/stwo/g3-vm-word.md)),
+  an ordered public I/O log, and addresses entering as their 256-bit BLAKE2s digest.
+- **A shielded pool proved by Stwo** — `execnode/shielded_stwo.py`, a depth-48 tree; the join-split proof is
+  built on-device in the wallet (`static/stark/stwo_js.js`, from `native/stwo_js`) and verified natively by
+  every node.
+- **Stwo settlement** — the settlement statement and prover (`execnode/settle_b2.py`, `native/stwo_settle`)
+  are built and run in shadow; L1 accepts a Stwo settle proof only from `STWO_SETTLE_HEIGHT`, which is
+  dormant until two weeks of shadow proofs verify. Until then the bonded-stake quorum settles every epoch.
+- **Rust, no fallback** — `native/stwo_js`, `native/stwo_settle`, `native/mldsa44`, `native/pqsig`,
+  `native/attest`. The guard **fail-stops** rather than degrading quietly, because a Python path shadowing a
+  Rust one is invisible degradation, not a safety net.
+
+The Goldilocks STARK this section used to describe (p = 2⁶⁴ − 2³² + 1, our own FRI, the `alghash2` sponge,
+recursion and folds, `native/starkprove`) was retired at the generation-29 reroll and **deleted in G9**; the
+status note below is its history, kept because the transport lessons still hold.
 
 > **Honest status (updated 2026-08-06).** **Trustless settlement now works end to end.** Block **43153**
 > on betanet-15 carries a settle with `proof=True` for `exec_cursor 42876`: a peer verified the STARK in
@@ -1093,36 +1098,25 @@ Keys are post-quantum **ML-DSA-44 (FIPS 204)**; what is stored is the 32-byte se
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
   (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit
-  and read. Contracts run on a **STARK-provable zkVM** (the only runtime), authored in **zkasm**
-  (`execnode/zkvmasm.py`); every call is provable (`doc/zk-execution-proofs.md`). **Settlement accepts a
-  validity proof as of betanet-14** (`SETTLE_PROOF_RECURSIVE`): a settle transaction may carry a K→1
-  recursion bundle and L1 verifies ONE proof for the epoch — **~0.3 s, independent of the call count** —
-  replaying the authenticated I/O log to recompute the post-state root with **no re-execution**. The
-  bonded-stake quorum (`settlement_justified`, the same >2/3 shape as finality) remains the path for epochs
-  that ship no proof.
+  and read. Contracts run on a **STARK-provable zkVM** (the only runtime, `execnode/zkvm2.py`: a 256-bit wrapping
+  word and a BLAKE2s hash), authored in **zkasm** (`execnode/zkvmasm.py`). Settlement is the bonded-stake quorum
+  (`settlement_justified`, the same >2/3 shape as finality); a span may instead settle on one Stwo proof
+  (`execnode/settle_b2.py`, `native/stwo_settle`) from `STWO_SETTLE_HEIGHT`, which is built and dormant until two
+  weeks of shadow proofs verify. The Goldilocks validity proofs that settled from betanet-14 were retired at the
+  generation-29 reroll and deleted in G9.
   **15 games ship as live zkVM contracts** — coin flip, dice, roulette,
   slots, mines, blackjack, tic-tac-toe, Connect Four, reversi, chess, farkle, parimutuel sports betting,
   battleship, tamagotchi-NFT pets, and multiplayer Texas hold'em with an on-chain 7-card hand evaluator —
   each an ordinary upgradable contract (opt-in immutability via `lock`) with no game-specific API.
-- **STARK recursion — succinct, K→1, O(1) verify** — [`doc/zk-recursion.md`](doc/zk-recursion.md): the path to
-  verifying an epoch of execution in constant time. **Live on the L1 consensus path since betanet-14** (`SETTLE_PROOF_RECURSIVE`), gated behind a reroll
-  because a node honouring the `recursive` field skips the classic per-segment check: a
-  verifier-authoritative in-circuit STARK verifier over an algebraic hash (**alghash2**); **T-independent
-  ("succinct") verification** (structured periodic columns — no per-proof O(T) work); a **K→1 collapse** (one
-  recursion bundle re-verifies K chained segment proofs from their public parts alone); an **in-circuit
-  Fiat-Shamir transcript**; and **recursion depth** (fold-of-folds) whose root **verifies in ~0.2 s regardless
-  of tree size** — the O(1)-verification goal, realized. **Honest status:** the *verify* side is O(1) and the
-  mechanisms are validated at small scale. Proving is now **native** (Rust-only, no fallback); a full
-  settlement prove measures **240–270 s** on production state. The settlement rule **is** wired
-  (`SETTLE_PROOF_TRUSTLESS`, `SETTLE_PROOF_RECURSIVE`, `SETTLE_PROOF_RECORDS` and
-  `SETTLE_PROOF_RECORDS_VALUE_CALLS` are all `True` in `protocol.py`), and proof-carrying settles have landed
-  (block 43153 of betanet-15, above). Two limits stand, both recorded in `protocol.py`: settle proofs were closed on
-  gen 25 pending a proof-verifier soundness fix, and the K→1 fold does not carry the trace low-degree term, so it
-  refuses under that rule. The bonded quorum (`settlement_justified`) carries the epochs that ship no proof, and the
-  next reroll moves settlement to Stwo ([`doc/stwo-migration.md`](doc/stwo-migration.md)).
-- **Every ZK component in one place** — [`doc/zk-components.md`](doc/zk-components.md): the arithmetic
-  core, algebraic hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding,
-  recursion, the four Rust crates, DA transport and the consensus constants — each marked **live /
+- **STARK recursion — succinct, K→1, O(1) verify (retired)** — [`doc/zk-recursion.md`](doc/zk-recursion.md): the
+  Goldilocks recursion (an in-circuit STARK verifier over **alghash2**, a K→1 collapse, fold-of-folds verifying in
+  ~0.2 s regardless of tree size) was on the L1 consensus path from betanet-14 (`SETTLE_PROOF_RECURSIVE`) and
+  landed proof-carrying settles (block 43153 of betanet-15, above). It was retired with the Goldilocks stack at the
+  generation-29 reroll and deleted in G9; settlement moves to Stwo ([`doc/stwo-migration.md`](doc/stwo-migration.md)).
+  The doc is kept for its measurements and lessons.
+- **Every ZK component in one place** — [`doc/zk-components.md`](doc/zk-components.md) (the Goldilocks-era map,
+  with what is live today in its header): the arithmetic core, algebraic hashes, STARK proving, the execution
+  zkVM, the shielded pool, state-root binding, recursion, the four Rust crates, DA transport and the consensus constants — each marked **live /
   capability / research / removed**, with the measured numbers behind them and an explicit §14 on exactly
   where trustless settlement stops. Start at [`doc/zk-glossary.md`](doc/zk-glossary.md) if the vocabulary
   is new.

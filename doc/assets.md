@@ -70,7 +70,7 @@ Rules the ledger keeps, in the code and in the tests:
 ### The id is derived, never assigned
 
 ```
-asset_id = alghash.hashn([ zkvm_addr_digest(issuer), seed ])
+asset_id = zkvm2.hash_words([ zkvm_addr_digest(issuer), seed ])   # the VM's BLAKE2s hash (gen 29; alghash before G9)
 ```
 
 Consequences, and this is the part that makes the rest of the roadmap buildable:
@@ -79,13 +79,13 @@ Consequences, and this is the part that makes the rest of the roadmap buildable:
 2. A **contract can compute the id of its own assets in-circuit**, with the ordinary `hash` macro:
    `hash aid <- me 1`. No registry lookup, no oracle, nobody passing it an id it has to trust. That is
    precisely what an AMM needs to own its LP token and a launchpad needs to own the token it launches.
-3. Ids are field elements, so they fit in a register and travel as ordinary call args.
+3. Ids are 256-bit words, so they fit in a register and travel as ordinary call args.
 
 ---
 
 ## 3. The six opcodes
 
-Appended to `zkvm.OPS` (ids are frozen once contracts deploy against them; appending never shifts an
+Appended to `zkvm2.OPS` (ids are frozen once contracts deploy against them; appending never shifts an
 existing id).
 
 | op | form | effect | io entry |
@@ -132,10 +132,10 @@ That is only safe if the pairing is **atomic**. The failure it prevents:
 This is the same shape as the existing `RANGE ; RANGE ; LT` rule (a jump into a compare macro skipping a
 range check), and it is enforced the same way, in **two** independent places:
 
-1. **`zkvm.validate_code`, at the deploy gate** — every `ASEL` must be immediately followed by `PAY` or
+1. **`zkvm2.validate_code`, at the deploy gate** — every `ASEL` must be immediately followed by `PAY` or
    `AMINT`, no jump may target that follower, and every `AMINT` must be preceded by an `ASEL`. This covers
    all bytecode, including hand-crafted JSON that never went through the assembler.
-2. **`zkvm.replay_io`, in the verifier** — because replay verifies a *log*, not a program. A log arriving
+2. **`zkvm2.replay_io`, in the verifier** — because replay verifies a *log*, not a program. A log arriving
    from a stranger gets the identical pairing check before any effect is derived from it.
 
 Plus one interpreter guard: **`ASEL` of asset `0` reverts.** Asset 0 means "native", so selecting it is the
@@ -365,12 +365,12 @@ moves assets and runs the Reserve vault. Still ahead: an **explorer** (asset pag
 
 | what | where |
 |---|---|
-| opcodes, io kinds, pairing gate, replay | `execnode/zkvm.py` |
-| AIR columns + constraints | `execnode/stark/vm_circuit.py` |
+| opcodes, io kinds, pairing gate, replay | `execnode/zkvm2.py` |
+| AIR columns + constraints | `native/stwo_settle` (`vm_air.rs`); the Goldilocks `execnode/stark/vm_circuit.py` was deleted in G9 |
 | assembler macros | `execnode/zkvmasm.py` |
 | DSL wrappers | `execnode/zkpy.py` |
 | ledger, blob ops, staged settlement | `execnode/state.py` |
 | io → effects, address resolution | `execnode/runtimes.py` |
-| root commitment | `execnode/exec_root.py` |
+| root commitment | `execnode/exec_root_b2.py` |
 | read endpoints | `execnode/execnode.py` |
 | tests | `tests/test_assets.py` |

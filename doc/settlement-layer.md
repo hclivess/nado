@@ -54,8 +54,8 @@ by a bonded-stake quorum, later by one STARK proof, behind the same predicate.
 | settled pointer | `ops.settlement_ops.latest_settled() -> (cursor, root)` | derived (revert-safe); exposed at `GET /get_settled` |
 | bridge | `bridge` / `bridge_withdraw` recipients; `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) | deposit→credit→burn→Merkle-proof-vs-settled-root→release |
 | exec tail + settle | `execnode/execnode.py` `apply loop`, `maybe_settle()` (no flag — a bonded node's exec node always settles; every `SETTLE_EVERY` and on entering an epoch) | consumes only FINALIZED blocks |
-| exec state root | `execnode/exec_root.py:state_root()` (depth-256 sparse alghash2) | the object settlement commits to |
-| STARK prover | `execnode/stark/fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py` | **built for privacy today**; reused for Phase-2b settlement |
+| exec state root | `execnode/exec_root_b2.py` (BLAKE2s over a compressed sparse tree, `execnode/csmt.py`; the depth-256 alghash2 `exec_root.py` was deleted in G9) | the object settlement commits to |
+| STARK prover | Stwo: `native/stwo_js` (shielded pool), `execnode/settle_b2.py` + `native/stwo_settle` (settlement, dormant behind `STWO_SETTLE_HEIGHT`) | the Goldilocks prover (`execnode/stark/fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py`) that served both before was deleted in G9 |
 | **exec settlement status** | `execnode` `GET /exec/settlement` (**this change**) | `{cursor, state_root, settle_enabled, settle_every, last_settled_cursor, l1}` |
 
 The single most important fact for planning: **`settlement_justified()` and the FRI prover already exist.**

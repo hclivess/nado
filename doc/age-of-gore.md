@@ -3,6 +3,12 @@
 **Status: DESIGN. Nothing built.** Slug `gore`. This is the recommendation after three designs and three
 independent judgements; it names which one to build, what it steals from the other two, and what it gives up.
 
+> **VM note (G9, 2026-10-28):** the VM facts below were verified against the Goldilocks VM (`execnode/zkvm.py`, deleted
+> in G9). On today's `execnode/zkvm2.py` (256-bit wrapping word, BLAKE2s `hash`): the op list is still closed with no
+> signature-verify opcode, `hash d <- s…` is still the only hashing form, but `DIVMOD` divides over the whole word
+> (the `1 ≤ b < 2^15` window and the Q16 limit are gone). Re-verify every other bound below, including the `< 2^50`
+> stored-word limit, against zkvm2 before building.
+
 ---
 
 ## 1. The one to build, and what it costs
@@ -193,7 +199,7 @@ What is genuinely new and what it costs:
   Fine in JS with typed arrays — but adopt pool's exact discipline (`pool-engine.js:310-322`): only *moving*
   bodies drive the scan, each moving/moving pair visited once by its lower index. Write the rule down: *any
   spatial acceleration structure must be proven order-equivalent to the ascending sweep, or not used.*
-- **Field-wrap discipline's sibling applies.** This engine runs on `Int32Array`, not Goldilocks, but every
+- **Word-wrap discipline's sibling applies.** This engine runs on `Int32Array`, not the VM word, but every
   subtraction of a player-controlled quantity (hp, ammo, fuse) goes through a clamped helper. A wrapped
   `Int32` hp pool is the same bug in a different hat.
 - **Hard bound**: exactly **2048 ticks**, always, like pool's `MAX_TICKS = 30000`. Not "up to." Fixed, so the
@@ -335,8 +341,9 @@ is fixed before you see your opponent's; `claim(g)` on a sole debtor using battl
 (`MOVE_CLOCK = 14400` ≈ a day) so "I have to go" costs nothing and "I ghosted after seeing your score" costs
 the pot.
 
-Register pressure forces a two-level hash fold (8 registers, 130+ hashed values, and `hr0` is not
-raw-assemblable — verified). `alghash.js` must mirror the exact fold shape.
+Register pressure forces a two-level hash fold (8 registers, 130+ hashed values). The browser mirror must
+reproduce the exact fold shape: since generation 29 that is `static/blake2s.js` `hashWords` (= `zkvm2.hash_words`);
+`static/alghash.js` and the alghash round opcodes this was first measured against were deleted in G9.
 
 State the limitation in the UI, not just the doc: **after both reveal, a spiteful loser can still refuse
 `agree` and force the refund.** The escrow's function is attendance, not enforcement.

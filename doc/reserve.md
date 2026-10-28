@@ -87,6 +87,11 @@ asset in-circuit would need an opcode that READS an asset's `mintable` flag, and
 
 ## 5. Field widths — where this contract can actually bite
 
+> Written for the Goldilocks VM (`zkvm.py`, deleted in G9). Since generation 29 the VM word is 256 bits
+> (`execnode/zkvm2.py`): `DIVMOD`/`DIVMODW` divide over the whole word and only a zero divisor reverts, so the windows
+> below no longer constrain the arithmetic. The contract still enforces its `2^31` caps, and they still bound the
+> vault; they are no longer what keeps a trace provable.
+
 `DIVMODW` is the only wide divide (`zkvm.py`: `1 <= b < 2^31`, `q < 2^32`). The pro-rata payout is a
 `mul` + `divmodw` pair, so both operands are constrained, and the contract **enforces the bounds with
 `require` rather than trusting callers** — an out-of-range divmodw is not a wrong answer, it is an

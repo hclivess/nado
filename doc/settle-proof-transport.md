@@ -1,5 +1,7 @@
 # Getting a settle-with-proof onto the chain
 
+> **HISTORICAL (G9, 2026-10-28):** Every proof measured here is a Goldilocks proof; the transport lessons (consensus does not bound block size, availability is not validity) still hold. The Goldilocks stack it describes (`execnode/stark/`, the field VM `execnode/zkvm.py`, `native/starkprove`, `native/starkcompose`, `native/alghash2`, `wasm/goldilocks`) was retired at the generation-29 reroll and deleted in G9. Live now: the contract VM `execnode/zkvm2.py` (256-bit word wrapping mod 2^256, BLAKE2s `hash`), the BLAKE2s exec root (`execnode/exec_root_b2.py`, `execnode/csmt.py`), and Stwo proofs (Circle STARK over M31): the shielded pool via `native/stwo_js`, settlement via `execnode/settle_b2.py` + `native/stwo_settle` (dormant behind `STWO_SETTLE_HEIGHT`). See doc/stwo-migration.md.
+
 > ## RESOLVED 2026-08-06 — see §6. A proof landed.
 >
 > Block **43153** carries a settle with `proof=True` for `exec_cursor 42876`. The block is **126.6 MiB**,

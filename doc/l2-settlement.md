@@ -19,7 +19,7 @@ with anything L1 does. Phones stay first-class (headers + DA sampling), exactly 
 | Primitive | Where | What it does |
 |---|---|---|
 | `blob` recipient | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 1 MiB` | opaque, size-capped, fee-metered byte carrier — L1 orders it, never decodes it |
-| `execnode` | `execnode/execnode.py`, `state.py`, `zkvm.py` | tails **finalized** L1 blocks, decodes blobs → exec txs, runs the zkVM, maintains a state store (sparse alghash2 root) |
+| `execnode` | `execnode/execnode.py`, `state.py`, `zkvm2.py` | tails **finalized** L1 blocks, decodes blobs → exec txs, runs the zkVM, maintains a state store (BLAKE2s root over a compressed sparse tree, `exec_root_b2.py`) |
 | `settle` tx | `construct_settle_tx` → `{exec_cursor, state_root}`, fee-exempt | a bonded validator running an exec node attests "at cursor C the exec state root is R" |
 | settlement verifier | `settlement_ops.settlement_justified(cursor, root, reg)` | a root is **SETTLED** when attesting bonded shares `> SETTLE_NUM/SETTLE_DEN` (2/3). `latest_settled()` derives the highest justified `(cursor, root)`; exposed at `/get_settled` |
 | trust-minimized bridge | `bridge` / `bridge_withdraw` recipients; `/exec/withdrawal_proof?nonce=` (`ExecState.record_proof_at`) | L1 deposit escrows NADO → exec credit → exec burn → **Merkle proof against the settled root** → L1 releases escrow |
@@ -90,7 +90,9 @@ cost is **constant regardless of how many rollups exist or how many transactions
 verification cost is decoupled from aggregate throughput entirely. This is the mechanism by which "ordering +
 DA + one proof" scales without bound on the execution side.
 
-**Status (2026-07, `doc/zk-recursion.md`).** The recursion MECHANISM is **built and tested off the L1 path**: a
+**Status (2026-07, `doc/zk-recursion.md`; superseded).** The Goldilocks recursion below was deleted in G9 with the rest of
+that stack; settlement proofs are now Stwo's (`execnode/settle_b2.py`, dormant behind `STWO_SETTLE_HEIGHT`). As written
+then: the recursion MECHANISM was **built and tested off the L1 path**: a
 verifier-authoritative in-circuit STARK verifier over the wide-sponge **alghash2**; T-independent ("succinct")
 verification; a **K→1** collapse (one bundle re-verifies K chained segment proofs from their public parts); an
 in-circuit Fiat-Shamir transcript; and **fold-of-folds depth** whose root **verifies in ~0.2 s regardless of
@@ -113,7 +115,7 @@ exactly one thing: removing the honest-majority assumption.
 
 | | **Exec-node quorum (2a — shipped, possibly permanent)** | **zkVM validity proof (2b — optional)** |
 |---|---|---|
-| To settle a batch | bonded nodes **run the zkVM** (`execnode/zkvm.py`) and attest the root (2/3 bonded-stake quorum, live) | a prover generates a **STARK over every executed instruction** (built off-path; not yet the live rule) |
+| To settle a batch | bonded nodes **run the zkVM** (`execnode/zkvm2.py`) and attest the root (2/3 bonded-stake quorum, live) | a prover generates a **STARK over every executed instruction** (built off-path; not yet the live rule) |
 | Compute to settle | ~**native execution** (µs–ms per call) | **~10³–10⁶× native** (modern GPU zkVMs ~10³–10⁴×); seconds–minutes per batch |
 | Prover hardware | commodity — the VM runs on a phone | tens of GB RAM, typically a GPU / proving cluster |
 | L1 verification | **8 lines — one integer compare** (`settlement_justified`) | verify a STARK — a large consensus-critical verifier |

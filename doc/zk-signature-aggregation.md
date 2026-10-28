@@ -108,7 +108,7 @@ CHECK.**
 
 ## What stayed
 
-`execnode/stark/mldsa_block_auth.py` — the block-level authorization **commitment**. Every block binds
+`execnode/stark/mldsa_block_auth.py` (now `ops/mldsa_block_auth.py`) — the block-level authorization **commitment**. Every block binds
 `(auth_root, auth_count)` into its hash preimage and every verifier recomputes both from the block's own
 transactions. A pure function of committed block data, costs nothing, never depended on an aggregate proof
 being accepted, and imports only `alghash` and `field`.

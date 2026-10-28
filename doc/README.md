@@ -88,10 +88,10 @@ with a live-vs-capability-vs-research status for each and the measured numbers b
 
 | Doc | Contents |
 |-----|----------|
-| [zk-components.md](zk-components.md) | **The whole ZK surface at once** — arithmetic core, hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding, recursion, the Rust crates, DA transport, consensus constants; what is load-bearing today and exactly where trustless settlement still stops |
-| [zk-glossary.md](zk-glossary.md) | Plain-language definitions of every term used across `execnode/stark/*` and the `zk-*` docs — **read this first if the vocabulary is new** |
-| [zk-execution-proofs.md](zk-execution-proofs.md) | Proving contract execution: the zkVM AIR that shows "running this public program on this input yields this output" |
-| [zk-recursion.md](zk-recursion.md) | STARK recursion — verifying a proof inside a proof for **O(1) settlement verification**: alghash2, the in-circuit FRI/STARK verifier, in-circuit Fiat-Shamir, the K→1 fold and fold-of-folds |
+| [zk-components.md](zk-components.md) | **Historical (G9):** the Goldilocks-era map, with what is live today in its header — arithmetic core, hashes, STARK proving, the execution zkVM, the shielded pool, state-root binding, recursion, the Rust crates, DA transport, consensus constants; what is load-bearing today and exactly where trustless settlement still stops |
+| [zk-glossary.md](zk-glossary.md) | Plain-language definitions of every term used across the `zk-*` and `stwo/` docs — **read this first if the vocabulary is new** |
+| [zk-execution-proofs.md](zk-execution-proofs.md) | **Historical (G9).** Proving contract execution on the Goldilocks stack: the zkVM AIR that shows "running this public program on this input yields this output" |
+| [zk-recursion.md](zk-recursion.md) | **Historical (G9).** STARK recursion — verifying a proof inside a proof for **O(1) settlement verification**: alghash2, the in-circuit FRI/STARK verifier, in-circuit Fiat-Shamir, the K→1 fold and fold-of-folds |
 | [zk-settlement-completion.md](zk-settlement-completion.md) | Trustless STARK settlement — the completion checklist and what each load-bearing piece still needs |
 | [zk-signature-aggregation.md](zk-signature-aggregation.md) | **Post-mortem** — signature aggregation was built, measured, and removed. Kept deliberately: the idea is attractive and the measurements say no |
 | [privacy.md](privacy.md) | The post-quantum zk-STARK **shielded pool** — join-split circuits, membership AIR, and the one place the full proof→DA→commitment→verify loop already works in production |
@@ -147,7 +147,11 @@ settlement in production today. Alongside it, the consensus rule for **trustless
 the root on a STARK validity proof with *no* quorum — is implemented and switched on unconditionally
 (`SETTLE_PROOF_TRUSTLESS`, no feature flags; they were deleted in `74957663`).
 
-> **Honest status: one proof-carrying settle has landed** — block 43153 (2026-08-06) settled on a STARK proof a
+> **Since generation 29 (2026-10-28):** the Goldilocks proof described in this section is deleted (G9). L1 accepts a
+> Stwo settle proof (`execnode/settle_b2.py`, `native/stwo_settle`) only from `STWO_SETTLE_HEIGHT`, which is dormant,
+> so every epoch settles by the quorum today. The measurements below are the Goldilocks prover's.
+>
+> **Honest status (Goldilocks era): one proof-carrying settle has landed** — block 43153 (2026-08-06) settled on a STARK proof a
 > peer verified ([settle-proof-transport.md](settle-proof-transport.md)). Routine settlement still rides the
 > quorum, because spans that move withdrawals, unshields or xmsgs cannot be proven yet
 > ([stwo/g4-settlement-statement.md](stwo/g4-settlement-statement.md) §1). Before that landing, measured over 33 064 journal lines (2026-08-01 → 08-06): **89 proofs
@@ -157,9 +161,9 @@ the root on a STARK validity proof with *no* quorum — is implemented and switc
 
 The weight difference is the reason the quorum remains the working path:
 
-| | Exec-node quorum (carries settlement today) | Validity proof (rule live, landed once) |
+| | Exec-node quorum (carries settlement today) | Validity proof (Goldilocks figures; landed once, deleted in G9) |
 |---|---|---|
-| Settle a batch | run the zkVM (`execnode/zkvm.py`), attest the root | prove the epoch's state transition (STARK) |
+| Settle a batch | run the zkVM (`execnode/zkvm2.py`), attest the root | prove the epoch's state transition (STARK) |
 | Compute | ~native (µs–ms) | **10.2 s warm / 58.9 s cold** — re-measured 2026-08-13 |
 | L1 verify | **one integer compare** | one proof, ~0.3 s, independent of call count |
 | Payload | a few hundred bytes | **97–118 MiB** — ~380× a full block, so it must go via DA |

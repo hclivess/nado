@@ -1,5 +1,7 @@
 # STARK recursion for NADO — O(1) settlement verification
 
+> **HISTORICAL (G9, 2026-10-28):** Kept for its measurements and soundness lessons; the recursion, folds and `alghash2` are gone, and nothing in the Stwo settlement folds proofs today. The Goldilocks stack it describes (`execnode/stark/`, the field VM `execnode/zkvm.py`, `native/starkprove`, `native/starkcompose`, `native/alghash2`, `wasm/goldilocks`) was retired at the generation-29 reroll and deleted in G9. Live now: the contract VM `execnode/zkvm2.py` (256-bit word wrapping mod 2^256, BLAKE2s `hash`), the BLAKE2s exec root (`execnode/exec_root_b2.py`, `execnode/csmt.py`), and Stwo proofs (Circle STARK over M31): the shielded pool via `native/stwo_js`, settlement via `execnode/settle_b2.py` + `native/stwo_settle` (dormant behind `STWO_SETTLE_HEIGHT`). See doc/stwo-migration.md.
+
 **Status:** research + implementation (this doc drives `execnode/stark/alghash2.py`, the alghash hash
 backend, and `execnode/stark/recursion.py`). Grounded in the *actual* proof stack: `execnode/stark/stark.py`
 (the STARK), `fri.py` (FRI), `merkle.py`, `transcript.py`, `alghash.py`, and the execution AIR

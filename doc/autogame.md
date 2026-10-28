@@ -217,11 +217,11 @@ never reverts. **You cannot react to all 16 tiles.** Choosing which three or fou
 
 ## 4. The world
 
-Each step derives two 32-bit windows and slices them with small divisors (inside the DIVMOD soundness
-window):
+Each step derives two 32-bit windows and slices them with small divisors (`hash` is the VM's BLAKE2s word hash
+since generation 29; it was alghash on the Goldilocks VM, along with a DIVMOD window that no longer exists):
 
-    tw = lo32(alghash(H(lh), runId, i))     tile word
-    rw = lo32(alghash(H(nh), runId, i))     roll word
+    tw = lo32(hash(H(lh), runId, i))     tile word
+    rw = lo32(hash(H(nh), runId, i))     roll word
 
     tw:  a = tw % 100   tile class        rw:  x = rw % 100   variance
          tw //= 100                            rw //= 100
@@ -438,9 +438,10 @@ Deployed contract id: **`ba8bebc9693f5aaec0e338a13d5812c4`** (`autogame.nadochai
 `tests/test_autogame_contract_matches_the_reference_model.py` runs the contract and the Python model over the same hashes and asserts
 step-for-step equality. A divergence in any of the three is a bug in the other two until proven otherwise.
 
-### Field-wrap discipline
+### Word-wrap discipline
 
-Goldilocks subtraction wraps, and a wrapped `hp` is a ~2^64 hit-point pool. **Every subtraction of a
+VM subtraction wraps (mod 2^256 since generation 29, mod the Goldilocks prime before), and a wrapped `hp` is an
+astronomically large hit-point pool. **Every subtraction of a
 player- or roll-controlled quantity goes through a clamped helper** — `select(a < b, 0, a - b)` — never a
 bare `sub`. This is the class of bug that produced the banked-table drain; it is the first thing to check in
 any diff to the step function.

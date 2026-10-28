@@ -4,6 +4,12 @@ These are the goals the zk/settlement work strives toward. Every design decision
 (doc/zk-recursion.md, doc/zk-execution-proofs.md, doc/settlement-layer.md) should be justifiable against
 them; anything that moves away from one of them needs an explicit, written reason.
 
+> **G9 (2026-10-28):** the goals stand; the implementation this doc names — `alghash2`, `air_ir`, `vm_circuit`, the
+> recursion and folds — is the Goldilocks stack, retired at the generation-29 reroll and deleted in G9. The proof
+> system is now Stwo (Circle STARK over M31) and the one provable hash is BLAKE2s, which Stwo proves with its own
+> component, so "no blake2b inside anything we recurse over" below became "BLAKE2s everywhere". See
+> doc/stwo-migration.md.
+
 > **2026-08-06 — the first of these goals is now demonstrated, and the gap to the rest is measurable.**
 > Block 43153 settled the exec root on a validity proof: a peer verified it in 114.5 s, the fleet agrees,
 > and it is final. So the *seam* works end to end — L1 will accept a proven root instead of a bonded quorum.
