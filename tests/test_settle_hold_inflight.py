@@ -176,8 +176,8 @@ check("the pending marker keys on the submitted tx, not the local proof flags",
 # proving lost to a slot lottery.
 check("a missed landing block is RESUBMITTED rather than abandoned", "RESUBMITTED for" in src)
 check("...reusing the proof already built: its DA commitment, or the inline proof itself (never a reprove)",
-      'proof=_rproof, proof_da=_pend.get("proof_da")' in src
-      and '"proof": None if _txd.get("proof_da") else _txd.get("proof"),' in src)
+      'proof=_rproof, proof_da=_pend.get("proof_da"),' in src and 'stwo=_pend.get("stwo"))' in src
+      and '"proof": (None if (_txd.get("proof_da") or _txd.get("stwo"))' in src)
 check("...only while the pre-state it proves is still the justified tip",
       '_sc_now == int(_pend["pre_cursor"])' in src)
 # THE INLINE PROOF GOT ONE SHOT until 2026-09-24: the marker kept only the DA commitment, so both proof-carrying
@@ -185,8 +185,8 @@ check("...only while the pre-state it proves is still the justified tip",
 # that made inline retries forbidden still holds, now enforced on the built tx itself: a resubmission carries the
 # proof or its commitment, NEVER neither — a tx with neither is a BARE settle that advances the tip past the span.
 check("...and NEVER as a bare settle: the built retry must carry the proof or its commitment",
-      '(_pend.get("proof_da") or _rproof)' in src
-      and 'if not (_rd.get("proof") or _rd.get("proof_da")):' in src)
+      '(_pend.get("proof_da") or _pend.get("stwo") or _rproof)' in src
+      and 'if not (_rd.get("proof") or _rd.get("proof_da") or _rd.get("stwo")):' in src)
 check("...an inline retry gets a runway for peers to receive and verify it",
       "SETTLE_INLINE_RESUBMIT_MARGIN = 20" in src and "_h_now + SETTLE_INLINE_RESUBMIT_MARGIN" in src)
 check("retries are bounded so a proof that can never land cannot stall settlement",
@@ -236,8 +236,8 @@ check("the hold gives up early if the tx never reached the peers",
       "has NOT " in src and "PROPAGATED to any of" in src)
 check("...after a grace period, checked once", "SETTLE_PROPAGATION_GRACE_S" in src
       and 'prop_checked' in src)
-check("...only for a DA-carried proof (an inline one propagates normally)",
-      '_pend.get("proof_da") and not _pend.get("prop_checked")' in src)
+check("...only for a DA-carried proof or a Stwo bundle (an inline one propagates normally)",
+      '(_pend.get("proof_da") or _pend.get("stwo")) and not _pend.get("prop_checked")' in src)
 check("...and a failed probe never stalls settlement", "must never stall settlement" in src)
 check("the peer probe uses aiohttp, not a blocking fetch on the event loop",
       "aiohttp, NOT urllib" in src)

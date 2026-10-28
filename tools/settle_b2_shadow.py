@@ -7,6 +7,8 @@ writes only --out. Nothing it finds changes anything on the chain.
                                       [--last N]
 
 One JSON line per span (execnode/settle_b2.shadow_span): "proven" (the verifier accepted, on the exec node's root),
+"chain_eq" (G8: the Chain L1 derives from its own state, GET /settle_chain_inputs, equals the exec node's for every read
+the span could make, the carry and the accruals; "chain_diff" names any difference, which is a bug in ops/settle_chain.py),
 "unprovable" (with the reason the witness cannot carry it yet), "refused" or "mismatch" (a bug: the prover's own bundle
 must verify and land on the exec node's root), "error", "skipped" (a stash not at its own cursor and root, from before
 execnode._stash_payload). Spans already in --out are skipped, so reruns continue.
@@ -110,7 +112,16 @@ def main():
                    "reason": f"a stash is not at its own (cursor, root): pre cursor {pre.cursor}, post cursor {post_cur}"}
         else:
             blocks = [get_json(f"{a.l1}/get_block?number={h}") for h in range(c0 + 1, c1 + 1)]
-            rec = S.shadow_span(pre, blocks, post_doc["state_root"], accrual, a.bin)
+            # L1'S OWN CHAIN INPUTS (G8): what the settle branch would judge this span with, so `chain_eq` checks the
+            # derivation (ops/settle_chain.py) against the exec node's bookkeeping on every live span. A node without the
+            # endpoint (older code) leaves chain_eq None: not checked, never "equal".
+            try:
+                l1_inputs = get_json(f"{a.l1}/settle_chain_inputs?sc={c0}&cursor={c1}")
+                if not isinstance(l1_inputs, dict) or "hashes" not in l1_inputs:
+                    l1_inputs = None
+            except Exception:
+                l1_inputs = None
+            rec = S.shadow_span(pre, blocks, post_doc["state_root"], accrual, a.bin, l1_inputs=l1_inputs)
         with open(a.out, "a") as f:
             f.write(json.dumps(rec, sort_keys=True) + "\n")
         print(json.dumps(rec, sort_keys=True), flush=True)

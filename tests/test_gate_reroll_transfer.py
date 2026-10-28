@@ -29,6 +29,7 @@ REROLL = {
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
     "LEGACY_TRANSFER_CLOSE_HEIGHT": 1,         # gen 29: the legacy pool's transparent transfers are skipped (G9)
     "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
+    "STWO_SETTLE_HEIGHT": 1,                   # gen 29 DORMANT (1 << 62): a settle carries a Stwo proof of its span (G8)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

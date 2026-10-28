@@ -1356,7 +1356,7 @@ def construct_unshield_tx(keydict, amount, nonce, proof, max_block):
 
 
 def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None,
-                        proof_da=None):
+                        proof_da=None, stwo=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
     {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0) in the default namespace and MIN_TX_FEE in any other
     (from max_block 1). Posted by a bonded validator running an
@@ -1386,6 +1386,11 @@ def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_
         # root still rides the bonded quorum and this field makes the proof AVAILABLE and independently
         # checkable, which is the difference between a claim and evidence.
         d["proof_da"] = proof_da
+    if stwo is not None:
+        # G8: the DA commitment of an execnode/settle_b2 bundle proving the span from the justified settled tip to
+        # (exec_cursor, state_root); L1 verifies it from protocol.STWO_SETTLE_HEIGHT (_stwo_settle_check) and refuses
+        # the field below it.
+        d["stwo"] = stwo
     # A NAMESPACE SETTLE PAYS (protocol.py "NO FREE REPEATABLE TRANSACTIONS"): outside the default namespace validation requires
     # fee >= MIN_TX_FEE, and this builder signed fee 0 for every namespace — so every settle an exec node posted for a
     # NADO_EXEC_NAMESPACES namespace was refused (found 2026-09-28 by the gen-28 rehearsal). The default namespace stays
@@ -2707,6 +2712,126 @@ def _validate_settle(transaction, block_height, deep):
     acc = get_account(transaction["sender"], create_on_error=False)
     assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
     assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
+    # THE STWO SETTLEMENT (G8, protocol.STWO_SETTLE_HEIGHT). Its own field, never `proof` / `proof_da` (refused above).
+    # INVARIANT: account_ops marks the root proven only for a settle that reached apply carrying `stwo` from the gate, and
+    # this is the only place that lets one through — keep the two keyed on the same field and the same constant.
+    if "stwo" in data:
+        _stwo_settle_check(data, ns, cursor, root, block_height, deep)
+
+
+# ---- G8: THE STWO SETTLEMENT OF A SPAN (doc/stwo/g4-settlement-statement.md section 5) -------------------------------------
+# The verdict memo. A pooled settle is re-validated on EVERY block-candidate build (the 2026-08-04 outage: one pooled proof
+# made the core loop 91 s per pass), so the verdict is computed once per (bundle, chain context, rules). THE KEY BINDS THE
+# BYTES, NEVER THE CLAIMS (memory: verdict-cache-must-bind-bytes; the claims-only key once cached ok=True for a corrupted
+# proof): the DA commitment is a Merkle root over the exact shards, which different bytes cannot present. It also binds
+# everything else the verdict is a function of: the span (the justified tip it extends and the cursor it reaches), the
+# claimed root, the L1 block hash at the cursor (which fixes every block of the span and every chain input — reveals,
+# accrual inputs and the boundary carry all come from blocks at or below the cursor), and the rules. Node-local outcomes
+# (DA not here yet, a block body or hash not held, the native verifier missing, out of memory) are NEVER memoised: they
+# say nothing about the proof.
+_STWO_RULES = ("stwo-settle", 1)
+_STWO_VERIFY_MEMO = {}
+_STWO_VERIFY_MEMO_MAX = 64
+_STWO_VERIFY_LOCKS = {}
+_STWO_VERIFY_LOCKS_GUARD = __import__("threading").Lock()
+_STWO_VERIFY_GATE = __import__("threading").BoundedSemaphore(1)    # one span replay at a time, process-wide (GIL-bound)
+
+
+def _stwo_verify_lock(key):
+    import threading
+    with _STWO_VERIFY_LOCKS_GUARD:
+        if len(_STWO_VERIFY_LOCKS) > 256:
+            _STWO_VERIFY_LOCKS.clear()
+        return _STWO_VERIFY_LOCKS.setdefault(key, threading.Lock())
+
+
+def stwo_verify_key(commitment, sc, sroot, cursor, root, cursor_hash):
+    """The verdict memo key of a Stwo settle (see above): commitment, span, claimed root, chain context, rules."""
+    return ("stwo", str(commitment), int(sc), str(sroot), int(cursor), str(root), str(cursor_hash), _STWO_RULES)
+
+
+def _stwo_verdict(commitment, sc, sroot, cursor, root):
+    """(ok, why) for the bundle behind `commitment` proving the span (sc, cursor] from `sroot` to `root`, judged on THIS
+    node's L1 state. Raises ProofUnavailable for anything that is not a judgement (never memoised)."""
+    from ops import settle_chain as SC
+    from execnode import settle_b2
+    from execnode.native_guard import NODE_LOCAL_ERRORS
+    blob = _fetch_da_proof(commitment)
+    if blob is None:
+        raise ProofUnavailable(f"settle Stwo bundle {str(commitment)[:16]}… for cursor {cursor} is not available via DA "
+                               f"yet — deferring this block rather than judging it")
+    try:
+        bundle = json.loads(blob.decode())
+    except Exception as e:
+        # the commitment binds these bytes: they are the prover's, so failing to parse them IS a verdict
+        return False, f"the DA blob is not a settlement bundle ({type(e).__name__})"
+    try:
+        chain = SC.l1_chain(sc)
+        blocks = SC.l1_span_blocks(sc, cursor)
+        ok, why, post = settle_b2.verify_span(int(sc), str(sroot), blocks, chain, bundle)
+    except SC.ChainUnavailable as e:
+        raise ProofUnavailable(f"this node cannot judge the Stwo settle yet: {e}")
+    except NODE_LOCAL_ERRORS as e:
+        # a missing or stale native verifier, or this node's memory limit, is a fact about the machine, not the proof
+        raise ProofUnavailable(f"this node cannot verify Stwo settle proofs yet: {type(e).__name__}: {e}")
+    except SC.SpanRefused as e:
+        return False, str(e)
+    if not ok:
+        return False, why
+    if post != root:
+        return False, f"the proven post root {str(post)[:16]}… is not the settle's state_root {root[:16]}…"
+    return True, "ok"
+
+
+def _stwo_settle_check(data, ns, cursor, root, block_height, deep):
+    """A settle carrying `stwo` (G8): the DA commitment of an execnode/settle_b2 bundle proving that L1's own blocks
+    (justified tip, cursor] take the justified root to `root`. On success apply marks the root proven
+    (kv_ops.settlement_proof_put) and settlement_justified accepts it with no quorum.
+
+    What is checked, and why each check exists (kept from the deleted Goldilocks branch, ba21488f^, where not specific
+    to that proof):
+      * the gate: below protocol.STWO_SETTLE_HEIGHT the field is refused, so the live chain moves nothing;
+      * the commitment is a safe string: it reaches DaStore paths (the proof_da rule);
+      * the default namespace only: the bundle replays THE exec node's transition, whose state is the default
+        namespace's, and every exit L1 releases proves against the default namespace;
+      * it EXTENDS the justified settled tip exactly: the replay starts from latest_settled's (cursor, root), never from
+        a pre-state the prover names, and there must be one (the first settlement of a namespace is by quorum);
+      * the span is non-empty, at most SETTLE_PROOF_MAX_SPAN blocks (the replay is linear in it: an unbounded span is a
+        free validation-cost amplifier), and wholly below the block judging it (its blocks are L1's own committed ones);
+      * DEPTH-GATED (protocol.SETTLE_PROOF_DEPTH_GATED): a block buried more than FINALITY_DEPTH below the known tip is
+        not judged on its proof, only on these structural checks — the nodes that saw it at the tip judged it, and the
+        gate only relaxes (strict-rejects / relaxed-accepts diverge only on an invalid proof, which cannot reach depth);
+      * the proof itself, verified by settle_b2.verify_span on L1's blocks (ops/settle_chain.l1_span_blocks) and L1's
+        chain inputs (ops/settle_chain.l1_chain), and its proven post root must be `root`."""
+    from protocol import STWO_SETTLE_HEIGHT, SETTLE_PROOF_MAX_SPAN, SETTLE_PROOF_DEPTH_GATED
+    assert block_height is not None and int(block_height) >= STWO_SETTLE_HEIGHT, \
+        "a settle carries no Stwo proof below STWO_SETTLE_HEIGHT"
+    c = data.get("stwo")
+    assert isinstance(c, str) and c and len(c) <= 128 and "/" not in c and "\\" not in c and c not in (".", ".."), \
+        "Settle stwo must be a safe DA commitment string"
+    assert ns == DEFAULT_NS, "a Stwo settlement proves the default namespace only"
+    from ops.settlement_ops import latest_settled
+    sc, sroot = latest_settled(ns)
+    assert sroot is not None, "the first settlement in a namespace must be by bonded quorum, not by proof"
+    assert int(sc) < cursor, "a Stwo settlement must extend the justified settled tip (its cursor is at or below it)"
+    assert cursor - int(sc) <= SETTLE_PROOF_MAX_SPAN, \
+        f"a Stwo settlement span is at most SETTLE_PROOF_MAX_SPAN={SETTLE_PROOF_MAX_SPAN} blocks"
+    assert cursor < int(block_height), "a Stwo settlement's span must lie wholly below the block that carries it"
+    if deep and SETTLE_PROOF_DEPTH_GATED:
+        return
+    key = stwo_verify_key(c, sc, sroot, cursor, root, kv_ops.hash_by_number(cursor))
+    hit = _STWO_VERIFY_MEMO.get(key)
+    if hit is None:
+        with _stwo_verify_lock(key):                        # single flight per bundle
+            hit = _STWO_VERIFY_MEMO.get(key)
+            if hit is None:
+                with _STWO_VERIFY_GATE:
+                    hit = _stwo_verdict(c, sc, sroot, cursor, root)     # raises ProofUnavailable: not memoised
+                if len(_STWO_VERIFY_MEMO) >= _STWO_VERIFY_MEMO_MAX:
+                    _STWO_VERIFY_MEMO.clear()
+                _STWO_VERIFY_MEMO[key] = hit
+    assert hit[0], f"Settle Stwo proof invalid: {hit[1]}"
+
 
 def _validate_bridge(transaction):
     # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.

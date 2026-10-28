@@ -37,7 +37,9 @@ includes the metadata digest); the shielded pools, private calls and cross-names
 (their state is committed as digests, not per entry); non-integer contract storage (KVX records). Each is named in the
 Unprovable message.
 
-Nothing imports this on a consensus path yet: G8 (doc/stwo-migration.md 9.5) gates it in.
+L1 imports this on ONE consensus path, behind protocol.STWO_SETTLE_HEIGHT (G8, dormant on generation 29): a settle
+carrying `stwo` (ops/transaction_ops._stwo_settle_check) is verified by verify_span on L1's own blocks and on the Chain
+L1 derives from its state (ops/settle_chain.py). Everything here is therefore consensus code from that gate on.
 """
 import copy
 import json
@@ -994,21 +996,36 @@ def reference_chain(pre_state, blocks, accrual):
         bc, bh = seen[h]
         v = (bc if kind == zkvm2.IO_BEACON else bh).get(key)
         return None if v is None else int(v) & MASK
-    return Chain(accrual, pre_state.div_carry, read)
+    ch = Chain(accrual, pre_state.div_carry, read)
+    ch.seen = seen          # what the exec node held as each block opened: ops/settle_chain.compare_with_reference reads it
+    return ch
 
 
-def shadow_span(pre_state, blocks, want_root, accrual, binary):
+def shadow_span(pre_state, blocks, want_root, accrual, binary, l1_inputs=None):
     """Prove `blocks` from `pre_state` (an ExecState at a settled cursor) and verify the proof as L1 would, then compare
     the verified post root with `want_root`, the exec node's own root after the span. -> a JSON-able record:
     {"from", "to", "blocks", "calls", "reverts", "steps", "result": "proven" | "unprovable" | "refused" | "mismatch",
-     "reason", "prove_s", "verify_s", "witness_bytes", "vm_proof_bytes"}. "proven" means the verifier accepted AND its
-    root is the exec node's; anything else names why. Never raises on a span (an internal error is "error")."""
+     "reason", "prove_s", "verify_s", "witness_bytes", "vm_proof_bytes", "chain_eq", "chain_diff"}. "proven" means the
+    verifier accepted AND its root is the exec node's; anything else names why. Never raises on a span (an internal error
+    is "error").
+    `l1_inputs` (G8): L1's own chain inputs for the span (ops/settle_chain.l1_inputs_doc, served by /settle_chain_inputs).
+    With it, "chain_eq" says whether the Chain L1 derives from its state equals reference_chain (the exec node's own
+    bookkeeping) for every read a call in the span could make, the carry and the accruals ("chain_diff": where not) —
+    so the shadow weeks prove the derivation the settle branch verifies with, not only the prover. None: not checked."""
     import time
     rec = {"from": int(pre_state.cursor), "to": int(blocks[-1]["block_number"]) if blocks else int(pre_state.cursor),
            "blocks": len(blocks), "calls": None, "reverts": None, "steps": None, "result": None, "reason": "",
-           "prove_s": None, "verify_s": None, "witness_bytes": None, "vm_proof_bytes": None}
+           "prove_s": None, "verify_s": None, "witness_bytes": None, "vm_proof_bytes": None,
+           "chain_eq": None, "chain_diff": None}
     try:
         chain = reference_chain(pre_state, blocks, accrual)
+        if l1_inputs is not None:
+            from ops import settle_chain as SC
+            try:
+                diff = SC.compare_with_reference(chain, SC.chain_from_doc(l1_inputs), blocks)
+            except SC.SpanRefused as e:
+                diff = [f"L1 refuses the span's chain inputs: {e}"]
+            rec.update(chain_eq=not diff, chain_diff=diff[:10] or None)
         t = time.time()
         try:
             bundle = prove_span(pre_state, blocks, chain, binary)

@@ -273,6 +273,13 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # S4: a DA-carried proof (`proof_da`) was fully verified at validation but never recorded the proven marker, so
         # the settle it justified fell back to the quorum path. `>= 1` is gen 25's REVIEW_R2_HEIGHT from gen 26 (deleted).
         proven = "proof" in data or (block_height is not None and int(block_height) >= 1 and "proof_da" in data)
+        # G8: A STWO SETTLEMENT (`stwo`, the DA commitment of an execnode/settle_b2 bundle) is proven the same way —
+        # transaction_ops._stwo_settle_check verified it before it could reach apply, and refuses the field below
+        # protocol.STWO_SETTLE_HEIGHT. INVARIANT: the same field and the same gate as that validation, and revert deletes
+        # exactly the marker apply put (settlement_proof_put / _del are a refcount, so the inverse is exact).
+        if "stwo" in data and block_height is not None:
+            from protocol import STWO_SETTLE_HEIGHT
+            proven = proven or int(block_height) >= STWO_SETTLE_HEIGHT
         if revert:
             kv_ops.settlement_del(ns, cursor, sender, root)
             if proven:
