@@ -17,7 +17,7 @@ HOME = _harness.isolate("nado-test-calls-fold-b2-")
 import hashlib
 import random
 
-from execnode.stark import calls_commit as CC
+from execnode import calls_commit as CC
 
 T = _harness.Report()
 rnd = random.Random(29)
@@ -44,9 +44,9 @@ moved = {
 for name, ls in moved.items():
     T.check(f"3. {name} changes the commitment", CC.fold_leaves_b2(CC.chain_start_b2(), ls) != c)
 call = {"cid": "c" * 32, "method": "move", "caller": "ndo" + "a" * 45, "args": [1, 2, "x"], "value": 0, "cursor": 500}
-base = CC.call_leaf(call, wide=True)
+base = CC.call_leaf(call)
 for field, val in (("args", [1, 3, "x"]), ("method", "join"), ("caller", "ndo" + "b" * 45), ("cursor", 501)):
-    other = CC.call_leaf(dict(call, **{field: val}), wide=True)
+    other = CC.call_leaf(dict(call, **{field: val}))
     T.check(f"3. a changed call ({field}) changes its leaf and so the commitment",
             other != base and CC.fold_leaves_b2(CC.chain_start_b2(), [base]) != CC.fold_leaves_b2(CC.chain_start_b2(), [other]))
 for name, fn in (("a leaf of 2^256", lambda: CC.fold_leaves_b2(bytes(32), [1 << 256])),

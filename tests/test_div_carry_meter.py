@@ -1,4 +1,4 @@
-"""METERED DIVIDEND CARRY (records_bind.dividend_accrual_effects) — 2026-09-02.
+"""METERED DIVIDEND CARRY (records_effects.dividend_accrual_effects) — 2026-09-02.
 
 Epochs 0-193 of betanet-6: every identity on probation, weight set empty, the whole inflow carried forward.
 Epoch 194: ONE identity had left probation and received the entire backlog, 113.29 NADO against 0.587 NADO
@@ -26,7 +26,7 @@ def check(name, cond, detail=""):
 
 
 import protocol as P
-from execnode.stark import records_bind as RB
+from execnode import records_effects as RB
 
 G = 0                                              # the meter is THE rule from epoch 0
 check("the meter is unconditional: no gate constant is left", not hasattr(P, "DIV_CARRY_METER_EPOCH") and P.CHAIN_GENERATION >= 25)
@@ -61,10 +61,10 @@ st = ExecState(path=os.path.join(os.environ["HOME"], "s.json"))
 st.div_carry = 50 * INF
 dist = st.accrue_dividend_epoch(INF, {"x": 2, "y": 4}, epoch=G + 5)
 eff, carry2 = RB.dividend_accrual_effects(INF, {"x": 2, "y": 4}, 50 * INF, G + 5)
-check("state.accrue_dividend_epoch == records_bind rule (map + carry)",
+check("state.accrue_dividend_epoch == records_effects rule (map + carry)",
       dist == sum(d for _, _, d in eff) and st.div_carry == carry2 and st.dividend == {a[0]: d for _, a, d in eff})
 src = open(os.path.join(ROOT, "execnode", "state.py")).read()
-check("the live accrual has no arithmetic of its own", "pot * max(1, int(w)) // total_w" not in src and "_RB.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)" in src)
+check("the live accrual has no arithmetic of its own", "pot * max(1, int(w)) // total_w" not in src and "_RE.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)" in src)
 for f, needle in (("execnode/execnode.py", "accrue_dividend_epoch(inflow, weights, epoch=E)"),
                   ("loops/core_loop.py", "carry_in, int(epoch))")):    # (execnode's `carry, _E)` site was the
                                                                          # records-half prover, deleted in G9)

@@ -1,5 +1,5 @@
 """
-Block AUTHORIZATION commitments + DETACHED EVIDENCE (execnode/stark/mldsa_block_auth.py) — the block-format
+Block AUTHORIZATION commitments + DETACHED EVIDENCE (ops/mldsa_block_auth.py) — the block-format
 half of signature aggregation. See doc/zk-signature-aggregation.md.
 
 The property that makes the whole rollout safe: the block CORE (and therefore the block HASH) is IDENTICAL
@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
-from execnode.stark import mldsa_block_auth as BA
+from ops import mldsa_block_auth as BA
 # The auth root is gen 29's BLAKE2s chain at every height (BLAKE_EXEC_HEIGHT inlined in G9; gen 28's alghash chain over
 # field leaves, which this file pinned under gen 28's gate, retired with it).
 

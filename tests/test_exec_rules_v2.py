@@ -16,7 +16,7 @@ that was really open:
       unshield exit; a stark bundle is now refused at every height, and an exit is bounded by MAX_EXIT_VALUE.
   S2/S3 (the settle branch's records fold and the order of its checks before the proof verify) were retired in G9 with
       the L1 settle-proof verifier: a BLAKE2s exec root settles by quorum attestation only.
-  S5  a MemoryError inside any verifier layer propagates instead of becoming a (False, ...) verdict.
+  S5  (a MemoryError inside a Goldilocks verifier layer propagated: retired with execnode/stark in G9 slice 4)
 
 Run: python3 tests/test_exec_rules_v2.py
 """
@@ -38,7 +38,6 @@ import protocol as P
 # file runs on generation 29's exec layer like the chain does.
 from execnode.state import ExecState, asset_id, MAX_EXIT_VALUE
 from execnode import zkvmasm
-from execnode.stark import stark
 
 import _harness
 _report = _harness.Report()
@@ -220,23 +219,9 @@ def t_z2_gate_bounds_the_exit():
 
 
 # ---- S5 ----------------------------------------------------------------------------------------------------
-class _OOM(dict):
-    """A proof whose first read runs out of memory."""
-    def __getitem__(self, k):
-        raise MemoryError("synthetic")
-    def get(self, k, d=None):
-        raise MemoryError("synthetic")
-
-
-def t_s5_memory_error_propagates_out_of_every_verifier_layer():
-    # vm_circuit.verify_epoch_calls and settlement_sparse.verify_bound_epoch / verify_settlement_sparse retired in G9:
-    # those verifier layers were deleted; stark.verify is the one that remains
-    for fn in (lambda: stark.verify(_OOM(), [], []),):
-        try:
-            res = fn()
-            assert False, f"a resource failure became a verdict: {res}"
-        except MemoryError:
-            pass
+# S5 a memory error propagates out of every verifier layer: retired in G9 slice 4 — stark.verify, the last Goldilocks
+# verifier layer it drove, went with execnode/stark; native_guard.NODE_LOCAL_ERRORS (the rule) is pinned by
+# tests/test_verifier_thread_and_oom_safety.py.
 
 
 for name, fn in list(globals().items()):

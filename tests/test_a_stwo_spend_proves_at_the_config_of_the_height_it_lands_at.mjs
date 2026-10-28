@@ -2,7 +2,7 @@
  * inlined in G9: CFG_128 from block 1, CFG_340 only at height 0;
  * static/interface.js stwoCfgId, static/stark/stwo_js.js proveSpend / proveWith, static/stark/stwo_worker.js).
  *
- * A node verifies a spend at the config its landing height selects (execnode/stark/stwo_js_native.config_id_at) and
+ * A node verifies a spend at the config its landing height selects (execnode/stwo_js_native.config_id_at) and
  * refuses a proof at the other one, so a wallet that proves at the wrong config loses the spend: the relay refuses it
  * (400) and the user is told the proof does not verify. The wallet picks the config the same way stwoFeeToLive picks
  * the fee_to rule: from the pool tip + 1, the block the spend can land in.

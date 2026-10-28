@@ -15,19 +15,15 @@ handicap without my knowing. Not one of those was a wrong answer; all of them we
 `require()` therefore refuses to guess. A crate that is meant to be there and is not, or is there and predates
 its own sources, stops the process with a message naming the crate and the fix.
 
-WHAT REMAINS PYTHON, deliberately and not as a fallback: only four crates exist
-(alghash2, mldsa44, starkcompose, starkprove), covering LDE/composition, hashing/Merkle and ML-DSA. The rest
-of the prover — fri, stark, air_ir, recursion*, recursive_verify*, comp_verify, rowcomp_verify,
-settlement_sparse — has no Rust counterpart to switch to, so it is not a dual path and there is nothing here
-to remove. And the Python kernels that DO mirror a crate stay in the tree as TEST ORACLES: they are what
-tests/test_arena_ext_identity.py, tests/test_ext_merkle_native.py and extf._check_inv_agreement() compare the
-Rust against. Deleting them would not remove a fallback, it would remove the only evidence the Rust is right.
-Production must never reach them; the tests must.
+WHAT REMAINS PYTHON: the Goldilocks prover this paragraph once inventoried (fri, stark, air_ir, recursion*, the
+verifiers, settlement_sparse) and the Python kernels kept as test oracles for its crates went with execnode/stark in G9
+(slices 2 and 4). The crates that remain (mldsa44, pqsig, attest, stwo_js, stwo_settle, and the Goldilocks ones until
+slice 6 deletes them) are loaded through require() / is_stale() below.
 
 Shared guard against loading a STALE native accelerator .so.
 
-The STARK loaders (alghash2 / starkprove / starkcompose / goldilocks) fall back to pure Python only when their
-.so is ABSENT — a PRESENT-but-stale one is loaded and TRUSTED, which silently diverges from consensus (e.g. an
+The STARK loaders (alghash2 / starkprove / starkcompose / goldilocks, deleted in G9 slice 4) fell back to pure Python only when their
+.so was ABSENT — a PRESENT-but-stale one is loaded and TRUSTED, which silently diverges from consensus (e.g. an
 old 8-round alghash2 .so against new 54-round Python). ops/self_update.py rebuilds on /update and purges the
 .so if it cannot, but a node advanced by a MANUAL `git pull` (bypassing /update) never rebuilds. This catches
 that: git writes changed files with mtime = checkout time, while a gitignored .so keeps its old build mtime, so
@@ -112,34 +108,8 @@ def require(crate: str, so_path, crate_dir, reason: str = ""):
     return True
 
 
-# ---- PROVING IS RUST-ONLY IN PRODUCTION -------------------------------------------------------------
-# require() above covers the four crates that EXIST. It says nothing about the rest of the prover — fri,
-# stark, air_ir, recursion*, comp_verify, rowcomp_verify, settlement_sparse — which has no Rust
-# counterpart and therefore ran as Python with nothing to stop it.
-#
-# That is not theoretical. On 2026-08-04 the settle prover was switched on in production and a single
-# unfolded prove ran 12+ MINUTES at ~75% of a core with RSS climbing to 1.8 GB, on the same box as L1.
-# Block ages reached 316s and the node logged "Forked above the finality floor — re-anchoring by weight
-# onto the majority chain". Not one .so was mapped into the process during that prove. The prover was
-# starving consensus, and the only symptom until someone looked was "it is slow".
-#
-# So a Python PROVE is now a hard failure on a node, in the same idiom the kernels already use. The escape
-# is the same one: NADO_ALLOW_PYTHON_KERNELS, which builds and conformance tests set and a validator never
-# does. VERIFICATION IS DELIBERATELY NOT GATED — verify_settlement_sparse runs inside
-# validate_transaction on every node, it is cheap and flat (0.09-0.13s), and gating it would break
-# consensus rather than protect it. The asymmetry is the point of the whole scheme: proving is the
-# expensive side, verification is not.
-def require_native_prover(what: str):
-    """Refuse to run a pure-Python PROVE outside builds/tests. Raises NativeMissing naming the gap."""
-    if allow_absent():
-        return False
-    raise NativeMissing(
-        f"{what}: proving in Python is not permitted on a node (RUST-ONLY POLICY). There is no Rust "
-        f"counterpart for this stage yet — only alghash2, mldsa44, starkcompose and starkprove exist, and "
-        f"they cover LDE/composition, hashing/Merkle and ML-DSA, not fri/stark/air_ir/recursion/"
-        f"settlement_sparse. Measured 2026-08-04: a Python settle prove took 12+ minutes at ~75% of a core "
-        f"and starved L1 into a re-anchor. Write the crate, or run with NADO_ALLOW_PYTHON_KERNELS=1 for a "
-        f"build or a conformance test — never on a validator.")
+# require_native_prover (the refusal of a pure-Python Goldilocks PROVE on a node, measured 2026-08-04 starving L1
+# into a re-anchor) went with its only callers, execnode/stark/fri.py and stark.py, in G9 slice 4.
 
 
 # A NODE-LOCAL FAILURE IS NOT A VERDICT (review 2026-09-24). Every verifier wraps its body in `except Exception` so a

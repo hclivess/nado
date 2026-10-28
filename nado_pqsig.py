@@ -4,7 +4,7 @@ nado_pqsig — ctypes binding of native/pqsig (libnado_pqsig.so): the user-selec
 One C ABI keyed by a scheme id (native/pqsig/src/lib.rs): 1 ML-DSA-65, 2 ML-DSA-87, 3 SLH-DSA-SHA2-128s, 4 FN-DSA-512.
 signatures.py is the only importer; it maps scheme names to these ids, runs the known-answer and negative-vector self-test
 before trusting the library, and never lets an exception out of verify(). Rust-only like every kernel since betanet-14
-(execnode/stark/native_guard.py): a missing or STALE library raises here, it is never replaced by Python.
+(execnode/native_guard.py): a missing or STALE library raises here, it is never replaced by Python.
 
 Lengths are passed to the Rust on every call and checked there too, so an attacker-chosen public key or signature of
 the wrong size is an invalid signature, never an out-of-bounds read.
@@ -12,7 +12,7 @@ the wrong size is an invalid signature, never an out-of-bounds read.
 import ctypes
 import os
 
-from execnode.stark import native_guard
+from execnode import native_guard
 
 _CRATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "native", "pqsig")
 _SO = os.path.join(_CRATE, "target", "release", "libnado_pqsig.so")

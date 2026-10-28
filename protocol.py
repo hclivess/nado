@@ -271,27 +271,13 @@ SETTLE_DEN = 3
 # The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
 SETTLE_ACTIVITY_CURSORS = 1440
 
-# The exec-layer GENESIS state root every namespace's settled chain extends from. A settle-with-proof for a
-# namespace with no prior settled tip must carry a proof whose pre_root is EXACTLY this — so the very first
-# settlement cannot start from a fabricated pre-state (the same strict chaining every later settlement gets
-# by extending the committed tip). It is the root of an EMPTY execution state
-# (execnode/exec_root.state_root_hex({}, empty ExecState): rnode(empty KV half, records half holding only the
-# empty shielded/field-pool digest records) over the two depth-256 sparse alghash2 trees).
-# Hardcoded (protocol.py stays a leaf: no execnode import), so it is a SCHEME CANARY: if the exec-root
-# scheme ever changes, this stops matching the recomputed empty-state root and the assertion in
-# tests/test_exec_root.py fails loudly. That is exactly how the 2026-07-20 drift was found — the value below
-# had silently desynced when alghash2 went 8 -> 54 rounds (db03a1f) and again at the alphanet-7 debrand,
-# because the guard the comment PROMISED did not exist: test_exec_root only PRINTED the value. It asserts now.
-# (The settle path no longer consumes this: a first settlement must come from the bonded quorum, so a proof
-# always extends a real committed tip. Kept because the canary is worth more than the one call site was.)
-EXEC_GENESIS_ROOT = "076885ee6a32444b8f3aeb99829c7f8994e6436ce69be7080af1ebaa4726a4a8"
-# ...and the same canary for the BLAKE2s exec root (gen 29's, at every cursor): execnode/exec_root_b2.state_root_hex({}, empty
+# EXEC_GENESIS_ROOT (the empty Goldilocks exec root, alghash2 over depth-256 sparse trees) and EXEC_TREE_DEPTH went with
+# execnode/exec_root.py in G9 slice 4: generation 29's exec root is exec_root_b2's at every cursor, and only that
+# module's tests read them.
+# The genesis canary for the BLAKE2s exec root (gen 29's, at every cursor): execnode/exec_root_b2.state_root_hex({}, empty
 # ExecState). tests/test_the_blake2s_exec_root_is_dormant_now_and_whole_from_its_gate.py recomputes it; a change to the gen-29 scheme fails there before a reroll.
 EXEC_GENESIS_ROOT_B2 = "ea3f3636c2d399b4c011456f8a6158a915d7fd50391e141abe6bccf68877500d"
 
-# The FROZEN depth of the two sparse halves of the settled root (see exec_root.DEPTH — kept equal by test).
-# 256 = the full alghash2 digest: position security saturates the hash itself, so this never changes.
-EXEC_TREE_DEPTH = 256
 
 # --- CONSENSUS-LOAD AGGREGATION (doc/consensus-aggregation.md — the O(N)-messages scaling fix) ---
 # 1. MERGED DUTY TX: a bonded validator's whole per-epoch consensus participation — FFG attest(X) +
@@ -993,7 +979,7 @@ SETTLE_FOLD_FAN_IN = 2
 # thing that blocks settlement in the meantime.
 MAX_INLINE_TX_BYTES = 192 << 20          # 192 MiB — comfortably over the ~120 MiB an UNFOLDED proof measures
 
-# ---- RECORDS-BOUND SETTLEMENT (execnode/stark/records_bind.py) --------------------------------------
+# ---- RECORDS-BOUND SETTLEMENT (execnode/records_effects.py) --------------------------------------
 # A settle-with-proof has always covered only the KV half of the exec root; the L1 composition pins the
 # SAME records half into the pre and post root, so a proven span REQUIRES records to be unchanged
 # (calls_commit.block_records_inert enforces it). That is why any span carrying a bridge deposit, a
@@ -2196,7 +2182,7 @@ LEGACY_TRANSFER_CLOSE_HEIGHT = 14000 if CHAIN_GENERATION == 29 else 1   # L1 was
 # STWO_FEE_TO_HEIGHT (280000 on gen 28, 1 from gen 29) was inlined in G9.
 
 # PRIVATE SENDS PROVE AT 128 BITS, NOT 340 (operator decision 2026-10-26). A Stwo spend's proof must carry the node
-# config its landing height selects (execnode/stark/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS):
+# config its landing height selects (execnode/stwo_js_native.config_id_at; native/stwo_js lib.rs NODE_CFGS):
 # NODE_CFG_128 (56 queries plus a 16-bit grind before the OODS point) from block 1, NODE_CFG_340 only at height 0. By
 # execnode/stark/soundness.py (E = 124 for QM31) the 340 config was capped near 113 bits by its DEEP/OODS term; the
 # grind lifts the 128 config to ~129 conjectured (2026-10-27 incident survey; upstream starkware-libs/proving f0bf0195),

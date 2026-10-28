@@ -16,7 +16,10 @@ Methods: open(g)[stake] · join(g)[stake] · move(g,cell,ply) · resign(g) · ab
 from execnode import zkvmasm
 from execnode.games import _lib
 from execnode.games import tictactoe as _t
-from execnode.stark.field import P as _P
+# The Goldilocks prime (execnode/stark/field.P until G9 slice 4). Not arithmetic: a direction d < 0 is written into the
+# contract SOURCE as the literal `d % _P`, the field VM's spelling of -|d|, and that source is what the deployed reversi
+# carries, so the build must keep emitting the same literal (tests/test_every_contract_builds_byte_identical_for_the_256_bit_vm.py).
+_P = 18446744069414584321
 
 NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST, LP = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 

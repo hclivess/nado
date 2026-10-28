@@ -1040,7 +1040,7 @@ def construct_block(
     # mldsa_block_auth's docstring). That is deliberate: state_root is the one state-dependent header field
     # and a mismatch there is fatal by design; a second one would add a divergence surface for no binding,
     # since `sender` is the address derived from the key and proof_sender() ties them natively per tx.
-    from execnode.stark import mldsa_block_auth as _auth
+    from ops import mldsa_block_auth as _auth
     _auth_root, _auth_count = _auth.auth_commitments(
         {"block_number": block_number, "block_transactions": transaction_pool})
 
@@ -1262,7 +1262,7 @@ def check_block_auth_evidence(block):
     The one node-side entry point: it recomputes the commitment, resolves keys itself, and verifies either
     raw signatures or an aggregate proof. Absent envelope -> the per-tx signatures validated natively ARE
     the evidence, which is what every block ships today."""
-    from execnode.stark import mldsa_block_auth as _auth
+    from ops import mldsa_block_auth as _auth
     ev = block.get("block_auth_evidence")
     if ev is None:
         return True, "no detached envelope (per-tx signatures are the evidence)"

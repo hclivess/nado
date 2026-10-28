@@ -12,7 +12,7 @@ fetch    GETs every dividend epoch's accrual inputs (/get_dividend_inflow, /get_
 replay   Runs a CHILD (`_child`) with cwd=<tree>, PYTHONPATH=<tree>, a throwaway HOME with NADO_EXEC_STATE / NADO_EXEC_DA
          inside it, every inherited NADO_* variable removed, and every outbound connection refused. The child builds the
          exec layer exactly as execnode.py boots one (a fresh ExecState + exec_genesis.apply) and applies each block the
-         way execnode._apply_block_inner does: the canonical dividend accrual owed before it, rules_at(h), block_apply.begin,
+         way execnode._apply_block_inner does: the canonical dividend accrual owed before it, rules_at(h) (trees before G9 slice 4), block_apply.begin,
          the wide pool's depth for the block (trees that still have one), block_apply.dispatch, block_apply.close. A block carrying a DA-resolved op
          the exec node would have fetched (field_transfer / private_call not refused at its height) stops the replay:
          the replay holds no DA, and guessing would be a different chain. Records the exec root after every block.
@@ -92,7 +92,14 @@ def cmd_child(blocks_path, accrual_path, out, upto):
     sys.path.insert(0, os.getcwd())
     from execnode import block_apply, exec_genesis
     from execnode.state import ExecState
-    from execnode.stark import stark as _stk
+    # stark.rules_at, exactly as the tree's own exec node applied a block — a tree from before G9 slice 4 still has the
+    # Goldilocks proof rules (a baseline replay must run it as that tree ran); from slice 4 there are none to set
+    try:
+        from execnode.stark import stark as _stk
+        _rules_at = _stk.rules_at
+    except ImportError:
+        import contextlib
+        _rules_at = lambda _h: contextlib.nullcontext()          # noqa: E731
     from protocol import EPOCH_LENGTH
     blocks = json.load(open(blocks_path))
     blocks = blocks["blocks"] if isinstance(blocks, dict) and "blocks" in blocks else blocks
@@ -124,7 +131,7 @@ def cmd_child(blocks_path, accrual_path, out, upto):
             inflow, weights = acc[str(E)]
             st.accrue_dividend_epoch(int(inflow), weights, epoch=E)
             st.last_div_epoch = E
-        with _stk.rules_at(h):
+        with _rules_at(h):
             block_apply.begin(states, h)
             if hasattr(st, "wide_enter"):      # a tree from before G9 slice 5 deepens its (empty) wide pool here
                 st.wide_enter(h)

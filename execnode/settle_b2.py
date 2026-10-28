@@ -101,8 +101,7 @@ def _amount_leaf(key, amt):
 
 
 def _contract_leaves(p, c):
-    from execnode.stark.exec_state_bind import contract_meta
-    out = [(B2.meta_key(p[0]), B2.meta_value(*contract_meta(c)))]
+    out = [(B2.meta_key(p[0]), B2.meta_value(*B2.contract_meta(c)))]
     if c.get("code") is not None:
         out.append((B2.code_key(p[0]), B2.code_value(c["code"])))
     return out
@@ -555,7 +554,6 @@ def _replay(store, blocks, cursor, chain, runs):
     oracle = Oracle(runs, chain)
     st = WitnessState.build(store, cursor, chain.div_carry, oracle)
     states = {NS: st}
-    from execnode.stark import stark as _stk
     prev = int(cursor)
     for block in blocks:
         h = int(block["block_number"])
@@ -573,10 +571,10 @@ def _replay(store, blocks, cursor, chain, runs):
             inflow, weights = chain.accrual(E)
             st.accrue_dividend_epoch(inflow, weights, epoch=E)
             st.last_div_epoch = E
-        with _stk.rules_at(h):
-            block_apply.begin(states, h)
-            block_apply.dispatch(states, st, block, {}, set(), verbose=bool(os.environ.get("NADO_SETTLE_DEBUG")))
-            block_apply.close(states, h, block.get("block_hash"))
+        # (no stark.rules_at around the apply: the proof rules only steered the Goldilocks verifier, deleted in G9 slice 4)
+        block_apply.begin(states, h)
+        block_apply.dispatch(states, st, block, {}, set(), verbose=bool(os.environ.get("NADO_SETTLE_DEBUG")))
+        block_apply.close(states, h, block.get("block_hash"))
     if oracle.i != len(oracle.runs):
         raise Refused("the witness has more VM runs than the span makes calls")
     return st, oracle
@@ -701,11 +699,11 @@ def _vm_settle(binary, mode, text, proof_bytes=None):
 
 
 def _vm_verify(text, proof_bytes, binary=None):
-    """"OK" or "REFUSED <why>": the node's native verifier (execnode/stark/stwo_settle_native.py, a stable build of
+    """"OK" or "REFUSED <why>": the node's native verifier (execnode/stwo_settle_native.py, a stable build of
     native/stwo_settle) when this machine has it; else, only when the caller names one, the prover's vm_settle binary
     (tests and the shadow run). A node with neither raises NativeMissing: a fact about the machine, never a verdict."""
-    from execnode.stark import stwo_settle_native as N
-    from execnode.stark.native_guard import NativeMissing
+    from execnode import stwo_settle_native as N
+    from execnode.native_guard import NativeMissing
     try:
         ok, why = N.verify(text, proof_bytes)
         return "OK" if ok else f"REFUSED {why}"
@@ -770,7 +768,6 @@ def prove_span(pre_state, blocks, chain, binary):
     real._rt_run = lambda rt, *a, **kw: ExecState._rt_run(rt, *a, trace=trace, **kw)
     states = {NS: real}
     from protocol import EPOCH_LENGTH
-    from execnode.stark import stark as _stk
     for block in blocks:
         h = int(block["block_number"])
         while real.last_div_epoch < h // EPOCH_LENGTH - 1:
@@ -778,10 +775,10 @@ def prove_span(pre_state, blocks, chain, binary):
             inflow, weights = chain.accrual(E)
             real.accrue_dividend_epoch(inflow, weights, epoch=E)
             real.last_div_epoch = E
-        with _stk.rules_at(h):
-            block_apply.begin(states, h)
-            block_apply.dispatch(states, real, block, {}, set(), verbose=False)
-            block_apply.close(states, h, block.get("block_hash"))
+        # (no stark.rules_at around the apply: the proof rules only steered the Goldilocks verifier, deleted in G9 slice 4)
+        block_apply.begin(states, h)
+        block_apply.dispatch(states, real, block, {}, set(), verbose=False)
+        block_apply.close(states, h, block.get("block_hash"))
     post_root = B2.state_root_hex(real.contracts, real)
 
     src = pre_state.clone()
@@ -978,7 +975,6 @@ def reference_chain(pre_state, blocks, accrual):
     the block opens, from a replay of `blocks` on a copy of `pre_state` (the exec node's own bookkeeping), and `accrual`.
     For the shadow run and the tests; L1's verifier derives the same from its own state (doc section 5, next steps)."""
     from protocol import EPOCH_LENGTH
-    from execnode.stark import stark as _stk
     ref = pre_state.clone()
     seen = {}
     states = {NS: ref}
@@ -989,10 +985,10 @@ def reference_chain(pre_state, blocks, accrual):
             ref.accrue_dividend_epoch(*accrual(E), epoch=E)
             ref.last_div_epoch = E
         seen[h] = (dict(ref.beacons), dict(ref.block_hashes))
-        with _stk.rules_at(h):
-            block_apply.begin(states, h)
-            block_apply.dispatch(states, ref, b, {}, set(), verbose=False)
-            block_apply.close(states, h, b.get("block_hash"))
+        # (no stark.rules_at around the apply: the proof rules only steered the Goldilocks verifier, deleted in G9 slice 4)
+        block_apply.begin(states, h)
+        block_apply.dispatch(states, ref, b, {}, set(), verbose=False)
+        block_apply.close(states, h, b.get("block_hash"))
 
     def read(kind, key, h):
         bc, bh = seen[h]

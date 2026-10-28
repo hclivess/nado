@@ -53,8 +53,8 @@ def _restore(saved):
 def t_goldilocks_is_checked_under_the_name_its_loader_opens():
     assert SU._loader_lib("wasm/goldilocks").endswith("wasm/goldilocks/target/release/libgoldilocks.so")
     assert SU._loader_lib("native/starkprove").endswith("native/starkprove/target/release/libnado_starkprove.so")
-    src = open(os.path.join(ROOT, "execnode", "stark", "goldilocks_native.py")).read()
-    assert '"libgoldilocks.so"' in src, "the goldilocks loader's file name changed: update _loader_lib"
+    # (the goldilocks loader's own file name was read from execnode/stark/goldilocks_native.py, deleted in G9 slice 4;
+    # the crate stays in _CRATES until slice 6, and _loader_lib still names the library it built)
 
 
 def t_each_state_is_reported_and_a_stale_goldilocks_is_now_seen():

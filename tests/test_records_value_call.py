@@ -24,8 +24,8 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-from execnode.stark import records_bind as RB
-from execnode import exec_root as ER
+from execnode import records_effects as RB
+from execnode import exec_root_b2 as ER
 
 import _harness
 _report = _harness.Report()

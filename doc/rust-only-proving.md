@@ -60,7 +60,7 @@ witness generation kept re-deriving in Python precisely what Rust already comput
 ## The rule
 
 **Where a Rust variant exists, it is the only production implementation.** A missing or stale `.so` is a hard
-failure at load, never a quiet downgrade — see `execnode/stark/native_guard.py`.
+failure at load, never a quiet downgrade — see `execnode/native_guard.py`.
 
 The fallback was defended for years as *"bit-identical, consensus-safe, just slower"*. Every word of that is
 true, and that is exactly what makes it dangerous. **A degraded node never fails.** It returns correct
@@ -177,7 +177,7 @@ path of every proof the chain makes.
 
 ## Related
 
-- `execnode/stark/native_guard.py` — the policy, and the reasoning, in code.
+- `execnode/native_guard.py` — the policy, and the reasoning, in code.
 - `doc/zk-recursion.md` — the fold this was blocking.
 - `native/starkprove/src/lib.rs` — `sp_tr_*`, `sp_fri_prove`, `sp_permute_snapshots`, `sp_blocks_for`,
   `sp_fill_path`, `sp_fill_carries`, `sp_lde_trace_flat`.

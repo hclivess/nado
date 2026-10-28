@@ -30,7 +30,7 @@ def _load():
         return _lib
     if not os.path.exists(_SO):
         raise AttestKernelUnavailable(f"{_SO} missing — cd native/attest && cargo build --release")
-    from execnode.stark.native_guard import is_stale
+    from execnode.native_guard import is_stale
     if is_stale(_SO, _CRATE):
         raise AttestKernelUnavailable(f"{_SO} is older than its sources — rebuild native/attest")
     lib = ctypes.CDLL(_SO)

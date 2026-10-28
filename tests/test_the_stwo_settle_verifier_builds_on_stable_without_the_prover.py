@@ -7,7 +7,7 @@ transcript fixes, and the remaining preprocessed columns are constant, with thei
 Checked:
   1. the library builds on STABLE with default features, and no package in that build has Stwo's `prover` feature on;
   2. the pinned preprocessed root is the one the prover recomputes (vm_prove VM_PREROOT);
-  3. through the node's binding (execnode/stark/stwo_settle_native.py, ctypes into ffi.rs): an honest proof of real
+  3. through the node's binding (execnode/stwo_settle_native.py, ctypes into ffi.rs): an honest proof of real
      tictactoe calls verifies; a changed io value, a changed step count, a proof of other calls, corrupted and garbage
      proof bytes are refused, never crash; an unparsable statement is a caller error, not a verdict;
   4. execnode/settle_b2.verify_span, given NO prover binary, verifies a real span through that library and lands on the
@@ -66,10 +66,9 @@ T.check("2. the pinned preprocessed root is the one the prover recomputes", pinn
 os.environ["NADO_STWO_SETTLE_LIB"] = so
 from execnode import settle_b2 as S  # noqa: E402
 from execnode.games import tictactoe  # noqa: E402
-from execnode.stark import stwo_settle_native as N  # noqa: E402
+from execnode import stwo_settle_native as N  # noqa: E402
 from execnode.state import ExecState  # noqa: E402
 from execnode import block_apply  # noqa: E402
-from execnode.stark import stark as _stk  # noqa: E402
 
 A, B = "ndo" + "A" * 45, "ndo" + "B" * 45
 st = ExecState(os.path.join(HOME, "st.json"))
@@ -79,10 +78,10 @@ code = tictactoe.build()
 
 def apply(blocks, s):
     for b in blocks:
-        with _stk.rules_at(b["block_number"]):
-            block_apply.begin({"default": s}, b["block_number"])
-            block_apply.dispatch({"default": s}, s, b, {}, set(), verbose=False)
-            block_apply.close({"default": s}, b["block_number"], b["block_hash"])
+        # (no stark.rules_at: the Goldilocks proof rules went with execnode/stark in G9 slice 4)
+        block_apply.begin({"default": s}, b["block_number"])
+        block_apply.dispatch({"default": s}, s, b, {}, set(), verbose=False)
+        block_apply.close({"default": s}, b["block_number"], b["block_hash"])
 
 
 blob = lambda who, n, p: {"recipient": "blob", "sender": who, "txid": n, "data": p}  # noqa: E731

@@ -24,7 +24,7 @@ from execnode import runtimes as RT, zkvm2, zkvmasm
 from execnode.games import tictactoe
 from hashing import canonical_bytes
 from execnode.state import ExecState, asset_id
-from execnode.stark import calls_commit as CC
+from execnode import calls_commit as CC
 
 T = _harness.Report()
 A = "ndo" + "A" * 45

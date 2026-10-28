@@ -24,7 +24,6 @@ import sys
 from execnode import block_apply, exec_genesis
 from execnode.games import tictactoe
 from execnode.state import ExecState
-from execnode.stark import stark as _stk
 from protocol import EPOCH_LENGTH
 
 T = _harness.Report()
@@ -100,10 +99,10 @@ for b in blocks:
         inflow, w = accrual["epochs"][str(E)]
         st.accrue_dividend_epoch(inflow, w, epoch=E)
         st.last_div_epoch = E
-    with _stk.rules_at(h):
-        block_apply.begin({"default": st}, h)
-        block_apply.dispatch({"default": st}, st, b, {}, set(), verbose=False)
-        block_apply.close({"default": st}, h, b["block_hash"])
+    # (no stark.rules_at: the Goldilocks proof rules went with execnode/stark in G9 slice 4)
+    block_apply.begin({"default": st}, h)
+    block_apply.dispatch({"default": st}, st, b, {}, set(), verbose=False)
+    block_apply.close({"default": st}, h, b["block_hash"])
     want[str(h)] = st.state_root()
 T.check(f"3. the child records the in-process exec root at every one of {len(blocks)} heights (a deploy, calls, "
         "deposits, two accruals)", got["roots"] == want and len(set(want.values())) > 3 and st.dividend,

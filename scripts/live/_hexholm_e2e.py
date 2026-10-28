@@ -18,7 +18,9 @@ from ops.transaction_ops import (construct_blob_tx, construct_bridge_deposit_tx,
                                  draft_transaction, create_transaction)
 from config import get_timestamp_seconds
 from protocol import MIN_TX_FEE
-from execnode.stark import alghash, field as F
+# gen 29 (G9 slice 4): the VM's `hash` is zkvm2.hash_words (_lib.vm_hash) and a word is mod 2^256 (_lib.vm_mod); the
+# Goldilocks hash and field this script used went with execnode/stark.
+from execnode.games import _lib
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
 CID = target_cids()["hexholm"]   # derived, never pasted: a pasted cid dies at every reroll (13 of these scripts pointed at dead contracts after betanet-8)
@@ -101,8 +103,8 @@ for i in (2, 3):
     wait(lambda a=P["address"]: exbal(a) >= NADO // 2, f"p{i} bridge deposit landed")
 A2, A3 = KEYS[1]["address"], KEYS[2]["address"]
 
-XS = [random.randrange(1, F.P) for _ in range(3)]          # the three seat secrets (driver plays all seats)
-CS = [alghash.hashn([x % F.P]) for x in XS]
+XS = [random.randrange(1, _lib.vm_mod()) for _ in range(3)]          # the three seat secrets (driver plays all seats)
+CS = [_lib.vm_hash([x % _lib.vm_mod()]) for x in XS]
 G = random.randrange(10**8, 10**9)
 SEED = random.randrange(1, 10**6)
 print(f"\n== HEXHOLM table #{G} cap=3 (bot seed {SEED}) ==", flush=True)

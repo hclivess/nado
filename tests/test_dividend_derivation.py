@@ -25,8 +25,8 @@ import traceback
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from execnode.stark.records_bind import epoch_accrual_due, dividend_accrual_effects
-from execnode import exec_root as ER
+from execnode.records_effects import epoch_accrual_due, dividend_accrual_effects
+from execnode import exec_root_b2 as ER
 
 import _harness
 _report = _harness.Report()

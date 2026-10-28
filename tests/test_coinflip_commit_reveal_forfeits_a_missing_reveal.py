@@ -32,7 +32,6 @@ sys.path.insert(0, ROOT)
 from execnode.games import _lib   # the reference models' hash and word, per generation
 from execnode.state import ExecState                                   # noqa: E402
 from execnode.runtimes import zkvm_addr_digest                         # noqa: E402
-from execnode.stark import field as F                                  # noqa: E402
 from execnode.games import coinflip as CF                              # noqa: E402
 
 FAILED = []
@@ -283,7 +282,7 @@ def js_eval(pairs):
     return json.loads(out.stdout)
 
 
-pairs = [[str(S1), str(S2), str(G)], [str(F.P - 1), "1", "4294967295"], [str((1 << 63) % _lib.vm_mod()), str(12345), "1"]]
+pairs = [[str(S1), str(S2), str(G)], [str(18446744069414584320), "1", "4294967295"], [str((1 << 63) % _lib.vm_mod()), str(12345), "1"]]
 js = js_eval(pairs)
 if js is None:
     print("SKIP  node not installed: client commitment cross-check")

@@ -30,7 +30,6 @@ import importlib.util                                                  # noqa: E
 import subprocess                                                      # noqa: E402
 
 from execnode.state import ExecState                                   # noqa: E402
-from execnode.stark import field as F                                  # noqa: E402
 from execnode.games import mines                                       # noqa: E402
 
 FAILED = []
@@ -52,6 +51,10 @@ def _old_module():
         return None
     if "beacon_bind" in src:          # that commit already carries the new rule: no old code to replay
         return None
+    # The old module imported the Goldilocks hash for its in-clear reference model only; execnode/stark went in G9 slice 4.
+    # This test calls nothing but build(), so the import is replaced by names that fail loudly if anything reaches them.
+    src = src.replace("from execnode.stark import alghash, field as F",
+                      "alghash = F = None   # (execnode/stark deleted in G9 slice 4: only build() is used here)")
     path = os.path.join(os.environ["HOME"], "mines_old.py")
     with open(path, "w") as f:
         f.write(src)

@@ -65,31 +65,16 @@ NATIVE_ONLY=""      # tests FATAL under NADO_ALLOW_PYTHON_KERNELS (certify the s
 # unless noted. Keep a test here when it is slow anywhere; a measurement on this machine always wins.
 #   test_wide_pool_depth 748 s ran within a minute or three of the old 900 s cap. (The Goldilocks settle-proof tests that
 #   once topped this list, up to 2 h 28 min each, were retired with that prover in G9, and the pool tests — wide, field,
-#   join-split, shielded-contract — with their pools in G9 slice 5.)
+#   join-split, shielded-contract — with their pools in G9 slice 5; the Goldilocks STARK's own tests, test_recursive_row
+#   605 s down to test_proof_query_full 63 s, with execnode/stark in G9 slice 4, which also took the proving out of
+#   test_zk_review_2026_09_24 and test_review_round2.)
 SLOW="
-test_recursive_row 605
-test_fri_verify 540
-test_recursive_verify 496
-test_records_transition 417
-test_records_bind 350
-test_recursion 307
-test_native_prover_verifies 230
-test_zk_review_2026_09_24 148
-test_review_round2 142
-test_comp_verify 140
 test_hexholm_engine_conserves_resources 137
 test_msg_ratchet 122
-test_state_transition_batched 121
-test_starkprove 109
-test_merkle_update 105
 test_fork_resolution_pruned 105
-test_rowcomp_verify 103
-test_native_reduce 91
 test_hexholm_contract_lifecycle 75
 test_stormhold_engine_referee 73
-test_fri_blowup2_parity 71
 test_zkvm_runtime 65
-test_proof_query_full 63
 "
 # LIVE tests talk to the node this checkout runs (tests/test_tests_are_isolated.py keeps this list and the tree in
 # step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.

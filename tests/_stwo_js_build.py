@@ -182,7 +182,7 @@ def wallet_prove(spend, leaves, pos, height):
     `height`: the L1 height the spend lands at — it selects the node config the proof is made at, exactly as the wallet's
     stwoCfgId does (stwo_js_native.config_id_at), so a test proves at what its own state will verify."""
     import json
-    from execnode.stark.stwo_js_native import config_id_at
+    from execnode.stwo_js_native import config_id_at
     spend = dict(spend, cfg=config_id_at(height))
     probe = _WALLET_PROBE % json.dumps("file://" + os.path.join(ROOT, "static", "stark", "stwo_js.js"))
     case = json.dumps({"wasm": SHIPPED_WASM, "spend": spend, "leaves": leaves, "pos": pos})

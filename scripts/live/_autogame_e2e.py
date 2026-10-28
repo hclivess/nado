@@ -16,7 +16,9 @@ from ops.address_ops import make_address
 from ops.transaction_ops import construct_blob_tx
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 from execnode.games import autogame as A
-from execnode.stark import alghash, field as F
+# gen 29 (G9 slice 4): the VM's `hash` is zkvm2.hash_words (_lib.vm_hash) and a word is mod 2^256 (_lib.vm_mod); the
+# Goldilocks hash and field this script used went with execnode/stark.
+from execnode.games import _lib
 from tests import autogame_model as M
 
 L1 = "http://127.0.0.1:9173"
@@ -61,12 +63,12 @@ def finalized():
 
 
 def blockhash(h):
-    """BHASH(h) as the contract sees it — the L1 block hash reduced into the field.
+    """BHASH(h) as the contract sees it — the L1 block hash reduced mod 2^256 (zkvm2: the whole hash).
 
     The param is `number`, not `block_number` (nado.py: GET /get_block?number=). The wrong name 404s,
     and a 404 here reads as 'the chain is missing a block' rather than 'the test typed the URL wrong'."""
     b = j(L1 + f"/get_block?number={h}")
-    return int(b["block_hash"], 16) % F.P
+    return int(b["block_hash"], 16) % _lib.vm_mod()
 
 
 K = load_keys()
@@ -168,7 +170,7 @@ def peek_tiles(s, rid, lh):
     d0 = field(s, "dp", rid)
     out = []
     for i in range(A.LEG):
-        a, _b, _c, _sc = M.slice_tile(alghash.hashn([th, rid, i]) & 0xFFFFFFFF)
+        a, _b, _c, _sc = M.slice_tile(_lib.vm_hash([th, rid, i]) & 0xFFFFFFFF)
         out.append(M.tile_of(a, d0 + i))
     return out
 
@@ -270,8 +272,8 @@ th = blockhash(lh)
 for i in range(A.LEG):
     if not run.alive or run.done:
         break
-    tw = alghash.hashn([th, RID, i]) & 0xFFFFFFFF
-    rw = alghash.hashn([rh, RID, i]) & 0xFFFFFFFF
+    tw = _lib.vm_hash([th, RID, i]) & 0xFFFFFFFF
+    rw = _lib.vm_hash([rh, RID, i]) & 0xFFFFFFFF
     M.step(run, tw, rw, action=answers[i])
 pairs = [("hp", "hp"), ("mx", "maxhp"), ("st", "stam"), ("po", "potions"), ("xp", "xp"), ("bk", "banked"),
          ("sk", "streak"), ("dp", "depth"), ("ki", "kills"), ("lv", "alive"), ("wl", "wlevel"),
@@ -333,14 +335,14 @@ if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
     for i in range(A.LEG):
         if not run2.alive or run2.done:
             break
-        tw = alghash.hashn([th2, RID, i]) & 0xFFFFFFFF
-        rw = alghash.hashn([rh2, RID, i]) & 0xFFFFFFFF
+        tw = _lib.vm_hash([th2, RID, i]) & 0xFFFFFFFF
+        rw = _lib.vm_hash([rh2, RID, i]) & 0xFFFFFFFF
         M.step(run2, tw, rw, action=answers2[i])
     if run2.alive and not run2.done:
         # THE FUSED OP, live: march() settles this leg AND commits the next answers in ONE transaction —
         # the latency path the client now runs. Answers for leg 3 are read from the pipelined preview:
         # terrain = this leg's roll hash, depth = where the model says the run parks.
-        tiles3 = [M.tile_of(M.slice_tile(alghash.hashn([rh2, RID, i]) & 0xFFFFFFFF)[0], run2.depth + i)
+        tiles3 = [M.tile_of(M.slice_tile(_lib.vm_hash([rh2, RID, i]) & 0xFFFFFFFF)[0], run2.depth + i)
                   for i in range(A.LEG)]
         word3 = word_of([CLASSMAP.get(t, A.A_DEFAULT) for t in tiles3])
         call("march", [RID, word3, LEG2 + 1], applied=lambda: field(sto(), "lg", RID) > LEG2)
@@ -374,8 +376,8 @@ if field(s, "lv", RID) == 1 and not field(s, "dn", RID):
         for i in range(A.LEG):
             if not run2.alive or run2.done:
                 break
-            tw = alghash.hashn([th2, RID, i]) & 0xFFFFFFFF
-            rw = alghash.hashn([rh2b, RID, i]) & 0xFFFFFFFF
+            tw = _lib.vm_hash([th2, RID, i]) & 0xFFFFFFFF
+            rw = _lib.vm_hash([rh2b, RID, i]) & 0xFFFFFFFF
             M.step(run2, tw, rw, action=answers2[i])
     diffs2 = [(fk, field(s, fk, RID), getattr(run2, mk)) for fk, mk in pairs
               if field(s, fk, RID) != getattr(run2, mk)]

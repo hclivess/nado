@@ -16,7 +16,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(os.environ["HOME"])
-from execnode.stark.native_guard import NODE_LOCAL_ERRORS
+from execnode.native_guard import NODE_LOCAL_ERRORS
 
 import _harness
 _report = _harness.Report()

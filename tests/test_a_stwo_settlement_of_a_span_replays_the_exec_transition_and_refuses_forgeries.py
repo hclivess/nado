@@ -44,7 +44,6 @@ from execnode import block_apply, csmt, settle_b2 as S, zkvm2
 from execnode.csmt_partial import PartialTree, opener_for
 from execnode.games import coinflip, dice, tictactoe
 from execnode.state import ExecState, asset_id
-from execnode.stark import stark as _stk
 from protocol import EPOCH_LENGTH
 from tests._stwo_settle_build import NIGHTLY, build
 
@@ -93,10 +92,10 @@ class World:
                 st.last_div_epoch = E
             if seen is not None:
                 seen[h] = (dict(st.beacons), dict(st.block_hashes))
-            with _stk.rules_at(h):
-                block_apply.begin(states, h)
-                block_apply.dispatch(states, st, b, {}, set(), verbose=False)
-                block_apply.close(states, h, b["block_hash"])
+            # (no stark.rules_at: the Goldilocks proof rules went with execnode/stark in G9 slice 4)
+            block_apply.begin(states, h)
+            block_apply.dispatch(states, st, b, {}, set(), verbose=False)
+            block_apply.close(states, h, b["block_hash"])
 
     def chain_for(self, pre, blocks, lie=None):
         """the L1 stand-in: what a call in block h may read (a from-genesis exec node's beacons and block hashes at h),

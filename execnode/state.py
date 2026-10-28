@@ -647,12 +647,12 @@ class ExecState:
     def _accrue_dividend_epoch_inner(self, inflow, weights, epoch=None):
         """DETERMINISTIC per-epoch accrual of `inflow` (L1 dividend_inflow_get(E)) over `weights`
         (weights_at_epoch(E)), plus the carried backlog under the carry rule for `epoch`. THE arithmetic
-        lives in ONE place — execnode/stark/records_bind.dividend_accrual_effects — which the settle
+        lives in ONE place — execnode/records_effects.dividend_accrual_effects — which the settle
         binding re-derives from L1 state; this method only applies its effects, so the live map and the
         proven records half cannot drift (they used to be two hand-mirrored copies). Returns the amount
         distributed. The caller advances last_div_epoch and never re-accrues an epoch."""
-        from execnode.stark import records_bind as _RB
-        effects, self.div_carry = _RB.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)
+        from execnode import records_effects as _RE
+        effects, self.div_carry = _RE.dividend_accrual_effects(inflow, weights, self.div_carry, epoch)
         distributed = 0
         for _tag, parts, share in effects:
             addr = parts[0]
@@ -1141,7 +1141,7 @@ class ExecState:
         digests, destination, value bounds, anchor, double-spend, duplicate and capacity of the outputs, the proof — runs
         BEFORE the first mutation, and the mutation below cannot raise, so a refused transfer leaves the state byte for
         byte as it was (apply_blob's catch-all would otherwise have turned a mid-mutation exception into a "skip" over a
-        half-applied spend). The proof is verified by the native Stwo verifier (execnode/stark/stwo_js_native), loaded
+        half-applied spend). The proof is verified by the native Stwo verifier (execnode/stwo_js_native), loaded
         on first use; a node that cannot load it never reaches here (execnode._apply_block stalls the block first)."""
         from execnode import shielded_stwo as _S
         # THE ONE READING (shielded_stwo.parse_transfer): shape, canonical digests, proof hex, u64 bounds, the
@@ -1160,7 +1160,7 @@ class ExecState:
             why = self.stwo_spend_refusal(root, nf, cm1, cm2, unshield, fee, self.applying_height())
             if why:
                 return why
-            from execnode.stark import stwo_js_native
+            from execnode import stwo_js_native
             # the config is the one of the block this spend is applied in (STWO_JS_128_HEIGHT), never the prover's
             ok, reason = stwo_js_native.verify(proof, root, nf, cm1, cm2, unshield, fee, sp["dest"],
                                                int(self.applying_height()))

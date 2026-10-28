@@ -34,7 +34,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from ops import self_update as SU                                      # noqa: E402
-from execnode.stark import native_guard as NG                          # noqa: E402
+from execnode import native_guard as NG                          # noqa: E402
 
 import _harness
 _report = _harness.Report()

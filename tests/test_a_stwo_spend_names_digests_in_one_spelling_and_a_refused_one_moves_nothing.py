@@ -1,5 +1,5 @@
 """A STWO SPEND NAMES EVERY DIGEST IN ONE SPELLING, AND A REFUSED SPEND MOVES NOTHING (execnode/state.py
-_apply_stwo_transfer / _apply_stwo_shield, execnode/shielded_stwo.is_digest, execnode/stark/stwo_js_native._digest).
+_apply_stwo_transfer / _apply_stwo_shield, execnode/shielded_stwo.is_digest, execnode/stwo_js_native._digest).
 
 Review 2026-10-11, reproduced through the real binding: bytes.fromhex skips whitespace, so `nf[:62] + "  "` passed the
 binding's `len == 64` check as 31 bytes, the native verifier read a 32nd byte past it (the bytes object's NUL), and the
@@ -30,8 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.environ["HOME"])
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
-from execnode.stark import stwo_js_native as SJ
-from execnode.stark.native_guard import NativeMissing
+from execnode import stwo_js_native as SJ
+from execnode.native_guard import NativeMissing
 
 import _harness
 _report = _harness.Report()

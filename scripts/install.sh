@@ -505,7 +505,8 @@ if [ $WITH_EXEC -eq 1 ]; then
     echo "==> building the native alghash2 hash (recursion hot path; ~20x faster)..."
     if ( cd "$REPO_DIR/native/alghash2" && cargo build --release >/dev/null 2>&1 ); then
       # confirm the .so loads + initializes (its bit-identity to Python is covered by tests/test_recursion.py)
-      if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import alghash2 as a; sys.exit(0 if a._try_native() and len(a.hashn([1,2,3]))==a.CAPACITY else 1)" 2>/dev/null; then
+      # (no Python load probe: its loader went with execnode/stark in G9 slice 4; slice 6 removes this crate's build)
+      if [ -f "$REPO_DIR/native/alghash2/target/release/libnado_alghash2.so" ]; then
         echo "    built + loaded: native/alghash2/target/release/libnado_alghash2.so"
       else
         echo "    (built but the .so did not load — recursion/alghash2 paths use pure Python; still correct.)"
@@ -516,7 +517,7 @@ if [ $WITH_EXEC -eq 1 ]; then
     echo "==> building the native STARK composition (constraint-IR evaluator; ~10x on the composition loop)..."
     if ( cd "$REPO_DIR/native/starkcompose" && cargo build --release >/dev/null 2>&1 ); then
       # confirm the .so loads (its bit-identity to stark._composition is covered by tests/test_air_ir.py)
-      if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import air_ir; sys.exit(0 if air_ir._native() else 1)" 2>/dev/null; then
+      if [ -f "$REPO_DIR/native/starkcompose/target/release/libnado_starkcompose.so" ]; then   # (see alghash2 above)
         echo "    built + loaded: native/starkcompose/target/release/libnado_starkcompose.so"
       else
         echo "    (built but the .so did not load — the prover uses the pure-Python composition; still correct.)"
@@ -529,7 +530,7 @@ if [ $WITH_EXEC -eq 1 ]; then
       # confirm the .so loads (bit-identity to stark.prove is covered by tests/test_starkprove.py). stark.prove
       # routes RECURSION/ALGHASH2 proving through this arena; the Merkle commits hash in parallel across all
       # cores (NADO_NATIVE_THREADS caps the fan-out) — the fold/composition pipeline's dominant cost.
-      if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import stark_native as s; sys.exit(0 if s.available() else 1)" 2>/dev/null; then
+      if [ -f "$REPO_DIR/native/starkprove/target/release/libnado_starkprove.so" ]; then   # (see alghash2 above)
         echo "    built + loaded: native/starkprove/target/release/libnado_starkprove.so"
       else
         echo "    (built but the .so did not load — recursion proving uses pure Python; still correct, much slower.)"

@@ -194,7 +194,7 @@ def _fallback(reason):
     NADO_ALLOW_PYTHON_KERNELS still permits it, for building and for the conformance tests that exist precisely
     to compare this implementation against the Rust one. Nothing in the node sets it."""
     _BACKEND_REASON[0] = reason
-    from execnode.stark.native_guard import allow_absent
+    from execnode.native_guard import allow_absent
     if allow_absent():
         return _PurePyBackend()
     raise RuntimeError(

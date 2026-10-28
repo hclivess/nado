@@ -1,5 +1,5 @@
 """EVERY REWRITE OF AN HONEST STWO JOIN-SPLIT PROOF, AND EVERY CHEATING PROVER WE HAVE, IS REFUSED BY THE NODE VERIFIER
-(adversarial soundness review 2026-10-11, before STWO_POOL_HEIGHT is set; native/stwo_js, execnode/stark/stwo_js_native).
+(adversarial soundness review 2026-10-11, before STWO_POOL_HEIGHT is set; native/stwo_js, execnode/stwo_js_native).
 
 The harness tests/stwo_js_attack/stwo_js_attack.rs is built into a TEMP copy of the crate (src/bin/, feature `prover`,
 nightly) — never into the checkout — and proves fixture b (an unshield with a fee) at the pinned node config. Then:
@@ -74,7 +74,7 @@ if not so or r.returncode != 0:
 
 
 os.environ["NADO_STWO_JS_LIB"] = so
-from execnode.stark import stwo_js_native as SJ
+from execnode import stwo_js_native as SJ
 
 
 def cases(cfg, *args):
