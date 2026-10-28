@@ -4,7 +4,7 @@ Exec-layer state-root growth bounds (execnode/state.py):
      the leaf leaves state_root; unclaimed records stay provable
   2. drop_consumed_outbox: a finalized xmsg delivery GCs the SOURCE outbox message; seqs stay
      monotonic afterwards (no reuse)
-  3. field-nullifier DIGEST leaf: root is bounded in nullifier-set size but still binds it
+  3. nullifier DIGEST record (the Stwo pool's): root is bounded in nullifier-set size but still binds it
   4. a legacy (list) outbox snapshot is REFUSED loudly (no legacy shapes on alphanet)
 
 Run: python3 tests/test_exec_state_gc.py
@@ -61,20 +61,21 @@ def t2_drop_consumed_outbox_and_monotonic_seq():
 
 
 def t3_shield_nfset_digest_bounded():
-    # on the legacy pool, the one spent set left besides the Stwo pool's (the field pool's was pinned here until it was
-    # deleted, G9 slice 5; its digest is a constant now)
+    # on the Stwo pool, the one live spent set (the field pool's was pinned here until G9 slice 5, the legacy pool's until
+    # slice 5c; both digests are constants now)
     st = _st()
-    r_empty = st.state_root()
-    st.shielded.nullifiers.update(str(i) for i in range(1, 500))
+    sp = st.stwo_pool
+    for i in range(1, 500):
+        sp.spend("%064x" % i)
     st._touch()
-    r_full = st.state_root()
-    assert r_full != r_empty, "the digest still BINDS the nullifier set"
+    r_first = st.state_root()
     # the committed projection stays the same SIZE regardless of set size (one digest record, not one per nf)
-    n_records_full = len(ER.records_projection(st))
-    st.shielded.nullifiers.update(str(i) for i in range(500, 1000))
+    n_records_first = len(ER.records_projection(st))
+    for i in range(500, 1000):
+        sp.spend("%064x" % i)
     st._touch()
-    assert len(ER.records_projection(st)) == n_records_full, "record count must not grow with the nullifier set"
-    assert st.state_root() != r_full, "...but the digest changes with the set"
+    assert len(ER.records_projection(st)) == n_records_first, "record count must not grow with the nullifier set"
+    assert st.state_root() != r_first, "...but the digest BINDS the set: it changes with it"
 
 
 def t4_legacy_outbox_shape_refused():

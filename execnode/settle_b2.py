@@ -412,7 +412,7 @@ class WitnessState(ExecState):
         from protocol import EPOCH_LENGTH
         st.last_div_epoch = int(cursor) // EPOCH_LENGTH - 1 if int(cursor) >= 0 else -1
         st.beacons, st.block_hashes = {}, {}          # the oracle checks chain reads against Chain, never these
-        for name in ("inbox", "shielded", "stwo_pool", "randao_reveals",
+        for name in ("inbox", "stwo_pool", "randao_reveals",
                      "pool_value", "pool_fees", "stwo_value"):
             object.__setattr__(st, name, Forbidden(name))
         return st

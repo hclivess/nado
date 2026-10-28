@@ -172,7 +172,7 @@ Send a `blob` tx (`recipient:"blob"`, `amount:0`, `data:<payload>`) via `POST /s
 | `emit` | `to_ns, data` | Append a cross-domain message to the outbox. |
 | `bridge_withdraw` | `amount` | Burn exec bridge balance → provable L1 exit (claim with `/exec/withdrawal_proof`). |
 | `collect_dividend` | — | Burn accrued dividend → provable L1 claim. |
-| `shielded_transfer` / `field_transfer` | proof/bundle | Private transfer inside a shielded pool. |
+| `field_transfer` | bundle | Private transfer inside the Stwo shielded pool. (`shielded_transfer`, the deleted legacy pool's op, is skipped at every height.) |
 
 There is **no coinflip-specific op** — the Coin Flip dApp is a contract driven entirely through `call`/`view`/`upgrade` (see §5).
 

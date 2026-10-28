@@ -17,7 +17,6 @@ import threading
 from execnode.zkvm2 import ZkVMError
 from execnode import zkvm2                # method_reads_actx (C1 rule, EXEC_RULES_V2_HEIGHT)
 from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
-from execnode.shielded import ShieldedPool, apply_transfer
 
 # RANDOMNESS-WINDOW RETENTION — the horizons below which advance_beacons/record_block_hash prune. They also
 # define window_canonical(): a node holds a CANONICAL window iff its floors reach at least this far back, i.e.
@@ -311,12 +310,10 @@ class ExecState:
         self.div_carry = 0         # undistributed remainder carried to the next accrual (no dust lost)
         self.dividend_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable dividend claims
         self.dw_nonce = 0          # monotonic dividend-withdrawal nonce counter (deterministic)
-        # THE LEGACY BLAKE2b POOL (doc/privacy.md, historical): no deposit reaches it on generation 29 (the legacy shield is
-        # skipped, block_apply), but the transparent `shielded_transfer` op is STILL LIVE for zero-value notes — a transfer
-        # with no inputs and value-0 outputs balances, so it appends notes and moves shield_root. Kept for that reason only
-        # (G9 slice 5): deleting it would change the exec root on a blob any sender can post. Only the pool ROOT + a
-        # nullifier DIGEST are committed in state_root.
-        self.shielded = ShieldedPool()
+        # THE LEGACY BLAKE2b POOL IS GONE (G9 slice 5c): no deposit ever reached it on generation 29 and its
+        # `shielded_transfer` is a skip at every height (apply_blob), so it was empty at every height. Its only trace is
+        # its two constant records in exec_root_b2.records_projection; an old snapshot's "shielded" key is ignored by
+        # _restore.
         self.unshield_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable unshield exits
         self.uw_nonce = 0          # monotonic unshield-withdrawal nonce counter (deterministic)
         # THE FIELD, WIDE AND SHIELDED-CONTRACT POOLS ARE GONE (G9 slice 5): on generation 29 no entry point could add a
@@ -442,12 +439,12 @@ class ExecState:
         self.div_carry = d.get("div_carry", 0)
         self.dividend_withdrawals = d.get("dividend_withdrawals", {})
         self.dw_nonce = _floor(d.get("dw_nonce", 0), d.get("dividend_withdrawals"))
-        self.shielded = ShieldedPool.from_dict(d["shielded"]) if "shielded" in d else ShieldedPool()
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = _floor(d.get("uw_nonce", 0), d.get("unshield_withdrawals"))
-        # "field_pool", "wide_pool" and "app_state" are IGNORED (G9 slice 5): every gen-29 snapshot on the fleet carries
-        # an empty "field_pool" (and an old one may carry the others), and those pools no longer exist. They were empty
-        # on every gen-29 state, so nothing they held is dropped. INVARIANT: never fail a load on these keys.
+        # "field_pool", "wide_pool" and "app_state" are IGNORED (G9 slice 5), and so is "shielded" (slice 5c): every
+        # gen-29 snapshot on the fleet carries an empty "shielded" and "field_pool" (and an old one may carry the others),
+        # and those pools no longer exist. They were empty on every gen-29 state, so nothing they held is dropped.
+        # INVARIANT: never fail a load on these keys.
         from execnode.shielded_stwo import StwoShieldedPool
         self.stwo_pool = StwoShieldedPool.from_dict(d["stwo_pool"]) if "stwo_pool" in d else StwoShieldedPool()
         # SHIELDED SUPPLY (ops/invariants.py). Individual note VALUES are private, but every CHANGE to the
@@ -484,15 +481,16 @@ class ExecState:
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
         concurrent thread-apply can't tear it. Shared by save() and clone()."""
         with self._mutate_lock:
-            # NO "field_pool" (G9 slice 5): the pool is gone. Nothing hashes this payload — a peer that adopts it
-            # recomputes the root — and an older node reading it treats the absent key as the empty pool it always was.
+            # NO "field_pool" (G9 slice 5) and NO "shielded" (slice 5c): the pools are gone. Nothing hashes this payload —
+            # a peer that adopts it recomputes the root — and an older node reading it treats an absent key as the empty
+            # pool it always was.
             return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                     "assets": self.assets, "abal": self.abal, "allow": self.allow,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                     "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
                     "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
                     "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
-                    "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
+                    "dw_nonce": self.dw_nonce,
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
                     # EMPTY IS ABSENT: a snapshot must not change by a key it never needed
                     **({"stwo_pool": self.stwo_pool.to_dict()} if self.stwo_pool.commitments or self.stwo_pool.nullifiers else {}),
@@ -1742,58 +1740,13 @@ class ExecState:
                 return self.apply_field_transfer(bundle)
 
             if op == "shielded_transfer":
-                # STILL LIVE ON GENERATION 29 (G9 slice 5): the TRANSPARENT legacy-pool transfer. A transfer with no inputs
-                # and value-0 outputs balances (0 + 0 == 0 + 0), so any sender can append zero-value notes to the legacy
-                # pool and later spend them — that moves shield_root, so this path and execnode/shielded.py stay until
-                # LEGACY_TRANSFER_CLOSE_HEIGHT has passed on the live chain, then go together. Nothing of value can enter: coins arrive only by an L1
-                # shield, and the legacy shield is skipped (block_apply).
-                # LEGACY_TRANSFER_CLOSE_HEIGHT (protocol.py): skipped from the gate, before anything is parsed, so a refused
-                # transfer is a pure no-op and the pool is frozen. INVARIANT: nothing after this may run from the gate.
-                from protocol import LEGACY_TRANSFER_CLOSE_HEIGHT as _LTCLOSE
-                if self.applying_height() >= _LTCLOSE:
-                    return "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
-                public = payload.get("public")
-                proof = payload.get("proof")
-                if not isinstance(public, dict) or not isinstance(proof, dict):
-                    return "skip: bad shielded_transfer"
-                # UNBACKED-MINT FENCE: coins may only ENTER the pool via an L1 `shield` tx. A transfer blob is
-                # user-supplied and escrow-free, so public_value > 0 here would mint notes backed by nothing. Checked
-                # BEFORE apply_transfer so a rejected blob never mutates the pool.
-                pv = int(public.get("public_value", 0))
-                if pv > 0:
-                    return "skip shielded_transfer: public_value > 0 (coins enter only via an L1 shield)"
-                # A STARK BUNDLE IS REFUSED AT EVERY HEIGHT (PRIVACY_PAUSE_HEIGHT, 1 from gen 26): it was verified against
-                # the bundle's own values while the pool was mutated from the unrelated `public` dict (review 2026-09-24),
-                # and its verifier (joinsplit_transfer) is deleted (G9 slice 5). Below block 1 only genesis is applied,
-                # which carries no transaction on generation 29, so dropping the `>= 1` changes no verdict.
-                if proof.get("stark") is not None:
-                    return "skip shielded_transfer: stark bundles are refused on this op (PRIVACY_PAUSE_HEIGHT)"
-                if self.rules_v2():
-                    if pv < 0 and not (-pv < MAX_EXIT_VALUE):
-                        return "skip shielded_transfer: exit exceeds MAX_EXIT_VALUE"
-                # Validate the exit destination BEFORE any mutation. apply_transfer records the nullifier and
-                # appends the output commitments, so a missing withdraw_addr checked AFTERWARDS burned the note
-                # for a malformed unshield with no exit recorded — the exact ordering the field path was fixed for.
-                addr = None
-                if pv < 0:
-                    addr = public.get("withdraw_addr")
-                    if not addr:
-                        return "skip: unshield missing withdraw_addr"
-                if self.rules_r2() and any(cm in self.shielded.commitments
-                                           for cm in (public.get("out_commitments") or [])):
-                    return "skip shielded_transfer: duplicate note commitment"   # Z6 (REVIEW_R2_HEIGHT)
-                ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
-                if not ok:
-                    return f"skip shielded_transfer: {reason}"
-                _fee = int(public.get("fee", 0) or 0)
-                self.pool_value += pv - _fee              # shielded supply (ops/invariants)
-                self.pool_fees += _fee
-                if pv < 0:
-                    self.uw_nonce += 1
-                    nonce = str(self.uw_nonce)
-                    self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
-                    return f"unshield {-pv} -> {addr[:12]}… nonce {nonce}"
-                return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
+                # THE LEGACY POOL'S TRANSFER IS A SKIP AT EVERY HEIGHT (G9 slice 5c). From LEGACY_TRANSFER_CLOSE_HEIGHT
+                # (14000 on gen 29) the op was skipped before anything was parsed, with exactly this string; below it the
+                # transparent transfer applied to execnode/shielded.py (deleted), but the gen-29 chain carries NO
+                # `shielded_transfer` blob in 0..13999 (0..12758 measured 2026-10-28; the rest once 14000 was final — the
+                # precondition of this deletion), so returning the gate's skip everywhere is the same verdict on every
+                # block the chain holds. INVARIANT: keep it its own op and keep it a pure no-op — never let it fall through to "unknown op" or touch any state.
+                return "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
 
             if op == "private_call":
                 # SHIELDED CONTRACT NOTES ARE CLOSED AT EVERY HEIGHT (PRIVACY_PAUSE_HEIGHT, 1 from gen 26): a deposit could

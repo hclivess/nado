@@ -1679,13 +1679,13 @@ def split_open_block_reward(reward: int):
 #   SIG_SCHEMES_HEIGHT               an account signs with its address's scheme — `>= 1` with None kept in sig_scheme_check
 #   BLAKE_EXEC_HEIGHT                the BLAKE2s exec root and the 256-bit VM — unconditional at EVERY height (the gate's
 #                                    predicate already covered cursors -1 and 0); exec_root_b2.blake_exec_at is deleted
+# GEN-29 GATES RETIRED IN G9 (slice 5c): LEGACY_SHIELD_CLOSE_HEIGHT (10000) and LEGACY_TRANSFER_CLOSE_HEIGHT (14000)
+#                                    fired; the chain carries no legacy shield below 10000 and no shielded_transfer below
+#                                    14000 (measured), so both refusals are unconditional and the legacy pool is deleted —
+#                                    no `>= 1` survives (mempool admission at None / 0 refuses a legacy shield too)
 # KEYED ON GENERATION 29 (live on betanet-10):
 #                                    EXEC_ADDR_ROOT_HEIGHT (8500, exec cursor; -> 1: the zkvm digest registry is committed in
 #                                    the exec root as T_ADDR records, so a settlement proof resolves payees as the chain)
-#                                    LEGACY_SHIELD_CLOSE_HEIGHT (10000; -> 1: the legacy BLAKE2b shielded pool takes no new
-#                                    deposits, refused on L1 and skipped on exec, so G9 can delete it)
-#                                    LEGACY_TRANSFER_CLOSE_HEIGHT (14000; -> 1: the exec layer skips the legacy pool's
-#                                    transparent shielded_transfer, so the pool is frozen and execnode/shielded.py can go)
 #                                    EXEC_CARRY_ROOT_HEIGHT (30000, exec cursor; -> 1: the exec state's dividend carry is
 #                                    committed in the exec root as the T_COUNTER record "div_carry", so a settlement proof
 #                                    reads a span's starting carry from its pre root, never from L1's exec summaries)
@@ -2163,21 +2163,16 @@ INVITE_KEY_HEX = 2624                    # an ML-DSA-44 public key: 1312 bytes
 # frozen and no wide verifier stays reachable. STWO_POOL_HEIGHT (269000 on gen 28, after the in-house review of
 # 2026-10-11/12) and WIDE_DEPOSIT_CLOSE_HEIGHT (175000 on gen 28) were 1 from gen 29 and were inlined in G9; the rules
 # hold from block 1 (transaction_ops.field_shield_check, ExecState.rules_stwo_pool).
-# THE LEGACY POOL TAKES NO NEW DEPOSITS (G9, 2026-10-27). The phase-1 BLAKE2b shielded pool (execnode/shielded.py) was
-# retired with the move to Stwo: its stark-bundle transfers are paused (PRIVACY_PAUSE) and the wallet no longer offers
-# it, yet L1 still accepted a `shield` with `out_commitments` (no `field`) and the exec node added the notes, coins that could only
-# be locked there. Measured: no such deposit on generation 29 (blocks 0..7608). From this height L1 refuses it and the
-# exec layer skips it, so the pool stays empty for good, its two root records are constants, and its code can be
-# deleted (doc/stwo-migration.md 9.7). A Stwo pool deposit (`field`) is unaffected. `else 1`: a reroll starts closed.
-LEGACY_SHIELD_CLOSE_HEIGHT = 10000 if CHAIN_GENERATION == 29 else 1   # L1 was at 7798 when this shipped (2026-10-27)
-# ...AND NO TRANSFERS (G9 slice 5, 2026-10-28). "Paused" above covered only the STARK bundle: the TRANSPARENT
-# `shielded_transfer` blob op stayed live, and a transfer with no inputs and value-0 outputs balances (0 + 0 == 0 + 0), so
-# any sender could append zero-value notes to the legacy pool for MIN_TX_FEE — moving shield_root and every exec root
-# after it — and spend them later. No value could enter (coins arrive only by an L1 shield, closed above). From this
-# height the exec layer skips the op, so the pool is frozen for good and execnode/shielded.py can be deleted with its two
-# root records pinned as constants. Exec-only: L1 never decodes blob payloads. Measured: no shielded_transfer on
-# generation 29 (blocks 0..10533). `else 1`: a reroll starts with it closed.
-LEGACY_TRANSFER_CLOSE_HEIGHT = 14000 if CHAIN_GENERATION == 29 else 1   # L1 was at 10994 when this was written (2026-10-28)
+# THE LEGACY BLAKE2b POOL IS DELETED (G9 slice 5c, 2026-10-28). Two gen-29 gates closed it and both FIRED:
+# LEGACY_SHIELD_CLOSE_HEIGHT (10000) — L1 refused a `shield` with `out_commitments` (no `field`) and the exec layer skipped
+# it — and LEGACY_TRANSFER_CLOSE_HEIGHT (14000) — the exec layer skipped the transparent `shielded_transfer` blob op, which
+# had stayed live because a no-input, zero-value transfer balances (0 + 0 == 0 + 0). Measured on the live chain: no legacy
+# shield in blocks 0..12758 and no `shielded_transfer` in 0..12758 (2026-10-28, finalized tip 12758); no `shielded_transfer`
+# in 0..13999 is this deletion's precondition, measured once 14000 was final. So the pool was empty at every height.
+# Both rules are now unconditional (ops/transaction_ops._validate_shield refuses a legacy shield at every height, ExecState.apply_blob
+# returns the gate's skip for every `shielded_transfer`), execnode/shielded.py is gone, and its two root records are the
+# constants exec_root_b2.RETIRED_SHIELD_ROOT / RETIRED_SHIELD_NFSET. INVARIANT: the names stay retired
+# (tests/test_gate_reroll_transfer.py DELETED); never re-add either as a switch.
 
 # A STWO SPEND MAY NAME WHO ITS FEE PAYS (shadow accounts, 2026-10-18). A bundle may carry `fee_to`: the proof is bound
 # to the destination string "<withdraw_addr>|fee:<fee_to>" (the circuit's aux is BLAKE2s of that string, so neither

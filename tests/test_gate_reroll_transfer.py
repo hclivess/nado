@@ -28,8 +28,6 @@ REROLL = {
     "DEVICE_ATTEST_HEIGHT": 1,
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
     "EXEC_CARRY_ROOT_HEIGHT": 1,               # gen 29: the dividend carry is committed in the exec root (G8 prerequisite)
-    "LEGACY_TRANSFER_CLOSE_HEIGHT": 1,         # gen 29: the legacy pool's transparent transfers are skipped (G9)
-    "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     "STWO_SETTLE_HEIGHT": 1,                   # gen 29 DORMANT (1 << 62): a settle carries a Stwo proof of its span (G8)
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
@@ -72,6 +70,9 @@ DELETED = (
     "STWO_POOL_HEIGHT", "WIDE_DEPOSIT_CLOSE_HEIGHT", "STWO_FEE_TO_HEIGHT", "STWO_JS_128_HEIGHT",
     "REFERRAL_HEIGHT", "BLOCK_BUDGET_HEIGHT", "EXEC_BUDGET_V2_HEIGHT", "SIG_SCHEMES_HEIGHT",
     "BLAKE_EXEC_HEIGHT",
+    # G9 slice 5c (gen 29): the legacy BLAKE2b pool's two closing gates FIRED (10000, 14000) and the chain carries no legacy
+    # shield / shielded_transfer below them (measured) — both refusals are unconditional and execnode/shielded.py is gone
+    "LEGACY_SHIELD_CLOSE_HEIGHT", "LEGACY_TRANSFER_CLOSE_HEIGHT",
 )
 
 

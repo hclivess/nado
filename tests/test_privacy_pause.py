@@ -7,8 +7,9 @@ gen 26 it (and the wide pool's and REVIEW_R2's) was 1, and all three were delete
 deleted the field, wide and shielded-contract pools, and with them the height-0 exception: the refusals below hold at
 EVERY height (below block 1 only genesis is applied, which carries no transaction on generation 29):
 
-  * the exec layer refuses `private_call` and a `stark` bundle on the transparent `shielded_transfer` op — before
-    parsing anything or moving any balance, so a refusal is a no-op;
+  * the exec layer refuses `private_call` and the whole transparent `shielded_transfer` op (a `stark` bundle and a
+    signed transfer alike, since G9 slice 5c deleted the legacy pool) — before parsing anything or moving any balance,
+    so a refusal is a no-op;
   * `field_transfer` is a Stwo spend from block 1 and is never refused as paused;
   * L1 admits only a WIDE field-shield deposit from block 1 (transaction_ops.field_shield_check), judged at the block's
     own height. That check used to read an unbound `h` and raised on EVERY field shield, wide ones included — this
@@ -71,12 +72,16 @@ def t_field_transfer_is_a_stwo_spend_and_is_never_refused_as_paused():
     assert "paused" not in _state_at(G - 1).apply_blob(dict(blob), USER, "t4")
 
 
-def t_stark_bundles_are_refused_on_the_transparent_op_but_signed_transfers_are_not():
+def t_the_transparent_op_is_refused_for_stark_bundles_and_signed_transfers_alike():
+    # G9 slice 5c: the legacy pool is deleted and its op is the gate's skip at every height, so the stark-bundle refusal
+    # that once stood apart from the signed path is now the same refusal as everything else on this op.
+    closed = "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
     stark_blob = {"op": "shielded_transfer", "public": {"public_value": 0}, "proof": {"stark": {"joinsplit2": {}}}}
-    assert "stark bundles are refused" in _state_at(G).apply_blob(dict(stark_blob), USER, "t6")
     signed = {"op": "shielded_transfer", "public": {"public_value": 0}, "proof": {"sig": "x"}}
-    assert "stark bundles are refused" not in _state_at(G).apply_blob(dict(signed), USER, "t7")
-    assert "stark bundles are refused" in _state_at(G - 1).apply_blob(dict(stark_blob), USER, "t8"), "at every height"
+    assert _state_at(G).apply_blob(dict(stark_blob), USER, "t6") == closed
+    assert _state_at(G).apply_blob(dict(signed), USER, "t7") == closed
+    assert _state_at(G - 1).apply_blob(dict(stark_blob), USER, "t8") == closed, "at every height"
+    assert _state_at(G - 1).apply_blob(dict(signed), USER, "t9") == closed, "at every height"
 
 
 def t_field_shield_admission_is_judged_at_the_block_height_and_never_raises_a_name_error():

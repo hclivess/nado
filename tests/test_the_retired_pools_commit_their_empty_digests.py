@@ -1,16 +1,18 @@
-"""The deleted shielded pools still commit, byte for byte, what they committed on every generation-29 state (G9 slice 5).
+"""The deleted shielded pools still commit, byte for byte, what they committed on every generation-29 state (G9 slices 5, 5c).
 
 The Goldilocks field pool, the wide pool and the shielded-contract state were deleted: on generation 29 no entry point
 could add a note to any of them, so they were empty at every height. The empty field pool still projected two T_DIGEST
 records into EVERY gen-29 exec root (the wide pool and app state projected nothing while empty), so those two are kept as
-constants (exec_root_b2.RETIRED_FIELD_ROOT / RETIRED_FIELD_NFSET). The LEGACY BLAKE2b pool is not retired: its
-`shielded_transfer` op still appends zero-value notes, so its two digests stay computed from the pool. Pins:
+constants (exec_root_b2.RETIRED_FIELD_ROOT / RETIRED_FIELD_NFSET). The LEGACY BLAKE2b pool (execnode/shielded.py) went in
+slice 5c: its deposit and its `shielded_transfer` closed at gates the chain had none below (measured), so it too was empty
+at every height and its two records are constants (RETIRED_SHIELD_ROOT / RETIRED_SHIELD_NFSET). Pins:
   1. an empty exec state projects the four pool records with the exact values every gen-29 node committed;
   2. its root is protocol.EXEC_GENESIS_ROOT_B2 (the gen-29 exec genesis root), at cursor -1, 0 and a live height;
-  3. the field records are the constants, not a computation that could drift: blake2b_hash(["field_nfset"]) is the
-     empty spent set's digest, and nothing in execnode/ imports a deleted pool module;
+  3. the field and legacy records are the constants, not a computation that could drift: blake2b_hash(["field_nfset"])
+     and blake2b_hash(["shield-v1", "nfset"]) are the empty spent sets' digests, and nothing in execnode/ imports a
+     deleted pool module;
   4. the retired tags 11/12 stay reserved and the snapshot no longer writes the deleted pools.
-A reroll may drop the two constants only together with a CHAIN_GENERATION bump.
+A reroll may drop the four constants only together with a CHAIN_GENERATION bump.
 
 Run: python3 tests/test_the_retired_pools_commit_their_empty_digests.py
 """
@@ -48,7 +50,10 @@ T.check("2. the empty exec root is EXEC_GENESIS_ROOT_B2 at cursor -1, 0 and 1057
 T.check("3. the field records are pinned constants",
         (B2.RETIRED_FIELD_ROOT, B2.RETIRED_FIELD_NFSET) == (WANT["field_root"], WANT["field_nfset"])
         and blake2b_hash(["field_nfset"]) == WANT["field_nfset"])
-dead = re.compile(r"\b(shielded_field|shielded_wide|shielded_state|joinsplit\w*|appnote_circuit|znote)\b")
+T.check("...and so are the legacy pool's (G9 slice 5c)",
+        (B2.RETIRED_SHIELD_ROOT, B2.RETIRED_SHIELD_NFSET) == (WANT["shield_root"], WANT["shield_nfset"])
+        and blake2b_hash(["shield-v1", "nfset"]) == WANT["shield_nfset"])
+dead = re.compile(r"\b(shielded|shielded_field|shielded_wide|shielded_state|joinsplit\w*|appnote_circuit|znote)\b")
 hits = []
 for d, _dirs, files in os.walk(os.path.join(ROOT, "execnode")):
     for f in files:
@@ -58,6 +63,6 @@ for d, _dirs, files in os.walk(os.path.join(ROOT, "execnode")):
 T.check("...and nothing in execnode/ imports a deleted pool module", not hits, hits)
 T.check("4. tags 11/12 stay reserved", (B2.T_APP_ROOT, B2.T_APP_NULL) == (11, 12))
 snap = st._snapshot()
-T.check("...and the snapshot writes no deleted pool (the legacy pool stays: it is live)",
-        not any(k in snap for k in ("field_pool", "wide_pool", "app_state")) and "shielded" in snap)
+T.check("...and the snapshot writes no deleted pool, the legacy one included",
+        not any(k in snap for k in ("shielded", "field_pool", "wide_pool", "app_state")) and not hasattr(st, "shielded"))
 T.done()

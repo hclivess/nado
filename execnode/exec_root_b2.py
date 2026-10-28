@@ -41,6 +41,16 @@ T_APP_ROOT, T_APP_NULL = 11, 12
 RETIRED_FIELD_ROOT = "12068980620996700996"
 RETIRED_FIELD_NFSET = "caeaaec45c69de5493ca19f3967f5706552b5840fa46f33a33681f97d0f72b37"
 
+# THE RETIRED LEGACY POOL'S RECORDS (G9 slice 5c). The phase-1 BLAKE2b pool (execnode/shielded.py) is deleted: L1
+# refused its deposit from LEGACY_SHIELD_CLOSE_HEIGHT and the exec layer skipped its `shielded_transfer` from
+# LEGACY_TRANSFER_CLOSE_HEIGHT, and the gen-29 chain carries neither below those gates (measured), so it was empty at
+# every height. Its two T_DIGEST records are committed here BYTE-IDENTICALLY as the constants they always were — the
+# empty depth-32 tree's root and the digest of its empty spent set, blake2b_hash(["shield-v1", "nfset"]). INVARIANT:
+# every gen-29 root depends on these two; a reroll may drop them only together with a CHAIN_GENERATION bump
+# (tests/test_the_retired_pools_commit_their_empty_digests.py).
+RETIRED_SHIELD_ROOT = "3494ed478a1577a5dad291006765ffcbf43096c44f1cec9121c302cf6b767f92"
+RETIRED_SHIELD_NFSET = "a96aa2bd2e3510ee04e8cd838054a36328c80584160b3170b6fc242077f56d14"
+
 
 def leaf_digest(leaf_bytes):
     """64-hex digest of a canonical message-leaf's bytes — what a digest record commits in its position."""
@@ -255,10 +265,9 @@ def records_projection(st):
         _amount(out, record_key(T_DIV_WD, w["addr"], nonce), w["amount"])
     for nonce, w in st.unshield_withdrawals.items():
         _amount(out, record_key(T_UNSHIELD_WD, w["addr"], nonce), w["amount"])
-    # the LEGACY BLAKE2b pool is empty at the gen-29 carry (doc/stwo-migration.md 6.4b) but still LIVE for zero-value
-    # notes (ExecState "shielded_transfer"), so its two digests are computed from the pool, never pinned
-    out[record_key(T_DIGEST, "shield_root", st.shielded.root())] = ONE
-    out[record_key(T_DIGEST, "shield_nfset", st.shielded.nullifier_digest())] = ONE
+    # THE DELETED LEGACY POOL'S TWO RECORDS, as the constants they were on every gen-29 state (see RETIRED_SHIELD_ROOT)
+    out[record_key(T_DIGEST, "shield_root", RETIRED_SHIELD_ROOT)] = ONE
+    out[record_key(T_DIGEST, "shield_nfset", RETIRED_SHIELD_NFSET)] = ONE
     # THE DELETED FIELD POOL'S TWO RECORDS, as the constants they were on every gen-29 state (see RETIRED_FIELD_ROOT)
     out[record_key(T_DIGEST, "field_root", RETIRED_FIELD_ROOT)] = ONE
     out[record_key(T_DIGEST, "field_nfset", RETIRED_FIELD_NFSET)] = ONE

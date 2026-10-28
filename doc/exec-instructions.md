@@ -461,6 +461,8 @@ field pool is refused (`rules_privacy_pause` / `rules_shield_wide`).
 
 ### `shielded_transfer`
 
+> **HISTORICAL (G9 slice 5c):** the legacy pool is deleted; this op is skipped at every height (`skip shielded_transfer: the legacy shielded pool is closed`) and moves nothing. Private transfers are `field_transfer` (the Stwo pool).
+
 Phase-1 join-split / unshield against the shielded pool.
 
 | field | req | meaning |

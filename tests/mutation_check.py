@@ -53,21 +53,17 @@ signal.signal(signal.SIGINT, lambda *a: (restore_all(), sys.exit(130)))
 
 MUTATIONS = [
     # The shielded-contract guards this table held (shielded_state.py, appnote_circuit, private_call's ledger checks,
-    # exec_root's app-state projection) went with that code in G9 slice 5. What is left is the LEGACY transparent pool,
-    # still live on generation 29 for zero-value notes (ExecState "shielded_transfer"): its guards, each with the suite
-    # that claims it.
-    ("unbacked-mint fence", "execnode/state.py",
-     "                if pv > 0:\n                    return \"skip shielded_transfer: public_value > 0",
-     "                if False:\n                    return \"skip shielded_transfer: public_value > 0", "test_unbacked_mint"),
-    ("stark bundle refusal", "execnode/state.py",
-     '                if proof.get("stark") is not None:', "                if False:", "test_privacy_pause"),
-    ("duplicate commitment (Z6)", "execnode/state.py",
-     "                if self.rules_r2() and any(cm in self.shielded.commitments",
-     "                if False and any(cm in self.shielded.commitments", "test_review_round2"),
-    ("double-spend check", "execnode/shielded.py",
-     "        if pool.has_nullifier(nf):", "        if False:", "test_shielded_exec"),
-    ("value conservation", "execnode/shielded.py",
-     "    if in_sum + pub_val != out_sum + fee:", "    if False:", "test_shielded_exec"),
+    # exec_root's app-state projection) went with that code in G9 slice 5, and the LEGACY transparent pool's (the
+    # unbacked-mint fence, the stark refusal, Z6's duplicate commitment, shielded.py's double-spend and value
+    # conservation) with execnode/shielded.py in slice 5c. What guards that pool's surface now is that it is closed at
+    # every height — on L1 and on the exec layer — each with the suite that claims it.
+    ("legacy transfer closed", "execnode/state.py",
+     '            if op == "shielded_transfer":',
+     '            if op == "shielded_transfer" and False:', "test_shielded_transfer_is_a_skip_at_every_height"),
+    ("legacy shield refused", "ops/transaction_ops.py",
+     "        raise AssertionError(\n            \"the legacy shielded pool takes no new deposits",
+     "        if False: raise AssertionError(\n            \"the legacy shielded pool takes no new deposits",
+     "test_a_legacy_shield_is_refused_at_every_height"),
 ]
 
 print(f"{'guard broken':32s} {'suite':30s} result", flush=True)

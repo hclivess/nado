@@ -15,7 +15,6 @@ test_device_attest_rule                      needs the Rust kernels (native/)
 test_exec_root_v2                            needs the Rust kernels (native/)
 test_assets                                  proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
-test_snapshot_anchors_rebuilt                proves in Python kernels: over 5 minutes
 test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes
 test_zkvm_args                               proves in Python kernels: over 5 minutes
 test_updatability                            [box] judges the machine it runs on (a node checkout on main, root, the systemd restart bridge) — a CI runner is none of those; runs on every node's own box

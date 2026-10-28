@@ -13,7 +13,8 @@ that was really open:
   F2  a non-string `method` used to be DEBITED and then raise at the VM (escrow kept); at the gate it is refused
       first, a VM exception refunds, and L1 admission refuses to order it.
   Z2  a `stark` bundle with no join-split proof used to pass "output well-formedness" and record an unbacked
-      unshield exit; a stark bundle is now refused at every height, and an exit is bounded by MAX_EXIT_VALUE.
+      unshield exit; since G9 slice 5c the whole transparent `shielded_transfer` op is a skip at every height (the
+      legacy pool is deleted), so no bundle, signed or stark, can record an exit through it.
   S2/S3 (the settle branch's records fold and the order of its checks before the proof verify) were retired in G9 with
       the L1 settle-proof verifier: a BLAKE2s exec root settles by quorum attestation only.
   S5  (a MemoryError inside a Goldilocks verifier layer propagated: retired with execnode/stark in G9 slice 4)
@@ -178,37 +179,28 @@ def _exit_blob(pv, stark_bundle):
             "proof": {"stark": stark_bundle}}
 
 
-def t_z2_a_stark_bundle_is_refused_even_below_block_1():
-    """THE FINDING (an empty stark bundle recorded an unbacked exit) is unreachable at every height now: the stark
-    refusal holds below block 1 too (G9 slice 5 deleted the stark seam it fell through to). Below block 1 only genesis is
-    applied, which carries no transaction on generation 29, so this changes no gen-29 verdict."""
-    st, _, _ = fresh(GATE - 1)
-    r = st.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx")
-    assert r.startswith("skip shielded_transfer") and "stark bundle" in r, r
-    assert st.pool_value == 0 and not st.unshield_withdrawals
+CLOSED = "skip shielded_transfer: the legacy shielded pool is closed (LEGACY_TRANSFER_CLOSE_HEIGHT)"
 
 
-def t_z2_gate_refuses_a_bundle_without_a_join_split_proof():
-    # From block 1 the privacy pause (gen 25's PRIVACY_PAUSE_HEIGHT, deleted with this file's gate) refuses EVERY stark
-    # bundle on this op before the Z2 check is reached — so the bundle is refused, and nothing moves, either way.
-    st, _, _ = fresh(GATE)
-    r = st.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx")
-    assert r.startswith("skip shielded_transfer") and "stark bundle" in r, r
-    assert st.pool_value == 0 and not st.unshield_withdrawals
-    r = st.apply_blob(_exit_blob(-1_000_000, []), ALICE, "tx")
-    assert r.startswith("skip shielded_transfer"), r
-
-
-def t_z2_gate_bounds_the_exit():
-    # a stark bundle never reaches the bound from block 1 (the pause refuses it first); a signed transfer does
-    st, _, _ = fresh(GATE)
-    r = st.apply_blob(_exit_blob(-MAX_EXIT_VALUE, {"joinsplit": {}}), ALICE, "tx")
-    assert r.startswith("skip shielded_transfer"), r
-    blob = _exit_blob(-MAX_EXIT_VALUE, None)
-    blob["proof"] = {"sig": "x"}
-    r = st.apply_blob(blob, ALICE, "tx")
-    assert "MAX_EXIT_VALUE" in r, r
-    assert st.pool_value == 0 and not st.unshield_withdrawals
+def t_z2_no_exit_blob_records_an_exit_at_any_height():
+    """THE FINDING (an empty stark bundle recorded an unbacked exit) is unreachable at every height: the transparent op
+    is skipped before anything is parsed (G9 slice 5c deleted the legacy pool; the stark refusal, the join-split check and
+    the MAX_EXIT_VALUE bound went with its body). Below block 1, at the gate and far past it, a stark bundle, an empty one,
+    an over-bound exit and a signed exit are all the same skip, and nothing moves."""
+    signed = _exit_blob(-1_000_000, None)
+    signed["proof"] = {"sig": "x"}
+    over = _exit_blob(-MAX_EXIT_VALUE, None)
+    over["proof"] = {"sig": "x"}
+    st_old, st, st_far = fresh(GATE - 1)[0], fresh(GATE)[0], fresh(GATE + 10 ** 6)[0]
+    roots = [s.state_root() for s in (st_old, st, st_far)]
+    assert st_old.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx") == CLOSED
+    assert st.apply_blob(_exit_blob(-1_000_000, {"x": 1}), ALICE, "tx") == CLOSED
+    assert st.apply_blob(_exit_blob(-1_000_000, []), ALICE, "tx") == CLOSED
+    assert st.apply_blob(_exit_blob(-MAX_EXIT_VALUE, {"joinsplit": {}}), ALICE, "tx") == CLOSED
+    assert st.apply_blob(over, ALICE, "tx") == CLOSED
+    assert st_far.apply_blob(signed, ALICE, "tx") == CLOSED
+    assert [s.state_root() for s in (st_old, st, st_far)] == roots
+    assert all(s.pool_value == 0 and not s.unshield_withdrawals and s.uw_nonce == 0 for s in (st_old, st, st_far))
 
 
 # ---- S2 / S3 -----------------------------------------------------------------------------------------------

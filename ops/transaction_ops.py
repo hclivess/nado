@@ -3096,12 +3096,13 @@ def _validate_shield(transaction, block_height):
     if data.get("field"):                                        # Phase-2 field-native note (single commitment)
         field_shield_check(data, block_height)
     else:                                                        # transparent-phase note openings (the legacy pool)
-        # LEGACY_SHIELD_CLOSE_HEIGHT: the legacy pool takes no new deposits (protocol.py). INVARIANT: refused here AND
-        # skipped by the exec layer (execnode/block_apply.py), so the pool stays provably empty.
-        from protocol import LEGACY_SHIELD_CLOSE_HEIGHT as _LCLOSE
-        assert block_height is None or int(block_height) < _LCLOSE, \
-            "the legacy shielded pool takes no new deposits (LEGACY_SHIELD_CLOSE_HEIGHT): shield into the Stwo pool"
-        assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
+        # A LEGACY SHIELD IS REFUSED AT EVERY HEIGHT, mempool admission (None / 0) included (G9 slice 5c). From
+        # LEGACY_SHIELD_CLOSE_HEIGHT (10000 on gen 29) this was the refusal; below it a shield with `out_commitments` was
+        # accepted, but the gen-29 chain carries NO legacy shield below the gate (measured: none in 0..12411), so
+        # refusing it everywhere is the same verdict on every block the chain holds, and the pool it fed is deleted.
+        # INVARIANT: refused here AND skipped by the exec layer (execnode/block_apply.py) — never accept one again.
+        raise AssertionError(
+            "the legacy shielded pool takes no new deposits (LEGACY_SHIELD_CLOSE_HEIGHT): shield into the Stwo pool")
 
 
 def _validate_unshield(transaction, block_height):
