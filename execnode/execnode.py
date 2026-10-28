@@ -1901,13 +1901,12 @@ async def _apply_block(session, states_map, default_state, block, verbose=True, 
     so no blob can freeze the exec layer. Shared by the finalized tail AND the provisional clone, so both apply
     identically; only the finalized tail passes `finalized` (the L1 finalized height it is working against).
 
-    Every proof this block carries (shielded transfers, shielded-contract calls, and anything else that reaches
-    stark.verify) is judged under the verification rules for THIS height (stark.rules_at) —
-    the exec layer's equivalent of the L1 settle branch setting them for the block it validates."""
-    from execnode.stark import stark as _stk
-    with _stk.rules_at(block["block_number"]):
-        return await _apply_block_inner(session, states_map, default_state, block, verbose=verbose,
-                                        finalized=finalized)
+    No proof rules are set around the block any more: stark.rules_at chose the Goldilocks STARK verification rules for
+    the block's height, and nothing generation 29 runs reads them (the field VM, the field and wide pools and the
+    Goldilocks settle verifier are gone; G9 slice 4 deleted execnode/stark). A Stwo proof's config is chosen by its
+    landing height inside its own verifier (stwo_js_native.config_id_at)."""
+    return await _apply_block_inner(session, states_map, default_state, block, verbose=verbose,
+                                    finalized=finalized)
 
 
 async def _apply_block_inner(session, states_map, default_state, block, verbose=True, finalized=None):
@@ -1975,8 +1974,8 @@ async def _apply_block_inner(session, states_map, default_state, block, verbose=
     # one place its absence must stop the node rather than be survived.
     # STWO_POOL_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9): `h >= 1` kept so block 0 is judged as before.
     if h >= 1 and _block_carries_stwo_spend(block, resolved):
-        from execnode.stark import stwo_js_native as _sjn
-        from execnode.stark.native_guard import NativeMissing as _NM
+        from execnode import stwo_js_native as _sjn
+        from execnode.native_guard import NativeMissing as _NM
         try:
             _sjn.ensure_loaded()
         except _NM as e:

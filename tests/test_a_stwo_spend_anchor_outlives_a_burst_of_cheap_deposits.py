@@ -25,10 +25,10 @@ os.environ["NADO_EXEC_STATE"] = os.path.join(os.environ["HOME"], "exec_state.jso
 os.environ["NADO_EXEC_DA"] = os.path.join(os.environ["HOME"], "exec_da")
 H = os.environ["HOME"]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-fake = types.ModuleType("execnode.stark.stwo_js_native")
+fake = types.ModuleType("execnode.stwo_js_native")
 fake.verify = lambda *a: (True, "")
-sys.modules["execnode.stark.stwo_js_native"] = fake
-import execnode.stark as _stk
+sys.modules["execnode.stwo_js_native"] = fake
+import execnode as _stk
 _stk.stwo_js_native = fake
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
@@ -106,7 +106,7 @@ check("the marks survive a snapshot round trip", p2.marks == st.stwo_pool.marks 
       and p2.anchors == st.stwo_pool.anchors and p2.root() == st.stwo_pool.root())
 c = st.clone()
 check("and a clone (the provisional view)", c.stwo_pool.knows_root(a1, GATE + 3) and c.stwo_pool.marks == st.stwo_pool.marks)
-from execnode import exec_root as ER
+from execnode import exec_root_b2 as ER
 d = st.stwo_pool.to_dict()
 d["marks"] = [[GATE + 1, 1], [GATE + 2, len(d["commitments"]) - 1]]
 forged = fresh()

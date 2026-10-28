@@ -156,13 +156,8 @@ def t_verification_cost_is_recorded_where_the_constant_is():
     assert "1179" in src, "the measured records-verification cost must be recorded beside the constants"
 
 
-def t_records_bind_splits_derive_from_stark():
-    """The two phases call for OPPOSITE fixes — the K->1 fold only addresses `stark` — so the log has to say
-    which one dominates instead of reporting one number that cannot be acted on."""
-    src = open(os.path.join(ROOT, "execnode/stark/records_bind.py")).read()
-    assert "[records-bind]" in src, "bind_and_verify_records must report its phase split"
-    for phase in ("derive", "stark"):
-        assert f"{phase} " in src, f"the phase split must name {phase}"
+# records-bind splits derive from stark: retired in G9 slice 4 — bind_and_verify_records, whose phase split it pinned, went
+# with execnode/stark (records_bind.py's live derivations are execnode/records_effects.py)
 
 
 for nm, fn in [("margin fits in the landing window", t_margin_fits_in_the_landing_window),
@@ -172,8 +167,7 @@ for nm, fn in [("margin fits in the landing window", t_margin_fits_in_the_landin
                ("margin clears the MEASURED verification", t_the_margin_also_clears_the_measured_verification),
                ("publish hold outlives the submit", t_the_publish_hold_outlives_the_submit),
                ("kv margin stays small", t_the_kv_margin_stays_small),
-               ("verification cost recorded", t_verification_cost_is_recorded_where_the_constant_is),
-               ("records-bind splits derive from stark", t_records_bind_splits_derive_from_stark)]:
+               ("verification cost recorded", t_verification_cost_is_recorded_where_the_constant_is)]:
     check(nm, fn)
 
 print()

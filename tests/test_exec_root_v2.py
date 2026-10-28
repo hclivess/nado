@@ -8,14 +8,14 @@ proves what the chain applied.
 The gate (EXEC_ROOT_V2_HEIGHT, with EXEC_CTX_CURRENT_HEIGHT for the call context) was 2^62 on gen 25 and 1 from gen
 26; both were deleted after the betanet-8 reroll, so the rules below hold from block 1 and only height 0 — the exec
 state before and at genesis — still has the v1 layout. Properties:
-  * the empty root still equals EXEC_GENESIS_ROOT (a fresh state is at cursor -1, v1 layout);
   * the KV half commits deployer, lock flag and runtime — changing any one moves the root (C5);
   * block_calls carries the code events in tx order with the chain clock; at block 0 calls only;
   * a TIME-reading call reads the block's own chain clock;
   * a reverting constructor deploys with empty storage on chain.
 (The Goldilocks settle-proof halves — a span proving to the chain root, its forgeries, a TIME call proving, a reverting
 constructor being unprovable — retired in G9 with settlement_sparse / settlement_proofs; gen 29 settles by quorum and
-the C5 meta leaf is pinned on the live BLAKE2s root, execnode/exec_root_b2.py.)
+the C5 meta leaf is pinned on the live BLAKE2s root, execnode/exec_root_b2.py. The Goldilocks root's v1/v2 layouts went
+with execnode/exec_root.py and exec_state_bind in G9 slice 4.)
 
 Run: NADO_ALLOW_PYTHON_KERNELS=1 python3 tests/test_exec_root_v2.py
 """
@@ -29,10 +29,9 @@ import sys, copy, asyncio, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import protocol
-from execnode import exec_root as ER, exec_root_b2 as R2, csmt, zkvmasm
+from execnode import exec_root_b2 as R2, csmt, zkvmasm, calls_commit as CC
 from execnode.code_codec import contract_id, FIXED_CIDS
 from execnode.state import ExecState
-from execnode.stark import exec_state_bind as ESB, calls_commit as CC, field as F
 
 import _harness
 _report = _harness.Report()
@@ -76,14 +75,8 @@ def _pre_state_at(h_before, txs_before):
 # ---------------------------------------------------------------------------------------------------------
 def t_the_gate_is_gone_and_only_genesis_keeps_the_v1_layout():
     assert not hasattr(protocol, "EXEC_ROOT_V2_HEIGHT") and not hasattr(protocol, "EXEC_CTX_CURRENT_HEIGHT")
-    assert ESB.root_v2(1) and ESB.root_v2(10 ** 9) and not ESB.root_v2(0) and not ESB.root_v2(-1), \
-        "v2 from block 1; the state before and at genesis keeps the v1 layout"
-    from protocol import EXEC_GENESIS_ROOT
-    assert ER.state_root_hex({}, ExecState(os.path.join(os.environ["HOME"], "e.json"))) == EXEC_GENESIS_ROOT
-    contracts = {"c" * 32: {"code": BUMP1, "storage": {"slots": {"0": 5}}, "deployer": ALICE, "runtime": "zkvm"}}
-    plain = ER.kv_projection(contracts)
-    assert ER.kv_projection(contracts, v2=False) == plain and ESB.meta_key("c" * 32, ER.DEPTH) not in plain
-    # (the settlement_sparse v1-projection assert retired in G9: the Goldilocks settle-proof pin was deleted)
+    # (exec_state_bind.root_v2 and the Goldilocks root's v1 layout at cursors -1/0 retired in G9 slice 4 with
+    # execnode/exec_root.py: the live BLAKE2s root has one layout at every cursor; block_calls keeps `h >= 1`, below)
     blk = _block(0, [_tx(ALICE, {"op": "deploy", "code": BUMP1}, "t1"),
                      _tx(ALICE, {"op": "call", "contract": "x", "method": "m", "args": []}, "t2")])
     calls = CC.block_calls(blk)
@@ -98,9 +91,8 @@ def _kv_root(contracts):
 def t_meta_leaf_commits_deployer_lock_and_runtime():
     cid = "c" * 32
     base = {cid: {"code": BUMP1, "storage": {"slots": {}}, "deployer": ALICE, "runtime": "zkvm", "upgradable": True}}
-    p = ER.kv_projection(base, v2=True)
-    assert ESB.meta_key(cid, ER.DEPTH) in p and p[ESB.meta_key(cid, ER.DEPTH)] != 0
-    # the live root carries the same meta leaf (C5 holds on the BLAKE2s root generation 29 settles)
+    # the live root carries the meta leaf (C5 holds on the BLAKE2s root generation 29 settles; the Goldilocks root's
+    # copy went with execnode/exec_root.py in G9 slice 4)
     assert R2.meta_key(cid) in R2.kv_projection(base)
     roots = set()
     for mut in ({}, {"deployer": BOB}, {"upgradable": False}, {"runtime": "other"}):
@@ -152,7 +144,7 @@ def t_time_reading_call_reads_the_blocks_own_clock():
     # (gen 25 handed the VM the PREVIOUS block's clock below the gate; that half went with the gate)
     st = _chain([_block(H - 1, pre_txs)])
     _chain([_block(H, span_txs)], st)
-    assert st.contracts[cid]["storage"]["slots"]["1"] == protocol.chain_clock(H) % F.P, "F3: the block's own clock"
+    assert st.contracts[cid]["storage"]["slots"]["1"] == protocol.chain_clock(H) % (1 << 256), "F3: the block's own clock"
     # the DA binding stamps the same clock on the call, so whatever proves the span reads what the chain applied
     assert CC.block_calls(_block(H, span_txs))[0]["timestamp"] == protocol.chain_clock(H)
     # (the settlement_sparse prove/verify of this span retired in G9: the Goldilocks settle proof was deleted)

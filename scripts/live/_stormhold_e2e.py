@@ -142,10 +142,12 @@ wait(lambda: M("sd", G2) == 1, "cancelled")
 ck("cancel refunds the stake", exbal(A1) == b1)
 
 # === HIDDEN-HANDS game with a CREATOR-PICKED KINGDOM (the two 2026-07-16 features, live) ===========
-from execnode.stark import alghash
+# gen 29 (G9 slice 4): the VM's `hash` is zkvm2.hash_words (_lib.vm_hash) and a word is mod 2^256 (_lib.vm_mod); the
+# Goldilocks hash and field this script used went with execnode/stark.
+from execnode.games import _lib
 G3 = G + 2
 X1, X2 = random.randrange(1, 2**60), random.randrange(1, 2**60)
-C1, C2 = alghash.hashn([X1]), alghash.hashn([X2])
+C1, C2 = _lib.vm_hash([X1]), _lib.vm_hash([X2])
 KMASK = sum(1 << (i - 7) for i in [7, 28, 11, 17, 29, 9, 20, 21, 13, 14])   # the "first duel" preset
 print(f"\n== HIDDEN game #{G3} (kingdom mask {KMASK}) ==", flush=True)
 b1, b2 = exbal(A1), exbal(A2)

@@ -111,9 +111,8 @@ pin2 = rd(new, tc, TT.A_H, DAY)
 check("daily board: the unresolved anchor re-pins to a new-chain block", _lib.CARRY_PIN_FLOOR <= pin2 < 100, pin2)
 new.cursor = pin2 + 1
 call(new, tc, A, "anchor", [DAY])
-from execnode.stark import field as _F
 check("...and resolves from the new chain's own block hash at that pin",
-      rd(new, tc, TT.A_V, DAY) == new.block_hashes[pin2] % _F.P, (rd(new, tc, TT.A_V, DAY), new.block_hashes[pin2] % _F.P))
+      rd(new, tc, TT.A_V, DAY) == new.block_hashes[pin2] % _lib.vm_mod(), (rd(new, tc, TT.A_V, DAY), new.block_hashes[pin2] % _lib.vm_mod()))
 
 # ---- bet: TIME-based markets carry as is --------------------------------------------------------------------------
 st = old_chain()

@@ -35,7 +35,7 @@ import protocol as P
 from ops import kv_ops, transaction_ops as T
 from ops.account_ops import create_account
 from ops.address_ops import make_address
-from execnode.stark import mldsa_block_auth as A
+from ops import mldsa_block_auth as A
 from signatures import generate_keydict, from_private_key, sign, unhex, verify
 
 logger = logging.getLogger("sigschemes"); logger.addHandler(logging.NullHandler())

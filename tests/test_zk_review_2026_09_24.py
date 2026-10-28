@@ -5,10 +5,9 @@
   (finding 4's bind_aux, the appnote deposit and the browser parity cross-checks went with their pools in G9 slice 5)
 
 This file covers:
-  * a node-local failure (a missing/stale native kernel, or memory) is RAISED through every verify layer, never
-    returned as "invalid";
+  * a node-local failure (a missing/stale native kernel, or memory) is never a verdict (native_guard.NODE_LOCAL_ERRORS;
+    the Goldilocks verify layers it was driven through went in G9 slice 4);
   * exit claims are bounded (no amount + k*P aliasing), from PROOF_QUERY_FULL_HEIGHT;
-  * the Rust compose kernels return NEGATIVE error codes (a positive one was read as a column id);
   * the wallet's privacy guards are in place (pause, v2 key domain, pool-separated notes, local receive lookup).
 The settle-proof cases (the settle branch's deferral, its PAY / io-attribution checks, the exec node's fold decision)
 were retired in G9 with the Goldilocks settle proof: a BLAKE2s exec root settles by quorum attestation only.
@@ -26,19 +25,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import protocol as P
-from execnode.stark import stark, fri, field as F, native_guard as NG
+from execnode import native_guard as NG
 
 import _harness
 _report = _harness.Report()
 check = _report.run
 
 GATE = 1   # the rule holds from block 1 (gen 25's PROOF_QUERY_FULL_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
-TRANS = [lambda c, n, p: F.sub(n[0], F.add(c[0], 1))]
-BND = [(0, 0, 0)]
-
-
-def _honest():
-    return stark.prove([[i] for i in range(16)], TRANS, BND, max_degree=2, num_queries=8)
 
 
 def _raises(exc, fn):
@@ -50,34 +43,10 @@ def _raises(exc, fn):
 
 
 # ---- node-local failures are not verdicts ------------------------------------------------------------------------
-def t_a_missing_kernel_inside_fri_is_raised_not_returned():
-    pf = _honest()
-    from execnode.stark import merkle
-    real = merkle.verify
-    def boom(*a, **k):
-        raise NG.NativeMissing("simulated stale crate")
-    merkle.verify = boom
-    try:
-        # through stark.verify: fri.verify needs the STARK's transcript to reach its Merkle checks at all
-        assert _raises(NG.NativeMissing, lambda: stark.verify(pf, TRANS, BND, max_degree=2, num_queries=8)), \
-            "stark.verify (or the fri.verify inside it) turned a node-local failure into a verdict"
-    finally:
-        merkle.verify = real
+# a missing kernel inside fri is raised, not returned / memory errors inside fri are raised too: retired in G9 slice 4
+# with execnode/stark (fri, merkle, stark.verify). The rule they drove stays in native_guard, pinned here:
+def t_a_node_local_failure_is_never_a_verdict():
     assert NG.NativeMissing in NG.NODE_LOCAL_ERRORS and MemoryError in NG.NODE_LOCAL_ERRORS
-
-
-def t_memory_errors_inside_fri_are_raised_too():
-    pf = _honest()
-    from execnode.stark import merkle
-    real = merkle.verify
-    def oom(*a, **k):
-        raise MemoryError()
-    merkle.verify = oom
-    try:
-        assert _raises(MemoryError, lambda: stark.verify(pf, TRANS, BND, max_degree=2, num_queries=8)), \
-            "a MemoryError inside verification became a verdict (the 2026-09-23 S5 fix was incomplete in fri)"
-    finally:
-        merkle.verify = real
 
 
 # the settlement verifiers raise node local failures retired in G9: settlement_sparse and vm_circuit were deleted
@@ -91,7 +60,8 @@ def t_exit_claims_are_bounded_from_the_gate():
     exit_amount_check(big, GATE - 1)                      # replay: the old rule accepted it here
     exit_amount_check((1 << 61) - 1, GATE)
     assert _raises(AssertionError, lambda: exit_amount_check(big, GATE)), "amount >= 2^61 must be refused"
-    assert _raises(AssertionError, lambda: exit_amount_check(5 + F.P, GATE)), "amount + P must be refused"
+    P_GOLDILOCKS = 2**64 - 2**32 + 1                      # the field an exit amount aliased in (amount + k*P): the finding
+    assert _raises(AssertionError, lambda: exit_amount_check(5 + P_GOLDILOCKS, GATE)), "amount + P must be refused"
 
 
 # settle proofs carry no pay when frozen retired in G9: settle_proof_io_check was deleted with the L1 settle-proof verifier
@@ -103,20 +73,8 @@ def t_exit_claims_are_bounded_from_the_gate():
 
 
 # ---- native kernels and the fold decision ------------------------------------------------------------------------
-def t_the_compose_kernels_return_negative_error_codes():
-    from execnode.stark import stark_native as SN
-    if not SN.available():
-        print("      (native prover unavailable: skipped)"); return
-    import ctypes
-    lib = SN._LIB
-    fn = lib.sp_compose_ext
-    fn.restype = ctypes.c_int64
-    types = list(fn.argtypes or [])
-    assert len(types) == 22, f"sp_compose_ext takes 22 arguments, the binding declares {len(types)}"
-    args = [None if t is ctypes.c_void_p else 0 for t in types]      # null pointers: the degree check runs first
-    args[20] = 99                                         # degree != EXT_DEGREE: the kernel's first check
-    rc = fn(*args)
-    assert rc < 0, f"a validation failure returned {rc}, which the wrapper would read as a column id"
+# the compose kernels return negative error codes: retired in G9 slice 4 with execnode/stark/stark_native.py (the
+# native/starkcompose crate itself goes in slice 6)
 
 
 # the exec node never builds a fold the chain refuses retired in G9: the exec node's fold (SETTLE_FOLD) was deleted

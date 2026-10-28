@@ -56,7 +56,7 @@ _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/s
 # dormant (2^62 on gen 28): every node builds it on this update, nothing needs it yet. The reroll that sets the gate to 1
 # moves it to _CRATES in the same commit — from then on a node without it would refuse a valid tagged transaction.
 # native/pqsig became required with the gen-29 reroll (SIG_SCHEMES_HEIGHT = 1). native/stwo_settle (2026-10-27): the
-# gen-29 settlement VM verifier (execnode/stark/stwo_settle_native.py), stable Rust, default features (its prover is behind
+# gen-29 settlement VM verifier (execnode/stwo_settle_native.py), stable Rust, default features (its prover is behind
 # a nightly-only feature no node enables). Optional until the settlement gate needs it: every node builds it now so the
 # gate can be set at a height the fleet already verifies at; nothing requires it before then.
 _OPTIONAL_CRATES = ("native/stwo_settle",)
@@ -968,7 +968,7 @@ def native_report(max_age=60):
     if _NATIVE_REPORT[1] is not None and now - _NATIVE_REPORT[0] < max_age:
         return _NATIVE_REPORT[1]
     try:
-        from execnode.stark import native_guard as _ng
+        from execnode import native_guard as _ng
     except Exception:
         _ng = None
     out, all_ok = {}, True
@@ -1069,7 +1069,7 @@ def _stale_required_libs():
     about; a stray build artifact must never be able to trigger a rebuild and a RESTART of a healthy node.
     """
     try:
-        from execnode.stark import native_guard as _ng
+        from execnode import native_guard as _ng
     except Exception:
         return []                                   # no guard ⇒ nothing refuses a stale lib ⇒ nothing to fix
     out = []
@@ -1307,7 +1307,7 @@ def _rebuild_native_if_changed(old, new):
 
     WHAT PURGING NO LONGER BUYS YOU, and this paragraph is the correction: it used to force "the pure-Python
     fallback (slower, but bit-identical and consensus-safe)". Since BETANET-14 there is no Python fallback.
-    execnode/stark/native_guard.require() raises NativeMissing for an ABSENT library exactly as loudly as for
+    execnode/native_guard.require() raises NativeMissing for an ABSENT library exactly as loudly as for
     a stale one ("There is no Python fallback: since betanet-14 the Rust kernel is the only production
     implementation"), unless NADO_ALLOW_ABSENT_NATIVE is set. So on a box without cargo, a crate whose sources
     changed ends with a purged .so and an exec node that REFUSES TO START — not a slow one.

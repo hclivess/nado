@@ -27,7 +27,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import importlib
 from execnode import zkvm2 as zkvm, zkvmasm
 from execnode.games import _lib
-from execnode.stark import field as F
 
 import _harness
 _report = _harness.Report()

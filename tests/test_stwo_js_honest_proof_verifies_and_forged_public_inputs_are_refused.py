@@ -1,5 +1,5 @@
 """THE STWO JOIN-SPLIT VERIFIER ACCEPTS AN HONEST PROOF AND REFUSES EVERY REWRITE OF ITS PUBLIC INPUTS, through the
-node's own binding (execnode/stark/stwo_js_native.py -> native/stwo_js, doc/stwo-migration.md section 5.1).
+node's own binding (execnode/stwo_js_native.py -> native/stwo_js, doc/stwo-migration.md section 5.1).
 
 A proof is made by the crate's own prover (feature `prover`, nightly, built for this test by tests/_stwo_js_build.py,
 outside the checkout) at the pinned node config, then verified by the STABLE build of the same crate, the library a node
@@ -55,7 +55,7 @@ if not so or not exe:
     sys.exit(1)
 
 os.environ["NADO_STWO_JS_LIB"] = so
-from execnode.stark import stwo_js_native as SJ
+from execnode import stwo_js_native as SJ
 
 
 # BOTH NODE CONFIGS (stwo_js_native.config_id_at): the whole battery runs at each, at a height that selects it — height 0

@@ -47,7 +47,7 @@ new = ExecState(os.path.join(H, "new.json"))
 EG.apply(new)
 check("holders keep the same amounts on the new chain", new.abal.get(aid) == {ISS: 700, HOL: 300}, new.abal)
 check("the asset record is unchanged", new.assets.get(aid) == old.assets[aid], new.assets.get(aid))
-check("the genesis root covers the assets", new.state_root() == EG.genesis_root() and new.state_root() != P.EXEC_GENESIS_ROOT)
+check("the genesis root covers the assets", new.state_root() == EG.genesis_root() and new.state_root() != P.EXEC_GENESIS_ROOT_B2)
 new.cursor = 5
 new.apply_blob({"op": "asset_transfer", "asset": aid, "to": OUT, "amount": 100}, HOL, "t2")
 check("a holder transfers on the new chain", new.abal[aid].get(OUT) == 100 and new.abal[aid].get(HOL) == 200, new.abal[aid])

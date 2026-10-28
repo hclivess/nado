@@ -25,7 +25,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from execnode.state import ExecState
 from execnode.games import pets as P
-from execnode.stark import alghash, field as _F
+from execnode.games import _lib as _vl   # the gen-29 VM's hash (execnode/stark went in G9 slice 4)
 from execnode import exec_genesis as EG
 import protocol
 import tools.alphanet6_carryforward as C
@@ -63,7 +63,7 @@ call(old, cid, A, "hatch", [1000])
 call(old, cid, B, "hatch", [2000])
 old.cursor = max(rd(old, P.EX, 1000), rd(old, P.EX, 2000), old.cursor) + 1
 STAKE = 10 ** 9
-Hc = lambda x: alghash.hashn([x % _F.P])
+Hc = lambda x: _vl.vm_hash([x % _vl.vm_mod()])
 r_ch = call(old, cid, A, "challenge", [70, 1000, 2000, Hc(11)], STAKE)
 r_ac = call(old, cid, B, "accept", [70, Hc(22)], STAKE)
 check("setup: an accepted commit-reveal battle, nobody revealed", "ok" in r_ch and "ok" in r_ac and rd(old, P.WN, 70) == 2,

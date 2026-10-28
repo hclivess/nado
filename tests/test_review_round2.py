@@ -3,16 +3,14 @@
 doc/security-review-2026-09-23.md — exec: Z6 duplicate note commitments, Z9 the field path's exit address,
 Z4 the field pool's capacity, F7 runtime typing, F10 the lock flag, F8 constructor asset effects, F4 the
 per-block execution budget (its prover mirror and A4 retired in G9 with the Goldilocks settle prover); L1: S4 the DA-carried proven marker, A4 canonical
-pre_contracts keys; proof: P2 aux as digest lanes, P3/Z8 the AIR identity in the transcript, P4 path lengths.
+pre_contracts keys. (The proof-format rules P2/P3/Z8/P4 went with the Goldilocks STARK in G9 slice 4.)
 
-Every rule is shown differing across the gate and nowhere else. The proof-format ones are shown on a toy AIR
-under explicit rules (legacy = every earlier gate on, round2 off).
+Every rule is shown differing across the gate and nowhere else.
 
 Run: python3 tests/test_review_round2.py
 """
 import os
 import sys
-import copy
 import tempfile
 import traceback
 
@@ -29,7 +27,6 @@ import protocol as P
 # EXEC_BUDGET_V2_HEIGHT) was inlined in G9: it runs on generation 29's rules, like the chain does.
 from execnode.state import ExecState, asset_id
 from execnode import zkvmasm, zkvm2 as zkvm
-from execnode.stark import stark, field as F
 
 import _harness
 _report = _harness.Report()
@@ -38,8 +35,6 @@ check = _report.run
 
 GATE = 1   # the rule holds from block 1 (gen 25's REVIEW_R2_HEIGHT, deleted after the betanet-8 reroll); height 0 is below it
 ALICE = "mldsa44" + "a" * 42
-LEGACY = stark.Rules(True, True, True, False)
-NEW = stark.Rules(True, True, True, True)
 
 
 def fresh(block):
@@ -51,7 +46,6 @@ def fresh(block):
 
 # ---- rules ------------------------------------------------------------------------------------------------
 def t_rules_flip_at_the_gate():
-    assert not stark.rules_for_height(GATE - 1).round2 and stark.rules_for_height(GATE).round2
     st = fresh(GATE - 1); assert not st.rules_r2()
     st = fresh(GATE); assert st.rules_r2()
     assert not hasattr(P, "REVIEW_R2_HEIGHT") and not hasattr(P, "EXEC_CTX_CURRENT_HEIGHT"), "the gates stay deleted"
@@ -152,59 +146,8 @@ def t_s4_da_proof_records_the_marker_from_the_gate():
 
 
 # ---- proof rules: P2 aux lanes, P3/Z8 AIR identity, P4 path lengths ----------------------------------------------
-T_TOY = 16
-TRANS = [lambda cur, nxt, per: F.sub(F.sub(nxt[0], cur[0]), 1)]
-BND = [(0, 0, 0)]
-TRACE = [[i] for i in range(T_TOY)]
-
-
-def _prove(rules, aux=None, bnd=BND):
-    with stark.with_rules(rules):
-        return stark.prove(TRACE, TRANS, bnd, max_degree=2, num_queries=8, aux=aux)
-
-
-def _verify(pf, rules, aux=None, bnd=BND, trans=TRANS):
-    with stark.with_rules(rules):
-        return stark.verify(pf, trans, bnd, max_degree=2, num_queries=8, aux=aux)
-
-
-def t_air_identity_binds_the_transcript_at_the_gate():
-    pf = _prove(NEW)
-    assert _verify(pf, NEW)[0]
-    assert not _verify(pf, LEGACY)[0], "a round-2 proof is refused below the gate (format)"
-    assert not _verify(_prove(LEGACY), NEW)[0], "a pre-gate proof is refused at the gate"
-    # the AIR the VERIFIER holds is what enters: a different boundary statement or constraint count fails
-    assert not _verify(pf, NEW, bnd=[(0, 0, 1)])[0], "another boundary value"
-    assert not _verify(pf, NEW, trans=TRANS + TRANS)[0], "another constraint count"
-    d1 = stark.air_digest(16, 1, 2, 1, BND, [[1] * 16]); d2 = stark.air_digest(16, 1, 2, 1, BND, [[2] * 16])
-    assert d1 != d2 and len(d1) == 32, "the periodic tables are in the identity when no statement digest is"
-    assert stark.air_digest(16, 1, 2, 1, BND, [{"period": 1, "base": [3]}]) == stark.air_digest(16, 1, 2, 1, BND, [[3] * 16]), \
-        "a structured column and its dense form have one identity"
-
-
-def t_aux_is_bound_by_digest_lanes_not_byte_sum():
-    a, b = "ndoAB", "ndoBA"                               # same byte sum, different strings
-    pf = _prove(NEW, aux=a)
-    assert _verify(pf, NEW, aux=a)[0]
-    assert not _verify(pf, NEW, aux=b)[0], "an address with the same byte sum must NOT verify (P2)"
-    from execnode.stark import backend as BK
-    with stark.with_rules(NEW):
-        t1 = stark.Transcript(stark.DOMAIN_STARK, backend=BK.RECURSION); stark.absorb_aux(t1, a)
-        t2 = stark.Transcript(stark.DOMAIN_STARK, backend=BK.RECURSION); stark.absorb_aux(t2, b)
-        assert t1.state != t2.state, "under alghash2 the two strings used to absorb IDENTICALLY (byte sum)"
-    with stark.with_rules(LEGACY):
-        t1 = stark.Transcript(stark.DOMAIN_STARK, backend=BK.RECURSION); stark.absorb_aux(t1, a)
-        t2 = stark.Transcript(stark.DOMAIN_STARK, backend=BK.RECURSION); stark.absorb_aux(t2, b)
-        assert t1.state == t2.state, "THE FINDING: the legacy alghash2 encoding cannot tell them apart"
-
-
-def t_opening_paths_must_be_log2_n_long():
-    pf = _prove(NEW)
-    bad = copy.deepcopy(pf)
-    col = bad["openings"][0]["cols"][0]
-    col["cur_path"] = list(col["cur_path"]) + [col["cur_path"][-1]]
-    ok, why = _verify(bad, NEW)
-    assert not ok and "path length" in why, why
+# retired in G9 slice 4 with execnode/stark: they pinned the Goldilocks STARK's proof format (stark.rules_at), which
+# nothing on generation 29 proves or verifies any more.
 
 
 for name, fn in list(globals().items()):

@@ -61,7 +61,7 @@ if os.environ.get("NADO_TEST_PHASE") == "l1":
     sys.exit(0)
 
 from execnode.state import ExecState
-from execnode import exec_genesis as EG, exec_root as ER, shielded_stwo as SP
+from execnode import exec_genesis as EG, exec_root_b2 as ER, shielded_stwo as SP
 from ops import invariants as INV
 import tools.alphanet6_carryforward as C
 

@@ -37,7 +37,7 @@ U = generate_keys(); create_account(U["address"], balance=1_000_000)            
 
 def _outbox_proof(st, seq):
     """(message, proof) for outbox `seq`, built exactly as the /exec/outbox_proof handler builds it."""
-    from execnode import exec_root as ER
+    from execnode import exec_root_b2 as ER
     m = st.outbox[str(seq)]
     proof, _root = st.record_proof_at(None, ER.T_DIGEST, "outbox", ER.leaf_digest(ER.msg_outbox_leaf(m)), value=1)
     return {"message": m, "proof": proof}

@@ -41,7 +41,7 @@ from ops.transaction_ops import (validate_transaction, construct_settle_tx, cons
 from ops.key_ops import generate_keys
 from signatures import sign, unhex
 from execnode.state import ExecState
-from execnode import exec_root as ER
+from execnode import exec_root_b2 as ER
 
 fails = []
 def check(name, cond, detail=""):
@@ -164,12 +164,12 @@ def t1_fresh_chain_one_bond_cannot_drain():
 
     # an honest first settlement (what betanet-8's four settlers did at block 12) still settles
     for kd in SETTLERS:
-        kv_ops.settlement_put(DEFAULT_NS, 0, kd["address"], P.EXEC_GENESIS_ROOT)
+        kv_ops.settlement_put(DEFAULT_NS, 0, kd["address"], P.EXEC_GENESIS_ROOT_B2)
     fresh()
     check("the four honest settlers' first root settles at cursor 0 (125 of 952 > 1/16)",
-          SO.latest_settled() == (0, P.EXEC_GENESIS_ROOT), SO.latest_settled())
+          SO.latest_settled() == (0, P.EXEC_GENESIS_ROOT_B2), SO.latest_settled())
     for kd in SETTLERS:
-        kv_ops.settlement_del(DEFAULT_NS, 0, kd["address"], P.EXEC_GENESIS_ROOT)
+        kv_ops.settlement_del(DEFAULT_NS, 0, kd["address"], P.EXEC_GENESIS_ROOT_B2)
     fresh()
     # ...and a lone cursor-0 attestation, the one cursor a bare `cursor >= 1` would have missed, is covered too
     kv_ops.settlement_put(DEFAULT_NS, 0, ATTACKER["address"], fake)

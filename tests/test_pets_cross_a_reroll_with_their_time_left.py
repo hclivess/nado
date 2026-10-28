@@ -82,9 +82,8 @@ BPET = 7000
 call(old, cid, B, "mint", [BPET], P.MINT_FEE)
 old.cursor += 3
 call(old, cid, B, "hatch", [BPET])
-from execnode.stark import field as _F
 S1, S2, STAKE = 123456789, 987654321, 10 ** 9
-Hc = lambda x: _lib.vm_hash([x % _F.P])
+Hc = lambda x: _lib.vm_hash([x % _lib.vm_mod()])
 old.cursor = max(old.cursor, rd(old, P.EX, FARMER), rd(old, P.EX, BPET)) + 1
 r_ch = call(old, cid, A, "challenge", [70, FARMER, BPET, Hc(S1)], STAKE)
 r_ac = call(old, cid, B, "accept", [70, Hc(S2)], STAKE)

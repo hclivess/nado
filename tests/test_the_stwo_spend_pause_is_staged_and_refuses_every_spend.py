@@ -38,10 +38,10 @@ def check(name, ok, detail=""):
 check("the pause is never today, on every generation (1 << 62)", P.STWO_PAUSE_HEIGHT == 1 << 62, P.STWO_PAUSE_HEIGHT)
 
 VERIFIED = []
-fake = types.ModuleType("execnode.stark.stwo_js_native")
+fake = types.ModuleType("execnode.stwo_js_native")
 fake.verify = lambda proof, root, nf, cm1, cm2, unshield, fee, dest, height: (VERIFIED.append(height) or (True, ""))
-sys.modules["execnode.stark.stwo_js_native"] = fake
-import execnode.stark as _stk
+sys.modules["execnode.stwo_js_native"] = fake
+import execnode as _stk
 _stk.stwo_js_native = fake
 
 GATE, PAUSE = 1000, 1100

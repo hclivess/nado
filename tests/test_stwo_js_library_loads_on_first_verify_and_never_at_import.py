@@ -1,4 +1,4 @@
-"""THE STWO JOIN-SPLIT LIBRARY IS LOADED ON THE FIRST VERIFY, NEVER AT IMPORT (execnode/stark/stwo_js_native.py).
+"""THE STWO JOIN-SPLIT LIBRARY IS LOADED ON THE FIRST VERIFY, NEVER AT IMPORT (execnode/stwo_js_native.py).
 
 A node whose build of native/stwo_js failed (no cargo, a compiler too old) must keep running everything else. So
 importing the wrapper with the library absent raises nothing and maps nothing; only a verify (or aux_digest / config)
@@ -26,7 +26,7 @@ check = _report.check
 
 
 try:
-    from execnode.stark import stwo_js_native as SJ
+    from execnode import stwo_js_native as SJ
     imported, err = True, ""
 except Exception as e:                         # noqa: BLE001 — the property IS "nothing raises here"
     imported, err = False, repr(e)
@@ -35,7 +35,7 @@ if not imported:
     sys.exit(1)
 check("the import mapped no library", SJ._lib is None)
 
-from execnode.stark.native_guard import NODE_LOCAL_ERRORS, NativeMissing
+from execnode.native_guard import NODE_LOCAL_ERRORS, NativeMissing
 
 D = "11" * 32
 for name, call in (("verify", lambda: SJ.verify(b"\x00" * 64, D, D, D, D, 0, 0, "", 0)),

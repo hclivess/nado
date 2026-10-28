@@ -74,7 +74,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
 
     block_transactions = []
     block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)
-    from execnode.stark import mldsa_block_auth as _auth
+    from ops import mldsa_block_auth as _auth
 
     genesis_block_message = {
         "block_number": 0,

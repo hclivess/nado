@@ -161,7 +161,7 @@ def t13_exec_layer_survives_poison_blobs():
 
 def t14_block_summary_survives_poison():
     """The per-block exec summary must not be killed by one poison call (value/ns)."""
-    from execnode.stark.calls_commit import block_summary
+    from execnode.calls_commit import block_summary
     S = "mldsa44" + "b" * 42
     block = {"block_number": 7, "block_timestamp": 0, "block_transactions": [
         {"recipient": "blob", "txid": "p1", "sender": S, "data": {"op": "call", "contract": "c",

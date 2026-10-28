@@ -19,7 +19,7 @@ WHAT THE NODE CHECKS BEFORE IT SPENDS ANYTHING (its fee, its DA store), in cost 
   4. its nullifier is not already in flight here (dedupe: two tabs, a retry, a replay);
   5. the exec node would apply it in the next block, proof aside: /exec/stwo_spendable, which answers through
      ExecState.stwo_spend_refusal — the same method the apply path asks (anchor, nullifier, duplicates, room, value);
-  6. the proof verifies: execnode/stark/stwo_js_native.verify, the exec layer's own verifier. A node without the
+  6. the proof verifies: execnode/stwo_js_native.verify, the exec layer's own verifier. A node without the
      library refuses (NativeMissing) — and says so in /stwo/relay_info, so wallets never pick it.
 Then it publishes the bundle to its exec node's DA store, signs a `field_transfer` blob with the node key
 (transaction_ops.construct_blob_tx, the path its own collect blob takes) and submits it through merge_transaction +
@@ -84,8 +84,8 @@ class StwoRelay:
 
     # ---- availability ---------------------------------------------------------------------------------------------
     def _verifier_ready(self):
-        from execnode.stark import stwo_js_native
-        from execnode.stark.native_guard import NativeMissing
+        from execnode import stwo_js_native
+        from execnode.native_guard import NativeMissing
         try:
             stwo_js_native.ensure_loaded()
             return True
@@ -206,8 +206,8 @@ class StwoRelay:
                 raise Refused(409, str(v.get("reason") or "the exec layer would refuse this spend")
                               .replace("skip field-transfer: ", ""))
             # 6. the proof, by the exec layer's own verifier
-            from execnode.stark import stwo_js_native
-            from execnode.stark.native_guard import NativeMissing
+            from execnode import stwo_js_native
+            from execnode.native_guard import NativeMissing
             try:
                 # at the config of the height it is targeted to land at (STWO_JS_128_HEIGHT). A spend can straddle the
                 # gate only on a chain where it is a real height; on gen 28 it is 2^62 and on gen 29 it is 1, so never.

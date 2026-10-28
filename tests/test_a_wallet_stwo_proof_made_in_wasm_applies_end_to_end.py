@@ -6,7 +6,7 @@ The pieces each have their own tests (the JS algebra against the Python, the Rus
 walks the path a user's coins take, because the parts can each pass while the path is wrong. Pins:
   1. deposits land in the Stwo pool at the gate, and the wallet's JS (treePath over the pool's leaves) proves against
      a root the pool holds;
-  2. an UNSHIELD proved in WASM verifies with execnode/stark/stwo_js_native.verify and applies: the nullifier is
+  2. an UNSHIELD proved in WASM verifies with execnode/stwo_js_native.verify and applies: the nullifier is
      spent, both outputs appended, the exit recorded to the bound address, the pool's value down by unshield + fee;
   3. the wallet then spends its CHANGE note privately (unshield 0, empty destination) — a note the exec layer appended
      from the first proof — and that applies too;
@@ -49,7 +49,7 @@ os.environ["NADO_STWO_JS_LIB"] = so
 
 from execnode.state import ExecState
 from execnode import shielded_stwo as SP
-from execnode.stark import stwo_js_native
+from execnode import stwo_js_native
 from ops.address_ops import make_address
 
 MODULE = "file://" + os.path.join(ROOT, "static", "stark", "stwo_js.js")
@@ -118,7 +118,7 @@ check("2. the bundle has exactly the fields _apply_stwo_transfer reads",
       and b1["withdraw_addr"] == DEST, b1.keys())
 ok, why = stwo_js_native.verify(bytes.fromhex(js1["proof"]), js1["root"], js1["nf"], js1["cm_out1"], js1["cm_out2"],
                                 int(js1["unshield"]), int(js1["fee"]), DEST, st.applying_height())
-check("...the WASM proof verifies through execnode/stark/stwo_js_native.verify", ok, why)
+check("...the WASM proof verifies through execnode/stwo_js_native.verify", ok, why)
 
 st_redirect, _ = fresh_state("s2.json")
 v0 = st.pool_value

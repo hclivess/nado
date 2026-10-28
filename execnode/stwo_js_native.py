@@ -31,9 +31,10 @@ import ctypes
 import os
 import threading
 
-from execnode.stark.native_guard import NativeMissing, is_stale
+from execnode.native_guard import NativeMissing, is_stale
 
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# execnode/<this file> -> the repo root: TWO levels since G9 slice 4 moved it out of execnode/stark (three there)
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CRATE_DIR = os.path.join(_REPO, "native", "stwo_js")
 DEFAULT_SO = os.path.join(CRATE_DIR, "target", "release", "libnado_stwo_js.so")
 ABI_VERSION = 2                     # 2: verify and config take a node config id (config_id_at)

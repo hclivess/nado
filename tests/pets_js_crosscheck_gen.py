@@ -6,7 +6,9 @@ sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(_
 from tests.pets_ref import (vm_hash, ref_gene, ref_species, ref_si, ref_stat, ref_power,
                             ref_train_roll, ref_train_ok, ref_battle, ref_battle_turns,
                             ref_battle_seed, ref_battle_turns_cr)
-from execnode.stark import field as F
+# the secrets' range: the size of the old Goldilocks field (execnode/stark/field.P, deleted in G9 slice 4), kept so the
+# vectors are the ones they always were
+_SECRET_RANGE = 2**64 - 2**32 + 1
 
 rng = random.Random(20260710)
 hx = lambda v: format(v, "064x")
@@ -30,7 +32,7 @@ for k in range(120):
                     "aWins": a_wins, "dies": dies, "hp0": bh0, "hp1": bh1})
     # commit-reveal battles (wm == 1): seed = HASH(s1 + s2 + bid) from field-sized secrets. Every 4th one uses
     # trained-up stats so a raw hit passes HP_OFF and the contract's one-hit cap is exercised too.
-    s1, s2 = rng.randrange(F.P), rng.randrange(F.P)
+    s1, s2 = rng.randrange(_SECRET_RANGE), rng.randrange(_SECRET_RANGE)
     hi = k % 4 == 0
     effA = [rng.randrange(1, 120) + (400 if hi else 0) for _ in range(10)]
     effB = [rng.randrange(1, 120) for _ in range(10)]

@@ -452,7 +452,7 @@ def test_da_binding_is_clock_independent():
     BLOCK_TIMESTAMP_DRIFT). Feeding it into call_leaf made the DA binding non-deterministic: measured live,
     one block produced completely different call leaves on two nodes, desynchronising every execsum row and
     splitting snapshot identity fleet-wide. The binding must commit only COMMITTED data."""
-    from execnode.stark.calls_commit import block_summary
+    from execnode.calls_commit import block_summary
 
     blk = {"block_number": 3135, "block_timestamp": 1785096230, "block_transactions": [
         {"recipient": "blob", "sender": "s1",

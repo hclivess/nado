@@ -44,7 +44,7 @@ from execnode.state import ExecState
 from execnode import shielded_stwo as SP
 from ops.address_ops import make_address
 
-from execnode.stark import stwo_js_native as SJ
+from execnode import stwo_js_native as SJ
 
 DEST = make_address("cd" * 1312)
 out = tempfile.mkdtemp(dir=_T)

@@ -340,8 +340,8 @@ CHECKPOINT_CATCHUP_EVERY = 25   # while advertising NO checkpoint, capture this 
 
 def _dividend_epoch_for(height):
     """The dividend epoch this block accrues, or None. Thin wrapper so the hook reads clearly and the
-    boundary arithmetic lives in ONE place (records_bind.epoch_accrual_due), next to the accrual it mirrors."""
-    from execnode.stark.records_bind import epoch_accrual_due
+    boundary arithmetic lives in ONE place (records_effects.epoch_accrual_due), next to the accrual it mirrors."""
+    from execnode.records_effects import epoch_accrual_due
     from protocol import EPOCH_LENGTH
     return epoch_accrual_due(height, EPOCH_LENGTH)
 
@@ -442,7 +442,7 @@ class CoreClient(threading.Thread):
         into incorporate_block: a settlement optimisation may not be able to stop a block from applying.
         """
         try:
-            from execnode.stark.records_bind import dividend_accrual_effects
+            from execnode.records_effects import dividend_accrual_effects
             from protocol import EPOCH_LENGTH
             if int(epoch) == 0:
                 carry_in = 0                      # the first accrual starts from an empty carry
@@ -3867,7 +3867,7 @@ class CoreClient(threading.Thread):
             # wholesale, so no depth fence can make that read fleet-safe). Commits atomically with the
             # block; reverted in rollback_one_block. Not in any block hash preimage.
             try:
-                from execnode.stark.calls_commit import block_summary
+                from execnode.calls_commit import block_summary
                 from protocol import EXEC_SUMMARY_RETENTION, SETTLE_PROOF_RECORDS
                 _inert, _calls = block_summary(block)
                 _h = block["block_number"]
@@ -3878,7 +3878,7 @@ class CoreClient(threading.Thread):
                 # changes what is written into `meta`, which feeds the L1 state root; see protocol.py.
                 _rec, _derivable, _dcarry = (None, None, None)
                 if SETTLE_PROOF_RECORDS:
-                    from execnode.stark.records_bind import block_records_effects
+                    from execnode.records_effects import block_records_effects
                     _rec, _derivable = block_records_effects(block)
                     # PRESENCE-DIVIDEND ACCRUAL — the LAST records movement that was not derivable, and the
                     # single largest reason a span was refused: measured over one day on betanet-15, "span
@@ -5438,7 +5438,7 @@ class CoreClient(threading.Thread):
             # holds on any path that reaches verify_block without a full rebuild. It is a pure function of
             # committed block data, so unlike state_root a mismatch here means the BLOCK is malformed or
             # forged — never that our state drifted.
-            from execnode.stark import mldsa_block_auth as _auth
+            from ops import mldsa_block_auth as _auth
             _r, _c = _auth.auth_commitments(block)
             if int(block.get("auth_count", -1)) != _c or int(block.get("auth_root", -1)) != int(_r):
                 raise ValueError(

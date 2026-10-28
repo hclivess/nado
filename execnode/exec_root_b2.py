@@ -5,7 +5,7 @@
 Both halves are compressed sparse trees (execnode/csmt.py; operator decision 2026-10-19, doc/stwo/g1-tree-shape.md).
 This is today's execnode/exec_root.py with the Goldilocks parts replaced, leaf for leaf: the same two halves, the same
 record tags, the same "zero / empty is absent" rules, so every fact the gen-28 root commits is committed here too
-(tests/test_the_blake2s_exec_root_commits_every_leaf_the_old_root_does.py pins that while both exist). What changes:
+(tests/test_the_blake2s_exec_root_commits_every_leaf_the_old_root_does.py pins it against the old root's frozen leaves). What changes:
   * positions are BLAKE2s of canonical bytes, one personalization per kind, instead of alghash2 over 52-bit limbs;
   * values are EXACT integers (32 bytes, big-endian) instead of residues mod the Goldilocks prime — an amount is the
     amount, so the "a field residue is not a coin amount" exit check of 2026-09-24 has nothing left to guard;
@@ -108,7 +108,7 @@ def genesis_canary() -> str:
     exec node's start."""
     # BLAKE_EXEC_HEIGHT (gen 28's gate, 1 from gen 29, inlined in G9; it was exec_root_b2.blake_exec_at, deleted with
     # it): the exec root is this module's at every cursor, genesis cursors -1 and 0 included, so the canary is the
-    # BLAKE2s one. protocol.EXEC_GENESIS_ROOT (the Goldilocks root) is read only by execnode/exec_root.py's tests.
+    # BLAKE2s one. (protocol.EXEC_GENESIS_ROOT, the Goldilocks root, went with execnode/exec_root.py in G9 slice 4.)
     import protocol
     return protocol.EXEC_GENESIS_ROOT_B2
 
@@ -162,6 +162,14 @@ def code_value(code) -> bytes:
     return _b2(canonical_bytes(code), PERSON_CODEV)
 
 
+def contract_meta(c):
+    """(deployer, upgradable, runtime) of a contract record, with the defaults the exec layer applies: a legacy record
+    with no flag is upgradable; no runtime is the default runtime. The ONE definition of those defaults (it lived in
+    execnode/stark/exec_state_bind.py until G9 slice 4): the meta leaf below and settle_b2's witness leaves both read
+    it, so a default changed in one place cannot make the two roots disagree."""
+    return (c.get("deployer", ""), c.get("upgradable", True) is not False, c.get("runtime", "zkvm"))
+
+
 def meta_value(deployer, upgradable, runtime) -> bytes:
     return canonical_bytes(["meta", str(deployer if deployer is not None else ""), 1 if upgradable else 0,
                             str(runtime if runtime is not None else "")])
@@ -171,11 +179,10 @@ def meta_value(deployer, upgradable, runtime) -> bytes:
 def kv_projection(contracts):
     """{key: value} over all contract storage, code and meta. A slot is a leaf when its value is an int in [1, 2^256);
     zero is absent; anything else is a KVX record, as in the old projection."""
-    from execnode.stark import exec_state_bind as ESB      # contract_meta only: the defaults, one definition
     out = {}
     for cid in sorted(contracts):
         c = contracts[cid]
-        out[meta_key(cid)] = meta_value(*ESB.contract_meta(c))
+        out[meta_key(cid)] = meta_value(*contract_meta(c))
         if c.get("code") is not None:
             out[code_key(cid)] = code_value(c["code"])
         for m, kv in (c.get("storage") or {}).items():

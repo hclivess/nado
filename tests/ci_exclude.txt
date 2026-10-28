@@ -4,12 +4,8 @@
 # nothing is dropped — it is moved. Remove a line when its test runs without the kernels in under 5 minutes.
 # A reason starting with [box] means the test judges the machine it runs on (timing, the node's own install), so it
 # runs in NEITHER CI job — only on a node's own box (scripts/run_tests.sh there runs everything).
-test_arena_ext_identity                      needs the Rust kernels (native/, wasm/goldilocks)
 test_attest_kernel_contract                  needs the Rust kernels (native/, wasm/goldilocks)
-test_aux_ext_challenges                      needs the Rust kernels (native/, wasm/goldilocks)
-test_calls_commit                            needs the Rust kernels (native/, wasm/goldilocks)
 test_cert_validity_is_agreed_time            needs the Rust kernels (native/, wasm/goldilocks)
-test_comp_verify                             needs the Rust kernels (native/, wasm/goldilocks)
 test_da_encode_matrix                        [box] timing benchmark (20x faster than a baseline): meaningless on a shared runner
 test_device_attest_formats_pc                needs the Rust kernels (native/, wasm/goldilocks)
 test_device_attest_hw                        needs the Rust kernels (native/, wasm/goldilocks)
@@ -17,28 +13,8 @@ test_device_attest_kernel                    needs the Rust kernels (native/, wa
 test_device_attest_real_vector               needs the Rust kernels (native/, wasm/goldilocks)
 test_device_attest_rule                      needs the Rust kernels (native/, wasm/goldilocks)
 test_exec_root_v2                            needs the Rust kernels (native/, wasm/goldilocks)
-test_exec_state_bind                         needs the Rust kernels (native/, wasm/goldilocks)
-test_ext_merkle_native                       needs the Rust kernels (native/, wasm/goldilocks)
-test_fri_blowup2_parity                      needs the Rust kernels (native/, wasm/goldilocks)
-test_merkle_update                           needs the Rust kernels (native/, wasm/goldilocks)
-test_merkle_update_batch                     needs the Rust kernels (native/, wasm/goldilocks)
-test_merkle_update_row_commit                needs the Rust kernels (native/, wasm/goldilocks)
-test_periodic_lde_equivalence                needs the Rust kernels (native/, wasm/goldilocks)
-test_proof_bind_gate                         needs the Rust kernels (native/, wasm/goldilocks)
-test_proof_query_full                        needs the Rust kernels (native/, wasm/goldilocks)
-test_records_bind                            needs the Rust kernels (native/, wasm/goldilocks)
-test_records_transition                      needs the Rust kernels (native/, wasm/goldilocks)
-test_recursive_row                           needs the Rust kernels (native/, wasm/goldilocks)
-test_recursive_verify                        needs the Rust kernels (native/, wasm/goldilocks)
-test_rowcomp_verify                          needs the Rust kernels (native/, wasm/goldilocks)
-test_stark_periodic                          needs the Rust kernels (native/, wasm/goldilocks)
-test_state_transition                        needs the Rust kernels (native/, wasm/goldilocks)
-test_state_transition_batched                needs the Rust kernels (native/, wasm/goldilocks)
 test_assets                                  proves in Python kernels: over 5 minutes
-test_fri_verify                              proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
-test_native_prover_verifies                  proves in Python kernels: over 5 minutes
-test_recursion                               proves in Python kernels: over 5 minutes
 test_snapshot_anchors_rebuilt                proves in Python kernels: over 5 minutes
 test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes
 test_zkvm_args                               proves in Python kernels: over 5 minutes

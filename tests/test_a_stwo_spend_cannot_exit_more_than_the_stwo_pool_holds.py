@@ -35,8 +35,8 @@ def check(name, ok, detail=""):
 
 
 from execnode.state import ExecState
-from execnode import shielded_stwo as SP, exec_root as ER
-from execnode.stark import stwo_js_native
+from execnode import shielded_stwo as SP, exec_root_b2 as ER
+from execnode import stwo_js_native
 from ops.address_ops import make_address
 
 GATE = 1000

@@ -89,7 +89,7 @@ def offenders():
 
 def self_check():
     """The detectors must fire on what they exist to catch, or a green run means nothing."""
-    assert DANGER.search("from ops import kv_ops") and DANGER.search("import memserver") and not DANGER.search("from execnode.stark import stark")
+    assert DANGER.search("from ops import kv_ops") and DANGER.search("import memserver") and not DANGER.search("from execnode import calls_commit")
     assert ASSIGN_HOME.search('os.environ["HOME"] = x') and not ASSIGN_HOME.search('os.environ.setdefault("HOME", x)')
     assert ASSIGN_HOME.search('HOME = _harness.isolate("nado-test-x-")') and ASSIGN_HOME.search('_harness.isolate()')
     assert not DANGER.search(open(os.path.join(TESTS, "_harness.py")).read()), "_harness.py must import no node code"

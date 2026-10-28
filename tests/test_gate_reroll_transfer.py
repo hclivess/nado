@@ -59,8 +59,8 @@ DELETED = (
     "SETTLE_STAKE_FLOOR_HEIGHT", "EXEC_DA_DEADLINE_HEIGHT", "BLOCK_SIG_CHAIN_BIND_HEIGHT", "DIVIDEND_CARRY_EPOCH",
     "ADDRESS_FORMAT",        # `1 if == 27 else 2`: format 2 is unconditional (ADDRESS_CHECKSUM 4 / ADDRESS_LENGTH 50 are plain)
     "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
-    "ZK_HARDEN_HEIGHT",      # `>= 1` kept where height 0 reaches: calls_commit.wide_binding, shielded_wide.depth_at,
-                             # stark.rules_for_height
+    "ZK_HARDEN_HEIGHT",      # `>= 1` kept where height 0 reaches: calls_commit._leaf_value (the cursor-0 narrow leaf);
+                             # shielded_wide.depth_at and stark.rules_for_height went in G9 slices 5 and 4
     # G9 slice 3 (gen 29): every gen-28 gate, reroll value 1 — the rule is unconditional. `>= 1` survives only where
     # height 0 (or no height) reaches the check; protocol.py's GATE LEDGER names each site.
     "TPM_POOL_CHALLENGER_ACTS_HEIGHT", "TPM_POOL_V2_HEIGHT", "TPM_ENROL_V3_HEIGHT", "TPM_RETRY_OWNER_HEIGHT",
@@ -122,9 +122,11 @@ def main():
     #     open the exec state relative to the working directory (CLAUDE.md rule 4).
     #     The F3 site lives in execnode/block_apply.py since 2026-10-27 (the exec node and the gen-29 span verifier share
     #     it), so it is read there, and execnode.py must still open every block through it.
-    esb = open(os.path.join(ROOT, "execnode", "stark", "exec_state_bind.py")).read()
+    #     The layout switch is block_calls' inlined `v2 = h >= 1` since G9 slice 4 (exec_state_bind.root_v2 went with
+    #     execnode/stark).
+    esb = open(os.path.join(ROOT, "execnode", "calls_commit.py")).read()
     exn = open(os.path.join(ROOT, "execnode", "block_apply.py")).read()
-    rv = re.search(r"def root_v2\(height\):.*?return int\(height\) >= (\d+)", esb, re.S)
+    rv = re.search(r"^    v2 = h >= (\d+)$", esb, re.M)
     cv = re.search(r"_st\._applying = h.*?if int\(h\) >= (\d+):\n\s+# F3", exn, re.S)
     en = open(os.path.join(ROOT, "execnode", "execnode.py")).read()
     sb = open(os.path.join(ROOT, "execnode", "settle_b2.py")).read()

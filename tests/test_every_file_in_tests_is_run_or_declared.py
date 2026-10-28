@@ -44,7 +44,6 @@ DECLARED = {
     "beacon_client_cache.mjs": ("library", "the JS leg of test_exec_beacon_reaches_the_game_client"),
     "farkle_client_rolls_the_contracts_dice.mjs": ("library", "the JS leg of test_farkle_client_rolls_the_contracts_dice"),
     "protocol_hook.mjs": ("library", "Node resolve hook mapping /protocol.js to the rendered module for the .mjs tests"),
-    "starkjs_crosscheck.sh": ("library", "driven by test_stark_js_prover_matches_python"),
     "mutation_check.py": ("library", "the mutation harness test_tests_can_fail drives"),
     "pets_js_crosscheck.mjs": ("library", "the JS leg of test_game_clients_compute_what_the_contracts_pay"),
     "pets_js_crosscheck_gen.py": ("library", "vector generator for test_game_clients_compute_what_the_contracts_pay"),

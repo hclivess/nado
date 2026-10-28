@@ -69,7 +69,7 @@ check(f"the verifier builds on stable ({secs:.0f} s)", so is not None, log)
 if not exe or not so:
     sys.exit(1)
 os.environ["NADO_STWO_JS_LIB"] = so
-from execnode.stark import stwo_js_native as SJ
+from execnode import stwo_js_native as SJ
 HEIGHT = {0: 0, 1: 1}            # a height that selects each config (stwo_js_native.config_id_at)
 
 for cfg, pin in PINS.items():

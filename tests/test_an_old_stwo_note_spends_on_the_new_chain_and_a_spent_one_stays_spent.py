@@ -51,7 +51,7 @@ from execnode import shielded_stwo as SP, exec_genesis as EG
 from ops.address_ops import make_address
 import tools.alphanet6_carryforward as C
 
-from execnode.stark import stwo_js_native as SJ
+from execnode import stwo_js_native as SJ
 
 DEST = make_address("cd" * 1312)
 

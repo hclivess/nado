@@ -199,6 +199,11 @@ if "def build" not in old_src:
     print("SKIP  the pre-upgrade pets.py is not in this clone (shallow CI checkout): old-battle replay not run")
 else:
     path = os.path.join(os.environ["HOME"], "pets_old.py")
+    # The old module imported the Goldilocks field and hash (execnode/stark, deleted in G9 slice 4): its code bakes F.P
+    # into constants (_INV232), and the hash serves only its in-clear reference model, which this test never calls.
+    old_src = old_src.replace("from execnode.stark import alghash, field as F",
+                              "class F:\n    P = 2**64 - 2**32 + 1   # the Goldilocks prime, as execnode/stark/field.P was\n"
+                              "alghash = None   # (only the reference model used it; this test calls build() alone)")
     open(path, "w").write(old_src)
     spec = importlib.util.spec_from_file_location("pets_old", path)
     OLD = importlib.util.module_from_spec(spec)

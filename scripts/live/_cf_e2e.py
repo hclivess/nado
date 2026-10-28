@@ -29,7 +29,10 @@ from ops.transaction_ops import (construct_blob_tx, construct_bridge_deposit_tx,
                                  draft_transaction)
 from protocol import MIN_TX_FEE
 from signatures import generate_keydict
-from execnode.stark import alghash, field as F
+# gen 29 (G9 slice 4): the VM's `hash` is zkvm2.hash_words (_lib.vm_hash) and a word is mod 2^256 (_lib.vm_mod); the
+# Goldilocks hash and field this script used went with execnode/stark.
+from execnode.games import _lib
+VM_MOD = _lib.vm_mod()
 
 L1 = "http://127.0.0.1:9173"
 EX = "http://127.0.0.1:9273"
@@ -154,21 +157,21 @@ def transfer(kd, to, amount):
 
 
 def H(x):
-    """The VM's `hash r <- x` of one field element — the commitment the contract stores."""
-    return alghash.hashn([x % F.P])
+    """The VM's `hash r <- x` of one word — the commitment the contract stores."""
+    return _lib.vm_hash([x % VM_MOD])
 
 
 def expected_winner(g, s1, s2):
     """The winner, derived here exactly as the SETTLE assembly derives it for a commit-reveal game:
 
-        w = 1 + lo32(alghash.hashn([ s1 + s2 + gameId ])) % 2
+        w = 1 + lo32(vm_hash([ s1 + s2 + gameId ])) % 2
 
     Computing it independently is the entire point of this test. Asserting that `ws` is 1 or 2 would pass a
     contract that flipped a constant coin, and asserting that it equals whatever the chain stored would pass
     a contract that flipped nothing at all.
     """
-    x = F.add(F.add(s1 % F.P, s2 % F.P), g % F.P)
-    return 1 + ((alghash.hashn([x]) & 0xFFFFFFFF) % 2)
+    x = (s1 + s2 + g) % VM_MOD
+    return 1 + ((_lib.vm_hash([x]) & 0xFFFFFFFF) % 2)
 
 
 print("coinflip e2e on " + CID, flush=True)
@@ -193,8 +196,8 @@ wait(lambda: exbal(A2) >= 2 * STAKE, "p2 bridged tokens into the exec layer")
 # ── 1. open ─────────────────────────────────────────────────────────────────────────────────────────
 G = int(time.time()) % 900000000 + 1000                      # a gameId nobody else is using, < 2^32
 print(f"\n1. p1 opens game {G} for {STAKE} raw", flush=True)
-S1 = secrets.randbelow(F.P - 1) + 1
-S2 = secrets.randbelow(F.P - 1) + 1
+S1 = secrets.randbelow(VM_MOD - 1) + 1
+S2 = secrets.randbelow(VM_MOD - 1) + 1
 call(P1, "open", [G, H(S1)], STAKE, applied=lambda: num("nn", G) == 1)
 wait(lambda: num("nn", G) == 1, "game is open and waiting")
 ck("it is a commit-reveal game holding p1's commitment", num("md", G) == 1 and num("c1", G) == H(S1))
@@ -240,7 +243,7 @@ ck("nothing was minted — the pot is emptied", num("pt", G) == 0, f"pt={num('pt
 G2 = G + 1
 print(f"\n4. p1 opens game {G2} and cancels it", flush=True)
 before = exbal(A1)
-call(P1, "open", [G2, H(secrets.randbelow(F.P - 1) + 1)], STAKE, applied=lambda: num("nn", G2) == 1)
+call(P1, "open", [G2, H(secrets.randbelow(VM_MOD - 1) + 1)], STAKE, applied=lambda: num("nn", G2) == 1)
 wait(lambda: num("nn", G2) == 1, "second game is open")
 ck("opening escrowed the stake", exbal(A1) <= before - STAKE, f"{exbal(A1)} was {before}")
 call(P1, "cancel", [G2], applied=lambda: num("sd", G2) == 1)

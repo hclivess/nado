@@ -16,7 +16,7 @@ import _harness
 HOME = _harness.isolate("nado-test-auth-root-b2-")
 import hashlib
 
-from execnode.stark import mldsa_block_auth as M
+from ops import mldsa_block_auth as M
 from hashing import canonical_bytes
 
 T = _harness.Report()

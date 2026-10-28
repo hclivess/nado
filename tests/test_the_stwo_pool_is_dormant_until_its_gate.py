@@ -21,7 +21,7 @@ H = os.environ["HOME"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from execnode.state import ExecState
-from execnode import shielded_stwo as SP, exec_root as ER
+from execnode import shielded_stwo as SP, exec_root_b2 as ER
 
 import _harness
 _report = _harness.Report()
@@ -44,7 +44,7 @@ st._touch()
 check("2. an empty Stwo pool leaves the exec root exactly as before it existed", st.state_root() == with_pool)
 
 calls = []
-fake = types.ModuleType("execnode.stark.stwo_js_native")
+fake = types.ModuleType("execnode.stwo_js_native")
 VERDICT = [True]
 HEIGHTS = []                                 # the height each verify was asked at (STWO_JS_128_HEIGHT picks the config)
 
@@ -54,8 +54,8 @@ def _verify(proof, root, nf, cm1, cm2, unshield, fee, dest, height):
     HEIGHTS.append(height)
     return (True, "") if VERDICT[0] else (False, "proof refused")
 fake.verify = _verify
-sys.modules["execnode.stark.stwo_js_native"] = fake
-import execnode.stark as _stk
+sys.modules["execnode.stwo_js_native"] = fake
+import execnode as _stk
 _stk.stwo_js_native = fake
 
 GATE = 1000                                  # a test height (the pool holds from block 1)

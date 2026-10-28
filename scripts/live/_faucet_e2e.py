@@ -12,7 +12,9 @@ from signatures import generate_keydict
 from ops.transaction_ops import construct_blob_tx, draft_transaction, create_transaction
 from config import get_timestamp_seconds
 from protocol import MIN_TX_FEE
-from execnode.stark import alghash
+# gen 29 (G9 slice 4): the VM's `hash` is zkvm2.hash_words (_lib.vm_hash) and a word is mod 2^256 (_lib.vm_mod); the
+# Goldilocks hash and field this script used went with execnode/stark.
+from execnode.games import _lib
 from execnode import runtimes
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
@@ -50,7 +52,7 @@ powt = int((sto.get("gpow") or {}).get(str(IDX), 0))
 ck("dice enrolled with a grant", grant > 0 and powt > 0)
 d = runtimes.zkvm_addr_digest(A2)
 nonce, t0 = 0, time.time()
-while alghash.hashn([d, IDX, nonce]) >= powt: nonce += 1
+while _lib.vm_hash([d, IDX, nonce]) >= powt: nonce += 1
 print(f"  ground nonce {nonce} in {time.time()-t0:.1f}s", flush=True)
 b0, f0 = exbal(A2), exbal("faucet")
 r = post(construct_blob_tx(P2, {"op": "call", "contract": "faucet", "method": "claim", "args": [IDX, nonce]}, tip() + 25, MIN_TX_FEE))
