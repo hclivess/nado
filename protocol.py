@@ -2271,7 +2271,8 @@ EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor;
 # openings and one Stwo VM proof) proving that the blocks after the namespace's JUSTIFIED settled tip take its root to the
 # settle's state_root. L1 verifies it (ops/transaction_ops._stwo_settle_check) from its own blocks and its own chain
 # inputs (ops/settle_chain.py) and, on apply, marks the root PROVEN (kv_ops.settlement_proof_put), which
-# settlement_justified honours with no quorum. Below the gate the field is refused, so nothing a live block does changes.
+# settlement_justified honours with no quorum. Below the gate the field is IGNORED (validated and applied bare, as before
+# G8 existed — refusing it would tighten validation at no agreed height), so nothing a live block does changes.
 # DORMANT on generation 29: the operator sets the height after two weeks of shadow proofs (tools/settle_b2_shadow.py,
 # every span `proven` with `chain_eq` true), at the fleet's adoption block (CLAUDE.md rule 3), once every node reports
 # native/stwo_settle built. Live from block 1 at the next reroll.
