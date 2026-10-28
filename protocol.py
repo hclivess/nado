@@ -1694,6 +1694,8 @@ def split_open_block_reward(reward: int):
 #                                    reads a span's starting carry from its pre root, never from L1's exec summaries)
 #                                    STWO_SETTLE_HEIGHT ((1 << 62) = DORMANT; -> 1: a settle may carry a Stwo settlement
 #                                    proof of its span, which L1 verifies and marks proven — G8)
+#                                    CODE_COMMIT_WIDE_HEIGHT (19000, exec cursor; -> 1: a code event's leaf commits the
+#                                    whole 256-bit code digest, not its residue mod the Goldilocks prime)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2263,6 +2265,16 @@ EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L
 # carry to verify a span with. Tip ~12,460 at ~6.1 s/block when this was chosen (~30 h ahead): if the push slips past
 # ~28,000, move it (a gate in the past makes every exec node switch at its own update moment).
 EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at ~12460 when this was written
+
+# THE LAST GOLDILOCKS ARITHMETIC IN THE EXEC LAYER (2026-10-28). calls_commit.code_commitment reduced a contract's
+# 256-bit code digest to 1 + n mod (P - 1), P the Goldilocks prime — a ~64-bit commitment, the collision class the
+# 2026-09-24/25 audit rated HIGH for call leaves (a ~2^32 birthday search finds two codes with one commitment, so one
+# event leaf, so a settle proof binding a span's code changes would bind either). From this exec cursor an event leaf
+# commits the WHOLE digest. It feeds only the execsum rows' event leaves (outside the L1 state root, inside the snapshot
+# payload) and G8's settle fold (dormant): no code event exists on betanet-10 yet (measured 0 in 17,846 blocks), so the
+# gate only has to fall after the update wave. Tip ~17,950 at ~6.8 s/block when chosen (~2 h ahead): if the push slips
+# past ~18,700, move it.
+CODE_COMMIT_WIDE_HEIGHT = 19000 if CHAIN_GENERATION == 29 else 1   # exec cursor
 
 # THE STWO SETTLEMENT OF A SPAN (G8, doc/stwo-migration.md 9.5; doc/stwo/g4-settlement-statement.md section 5). From this L1
 # height a `settle` may carry `stwo`: the DA commitment of an execnode/settle_b2 bundle (a witness of authenticated

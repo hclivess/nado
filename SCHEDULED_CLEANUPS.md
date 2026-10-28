@@ -14,6 +14,14 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 ---
 
 
+
+## 2026-10-28 — at the gen-30 cleanup: the last Goldilocks constant
+
+`execnode/calls_commit._P_GOLDILOCKS` and code_commitment's below-gate branch (1 + n mod (P - 1)) exist only so a replay
+of a betanet-10 block below `CODE_COMMIT_WIDE_HEIGHT` reproduces its event leaf. On generation 30 the gate is 1 and the
+branch never runs: inline the gate, delete the constant and the branch, and re-pin
+tests/test_a_code_event_commits_the_whole_code_digest_from_its_gate.py to the wide form only. After that no Goldilocks
+prime remains anywhere in the tree.
 ## 2026-10-28 — the dividend carry is committed in the exec root from EXEC_CARRY_ROOT_HEIGHT; owed: the dead `dc`, and the touch for EXEC_ADDR_ROOT_HEIGHT
 
 WHAT HAPPENED. L1's Stwo settle verifier read a span's starting dividend carry from the `dc` of the boundary block's exec

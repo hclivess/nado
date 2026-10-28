@@ -25,9 +25,9 @@ leaf changing (tests/test_a_blocks_exec_summary_is_the_one_generation_29_committ
 from hashing import blake2b_hash
 
 # The Goldilocks prime (execnode/stark/field.P until G9 slice 4), kept ONLY as the reduction inside one frozen format:
-# the code commitment an event leaf hashes (code_commitment below). Every deploy/upgrade event's leaf carries it, and
-# those leaves persist in the execsum rows (snapshot identity, settle binding), so its value must stay exactly what it was
-# until a reroll (or a gate keyed on the event's cursor) retires it. Not a field: no arithmetic happens in it any more.
+# the code commitment of an event BELOW protocol.CODE_COMMIT_WIDE_HEIGHT (code_commitment below), so a replay of an
+# older block reproduces its leaf. On generation 30 the gate is 1 and the branch never runs: delete this constant and
+# that branch at the gen-30 cleanup (SCHEDULED_CLEANUPS.md). Not a field: no arithmetic happens in it any more.
 _P_GOLDILOCKS = 2**64 - 2**32 + 1
 
 
@@ -39,13 +39,19 @@ def _leaf_value(payload):
     return int(blake2b_hash(["wide", payload]), 16)
 
 
-def code_commitment(code):
-    """The code commitment an event leaf carries (exec_state_bind.code_commitment until G9 slice 4, value for value): a
-    NONZERO int in [1, P) (P the Goldilocks prime — a frozen reduction, see _P_GOLDILOCKS) committing to a contract's
-    code map {method: bytecode}, canonical (sorted method order via canonical_bytes) so every node commits the same value
-    for the same code. FROZEN: every gen-29 deploy/upgrade leaf hashes this value."""
+def code_commitment(code, cursor=None):
+    """The code commitment an event leaf carries: a NONZERO int committing to a contract's code map {method: bytecode},
+    canonical (sorted method order via canonical_bytes) so every node commits the same value for the same code.
+    From protocol.CODE_COMMIT_WIDE_HEIGHT (the event's exec cursor) it is the WHOLE 256-bit blake2b digest; below it,
+    the frozen ~64-bit residue 1 + n mod (P - 1) (P the Goldilocks prime) that every earlier leaf hashed — a replay of
+    an older block must reproduce it. `cursor` None means "now" (the wide form).
+    INVARIANT: never reduce or truncate the digest again (a ~64-bit commitment is a ~2^32 birthday search for two codes
+    with one event leaf — audit 2026-09-24/25 HIGH, the call-leaf twin of this)."""
     from hashing import canonical_bytes
+    from protocol import CODE_COMMIT_WIDE_HEIGHT
     n = int(blake2b_hash(["code", canonical_bytes(code).hex()]), 16)
+    if cursor is None or int(cursor) >= CODE_COMMIT_WIDE_HEIGHT:
+        return n or 1
     return 1 + (n % (_P_GOLDILOCKS - 1))
 
 
@@ -81,7 +87,7 @@ def event_leaf(ev):
     calls_commitment binds the code changes of its span as tightly as its calls. Domain-separated from
     call_leaf by the leading tag. Never raises: block_summary derives a whole block at once (see _arg_field)."""
     code = ev.get("code")
-    cc = code_commitment(code) if isinstance(code, dict) else 0
+    cc = code_commitment(code, int(ev.get("cursor", 0))) if isinstance(code, dict) else 0
     rt = ev.get("runtime")
     payload = ["event", str(ev.get("op", "")), str(ev.get("caller", "")), str(ev.get("cid") or ""),
                str(ev.get("at") or ""), str(ev.get("nonce") or ""), int(cc),
