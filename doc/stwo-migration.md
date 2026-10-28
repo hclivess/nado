@@ -795,8 +795,8 @@ Line counts are `wc -l` of tracked files at 11e751ed.
 - `native/alghash2`, `native/starkprove`, `native/starkcompose`, `wasm/goldilocks` (3,121 lines with manifests and
   locks; 3,038 of Rust).
 - `static/stark/{bhash,field,fri,hashing,joinsplit2,joinsplit3,merkle,stark,transcript,tree}.js`, `static/alghash2.js`,
-  `static/vendor/goldilocks-wasm.js` (1,303 lines with `static/alghash.js`, 75 KB); `static/alghash.js` only once no
-  carried run needs it (9.2).
+  `static/vendor/goldilocks-wasm.js` (1,303 lines with `static/alghash.js`, 75 KB); `static/alghash.js` — deleted
+  2026-10-28 with the Gauntlet's road pin once no carried claim needed it (9.2; doc/stwo/g5-carry.md).
 - `tools/bench_settle_fri.py`, `tools/bench_fri_blowup.py` (381).
 - Route B adds `execnode/zkvm.py`, `zkvmasm.py`, `zkpy.py`, `zkvm_examples.py` (1,265).
 - Edited, not deleted: `ops/self_update._CRATES` and the goldilocks special case, `ops/transaction_ops.py` settle and

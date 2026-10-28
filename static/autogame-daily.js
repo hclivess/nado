@@ -19,13 +19,17 @@
 // maximise a compounding renown/gear/streak/stamina economy — with a cash-out decision live at every step
 // — is a planning problem with branching factor 8 and a horizon of 124. Knowing the road is the premise of
 // the puzzle, not the answer to it.
-import { algHashnV1 } from "./nadodapp.js";
-// THE ROAD'S HASH IS PINNED to the gen-28 alghash (nadodapp.algHashnV1), not the generation's VM hash. The Gauntlet is
-// scored entirely off-chain — the contract stores claims and gates the day, never the road — and every verifier
-// (browsers, the faucet oracle tests/autogame_daily_verify.mjs) replays a claim long after it was posted. Following the
-// VM, a claim posted on gen 28 would replay to another road on gen 29 and drop off the board and the payout. One pinned
-// hash keeps every past and future claim replayable under one rule (doc/stwo/g5-carry.md 2c).
-const algHashn = algHashnV1;
+import { algHashn } from "./nadodapp.js";
+// THE ROAD'S HASH IS THE GENERATION'S VM HASH (nadodapp.algHashn = static/blake2s.js hashWords, the BLAKE2s word chain
+// execnode/zkvm2.hash_words runs), the same one the staked march's legs use. The Gauntlet is scored off-chain — the
+// contract stores claims and gates the day, never the road — and every verifier replays a claim through THIS module:
+// the page (autogame-dailyui.js) and the faucet oracle (tests/autogame_daily_verify.mjs) alike, so one import is the
+// whole agreement. INVARIANT: no verifier hashes the road any other way; a second road hash is a claim the page
+// scores and the oracle refuses (tests/test_a_gauntlet_claim_the_page_builds_verifies_in_the_faucet_oracle_on_the_vm_hash.mjs).
+// It was pinned to the gen-28 Goldilocks alghash so a gen-28 claim would replay after the reroll; measured
+// 2026-10-28 on betanet-10 (gen 29), the carried contract held NO claim entries and no resolved anchor (av) for any day —
+// its three carried pins (days 20730/20734/20742) are past days that anchor() can never resolve — so nothing needed the
+// pin and it went with the rest of Goldilocks (G9).
 import { H, provableSeed, unpackMoves, packMoves } from "./provable.js";
 import * as R from "./autogame-rules.js";
 import * as E from "./autogame-engine.js";
@@ -57,7 +61,7 @@ export function packClaim(loadTiers, actions) {
 // in by autogame-engine's `words`. Here the two hashes come from the seed instead — everything downstream
 // is byte-identical to the live game, which is the only reason a Gauntlet run looks and feels like a march.
 export function dailyWorld(seed) {
-  const s = BigInt("0x" + String(H(seed)).slice(0, 32));   // algHashn folds it into the field itself
+  const s = BigInt("0x" + String(H(seed)).slice(0, 32));   // algHashn reduces it into the VM word itself
   return { tileHash: algHashn([s, 1n]), rollHash: algHashn([s, 2n]) };
 }
 /** The (tileWord, rollWord) pair for step `i` — the same shape the chain hands a leg. */
