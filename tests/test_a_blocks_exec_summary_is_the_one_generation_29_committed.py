@@ -9,8 +9,11 @@ has (each call field, string and wide args, every code event, a namespace, a poi
 calls, every derivable recipient, the fail-closed cases, a block 0 carrying an entry, the accrual's carry and floor
 cases, epoch attribution). EXPECTED was computed by running the fixtures below against e70fa444 (execnode.stark.
 calls_commit / records_bind); the chain replay of blocks 0..10533 proved the same on the live chain. A change here is a
-change every node must agree on: it rides a reroll or a gate. One pinned value moved since, at an input no block reaches
-(zero_with_call, the deleted cursor-0 narrow leaf: see t_every_leaf_is_the_wide_digest_even_at_cursor_0).
+change every node must agree on: it rides a reroll or a gate. Pinned values moved since only at inputs no block reaches:
+zero_with_call (the deleted cursor-0 narrow leaf: see t_every_leaf_is_the_wide_digest_even_at_cursor_0), and kv's three
+code-carrying events (its two deploys and the upgrade, at fixture block 4321) when code_commitment became the whole digest
+at every cursor, 2026-10-28 — betanet-10 has no deploy / upgrade / lock / transfer_contract below cursor 19000, where the
+Goldilocks residue applied (measured on blocks 0..19004); the call, lock and transfer leaves did not move.
 
 Also carried over from the retired tests whose other subjects went with execnode/stark (test_calls_commit,
 test_da_binding, test_exec_summary_binding): string args never kill a summary, block_calls carries committed data only,
@@ -236,11 +239,11 @@ EXPECTED = json.loads(r"""
   "calls": {
    "default": [
     "18833119139657324225317238740985208345784177578133673966866077189453191324149",
-    "60291182327720819956758061540890652835771887175067790193672865411199418044321",
-    "59158448321652107559128411332345856883667946181785953436658771245749374647199",
+    "44068928154390051679314346448838413763738265207151137287313600844872510036323",
+    "63153110958528853804620361178048282346698488799444841709520384131692175250436",
     "71948704216228564100770204819709857441624777981522107239598494861043140069778",
     "22406228758215745334034691170203125311662550873389822917621994176185162896192",
-    "9945184476297232912252405483937271315043561459205428085633065589001376986834",
+    "58780388488983002240356376584022595264071600300975996413835658385974040889556",
     "60306303471925439839714269871160477168112419310633828147700665862811391388777"
    ],
    "other": [
