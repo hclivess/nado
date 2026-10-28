@@ -12,7 +12,8 @@ word, doc/stwo/g3-vm-word.md), and since G9 slice 3b the only one:
   4. the deploy gate: the 27 alghash round opcodes do not exist, an immediate must fit the word, a lone LT is legal,
      the ASEL pairing rule holds;
   5. replay_io accepts the run's own log and rejects a tampered one;
-  6. the ported "exact hi half" idiom (games/_lib.port_inv32) computes x >> 32, and the port refuses what it cannot port.
+  6. the "exact hi half" split the hexholm/stormhold/scrapline reveal use (sub lo32, divmod by 2^32) computes x >> 32,
+     and no contract source still carries the field VM's inverse of 2^32.
 
 Run: python3 tests/test_the_256_bit_vm_wraps_compares_and_hashes_as_specified.py
 """
@@ -88,7 +89,10 @@ T.check("5a. replay_io accepts the run's own log: the same storage, payout and r
         and ok[2] == {9: 1 << 255} and ok[3] == [(1 << 255, 9)])
 bad = list(r[3]); bad[1] = (V2.IO_SLOAD, 9, 5)
 T.check("5b. replay_io rejects a log whose read does not match the state", V2.replay_io(bad, {})[0] is False)
-# ---- 6: the ported "exact hi half" idiom (games/_lib.port_inv32 — hexholm/stormhold/scrapline reveal)
+# ---- 6: the "exact hi half" split (hexholm/stormhold/scrapline reveal). The sources were once written in the field VM's
+# `x - lo32(x)` times-the-inverse-of-2^32 idiom and rewritten at build time (games/_lib.port_inv32, deleted with
+# Goldilocks); they now say `movi rA 2^32 ; divmod rB rA` themselves. The byte-identical build test pins that the
+# bytecode did not move; this pins what the instruction pair computes, and that no inverse constant is left anywhere.
 from execnode import zkvmasm
 from execnode.games import _lib, hexholm, stormhold, scrapline
 IDIOM = """
@@ -96,24 +100,22 @@ IDIOM = """
     lo32 r6
     mov r5 r1
     sub r5 r6
-    movi r7 18446744065119617026
-    mul r5 r7
+    movi r3 4294967296
+    divmod r5 r3
     ret r5
 """
-p2 = zkvmasm.assemble(_lib.port_inv32(IDIOM))
+p2 = zkvmasm.assemble(IDIOM)
 xs = [0, 1, (1 << 32) - 1, 1 << 32, (1 << 64) - 2 ** 32 - 1] + [rnd.randrange(1 << 64) for _ in range(2000)]
 mism = [x for x in xs if V2.run({"m": p2}, "m", 1, [0, x], {})[1] != x >> 32]
-T.check(f"6a. the ported hi-half idiom is x >> 32 for {len(xs)} secrets below 2^64", not mism, mism[:3])
-try:
-    _lib.port_inv32("    movi r1 5\n    ret r1\n"); refused = False
-except ValueError:
-    refused = True
-T.check("6b. port_inv32 refuses a method without the idiom (a declared port that changes nothing)", refused)
-try:
-    _lib.port_inv32("    movi r3 18446744065119617026\n    mul r7 r3\n"); refused7 = False
-except ValueError:
-    refused7 = True
-T.check("6c. port_inv32 refuses a multiply into r7 (DIVMOD's remainder would overwrite it)", refused7)
-T.check("6d. hexholm's, stormhold's and scrapline's reveal carry no field inverse", all(
-    18446744065119617026 not in [i[3] for i in m.build()["reveal"]] for m in (hexholm, stormhold, scrapline)))
+T.check(f"6a. the hi-half split (sub lo32, divmod by 2^32) is x >> 32 for {len(xs)} secrets below 2^64", not mism, mism[:3])
+INV32_GOLDILOCKS = 18446744065119617026
+T.check("6b. hexholm's, stormhold's and scrapline's reveal carry no field inverse and do divide by 2^32", all(
+    INV32_GOLDILOCKS not in [i[3] for i in m.build()["reveal"]]
+    and any(i[0] == "DIVMOD" for i in m.build()["reveal"]) for m in (hexholm, stormhold, scrapline)))
+import glob
+import os
+_left = [f for f in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "execnode", "**", "*.py"),
+                              recursive=True) if str(INV32_GOLDILOCKS) in open(f).read()]
+T.check("6c. no contract source still writes the Goldilocks inverse of 2^32 (and _lib no longer ports it)",
+        not _left and not hasattr(_lib, "port_inv32") and not hasattr(_lib, "INV32_FIELD"), _left)
 T.done("ALL PASS — the 256-bit VM wraps, compares and hashes as specified")

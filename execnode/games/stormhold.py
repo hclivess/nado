@@ -119,8 +119,8 @@ REVEAL = f"""
     lo32 r6                 ; r6 = x & 0xffffffff (canonical low half)
     mov r5 r1
     sub r5 r6               ; r5 = hi·2^32 (an exact multiple)
-    movi r7 18446744065119617026
-    mul r5 r7               ; r5 = hi — the field inverse of 2^32 undoes the exact factor
+    movi r7 4294967296
+    divmod r5 r7            ; r5 = hi (exact: r5 is a multiple of 2^32); DIVMOD writes its 0 remainder to r7, read by nothing after
     sstore r2 r5            ; hi half
     sstore r3 r6            ; lo half
     ret r0
@@ -233,8 +233,7 @@ def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "reveal", "resign", "abort", "cancel")}
-    src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))          # no inverse of 2^32 on the 256-bit word
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
 
 
 def carry_in_flight(storage):
