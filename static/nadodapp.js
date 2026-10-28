@@ -14,7 +14,6 @@
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
 import { loadCrypto, blake2bHash } from "./nadotx.js";
-import * as alghash from "./alghash.js";
 // PROTOCOL CONSTANTS come from the serving relay's /protocol.js (protocol.CLIENT_EXPORTS rendered by nado.py from the
 // protocol.py it runs) — never copied here. Every game page is served by a relay, so this adds no trust the page did
 // not already place in it. Re-exported so a game imports them from the SDK like everything else (BLOCK_TIME for its
@@ -232,11 +231,11 @@ export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypt
 // word chain (static/blake2s.js hashWords == execnode/zkvm2.hash_words), their word wraps at 2^256, and a block hash
 // enters the VM whole, at every height (BLAKE_EXEC_HEIGHT, gen 28's gate, inlined in G9; the assembler's field-VM ISA
 // went in slice 3b — the gen-28 alghash branches here went with them; a game page that reintroduces one
-// previews a roll the chain will not settle). INVARIANT: a game page never calls alghash directly — only through these
-// helpers.
+// previews a roll the chain will not settle). INVARIANT: a game page never hashes on its own — only through these
+// helpers. The last Goldilocks hash in the browser (alghash.js, behind a gen-28-pinned algHashnV1 for the Daily
+// Gauntlet's road) was deleted with G9: nothing on gen 29 had ever been scored with it (measured 2026-10-28, see
+// static/autogame-daily.js). Do not bring back a pinned second hash — every structure follows the VM's.
 const WORD = 1n << 256n;
-let _algReady = false;
-function _ensureAlg() { if (!_algReady) { alghash.initAlghash(blake2bHash); _algReady = true; } }
 export function chainResultAlg(shHex, sh1Hex, salt, mod) {
   if (!shHex || !sh1Hex) return null;
   const seed = (BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt)) % WORD;
@@ -246,14 +245,6 @@ export function chainResultAlg(shHex, sh1Hex, salt, mod) {
 // board). Accepts BigInt/Number/string, reduces into the generation's word, matches the contract's `hash` exactly.
 export function algHashn(elements) {
   return hashWords(elements.map((x) => ((BigInt(x) % WORD) + WORD) % WORD));
-}
-// algHashnV1(elements): the gen-28 alghash HASH whatever the generation — ONLY for structures scored entirely off-chain
-// whose old records must keep replaying (the autogame Daily Gauntlet's road: a claim posted on gen 28 is verified by
-// replay long after the reroll). Never for anything a contract computes: that is algHashn, which follows the VM.
-export function algHashnV1(elements) {
-  _ensureAlg();
-  const P = alghash.P;
-  return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
 }
 // the modulus a page reduces by: 2^256, the gen-29 VM's wrapping word (the Goldilocks prime was gen 28's; G9)
 export const ALG_P = () => WORD;

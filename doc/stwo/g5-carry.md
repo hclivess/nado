@@ -125,6 +125,11 @@ reroll those are settled on the old chain first (doc/reroll.md); nothing is rese
   off-chain, so its road hash is pinned to the gen-28 alghash (`nadodapp.algHashnV1`) for every generation; a claim
   posted on gen 28 replays to the same score on gen 29 (measured without the pin: 196 -> 413). The other daily boards
   seed through blake2b and were never affected.
+  **Unpinned 2026-10-28 (G9):** measured on betanet-10, the carried autogame contract held no claim entry and no
+  resolved anchor (`av`) for any day — its three carried pins (days 20730/20734/20742) are past days `anchor()` can
+  never resolve — so no claim needed the gen-28 hash. The road moved to the VM hash (`nadodapp.algHashn`, BLAKE2s) and
+  `static/alghash.js` / `algHashnV1` were deleted. A future reroll that carries Gauntlet claims replays them on the
+  same hash as long as the VM hash does not change; if it does, measure the carried entries first, as here.
 - ~~The browser reads pets' traits from the roll table~~ — done 2026-10-25: `static/pets-genes.js` reads the view's
   `r<c>` maps whenever a pet has them (`rollOf`/`rollsFrom`) and the gene only when it has none, which also covers the
   gen-29 gene-exposure gap (v2 exposes 64 of the gene's 256 bits as gl/gh). ~~Still on the gene: `combineStatOf`'s

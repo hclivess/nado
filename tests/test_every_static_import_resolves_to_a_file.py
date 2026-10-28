@@ -93,12 +93,13 @@ for n in sorted(os.listdir(TESTS)):
 check("3. every static module a test imports exists", not tbroken, tbroken)
 
 GONE = ["stark/bhash.js", "stark/field.js", "stark/fri.js", "stark/hashing.js", "stark/merkle.js", "stark/stark.js",
-        "stark/transcript.js", "stark/tree.js", "alghash2.js", "vendor/goldilocks-wasm.js"]
+        "stark/transcript.js", "stark/tree.js", "alghash2.js", "vendor/goldilocks-wasm.js",
+        "alghash.js"]   # the Gauntlet's gen-28 road hash, the last Goldilocks file in the browser (G9, 2026-10-28)
 back = [g for g in GONE if os.path.exists(os.path.join(STATIC, g))]
 check("4a. the deleted Goldilocks browser files stay deleted", not back, back)
-KEEP = ["stark/stwo_js.js", "stark/stwo_worker.js", "vendor/stwo_js.wasm", "alghash.js"]   # Stwo wallet + the Gauntlet
+KEEP = ["stark/stwo_js.js", "stark/stwo_worker.js", "vendor/stwo_js.wasm"]   # the Stwo wallet prover
 gone_keep = [k for k in KEEP if not os.path.isfile(os.path.join(STATIC, k))]
-check("4b. the Stwo wallet prover and static/alghash.js (the Daily Gauntlet pins it) are still served", not gone_keep,
+check("4b. the Stwo wallet prover is still served", not gone_keep,
       gone_keep)
 
 print("ALL PASS" if not fails else f"{fails} FAILED")
