@@ -465,10 +465,17 @@ Below it nothing the live chain does changes (both replays of blocks 0..10533 ID
 - **The settle field.** A `settle` may carry `stwo`: the DA commitment of the bundle (witness ~50 KB plus, when the span
   has calls, a ~1.2 MB VM proof, ~2.3 MiB as JSON — far over the 64 KiB transaction cap, so it always rides DA, k-of-n,
   like the deleted Goldilocks `proof_da`). `proof` / `proof_da` stay refused at every height. Below the gate `stwo` is
-  refused ("a settle carries no Stwo proof below STWO_SETTLE_HEIGHT"). That refusal is itself a tightening: until this
-  release a settle's `data` keys were not constrained, so a bonded validator's settle carrying `stwo` was accepted and the
-  key ignored. No such settle exists in blocks 0..10533 (both replays IDENTICAL), but during the update wave an updated
-  node refuses one an older node accepts — a bonded validator could split the wave with one (CLAUDE.md rule 3).
+  IGNORED, not refused: a settle's `data` keys were never constrained, so a settle carrying `stwo` validated before G8
+  existed, and refusing it on shipping would tighten validation at no agreed height (an updated node refusing what an
+  older one accepts splits the update wave — CLAUDE.md rule 3). Ignored, it validates and applies bare, as before; the
+  rule changes only at STWO_SETTLE_HEIGHT, which the operator sets at the fleet's adoption block.
+- **PREREQUISITE before setting the gate — the dividend carry chain must be unbreakable.** L1 reads the span start's
+  carry from the `dc` of the last epoch-boundary exec summary, and `loops/core_loop._accrual_effects` writes `dc` only
+  when that boundary block's records are derivable, reading the previous boundary's `dc` as its carry-in. One
+  non-derivable transaction on a boundary block (a value-carrying call) ends the chain for good, and every Stwo settle is
+  refused from then on (SpanRefused). All 175 boundaries in 0..10533 carry `dc` today. The fix — write `dc` at EVERY
+  boundary — changes what the exec summary commits, so it needs its own gate, set BEFORE STWO_SETTLE_HEIGHT
+  (SCHEDULED_CLEANUPS.md).
 - **Validation** (`ops/transaction_ops._stwo_settle_check`), the checks of the deleted branch that are not
   Goldilocks-specific: the default namespace only; the span EXTENDS the justified settled tip exactly (the replay starts
   from `latest_settled`, never from a pre-state the prover names; the first settlement of a namespace is by quorum);

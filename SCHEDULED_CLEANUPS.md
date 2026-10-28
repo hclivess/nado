@@ -26,6 +26,16 @@ the exec layer refuses the op (adopted by the whole fleet first), a measurement 
 `shielded_transfer` below <h>, then delete shielded.py and pin shield_root / shield_nfset as constants beside
 exec_root_b2.RETIRED_FIELD_ROOT. Not consensus-critical for value; owed for the G9 deletion to finish.
 
+## 2026-10-28 — owed BEFORE STWO_SETTLE_HEIGHT is set (G8): the dividend carry must reach every epoch boundary
+
+L1's Stwo settle verifier (ops/settle_chain.l1_chain) reads a span's starting dividend carry from the `dc` of the last
+epoch-boundary exec summary. loops/core_loop._accrual_effects writes `dc` only when the boundary block's records are
+derivable, and reads the previous boundary's `dc` as its own carry-in — so one non-derivable boundary breaks the chain
+permanently and every later Stwo settle is refused (SpanRefused: the chain falls back to the bonded quorum forever).
+CONSENSUS-CHANGING (the exec summary is committed): write `dc` at every boundary behind its own gate, set before
+STWO_SETTLE_HEIGHT, with a test that a non-derivable boundary keeps the chain. Measured: all 175 boundaries in 0..10533
+carry `dc` (no break yet). doc/stwo/g4-settlement-statement.md section 5.
+
 ## 2026-10-27 — owed BEFORE the next reroll (gen 30): re-pin the carry's refusals for a v2 -> v2 carry
 
 G9 slice 3 inlined BLAKE_EXEC_HEIGHT, and five tests that staged a gen-28 (v1 VM) exec state and carried it to gen 29

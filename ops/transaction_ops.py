@@ -2715,7 +2715,12 @@ def _validate_settle(transaction, block_height, deep):
     # THE STWO SETTLEMENT (G8, protocol.STWO_SETTLE_HEIGHT). Its own field, never `proof` / `proof_da` (refused above).
     # INVARIANT: account_ops marks the root proven only for a settle that reached apply carrying `stwo` from the gate, and
     # this is the only place that lets one through — keep the two keyed on the same field and the same constant.
-    if "stwo" in data:
+    # BELOW THE GATE THE KEY IS IGNORED, NOT REFUSED (2026-10-28): settle `data` keys were never constrained, so a settle
+    # carrying `stwo` validated before G8 existed. Refusing it on shipping would tighten validation at no agreed height —
+    # old and new nodes would split over one such tx during the update wave (CLAUDE.md rule 3). Ignored, it validates and
+    # applies exactly as before (bare: account_ops marks nothing proven below the gate). Mempool admission (no height) too.
+    from protocol import STWO_SETTLE_HEIGHT as _SSH
+    if "stwo" in data and block_height is not None and int(block_height) >= _SSH:
         _stwo_settle_check(data, ns, cursor, root, block_height, deep)
 
 

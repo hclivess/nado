@@ -1214,6 +1214,19 @@ async def _stwo_settle_bundle_inner(session, ns, st, cur, SETTLE_PROOF_MAX_SPAN,
     return c, bc, br
 
 
+def settled_contradicts_attestation(settled, attested):
+    """True iff L1's settled checkpoint (the /get_settled document: {ns, exec_cursor, state_root}) names a cursor this
+    node attested with a DIFFERENT root — the quorum ruled against our lineage. maybe_settle's self-disqualification.
+    It read `exec_root`, a key /get_settled never served, so for months it could not fire while a source-text test of
+    it passed (found 2026-10-28, G8 review). INVARIANT: read the field the endpoint serves — the test drives this with
+    nado.get_settled's own response shape."""
+    if not isinstance(settled, dict) or "exec_cursor" not in settled:
+        return False
+    ours = attested.get(int(settled["exec_cursor"]))
+    theirs = str(settled.get("state_root") or "")
+    return ours is not None and bool(theirs) and ours != theirs
+
+
 async def maybe_settle(session):
     """If enabled, post a `settle` of the current (cursor, state_root) to L1 — a bare bonded attestation,
     or (when the span conforms) a self-checking settle-with-proof. Only
@@ -1281,11 +1294,12 @@ async def maybe_settle(session):
                 if isinstance(_sd, dict) and "exec_cursor" in _sd:
                     _sc = int(_sd["exec_cursor"])
                     _ours = st.attested.get(_sc)
-                    if _ours is not None and str(_sd.get("exec_root", "")) and _ours != str(_sd["exec_root"]):
+                    _theirs = str(_sd.get("state_root") or "")
+                    if settled_contradicts_attestation(_sd, st.attested):
                         st.replay_gap = True
                         st.save()
                         print(f"[execnode] settle ns={ns} SELF-DISQUALIFIED — L1 justified cursor {_sc} "
-                              f"root {str(_sd['exec_root'])[:16]}… but we attested {_ours[:16]}…; our "
+                              f"root {_theirs[:16]}… but we attested {_ours[:16]}…; our "
                               f"lineage is non-canonical. Muting attestations until repair-bootstrap "
                               f"adopts the settled checkpoint.", flush=True)
             except Exception:

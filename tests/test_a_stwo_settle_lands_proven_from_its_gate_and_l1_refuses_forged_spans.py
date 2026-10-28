@@ -6,9 +6,10 @@ which a bet binds an epoch beacon and a later settle reads it (a BEACON chain re
 dividend accrual across four epoch boundaries with a non-zero carry; then a span (300, 360] with no contract call. The
 settled tip is justified by the bonded quorum at 60. Then, through validate_transaction and reflect_transaction:
   BOTH RULE SETS
-  1. below the gate (the shipped value, dormant on generation 29) a settle carrying `stwo` is REFUSED with the gate's
-     message, the honest bundle notwithstanding, and nothing moves: no proven marker, the settled tip stays; even a
-     settle that reached apply carrying `stwo` below the gate records no marker;
+  1. below the gate (the shipped value, dormant on generation 29) the `stwo` key is IGNORED, exactly as before G8 existed
+     (settle data keys were never constrained, so refusing it on shipping would tighten validation at no agreed height):
+     the settle validates as a bare one with no DA fetch and no verify, and applying it records no proven marker — the
+     settled tip stays;
   2. from the gate the honest bundle validates, the apply records the proven marker and settlement_justified accepts the
      root on a 1-of-5-shares settler's word (no quorum), latest_settled moves to it; the revert removes exactly that
      marker and the tip returns. The no-call span then extends the PROVEN tip the same way (no VM proof, no prover);
@@ -209,8 +210,9 @@ if CALLS:
 
     # ---- 1. below the gate
     r = reason(lambda: validate_transaction(tx, logger, 310))
-    T.check("1a. below STWO_SETTLE_HEIGHT (the shipped, dormant value) the honest Stwo settle is refused by the gate",
-            STWO_SETTLE_HEIGHT == 1 << 62 and "below STWO_SETTLE_HEIGHT" in r and not FETCHES, (r, FETCHES))
+    T.check("1a. below STWO_SETTLE_HEIGHT (the shipped, dormant value) the `stwo` key is ignored: the settle validates as "
+            "a bare one, with no DA fetch and no verify", STWO_SETTLE_HEIGHT == 1 << 62 and r == "" and not FETCHES,
+            (r, FETCHES))
     reflect_transaction(tx, logger, 310)                            # even if one reached apply below the gate...
     T.check("1b. ...nothing moves: no proven marker, the settled tip stays at 60",
             not kv_ops.settlement_proven(DEFAULT_NS, 300, root_at[300]) and latest_settled() == (60, root_at[60]))
@@ -291,8 +293,10 @@ B2 = S2.prove_span(snap[300], SPAN2, S2.reference_chain(snap[300], SPAN2, accrua
 T.check("the no-call span proves without a VM proof", B2["vm_proof"] is None and not B2["runs"])
 c2 = put(B2)
 tx2 = settle(V2, 360, root_at[360], c2)
+_nf = len(FETCHES)
 r = reason(lambda: validate_transaction(tx2, logger, 370))
-T.check("1c. below the gate the no-call Stwo settle is refused too", "below STWO_SETTLE_HEIGHT" in r, r)
+T.check("1c. below the gate the no-call Stwo settle is ignored too (validates bare, nothing fetched)",
+        r == "" and len(FETCHES) == _nf, (r, FETCHES[_nf:]))
 with _harness.pinned(STWO_SETTLE_HEIGHT=100):
     r = reason(lambda: validate_transaction(settle(V2, 360, root_at[360], c2), logger, 360))
     T.check("F6. refused: a span reaching the block that carries it", "wholly below" in r, r)
