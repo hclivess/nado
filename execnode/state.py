@@ -35,16 +35,13 @@ _GENESIS_BEACON_FLOOR = 2           # the beacon_floor a from-genesis node sets 
 # module to get them. These names stay as aliases for the callers that grew up with them.
 from execnode.code_codec import (FIXED_CIDS, decode_code as _decode_code, contract_id as _contract_id)
 
-# Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
-# join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
-# (e.g. public_value = -P) proves as "balanced" yet would record a P-coin exit (C-3). Any real amount is
-# many orders of magnitude below this, so bounding to it blocks every P·k residue while passing legit exits.
-#
-# C-3b: this MUST match the in-circuit range bound (2^61, top-3-bits-zero in c_rng_top). The 2-output
-# join-split conserves v_in + public_value == v_out1 + v_out2 + fee; the worst-case |LHS - RHS| across the
-# range-bounded values is 2*2^61 (two outputs) + 2^61 (fee) + 2^61 (|public_value|) = 2^63 < P, so mod-P
-# conservation equals INTEGER conservation and no -P wraparound assignment exists. At 2^62 it did (a 1-coin
-# input could record a 2^62-coin exit and drain the escrow).
+# Coin-amount ceiling for exits and shielded public values: CONSENSUS, at every height. The Stwo pool's
+# parse_transfer refuses an unshield or fee above it (execnode/shielded_stwo.py), every exit record is created under
+# it (transaction_ops asserts it), and ops/stwo_relay.py admits by it — so changing it changes which transfers are
+# valid, and it stays 2^61. Any real amount is many orders of magnitude below it.
+# ORIGIN (history): it was the Goldilocks join-split's range bound (C-3/C-3b) — that circuit conserved value only
+# modulo P ≈ 2^64, and 2^61 was the largest bound with no -P wraparound. That circuit was deleted in G9; the bound
+# outlived it as the rule above.
 MAX_EXIT_VALUE = 1 << 61
 
 
