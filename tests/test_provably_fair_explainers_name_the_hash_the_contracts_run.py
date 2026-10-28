@@ -7,9 +7,8 @@ the LO32 window. Until 2026-10-28 farkle.html still told players a die was
 and modulus, neither of which exists on the chain any more (G9 deleted them).
 
   1. no player-facing text (static/*.html outside <script>/<style>, and every string of static/i18n/*.json and
-     static/i18n_games/*.json) names alghash, Goldilocks or "mod P". The autogame Daily Gauntlet is the one exception:
-     its road is pinned to the gen-28 alghash on purpose (static/autogame-daily.js, nadodapp.algHashnV1), so
-     autogame-daily.html and i18n_games/autogame.json are not scanned;
+     static/i18n_games/*.json) names alghash, Goldilocks or "mod P" — with no exception (the autogame Daily Gauntlet's road, the
+     last gen-28 alghash, moved to the VM hash on 2026-10-28);
   2. farkle's explainer states the gen-29 formula, and that formula, computed as written, is the contract reference's
      die (execnode/games/farkle.roll_dice) on random block hashes.
 
@@ -30,7 +29,7 @@ from execnode.games import farkle
 T = _harness.Report()
 STATIC = os.path.join(_harness.ROOT, "static")
 RETIRED = re.compile(r"(?i)alghash|goldilocks|\bmod P\b")
-EXEMPT = {"autogame-daily.html", "autogame.json"}     # the Daily Gauntlet's road IS gen-28 alghash (see the docstring)
+EXEMPT = set()     # none: the Daily Gauntlet's road left gen-28 alghash on 2026-10-28
 
 
 def page_text(path):

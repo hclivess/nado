@@ -473,8 +473,8 @@ export function step(run, tw, rw, agg, stance, focus, healpct, action) {
 /**
  * The two 32-bit windows for step `i`, given an L1 block hash already reduced into the hash's word.
  * `algHashn` is injected rather than imported so this module stays dependency-free and can be run by a
- * headless verifier: pass nadodapp's algHashn (the VM's BLAKE2s word hash) for the contract game; the Daily Gauntlet
- * passes algHashnV1 (its road is pinned to gen-28 alghash, see autogame-daily.js).
+ * headless verifier: pass nadodapp's algHashn (the VM's BLAKE2s word hash) — the contract game and the Daily Gauntlet
+ * both do (the Gauntlet's gen-28 alghash road was retired 2026-10-28, see autogame-daily.js).
  */
 export function words(algHashn, blockHashField, runId, i) {
   return Number(algHashn([blockHashField, runId, i]) & 0xFFFFFFFFn);
