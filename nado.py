@@ -2629,6 +2629,28 @@ async def get_dividend_inflow(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def settle_chain_inputs(request):
+    """GET /settle_chain_inputs?sc=S&cursor=C: every L1 chain input a Stwo settlement of the span (S, C] is judged with
+    (ops/settle_chain.l1_inputs_doc: the boundary dividend carry, the reveals behind every readable beacon, the accrual
+    inputs, the block hashes of every BHASH window). READ-ONLY: the G8 shadow run (tools/settle_b2_shadow.py) derives the
+    Chain from it and compares it with the exec node's own bookkeeping, without opening this node's database. The span is
+    bounded (4 * SETTLE_PROOF_MAX_SPAN) and the reply is ~65 bytes per held block hash. Rate-limited 20/min per IP."""
+    if _rate_limited(request, 20):
+        return _RL()
+    from protocol import SETTLE_PROOF_MAX_SPAN
+    try:
+        sc, cur = int(request.query.get("sc", "")), int(request.query.get("cursor", ""))
+    except (TypeError, ValueError):
+        return _resp({"error": "bad sc/cursor"}, status=400)
+    if not (0 <= sc < cur <= sc + 4 * SETTLE_PROOF_MAX_SPAN):
+        return _resp({"error": f"need 0 <= sc < cursor <= sc + {4 * SETTLE_PROOF_MAX_SPAN}"}, status=400)
+
+    def _work():
+        from ops.settle_chain import l1_inputs_doc
+        return l1_inputs_doc(sc, cur)
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_settled(request):
     """GET /get_settled[?ns=]: the canonical SETTLED execution-layer checkpoint {ns, exec_cursor, state_root}
     for namespace `ns` (default DEFAULT_NS) — the state the bonded quorum has attested; what exec nodes and
@@ -3456,6 +3478,7 @@ async def make_app(port):
         web.get("/get_open_weights", get_open_weights),
         web.get("/duty_committee", duty_committee),
         web.get("/get_dividend_inflow", get_dividend_inflow),
+        web.get("/settle_chain_inputs", settle_chain_inputs),
         web.get("/get_settled", get_settled),
         web.get("/unshield_claimed", unshield_claimed),
         web.get("/resolve_alias", resolve_alias),

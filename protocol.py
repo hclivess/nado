@@ -1686,6 +1686,8 @@ def split_open_block_reward(reward: int):
 #                                    deposits, refused on L1 and skipped on exec, so G9 can delete it)
 #                                    LEGACY_TRANSFER_CLOSE_HEIGHT (14000; -> 1: the exec layer skips the legacy pool's
 #                                    transparent shielded_transfer, so the pool is frozen and execnode/shielded.py can go)
+#                                    STWO_SETTLE_HEIGHT ((1 << 62) = DORMANT; -> 1: a settle may carry a Stwo settlement
+#                                    proof of its span, which L1 verifies and marks proven — G8)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2244,6 +2246,17 @@ STWO_PAUSE_HEIGHT = 1 << 62
 # first root at the gate inserts the whole registry (240 entries on 2026-10-27); a span that crosses the gate settles by
 # the quorum. Exec-root consensus only: L1 rules and every exit format are unchanged.
 EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at 5487 when this shipped (2026-10-27)
+
+# THE STWO SETTLEMENT OF A SPAN (G8, doc/stwo-migration.md 9.5; doc/stwo/g4-settlement-statement.md section 5). From this L1
+# height a `settle` may carry `stwo`: the DA commitment of an execnode/settle_b2 bundle (a witness of authenticated
+# openings and one Stwo VM proof) proving that the blocks after the namespace's JUSTIFIED settled tip take its root to the
+# settle's state_root. L1 verifies it (ops/transaction_ops._stwo_settle_check) from its own blocks and its own chain
+# inputs (ops/settle_chain.py) and, on apply, marks the root PROVEN (kv_ops.settlement_proof_put), which
+# settlement_justified honours with no quorum. Below the gate the field is refused, so nothing a live block does changes.
+# DORMANT on generation 29: the operator sets the height after two weeks of shadow proofs (tools/settle_b2_shadow.py,
+# every span `proven` with `chain_eq` true), at the fleet's adoption block (CLAUDE.md rule 3), once every node reports
+# native/stwo_settle built. Live from block 1 at the next reroll.
+STWO_SETTLE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 29 else 1
 
 # USER-SELECTABLE SIGNATURE SCHEMES (doc/signature-schemes.md, operator 2026-10-25: "multiple (pluggable) scheme options
 # ... let users pick"). ML-DSA-44 stays the default and the only scheme of every surface the CHAIN signs with (blocks,

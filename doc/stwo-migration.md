@@ -666,6 +666,12 @@ persists per block (`block_summary`) are already BLAKE2b digests of the canonica
 and it runs only in settle-with-proof validation, which the gate refuses. G4 defines the Stwo fold over the same
 leaves. Left in G2: the carry's exec genesis in the new format (with G5) and the positions' in-circuit form (with G4).
 
+**G8 status (2026-10-28).** L1's side is built behind the DORMANT `STWO_SETTLE_HEIGHT` (`1 << 62` on gen 29): the `stwo`
+settle field, its validation from L1's own blocks and chain inputs (`ops/settle_chain.py`, measured equal to the exec
+node's bookkeeping on blocks 0..10533), the proven marker on apply, the exec node's prover wiring, and `chain_eq` in the
+shadow run. What the operator does to turn it on, and the one known limit (the boundary carry chain), are in
+doc/stwo/g4-settlement-statement.md section 5.
+
 **G6 status (2026-10-25).** Built, no consensus change:
 - **Stwo pool only.** The legacy, field and wide pools were measured EMPTY on the live chain (0 commitments,
   `pool_value` 0) and are closed on both layers, so the wallet dropped them: no alghash/alghash2/joinsplit2|3/stark

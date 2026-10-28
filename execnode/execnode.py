@@ -1092,6 +1092,128 @@ def state_owes_accrual(st, cur, epoch_length):
     return owed if int(getattr(st, "last_div_epoch", -1)) < owed else None
 
 
+# G8: THE STWO SETTLEMENT PROVER (doc/stwo/g4-settlement-statement.md section 5). native/stwo_settle's vm_settle binary
+# (nightly + the `prover` feature), where tests/_stwo_settle_build.py and the shadow run's --build put it, or
+# $NADO_STWO_VM_SETTLE. NOT built here: a node without it still proves a span with no contract call (no VM proof needed)
+# and settles every other span bare — settlement never waits for a prover.
+STWO_VM_SETTLE = os.environ.get("NADO_STWO_VM_SETTLE") or os.path.expanduser(
+    "~/.cache/nado-stwo-settle-target/release/vm_settle")
+
+
+async def _stwo_settle_bundle(session, ns, st, cur, latest_height):
+    """From protocol.STWO_SETTLE_HEIGHT: prove the span from L1's JUSTIFIED settled tip to our newest unattested epoch
+    boundary and publish the bundle to DA -> (commitment, boundary cursor, boundary root), or None to settle bare.
+
+    The pre-state is the stash AT the justified tip (_settled_history, the same payloads tools/settle_b2_shadow.py proves
+    from), refused unless it hashes to exactly that (cursor, root). The chain inputs are the exec node's own bookkeeping
+    replayed over the span (settle_b2.reference_chain) — L1 derives the same from its own state (ops/settle_chain.py; the
+    shadow run's chain_eq checks the two agree). The span ends at an epoch boundary because that is the pair every settler
+    attests (the cursor quantization below), and a validator settles a cursor once: the proof REPLACES our bare
+    attestation of that boundary, so a boundary already attested bare is never proven. Every failure is logged and None:
+    a missing prover, an unprovable span, a timeout or a DA failure costs one settle its proof, never the settle."""
+    global _settle_proving
+    from protocol import STWO_SETTLE_HEIGHT, SETTLE_PROOF_MAX_SPAN, DEFAULT_NS
+    if ns != DEFAULT_NS or int(latest_height) < STWO_SETTLE_HEIGHT or _settle_proving:
+        return None
+    # RAISED BEFORE THE FIRST AWAIT: maybe_settle runs as one detached task per poll, so a flag raised only around the
+    # prove let two tasks fetch the same span and prove it twice. While it is up every other task's hold sees it and
+    # settles nothing (bare included). The body lowers it on every path that does not hand it to the prove thread, whose
+    # done-callback lowers it; the finally covers an exception escaping before that.
+    _settle_proving = True
+    handed = [False]
+    try:
+        return await _stwo_settle_bundle_inner(session, ns, st, cur, SETTLE_PROOF_MAX_SPAN, handed)
+    finally:
+        if not handed[0]:
+            _settle_proving = False
+
+
+async def _stwo_settle_bundle_inner(session, ns, st, cur, SETTLE_PROOF_MAX_SPAN, handed):
+    """_stwo_settle_bundle's body, entered with _settle_proving raised."""
+    from execnode import settle_b2 as _S2
+
+    def bare(msg=None):
+        if msg:
+            print(f"[execnode] stwo settle ns={ns}: {msg} — settling bare", flush=True)
+        return None
+    try:
+        _sd = await _get_json(session, f"/get_settled?ns={ns}")
+        sc, sroot = int(_sd["exec_cursor"]), str(_sd.get("state_root") or "")
+    except Exception:
+        return bare()
+    if sc < 0 or len(sroot) != 64:
+        return bare()                     # the first settlement of a namespace is by quorum (L1 refuses a proof)
+    bcs = [c for c in st.boundary_roots if sc < c <= int(cur) and c - sc <= SETTLE_PROOF_MAX_SPAN]
+    if not bcs:
+        return bare()
+    bc = max(bcs)
+    br = st.boundary_roots[bc]
+    if st.attested.get(bc) == br:
+        return bare()                     # already attested bare: L1 takes one settle per (validator, cursor)
+    raw = (_settled_history.get(ns) or {}).get(sc)
+    if raw is None:
+        return bare(f"no stashed pre-state at the justified tip {sc}")
+    try:
+        pre = ExecState.snapshot_view(json.loads(raw)["state"])
+        if int(pre.cursor) != sc or pre.state_root() != sroot:
+            return bare(f"the stash at {sc} is not the justified root")
+        blocks = [await _get_json(session, f"/get_block?number={h}") for h in range(sc + 1, bc + 1)]
+        if any(not isinstance(b, dict) or int(b.get("block_number", -1)) != h
+               for h, b in zip(range(sc + 1, bc + 1), blocks)):
+            return bare(f"L1 did not serve the span {sc}->{bc}")
+        acc = {E: await _get_l1_accrual_inputs(session, E) for E in range(sc // _EPOCH_LENGTH, bc // _EPOCH_LENGTH)}
+    except Exception as e:
+        return bare(f"span {sc}->{bc} inputs unavailable ({type(e).__name__}: {e})")
+    binary = STWO_VM_SETTLE if os.access(STWO_VM_SETTLE, os.X_OK) else None
+
+    def _prove():
+        # Unprovable is a BaseException (settle_b2): returned as a value here so the worker's done-callback never sees it
+        try:
+            chain = _S2.reference_chain(pre, blocks, lambda E: acc[E])
+            return _S2.prove_span(pre, blocks, chain, binary)
+        except _S2.Unprovable as u:
+            return ("unprovable", str(u))
+
+    t0 = time.time()
+    fut = asyncio.ensure_future(asyncio.to_thread(_prove))
+    handed[0] = True                                      # _settle_proving now drops when the THREAD ends (not when we stop
+    fut.add_done_callback(_clear_settle_proving)          # waiting): a timed-out prove must not stack another one
+    try:
+        bundle = await asyncio.wait_for(asyncio.shield(fut), SETTLE_PROVE_TIMEOUT)
+    except asyncio.TimeoutError:
+        print(f"[execnode] stwo settle ns={ns}: prove of span {sc}->{bc} exceeded {SETTLE_PROVE_TIMEOUT}s — settling bare",
+              flush=True)
+        return None
+    except Exception as e:
+        print(f"[execnode] stwo settle ns={ns}: prove of span {sc}->{bc} failed ({type(e).__name__}: {e})"
+              + ("" if binary else " — no vm_settle prover on this node") + " — settling bare", flush=True)
+        return None
+    if isinstance(bundle, tuple):
+        print(f"[execnode] stwo settle ns={ns}: span {sc}->{bc} is unprovable ({bundle[1]}) — settling bare", flush=True)
+        return None
+    if bundle.get("post_root") != br:
+        # the prover replays the span itself; a root other than our boundary's is a bug to look at, not a settle to send
+        print(f"[execnode] stwo settle ns={ns}: the proven root {str(bundle.get('post_root'))[:16]}… is not our boundary "
+              f"root {br[:16]}… at {bc} — settling bare", flush=True)
+        return None
+    globals()["_settle_publishing"] = time.time()         # hold the tip across publish AND submit (cleared after submit)
+    try:
+        blob = await asyncio.to_thread(lambda: json.dumps(bundle, separators=(",", ":"), sort_keys=True).encode())
+        meta = await asyncio.to_thread(DA.put, blob, DA_K, DA_N)
+        c = meta["commitment"]
+        try:
+            await da_announce(session, c)
+        except Exception:
+            pass                                          # best-effort: peers still fetch on demand
+    except Exception as e:
+        globals()["_settle_publishing"] = 0.0
+        print(f"[execnode] stwo settle ns={ns}: DA publish failed ({type(e).__name__}: {e}) — settling bare", flush=True)
+        return None
+    print(f"[execnode] stwo settle ns={ns}: span {sc}->{bc} PROVEN in {time.time() - t0:.1f}s "
+          f"({len(bundle['runs'])} VM run(s), {len(blob) / 1048576:.2f} MiB) → DA {c[:16]}…", flush=True)
+    return c, bc, br
+
+
 async def maybe_settle(session):
     """If enabled, post a `settle` of the current (cursor, state_root) to L1 — a bare bonded attestation,
     or (when the span conforms) a self-checking settle-with-proof. Only
@@ -1255,7 +1377,7 @@ async def maybe_settle(session):
                 # DID IT EVEN REACH THE PEERS? If not, no landing block can help — see
                 # SETTLE_PROPAGATION_GRACE_S. Checked once, after a grace period long enough for ordinary
                 # pull-gossip, and only for a DA-carried proof (an inline one propagates normally).
-                if (_pend.get("proof_da") and not _pend.get("prop_checked")
+                if ((_pend.get("proof_da") or _pend.get("stwo")) and not _pend.get("prop_checked")
                         and (time.time() - float(_pend.get("first_submitted") or 0)) > SETTLE_PROPAGATION_GRACE_S):
                     _pend["prop_checked"] = True
                     try:
@@ -1272,7 +1394,9 @@ async def maybe_settle(session):
                                     continue
                                 _pp = json.loads(await _r2.text())
                             _ptx = _pp.get("transaction_pool") if isinstance(_pp, dict) else (_pp or [])
-                            if any((t.get("data") or {}).get("proof_da") == _pend["proof_da"]
+                            # G8: a Stwo settle is found by its `stwo` commitment, as a DA proof is by `proof_da`
+                            _pkey = "stwo" if _pend.get("stwo") else "proof_da"
+                            if any((t.get("data") or {}).get(_pkey) == _pend[_pkey]
                                    for t in (_ptx or [])):
                                 _seen_by += 1
                         if _peers and _seen_by == 0:
@@ -1322,18 +1446,20 @@ async def maybe_settle(session):
                     # not a verification. THE INVARIANT IS UNCHANGED: a resubmission carries the proof or its DA
                     # commitment, never neither — construct_settle_tx with both None is a BARE settle, which would
                     # advance the justified tip past the span this proof extends.
-                    _rproof = None if _pend.get("proof_da") else _pend.get("proof")
+                    _rproof = None if (_pend.get("proof_da") or _pend.get("stwo")) else _pend.get("proof")
                     if (_held_for < SETTLE_RESUBMIT_MAX_S and _att < SETTLE_RESUBMIT_MAX
-                            and (_pend.get("proof_da") or _rproof) and _sc_now == int(_pend["pre_cursor"])):
+                            and (_pend.get("proof_da") or _pend.get("stwo") or _rproof)
+                            and _sc_now == int(_pend["pre_cursor"])):
                         try:
                             # An inline retry needs a runway: the tx IS the proof, so peers must receive ~9 MiB
                             # and verify it before any of them can include it. A DA-carried retry is ~8 KB and
                             # keeps the old latest+2.
                             _rtarget = (_h_now + SETTLE_INLINE_RESUBMIT_MARGIN) if _rproof is not None else target
                             _rtx = construct_settle_tx(keys, int(_pend["cursor"]), _pend["root"], _rtarget,
-                                                       ns=ns, proof=_rproof, proof_da=_pend.get("proof_da"))
+                                                       ns=ns, proof=_rproof, proof_da=_pend.get("proof_da"),
+                                                       stwo=_pend.get("stwo"))
                             _rd = _rtx.get("data") or {}
-                            if not (_rd.get("proof") or _rd.get("proof_da")):
+                            if not (_rd.get("proof") or _rd.get("proof_da") or _rd.get("stwo")):
                                 raise ValueError("a resubmission would carry no proof (a bare settle); refusing")
                             # Posted inline rather than through _submit(), which is defined further down
                             # this loop body. Same generous budget: L1 verifies a proof-carrying settle
@@ -1422,6 +1548,17 @@ async def maybe_settle(session):
                           f"would advance the justified tip past the span it proves, guaranteeing its "
                           f"refusal ('pre_root must extend the settled tip')", flush=True)
                 continue
+            # G8: A STWO-PROVEN SETTLE, from protocol.STWO_SETTLE_HEIGHT (below it _stwo_settle_bundle returns None at
+            # once and this loop is unchanged). Reached only past the holds above, so nothing of ours is in flight; the
+            # bundle then rides the same publish/submit/pending/resubmit pipeline a proof-carrying settle always used
+            # (_settle_publishing, _settle_pending), keyed on the `stwo` field. INVARIANT: every gate below that names
+            # `proof` / `proof_da` names `stwo_c` too — a hold that forgets the new field lets a bare settle walk the
+            # justified tip past the span this proves (the records-half-after-every-gate pattern).
+            stwo_c = None
+            if proof is None:
+                _sw = await _stwo_settle_bundle(session, ns, st, cur, int(latest["block_number"]))
+                if _sw is not None:
+                    stwo_c, _stwo_cur, _stwo_root = _sw
             # REFRESH THE DEADLINE AFTER PROVING. `target` was computed before this loop, and building a
             # proof takes MINUTES — long enough for max_block to fall into the past, which L1 rejects as
             # expired. Observed live 2026-08-03: the 97.45 MiB proof was refused for size (expected) and
@@ -1552,7 +1689,7 @@ async def maybe_settle(session):
                 # under TX_LANDING_WINDOW (360), so a tx admitted against a slightly-behind peer still fits.
                 _has_records = bool(isinstance(proof, dict) and proof.get("records"))
                 _margin = ((SETTLE_PROOF_RECORDS_TX_MARGIN if _has_records else SETTLE_PROOF_TX_MARGIN)
-                           if (proof is not None or proof_da) else 12)
+                           if (proof is not None or proof_da or stwo_c) else 12)
                 target = int(_fresh2["block_number"]) + _margin
             except Exception:
                 pass                                       # keep the old deadline rather than skip the settle
@@ -1567,7 +1704,9 @@ async def maybe_settle(session):
             # on identical (cursor, root) every epoch. Proof settles keep the live cursor — the proof's
             # span endpoints must match what is attested. Already-attested boundaries are skipped
             # (nothing new to say; saves a duplicate tx per SETTLE_EVERY tick).
-            if proof is None:
+            if proof is None and stwo_c is not None:
+                cur, root = _stwo_cur, _stwo_root          # the boundary pair the bundle proves (never attested yet)
+            elif proof is None:
                 _bcs = [c for c in st.boundary_roots if c <= cur]
                 if _bcs:
                     _bc = max(_bcs)
@@ -1575,7 +1714,7 @@ async def maybe_settle(session):
                     if st.attested.get(_bc) == _br:
                         continue
                     cur, root = _bc, _br
-            tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da)
+            tx = construct_settle_tx(keys, cur, root, target, ns=ns, proof=proof, proof_da=proof_da, stwo=stwo_c)
             if proof is not None:
                 # SIZE IS THE BINDING CONSTRAINT, so measure it rather than infer it. A settle carries one
                 # proof PER SEGMENT and segments are block-aligned, so the payload grows with the span —
@@ -1608,7 +1747,7 @@ async def maybe_settle(session):
                 #
                 # Only the proof-carrying path needs the longer budget; a bare attestation is a few hundred
                 # bytes and must keep the short one so an unresponsive L1 cannot stall the settle loop.
-                _carries_proof = bool((_tx.get("data") or {}).get("proof")
+                _carries_proof = bool((_tx.get("data") or {}).get("proof") or (_tx.get("data") or {}).get("stwo")
                                       or (_tx.get("data") or {}).get("proof_da"))
                 _budget = SETTLE_SUBMIT_TIMEOUT_PROOF if _carries_proof else 15
                 # TIME THE SUBMIT. This budget has never been measured for a records-bearing proof — the
@@ -1671,7 +1810,7 @@ async def maybe_settle(session):
             # minutes of proving CPU each time. Retrying the SAME (cursor, root) bare keeps the chain
             # settling while the prover runs in production, which is what makes unconditional proving safe
             # to enable before DA transport lands.
-            if proof is not None and not (isinstance(out, dict) and out.get("result")):
+            if (proof is not None or stwo_c is not None) and not (isinstance(out, dict) and out.get("result")):
                 _why = (out or {}).get("message") if isinstance(out, dict) else out
                 # Re-derive the deadline again: the refused submit itself cost a round trip, and on a
                 # 97 MiB body that is not instant.
@@ -1686,6 +1825,7 @@ async def maybe_settle(session):
                       f"{'accepted' if isinstance(out, dict) and out.get('result') else 'also refused'}. "
                       f"L1 said: {str(_why)[:160]}", flush=True)
                 proof = None
+                stwo_c = None
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
                 # REMEMBER WHAT WE ATTESTED. The self-disqualification check above compares L1's justified
@@ -1720,8 +1860,9 @@ async def maybe_settle(session):
                 # monitor grepping "SETTLE-WITH-PROOF" could never match it. Third instrumentation blind
                 # spot of the day, same shape as the missing BUILT line and the case-sensitive grep.
                 _kind = ("-WITH-PROOF" if proof is not None else
-                         "-WITH-DA-PROOF" if proof_da else "")
-                _via = f" proof_da={proof_da}" if proof_da else ""
+                         "-WITH-DA-PROOF" if proof_da else
+                         "-WITH-STWO-PROOF" if stwo_c else "")
+                _via = f" proof_da={proof_da}" if proof_da else (f" stwo={stwo_c}" if stwo_c else "")
                 print(f"[execnode] SETTLE{_kind} ns={ns} cursor {cur} "
                       f"root {root[:16]}…{_via} → L1", flush=True)
             else:
@@ -1736,7 +1877,8 @@ async def maybe_settle(session):
             # while `proof_da` stays set, so testing those would register a hold for a bare attestation
             # that nothing is waiting on.
             _txd = (tx or {}).get("data") or {}
-            if isinstance(out, dict) and out.get("result") and (_txd.get("proof") or _txd.get("proof_da")):
+            if isinstance(out, dict) and out.get("result") and (_txd.get("proof") or _txd.get("proof_da")
+                                                                 or _txd.get("stwo")):
                 try:
                     _mb = int((tx or {}).get("max_block") or target)
                 except Exception:
@@ -1754,7 +1896,9 @@ async def maybe_settle(session):
                 # (see the resubmit branch). None for a DA-carried one, which retries by its commitment.
                 _settle_pending[ns] = {"cursor": cur, "max_block": _mb, "root": root,
                                        "proof_da": _txd.get("proof_da"), "pre_cursor": -1,
-                                       "proof": None if _txd.get("proof_da") else _txd.get("proof"),
+                                       "stwo": _txd.get("stwo"),
+                                       "proof": (None if (_txd.get("proof_da") or _txd.get("stwo"))
+                                                 else _txd.get("proof")),
                                        "attempts": 1, "first_submitted": time.time()}
                 # `pre_cursor` is the justified tip this proof EXTENDS. The resubmit path is only sound
                 # while that is still the tip — the proof pins pre_root to it — so it is recorded rather

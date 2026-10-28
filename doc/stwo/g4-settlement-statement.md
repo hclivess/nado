@@ -459,8 +459,65 @@ Verify is faster without the recomputed commitment (79 real calls: 124 to 53 ms;
 - an honest proof verifies through ctypes, and forged statements and proof bytes are refused;
 - `settle_b2.verify_span` with no prover binary verifies a real span on the exec node's root.
 
-**Next:**
-1. L1's side: the Chain inputs from L1's own state (the accrual inputs and carry are derived there already, for the
-   gen-28 records binding; chain reads through `ExecState.exec_beacon_at` and the block-hash ring rule), and the
-   settle-tx format and branch behind the settlement gate. The native verifier is done (above).
-2. The shadow run on a schedule for the two weeks (an operator job: it needs the go-ahead), with the results reported.
+**G8's L1 side, built DORMANT (2026-10-28).** `protocol.STWO_SETTLE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 29 else 1`.
+Below it nothing the live chain does changes (both replays of blocks 0..10533 IDENTICAL); from it:
+
+- **The settle field.** A `settle` may carry `stwo`: the DA commitment of the bundle (witness ~50 KB plus, when the span
+  has calls, a ~1.2 MB VM proof, ~2.3 MiB as JSON — far over the 64 KiB transaction cap, so it always rides DA, k-of-n,
+  like the deleted Goldilocks `proof_da`). `proof` / `proof_da` stay refused at every height. Below the gate `stwo` is
+  refused ("a settle carries no Stwo proof below STWO_SETTLE_HEIGHT"). That refusal is itself a tightening: until this
+  release a settle's `data` keys were not constrained, so a bonded validator's settle carrying `stwo` was accepted and the
+  key ignored. No such settle exists in blocks 0..10533 (both replays IDENTICAL), but during the update wave an updated
+  node refuses one an older node accepts — a bonded validator could split the wave with one (CLAUDE.md rule 3).
+- **Validation** (`ops/transaction_ops._stwo_settle_check`), the checks of the deleted branch that are not
+  Goldilocks-specific: the default namespace only; the span EXTENDS the justified settled tip exactly (the replay starts
+  from `latest_settled`, never from a pre-state the prover names; the first settlement of a namespace is by quorum);
+  non-empty, at most `SETTLE_PROOF_MAX_SPAN` blocks, wholly below the carrying block; the blocks are L1's own
+  (`block_ops.get_block_number`), never the transaction's; `settle_b2.verify_span` with the Chain L1 derives itself; the
+  proven post root must be the settle's `state_root`. A blob not in DA, a span block or block hash this node does not hold,
+  a missing native verifier or an out-of-memory DEFER the block (`ProofUnavailable`), never reject it. A block more than
+  `FINALITY_DEPTH` below the known tip is judged on structure only (`SETTLE_PROOF_DEPTH_GATED`). The verdict is memoised
+  on (commitment, span, root, the block hash at the cursor, the rules) — the bytes and the chain context, never the
+  claims — so a pooled settle is verified once; node-local outcomes are never memoised. It runs in the validating thread
+  (mempool admission is already `asyncio.to_thread`), single-flight per bundle and one at a time process-wide.
+- **Apply** (`ops/account_ops`, the settle branch): a settle carrying `stwo` from the gate records
+  `settlement_proof_put`; revert `settlement_proof_del` (a refcount: the exact inverse). `settlement_justified` already
+  honours the marker, so the root is justified with no quorum.
+- **The Chain from L1's state** (`ops/settle_chain.py`), each rule the closed form of the exec node's bookkeeping for a
+  from-genesis node: BHASH(k) in block h is readable iff `max(0, h - 20000) <= k <= h - 1` (the ring keeps the newest
+  20,000 entries; block 0 is recorded); BEACON(e) in block h iff `lo <= e <= F` with `F = (h - 1) // 60`, `lo = 2`, or
+  `F - 4000` once that is positive, and every epoch of `[lo, e]` final at F under `ExecState.exec_beacon_at` with
+  `kv_ops.reveals_for_epoch` (a reveal for epoch x lands only in epoch x - 1, so L1's set is complete); accrual of E =
+  `(dividend_inflow_get(E), the committed epoch_weights_get(E), else weights_at_epoch(E))` — what `/get_open_weights`
+  serves the exec node; the carry at the span's start sc = the `dc` of the exec summary at block `(sc // 60) * 60`
+  (0 before the first boundary), and a missing summary or `dc` REFUSES the span. **Equality measured** on the live
+  chain, blocks 0..10533 (an L1 replay kept in a throwaway HOME against a from-genesis exec replay of the same blocks):
+  every BHASH window and value, every BEACON epoch from -1 to two past the final one at every block (961,410 reads), the
+  carry at every cursor and all 175 epochs' accrual inputs: zero differences, and the check reports a shifted window, a
+  shifted beacon height or a shifted carry.
+- **The exec node** (`execnode._stwo_settle_bundle`, in `maybe_settle` after the holds): from the gate it proves the span
+  from the justified tip to its newest unattested epoch boundary, from the stash at the tip, publishes the bundle to its
+  DA store and submits the settle with `stwo` through the existing publish hold, pending record and resubmit path. With
+  no `vm_settle` prover (`$NADO_STWO_VM_SETTLE`, default `~/.cache/nado-stwo-settle-target/release/vm_settle`), a span
+  with no contract call still proves; a span with calls, an unprovable span, a timeout or a DA failure settles bare.
+- **The shadow run checks the derivation too**: every span gains `chain_eq` (L1's Chain from `GET /settle_chain_inputs`
+  against `reference_chain`), with `chain_diff` naming any difference.
+
+**Known limit — the carry chain can break.** `loops/core_loop._accrual_effects` writes `dc` only at a boundary block whose
+records are derivable, and each boundary reads the previous one's `dc`. A boundary block holding a non-derivable tx (a
+`bridge_withdraw`, a shield, an xmsg, a call with value) therefore ends the chain for good, and from then on every Stwo
+settle is refused (the quorum still settles). All 175 boundaries of blocks 0..10533 carry `dc`, but a value-carrying
+call landing on a boundary block ends it. Writing `dc` at every boundary regardless of derivability is an L1-root change
+and needs its own gate, set before this one.
+
+**What the operator does to turn it on.**
+1. Install the shadow job (`deploy/units/nado-settle-shadow.service`, needs the explicit yes) and let it run two weeks:
+   every span `proven` and `chain_eq: true`, nothing `refused`, `mismatch` or `error`.
+2. Confirm every fleet node reports `native/stwo_settle` built (it is an optional crate; a node without it DEFERS blocks
+   carrying a Stwo settle until they are deep) and that the boundary carry chain is unbroken up to now.
+3. Measure the cadence, pick a height the `/update` wave reaches first (CLAUDE.md rule 3), set `STWO_SETTLE_HEIGHT` to it
+   (keyed `if CHAIN_GENERATION == 29`), push, and confirm `status_pool` uniform before it fires. Exec nodes that should
+   prove need the `vm_settle` binary built with the nightly (`tests/_stwo_settle_build.py`), and the RAM: an out-of-gas
+   call proves at ~19 GB.
+4. After the gate: proofs land (`SETTLE-WITH-STWO-PROOF` in the exec log, `kv_ops.settlement_proven`), and the L1 verify
+   time is measured on the slowest fleet node (the 9.5 exit test).
