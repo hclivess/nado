@@ -1,6 +1,7 @@
 """A BLOCK'S EXEC SUMMARY IS THE ONE GENERATION 29 COMMITTED — the call leaves and records-inert bit
 (execnode/calls_commit.py) and the records effects and dividend accrual (execnode/records_effects.py) that
-incorporate_block writes into the exec summaries in L1 `meta`, which feed the L1 state root.
+incorporate_block writes into the exec summaries in L1 `meta` (execsum rows: outside the L1 state root, inside every
+node's snapshot identity and the settle binding).
 
 G9 slice 4 moved both modules out of execnode/stark and cut away every Goldilocks part nothing on generation 29 runs.
 This pins that what remains answers EXACTLY as the pre-slice code did, on fixtures that reach every branch the summary
@@ -8,7 +9,8 @@ has (each call field, string and wide args, every code event, a namespace, a poi
 calls, every derivable recipient, the fail-closed cases, a block 0 carrying an entry, the accrual's carry and floor
 cases, epoch attribution). EXPECTED was computed by running the fixtures below against e70fa444 (execnode.stark.
 calls_commit / records_bind); the chain replay of blocks 0..10533 proved the same on the live chain. A change here is a
-change to the L1 state root: it rides a reroll or it forks the fleet.
+change every node must agree on: it rides a reroll or a gate. One pinned value moved since, at an input no block reaches
+(zero_with_call, the deleted cursor-0 narrow leaf: see t_every_leaf_is_the_wide_digest_even_at_cursor_0).
 
 Also carried over from the retired tests whose other subjects went with execnode/stark (test_calls_commit,
 test_da_binding, test_exec_summary_binding): string args never kill a summary, block_calls carries committed data only,
@@ -344,7 +346,7 @@ EXPECTED = json.loads(r"""
  "zero_with_call": {
   "calls": {
    "default": [
-    "1404006746375911435"
+    "78052930175966997136768056781816639245677767165791959407983252950882362478582"
    ]
   },
   "derivable": true,
@@ -361,13 +363,22 @@ def t_every_fixture_summarises_exactly_as_generation_29_committed():
     assert not bad and set(got) == set(EXPECTED), f"differs at {bad}: " + "; ".join(f"{k}: {got.get(k)}" for k in bad)
 
 
-def t_block_0_keeps_its_narrow_leaf_and_every_later_block_is_wide():
-    """the one input where the two leaf forms meet: genesis carries no entry, but the function still answers block 0 the
-    way it always did (one Goldilocks element) and every later height with the 256-bit digest"""
-    z = EXPECTED["zero_with_call"]["calls"]["default"][0]
-    assert int(z) < 2**64 and all(int(x) >= 2**64 for x in EXPECTED["kv"]["calls"]["default"])
+def t_every_leaf_is_the_wide_digest_even_at_cursor_0():
+    """The narrow gen-27 leaf (blake2b mod the Goldilocks prime) used to answer cursor < 1. EXPECTED["zero_with_call"] is
+    the only fixture that reached it (it was 1404006746375911435 on e70fa444) and the only one that moved when the branch
+    was deleted (2026-10-28): no real block reaches it. block_calls stamps cursor = the block's number; block 0 is
+    genesis.make_genesis's hard-coded empty list (pinned below) and is saved directly, never through block_summary;
+    betanet-10 measured (GETs over blocks 0..17846): genesis 0 transactions, 0 code events, 9 call blobs, all at h >= 1."""
+    import hashing
     one = {"cid": "c", "method": "m", "args": [], "cursor": 0}
-    assert CC.call_leaf(one) < 2**64 and CC.call_leaf(dict(one, cursor=1)) >= 2**64
+    for leaf_input in (one, dict(one, cursor=1)):
+        payload = ["call", "c", "m", "epoch", [], 0, leaf_input["cursor"], 0, 0]
+        assert CC.call_leaf(leaf_input) == int(hashing.blake2b_hash(["wide", payload]), 16)
+    assert all(int(x) >= 2**64 for x in EXPECTED["zero_with_call"]["calls"]["default"] + EXPECTED["kv"]["calls"]["default"])
+    import inspect
+    assert list(inspect.signature(CC._leaf_value).parameters) == ["payload"], "a leaf's form must not depend on its cursor"
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "genesis.py")).read()
+    assert "    block_transactions = []\n" in src, "genesis must carry no transaction (else block 0 reaches block_summary)"
 
 
 # ---- carried over: string args never kill a summary (test_calls_commit) --------------------------------------------

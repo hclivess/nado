@@ -1640,9 +1640,12 @@ def split_open_block_reward(reward: int):
 # tpm_enrol uniqueness keys and the settle / xmsg builders (a tx's own max_block), legacy_claim validation, the exec DA
 # deadline (genesis at h = 0), and height-0 block-signature messages / slash evidence judged at 0 or None. The raw-bytes
 # device key stays for devbind rows carried from betanet-8.
-#   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` kept in calls_commit.wide_binding (the narrow calldata
-#                                    binding answers only at cursor 0), shielded_wide.depth_at (a fresh exec state's
-#                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY)
+#   ZK hardening                     ZK_HARDEN_HEIGHT: `>= 1` was kept in calls_commit.wide_binding (the narrow calldata
+#                                    binding answered only at cursor 0), shielded_wide.depth_at (a fresh exec state's
+#                                    empty depth-12 pool until block 1) and stark.rules_for_height (0 -> RULES_LEGACY).
+#                                    All three are gone: stark and shielded_wide in G9 slices 4 and 5, and the cursor-0
+#                                    narrow leaf (calls_commit._leaf_value) on 2026-10-28 — unreachable, since block 0
+#                                    is genesis's empty transaction list and never runs block_summary.
 # GEN-28 GATES INLINED IN G9 (slice 3, gen 29): every `<h> if CHAIN_GENERATION == 28 else 1` gate is gone and its rule
 # is unconditional. Each group replayed the live betanet-10 chain through 7608 (L1 and exec roots) IDENTICAL to main.
 # `>= 1` (or its twin) survives only where height 0, cursor -1 or no height reaches the check:
@@ -2633,9 +2636,9 @@ DEVICE_ATTEST_EK_ROOTS_V2 = frozenset((
 #             Native on both sides (no AIR, no Rust kernel); execsum rows are outside the L1 root.
 # UNCONDITIONAL FROM BLOCK 1. ZK_HARDEN_HEIGHT was the gen-27 gate (dormant 2^62 there, 1 from gen 28); deleted after the
 # betanet-9 reroll. Proof rules carry it as stark.Rules.zk_harden (rules_for_height: on from height 1, off in the
-# RULES_LEGACY that height 0 gets). `>= 1` survives only where height 0 reaches the check — calls_commit.wide_binding (a
-# call or segment at cursor 0 keeps the narrow form) and shielded_wide.depth_at (the exec state at cursor -1 / 0 holds
-# the depth-12 pool, deepened when block 1 is applied) — so no verdict moved.
+# RULES_LEGACY that height 0 gets). `>= 1` survived only where height 0 reaches the check — calls_commit.wide_binding (a
+# call or segment at cursor 0 kept the narrow form) and shielded_wide.depth_at (the exec state at cursor -1 / 0 holds
+# the depth-12 pool, deepened when block 1 is applied) — so no verdict moved. Neither survives now (see the ledger line).
 
 # EXEC DA DEADLINE (audit 2026-09-25, HIGH "exec stall"). The exec tail resolves every DA-carried proof of a block before
 # mutating anything and, when one cannot be fetched, applies NOTHING and retries — all-or-nothing, so no node ever

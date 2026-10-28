@@ -59,8 +59,8 @@ DELETED = (
     "SETTLE_STAKE_FLOOR_HEIGHT", "EXEC_DA_DEADLINE_HEIGHT", "BLOCK_SIG_CHAIN_BIND_HEIGHT", "DIVIDEND_CARRY_EPOCH",
     "ADDRESS_FORMAT",        # `1 if == 27 else 2`: format 2 is unconditional (ADDRESS_CHECKSUM 4 / ADDRESS_LENGTH 50 are plain)
     "LEGACY_CLAIM_HEIGHT",   # the legacy claim is valid from block 1; `>= 1` kept at validation (mempool on a genesis tip)
-    "ZK_HARDEN_HEIGHT",      # `>= 1` kept where height 0 reaches: calls_commit._leaf_value (the cursor-0 narrow leaf);
-                             # shielded_wide.depth_at and stark.rules_for_height went in G9 slices 5 and 4
+    "ZK_HARDEN_HEIGHT",      # no `>= 1` site left: calls_commit._leaf_value's cursor-0 narrow leaf went 2026-10-28
+                             # (unreachable), shielded_wide.depth_at and stark.rules_for_height in G9 slices 5 and 4
     # G9 slice 3 (gen 29): every gen-28 gate, reroll value 1 — the rule is unconditional. `>= 1` survives only where
     # height 0 (or no height) reaches the check; protocol.py's GATE LEDGER names each site.
     "TPM_POOL_CHALLENGER_ACTS_HEIGHT", "TPM_POOL_V2_HEIGHT", "TPM_ENROL_V3_HEIGHT", "TPM_RETRY_OWNER_HEIGHT",
