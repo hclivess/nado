@@ -6,7 +6,8 @@ Win pays 2×, push refunds, a natural (2 cards = 21) pays 5:2. Ported from the d
 identical rules; the card model matches static/blackjack.js cardsAt (nadodapp chainResultAlg) — card rank/suit
 convention as static/cards.js:
 
-  card c ∈ 0..51 = alghash([seed(step) + g*64 + offset + i]) % 52 ; rank r = c%13 ; value r≤8→r+2,
+  card c ∈ 0..51 = LO32(H([seed(step) + g*64 + offset + i])) % 52 (H = the VM's BLAKE2s word hash, the sum wrapping
+  at 2^256) ; rank r = c%13 ; value r≤8→r+2,
   9≤r≤11→10 (J/Q/K), r=12→1 (ace, counts 11 when hard+10≤21). offsets: player 0, dealer up 16, hit gn,
   dealer draws 32+j. Cards persist as value+1 in pc[g*16+k] / dk[g*16+j] (per-index board fields).
 

@@ -31,7 +31,7 @@ const PICK_FRAMES = { bur: 1, burH: 1, remT: 1, minT: 1, thr: 1, artT: 1 };
 const GAIN_FRAMES = { remG: 1, minG: 1, wsh: 1, artG: 1 };
 
 // ---- hidden hands (commit-reveal) ------------------------------------------------------------------
-// The per-game SECRET lives only in this browser (localStorage). Its alghash commit rides open()/join();
+// The per-game SECRET lives only in this browser (localStorage). Its HASH commit (algHashn) rides open()/join();
 // at game end reveal() posts the secret and every client runs the exact verification replay.
 let hiddenWant = false;                                   // the "hidden hands" toggle for NEW games
 const SKEY = (g) => "nado_stormhold_secret_" + g;

@@ -43,37 +43,13 @@ def vm_mod():
     return 1 << 256
 
 
-INV32_FIELD = 18446744065119617026     # the Goldilocks inverse of 2^32 — the field-VM "exact hi half" idiom's
-                                       # constant, still in the SOURCE of the contracts port_inv32 rewrites
-
-
-def port_inv32(text):
-    """A v1 method's `x - lo32(x)` -> hi idiom, ported to the v2 word: `movi rA <inv 2^32> ; mul rB rA` (multiply the
-    exact multiple of 2^32 by the field inverse) becomes `movi rA 2^32 ; divmod rB rA` (divide it, exact on the 256-bit
-    word, which has no inverse of 2^32). For x < 2^64 — the secrets and genes the browser halves carry — hi is the same
-    value. DIVMOD writes its remainder (0) to r7: the caller has checked nothing after the split reads r7, and rB may not
-    be r7 (asserted). Every replacement is counted; a method that does not contain the idiom is refused, so a builder
-    cannot declare a port that does nothing."""
-    import re
-    pat = re.compile(r"movi (r\d) " + str(INV32_FIELD) + r"([^\n]*)\n(\s*)mul (r\d) \1\b")
-
-    def sub(m):
-        if m.group(4) == "r7":
-            raise ValueError("port_inv32: the multiply target is r7, which DIVMOD overwrites with the remainder")
-        return f"movi {m.group(1)} 4294967296{m.group(2)}\n{m.group(3)}divmod {m.group(4)} {m.group(1)}"
-    out, n = pat.subn(sub, text)
-    if n == 0:
-        raise ValueError("port_inv32: no `movi rA <inv 2^32> ; mul rB rA` idiom in this method")
-    return out
-
-
 def id_guard(reg="r0", limit=1 << 32, scratch=("r4", "r5")):
     """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
     instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:
         movi r4 <limit> ; mov r5 <reg> ; lt r5 r4 ; require r5
-    (`lt` expands to RANGE ; RANGE ; LT — an operand >= 2^62 reverts in RANGE, so the bound holds over
-    the whole field.) `scratch` (r4/r5 by default) must be registers the body WRITES before reading and that
-    hold no declared argument; a method with four or more arguments passes a higher pair. The guard
+    (`lt` is one LT, exact over the whole 256-bit word on zkvm2 — the field VM's RANGE ; RANGE ; LT expansion went
+    in G9 slice 3b — so the bound holds for any operand.) `scratch` (r4/r5 by default) must be registers the body
+    WRITES before reading and that hold no declared argument; a method with four or more arguments passes a higher pair. The guard
     WRITES both before reading either — a caller may preload up to eight registers through extra args (the
     ABI arg count is UX metadata, never enforced), so a guard must not assume a register is zero."""
     a, b = scratch
@@ -114,7 +90,7 @@ CARRY_PIN_FLOOR = 2          # the first new-chain block (or beacon epoch) a re-
 
 def carry_ids(slots: dict, cnt_slot: int, lst: int) -> list:
     """The ids a contract's own index lists (count at raw slot `cnt_slot`, ids at field `lst`, 0-indexed) — the only safe
-    way for a reroll hook to reach (field, id) slots: hashed keys are field elements whose high bits can fall in any
+    way for a reroll hook to reach (field, id) slots: hashed keys are 256-bit hash words whose high bits can fall in any
     field's range, so decoding a key's field from its value is never trusted."""
     return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
 

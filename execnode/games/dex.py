@@ -76,8 +76,8 @@ def build():
         m.require(m.in_asset() == 0)
         m.require(m.value() == 0)
         m.require(m.slot(AST, pid).get() == 0)         # id unused
-        # `!= 0`, never `> 0`: an asset id is a full field element and `lt` RANGE-reverts at 2^62, which
-        # would refuse most legitimate assets. EQ carries no range gate. (reserve.py, same trap.)
+        # `!= 0`, never `> 0`: an asset id is a full hash word, and on the gen-28 field VM `lt` RANGE-reverted at
+        # 2^62, which refused most legitimate assets. zkvm2's LT is exact; EQ is the same test. (reserve.py, same trap.)
         m.require(m.arg(1) != 0)
         m.slot(AST, pid).set(m.arg(1))
         cnt = m.set(m.slot(0, m.const(0)).get(), "cnt")

@@ -77,16 +77,16 @@ def build():
         m.require(vid > 0)
         m.require(vid < (1 << 32))                      # id is a slot key: field*2^32+vid. Without the
         # upper bound a vid >= 2^32 aliases onto another field's slots (cross-entity storage aliasing —
-        # a permissionless permanent lock). The `lt` macro RANGE-reverts >=2^62 and rejects [2^32,2^62).
+        # a permissionless permanent lock). The `lt` macro is exact over the 256-bit word, so every vid >= 2^32 fails it.
         m.require(_c(m, OWN, vid).get() == 0)          # vid unused
         m.require(m.in_asset() == 0)                   # the SEED is native; the asset is named, not sent
 
         # Args and ctx are LEAVES — re-materializing one costs an instruction, while parking it in a named
         # temp costs a register for the whole method. There are only six, so validate straight off the leaf.
-        # `!= 0`, NOT `> 0`. An asset id is a full field element, uniform in [0, P) with P ~ 2^64, but the
-        # `lt` macro RANGE-checks both operands and RANGE reverts at 2^62 (`_decomp62` — that bound is what
-        # makes a comparison unforgeable). So `arg(1) > 0` REVERTS for roughly three of every four assets,
-        # and the vault would have refused most of the tokens it exists to back. EQ carries no range gate.
+        # `!= 0`, NOT `> 0`. An asset id is a full hash word. On the gen-28 field VM the `lt` macro RANGE-checked
+        # both operands and RANGE reverts at 2^62, so `arg(1) > 0` REVERTED for roughly three of every four assets
+        # and the vault would have refused most of the tokens it exists to back. zkvm2's LT is exact over the
+        # 256-bit word, so that trap is gone, but EQ is the same test and keeps the deployed bytecode.
         # Rule: never order-compare a hash-derived value; only test it for equality.
         m.require(m.arg(1) != 0)                       # asset id
         m.require(m.arg(2) > 0)                        # supply

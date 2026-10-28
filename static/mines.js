@@ -19,11 +19,11 @@ const bg = new BankedGame(dapp, { icon: "💣" });
 let lastSto = null, mySeat = null, mines = 3, sel = [], watch = null;
 
 // ---- derivation (mirror of the contract — display only; resolve recomputes it on-chain) -------------
-// RESOLVE: q = seed + g (seed = BEACON(gb), or BHASH(gh) + BHASH(gh+1) for gb == 0), draw_i = LO32(alghash(q +
-// gp + i)) % (25 − gp − i). chainResultAlg(h0, h1, salt, mod) is exactly that with salt = g + gp + i; a beacon
+// RESOLVE: q = seed + g (seed = BEACON(gb), or BHASH(gh) + BHASH(gh+1) for gb == 0), draw_i = LO32(HASH(q +
+// gp + i)) % (25 − gp − i), HASH = the VM's BLAKE2s word hash. chainResultAlg(h0, h1, salt, mod) is exactly that with salt = g + gp + i; a beacon
 // seat passes the beacon hex as h0 and "0" as h1.
-// INVARIANT: this preview equals the contract's outcome for both seat kinds, because it is the same alghash over
-// the same field sum (mines.round_seed / resolve_hit is the Python reference).
+// INVARIANT: this preview equals the contract's outcome for both seat kinds, because it is the same HASH over
+// the same 2^256-wrapping sum (mines.round_seed / resolve_hit is the Python reference).
 function batchDraws(h0, h1, g, gp, count, N) {
   if (!h0 || !h1) return null;
   const draws = [];

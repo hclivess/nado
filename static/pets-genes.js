@@ -2,7 +2,7 @@
 // MUST stay byte-identical to the zkVM contract bytecode and its Python reference (execnode/games/pets.py:
 // ref_gene / ref_tier / ref_si / ref_stat / ref_train_* / ref_battle_turns / ref_battle_seed) — this module decides what
 // animal a player sees, its stats, training odds and battle outcomes, so it is differentially verified
-// against that reference. Field-native: every roll is roll32(x) = LO32(alghash(x)). No DOM, no fetch.
+// against that reference. Every roll is roll32(x) = LO32(HASH(x)), HASH = the VM's BLAKE2s word hash. No DOM, no fetch.
 import { algHashn, ALG_P } from "./nadodapp.js";
 
 // ---- constants (mirror tests/test_pets_contract.py) ------------------------------------------------
@@ -40,7 +40,7 @@ export const STAT_ROLES = [
   "regeneration (heals every turn)", "critical hits (double damage)",
   "turn share (attacks more often)", "bulk & bite (+HP, +damage). Food cost is fixed by the HATCHED appetite — training this is free muscle, it never raises your food bill"];
 
-// ---- the contract's roll window: roll32(x) = LO32(alghash HASH(x)) — every derived roll uses it ----
+// ---- the contract's roll window: roll32(x) = LO32(HASH(x)) — every derived roll uses it ----
 export const roll32 = (x) => Number(algHashn([x]) & 0xFFFFFFFFn);
 // THE ROLL TABLE (execnode/games/pets.py RT_BASE): from generation 29 the contract STORES every trait roll of a pet's
 // gene — roll32(gene + c) for c in ROLL_OFFSETS — and the view shows them as r<c>. A pet carried from gen 28 keeps its
@@ -58,8 +58,8 @@ export function rollsFrom(view, pid) {      // {c: roll} from the contract view'
 }
 const hexInt = (h) => BigInt("0x" + h);
 
-// gene = HASH( (BLOCKHASH(b) + BLOCKHASH(b+1) + petId) mod P ) — hashes (hex) from /exec/blockhash.
-// The full field element; the chain stores its 32-bit halves as gl/gh (JS floats can't carry it in JSON).
+// gene = HASH( (BLOCKHASH(b) + BLOCKHASH(b+1) + petId) mod 2^256 ) — hashes (hex) from /exec/blockhash.
+// The full 256-bit word; the chain stores its 32-bit halves as gl/gh (JS floats can't carry it in JSON).
 export function geneOf(bh0Hex, bh1Hex, pid) {
   if (!bh0Hex || !bh1Hex) return null;
   const p = ALG_P();

@@ -3,7 +3,7 @@
 // board; every shot is answered by revealing just that one cell + its 7-node path, which the contract checks
 // against your root — so nobody can lie about a hit/miss and nobody can hide ships (the same proof binds the
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
-// oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
+// oracle beyond the math — the VM's 256-bit BLAKE2s word hash (algHashn), byte-identical to the contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, confirmingLabel, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc, renderTopScores, modeBar, dailyFrame, BLOCK_TIME } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
@@ -20,7 +20,7 @@ const LS_G = "nado_bs_games";                  // gameId -> { role, board:[128],
 
 // ---- merkle client (MUST byte-match the zkVM contract, execnode/games/battleship.py):
 //   salt(seed,c) = H(1, seed, c) · leaf(c,ship,salt) = H(2, salt, 2c+ship) · node(L,R,s) = H(3, L, R, s)
-// where H = the in-VM alghash (field-native, domain-tagged, ordered absorption = position-binding). ----
+// where H = the in-VM HASH (BLAKE2s word hash, domain-tagged, ordered absorption = position-binding). ----
 const TAG_SALT = 1n, TAG_LEAF = 2n, TAG_NODE = 3n;
 const bitrev7 = (x) => { let r = 0; for (let i = 0; i < 7; i++) r = (r << 1) | ((x >> i) & 1); return r; };
 function buildTree(board, salts) {                     // board:128 (0/1), salts:128 (BigInt) -> {root, levels}

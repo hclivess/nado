@@ -3,7 +3,7 @@
 //
 //   card index c ∈ 0..51 :  rank = c % 13 (0="2" … 8="10", 9=J, 10=Q, 11=K, 12=A)
 //                           suit = c // 13 (0=♠ 1=♥ 2=♦ 3=♣) — hearts/diamonds render red
-//   chain draws are NOT computed here: a card a contract deals must be derived with the contract's own alghash
+//   chain draws are NOT computed here: a card a contract deals must be derived with the contract's own HASH
 //   (nadodapp.js chainResultAlg — see blackjack.js). The blake2b chainCards that used to live here was commented as
 //   "exactly the VM's HASH" and was not; it was deleted 2026-10-10. Do not add a blake2b draw back.
 

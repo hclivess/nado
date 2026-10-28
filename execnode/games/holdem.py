@@ -5,7 +5,7 @@ cards, deadline betting streets, and a FULL ON-CHAIN 7-CARD SHOWDOWN (straight f
 included) — differentially verified against the python reference in this module. No house, no dealer, no
 turn order.
 
-THE DEAL (dealer-less; roll32(x) = LO32(alghash(x)) is the shared window):
+THE DEAL (dealer-less; roll32(x) = LO32(H(x)) is the shared window, H = the VM's BLAKE2s word hash, sums wrap at 2^256):
     cards are ints 0..51: rank = c % 13 (0=deuce…12=ace), suit = c // 13
     draw(seed, slot, excl): a = 0,1,2,…  c = roll32(seed + slot*4096 + a) % 52, first c ∉ excl
     HOLE  hs = H(BEACON(tg)+x)  -> h0 = draw(hs,0,{}), h1 = draw(hs,1,{h0})              x = your SECRET
@@ -103,7 +103,7 @@ def hole_ref(bh0, bh1, x):
 
 
 def _board_from(base1, base2, base3, t):
-    """The board from each street's randomness base (already reduced mod P by the caller's convention)."""
+    """The board from each street's randomness base (already reduced mod 2^256, the VM word, by the caller)."""
     e1 = _lib.vm_hash([(base1 + t) % _lib.vm_mod()])
     b0 = draw(e1, 0, ()); b1 = draw(e1, 1, (b0,)); b2 = draw(e1, 2, (b0, b1))
     e2 = _lib.vm_hash([(base2 + t) % _lib.vm_mod()])

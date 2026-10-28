@@ -9,12 +9,13 @@ nobody can hide ships (the same proof binds the subtree ship-count, and the full
 requires it to reproduce the committed root with exactly 17 ship cells — a scattered/overlapping cheat can
 never claim (and the loser then takes the pot via forfeit()).
 
-Field-native crypto (this port): hashes are alghash field elements, domain-separated by a leading tag —
+In-VM crypto: hashes are the VM's 256-bit BLAKE2s word hash (zkvm2.hash_words), domain-separated by a leading tag —
     salt(seed, c)          = H(1, seed, c)
     leaf(c, isShip, salt)  = H(2, salt, 2c + isShip)
     node(L, R, sum)        = H(3, L, R, sum)        (ordered absorption -> position-binding)
 Leaves sit at bit-reversed positions (pos = bitrev7(cell)) so a proof's sibling SUMS cover scattered cells,
-leaking nothing about ship shapes. The browser mirrors these three lines with the same alghash (alghash.js).
+leaking nothing about ship shapes. The browser mirrors these three lines with the same hash (nadodapp algHashn ->
+blake2s.js hashWords).
 
 This is the ARG-bus showcase: answer(g, isShip, salt, sib0,ss0..sib6,ss6) takes 17 args and
 claim(g, a0,o0..a4,o4, seed) takes 12 — both impossible under the old 8-register ABI.

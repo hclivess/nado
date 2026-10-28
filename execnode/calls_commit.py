@@ -3,49 +3,54 @@ THE EXEC SUMMARY'S CALL LEAVES (settle-with-proof binding, doc/zk-recursion.md 5
 
 incorporate_block derives, from every block body, the ORDERED execution entries its `blob` txs carry (block_calls: the
 calls, and from EXEC_ROOT_V2_HEIGHT the code events), one 256-bit leaf per entry (call_leaf / event_leaf), and the
-records-inertness bit (block_records_inert). block_summary returns them; they persist in the exec summaries in L1 `meta`,
-which FEEDS THE L1 STATE ROOT — so every function here is consensus and must stay byte-identical on replay.
+records-inertness bit (block_records_inert). block_summary returns them; they persist in the exec summaries in L1 `meta`
+(`execsum:<h>`). Those rows are EXCLUDED from the L1 state root (snapshot_ops.ROOT_EXCLUDED_META_PREFIXES: their
+retention/rollback path once forked it) but CARRIED in the snapshot payload, so they are in every node's snapshot
+identity (state_digest / agree_snapshot), and the Stwo settlement (fold_leaves_b2, dormant until STWO_SETTLE_HEIGHT)
+binds its spans to them — every function here must stay byte-identical on replay, and a change to a leaf's value is a
+fleet-agreement change that rides a reroll or a gate.
 
 G9 slice 4 moved this module out of execnode/stark and deleted the Goldilocks parts no generation-29 path runs: the
 narrow alghash chain, the wide alghash2 chain and every settle-binding verifier that folded them (their caller, the
 Goldilocks settle-proof verifier, went in slice 2), io_commitment and the in-circuit membership demo. What gen 29 runs
 is the leaves, the inert bit, and the BLAKE2s calls fold for the Stwo settlement (fold_leaves_b2).
 
-THE LEAVES ARE WIDE FROM HEIGHT 1 (audit 2026-09-24/25 HIGH, "settle calldata binding is ONE field element"; gen 27's
-ZK_HARDEN_HEIGHT, 1 from gen 28): a leaf is the full 256-bit blake2b digest of the entry's canonical payload,
-domain-tagged "wide". The narrow leaf (blake2b % P, one Goldilocks element) still answers cursor < 1, exactly as before:
-block 0 (genesis) carries no transaction, so no persisted leaf was ever narrow, but the function keeps its answer at every
-input rather than rest that on an argument.
+EVERY LEAF IS WIDE (audit 2026-09-24/25 HIGH, "settle calldata binding is ONE field element"; gen 27's ZK_HARDEN_HEIGHT,
+1 from gen 28): a leaf is the full 256-bit blake2b digest of the entry's canonical payload, domain-tagged "wide". Until
+2026-10-28 the narrow gen-27 leaf (blake2b mod the Goldilocks prime) still answered cursor < 1; that input is unreachable
+— block_calls stamps cursor = the block's number, and block 0 is genesis.make_genesis's hard-coded empty transaction list
+(measured on betanet-10: 0 transactions), which never runs block_summary — so the branch was deleted with no persisted
+leaf changing (tests/test_a_blocks_exec_summary_is_the_one_generation_29_committed.py).
 """
 from hashing import blake2b_hash
 
-# The Goldilocks prime (execnode/stark/field.P until G9 slice 4), kept ONLY as a reduction inside frozen leaf formats: the
-# code commitment an event leaf hashes, and the narrow leaf of cursor < 1. Both persist in the exec summaries (L1 state
-# root), so the values must stay exactly what they were. Not a field: no arithmetic happens in it any more.
+# The Goldilocks prime (execnode/stark/field.P until G9 slice 4), kept ONLY as the reduction inside one frozen format:
+# the code commitment an event leaf hashes (code_commitment below). Every deploy/upgrade event's leaf carries it, and
+# those leaves persist in the execsum rows (snapshot identity, settle binding), so its value must stay exactly what it was
+# until a reroll (or a gate keyed on the event's cursor) retires it. Not a field: no arithmetic happens in it any more.
 _P_GOLDILOCKS = 2**64 - 2**32 + 1
 
 
-def _leaf_value(payload, cursor):
-    """A leaf's stored value. From cursor 1: the WHOLE 256-bit blake2b digest of ["wide", payload] as one int. INVARIANT
-    (audit 2026-09-24/25 HIGH, one-element calldata binding): never reduce or truncate a wide leaf — a 64-bit leaf is a
-    ~2^32 birthday search for a second calldata with the same binding. Below cursor 1 (genesis, which carries no entry):
-    the narrow blake2b % P it always was (the `>= 1` is the deleted gate's value, ZK_HARDEN_HEIGHT)."""
-    if int(cursor) < 1:
-        return int(blake2b_hash(payload), 16) % _P_GOLDILOCKS
+def _leaf_value(payload):
+    """A leaf's stored value: the WHOLE 256-bit blake2b digest of ["wide", payload] as one int. INVARIANT (audit
+    2026-09-24/25 HIGH, one-element calldata binding): never reduce or truncate a leaf — a 64-bit leaf is a ~2^32
+    birthday search for a second calldata with the same binding. (The narrow cursor-0 form was deleted 2026-10-28: no
+    block that runs block_summary has cursor < 1.)"""
     return int(blake2b_hash(["wide", payload]), 16)
 
 
 def code_commitment(code):
     """The code commitment an event leaf carries (exec_state_bind.code_commitment until G9 slice 4, value for value): a
-    NONZERO int in [1, P) committing to a contract's code map {method: bytecode}, canonical (sorted method order via
-    canonical_bytes) so every node commits the same value for the same code."""
+    NONZERO int in [1, P) (P the Goldilocks prime — a frozen reduction, see _P_GOLDILOCKS) committing to a contract's
+    code map {method: bytecode}, canonical (sorted method order via canonical_bytes) so every node commits the same value
+    for the same code. FROZEN: every gen-29 deploy/upgrade leaf hashes this value."""
     from hashing import canonical_bytes
     n = int(blake2b_hash(["code", canonical_bytes(code).hex()]), 16)
     return 1 + (n % (_P_GOLDILOCKS - 1))
 
 
 def call_leaf(call, cursor=0, timestamp=0):
-    """A field element committing to ONE call's PUBLIC fields (cid, method, caller, args, value, cursor,
+    """A 256-bit int committing to ONE call's PUBLIC fields (cid, method, caller, args, value, cursor,
     timestamp) — the leaf the calls-commitment chains. Deterministic; a verifier recomputes it from the call.
     cursor/timestamp come from the CALL dict when present (per-call execution context, the DA-binding form),
     else from the passed epoch-wide defaults (the legacy single-context form). Identical bytes on every layer:
@@ -60,16 +65,16 @@ def call_leaf(call, cursor=0, timestamp=0):
     payload = ["call", str(call.get("cid", "")), str(call.get("method", "")),
                str(call.get("caller", "epoch")), [_arg_field(a) for a in call.get("args", [])],
                int(call.get("value", 0)), cur, ts, _asset_field(call.get("asset", 0))]
-    # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): from height 1 the leaf is the full 256-bit
-    # digest (_leaf_value), keyed on the call's own cursor — the L1 height block_calls stamps.
-    return _leaf_value(payload, cur)
+    # INVARIANT (audit 2026-09-24/25 HIGH, one-element calldata binding): the leaf is the full 256-bit digest
+    # (_leaf_value); the call's own cursor — the L1 height block_calls stamps — is inside the payload.
+    return _leaf_value(payload)
 
 
 EVENT_OPS = ("deploy", "upgrade", "lock", "transfer_contract")   # the blob ops that change a contract's code or meta leaves
 
 
 def event_leaf(ev):
-    """A field element committing to ONE code event's public fields (EXEC_ROOT_V2_HEIGHT, S1): the op, the
+    """A 256-bit int committing to ONE code event's public fields (EXEC_ROOT_V2_HEIGHT, S1): the op, the
     sender, the target cid (or the deploy's fixed name and nonce), the CODE COMMITMENT of the decoded code the
     exec layer will apply (not the codez bytes — two encodings of one code are one code), the runtime, the
     lock flag or the transferee, and the block. Chained with call_leaf in tx order, so a settle proof's
@@ -82,9 +87,9 @@ def event_leaf(ev):
                str(ev.get("at") or ""), str(ev.get("nonce") or ""), int(cc),
                "" if rt is None else str(rt), 1 if ev.get("upgradable", True) else 0, str(ev.get("to") or ""),
                int(ev.get("cursor", 0)), int(ev.get("timestamp", 0))]
-    # INVARIANT (audit 2026-09-24/25 HIGH): wide from height 1, exactly as call_leaf — an event leaf rides the same
-    # chain, so a 64-bit event leaf would reopen the same collision.
-    return _leaf_value(payload, int(ev.get("cursor", 0)))
+    # INVARIANT (audit 2026-09-24/25 HIGH): wide, exactly as call_leaf — an event leaf rides the same chain, so a 64-bit
+    # event leaf would reopen the same collision.
+    return _leaf_value(payload)
 
 
 def entry_leaf(entry, cursor=0, timestamp=0):
@@ -95,9 +100,10 @@ def entry_leaf(entry, cursor=0, timestamp=0):
 
 def _asset_field(a):
     """A call's `asset` context as the canonical int the exec statement commits (int(call.asset); 0 == native
-    NADO). Asset ids are decimal-string alghash2 digests, so int() is exact; an unparseable value maps to 0 —
-    it could not have named a real asset (the VM reads asset % P and a non-asset call reverts), and this
-    function, like _safe_int, must never be the reason a block has no summary."""
+    NADO). Asset ids are decimal strings of the VM's 256-bit BLAKE2s word hash (state.asset_id = zkvm2.hash_words
+    over the issuer digest and seed), so int() is exact; an unparseable value maps to 0 — it could not have named a
+    real asset (the VM reads the asset mod 2^256 and a non-asset call reverts), and this function, like _safe_int,
+    must never be the reason a block has no summary."""
     if isinstance(a, bool):
         return 0
     try:
@@ -107,7 +113,7 @@ def _asset_field(a):
 
 
 def _arg_field(a):
-    """One call arg in the SAME field form the VM boundary gives it (runtimes.zkvm_statement): ints pass
+    """One call arg in the SAME word form the VM boundary gives it (runtimes.zkvm_statement): ints pass
     through, strings are digested.
 
     A bare int() here crashed on every legal string arg — and because block_summary derives the leaves for a

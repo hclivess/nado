@@ -6,7 +6,8 @@ on a built-in marketplace (list/buy + escrowed offers), and fights consent-based
 winner's owner CLAIMS the loser. Fees (mint/food/train) are BURNED — accumulated on the contract's own
 balance with no code path that can ever pay them out, publicly tallied in slot 1.
 
-Chain-random formulas (field-native; the browser mirrors them via alghash.js — see static/pets-genes.js):
+Chain-random formulas (H = the VM's BLAKE2s word hash, sums wrap at 2^256; the browser mirrors them via nadodapp
+algHashn -> blake2s.js hashWords — see static/pets-genes.js):
     gene    = H(bh(b) + bh(b+1) + pid)                        b = mint cursor + 2
     roll(x) = LO32(H(x))                                      (the 32-bit window every derived roll uses)
     tier sp = 1 + Σ(roll(gene+555) % 100000 >= T)  T ∈ {78000,95000,98900,99750,99960}   (6 tiers,
@@ -25,7 +26,7 @@ Chain-random formulas (field-native; the browser mirrors them via alghash.js —
     reroll  = affixes salted BEACON(irp) + irp + itemId, irp pinned by the paid reroll call — see REROLL
 
 Pet fields (key = pid < 2^32): 1(slot: global burn tally) · 2 ow 3 bh 4 gn 5 gl 6 gh (gene + its lo/hi
-  32-bit halves — JS floats can't hold a field element) 7 sp 8 si 9 ap 10 pw 11 fu 12 tf 13 ex 14 nm
+  32-bit halves — JS floats can't hold a 256-bit word) 7 sp 8 si 9 ap 10 pw 11 fu 12 tf 13 ex 14 nm
   15 th 16 ti 17 tr 18 mp 19 wins 20 loss. Trained bonus per stat: field 30+i (i 0..9) keyed pid.
 Offers (key = offerId): 40 ob 41 op 42 ov 43 os. Battles (key = bid): 50 wa 51 wb 52 ws 53 wp 54 wh
   55 wn 56 ww 57 wd 44 wx1 45 wx2 46 wr1 47 wr2 48 wm 49 wrd 58 wc1 59 wc2 (commit-reveal). Indexes: pets (cnt slot 0, list field 60) · offers (cnt slot 2, list field 61) ·
@@ -240,7 +241,7 @@ def _hatch():
     L += _sl(BH) + ["sload r5 r4", "bhash r3 r5", "movi r6 1", "add r5 r6", "bhash r6 r5",
                     "add r3 r6", "add r3 r0", "hash r3 <- r3"]
     L += _sl(GN) + ["sstore r4 r3"]
-    # gl/gh: exact 32-bit halves for the browser (JS floats can't carry a field element)
+    # gl/gh: exact 32-bit halves for the browser (JS floats can't carry a 256-bit word)
     L += ["mov r5 r3", "lo32 r5"] + _sl(GL) + ["sstore r4 r5"]
     # the 256-bit word has no inverse of 2^32 (it is not odd): gh = the gene's NEXT 32 bits by a full-width divide, kept
     # 32-bit so the browser can still carry it; the whole gene is in GN for clients reading 256-bit values
@@ -495,7 +496,7 @@ RELEASE = "\n".join(
     + _sl(MP) + ["movi r5 0", "sstore r4 r5", "ret r0"])
 
 # challenge(bid, myPet, theirPet, commit)[stake]: issue a COMMIT-REVEAL battle. `commit` = HASH(secret), the
-# challenger's half of the battle seed (static/pets.js: algHashn([secret]), the same in-VM HASH holdem uses).
+# challenger's half of the battle seed (static/pets.js: algHashn([secret]), the same in-VM BLAKE2s HASH holdem uses).
 # INVARIANT: every battle issued from this code is wm == 1 with a nonzero commitment, because the call reverts on
 # commit == 0 — a new battle can never fall back to the block-hash seed a block producer could choose.
 CHALLENGE = "\n".join(
@@ -703,7 +704,7 @@ def _resolve_battle():
                              "lt r5 r6", "mul r5 r3", "add r3 r5"]
         # wisdom mitigation: dmg = dmg*90 // (90 + def(4))
         L += ["movi r5 90", "mul r3 r5"] + dfn(4, "r6") + ["movi r5 90", "add r6 r5", "divmod r3 r6"]
-        # charisma: dmg = max(1, dmg - def(5)//2) — compute (dmg-cha2)·(dmg>=cha2) (the field wrap of a
+        # charisma: dmg = max(1, dmg - def(5)//2) — compute (dmg-cha2)·(dmg>=cha2) (the 2^256 wrap of a
         # negative difference is killed by the ×0 gate), then bump an exact 0 to 1
         L += dfn(5, "r6") + ["movi r5 2", "divmod r6 r5",
                              "mov r5 r3", "lt r5 r6", "notb r5",                 # ge = dmg >= cha2
@@ -711,8 +712,8 @@ def _resolve_battle():
                              "mov r5 r3", "movi r6 1", "lt r5 r6",               # became 0 -> force 1
                              "add r3 r5"]
         # cap dmg at HP_OFF so a lethal hit can't underflow the +HP_OFF-shifted HP (trained str/app can push
-        # raw dmg past 1024 -> the shifted HP wraps to ~p and every later LT reverts, bricking resolve_battle).
-        # dmg -= (dmg - OFF)·(OFF < dmg); the field wrap of a negative diff is killed by the ×0 gate.
+        # raw dmg past 1024 -> the shifted HP wraps to ~2^256 and every later LT reverts, bricking resolve_battle).
+        # dmg -= (dmg - OFF)·(OFF < dmg); the 2^256 wrap of a negative diff is killed by the ×0 gate.
         L += ["mov r5 r3", f"movi r6 {HP_OFF}", "lt r6 r5", f"movi r4 {HP_OFF}", "sub r5 r4", "mul r5 r6", "sub r3 r5"]
         # dmg *= hit * alive ; apply to the defender's shifted HP
         L += [f"movi r4 {_bsl(_IDX)}", "sload r5 r4", "mul r3 r5", "mul r3 r1"]
@@ -1410,7 +1411,7 @@ def carry_rebase(storage, tip):
     a string here made the carried genesis root unprovable (review 2026-10-11).
     INVARIANT: only (field, id) slots found through the contract's own indexes are touched — pets (cnt 0, PLIST),
     battles (cnt WCNT_SLOT, WLIST), buildings (cnt BCNT_SLOT, BLIST), items (cnt ICNT_SLOT, ILIST) — because hashed
-    keys (resource balances, gear) are field elements whose high bits could fall in a height field's range."""
+    keys (resource balances, gear) are 256-bit hash words whose high bits could fall in a height field's range."""
     from protocol import EPOCH_LENGTH
     tip = int(tip)
     etip = tip // EPOCH_LENGTH

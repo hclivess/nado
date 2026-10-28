@@ -5,7 +5,7 @@
 // with the greatest total distance wins, and its backers split the whole pot pro-rata. No house, no oracle:
 // genes come from a block mined BEFORE betting closes (public), the run from blocks mined AFTER (unknown to
 // every bettor) — so you read form + the live tote, exactly like a racetrack. The client mirrors the
-// contract's alghash math (algHashn) to show genes and animate the run; the contract is the authority.
+// contract's hash math (algHashn: the VM's BLAKE2s word hash) to show genes and animate the run; the contract is the authority.
 // Contract: execnode/games/hamster.py.
 import { Book } from "./bookgame.js";
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, confirmingLabel, blocksToTime, wireWallet, stickyInputs, renderWallet, renderTopScores, recentChips, loadQR, resolveAliases, disp, share, shareInvite, algHashn, ALG_P, esc, modeBar, dailyFrame, BLOCK_TIME } from "./nadodapp.js";
@@ -53,7 +53,7 @@ function geneOf(race, lane) {
   const bits = g >> 32n;
   return { lane, speed, name: NAMES[Number(bits % BigInt(NAMES.length))], coat: COATS[Number((bits >> 8n) % BigInt(COATS.length))] };
 }
-// geneRaw: alghash(BLOCKHASH(gh), lane) — null until the gene block hash is cached.
+// geneRaw: HASH(BLOCKHASH(gh), lane) — null until the gene block hash is cached.
 function geneRaw(race, lane) {
   if (!lastRace || !lastRace.gh) return null;
   const h = dapp.bh(lastRace.gh); if (!h) return null;

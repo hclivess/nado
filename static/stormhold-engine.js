@@ -4,7 +4,7 @@
 // headless-testable (browser + node). The contract (execnode/games/stormhold.py) is only
 // an escrow + ordered move log; THIS module is the referee: it replays the on-chain log into a complete
 // game state, enforcing every rule. Randomness (every shuffle) comes from L1 block hashes pinned by the
-// contract per move — blake2bInt(bh(rh)+bh(rh+1)+salt+i), computed only by browsers (not the VM's alghash) — so both
+// contract per move — blake2bInt(bh(rh)+bh(rh+1)+salt+i), computed only by browsers (not the VM's HASH) — so both
 // players' browsers derive byte-identical kingdoms, decks and draws, and nobody (including the mover, who
 // signed before the seed block existed) can rig a shuffle.
 //
@@ -42,8 +42,8 @@
 //   tr2  (auto — Echo's second play; resolves itself, never needs input)
 import { blake2bHash } from "./nadotx.js";
 
-// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is alghash —
-// nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
+// blake2bInt: blake2b of the canonicalized value, as a BigInt. This is NOT the zkVM's HASH (that is the VM's BLAKE2s word
+// hash — nadodapp.js chainResultAlg / algHashn) and nothing here has to match a contract: the contract is an escrow + move log and this
 // engine is the referee every browser runs, so the players only need to agree with EACH OTHER. It was
 // named `H` and described as "the VM's HASH"; renamed 2026-10-10 so nobody copies it into contract-matching code.
 // Changing the hash would re-deal every game in progress, so the function itself is unchanged.
@@ -93,7 +93,7 @@ const SKIP = 4095;   // "may" sentinel for index-pick frames (Echo / Refinery)
 
 // ---- HIDDEN HANDS (commit-reveal privacy) ---------------------------------------------------------------
 // A hidden game derives each player's shuffle stream from a SECRET only their browser knows (committed as
-// alghash(secret) on-chain at open/join, revealed at game end — the poker model). The engine then runs in one of
+// HASH(secret) on-chain at open/join, revealed at game end — the poker model). The engine then runs in one of
 // three modes, sharing this one code path:
 //   open  (st.hidden falsy)          — classic public game, exactly as before
 //   pov   (st.hidden, st.pov = 0|1)  — MY zones exact (my secret mixed into my q stream); the opponent's
@@ -593,7 +593,7 @@ export function replay(g, khQ, recs, mask, hid) {
 }
 
 // mixQ(baseQ, secret): a player's PRIVATE shuffle stream for one seed — blake2bInt over the public block-hash
-// draw and their revealed/held secret (browser-only). The commit on-chain is alghash(secret), checked by the contract.
+// draw and their revealed/held secret (browser-only). The commit on-chain is HASH(secret) (the VM's BLAKE2s word hash), checked by the contract.
 export const mixQ = (baseQ, secret) => (baseQ == null || secret == null ? null : blake2bInt((baseQ % (1n << 200n)).toString(16) + ":" + BigInt(secret).toString(16)));
 
 // verifyHidden: the REVEAL-TIME truth pass. Given both secrets, replays the whole log in exact mode with

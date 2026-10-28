@@ -203,7 +203,7 @@
   <div class="card">
     <h2 data-i18n="farkle.fairH">Provably fair — the chain rolls, not the house</h2>
     <p class="small dim" style="line-height:1.6">
-      <span data-i18n="farkle.fairPre">Every roll you make binds to a FUTURE block: die #k =</span> <span class="mono">LO32(alghash((blockhash(H) + blockhash(H+1) + seat·1000 + nonce·10 + k) mod P)) mod 6 + 1</span>. <span data-i18n="farkle.fairPost">Those block hashes don't exist when you tap Roll, so nobody — no player, no host, no producer — can know or steer your dice. The CONTRACT validates the dice you set aside actually score (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500) and tracks your banked total; a scoreless roll busts the turn. Highest banked score when the play window closes takes the pot; if everyone farkles, the host reclaims. Your browser replays the exact same dice from the block hash, so what you see is what the chain computes.</span>
+      <span data-i18n="farkle.fairPre">Every roll you make binds to a FUTURE block: die #k =</span> <span class="mono">LO32(BLAKE2s((blockhash(H) + blockhash(H+1) + seat·1000 + nonce·10 + k) mod 2^256)) mod 6 + 1</span>. <span data-i18n="farkle.fairPost">Those block hashes don't exist when you tap Roll, so nobody — no player, no host, no producer — can know or steer your dice. The CONTRACT validates the dice you set aside actually score (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500) and tracks your banked total; a scoreless roll busts the turn. Highest banked score when the play window closes takes the pot; if everyone farkles, the host reclaims. Your browser replays the exact same dice from the block hash, so what you see is what the chain computes.</span>
     </p>
   </div>
 

@@ -180,7 +180,7 @@ def build():
 
     # post(o, kind, namt, wch, wamt, wadr, hsha, hvmHi, hvmLo, expn, expf) [VALUE = namt for ASK_NADO]
     # The VM hashlock arrives as two 32-bit halves (JS JSON numbers are exact only to 2^53) — recombined
-    # and stored as the single field element settle() compares against.
+    # and stored as the single word settle() compares against.
     with c.method("post") as m:
         o = m.arg(0)
         m.require(o > 0)
@@ -188,13 +188,14 @@ def build():
         m.require(m.slot(MK, o).get() == 0)                     # id fresh
         m.require(m.in_asset() == 0)                            # native NADO only (SWAP_INTRA is phase 3)
         m.require((m.arg(1) - ASK) * (m.arg(1) - BID) == 0)     # kind ∈ {ASK, BID}
-        m.require(m.arg(2) > 0)                                 # namt > 0; RANGE bounds it < 2^62
+        m.require(m.arg(2) > 0)                                 # namt > 0 (zkvm2's LT puts no 2^62 bound on it)
         m.require(m.arg(3) != 0)                                # want_chain     (EQ, not lt: full-field digests)
         m.require(m.arg(4) != 0)                                # want_amt
         m.require(m.arg(5) != 0)                                # maker's foreign receiving address
         m.require(m.arg(6) != 0)                                # SHA-256 hashlock (foreign leg)
         # the four hashlock halves (args 7..14); each is bounded and each RECOMBINED element must be
-        # non-zero — guarding the halves alone missed hi=2^32-1, lo=1, which wraps to exactly 0 mod P.
+        # non-zero — on the gen-28 field VM, guarding the halves alone missed hi=2^32-1, lo=1, which wrapped to exactly 0
+        # mod the Goldilocks prime; on the 256-bit word the recombination is exact (< 2^64) and the non-zero check stays.
         for _i in range(4):
             m.require(m.arg(7 + _i * 2) < ID_MAX)
             m.require(m.arg(8 + _i * 2) < ID_MAX)
@@ -435,7 +436,7 @@ def build():
         m.require(o > 0)
         m.require(o < ID_MAX)
         m.require(m.slot(MK, o).get() == 0)
-        m.require(m.arg(2) > 0)                                 # give amount (RANGE-bounds < 2^62)
+        m.require(m.arg(2) > 0)                                 # give amount (== the escrowed value below)
         m.require(m.arg(4) > 0)                                 # want amount
         m.require(m.value() == m.arg(2))
         m.require(m.in_asset() == m.arg(1))                     # the stated give side == what arrived

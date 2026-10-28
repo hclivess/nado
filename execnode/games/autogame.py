@@ -23,7 +23,8 @@ THIS FILE IS THE DEFINITION OF THE RULES. tests/autogame_model.py imports the co
 restating them, so the readable reference model and the authoritative contract cannot drift. The JS engine
 (static/autogame-engine.js) mirrors them and tests/test_autogame_contract_matches_the_reference_model.py asserts all three agree.
 
-FIELD-WRAP DISCIPLINE. Goldilocks subtraction wraps, and a wrapped `hp` is a ~2^64 hit-point pool. Every
+WORD-WRAP DISCIPLINE. Subtraction wraps at 2^256 (the gen-29 VM word; Goldilocks's ~2^64 before G3), and a wrapped
+`hp` is a ~2^256 hit-point pool. Every
 subtraction of a player- or roll-controlled quantity goes through `csub` (select(a<b, 0, a-b)), never a bare
 `-`. This is the class of bug that produced the banked-table drain; check it first in any diff.
 """
@@ -129,7 +130,7 @@ NSLOT = 6
 # back by mimics, barrows and the pyre's amplifier.
 TILE_CUTS = (18, 36, 43, 50, 55, 57, 62, 64, 65, 68, 70, 74, 77, 79, 81, 83, 86, 88, 90, 92, 94, 97, 99)
 
-# actions (3 bits each, 16 per leg => 48 bits, safely under Goldilocks P)
+# actions (3 bits each, 16 per leg => 48 bits, far inside the 256-bit word and the 2^62 RANGE window)
 A_DEFAULT, A_STRIKE, A_GUARD, A_DODGE, A_POTION, A_SPRINT, A_REST, A_RIGHT = range(8)
 A_RALLY = A_RIGHT        # action 7 does double duty: right lane at a FORK, Rally anywhere else
 # Guard at 1 stamina was FREE: +1/step regen made "guard every fight, forever" sustainable, and the
@@ -1104,7 +1105,7 @@ def build():
     with c.method("begin") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # begin(runId): claim a fresh id, set out, AND ARM. The first terrain height is pinned START_GAP
         # blocks in the FUTURE (so the road you will walk cannot be steered by when you call this), and the
@@ -1149,7 +1150,7 @@ def build():
     with c.method("plan") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # plan(runId, agg, stance, focus, healPct): re-tune the DIALS, nothing else. Optional — begin()
         # ships playable defaults — and there is deliberately no window check: the dials govern legs whose
@@ -1201,7 +1202,7 @@ def build():
     with c.method("commit") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # commit(runId, word): your answer to the SPECIFIC sixteen tiles now in front of you — 3 bits each,
         # step 0 in the low bits. Zero is itself an action (A_DEFAULT: walk in and fight plainly), so an
@@ -1236,7 +1237,7 @@ def build():
     with c.method("retire") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # retire(runId): walk away on your feet. Keeps everything, and earns the road bonus pro-rata on the
         # depth reached — the cash-out side of the push-or-bank decision.
@@ -1248,7 +1249,7 @@ def build():
     with c.method("advance") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # advance(runId): resolve every leg whose rolling hash now exists, up to MAX_LEGS_PER_CALL.
         # PERMISSIONLESS — the outcome is a pure function of two already-final hashes, so who calls it and
@@ -1273,7 +1274,7 @@ def build():
     with c.method("march") as m:
         # C2 (security review 2026-09-23): a runId >= 2^32 addresses ANOTHER field's row (slot = field*2^32 +
         # key, no mask) — begin(run + 20*2^32) read RDN[run] as RA and bricked a live run. Bound it first,
-        # before any guard reads a slot. `<` lowers to RANGE;RANGE;LT, so a full-field id reverts in RANGE.
+        # before any guard reads a slot. `<` is an exact LT on the 256-bit word, so any id >= 2^32 fails it.
         m.require(m.arg(0) < (1 << 32))
         # march(runId, word, leg): settle-then-answer in ONE transaction — the latency op. The old cadence
         # was two round trips per leg: advance() lands, the client SEES the park, only then can commit()

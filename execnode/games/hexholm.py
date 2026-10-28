@@ -38,7 +38,6 @@ LIST = 35
 MV_BASE, MH_BASE, MAXMOVES = 1000, 2000, 999
 GAP, MOVE_CLOCK = 2, 14400
 _W = 1 << 32
-INV32 = 18446744065119617026    # field inverse of 2^32 (exact hi-half extraction, from stormhold)
 
 
 def _f(field):              # constant field key base
@@ -418,8 +417,8 @@ REVEAL = f"""{_FULL}{_side()}    movi r4 {_W}
     lo32 r6
     mov r5 r1
     sub r5 r6
-    movi r3 {INV32}
-    mul r5 r3
+    movi r3 4294967296
+    divmod r5 r3            ; r5 = hi (exact: r5 is a multiple of 2^32); the 0 remainder lands in r7, read by nothing after
     movi r3 {_f(RH_BASE)}
     movi r4 {2 * _W}
     mul r4 r2
@@ -633,8 +632,7 @@ def build():
     # C2 (security review 2026-09-23): every id-taking method refuses an id >= 2^32 before touching a slot;
     # see _lib.id_guard. The ABI, the field layout and every honest call are unchanged.
     ID_GUARDS = {m: ["r0"] for m in ("open", "join", "move", "agree", "resign", "reveal", "leave", "cancel", "abort")}
-    src = dict(SRC, reveal=_lib.port_inv32(SRC["reveal"]))          # no inverse of 2^32 on the 256-bit word
-    return zkvmasm.assemble_contract(_lib.guard_ids(src, ID_GUARDS))
+    return zkvmasm.assemble_contract(_lib.guard_ids(SRC, ID_GUARDS))
 
 
 # ---- the gen-29 reroll carry (tools/carry.py, doc/stwo/g5-carry.md) -------------------------------------------------

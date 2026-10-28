@@ -30,7 +30,8 @@ void()ed by anyone past fh + VOID_AFTER, so a pot can never be stranded.
 
 zkVM data model: race ids are ints < 2^32. Money is tracked in UNITs of 10^4 raw NADO (stakes must be UNIT
 multiples) so stake×pot stays inside the DIVMODW soundness window; a race's pot caps at 2^31 UNITs. Per-user
-positions live in alghash-keyed slots the frontend reads via /exec/view (claimable_of / stake_of / total_of).
+positions live in hash-keyed slots (the VM's BLAKE2s word hash) the frontend reads via /exec/view (claimable_of /
+stake_of / total_of).
 
 Race fields (key = race id): 1 ra(exists=1)  2 gh(gene height)  3 lk(bet-close height)  4 fh(finish height)
   5 tot(pot, UNITs)  6 sd(settled)  7 wn(winner lane +1)  8 vd(void)  9 bc(distinct bettors)
@@ -54,7 +55,7 @@ BK, BR, BS, BD = 10, 11, 12, 13        # bank digest · bankroll(UNITs) · stake
 OD_BASE = 30                            # 30..35: quoted odds per lane, in PERCENT (100 = 1.00x)
 BP_BASE = 41                            # 41..46: per-lane TOTAL committed payout (UNITs)
 TG_BSTK, TG_BPAY, TG_BCL = 104, 105, 106
-ODDS_CAP = 100_000                      # 1000x — a sane bound so odds*stake stays far inside the field
+ODDS_CAP = 100_000                      # 1000x — a sane bound so odds*stake stays small
 # --- free Daily Derby board (provable practice, faucet-rewarded — doc/provable-practice.md) ---
 DCNT_SLOT, ECNT_SLOT = 2, 3                         # bare index-count slots (slot 0 = races count)
 E_DAY, E_ADDR, E_SCORE, E_N = 50, 51, 52, 53       # per-entry fields

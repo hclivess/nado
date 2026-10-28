@@ -21,12 +21,12 @@ creation (up to 3 addresses, M-of-N threshold; default = the creator, 1-of-1). B
 Payouts are PULL-based (each bettor claim()s their own share) so a market scales to any number of bettors.
 
 zkVM data model (this port): market ids are ints < 2^32. Metadata (the market title+outcome labels, source
-name, event id) are STRING args — digested to field elements at the call boundary, stored as digests, and
+name, event id) are STRING args — digested to 256-bit words at the call boundary, stored as digests, and
 resolved back to the original text by decode_view through the exec node's digest registry (the "hash
 on-chain, text in the transaction" model). Money is tracked in UNITs of 10^4 raw NADO (stakes must be UNIT
 multiples) so that stake×pot products stay inside the DIVMODW soundness window; a market's pot is capped at
-2^31 UNITs (~26% of total supply). Per-user slots are alghash-keyed: slot = HASH(tag, market, [outcome,]
-addr_digest) — the frontend reads them through /exec/view methods (claimable_of/stake_of/...), never by
+2^31 UNITs (~26% of total supply). Per-user slots are hash-keyed (the VM's BLAKE2s
+word hash): slot = HASH(tag, market, [outcome,] addr_digest) — the frontend reads them through /exec/view methods (claimable_of/stake_of/...), never by
 computing slots itself.
 
 Market fields (key = market id): 1 mk 2 no(outcomes) 3 lk(lock, epoch secs) 4 dl(deadline) 5 ds(desc digest:

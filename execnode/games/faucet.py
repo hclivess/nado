@@ -42,7 +42,7 @@ OP_DIG = runtimes.zkvm_addr_digest(OPERATOR)
 # Slot 7 = DONATED: NADO the OPERATOR put in (exec-side fund() by the operator, and L1 donations the exec
 # node mirrors); slot 8 = DEFUNDED: what defund() has taken back. Treasury top-ups touch neither, which is
 # exactly what makes defund() unable to reach public money. Small integer keys cannot collide with the
-# reward markers, which are alghash outputs.
+# reward markers, which are VM hash outputs (256-bit BLAKE2s words).
 DONATED, DEFUNDED = 7, 8
 
 # CARRY_STORAGE (tools/alphanet6_carryforward.carry_policy): this contract's storage crosses a reroll as is, pot

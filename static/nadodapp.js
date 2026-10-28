@@ -222,10 +222,10 @@ export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypt
 // No blake2b "chain result" / commit helper lives here any more (chainResult, commitHashOf — deleted 2026-10-10):
 // both were commented "== VM HASH" but hashed with blake2b, which the zkVM contracts do not use, so any page that
 // picked them up previewed a result the contract would not pay. The contract-matching forms are chainResultAlg
-// (beacon / block-hash results) and algHashn (commits, field-native structures). Do not reintroduce a blake2b one.
+// (beacon / block-hash results) and algHashn (commits, structures hashed in the VM word). Do not reintroduce a blake2b one.
 // EPOCH_LENGTH (imported from /protocol.js and re-exported above): the beacon epoch. A beacon seat bound to epoch gb
 // settles once the exec cursor reaches gb * EPOCH_LENGTH (its gh is that height minus one).
-// chainResultAlg: the beacon result, byte-matching the contracts' in-VM HASH + LO32 window: the contract computes
+// chainResultAlg (the name is gen 28's; it is BLAKE2s now): the beacon result, byte-matching the contracts' in-VM HASH + LO32 window: the contract computes
 // ws = HASH([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod 2^256])'s low 32 bits % mod.
 // THE GENERATION'S VM (Goldilocks retirement G3). The gen-29 contracts run on the 256-bit zkvm2: their HASH is a BLAKE2s
 // word chain (static/blake2s.js hashWords == execnode/zkvm2.hash_words), their word wraps at 2^256, and a block hash
@@ -241,12 +241,13 @@ export function chainResultAlg(shHex, sh1Hex, salt, mod) {
   const seed = (BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt)) % WORD;
   return Number((hashWords([seed]) & 0xFFFFFFFFn) % BigInt(mod));   // LO32 window, then % mod (DIVMOD in the contract)
 }
-// algHashn(elements): the raw in-VM HASH for games that build their own structures (e.g. battleship's merkle-sum
-// board). Accepts BigInt/Number/string, reduces into the generation's word, matches the contract's `hash` exactly.
+// algHashn(elements): the raw in-VM HASH (the BLAKE2s word hash, despite the gen-28 name) for games that build their
+// own structures (e.g. battleship's merkle-sum board). Accepts BigInt/Number/string, reduces into the generation's word, matches the contract's `hash` exactly.
 export function algHashn(elements) {
   return hashWords(elements.map((x) => ((BigInt(x) % WORD) + WORD) % WORD));
 }
-// the modulus a page reduces by: 2^256, the gen-29 VM's wrapping word (the Goldilocks prime was gen 28's; G9)
+// ALG_P: the modulus a page reduces by — 2^256, the gen-29 VM's wrapping word, despite the name (the Goldilocks prime
+// was gen 28's; G9)
 export const ALG_P = () => WORD;
 // blocksToTime(blocks): a block count as elapsed time at the given block time (default 6s). A few minutes
 // reads best as m:ss, but a swap window of two days does NOT read as "3809:18" — above an hour it switches
