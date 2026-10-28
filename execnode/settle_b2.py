@@ -746,6 +746,22 @@ def _open_from_json(j):
 
 
 # ---- PROVE ---------------------------------------------------------------------------------------------------------------
+def span_post_root(pre_root: bytes, changes, proof_value, opens=None, on_open=None):
+    """(post root, the openings used) of one tree half after `changes` ({key: value or None}), from the pre root and the
+    changed keys' proofs: `proof_value(key) -> (value at the pre root, proof)`. THE ONE construction prove_span and
+    verify_span share: the prover passes `on_open` (it holds the full tree) and records what it opened, the verifier
+    passes those `opens`. Built from the CHANGED keys only — the verifier merges no other proof — so every subtree a delete
+    collapses into is one the prover had to open, and recorded. Two hand-kept copies of this loop once disagreed (the
+    prover also merged read-only keys' proofs; shadow span 8160 -> 8220, 2026-10-27, "a delete needs a sibling opened").
+    May raise Missing (an opening the witness lacks) or ValueError (a bad proof or opening)."""
+    pt = PartialTree(pre_root, opens=opens, on_open=on_open)
+    for k in sorted(set(changes)):
+        v, proof = proof_value(k)
+        pt.add_proof(k, v, proof)
+    pt.apply(changes)
+    return pt.root(), pt.opens
+
+
 def prove_span(pre_state, blocks, chain, binary):
     """-> bundle (a JSON-able dict) proving `blocks` applied to `pre_state` (an ExecState at the span's start; not
     modified). Raises Unprovable naming why a span cannot be proven."""
@@ -783,12 +799,10 @@ def prove_span(pre_state, blocks, chain, binary):
         t = trees[half]
         keys = sorted(need[half] | set(changes[half]))
         proofs[half] = {k.hex(): _proof_json(t.prove(k)) for k in keys}
-        pt = PartialTree(t.root(), on_open=opener_for(t))
-        for k in keys:
-            pt.add_proof(k, t.get(k), t.prove(k))
-        pt.apply(changes[half])
-        roots[half] = pt.root()
-        opens[half] = {h.hex(): _open_json(p) for h, p in pt.opens.items()}
+        # INVARIANT: the same span_post_root verify_span calls (see its docstring for why it must be one function)
+        roots[half], used = span_post_root(t.root(), changes[half], lambda k, t=t: (t.get(k), t.prove(k)),
+                                           on_open=opener_for(t))
+        opens[half] = {h.hex(): _open_json(p) for h, p in used.items()}
     if B2.full_root(roots["kv"], roots["rec"]).hex() != post_root:
         raise RuntimeError("the witness replay's root is not the transition's (a bug in settle_b2, not the span)")
     bundle = {
@@ -929,14 +943,12 @@ def verify_span(cursor, pre_root, blocks, chain, bundle, binary=None):
         for half in ("kv", "rec"):
             pre = bytes.fromhex(bundle["kv_pre" if half == "kv" else "rec_pre"])
             opens = {bytes.fromhex(h): _open_from_json(p) for h, p in bundle["opens"][half].items()}
-            pt = PartialTree(pre, opens=opens)
-            for k in sorted(set(changes[half])):
-                pj = bundle["proofs"][half].get(k.hex())
-                if pj is None:
-                    return False, f"no {half} proof for a changed leaf", None
-                pt.add_proof(k, store.truth[half][k], _proof_from_json(pj))
-            pt.apply(changes[half])
-            roots[half] = pt.root()
+            missing = [k for k in changes[half] if k.hex() not in bundle["proofs"][half]]
+            if missing:
+                return False, f"no {half} proof for a changed leaf", None
+            # INVARIANT: the same span_post_root prove_span calls
+            roots[half], _ = span_post_root(pre, changes[half], lambda k, half=half: (
+                store.truth[half][k], _proof_from_json(bundle["proofs"][half][k.hex()])), opens=opens)
         post = B2.full_root(roots["kv"], roots["rec"]).hex()
         if oracle.calls:
             pb = bundle.get("vm_proof")
