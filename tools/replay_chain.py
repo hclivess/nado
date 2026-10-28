@@ -9,9 +9,9 @@
 HOW A CLEANUP IS PROVEN (the gen-27 gate cleanup, 2026-09-30: four slices, each IDENTICAL on 5810 live blocks):
   1. `fetch` the live chain once (GETs only).
   2. `git worktree add --detach <dir> main` and `git worktree add --detach <dir2> <candidate>`; in EACH tree replace
-     native/ by a symlink to the live checkout's built native/, and run `cargo build --release` in the tree's OWN
-     wasm/goldilocks (a symlinked goldilocks build is judged stale and rejects the first settle proof — an
+     native/ by a symlink to the live checkout's built native/ (a library judged stale or missing rejects a block — an
      environment failure, not a consensus one; the replay prints a WARNING when a rejection names the environment).
+     (A tree from before G9 slice 6 also needs its own `cargo build --release` in wasm/goldilocks.)
   3. `replay` both trees (~1 block/s under load; `--root-inc trust` halves it with the same roots), then `compare`.
      "IDENTICAL through height N" is the proof; anything else names the first differing height and field.
 Run it FROM A WORKTREE, never from the live checkout (root never executes code from the checkout — doc/jobs.md);

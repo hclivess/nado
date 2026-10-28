@@ -17,12 +17,12 @@ its own sources, stops the process with a message naming the crate and the fix.
 
 WHAT REMAINS PYTHON: the Goldilocks prover this paragraph once inventoried (fri, stark, air_ir, recursion*, the
 verifiers, settlement_sparse) and the Python kernels kept as test oracles for its crates went with execnode/stark in G9
-(slices 2 and 4). The crates that remain (mldsa44, pqsig, attest, stwo_js, stwo_settle, and the Goldilocks ones until
-slice 6 deletes them) are loaded through require() / is_stale() below.
+(slices 2 and 4), and their crates (alghash2, starkcompose, starkprove, wasm/goldilocks) in slice 6. The crates that remain
+(mldsa44, pqsig, attest, stwo_js, stwo_settle) are loaded through require() / is_stale() below.
 
 Shared guard against loading a STALE native accelerator .so.
 
-The STARK loaders (alghash2 / starkprove / starkcompose / goldilocks, deleted in G9 slice 4) fell back to pure Python only when their
+The STARK loaders (alghash2 / starkprove / starkcompose / goldilocks; loaders deleted in G9 slice 4, crates in 6) fell back to pure Python only when their
 .so was ABSENT — a PRESENT-but-stale one is loaded and TRUSTED, which silently diverges from consensus (e.g. an
 old 8-round alghash2 .so against new 54-round Python). ops/self_update.py rebuilds on /update and purges the
 .so if it cannot, but a node advanced by a MANUAL `git pull` (bypassing /update) never rebuilds. This catches

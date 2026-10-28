@@ -111,15 +111,15 @@ class _Sandbox:
 
 def t_a_present_but_stale_library_is_detected():
     """THE gap that stopped a node: the .so is right there, and unusable."""
-    with _Sandbox(["alghash2"]) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=True)
-        assert SU._stale_required_libs() == ["native/alghash2"], "a stale .so must be reported"
+    with _Sandbox(["stwo_js"]) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=True)
+        assert SU._stale_required_libs() == ["native/stwo_js"], "a stale .so must be reported"
         assert SU._missing_required_libs() == [], "it is present — this is not a MISSING library"
 
 
 def t_a_current_library_is_left_alone():
-    with _Sandbox(["alghash2"]) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=False)
+    with _Sandbox(["stwo_js"]) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=False)
         assert SU._stale_required_libs() == [], "a library newer than its sources must not be touched"
 
 
@@ -161,10 +161,10 @@ def t_a_stale_library_is_rebuilt_and_the_node_restarts():
             os.utime(so, None)                                          # and now newer than the sources
         return {c: "built" for c in crates}
 
-    with _Sandbox(["alghash2"], build=build) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=True)
+    with _Sandbox(["stwo_js"], build=build) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=True)
         out = _run(sb)
-        assert out.get("native_rebuilt") == ["native/alghash2"], f"expected a rebuild, got {out}"
+        assert out.get("native_rebuilt") == ["native/stwo_js"], f"expected a rebuild, got {out}"
         assert sb.restarted is True, "a node running a stale library must be restarted once it is fixed"
         assert SU._stale_required_libs() == [], "the staleness must actually be gone"
 
@@ -181,8 +181,8 @@ def t_an_unchanged_rebuild_does_not_restart():
             os.utime(so, (later, later))
         return {c: "built" for c in crates}
 
-    with _Sandbox(["alghash2"], build=build) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=True)
+    with _Sandbox(["stwo_js"], build=build) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=True)
         out = _run(sb)
         assert sb.restarted is False, "an identical library must not cost a restart"
         assert out.get("restarting") is False, f"expected restarting=False, got {out}"
@@ -191,11 +191,11 @@ def t_an_unchanged_rebuild_does_not_restart():
 def t_a_failed_build_does_not_restart():
     """Restarting while still stale would only fail-stop again, and would turn one broken node into a
     restart loop."""
-    with _Sandbox(["alghash2"], build=lambda c: {x: "build-failed" for x in c}) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=True)
+    with _Sandbox(["stwo_js"], build=lambda c: {x: "build-failed" for x in c}) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=True)
         out = _run(sb)
         assert sb.restarted is False, "a failed rebuild must NOT restart the node"
-        assert out.get("native_stale") == ["native/alghash2"], f"the unresolved staleness must be reported: {out}"
+        assert out.get("native_stale") == ["native/stwo_js"], f"the unresolved staleness must be reported: {out}"
         assert "manual" in (out.get("note") or ""), "the operator must be told what to do by hand"
 
 
@@ -203,11 +203,11 @@ def t_a_dirty_tree_refuses_the_rebuild():
     """A rebuild compiles whatever is in the working tree, so on a box mid-edit it would build and then
     RESTART INTO unfinished work. The update path already refuses a dirty tree; this branch never reaches
     that check, so it needs its own."""
-    with _Sandbox(["alghash2"], dirty=True) as sb:
-        _crate(sb.tmp, "alghash2", so_older_than_src=True)
+    with _Sandbox(["stwo_js"], dirty=True) as sb:
+        _crate(sb.tmp, "stwo_js", so_older_than_src=True)
         out = _run(sb)
         assert sb.restarted is False, "a dirty tree must not be restarted into"
-        assert out.get("native_stale") == ["native/alghash2"], f"it must still REPORT the staleness: {out}"
+        assert out.get("native_stale") == ["native/stwo_js"], f"it must still REPORT the staleness: {out}"
         assert "uncommitted" in (out.get("note") or ""), "the refusal must say why"
 
 

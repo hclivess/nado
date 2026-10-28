@@ -4,15 +4,15 @@
 # nothing is dropped — it is moved. Remove a line when its test runs without the kernels in under 5 minutes.
 # A reason starting with [box] means the test judges the machine it runs on (timing, the node's own install), so it
 # runs in NEITHER CI job — only on a node's own box (scripts/run_tests.sh there runs everything).
-test_attest_kernel_contract                  needs the Rust kernels (native/, wasm/goldilocks)
-test_cert_validity_is_agreed_time            needs the Rust kernels (native/, wasm/goldilocks)
+test_attest_kernel_contract                  needs the Rust kernels (native/)
+test_cert_validity_is_agreed_time            needs the Rust kernels (native/)
 test_da_encode_matrix                        [box] timing benchmark (20x faster than a baseline): meaningless on a shared runner
-test_device_attest_formats_pc                needs the Rust kernels (native/, wasm/goldilocks)
-test_device_attest_hw                        needs the Rust kernels (native/, wasm/goldilocks)
-test_device_attest_kernel                    needs the Rust kernels (native/, wasm/goldilocks)
-test_device_attest_real_vector               needs the Rust kernels (native/, wasm/goldilocks)
-test_device_attest_rule                      needs the Rust kernels (native/, wasm/goldilocks)
-test_exec_root_v2                            needs the Rust kernels (native/, wasm/goldilocks)
+test_device_attest_formats_pc                needs the Rust kernels (native/)
+test_device_attest_hw                        needs the Rust kernels (native/)
+test_device_attest_kernel                    needs the Rust kernels (native/)
+test_device_attest_real_vector               needs the Rust kernels (native/)
+test_device_attest_rule                      needs the Rust kernels (native/)
+test_exec_root_v2                            needs the Rust kernels (native/)
 test_assets                                  proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
 test_snapshot_anchors_rebuilt                proves in Python kernels: over 5 minutes

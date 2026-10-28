@@ -491,60 +491,9 @@ if [ "$_pq_want" = "1" ]; then
   fi
 fi
 
-# ---- native STARK-prover libs (optional; speed up shielded proving + the alghash2 recursion hot path) ---
-# Both are cdylibs bound via ctypes and are BIT-IDENTICAL to their pure-Python counterparts (they just run
-# the same field/hash arithmetic faster), so the node stays correct whether or not they build.
-if [ $WITH_EXEC -eq 1 ]; then
-  if ensure_rust "ask"; then
-    echo "==> building the native Goldilocks NTT (faster shielded proving)..."
-    if ( cd "$REPO_DIR/wasm/goldilocks" && cargo build --release >/dev/null 2>&1 ); then
-      echo "    built wasm/goldilocks/target/release/libgoldilocks.so"
-    else
-      echo "    (build failed — the shielded-pool node will use the pure-Python prover; still correct, just slower.)"
-    fi
-    echo "==> building the native alghash2 hash (recursion hot path; ~20x faster)..."
-    if ( cd "$REPO_DIR/native/alghash2" && cargo build --release >/dev/null 2>&1 ); then
-      # confirm the .so loads + initializes (its bit-identity to Python is covered by tests/test_recursion.py)
-      # (no Python load probe: its loader went with execnode/stark in G9 slice 4; slice 6 removes this crate's build)
-      if [ -f "$REPO_DIR/native/alghash2/target/release/libnado_alghash2.so" ]; then
-        echo "    built + loaded: native/alghash2/target/release/libnado_alghash2.so"
-      else
-        echo "    (built but the .so did not load — recursion/alghash2 paths use pure Python; still correct.)"
-      fi
-    else
-      echo "    (build failed — recursion/alghash2 paths use pure Python; still correct, just slower.)"
-    fi
-    echo "==> building the native STARK composition (constraint-IR evaluator; ~10x on the composition loop)..."
-    if ( cd "$REPO_DIR/native/starkcompose" && cargo build --release >/dev/null 2>&1 ); then
-      # confirm the .so loads (its bit-identity to stark._composition is covered by tests/test_air_ir.py)
-      if [ -f "$REPO_DIR/native/starkcompose/target/release/libnado_starkcompose.so" ]; then   # (see alghash2 above)
-        echo "    built + loaded: native/starkcompose/target/release/libnado_starkcompose.so"
-      else
-        echo "    (built but the .so did not load — the prover uses the pure-Python composition; still correct.)"
-      fi
-    else
-      echo "    (build failed — the prover uses the pure-Python composition; still correct, just slower.)"
-    fi
-    echo "==> building the holistic native prover (recursion proving + PARALLEL fold/composition Merkle)..."
-    if ( cd "$REPO_DIR/native/starkprove" && cargo build --release >/dev/null 2>&1 ); then
-      # confirm the .so loads (bit-identity to stark.prove is covered by tests/test_starkprove.py). stark.prove
-      # routes RECURSION/ALGHASH2 proving through this arena; the Merkle commits hash in parallel across all
-      # cores (NADO_NATIVE_THREADS caps the fan-out) — the fold/composition pipeline's dominant cost.
-      if [ -f "$REPO_DIR/native/starkprove/target/release/libnado_starkprove.so" ]; then   # (see alghash2 above)
-        echo "    built + loaded: native/starkprove/target/release/libnado_starkprove.so"
-      else
-        echo "    (built but the .so did not load — recursion proving uses pure Python; still correct, much slower.)"
-      fi
-    else
-      echo "    (build failed — recursion proving uses pure Python; still correct, much slower.)"
-    fi
-  else
-    echo "==> Rust not available — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
-    echo "    For faster proving: install Rust (https://rustup.rs), then:"
-    echo "      (cd wasm/goldilocks && cargo build --release) && (cd native/alghash2 && cargo build --release) \\"
-    echo "        && (cd native/starkcompose && cargo build --release)"
-  fi
-fi
+# ---- (the native Goldilocks STARK-prover libs this section built — wasm/goldilocks, native/alghash2, starkcompose,
+# starkprove — were deleted with the Goldilocks stack in G9 slice 6; the exec node's required crates are the ones in
+# ops/self_update._CRATES, which the node's updater builds when missing and scripts/build_native_all.sh builds by hand)
 
 # ---- systemd service (unattended) ----------------------------------------------------------------
 # hardening block for service-account installs: no privileges to gain, read-only OS, writable only in

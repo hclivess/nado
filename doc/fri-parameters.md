@@ -1,5 +1,7 @@
 # FRI parameters — can we trade blowup for queries and shrink the proof?
 
+> **HISTORICAL (G9 slice 6, 2026-10-28):** the Goldilocks FRI prover and its crates (`native/starkprove`, `starkcompose`, `alghash2`, `wasm/goldilocks`) are deleted; proofs are Stwo (doc/stwo-migration.md). No procedure below can be followed.
+
 > **STATUS: this lever is REJECTED — on the size argument, not on prove cost.** The question was closed on
 > 2026-08-03 in [settle-proof-transport.md §4b](settle-proof-transport.md) (commit `6a6614cc`), and this
 > document was written on 2026-08-12 without citing that, recommending blowup 8. **That was a

@@ -74,7 +74,7 @@ def t_exit_claims_are_bounded_from_the_gate():
 
 # ---- native kernels and the fold decision ------------------------------------------------------------------------
 # the compose kernels return negative error codes: retired in G9 slice 4 with execnode/stark/stark_native.py (the
-# native/starkcompose crate itself goes in slice 6)
+# native/starkcompose crate itself went in slice 6)
 
 
 # the exec node never builds a fold the chain refuses retired in G9: the exec node's fold (SETTLE_FOLD) was deleted

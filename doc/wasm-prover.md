@@ -1,5 +1,7 @@
 # On-device STARK prover — scope + status
 
+> **HISTORICAL (G9 slice 6, 2026-10-28):** the Goldilocks browser prover this describes (`static/stark/*.js` except `stwo_js.js`/`stwo_worker.js`, `static/alghash2.js`, `static/vendor/goldilocks-wasm.js`, `wasm/goldilocks`) is deleted; the wallet proves with Stwo (`static/stark/stwo_js.js`, doc/stwo-migration.md). No procedure below can be followed.
+
 > **TIER A (JS/BigInt) is DONE and LIVE.** The full prover is ported to the browser (static/stark/*.js) and
 > byte-matches Python: a transfer proof generated in JS is accepted by the unchanged verifier. The "Prove on
 > this device" tick uses it (window.nadoProve2) — the node never sees the witness. ~2s in node (down from ~22s, ~11x)

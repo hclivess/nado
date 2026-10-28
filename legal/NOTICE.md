@@ -29,7 +29,7 @@ when adding a dependency (`CONTRIBUTING.md`).
 |---|---|---|
 | `ml-dsa` (RustCrypto) | Apache-2.0 OR MIT | native ML-DSA-44 backend |
 
-The `wasm/blake2b` and `wasm/goldilocks` crates are first-party with no external crates.
+The `wasm/blake2b` crate is first-party with no external crates.
 Run `cargo license` in each crate directory to regenerate the transitive list before a
 release.
 
@@ -40,7 +40,7 @@ release.
 | `static/vendor/nado-crypto.js` | bundle of `@noble/hashes` 1.4.0 and `@noble/post-quantum` 0.2.0, © Paul Miller | MIT |
 | `static/vendor/qrcode.js` | `qrcode-generator`, © Kazuhiko Arase | MIT |
 | `static/vendor/bip39_wordlist.js` | BIP-39 English wordlist (bitcoin/bips) | BSD-2-Clause |
-| `static/vendor/blake2b-wasm.js`, `goldilocks-wasm.js` | first-party (`wasm/`) | AGPL-3.0 |
+| `static/vendor/blake2b-wasm.js` | first-party (`wasm/`) | AGPL-3.0 |
 
 Full licence texts for the MIT-licensed components:
 

@@ -1,5 +1,7 @@
 # Rust-only proving — why a hybrid prover is not a prover
 
+> **HISTORICAL (G9 slice 6, 2026-10-28):** the crates this names (`native/starkprove`, `starkcompose`, `alghash2`, `wasm/goldilocks`) are deleted with the Goldilocks stack; the Rust-only rule itself still binds the remaining crates (`ops/self_update._CRATES`, `execnode/native_guard.py`).
+
 **Status: binding. 2026-07-30.**
 
 A proof that takes 72 hours is not a slow proof. It is a proof that does not exist, because nothing in the

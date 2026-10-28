@@ -96,14 +96,10 @@ jobs:
           workspaces: |
             native/mldsa44
             native/attest
-            native/alghash2
-            native/starkprove
-            native/starkcompose
-            wasm/goldilocks
       - run: pip install -r requirements.txt cryptography
       - name: build the Rust kernels where the node loads them
         run: |
-          for d in native/mldsa44 native/attest native/alghash2 native/starkprove native/starkcompose wasm/goldilocks; do
+          for d in native/mldsa44 native/attest; do
             (cd "$d" && cargo build --release)
           done
           cp native/mldsa44/target/release/libnado_mldsa44.so native/mldsa44/   # scripts/install.sh does the same

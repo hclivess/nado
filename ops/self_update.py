@@ -46,8 +46,12 @@ _SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code
 # verifier the chain depends on gets the required crates' protections — built when missing even if git is current, a
 # STALE library rebuilt (a stale verifier is a different verdict, i.e. a fork), and part of native.ok. A node without it
 # still STALLS a block carrying a Stwo spend instead of skipping it (execnode._apply_block).
-_CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "native/attest", "wasm/goldilocks",
-           "native/stwo_js", "native/pqsig")
+# G9 slice 6 deleted the Goldilocks crates (native/alghash2, starkcompose, starkprove, wasm/goldilocks) with their last
+# loader. INVARIANT: a crate leaves this tuple in the SAME commit that deletes it, and its directory is never reused
+# (doc/stwo-migration.md 9.6): fleet nodes keep the git-ignored target/ of a deleted crate, and everything that judges
+# libraries (native_report, _missing/_stale_required_libs, _rebuild_native_if_changed) iterates THIS tuple, never
+# native/*, so a leftover is invisible rather than reported "missing"/"stale" or rebuilt.
+_CRATES = ("native/mldsa44", "native/attest", "native/stwo_js", "native/pqsig")
 # OPTIONAL CRATES: built on update like the required ones (when their sources change, or their library was never built),
 # reported in /status native, but NEVER required — no refusal to start, no purge on a failed build, not part of
 # native.ok. The class exists for a crate that must reach the fleet BEFORE its gate is set (native/stwo_js was one until
@@ -829,7 +833,8 @@ def check_and_update(trigger: str) -> dict:
         if local == remote:
             # UP TO DATE IN GIT IS NOT THE SAME AS ABLE TO RUN. A node can sit on the right commit and still
             # be missing a REQUIRED native library, and then it silently cannot do its job: measured
-            # 2026-08-06, peers on the correct HEAD lacked libgoldilocks.so and rejected every settle proof
+            # 2026-08-06, peers on the correct HEAD lacked libgoldilocks.so (the Goldilocks crate, deleted in G9)
+            # and rejected every settle proof
             # with "NativeMissing: native crate 'goldilocks' is REQUIRED but its library is missing". Since
             # betanet-14 there is no Python fallback, so those nodes could never verify a proof at all.
             # The rebuild used to run ONLY on the update path, so a node that was already current never
@@ -943,14 +948,12 @@ def _shared_libs(crate_path):
 
 
 def _loader_lib(crate):
-    """The ONE library file each crate's loader opens. Every crate is target/release/libnado_<name>.so EXCEPT
-    wasm/goldilocks, whose loader (execnode/stark/goldilocks_native.py) opens libgoldilocks.so. The staleness and
-    digest checks built the libnado_ name for all of them, so goldilocks was never checked: a node that fast-forwarded
-    across a goldilocks change kept a stale library the loader then refused (found 2026-09-25 adding the /status
-    native report). Keep this in step with the loaders."""
+    """The ONE library file each crate's loader opens: target/release/libnado_<name>.so. The one exception was
+    wasm/goldilocks (libgoldilocks.so), deleted in G9 slice 6; its absence from the staleness and digest checks once let a
+    node keep a stale library its loader then refused (found 2026-09-25 adding the /status native report). A crate whose
+    loader opens any other name must be special-cased HERE, or it is never checked. Keep this in step with the loaders."""
     name = os.path.basename(crate)
-    fn = "libgoldilocks.so" if crate == "wasm/goldilocks" else f"libnado_{name}.so"
-    return os.path.join(_REPO_DIR, crate, "target", "release", fn)
+    return os.path.join(_REPO_DIR, crate, "target", "release", f"libnado_{name}.so")
 
 
 _PROC_START = __import__("time").time()          # when THIS process loaded its libraries (native_report)
@@ -1065,7 +1068,7 @@ def _stale_required_libs():
     ONLY THE ARTIFACT THE LOADER RESOLVES COUNTS. The first version of this walked every .so under the crate
     and flagged the crate if ANY was stale, which on this very box flagged native/mldsa44 because of
     `_thin_test.so` and an old copy left in the crate root — neither of which anything loads. The loader
-    always uses target/release/libnado_<name>.so (stark_native.py), so that is the only file worth asking
+    always uses target/release/libnado_<name>.so (_loader_lib), so that is the only file worth asking
     about; a stray build artifact must never be able to trigger a rebuild and a RESTART of a healthy node.
     """
     try:

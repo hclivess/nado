@@ -73,7 +73,7 @@ ADDRESS_LENGTH = len(ADDRESS_PREFIX) + ADDRESS_BODY + ADDRESS_CHECKSUM * 2   # 5
 # ---- DOMAIN-SEPARATION TAGS (consensus; brand-carrying) --------------------------------------------
 # Renamed ONLY at a CHAIN_GENERATION reroll — everything re-derives from genesis there (see
 # doc/address-format.md "Domain-separation tags"). One constant per tag; no other Python spells
-# them. JS mirrors: static/interface.js DOMAIN_* block, static/stark/transcript.js DOMAIN_STARK.
+# them. JS mirrors: static/interface.js DOMAIN_* block (static/stark/transcript.js DOMAIN_STARK went with G9 slice 6).
 DOMAIN_MSIG = "msig-v2"                       # multisig virtual-pubkey derivation (ops/multisig_ops)
 DOMAIN_REGISTER = "register-v1"               # open-lane registration PoW binding (ops/mining_ops)
 DOMAIN_RANDAO_COMMIT = "randao-commit-v1"     # RANDAO commitment preimage tag (ops/mining_ops)

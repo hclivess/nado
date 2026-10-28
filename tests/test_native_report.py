@@ -6,8 +6,9 @@ without a shell on the box. self_update.native_report() now rides in /status: pe
 rebuilt after this process loaded it (restart_needed).
 
 Building it found a real gap: the updater's staleness and digest checks built `libnado_<crate>.so` for every crate,
-but wasm/goldilocks' loader opens `libgoldilocks.so`, so a stale goldilocks library was never detected or rebuilt.
-Both now go through self_update._loader_lib.
+but wasm/goldilocks' loader opened `libgoldilocks.so`, so a stale goldilocks library was never detected or rebuilt.
+Both now go through self_update._loader_lib. (wasm/goldilocks itself was deleted in G9 slice 6; a deleted crate's
+leftover build must stay invisible to all of this.)
 
 Driven against a temporary crate tree; never touches the real native/ directory.
 Run: python3 tests/test_native_report.py
@@ -50,47 +51,68 @@ def _restore(saved):
     SU._REPO_DIR, SU._NATIVE_REPORT[:], SU._PROC_START = saved[0], saved[1], saved[2]
 
 
-def t_goldilocks_is_checked_under_the_name_its_loader_opens():
-    assert SU._loader_lib("wasm/goldilocks").endswith("wasm/goldilocks/target/release/libgoldilocks.so")
-    assert SU._loader_lib("native/starkprove").endswith("native/starkprove/target/release/libnado_starkprove.so")
-    # (the goldilocks loader's own file name was read from execnode/stark/goldilocks_native.py, deleted in G9 slice 4;
-    # the crate stays in _CRATES until slice 6, and _loader_lib still names the library it built)
+def t_every_crate_is_checked_under_the_name_its_loader_opens():
+    for crate in SU._CRATES + SU._OPTIONAL_CRATES:
+        name = os.path.basename(crate)
+        assert SU._loader_lib(crate).endswith(f"{crate}/target/release/libnado_{name}.so"), crate
+    # (wasm/goldilocks, the one crate whose loader opened another name — libgoldilocks.so — was deleted in G9 slice 6.
+    # A crate added with a different library name must be special-cased in _loader_lib, or it is never checked.)
 
 
-def t_each_state_is_reported_and_a_stale_goldilocks_is_now_seen():
+def t_each_state_is_reported_and_a_stale_library_is_seen():
     saved = _with_repo(lambda r: (
-        _crate(r, "native/starkprove", "libnado_starkprove.so", src_age=100, lib_age=50),     # current
-        _crate(r, "native/alghash2", "libnado_alghash2.so", src_age=10, lib_age=50),          # stale
+        _crate(r, "native/mldsa44", "libnado_mldsa44.so", src_age=100, lib_age=50),          # current
+        _crate(r, "native/stwo_js", "libnado_stwo_js.so", src_age=10, lib_age=50),            # stale
         _crate(r, "native/attest", "libnado_attest.so", src_age=100, lib_age=None),           # missing
-        _crate(r, "wasm/goldilocks", "libgoldilocks.so", src_age=10, lib_age=50)))            # stale, the gap
+        _crate(r, "native/pqsig", "libnado_pqsig.so", src_age=10, lib_age=50)))               # stale
     try:
         SU._PROC_START = time.time()                          # every library predates this "process"
         rep = SU.native_report()
         c = rep["crates"]
-        assert c["native/starkprove"]["state"] == "ok" and c["native/starkprove"]["built"]
-        assert c["native/alghash2"]["state"] == "stale"
+        assert c["native/mldsa44"]["state"] == "ok" and c["native/mldsa44"]["built"]
+        assert c["native/stwo_js"]["state"] == "stale"
         assert c["native/attest"]["state"] == "missing" and c["native/attest"]["built"] is None
-        assert c["wasm/goldilocks"]["state"] == "stale", "a stale goldilocks library must be reported"
+        assert c["native/pqsig"]["state"] == "stale"
         assert rep["ok"] is False
         assert not any(v["restart_needed"] for v in c.values())
-        assert set(SU._stale_required_libs()) == {"native/alghash2", "wasm/goldilocks"}, \
-            "the updater must see the stale goldilocks library too, or it never rebuilds it"
+        assert set(SU._stale_required_libs()) == {"native/stwo_js", "native/pqsig"}, \
+            "the updater must see every stale required library, or it never rebuilds it"
+    finally:
+        _restore(saved)
+
+
+def t_a_deleted_crates_leftover_build_is_neither_reported_nor_required():
+    """G9 slice 6 deleted native/alghash2, starkcompose, starkprove and wasm/goldilocks. Their target/ dirs are git-ignored,
+    so every fleet node keeps them after the update (and a leftover Cargo.toml/src if hand-edited). Nothing that judges
+    libraries may look at them: a stale leftover reported here would flip native.ok, and one in _stale_required_libs
+    would make the updater rebuild (and RESTART into) a crate with no sources. Everything iterates _CRATES."""
+    gone = ("native/alghash2", "native/starkcompose", "native/starkprove", "wasm/goldilocks")
+    assert not set(gone) & set(SU._CRATES + SU._OPTIONAL_CRATES)
+    saved = _with_repo(lambda r: (
+        [_crate(r, c, "libnado_x.so", src_age=10, lib_age=50) for c in gone],              # stale leftovers
+        _crate(r, "wasm/goldilocks", "libgoldilocks.so", src_age=10, lib_age=50),
+        [_crate(r, c, f"libnado_{os.path.basename(c)}.so", src_age=100, lib_age=50) for c in SU._CRATES]))
+    try:
+        rep = SU.native_report()
+        assert not set(gone) & set(rep["crates"]), rep["crates"]
+        assert rep["ok"] is True, rep
+        assert SU._stale_required_libs() == [] and SU._missing_required_libs() == []
     finally:
         _restore(saved)
 
 
 def t_a_library_rebuilt_after_the_process_started_needs_a_restart():
-    saved = _with_repo(lambda r: _crate(r, "native/starkprove", "libnado_starkprove.so", src_age=100, lib_age=5))
+    saved = _with_repo(lambda r: _crate(r, "native/mldsa44", "libnado_mldsa44.so", src_age=100, lib_age=5))
     try:
         SU._PROC_START = time.time() - 60                     # the "process" loaded its libraries a minute ago
         rep = SU.native_report()
-        assert rep["ok"] and rep["crates"]["native/starkprove"]["restart_needed"] is True
+        assert rep["ok"] and rep["crates"]["native/mldsa44"]["restart_needed"] is True
     finally:
         _restore(saved)
 
 
 def t_the_report_is_cached():
-    saved = _with_repo(lambda r: _crate(r, "native/starkprove", "libnado_starkprove.so", src_age=100, lib_age=50))
+    saved = _with_repo(lambda r: _crate(r, "native/mldsa44", "libnado_mldsa44.so", src_age=100, lib_age=50))
     try:
         first = SU.native_report()
         shutil.rmtree(os.path.join(SU._REPO_DIR, "native"))
