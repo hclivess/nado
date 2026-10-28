@@ -1,5 +1,7 @@
 # Trustless STARK settlement — completion checklist
 
+> **HISTORICAL (G9, 2026-10-28):** a checklist for the Goldilocks settlement prover (`execnode/stark/`, `vm_circuit`, `settlement_proofs`, recursion), retired at the generation-29 reroll and deleted in G9. Trustless settlement is now the Stwo statement of a span (`execnode/settle_b2.py`, `native/stwo_settle`; doc/stwo/g4-settlement-statement.md), built and dormant behind `STWO_SETTLE_HEIGHT`; until it is set the bonded quorum settles.
+
 Status as of the 2026-07-27 code sweep (8-agent survey + manual verification of the load-bearing claims).
 This is the *code-grounded* companion to `zk-recursion.md` / `zk-execution-proofs.md`: what is actually
 built and wired **today**, and the exact ordered steps left to make a STARK validity proof — not the

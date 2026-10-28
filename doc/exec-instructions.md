@@ -1,7 +1,8 @@
 # Execution-layer instructions (blobs) — developer reference
 
 > **⚠ Runtime note (2026-07):** the `stackvm` runtime and `execnode/vm.py` were **removed** — the only
-> runtime today is the **field-native zkVM** (`execnode/zkvm.py`, `runtime: "zkvm"`, `DEFAULT_RUNTIME="zkvm"`),
+> runtime today is the **zkVM** (`execnode/zkvm2.py`, a 256-bit wrapping word and a BLAKE2s hash since the
+> generation-29 reroll; `runtime: "zkvm"`, `DEFAULT_RUNTIME="zkvm"`),
 > and contracts live at `execnode/games/*.py`, not `execnode/contracts/*.json`. The **blob envelope,
 > submission, and read paths in this doc are still exactly current**; only the VALUE-opcode sections below
 > (the `stackvm` primitives) and the `execnode/contracts/*.json` example cids are legacy. For authoring a
@@ -118,7 +119,7 @@ Invoke a method, persisting storage on success. Optionally **escrow NADO** into 
 | `op` | yes | `"call"` |
 | `contract` | yes | target `cid` |
 | `method` | yes | method name to run |
-| `args` | no | argument **list** (default `[]`; must be a list). Each arg is an **int in the Goldilocks field** or an **address string** (digested to a field element at the call boundary). Up to **1024 args**: the first 8 preload registers r0..r7, and the `ARG` opcode reaches all of them by dynamic index — variadic inputs (merkle proofs, batches) are first-class, no packing needed. |
+| `args` | no | argument **list** (default `[]`; must be a list). Each arg is an **int in [0, 2^256)** (one VM word; anything outside is refused, not reduced) or an **address string** (digested at the call boundary to its 256-bit BLAKE2s digest, `runtimes.zkvm_addr_digest`, and registered so a payout to that digest resolves back to the address). Up to **1024 args**: the first 8 preload registers r0..r7, and the `ARG` opcode reaches all of them by dynamic index — variadic inputs (merkle proofs, batches) are first-class, no packing needed. |
 | `value` | no | raw NADO to escrow from the caller's bridge INTO the contract for this call (`int >= 0`, bool rejected; default `0`) |
 | `ns` | no | namespace |
 
@@ -387,7 +388,7 @@ unpayable pool.
 digested at the call boundary, stored as digests, resolved back to the original text by `decode_view`
 ("hash on-chain, text in the transaction"). Money is tracked in UNITs of 10^4 raw (stakes must be UNIT
 multiples) so `stake×pot` stays inside the `DIVMODW` soundness window; a market's pot caps at 2^31 UNITs.
-Per-user positions live in alghash-keyed slots — the frontend reads them through the read-only **views**
+Per-user positions live in hash-keyed slots (the VM's BLAKE2s `hash`) — the frontend reads them through the read-only **views**
 `claimable_of(m, addr)` / `stake_of(m, i, addr)` / `total_of(m, addr)` / `claimed_of(m, addr)` /
 `vote_of(m, addr)` via `GET /exec/view`.
 
@@ -444,8 +445,9 @@ they carry proofs/commitments and are verified by the pool. Full detail: [`priva
 
 ### `field_transfer`
 
-Phase-2 field-native join-split (full STARK proof from the delegated prover). The proof bundle rides as an
-**opaque JSON string** so its large field ints survive JSON round-trips.
+A private transfer or unshield in the **Stwo pool** (`execnode/shielded_stwo.py`): the bundle carries a `stwo_js`
+join-split proof the wallet builds on-device (`static/stark/stwo_js.js`). The op keeps its pre-Stwo name. The
+bundle rides as an **opaque JSON string** so its large ints survive JSON round-trips.
 
 | field | req | meaning |
 |---|---|---|
@@ -455,9 +457,9 @@ Phase-2 field-native join-split (full STARK proof from the delegated prover). Th
 | `proof_da` | no | DA commitment; the tail loop resolves the bundle from DA before applying (block stalls if unavailable) |
 | `ns` | no | namespace |
 
-Applied via `apply_field_transfer`. **Skips if:** `bundle_json` unparsable; bundle not a dict. Since the privacy
-pause (from block 1 on the current generation) only the **wide** pool spends (a `joinsplit3` bundle); the legacy
-field pool is refused (`rules_privacy_pause` / `rules_shield_wide`).
+Applied via `apply_field_transfer`. **Skips if:** `bundle_json` unparsable; bundle not a dict; the bundle carries no
+`stwo_js` proof. The legacy field pool's `joinsplit`/`joinsplit2` and the wide pool's `joinsplit3` paths were deleted
+in G9 slice 5 (both pools were empty).
 
 ### `shielded_transfer`
 

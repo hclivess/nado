@@ -24,7 +24,7 @@ game** (its deposit pool), so free play stays free.
 ## What it touches
 
 - `execnode/state.py` call path (after the step-budget checks, all-or-nothing with the payouts), the two new ops, exec root
-  records (`execnode/exec_root.py`), snapshot (`to_dict`/`_restore`, empty is absent).
+  records (`execnode/exec_root_b2.py`), snapshot (`to_dict`/`_restore`, empty is absent).
 - **Settlement prover**: a span whose calls move deposits is unprovable (raise), like a reverted call — the records half
   cannot derive deposit movements today; the Stwo settlement statement (doc/stwo-migration.md §9, option R) designs them in.
 - **Reroll carry** (`tools/alphanet6_carryforward.py`, `execnode/exec_genesis.py`): pools and held deposits are value —

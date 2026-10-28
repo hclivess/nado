@@ -129,6 +129,10 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 
 ## 6. What's built vs pending
 
+> As of G9 every row below that names `execnode/stark/`, `shielded_wide.py`, `alghash`/`alghash2`, `joinsplit*` or
+> their tests describes code that is **deleted**, whatever its status cell says. The live pool is the Stwo pool:
+> BLAKE2s notes and tree (`execnode/shielded_stwo.py`), proofs from `native/stwo_js` built in the wallet.
+
 | piece | status |
 |---|---|
 | note commitment / nullifier / owner scheme | ✅ implemented + tested |
@@ -136,12 +140,12 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | pool state machine (shield / transfer / unshield), double-spend + value conservation | ✅ |
 | verifier seam (`verify_transfer`), transparent Phase-1 verifier | ✅ |
 | soundness test suite (10 cases) | ✅ |
-| STARK engine — Goldilocks field + Merkle + FRI + AIR/STARK | ✅ (tests/test_stark_fri.py, test_stark.py) |
-| STARK-friendly hash (Poseidon-lite sponge) | ✅ (execnode/stark/alghash.py) |
+| STARK engine — Goldilocks field + Merkle + FRI + AIR/STARK | built; **deleted in G9** with its tests — the Stwo pool is proved by Stwo (Circle STARK over M31, `native/stwo_js`) |
+| STARK-friendly hash (Poseidon-lite sponge) | built; **deleted in G9** (`execnode/stark/alghash.py`) — the Stwo pool hashes with BLAKE2s |
 | join-split hash gadget arithmetised + proven in ZK (commitment/nullifier/tree-node) | ✅ (tests/test_stark_joinsplit.py) |
 | Phase-2 seam wired into verify_transfer | ✅ (verifies the FULL join-split proof) |
 | FULL join-split circuit (owner+commit+membership+nullifier+output+conservation) in one ZK proof | ✅ (tests/test_stark_joinsplit_circuit.py) |
-| migrate the POOL TREE + browser client from BLAKE2b to the field hash (alghash) | ⏳ rollout |
+| migrate the POOL TREE + browser client from BLAKE2b to the field hash (alghash) | superseded: the Stwo pool's tree is BLAKE2s, in the node and the wallet alike |
 | **Zero-knowledge join-split (Z1, inside SHIELD_WIDE_HEIGHT): randomizer columns + random rows + salted leaves; the old proof showed nsk in every opening** | ✅ coded, live at the reroll (`stark.prove(zk=)`, joinsplit3) |
 | **WIDE pool (SHIELD_WIDE_HEIGHT, next generation): commitments / owner ids / nullifiers / tree nodes are alghash2 digests (256-bit, ~128-bit collision) and the proof is joinsplit3** — the 64-bit alghash pool's ~2^32 collision let ~2^33 sponge evaluations open one leaf two ways (review 2026-09-23, Z3) | ✅ coded, live at the reroll (execnode/shielded_wide.py, execnode/stark/{znote,joinsplit3}.py, static/alghash2.js, static/stark/joinsplit3.js; tests/test_shielded_wide.py, tests/joinsplit3_js_crosscheck.sh) |
 | **The wide spend key is FOUR lanes (256 bits) and comes from its own domain (`shield-nsk-v2`)** — one lane made every public owner id a 2^64 (less, multi-target) key search, and reusing the v1 key meant every legacy proof had published the wide key (review 2026-09-24) | ✅ coded, live at the reroll (znote.nsk_lanes, joinsplit3 NSK..NSK+3, alghash2.js nskLanes, interface.js shieldNskWide) |

@@ -196,8 +196,8 @@ A ZK nullifier would let a device prove "I hold a certificate chaining to one of
 wrong cost — and the earlier claim in this file that it "costs only time" was wrong:
 
 - It needs **in-circuit SHA-256 and in-circuit P-256 ECDSA** to verify an X.509 chain inside the proof. Neither exists
-  in the tree. The only in-circuit hash is the Poseidon-style width-12 sponge (`execnode/stark/alghash2.py`), which
-  legally cannot substitute: it hashes different bytes, so it would not verify a real vendor certificate.
+  in the tree. The only in-circuit hash is BLAKE2s (the Stwo Blake component; the Poseidon-style `alghash2` sponge
+  before G9), which cannot substitute: it is a different hash function, so it would not verify a real vendor certificate.
 - That is the same obstacle that gates the ML-DSA verify AIR, where the missing in-circuit Keccak/SHAKE is recorded as
   THE cost driver (`doc/zk-signature-aggregation.md`). This is not a smaller job than that one; it is a sibling of it.
 - The enrollment shortcut (reveal once, then prove Merkle membership with our own hash) does not rescue it. The

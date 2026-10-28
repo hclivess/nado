@@ -23,8 +23,8 @@ Companion notes: [`execution-layer.md`](execution-layer.md) (why the shape), [`l
    settle  │           finalized blocks     │ blobs            /get_settled?ns=
    tx      │                                ▼                                    │
    ┌───────┴──────────── execution node (execnode/) ────────────────────────────┐
-   │  tails FINALIZED blocks → decodes blobs → VM (vm.py) → state.py             │
-   │  Merkle state_root() (stark/merkle.py) · shielded-pool STARK (stark/fri.py) │
+   │  tails FINALIZED blocks → decodes blobs → VM (zkvm2.py) → state.py          │
+   │  BLAKE2s state_root() (exec_root_b2.py) · Stwo shielded pool (stwo_js)      │
    │  maybe_settle() posts `settle` if bonded · /exec/* read API                 │
    └────────────────────────────────────────────────────────────────────────────┘
                                         ▲
@@ -46,13 +46,16 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
 - **Tail.** Reads **only finalized** L1 blocks (so it inherits L1 finality; nothing it acts on can be
   reorged). `state.cursor` = highest L1 height fully applied.
 - **Decode + execute.** Pulls `blob` payloads (and reserved exec ops: `bridge`, `shield`, `dividend`) out of
-  each block in canonical (`txid`-sorted, CO-8) order and runs them through the deterministic stack **VM**
-  (`execnode/zkvm.py`) into the contract store (`execnode/state.py`).
-- **Commit.** `state.state_root()` is a **depth-256 sparse alghash2 root** (`execnode/exec_root.py`) over the exec
-  state — the object L1 settlement commits to and the tunnels prove against.
-- **Prove (privacy today).** `execnode/stark/` is a real **hash-based FRI/STARK prover over Goldilocks**
-  (`fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py`) that proves shielded-pool transfers in-browser.
-  This is the same PQ-sound machinery a Phase-2b **settlement** proof would reuse (§6).
+  each block in canonical (`txid`-sorted, CO-8) order and runs them through the deterministic **zkVM**
+  (`execnode/zkvm2.py`: a 256-bit wrapping word, a BLAKE2s hash) into the contract store (`execnode/state.py`).
+- **Commit.** `state.state_root()` is a **BLAKE2s root over a compressed sparse Merkle tree**
+  (`execnode/exec_root_b2.py`, `execnode/csmt.py`) over the exec state — the object L1 settlement commits to and
+  the tunnels prove against. (Until generation 29 it was a depth-256 alghash2 tree, `execnode/exec_root.py`,
+  deleted in G9.)
+- **Prove.** Proofs are **Stwo** (a Circle STARK over M31). The shielded pool's spends are proved in the browser
+  (`native/stwo_js`, `execnode/shielded_stwo.py`); a Phase-2b **settlement** proof of a span is
+  `execnode/settle_b2.py` + `native/stwo_settle`, dormant behind `STWO_SETTLE_HEIGHT` (§6). The Goldilocks
+  FRI/STARK prover that did both before (`execnode/stark/`) was deleted in G9.
 - **Bootstrap.** A COLD exec node with `NADO_EXEC_BOOTSTRAP=<donor exec url>` adopts the donor's
   last-settled snapshot (`GET /exec/state_snapshot?ns=`) instead of replaying from genesis — accepted
   ONLY if the state_root recomputed from the payload matches the L1-settled `(cursor, root)`, so the
@@ -85,7 +88,7 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
 These are two different things, and conflating them causes confusion. The **VM** is a pure function; the
 **execution node** is the stateful service around it.
 
-| | **The zkVM** (`execnode/zkvm.py`) | **The execution node** (`execnode/execnode.py` + `execnode/state.py`) |
+| | **The zkVM** (`execnode/zkvm2.py`) | **The execution node** (`execnode/execnode.py` + `execnode/state.py`) |
 |---|---|---|
 | What it is | a deterministic **interpreter for one contract call** | a long-running **service** that holds state and orchestrates everything |
 | Shape | `run(code, method, sender, args, storage) → (ok, ret, new_storage)` — a **pure function** | a process: tail loop + `ExecState` + `/exec/*` HTTP API |
@@ -290,11 +293,13 @@ Contracts run in the RISC-V-class VM off L1 (`execution-layer.md` §5); contract
 **Finality coupling:** exec nodes consume only finalized blocks and settled roots sit below `FINALITY_DEPTH`
 (45), so a settled root is never reorged — settlement inherits L1 finality for free.
 
-**Phase-2b (built, live).** A `settle` may carry a STARK validity proof. When it verifies at block validation the
-node records the `kv_ops.settlement_proven` marker, and `settlement_justified` accepts a root that is proven **or**
-quorum-attested (`SETTLE_PROOF_TRUSTLESS = True`, `ops/settlement_ops.py`). The prover is the zkVM execution AIR
-(`execnode/stark/vm_circuit.py`, `execnode/settlement_proofs.py`, `execnode/stark/settlement_sparse.py`), folded
-K→1 under `SETTLE_PROOF_RECURSIVE`. A proof-carrying settle first landed at block 43153 (2026-08-06,
+**Phase-2b (built; the Stwo form dormant).** A `settle` may carry a STARK validity proof. When it verifies at block
+validation the node records the `kv_ops.settlement_proven` marker, and `settlement_justified` accepts a root that is
+proven **or** quorum-attested (`SETTLE_PROOF_TRUSTLESS = True`, `ops/settlement_ops.py`). Since generation 29 the
+proof is Stwo's (`execnode/settle_b2.py`, `native/stwo_settle`), accepted from `STWO_SETTLE_HEIGHT`, which is still
+dormant; until then every epoch settles by the quorum. The Goldilocks prover before it (`execnode/stark/vm_circuit.py`,
+`execnode/settlement_proofs.py`, `execnode/stark/settlement_sparse.py`, folded K→1 under `SETTLE_PROOF_RECURSIVE`)
+was deleted in G9; under it a proof-carrying settle first landed at block 43153 (2026-08-06,
 [settle-proof-transport.md](settle-proof-transport.md)); spans that move withdrawals, unshields or xmsgs cannot be
 proven yet ([stwo/g4-settlement-statement.md](stwo/g4-settlement-statement.md) §1), so routine settlement still
 rides the quorum.
@@ -412,7 +417,7 @@ routed through i18n.
 | Cross-domain outbox | `emit` op + `execnode.state.outbox`; `/exec/outbox`, `/exec/outbox_proof` |
 | Cross-rollup delivery | `xmsg` arm + `construct_xmsg_tx`; shared `hashing.outbox_leaf`; `kv_ops.xmsg_nullifier_*`; `execnode.state.apply_xmsg` + inbox; `/exec/inbox` |
 | Data availability | `ops/da.py` — `encode` / `reconstruct` / `sample_proof` / `verify_sample` (Reed-Solomon + Merkle) |
-| Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/zkvm.py`, `execnode/stark/` |
+| Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/zkvm2.py`, `execnode/exec_root_b2.py`, `execnode/settle_b2.py` |
 | Node API | `nado.py` `/get_settled?ns=`, `/exec/*` proxy |
 | Wallet | `static/interface.html` + `interface.js` Settlement tab; `nado._TAB_PATHS` |
 | Tests | `tests/test_settlement.py` (incl. namespaces), `tests/test_bridge.py`, `tests/test_blob.py`, `tests/test_zkvm.py` |

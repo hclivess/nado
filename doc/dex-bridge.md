@@ -149,7 +149,7 @@ attribution (§4.4) possible without any off-chain index.
 | `namt` 5 | `o` | the NADO side amount, raw |
 | `wch` 6 / `wamt` 7 / `wadr` 8 | `o` | foreign chain / amount / maker's receiving address (string digests) |
 | `hsha` 9 | `o` | `SHA-256(s)` — the FOREIGN leg's hashlock (digest of the 64-hex string) |
-| `hvm` 10 | `o` | `alghash(limbs(s))` — THIS contract's hashlock (see the dual hashlock below) |
+| `hvm` 10 | `o` | `H(limbs(s))`, the VM's 256-bit BLAKE2s hash — THIS contract's hashlock (see the dual hashlock below; fields 31–33 held the gen-28 extra digests and are empty) |
 | `expn` 11 | `o` | NADO-side refund height `T` — fill/settle require `cursor < expn`, expire requires `≥` |
 | `expf` 12 | `o` | the foreign leg's deadline, **opaque** (see §6.3 note below) |
 | `st` 13 | `o` | 1 open → 2 filled → 3 settled / 4 refunded / 5 cancelled |
@@ -170,7 +170,9 @@ the principal to the L1 HTLC removes the class outright rather than mitigating i
 opcode and no reroll. `bind(o, htlcId)` records which L1 HTLC carries the leg so the counterparty and any
 watchtower can verify its amount, hashlock and expiry before funding the foreign side.
 
-**The wide hashlock (2026-08-27).** One alghash digest is a single field element (~64 bits) over a
+**The wide hashlock (2026-08-27; superseded at generation 29).** Since the 256-bit VM, `hvm` is ONE BLAKE2s digest
+over the five limbs — a 256-bit lock, stronger than the four below together — and the four-domain construction went
+with the field VM in G9 slice 3b. As built for the Goldilocks VM: one alghash digest was a single field element (~64 bits) over a
 128-bit sponge state, which an audit priced at roughly **2^44** to forge — far weaker than the SHA-256 the
 same swap uses on the foreign side. The VM has no wider hash opcode, so the NADO lock is **four** digests
 of the same secret, each over a differently-offset first limb (`HDOM` in `execnode/games/otc.py`, mirrored
@@ -179,11 +181,11 @@ which restores a generic cost far beyond reach, at the price of four HASH blocks
 secret returns the maker their own deposit, so forging the image would hand the maker their money back —
 nothing to steal, and the weaker hash is harmless exactly there.
 
-**The dual hashlock.** The zkVM's only in-circuit hash is the alghash sponge — there is no SHA-256 opcode —
+**The dual hashlock.** The zkVM's only in-circuit hash is its BLAKE2s `hash` — there is no SHA-256 opcode —
 while Bitcoin script can *only* check SHA-256. So the ONE 32-byte secret `s` binds two commitments at post
-time: `H_sha = SHA-256(s)` locks the foreign HTLC and `H_vm = alghash.hashn(limbs(s))` locks the escrow
-here, where `limbs(s)` splits `s` little-endian into five 52-bit field limbs (5×52 ≥ 256; each limb < 2^52
-so every range gate stays inside the VM's LT window). Revealing `s` anywhere opens both. `preimage_limbs` /
+time: `H_sha = SHA-256(s)` locks the foreign HTLC and `H_vm = H(limbs(s))` (the VM hash) locks the collateral
+here, where `limbs(s)` splits `s` little-endian into five 52-bit limbs (5×52 ≥ 256; settle requires each limb < 2^52, so
+one secret has exactly one limb vector). Revealing `s` anywhere opens both. `preimage_limbs` /
 `vm_hashlocks` in `execnode/games/otc.py` are the single shared definition for wallet + tests.
 
 **Timelock note (§6.3 in practice).** `expn` is enforced in-circuit (`[cursor+HTLC_MIN_TIMELOCK,
@@ -195,8 +197,8 @@ same window, it never interprets it.
 
 ### 4.3 Methods (all permissionless; `//` = revert guard)
 
-- **`post(o, kind, namt, wch, wamt, wadr, hsha, hi0, lo0 … hi3, lo3, expn, expf)`** — the four alghash
-  hashlocks ride as 32-bit halves (a JS JSON number is exact only to 2^53). **`VALUE` must be 0**: a
+- **`post(o, kind, namt, wch, wamt, wadr, hsha, p0 … p7, expn, expf)`** — the 256-bit VM hashlock rides as
+  eight 32-bit pieces (a JS JSON number is exact only to 2^53). **`VALUE` must be 0**: a
   cross-chain order escrows nothing here, because the NADO leg is an L1 HTLC (see WHERE THE MONEY SITS).
   `namt` is the advertised amount.
   `// o fresh; kind ∈ {1,2}; namt > 0 (range-gated < 2^62); every commitment non-zero; expn in the HTLC
@@ -218,8 +220,8 @@ same window, it never interprets it.
 - **`fill(o, tadr, fref)`** with **`VALUE` 0** — first valid taker wins (the tx inclusion
   delay + deterministic mempool make the race fair, §9). Pins the taker's foreign HTLC reference so the
   maker can verify that lock before revealing `s`. `// state==open && cursor < expn && VALUE matches kind.`
-- **`settle(o, l0..l4)`** — **anyone** holding the preimage. `// state==filled && cursor < expn && all four
-  alghash digests match (each limb < 2^52).` The swap principal is not here, so this closes the order,
+- **`settle(o, l0..l4)`** — **anyone** holding the preimage. `// state==filled && cursor < expn && the VM
+  hashlock matches (each limb < 2^52).` The swap principal is not here, so this closes the order,
   returns the maker's collateral and pays the tip; publishing the limbs also puts `s` on NADO where the
   counterparty or a watchtower can read it to finish the other leg.
 - **`expire(o)`** — anyone, at/after `expn`. Closes an unfinished order: a SWAP_INTRA escrow returns to its
@@ -281,7 +283,7 @@ party. (`ASK_NADO` from Alice.)
 ### 6.1 Happy path
 
 1. **Alice posts.** She picks a secret `s`, computes `H = SHA-256(s)`, and calls
-   `post(o, ASK_NADO, namt, wch=btc, wamt, wadr=<Alice BTC addr>, hsha=H, <the four alghash images>, expn=T₁,
+   `post(o, ASK_NADO, namt, wch=btc, wamt, wadr=<Alice BTC addr>, hsha=H, <the VM hashlock as p0..p7>, expn=T₁,
    expf=T₂)` with `VALUE` 0 — the order book holds no principal (§4.2). Her NADO leg is an L1 `htlc_lock`
    under the same `H` (claimant: the taker who fills, expiry `T₁`), recorded on the order with
    `bind(o, htlcId)` — see WHERE THE MONEY SITS (§4.2). She reveals **only `H`**.
@@ -336,7 +338,7 @@ single most important consensus check in the whole design.
 The NADO chain must release Alice's escrow to Bob **only** once `s` is known. Two ways, pick per deployment:
 
 - **(A) Direct — Bob submits `s`.** Bob simply calls `settle(o, limbs(s))`; the contract checks the
-  alghash side of the dual hashlock, `alghash(limbs(s))==H_vm` (§4.2 — the VM has no SHA-256, so the one
+  VM side of the dual hashlock, `H(limbs(s))==H_vm` (§4.2 — the VM has no SHA-256, so the one
   secret carries a hashlock in each chain's native hash; both were bound at post). Bob learned `s` by watching Bitcoin. **This needs nothing from NADO about Bitcoin** — the
   preimage is self-authenticating. This is the default and is fully trustless (it is exactly how
   [`htlc.md`](htlc.md) §3 works). The order book just coordinates *discovery*; settlement is the raw HTLC.

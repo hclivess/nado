@@ -81,7 +81,7 @@ any FUTURE format migration can enumerate policy accounts and define their carry
 Most consensus domain tags have already been renamed brand-free (`protocol.py`: `msig-v2`, `register-v1`,
 `randao-commit-v1`, `randao-beacon-v1`, `blocksig-v2`, `genesis-beacon-v1`; the forum's non-consensus
 `forum-login-v1`). Some still carry the brand — invisible to users, but they exist: `nado-address-v2`
-(`DOMAIN_ADDRESS_V2`), `nado-auth-v1`, `nado-air-v1`, `nado-epoch-statement-v1` (in `execnode/stark/`), plus
+(`DOMAIN_ADDRESS_V2`), `nado-auth-v1`, `nado-air-v1`, `nado-epoch-statement-v1` (these two went with `execnode/stark/` in G9), plus
 non-consensus ones (the `nado-lang` event, localStorage keys). The chain_id is already brand-free
 (`protocol.CHAIN_ID`, and it changes every reroll). Outside a reroll, renaming any consensus tag is a fork for zero
 value. AT the reroll everything re-derives from genesis anyway, so renaming them to brand-free

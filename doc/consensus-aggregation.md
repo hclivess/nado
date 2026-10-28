@@ -36,7 +36,7 @@ The Rust crate is a thin `cdylib` over the audited RustCrypto [`ml-dsa`](https:/
 implementation, exposing exactly the three **FIPS 204 *internal*-mode** primitives the seam expects
 (`keygen_internal`, `sign_internal`, `verify_internal` — **no context/domain wrapping**, matching
 dilithium-py and the browser's `@noble/post-quantum`). It is bound by `ctypes` (stdlib, no pyo3), the same
-pattern as the Rust Goldilocks prover in `wasm/goldilocks`.
+pattern as the other native crates (`native/stwo_js` via `execnode/stwo_js_native.py`).
 
 **Consensus safety is unconditional.** `signatures.py` adopts a native backend ONLY after a startup **interop
 self-test**: it cross-verifies the candidate against the pure-Python signer in *both* directions and checks

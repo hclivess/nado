@@ -162,7 +162,8 @@ dmypy.json
 # a later negation inside it can never match. Excluding the contents instead is what makes `!` work.
 !.claude/skills/
 
-# Rust build artifacts (the native Goldilocks lib is built by install.sh; wasm is embedded in JS)
+# Rust build artifacts (install.sh builds native/mldsa44, the node's updater the other native crates; the wasm/blake2b
+# module is embedded in static/vendor/blake2b-wasm.js)
 wasm/*/target/
 
 # off-chain message pool persistence (node-local, ephemeral-ish state)

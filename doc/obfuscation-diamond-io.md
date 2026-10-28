@@ -13,7 +13,7 @@ the correct posture today is to track, reproduce and measure, not to build on.
 **Put a program on-chain that anyone can run but nobody can read.**
 
 NADO can already do the first half of that sentence's opposite: `execnode/` proves *what a program did*
-without re-executing it (STARKs over the exec VM, `execnode/stark/vm_circuit.py`). What it cannot do is
+without re-executing it (Stwo STARKs over the exec VM, `native/stwo_settle`; `execnode/stark/vm_circuit.py` before G9). What it cannot do is
 *hide what the program is* while still letting the network run it. Every contract deployed today is public
 bytecode; every input to it is public; the privacy work in `doc/privacy.md` hides **values** (notes,
 nullifiers, Merkle exits), never **logic**.

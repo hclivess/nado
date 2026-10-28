@@ -7,7 +7,7 @@ NADO contains and uses cryptographic software:
 - **ML-DSA-44** (FIPS 204) post-quantum digital signatures (`signatures.py`,
   `native/mldsa44`, `dilithium-py`)
 - **zk-STARK / FRI** proof systems (Stwo: `native/stwo_js`, `native/stwo_settle`)
-- Hash functions (BLAKE2b, SHA-3/Keccak, the project's `alghash` sponge)
+- Hash functions (BLAKE2b, BLAKE2s, SHA-3/Keccak)
 - End-to-end encryption for on-chain messaging and a shielded transfer pool
 
 ## United States (EAR)

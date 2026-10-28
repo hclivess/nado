@@ -75,7 +75,7 @@ key the chain later checks with ML-DSA-44:
 Multisig members are also ML-DSA-44: a member signature is checked against the member's address as an ML-DSA-44 key.
 Widening any of these is a feature per surface, never a one-line change.
 
-**The block auth leaf** (`execnode/stark/mldsa_block_auth.py`) declares the scheme in its `kind` (3 to 6). An untagged
+**The block auth leaf** (`ops/mldsa_block_auth.py`) declares the scheme in its `kind` (3 to 6). An untagged
 transaction keeps kind 1, so no existing leaf, `auth_root` or block hash moves. Raw evidence verifies each signature
 under its own transaction's scheme.
 

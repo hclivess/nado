@@ -2237,8 +2237,8 @@ STWO_PAUSE_HEIGHT = 1 << 62
 # THE BLAKE2s EXEC ROOT AND THE 256-BIT VM (Goldilocks retirement G2/G3) are generation 29's rules at every height:
 # BLAKE_EXEC_HEIGHT (2^62 on gen 28, 1 from gen 29) was inlined in G9 — execnode/exec_root_b2.py is the exec root and
 # the exit verifier, zkvm2 runs every call. The field VM (execnode/zkvm.py), its ISA in the assembler, the field digest
-# and the v1 -> v2 carry were deleted in G9 slice 3b; the Goldilocks root (execnode/exec_root.py) survives only as a
-# module tests and the records binding still name.
+# and the v1 -> v2 carry were deleted in G9 slice 3b; the Goldilocks root (execnode/exec_root.py) went with
+# execnode/stark/ in G9 slice 4; its record tags live on, same numbers, in exec_root_b2.
 
 # THE DIGEST REGISTRY IN THE EXEC ROOT (G4, 2026-10-27; doc/stwo/g4-settlement-statement.md section 5). A zkvm PAY names
 # its payee by a 256-bit digest, and the exec node resolves it through ExecState.zk_addrs, the digest -> address registry

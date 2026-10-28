@@ -1,5 +1,10 @@
 # State merging — sequential and parallel
 
+> **HISTORICAL (G9, 2026-10-28):** this describes the Goldilocks implementation — `storage_tree.SparseStore` (the
+> depth-256 alghash2 tree), `state_transition`, `state_merge` — all deleted with `execnode/stark/` in G9. The exec
+> state is now a BLAKE2s compressed sparse tree (`execnode/csmt.py`, `execnode/exec_root_b2.py`) and a span settles on
+> one Stwo statement (doc/stwo/g4-settlement-statement.md); no merge of separate proofs is built for it.
+
 How two state-transition proofs compose into one. This is the mechanism behind off-chain transaction bulking
 with on-chain reuptake: prove work off-chain, merge it, settle once.
 

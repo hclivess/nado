@@ -1,8 +1,21 @@
 # NADO zk components — the complete map
 
-**Status: reference, written 2026-08-04 (pre-Stwo).** Shielded-pool and settlement status has moved since (the live
-private pool is the Stwo pool, and settlement moves to Stwo/BLAKE2s at the next reroll); see
-[`stwo-migration.md`](stwo-migration.md) and [`privacy.md`](privacy.md) for the current state.
+> **HISTORICAL (G9, 2026-10-28): this map is of the Goldilocks stack, and that stack is deleted.** Written 2026-08-04.
+> Generation 29 moved the execution layer off the Goldilocks field, and milestone G9 deleted `execnode/stark/`,
+> `execnode/exec_root.py`, the field VM `execnode/zkvm.py`, the legacy and wide pools, `native/starkprove`,
+> `native/starkcompose`, `native/alghash2`, `wasm/goldilocks` and the wallet's Goldilocks prover. Rows for deleted code
+> are marked **DELETED (G9)**; the measurements and lessons are kept because they still explain why the replacement
+> looks the way it does. What is live today:
+>
+> | piece | where | status |
+> |---|---|---|
+> | contract VM: 256-bit word wrapping mod 2^256, BLAKE2s `hash` | `execnode/zkvm2.py` ([`stwo/g3-vm-word.md`](stwo/g3-vm-word.md)) | **LIVE**, the only runtime |
+> | exec root: BLAKE2s over a compressed sparse Merkle tree | `execnode/exec_root_b2.py`, `execnode/csmt.py` | **LIVE** |
+> | shielded pool: Stwo (Circle STARK over M31) join-split, BLAKE2s notes, depth 48 | `execnode/shielded_stwo.py`, `native/stwo_js`, `static/stark/stwo_js.js` | **LIVE** |
+> | Stwo settlement statement + verifier | `execnode/settle_b2.py`, `native/stwo_settle` | built; dormant behind `STWO_SETTLE_HEIGHT`, the bonded quorum settles |
+> | block authorization | `ops/mldsa_block_auth.py` (`auth_root` a BLAKE2s chain) | **LIVE** |
+>
+> The migration and its phases: [`stwo-migration.md`](stwo-migration.md); the current pool: [`privacy.md`](privacy.md).
 
 Every zero-knowledge / proof-system component in the tree, what it does, where it lives, and — the part
 that matters most — **whether it is actually load-bearing in production right now**. Sizes are `wc -l` of
@@ -11,7 +24,7 @@ estimated.
 
 The companion docs go deep on individual subsystems; this one exists so you can see the whole surface at
 once and tell live code from capability from research. If a doc and this table disagree about status,
-**check the code** — `protocol.py` and `execnode/stark/*` are the source of truth.
+**check the code** — `protocol.py` and the modules themselves are the source of truth.
 
 > New to the vocabulary? [`zk-glossary.md`](zk-glossary.md) defines every term used below.
 
@@ -68,11 +81,11 @@ The bottom of the stack. Everything above is built from these.
 
 | Component | File | Lines | Status | Notes |
 |---|---|---|---|---|
-| Goldilocks field | `execnode/stark/field.py` | 152 | **LIVE** | p = 2⁶⁴ − 2³² + 1 = 18446744069414584321. Chosen for fast reduction (2⁶⁴ ≡ 2³²−1, 2⁹⁶ ≡ −1) |
-| Extension field GF(p^d) | `execnode/stark/extf.py` | 351 | **LIVE** | Needed for soundness: challenges drawn from the base field alone are too few. Measured 2.8× base-field proving cost — the Rust arena is base-field only |
-| Merkle commitment | `execnode/stark/merkle.py` | 77 | **LIVE** | The polynomial-commitment primitive |
-| Fiat–Shamir transcript | `execnode/stark/transcript.py` | 79 | **LIVE** | Makes the interactive protocol non-interactive |
-| Soundness calculator | `execnode/stark/soundness.py` | 316 | **LIVE** | What the FRI parameters *actually* buy, rather than what they are assumed to buy |
+| Goldilocks field | `execnode/stark/field.py` | 152 | **DELETED (G9)** | p = 2⁶⁴ − 2³² + 1 = 18446744069414584321. Chosen for fast reduction (2⁶⁴ ≡ 2³²−1, 2⁹⁶ ≡ −1) |
+| Extension field GF(p^d) | `execnode/stark/extf.py` | 351 | **DELETED (G9)** | Needed for soundness: challenges drawn from the base field alone are too few. Measured 2.8× base-field proving cost — the Rust arena is base-field only |
+| Merkle commitment | `execnode/stark/merkle.py` | 77 | **DELETED (G9)** | The polynomial-commitment primitive |
+| Fiat–Shamir transcript | `execnode/stark/transcript.py` | 79 | **DELETED (G9)** | Makes the interactive protocol non-interactive |
+| Soundness calculator | `execnode/stark/soundness.py` | 316 | **DELETED (G9)** | What the FRI parameters *actually* buy, rather than what they are assumed to buy |
 
 **FRI parameters (protocol strength):** `NUM_QUERIES = 320`, `FRI_BLOWUP = 2`, `GRIND_BITS = 18` →
 ≈ 320 × 0.4 + 18 ≈ **146 provable bits** (Johnson bound). Blowup 2 buys only 0.4 bits per query, which is
@@ -87,10 +100,10 @@ operations. Blake2b is not; these are.
 
 | Component | File | Lines | Status | Notes |
 |---|---|---|---|---|
-| alghash (v1) | `execnode/stark/alghash.py` | 87 | **LIVE** | First-generation in-circuit hash |
-| **alghash2** | `execnode/stark/alghash2.py` | 426 | **LIVE** | The recursion-layer hash. Wide sponge over Goldilocks: WIDTH 12, RATE 8, CAPACITY 4, α = 7, 54 rounds |
-| Backend selection | `execnode/stark/backend.py` | 167 | **LIVE** | `BLAKE2B` / `ALGHASH2` / `RECURSION`. The Rust arena covers `alghash2` and `recursion` only |
-| alghash2 in-VM | `execnode/stark/zkvm_alghash2.py` | 87 | capability | The in-VM STARK verifier route |
+| alghash (v1) | `execnode/stark/alghash.py` | 87 | **DELETED (G9)** | First-generation in-circuit hash |
+| **alghash2** | `execnode/stark/alghash2.py` | 426 | **DELETED (G9)** | The recursion-layer hash. Wide sponge over Goldilocks: WIDTH 12, RATE 8, CAPACITY 4, α = 7, 54 rounds |
+| Backend selection | `execnode/stark/backend.py` | 167 | **DELETED (G9)** | `BLAKE2B` / `ALGHASH2` / `RECURSION`. The Rust arena covers `alghash2` and `recursion` only |
+| alghash2 in-VM | `execnode/stark/zkvm_alghash2.py` | 87 | **DELETED (G9)** | The in-VM STARK verifier route |
 
 **alghash2 is post-quantum.** It is a hash, so there is no Shor target. 256-bit capacity gives 128-bit
 classical collision resistance and 128-bit Grover preimage resistance (~2⁸⁵ under Brassard–Høyer–Tapp, and
@@ -107,10 +120,10 @@ that needs 2⁸⁵ QRAM). Algebraic degree 7⁵⁴ ≈ 2¹⁵¹·⁶.
 
 | Component | File | Lines | Status | Notes |
 |---|---|---|---|---|
-| STARK prover/verifier | `execnode/stark/stark.py` | 669 | **LIVE** | Prove a trace satisfies its AIR. Dispatches to the native arena |
-| FRI | `execnode/stark/fri.py` | 332 | **LIVE** | Low-degree proximity test — the engine underneath every proof |
-| Constraint IR | `execnode/stark/air_ir.py` | 372 | **LIVE** | Traces AIR closures into a flat hash-consed DAG |
-| LogUp | `execnode/stark/logup.py` | 85 | **LIVE** | Log-derivative lookup/permutation argument — the memory-checking machinery |
+| STARK prover/verifier | `execnode/stark/stark.py` | 669 | **DELETED (G9)** | Prove a trace satisfies its AIR. Dispatches to the native arena |
+| FRI | `execnode/stark/fri.py` | 332 | **DELETED (G9)** | Low-degree proximity test — the engine underneath every proof |
+| Constraint IR | `execnode/stark/air_ir.py` | 372 | **DELETED (G9)** | Traces AIR closures into a flat hash-consed DAG |
+| LogUp | `execnode/stark/logup.py` | 85 | **DELETED (G9)** | Log-derivative lookup/permutation argument — the memory-checking machinery |
 
 ---
 
@@ -118,9 +131,9 @@ that needs 2⁸⁵ QRAM). Algebraic degree 7⁵⁴ ≈ 2¹⁵¹·⁶.
 
 | Component | File | Lines | Status | Notes |
 |---|---|---|---|---|
-| zkVM | `execnode/zkvm.py` | 521 | **LIVE** | The field-native VM every contract runs on — the only runtime |
-| zkVM execution AIR | `execnode/stark/vm_circuit.py` | 1182 | **LIVE** | Proves "running public program `code` on this input yields this output". The largest single circuit |
-| Exec state root | `execnode/exec_root.py` | 210 | **LIVE** | `state_root = rnode(kv half, records half)`, two depth-256 sparse trees |
+| zkVM | `execnode/zkvm.py` | 521 | **DELETED (G9)** | The field-native VM every contract runs on — the only runtime |
+| zkVM execution AIR | `execnode/stark/vm_circuit.py` | 1182 | **DELETED (G9)** | Proves "running public program `code` on this input yields this output". The largest single circuit |
+| Exec state root | `execnode/exec_root.py` | 210 | **DELETED (G9)** | `state_root = rnode(kv half, records half)`, two depth-256 sparse trees |
 
 Doc: [`zk-execution-proofs.md`](zk-execution-proofs.md). **25 contracts run on this today** (verified
 live on chain): the game suite plus faucet, lending, reserve and sovereign.
@@ -132,13 +145,13 @@ live on chain): the game suite plus faucet, lending, reserve and sovereign.
 | Component | File | Lines | Status |
 |---|---|---|---|
 | Stwo shielded pool (the live private pool) | `execnode/shielded_stwo.py`, `native/stwo_js` | 344 | **LIVE** (`STWO_POOL_HEIGHT`) |
-| Wide alghash2 pool | `execnode/shielded_wide.py`, `execnode/stark/joinsplit3.py` | 252 + 400 | deposits closed (`WIDE_DEPOSIT_CLOSE_HEIGHT`) |
-| Shielded pool state machine (legacy) | `execnode/shielded.py` | 317 | legacy field-pool transfers refused from block 1 (privacy pause) |
-| Join-split AIR | `execnode/stark/joinsplit.py` | 120 | **LIVE** |
-| 1-in/1-out circuit | `execnode/stark/joinsplit_circuit.py` | 386 | **LIVE** |
-| 2-output circuit | `execnode/stark/joinsplit2.py` | 410 | **LIVE** |
-| Transfer verifier seam | `execnode/stark/joinsplit_transfer.py` | 77 | **LIVE** |
-| Merkle membership AIR | `execnode/stark/membership.py` | 184 | **LIVE** |
+| Wide alghash2 pool | `execnode/shielded_wide.py`, `execnode/stark/joinsplit3.py` | 252 + 400 | **DELETED (G9)** |
+| Shielded pool state machine (legacy) | `execnode/shielded.py` | 317 | **DELETED (G9)** |
+| Join-split AIR | `execnode/stark/joinsplit.py` | 120 | **DELETED (G9)** |
+| 1-in/1-out circuit | `execnode/stark/joinsplit_circuit.py` | 386 | **DELETED (G9)** |
+| 2-output circuit | `execnode/stark/joinsplit2.py` | 410 | **DELETED (G9)** |
+| Transfer verifier seam | `execnode/stark/joinsplit_transfer.py` | 77 | **DELETED (G9)** |
+| Merkle membership AIR | `execnode/stark/membership.py` | 184 | **DELETED (G9)** |
 
 Doc: [`privacy.md`](privacy.md). **This is the one place where the full proof→DA→commitment→verify loop
 already works in production** — which is why it is the reference implementation for the settlement
@@ -152,16 +165,16 @@ Proving *that the exec state root moved correctly* — the machinery a validity-
 
 | Component | File | Lines | Status | Notes |
 |---|---|---|---|---|
-| Sparse Merkle storage tree | `execnode/stark/storage_tree.py` | 237 | **LIVE** | Depth 256 (`EXEC_TREE_DEPTH`), alghash2 nodes. **Measured hot spot** — see below |
-| Merkle-update AIR | `execnode/stark/merkle_update.py` | 181 | **LIVE** | In-circuit tree update |
-| State transition proof | `execnode/stark/state_transition.py` | 87 | **LIVE** | |
-| Calls commitment | `execnode/stark/calls_commit.py` | 344 | **LIVE** | Binds the epoch's calls |
-| Sparse-root settlement | `execnode/stark/settlement_sparse.py` | 460 | **LIVE** | `prove_bound_epoch` / `verify_bound_epoch` — the top-level settlement prover |
-| Exec-state binding | `execnode/stark/exec_state_bind.py` | 93 | **LIVE** | |
-| Records binding | `execnode/stark/records_bind.py` | 326 | **LIVE** | `SETTLE_PROOF_RECORDS`, live since the betanet-15 reroll |
-| Records transition | `execnode/stark/records_transition.py` | 134 | **LIVE** | |
-| Single-bundle aggregation | `execnode/stark/settlement_aggregate.py` | 55 | capability | |
-| O(1)-shaped bound epoch | `execnode/stark/bound_epoch_o1.py` | 84 | capability | |
+| Sparse Merkle storage tree | `execnode/stark/storage_tree.py` | 237 | **DELETED (G9)** | Depth 256 (`EXEC_TREE_DEPTH`), alghash2 nodes. **Measured hot spot** — see below |
+| Merkle-update AIR | `execnode/stark/merkle_update.py` | 181 | **DELETED (G9)** | In-circuit tree update |
+| State transition proof | `execnode/stark/state_transition.py` | 87 | **DELETED (G9)** | |
+| Calls commitment | `execnode/stark/calls_commit.py` | 344 | **DELETED (G9)** | Binds the epoch's calls. The per-block call leaves L1 keeps are now `execnode/calls_commit.py` |
+| Sparse-root settlement | `execnode/stark/settlement_sparse.py` | 460 | **DELETED (G9)** | `prove_bound_epoch` / `verify_bound_epoch` — the top-level settlement prover |
+| Exec-state binding | `execnode/stark/exec_state_bind.py` | 93 | **DELETED (G9)** | |
+| Records binding | `execnode/stark/records_bind.py` | 326 | **DELETED (G9)** | `SETTLE_PROOF_RECORDS`, live since the betanet-15 reroll |
+| Records transition | `execnode/stark/records_transition.py` | 134 | **DELETED (G9)** | |
+| Single-bundle aggregation | `execnode/stark/settlement_aggregate.py` | 55 | **DELETED (G9)** | |
+| O(1)-shaped bound epoch | `execnode/stark/bound_epoch_o1.py` | 84 | **DELETED (G9)** | |
 
 **Measured proving cost.** The single most important thing here is that **cold and warm differ by ~6x**,
 and quoting one for the other has repeatedly produced wrong conclusions. `storage_tree._FOLD_CACHE` is a
@@ -215,24 +228,24 @@ Verifying a proof inside a proof, so an epoch verifies in constant time. Doc: [`
 
 | Component | File | Lines | Status |
 |---|---|---|---|
-| Recursion core | `execnode/stark/recursion.py` | 972 | **LIVE** (`SETTLE_PROOF_RECURSIVE`) |
-| In-circuit STARK verify | `execnode/stark/recursive_verify.py` | 381 | **LIVE** |
-| Heterogeneous recursion | `execnode/stark/recursive_verify_hetero.py` | 224 | **LIVE** |
-| In-circuit FRI verify + fold | `execnode/stark/fri_verify.py` | 728 | **LIVE** |
-| Composition spot-check | `execnode/stark/comp_verify.py` | 464 | **LIVE** |
-| Row-committed composition check | `execnode/stark/rowcomp_verify.py` | 551 | **LIVE** |
-| Recursion depth (fold-of-folds) | `execnode/stark/recursion_depth.py` | 159 | **LIVE** |
-| Recursion depth, authoritative | `execnode/stark/recursion_authdepth.py` | 108 | **LIVE** |
-| In-circuit Fiat–Shamir sponge | `execnode/stark/fs_incircuit.py` | 138 | **LIVE** |
-| FS step (one challenge) | `execnode/stark/fs_step.py` | 168 | **LIVE** |
-| FS chain (whole transcript) | `execnode/stark/fs_chain.py` | 114 | **LIVE** |
-| DEEP out-of-domain evaluation | `execnode/stark/deep_eval.py` | 101 | **LIVE** |
-| LogUp multiset equality | `execnode/stark/logup_bind.py` | 205 | **LIVE** |
-| In-circuit io replay | `execnode/stark/io_replay.py` | 102 | **LIVE** |
-| Fold-layer io binding | `execnode/stark/io_bind.py` | 79 | **LIVE** |
-| In-circuit `slot_key` | `execnode/stark/slot_key_air.py` | 88 | **LIVE** |
-| State-side io tie | `execnode/stark/state_io_tie.py` | 80 | **LIVE** |
-| State merge | `execnode/stark/state_merge.py` | 165 | capability (tested, not wired) |
+| Recursion core | `execnode/stark/recursion.py` | 972 | **DELETED (G9)** |
+| In-circuit STARK verify | `execnode/stark/recursive_verify.py` | 381 | **DELETED (G9)** |
+| Heterogeneous recursion | `execnode/stark/recursive_verify_hetero.py` | 224 | **DELETED (G9)** |
+| In-circuit FRI verify + fold | `execnode/stark/fri_verify.py` | 728 | **DELETED (G9)** |
+| Composition spot-check | `execnode/stark/comp_verify.py` | 464 | **DELETED (G9)** |
+| Row-committed composition check | `execnode/stark/rowcomp_verify.py` | 551 | **DELETED (G9)** |
+| Recursion depth (fold-of-folds) | `execnode/stark/recursion_depth.py` | 159 | **DELETED (G9)** |
+| Recursion depth, authoritative | `execnode/stark/recursion_authdepth.py` | 108 | **DELETED (G9)** |
+| In-circuit Fiat–Shamir sponge | `execnode/stark/fs_incircuit.py` | 138 | **DELETED (G9)** |
+| FS step (one challenge) | `execnode/stark/fs_step.py` | 168 | **DELETED (G9)** |
+| FS chain (whole transcript) | `execnode/stark/fs_chain.py` | 114 | **DELETED (G9)** |
+| DEEP out-of-domain evaluation | `execnode/stark/deep_eval.py` | 101 | **DELETED (G9)** |
+| LogUp multiset equality | `execnode/stark/logup_bind.py` | 205 | **DELETED (G9)** |
+| In-circuit io replay | `execnode/stark/io_replay.py` | 102 | **DELETED (G9)** |
+| Fold-layer io binding | `execnode/stark/io_bind.py` | 79 | **DELETED (G9)** |
+| In-circuit `slot_key` | `execnode/stark/slot_key_air.py` | 88 | **DELETED (G9)** |
+| State-side io tie | `execnode/stark/state_io_tie.py` | 80 | **DELETED (G9)** |
+| State merge | `execnode/stark/state_merge.py` | 165 | **DELETED (G9)** |
 
 **The K→1 fold is implemented and switched on but has never actually run**, because it needs contract
 calls to fold and the chain has been idle: `settlement_sparse` raises on an empty call span, so the
@@ -248,16 +261,16 @@ guard fail-stops rather than silently degrading. Doc: [`rust-only-proving.md`](r
 
 | Crate | Lines | Covers |
 |---|---|---|
-| `native/starkprove` | 2 222 | The holistic prover: persistent LDE arena, `sp_fold`, `sp_fri_size`, `sp_lde_column`, `sp_reset` |
-| `native/alghash2` | 388 | `permute12`, `hashn`, `merkle_commit`, `rmerkle_commit`, `grind`, `merkle_verify_paths` |
-| `native/starkcompose` | 172 | Composition |
+| `native/starkprove` | 2 222 | **DELETED (G9).** The holistic prover: persistent LDE arena, `sp_fold`, `sp_fri_size`, `sp_lde_column`, `sp_reset` |
+| `native/alghash2` | 388 | **DELETED (G9).** `permute12`, `hashn`, `merkle_commit`, `rmerkle_commit`, `grind`, `merkle_verify_paths` |
+| `native/starkcompose` | 172 | **DELETED (G9).** Composition |
 | `native/mldsa44` | 103 | ML-DSA-44 post-quantum signatures |
 
 | Binding | File | Lines |
 |---|---|---|
-| Native guard | `execnode/stark/native_guard.py` | 142 |
-| Holistic prover binding | `execnode/stark/stark_native.py` | 619 |
-| Native Goldilocks NTT | `execnode/stark/goldilocks_native.py` | 107 |
+| Native guard | `execnode/native_guard.py` (moved in G9) | 142 |
+| Holistic prover binding | `execnode/stark/stark_native.py` (**DELETED (G9)**) | 619 |
+| Native Goldilocks NTT | `execnode/stark/goldilocks_native.py` (**DELETED (G9)**) | 107 |
 
 Three rules learned the hard way, each of which cost a wrong diagnosis:
 
@@ -329,6 +342,10 @@ This is the 4844/Celestia blob rule; the exec layer already implements it one le
 
 ## 10. Consensus integration
 
+> The `SETTLE_PROOF_*` flags below are still `True` in `protocol.py`, but the Goldilocks proof they admitted is gone: L1
+> refuses a Goldilocks settle proof for a BLAKE2s root (stwo-migration.md 9.5, G2 option R), so until
+> `STWO_SETTLE_HEIGHT` is set every epoch settles by the bonded quorum.
+
 | Constant (`protocol.py`) | Value | Meaning |
 |---|---|---|
 | `SETTLE_PROOF_TRUSTLESS` | `True` | A valid proof settles the root with **no bonded quorum** |
@@ -336,7 +353,7 @@ This is the 4844/Celestia blob rule; the exec layer already implements it one le
 | `SETTLE_PROOF_RECORDS` | `True` | Records half is bound too (betanet-15 reroll) |
 | `SETTLE_PROOF_DEPTH_GATED` | `True` | Proofs not consulted past `FINALITY_DEPTH` |
 | `SETTLE_PROOF_MAX_SPAN` | 240 | 4 × `EPOCH_LENGTH` |
-| `EXEC_TREE_DEPTH` | 256 | Full digest-width slot space; never needs a depth bump |
+| `EXEC_TREE_DEPTH` | 256 | Full digest-width slot space; never needs a depth bump. **Deleted in G9** with the depth-256 tree (the BLAKE2s root's tree is compressed, `execnode/csmt.py`) |
 | `EPOCH_LENGTH` | 60 | Dividend epoch — **a proven span may not cross one** |
 | `FINALITY_DEPTH` | 45 | |
 
@@ -358,7 +375,7 @@ Not zero-knowledge, but the same threat model, and the reason the proof stack is
 | Component | Where | Status |
 |---|---|---|
 | ML-DSA-44 signatures | `native/mldsa44`, `nado_pq_native` | **LIVE** — every transaction |
-| Block authorization + detached evidence | `execnode/stark/mldsa_block_auth.py` (211) | **LIVE** |
+| Block authorization + detached evidence | `ops/mldsa_block_auth.py` (moved out of `execnode/stark/` in G9; `auth_root` is a BLAKE2s chain) | **LIVE** |
 | ML-KEM-768 | on-chain messaging | **LIVE** |
 
 No elliptic curves, no pairings, no trusted setup anywhere in the stack. Doc:
@@ -368,9 +385,10 @@ No elliptic curves, no pairings, no trusted setup anywhere in the stack. Doc:
 
 ## 12. Browser prover
 
-650 lines of JavaScript in `static/stark/` — `field`, `merkle`, `tree`, `fri`, `stark`, `transcript`,
+**DELETED (G9); the wallet now proves with Stwo** (`static/stark/stwo_js.js` + `stwo_worker.js`, WASM from `native/stwo_js`).
+What this section described: 650 lines of JavaScript in `static/stark/` — `field`, `merkle`, `tree`, `fri`, `stark`, `transcript`,
 `hashing`, `bhash`, `joinsplit2` — so a phone can produce a shielded-transfer proof with no install.
-Tier A (JS/BigInt) is done and live. Doc: [`wasm-prover.md`](wasm-prover.md).
+Tier A (JS/BigInt) was live until the Stwo pool replaced it. Doc: [`wasm-prover.md`](wasm-prover.md) (historical).
 
 ---
 

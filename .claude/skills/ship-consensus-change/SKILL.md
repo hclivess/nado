@@ -83,6 +83,11 @@ Gating late costs nothing. Gating early costs a fork.
 Learned shipping P0 + A1 of the 2026-09-23 security review (`PROOF_BIND_HEIGHT`). A verifier pin is still a
 validation rule: old nodes accept what new nodes refuse, so it forks exactly like a weight change.
 
+The code this section names (`stark.verify`, `stark.rules_at`, `stark_native`, `recursive_verify`, the `alghash2`
+backend, `vm_circuit`, `settlement_sparse`, `joinsplit2`) is the Goldilocks verifier, deleted in G9; today's proof
+verifiers are Stwo's (`native/stwo_js`, `native/stwo_settle` behind `execnode/settle_b2.py`). The rules carry over:
+context at the consensus entry point, re-entered in every worker, prover and verifier switching on the same block.
+
 - **The rules are a context, not a parameter.** `stark.verify` is reached through a dozen wrappers
   (vm_circuit, settlement_sparse, exec_state_bind, state_transition, merkle_update, recursive_verify,
   io_replay, appnote, joinsplit2). Do not thread a flag through them; wrap the CONSENSUS entry point:

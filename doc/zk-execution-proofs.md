@@ -1,5 +1,7 @@
 # ZK execution proofs for contracts — feasibility (issue #85)
 
+> **HISTORICAL (G9, 2026-10-28):** Kept for its design reasoning and measurements; no file below is in the tree. The Stwo execution AIR that replaced `vm_circuit.py` is `native/stwo_settle/src/blake/vm_air.rs`. The Goldilocks stack it describes (`execnode/stark/`, the field VM `execnode/zkvm.py`, `native/starkprove`, `native/starkcompose`, `native/alghash2`, `wasm/goldilocks`) was retired at the generation-29 reroll and deleted in G9. Live now: the contract VM `execnode/zkvm2.py` (256-bit word wrapping mod 2^256, BLAKE2s `hash`), the BLAKE2s exec root (`execnode/exec_root_b2.py`, `execnode/csmt.py`), and Stwo proofs (Circle STARK over M31): the shielded pool via `native/stwo_js`, settlement via `execnode/settle_b2.py` + `native/stwo_settle` (dormant behind `STWO_SETTLE_HEIGHT`). See doc/stwo-migration.md.
+
 **Status: BUILT (first cut live, 2026-07-14).** The proving stack from §4's build order is implemented and
 tested end-to-end:
 

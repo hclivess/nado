@@ -199,6 +199,9 @@ now dominates at ~126 s per state update.
 
 ### The state-proof line: what is left
 
+> Goldilocks-era plan (2026-08): the modules it names went with `execnode/stark/` in G9. Its Stwo successor — the whole
+> span's state transition as one statement — is doc/stwo/g4-settlement-statement.md.
+
 **1. Full-state composition — the ceiling on everything below it.** `settlement_proofs` proves the **zkVM
 projection only**. The bridge, dividend and shielded families still settle by their own paths, so there is no
 single proof of a whole state transition. Until that exists, "one proof settles the block" is only true of
@@ -468,23 +471,32 @@ above should ask "what does this give the games?"
 
 ### Track F — Zero-knowledge / proof system
 
+> **Generation 29 replaced the proof system (2026-10-28).** The Goldilocks STARK this track was built on — our field,
+> FRI, AIRs, `alghash`/`alghash2`, recursion and folds, the field and wide pools, the shielded-contract pool, and the
+> crates `starkprove`/`starkcompose`/`alghash2`/`wasm/goldilocks` — was retired at the reroll and deleted in G9. Live
+> now: the contract VM `execnode/zkvm2.py` (256-bit wrapping word, BLAKE2s `hash`), the BLAKE2s exec root over a
+> compressed sparse tree (`execnode/exec_root_b2.py`, `execnode/csmt.py`), and the Stwo shielded pool. The Stwo
+> settlement prover (`execnode/settle_b2.py`, `native/stwo_settle`) is built and dormant behind `STWO_SETTLE_HEIGHT`;
+> the bonded quorum settles until then. The plan and its phases are [`doc/stwo-migration.md`](doc/stwo-migration.md).
+> The open-work list and the shielded-contracts design below are the Goldilocks-era record.
+
 Full map, with measured numbers and per-component status:
 [`doc/zk-components.md`](doc/zk-components.md).
 
 | Item | Status | Note |
 |---|---|---|
-| Goldilocks field, FRI, STARK, AIR IR, LogUp | **BUILT** | `NUM_QUERIES=320`, blowup 2, 18 grind bits → ~146 provable bits (Johnson) |
-| alghash2 (in-circuit hash) | **BUILT** | Wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
-| Execution zkVM + its AIR | **BUILT** | The only contract runtime; **27 contracts** (`execnode/games/deploy.py` `GAMES`) |
-| Shielded pool (join-split, membership) | **BUILT** | The **one** place the full proof→DA→commitment→verify loop already works in production |
-| Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **BUILT** | O(1) verify side; live on the consensus path since betanet-14 |
-| K→1 fold | **BUILT, never run** | Needs contract calls to fold; an idle chain has none, so the node falls through to the unfolded prove |
-| State-root binding (sparse tree, calls/records commitment) | **BUILT** | Depth-256 sparse Merkle over alghash2 |
-| Rust prover crates | **BUILT** | `starkprove` (2 222 lines), `alghash2`, `starkcompose`, `mldsa44`. **Rust-only, no fallback** — a Python path shadowing a Rust one is invisible degradation |
+| Goldilocks field, FRI, STARK, AIR IR, LogUp | **RETIRED (G9)** | Replaced by Stwo (Circle STARK over M31). Was `NUM_QUERIES=320`, blowup 2, 18 grind bits → ~146 provable bits (Johnson) |
+| alghash2 (in-circuit hash) | **RETIRED (G9)** | Replaced by BLAKE2s everywhere provable. Was a wide sponge, WIDTH 12 / RATE 8 / CAPACITY 4, α=7, 54 rounds. Post-quantum: 128-bit collision + Grover preimage |
+| Execution zkVM + its AIR | **BUILT** | `execnode/zkvm2.py` (256-bit word, BLAKE2s) since gen 29, its Stwo AIR in `native/stwo_settle`. The only contract runtime; **27 contracts** (`execnode/games/deploy.py` `GAMES`) |
+| Shielded pool (join-split, membership) | **LIVE (Stwo)** | `execnode/shielded_stwo.py`, proved on-device with `native/stwo_js`; the Goldilocks pools were deleted in G9 |
+| Recursion (in-circuit STARK/FRI verify, FS, fold-of-folds) | **RETIRED (G9)** | Was the O(1) verify side, on the consensus path from betanet-14 to the gen-29 reroll |
+| K→1 fold | **RETIRED (G9)** | Built and never run: it needed contract calls to fold, and an idle chain had none |
+| State-root binding (sparse tree, calls/records commitment) | **LIVE (BLAKE2s)** | Compressed sparse Merkle over BLAKE2s (`exec_root_b2`, `csmt`); the depth-256 alghash2 tree was deleted in G9 |
+| Rust prover crates | **BUILT** | `stwo_js`, `stwo_settle`, `mldsa44`, `pqsig`, `attest` (`starkprove`, `alghash2`, `starkcompose` deleted in G9). **Rust-only, no fallback** — a Python path shadowing a Rust one is invisible degradation |
 | DA transport (k-of-n + commitment + defer) | **BUILT** | Availability ≠ validity: unresolved defers, never rejects |
 | **Trustless settlement, end to end** | **LANDED ONCE** | Rule is live and unconditional; block 43153 (2026-08-06) settled on a proof a peer verified (see 2026-08-06 above). Spans that move withdrawals, unshields or xmsgs cannot be proven yet (doc/stwo/g4-settlement-statement.md §1), so routine settlement still rides the bonded quorum |
 | Signature aggregation | **REMOVED** | Built, measured, deleted 2026-07-31 — post-mortem kept deliberately |
-| **Shielded contracts (private application state)** | **BUILT (f5e4e7c8), PAUSED** | Every `private_call` is refused from block 1 (`ExecState.rules_privacy_pause`; review 2026-09-24: a deposit could commit a note worth more than it paid). Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
+| **Shielded contracts (private application state)** | **DELETED (G9 slice 5)** | Was built (f5e4e7c8) and paused; `private_call` is refused at every height. Before deletion, every `private_call` was refused from block 1 (`ExecState.rules_privacy_pause`; review 2026-09-24: a deposit could commit a note worth more than it paid). Private *state* with public *code*. Reuses the shielded pool's note/nullifier machinery and the DA→commitment→verify loop; see below |
 | Program obfuscation (Diamond iO) | **RESEARCH** | Nothing implemented, scheduled, or promised |
 
 **Open work, in the order the measurements justify:**
