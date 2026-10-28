@@ -37,7 +37,7 @@ function storedSecret(g) {
 function ensureSecret(g) {               // existing secret (a retried open/join reuses it) or a fresh CSPRNG one
   let s = storedSecret(g);
   if (s == null) {
-    s = randSecret() % ALG_P();          // a field element, exactly what the VM hashes (randSecret = crypto.getRandomValues)
+    s = randSecret() % ALG_P();          // a 256-bit word, exactly what the VM hashes (randSecret = crypto.getRandomValues)
     try { localStorage.setItem(SKEY(g), s.toString()); } catch {}
   }
   return storedSecret(g) === s ? s : null;   // null: this browser could not keep it — do not commit

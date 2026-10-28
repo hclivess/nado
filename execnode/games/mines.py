@@ -51,7 +51,8 @@ def round_seed(g, beacon=None, bh0=None, bh1=None):
 
 def resolve_hit(q, gp, gn, gc):
     """In-clear: b = the 1-based pick index that hit a mine among this round's gc picks, else 0 (stops at the
-    first hit). Mine at pick i iff alghash([q + gp + i]) % (25 - gp - i) < gn. q = round_seed(...): the draws of
+    first hit). Mine at pick i iff LO32(H([q + gp + i])) % (25 - gp - i) < gn (H = the VM's BLAKE2s word hash, the
+    sum wrapping at 2^256). q = round_seed(...): the draws of
     one round are kept distinct by the pick index gp + i, exactly as before the beacon rule."""
     b = 0
     for i in range(gc):
@@ -174,7 +175,7 @@ pk_done:
 """
 
 # resolve(g): q = seed_q (BEACON(gb), or BHASH(gh) + BHASH(gh + 1) for a round picked before the beacon rule) + g;
-# draw i of the round is alghash(q + gp + i) % (25 - gp - i) < gn (reference: round_seed / resolve_hit).
+# draw i of the round is LO32(HASH(q + gp + i)) % (25 - gp - i) < gn (reference: round_seed / resolve_hit).
 # INVARIANT: a round picked before the upgrade still resolves on its old rule, because it carries gb == 0 and seed_q
 # falls back to the block-hash seed exactly as the old code computed it.
 RESOLVE = """

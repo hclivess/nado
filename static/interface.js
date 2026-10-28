@@ -6614,7 +6614,7 @@ async function renderVaults() {
     $("vaultList").textContent = i18("assets.execDown", "Execution node unreachable.");
     return;
   }
-  // decode_view returns an asset id (`ast`) as a raw field element — a JSON number past 2^53, so JS has
+  // decode_view returns an asset id (`ast`) as a raw 256-bit word — a JSON number past 2^53, so JS has
   // already rounded it by the time we see it (the registry, by contrast, sends `id` as an exact STRING).
   // Match on the lossy double on BOTH sides — Number(exact-string) === the-rounded-number for the same
   // integer — then take the EXACT id back from the matched asset, because `redeem` must escrow against the

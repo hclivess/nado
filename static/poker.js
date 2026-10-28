@@ -33,7 +33,7 @@ let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [];
 
 // ---- card math (MUST mirror execnode/games/holdem.py exactly — this is what the zkVM contract computes) --
-// roll32(x) = LO32(alghash HASH(x)); commit = H(x) = algHashn([x]); seeds are reduced mod the field.
+// roll32(x) = LO32(HASH(x)) (the VM's BLAKE2s word hash); commit = H(x) = algHashn([x]); seeds are reduced mod 2^256.
 const roll32 = (x) => Number(algHashn([x]) & 0xFFFFFFFFn);
 function drawCard(seed, slot, excl) {
   for (let a = 0; ; a++) {

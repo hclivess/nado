@@ -19,9 +19,9 @@ let keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };        // client-side "dice s
 
 // ---- dice + scoring (mirror of execnode/games/farkle.py) -----------------------------------------
 // rollDice MUST be the contract's roll_dice / in-VM _derive_dice, die for die: the contract hashes with the zkVM's
-// alghash (HASH over a field element) and takes the LO32 window, seed = (bh(grh)%P + bh(grh+1)%P + seat*1000 +
-// rolln*10) % P, die_p = (alghash([(seed+p)%P]) & 0xFFFFFFFF) % 6 + 1. chainResultAlg is exactly that with
-// salt = seat*1000 + rolln*10 + p. This page once hashed with blake2b instead (no mod P, no LO32), so every roll it
+// HASH (the 256-bit BLAKE2s word hash) and takes the LO32 window, seed = (bh(grh) + bh(grh+1) + seat*1000 +
+// rolln*10) mod 2^256, die_p = (HASH([(seed+p) mod 2^256]) & 0xFFFFFFFF) % 6 + 1. chainResultAlg is exactly that with
+// salt = seat*1000 + rolln*10 + p. This page once hashed with blake2b instead (no VM hash, no LO32), so every roll it
 // SHOWED was different from the roll the contract SCORED — the hold then refused or banked dice nobody saw.
 // tests/test_farkle_client_rolls_the_contracts_dice.py runs this function against the contract; never swap in
 // blake2bHash here.

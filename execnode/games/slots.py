@@ -10,7 +10,7 @@ rule (gb == 0) keeps settling from BLOCKHASH(gh) + BLOCKHASH(gh+1). INVARIANT: t
 function of (seed, g) because seed is BEACON(gb) or the two block hashes, both final before settle is allowed.
 
 Reels: q = seed + g (seed = BEACON(gb), or BLOCKHASH(gh)+BLOCKHASH(gh+1) when gb == 0);
-stop_i = LO32(alghash([q+i])) % 64 (0..63). symbol(stop) counts the
+stop_i = LO32(H([q+i])) % 64 (0..63), H = the VM's BLAKE2s word hash, q wrapping at 2^256. symbol(stop) counts the
 thresholds {16,30,42,52,58,62} → 0..6. 3-of-a-kind pays paytable[sym]; else partial pays for two/one 7s
 (sym 6) or two cherries (sym 0). m2 = 2× the multiplier (so ×1.5 stays integer); pay = stake·m2/2.
 
@@ -56,9 +56,9 @@ def m2_of(stops):
 
 
 def stops_of(seed, g):
-    """The in-clear reel stops the asm settle derives: q = seed + g (mod P), stop_i = LO32(alghash([q+i])) % 64.
+    """The in-clear reel stops the asm settle derives: q = seed + g (mod 2^256), stop_i = LO32(H([q+i])) % 64.
     `seed` is BEACON(gb) for a beacon spin, BLOCKHASH(gh) + BLOCKHASH(gh+1) for a spin with gb == 0 (each value
-    enters the VM reduced mod P). Mirrors slots.js spinResult (chainResultAlg with salt g + i)."""
+    enters the VM whole, reduced mod 2^256). Mirrors slots.js spinResult (chainResultAlg with salt g + i)."""
     q = (int(seed) + int(g)) % _lib.vm_mod()
     return [(_lib.vm_hash([(q + i) % _lib.vm_mod()]) & 0xFFFFFFFF) % 64 for i in range(3)]
 

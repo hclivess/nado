@@ -5,8 +5,9 @@ loses the turn. First seat to bank 4000 finishes the table; the highest banked t
 `settle`. Ported from the deleted stackvm contract with identical scoring:
   straight (6 kept, all faces once) = 1500; else per face BASE[f]·2^(k-3) for k≥3 kept, plus single 1s(×100)
   and 5s(×50); BASE = {1:1000,2:200,3:300,4:400,5:600? no}: {1:1000,2:200,3:300,4:400,5:500,6:600}.
-The 6 rolled dice re-derive in-VM as die_p = alghash([bh(rh)+bh(rh+1)+seat*1000+rolln*10+p]) % 6 + 1
-(p<diceLeft) — matching farkle.js rollDice — so no keep can claim a die that wasn't rolled.
+The 6 rolled dice re-derive in-VM as die_p = LO32(H([bh(rh)+bh(rh+1)+seat*1000+rolln*10+p])) % 6 + 1
+(p<diceLeft; H = the VM's BLAKE2s word hash, the sum wrapping at 2^256) — matching farkle.js rollDice — so no keep
+can claim a die that wasn't rolled.
 
 Table: 1 ta 2 t0 3 ts 4 tp 5 tn 6 tx 7 tz 8 tb 9 tw 10 tfr 11 ti.  Seat: 12 gg 13 ga 14 gdl 15 grh 16 grn
 17 gfin 18 gsc 19 gts 20 ggs 23 gla.  Scratch field 30.  Index: slot0/field21 tables, slot1/22 seats.

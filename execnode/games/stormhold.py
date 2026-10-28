@@ -72,7 +72,7 @@ JOIN = f"""
 
 # reveal(g, x): post the pre-committed secret once the game is decided — every client re-derives the whole
 # hidden game and verifies every claim (engine verifyHidden). Requires: both seats filled, caller seated,
-# caller committed (hidden game), and alghash(x) == commit. Storing into R1/R2 by seat; idempotent
+# caller committed (hidden game), and HASH(x) == commit (the VM's BLAKE2s word hash). Storing into R1/R2 by seat; idempotent
 # re-reveals just overwrite with the same value (a DIFFERENT x can't hash to the same commit).
 REVEAL = f"""
     slot r4 {NN} r0
@@ -102,7 +102,7 @@ REVEAL = f"""
     require r6              ; this seat committed (hidden game)
     hash r4 <- r1
     eq r4 r3
-    require r4              ; alghash(x) == commit
+    require r4              ; HASH(x) == commit
     movi r2 {R1H << 32}
     mul r2 r5
     movi r4 {R2H << 32}

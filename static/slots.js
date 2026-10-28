@@ -33,8 +33,8 @@ function m2Of(s0, s1, s2) {
   if (c7 === 1) return 3;
   return (s0 === 0) + (s1 === 0) + (s2 === 0) === 2 ? 6 : 0;
 }
-// INVARIANT: byte-identical to the contract's settle because chainResultAlg is its in-VM alghash + LO32 % 64 over
-// (base + g + i) mod P — base = BEACON(gb) as (bc(gb), "0") for a beacon spin, (bh(gh), bh(gh+1)) for a legacy one
+// INVARIANT: byte-identical to the contract's settle because chainResultAlg is its in-VM HASH (BLAKE2s word hash) + LO32 % 64 over
+// (base + g + i) mod 2^256 — base = BEACON(gb) as (bc(gb), "0") for a beacon spin, (bh(gh), bh(gh+1)) for a legacy one
 // (tests/test_slots_settle_from_the_beacon_and_time_out_to_the_bank.py cross-checks both against the contract).
 function spinResult(bh0, bh1, g) {
   if (!bh0 || !bh1) return null;

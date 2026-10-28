@@ -659,7 +659,7 @@ function battlesFrom(sto) {
     out[bid] = { id: bid, a: String(wa[bid]), b: String(_m(sto, "wb")[bid]), ws: _m(sto, "ws")[bid] || 0,
       wp: _m(sto, "wp")[bid] || 0, wh: _m(sto, "wh")[bid] || 0, wn: _m(sto, "wn")[bid] || 0,
       ww: String(_m(sto, "ww")[bid] || ""), wd: _m(sto, "wd")[bid] || 0,
-      // commit-reveal (wm == 1): commitments + revealed secrets ride as strings (field elements > 2^53)
+      // commit-reveal (wm == 1): commitments + revealed secrets ride as strings (256-bit words > 2^53)
       wm: Number(_m(sto, "wm")[bid] || 0), wrd: Number(_m(sto, "wrd")[bid] || 0),
       wc1: String(_m(sto, "wc1")[bid] || ""), wc2: String(_m(sto, "wc2")[bid] || ""),
       wr1: Number(_m(sto, "wr1")[bid] || 0), wr2: Number(_m(sto, "wr2")[bid] || 0),

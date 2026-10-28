@@ -1,5 +1,5 @@
 """
-Starter zkVM contract library (doc/zk-execution-proofs.md) — the field-native replacement for the deleted
+Starter zkVM contract library (doc/zk-execution-proofs.md) — the zkVM-native replacement for the deleted
 stackvm contract_lib. Each entry is {code, abi}; the wallet's Rollup tab offers them as one-click deploys and
 the game ports compose from the same patterns. Assembled from execnode/zkvmasm.py.
 
@@ -7,9 +7,9 @@ Patterns:
   COUNTER   — a shared integer at slot 0 (the "hello world").
   TIP_JAR   — a per-caller running total (accumulator: tipping, reputation, vote tallies); slot = caller
               digest, which the zkVM gives you directly via `ctx r_ caller`.
-  COIN_FLIP — a fair 2-player commit-reveal flip; the outcome is a sponge hash of both revealed secrets,
-              unknowable until both are out. Uses the in-VM alghash `HASH` macro — no BLAKE2b, so the whole
-              contract is provable.
+  COIN_FLIP — a fair 2-player commit-reveal flip; the outcome is the VM hash of both revealed secrets,
+              unknowable until both are out. Uses the in-VM `HASH` macro (the 256-bit BLAKE2s word hash,
+              zkvm2.hash_words), so the whole contract is provable.
 """
 from execnode import zkvmasm
 
@@ -25,7 +25,7 @@ TIP_JAR = zkvmasm.assemble_contract({
 })
 
 # COMMIT_BOX: the commit-reveal primitive every fair game builds on, minimal + provable. commit(i, H(secret))
-# stores a sealed commitment in slot i (once); reveal(i, secret) re-hashes with the in-VM alghash sponge and
+# stores a sealed commitment in slot i (once); reveal(i, secret) re-hashes with the in-VM BLAKE2s word hash and
 # REQUIREs a match, then marks slot i as opened (value 1 at slot i+8). The full 2-player flip/lottery layers
 # result derivation on top — see the game ports; this is the audited kernel.
 COMMIT_BOX = zkvmasm.assemble_contract({

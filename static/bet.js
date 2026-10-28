@@ -74,7 +74,7 @@ function actionLanded(f) {
 // Pools/totals live on-chain in UNITs of 10^4 raw NADO (the contract's DIVMODW-sound money model); the
 // pl board is keyed m*8+i. Metadata (ds/so/ev) are stored as field digests that decode_view resolves back
 // to the original strings, so mk.title/labels read exactly as before. PER-USER positions (stake/claimable/
-// claimed/vote/resolver) live in alghash-keyed slots the storage view can't enumerate — we read them via
+// claimed/vote/resolver) live in hash-keyed slots the storage view can't enumerate — we read them via
 // the contract's read-only views (dapp.view → GET /exec/view) into `myCache`, refreshed for the selected
 // market every poll plus a slow round-robin sweep over the rest (so auto-collect finds old wins from any
 // device without hammering the node).

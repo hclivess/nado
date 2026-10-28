@@ -47,9 +47,9 @@ def id_guard(reg="r0", limit=1 << 32, scratch=("r4", "r5")):
     """asm TEXT that REVERTS unless `reg` < `limit` (default 2^32: the key half of a slot). The same four
     instructions `open_table` has always carried, so the produced code stays inside the audited opcode set:
         movi r4 <limit> ; mov r5 <reg> ; lt r5 r4 ; require r5
-    (`lt` expands to RANGE ; RANGE ; LT — an operand >= 2^62 reverts in RANGE, so the bound holds over
-    the whole field.) `scratch` (r4/r5 by default) must be registers the body WRITES before reading and that
-    hold no declared argument; a method with four or more arguments passes a higher pair. The guard
+    (`lt` is one LT, exact over the whole 256-bit word on zkvm2 — the field VM's RANGE ; RANGE ; LT expansion went
+    in G9 slice 3b — so the bound holds for any operand.) `scratch` (r4/r5 by default) must be registers the body
+    WRITES before reading and that hold no declared argument; a method with four or more arguments passes a higher pair. The guard
     WRITES both before reading either — a caller may preload up to eight registers through extra args (the
     ABI arg count is UX metadata, never enforced), so a guard must not assume a register is zero."""
     a, b = scratch
@@ -90,7 +90,7 @@ CARRY_PIN_FLOOR = 2          # the first new-chain block (or beacon epoch) a re-
 
 def carry_ids(slots: dict, cnt_slot: int, lst: int) -> list:
     """The ids a contract's own index lists (count at raw slot `cnt_slot`, ids at field `lst`, 0-indexed) — the only safe
-    way for a reroll hook to reach (field, id) slots: hashed keys are field elements whose high bits can fall in any
+    way for a reroll hook to reach (field, id) slots: hashed keys are 256-bit hash words whose high bits can fall in any
     field's range, so decoding a key's field from its value is never trusted."""
     return [int(slots.get(str((lst << 32) + i), 0)) for i in range(int(slots.get(str(cnt_slot), 0)))]
 

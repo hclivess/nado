@@ -22,7 +22,8 @@ const bg = new BankedGame(dapp, { icon: "🃏" });
 let lastSto = null, myHand = null, watch = null;
 
 // ---- reads (blackjack seat schema; cards live on-chain in pc/dk) ------------------------------------
-// cardsAt(bh0, bh1, salt, n): the contract's card draw, card_i = LO32(alghash([bh0 + bh1 + salt + i] mod P)) % 52
+// cardsAt(bh0, bh1, salt, n): the contract's card draw, card_i = LO32(HASH([bh0 + bh1 + salt + i] mod 2^256)) % 52,
+// HASH = the VM's BLAKE2s word hash
 // (blackjack.card_at). A beacon step passes (BEACON(gb), "0"); a block-hash step (bh(gh), bh(gh+1)).
 // INVARIANT: the preview equals the landed cards because both reduce through chainResultAlg's exact VM formula
 // (a blake2b draw — the old cards.js chainCards, deleted 2026-10-10 — does not match the zkVM contract).
