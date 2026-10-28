@@ -81,8 +81,12 @@ Pinned end to end (until G9 retired it with `BLAKE_EXEC_HEIGHT`, when a gen-28 e
 staffed on gen 28, carried through the real genesis loader, harvests EXACTLY its gen-28 yield on gen 29 after the
 same blocks; and the bet market beside it reports the same positions and pays every claim exactly as gen 28 would.
 Its v2 -> v2 successor is `tests/test_a_carried_contract_plays_exactly_as_it_would_have_without_the_carry.py`, which
-carries at the state's own cursor and found that a farm staffed BEFORE the tip loses its unbanked production
-(SCHEDULED_CLEANUPS.md, 2026-10-27).
+carries at the state's own cursor and found (2026-10-28) that a farm staffed BEFORE the tip lost its unbanked
+production: carry_rebase shifted the since-block to 0 with nothing banked. Fixed by `pets._bank_at_tip`: the carry
+runs the contract's own `_accrue` in the VM at cursor = tip for every building, i.e. exactly the permissionless
+collect() anyone could have made at the tip, without its find roll (that pin carries separately). The owner's total
+then equals that old-chain history; it cannot equal an uncollected one exactly, because two collects floor and cap
+twice by the contract's own rule.
 
 ## 2b. Measured on the live state (2026-10-25, a copy at exec cursor 357,787)
 

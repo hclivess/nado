@@ -12,8 +12,11 @@ gen-29 test G9 slice 3a retired with the field VM; SCHEDULED_CLEANUPS.md 2026-10
      argument's digest): on the new chain the views report the same stakes, the carried resolver resolves, and each
      claim pays EXACTLY what the same claim pays on the old chain;
   2. pets — a farm staffed by a pet BEFORE the tip, so production has accrued and is not yet banked when the carry is
-     built: collect() the same number of blocks past the tip produces EXACTLY the old chain's harvest (the worker keeps
-     its trade stat: one VM hash on both sides), and a farm staffed AT the tip does too;
+     built: the carry banks it to the owner (pets._bank_at_tip, the contract's own _accrue at the tip), so the owner
+     holds EXACTLY what the old chain gives them had anyone made the permissionless collect() at the tip — not one
+     unit lost (a carry is that collect; plain equality with an uncollected chain cannot hold, because two collects
+     floor and cap twice by the contract's own rule). A farm staffed AT the tip produces exactly the old chain's
+     harvest (the worker keeps its trade stat: one VM hash on both sides);
   3. the carried records are the old ones (one VM: no slot re-keyed or re-valued, the code each module's build, the
      registry as it was) except the heights carry_rebase moves;
   4. the carried genesis loads into a fresh layer, its root is genesis_root(), and the pots are the old chain's.
@@ -108,6 +111,15 @@ views_old = {(m, str(a)): old.view(bc, m, a) for m, a in VIEWS}
 old.save()
 cp = os.path.join(HOME, "exec_state.copy.json")
 shutil.copyfile(old.path, cp)
+# the reachable old-chain history the carry stands for: somebody collects farm 1 AT the tip (collect is permissionless)
+shutil.copyfile(old.path, os.path.join(HOME, "alt.json"))
+alt = ExecState(os.path.join(HOME, "alt.json"))
+alt.block_hashes, alt.beacons = dict(old.block_hashes), dict(old.beacons)
+T.check("setup: the saved old chain reloads as itself", alt.state_root() == old.state_root() and alt.cursor == TIP)
+fodder0 = alt.view(pc, "res_of", [OWN, 0])
+call(alt, pc, BANK, "collect", [1], tag="tip")
+tip_gain = alt.view(pc, "res_of", [OWN, 0]) - fodder0
+T.check("setup: farm 1 holds unbanked production at the tip (a collect there pays its owner)", tip_gain > 0, tip_gain)
 p = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "carry.py"), cp], capture_output=True, text=True,
                    timeout=900)
 T.check("tools/carry.py carries the saved state at its tip: both contracts", p.returncode == 0
@@ -132,6 +144,7 @@ def play(st, at):
 
 
 harv_old, pay_old = play(old, TIP + ELAPSED)
+harv_alt, _ = play(alt, TIP + ELAPSED)
 T.check("setup: on the old chain both farms produce and the winner's book position pays",
         all(harv_old.values()) and pay_old[(CC, "bclaim")] == 100 * UNIT, (harv_old, pay_old))
 
@@ -143,10 +156,12 @@ T.check("3. bet carries every slot unchanged (its storage holds no height), the 
         and recs[bc]["code"] == json.loads(json.dumps(B.build())))
 ps_old = {k: int(v) for k, v in snapshot["contracts"][pc]["storage"]["slots"].items()}
 moved = sorted(k for k, v in recs[pc]["storage"]["slots"].items() if ps_old.get(k) != v)
-T.check("3. pets carries every slot, re-keying none; only stored heights (carry_rebase) move",
-        set(recs[pc]["storage"]["slots"]) == set(ps_old) and all((int(k) >> 32) in (P.BH, P.FU, P.EX, P.TH, P.BSI, P.BDP)
-                                                                 for k in moved)
-        and recs[pc]["code"] == json.loads(json.dumps(P.build())), moved)
+HEIGHTS = (P.BH, P.FU, P.EX, P.TH, P.BSI, P.BDP)
+banked = {k: recs[pc]["storage"]["slots"][k] - ps_old.get(k, 0) for k in moved if (int(k) >> 32) not in HEIGHTS}
+T.check("3. pets carries every slot, re-keying none; only stored heights (carry_rebase) and the owner's banked "
+        "production (exactly the tip collect's) move",
+        set(ps_old) <= set(recs[pc]["storage"]["slots"]) and list(banked.values()) == [tip_gain]
+        and recs[pc]["code"] == json.loads(json.dumps(P.build())), (moved, banked, tip_gain))
 T.check("3. the registry crosses as it is", reg == snapshot["zk_addrs"])
 
 # ---- the new chain --------------------------------------------------------------------------------------------------
@@ -169,9 +184,12 @@ T.check("1. the carried resolver resolves, and every claim pays exactly what it 
 T.check("2. a farm staffed AT the tip produces exactly the old chain's harvest the same blocks later",
         harv_new["farm 2 (staffed at the tip)"] == harv_old["farm 2 (staffed at the tip)"], (harv_new, harv_old))
 # THE PROPERTY, stated whole: production a building accrued on the old chain and had not banked when the carry was
-# built is the owner's, exactly as a pot or a stake is. Found 2026-10-28 (v2 -> v2 rewrite): pets.carry_rebase moves
-# BSI (the since-block) to max(0, BSI - tip) = 0, so the (tip - BSI) blocks the farm earned before the tip are dropped.
-T.check("2. a farm staffed BEFORE the tip produces exactly the old chain's harvest the same blocks later "
+# built is the owner's, exactly as a pot or a stake is. Found 2026-10-28 (v2 -> v2 rewrite): pets.carry_rebase moved
+# BSI (the since-block) to max(0, BSI - tip) = 0 with nothing banked, so the (tip - BSI) blocks the farm earned before
+# the tip were dropped (4 fodder instead of 13 here). Fixed by pets._bank_at_tip.
+T.check("2. a farm staffed BEFORE the tip leaves its owner exactly what the old chain pays with a collect at the tip "
         "(production accrued before the carry is not lost)",
-        harv_new["farm 1 (staffed before the tip)"] == harv_old["farm 1 (staffed before the tip)"], (harv_new, harv_old))
+        harv_new["farm 1 (staffed before the tip)"] == harv_alt["farm 1 (staffed before the tip)"]
+        and harv_new["farm 1 (staffed before the tip)"] >= harv_old["farm 1 (staffed before the tip)"] - 1,
+        (harv_new, harv_alt, harv_old))
 T.done("ALL PASS — a carried contract plays exactly as it would have without the carry")

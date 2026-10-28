@@ -1319,6 +1319,26 @@ def _carry_view(storage):
     return slots, get, ids
 
 
+def _bank_at_tip(storage, tip):
+    """The slots with every building's unbanked production paid to its owner at the old chain's `tip`, by the
+    contract's OWN _accrue run in the VM at cursor = tip — exactly what a permissionless collect() at the tip pays,
+    without its find roll (that pin is carried by carry_rebase: running it here would resolve a find against a beacon
+    that is already visible). Afterwards every since-block is `tip`, so carry_rebase's shift to 0 drops nothing.
+    WHY (2026-10-28, the v2 -> v2 carry tests): carry_rebase shifted the since-block to max(0, since - tip) = 0 with
+    nothing banked, so the (tip - since) blocks a staffed building had earned before the tip — up to ACCRUE_CAP — were
+    lost to its owner. The carry carries everything.
+    INVARIANT: the yield is never re-derived in Python here; a change to _accrue is the change the carry applies."""
+    from execnode import zkvm2, zkvmasm
+    slots, _, ids = _carry_view(storage)
+    st = {int(k): int(v) for k, v in slots.items()}
+    code = zkvmasm.assemble_contract({"accrue": "\n".join(_accrue() + ["ret r0"])})
+    for bid in ids(BCNT_SLOT, BLIST):
+        ok, _, st, _ = zkvm2.run(code, "accrue", 0, [bid], st, cursor=tip)
+        if not ok:
+            raise ValueError(f"pets carry_rebase: building {bid}'s production could not be banked at the tip")
+    return {str(k): int(v) for k, v in st.items()}
+
+
 def _carry_pins(storage, tip):
     """Classify every pending roll against the old chain's `tip`: (blockers, visible_unresolvable).
 
@@ -1398,7 +1418,7 @@ def carry_rebase(storage, tip):
     if blockers:
         # carry_policy never rebases a blocked contract; refusing here keeps a direct caller from re-rolling them
         raise ValueError("pets carry_rebase: visible pins must be resolved first: " + "; ".join(blockers))
-    slots, get, ids = _carry_view(storage)
+    slots, get, ids = _carry_view({"slots": _bank_at_tip(storage, tip)})
 
     def put(f, k, v):
         key = str((f << 32) + k)
