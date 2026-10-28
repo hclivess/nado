@@ -1143,6 +1143,11 @@ async def _stwo_settle_bundle_inner(session, ns, st, cur, SETTLE_PROOF_MAX_SPAN,
         return bare()
     if sc < 0 or len(sroot) != 64:
         return bare()                     # the first settlement of a namespace is by quorum (L1 refuses a proof)
+    from execnode import exec_root_b2 as R2
+    if not R2.carry_root_at(sc):
+        # below EXEC_CARRY_ROOT_HEIGHT the justified root does not commit the dividend carry and L1 refuses the span
+        # (ops/settle_chain.carry_refusal): proving it would only spend the prover's time
+        return bare(f"the justified tip {sc} is below EXEC_CARRY_ROOT_HEIGHT")
     bcs = [c for c in st.boundary_roots if sc < c <= int(cur) and c - sc <= SETTLE_PROOF_MAX_SPAN]
     if not bcs:
         return bare()

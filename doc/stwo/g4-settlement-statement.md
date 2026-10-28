@@ -378,6 +378,9 @@ does today):
    so no single leaf shows that an id is absent.
 4. **The shielded pools, private calls, deliveries INTO this namespace, non-integer storage (KVX).** Their state is
    committed as digests or lists, not one leaf per entry.
+5. **A span crossing `EXEC_CARRY_ROOT_HEIGHT`.** The gate's first root inserts the dividend carry record, which no
+   witness opens. L1 also refuses a span starting below the gate, since it has no carry of its own (see "The dividend
+   carry in the exec root" below).
 
 **One encoding per proof (2026-10-27).** Stwo's FRI last layer carries a size field beside its coefficients that the
 transcript does not cover, so a proof had more than one byte encoding. `native/stwo_settle` refuses anything but the
@@ -469,15 +472,15 @@ Below it nothing the live chain does changes (both replays of blocks 0..10533 ID
   existed, and refusing it on shipping would tighten validation at no agreed height (an updated node refusing what an
   older one accepts splits the update wave — CLAUDE.md rule 3). Ignored, it validates and applies bare, as before; the
   rule changes only at STWO_SETTLE_HEIGHT, which the operator sets at the fleet's adoption block.
-- **PREREQUISITE before setting the gate — the dividend carry chain must be unbreakable.** L1 reads the span start's
-  carry from the `dc` of the last epoch-boundary exec summary, and `loops/core_loop._accrual_effects` writes `dc` only
-  when that boundary block's records are derivable, reading the previous boundary's `dc` as its carry-in. One
-  non-derivable transaction on a boundary block (a value-carrying call) ends the chain for good, and every Stwo settle is
-  refused from then on (SpanRefused). All 175 boundaries in 0..10533 carry `dc` today. The fix — write `dc` at EVERY
-  boundary — changes what the exec summary commits, so it needs its own gate, set BEFORE STWO_SETTLE_HEIGHT
-  (SCHEDULED_CLEANUPS.md).
+- **PREREQUISITE before setting the gate — the dividend carry, now committed in the exec root (2026-10-28).** As first
+  built, L1 read the span start's carry from the `dc` of the last epoch-boundary exec summary, which
+  `loops/core_loop._accrual_effects` writes only when that boundary block's records are derivable, reading the previous
+  boundary's `dc` as its carry-in. That chain BROKE on the live chain: see "The dividend carry in the exec root" below.
+  The carry is now a record of the exec root from `protocol.EXEC_CARRY_ROOT_HEIGHT`, which must be at or below
+  STWO_SETTLE_HEIGHT.
 - **Validation** (`ops/transaction_ops._stwo_settle_check`), the checks of the deleted branch that are not
-  Goldilocks-specific: the default namespace only; the span EXTENDS the justified settled tip exactly (the replay starts
+  Goldilocks-specific: the default namespace only; the span starts at or above `EXEC_CARRY_ROOT_HEIGHT` (structural, a
+  function of the justified tip alone, so it binds at every depth); the span EXTENDS the justified settled tip exactly (the replay starts
   from `latest_settled`, never from a pre-state the prover names; the first settlement of a namespace is by quorum);
   non-empty, at most `SETTLE_PROOF_MAX_SPAN` blocks, wholly below the carrying block; the blocks are L1's own
   (`block_ops.get_block_number`), never the transaction's; `settle_b2.verify_span` with the Chain L1 derives itself; the
@@ -496,8 +499,9 @@ Below it nothing the live chain does changes (both replays of blocks 0..10533 ID
   `F - 4000` once that is positive, and every epoch of `[lo, e]` final at F under `ExecState.exec_beacon_at` with
   `kv_ops.reveals_for_epoch` (a reveal for epoch x lands only in epoch x - 1, so L1's set is complete); accrual of E =
   `(dividend_inflow_get(E), the committed epoch_weights_get(E), else weights_at_epoch(E))` — what `/get_open_weights`
-  serves the exec node; the carry at the span's start sc = the `dc` of the exec summary at block `(sc // 60) * 60`
-  (0 before the first boundary), and a missing summary or `dc` REFUSES the span. **Equality measured** on the live
+  serves the exec node. The carry at the span's start is NOT an L1 input: from `EXEC_CARRY_ROOT_HEIGHT` it is the pre
+  root's record (`Chain.div_carry` is None), and below it `l1_chain` refuses the span. (As first built it was the `dc`
+  of the exec summary at block `(sc // 60) * 60`; see below for why that is gone.) **Equality measured** on the live
   chain, blocks 0..10533 (an L1 replay kept in a throwaway HOME against a from-genesis exec replay of the same blocks):
   every BHASH window and value, every BEACON epoch from -1 to two past the final one at every block (961,410 reads), the
   carry at every cursor and all 175 epochs' accrual inputs: zero differences, and the check reports a shifted window, a
@@ -510,18 +514,63 @@ Below it nothing the live chain does changes (both replays of blocks 0..10533 ID
 - **The shadow run checks the derivation too**: every span gains `chain_eq` (L1's Chain from `GET /settle_chain_inputs`
   against `reference_chain`), with `chain_diff` naming any difference.
 
-**Known limit — the carry chain can break.** `loops/core_loop._accrual_effects` writes `dc` only at a boundary block whose
-records are derivable, and each boundary reads the previous one's `dc`. A boundary block holding a non-derivable tx (a
-`bridge_withdraw`, a shield, an xmsg, a call with value) therefore ends the chain for good, and from then on every Stwo
-settle is refused (the quorum still settles). All 175 boundaries of blocks 0..10533 carry `dc`, but a value-carrying
-call landing on a boundary block ends it. Writing `dc` at every boundary regardless of derivability is an L1-root change
-and needs its own gate, set before this one.
+**The dividend carry in the exec root (`protocol.EXEC_CARRY_ROOT_HEIGHT`, 2026-10-28).** The carry chain in the exec
+summaries broke on betanet-10, exactly as feared, and was then unrecoverable.
+
+*Measured root cause.* A snapshot of the relay's state at 12000 (`/get_snapshot_chunk`, GETs only) holds 960 `execsum:`
+rows (11041..12000, the retention window `EXEC_SUMMARY_RETENTION`). Every boundary row is `{"inert":1,"calls":{},"rd":0}`,
+with no `dc`. A scan of every boundary block 60..12360 finds exactly one with a transaction `block_records_effects`
+cannot derive: block 10860, a `collect_dividend` blob (an hourly auto-collect that happened to land on a boundary). A
+from-genesis replay of the live blocks through `tools/replay_chain.py` (throwaway HOME) reproduces it: `dc` at every
+boundary up to 10800 (`{"rd":1,"dc":16}` at 10800), then `{"inert":0,"rd":0}` at 10860 and `{"inert":1,"rd":0}`, no `dc`,
+at 10920. Every later boundary takes `_accrual_effects`' early return (`prev.get("dc") is None`), which logs nothing,
+which is why the node logs show no accrual failure. Not a snapshot bootstrap (the relay applied every block from
+genesis; no purge or re-anchor since 05:59 on 2026-10-27) and not a swallowed exception. The fleet-wide probe of 60..12240
+found no `dc` anywhere because summaries below the retention window are pruned and everything above 10860 has none. The
+earlier "all 175 boundaries carry `dc`" was true of blocks 0..10533, the range the G8 replay covered.
+
+*The fix.* From the gate's exec cursor the exec state's `div_carry` is a record of the exec root: the `T_COUNTER` record
+named `"div_carry"` (`exec_root_b2.CARRY_COUNTER`), valued by the exact integer, absent when zero. It is a new name in the
+counter family, not a new tag, and `COUNTERS` stays frozen: the record enters `records_projection` only from the gate,
+so every root before it is unchanged (both replays of 0..10533 identical). Then:
+- `settle_b2.WitnessState.div_carry` is the witness's counter from the gate: the accrual opens it against the pre root (a
+  forged value fails the leaf check, a dropped opening is Unprovable, a carry claimed absent is refused), and the new
+  value is a leaf change the post root carries. Below the gate it is `Chain.div_carry`, which only the exec node's own
+  bookkeeping supplies (the prover, the shadow run, tests).
+- A span crossing the gate is unprovable and refused by the verifier. The gate's first root inserts the record, which no
+  witness opens.
+- `ops/settle_chain`: L1 supplies no carry (`Chain.div_carry` is None) and `l1_chain` refuses a span starting below the
+  gate (`carry_refusal`, a function of the start cursor alone). The exec-summary path is deleted rather than kept for
+  spans below the gate. On the live chain it could never succeed again, since every boundary after 10860 lacks `dc` and
+  no boundary can regain one. On a reroll the gate is 1. Keeping it would leave a consensus path that is dead
+  everywhere. `/settle_chain_inputs` keeps `div_carry` (always null) and sets `refused` below the gate. The shadow run's
+  `chain_eq` still compares every read and accrual there.
+- `execnode._stwo_settle_bundle` settles bare when the justified tip is below the gate.
+- **A memoised root must move at the gate.** The exec node caches its root on mutations (`ExecState._touch`), and a
+  block that mutates nothing at the gate would keep the previous cursor's root while a cold projection (a restart, a
+  stash check, the prover) commits the record. `block_apply.close` touches the state at `exec_root_b2.projection_gate_at`.
+  (`EXEC_ADDR_ROOT_HEIGHT` had the same shape: measured, the memoised root at cursors 8500..8519 lacked the registry that a
+  cold projection commits, until the accrual at 8520 touched the state. Settled boundary roots were unaffected. It is
+  already behind the tip and left as it is, so no replay moves; SCHEDULED_CLEANUPS.md.)
+- Rollback needs nothing new: the exec root is recomputed from state, and `div_carry` was always part of the exec state
+  and its snapshots.
+
+The `dc` written into exec summaries is now read by nothing. It stays until the next reroll because `execsum:` rows are
+part of the snapshot `state_digest`, so changing what they hold would split snapshot identity across an update wave
+(SCHEDULED_CLEANUPS.md).
+
+Measured: `tests/test_a_stwo_settlement_of_a_span_replays_the_exec_transition_and_refuses_forgeries.py` section 7 (both
+rule sets, the forgeries, the crossing span, the memoised root), `tests/test_a_stwo_settle_lands_proven_from_its_gate_and_l1_refuses_forged_spans.py`
+(L1 holds no exec summary at all; both spans land proven; a forged or dropped carry opening and a span below the gate are
+refused), and a live-data shadow check (the commit message): a real span of the live chain, replayed from genesis with
+the gate forced low in the replay only, proves and verifies from the committed carry.
 
 **What the operator does to turn it on.**
 1. Install the shadow job (`deploy/units/nado-settle-shadow.service`, needs the explicit yes) and let it run two weeks:
    every span `proven` and `chain_eq: true`, nothing `refused`, `mismatch` or `error`.
 2. Confirm every fleet node reports `native/stwo_settle` built (it is an optional crate; a node without it DEFERS blocks
-   carrying a Stwo settle until they are deep) and that the boundary carry chain is unbroken up to now.
+   carrying a Stwo settle until they are deep) and that `EXEC_CARRY_ROOT_HEIGHT` has fired (the exec roots of every exec
+   node agree past it: the settle quorum keeps settling) and lies at or below the height chosen.
 3. Measure the cadence, pick a height the `/update` wave reaches first (CLAUDE.md rule 3), set `STWO_SETTLE_HEIGHT` to it
    (keyed `if CHAIN_GENERATION == 29`), push, and confirm `status_pool` uniform before it fires. Exec nodes that should
    prove need the `vm_settle` binary built with the nightly (`tests/_stwo_settle_build.py`), and the RAM: an out-of-gas

@@ -101,6 +101,33 @@ def addr_value(addr) -> bytes:
     return str(addr).encode()
 
 
+# THE DIVIDEND CARRY (protocol.EXEC_CARRY_ROOT_HEIGHT, 2026-10-28): ExecState.div_carry, the undistributed remainder every
+# dividend accrual reads, as one more T_COUNTER record. A NAME in the counter family, not a new tag: its position is
+# record_key(T_COUNTER, "div_carry"), disjoint from the four COUNTERS by its part, and its value is the exact integer
+# (zero absent, like every counter). COUNTERS itself stays frozen: the carry joins the projection only from the gate's
+# cursor, so every root before it is unchanged. A settlement replay reads it from the span's pre root (settle_b2), which
+# is what lets a span cross an epoch boundary without L1 keeping the carry in exec summaries (measured broken at 10860).
+CARRY_COUNTER = "div_carry"
+
+
+def carry_root_at(cursor) -> bool:
+    """Whether the root AT `cursor` commits the dividend carry (protocol.EXEC_CARRY_ROOT_HEIGHT). ONE predicate for the
+    exec node's root, the settlement replay, the exec node's prover and L1's span check."""
+    from protocol import EXEC_CARRY_ROOT_HEIGHT as H
+    return bool(H) and int(cursor) >= H
+
+
+def projection_gate_at(cursor) -> bool:
+    """Whether the projection's SHAPE changes at exactly `cursor` with no state mutation (a cursor-gated record kind
+    starts there). The exec node memoises its root on mutations (ExecState._touch), so block_apply.close touches the state
+    at this cursor; without it a block that mutates nothing at the gate keeps the previous cursor's root, which a cold
+    projection (a restarted node, a stash check, the prover) computes WITH the new record — two roots for one state.
+    INVARIANT: every cursor-gated record kind added to records_projection is named here. (EXEC_ADDR_ROOT_HEIGHT predates
+    this and is already behind the live tip; it is deliberately not named, so no replay of its blocks moves.)"""
+    from protocol import EXEC_CARRY_ROOT_HEIGHT as H
+    return bool(H) and int(cursor) == H
+
+
 def genesis_canary() -> str:
     """The empty exec layer's root in THIS generation's format: protocol.EXEC_GENESIS_ROOT_B2. INVARIANT: every runtime
     reader of the genesis root goes through here — the exec node's start-up canary and L1's pre-settlement header
@@ -250,6 +277,8 @@ def records_projection(st):
     if addr_root_at(getattr(st, "cursor", -1)):            # the digest registry (T_ADDR), from its gate
         for d, a in (getattr(st, "zk_addrs", None) or {}).items():
             out[record_key(T_ADDR, d)] = addr_value(a)
+    if carry_root_at(getattr(st, "cursor", -1)):           # the dividend carry (T_COUNTER "div_carry"), from its gate
+        _amount(out, record_key(T_COUNTER, CARRY_COUNTER), getattr(st, "div_carry", 0) or 0)
     for _s, msg in st.outbox.items():
         out[record_key(T_DIGEST, "outbox", leaf_digest(msg_outbox_leaf(msg)))] = ONE
     for i, msg in enumerate(st.inbox):

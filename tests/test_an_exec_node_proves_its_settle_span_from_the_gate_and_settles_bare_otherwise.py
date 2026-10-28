@@ -11,7 +11,8 @@ commitment as `stwo`. Anything that would make the proof impossible must cost th
   3. a node WITHOUT the prover still proves a span with no contract call (no VM proof is needed), and settles a span with
      calls bare — it never stalls; the in-flight flag is released when the prove thread ends;
   4. it settles bare when it cannot prove honestly: the boundary is already attested (L1 takes one settle per validator
-     and cursor), no stash at the justified tip, a stash that does not hash to the justified root, nothing justified yet;
+     and cursor), no stash at the justified tip, a stash that does not hash to the justified root, nothing justified yet,
+     a justified tip below protocol.EXEC_CARRY_ROOT_HEIGHT (its root commits no carry, so L1 would refuse the span);
      and the in-flight flag is raised before the first await, so a concurrent maybe_settle task never proves twice.
   5. construct_settle_tx carries the commitment as `stwo`, which is what L1's settle branch and apply key on.
 Needs the nightly toolchain for section 2; without it that section is SKIPPED (named) and the rest still runs.
@@ -33,6 +34,7 @@ from tests._stwo_settle_build import NIGHTLY, build, build_verifier
 
 T = _harness.Report()
 _harness.pinned(EXEC_ADDR_ROOT_HEIGHT=1).__enter__()       # the registry committed from block 1 (its reroll value)
+_harness.pinned(EXEC_CARRY_ROOT_HEIGHT=1).__enter__()      # ...and the dividend carry (its reroll value; 30000 live)
 A = "ndo" + "A" * 45
 B = "ndo" + "B" * 45
 DC = dice.build()
@@ -168,6 +170,10 @@ with _harness.pinned(STWO_SETTLE_HEIGHT=1):
     EN._settled_history["default"][2 * L] = payloads[L]                # a stash that is not the tip's state
     T.check("4c. a stash that does not hash to the justified root: bare", run() is None)
     EN._settled_history["default"][2 * L] = payloads[2 * L]
+    with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=2 * L + 1):
+        ASKED.clear()
+        T.check("4f. a justified tip below EXEC_CARRY_ROOT_HEIGHT: bare, before any block or accrual input is fetched",
+                run() is None and not [a for a in ASKED if not a.startswith("/get_settled")], ASKED)
     L1["settled"] = (-1, None)
     T.check("4d. nothing justified yet (the first settlement is by quorum): bare", run() is None)
     T.check("4e. the in-flight flag is up from the FIRST await (a concurrent settle task holds instead of proving the same "

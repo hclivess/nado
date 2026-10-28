@@ -1,8 +1,9 @@
 """THE CHAIN INPUTS OF A STWO SPAN SETTLEMENT, FROM L1'S OWN STATE (G8, doc/stwo/g4-settlement-statement.md section 5).
 
 execnode/settle_b2.verify_span replays a span on a witness, and three things in that replay are not the prover's to
-supply: the dividend accrual inputs, the dividend carry at the span's start, and what a contract call in block h may read
-through BHASH and BEACON. settle_b2.reference_chain answers them from a replay of the exec node's own bookkeeping
+supply: the dividend accrual inputs and what a contract call in block h may read through BHASH and BEACON. (The dividend
+carry at the span's start was a third, read from exec summaries; from protocol.EXEC_CARRY_ROOT_HEIGHT it is a record of
+the span's pre root instead — THE CARRY below.) settle_b2.reference_chain answers them from a replay of the exec node's own bookkeeping
 (ExecState.advance_beacons / record_block_hash / accrue_dividend_epoch); this module answers them from L1 state, and the
 two must be EQUAL for every span and every (kind, key, height) a call could read — a difference is a root L1 refuses that
 every exec node holds, or worse, accepts one none holds. tests/test_l1_derives_the_settlement_chain_inputs_the_exec_node_reads.py
@@ -29,12 +30,15 @@ exec node applies block 0 from cursor -1, so its rings start there):
     serves the exec node: the COMMITTED row kv_ops.epoch_weights_get(E) when there is one, else
     dividend_ops.weights_at_epoch(E) — refused when idle-GC has pruned the recert rows it replays (the endpoint answers
     410 there and the exec node holds its cursor).
-  THE CARRY at the span's start cursor sc: the exec node accrues epoch E before block (E + 1) * EPOCH_LENGTH
-    (records_effects.epoch_accrual_due), so at sc it has accrued every E <= sc // EPOCH_LENGTH - 1, the last one at the
-    boundary block b = (sc // EPOCH_LENGTH) * EPOCH_LENGTH <= sc. loops/core_loop._accrual_effects chains the carry out
-    of that accrual into b's exec summary as `dc`. So the carry is summary(b)["dc"]; 0 when b == 0 (nothing accrued yet,
-    and the exec genesis starts from an empty carry). A missing summary or `dc` REFUSES the span (SpanRefused), never
-    defaults: a default is a guessed carry and a guessed root.
+  THE CARRY at the span's start cursor sc is NOT an L1 input. From protocol.EXEC_CARRY_ROOT_HEIGHT the exec root commits
+    ExecState.div_carry (exec_root_b2.CARRY_COUNTER), so settle_b2 opens it against the span's pre root; Chain.div_carry
+    is None. A span starting below the gate is REFUSED (l1_chain: SpanRefused), a pure function of sc. Until 2026-10-28
+    L1 read it from the `dc` of the boundary block's exec summary, which loops/core_loop._accrual_effects chains from the
+    previous boundary's `dc` and writes only when the boundary block's records are derivable. MEASURED on betanet-10:
+    boundary 10860 carried a collect_dividend, wrote no `dc`, and every later boundary found no carry-in (silently: that
+    early return logs nothing), so from 10860 on no span could have been verified — and the summaries below the
+    retention window (EXEC_SUMMARY_RETENTION) are pruned anyway, which is why a probe of 60..11040 also found none.
+    INVARIANT: L1 never derives the carry from per-block bookkeeping again; one non-derivable block ended it for good.
 
 FAILURE CLASSES, and why they differ:
   * SpanRefused (an AssertionError): the answer is a pure function of COMMITTED state, identical on every node — refusing
@@ -115,22 +119,17 @@ def beacon_read(epoch, h, reveals_of):
     return None if v is None else int(v) & MASK
 
 
-def div_carry_at(cursor, summary_at):
-    """The exec node's dividend carry at `cursor` (after block `cursor`), from the boundary summary's `dc`."""
-    b = (int(cursor) // EPOCH_LENGTH) * EPOCH_LENGTH
-    if b <= 0:
-        return 0
-    doc = summary_at(b)
-    if not isinstance(doc, dict) or doc.get("dc") is None:
-        raise SpanRefused(f"no dividend carry recorded at boundary block {b} (the exec summary is missing, pruned, or "
-                          f"its accrual was not derivable): the span's start carry is unknown")
-    dc = doc["dc"]
-    if isinstance(dc, bool) or not isinstance(dc, int) or dc < 0:
-        raise SpanRefused(f"a malformed dividend carry at boundary block {b}")
-    return dc
+def carry_refusal(sc):
+    """None when a span starting after cursor `sc` can be judged (its pre root commits the dividend carry), else why L1
+    refuses it: below protocol.EXEC_CARRY_ROOT_HEIGHT L1 holds no carry to replay the span with (THE CARRY above)."""
+    from execnode import exec_root_b2 as B2
+    if B2.carry_root_at(int(sc)):
+        return None
+    return (f"the span starts at cursor {int(sc)}, below EXEC_CARRY_ROOT_HEIGHT: its pre root does not commit the dividend "
+            f"carry, and L1 derives no carry of its own")
 
 
-def chain_for_span(sc, *, inflow_of, weights_of, reveals_of, hash_at, summary_at):
+def chain_for_span(sc, *, inflow_of, weights_of, reveals_of, hash_at):
     """settle_b2.Chain for a span starting after cursor `sc`, from the injected L1 getters."""
     from execnode.settle_b2 import Chain
     acc, rv = {}, {}
@@ -157,7 +156,8 @@ def chain_for_span(sc, *, inflow_of, weights_of, reveals_of, hash_at, summary_at
         if kind == zkvm2.IO_BEACON:
             return beacon_read(key, h, reveals)
         return None
-    return Chain(accrual, div_carry_at(sc, summary_at), read)
+    # div_carry None: the carry is the span's pre-root record (settle_b2.WitnessState.div_carry), never an L1 input
+    return Chain(accrual, None, read)
 
 
 def l1_weights_at(E):
@@ -175,11 +175,14 @@ def l1_weights_at(E):
 
 
 def l1_chain(sc):
-    """settle_b2.Chain for a span after cursor `sc`, from this node's committed L1 state."""
+    """settle_b2.Chain for a span after cursor `sc`, from this node's committed L1 state. SpanRefused below
+    EXEC_CARRY_ROOT_HEIGHT (carry_refusal): a verdict from sc alone, identical on every node."""
     from ops import kv_ops
+    why = carry_refusal(sc)
+    if why is not None:
+        raise SpanRefused(why)
     return chain_for_span(sc, inflow_of=kv_ops.dividend_inflow_get, weights_of=l1_weights_at,
-                          reveals_of=kv_ops.reveals_for_epoch, hash_at=kv_ops.hash_by_number,
-                          summary_at=kv_ops.exec_summary_get)
+                          reveals_of=kv_ops.reveals_for_epoch, hash_at=kv_ops.hash_by_number)
 
 
 def l1_span_blocks(sc, cursor):
@@ -199,15 +202,14 @@ def l1_span_blocks(sc, cursor):
 def l1_inputs_doc(sc, cursor):
     """Everything l1_chain(sc) reads for the span (sc, cursor], as a JSON-able document (served read-only by
     /settle_chain_inputs, so the shadow run can derive the Chain from L1's state without opening L1's database):
-    the boundary carry, every epoch's reveals a call in the span could read a beacon from, the accrual inputs of every
-    epoch the span accrues, and the L1 block hashes of every BHASH window in the span."""
+    every epoch's reveals a call in the span could read a beacon from, the accrual inputs of every epoch the span accrues,
+    and the L1 block hashes of every BHASH window in the span. `refused` is carry_refusal(sc): why l1_chain would refuse
+    the span (below EXEC_CARRY_ROOT_HEIGHT), or None. `div_carry` stays in the document, always None (the carry is the
+    pre root's record): a shadow tool reading the old field sees "no L1 carry", which is now the truth."""
     from ops import kv_ops
     sc, cursor = int(sc), int(cursor)
     ring, retention, floor = _retention()
-    try:
-        carry, refused = div_carry_at(sc, kv_ops.exec_summary_get), None
-    except SpanRefused as e:
-        carry, refused = None, str(e)
+    carry, refused = None, carry_refusal(sc)
     f_lo, f_hi = max(0, sc) // EPOCH_LENGTH, max(0, cursor - 1) // EPOCH_LENGTH
     e_lo = max(floor, f_lo - retention)
     accrual = {}
@@ -235,19 +237,18 @@ def chain_from_doc(doc):
 
     def inflow_of(E):
         return doc["accrual"][str(E)][0]
-
-    def summary_at(_b):
-        return None if doc.get("div_carry") is None else {"dc": doc["div_carry"]}
+    # NOT refused on doc["refused"] (a span below EXEC_CARRY_ROOT_HEIGHT): the shadow run still compares every read and
+    # accrual with the exec node's below the gate; the refusal itself is l1_chain's, keyed on sc alone
     return chain_for_span(int(doc["sc"]), inflow_of=inflow_of, weights_of=weights_of,
                           reveals_of=lambda e: doc["reveals"].get(str(e), ()),
-                          hash_at=lambda k: hashes[k - lo] if lo <= k < lo + len(hashes) else None,
-                          summary_at=summary_at)
+                          hash_at=lambda k: hashes[k - lo] if lo <= k < lo + len(hashes) else None)
 
 
 def compare_with_reference(ref, l1, blocks):
     """The places where `l1` (an L1-derived Chain) and `ref` (settle_b2.reference_chain, whose `seen` holds the exec
     node's beacons and block hashes as each block opened) disagree over the span `blocks` -> a list of strings, empty when
-    they are equal for every (kind, key, height) a call in the span could read, the carry, and every accrual the span runs.
+    they are equal for every (kind, key, height) a call in the span could read and every accrual the span runs. (The carry
+    is not compared: it is no L1 input, it is the pre root's record, which the replay authenticates.)
     Beacons: every epoch from -1 to two past the block's final epoch, and every epoch the exec node holds. Block hashes:
     the window's bounds and size at each height, and each held hash's value once (a recorded hash never changes)."""
     from execnode import zkvm2
@@ -258,11 +259,6 @@ def compare_with_reference(ref, l1, blocks):
             return chain.read(kind, key, h)
         except ChainUnavailable as e:
             return f"unavailable: {e}"
-    try:
-        if l1.div_carry != ref.div_carry:
-            out.append(f"div_carry: L1 {l1.div_carry} vs exec {ref.div_carry}")
-    except SpanRefused as e:
-        out.append(f"div_carry: L1 refused ({e})")
     if blocks:
         sc, cur = int(blocks[0]["block_number"]) - 1, int(blocks[-1]["block_number"])
         for E in range(sc // EPOCH_LENGTH, cur // EPOCH_LENGTH):          # the epochs the span accrues

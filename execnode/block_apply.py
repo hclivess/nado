@@ -8,6 +8,7 @@ three functions, in this order, per block; nothing exec-relevant happens in eith
 No I/O, no network, no node state: importing this module opens nothing (L1 imports it to verify a span).
 """
 from protocol import chain_clock
+from execnode import exec_root_b2 as _B2
 
 
 def begin(states_map, h):
@@ -149,3 +150,10 @@ def close(states_map, h, block_hash):
         _st.block_ts = chain_clock(h)
         _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
         _st.record_block_hash(h, block_hash)   # BLOCKHASH randomness for this finalized height
+        # A ROOT-SHAPE GATE (exec_root_b2.projection_gate_at: EXEC_CARRY_ROOT_HEIGHT) adds a record at this cursor with no
+        # mutation, and the root is memoised on mutations: invalidate it, or a block that changes nothing at the gate keeps
+        # the previous cursor's root while a cold projection of the same state commits the new record. INVARIANT: a root
+        # is a pure function of (state, cursor), memoised or cold. (WitnessState._touch is a no-op: its root is computed.)
+        if _B2.projection_gate_at(h):
+            with _st._mutate_lock:
+                _st._touch()

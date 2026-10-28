@@ -1686,6 +1686,9 @@ def split_open_block_reward(reward: int):
 #                                    deposits, refused on L1 and skipped on exec, so G9 can delete it)
 #                                    LEGACY_TRANSFER_CLOSE_HEIGHT (14000; -> 1: the exec layer skips the legacy pool's
 #                                    transparent shielded_transfer, so the pool is frozen and execnode/shielded.py can go)
+#                                    EXEC_CARRY_ROOT_HEIGHT (30000, exec cursor; -> 1: the exec state's dividend carry is
+#                                    committed in the exec root as the T_COUNTER record "div_carry", so a settlement proof
+#                                    reads a span's starting carry from its pre root, never from L1's exec summaries)
 #                                    STWO_SETTLE_HEIGHT ((1 << 62) = DORMANT; -> 1: a settle may carry a Stwo settlement
 #                                    proof of its span, which L1 verifies and marks proven — G8)
 # ---------------------------------------------------------------------------------------------------------------
@@ -2246,6 +2249,22 @@ STWO_PAUSE_HEIGHT = 1 << 62
 # first root at the gate inserts the whole registry (240 entries on 2026-10-27); a span that crosses the gate settles by
 # the quorum. Exec-root consensus only: L1 rules and every exit format are unchanged.
 EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at 5487 when this shipped (2026-10-27)
+
+# THE DIVIDEND CARRY IN THE EXEC ROOT (G8 prerequisite, 2026-10-28; doc/stwo/g4-settlement-statement.md section 5). The
+# presence-dividend accrual of every epoch distributes inflow plus a metered release of the carried remainder
+# (records_effects.dividend_accrual_effects), so a span that crosses an epoch boundary cannot be replayed without the
+# carry at its start. Until now no root committed it: L1 read it from the `dc` of the boundary block's exec summary,
+# which loops/core_loop._accrual_effects chains boundary to boundary and writes only when the boundary block's records
+# are derivable. MEASURED 2026-10-28: block 10860 carried a collect_dividend (not derivable), so it has no `dc`, every
+# later boundary silently found no carry-in, and no Stwo settle could ever land again (a chain kept in per-block summaries
+# that one ordinary transaction ends for good). From this exec cursor the exec state's div_carry is a record
+# (exec_root_b2.T_COUNTER "div_carry", zero absent), and settle_b2 reads it from the span's authenticated pre-state like
+# wd_nonce; ops/settle_chain refuses a span starting below the gate, and a span crossing it is unprovable (its first root
+# inserts the leaf, which no witness opens). Exec-root consensus only: L1 rules and every exit format are unchanged.
+# INVARIANT: STWO_SETTLE_HEIGHT >= EXEC_CARRY_ROOT_HEIGHT (tests/test_gate_reroll_transfer.py) — below this gate L1 has no
+# carry to verify a span with. Tip ~12,460 at ~6.1 s/block when this was chosen (~30 h ahead): if the push slips past
+# ~28,000, move it (a gate in the past makes every exec node switch at its own update moment).
+EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at ~12460 when this was written
 
 # THE STWO SETTLEMENT OF A SPAN (G8, doc/stwo-migration.md 9.5; doc/stwo/g4-settlement-statement.md section 5). From this L1
 # height a `settle` may carry `stwo`: the DA commitment of an execnode/settle_b2 bundle (a witness of authenticated

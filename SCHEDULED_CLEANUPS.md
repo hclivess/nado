@@ -26,15 +26,36 @@ the exec layer refuses the op (adopted by the whole fleet first), a measurement 
 `shielded_transfer` below <h>, then delete shielded.py and pin shield_root / shield_nfset as constants beside
 exec_root_b2.RETIRED_FIELD_ROOT. Not consensus-critical for value; owed for the G9 deletion to finish.
 
-## 2026-10-28 — owed BEFORE STWO_SETTLE_HEIGHT is set (G8): the dividend carry must reach every epoch boundary
+## 2026-10-28 — the dividend carry is committed in the exec root from EXEC_CARRY_ROOT_HEIGHT; owed: the dead `dc`, and the touch for EXEC_ADDR_ROOT_HEIGHT
 
-L1's Stwo settle verifier (ops/settle_chain.l1_chain) reads a span's starting dividend carry from the `dc` of the last
-epoch-boundary exec summary. loops/core_loop._accrual_effects writes `dc` only when the boundary block's records are
-derivable, and reads the previous boundary's `dc` as its own carry-in — so one non-derivable boundary breaks the chain
-permanently and every later Stwo settle is refused (SpanRefused: the chain falls back to the bonded quorum forever).
-CONSENSUS-CHANGING (the exec summary is committed): write `dc` at every boundary behind its own gate, set before
-STWO_SETTLE_HEIGHT, with a test that a non-derivable boundary keeps the chain. Measured: all 175 boundaries in 0..10533
-carry `dc` (no break yet). doc/stwo/g4-settlement-statement.md section 5.
+WHAT HAPPENED. L1's Stwo settle verifier read a span's starting dividend carry from the `dc` of the boundary block's exec
+summary, which loops/core_loop._accrual_effects chains from the previous boundary's `dc` and writes only when the
+boundary block's records are derivable. MEASURED (2026-10-28, a snapshot of the relay at 12000 plus a from-genesis replay
+of the live blocks): boundary 10860 carried a `collect_dividend` (not derivable), so it wrote no `dc`, and every later
+boundary silently took the "no chain to continue" return. That return does not log, which is why nothing in the node logs
+showed it. From 10860 on no Stwo settle could have landed. It was not a snapshot bootstrap and not a swallowed exception.
+
+WHAT THIS DOES (CONSENSUS, exec root): `EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1`. From that exec
+cursor `ExecState.div_carry` is the T_COUNTER record "div_carry" (exec_root_b2.CARRY_COUNTER). settle_b2 reads it from
+the span's authenticated pre-state, ops/settle_chain supplies no carry and refuses spans starting below the gate, and a
+span crossing the gate is unprovable. The exec-summary carry path is deleted. doc/stwo/g4-settlement-statement.md
+section 5. The gate must fire, with every exec node updated, BEFORE STWO_SETTLE_HEIGHT is set (pinned:
+tests/test_gate_reroll_transfer.py).
+
+OWED:
+1. At the next reroll (gen 30), delete the `dc` field from exec summaries: core_loop._accrual_effects' carry chain,
+   exec_summary_put's `div_carry`, and tests/test_dividend_derivation.py's source pins. Nothing reads `dc` now. It cannot
+   go earlier because `execsum:` rows are part of the snapshot state_digest (ops/snapshot_ops), so an updated node writing
+   different summaries splits snapshot identity with a not-yet-updated one. The derived records (`rec`, `rd`) are
+   likewise read by nothing since the Goldilocks settle branch went (G9). Audit them at the same reroll.
+2. `EXEC_ADDR_ROOT_HEIGHT` (8500, already behind the tip) has the memoised-root shape this change fixes for the carry.
+   MEASURED in a from-genesis exec replay of the live blocks: at cursors 8500..8519 the memoised root stayed 8499's
+   (8e13071a…) while a cold projection of the same state commits the 240 registry records (cb2eff70…). Only the accrual
+   at 8520 touched the state, and from there memo == cold (c43a8662…). So a warm exec node and one cold-started in that
+   window held different roots for 20 cursors. Settled roots are epoch boundaries, where the two agree, so nothing
+   settled was affected and the replays reproduce the warm root. It is not fixed here because naming 8500 in
+   projection_gate_at now would move the replayed roots at 8500..8519. At the reroll, inline both gates (1 from gen 30,
+   at which point the registry and the carry are empty, so the shape vanishes) or name both in projection_gate_at.
 
 ## 2026-10-27 — owed BEFORE the next reroll (gen 30): re-pin the carry's refusals for a v2 -> v2 carry
 

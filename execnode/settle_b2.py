@@ -2,7 +2,9 @@
 section 5). A verifier that holds NO exec state checks that a span of L1 blocks takes the exec root from `pre_root` to
 `post_root`, given:
   * the blocks themselves (L1 has them), and the chain inputs L1 derives itself (Chain: the dividend accrual inputs and
-    carry, BHASH/BEACON values and their availability) — never from the prover;
+    BHASH/BEACON values and their availability) — never from the prover. The dividend carry at the span's start is NOT a
+    chain input from protocol.EXEC_CARRY_ROOT_HEIGHT: it is a record of the pre root (exec_root_b2.CARRY_COUNTER), opened
+    like any other (below the gate only the exec node's own bookkeeping knows it, and L1 refuses such spans);
   * a WITNESS from the prover: every exec-state entry the span read or wrote (an OPENING: its value, or absent), each
     authenticated by a compressed-tree proof against the pre root's half; the code of every contract it ran; the
     preimage of any sibling a delete must look inside (csmt_partial);
@@ -32,7 +34,8 @@ four kinds the circuit cannot (Oracle._walk).
 
 WHAT A SPAN CANNOT CARRY YET (Unprovable; the span settles by the quorum, as every span does today): below
 protocol.EXEC_ADDR_ROOT_HEIGHT, a payee or asset recipient registered before the span (the digest registry is committed
-only from that gate), and any span crossing it; creating an asset (absence of an asset id is not provable: its leaf key
+only from that gate), and any span crossing it; any span crossing protocol.EXEC_CARRY_ROOT_HEIGHT (the carry's first
+root inserts a record no witness opens); creating an asset (absence of an asset id is not provable: its leaf key
 includes the metadata digest); the shielded pools, private calls and cross-namespace deliveries into this namespace
 (their state is committed as digests, not per entry); non-integer contract storage (KVX records). Each is named in the
 Unprovable message.
@@ -351,6 +354,20 @@ def _counter(name):
                     lambda s, v: s._store.write("counter", (name,), int(v) if int(v) else ABSENT))
 
 
+def _carry_get(s):
+    if s._carry_committed:                       # from EXEC_CARRY_ROOT_HEIGHT: the pre root's T_COUNTER "div_carry"
+        v = s._store.load("counter", (B2.CARRY_COUNTER,))
+        return 0 if v is ABSENT else v
+    return s._carry_chain
+
+
+def _carry_set(s, v):
+    if s._carry_committed:
+        s._store.write("counter", (B2.CARRY_COUNTER,), int(v) if int(v) else ABSENT)
+    else:
+        s._carry_chain = int(v)
+
+
 class WitnessState(ExecState):
     """ExecState over a Store. Built by __new__ (no disk); every field the transition may touch is a witness map, a
     chain input, or Forbidden."""
@@ -358,6 +375,13 @@ class WitnessState(ExecState):
     dw_nonce = _counter("dw_nonce")
     uw_nonce = _counter("uw_nonce")
     outbox_seq = _counter("outbox_seq")
+    # THE DIVIDEND CARRY. From protocol.EXEC_CARRY_ROOT_HEIGHT it is a committed record, read and written through the
+    # witness like the counters above: the accrual opens it against the pre root (a forged value fails the leaf check, an
+    # omitted one is Unprovable), and its new value is a leaf change the post root must carry. Below the gate no root
+    # commits it and it is Chain.div_carry, which only the exec node's own bookkeeping can supply (the prover, the shadow
+    # run, the tests); L1 has no such input and refuses those spans (ops/settle_chain.l1_chain).
+    # INVARIANT: never read Chain.div_carry for a span whose start commits the carry — the pre root is the authority.
+    div_carry = property(_carry_get, _carry_set)
 
     @classmethod
     def build(cls, store, cursor, div_carry, oracle):
@@ -380,7 +404,11 @@ class WitnessState(ExecState):
         # span itself registers is knowable (Registry).
         st.zk_addrs = LeafMap(store, "addr") if B2.addr_root_at(cursor) else Registry()
         st.cursor, st.block_ts = int(cursor), 0
-        st.div_carry = int(div_carry)
+        st._carry_committed = B2.carry_root_at(cursor)
+        if not st._carry_committed:
+            if div_carry is None or isinstance(div_carry, bool) or not isinstance(div_carry, int) or div_carry < 0:
+                raise Unprovable("the span starts below EXEC_CARRY_ROOT_HEIGHT and no dividend carry was supplied")
+            st._carry_chain = int(div_carry)
         from protocol import EPOCH_LENGTH
         st.last_div_epoch = int(cursor) // EPOCH_LENGTH - 1 if int(cursor) >= 0 else -1
         st.beacons, st.block_hashes = {}, {}          # the oracle checks chain reads against Chain, never these
@@ -537,8 +565,10 @@ class Oracle:
 
 # ---- the chain inputs ------------------------------------------------------------------------------------------------
 class Chain:
-    """What L1 supplies itself. `accrual(E) -> (inflow, weights)`; `div_carry` at the span's start; `read(kind, key,
-    height) -> value or None` (None: not readable by a call in block `height`, so the VM would have reverted)."""
+    """What L1 supplies itself. `accrual(E) -> (inflow, weights)`; `div_carry` at the span's start, consulted ONLY for a
+    span starting below protocol.EXEC_CARRY_ROOT_HEIGHT (from it the carry is the pre root's record, WitnessState.div_carry;
+    L1 passes None); `read(kind, key, height) -> value or None` (None: not readable by a call in block `height`, so the VM
+    would have reverted)."""
 
     def __init__(self, accrual, div_carry, read):
         self.accrual, self.div_carry, self.read = accrual, div_carry, read
@@ -553,6 +583,11 @@ def _replay(store, blocks, cursor, chain, runs):
         # load-bearing for the verifier: replayed without that insert, the span would compute a root the chain never
         # had, and a prover could claim exactly that root.
         raise Unprovable("the span crosses EXEC_ADDR_ROOT_HEIGHT (the registry's first root)")
+    if blocks and B2.carry_root_at(int(blocks[-1]["block_number"])) and not B2.carry_root_at(int(cursor)):
+        # the same for the carry: the first root at EXEC_CARRY_ROOT_HEIGHT inserts the div_carry record, which the pre
+        # root does not hold and no witness can open. Replayed without it, the span would compute a root the chain never
+        # had. Load-bearing for the verifier, like the registry's refusal above.
+        raise Unprovable("the span crosses EXEC_CARRY_ROOT_HEIGHT (the carry's first root)")
     oracle = Oracle(runs, chain)
     st = WitnessState.build(store, cursor, chain.div_carry, oracle)
     states = {NS: st}

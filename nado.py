@@ -2631,8 +2631,9 @@ async def get_dividend_inflow(request):
 
 async def settle_chain_inputs(request):
     """GET /settle_chain_inputs?sc=S&cursor=C: every L1 chain input a Stwo settlement of the span (S, C] is judged with
-    (ops/settle_chain.l1_inputs_doc: the boundary dividend carry, the reveals behind every readable beacon, the accrual
-    inputs, the block hashes of every BHASH window). READ-ONLY: the G8 shadow run (tools/settle_b2_shadow.py) derives the
+    (ops/settle_chain.l1_inputs_doc: the reveals behind every readable beacon, the accrual inputs, the block hashes of
+    every BHASH window, and `refused` below EXEC_CARRY_ROOT_HEIGHT; the dividend carry is no L1 input — `div_carry` is
+    always null — it is the span's pre-root record). READ-ONLY: the G8 shadow run (tools/settle_b2_shadow.py) derives the
     Chain from it and compares it with the exec node's own bookkeeping, without opening this node's database. The span is
     bounded (4 * SETTLE_PROOF_MAX_SPAN) and the reply is ~65 bytes per held block hash. Rate-limited 20/min per IP."""
     if _rate_limited(request, 20):

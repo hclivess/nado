@@ -21,6 +21,12 @@ Then:
   5. BOTH RULE SETS of the registry gate: below it that payout is unprovable; from it the registry is a committed ledger
      (exec_root_b2.T_ADDR), the same span proves and lands on the exec node's root, a registered payee claimed absent is
      refused, and a span that crosses the gate (the root that inserts the whole registry) is unprovable;
+  7. BOTH RULE SETS of the carry gate (protocol.EXEC_CARRY_ROOT_HEIGHT): below it the span's starting dividend carry is
+     the Chain's (a wrong one lands elsewhere) and no root holds it; from it the carry is the pre root's record
+     (exec_root_b2.CARRY_COUNTER): the same span proves with a Chain that carries NO carry and lands on the exec node's
+     root, a Chain's carry is ignored, a forged, dropped or absent-claimed carry opening is refused, a span crossing the
+     gate is unprovable (prover) and refused (verifier), the root commits the carry exactly from the gate, and an exec
+     node that mutates nothing at the gate still moves its memoised root there (block_apply.close's touch);
   4. the partial tree (execnode/csmt_partial.py) agrees with csmt.Tree on 400 random write batches (inserts beside deep
      shared prefixes, collapsing deletes, updates) and refuses an opening that does not hash to its node.
 Prints the prove / verify time and the witness size.
@@ -444,6 +450,108 @@ with _harness.pinned(EXEC_ADDR_ROOT_HEIGHT=w6.h + 2):                    # the g
         T.check("5c. a span that crosses the registry gate is unprovable", False, "it proved")
     except S.Unprovable as e:
         T.check("5c. a span that crosses the registry gate is unprovable", "crosses" in str(e), str(e))
+
+# ---- 7: the dividend carry gate (protocol.EXEC_CARRY_ROOT_HEIGHT), both rule sets ---------------------------------------
+def mk_carry():
+    """a pre-state holding a non-zero carry, and a span with a call that crosses an epoch boundary (the accrual reads it)"""
+    w8, c8 = game_pre()                                       # cursor 7001, epoch 116; the boundary block is 7020
+    w8.st.div_carry = 777779                                  # what earlier epochs left undistributed
+    w8.st._touch()
+    E = (w8.st.cursor + EPOCH_LENGTH) // EPOCH_LENGTH - 1
+    w8.inflow, w8.weights = {E: 1001}, {E: {A: 3, B: 4}}
+    p8 = w8.st.clone()
+    s8 = [w8.block([w8.call(c8, A, "open", [5], 10)])]
+    while w8.h < (E + 1) * EPOCH_LENGTH:
+        s8.append(w8.block([]))
+    s8.append(w8.block([w8.call(c8, B, "join", [5], 10)]))
+    return w8, p8, s8
+
+
+def carry_opening(b):
+    return [o for o in b["openings"] if o[0] == "counter" and o[1] == [B2.CARRY_COUNTER]]
+
+
+CARRY_OFF = 1 << 62
+w8, p8, s8 = mk_carry()
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=CARRY_OFF):
+    real8 = p8.clone()
+    w8.apply(s8, real8)
+    ch8 = w8.chain_for(p8, s8)
+    b8 = S.prove_span(p8, s8, ch8, BIN)
+    pre_below = B2.state_root_hex(p8.contracts, p8)
+    ok8, why8, post8 = S.verify_span(p8.cursor, pre_below, s8, ch8, b8, BIN)
+    T.check("7a. below the carry gate the span proves from the Chain's carry and lands on the exec node's root; the root "
+            "holds no carry and the witness opens none", ok8 and post8 == real8.state_root() and not carry_opening(b8)
+            and B2.record_key(B2.T_COUNTER, B2.CARRY_COUNTER) not in B2.records_projection(real8)
+            and real8.div_carry != p8.div_carry, (why8, real8.div_carry))
+    lie8 = S.Chain(ch8.accrual, p8.div_carry + 7000, ch8.read)
+    r = S.verify_span(p8.cursor, pre_below, s8, lie8, b8, BIN)
+    T.check("7b. ...where the carry decides the root: a Chain with another carry is refused (the hole L1's summaries "
+            "filled, until boundary 10860 broke them)", not r[0] and "post root" in r[1], r[1])
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=p8.cursor):
+    real8g = p8.clone()
+    w8.apply(s8, real8g)
+    ch8g = w8.chain_for(p8, s8)
+    nocarry = S.Chain(ch8g.accrual, None, ch8g.read)
+    pre8g = B2.state_root_hex(p8.contracts, p8)               # cold: a memo from the run above predates the pin
+    b8g = S.prove_span(p8, s8, nocarry, BIN)
+    ok, why, post = S.verify_span(p8.cursor, pre8g, s8, nocarry, b8g, BIN)
+    T.check("7c. from the gate the same span proves and verifies with a Chain that carries NO carry, on exactly the exec "
+            "node's root (which now commits it); the witness opens the pre root's carry",
+            ok and post == real8g.state_root() and post != real8.state_root() and pre8g != pre_below
+            and [o[2] for o in carry_opening(b8g)] == [777779], (why, carry_opening(b8g)))
+    ok, why, post = S.verify_span(p8.cursor, pre8g, s8, S.Chain(ch8g.accrual, 5, ch8g.read), b8g, BIN)
+    T.check("7d. ...and a Chain's carry is ignored from the gate (the pre root is the authority)",
+            ok and post == real8g.state_root(), why)
+
+    def carry_edit(f):
+        b = copy.deepcopy(b8g)
+        f(b)
+        return S.verify_span(p8.cursor, pre8g, s8, nocarry, b, BIN)
+    r = carry_edit(lambda b: carry_opening(b)[0].__setitem__(2, 777780))
+    T.check("7e. refused: a forged carry opening", not r[0] and "does not match the tree" in r[1], r[1])
+    r = carry_edit(lambda b: b["openings"].remove(carry_opening(b)[0]))
+    T.check("7f. refused: the carry opening dropped", not r[0] and "does not open" in r[1] and "div_carry" in r[1], r[1])
+    r = carry_edit(lambda b: carry_opening(b)[0].__setitem__(2, None))
+    T.check("7g. refused: the carry claimed absent", not r[0] and "tree disagrees" in r[1], r[1])
+    k_carry = B2.record_key(B2.T_COUNTER, B2.CARRY_COUNTER)
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=real8g.cursor + 1):
+    below8 = B2.records_projection(real8g)
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=real8g.cursor):
+    at8 = B2.records_projection(real8g)
+T.check("7h. the root commits the carry exactly from the gate: absent one block below, its exact value at it",
+        real8g.div_carry > 0 and k_carry not in below8 and at8.get(k_carry) == B2.int_value(real8g.div_carry)
+        and {k: v for k, v in at8.items() if k != k_carry} == below8, real8g.div_carry)
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=p8.cursor + 2):              # the gate falls inside the span
+    try:
+        S.prove_span(p8, s8, w8.chain_for(p8, s8), BIN)
+        T.check("7i. a span that crosses the carry gate is unprovable", False, "it proved")
+    except S.Unprovable as e:
+        T.check("7i. a span that crosses the carry gate is unprovable", "EXEC_CARRY_ROOT_HEIGHT" in str(e), str(e))
+    r = S.verify_span(p8.cursor, pre_below, s8, w8.chain_for(p8, s8), b8, BIN)
+    T.check("7j. ...and the verifier refuses a bundle for it outright (no root without the gate's insert)",
+            not r[0] and "EXEC_CARRY_ROOT_HEIGHT" in r[1], r[1])
+# the memoised root at the gate: an exec node that applies an EMPTY block there mutates nothing, so only
+# block_apply.close's touch moves its root to the one a cold projection (a restart, a stash check, the prover) computes
+w9, _c9 = game_pre()
+w9.st.div_carry = 4242
+w9.st._touch()
+g9 = w9.h + 1
+with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=g9):
+    r_before = w9.st.state_root()                                         # memoised at g9 - 1
+    w9.apply([w9.block([])], w9.st)
+    warm, cold = w9.st.state_root(), B2.state_root_hex(w9.st.contracts, w9.st)
+    from unittest import mock  # noqa: E402
+    w10, _c10 = game_pre()
+    w10.st.div_carry = 4242
+    w10.st._touch()
+    w10.st.state_root()
+    with mock.patch.object(B2, "projection_gate_at", lambda c: False):    # the touch removed
+        w10.apply([w10.block([])], w10.st)
+    stale = w10.st.state_root()
+T.check("7k. an exec node that mutates nothing at the gate still commits the carry there: its memoised root equals the "
+        "cold projection (and without block_apply.close's touch it would keep the previous cursor's root)",
+        warm == cold != r_before and stale == r_before, (warm[:12], cold[:12], r_before[:12], stale[:12]))
 
 # ---- 6: the shadow run (tools/settle_b2_shadow.py), end to end: stash files, an L1 over HTTP, the tool's verdicts --------
 import http.server  # noqa: E402

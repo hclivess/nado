@@ -27,6 +27,7 @@ REROLL = {
     # DEVICE_ATTEST_HEIGHT is a plain 1 (not generation-keyed). Every gen-27 and gen-28 gate is gone (see DELETED).
     "DEVICE_ATTEST_HEIGHT": 1,
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
+    "EXEC_CARRY_ROOT_HEIGHT": 1,               # gen 29: the dividend carry is committed in the exec root (G8 prerequisite)
     "LEGACY_TRANSFER_CLOSE_HEIGHT": 1,         # gen 29: the legacy pool's transparent transfers are skipped (G9)
     "LEGACY_SHIELD_CLOSE_HEIGHT": 1,           # gen 29: the legacy BLAKE2b shielded pool takes no new deposits (G9)
     "STWO_SETTLE_HEIGHT": 1,                   # gen 29 DORMANT (1 << 62): a settle carries a Stwo proof of its span (G8)
@@ -141,6 +142,17 @@ def main():
     #     betanet-9 reroll set gen 27's measured 6.50 s over its last 10,000 blocks
     check("CHAIN_CLOCK_CADENCE_DS: the measured 6.50 s (65 ds)", P.CHAIN_CLOCK_CADENCE_DS == 65)
     check("chain_clock runs at 6.5 s", all(P.chain_clock(h) == P.GENESIS_TIMESTAMP + h * 65 // 10 for h in (0, 1, 7, 209400, 2**40)))
+
+    # 3c. a Stwo settle needs the carry committed in its span's pre root (ops/settle_chain.carry_refusal): the settle gate
+    #     may never fire before the carry gate, or every Stwo settle between them is refused (live AND at a reroll)
+    for g in (P.CHAIN_GENERATION, P.CHAIN_GENERATION + 1):
+        _v = {n: eval(re.search(r"^" + n + r" = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": g})  # noqa: S307
+              for n in ("STWO_SETTLE_HEIGHT", "EXEC_CARRY_ROOT_HEIGHT")}
+        check(f"generation {g}: STWO_SETTLE_HEIGHT >= EXEC_CARRY_ROOT_HEIGHT",
+              _v["STWO_SETTLE_HEIGHT"] >= _v["EXEC_CARRY_ROOT_HEIGHT"] >= 1, _v)
+    # ...and the exec node's memoised root moves at the carry gate (block_apply.close touches the state there)
+    check("block_apply.close touches the state at a root-shape gate", "_B2.projection_gate_at(h)" in exn
+          and "_st._touch()" in exn)
 
     # 4. the ledger comment exists and names the cleanup
     check("protocol.py carries the GATE LEDGER", "GATE LEDGER" in src and "THE SAVINGS LANE IS PLAIN STAKE" in src)

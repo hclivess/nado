@@ -2801,6 +2801,8 @@ def _stwo_settle_check(data, ns, cursor, root, block_height, deep):
         namespace's, and every exit L1 releases proves against the default namespace;
       * it EXTENDS the justified settled tip exactly: the replay starts from latest_settled's (cursor, root), never from
         a pre-state the prover names, and there must be one (the first settlement of a namespace is by quorum);
+      * the span starts at or above protocol.EXEC_CARRY_ROOT_HEIGHT, where its pre root commits the dividend carry (L1
+        has no carry of its own to replay a span with; settle_chain.carry_refusal);
       * the span is non-empty, at most SETTLE_PROOF_MAX_SPAN blocks (the replay is linear in it: an unbounded span is a
         free validation-cost amplifier), and wholly below the block judging it (its blocks are L1's own committed ones);
       * DEPTH-GATED (protocol.SETTLE_PROOF_DEPTH_GATED): a block buried more than FINALITY_DEPTH below the known tip is
@@ -2822,6 +2824,11 @@ def _stwo_settle_check(data, ns, cursor, root, block_height, deep):
     assert cursor - int(sc) <= SETTLE_PROOF_MAX_SPAN, \
         f"a Stwo settlement span is at most SETTLE_PROOF_MAX_SPAN={SETTLE_PROOF_MAX_SPAN} blocks"
     assert cursor < int(block_height), "a Stwo settlement's span must lie wholly below the block that carries it"
+    # the span's start must commit the dividend carry (protocol.EXEC_CARRY_ROOT_HEIGHT): STRUCTURAL, a function of sc alone,
+    # so it binds at every depth — a deep block is never accepted for a span no node could verify (ops/settle_chain THE CARRY)
+    from ops.settle_chain import carry_refusal
+    _why = carry_refusal(sc)
+    assert _why is None, _why
     if deep and SETTLE_PROOF_DEPTH_GATED:
         return
     key = stwo_verify_key(c, sc, sroot, cursor, root, kv_ops.hash_by_number(cursor))

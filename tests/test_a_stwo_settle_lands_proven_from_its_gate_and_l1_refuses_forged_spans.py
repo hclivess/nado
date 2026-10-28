@@ -3,7 +3,8 @@ ops/transaction_ops._stwo_settle_check, ops/account_ops' settle branch, ops/sett
 
 An L1 database and a from-genesis exec node are built from the same blocks: a dice table opened, then a span (60, 300] in
 which a bet binds an epoch beacon and a later settle reads it (a BEACON chain read, one Stwo VM proof), RANDAO reveals,
-dividend accrual across four epoch boundaries with a non-zero carry; then a span (300, 360] with no contract call. The
+dividend accrual across four epoch boundaries with a non-zero carry, which the replay reads from the pre root's committed
+record (protocol.EXEC_CARRY_ROOT_HEIGHT pinned to its reroll value 1) — L1 holds NO exec summary at all; then a span (300, 360] with no contract call. The
 settled tip is justified by the bonded quorum at 60. Then, through validate_transaction and reflect_transaction:
   BOTH RULE SETS
   1. below the gate (the shipped value, dormant on generation 29) the `stwo` key is IGNORED, exactly as before G8 existed
@@ -15,7 +16,8 @@ settled tip is justified by the bonded quorum at 60. Then, through validate_tran
      marker and the tip returns. The no-call span then extends the PROVEN tip the same way (no VM proof, no prover);
   FORGERIES, each refused for its own reason at L1: a state_root other than the proven one; a bundle for another span; a
      bundle whose pre-state is not the justified tip; a tampered chain read (one reveal of the epoch the bet reads added to
-     L1's state); a tampered boundary carry; a span longer than SETTLE_PROOF_MAX_SPAN, a span reaching the block that
+     L1's state); a forged carry opening, and one dropped (on the no-call span, so it runs without the toolchains); a span
+     starting below EXEC_CARRY_ROOT_HEIGHT (structural: refused before any fetch, at every depth); a span longer than SETTLE_PROOF_MAX_SPAN, a span reaching the block that
      carries it, a non-default namespace;
   NOT A JUDGEMENT: a bundle not yet in DA, or a span block this node does not hold, DEFERS (ProofUnavailable, never a
      rejection, never memoised: the same tx validates once the data arrives); a block deep below the tip is judged on
@@ -41,7 +43,6 @@ create_indexers()
 
 from execnode import block_apply, settle_b2 as S2, zkvm2
 from execnode.games import dice
-from execnode.records_effects import dividend_accrual_effects
 from execnode.state import ExecState
 from hashing import blake2b_hash
 from ops import kv_ops, settle_chain as SC, transaction_ops as TXO
@@ -68,6 +69,9 @@ create_account(V2["address"], balance=B_MIN, bonded=1 * B_MIN)       # 1 of 5: n
 # the registry committed from block 1 (EXEC_ADDR_ROOT_HEIGHT's reroll value; 8500 on the live chain), so the dice payout to
 # a player registered before the span is provable — the span test pins it the same way
 _harness.pinned(EXEC_ADDR_ROOT_HEIGHT=1).__enter__()
+# the dividend carry committed from block 1 (EXEC_CARRY_ROOT_HEIGHT's reroll value; 30000 on the live chain): every span's
+# starting carry is the pre root's record, so L1 needs no exec summary (none is written below)
+_harness.pinned(EXEC_CARRY_ROOT_HEIGHT=1).__enter__()
 DC = dice.build()
 st0 = ExecState(os.path.join(HOME, "probe.json"))
 D_CID = st0.contract_id(A, DC, "d")
@@ -115,13 +119,11 @@ for b in BLOCKS:
     for tx in b["block_transactions"]:
         if tx["recipient"] == "duty":
             kv_ops.reveal_put(tx["data"]["reveal"]["target_epoch"], tx["data"]["reveal"]["secret"])
-carry = 0
 for E in range(N // L):
     inflow, w = accrual(E)
     kv_ops.dividend_inflow_add(E, inflow)
     kv_ops.epoch_weights_commit(E, w)
-    _eff, carry = dividend_accrual_effects(inflow, w, carry, E)       # loops/core_loop._accrual_effects' chain
-    kv_ops.exec_summary_put((E + 1) * L, True, {}, records=[], derivable=True, div_carry=carry)
+# NO exec summary: the carry the replay needs is the pre root's record (the live chain's summaries lost it at 10860)
 
 # ---- the exec node, from genesis -----------------------------------------------------------------------------------------
 st = ExecState(os.path.join(HOME, "st.json"))
@@ -237,12 +239,6 @@ if CALLS:
                 "chain read" in r or "VM proof" in r, r)
         kv_ops.reveal_del(epochs[0], "a-reveal-L1-never-saw")
         TXO._STWO_VERIFY_MEMO.clear()
-        doc = kv_ops.exec_summary_get(60)
-        kv_ops.exec_summary_restore(60, dict(doc, dc=doc["dc"] + 1))
-        r = reason(lambda: validate_transaction(settle(V2, 300, root_at[300], c1), logger, 312))
-        T.check("F5. refused: a tampered boundary carry (the replay lands elsewhere)", "post root" in r, r)
-        kv_ops.exec_summary_restore(60, doc)
-        TXO._STWO_VERIFY_MEMO.clear()
 
         # ---- not a judgement
         n0 = len(FETCHES)
@@ -291,6 +287,12 @@ else:
 # ---- the no-call span (300, 360]: needs neither the prover nor the native verifier
 B2 = S2.prove_span(snap[300], SPAN2, S2.reference_chain(snap[300], SPAN2, accrual), None)
 T.check("the no-call span proves without a VM proof", B2["vm_proof"] is None and not B2["runs"])
+T.check("L1 holds no exec summary at any boundary: the spans prove and verify with none",
+        all(kv_ops.exec_summary_get(b) is None for b in range(0, N + 1, L)))
+_ci = [i for i, o in enumerate(B2["openings"]) if o[0] == "counter" and o[1] == ["div_carry"]]
+T.check("the no-call span's replay opened the carry (it accrues epoch 5 before block 360)", len(_ci) == 1
+        and B2["openings"][_ci[0]][2] == snap[300].div_carry and snap[300].div_carry > 0,
+        (B2["openings"], snap[300].div_carry))
 c2 = put(B2)
 tx2 = settle(V2, 360, root_at[360], c2)
 _nf = len(FETCHES)
@@ -305,6 +307,27 @@ with _harness.pinned(STWO_SETTLE_HEIGHT=100):
     r = reason(lambda: validate_transaction(settle(V2, 300 + SETTLE_PROOF_MAX_SPAN + 1, "%064x" % 9, c2), logger,
                                             300 + SETTLE_PROOF_MAX_SPAN + 50))
     T.check("F8. refused: a span longer than SETTLE_PROOF_MAX_SPAN", "SETTLE_PROOF_MAX_SPAN" in r, r)
+    forged = json.loads(DA[c2])
+    forged["openings"][_ci[0]][2] += 1                                  # a carry the pre root does not hold
+    c_f = put(forged)
+    TXO._STWO_VERIFY_MEMO.clear()
+    r = reason(lambda: validate_transaction(settle(V2, 360, root_at[360], c_f), logger, 370))
+    T.check("F5. refused: a forged carry opening (it does not match the pre root's record)",
+            "does not match the tree" in r, r)
+    dropped = json.loads(DA[c2])
+    del dropped["openings"][_ci[0]]                                     # the carry left out: nothing to accrue from
+    c_d = put(dropped)
+    r = reason(lambda: validate_transaction(settle(V2, 360, root_at[360], c_d), logger, 370))
+    T.check("F5b. refused: the carry opening dropped (the replay cannot accrue without it)",
+            "does not open" in r and "div_carry" in r, r)
+    with _harness.pinned(EXEC_CARRY_ROOT_HEIGHT=301):
+        _nf = len(FETCHES)
+        r = reason(lambda: validate_transaction(tx2, logger, 370))
+        r_deep = reason(lambda: TXO._validate_settle(tx2, 370, True))
+        T.check("F9. refused: a span starting below EXEC_CARRY_ROOT_HEIGHT — structurally, before any DA fetch, and at "
+                "depth too (no node could verify it)", "EXEC_CARRY_ROOT_HEIGHT" in r and "EXEC_CARRY_ROOT_HEIGHT" in r_deep
+                and len(FETCHES) == _nf, (r, r_deep))
+    TXO._STWO_VERIFY_MEMO.clear()
     h_body = kv_ops.hash_by_number(330)
     kv_ops.block_index_del(330, h_body)
     TXO._STWO_VERIFY_MEMO.clear()
