@@ -72,6 +72,17 @@ _OPTIONAL_CRATES = ("native/stwo_settle",)
 _RESTART_FLAG = "/run/nado/restart-request"
 _RESTART_BRIDGE = "/etc/systemd/system/nado-restart.path"
 
+# A SECOND NODE ON THE SAME HOST (2026-10-29: an operator's lost machine's identity, run beside the relay in its own
+# network namespace). Its unit sets NADO_INSTANCE=<its unit name>, and then it restarts ONLY that unit, through its own
+# flag and bridge. Without this the fixed names above are the RELAY's: an unprivileged second node would write the
+# relay's flag (same service account, same /run/nado) and every update would bounce the relay while the second node
+# kept running old code — until a gate it never loaded forked it off. Unset (every ordinary node): unchanged.
+_INSTANCE = os.environ.get("NADO_INSTANCE", "").strip()
+if _INSTANCE and _INSTANCE != "nado" and re.fullmatch(r"nado[a-z0-9]{1,16}", _INSTANCE):
+    _SERVICES = (_INSTANCE,)
+    _RESTART_FLAG = f"/run/{_INSTANCE}/restart-request"
+    _RESTART_BRIDGE = f"/etc/systemd/system/{_INSTANCE}-restart.path"
+
 # PATHS NO RUNNING PROCESS EXECUTES OR SERVES. A fast-forward touching ONLY these does not need a restart:
 # bouncing a healthy validator to install a new paragraph is a self-inflicted outage, and it is not theoretical —
 # ten documentation commits pushed one at a time on 2026-09-10 restarted nado AND nado-exec ten times, and every
