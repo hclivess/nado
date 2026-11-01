@@ -42,6 +42,7 @@ PINS = {
     "faucet": "a7727680bfb43efbb27029d72519b9da", "hamster": "c3fa475444686ec0e07e3d860603e6c8",
     "hexholm": "fb2beedd7d9512612bedf6b66d48aadb", "holdem": "33a9aa64ca61443425855809ec5b2d03",
     "lend": "578d7a1f2cd7a53396f073f69921dade", "mines": "3da1aee0859528f17e6bd36caed7ea2c",
+    "nft": "418822929912f013fe3cb5292f5091e4",   # 2026-11-01: the NFT marketplace (new; no earlier build to match)
     "otc": "e560afe7f1165ef6384049cccec09cd9", "pets": "18f3cf11760a07b9709292abbf678550",
     "pool": "c963f9f838439b87dc2db2d6996a98ac", "reserve": "eab74c5320347bc2e5134e90eac510f3",
     "reversi": "ab009904c8260c41b37b97f174c4799e", "roulette": "46ea1f569de58b423cead372ee448617",

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="nft.title">NADO NFT — mint, collect and trade NFTs with royalties</title>
+<meta name="description" content="Mint, collect and trade NFTs on the NADO blockchain: royalties proven on-chain, collections, fixed-price listings, offers, English and Dutch auctions. Post-quantum secure, no install.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://nft.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://nft.nadochain.com/">
+<meta property="og:title" content="NADO NFT — mint, collect and trade NFTs with royalties">
+<meta property="og:description" content="Royalties proven on-chain, collections, listings, offers, English and Dutch auctions.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<meta name="twitter:title" content="NADO NFT — mint, collect and trade NFTs with royalties">
+<meta name="twitter:image" content="https://nadochain.com/og-image.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%226%22%20width%3D%2236%22%20height%3D%2236%22%20rx%3D%227%22%20fill%3D%22%2300ad93%22/%3E%3Cpath%20d%3D%22M12%2034l9-11%206%207%204-5%205%209z%22%20fill%3D%22%23e6edf3%22/%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2216%22%20r%3D%224%22%20fill%3D%22%23e6edf3%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--warn:#e3b341;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0;font-weight:800}header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev)}
+  nav{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 16px}
+  nav a{color:var(--dim);text-decoration:none;font-weight:700;font-size:13px;padding:7px 13px;border-radius:999px;border:1px solid var(--border);background:var(--elev)}
+  nav a.on,nav a:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 12px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0}
+  .card h3{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  h1{font-size:22px;margin:0 0 6px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:6px 0 10px}.mt2{margin-top:26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+  .nft{display:block;background:var(--elev);border:1px solid var(--border);border-radius:14px;overflow:hidden;color:inherit;text-decoration:none;transition:border-color .15s,transform .1s}
+  .nft:hover{border-color:var(--accent2);transform:translateY(-2px)}
+  .thumb{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--elev2)}
+  .nomedia{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px}
+  .nftmeta{padding:10px 12px}.nftname{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .detail{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:22px;align-items:start}
+  @media (max-width:760px){.detail{grid-template-columns:1fr}}
+  .big{width:100%;border-radius:14px;background:var(--elev2);display:block;max-height:78vh;object-fit:contain}
+  .big.nomedia{aspect-ratio:1}
+  .profile{display:flex;gap:16px;align-items:center;margin-bottom:12px}
+  .avatar{width:84px;height:84px;border-radius:50%;object-fit:cover;background:var(--elev2)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input,select{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  input:focus,select:focus{outline:none;border-color:var(--accent2)}
+  input.qty{width:64px;display:inline-block;padding:6px 8px}input.amt{width:120px;display:inline-block;padding:6px 8px}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:10px 14px;cursor:pointer}
+  button.sm{padding:6px 11px;font-size:12.5px}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800}
+  button.ghost{background:transparent}button:disabled{opacity:.5;cursor:not-allowed}
+  .line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);font-size:13.5px}
+  .line:last-child{border-bottom:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--border)}.kv .k{color:var(--dim)}
+  .pill{display:inline-block;margin-top:6px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid var(--border);background:var(--elev2);color:var(--txt)}
+  .pill.hot{border-color:var(--warn);color:var(--warn)}
+  .warnline{color:var(--warn);margin:6px 0}.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none}
+  a{color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:28px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>NADO <span class="a" data-i18n="nft.brand">NFT</span></h1>
+    <a class="hub" href="https://nadochain.com/apps" data-i18n="nft.allApps">🎮 All apps</a>
+  </header>
+  <p class="sub" data-i18n-html="nft.sub">Mint, collect and trade NFTs. An NFT here is a real <b>NADO asset</b> in your wallet; its <b>royalty is proven on-chain</b> and paid to the creator on every sale — fixed price, offers, English and Dutch auctions.</p>
+  <nav>
+    <a href="#explore" data-r="explore" data-i18n="nft.navExplore">Explore</a>
+    <a href="#auctions" data-r="auctions" data-i18n="nft.navAuctions">Auctions</a>
+    <a href="#activity" data-r="activity" data-i18n="nft.navActivity">Activity</a>
+    <a href="#create" data-r="create" data-i18n="nft.navCreate">Create</a>
+    <a href="#user" data-r="user" id="navMe" class="hidden" data-i18n="nft.navMe">My NFTs</a>
+  </nav>
+  <div id="status"></div>
+  <div id="view"><div class="dim" data-i18n="nft.loading">Loading…</div></div>
+
+  <div class="card" id="walletcard">
+    <h3 data-i18n="nft.walletH">Wallet</h3>
+    <p class="small dim" data-i18n-html="nft.walletIntro">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each action there; your key never touches this site. Trades settle in the execution layer: deposit NADO to buy or bid, withdraw any time.</p>
+    <div class="kv mt"><span class="k" data-i18n="nft.actingAs">Acting as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="nft.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="nft.usable">Usable balance</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="nft.signIn">Sign in with NADO wallet</button></div>
+    <div class="row mt">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="nft.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="nft.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="nft.withdraw">Withdraw</button>
+    </div>
+  </div>
+
+  <footer><span data-i18n-html="nft.footer">The contract is public and verifiable on the NADO execution layer. Media lives on IPFS; only its link is on chain. A royalty binds sales through this marketplace.</span></footer>
+</div>
+<script type="module" src="/static/nft.js"></script>
+</body>
+</html>
