@@ -382,7 +382,7 @@ function accountKeypair(masterHex, index) {
 }
 function masterSeedOf() { return state.masterSeed || (state.wallet && state.wallet.privateKey) || null; }
 // ---- SHADOW ACCOUNTS: one private account per dApp, unlinkable to this wallet (2026-10-18) ------------------------
-// "Play privately" for a game signs that game's requests with an account derived from the MASTER seed and the game's
+// "Use apps privately" for an app signs that app's requests with an account derived from the MASTER seed and the app's
 // origin — so the recovery phrase restores it, every game sees a different player, and nothing on chain ties it to
 // this wallet: it is FUNDED from the Stwo pool by a relayed spend (a spend's fee_to: the relay is paid by
 // the spend's fee, the payout goes to the shadow address) and RETURNS to the pool by its own deposit. Its activity is
@@ -3272,7 +3272,7 @@ function renderAllowedOrigins() {
     + strip(o) + (rm ? ' <a href="#" data-rm="' + encodeURIComponent(o) + '" title="remove" style="text-decoration:none;color:var(--danger,#f85149)">✕</a>' : '') + '</span>';
   const user = userAllowedOrigins();
   el.innerHTML =
-    '<div class="faint">' + i18("settings.officialGames", "Official games (always allowed):") + '</div>'
+    '<div class="faint">' + i18("settings.officialGames", "Official apps (always allowed):") + '</div>'
     + '<div style="margin:4px 0 8px">' + EXEC_SIGN_ALLOW.map((o) => chip(o, false)).join("") + '</div>'
     + '<div class="faint" style="margin:0 0 8px">' + i18("settings.officialWildcard", "…and every official *.nadochain.com subdomain is trusted automatically.") + '</div>'
     + '<div class="faint">' + i18("settings.yourSites", "Your added sites:") + '</div>'
@@ -5227,7 +5227,11 @@ async function resumePendingForumLogin() {
 // ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
 // but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
 // origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com", "https://scrapline.nadochain.com", "https://stormhold.nadochain.com"];
+// EVERY OFFICIAL APP THAT SIGNS THROUGH THIS WALLET (2026-11-01). The Shadow Accounts card offers exactly this list and the
+// restore scan reads it, so an app left off it has no private account: the DEX and lending (and five games) were
+// missing until tests/test_every_official_app_offers_a_shadow_account.py pinned it to every static page that loads
+// nadodapp.js.
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com", "https://scrapline.nadochain.com", "https://stormhold.nadochain.com", "https://autogame.nadochain.com", "https://hamster.nadochain.com", "https://hexholm.nadochain.com", "https://pool.nadochain.com", "https://sovereign.nadochain.com", "https://dex.nadochain.com", "https://lend.nadochain.com"];
 // USER-CONFIGURABLE allowlist (Settings → "Allowed dApp sites"): extra origins the user trusts to request
 // signatures, on TOP of the built-in official games above. Stored as a JSON array of "https://host" origins.
 const ALLOW_LS = "nado_allowed_origins";
@@ -11029,7 +11033,7 @@ function stwoCfgId() { return BigInt(_shieldTip || 0) + 1n >= 1n ? _stwo.CFG_128
 async function doFundShadow(origin, rawAmount) {
   if (!state.wallet) return false;
   ensureShielded(); await refreshShieldRules(); if (shieldPaused()) return false;
-  if (!shieldStwo() || !stwoFeeToLive()) { log("err", i18("shadow.notYet", "Private play opens once the network accepts relay-paid withdrawals. Try again later.")); return false; }
+  if (!shieldStwo() || !stwoFeeToLive()) { log("err", i18("shadow.notYet", "Private accounts open once the network accepts relay-paid withdrawals. Try again later.")); return false; }
   const kp = shadowKeypair(origin);
   if (!kp || rawAmount <= 0n) return false;
   const relays = await stwoRelays();
@@ -11043,13 +11047,13 @@ async function doFundShadow(origin, rawAmount) {
   }
   if (!picks) { log("err", insufficientMsg(rawAmount + fee)); return false; }
   const ok = await uiConfirm({
-    title: i18("shadow.fundTitle", "Fund private play"),
+    title: i18("shadow.fundTitle", "Fund a private account"),
     rows: [
       { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
-      { k: i18("shadow.game", "Game"), v: origin.replace(/^https:\/\//, "") },
+      { k: i18("shadow.game", "App"), v: origin.replace(/^https:\/\//, "") },
       { k: i18("shield.relayFee", "Relay fee"), v: rawToNado(fee * BigInt(picks.length)) + " NADO" },
     ],
-    body: i18("shadow.fundBody", "The game sees a separate account that nothing on chain ties to this wallet. Its moves and balance are public; who it belongs to is not."),
+    body: i18("shadow.fundBody", "The app sees a separate account that nothing on chain ties to this wallet. Its activity and balance are public; who it belongs to is not. Only its NADO returns to your private balance: sell tokens and close loans first."),
     confirmText: i18("shadow.fundOk", "Fund privately") });
   if (!ok) { log("info", i18("msg.cancelled", "Cancelled.")); return false; }
   let done = 0n;
@@ -11120,7 +11124,7 @@ async function renderShadowCard() {
     ret.onclick = async () => { if (await doReturnShadow(o)) setTimeout(() => renderShield().catch(() => {}), 1500); };
     const stop = document.createElement("button"); stop.className = "ghost small"; stop.textContent = i18("shadow.stop", "Stop");
     stop.onclick = async () => {
-      const ok = await uiConfirm({ title: i18("shadow.stopTitle", "Stop playing privately?"),
+      const ok = await uiConfirm({ title: i18("shadow.stopTitle", "Stop using it privately?"),
         body: i18("shadow.stopBody", "{g} will see your wallet's own account again. Return the private account's balance first if you want it back in your private balance.", { g: o.replace(/^https:\/\//, "") }),
         confirmText: i18("shadow.stop", "Stop") });
       if (ok) { setShadowOn(o, false); renderShadowCard().catch(() => {}); }
@@ -11142,7 +11146,7 @@ async function doReturnShadow(origin) {
   const amount = bal - BigInt(MIN_TX_FEE);
   if (amount <= 0n) { log("info", i18("shadow.empty", "That private account holds nothing to return.")); return false; }
   const ok = await uiConfirm({ title: i18("shadow.returnTitle", "Return to private balance"),
-    rows: [{ k: i18("dlg.amount", "Amount"), v: rawToNado(amount) + " NADO" }, { k: i18("shadow.game", "Game"), v: origin.replace(/^https:\/\//, "") }],
+    rows: [{ k: i18("dlg.amount", "Amount"), v: rawToNado(amount) + " NADO" }, { k: i18("shadow.game", "App"), v: origin.replace(/^https:\/\//, "") }],
     confirmText: i18("shadow.returnOk", "Return") });
   if (!ok) return false;
   return shieldDeposit(amount, kp);
