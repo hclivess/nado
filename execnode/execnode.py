@@ -366,6 +366,9 @@ def _rewind_to(cursor):
         for h in [h for h in st.block_hashes if h > int(cursor)]:
             st.block_hashes.pop(h, None)
         st.save()
+    # ASSET HISTORY: the blocks above `cursor` are the abandoned branch's — drop their rows, so the canonical replay
+    # writes onto empty slots. INVARIANT: every rewind trims here.
+    _asset_history_trim()
     _last_settled_cursor = -1
     prov_states = None
     _prov_key = None
@@ -1006,6 +1009,83 @@ _SETTLE_SKIP_LOG_EVERY = 300
 _settle_skip_logged = {}
 
 
+# ---- NODE-LOCAL ASSET HISTORY (execnode/asset_history.py) — NOT consensus ------------------------------------------
+# ON BY DEFAULT on every exec node (CLAUDE.md rule 9), opt-out NADO_EXEC_ASSET_HISTORY=0. Enabled only by main() — the
+# exec node's own process path — so a test, settle_b2 or tools/replay_exec.py that imports or builds states never opens
+# a file or buffers a record unless it calls _asset_history_enable() itself. Every helper below swallows its failures:
+# the index must never be the reason a block does not apply.
+ASSET_HISTORY_PATH = STATE_PATH + ".asset_history.sqlite"
+_ASSET_HISTORY_ON = os.environ.get("NADO_EXEC_ASSET_HISTORY", "1").strip().lower() not in ("0", "false", "no", "off")
+_asset_history = None
+
+
+def _asset_history_attach():
+    """Point every finalized state's sink at the store and TRIM the index to each state's cursor — the state on disk can
+    be behind what was flushed (saves are per batch), and the blocks above it will be applied again. INVARIANT: call it
+    after anything that replaces `states` (boot, _reset_states_to_genesis); clones never carry a sink."""
+    store = _asset_history
+    for ns, st in states.items():
+        try:
+            if store is None or store.disabled:
+                st.asset_sink = None
+                continue
+            store.trim(ns, st.cursor)
+            st.asset_sink = store.sink(ns)
+        except Exception as e:
+            st.asset_sink = None
+            print(f"[execnode] asset history: attach ns={ns} failed ({type(e).__name__}: {e})", flush=True)
+
+
+def _asset_history_enable(path=None):
+    """Open the store and attach it. Returns the store or None (disabled / unopenable — logged, never raised)."""
+    global _asset_history
+    try:
+        from execnode.asset_history import open_store
+        _asset_history = open_store(path or ASSET_HISTORY_PATH)
+    except Exception as e:
+        print(f"[execnode] asset history: not enabled ({type(e).__name__}: {e})", flush=True)
+        _asset_history = None
+    _asset_history_attach()
+    if _asset_history is not None:
+        print(f"[execnode] asset history index: {path or ASSET_HISTORY_PATH} (indexed from "
+              f"{_asset_history.indexed_from('default')})", flush=True)
+    return _asset_history
+
+
+def _asset_history_flush(h):
+    """Block `h` applied to the finalized states: write what it moved (one transaction). Never raises."""
+    store = _asset_history
+    if store is not None:
+        try:
+            store.flush_block(h, list(states))
+        except Exception as e:
+            print(f"[execnode] asset history: flush {h} failed ({type(e).__name__}: {e})", flush=True)
+
+
+def _asset_history_trim(ns=None):
+    """The state(s) moved BACK (rewind): drop the index above each state's cursor. Never raises."""
+    store = _asset_history
+    if store is not None:
+        try:
+            store.discard_pending()
+            for _ns, st in states.items():
+                if ns is None or _ns == ns:
+                    store.trim(_ns, st.cursor)
+        except Exception as e:
+            print(f"[execnode] asset history: trim failed ({type(e).__name__}: {e})", flush=True)
+
+
+def _asset_history_reset(ns):
+    """`ns`'s state was REPLACED by a donor snapshot: its indexed history is another lineage's, or has a hole. Drop it;
+    the next flushed block restarts the index there (indexed_from tells the page). Never raises."""
+    store = _asset_history
+    if store is not None:
+        try:
+            store.reset(ns)
+        except Exception as e:
+            print(f"[execnode] asset history: reset ns={ns} failed ({type(e).__name__}: {e})", flush=True)
+
+
 def _reset_states_to_genesis(reason="", keep_da=False):
     """Nuke the exec layer back to genesis IN-PROCESS and rebuild the state map — no restart needed.
 
@@ -1016,11 +1096,17 @@ def _reset_states_to_genesis(reason="", keep_da=False):
     Both leave exec running on OLD-chain state whose cursor OUTRUNS the fresh L1 chain. Stale exec and fresh L1
     share no overlapping heights, so there's nothing to hash-compare — the tail loop detects the height inversion
     (cursor > finalized, impossible on a consistent chain) and calls this to self-heal."""
-    global states, state, DA, _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full
+    global states, state, DA, _last_settled_cursor, prov_states, _prov_key, _prov_last, _prov_since_full, _asset_history
     import glob as _g
     import shutil as _s
     print(f"[execnode] RESET to genesis{(' — ' + reason) if reason else ''}: wiping exec state"
           f"{'' if keep_da else ' + DA'}", flush=True)
+    # ASSET HISTORY: the wipe below globs STATE_PATH + "*", which includes the index file. Close it first (a deleted
+    # file kept open would swallow every later write), reopen it empty after the states are rebuilt.
+    _hist_on = _asset_history is not None
+    if _hist_on:
+        _asset_history.close()
+        _asset_history = None
     for _p in _g.glob(STATE_PATH + "*"):          # default + namespaced state files AND the stale .gen mark
         try:
             os.remove(_p)
@@ -1038,6 +1124,8 @@ def _reset_states_to_genesis(reason="", keep_da=False):
     states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
     state = states["default"]
     _exec_genesis.apply(state)                     # the carried contracts, exactly as at boot (see above)
+    if _hist_on:
+        _asset_history_enable()                    # a fresh, empty index on the fresh states
     if state.cursor == -1 and state.state_root() != _GENESIS_ROOT_WANT:
         raise SystemExit(f"[execnode] FATAL after reset: genesis root {state.state_root()[:16]} != "
                          f"expected {_GENESIS_ROOT_WANT[:16]} — scheme drift; refusing to run")
@@ -2353,6 +2441,7 @@ async def _maybe_bootstrap(session):
                 if (settled.get("state_root") == root
                         and int(settled.get("exec_cursor", -2)) == int(snap.get("cursor", -3))):
                     st._restore(snap["state"])         # payload carries cursor/last_div_epoch/pools
+                    _asset_history_reset(ns)           # INVARIANT: a replaced state restarts its asset history
                     # PROVENANCE: this state is now quorum-verified — whatever gaps or flags the DONOR's
                     # payload carried are superseded by the L1 attestation of this exact (cursor, root).
                     st.bootstrapped = True
@@ -2427,6 +2516,7 @@ async def _repair_bootstrap(session):
                         and int(settled.get("exec_cursor", -2)) == int(snap.get("cursor", -3))):
                     continue                           # stale or divergent donor — try the next one
                 st._restore(snap["state"])
+                _asset_history_reset(ns)               # INVARIANT: a replaced state restarts its asset history
                 # same hygiene as _rewind_to: the donor serialized this from a LIVE state, so the
                 # block-hash ring can carry entries above the payload's own cursor — drop them.
                 for h in [h for h in st.block_hashes if h > int(st.cursor)]:
@@ -2617,6 +2707,7 @@ async def _anchor_adopt(session, finalized):
                 if (snap_cur, root) not in anchored:
                     continue                           # not the anchor lineage (or unattested) — next donor
                 st._restore(snap["state"])
+                _asset_history_reset(ns)               # INVARIANT: a replaced state restarts its asset history
                 for h in [h for h in st.block_hashes if h > int(st.cursor)]:
                     st.block_hashes.pop(h, None)       # same live-serialization hygiene as _rewind_to
                 st.bootstrapped = True
@@ -2992,6 +3083,8 @@ async def tail_loop():
                         # attestations until a quorum-verified bootstrap replaces the state.
                         state.replay_gap = True
                         state.cursor = h
+                        # ASSET HISTORY: nothing of h is flushed, so the next flushed block sees the gap and restarts the
+                        # index there (AssetHistoryStore.flush_block) — indexed_from never spans an unknown block.
                         continue
                     _observe_settles(block, state.attested)    # divergence alarm: see _observe_settles
                     # `finalized` IS WHAT BOUNDS THE DA STALL (audit 2026-09-25): without it _apply_block waits for an
@@ -2999,6 +3092,9 @@ async def tail_loop():
                     if not await _apply_block(session, states, state, block, verbose=True, finalized=finalized):
                         break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
+                    # ASSET HISTORY (non-consensus): write what block h moved, one transaction, never raising. Only the
+                    # FINALIZED tail flushes — the provisional clones carry no sink.
+                    _asset_history_flush(h)
                     # REMEMBER THIS ROOT POINT (per ns): exit proofs must verify against the root L1
                     # SETTLED, which trails the live root by a settle cadence; the ring lets the proof
                     # handlers serve ?root=<settled> instead of forcing wallets to wait for the live root
@@ -3759,6 +3855,39 @@ async def h_asset(request):
                               "cursor": st.cursor})
 
 
+async def h_asset_history(request):
+    """One asset's provenance (?id=, ?ns=): every movement this node's asset-history index saw — mint, transfer, escrow
+    into a contract and out, sale, burn — newest first, one event per (cursor, txid) with its signed moves. ?limit=
+    (default 500, max 2000) counts events; ?before=<cursor> pages (pass `next_before`). NODE-LOCAL and NOT consensus
+    (execnode/asset_history.py): `indexed_from` is the first cursor whose history is complete, so a page can say that
+    earlier history is not indexed. Reads the FINALIZED state only (the provisional tail is not indexed). Two indexed
+    sqlite queries, run off the event loop; never scans the chain."""
+    ns = request.query.get("ns", "default")
+    st = states.get(ns)
+    if st is None:
+        return _NS404()
+    aid = str(request.query.get("id") or "")
+    if not aid:
+        return web.json_response({"error": "id required"}, status=400)
+    try:
+        limit = int(request.query.get("limit", 500))
+        before = request.query.get("before")
+        before = None if before in (None, "") else int(before)
+    except ValueError:
+        return web.json_response({"error": "limit and before must be integers"}, status=400)
+    from execnode.asset_history import LIMIT_MAX
+    limit = max(1, min(limit, LIMIT_MAX))
+    if aid not in st.assets:
+        return web.json_response({"error": "no such asset"}, status=404)
+    store = _asset_history
+    if store is None or store.disabled:
+        return web.json_response({"asset": aid, "events": [], "indexed_from": None, "next_before": None,
+                                  "cursor": st.cursor, "enabled": False})
+    events, next_before = await asyncio.get_running_loop().run_in_executor(None, store.events, ns, aid, limit, before)
+    return web.json_response({"asset": aid, "events": events, "indexed_from": store.indexed_from(ns),
+                              "next_before": next_before, "cursor": st.cursor, "enabled": True})
+
+
 async def h_allowances(request):
     """Delegated-spend authorizations (doc/assets.md §7a). Filters: ?owner= (approvals I GRANTED),
     ?spender= (approvals granted TO me), ?asset= (narrow to one asset). A wallet renders both of its
@@ -4195,6 +4324,7 @@ async def main():
                     web.get("/exec/bridge", h_bridge),
                     web.get("/exec/assets", h_assets),
                     web.get("/exec/asset", h_asset),
+                    web.get("/exec/asset_history", h_asset_history),
                     web.get("/exec/allowances", h_allowances),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/withdrawals", h_withdrawals),
@@ -4229,6 +4359,8 @@ async def main():
     print(f"[execnode] query API on {BIND}:{PORT}"
           + ("" if BIND != "0.0.0.0" else "  (PUBLIC — mutating /exec POSTs are unauthenticated; bounded by size cap + in-flight limit)"),  # nosec B104 # a comparison with the operator's NADO_EXEC_BIND, not a bind
           flush=True)
+    if _ASSET_HISTORY_ON:
+        _asset_history_enable()       # the exec node's own path only — see ASSET_HISTORY_PATH
     await tail_loop()
 
 

@@ -261,7 +261,38 @@ def commit_asset_effects_pure(abal, assets, deltas, sup, meta_ops=()):
         assets[aid]["mintable"] = False
 
 
+def _hist_arg(a):
+    """One call argument as the asset-history index stores it: ints as DECIMAL STRINGS (a JSON number past 2^53 is
+    truncated by every browser), strings as-is, anything else as compact JSON — each bounded so one blob carrying a
+    megabyte of args cannot bloat a node-local index row."""
+    if isinstance(a, bool):
+        return "true" if a else "false"
+    if isinstance(a, int):
+        return str(a)
+    if isinstance(a, str):
+        return a[:_HIST_ARG_MAX]
+    try:
+        return json.dumps(a, separators=(",", ":"), sort_keys=True)[:_HIST_ARG_MAX]
+    except Exception:
+        return repr(type(a).__name__)
+
+
+_HIST_ARG_MAX = 256       # chars kept per call argument in the asset-history index
+_HIST_ARGS_MAX = 32       # arguments kept per call
+
+
 class ExecState:
+    # NODE-LOCAL ASSET HISTORY (execnode/asset_history.py) — NOT CONSENSUS. `asset_sink` is a callable the exec node
+    # attaches to its OWN finalized states; while a blob applies, every asset balance change is buffered in `_hist_buf`
+    # and handed to the sink once the blob returns. Both are CLASS attributes defaulting to None, and deliberately
+    # outside _snapshot()/_restore()/clone(): a clone (the provisional tail, settle_b2's prove_span), a WitnessState
+    # (built by __new__), tools/replay_exec.py and every test get None and pay one `is None` check per balance move.
+    # INVARIANT: nothing here may feed back into a value a block's application computes — the sink sees copies of
+    # what moved, its failures are swallowed (_emit_history), and the return string of apply_blob never changes.
+    # tests/test_the_asset_history_index_changes_no_consensus_value.py pins all of that.
+    asset_sink = None
+    _hist_buf = None
+
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
         exists — so a restarted exec node resumes from its persisted cursor instead of re-replaying L1."""
@@ -1003,6 +1034,16 @@ class ExecState:
         """Move `delta` (signed) of asset `aid` on `holder`'s row, pruning to absence at zero. Callers have
         already validated solvency — this is the commit half of a staged, all-or-nothing settlement."""
         asset_credit_dict(self.abal, aid, holder, delta)
+        # asset history (non-consensus, see the class note): record AFTER the move, so a move that raised is never recorded
+        if self._hist_buf is not None and delta:
+            self._hist_buf.append((str(aid), holder, int(delta)))
+
+    def _hist_drop(self):
+        """A call's escrow was refunded: what it moved has been put back exactly, so the blob's history is NOTHING.
+        INVARIANT: every refund path of a call ends here (the _refund closure in _apply_blob_inner) — a reverted call
+        must leave no record, or an NFT page shows a listing that never happened."""
+        if self._hist_buf is not None:
+            self._hist_buf.clear()
 
     def asset_allowance(self, aid, owner, spender):
         """How much of `aid` `spender` may move on `owner`'s behalf. Absent == 0, same canonical rule as a
@@ -1033,6 +1074,13 @@ class ExecState:
     def commit_asset_effects(self, deltas, sup, meta_ops=()):
         """Apply what stage_asset_effects validated. Never called without that validation."""
         commit_asset_effects_pure(self.abal, self.assets, deltas, sup, meta_ops)
+        # asset history: the contract's APAY/AMINT/ABURN, in the staged order (dict insertion order — identical on
+        # every node). commit_asset_effects_pure writes abal through asset_credit_dict, NOT _asset_credit, so this is
+        # the second (and last) place a balance moves. INVARIANT: a new abal writer records here too.
+        if self._hist_buf is not None:
+            for (aid, who), d in deltas.items():
+                if d:
+                    self._hist_buf.append((str(aid), who, int(d)))
 
     def contract_id(self, deployer, code, nonce):
         """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,
@@ -1199,10 +1247,40 @@ class ExecState:
 
     def apply_blob(self, payload, sender, txid):
         with self._mutate_lock:
+            sink = self.asset_sink
+            if sink is not None:
+                self._hist_buf = []        # per BLOB: a revert drops it whole (_hist_drop)
             try:
                 return self._apply_blob_inner(payload, sender, txid)
             finally:
                 self._touch()
+                if sink is not None:
+                    buf, self._hist_buf = self._hist_buf, None
+                    if buf:
+                        self._emit_history(sink, buf, payload, sender, txid)
+
+    def _emit_history(self, sink, buf, payload, sender, txid):
+        """Hand one blob's asset moves to the node-local history sink. NEVER RAISES and never touches state: the index
+        is a convenience, and a full disk or a corrupt sqlite file must not stop the chain (a raise here would escape
+        apply_blob's `finally` into block dispatch)."""
+        try:
+            p = payload if isinstance(payload, dict) else {}
+            op = p.get("op")
+            is_call = op == "call"
+            args = p.get("args") if is_call else None
+            meta = {"cursor": self.applying_height(), "txid": str(txid or ""), "sender": str(sender or ""),
+                    "op": str(op or "")[:32],
+                    "method": str(p.get("method") or "")[:64] if is_call else "",
+                    "args": [_hist_arg(a) for a in args[:_HIST_ARGS_MAX]] if isinstance(args, list) else [],
+                    "value": str(p.get("value") or 0) if is_call and isinstance(p.get("value"), int) else "0",
+                    "call_asset": str(p.get("asset") or "") if is_call else ""}
+            sink([dict(meta, aid=aid, holder=holder, delta=str(delta)) for aid, holder, delta in buf])
+        except Exception as e:
+            try:
+                print(f"[execnode] asset history: dropped {len(buf)} record(s) of {str(txid)[:12]} ({type(e).__name__}: {e})",
+                      flush=True)
+            except Exception:
+                pass
 
     def _apply_blob_inner(self, payload, sender, txid):
         """Apply ONE blob payload from sender (the blob tx's L1 sender). Returns a short human string.
@@ -1332,11 +1410,13 @@ class ExecState:
                         if in_asset:
                             self._asset_credit(in_asset, cid, -value)
                             self._asset_credit(in_asset, sender, value)
+                            self._hist_drop()      # escrow + refund = nothing happened (asset history, non-consensus)
                             return
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
                         if self.bridge.get(cid, 0) == 0:
                             self.bridge.pop(cid, None)
                         self.bridge[sender] = self.bridge.get(sender, 0) + value
+                    self._hist_drop()              # INVARIANT: every refund leaves the blob with no history
                 _meter = {}
                 try:
                     ok, _ret, new_storage, payouts, effects = self._rt_run(
