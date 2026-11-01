@@ -1181,6 +1181,120 @@ export function enhanceToggle(sel) {
   sync();
 }
 
+// ---- file drop: an upload zone that ENHANCES a native <input type="file"> ----------------------------
+// The operating-system file button ("Choose file · No file chosen", in the OS language, not the page's) is
+// what the NFT page first shipped, and an objkt-style mint page needs a drop target with a preview instead
+// (operator 2026-11-01: "did you really have to use a system default picker?"). Same shape as enhanceSelect:
+// the input stays in the DOM, hidden, so a page with no JS still has a working control. Click, Enter/Space,
+// drag-and-drop and paste all end in onFile(file, api). A drop or a paste bypasses the input's `accept`, so
+// the zone re-checks accept itself.
+// api: busy(pct, text) shows progress (pct null = indeterminate), done(html, name) shows the result with
+// Replace/Remove, reset() returns to the empty zone. opts.onRemove runs when the user removes the file.
+export function enhanceFile(input, { onFile, onRemove, hint = "" } = {}) {
+  if (!input || input.dataset.enhanced) return null;
+  _fileCss();
+  input.dataset.enhanced = "1";
+  input.classList.add("enhanced");
+  const wrap = document.createElement("div");
+  wrap.className = "fdrop"; wrap.tabIndex = 0; wrap.setAttribute("role", "button");
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  const box = document.createElement("div");
+  wrap.appendChild(box);
+  const empty = () => `<div class="fdicon">⬆</div>
+    <div class="fdt1">${esc(_t("fileDrop", "Drag and drop a file here, or click to browse"))}</div>
+    ${hint ? `<div class="fdt2">${esc(hint)}</div>` : ""}`;
+  let state = "empty";
+  const api = {
+    el: wrap,
+    reset() { state = "empty"; wrap.classList.remove("busy", "has"); box.innerHTML = empty(); input.value = ""; },
+    busy(pct, text) {
+      state = "busy"; wrap.classList.add("busy"); wrap.classList.remove("has");
+      const w = pct == null ? "" : `style="width:${Math.max(2, Math.min(100, Math.round(pct)))}%"`;
+      box.innerHTML = `<div class="fdt1">${esc(text || "")}</div>
+        <div class="fdbar${pct == null ? " ind" : ""}"><i ${w}></i></div>`;
+    },
+    done(html, name) {
+      state = "done"; wrap.classList.remove("busy"); wrap.classList.add("has");
+      box.innerHTML = `<div class="fdprev">${html || ""}</div>
+        <div class="fdrow"><span class="fdname">${esc(name || "")}</span>
+        <button type="button" class="fdbtn" data-fd="replace">${esc(_t("fileReplace", "Replace"))}</button>
+        <button type="button" class="fdbtn" data-fd="remove">${esc(_t("fileRemove", "Remove"))}</button></div>`;
+    },
+  };
+  // a drop or a paste skips the browser's accept filter: "image/*", "image/png" and ".glb" forms all count
+  const accepted = (f) => {
+    const acc = (input.accept || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (!acc.length) return true;
+    const type = (f.type || "").toLowerCase(), name = (f.name || "").toLowerCase();
+    return acc.some((a) => a.startsWith(".") ? name.endsWith(a) : a.endsWith("/*") ? type.startsWith(a.slice(0, -1)) : type === a);
+  };
+  const take = (f) => {
+    if (!f || state === "busy") return;
+    if (!accepted(f)) return notify(_t("fileType", "This kind of file is not accepted here."));
+    if (onFile) onFile(f, api);
+  };
+  input.onchange = () => { take(input.files && input.files[0]); input.value = ""; };
+  wrap.onclick = (e) => {
+    const b = e.target.closest && e.target.closest("[data-fd]");
+    if (b) { e.preventDefault(); e.stopPropagation();
+      if (b.dataset.fd === "remove") { api.reset(); if (onRemove) onRemove(); return; } }
+    // with a result showing, only Replace opens the browser: a click on the preview (a video's controls) must not
+    if (state === "done" && !b) return;
+    if (state !== "busy" && e.target !== input) input.click();
+  };
+  wrap.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === wrap) { e.preventDefault(); if (state !== "busy") input.click(); } };
+  // dragleave fires when the pointer crosses into a child, so the highlight counts enters and leaves
+  let depth = 0;
+  wrap.ondragenter = (e) => { e.preventDefault(); depth++; wrap.classList.add("over"); };
+  wrap.ondragover = (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; };
+  wrap.ondragleave = () => { if (--depth <= 0) { depth = 0; wrap.classList.remove("over"); } };
+  wrap.ondrop = (e) => { e.preventDefault(); depth = 0; wrap.classList.remove("over");
+    take(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]); };
+  // paste anywhere on the page while the zone is on screen (a screenshot straight from the clipboard); the
+  // listener removes itself once a re-render has detached the zone
+  const onPaste = (e) => {
+    if (!wrap.isConnected) return document.removeEventListener("paste", onPaste);
+    const f = e.clipboardData && e.clipboardData.files && e.clipboardData.files[0];
+    if (f) { e.preventDefault(); take(f); }
+  };
+  document.addEventListener("paste", onPaste);
+  api.reset();
+  return api;
+}
+let _fileCssDone = false;
+function _fileCss() {
+  if (_fileCssDone || typeof document === "undefined") return;
+  _fileCssDone = true;
+  const s = document.createElement("style");
+  s.id = "nadoFileCSS";
+  s.textContent = `
+  input.enhanced[type=file]{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
+  .fdrop{position:relative;border:1.5px dashed var(--border,#243140);border-radius:14px;background:var(--bg,#0b0f14);
+    padding:26px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;outline:none}
+  .fdrop:hover,.fdrop:focus-visible{border-color:var(--accent,#00ad93)}
+  .fdrop.over{border-color:var(--accent2,#00c9a7);background:rgba(0,173,147,.10)}
+  .fdrop.busy{cursor:progress}
+  .fdrop.has{border-style:solid;padding:12px;cursor:default}
+  .fdicon{width:44px;height:44px;margin:0 auto 10px;border-radius:50%;display:grid;place-items:center;font-size:20px;
+    color:var(--accent2,#00c9a7);background:var(--elev2,#1a232e);border:1px solid var(--border,#243140)}
+  .fdt1{font-weight:700;font-size:14px;color:var(--txt,#e6edf3)}
+  .fdt2{margin-top:4px;font-size:12px;color:var(--faint,#5d6b7a)}
+  .fdbar{height:6px;margin:12px auto 0;max-width:320px;border-radius:6px;background:var(--elev2,#1a232e);overflow:hidden}
+  .fdbar i{display:block;height:100%;width:2%;border-radius:6px;transition:width .2s;
+    background:linear-gradient(90deg,var(--accent,#00ad93),var(--accent2,#00c9a7))}
+  .fdbar.ind i{width:35%;animation:fdInd 1.1s ease-in-out infinite}
+  @keyframes fdInd{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+  .fdprev img,.fdprev video{display:block;max-width:100%;max-height:360px;margin:0 auto;border-radius:10px;background:var(--elev2,#1a232e)}
+  .fdprev audio{width:100%}
+  .fdrow{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .fdname{flex:1 1 auto;min-width:0;text-align:left;font-size:12.5px;color:var(--dim,#93a1b0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fdbtn{font:inherit;font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:9px;cursor:pointer;
+    background:var(--elev2,#1a232e);color:var(--txt,#e6edf3);border:1px solid var(--border,#243140)}
+  .fdbtn:hover{border-color:var(--accent2,#00c9a7)}`;
+  document.head.appendChild(s);
+}
+
 
 // The sweep starts as soon as this module runs. dapp.init() also calls it, but init awaits the crypto
 // bundle first, which is long after the user can see (and click) the page.

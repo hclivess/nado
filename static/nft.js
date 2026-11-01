@@ -12,7 +12,7 @@
 // UNTRUSTED TEXT: names, descriptions, bios, avatar and media links come from the chain, i.e. from anyone. Every one
 // goes through esc() before it reaches innerHTML, and a media link is used only if it is ipfs:// or https://.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel, wireWallet,
-         renderWallet, alertBar, loadQR, uiConfirm, disp, esc, base, BLOCK_TIME } from "./nadodapp.js";
+         renderWallet, alertBar, loadQR, uiConfirm, disp, esc, base, BLOCK_TIME, enhanceFile } from "./nadodapp.js";
 
 const CID = "00000000000000000000000000000000";      // set by execnode/games/redeploy.py wire() at deploy
 const dapp = new NadoDapp({ cid: CID, app: "NFT" });
@@ -155,22 +155,41 @@ async function finishMint() {
 
 // objkt-style upload: the file goes to this site's IPFS node (pinned there — the local copy that keeps it alive) and its
 // ipfs:// link fills the media field. The service re-checks everything; these checks only save a pointless upload.
-async function upload(file) {
+// The drop zone is the SDK's enhanceFile — never the operating-system file button (operator 2026-11-01).
+// The preview is the user's OWN file (a blob: URL) the moment it is chosen; the IPFS copy replaces nothing visible.
+function localPreview(file) {
+  const u = URL.createObjectURL(file), t = file.type || "";
+  if (t.startsWith("video/")) return `<video src="${u}" controls loop muted playsinline></video>`;
+  if (t.startsWith("audio/")) return `<audio src="${u}" controls></audio>`;
+  if (t.startsWith("image/")) return `<img src="${u}" alt="">`;
+  return `<div class="nomedia thumb prev">${esc(file.name)}</div>`;   // a GLB: no in-page viewer
+}
+function postFile(file, onPct) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest(), fd = new FormData();
+    fd.append("file", file, "media");
+    x.open("POST", base() + "/upload");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onPct(100 * e.loaded / e.total); };
+    x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch (e) {}
+      x.status >= 200 && x.status < 300 && j.cid ? resolve(j) : reject(new Error(j.error || ("HTTP " + x.status))); };
+    x.onerror = () => reject(new Error(T("netErr", "network error")));
+    x.send(fd);
+  });
+}
+const sizeTxt = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+async function upload(file, zone) {
   if (!file) return;
-  const pv = $("mPreview");
-  if (file.size > MAX_UPLOAD) { pv.textContent = ""; return notify(T("tooBig", "The file is larger than 5 MB.")); }
-  pv.textContent = T("uploading", "Uploading {n}…", { n: file.name });
+  if (file.size > MAX_UPLOAD) return notify(T("tooBig", "The file is larger than 5 MB."));
+  const up = (pct) => zone.busy(pct, T("uploading", "Uploading {n}…", { n: file.name }) + (pct == null ? "" : " " + Math.round(pct) + " %"));
+  up(0);
   $("btnMint").disabled = true;
   try {
-    const fd = new FormData(); fd.append("file", file, "media");
-    const r = await fetch(base() + "/upload", { method: "POST", body: fd });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.cid) throw new Error(j.error || ("HTTP " + r.status));
+    const j = await postFile(file, up);
     $("mUri").value = "ipfs://" + j.cid;
     if (!$("mName").value.trim()) $("mName").value = file.name.replace(/\.[^.]+$/, "").slice(0, 64);
-    pv.innerHTML = `${mediaTag("ipfs://" + j.cid, "thumb prev")}<div>${T("uploaded", "Stored on IPFS · {c}", { c: esc(j.cid) })}</div>`;
+    zone.done(localPreview(file), `${file.name} · ${sizeTxt(file.size)} · ${T("uploaded", "Stored on IPFS · {c}", { c: j.cid })}`);
   } catch (e) {
-    pv.textContent = "";
+    zone.reset();
     notify(T("uploadFail", "Upload failed: {e}", { e: String(e.message || e) }));
   } finally { $("btnMint").disabled = false; }
 }
@@ -491,9 +510,8 @@ function viewCreate() {
   return `<div class="card"><h3>${T("mintH", "Mint an NFT")}</h3>
       <p class="small dim">${T("mintIntro2", "Choose your file — it is stored on IPFS and pinned by this site. Two signatures: one creates the NFT, one records its royalty.")}</p>
       <label>${T("fTitle", "Title")}</label><input id="mName" maxlength="64">
-      <label class="mt">${T("fFile", "File (image, video, audio or GLB — at most 5 MB)")}</label>
+      <label class="mt">${T("fFile", "File")}</label>
       <input id="mFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/ogg,audio/wav,audio/flac,audio/mp4,model/gltf-binary,.glb">
-      <div id="mPreview" class="small dim mt"></div>
       <label class="mt">${T("fUri", "Media link (ipfs:// or https://)")}</label><input id="mUri" maxlength="128" placeholder="ipfs://…">
       <div class="row mt"><div><label>${T("fEditions", "Editions")}</label><input id="mEditions" value="1" inputmode="numeric"></div>
       <div><label>${T("fRoyalty", "Royalty (%)")}</label><input id="mRoyalty" value="10" inputmode="decimal"></div></div>
@@ -528,11 +546,22 @@ function render() {
   const html = route === "token" ? viewToken(arg) : route === "coll" ? viewCollection(Number(arg))
     : route === "user" ? viewUser(arg) : (ROUTES[route] || viewExplore)();
   const keep = {};
-  for (const el of document.querySelectorAll("#view input, #view select")) if (el.id) keep[el.id] = el.value;
+  for (const el of document.querySelectorAll("#view input, #view select")) if (el.id && el.type !== "file") keep[el.id] = el.value;
   $("view").innerHTML = html;
   for (const id in keep) if ($(id) && keep[id] !== "") $(id).value = keep[id];
   if (route === "create") { $("btnMint").onclick = mint; $("btnColl").onclick = createCollection; $("btnProfile").onclick = saveProfile;
-    $("mFile").onchange = (ev) => upload(ev.target.files && ev.target.files[0]); }
+    wireDrop(); }
+}
+
+// the Create form re-renders when your collections change; a file already uploaded stays shown (from its link)
+function wireDrop() {
+  const zone = enhanceFile($("mFile"), {
+    hint: T("fileHint", "PNG, JPG, GIF, WEBP, AVIF, MP4, WEBM, MP3, OGG, WAV, FLAC or GLB · at most 5 MB"),
+    onFile: (f, z) => upload(f, z),
+    onRemove: () => { if ($("mUri").value.startsWith("ipfs://")) $("mUri").value = ""; },
+  });
+  const u = $("mUri").value.trim();
+  if (zone && u.startsWith("ipfs://")) zone.done(mediaTag(u, "thumb prev"), u);
 }
 
 async function refresh() {
