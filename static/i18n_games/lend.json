@@ -60,7 +60,10 @@
   "lend.usable": "🏦 الرصيد القابل للاستخدام",
   "lend.walletH": "المحفظة",
   "lend.walletMain": "المحفظة — NADO (السلسلة الرئيسية)",
-  "lend.withdraw": "سحب"
+  "lend.withdraw": "سحب",
+  "lend.whatOffer": "هذا العرض",
+  "lend.whatBorrow": "الاقتراض",
+  "lend.whatRepay": "السداد"
  },
  "cs": {
   "lend.actingAs": "Jednáte jako",
@@ -123,7 +126,10 @@
   "lend.usable": "🏦 Použitelný zůstatek",
   "lend.walletH": "Peněženka",
   "lend.walletMain": "Peněženka — NADO (hlavní řetězec)",
-  "lend.withdraw": "Vybrat"
+  "lend.withdraw": "Vybrat",
+  "lend.whatOffer": "Tato nabídka",
+  "lend.whatBorrow": "Půjčení",
+  "lend.whatRepay": "Splacení"
  },
  "de": {
   "lend.actingAs": "Angemeldet als",
@@ -186,7 +192,10 @@
   "lend.usable": "🏦 Verfügbares Guthaben",
   "lend.walletH": "Wallet",
   "lend.walletMain": "Wallet — NADO (Hauptkette)",
-  "lend.withdraw": "Abheben"
+  "lend.withdraw": "Abheben",
+  "lend.whatOffer": "Dieses Angebot",
+  "lend.whatBorrow": "Das Leihen",
+  "lend.whatRepay": "Das Zurückzahlen"
  },
  "en": {
   "lend.actingAs": "Acting as",
@@ -249,7 +258,10 @@
   "lend.usable": "🏦 Usable balance",
   "lend.walletH": "Wallet",
   "lend.walletMain": "Wallet — NADO (main chain)",
-  "lend.withdraw": "Withdraw"
+  "lend.withdraw": "Withdraw",
+  "lend.whatOffer": "This offer",
+  "lend.whatBorrow": "Borrowing",
+  "lend.whatRepay": "Repaying"
  },
  "es": {
   "lend.actingAs": "Actuando como",
@@ -312,7 +324,10 @@
   "lend.usable": "🏦 Saldo utilizable",
   "lend.walletH": "Cartera",
   "lend.walletMain": "Cartera — NADO (cadena principal)",
-  "lend.withdraw": "Retirar"
+  "lend.withdraw": "Retirar",
+  "lend.whatOffer": "Esta oferta",
+  "lend.whatBorrow": "Pedir prestado",
+  "lend.whatRepay": "Devolver"
  },
  "fr": {
   "lend.actingAs": "Connecté en tant que",
@@ -375,7 +390,10 @@
   "lend.usable": "🏦 Solde utilisable",
   "lend.walletH": "Portefeuille",
   "lend.walletMain": "Portefeuille — NADO (chaîne principale)",
-  "lend.withdraw": "Retirer"
+  "lend.withdraw": "Retirer",
+  "lend.whatOffer": "Cette offre",
+  "lend.whatBorrow": "L'emprunt",
+  "lend.whatRepay": "Le remboursement"
  },
  "hi": {
   "lend.actingAs": "इस रूप में कार्यरत",
@@ -438,7 +456,10 @@
   "lend.usable": "🏦 उपयोग योग्य शेष",
   "lend.walletH": "वॉलेट",
   "lend.walletMain": "वॉलेट — NADO (मुख्य चेन)",
-  "lend.withdraw": "निकालें"
+  "lend.withdraw": "निकालें",
+  "lend.whatOffer": "यह ऑफ़र",
+  "lend.whatBorrow": "उधार लेना",
+  "lend.whatRepay": "चुकाना"
  },
  "id": {
   "lend.actingAs": "Bertindak sebagai",
@@ -501,7 +522,10 @@
   "lend.usable": "🏦 Saldo yang dapat digunakan",
   "lend.walletH": "Dompet",
   "lend.walletMain": "Dompet — NADO (rantai utama)",
-  "lend.withdraw": "Tarik"
+  "lend.withdraw": "Tarik",
+  "lend.whatOffer": "Penawaran ini",
+  "lend.whatBorrow": "Meminjam",
+  "lend.whatRepay": "Membayar kembali"
  },
  "it": {
   "lend.actingAs": "Operi come",
@@ -564,7 +588,10 @@
   "lend.usable": "🏦 Saldo utilizzabile",
   "lend.walletH": "Portafoglio",
   "lend.walletMain": "Portafoglio — NADO (catena principale)",
-  "lend.withdraw": "Preleva"
+  "lend.withdraw": "Preleva",
+  "lend.whatOffer": "Questa offerta",
+  "lend.whatBorrow": "Il prestito",
+  "lend.whatRepay": "Il rimborso"
  },
  "ja": {
   "lend.actingAs": "操作中のアカウント",
@@ -627,7 +654,10 @@
   "lend.usable": "🏦 利用可能残高",
   "lend.walletH": "ウォレット",
   "lend.walletMain": "ウォレット — NADO（メインチェーン）",
-  "lend.withdraw": "出金"
+  "lend.withdraw": "出金",
+  "lend.whatOffer": "このオファー",
+  "lend.whatBorrow": "借り入れ",
+  "lend.whatRepay": "返済"
  },
  "ko": {
   "lend.actingAs": "현재 계정",
@@ -690,7 +720,10 @@
   "lend.usable": "🏦 사용 가능 잔액",
   "lend.walletH": "지갑",
   "lend.walletMain": "지갑 — NADO (메인 체인)",
-  "lend.withdraw": "출금"
+  "lend.withdraw": "출금",
+  "lend.whatOffer": "이 제안",
+  "lend.whatBorrow": "대출",
+  "lend.whatRepay": "상환"
  },
  "pt": {
   "lend.actingAs": "Atuando como",
@@ -753,7 +786,10 @@
   "lend.usable": "🏦 Saldo utilizável",
   "lend.walletH": "Carteira",
   "lend.walletMain": "Carteira — NADO (cadeia principal)",
-  "lend.withdraw": "Sacar"
+  "lend.withdraw": "Sacar",
+  "lend.whatOffer": "Esta oferta",
+  "lend.whatBorrow": "Pedir emprestado",
+  "lend.whatRepay": "Pagar"
  },
  "ru": {
   "lend.actingAs": "Вы действуете как",
@@ -816,7 +852,10 @@
   "lend.usable": "🏦 Доступный баланс",
   "lend.walletH": "Кошелёк",
   "lend.walletMain": "Кошелёк — NADO (основная цепь)",
-  "lend.withdraw": "Вывести"
+  "lend.withdraw": "Вывести",
+  "lend.whatOffer": "Это предложение",
+  "lend.whatBorrow": "Заём",
+  "lend.whatRepay": "Погашение"
  },
  "tr": {
   "lend.actingAs": "Şu kimlikle işlem yapılıyor",
@@ -879,7 +918,10 @@
   "lend.usable": "🏦 Kullanılabilir bakiye",
   "lend.walletH": "Cüzdan",
   "lend.walletMain": "Cüzdan — NADO (ana zincir)",
-  "lend.withdraw": "Çek"
+  "lend.withdraw": "Çek",
+  "lend.whatOffer": "Bu teklif",
+  "lend.whatBorrow": "Borç almak",
+  "lend.whatRepay": "Geri ödemek"
  },
  "vi": {
   "lend.actingAs": "Đang thao tác với tư cách",
@@ -942,7 +984,10 @@
   "lend.usable": "🏦 Số dư khả dụng",
   "lend.walletH": "Ví",
   "lend.walletMain": "Ví — NADO (chuỗi chính)",
-  "lend.withdraw": "Rút"
+  "lend.withdraw": "Rút",
+  "lend.whatOffer": "Lời đề nghị này",
+  "lend.whatBorrow": "Việc vay",
+  "lend.whatRepay": "Việc trả nợ"
  },
  "zh": {
   "lend.actingAs": "当前身份",
@@ -1005,6 +1050,9 @@
   "lend.usable": "🏦 可用余额",
   "lend.walletH": "钱包",
   "lend.walletMain": "钱包 — NADO（主链）",
-  "lend.withdraw": "提取"
+  "lend.withdraw": "提取",
+  "lend.whatOffer": "这笔报价",
+  "lend.whatBorrow": "借款",
+  "lend.whatRepay": "还款"
  }
 }

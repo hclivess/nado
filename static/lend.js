@@ -112,7 +112,7 @@ async function postOffer() {
   }
   if (days <= 0) return notify(window.t("lend.needDays", "Enter a loan length in days."));
   const stakeRaw = unitsToRaw(principal);
-  if (!canPay(stakeRaw, notify)) return;
+  if (!canPay(dapp, stakeRaw, window.t("lend.whatOffer", "This offer"))) return;
 
   const id = randId();
   active = id;
@@ -125,7 +125,7 @@ async function postOffer() {
 function takeLoan(l) {
   if (dapp.busy("take", "loanId", l.id)) return notify(confirmingLabel());
   const collRaw = unitsToRaw(l.collateral);
-  if (!canPay(collRaw, notify)) return;
+  if (!canPay(dapp, collRaw, window.t("lend.whatBorrow", "Borrowing"))) return;
   active = l.id;
   dapp.call("take", [l.id], collRaw,
     window.t("lend.callTake", "borrow {p} against {c} collateral · loan #{id}", {
@@ -136,7 +136,7 @@ function takeLoan(l) {
 async function repayLoan(l) {
   if (dapp.busy("repay", "loanId", l.id)) return notify(confirmingLabel());
   const owed = unitsToRaw(BigInt(l.principal) + BigInt(l.interest));
-  if (!canPay(owed, notify)) return;
+  if (!canPay(dapp, owed, window.t("lend.whatRepay", "Repaying"))) return;
   const ok = await uiConfirm(window.t("lend.confirmRepay",
     "Repay {a} NADO now to release your {c} NADO collateral?",
     { a: rawToNado(owed), c: showUnits(l.collateral) }));
