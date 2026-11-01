@@ -65,7 +65,14 @@
   "nav.forum": "Forum",
   "nav.production": "Production",
   "nav.treasury": "Treasury",
-  "nav.what": "What"
+  "nav.what": "What",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Mint, collect and trade NFTs, objkt-style. Drop in an image, video, sound or 3D file and it is stored on IPFS and pinned by this site; one signature creates the token, one records its royalty. Sell at a fixed price, take offers, run an auction that extends itself when someone bids in the last minutes, or a Dutch auction whose price falls steadily until someone buys. The artist's royalty, up to 25 %, is paid by the contract on every sale through the marketplace, the marketplace itself takes nothing, and every token page shows its full history from the mint on.",
+  "apps.kind.nft": "not a game — an art marketplace",
+  "games.nft.m0": "Upload, pinned on IPFS",
+  "games.nft.m1": "Royalties paid on-chain",
+  "games.nft.m2": "Auctions, offers, Dutch",
+  "games.nft.m3": "0 % marketplace fee"
  },
  "cs": {
   "apps.fairBody": "Každá aplikace zde je běžný <b>on-chain kontrakt</b> na exekuční vrstvě NADO — žádný zvláštní server a žádný účet banky, který by patřil nám. <b>Pokud je aplikace hra</b>, její výsledky pocházejí z <b>budoucích hašů bloků L1</b>, které v době otevřených sázek ještě neexistují, takže žádný hráč, hostitel ani producent bloků nemůže výsledek znát ani ovlivnit (Hold'em přidává commit-reveal, aby vaše karty v ruce zůstaly jen vaše); kde má hra banku, financuje ji hráč, který se rozhodl vzít tuto stranu, a tím hráčem můžete být vy. <b>Pokud aplikace hra není</b> — například Půjčky — žádná náhoda v ní není: podmínky jsou pevně dané při podpisu kontraktu a řetězec rozhoduje jen o tom, zda uplynula lhůta. V obou případech jsou prostředky v úschově a vypořádá je samotný kontrakt, nic se nerazí ani neztrácí a váš klíč nikdy neopustí vaši <a href=\"https://get.nadochain.com/\">peněženku NADO</a>; každá aplikace vás tam jen přesměruje k podpisu. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Podívejte se, jak kontrakty fungují →</a>",
@@ -133,7 +140,14 @@
   "nav.forum": "Fórum",
   "nav.production": "Produkce bloků",
   "nav.treasury": "Pokladna",
-  "nav.what": "Co to je"
+  "nav.what": "Co to je",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Razte, sbírejte a obchodujte s NFT, ve stylu objkt. Vložte obrázek, video, zvuk nebo 3D soubor a uloží se na IPFS, kde jej tento web připne; jeden podpis vytvoří token, druhý zaznamená jeho autorský poplatek. Prodávejte za pevnou cenu, přijímejte nabídky, spusťte aukci, která se sama prodlouží, když někdo přihodí v posledních minutách, nebo holandskou aukci, jejíž cena plynule klesá, dokud někdo nekoupí. Autorský poplatek umělce, až 25 %, vyplácí kontrakt při každém prodeji přes tržiště, tržiště samo si nebere nic a každá stránka tokenu ukazuje celou jeho historii od vyražení.",
+  "apps.kind.nft": "není to hra — tržiště s uměním",
+  "games.nft.m0": "Nahrání, připnuto na IPFS",
+  "games.nft.m1": "Autorské poplatky on-chain",
+  "games.nft.m2": "Aukce, nabídky, holandské",
+  "games.nft.m3": "0 % poplatek tržiště"
  },
  "es": {
   "apps.fairBody": "Cada aplicación de aquí es un <b>contrato on-chain</b> corriente en la capa de ejecución de NADO — sin servidor especial y sin ninguna cuenta de la casa que nos pertenezca. <b>Cuando la aplicación es un juego</b>, sus resultados salen de <b>hashes de bloques L1 futuros</b> que aún no existen mientras las apuestas están abiertas, así que ningún jugador, ningún anfitrión y ningún productor de bloques puede conocer ni dirigir un resultado (Hold'em añade commit-reveal para que tus cartas ocultas sean solo tuyas); cuando un juego tiene banca, la financia un jugador que eligió ocupar ese lado, y ese jugador puedes ser tú. <b>Cuando la aplicación no es un juego</b> — Préstamos, por ejemplo — no hay azar alguno: las condiciones se fijan al firmar el contrato y lo único que decide la cadena es si ha vencido un plazo. En cualquier caso, los fondos quedan en depósito y los liquida el propio contrato, no se acuña ni se pierde nada, y tu clave nunca sale de tu <a href=\"https://get.nadochain.com/\">cartera NADO</a>; cada aplicación solo te redirige allí para firmar. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Mira cómo funcionan los contratos →</a>",
@@ -201,7 +215,14 @@
   "nav.forum": "Foro",
   "nav.production": "Producción",
   "nav.treasury": "Tesorería",
-  "nav.what": "Qué es"
+  "nav.what": "Qué es",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Acuña, colecciona e intercambia NFT, al estilo objkt. Sube una imagen, un vídeo, un sonido o un archivo 3D y se guarda en IPFS, anclado por este sitio; una firma crea el token y otra registra su regalía. Vende a precio fijo, acepta ofertas, organiza una subasta que se alarga sola cuando alguien puja en los últimos minutos, o una subasta holandesa cuyo precio baja de forma constante hasta que alguien compra. La regalía del artista, hasta un 25 %, la paga el contrato en cada venta a través del mercado; el mercado no cobra nada y la página de cada token muestra su historial completo desde la acuñación.",
+  "apps.kind.nft": "no es un juego — un mercado de arte",
+  "games.nft.m0": "Subida, anclada en IPFS",
+  "games.nft.m1": "Regalías pagadas on-chain",
+  "games.nft.m2": "Subastas, ofertas, holandesas",
+  "games.nft.m3": "0 % de comisión"
  },
  "pt": {
   "apps.fairBody": "Cada aplicativo aqui é um <b>contrato on-chain</b> comum na camada de execução da NADO — nenhum servidor especial e nenhuma conta da casa que pertença a nós. <b>Quando um aplicativo é um jogo</b>, seus resultados vêm de <b>hashes de blocos L1 futuros</b> que ainda não existem enquanto as apostas estão abertas, então nenhum jogador, nenhum anfitrião e nenhum produtor de blocos pode saber ou direcionar um resultado (o Hold'em acrescenta commit-reveal para que suas cartas fechadas sejam só suas); quando um jogo tem banca, ela é financiada por um jogador que escolheu assumir esse lado, e esse jogador pode ser você. <b>Quando um aplicativo não é um jogo</b> — Empréstimos, por exemplo — não há aleatoriedade alguma: os termos são fixados quando o contrato é assinado e a única coisa que a cadeia decide é se um prazo já passou. De qualquer forma, os fundos ficam em custódia e são liquidados pelo próprio contrato, nada é cunhado nem perdido, e sua chave nunca sai da sua <a href=\"https://get.nadochain.com/\">carteira NADO</a>; cada aplicativo apenas redireciona você para lá para assinar. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Veja como os contratos funcionam →</a>",
@@ -269,7 +290,14 @@
   "nav.forum": "Fórum",
   "nav.production": "Produção",
   "nav.treasury": "Tesouraria",
-  "nav.what": "O que é"
+  "nav.what": "O que é",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Cunhe, colecione e negocie NFTs, no estilo objkt. Envie uma imagem, vídeo, som ou arquivo 3D e ele é guardado no IPFS, fixado por este site; uma assinatura cria o token e outra registra o seu royalty. Venda a preço fixo, receba ofertas, faça um leilão que se prolonga sozinho quando alguém dá um lance nos últimos minutos, ou um leilão holandês cujo preço cai continuamente até alguém comprar. O royalty do artista, até 25 %, é pago pelo contrato em cada venda pelo mercado; o mercado não cobra nada e a página de cada token mostra todo o seu histórico desde a cunhagem.",
+  "apps.kind.nft": "não é um jogo — um mercado de arte",
+  "games.nft.m0": "Envio, fixado no IPFS",
+  "games.nft.m1": "Royalties pagos on-chain",
+  "games.nft.m2": "Leilões, ofertas, holandês",
+  "games.nft.m3": "0 % de taxa do mercado"
  },
  "fr": {
   "apps.fairBody": "Chaque application ici est un <b>contrat on-chain</b> ordinaire sur la couche d'exécution de NADO — pas de serveur spécial, et aucun compte de la maison qui nous appartienne. <b>Lorsqu'une application est un jeu</b>, ses résultats proviennent de <b>futurs hachages de blocs L1</b> qui n'existent pas encore tant que les paris sont ouverts, si bien qu'aucun joueur, aucun hôte et aucun producteur de blocs ne peut connaître ou orienter un résultat (le Hold'em ajoute un commit-reveal pour que vos cartes fermées restent à vous seul) ; lorsqu'un jeu a une banque, elle est financée par un joueur qui a choisi de tenir ce rôle, et ce joueur peut être vous. <b>Lorsqu'une application n'est pas un jeu</b> — Prêts, par exemple — il n'y a aucun hasard : les conditions sont fixées à la signature du contrat, et la seule chose que la chaîne décide est si une échéance est passée. Dans tous les cas, les fonds sont placés sous séquestre et réglés par le contrat lui-même, rien n'est créé ni perdu, et votre clé ne quitte jamais votre <a href=\"https://get.nadochain.com/\">portefeuille NADO</a> ; chaque application ne fait que vous y renvoyer pour signer. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Voir comment fonctionnent les contrats →</a>",
@@ -337,7 +365,14 @@
   "nav.forum": "Forum",
   "nav.production": "Production",
   "nav.treasury": "Trésorerie",
-  "nav.what": "Le concept"
+  "nav.what": "Le concept",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Créez, collectionnez et échangez des NFT, à la manière d’objkt. Déposez une image, une vidéo, un son ou un fichier 3D : il est stocké sur IPFS et épinglé par ce site ; une signature crée le jeton, une autre enregistre sa redevance. Vendez à prix fixe, recevez des offres, lancez une enchère qui se prolonge d’elle-même quand quelqu’un enchérit dans les dernières minutes, ou une enchère hollandaise dont le prix baisse régulièrement jusqu’à ce que quelqu’un achète. La redevance de l’artiste, jusqu’à 25 %, est versée par le contrat à chaque vente sur la place de marché ; celle-ci ne prend rien, et la page de chaque jeton montre tout son historique depuis la création.",
+  "apps.kind.nft": "pas un jeu — une place de marché d’art",
+  "games.nft.m0": "Envoi, épinglé sur IPFS",
+  "games.nft.m1": "Redevances payées on-chain",
+  "games.nft.m2": "Enchères, offres, hollandaises",
+  "games.nft.m3": "0 % de frais"
  },
  "de": {
   "apps.fairBody": "Jede App hier ist ein gewöhnlicher <b>On-Chain-Contract</b> auf der Ausführungsschicht von NADO — kein spezieller Server und kein Hauskonto, das uns gehört. <b>Wo eine App ein Spiel ist</b>, stammen ihre Ergebnisse aus <b>zukünftigen L1-Block-Hashes</b>, die noch nicht existieren, solange Wetten offen sind, sodass kein Spieler, kein Host und kein Blockproduzent ein Ergebnis kennen oder lenken kann (Hold'em ergänzt Commit-Reveal, damit deine verdeckten Karten allein dir gehören); wo ein Spiel eine Bank hat, wird sie von einem Spieler finanziert, der sich für diese Seite entschieden hat, und dieser Spieler kannst du sein. <b>Wo eine App kein Spiel ist</b> — etwa Kredite — gibt es überhaupt keinen Zufall: Die Bedingungen stehen fest, wenn der Vertrag unterzeichnet wird, und das Einzige, was die Chain entscheidet, ist, ob eine Frist abgelaufen ist. So oder so werden die Mittel treuhänderisch hinterlegt und vom Contract selbst abgerechnet, nichts wird geprägt oder geht verloren, und dein Schlüssel verlässt nie deine <a href=\"https://get.nadochain.com/\">NADO-Wallet</a>; jede App leitet dich nur zum Signieren dorthin weiter. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">So funktionieren die Contracts →</a>",
@@ -405,7 +440,14 @@
   "nav.forum": "Forum",
   "nav.production": "Blockproduktion",
   "nav.treasury": "Treasury",
-  "nav.what": "Was"
+  "nav.what": "Was",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "NFTs prägen, sammeln und handeln, im Stil von objkt. Lege ein Bild, Video, eine Tondatei oder ein 3D-Modell ab: Es wird auf IPFS gespeichert und von dieser Seite gepinnt; eine Signatur erzeugt den Token, eine zweite hält seine Lizenzgebühr fest. Verkaufe zum Festpreis, nimm Angebote an, starte eine Auktion, die sich selbst verlängert, wenn jemand in den letzten Minuten bietet, oder eine holländische Auktion, deren Preis stetig fällt, bis jemand kauft. Die Lizenzgebühr des Künstlers, bis zu 25 %, zahlt der Vertrag bei jedem Verkauf über den Marktplatz; der Marktplatz selbst nimmt nichts, und jede Token-Seite zeigt die ganze Geschichte ab der Prägung.",
+  "apps.kind.nft": "kein Spiel — ein Kunstmarktplatz",
+  "games.nft.m0": "Upload, auf IPFS gepinnt",
+  "games.nft.m1": "Lizenzgebühren on-chain",
+  "games.nft.m2": "Auktionen, Angebote, holländisch",
+  "games.nft.m3": "0 % Marktplatzgebühr"
  },
  "it": {
   "apps.fairBody": "Ogni app qui è un normale <b>contratto on-chain</b> sul livello di esecuzione di NADO — nessun server speciale e nessun conto del banco che appartenga a noi. <b>Quando un'app è un gioco</b>, i suoi esiti provengono da <b>hash di blocchi L1 futuri</b> che non esistono ancora mentre le scommesse sono aperte, così nessun giocatore, nessun host e nessun produttore di blocchi può conoscere o pilotare un risultato (Hold'em aggiunge il commit-reveal perché le tue carte coperte restino solo tue); quando un gioco ha un banco, è finanziato da un giocatore che ha scelto di stare da quella parte, e quel giocatore puoi essere tu. <b>Quando un'app non è un gioco</b> — Prestiti, per esempio — non c'è alcuna casualità: le condizioni sono fissate quando il contratto viene firmato e l'unica cosa che la catena decide è se una scadenza è passata. In ogni caso i fondi sono tenuti in deposito vincolato e regolati dal contratto stesso, nulla viene coniato o perso, e la tua chiave non lascia mai il tuo <a href=\"https://get.nadochain.com/\">portafoglio NADO</a>; ogni app ti rimanda lì solo per firmare. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Scopri come funzionano i contratti →</a>",
@@ -473,7 +515,14 @@
   "nav.forum": "Forum",
   "nav.production": "Produzione",
   "nav.treasury": "Tesoreria",
-  "nav.what": "Cos'è"
+  "nav.what": "Cos'è",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Conia, colleziona e scambia NFT, in stile objkt. Carica un’immagine, un video, un suono o un file 3D: viene salvato su IPFS e fissato da questo sito; una firma crea il token, un’altra ne registra la royalty. Vendi a prezzo fisso, ricevi offerte, avvia un’asta che si allunga da sola quando qualcuno rilancia negli ultimi minuti, oppure un’asta olandese il cui prezzo scende costantemente finché qualcuno compra. La royalty dell’artista, fino al 25 %, è pagata dal contratto a ogni vendita tramite il mercato; il mercato non trattiene nulla e la pagina di ogni token mostra tutta la sua storia dal conio.",
+  "apps.kind.nft": "non è un gioco — un mercato d’arte",
+  "games.nft.m0": "Caricamento, fissato su IPFS",
+  "games.nft.m1": "Royalty pagate on-chain",
+  "games.nft.m2": "Aste, offerte, olandesi",
+  "games.nft.m3": "0 % di commissione"
  },
  "ru": {
   "apps.fairBody": "Каждое приложение здесь — обычный <b>on-chain контракт</b> на исполнительном уровне NADO: ни специального сервера, ни принадлежащего нам счёта заведения. <b>Если приложение — игра</b>, её исходы определяются <b>хешами будущих блоков L1</b>, которых ещё не существует, пока открыт приём ставок, поэтому ни игрок, ни хост, ни производитель блока не может узнать или направить результат (в Hold'em добавлен commit-reveal, чтобы ваши карманные карты оставались только вашими); если у игры есть банк, его финансирует игрок, который сам выбрал эту сторону, — и этим игроком можете быть вы. <b>Если приложение — не игра</b>, например «Займы», случайности нет вовсе: условия фиксируются при подписании контракта, и единственное, что решает цепочка, — прошёл ли срок. В любом случае средства депонируются и рассчитываются самим контрактом, ничего не выпускается и не теряется, а ваш ключ никогда не покидает ваш <a href=\"https://get.nadochain.com/\">кошелёк NADO</a>; каждое приложение лишь перенаправляет вас туда для подписи. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Как работают контракты →</a>",
@@ -541,7 +590,14 @@
   "nav.forum": "Форум",
   "nav.production": "Сборка блоков",
   "nav.treasury": "Казна",
-  "nav.what": "Что это"
+  "nav.what": "Что это",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Создавайте, собирайте и продавайте NFT в стиле objkt. Перетащите изображение, видео, звук или 3D-файл — он сохраняется в IPFS и закрепляется этим сайтом; одна подпись создаёт токен, вторая записывает его роялти. Продавайте по фиксированной цене, принимайте предложения, запускайте аукцион, который сам продлевается, если кто-то делает ставку в последние минуты, или голландский аукцион, цена которого равномерно снижается, пока кто-нибудь не купит. Роялти автора, до 25 %, выплачивает контракт при каждой продаже через маркетплейс; сам маркетплейс ничего не берёт, а страница каждого токена показывает всю его историю с момента выпуска.",
+  "apps.kind.nft": "не игра — маркетплейс искусства",
+  "games.nft.m0": "Загрузка, закреплено в IPFS",
+  "games.nft.m1": "Роялти выплачиваются on-chain",
+  "games.nft.m2": "Аукционы, предложения, голландский",
+  "games.nft.m3": "Комиссия 0 %"
  },
  "zh": {
   "apps.fairBody": "这里的每个应用都是 NADO 执行层上的普通<b>链上合约</b>——没有特殊服务器，也没有属于我们的庄家账户。<b>如果应用是游戏</b>，其结果来自下注期间尚不存在的<b>未来 L1 区块哈希</b>，因此任何玩家、主持方或出块者都无法预知或操控结果（德州扑克还加入了承诺-揭示，让你的底牌只属于你自己）；如果游戏有庄家，那么庄家资金来自主动选择站在那一方的玩家，而你也可以成为那位玩家。<b>如果应用不是游戏</b>——比如借贷——那就完全不涉及随机性：条款在合约签署时就已固定，链唯一要判定的只是期限是否已过。无论哪种情况，资金都由合约本身托管和结算，不会凭空铸造，也不会丢失，你的密钥也绝不会离开你的<a href=\"https://get.nadochain.com/\">NADO 钱包</a>；每个应用只会把你跳转到那里签名。<a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">了解合约如何运作 →</a>",
@@ -609,7 +665,14 @@
   "nav.forum": "论坛",
   "nav.production": "出块",
   "nav.treasury": "金库",
-  "nav.what": "简介"
+  "nav.what": "简介",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "以 objkt 的方式铸造、收藏和交易 NFT。拖入图片、视频、音频或 3D 文件，它会存储在 IPFS 上并由本站固定；一次签名创建代币，另一次记录其版税。可以一口价出售、接受报价、发起在最后几分钟有人出价时自动延长的拍卖，或价格持续下降直到有人购买的荷兰式拍卖。艺术家的版税（最高 25%）在每次通过市场成交时由合约支付；市场本身不收取任何费用，每个代币页面都会展示从铸造开始的完整历史。",
+  "apps.kind.nft": "不是游戏 — 艺术品市场",
+  "games.nft.m0": "上传，固定在 IPFS",
+  "games.nft.m1": "版税链上支付",
+  "games.nft.m2": "拍卖、报价、荷兰式",
+  "games.nft.m3": "市场手续费 0%"
  },
  "ja": {
   "apps.fairBody": "ここにあるアプリはすべて、NADO の実行レイヤー上の普通の<b>オンチェーンコントラクト</b>です——特別なサーバーも、私たちが持つハウスアカウントもありません。<b>アプリがゲームの場合</b>、結果はベットの受付中にはまだ存在しない<b>未来の L1 ブロックハッシュ</b>から決まるため、プレイヤーもホストもブロック生成者も結果を知ることも操ることもできません（ホールデムではコミット・リビールを加え、ホールカードをあなただけのものにしています）。ゲームに胴元がいる場合、その資金はその側に立つことを選んだプレイヤーが出しており、あなたがそのプレイヤーになることもできます。<b>アプリがゲームでない場合</b>——たとえばレンディング——ランダム性はまったくありません。条件はコントラクト締結時に固定され、チェーンが判断するのは期限が過ぎたかどうかだけです。いずれの場合も、資金はコントラクト自体がエスクローして決済し、何かが新たに発行されることも失われることもなく、あなたの鍵が<a href=\"https://get.nadochain.com/\">NADO ウォレット</a>から出ることはありません。各アプリは署名のためにそこへ案内するだけです。<a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">コントラクトの仕組みを見る →</a>",
@@ -677,7 +740,14 @@
   "nav.forum": "フォーラム",
   "nav.production": "ブロック生成",
   "nav.treasury": "トレジャリー",
-  "nav.what": "概要"
+  "nav.what": "概要",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "objkt のように NFT をミントし、集め、取引できます。画像、動画、音声、3D ファイルをドロップすると IPFS に保存され、このサイトがピン留めします。1 回の署名でトークンを作成し、もう 1 回でロイヤリティを記録します。固定価格での販売、オファーの受け付け、終了間際の入札で自動延長されるオークション、誰かが買うまで価格が下がり続けるダッチオークションに対応。アーティストのロイヤリティ（最大 25%）はマーケットプレイスでの販売ごとにコントラクトが支払い、マーケットプレイス自体は手数料を取りません。各トークンのページにはミント以降の全履歴が表示されます。",
+  "apps.kind.nft": "ゲームではありません — アートのマーケットプレイス",
+  "games.nft.m0": "アップロード、IPFS にピン留め",
+  "games.nft.m1": "ロイヤリティはオンチェーンで支払い",
+  "games.nft.m2": "オークション、オファー、ダッチ",
+  "games.nft.m3": "手数料 0%"
  },
  "ko": {
   "apps.fairBody": "여기 있는 모든 앱은 NADO 실행 레이어 위의 평범한 <b>온체인 컨트랙트</b>입니다 — 특별한 서버도, 저희 소유의 하우스 계정도 없습니다. <b>앱이 게임인 경우</b>, 결과는 베팅이 열려 있는 동안에는 아직 존재하지 않는 <b>미래 L1 블록 해시</b>에서 나오므로 어떤 플레이어도, 호스트도, 블록 생산자도 결과를 알거나 조종할 수 없습니다(홀덤은 커밋-리빌을 더해 당신의 홀 카드를 오직 당신만 알게 합니다). 게임에 뱅크가 있다면 그 편을 맡기로 선택한 플레이어가 자금을 대며, 그 플레이어가 당신일 수도 있습니다. <b>앱이 게임이 아닌 경우</b> — 예를 들어 대출 — 무작위성은 전혀 없습니다: 조건은 컨트랙트에 서명할 때 고정되고, 체인이 판단하는 것은 기한이 지났는지 여부뿐입니다. 어느 쪽이든 자금은 컨트랙트 자체가 에스크로하고 정산하며, 아무것도 발행되거나 사라지지 않고, 당신의 키는 결코 <a href=\"https://get.nadochain.com/\">NADO 지갑</a>을 떠나지 않습니다. 각 앱은 서명할 때만 그곳으로 보냅니다. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">컨트랙트 작동 방식 보기 →</a>",
@@ -745,7 +815,14 @@
   "nav.forum": "포럼",
   "nav.production": "블록 생산",
   "nav.treasury": "트레저리",
-  "nav.what": "소개"
+  "nav.what": "소개",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "objkt처럼 NFT를 민팅하고, 수집하고, 거래하세요. 이미지, 동영상, 사운드 또는 3D 파일을 끌어다 놓으면 IPFS에 저장되고 이 사이트가 고정합니다. 서명 한 번으로 토큰을 만들고, 한 번 더 서명해 로열티를 기록합니다. 고정가 판매, 제안 수락, 마지막 몇 분 안에 입찰이 들어오면 스스로 연장되는 경매, 누군가 살 때까지 가격이 꾸준히 내려가는 더치 경매를 지원합니다. 최대 25%의 작가 로열티는 마켓플레이스를 통한 모든 판매에서 컨트랙트가 지급하며, 마켓플레이스는 아무것도 가져가지 않고, 모든 토큰 페이지에는 민팅 이후 전체 기록이 표시됩니다.",
+  "apps.kind.nft": "게임이 아닙니다 — 아트 마켓플레이스",
+  "games.nft.m0": "업로드, IPFS에 고정",
+  "games.nft.m1": "로열티 온체인 지급",
+  "games.nft.m2": "경매, 제안, 더치",
+  "games.nft.m3": "마켓 수수료 0%"
  },
  "ar": {
   "apps.fairBody": "كل تطبيق هنا <b>عقد على السلسلة</b> عادي على طبقة التنفيذ في NADO — بلا خادم خاص، ولا حساب دار يعود إلينا. <b>حين يكون التطبيق لعبة</b>، تأتي نتائجه من <b>تجزئات كتل L1 مستقبلية</b> لا وجود لها بعد ما دام الرهان مفتوحًا، فلا يستطيع أي لاعب أو مضيف أو منتج كتل معرفة النتيجة أو توجيهها (وتضيف لعبة هولدم آلية commit-reveal لتبقى أوراقك المخفية لك وحدك)؛ وحين يكون في اللعبة بنك، فإن من يموّله لاعبٌ اختار أن يأخذ ذلك الجانب، ويمكنك أن تكون ذلك اللاعب. <b>وحين لا يكون التطبيق لعبة</b> — «إقراض» مثلًا — فلا عشوائية على الإطلاق: تُثبَّت الشروط عند توقيع العقد، والشيء الوحيد الذي تقرّره السلسلة هو ما إذا كان موعد نهائي قد انقضى. وفي الحالتين، يحتجز العقد نفسه الأموال ويسوّيها، فلا يُسكّ شيء ولا يضيع شيء، ولا يغادر مفتاحك أبدًا <a href=\"https://get.nadochain.com/\">محفظة NADO</a> الخاصة بك؛ ولا يحيلك كل تطبيق إليها إلا للتوقيع. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">اطّلع على كيفية عمل العقود →</a>",
@@ -813,7 +890,14 @@
   "nav.forum": "المنتدى",
   "nav.production": "إنتاج الكتل",
   "nav.treasury": "الخزينة",
-  "nav.what": "ما هو"
+  "nav.what": "ما هو",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "اسكّ الرموز غير القابلة للاستبدال واجمعها وتداولها على طريقة objkt. أفلت صورة أو فيديو أو صوتًا أو ملفًا ثلاثي الأبعاد فيُخزَّن على IPFS ويثبّته هذا الموقع؛ توقيع واحد ينشئ الرمز وآخر يسجّل حقوق الفنان. بِع بسعر ثابت، أو اقبل العروض، أو أطلق مزادًا يمدّد نفسه حين يزايد أحد في الدقائق الأخيرة، أو مزادًا هولنديًا ينخفض سعره باستمرار حتى يشتري أحد. يدفع العقد حقوق الفنان، حتى 25 %، عند كل بيع عبر السوق، ولا يأخذ السوق نفسه شيئًا، وتعرض صفحة كل رمز تاريخه الكامل منذ السكّ.",
+  "apps.kind.nft": "ليست لعبة — سوق للأعمال الفنية",
+  "games.nft.m0": "رفع وتثبيت على IPFS",
+  "games.nft.m1": "حقوق تُدفع على السلسلة",
+  "games.nft.m2": "مزادات، عروض، هولندي",
+  "games.nft.m3": "0 % رسوم السوق"
  },
  "hi": {
   "apps.fairBody": "यहाँ हर ऐप NADO की एक्ज़ीक्यूशन लेयर पर एक साधारण <b>ऑन-चेन कॉन्ट्रैक्ट</b> है — न कोई ख़ास सर्वर, न हमारा कोई हाउस खाता। <b>जहाँ ऐप एक गेम है</b>, वहाँ उसके नतीजे <b>भावी L1 ब्लॉक हैश</b> से आते हैं जो दांव खुले रहने तक मौजूद ही नहीं होते, इसलिए कोई खिलाड़ी, कोई होस्ट और कोई ब्लॉक प्रोड्यूसर नतीजा न जान सकता है न मोड़ सकता है (होल्डेम commit-reveal जोड़ता है ताकि आपके होल कार्ड सिर्फ़ आपके रहें); जहाँ किसी गेम में बैंक है, उसे वह खिलाड़ी फंड करता है जिसने वह पक्ष लेना चुना, और वह खिलाड़ी आप भी हो सकते हैं। <b>जहाँ ऐप गेम नहीं है</b> — जैसे उधार — वहाँ कोई यादृच्छिकता है ही नहीं: शर्तें कॉन्ट्रैक्ट पर हस्ताक्षर होते ही तय हो जाती हैं और चेन केवल यह तय करती है कि कोई समय-सीमा बीत गई या नहीं। दोनों ही सूरतों में, फंड कॉन्ट्रैक्ट ख़ुद एस्क्रो और सेटल करता है, न कुछ मिंट होता है न खोता है, और आपकी कुंजी कभी आपके <a href=\"https://get.nadochain.com/\">NADO वॉलेट</a> से बाहर नहीं जाती; हर ऐप आपको वहाँ सिर्फ़ हस्ताक्षर के लिए भेजता है। <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">देखें कि कॉन्ट्रैक्ट कैसे काम करते हैं →</a>",
@@ -881,7 +965,14 @@
   "nav.forum": "फ़ोरम",
   "nav.production": "ब्लॉक उत्पादन",
   "nav.treasury": "ट्रेज़री",
-  "nav.what": "क्या है"
+  "nav.what": "क्या है",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "objkt की तरह NFT मिंट करें, जमा करें और व्यापार करें। कोई छवि, वीडियो, ध्वनि या 3D फ़ाइल छोड़ें — वह IPFS पर संग्रहीत होती है और यह साइट उसे पिन करती है; एक हस्ताक्षर टोकन बनाता है, दूसरा उसकी रॉयल्टी दर्ज करता है। तय क़ीमत पर बेचें, प्रस्ताव लें, ऐसी नीलामी चलाएँ जो आख़िरी मिनटों में बोली लगने पर अपने आप बढ़ जाती है, या डच नीलामी जिसकी क़ीमत तब तक लगातार घटती है जब तक कोई ख़रीद न ले। कलाकार की रॉयल्टी, 25 % तक, बाज़ार के ज़रिए हर बिक्री पर अनुबंध चुकाता है; बाज़ार ख़ुद कुछ नहीं लेता, और हर टोकन का पेज मिंट से लेकर उसका पूरा इतिहास दिखाता है।",
+  "apps.kind.nft": "खेल नहीं — कला का बाज़ार",
+  "games.nft.m0": "अपलोड, IPFS पर पिन",
+  "games.nft.m1": "रॉयल्टी ऑन-चेन चुकाई",
+  "games.nft.m2": "नीलामी, प्रस्ताव, डच",
+  "games.nft.m3": "0 % बाज़ार शुल्क"
  },
  "tr": {
   "apps.fairBody": "Buradaki her uygulama, NADO'nun yürütme katmanında sıradan bir <b>zincir üstü kontrattır</b> — özel sunucu yok, bize ait bir kasa hesabı da yok. <b>Uygulama bir oyunsa</b>, sonuçları bahisler açıkken henüz var olmayan <b>gelecekteki L1 blok hash'lerinden</b> gelir; böylece hiçbir oyuncu, sunucu ya da blok üreticisi bir sonucu bilemez veya yönlendiremez (Hold'em, kapalı kartların yalnız sende kalması için commit-reveal ekler); bir oyunda kasa varsa, onu o tarafa geçmeyi seçen bir oyuncu finanse eder ve o oyuncu sen de olabilirsin. <b>Uygulama bir oyun değilse</b> — örneğin Borç Ver — hiç rastgelelik yoktur: koşullar kontrat imzalandığında sabitlenir ve zincirin karar verdiği tek şey bir son tarihin geçip geçmediğidir. Her iki durumda da fonlar emanette tutulur ve kontratın kendisi tarafından sonuçlandırılır, hiçbir şey yaratılmaz ya da kaybolmaz ve anahtarın <a href=\"https://get.nadochain.com/\">NADO cüzdanından</a> asla çıkmaz; her uygulama seni oraya yalnızca imza için yönlendirir. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Kontratların nasıl çalıştığını gör →</a>",
@@ -949,7 +1040,14 @@
   "nav.forum": "Forum",
   "nav.production": "Blok üretimi",
   "nav.treasury": "Hazine",
-  "nav.what": "Nedir"
+  "nav.what": "Nedir",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "objkt tarzında NFT basın, toplayın ve takas edin. Bir görsel, video, ses ya da 3D dosyası bırakın; IPFS'te saklanır ve bu site tarafından sabitlenir. Bir imza tokeni oluşturur, bir diğeri telif payını kaydeder. Sabit fiyatla satın, teklifleri kabul edin, son dakikalarda teklif gelince kendini uzatan bir açık artırma ya da biri satın alana kadar fiyatı düzenli olarak düşen bir Hollanda açık artırması başlatın. Sanatçının telif payı, %25'e kadar, pazaryeri üzerinden yapılan her satışta sözleşme tarafından ödenir; pazaryerinin kendisi hiçbir şey almaz ve her tokenin sayfası basımdan itibaren tüm geçmişini gösterir.",
+  "apps.kind.nft": "oyun değil — bir sanat pazaryeri",
+  "games.nft.m0": "Yükleme, IPFS'te sabitli",
+  "games.nft.m1": "Telif zincir üstünde ödenir",
+  "games.nft.m2": "Açık artırma, teklif, Hollanda",
+  "games.nft.m3": "%0 pazaryeri ücreti"
  },
  "id": {
   "apps.fairBody": "Setiap aplikasi di sini adalah <b>kontrak on-chain</b> biasa di lapisan eksekusi NADO — tanpa server khusus, dan tanpa akun bandar milik kami. <b>Jika aplikasinya adalah game</b>, hasilnya berasal dari <b>hash blok L1 masa depan</b> yang belum ada selama taruhan masih terbuka, sehingga tak ada pemain, penyelenggara, maupun produsen blok yang bisa tahu atau mengarahkan hasil (Hold'em menambah commit-reveal agar kartu tertutup Anda tetap milik Anda sendiri); jika sebuah game punya bank, dananya berasal dari pemain yang memilih mengambil sisi itu, dan pemain itu bisa jadi Anda. <b>Jika aplikasinya bukan game</b> — Pinjaman, misalnya — tidak ada keacakan sama sekali: syaratnya ditetapkan saat kontrak ditandatangani dan satu-satunya yang diputuskan rantai adalah apakah tenggat sudah lewat. Apa pun itu, dana ditahan di escrow dan diselesaikan oleh kontrak itu sendiri, tak ada yang tercipta atau hilang, dan kunci Anda tak pernah meninggalkan <a href=\"https://get.nadochain.com/\">dompet NADO Anda</a>; tiap aplikasi hanya mengarahkan Anda ke sana untuk menandatangani. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Lihat cara kerja kontraknya →</a>",
@@ -1017,7 +1115,14 @@
   "nav.forum": "Forum",
   "nav.production": "Produksi blok",
   "nav.treasury": "Perbendaharaan",
-  "nav.what": "Apa"
+  "nav.what": "Apa",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Cetak, koleksi, dan perdagangkan NFT, ala objkt. Letakkan gambar, video, suara, atau file 3D dan file itu disimpan di IPFS serta disematkan oleh situs ini; satu tanda tangan membuat token, satu lagi mencatat royaltinya. Jual dengan harga tetap, terima penawaran, jalankan lelang yang memperpanjang diri saat ada yang menawar di menit-menit terakhir, atau lelang Belanda yang harganya terus turun sampai ada yang membeli. Royalti seniman, hingga 25 %, dibayar oleh kontrak pada setiap penjualan lewat pasar; pasar sendiri tidak mengambil apa pun, dan halaman setiap token menampilkan seluruh riwayatnya sejak dicetak.",
+  "apps.kind.nft": "bukan permainan — pasar seni",
+  "games.nft.m0": "Unggah, disematkan di IPFS",
+  "games.nft.m1": "Royalti dibayar on-chain",
+  "games.nft.m2": "Lelang, penawaran, Belanda",
+  "games.nft.m3": "Biaya pasar 0 %"
  },
  "vi": {
   "apps.fairBody": "Mọi ứng dụng ở đây là một <b>hợp đồng on-chain</b> bình thường trên lớp thực thi của NADO — không máy chủ đặc biệt, và không tài khoản nhà cái nào của chúng tôi. <b>Nếu ứng dụng là trò chơi</b>, kết quả của nó đến từ <b>hash khối L1 trong tương lai</b> — chúng chưa tồn tại khi cược còn mở, nên không người chơi, người tổ chức hay người tạo khối nào biết trước hoặc lái được kết quả (Hold'em còn thêm commit-reveal để bài tẩy chỉ thuộc về bạn); trò nào có nhà cái thì vốn do một người chơi tự chọn đứng về phía đó bỏ ra, và người chơi đó có thể là bạn. <b>Nếu ứng dụng không phải trò chơi</b> — chẳng hạn Cho vay — thì hoàn toàn không có ngẫu nhiên: các điều khoản được cố định khi hợp đồng được ký và điều duy nhất chuỗi quyết định là thời hạn đã qua hay chưa. Dù thế nào, tiền được ký quỹ và do chính hợp đồng thanh toán, không gì được tạo ra hay mất đi, và khóa của bạn không bao giờ rời <a href=\"https://get.nadochain.com/\">ví NADO của bạn</a>; mỗi ứng dụng chỉ đưa bạn đến đó để ký. <a href=\"https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md\">Xem cách hợp đồng vận hành →</a>",
@@ -1085,6 +1190,13 @@
   "nav.forum": "Diễn đàn",
   "nav.production": "Tạo khối",
   "nav.treasury": "Ngân khố",
-  "nav.what": "Tổng quan"
+  "nav.what": "Tổng quan",
+  "games.nft.name": "NFT",
+  "games.nft.blurb": "Đúc, sưu tầm và giao dịch NFT theo kiểu objkt. Thả vào một hình ảnh, video, âm thanh hoặc tệp 3D, tệp sẽ được lưu trên IPFS và được trang này ghim; một chữ ký tạo token, một chữ ký khác ghi lại tiền bản quyền. Bán giá cố định, nhận đề nghị, mở phiên đấu giá tự kéo dài khi có người trả giá trong những phút cuối, hoặc đấu giá kiểu Hà Lan có giá giảm dần cho đến khi có người mua. Tiền bản quyền của nghệ sĩ, tối đa 25 %, được hợp đồng trả trên mỗi giao dịch qua sàn; bản thân sàn không lấy gì, và trang của mỗi token hiển thị toàn bộ lịch sử từ lúc đúc.",
+  "apps.kind.nft": "không phải trò chơi — sàn nghệ thuật",
+  "games.nft.m0": "Tải lên, ghim trên IPFS",
+  "games.nft.m1": "Bản quyền trả on-chain",
+  "games.nft.m2": "Đấu giá, đề nghị, Hà Lan",
+  "games.nft.m3": "Phí sàn 0 %"
  }
 }
