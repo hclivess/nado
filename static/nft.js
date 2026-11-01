@@ -352,8 +352,7 @@ function viewToken(aid) {
       ${mineO ? `<button class="ghost sm" data-act="cancelO" data-id="${o}">${T("withdrawBtn", "Withdraw")}</button>`
               : h > 0n ? `<button class="primary sm" data-act="accept" data-id="${o}" data-aid="${esc(aid)}">${T("acceptBtn", "Accept")}</button>` : ""}</div>`;
   }).join("");
-  const history = ids("s_kind").filter((s) => String(field("s_asset", s)) === aid).slice(0, 30).map((s) =>
-    `<div class="line small">${T("sold", "{n} sold for {p} NADO", { n: field("s_n", s), p: rawToNado(field("s_amt", s)) })} · ${userLink(field("s_seller", s))} → ${userLink(field("s_buyer", s))}</div>`).join("");
+  const history = historyHtml(aid);
   const sell = h > 0n ? `<div class="card"><h3>${T("sellH", "Sell yours")} <span class="dim small">(${T("youHold", "you hold {h}", { h })})</span></h3>
       <div class="row"><div><label>${T("fUnits", "Editions")}</label><input id="sUnits" value="1" inputmode="numeric"></div>
       <div><label>${T("fPrice", "Price / reserve / start (NADO each)")}</label><input id="sPrice" inputmode="decimal"></div></div>
@@ -385,6 +384,71 @@ function viewToken(aid) {
     <div class="card"><h3>${T("offers", "Offers")}</h3>${os || `<div class="dim small">${T("noOffers", "No offers yet.")}</div>`}</div>
     ${offerForm}
     <div class="card"><h3>${T("history", "History")}</h3>${history || `<div class="dim small">${T("noSales", "No sales yet.")}</div>`}</div>`;
+}
+
+// ---- provenance (the exec node's node-local asset history, /exec/asset_history) ----------------------------------
+// Every movement of the asset — mint, wallet-to-wallet transfers, escrow into and out of this marketplace, burns — as
+// the exec node applied it. The contract's own storage cannot see a plain asset_transfer, which is why this comes from
+// the node and not from the sales log.
+const hist = {};                     // aid -> {events, from, at}
+async function loadHistory(aid) {
+  const h = hist[aid];
+  if (h && Date.now() - h.at < 15000) return;
+  hist[aid] = Object.assign(h || { events: null, from: null }, { at: Date.now() });
+  try {
+    const j = await (await fetch(base() + "/exec/asset_history?ns=" + dapp.ns + "&id=" + encodeURIComponent(aid) + "&limit=500", { cache: "no-store" })).json();
+    hist[aid] = { events: Array.isArray(j.events) ? j.events : [], from: j.indexed_from, enabled: j.enabled !== false, at: Date.now() };
+  } catch (e) { /* keep what we had */ }
+  if (location.hash === "#token/" + aid) { lastRoute = ""; render(); }
+}
+const holderLink = (h) => h === CID ? T("marketplace", "the marketplace") : userLink(h);
+function describe(ev, aid) {
+  const mv = (ev.moves || []).map((m) => ({ h: m.holder, d: big(m.delta) }));
+  // the PARTIES are everyone but the marketplace: a sale into an offer passes through its escrow in one call (seller ->
+  // marketplace -> bidder), and counting those transit moves would read 2 editions for 1; the marketplace is named only
+  // when it IS one side (a listing, a take-down)
+  const ext = mv.filter((m) => m.h !== CID);
+  const gain = mv.filter((m) => m.d > 0n), loss = mv.filter((m) => m.d < 0n);
+  const gx = ext.filter((m) => m.d > 0n), lx = ext.filter((m) => m.d < 0n);
+  const n = gx.reduce((a, m) => a + m.d, 0n) || lx.reduce((a, m) => a - m.d, 0n) || gain.reduce((a, m) => a + m.d, 0n);
+  const to = (gx.length ? gx[gx.length - 1] : gain[gain.length - 1] || {}).h || "";
+  const from = (lx.length ? lx[0] : loss[0] || {}).h || "";
+  const a0 = Number(ev.args && ev.args[0] || 0), ours = mv.some((m) => m.h === CID);
+  const saleAmt = (kind) => { for (const sId of ids("s_kind")) if (String(field("s_asset", sId)) === aid && Number(field("s_h", sId)) === ev.cursor && Number(field("s_kind", sId)) === kind) return field("s_amt", sId); return null; };
+  switch (ev.op) {
+    case "asset_create": return T("hMinted", "Minted · {n}", { n }) + " · " + holderLink(to);
+    case "asset_mint": return T("hMintedMore", "{n} more minted", { n }) + " · " + holderLink(to);
+    case "asset_burn": return T("hBurned", "{n} burned", { n }) + " · " + holderLink(from);
+    case "asset_transfer": case "asset_transfer_from":
+      return T("hTransfer", "Transferred {n}", { n }) + " · " + holderLink(from) + " → " + holderLink(to);
+  }
+  if (ev.op === "call" && ours) {
+    const nado = (raw) => raw == null ? "?" : rawToNado(raw);
+    switch (ev.method) {
+      case "list": return T("hListed", "Listed {n} at {p} NADO each", { n, p: nado(ev.args[2]) }) + " · " + holderLink(from);
+      case "unlist": case "dcancel": case "cancel_auction": return T("hDelisted", "Taken down") + " · " + holderLink(to);
+      case "buy": return T("hBought", "{n} bought for {p} NADO", { n, p: nado(ev.value) }) + " · " + holderLink(to);
+      case "accept": return T("hOfferSold", "{n} sold into an offer for {p} NADO", { n, p: nado(saleAmt(2)) }) + " · " + holderLink(from) + " → " + holderLink(to);
+      case "auction": return T("hAuction", "Put up for auction · reserve {p} NADO", { p: nado(ev.args[2]) }) + " · " + holderLink(from);
+      case "settle_auction": {
+        const amt = saleAmt(3);
+        return amt == null ? T("hDelisted", "Taken down") + " · " + holderLink(to) : T("hWon", "Won at auction for {p} NADO", { p: nado(amt) }) + " · " + holderLink(to);
+      }
+      case "dutch": return T("hDutch", "Dutch auction · {a} → {b} NADO", { a: nado(ev.args[2]), b: nado(ev.args[3]) }) + " · " + holderLink(from);
+      case "dbuy": return T("hDutchBuy", "{n} bought in a Dutch auction for {p} NADO", { n, p: nado(saleAmt(4)) }) + " · " + holderLink(to);
+    }
+  }
+  return T("hCall", "contract call: {m}", { m: esc(ev.method || ev.op || "?") }) + " · " + (from ? holderLink(from) + " → " : "") + holderLink(to);
+}
+function historyHtml(aid) {
+  loadHistory(aid);
+  const h = hist[aid];
+  if (!h || h.events == null) return `<div class="dim small">${T("histLoading", "Loading history…")}</div>`;
+  const rows = h.events.map((ev) => `<div class="line small">${describe(ev, aid)}
+    <span class="dim">· ${T("ago", "{t} ago", { t: fmtBlocks(Math.max(0, cursor - Number(ev.cursor || 0))) })}</span></div>`).join("");
+  const minted = h.events.some((ev) => ev.op === "asset_create");
+  const note = !minted && h.from != null ? `<div class="dim small mt">${T("histFrom", "History on this node starts at block {b}.", { b: h.from })}</div>` : "";
+  return (rows || `<div class="dim small">${T("noHistory", "No history yet.")}</div>`) + note;
 }
 
 function viewCollection(c) {
