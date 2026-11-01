@@ -23,7 +23,6 @@ this node (it can still exist on other IPFS nodes that chose to keep it; nothing
 Run: python3 scripts/operator/nft_upload.py serve [--port 9180]   (deploy/units/nado-nft-upload.service)
 """
 import argparse
-import asyncio
 import json
 import sys
 import time
