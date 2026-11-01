@@ -19,6 +19,7 @@ const dapp = new NadoDapp({ cid: CID, app: "NFT" });
 const T = (k, en, v) => window.t("nft." + k, en, v);
 
 const OPEN = 1, DONE = 2, CANCELLED = 3, EXPIRED = 4;
+const MAX_UPLOAD = 5 * 1024 * 1024;   // scripts/operator/nft_upload.py MAX_BYTES (it enforces it; this only saves a round trip)
 const MAX_ROYALTY_PCT = 25, MIN_DUR = 60, MAX_DUR = 201600, EXTEND = 50, MIN_RAISE_PCT = 5;
 const SALE_KIND = { 1: "listing", 2: "offer", 3: "auction", 4: "dutch" };
 
@@ -39,9 +40,14 @@ const fmtBlocks = (b) => {
 
 // a media link is usable only as ipfs:// (through a public gateway) or https://; anything else (javascript:, data:,
 // http:) is dropped, never rendered
+// ipfs:// is served by THIS site's own IPFS node (nginx /ipfs/ -> nado-ipfs.service gateway, sandboxed): the uploads
+// are pinned there, so they load fast and never depend on a public gateway's mood
 function mediaUrl(uri) {
   uri = String(uri || "").trim();
-  if (uri.startsWith("ipfs://")) return "https://ipfs.io/ipfs/" + encodeURI(uri.slice(7).replace(/^ipfs\//, ""));
+  if (uri.startsWith("ipfs://")) {
+    const cid = uri.slice(7).replace(/^ipfs\//, "");
+    return /^[A-Za-z0-9]+(\/[^\s"'<>]*)?$/.test(cid) ? base() + "/ipfs/" + encodeURI(cid) : "";
+  }
   if (/^https:\/\/[^\s"'<>]+$/.test(uri)) return uri;
   return "";
 }
@@ -145,6 +151,28 @@ async function finishMint() {
   if (!ok) return;
   dapp.call("register", [randId(), big(a.id), p.seed, p.bps, p.coll], null,
     T("callRegister", "register “{n}” · {r} royalty", { n: a.name, r: pct(p.bps) }), { phase: "register", id: p.seed });
+}
+
+// objkt-style upload: the file goes to this site's IPFS node (pinned there — the local copy that keeps it alive) and its
+// ipfs:// link fills the media field. The service re-checks everything; these checks only save a pointless upload.
+async function upload(file) {
+  if (!file) return;
+  const pv = $("mPreview");
+  if (file.size > MAX_UPLOAD) { pv.textContent = ""; return notify(T("tooBig", "The file is larger than 5 MB.")); }
+  pv.textContent = T("uploading", "Uploading {n}…", { n: file.name });
+  $("btnMint").disabled = true;
+  try {
+    const fd = new FormData(); fd.append("file", file, "media");
+    const r = await fetch(base() + "/upload", { method: "POST", body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.cid) throw new Error(j.error || ("HTTP " + r.status));
+    $("mUri").value = "ipfs://" + j.cid;
+    if (!$("mName").value.trim()) $("mName").value = file.name.replace(/\.[^.]+$/, "").slice(0, 64);
+    pv.innerHTML = `${mediaTag("ipfs://" + j.cid, "thumb prev")}<div>${T("uploaded", "Stored on IPFS · {c}", { c: esc(j.cid) })}</div>`;
+  } catch (e) {
+    pv.textContent = "";
+    notify(T("uploadFail", "Upload failed: {e}", { e: String(e.message || e) }));
+  } finally { $("btnMint").disabled = false; }
 }
 
 function createCollection() {
@@ -397,8 +425,11 @@ function viewCreate() {
   const opts = myCollections().map((c) => `<option value="${c}">${esc(field("c_name", c) || "")}</option>`).join("");
   const v = (s) => (s && s !== "-" ? esc(s) : "");
   return `<div class="card"><h3>${T("mintH", "Mint an NFT")}</h3>
-      <p class="small dim">${T("mintIntro", "Upload your file to IPFS (any pinning service), then paste its ipfs:// link. Two signatures: one creates the NFT, one records its royalty.")}</p>
+      <p class="small dim">${T("mintIntro2", "Choose your file — it is stored on IPFS and pinned by this site. Two signatures: one creates the NFT, one records its royalty.")}</p>
       <label>${T("fTitle", "Title")}</label><input id="mName" maxlength="64">
+      <label class="mt">${T("fFile", "File (image, video, audio or GLB — at most 5 MB)")}</label>
+      <input id="mFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/ogg,audio/wav,audio/flac,audio/mp4,model/gltf-binary,.glb">
+      <div id="mPreview" class="small dim mt"></div>
       <label class="mt">${T("fUri", "Media link (ipfs:// or https://)")}</label><input id="mUri" maxlength="128" placeholder="ipfs://…">
       <div class="row mt"><div><label>${T("fEditions", "Editions")}</label><input id="mEditions" value="1" inputmode="numeric"></div>
       <div><label>${T("fRoyalty", "Royalty (%)")}</label><input id="mRoyalty" value="10" inputmode="decimal"></div></div>
@@ -436,7 +467,8 @@ function render() {
   for (const el of document.querySelectorAll("#view input, #view select")) if (el.id) keep[el.id] = el.value;
   $("view").innerHTML = html;
   for (const id in keep) if ($(id) && keep[id] !== "") $(id).value = keep[id];
-  if (route === "create") { $("btnMint").onclick = mint; $("btnColl").onclick = createCollection; $("btnProfile").onclick = saveProfile; }
+  if (route === "create") { $("btnMint").onclick = mint; $("btnColl").onclick = createCollection; $("btnProfile").onclick = saveProfile;
+    $("mFile").onchange = (ev) => upload(ev.target.files && ev.target.files[0]); }
 }
 
 async function refresh() {

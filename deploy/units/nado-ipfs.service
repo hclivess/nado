@@ -1,0 +1,28 @@
+# The IPFS node behind nft.nadochain.com (kubo), 2026-11-01. A TEMPLATE — see nado-bet-oracle.service. It keeps the
+# LOCAL COPY of every uploaded NFT file (pinned) and serves it to the IPFS network, so an ipfs:// link minted here keeps
+# working from any gateway. The binary is the operator-installed /usr/local/bin/ipfs (kubo, checksum-verified at
+# install); until it exists this unit fails and /status jobs.problems says so.
+# API on 127.0.0.1:5001 only (never public: scripts/operator/nft_upload.py is the only writer); gateway on
+# 127.0.0.1:8089 (nginx serves it at nft.nadochain.com/ipfs/ with a sandbox CSP). `--profile server` stops it probing
+# private networks from a datacentre address. ExecStartPre is idempotent: init once, then the same settings each start.
+[Unit]
+Description=NADO NFT media: IPFS node (kubo) — local pinned copy, served to the IPFS network
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+Environment=HOME=@HOME@
+Environment=IPFS_PATH=@HOME@/.ipfs
+ExecStartPre=/bin/sh -c 'test -f "$IPFS_PATH/config" || /usr/local/bin/ipfs init --profile server'
+ExecStartPre=/usr/local/bin/ipfs config Addresses.API /ip4/127.0.0.1/tcp/5001
+ExecStartPre=/usr/local/bin/ipfs config Addresses.Gateway /ip4/127.0.0.1/tcp/8089
+ExecStartPre=/usr/local/bin/ipfs config Datastore.StorageMax 40GB
+ExecStart=/usr/local/bin/ipfs daemon --enable-gc
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

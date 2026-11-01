@@ -117,7 +117,6 @@
   "nft.created": "Created",
   "nft.createdNone": "Nothing created yet.",
   "nft.mintH": "Mint an NFT",
-  "nft.mintIntro": "Upload your file to IPFS (any pinning service), then paste its ipfs:// link. Two signatures: one creates the NFT, one records its royalty.",
   "nft.fTitle": "Title",
   "nft.fUri": "Media link (ipfs:// or https://)",
   "nft.fEditions": "Editions",
@@ -163,7 +162,13 @@
   "nft.deposit": "Deposit",
   "nft.withdraw": "Withdraw",
   "nft.footer": "The contract is public and verifiable on the NADO execution layer. Media lives on IPFS; only its link is on chain. A royalty binds sales through this marketplace.",
-  "nft.amountPh": "amount (NADO)"
+  "nft.amountPh": "amount (NADO)",
+  "nft.fFile": "File (image, video, audio or GLB — at most 5 MB)",
+  "nft.tooBig": "The file is larger than 5 MB.",
+  "nft.uploading": "Uploading {n}…",
+  "nft.uploaded": "Stored on IPFS · {c}",
+  "nft.uploadFail": "Upload failed: {e}",
+  "nft.mintIntro2": "Choose your file — it is stored on IPFS and pinned by this site. Two signatures: one creates the NFT, one records its royalty."
  },
  "cs": {
   "nft.days": "{n} d",
@@ -283,7 +288,6 @@
   "nft.created": "Vytvořené",
   "nft.createdNone": "Zatím nic nevytvořeno.",
   "nft.mintH": "Vyrazit NFT",
-  "nft.mintIntro": "Nahrajte soubor na IPFS (libovolná pinovací služba) a vložte jeho odkaz ipfs://. Dva podpisy: jeden vytvoří NFT, druhý zaznamená jeho autorský poplatek.",
   "nft.fTitle": "Název",
   "nft.fUri": "Odkaz na médium (ipfs:// nebo https://)",
   "nft.fEditions": "Edice",
@@ -329,7 +333,13 @@
   "nft.deposit": "Vložit",
   "nft.withdraw": "Vybrat",
   "nft.footer": "Kontrakt je veřejný a ověřitelný v exekuční vrstvě NADO. Média jsou uložena na IPFS; na řetězci je jen odkaz. Autorský poplatek platí pro prodeje na tomto tržišti.",
-  "nft.amountPh": "částka (NADO)"
+  "nft.amountPh": "částka (NADO)",
+  "nft.fFile": "Soubor (obrázek, video, zvuk nebo GLB — nejvýše 5 MB)",
+  "nft.tooBig": "Soubor je větší než 5 MB.",
+  "nft.uploading": "Nahrávám {n}…",
+  "nft.uploaded": "Uloženo na IPFS · {c}",
+  "nft.uploadFail": "Nahrání selhalo: {e}",
+  "nft.mintIntro2": "Vyberte soubor — uloží se na IPFS a tento web jej připne. Dva podpisy: jeden vytvoří NFT, druhý zaznamená jeho autorský poplatek."
  },
  "es": {
   "nft.days": "{n} d",
@@ -449,7 +459,6 @@
   "nft.created": "Creados",
   "nft.createdNone": "Aún no has creado nada.",
   "nft.mintH": "Acuñar un NFT",
-  "nft.mintIntro": "Sube tu archivo a IPFS (cualquier servicio de pinning) y pega su enlace ipfs://. Dos firmas: una crea el NFT y otra registra su regalía.",
   "nft.fTitle": "Título",
   "nft.fUri": "Enlace al contenido (ipfs:// o https://)",
   "nft.fEditions": "Ediciones",
@@ -495,7 +504,13 @@
   "nft.deposit": "Depositar",
   "nft.withdraw": "Retirar",
   "nft.footer": "El contrato es público y verificable en la capa de ejecución de NADO. El contenido vive en IPFS; en la cadena solo está su enlace. La regalía se aplica a las ventas en este mercado.",
-  "nft.amountPh": "cantidad (NADO)"
+  "nft.amountPh": "cantidad (NADO)",
+  "nft.fFile": "Archivo (imagen, vídeo, audio o GLB — máximo 5 MB)",
+  "nft.tooBig": "El archivo supera los 5 MB.",
+  "nft.uploading": "Subiendo {n}…",
+  "nft.uploaded": "Guardado en IPFS · {c}",
+  "nft.uploadFail": "Error al subir: {e}",
+  "nft.mintIntro2": "Elige tu archivo: se guarda en IPFS y este sitio lo fija. Dos firmas: una crea el NFT y otra registra su regalía."
  },
  "pt": {
   "nft.days": "{n} d",
@@ -615,7 +630,6 @@
   "nft.created": "Criados",
   "nft.createdNone": "Nada criado ainda.",
   "nft.mintH": "Criar um NFT",
-  "nft.mintIntro": "Envie seu arquivo para o IPFS (qualquer serviço de pinning) e cole o link ipfs://. Duas assinaturas: uma cria o NFT e outra registra o royalty.",
   "nft.fTitle": "Título",
   "nft.fUri": "Link da mídia (ipfs:// ou https://)",
   "nft.fEditions": "Edições",
@@ -661,7 +675,13 @@
   "nft.deposit": "Depositar",
   "nft.withdraw": "Sacar",
   "nft.footer": "O contrato é público e verificável na camada de execução da NADO. A mídia fica no IPFS; só o link está na cadeia. O royalty vale para as vendas neste marketplace.",
-  "nft.amountPh": "quantia (NADO)"
+  "nft.amountPh": "quantia (NADO)",
+  "nft.fFile": "Ficheiro (imagem, vídeo, áudio ou GLB — no máximo 5 MB)",
+  "nft.tooBig": "O ficheiro tem mais de 5 MB.",
+  "nft.uploading": "A enviar {n}…",
+  "nft.uploaded": "Guardado no IPFS · {c}",
+  "nft.uploadFail": "O envio falhou: {e}",
+  "nft.mintIntro2": "Escolha o seu ficheiro — fica guardado no IPFS e fixado por este site. Duas assinaturas: uma cria o NFT, outra regista o seu royalty."
  },
  "fr": {
   "nft.days": "{n} j",
@@ -781,7 +801,6 @@
   "nft.created": "Créés",
   "nft.createdNone": "Rien de créé pour l'instant.",
   "nft.mintH": "Créer un NFT",
-  "nft.mintIntro": "Téléversez votre fichier sur IPFS (n'importe quel service d'épinglage), puis collez son lien ipfs://. Deux signatures : l'une crée le NFT, l'autre enregistre sa redevance.",
   "nft.fTitle": "Titre",
   "nft.fUri": "Lien du média (ipfs:// ou https://)",
   "nft.fEditions": "Éditions",
@@ -827,7 +846,13 @@
   "nft.deposit": "Déposer",
   "nft.withdraw": "Retirer",
   "nft.footer": "Le contrat est public et vérifiable sur la couche d'exécution NADO. Les médias résident sur IPFS ; seul leur lien est sur la chaîne. Une redevance s'applique aux ventes via cette place de marché.",
-  "nft.amountPh": "montant (NADO)"
+  "nft.amountPh": "montant (NADO)",
+  "nft.fFile": "Fichier (image, vidéo, audio ou GLB — 5 Mo au plus)",
+  "nft.tooBig": "Le fichier dépasse 5 Mo.",
+  "nft.uploading": "Envoi de {n}…",
+  "nft.uploaded": "Stocké sur IPFS · {c}",
+  "nft.uploadFail": "Échec de l'envoi : {e}",
+  "nft.mintIntro2": "Choisissez votre fichier : il est stocké sur IPFS et épinglé par ce site. Deux signatures : l'une crée le NFT, l'autre enregistre sa redevance."
  },
  "de": {
   "nft.days": "{n} T",
@@ -947,7 +972,6 @@
   "nft.created": "Erstellt",
   "nft.createdNone": "Noch nichts erstellt.",
   "nft.mintH": "NFT prägen",
-  "nft.mintIntro": "Lade deine Datei auf IPFS hoch (beliebiger Pinning-Dienst) und füge ihren ipfs://-Link ein. Zwei Signaturen: eine erstellt das NFT, eine hinterlegt seine Lizenzgebühr.",
   "nft.fTitle": "Titel",
   "nft.fUri": "Medien-Link (ipfs:// oder https://)",
   "nft.fEditions": "Editionen",
@@ -993,7 +1017,13 @@
   "nft.deposit": "Einzahlen",
   "nft.withdraw": "Abheben",
   "nft.footer": "Der Vertrag ist öffentlich und auf der NADO-Ausführungsschicht überprüfbar. Medien liegen auf IPFS; nur ihr Link steht auf der Chain. Eine Lizenzgebühr gilt für Verkäufe über diesen Marktplatz.",
-  "nft.amountPh": "Betrag (NADO)"
+  "nft.amountPh": "Betrag (NADO)",
+  "nft.fFile": "Datei (Bild, Video, Audio oder GLB — höchstens 5 MB)",
+  "nft.tooBig": "Die Datei ist größer als 5 MB.",
+  "nft.uploading": "{n} wird hochgeladen…",
+  "nft.uploaded": "Auf IPFS gespeichert · {c}",
+  "nft.uploadFail": "Hochladen fehlgeschlagen: {e}",
+  "nft.mintIntro2": "Wähle deine Datei — sie wird auf IPFS gespeichert und von dieser Seite gepinnt. Zwei Signaturen: eine erstellt das NFT, eine hält seine Lizenzgebühr fest."
  },
  "it": {
   "nft.days": "{n} g",
@@ -1113,7 +1143,6 @@
   "nft.created": "Creati",
   "nft.createdNone": "Ancora niente di creato.",
   "nft.mintH": "Conia un NFT",
-  "nft.mintIntro": "Carica il tuo file su IPFS (qualsiasi servizio di pinning), poi incolla il suo link ipfs://. Due firme: una crea l'NFT, l'altra registra la sua royalty.",
   "nft.fTitle": "Titolo",
   "nft.fUri": "Link al media (ipfs:// o https://)",
   "nft.fEditions": "Edizioni",
@@ -1159,7 +1188,13 @@
   "nft.deposit": "Deposita",
   "nft.withdraw": "Preleva",
   "nft.footer": "Il contratto è pubblico e verificabile sul livello di esecuzione NADO. I media risiedono su IPFS; sulla catena c'è solo il link. La royalty vale per le vendite in questo marketplace.",
-  "nft.amountPh": "importo (NADO)"
+  "nft.amountPh": "importo (NADO)",
+  "nft.fFile": "File (immagine, video, audio o GLB — al massimo 5 MB)",
+  "nft.tooBig": "Il file supera i 5 MB.",
+  "nft.uploading": "Caricamento di {n}…",
+  "nft.uploaded": "Salvato su IPFS · {c}",
+  "nft.uploadFail": "Caricamento non riuscito: {e}",
+  "nft.mintIntro2": "Scegli il tuo file: viene salvato su IPFS e fissato da questo sito. Due firme: una crea l'NFT, l'altra registra la sua royalty."
  },
  "ru": {
   "nft.days": "{n} д",
@@ -1279,7 +1314,6 @@
   "nft.created": "Созданные",
   "nft.createdNone": "Пока ничего не создано.",
   "nft.mintH": "Выпустить NFT",
-  "nft.mintIntro": "Загрузите файл в IPFS (любой пиннинг-сервис) и вставьте его ссылку ipfs://. Две подписи: одна создаёт NFT, другая закрепляет роялти.",
   "nft.fTitle": "Название",
   "nft.fUri": "Ссылка на медиа (ipfs:// или https://)",
   "nft.fEditions": "Тираж",
@@ -1325,7 +1359,13 @@
   "nft.deposit": "Внести",
   "nft.withdraw": "Вывести",
   "nft.footer": "Контракт публичен и проверяем в слое исполнения NADO. Медиа хранятся в IPFS; в цепи — только ссылка. Роялти действует для продаж на этом маркетплейсе.",
-  "nft.amountPh": "сумма (NADO)"
+  "nft.amountPh": "сумма (NADO)",
+  "nft.fFile": "Файл (изображение, видео, аудио или GLB — не более 5 МБ)",
+  "nft.tooBig": "Файл больше 5 МБ.",
+  "nft.uploading": "Загрузка {n}…",
+  "nft.uploaded": "Сохранено в IPFS · {c}",
+  "nft.uploadFail": "Не удалось загрузить: {e}",
+  "nft.mintIntro2": "Выберите файл — он сохраняется в IPFS и закрепляется этим сайтом. Две подписи: одна создаёт NFT, другая записывает его роялти."
  },
  "zh": {
   "nft.days": "{n} 天",
@@ -1445,7 +1485,6 @@
   "nft.created": "已创建",
   "nft.createdNone": "尚未创建任何内容。",
   "nft.mintH": "铸造 NFT",
-  "nft.mintIntro": "将文件上传到 IPFS（任意固定服务），然后粘贴其 ipfs:// 链接。需要两次签名：一次创建 NFT，一次登记版税。",
   "nft.fTitle": "标题",
   "nft.fUri": "媒体链接（ipfs:// 或 https://）",
   "nft.fEditions": "版数",
@@ -1491,7 +1530,13 @@
   "nft.deposit": "存入",
   "nft.withdraw": "提取",
   "nft.footer": "合约公开，可在 NADO 执行层上验证。媒体存放在 IPFS；链上只有其链接。版税约束通过本市场进行的销售。",
-  "nft.amountPh": "数额（NADO）"
+  "nft.amountPh": "数额（NADO）",
+  "nft.fFile": "文件（图片、视频、音频或 GLB——最大 5 MB）",
+  "nft.tooBig": "文件超过 5 MB。",
+  "nft.uploading": "正在上传 {n}…",
+  "nft.uploaded": "已存储到 IPFS · {c}",
+  "nft.uploadFail": "上传失败：{e}",
+  "nft.mintIntro2": "选择你的文件——它会存储到 IPFS 并由本站固定。两次签名：一次创建 NFT，一次记录其版税。"
  },
  "ja": {
   "nft.days": "{n}日",
@@ -1611,7 +1656,6 @@
   "nft.created": "作成済み",
   "nft.createdNone": "まだ何も作成していません。",
   "nft.mintH": "NFT をミント",
-  "nft.mintIntro": "ファイルを IPFS にアップロード（任意のピンニングサービス）し、その ipfs:// リンクを貼り付けてください。署名は2回：1回目で NFT を作成し、2回目でロイヤリティを記録します。",
   "nft.fTitle": "タイトル",
   "nft.fUri": "メディアリンク（ipfs:// または https://）",
   "nft.fEditions": "エディション数",
@@ -1657,7 +1701,13 @@
   "nft.deposit": "入金",
   "nft.withdraw": "出金",
   "nft.footer": "コントラクトは公開されており、NADO 実行レイヤーで検証できます。メディアは IPFS 上にあり、チェーン上にはリンクのみがあります。ロイヤリティはこのマーケットプレイスでの販売に適用されます。",
-  "nft.amountPh": "金額（NADO）"
+  "nft.amountPh": "金額（NADO）",
+  "nft.fFile": "ファイル（画像・動画・音声・GLB — 最大 5 MB）",
+  "nft.tooBig": "ファイルが 5 MB を超えています。",
+  "nft.uploading": "{n} をアップロード中…",
+  "nft.uploaded": "IPFS に保存しました · {c}",
+  "nft.uploadFail": "アップロードに失敗しました: {e}",
+  "nft.mintIntro2": "ファイルを選んでください。IPFS に保存され、このサイトがピン留めします。署名は 2 回：NFT の作成と、ロイヤリティの記録です。"
  },
  "ko": {
   "nft.days": "{n}일",
@@ -1777,7 +1827,6 @@
   "nft.created": "생성함",
   "nft.createdNone": "아직 생성한 항목이 없습니다.",
   "nft.mintH": "NFT 민팅",
-  "nft.mintIntro": "파일을 IPFS에 업로드한 뒤(아무 피닝 서비스나 가능) ipfs:// 링크를 붙여 넣으세요. 서명은 두 번입니다: 한 번은 NFT를 생성하고, 한 번은 로열티를 기록합니다.",
   "nft.fTitle": "제목",
   "nft.fUri": "미디어 링크 (ipfs:// 또는 https://)",
   "nft.fEditions": "에디션 수",
@@ -1823,7 +1872,13 @@
   "nft.deposit": "입금",
   "nft.withdraw": "출금",
   "nft.footer": "컨트랙트는 공개되어 있으며 NADO 실행 레이어에서 검증할 수 있습니다. 미디어는 IPFS에 있고 체인에는 링크만 있습니다. 로열티는 이 마켓플레이스를 통한 판매에 적용됩니다.",
-  "nft.amountPh": "금액 (NADO)"
+  "nft.amountPh": "금액 (NADO)",
+  "nft.fFile": "파일 (이미지, 동영상, 오디오 또는 GLB — 최대 5MB)",
+  "nft.tooBig": "파일이 5MB보다 큽니다.",
+  "nft.uploading": "{n} 업로드 중…",
+  "nft.uploaded": "IPFS에 저장됨 · {c}",
+  "nft.uploadFail": "업로드 실패: {e}",
+  "nft.mintIntro2": "파일을 선택하세요 — IPFS에 저장되고 이 사이트가 고정합니다. 서명은 두 번: 하나는 NFT를 만들고, 하나는 로열티를 기록합니다."
  },
  "ar": {
   "nft.days": "{n} ي",
@@ -1943,7 +1998,6 @@
   "nft.created": "المُنشأة",
   "nft.createdNone": "لم يُنشأ شيء بعد.",
   "nft.mintH": "اسكّ NFT",
-  "nft.mintIntro": "ارفع ملفك إلى IPFS (أي خدمة تثبيت)، ثم الصق رابط ipfs:// الخاص به. توقيعان: أحدهما ينشئ الـ NFT، والآخر يسجّل إتاوته.",
   "nft.fTitle": "العنوان",
   "nft.fUri": "رابط الوسائط (ipfs:// أو https://)",
   "nft.fEditions": "الإصدارات",
@@ -1989,7 +2043,13 @@
   "nft.deposit": "إيداع",
   "nft.withdraw": "سحب",
   "nft.footer": "العقد عام وقابل للتحقق على طبقة التنفيذ في NADO. تُخزَّن الوسائط على IPFS؛ ولا يوجد على السلسلة سوى رابطها. تسري الإتاوة على المبيعات عبر هذا السوق.",
-  "nft.amountPh": "المبلغ (NADO)"
+  "nft.amountPh": "المبلغ (NADO)",
+  "nft.fFile": "الملف (صورة أو فيديو أو صوت أو GLB — 5 ميغابايت كحد أقصى)",
+  "nft.tooBig": "حجم الملف أكبر من 5 ميغابايت.",
+  "nft.uploading": "جارٍ رفع {n}…",
+  "nft.uploaded": "تم الحفظ على IPFS · {c}",
+  "nft.uploadFail": "فشل الرفع: {e}",
+  "nft.mintIntro2": "اختر ملفك — يُخزَّن على IPFS ويثبّته هذا الموقع. توقيعان: أحدهما ينشئ الـ NFT والآخر يسجّل إتاوته."
  },
  "hi": {
   "nft.days": "{n} दिन",
@@ -2109,7 +2169,6 @@
   "nft.created": "बनाए गए",
   "nft.createdNone": "अभी कुछ नहीं बनाया।",
   "nft.mintH": "NFT मिंट करें",
-  "nft.mintIntro": "अपनी फ़ाइल IPFS पर अपलोड करें (कोई भी पिनिंग सेवा), फिर उसका ipfs:// लिंक पेस्ट करें। दो हस्ताक्षर: एक NFT बनाता है, दूसरा उसकी रॉयल्टी दर्ज करता है।",
   "nft.fTitle": "शीर्षक",
   "nft.fUri": "मीडिया लिंक (ipfs:// या https://)",
   "nft.fEditions": "संस्करण",
@@ -2155,7 +2214,13 @@
   "nft.deposit": "जमा करें",
   "nft.withdraw": "निकालें",
   "nft.footer": "कॉन्ट्रैक्ट सार्वजनिक है और NADO एक्ज़ीक्यूशन लेयर पर सत्यापित किया जा सकता है। मीडिया IPFS पर रहता है; चेन पर केवल उसका लिंक है। रॉयल्टी इस मार्केटप्लेस के ज़रिए होने वाली बिक्री पर लागू होती है।",
-  "nft.amountPh": "राशि (NADO)"
+  "nft.amountPh": "राशि (NADO)",
+  "nft.fFile": "फ़ाइल (छवि, वीडियो, ऑडियो या GLB — अधिकतम 5 MB)",
+  "nft.tooBig": "फ़ाइल 5 MB से बड़ी है।",
+  "nft.uploading": "{n} अपलोड हो रही है…",
+  "nft.uploaded": "IPFS पर सहेजा गया · {c}",
+  "nft.uploadFail": "अपलोड विफल: {e}",
+  "nft.mintIntro2": "अपनी फ़ाइल चुनें — यह IPFS पर सहेजी जाती है और यह साइट इसे पिन करती है। दो हस्ताक्षर: एक NFT बनाता है, दूसरा उसकी रॉयल्टी दर्ज करता है।"
  },
  "tr": {
   "nft.days": "{n} g",
@@ -2275,7 +2340,6 @@
   "nft.created": "Oluşturulan",
   "nft.createdNone": "Henüz bir şey oluşturulmadı.",
   "nft.mintH": "NFT bas",
-  "nft.mintIntro": "Dosyanı IPFS'e yükle (herhangi bir pinleme hizmeti), sonra ipfs:// bağlantısını yapıştır. İki imza: biri NFT'yi oluşturur, diğeri telif payını kaydeder.",
   "nft.fTitle": "Başlık",
   "nft.fUri": "Medya bağlantısı (ipfs:// veya https://)",
   "nft.fEditions": "Baskı",
@@ -2321,7 +2385,13 @@
   "nft.deposit": "Yatır",
   "nft.withdraw": "Çek",
   "nft.footer": "Sözleşme herkese açıktır ve NADO yürütme katmanında doğrulanabilir. Medya IPFS'te durur; zincirde yalnızca bağlantısı vardır. Telif payı bu pazar yerindeki satışlar için geçerlidir.",
-  "nft.amountPh": "tutar (NADO)"
+  "nft.amountPh": "tutar (NADO)",
+  "nft.fFile": "Dosya (görsel, video, ses veya GLB — en fazla 5 MB)",
+  "nft.tooBig": "Dosya 5 MB'tan büyük.",
+  "nft.uploading": "{n} yükleniyor…",
+  "nft.uploaded": "IPFS'e kaydedildi · {c}",
+  "nft.uploadFail": "Yükleme başarısız: {e}",
+  "nft.mintIntro2": "Dosyanızı seçin — IPFS'e kaydedilir ve bu site tarafından sabitlenir. İki imza: biri NFT'yi oluşturur, diğeri telif payını kaydeder."
  },
  "id": {
   "nft.days": "{n} hr",
@@ -2441,7 +2511,6 @@
   "nft.created": "Dibuat",
   "nft.createdNone": "Belum ada yang dibuat.",
   "nft.mintH": "Cetak NFT",
-  "nft.mintIntro": "Unggah file Anda ke IPFS (layanan pinning apa pun), lalu tempel tautan ipfs://-nya. Dua tanda tangan: satu membuat NFT, satu mencatat royaltinya.",
   "nft.fTitle": "Judul",
   "nft.fUri": "Tautan media (ipfs:// atau https://)",
   "nft.fEditions": "Edisi",
@@ -2487,7 +2556,13 @@
   "nft.deposit": "Setor",
   "nft.withdraw": "Tarik",
   "nft.footer": "Kontrak ini publik dan dapat diverifikasi di lapisan eksekusi NADO. Media disimpan di IPFS; hanya tautannya yang ada di rantai. Royalti berlaku untuk penjualan melalui marketplace ini.",
-  "nft.amountPh": "jumlah (NADO)"
+  "nft.amountPh": "jumlah (NADO)",
+  "nft.fFile": "File (gambar, video, audio, atau GLB — maksimal 5 MB)",
+  "nft.tooBig": "File lebih besar dari 5 MB.",
+  "nft.uploading": "Mengunggah {n}…",
+  "nft.uploaded": "Tersimpan di IPFS · {c}",
+  "nft.uploadFail": "Unggahan gagal: {e}",
+  "nft.mintIntro2": "Pilih file Anda — disimpan di IPFS dan di-pin oleh situs ini. Dua tanda tangan: satu membuat NFT, satu mencatat royaltinya."
  },
  "vi": {
   "nft.days": "{n} ngày",
@@ -2607,7 +2682,6 @@
   "nft.created": "Đã tạo",
   "nft.createdNone": "Chưa tạo gì.",
   "nft.mintH": "Đúc NFT",
-  "nft.mintIntro": "Tải tệp của bạn lên IPFS (bất kỳ dịch vụ ghim nào), rồi dán liên kết ipfs:// của nó. Hai chữ ký: một để tạo NFT, một để ghi nhận tiền bản quyền.",
   "nft.fTitle": "Tiêu đề",
   "nft.fUri": "Liên kết media (ipfs:// hoặc https://)",
   "nft.fEditions": "Ấn bản",
@@ -2653,6 +2727,12 @@
   "nft.deposit": "Nạp",
   "nft.withdraw": "Rút",
   "nft.footer": "Hợp đồng công khai và có thể xác minh trên lớp thực thi NADO. Media nằm trên IPFS; trên chuỗi chỉ có liên kết của nó. Tiền bản quyền áp dụng cho các giao dịch bán qua chợ này.",
-  "nft.amountPh": "số tiền (NADO)"
+  "nft.amountPh": "số tiền (NADO)",
+  "nft.fFile": "Tệp (ảnh, video, âm thanh hoặc GLB — tối đa 5 MB)",
+  "nft.tooBig": "Tệp lớn hơn 5 MB.",
+  "nft.uploading": "Đang tải lên {n}…",
+  "nft.uploaded": "Đã lưu trên IPFS · {c}",
+  "nft.uploadFail": "Tải lên thất bại: {e}",
+  "nft.mintIntro2": "Chọn tệp của bạn — tệp được lưu trên IPFS và được trang này ghim. Hai chữ ký: một để tạo NFT, một để ghi nhận tiền bản quyền."
  }
 }

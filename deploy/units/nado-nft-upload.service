@@ -1,0 +1,20 @@
+# The NFT media upload service (scripts/operator/nft_upload.py) behind nft.nadochain.com/upload, 2026-11-01. A TEMPLATE
+# — see nado-bet-oracle.service. Checks size (5 MB), the file's real type, per-client and daily limits and the storage
+# cap, then pins the file in nado-ipfs.service. Listens on 127.0.0.1:9180 only; nginx is its only caller.
+[Unit]
+Description=NADO NFT media upload (checks, then pins to the local IPFS node)
+After=network-online.target nado-ipfs.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@REPO@
+Environment=HOME=@HOME@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/operator/nft_upload.py serve --port 9180
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

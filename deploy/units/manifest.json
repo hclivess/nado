@@ -14,6 +14,10 @@
     {"unit": "nado-settle-shadow.timer",  "role": "operator", "source": "repo",
      "files": ["nado-settle-shadow.service", "nado-settle-shadow.timer"], "runs": "nado-settle-shadow.service"},
     {"unit": "nado-exec-keeper.timer",    "role": "exec",     "source": "repo",
-     "files": ["nado-exec-keeper.service", "nado-exec-keeper.timer"], "runs": "nado-exec-keeper.service"}
+     "files": ["nado-exec-keeper.service", "nado-exec-keeper.timer"], "runs": "nado-exec-keeper.service"},
+    {"unit": "nado-ipfs.service",         "role": "operator", "source": "repo",
+     "files": ["nado-ipfs.service"]},
+    {"unit": "nado-nft-upload.service",   "role": "operator", "source": "repo",
+     "files": ["nado-nft-upload.service"]}
   ]
 }
