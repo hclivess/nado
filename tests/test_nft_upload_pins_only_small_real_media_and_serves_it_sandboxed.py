@@ -108,6 +108,10 @@ check("6. /upload is POST-only with a body ceiling, proxied to the checking serv
 check("6. /ipfs/ is GET/HEAD-only and sandboxed with nosniff on every response",
       ipfs and "limit_except GET HEAD { deny all; }" in ipfs.group(1) and 'Content-Security-Policy "sandbox;' in ipfs.group(1)
       and "X-Content-Type-Options nosniff always" in ipfs.group(1) and "127.0.0.1:8089" in ipfs.group(1))
+unit = open(os.path.join(ROOT, "deploy", "units", "nado-ipfs.service")).read()
+check("6. the gateway serves only what this node pinned (Gateway.NoFetch), never any CID from the network",
+      "ExecStartPre=/usr/local/bin/ipfs config --json Gateway.NoFetch true" in unit
+      and unit.index("Gateway.NoFetch") < unit.index("ExecStart=/usr/local/bin/ipfs daemon"))
 js = open(os.path.join(ROOT, "static", "nft.js"), encoding="utf-8").read()
 check("7. the page serves ipfs:// from this site's /ipfs/ and caps uploads at 5 MB",
       'base() + "/ipfs/"' in js and "ipfs.io" not in js and "const MAX_UPLOAD = 5 * 1024 * 1024" in js

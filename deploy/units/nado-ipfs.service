@@ -20,6 +20,10 @@ ExecStartPre=/bin/sh -c 'test -f "$IPFS_PATH/config" || /usr/local/bin/ipfs init
 ExecStartPre=/usr/local/bin/ipfs config Addresses.API /ip4/127.0.0.1/tcp/5001
 ExecStartPre=/usr/local/bin/ipfs config Addresses.Gateway /ip4/127.0.0.1/tcp/8089
 ExecStartPre=/usr/local/bin/ipfs config Datastore.StorageMax 40GB
+# NoFetch: the gateway serves ONLY what this node holds (the uploads it pinned). Without it nft.nadochain.com/ipfs/
+# was an open public gateway that fetched any CID from the network on request (measured 2026-11-02: a CID never
+# uploaded here answered 200) — anyone's content, served from our domain.
+ExecStartPre=/usr/local/bin/ipfs config --json Gateway.NoFetch true
 ExecStart=/usr/local/bin/ipfs daemon --enable-gc
 Restart=always
 RestartSec=30
