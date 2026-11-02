@@ -273,6 +273,13 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # S4: a DA-carried proof (`proof_da`) was fully verified at validation but never recorded the proven marker, so
         # the settle it justified fell back to the quorum path. `>= 1` is gen 25's REVIEW_R2_HEIGHT from gen 26 (deleted).
         proven = "proof" in data or (block_height is not None and int(block_height) >= 1 and "proof_da" in data)
+        # INVARIANT (protocol.SETTLE_FIELDS_HEIGHT): from the gate only `stwo` (below) marks a root proven. The retired
+        # names are refused by key at validation from the same height; this keeps apply from honouring them even so.
+        from protocol import SETTLE_FIELDS_HEIGHT
+        # (keyed on the block's own height only: apply and revert of one block see the same height, so the marker
+        # put and the marker deleted stay one decision — an absent height keeps the old reading, as before the gate)
+        if block_height is not None and int(block_height) >= SETTLE_FIELDS_HEIGHT:
+            proven = False
         # G8: A STWO SETTLEMENT (`stwo`, the DA commitment of an execnode/settle_b2 bundle) is proven the same way —
         # transaction_ops._stwo_settle_check verified it before it could reach apply, and refuses the field below
         # protocol.STWO_SETTLE_HEIGHT. INVARIANT: the same field and the same gate as that validation, and revert deletes

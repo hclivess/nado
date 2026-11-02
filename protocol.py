@@ -2280,6 +2280,13 @@ EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor;
 # native/stwo_settle built. Live from block 1 at the next reroll.
 STWO_SETTLE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 29 else 1
 
+# SETTLE DATA FIELDS (2026-11-02). The two retired settle-proof field names (`proof`, `proof_da`: the Goldilocks
+# settlement proof, deleted in G9) are refused by KEY from this L1 height — present with any value, null included — and
+# apply derives the proven marker from `stwo` alone (at or above STWO_SETTLE_HEIGHT), never from either retired name.
+# Below the height both sites keep their old reading so history replays byte-identically. Mempool admission (no block
+# height) applies the new rule at once. Live from block 1 at the next reroll.
+SETTLE_FIELDS_HEIGHT = 86400 if CHAIN_GENERATION == 29 else 1   # L1 height; tip 85645 when this shipped (2026-11-02)
+
 # USER-SELECTABLE SIGNATURE SCHEMES (doc/signature-schemes.md, operator 2026-10-25: "multiple (pluggable) scheme options
 # ... let users pick"). ML-DSA-44 stays the default and the only scheme of every surface the CHAIN signs with (blocks,
 # status attestations, duties, registration, auth configs, multisig members, invites, messaging): an account picks its

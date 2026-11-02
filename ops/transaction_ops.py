@@ -2692,6 +2692,11 @@ def _validate_settle(transaction, block_height, deep):
     # gen-29 node refused would validate on a node that kept them.
     assert data.get("proof") is None and data.get("proof_da") is None, \
         "a BLAKE2s exec root settles by quorum attestation only (no Goldilocks settle proof)"
+    # INVARIANT (protocol.SETTLE_FIELDS_HEIGHT): refused by KEY, not by value — `"proof": null` passed the line above, and
+    # apply (account_ops) read the key's presence. Mempool admission (block_height None) applies it at once.
+    from protocol import SETTLE_FIELDS_HEIGHT
+    if block_height is None or int(block_height) >= SETTLE_FIELDS_HEIGHT:
+        assert "proof" not in data and "proof_da" not in data, "a settle carries no retired proof field"
     # SETTLEMENT-ORACLE CAPTURE (critical). active_settler_shares anchors the quorum DENOMINATOR on
     # settlement_max_cursor(ns) and leaks out anyone who has not attested within SETTLE_ACTIVITY_CURSORS
     # of it. With the cursor unbounded, ONE fee-exempt settle at cursor ~2**64 pushes that activity floor
