@@ -13,7 +13,7 @@
 // clicked). That last one is why a lender who loses their key cannot freeze a borrower's collateral.
 // Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel,
-         wireWallet, renderWallet, stickyInputs, alertBar, loadQR, orderCards, installModes, playModes,
+         wireWallet, financeLabels, renderWallet, stickyInputs, alertBar, loadQR, orderCards, installModes, playModes,
          fmtWhen, uiConfirm, disp } from "./nadodapp.js";
 
 const CID = "f9959fa0a054b5972e9c35caf24d9e03";
@@ -246,6 +246,7 @@ async function refresh() {
 
 // ---- wiring -----------------------------------------------------------------------------------------
 function wireUI() {
+  dapp.walletLabels = financeLabels();   // credit, not a game: deposit / withdraw a usable balance
   wireWallet(dapp, render);
   stickyInputs(dapp, ["oPrincipal", "oInterest", "oCollateral", "oDays"]);   // (dapp, ids): the swapped call threw at boot, so no button was ever wired (since 2026-08-02)
   $("btnOffer").onclick = postOffer;

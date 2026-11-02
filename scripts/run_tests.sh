@@ -78,7 +78,7 @@ test_zkvm_runtime 65
 "
 # LIVE tests talk to the node this checkout runs (tests/test_tests_are_isolated.py keeps this list and the tree in
 # step): test_otc_swap_e2e POSTS real transactions with the operator's keys. Never batched — run one by hand, knowingly.
-LIVE="test_otc_swap_e2e"
+LIVE="test_otc_swap_e2e test_nft_market_live_e2e"
 run_one() {
   t=$1; tmo=$2; n=$(basename "$t"); n=${n%.py}; n=${n%.mjs}; n=${n%.js}; h="$OUT/home-$n"; mkdir -p "$h"
   case " $LIVE " in *" $n "*) printf "%-8s rc=%-3s fails=%-2s skips=%-2s %s\n" "LIVE" "-" "-" "-" "$n (skipped: talks to the live node)"; return;; esac

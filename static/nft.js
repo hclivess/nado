@@ -11,7 +11,7 @@
 //
 // UNTRUSTED TEXT: names, descriptions, bios, avatar and media links come from the chain, i.e. from anyone. Every one
 // goes through esc() before it reaches innerHTML, and a media link is used only if it is ipfs:// or https://.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel, wireWallet,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel, wireWallet, financeLabels,
          renderWallet, alertBar, loadQR, uiConfirm, disp, esc, base, BLOCK_TIME, enhanceFile } from "./nadodapp.js";
 
 const CID = "b0162edacd9f4c6c6a27391c692d90c5";      // set by execnode/games/redeploy.py wire() at deploy
@@ -581,6 +581,7 @@ async function refresh() {
 }
 
 function wireUI() {
+  dapp.walletLabels = financeLabels();   // a marketplace, not a game: deposit / withdraw a usable balance
   wireWallet(dapp, render);
   window.addEventListener("hashchange", () => { lastRoute = ""; render(); });
   document.addEventListener("click", (ev) => {

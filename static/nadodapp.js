@@ -625,6 +625,12 @@ export function wireWallet(dapp) {
     if (wd) wd.onclick = () => { const raw = pctOf("cashoutSlider", dapp.exec); if (raw <= 0n) return st(_t("slideCashOut", "Slide how much to cash out.")); if (dapp.exec < raw) return st(_t("cashOutShort", "You only have {bal} NADO playable.", { bal: rawToNado(dapp.exec) })); dapp.withdraw(raw); };
   }
 }
+// financeLabels(): the wallet row's words for an app that is NOT a game (DEX, Lend, NFT). "Buy in" / "Cash out" / "playable"
+// tell a trader or a lender they are at a casino; these deposit to and withdraw from a USABLE balance. One translated set
+// for every finance page (the DEX carried English-only literals until 2026-11-02). Set before wireWallet:
+//   dapp.walletLabels = financeLabels();
+export const financeLabels = () => ({ buyIn: _t("depositBtn", "Deposit"), cashOut: _t("withdrawBtn", "Withdraw"),
+  ofPlayable: (n) => _t("ofUsable", "of {n} usable", { n }) });
 // renderWallet(dapp): the who/bal/l1bal header row; returns signedIn so render() can gate on it.
 export function renderWallet(dapp) {
   const signedIn = !!dapp.me;

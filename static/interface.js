@@ -5549,7 +5549,13 @@ async function resumePendingExecSign() {
   if (bg) return needUI();   // this call needs a manual confirm \u2014 can't show a dialog in a hidden frame \u2192 redirect
   const okc = await uiConfirm({
     title: i18("dapp.title", "Sign a contract call"),
-    body: escrow > 0n
+    // AN ASSET-VALUED CALL ESCROWS UNITS OF THAT ASSET, not NADO (live NFT walk 2026-11-02: listing one edition read
+    // "It ESCROWS 0.0000000001 NADO" — the edition count printed as raw NADO). The rows already used _unit; the
+    // sentence above them must say the same thing.
+    body: escrow > 0n && _assetId
+      ? i18("dapp.bodyAsset", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} from your exec balance into the contract (no L1 funds move beyond the network fee).",
+          { app: req.app, a: _abShort(signer.address), v: _unit(escrow) })
+      : escrow > 0n
       ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
           { app: req.app, a: _abShort(signer.address), v: rawToNado(escrow) })
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",

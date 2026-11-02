@@ -13,7 +13,7 @@
 import { htlcScript, p2wshAddress } from "./btcleg.js";
 import { claimTx, refundTx, addressToScript, genKeypair } from "./btcsign.js";
 import { htlcAbi, htlcErc20Abi, erc20Abi, erc20Meta, toUnitsDec, fromUnitsDec, ethKeypair } from "./ethsign.js";
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, stickyInputs, alertBar, loadQR, isAddress,
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, wireWallet, financeLabels, stickyInputs, alertBar, loadQR, isAddress,
          orderCards, disp, share, installModes, algHashn, base, esc, randId, enhanceSelect, refreshPickers,
          renderWallet,
          uiConfirm, uiPrompt,
@@ -2066,7 +2066,7 @@ async function refresh() {
 }
 
 function wireUI() {
-  dapp.walletLabels = { buyIn: "Deposit", cashOut: "Withdraw", ofPlayable: (n) => `of ${n} usable` };   // an exchange, not a game
+  dapp.walletLabels = financeLabels();   // an exchange, not a game
   wireWallet(dapp, render);
   stickyInputs(dapp, ["addN", "addT", "slip", "otcNado", "otcFAmt", "otcExpiry", "limGiveAsset", "limGiveAmt", "limWantAsset", "limWantAmt", "limExpiry"]);
   $("btnOpen").onclick = (e) => runAction(e.currentTarget, openPool);
