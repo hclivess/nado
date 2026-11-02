@@ -909,6 +909,39 @@ def _statement_of(bundle, blocks, chain):
     return vm_statement_text(oracle.calls) if oracle.calls else None
 
 
+# AN OPENING IS ITS CANONICAL FORM, exactly (audit 2026-11-02). A leaf digest normalises what it hashes — asset_meta_digest
+# takes int(supply) and bool(mintable), _amount_leaf takes int(amount) — so a prover could open an entry as "1000" or 1
+# or with an extra key and still match the tree. The replay then runs on a value the chain never held: a str supply makes
+# a burn raise inside the transition, whose skip keeps the effects already applied, and the verifier computes a post root
+# the chain never had. Every dict-valued family is checked here for its exact keys and exact types (int never bool), and
+# a numbered entry's path must be its own number. The honest prover's openings are the state's own records, which have
+# exactly these shapes (execnode/state.py asset_create, the withdrawal and outbox writers).
+_INT = lambda x: isinstance(x, int) and not isinstance(x, bool)
+_ASSET_TYPES = {"issuer": str, "seed": _INT, "name": str, "sym": str, "dec": _INT, "supply": _INT, "mintable": bool,
+                "uri": str}
+
+
+def _canonical_opening(fam, path, v):
+    """None if the opening `v` of `fam` at `path` is exactly a state record of that family, else why it is not"""
+    def typed(want, x):
+        return want(x) if want is _INT else type(x) is want
+    if fam == "assets":
+        if not (isinstance(v, dict) and set(v) == set(_ASSET_TYPES)
+                and all(typed(t, v[k]) for k, t in _ASSET_TYPES.items())):
+            return "an asset opening is not an exact asset record"
+    elif fam in ("wd", "dwd", "uwd"):
+        if not (isinstance(v, dict) and set(v) == {"addr", "amount"} and type(v["addr"]) is str
+                and _INT(v["amount"]) and v["amount"] > 0):
+            return f"a {fam} opening is not an exact withdrawal record"
+    elif fam == "outbox":
+        if not (isinstance(v, dict) and set(v) == {"seq", "from", "to_ns", "data"} and _INT(v["seq"])
+                and type(v["from"]) is str and type(v["to_ns"]) is str):
+            return "an outbox opening is not an exact message record"
+        if str(v["seq"]) != path[0]:
+            return "an outbox opening sits at another message's position"
+    return None
+
+
 def _verifier_store(bundle):
     """the Store over the bundle's openings, each checked against the pre halves' proofs; Refused on any mismatch"""
     truth = {"kv": {}, "rec": {}}
@@ -944,6 +977,9 @@ def _verifier_store(bundle):
             if fam == "contracts" and not (isinstance(v, dict) and set(v) == {"code", "deployer", "upgradable", "runtime"}
                                            and isinstance(v["code"], dict) and isinstance(v["upgradable"], bool)):
                 raise Refused("a malformed contract opening")
+            why = _canonical_opening(fam, path, v)
+            if why:
+                raise Refused(why)
             lv = leaves(path, v)
             if not lv or any(t.get(lk, b"?") != lb for lk, lb in lv):
                 raise Refused(f"an opening of {fam} {path} does not match the tree")
