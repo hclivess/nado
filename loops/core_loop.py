@@ -363,6 +363,21 @@ def settle_depth_reference(known_tip, mesh_median, height=None) -> int:
     return min(k, m) if k > 0 else m
 
 
+def settle_proof_relaxed(reference, height, held_high_water) -> bool:
+    """True iff the settle-proof depth gate (protocol.SETTLE_PROOF_DEPTH_GATED) may skip verifying block `height`'s Stwo
+    settle: the block lies more than FINALITY_DEPTH below `reference` (settle_depth_reference) AND above every height this
+    node has ever held (`held_high_water`, the tallest block it applied since start-up, which a rollback never lowers).
+    WHY THE SECOND CONDITION (zk audit 2026-11-02): the relaxation exists so a node CATCHING UP need not fetch and replay
+    every historic span; a height this node already held was judged by this node, and a block replacing it arrives by a
+    REORG. Relaxed there, a heavier fork — or the peers of a node they eclipse — could bury a settle with an unverifiable
+    `stwo` commitment under FINALITY_DEPTH of blocks and have it marked proven (account_ops writes the marker either way,
+    and the marker lets settlement_justified accept the root with no quorum). Strict there, such a block is refused, or
+    deferred while its bundle is withheld, which is what a fork that cannot show its proof deserves.
+    INVARIANT: the relaxation is for NEW territory only; never pass a high-water mark a rollback lowered."""
+    h = int(height)
+    return h > int(held_high_water or 0) and int(reference or 0) - h > FINALITY_DEPTH
+
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -1368,6 +1383,15 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
             return False
+
+    def _held_high_water(self) -> int:
+        """The tallest block this node has held since start-up (settle_proof_relaxed). Seeded from the tip it started
+        on; incorporate_block raises it and nothing lowers it, so after a rollback it still names the old tip."""
+        hw = getattr(self, "_held_hw", None)
+        if hw is None:
+            hw = int((self.memserver.latest_block or {}).get("block_number", 0) or 0)
+            self._held_hw = hw
+        return hw
 
     def _mesh_height_median(self) -> int:
         """UPPER MEDIAN of the admitted statuses' advertised heights (0 with an empty pool). ONE reading for
@@ -3983,6 +4007,8 @@ class CoreClient(threading.Thread):
         # Advance the tip pointer file only AFTER the atomic state commit. A crash before this
         # just leaves a stale tip that re-syncs forward; block_already_indexed prevents re-apply.
         set_latest_block_info(latest_block=block, logger=self.logger)
+        # the settle-proof depth gate's high-water mark (settle_proof_relaxed): raised here, never lowered by a rollback
+        self._held_hw = max(self._held_high_water(), int(block["block_number"]))
 
         # ENFORCED FINALITY (#17 step 1, two-floor model since 2026-08-17): advance BOTH persisted floors.
         # `finalized_height` (depth) keeps its cadence for everything latency-sensitive; `hard_finality`
@@ -5243,11 +5269,14 @@ class CoreClient(threading.Thread):
                     # SETTLE_PROOF_DEPTH_GATED then skipped the STARK check fleet-wide. The median needs
                     # a majority of the pool to lie; honest peers sit within a few blocks of each other,
                     # so a node catching up still sees the mesh tip. A lone peer is still its own median.
+                    # NEVER FOR A HEIGHT THIS NODE ALREADY HELD (settle_proof_relaxed): a block at or below the
+                    # high-water mark replaces chain this node judged itself, so it arrives by a reorg and is verified
+                    # in full — the relaxation is for catch-up only.
                     _best_peer = self._mesh_height_median()
-                    _deep = bool(remote) and (
+                    _deep = bool(remote) and settle_proof_relaxed(
                         settle_depth_reference(getattr(self, "_known_tip_height", 0), _best_peer,
-                                               int(block["block_number"]))
-                        - int(block["block_number"]) > FINALITY_DEPTH)
+                                               int(block["block_number"])),
+                        int(block["block_number"]), self._held_high_water())
                     validate_transaction(transaction=transaction,
                                          logger=logger,
                                          block_height=block["block_number"],

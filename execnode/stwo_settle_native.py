@@ -13,7 +13,8 @@ preprocessed commitment is pinned too (vm_air::PREPROCESSED_ROOT): the verifier 
 
 LOADED LAZILY, ON THE FIRST VERIFY, NEVER AT IMPORT, exactly as stwo_js_native: a node whose build of this crate failed
 keeps running everything else. The only thing a verify raises is native_guard.NativeMissing (library absent, stale against
-its sources, or of another ABI): a fact about this machine, never a verdict on a proof. There is no Python fallback.
+its sources, or of another ABI; or NativeStatementRefused, the library refusing this node's own statement): a fact about
+this machine, never a verdict on a proof. There is no Python fallback.
 
 The crate is OPTIONAL (ops/self_update._OPTIONAL_CRATES) until the settlement gate needs it: every node builds it on
 update, nothing requires it yet.
@@ -22,7 +23,7 @@ import ctypes
 import os
 import threading
 
-from execnode.native_guard import NativeMissing, is_stale
+from execnode.native_guard import NativeMissing, NativeStatementRefused, is_stale
 
 # execnode/<this file> -> the repo root: TWO levels since G9 slice 4 moved it out of execnode/stark (three there)
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,4 +92,6 @@ def verify(statement_text, proof_bytes):
         return True, ""
     if rc == RC_REFUSED:
         return False, why or "refused"
-    raise ValueError(f"stwo_settle verify: bad arguments ({why})")
+    # NOT A VERDICT: the library refused the caller's own statement (NativeStatementRefused). Raised as ValueError it was
+    # caught by settle_b2.verify_span as a malformed bundle and memoised as a refusal. INVARIANT: only RC_REFUSED is a verdict.
+    raise NativeStatementRefused(f"stwo_settle verify: the library refused this node's own statement ({why})")

@@ -21,8 +21,8 @@ import atexit, shutil; atexit.register(shutil.rmtree, _T, ignore_errors=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests._stwo_js_build import Env, SHIPPED_WASM, wasm_sources_digest
 
-WASM_SHA256 = "ce5b562528310cc05b6c282af937e79bbf0df1692befbcdc6f7dc4ed96a57f8e"
-SOURCES_SHA256 = "9a1854faea2f621d9edb150ad2ef669dbc2e690d35836868f66824aec4908fec"
+WASM_SHA256 = "5c3b52e1a2674c087243ce93748d38fd57103452452accb38e92b5380cbb63ac"
+SOURCES_SHA256 = "ed3c3c5aeadef0dc2c4ea27ccd87d604b7e3a4bf3ef7e72b8ed6dca84c0ec2cb"
 
 import _harness
 _report = _harness.Report()

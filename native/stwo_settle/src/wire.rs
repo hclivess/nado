@@ -2,7 +2,8 @@
 //! native/stwo_js/src/wire.rs, whose checking serializer is copied below unchanged:
 //!
 //! FORMAT: bincode 1 (fixed-int, little-endian) of `(blake_log: u32, tab_mult: Vec<u32>, sums: Vec<SecureField>,
-//! stark: StarkProof)`.
+//! (interaction, composition, oods) grind nonces: (u64, u64, u64), stark: StarkProof)` (the nonces since the zk audit of
+//! 2026-11-02, blake/grind.rs; a u64 nonce has no non-canonical form).
 //!
 //! DECODE IS STRICT because the bytes are a stranger's:
 //!  - the input length is capped (MAX_PROOF_BYTES) before anything is allocated;
@@ -16,6 +17,7 @@ use stwo::core::fields::qm31::SecureField;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs_lifted::blake2_merkle::Blake2sMerkleHasher;
 
+use crate::blake::grind::TailNonces;
 use crate::blake::vm_air::VmProof;
 
 /// 2^31 - 1, the M31 modulus.
@@ -24,7 +26,8 @@ const P: u32 = (1 << 31) - 1;
 pub const MAX_PROOF_BYTES: usize = 16 << 20;
 
 pub fn encode(proof: &VmProof) -> Vec<u8> {
-    bincode::serialize(&(&proof.blake_log, &proof.tab_mult, &proof.sums, &proof.stark)).expect("serialize")
+    let t = (proof.interaction_nonce, proof.tail.composition, proof.tail.oods);
+    bincode::serialize(&(&proof.blake_log, &proof.tab_mult, &proof.sums, &t, &proof.stark)).expect("serialize")
 }
 
 #[derive(Debug)]
@@ -39,7 +42,8 @@ pub fn decode(bytes: &[u8]) -> Result<VmProof, DecodeError> {
     if bytes.len() > MAX_PROOF_BYTES {
         return Err(DecodeError::TooLarge);
     }
-    let (blake_log, tab_mult, sums, stark): (u32, Vec<u32>, Vec<SecureField>, StarkProof<Blake2sMerkleHasher>) =
+    #[allow(clippy::type_complexity)]
+    let (blake_log, tab_mult, sums, nonces, stark): (u32, Vec<u32>, Vec<SecureField>, (u64, u64, u64), StarkProof<Blake2sMerkleHasher>) =
         bincode::DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
@@ -62,7 +66,8 @@ pub fn decode(bytes: &[u8]) -> Result<VmProof, DecodeError> {
     if !n.is_power_of_two() || field != n.ilog2() {
         return Err(DecodeError::NonCanonical);
     }
-    Ok(VmProof { blake_log, tab_mult, sums, stark })
+    let tail = TailNonces { composition: nonces.1, oods: nonces.2 };
+    Ok(VmProof { blake_log, tab_mult, sums, interaction_nonce: nonces.0, tail, stark })
 }
 
 /// A serializer that writes nothing and records whether every u32 it is shown is a canonical M31 (< P).

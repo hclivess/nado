@@ -119,6 +119,17 @@ check("2. the bundle has exactly the fields _apply_stwo_transfer reads",
 ok, why = stwo_js_native.verify(bytes.fromhex(js1["proof"]), js1["root"], js1["nf"], js1["cm_out1"], js1["cm_out2"],
                                 int(js1["unshield"]), int(js1["fee"]), DEST, st.applying_height())
 check("...the WASM proof verifies through execnode/stwo_js_native.verify", ok, why)
+# THE SHIPPED WASM PROVES AT THE GRINDING CONFIG TOO (protocol.STWO_JS_GRIND_HEIGHT, NODE_CFG_128G): the same spend, proven
+# at the config of a height past that gate, verifies there and only there
+from protocol import STWO_JS_GRIND_HEIGHT as _HG  # noqa: E402
+outg = wallet_prove(spend1, leaves, pos, _HG)
+jsg = outg["bundle"]["stark"]["stwo_js"]
+_args = (bytes.fromhex(jsg["proof"]), jsg["root"], jsg["nf"], jsg["cm_out1"], jsg["cm_out2"], int(jsg["unshield"]),
+         int(jsg["fee"]), DEST)
+okg, whyg = stwo_js_native.verify(*_args, _HG)
+check(f"...a WASM proof at the grinding config (128G, {outg['ms'] / 1000:.2f} s) verifies at the grind gate", okg, whyg)
+okb, whyb = stwo_js_native.verify(*_args, st.applying_height())
+check("...and is refused below it", not okb and "config" in whyb, (okb, whyb))
 
 st_redirect, _ = fresh_state("s2.json")
 v0 = st.pool_value

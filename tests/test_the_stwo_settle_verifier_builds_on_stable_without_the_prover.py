@@ -9,7 +9,9 @@ Checked:
   2. the pinned preprocessed root is the one the prover recomputes (vm_prove VM_PREROOT);
   3. through the node's binding (execnode/stwo_settle_native.py, ctypes into ffi.rs): an honest proof of real
      tictactoe calls verifies; a changed io value, a changed step count, a proof of other calls, corrupted and garbage
-     proof bytes are refused, never crash; an unparsable statement is a caller error, not a verdict;
+     proof bytes, a changed grind nonce (each of the three) and a proof with five or three commitments are refused,
+     never crash; an unparsable statement is a node-local error (NativeStatementRefused), not a
+     verdict, and verify_span propagates it rather than answering "malformed bundle" (zk audit 2026-11-02);
   4. execnode/settle_b2.verify_span, given NO prover binary, verifies a real span through that library and lands on the
      exec node's root.
 
@@ -69,6 +71,7 @@ from execnode.games import tictactoe  # noqa: E402
 from execnode import stwo_settle_native as N  # noqa: E402
 from execnode.state import ExecState  # noqa: E402
 from execnode import block_apply  # noqa: E402
+from execnode.native_guard import NativeMissing  # noqa: E402
 
 A, B = "ndo" + "A" * 45, "ndo" + "B" * 45
 st = ExecState(os.path.join(HOME, "st.json"))
@@ -107,8 +110,8 @@ T.check("3a. an honest proof of 3 real tictactoe calls verifies through the stab
 def refused(name, t, p):
     try:
         ok, why = N.verify(t, p)
-    except ValueError as e:
-        ok, why = None, f"ValueError {e}"
+    except (ValueError, NativeMissing) as e:
+        ok, why = None, f"{type(e).__name__} {e}"
     T.check(f"3b. refused: {name}", ok is False, why)
 
 
@@ -124,13 +127,48 @@ bad = bytearray(proof)
 bad[len(bad) // 2] ^= 0x40
 refused("corrupted proof bytes", text, bytes(bad))
 refused("garbage proof bytes", text, os.urandom(4096))
+# THE GRINDS AND THE TREE COUNT (zk audit 2026-11-02; native/stwo_settle/src/blake/grind.rs, wire.rs FORMAT): the three
+# grind nonces follow blake_log, tab_mult and sums; the StarkProof's commitments are a u64 count then 32-byte roots, the
+# first being the pinned preprocessed root
+import struct  # noqa: E402
+n_tab = struct.unpack_from("<Q", proof, 4)[0]
+n_sums = struct.unpack_from("<Q", proof, 12 + 4 * n_tab)[0]
+at_nonces = 12 + 4 * n_tab + 8 + 16 * n_sums
+for i, name in enumerate(("interaction", "composition", "OODS")):
+    bad = bytearray(proof)
+    struct.pack_into("<Q", bad, at_nonces + 8 * i, (struct.unpack_from("<Q", proof, at_nonces + 8 * i)[0] + 1) % 2 ** 64)
+    refused(f"the {name} grind nonce changed", text, bytes(bad))
+pre_root = bytes.fromhex(pinned)
+at_c = proof.index(pre_root)
+T.check("3b. the four commitments are where the format says", struct.unpack_from("<Q", proof, at_c - 8)[0] == 4)
+five = bytearray(proof)
+struct.pack_into("<Q", five, at_c - 8, 5)
+five[at_c + 4 * 32:at_c + 4 * 32] = proof[at_c + 2 * 32:at_c + 3 * 32]      # a fifth root, ahead of the composition's
+refused("a fifth commitment (an extra root the composition read would skip)", text, bytes(five))
+three = bytearray(proof)
+struct.pack_into("<Q", three, at_c - 8, 3)
+del three[at_c + 2 * 32:at_c + 3 * 32]                                         # the interaction root dropped
+refused("three commitments", text, bytes(three))
 refused("an empty proof", text, b"")
+from execnode.native_guard import NativeStatementRefused, NODE_LOCAL_ERRORS  # noqa: E402
 try:
     N.verify("WHAT is this\n", proof)
     caller = False
-except ValueError:
+except NativeStatementRefused:
     caller = True
-T.check("3c. an unparsable statement is a caller error (ValueError), not a verdict", caller)
+T.check("3c. an unparsable statement is this node's own fault (NativeStatementRefused, node-local), not a verdict",
+        caller and issubclass(NativeStatementRefused, NODE_LOCAL_ERRORS))
+# and it reaches the L1 caller as a node-local error, never as settle_b2's "malformed bundle" refusal (which L1 memoised)
+_text = S.vm_statement_text
+S.vm_statement_text = lambda calls: "WHAT is this\n"
+try:
+    got = S.verify_span(pre.cursor, pre.state_root(), span, chain, bundle)
+except NativeStatementRefused:
+    got = "propagated"
+finally:
+    S.vm_statement_text = _text
+T.check("3d. verify_span propagates a refused statement instead of answering (False, 'malformed bundle')",
+        got == "propagated", got)
 
 # ---- 4: settle_b2 with no prover binary: the node's path -----------------------------------------------------------------
 real = pre.clone()

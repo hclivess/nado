@@ -11032,7 +11032,12 @@ function stwoFeeToLive() { return BigInt(_shieldTip || 0) + 1n >= 1n; }
 // only at height 0 (gen 28's STWO_JS_128_HEIGHT, 1 from gen 29, inlined in G9; stwo_js_native.config_id_at). The node
 // picks it from the height and refuses a proof at the other, so the wallet must match;
 // tests/test_a_stwo_spend_proves_at_the_config_of_the_height_it_lands_at.mjs.
-function stwoCfgId() { return BigInt(_shieldTip || 0) + 1n >= 1n ? _stwo.CFG_128 : _stwo.CFG_340; }
+// From protocol STWO_JS_GRIND_HEIGHT the config grinds before the LogUp elements and the composition coefficient too
+// (CFG_128G). INVARIANT: execnode/stwo_js_native.config_id_at is the same function of the landing height.
+function stwoCfgId() {
+  const h = BigInt(_shieldTip || 0) + 1n;
+  return h >= BigInt(P.STWO_JS_GRIND_HEIGHT) ? _stwo.CFG_128G : h >= 1n ? _stwo.CFG_128 : _stwo.CFG_340;
+}
 // FUND a game's shadow account from this wallet's private balance: one relayed spend per banknote, each paying the
 // relay by its fee (fee_to) and sending the rest of the amount to the shadow address. Nothing is signed by this
 // account or by the shadow account; the shadow account then claims its exits itself (shadowClaimAll).

@@ -740,12 +740,14 @@ def _vm_verify(text, proof_bytes, binary=None):
     native/stwo_settle) when this machine has it; else, only when the caller names one, the prover's vm_settle binary
     (tests and the shadow run). A node with neither raises NativeMissing: a fact about the machine, never a verdict."""
     from execnode import stwo_settle_native as N
-    from execnode.native_guard import NativeMissing
+    from execnode.native_guard import NativeMissing, NativeStatementRefused
     try:
         ok, why = N.verify(text, proof_bytes)
         return "OK" if ok else f"REFUSED {why}"
-    except NativeMissing:
-        if binary is None:
+    except NativeMissing as e:
+        # a library that refused this node's own statement is present: the fallback binary would only answer for a
+        # different build. INVARIANT: NativeStatementRefused always propagates (never a verdict, never a fallback).
+        if binary is None or isinstance(e, NativeStatementRefused):
             raise
         return _vm_settle(binary, "verify", text, proof_bytes)
 

@@ -684,6 +684,10 @@ pub struct JsProof {
     pub stark: StarkProof<Blake2sMerkleHasher>,
     /// the OODS grind nonce (NODE128_OODS_POW_BITS); 0 and never on the wire for a config without one
     pub oods_nonce: u64,
+    /// the grinds before the LogUp elements and the composition coefficient (NODE_CFG_128G); 0 and never on the wire
+    /// for a config without them
+    pub interaction_nonce: u64,
+    pub composition_nonce: u64,
     /// prover-side debug data for zktest (never serialized, not part of the proof)
     pub dbg: Option<Debug>,
 }
@@ -807,7 +811,7 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     // only a node config is accepted here, and only with ITS root.
     // INVARIANT: never commit commitments[0] without this comparison; a change to a selector or the table changes the
     // roots and must re-pin every NODE_CFGS root (the pin test recomputes each from the builders).
-    let Some(&(_, _, _, _, pinned, _)) = NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg) else {
+    let Some(&(_, _, _, _, pinned, _, _, _)) = NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg) else {
         return Err("not a node config (the preprocessed root is pinned for those alone)".into());
     };
     if proof.stark.commitments[0].0 != pinned {
@@ -821,6 +825,14 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     let cs = &mut CommitmentSchemeVerifier::<Blake2sMerkleChannel>::new(cfg);
     cs.commit(proof.stark.commitments[0], &sizes[0], ch);
     cs.commit(proof.stark.commitments[1], &sizes[1], ch);
+    // THE INTERACTION GRIND (NODE_CFG_128G): checked, mixed, then the LogUp elements drawn — prover.rs prove's order
+    let ib = interaction_pow_bits(cfg);
+    if ib > 0 {
+        if !ch.verify_pow_nonce(ib, proof.interaction_nonce) {
+            return Err("interaction proof of work".into());
+        }
+        ch.mix_u64(proof.interaction_nonce);
+    }
     let rel = Rel::draw(ch);
     let total: SecureField = proof.claimed.iter().copied().sum::<SecureField>() + public_sum(&rel, public);
     if !total.is_zero() {
@@ -832,6 +844,14 @@ pub fn verify_js(public: &Public, proof: JsProof, cfg: PcsConfig) -> Result<(), 
     let components = Components { components: comps.verifiers(), n_preprocessed_columns: sizes[0].len() };
     let lc = components.composition_log_degree_bound();
     assert_eq!(lc, sz.log_comp());
+    // THE COMPOSITION GRIND (NODE_CFG_128G): before the composition coefficient, prove_zk's order
+    let kb = composition_pow_bits(cfg);
+    if kb > 0 {
+        if !ch.verify_pow_nonce(kb, proof.composition_nonce) {
+            return Err("composition proof of work".into());
+        }
+        ch.mix_u64(proof.composition_nonce);
+    }
     let random_coeff = ch.draw_secure_felt();
     cs.commit(proof.stark.commitments[3], &[lc; SECURE_EXTENSION_DEGREE + N_RND + N_RND2 + N_SALT], ch);
     // THE OODS GRIND (NODE128_OODS_POW_BITS): checked, then mixed, before the OODS point is drawn — the prover's
@@ -924,16 +944,44 @@ pub const NODE_CFG_128: u32 = 1;
 /// it travels as 8 bytes after the bincode pair ONLY for a config that grinds (wire.rs).
 pub const NODE128_OODS_POW_BITS: u32 = 16;
 
-/// (id, log_blowup, n_queries, pow_bits, pinned preprocessed root, OODS grind bits)
-pub const NODE_CFGS: [(u32, u32, usize, u32, [u8; 32], u32); 2] = [
-    (NODE_CFG_340, NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS, NODE_PREPROCESSED_ROOT, 0),
-    (NODE_CFG_128, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE_POW_BITS, NODE128_PREPROCESSED_ROOT, NODE128_OODS_POW_BITS),
+/// THE THIRD (NODE_CFG_128G, protocol STWO_JS_GRIND_HEIGHT; zk audit 2026-11-02): NODE_CFG_128 plus a grind before the
+/// two other challenges a prover can retry by re-committing — the LogUp elements (Rel::draw, after the trace commit) and
+/// the composition coefficient (after the interaction commit). Without them their terms were ~124 - log2(lookup
+/// fractions) = ~109 and ~124 - log2(constraints) = ~115, below the ~129 the OODS grind and the query count give. The
+/// grinds lift both above the proof's remaining floor, the DEEP batching coefficient (~114, drawn inside Stwo's PCS after
+/// the sampled values; not ground here or upstream). FRI's own grind is one bit wider (21), which is also what makes
+/// this config a different PcsConfig from NODE_CFG_128: the preprocessed tree does not depend on pow bits, so the
+/// pinned root is NODE_CFG_128's. Its decode also refuses the non-canonical FRI last-layer size field (wire.rs).
+/// CHANGING THIS IS A CONSENSUS CHANGE.
+pub const NODE_CFG_128G: u32 = 2;
+pub const NODE128G_POW_BITS: u32 = 21;
+pub const NODE128G_INTERACTION_POW_BITS: u32 = 16;
+pub const NODE128G_COMPOSITION_POW_BITS: u32 = 12;
+
+/// (id, log_blowup, n_queries, pow_bits, pinned preprocessed root, OODS grind bits, interaction grind bits,
+/// composition grind bits)
+#[allow(clippy::type_complexity)]
+pub const NODE_CFGS: [(u32, u32, usize, u32, [u8; 32], u32, u32, u32); 3] = [
+    (NODE_CFG_340, NODE_LOG_BLOWUP, NODE_N_QUERIES, NODE_POW_BITS, NODE_PREPROCESSED_ROOT, 0, 0, 0),
+    (NODE_CFG_128, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE_POW_BITS, NODE128_PREPROCESSED_ROOT, NODE128_OODS_POW_BITS, 0, 0),
+    (NODE_CFG_128G, NODE_LOG_BLOWUP, NODE128_N_QUERIES, NODE128G_POW_BITS, NODE128_PREPROCESSED_ROOT, NODE128_OODS_POW_BITS,
+     NODE128G_INTERACTION_POW_BITS, NODE128G_COMPOSITION_POW_BITS),
 ];
 
 /// The OODS grind width a proof at `cfg` carries: the node config's, 0 for any other config (a non-node config is
 /// refused by verify_js anyway; prover tests at ad-hoc configs prove without one).
 pub fn oods_pow_bits(cfg: PcsConfig) -> u32 {
     NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg).map(|c| c.5).unwrap_or(0)
+}
+
+/// The grind before the LogUp elements a proof at `cfg` carries (NODE_CFG_128G's; 0 otherwise).
+pub fn interaction_pow_bits(cfg: PcsConfig) -> u32 {
+    NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg).map(|c| c.6).unwrap_or(0)
+}
+
+/// The grind before the composition coefficient a proof at `cfg` carries (NODE_CFG_128G's; 0 otherwise).
+pub fn composition_pow_bits(cfg: PcsConfig) -> u32 {
+    NODE_CFGS.iter().find(|c| config(c.1, c.2, c.3) == cfg).map(|c| c.7).unwrap_or(0)
 }
 
 /// The PcsConfig of node config `id`, or None for an unknown id.

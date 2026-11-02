@@ -22,6 +22,7 @@ use xor_table::{xor4, xor7, xor8, xor9, xor12};
 
 #[cfg(feature = "prover")]
 mod air;
+pub mod grind;
 mod preprocessed_columns;
 mod round;
 mod scheduler;

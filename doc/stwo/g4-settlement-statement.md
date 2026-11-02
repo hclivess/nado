@@ -145,6 +145,27 @@ when proving moves into phone wallets. Both newer versions commit every tree at 
 part of the proof, so moving `native/stwo_js` to either is a consensus change, not a library bump. The cheapest speed-up
 needs no pin move: Stwo's `parallel` feature takes this batch from 8.8 s to 3.8 s on four threads.
 
+### 3b. A grind before every challenge a prover could retry (2026-11-02)
+
+The table's "bits" is the FRI query term alone. Three other challenges come straight after a commitment, so a prover
+can re-commit and draw again, and each is worth only its own error term:
+
+| challenge | error term (QM31, 124 bits) | before the grind | grind | after |
+|---|---|---|---|---|
+| LogUp elements | ~ log2(lookup fractions), ~20 on a large span | ~104 | 24 bits | ~128 |
+| composition coefficient | ~ log2(constraints), ~11 | ~113 | 16 bits | ~129 |
+| OODS point | ~ composition log degree, ~21 at 2^20 rows | ~103 | 24 bits | ~127 |
+| DEEP batching coefficient | ~ log2(sampled values), ~10 | ~114 | none | ~114 |
+
+So the proofs above were about 100 bits conjectured, not 128; with the grinds the floor is the DEEP batching term,
+about 114. That draw is inside Stwo's PCS (`verify_values` / `prove_values`), after the sampled values are mixed, so a
+grind there means carrying a fork of the PCS; neither upstream nor stwo-cairo grinds it. `native/stwo_settle/src/blake/grind.rs` now grinds
+before each (upstream's `prove`/`verify` inlined with the two tail grinds; the interaction grind in `vm_air`), the
+nonces ride in the proof (`wire.rs` FORMAT), and the verifier also requires exactly four commitments (upstream reads
+the composition root as the last one, so extra roots were a second encoding). Two 24-bit grinds cost about 6 s each on
+this prover (27 bits measured ~50 s above). The settlement is dormant until `protocol.STWO_SETTLE_HEIGHT`, so this
+changed no live proof. The live Stwo pool (native/stwo_js) has the OODS grind but not the other two.
+
 ## 4. Next steps
 
 1. The calls fold (2.3) as code beside today's, with its test (dormant, like the rest of gen 29).

@@ -729,6 +729,16 @@ pub fn prove_js_cheat(
     tm.commit_ms = now_ms() - t1;
 
     let t2 = now_ms();
+    // THE INTERACTION GRIND (lib.rs NODE_CFG_128G): after the trace commit, before the LogUp elements — verify_js checks
+    // it at the same point of the transcript, then mixes it, as this does
+    let interaction_nonce = match interaction_pow_bits(cfg) {
+        0 => 0,
+        b => {
+            let n = SimdBackend::grind(ch, b);
+            ch.mix_u64(n);
+            n
+        }
+    };
     let rel = Rel::draw(ch);
     let (i_js, c_js) = interaction_zk(&rel, &e_js, sz.log_js, R_JS, rng);
     let (i_rd, c_rd) = interaction_zk(&rel, &e_rd, sz.log_round, R_ROUND, rng);
@@ -774,8 +784,8 @@ pub fn prove_js_cheat(
 
     let t3 = now_ms();
     let comps = Comps::new(&sz, &rel, &claimed, false);
-    let (stark, oods, queries, comp_tree, comp_coeff, oods_nonce) =
-        prove_zk(&comps.provers(), ch, cs, rng, cheat == Cheat::No, oods_pow_bits(cfg))?;
+    let (stark, oods, queries, comp_tree, comp_coeff, oods_nonce, composition_nonce) =
+        prove_zk(&comps.provers(), ch, cs, rng, cheat == Cheat::No, oods_pow_bits(cfg), composition_pow_bits(cfg))?;
     tm.prove_ms = now_ms() - t3;
     let ts = tree_log_sizes(&sz);
     let trees = vec![
@@ -789,7 +799,7 @@ pub fn prove_js_cheat(
         assert_eq!(trees[t].len(), tree_logs[t].len(), "debug tree {t} layout");
     }
     let dbg = Debug { oods, queries, js_rows: js_r, trees, tree_logs, comp_coeff: comp_coeff, rel };
-    Ok((public, JsProof { claimed, stark, oods_nonce, dbg: Some(dbg) }, tm))
+    Ok((public, JsProof { claimed, stark, oods_nonce, interaction_nonce, composition_nonce, dbg: Some(dbg) }, tm))
 }
 
 trait EvalRef<E> {
@@ -829,9 +839,18 @@ fn prove_zk(
     rng: &mut impl RngCore,
     sanity: bool,
     oods_bits: u32,
-) -> Result<(StarkProof<Blake2sMerkleHasher>, CirclePoint<SecureField>, Vec<usize>, Vec<Vec<BaseField>>, SecureField, u64), ProveError> {
+    composition_bits: u32,
+) -> Result<(StarkProof<Blake2sMerkleHasher>, CirclePoint<SecureField>, Vec<usize>, Vec<Vec<BaseField>>, SecureField, u64, u64), ProveError> {
     let n_pre = cs.trees[PREPROCESSED_TRACE_IDX].polynomials.len();
     let cps = ComponentProvers { components: components.to_vec(), n_preprocessed_columns: n_pre };
+    // THE COMPOSITION GRIND (lib.rs NODE_CFG_128G): before the composition coefficient, verify_js's order
+    let composition_nonce = if composition_bits > 0 {
+        let n = SimdBackend::grind(ch, composition_bits);
+        ch.mix_u64(n);
+        n
+    } else {
+        0
+    };
     let random_coeff = ch.draw_secure_felt();
     let comp = {
         let trace = cs.trace();
@@ -869,7 +888,7 @@ fn prove_zk(
     if sanity && got != cps.components().eval_composition_polynomial_at_point(w, &proof.sampled_values, random_coeff, lc) {
         return Err(ProveError::NotAJoinSplit("DEEP-ALI identity fails: constraints not satisfied"));
     }
-    Ok((proof, w, queries, comp_tree, random_coeff, oods_nonce))
+    Ok((proof, w, queries, comp_tree, random_coeff, oods_nonce, composition_nonce))
 }
 
 pub fn fixture() -> Witness {
@@ -1318,9 +1337,15 @@ pub fn replay_challenges(public: &Public, proof: &JsProof, cfg: PcsConfig) -> (S
     let cs = &mut CommitmentSchemeVerifier::<Blake2sMerkleChannel>::new(cfg);
     cs.commit(proof.stark.commitments[0], &sizes[0], ch);
     cs.commit(proof.stark.commitments[1], &sizes[1], ch);
+    if interaction_pow_bits(cfg) > 0 {
+        ch.mix_u64(proof.interaction_nonce);    // verify_js checks it first; replay only mirrors the transcript
+    }
     let _rel = Rel::draw(ch);
     ch.mix_felts(&proof.claimed);
     cs.commit(proof.stark.commitments[2], &sizes[2], ch);
+    if composition_pow_bits(cfg) > 0 {
+        ch.mix_u64(proof.composition_nonce);
+    }
     let comp_coeff = ch.draw_secure_felt();
     cs.commit(proof.stark.commitments[3], &[sz.log_comp(); SECURE_EXTENSION_DEGREE + N_RND + N_RND2 + N_SALT], ch);
     if oods_pow_bits(cfg) > 0 {

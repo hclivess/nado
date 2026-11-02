@@ -208,7 +208,7 @@ export function auxOf(dest) {
 export const ABI_VERSION = 2;           // 2: stwo_set_config — the node config is chosen per proof (STWO_JS_128_HEIGHT)
 // node config ids (native/stwo_js lib.rs NODE_CFGS): which one a spend is proven at is a function of the height it lands
 // at (protocol STWO_JS_128_HEIGHT; static/interface.js stwoCfgId). A node verifies at that config and refuses any other.
-export const CFG_340 = 0, CFG_128 = 1;
+export const CFG_340 = 0, CFG_128 = 1, CFG_128G = 2;
 export const RC = { OK: 0, BAD_ARGS: 1, MALFORMED: 2, REJECTED: 3, PANIC: 4, NO_SEED: 5, SEED_REUSED: 6, NOT_A_JOINSPLIT: 7 };
 export const WITNESS_BYTES = 32 + 8 + 8 + DEPTH * 32 + DEPTH + 8 + 32 + 8 + 8 + 32 + 8 + 8 + 8;
 
@@ -278,7 +278,7 @@ export class StwoCore {
       return { rc, out: new Uint8Array(this.x.memory.buffer, this.x.stwo_out_ptr(), this.x.stwo_out_len()).slice() };
     } finally { this.x.stwo_free(pw, witness.length); this.x.stwo_free(pd, d.length); }
   }
-  /** Select the node config (CFG_340 / CFG_128) for the following prove and verifyOut. */
+  /** Select the node config (CFG_340 / CFG_128 / CFG_128G) for the following prove and verifyOut. */
   setConfig(id) {
     if (this.x.stwo_set_config(id >>> 0) !== RC.OK) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: "cfg " + id });
   }
@@ -307,7 +307,7 @@ export async function proveWith(core, witness, dest, randomBytes, cfg = CFG_340)
 
 /** Main-thread entry: prove spending the note at `pos` of `leaves` and return {bundle, root, nf, cm1, cm2, ms}.
  *  spend = {nsk, vIn, rho, v1, o1, r1, v2, o2, r2, unshield, fee, dest, cfg}; cfg is the node config of the height the
- *  spend lands at (CFG_340 / CFG_128 — required: a proof at the wrong one is refused). The proof is made in a Worker; the returned
+ *  spend lands at (CFG_340 / CFG_128 / CFG_128G — required: a proof at the wrong one is refused). The proof is made in a Worker; the returned
  *  public inputs are checked against this file's own algebra (root of the path, nf, both output commitments) before
  *  anything is returned, so a prover and wallet that disagree never publish. `run(witness, dest)` -> output bytes
  *  replaces the Worker (Node tests drive a StwoCore directly); the browser never passes it. */
@@ -319,7 +319,7 @@ export async function proveSpend(spend, leaves, pos, run) {
   const un = BigInt(spend.unshield || 0), payout = un > 0n ? String(spend.dest || "") : "";
   const feeTo = spend.feeTo ? String(spend.feeTo) : "", dest = stwoDest(payout, feeTo);
   const witness = packWitness({ ...spend, sibs: path.sibs, dirs: path.dirs });
-  if (spend.cfg !== CFG_340 && spend.cfg !== CFG_128) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: "cfg" });
+  if (spend.cfg !== CFG_340 && spend.cfg !== CFG_128 && spend.cfg !== CFG_128G) throw _err("shield.stwoProverCode", "the prover failed (code {c})", { c: "cfg" });
   const t0 = Date.now();
   const out = parseOutput(await (run || _inWorker)(witness, dest, spend.cfg));
   const want = { root: path.root, nf: nullifier(spend.nsk, spend.rho), cm1: commit(spend.v1, spend.o1, spend.r1), cm2: commit(spend.v2, spend.o2, spend.r2) };

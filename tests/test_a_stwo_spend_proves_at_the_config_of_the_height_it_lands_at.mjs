@@ -7,8 +7,9 @@
  * (400) and the user is told the proof does not verify. The wallet picks the config the same way stwoFeeToLive picks
  * the fee_to rule: from the pool tip + 1, the block the spend can land in.
  *
- * Pins, by RUNNING the wallet's own code: stwoCfgId is CFG_128 for every spend landing in block 1 or later (generation
- * 28's gate-below / gate-at pins retired in G9); proveSpend refuses a spend that names no config, and hands the named one to the prover
+ * Pins, by RUNNING the wallet's own code: stwoCfgId is CFG_128 for every spend landing in block 1 or later below
+ * protocol.STWO_JS_GRIND_HEIGHT and CFG_128G from it (the grinds before the LogUp elements and the composition
+ * coefficient; generation 28's gate-below / gate-at pins for CFG_128 retired in G9); proveSpend refuses a spend that names no config, and hands the named one to the prover
  * (the `run` hook the Worker path takes); proveWith selects it in the WASM core before proving and self-verifying;
  * the worker forwards `cfg` from its message; and the page no longer imports the retired gate.
  *
@@ -26,15 +27,21 @@ let fails = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS  " : "FAIL  ") + name + (ok ? "" : "  " + detail)); if (!ok) fails++; };
 
 const S = await import(pathToFileURL(path.join(ROOT, "static", "stark", "stwo_js.js")).href);
-check("the driver names the two node configs as the crate does (lib.rs NODE_CFG_340 = 0, NODE_CFG_128 = 1)",
-  S.CFG_340 === 0 && S.CFG_128 === 1 && S.ABI_VERSION === 2, JSON.stringify([S.CFG_340, S.CFG_128, S.ABI_VERSION]));
+check("the driver names the three node configs as the crate does (lib.rs NODE_CFG_340 = 0, NODE_CFG_128 = 1, NODE_CFG_128G = 2)",
+  S.CFG_340 === 0 && S.CFG_128 === 1 && S.CFG_128G === 2 && S.ABI_VERSION === 2,
+  JSON.stringify([S.CFG_340, S.CFG_128, S.CFG_128G, S.ABI_VERSION]));
 
-// ---- stwoCfgId, run with the tip stubbed ------------------------------------------------------------------------------
-const m = SRC.match(/function stwoCfgId\(\) \{[^\n]*\}/);
+// ---- stwoCfgId, run with the tip and protocol.STWO_JS_GRIND_HEIGHT stubbed ----------------------------------------------
+const m = SRC.match(/function stwoCfgId\(\) \{\n[\s\S]*?\n\}/);
 check("interface.js defines stwoCfgId", !!m);
-const cfgAt = (tip) => new Function("_shieldTip", "_stwo", m[0] + "\nreturn stwoCfgId();")(tip, S);
-check("the first block's spend already proves at 128", cfgAt(0) === S.CFG_128);
-check("...and every later one", cfgAt(999) === S.CFG_128 && cfgAt(376000) === S.CFG_128);
+const cfgAt = (tip, gate) => new Function("_shieldTip", "_stwo", "P", m[0] + "\nreturn stwoCfgId();")(tip, S,
+  { STWO_JS_GRIND_HEIGHT: gate });
+const DORMANT = 1n << 62n;                    // protocol.STWO_JS_GRIND_HEIGHT on generation 29 (/protocol.js emits a BigInt)
+check("the first block's spend already proves at 128", cfgAt(0, DORMANT) === S.CFG_128);
+check("...and every later one below the grind gate", cfgAt(999, DORMANT) === S.CFG_128 && cfgAt(376000, DORMANT) === S.CFG_128);
+check("a spend landing AT the grind gate proves at 128G (the landing block is tip + 1)",
+  cfgAt(4999, 5000) === S.CFG_128G && cfgAt(4998, 5000) === S.CFG_128, JSON.stringify([cfgAt(4999, 5000), cfgAt(4998, 5000)]));
+check("a fresh chain (the gate at 1) proves at 128G from block 1", cfgAt(0, 1) === S.CFG_128G);
 check("the page no longer imports the retired gate from /protocol.js", !/STWO_JS_128_HEIGHT[\s,]*\}?\s*from\s*"\/protocol\.js"/.test(SRC)
   && !/import \{[^}]*STWO_JS_128_HEIGHT/.test(SRC));
 check("the wallet's spend passes stwoCfgId() to proveSpend", /cfg: stwoCfgId\(\)/.test(SRC));
@@ -47,7 +54,7 @@ const spend = { nsk, vIn: v, rho, v1: "1000", o1: owner, r1: "1", v2: "0", o2: o
 let err = "";
 try { await S.proveSpend(spend, leaves, 0, async () => { throw new Error("must not prove"); }); } catch (e) { err = String(e.message || e); }
 check("proveSpend refuses a spend that names no node config (before proving)", /cfg/.test(err) && !/must not prove/.test(err), err);
-for (const cfg of [S.CFG_340, S.CFG_128]) {
+for (const cfg of [S.CFG_340, S.CFG_128, S.CFG_128G]) {
   let seen = null;
   try { await S.proveSpend({ ...spend, cfg }, leaves, 0, async (_w, _d, c) => { seen = c; throw new Error("stop"); }); } catch (e) { /* the stub stops it */ }
   check(`proveSpend hands config ${cfg} to the prover`, seen === cfg, String(seen));

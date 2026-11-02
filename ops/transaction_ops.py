@@ -1819,7 +1819,9 @@ class ProofUnavailable(Exception):
 
     The stall is BOUNDED by the depth gate: once the block ages past FINALITY_DEPTH below the known tip,
     deep=True and the proof is no longer required, so a permanently unavailable proof degrades to the
-    accumulated-weight path instead of halting the node forever.
+    accumulated-weight path instead of halting the node forever. That bound is for CATCH-UP only: a block at a height
+    this node already held (a reorg) is never relaxed (loops/core_loop.settle_proof_relaxed), so a fork whose proof is
+    withheld stays deferred and the node keeps its own chain.
     """
 
 
@@ -2755,9 +2757,16 @@ def _stwo_verify_lock(key):
         return _STWO_VERIFY_LOCKS.setdefault(key, threading.Lock())
 
 
-def stwo_verify_key(commitment, sc, sroot, cursor, root, cursor_hash):
-    """The verdict memo key of a Stwo settle (see above): commitment, span, claimed root, chain context, rules."""
-    return ("stwo", str(commitment), int(sc), str(sroot), int(cursor), str(root), str(cursor_hash), _STWO_RULES)
+def stwo_verify_key(commitment, sc, sroot, cursor, root, cursor_hash, gc_rows_below, gc_accts_below):
+    """The verdict memo key of a Stwo settle (see above): commitment, span, claimed root, chain context, rules.
+    The two GC watermarks are chain context the cursor's hash does NOT fix, and both rise with the TIP, not with the span
+    (zk audit 2026-11-02): ops/settle_chain.l1_weights_at refuses a span whose epoch weights must be rebuilt from recert
+    rows the row sweep has since pruned (gc_rows_below), and the rebuild (dividend_ops.weights_at_epoch) reads recert rows
+    of idle identities the account sweep deletes (gc_accts_below). Unbound, a verdict computed before a sweep answered
+    after it: accept on the node that had cached it, refuse on one judging fresh, a split over one pooled settle.
+    INVARIANT: every committed-state read the verdict makes that a later block can change belongs in this key."""
+    return ("stwo", str(commitment), int(sc), str(sroot), int(cursor), str(root), str(cursor_hash), int(gc_rows_below),
+            int(gc_accts_below), _STWO_RULES)
 
 
 def _stwo_verdict(commitment, sc, sroot, cursor, root):
@@ -2836,7 +2845,8 @@ def _stwo_settle_check(data, ns, cursor, root, block_height, deep):
     assert _why is None, _why
     if deep and SETTLE_PROOF_DEPTH_GATED:
         return
-    key = stwo_verify_key(c, sc, sroot, cursor, root, kv_ops.hash_by_number(cursor))
+    key = stwo_verify_key(c, sc, sroot, cursor, root, kv_ops.hash_by_number(cursor),
+                          kv_ops.meta_get_int("gc_rows_below", 0), kv_ops.meta_get_int("gc_accts_below", 0))
     hit = _STWO_VERIFY_MEMO.get(key)
     if hit is None:
         with _stwo_verify_lock(key):                        # single flight per bundle

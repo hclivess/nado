@@ -6,6 +6,8 @@ outside the checkout) at the pinned node config, then verified by the STABLE bui
 would load. The soundness negatives are the four the phase-0 prototype ran, now through the wrapper:
   wrong root, fee + 1, a changed unshield destination, and a proof made for different public inputs;
 plus the wire-format refusals a node relies on (a trailing byte, a non-canonical field element);
+at each node config, including NODE_CFG_128G (protocol.STWO_JS_GRIND_HEIGHT), whose grinds before the LogUp elements and
+the composition coefficient are checked (each nonce changed, one dropped, a 128 proof at its height, a 128G one below it);
 plus THE ZERO-PREPROCESSED FORGERY (review 2026-10-11): a proof whose preprocessed tree (every selector and the xor
 table) is all zero, with claimed sums that cancel the public LogUp sum, for public inputs no witness produced (a fresh
 nullifier, outputs from nowhere, an unshield of 10^18). It verified before lib.rs pinned NODE_PREPROCESSED_ROOT;
@@ -60,8 +62,12 @@ from execnode import stwo_js_native as SJ
 
 # BOTH NODE CONFIGS (stwo_js_native.config_id_at): the whole battery runs at each, at a height that selects it — height 0
 # NODE_CFG_340, from block 1 NODE_CFG_128 (gen 28's STWO_JS_128_HEIGHT, 1 from gen 29, inlined in G9).
+# AND THE THIRD (protocol.STWO_JS_GRIND_HEIGHT, dormant 2^62 on generation 29): NODE_CFG_128G, which also grinds before the
+# LogUp elements and the composition coefficient (zk audit 2026-11-02), from the gate's height.
+from protocol import STWO_JS_GRIND_HEIGHT as HG  # noqa: E402
 H340, H128 = 0, 1
 assert SJ.config_id_at(H340) == SJ.CFG_340 and SJ.config_id_at(H128) == SJ.CFG_128
+assert SJ.config_id_at(HG) == SJ.CFG_128G and SJ.config_id_at(HG - 1) == SJ.CFG_128
 
 
 def prove(fixture, dest, cfg):
@@ -71,11 +77,13 @@ def prove(fixture, dest, cfg):
     return open(os.path.join(out, "proof.bin"), "rb").read(), json.load(open(os.path.join(out, "public.json")))
 
 
-check("the library's node configs are 2/160/20 and 2/56/20", (SJ.config(SJ.CFG_340), SJ.config(SJ.CFG_128)) ==
-      ((2, 160, 20), (2, 56, 20)), (SJ.config(SJ.CFG_340), SJ.config(SJ.CFG_128)))
+check("the library's node configs are 2/160/20, 2/56/20 and 2/56/21",
+      (SJ.config(SJ.CFG_340), SJ.config(SJ.CFG_128), SJ.config(SJ.CFG_128G)) == ((2, 160, 20), (2, 56, 20), (2, 56, 21)),
+      (SJ.config(SJ.CFG_340), SJ.config(SJ.CFG_128), SJ.config(SJ.CFG_128G)))
+NONCE_BYTES = {SJ.CFG_340: 0, SJ.CFG_128: 8, SJ.CFG_128G: 24}         # wire.rs nonces_of
 DEST = "ndo1-unshield-destination-for-the-test"
 honest = {}
-for CFG, HEIGHT, TAG in ((SJ.CFG_340, H340, "340"), (SJ.CFG_128, H128, "128")):
+for CFG, HEIGHT, TAG in ((SJ.CFG_340, H340, "340"), (SJ.CFG_128, H128, "128"), (SJ.CFG_128G, HG, "128G")):
     print(f"---- node config {TAG} (height {HEIGHT})")
 
     def run(proof, p, **over):
@@ -120,7 +128,7 @@ for CFG, HEIGHT, TAG in ((SJ.CFG_340, H340, "340"), (SJ.CFG_128, H128, "128")):
     # THE FRI LAST LAYER'S SIZE FIELD (wire.rs last_layer_size): the stark's last 4 bytes, before the 8-byte OODS nonce at
     # the 128-bit config. Raised by a multiple of 64 the verifier always accepted it as the honest proof; it must still,
     # with the honest proof's work. Any other value was always refused and must still be.
-    end = len(pb) - (8 if CFG == SJ.CFG_128 else 0)
+    end = len(pb) - NONCE_BYTES[CFG]
     field = int.from_bytes(pb[end - 4:end], "little")
     check(f"[{TAG}] the last layer's size field is where the test reads it (1 coefficient: log2 = 0)", field == 0, field)
 
@@ -130,6 +138,11 @@ for CFG, HEIGHT, TAG in ((SJ.CFG_340, H340, "340"), (SJ.CFG_128, H128, "128")):
         t0 = time.time()
         ok, why = run(with_field(pb, field + k), P)
         dt = time.time() - t0
+        if CFG == SJ.CFG_128G:
+            # a config with no history of the lenient field: one encoding, the canonical one (wire.rs decode)
+            check(f"[{TAG}] the size field + {k} is refused (this config takes the canonical field only)",
+                  not ok and "NonCanonical" in why, (ok, why))
+            continue
         check(f"[{TAG}] the size field + {k} verifies exactly as the honest proof, with the honest proof's work",
               ok and why == "" and dt < 2.0, (ok, why, round(dt, 2)))
     ok, why = run(with_field(pb, field + (1 << 26)), P, fee=P["fee"] + 1)
@@ -201,6 +214,25 @@ ok, why = SJ.verify(p340 + b"\x00" * 8, Q340["root"], Q340["nf"], Q340["cm1"], Q
                     Q340["dest"], height=H340)
 check("a 340-bit proof with 8 bytes appended is refused: the live format carries no nonce", not ok and "trailing" in why,
       (ok, why))
+
+# THE GRINDS BEFORE THE LOGUP ELEMENTS AND THE COMPOSITION COEFFICIENT (lib.rs NODE_CFG_128G; zk audit 2026-11-02): the
+# 128G proof carries interaction, composition and OODS nonces, 8 bytes each, after the pair; each must meet its width
+p128g, Q128g = honest["128G"]
+args128g = (Q128g["root"], Q128g["nf"], Q128g["cm1"], Q128g["cm2"], Q128g["unshield"], Q128g["fee"], Q128g["dest"])
+for i, (name, word) in enumerate((("interaction", "interaction"), ("composition", "composition"), ("OODS", "OODS"))):
+    at = len(p128g) - 24 + 8 * i
+    n = int.from_bytes(p128g[at:at + 8], "little")
+    bad = p128g[:at] + ((n + 1) % (1 << 64)).to_bytes(8, "little") + p128g[at + 8:]
+    ok, why = SJ.verify(bad, *args128g, height=HG)
+    check(f"a 128G proof whose {name} nonce does not meet its width is refused", not ok and word in why, (ok, why))
+ok, why = SJ.verify(p128g[:-8], *args128g, height=HG)
+check("...one missing a nonce is refused as malformed (one proof, one encoding)", not ok and "nonce" in why, (ok, why))
+ok, why = SJ.verify(p128, *args128, height=HG)
+check("an honest 128 proof is REFUSED from the grind gate (no prover may skip the grinds)", not ok and "config" in why,
+      (ok, why))
+ok, why = SJ.verify(p128g, *args128g, height=HG - 1)
+check("an honest 128G proof is REFUSED below the grind gate (the height chooses, never the prover)",
+      not ok and "config" in why, (ok, why))
 
 # THE POINT OF THE CHANGE, MEASURED: the 128-bit proof is smaller (doc/stwo/phase0-results.md has the numbers)
 check(f"the 128-bit proof is at most half the 340-bit one ({len(p128):,} vs {len(p340):,} bytes)",

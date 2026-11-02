@@ -1084,6 +1084,10 @@ SETTLE_PROOF_RECORDS_VALUE_CALLS = True    # ENABLED at the alphanet-16 reroll �
 # "strict rejects / relaxed accepts" and diverge only on an INVALID proof — which cannot reach a deep block,
 # because the nodes that saw it at the tip were strict and rejected it there.
 #
+# NEW TERRITORY ONLY (zk audit 2026-11-02): the relaxation never applies at a height the node already held
+# (loops/core_loop.settle_proof_relaxed), so a REORG is always verified in full. Without that, a heavier fork could bury
+# an unverifiable Stwo settle FINALITY_DEPTH deep and have its root marked proven on every node that reorged onto it.
+#
 # Setting this False restores unconditional verification (correct, and unusable at 97 MiB/settle).
 SETTLE_PROOF_DEPTH_GATED = True
 
@@ -1698,6 +1702,8 @@ def split_open_block_reward(reward: int):
 #                                    reads a span's starting carry from its pre root, never from L1's exec summaries)
 #                                    STWO_SETTLE_HEIGHT ((1 << 62) = DORMANT; -> 1: a settle may carry a Stwo settlement
 #                                    proof of its span, which L1 verifies and marks proven — G8)
+#                                    STWO_JS_GRIND_HEIGHT ((1 << 62) = DORMANT; -> 1: a Stwo spend proves at NODE_CFG_128G,
+#                                    which grinds before its LogUp elements and composition coefficient too)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2280,6 +2286,19 @@ EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor;
 # native/stwo_settle built. Live from block 1 at the next reroll.
 STWO_SETTLE_HEIGHT = (1 << 62) if CHAIN_GENERATION == 29 else 1
 
+# A STWO SPEND GRINDS BEFORE EVERY CHALLENGE IT CAN RE-ROLL (2026-11-02). NODE_CFG_128 grinds before the FRI queries and
+# the OODS point only. The LogUp elements (drawn right after the trace commitment) and the composition coefficient (right
+# after the interaction commitment) can be re-drawn by re-committing, so their terms, ~124 - log2(lookup fractions) = ~109
+# and ~124 - log2(constraints) = ~115, set the proof's real conjectured level, not the ~129 of its query count. From this
+# height a spend must prove at NODE_CFG_128G (native/stwo_js lib.rs: the same tree, a 16-bit grind before the LogUp
+# elements, a 12-bit one before the composition coefficient, FRI's grind 21 bits; its nonces ride after the proof), so
+# each of those terms clears the remaining floor, the DEEP batching coefficient Stwo's PCS draws (~114; not ground here or
+# upstream). execnode/stwo_js_native.config_id_at and the wallet's stwoCfgId pick the config from this height.
+# DORMANT on generation 29: a live height must wait for the rebuilt WASM to be served and every node to run the verifier
+# (CLAUDE.md rule 3), and a wallet page cached from before it would prove at the old config; live from block 1 at the
+# next reroll. tests/test_stwo_js_honest_proof_verifies_and_forged_public_inputs_are_refused.py.
+STWO_JS_GRIND_HEIGHT = (1 << 62) if CHAIN_GENERATION == 29 else 1
+
 # SETTLE DATA FIELDS (2026-11-02). The two retired settle-proof field names (`proof`, `proof_da`: the Goldilocks
 # settlement proof, deleted in G9) are refused by KEY from this L1 height — present with any value, null included — and
 # apply derives the proven marker from `stwo` alone (at or above STWO_SETTLE_HEIGHT), never from either retired name.
@@ -2806,6 +2825,8 @@ CLIENT_EXPORTS = (
     "CHAIN_GENERATION",
     # the wallet offers a signature scheme per account (doc/signature-schemes.md)
     "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
+    # the node config a Stwo spend proves at (static/interface.js stwoCfgId; execnode/stwo_js_native.config_id_at)
+    "STWO_JS_GRIND_HEIGHT",
     # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT, BLAKE_EXEC_HEIGHT and
     # SIG_SCHEMES_HEIGHT were exported until G9 inlined them: on generation 29 the wallet's Stwo pool, fee_to, 128-bit
     # config, the 256-bit VM digests and the scheme picker are on from block 1 — static/interface.js, nadodapp.js.

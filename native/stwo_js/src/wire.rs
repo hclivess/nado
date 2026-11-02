@@ -2,9 +2,10 @@
 //!
 //! FORMAT: bincode 1 (fixed-int, little-endian) of the pair `(claimed: Vec<SecureField>, stark: StarkProof)`, i.e.
 //! the prototype's two serialized pieces (`bincode::serialize(&proof.stark)` and the three claimed LogUp sums)
-//! concatenated, claimed first. Nothing in either piece changes. A proof at a config with an OODS grind
-//! (lib.rs oods_pow_bits, NODE_CFG_128) is followed by its 8-byte little-endian nonce; a proof at any other config by
-//! nothing — so the live 340-bit format is byte-identical to what it always was.
+//! concatenated, claimed first. Nothing in either piece changes. A proof at a config with grinds is followed by their
+//! 8-byte little-endian nonces in transcript order (nonces_of): NODE_CFG_128 by its OODS nonce; NODE_CFG_128G by its
+//! interaction, composition and OODS nonces; a proof at any other config by nothing — so the live 340-bit format is
+//! byte-identical to what it always was.
 //!
 //! DECODE IS STRICTER THAN THE PROTOTYPE, on purpose, because a node decodes attacker bytes:
 //!  - trailing bytes are refused, so one proof has one encoding (a txid over the proof bytes is not malleable);
@@ -29,10 +30,26 @@ pub const MAX_PROOF_BYTES: usize = 16 << 20;
 
 pub fn encode(proof: &JsProof) -> Vec<u8> {
     let mut b = bincode::serialize(&(&proof.claimed, &proof.stark)).expect("serialize");
-    if crate::oods_pow_bits(proof.stark.config) > 0 {
-        b.extend_from_slice(&proof.oods_nonce.to_le_bytes());
+    for n in nonces_of(proof.stark.config, proof) {
+        b.extend_from_slice(&n.to_le_bytes());
     }
     b
+}
+
+/// The grind nonces a proof at `cfg` carries after the pair, in transcript order: interaction, composition (only a
+/// config with those grinds, NODE_CFG_128G), then OODS (a config with an OODS grind).
+fn nonces_of(cfg: stwo::core::pcs::PcsConfig, p: &JsProof) -> Vec<u64> {
+    let mut v = vec![];
+    if crate::interaction_pow_bits(cfg) > 0 {
+        v.push(p.interaction_nonce);
+    }
+    if crate::composition_pow_bits(cfg) > 0 {
+        v.push(p.composition_nonce);
+    }
+    if crate::oods_pow_bits(cfg) > 0 {
+        v.push(p.oods_nonce);
+    }
+    v
 }
 
 #[derive(Debug)]
@@ -57,23 +74,26 @@ pub fn decode(bytes: &[u8]) -> Result<JsProof, DecodeError> {
         .allow_trailing_bytes()
         .deserialize_from(&mut rest)
         .map_err(|e| DecodeError::Malformed(format!("{e}")))?;
-    let oods_nonce = if crate::oods_pow_bits(stark.config) > 0 {
-        let n: [u8; 8] = rest.try_into().map_err(|_| DecodeError::Malformed(format!("expected the 8-byte OODS nonce, got {} trailing bytes", rest.len())))?;
-        u64::from_le_bytes(n)
-    } else {
-        if !rest.is_empty() {
-            return Err(DecodeError::Malformed(format!("{} trailing bytes", rest.len())));
-        }
-        0
-    };
+    // exactly the nonces the config calls for, 8 bytes each (nonces_of): anything else is refused
+    let cfg = stark.config;
+    let (ib, kb, ob) = (crate::interaction_pow_bits(cfg) > 0, crate::composition_pow_bits(cfg) > 0, crate::oods_pow_bits(cfg) > 0);
+    let want = 8 * (ib as usize + kb as usize + ob as usize);
+    if rest.len() != want {
+        return Err(DecodeError::Malformed(format!("expected {want} bytes of grind nonces, got {} trailing bytes", rest.len())));
+    }
+    let mut it = rest.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap()));
+    let interaction_nonce = if ib { it.next().unwrap() } else { 0 };
+    let composition_nonce = if kb { it.next().unwrap() } else { 0 };
+    let oods_nonce = if ob { it.next().unwrap() } else { 0 };
     let mut chk = Canon { ok: true };
     (&claimed, &stark).serialize(&mut chk).map_err(|e| DecodeError::Malformed(e.0))?;
     if !chk.ok {
         return Err(DecodeError::NonCanonical);
     }
     let mut stark = stark;
-    last_layer_size(&mut stark, true)?;
-    Ok(JsProof { claimed, stark, oods_nonce, dbg: None })
+    // a config new with NODE_CFG_128G has no history of the lenient field: there it is canonical or refused (one encoding)
+    last_layer_size(&mut stark, !ib)?;
+    Ok(JsProof { claimed, stark, oods_nonce, interaction_nonce, composition_nonce, dbg: None })
 }
 
 /// THE FRI LAST LAYER'S SIZE FIELD (2026-10-27): ONE ENCODING PER PROOF. Stwo's LinePoly stores `log_size` beside its

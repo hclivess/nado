@@ -79,6 +79,14 @@ class NativeMissing(RuntimeError):
     """A mandatory Rust accelerator is absent or stale. Raised at load, never swallowed."""
 
 
+class NativeStatementRefused(NativeMissing):
+    """The native verifier refused the STATEMENT its caller built (stwo_settle RC_BAD_ARGS), before looking at the proof.
+    The statement is this node's own text from its own replay, and an honest prover proved exactly that text with the same
+    parser, so a refusal is a disagreement between this node's two halves (a library of another build): a fact about the
+    machine, never a verdict on the proof (zk audit 2026-11-02: it was a cached "malformed bundle" refusal, so a node whose
+    library parsed differently refused a valid span for good). A NativeMissing, so every NODE_LOCAL_ERRORS path defers."""
+
+
 def require(crate: str, so_path, crate_dir, reason: str = ""):
     """Assert that `crate`'s Rust accelerator is present and not older than its sources.
 

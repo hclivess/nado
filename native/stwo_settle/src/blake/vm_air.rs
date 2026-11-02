@@ -59,7 +59,8 @@ use stwo::core::pcs::{CommitmentSchemeVerifier, PcsConfig, TreeVec};
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs_lifted::blake2_merkle::{Blake2sMerkleChannel, Blake2sMerkleHasher};
-use stwo::core::verifier::{VerificationError, verify};
+use stwo::core::verifier::VerificationError;
+use super::grind::{self, TailNonces};
 #[cfg(feature = "prover")]
 use stwo::prover::backend::simd::SimdBackend;
 #[cfg(feature = "prover")]
@@ -73,7 +74,9 @@ use stwo::prover::poly::BitReversedOrder;
 #[cfg(feature = "prover")]
 use stwo::prover::poly::circle::{CircleEvaluation, PolyOps};
 #[cfg(feature = "prover")]
-use stwo::prover::{CommitmentSchemeProver, ComponentProver, prove};
+use stwo::prover::{CommitmentSchemeProver, ComponentProver};
+#[cfg(feature = "prover")]
+use stwo::core::proof_of_work::GrindOps;
 use stwo_constraint_framework::preprocessed_columns::PreProcessedColumnId;
 use stwo_constraint_framework::{
     EvalAtRow, FrameworkComponent, FrameworkEval, InfoEvaluator, PREPROCESSED_TRACE_IDX, Relation, RelationEntry,
@@ -1261,6 +1264,10 @@ pub struct VmProof {
     /// with the multiplicities fixed first, the sum vanishes only if every looked-up tuple IS a table row.
     pub tab_mult: Vec<u32>,
     pub sums: Vec<SecureField>,
+    /// the grind before the LogUp elements (grind::INTERACTION_POW_BITS), mixed after tab_mult
+    pub interaction_nonce: u64,
+    /// the grinds before the composition coefficient and the OODS point (grind.rs)
+    pub tail: TailNonces,
     pub stark: StarkProof<Blake2sMerkleHasher>,
 }
 
@@ -1390,6 +1397,9 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
     tb.commit(channel);
 
     channel.mix_u32s(&tab_mult);
+    // THE INTERACTION GRIND (grind.rs): before any LogUp element is drawn; verify_vm checks it at the same point
+    let interaction_nonce = SimdBackend::grind(channel, grind::INTERACTION_POW_BITS);
+    channel.mix_u64(interaction_nonce);
     let el = Elements::draw(channel);
     let (s_tr, s_sum) = scheduler::gen_interaction_trace(blog, sched_lookup, &el.round, &el.blake);
     let (r_tr, r_sums): (Vec<_>, Vec<_>) = multiunzip(
@@ -1409,8 +1419,8 @@ pub fn prove_vm(st: &VmStatement, config: PcsConfig, tamper: Tamper) -> Result<V
     tb.commit(channel);
 
     let comps = Components::new(lg, &el, &sums);
-    let stark = prove::<SimdBackend, Blake2sMerkleChannel>(&comps.provers(), channel, cs).map_err(|e| format!("{e:?}"))?;
-    Ok(VmProof { blake_log: blog, tab_mult, sums, stark })
+    let (stark, tail) = grind::prove_grinding(&comps.provers(), channel, cs)?;
+    Ok(VmProof { blake_log: blog, tab_mult, sums, interaction_nonce, tail, stark })
 }
 
 #[cfg(feature = "prover")]
@@ -1591,7 +1601,9 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
         }
     }
     let (clog, tlog, _) = logs(st);
-    if proof.sums.len() != N_SUMS || proof.stark.commitments.len() < 3 || proof.tab_mult.len() != table_rows(st).len() {
+    // EXACTLY FOUR TREES (preprocessed, trace, interaction, composition; zk audit 2026-11-02): the composition root is
+    // read as the LAST commitment, so `>= 3` let extra roots ride along unread — a second encoding of a valid proof.
+    if proof.sums.len() != N_SUMS || proof.stark.commitments.len() != 4 || proof.tab_mult.len() != table_rows(st).len() {
         return Err(VmVerifyError::Shape);
     }
     // the scheduler's size is the prover's (the number of HABS rows is not public): bounded by the CPU's
@@ -1612,6 +1624,11 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
     channel.mix_u64(((clog as u64) << 16) | ((tlog as u64) << 8) | blog as u64);
     cs.commit(proof.stark.commitments[1], &sizes[1], channel);
     channel.mix_u32s(&proof.tab_mult);
+    // THE INTERACTION GRIND (grind.rs): prove_vm's order exactly — checked, mixed, then the LogUp elements drawn
+    if !channel.verify_pow_nonce(grind::INTERACTION_POW_BITS, proof.interaction_nonce) {
+        return Err(VmVerifyError::Stark(VerificationError::ProofOfWork));
+    }
+    channel.mix_u64(proof.interaction_nonce);
     let el = Elements::draw(channel);
     channel.mix_felts(&proof.sums);
     cs.commit(proof.stark.commitments[2], &sizes[2], channel);
@@ -1620,7 +1637,7 @@ pub fn verify_vm(st: &VmStatement, proof: VmProof, config: PcsConfig) -> Result<
         return Err(VmVerifyError::Sum);
     }
     let comps = Components::new(lg, &el, &proof.sums);
-    verify(&comps.components(), channel, &mut cs, proof.stark).map_err(VmVerifyError::Stark)
+    grind::verify_grinding(&comps.components(), channel, &mut cs, proof.stark, proof.tail).map_err(VmVerifyError::Stark)
 }
 
 /// DEBUG: evaluate every CPU constraint on the honest witness (field arithmetic, row by row), naming the first that fails.

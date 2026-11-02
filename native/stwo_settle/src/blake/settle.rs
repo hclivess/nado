@@ -773,7 +773,10 @@ pub fn verify_batch(st: &Statement, proof: BatchProof, config: PcsConfig) -> Res
     st.mix_into(channel);
     let mut cs = CommitmentSchemeVerifier::<Blake2sMerkleChannel>::new(config);
     let sizes = log_sizes(log);
-    if proof.stark.commitments.len() < 3 {
+    // EXACTLY FOUR TREES, as vm_air::verify_vm (zk audit 2026-11-02): upstream reads the composition root as the LAST
+    // commitment, so `< 3` let extra roots ride along unread — a second encoding of one proof. (This tree-update proof
+    // is the unused prototype the node does not verify; it has no grinds — blake/grind.rs is the settlement VM's.)
+    if proof.stark.commitments.len() != 4 {
         return Err(VerifyError::Shape);
     }
     // THE PREPROCESSED COLUMNS ARE OURS, NOT THE PROVER'S: the XOR tables and the path's selectors are constants of the
