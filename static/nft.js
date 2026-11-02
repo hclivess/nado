@@ -14,7 +14,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel, wireWallet,
          renderWallet, alertBar, loadQR, uiConfirm, disp, esc, base, BLOCK_TIME, enhanceFile } from "./nadodapp.js";
 
-const CID = "00000000000000000000000000000000";      // set by execnode/games/redeploy.py wire() at deploy
+const CID = "b0162edacd9f4c6c6a27391c692d90c5";      // set by execnode/games/redeploy.py wire() at deploy
 const dapp = new NadoDapp({ cid: CID, app: "NFT" });
 const T = (k, en, v) => window.t("nft." + k, en, v);
 
