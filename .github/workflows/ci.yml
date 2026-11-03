@@ -96,10 +96,12 @@ jobs:
           workspaces: |
             native/mldsa44
             native/attest
+            native/pqsig
       - run: pip install -r requirements.txt cryptography
       - name: build the Rust kernels where the node loads them
         run: |
-          for d in native/mldsa44 native/attest; do
+          # native/pqsig: the selectable signature schemes (nado_pqsig.py loads it from its target/), required since gen 29
+          for d in native/mldsa44 native/attest native/pqsig; do
             (cd "$d" && cargo build --release)
           done
           cp native/mldsa44/target/release/libnado_mldsa44.so native/mldsa44/   # scripts/install.sh does the same
