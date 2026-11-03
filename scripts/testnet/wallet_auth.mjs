@@ -6,7 +6,7 @@ const require = createRequire("/root/.npm/_npx/7d92d9a2d2ccc630/node_modules/");
 const puppeteer = require("puppeteer-core");
 const CHROME = "/root/.cache/puppeteer/chrome/linux-150.0.7871.24/chrome-linux64/chrome";
 
-const [url, seed, payee] = process.argv.slice(2);
+const [url, seed, payee, chainId] = process.argv.slice(2);
 const results = [];
 const step = (name, ok, detail = "") => { results.push({ step: name, ok: !!ok, detail: String(detail).slice(0, 160) }); console.log(JSON.stringify(results[results.length - 1])); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -15,6 +15,13 @@ const api = url.replace(/\/wallet.*$/, "");
 async function getAccount(addr) {
   const r = await fetch(`${api}/get_account?address=${addr}`);
   return r.ok ? await r.json() : null;
+}
+// the chain id the NODE's page is built for (its rendered /protocol.js) — what a dApp page served by it would send. A
+// testnet's id differs from the Python constant, and the wallet answers a mismatched id "reload", never a signature.
+async function pageChain() {
+  const js = await (await fetch(`${api}/protocol.js`)).text();
+  const m = js.match(/CHAIN_ID\s*=\s*"([^"]+)"/);
+  return m ? m[1] : chainId;
 }
 async function waitFor(fn, label, ms = 240000) {
   const t0 = Date.now();
@@ -29,15 +36,19 @@ try {
   page.on("dialog", async (d) => { await d.accept(); });
   await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-  // --- import the seed (64-hex) through the onboarding UI
-  await page.waitForSelector("#btnShowImport", { visible: true, timeout: 30000 });
-  await page.click("#btnShowImport");
-  await page.waitForSelector("#importKey", { visible: true });
+  // --- import the seed (64-hex) the way a person who already owns a wallet does: the wallet auto-creates one for a
+  // newcomer (2026-10-08), so the way in is Settings → "Import an existing wallet", not the old onboarding screen.
+  await page.waitForSelector("#walAddr", { visible: true, timeout: 60000 });
+  const auto = (await page.$eval("#walAddr", (e) => e.textContent)).trim();
+  await page.$eval("#btnImportExisting", (e) => e.click());
+  await page.waitForSelector("#importKey", { visible: true, timeout: 20000 });
   await page.type("#importKey", seed);
-  await page.click("#btnImport");
-  await page.waitForSelector("#walAddr", { visible: true, timeout: 30000 });
+  await page.$eval("#btnImport", (e) => e.click());
+  await sleep(1500);
+  if (await page.$(".modal-ok")) { try { await page.$eval(".modal-ok", (e) => e.click()); } catch (e) {} }   // replace the empty auto wallet
+  await waitFor(async () => { const a = (await page.$eval("#walAddr", (e) => e.textContent)).trim(); return a && a !== auto; }, "imported address shown", 60000);
   const addr = (await page.$eval("#walAddr", (e) => e.textContent)).trim();
-  step("wallet imported", addr.length === 46, addr);
+  step("wallet imported", addr.length >= 40 && addr !== auto, addr);
 
   // --- Settings tab: the Account keys panel must be present (auth_active on this chain)
   await page.click('[data-tabbtn="settings"]');
@@ -109,6 +120,32 @@ try {
   step("confirm clicked", true);
   const sent = await waitFor(async () => Number(((await getAccount(payee)) || {}).balance || 0) >= before + 5_000_000_000, "send landed");
   step("send signed by the rotated-in key landed", sent);
+
+  // --- a dApp signing request (the NFT page's mint), as a user arrives at it: a FRESH load of the wallet carrying
+  // ?exec_sign=, exactly what nadodapp.js _goRedirect navigates to. The wallet used to pick its signer before authSync
+  // had found the protected account's HD child, so it signed with the BASE key and every relay refused the mint
+  // ("signature by a key that does not authorize this account", 2026-11-03). The answer must be ok=1, and the tx must land.
+  const payload = Buffer.from(JSON.stringify({ blob: { op: "asset_create", seed: 4242, name: "auth e2e", sym: "NFT", dec: 0,
+    supply: 1, mintable: false, uri: "ipfs://bafkreibg6q77z5g4becu7dwji4valvbjzznjyicmbxvo62rnpnllcrfam4" },
+    label: "create NFT", confirm: 1, chain: await pageChain() })).toString("base64");
+  const ret = "https://nft.nadochain.com/";
+  let answer = null;
+  await page.setRequestInterception(true);
+  page.on("request", (r) => {               // the bounce back to the dApp: read its answer, never leave the testnet
+    if (r.url().startsWith(ret)) { answer = answer || r.url(); r.abort(); } else r.continue();
+  });
+  await page.goto(url.replace(/\/wallet.*$/, "/wallet") + "?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(ret) + "&app=NFT",
+                  { waitUntil: "domcontentloaded", timeout: 60000 });
+  // the wallet shows its confirm (confirm: 1) unless it refuses outright — then it answers at once with ok=0
+  await waitFor(async () => answer || await page.$(".modal-ok"), "the wallet showed the mint confirm", 60000);
+  if (!answer) { await page.$eval(".modal-ok", (e) => e.click()); step("dApp mint request confirmed", true); }
+  await waitFor(async () => !!answer, "the wallet answered the dApp", 120000);
+  const q = new URL(answer || ret).searchParams;
+  step("the wallet answered ok=1 (signed by the protected account's signer)", q.get("ok") === "1", decodeURIComponent(q.get("err") || answer || ""));
+  const txid = q.get("txid") || "";
+  const landed = !!txid && await waitFor(async () => { const r = await fetch(`${api}/get_transaction?txid=${txid}`); return r.ok && !!(await r.json()); },
+                                         "mint landed", 240000);
+  step("the mint landed on chain", landed, txid);
 } catch (e) {
   step("browser flow", false, e && e.message ? e.message : String(e));
 } finally {

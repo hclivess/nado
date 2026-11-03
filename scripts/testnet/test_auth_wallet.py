@@ -4,7 +4,7 @@
 Launches n nodes with account authentication forced live, funds a fresh wallet seed from node0, then drives
 the REAL wallet page served by node1 with puppeteer (scripts/testnet/wallet_auth.mjs): import seed → Settings →
 Protect (phrase shown once) → Rotate with the phrase → wrong phrase refused → reload re-finds the signer →
-Send with the rotated-in key. Every on-chain effect is verified through the node's HTTP API.
+Send with the rotated-in key → a dApp's mint request (?exec_sign=, a fresh load) signed by that same key. Every on-chain effect is verified through the node's HTTP API.
 
 Usage: python3 scripts/testnet/test_auth_wallet.py [n] [seconds]      (exit 0 iff every browser step passed)
 """
@@ -66,7 +66,13 @@ def main():
     PAYEE = generate_keydict()["address"]
 
     def launch(i):
-        env = dict(os.environ, HOME=homes[i], NADO_TESTNET="1", NADO_AUTH_FORCE="1")
+        # NO CARRY: this harness writes its OWN genesis_alloc (one funded account), so the repo's carry files — the live
+        # chain's carried invites and contract pots, whose coins sit in the REPO's alloc — fail genesis' INVITE_ESCROW /
+        # BRIDGE_ESCROW invariants and every node refuses to start (they did, silently, until 2026-11-03). A path that
+        # does not exist = no carry.
+        env = dict(os.environ, HOME=homes[i], NADO_TESTNET="1", NADO_AUTH_FORCE="1",
+                   NADO_GENESIS_CARRY=os.path.join(workdir, "no-carry.dat"),
+                   NADO_EXEC_GENESIS=os.path.join(workdir, "no-exec-genesis.json"))
         logf = open(os.path.join(homes[i], "node.log"), "a")
         return subprocess.Popen([sys.executable, "nado.py"], cwd=REPO, env=env, stdout=logf, stderr=subprocess.STDOUT)
 
@@ -84,6 +90,10 @@ def main():
                 if len(tips) == 1 and next(iter(tips)) != genesis and all(int(s.get("finalized_height") or 0) >= 0 for s in sts):
                     break
             time.sleep(5)
+        else:
+            print("[auth-wallet] RESULT: FAIL — the fleet never converged (node0's log below)", flush=True)
+            print("".join(open(os.path.join(homes[0], "node.log")).readlines()[-8:]), flush=True)
+            return 2
         print("[auth-wallet] fleet converged", flush=True)
         # fund the wallet address from node0 (legacy string-signature transfer)
         t = int(get(0, "/get_latest_block")["block_number"])
@@ -101,7 +111,7 @@ def main():
                 pass
             time.sleep(3)
         print("[auth-wallet] wallet funded; driving the browser against node1", flush=True)
-        proc = subprocess.run(["node", os.path.join(HERE, "wallet_auth.mjs"), url(1, "/wallet"), WALLET["private_key"], PAYEE],
+        proc = subprocess.run(["node", os.path.join(HERE, "wallet_auth.mjs"), url(1, "/wallet"), WALLET["private_key"], PAYEE, str(CHAIN_ID)],
                               capture_output=True, text=True, timeout=max(300, run_seconds))
         for line in proc.stdout.splitlines():
             print("[auth-wallet] " + line, flush=True)

@@ -56,6 +56,7 @@ function harness({ search = '', referrer = '', ls = {}, confirmAnswer = false, f
     state: { wallet: { address: 'ndoVICTIM', publicKey: 'pk', privateKey: 'sk' } },
     // no game played privately here: every site is signed for by the active account (shadow accounts have their own test)
     signerFor: () => env.state.wallet,
+    authReady: async () => {},   // the protected-account signer lookup (its own test: a_protected_account_signs_dapp_requests…)
     uiConfirm: async (spec) => { rec.confirms.push(spec); return confirmAnswer; },
     uiAlert: async (b) => { rec.alerts.push(b); },
     i18: (k, d, v) => String(d).replace(/\{(\w+)\}/g, (_, n) => (v && n in v ? v[n] : '{' + n + '}')),

@@ -441,6 +441,7 @@ function switchAccount(i) {
   state._hdExpectedAddr = kp.address;      // so hdSync won't mistake this switch for an external reload
   // NEVER persistWallet here — LS_WALLET must stay the master seed so one phrase restores every account.
   state.authAcct = null;
+  state._authReady = null;                 // the new account's signer is not known yet (authReady)
   showWalletUI();
   refreshDashboard().catch(() => {});
   if (resume) startMining();
@@ -3355,6 +3356,12 @@ function authBindingSet(account, k) { const b = authBindingGet(); b[account] = k
 
 /* Re-anchor state.wallet to the key that currently authorizes the active HD account. Cheap when the account
  * is unconfigured (nothing to do). Called after every wallet load / account switch / dashboard refresh. */
+// A PROTECTED ACCOUNT SIGNS WITH ITS HD SIGNER CHILD, NOT THE BASE KEY, and authSync is what swaps state.wallet to it —
+// asynchronously (it reads the account's auth config first). A signer captured before it settles is the base key, which
+// every relay refuses ("signature by a key that does not authorize this account"): a protected account could not mint
+// an NFT through the dApp redirect (2026-11-03), and the hidden background signer never ran authSync at all. Every path
+// that SIGNS awaits authReady() before it picks its key; showWalletUI starts it, an account switch resets it.
+function authReady() { if (!state._authReady) state._authReady = authSync().catch(() => {}); return state._authReady; }
 async function authSync(acc) {
   const master = masterSeedOf();
   if (!master || !state.wallet) return;
@@ -5298,7 +5305,8 @@ async function resumePendingExecSign() {
   // background signing is a user setting (default ON). Turned off → always fall back to the visible redirect.
   if (bg && localStorage.getItem("nado_bg_sign") === "0") { pendingExecSign = null; needUI("off"); return; }
   if (!state.wallet) { pendingExecSign = null; needUI("locked"); return; }   // a hidden iframe can't show the unlock screen
-  pendingExecSign = null;
+  pendingExecSign = null;                // consumed BEFORE the await, so a second resume cannot sign it twice
+  await authReady();                     // a protected account's signer, never its base key (authReady)
   if (!bg) { try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {} }
   let call, retUrl;
   try {
@@ -5673,7 +5681,8 @@ function showWalletUI() {
   show("tabbar", true);
   renderAutoWalletNote();
   hdSync();                                          // anchor the HD layer to the loaded wallet (Main on a fresh load)
-  authSync().then(() => { renderAccountBar(); renderAuth(); if (state.wallet) { $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address); $("recvAddr").textContent = state.wallet.address; } }).catch(() => {});
+  state._authReady = null;                           // a (re)loaded wallet: find its signer afresh (authReady)
+  authReady().then(() => { renderAccountBar(); renderAuth(); if (state.wallet) { $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address); $("recvAddr").textContent = state.wallet.address; } }).catch(() => {});
   renderAccountBar();
   $("walAddr").innerHTML = exLink("a", state.wallet.address, state.wallet.address);   // the ACTIVE account's address — click-through to its Explore view
   // The "Reveal / export private key" section is the BACKUP surface — always the MASTER seed + phrase, which
