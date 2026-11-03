@@ -53,15 +53,18 @@ const srv = createServer((req, res) => {
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const HTTP = srv.address().port;
 
-// a machine with no Chromium (the CI runner) cannot drive this walk: a declared SKIP, never a FAIL that reads as a broken
-// drop zone. Only the binary's absence skips; a Chromium that is present but fails to start is still a FAIL below.
+// THE BROWSER: the first that answers --version. A name on PATH is not a browser: Ubuntu 24.04's chromium-browser is a
+// stub for the snap, present on the CI runner and unable to start (2026-11-03: "chromium did not start"), while the
+// runner's google-chrome works. A machine where none answers gets a declared SKIP after the source checks, never a FAIL
+// that reads as a broken drop zone; a browser that answers and then fails to serve CDP is still a FAIL below.
 import { execFileSync } from "node:child_process";
-try { execFileSync("sh", ["-c", "command -v chromium-browser"], { stdio: "ignore" }); }
-catch (e) { console.log(`SKIP  chromium-browser is not installed: the drop zone walk needs it (${fails} source check(s) failed)`); process.exit(fails ? 1 : 0); }
+const BROWSER = [process.env.CHROME, "chromium-browser", "chromium", "google-chrome", "google-chrome-stable"].filter(Boolean)
+  .find((b) => { try { execFileSync(b, ["--version"], { stdio: "ignore", timeout: 15000 }); return true; } catch (e) { return false; } });
+if (!BROWSER) { console.log(`SKIP  no working Chromium/Chrome (tried chromium-browser, chromium, google-chrome): the drop zone walk needs one (${fails} source check(s) failed)`); process.exit(fails ? 1 : 0); }
 
 const PORT = 9300 + (process.pid % 600);
 const prof = mkdtempSync(join(tmpdir(), "cdp-filedrop-"));
-const chrome = spawn("chromium-browser", ["--headless", "--disable-gpu", "--no-sandbox",
+const chrome = spawn(BROWSER, ["--headless", "--disable-gpu", "--no-sandbox",
   "--remote-debugging-port=" + PORT, "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let ws, id = 0; const pend = new Map(); let sid;
