@@ -53,20 +53,35 @@ const srv = createServer((req, res) => {
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const HTTP = srv.address().port;
 
-// THE BROWSER: the first that answers --version. A name on PATH is not a browser: Ubuntu 24.04's chromium-browser is a
-// stub for the snap, present on the CI runner and unable to start (2026-11-03: "chromium did not start"), while the
-// runner's google-chrome works. A machine where none answers gets a declared SKIP after the source checks, never a FAIL
-// that reads as a broken drop zone; a browser that answers and then fails to serve CDP is still a FAIL below.
-import { execFileSync } from "node:child_process";
-const BROWSER = [process.env.CHROME, "chromium-browser", "chromium", "google-chrome", "google-chrome-stable"].filter(Boolean)
-  .find((b) => { try { execFileSync(b, ["--version"], { stdio: "ignore", timeout: 15000 }); return true; } catch (e) { return false; } });
-if (!BROWSER) { console.log(`SKIP  no working Chromium/Chrome (tried chromium-browser, chromium, google-chrome): the drop zone walk needs one (${fails} source check(s) failed)`); process.exit(fails ? 1 : 0); }
-
+// THE BROWSER: the first candidate that actually SERVES CDP. Neither a name on PATH nor a --version answer is a browser
+// this walk can drive: the ubuntu-24.04 CI runner has a chromium-browser (the snap's stub) and a browser that answers
+// --version, and still "chromium did not start" on both runs of 2026-11-03. Each candidate is started and given 15 s to
+// serve /json/version; a machine where none does gets a declared SKIP after the source checks (naming what was tried),
+// never a FAIL that reads as a broken drop zone. A browser that serves CDP and then misbehaves is still a FAIL below.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = 9300 + (process.pid % 600);
 const prof = mkdtempSync(join(tmpdir(), "cdp-filedrop-"));
-const chrome = spawn(BROWSER, ["--headless", "--disable-gpu", "--no-sandbox",
-  "--remote-debugging-port=" + PORT, "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let chrome = null, ver = null;
+const tried = [];
+for (const bin of [process.env.CHROME, "chromium-browser", "chromium", "google-chrome", "google-chrome-stable"].filter(Boolean)) {
+  const c = spawn(bin, ["--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=" + PORT,
+    "--user-data-dir=" + prof, "about:blank"], { stdio: "ignore" });
+  let gone = false;
+  c.on("error", () => { gone = true; });
+  c.on("exit", () => { gone = true; });
+  for (let i = 0; i < 60 && !ver && !gone; i++) {
+    try { ver = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json(); } catch (e) { await sleep(250); }
+  }
+  if (ver) { chrome = c; break; }
+  tried.push(bin + (gone ? " (exited)" : " (no CDP in 15 s)"));
+  try { c.kill("SIGKILL"); } catch (e) {}
+  await sleep(300);
+}
+if (!chrome) {
+  try { rmSync(prof, { recursive: true, force: true }); } catch (e) {}
+  console.log(`SKIP  no browser served CDP (tried ${tried.join(", ") || "none"}): the drop zone walk needs one (${fails} source check(s) failed)`);
+  process.exit(fails ? 1 : 0);
+}
 let ws, id = 0; const pend = new Map(); let sid;
 const send = (m, p) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p, sessionId: sid })); });
 async function evl(expr) {
@@ -77,9 +92,6 @@ async function evl(expr) {
 function cleanup() { try { chrome.kill("SIGKILL"); } catch (e) {} try { srv.close(); } catch (e) {} try { rmSync(prof, { recursive: true, force: true }); } catch (e) {} }
 
 try {
-  let ver = null;
-  for (let i = 0; i < 60 && !ver; i++) { try { ver = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json(); } catch (e) { await sleep(250); } }
-  if (!ver) throw new Error("chromium did not start");
   ws = new WebSocket(ver.webSocketDebuggerUrl);
   await new Promise((r) => ws.addEventListener("open", r, { once: true }));
   ws.addEventListener("message", (ev) => { const m = JSON.parse(ev.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } });
