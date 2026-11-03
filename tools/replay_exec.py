@@ -35,10 +35,12 @@ def _get(url):
     """GET JSON, paced and patient: the node rate-limits (HTTP 429) a burst of reads, and a fetch is a one-off"""
     import urllib.error
     import urllib.request
+    if not url.startswith(("http://", "https://")):     # the node URL is the operator's; never a file:// or custom scheme
+        raise ValueError(f"not an http(s) URL: {url[:40]!r}")
     for attempt in range(8):
         time.sleep(0.2)
         try:
-            with urllib.request.urlopen(url, timeout=30) as r:
+            with urllib.request.urlopen(url, timeout=30) as r:  # nosec B310 # scheme checked to http(s) above
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code != 429:

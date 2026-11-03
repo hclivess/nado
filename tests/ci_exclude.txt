@@ -13,6 +13,9 @@ test_device_attest_kernel                    needs the Rust kernels (native/)
 test_device_attest_real_vector               needs the Rust kernels (native/)
 test_device_attest_rule                      needs the Rust kernels (native/)
 test_exec_root_v2                            needs the Rust kernels (native/)
+test_an_account_signs_with_the_scheme_its_address_commits_to   needs the Rust kernels (native/pqsig)
+test_every_signature_scheme_derives_one_key_in_every_stack     needs the Rust kernels (native/pqsig)
+test_every_identity_class_can_renew          needs the Rust kernels (native/attest)
 test_assets                                  proves in Python kernels: over 5 minutes
 test_games_e2e                               proves in Python kernels: over 5 minutes
 test_zk_review_2026_09_24                    proves in Python kernels: over 5 minutes

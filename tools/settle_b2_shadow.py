@@ -39,7 +39,9 @@ import urllib.request  # noqa: E402
 
 
 def get_json(url):
-    with urllib.request.urlopen(url, timeout=30) as r:
+    if not url.startswith(("http://", "https://")):     # --l1 is the operator's; never a file:// or custom scheme
+        raise ValueError(f"--l1 must be an http(s) URL, not {url[:40]!r}")
+    with urllib.request.urlopen(url, timeout=30) as r:  # nosec B310 # scheme checked to http(s) on the line above
         return json.loads(r.read())
 
 

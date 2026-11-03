@@ -53,6 +53,12 @@ const srv = createServer((req, res) => {
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const HTTP = srv.address().port;
 
+// a machine with no Chromium (the CI runner) cannot drive this walk: a declared SKIP, never a FAIL that reads as a broken
+// drop zone. Only the binary's absence skips; a Chromium that is present but fails to start is still a FAIL below.
+import { execFileSync } from "node:child_process";
+try { execFileSync("sh", ["-c", "command -v chromium-browser"], { stdio: "ignore" }); }
+catch (e) { console.log(`SKIP  chromium-browser is not installed: the drop zone walk needs it (${fails} source check(s) failed)`); process.exit(fails ? 1 : 0); }
+
 const PORT = 9300 + (process.pid % 600);
 const prof = mkdtempSync(join(tmpdir(), "cdp-filedrop-"));
 const chrome = spawn("chromium-browser", ["--headless", "--disable-gpu", "--no-sandbox",

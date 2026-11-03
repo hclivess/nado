@@ -80,7 +80,7 @@ def main():
         env = dict(os.environ, HOME=homes[i], NADO_TESTNET="1", NADO_L1_URL=f"http://{RT.node_ip(i)}:{PORT}",
                    NADO_EXEC_STATE=os.path.join(homes[i], "exec_state.json"), NADO_EXEC_DA=os.path.join(homes[i], "exec_da"),
                    # 0.0.0.0, as on the fleet: the wallet reaches it on the RELAY's host (127.0.0.x), the node on 127.0.0.1
-                   NADO_EXEC_PORT=str(EXEC_BASE + i), NADO_EXEC_BIND="0.0.0.0", **own_genesis(i))
+                   NADO_EXEC_PORT=str(EXEC_BASE + i), NADO_EXEC_BIND="0.0.0.0", **own_genesis(i))  # nosec B104 # a throwaway loopback testnet exec node, torn down with the run; the wallet reaches it on 127.0.0.x
         return subprocess.Popen([sys.executable, os.path.join(REPO, "execnode", "execnode.py")], cwd=homes[i], env=env,
                                 stdout=open(os.path.join(homes[i], "exec.log"), "a"), stderr=subprocess.STDOUT)
 
