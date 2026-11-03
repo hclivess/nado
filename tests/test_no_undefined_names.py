@@ -47,9 +47,11 @@ except ImportError:
     print("ordinary run, and it has already caught a NameError in the O(1) settlement verifier.")
     sys.exit(1)
 
-listed = subprocess.run(["git", "ls-files", "*.py"], cwd=ROOT, capture_output=True, text=True)
+# safe.directory: the pre-push hook runs this with a blank HOME (env -i), and as root on a checkout owned by the node's
+# account git then refuses "dubious ownership" and lists NOTHING (2026-11-03: "0 files", a refused push). Say why if so.
+listed = subprocess.run(["git", "-c", "safe.directory=*", "ls-files", "*.py"], cwd=ROOT, capture_output=True, text=True)
 files = [f for f in listed.stdout.split() if not f.startswith("tests/")]
-check(len(files) > 50, f"found the production sources to scan ({len(files)} files)")
+check(len(files) > 50, f"found the production sources to scan ({len(files)} files)" + (f" — git: {listed.stderr.strip()[:300]}" if len(files) <= 50 else ""))
 
 proc = subprocess.run([sys.executable, "-m", "pyflakes"] + files,
                       cwd=ROOT, capture_output=True, text=True)
