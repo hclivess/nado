@@ -16,7 +16,8 @@ Then:
   3. a REVERTING call proves (the out-of-turn move in the span; a span whose only call reverts lands on the exec node's
      root with the escrow refunded); the four reverts the circuit leaves to the verifier (an asset PAY or ABURN beyond the
      holding, a BHASH or BEACON the chain does not hold) are accepted only as exactly that. What the witness cannot carry
-     yet is reported as UNPROVABLE, never proven: an asset created inside the span, and (below
+     yet is reported as UNPROVABLE, never proven: an asset created inside the span (below protocol.EXEC_ASSET_ID_ROOT_HEIGHT;
+     from it, tests/test_a_settlement_proves_an_asset_absent_from_the_asset_id_gate.py), and (below
      protocol.EXEC_ADDR_ROOT_HEIGHT only) a payout to an address registered before the span;
   5. BOTH RULE SETS of the registry gate: below it that payout is unprovable; from it the registry is a committed ledger
      (exec_root_b2.T_ADDR), the same span proves and lands on the exec node's root, a registered payee claimed absent is

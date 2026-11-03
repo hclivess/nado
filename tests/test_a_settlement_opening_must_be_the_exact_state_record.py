@@ -43,7 +43,8 @@ kv = csmt.Tree({})
 
 
 def bundle(openings):
-    return {"kv_pre": kv.root().hex(), "rec_pre": rec.root().hex(),
+    # cursor 0: below protocol.EXEC_ASSET_ID_ROOT_HEIGHT, the S.FAMILIES table the leaves above were built with
+    return {"cursor": 0, "kv_pre": kv.root().hex(), "rec_pre": rec.root().hex(),
             "proofs": {"kv": {}, "rec": {k.hex(): S._proof_json(rec.prove(k)) for k in leaves}},
             "openings": [[f, list(p), v] for f, p, v in openings]}
 

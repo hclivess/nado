@@ -1700,6 +1700,8 @@ def split_open_block_reward(reward: int):
 #                                    EXEC_CARRY_ROOT_HEIGHT (30000, exec cursor; -> 1: the exec state's dividend carry is
 #                                    committed in the exec root as the T_COUNTER record "div_carry", so a settlement proof
 #                                    reads a span's starting carry from its pre root, never from L1's exec summaries)
+#                                    EXEC_ASSET_ID_ROOT_HEIGHT (115000, exec cursor; -> 1: every asset's id is committed in
+#                                    the exec root as a T_ASSET_ID record, so a settlement proof shows an asset absent)
 #                                    STWO_SETTLE_HEIGHT ((1 << 62) = DORMANT; -> 1: a settle may carry a Stwo settlement
 #                                    proof of its span, which L1 verifies and marks proven — G8)
 #                                    STWO_JS_GRIND_HEIGHT ((1 << 62) = DORMANT; -> 1: a Stwo spend proves at NODE_CFG_128G,
@@ -2273,6 +2275,18 @@ EXEC_ADDR_ROOT_HEIGHT = 8500 if CHAIN_GENERATION == 29 else 1   # exec cursor; L
 # carry to verify a span with. Tip ~12,460 at ~6.1 s/block when this was chosen (~30 h ahead): if the push slips past
 # ~28,000, move it (a gate in the past makes every exec node switch at its own update moment).
 EXEC_CARRY_ROOT_HEIGHT = 30000 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at ~12460 when this was written
+
+# EVERY ASSET'S ID IN THE EXEC ROOT (2026-11-03). An asset's T_ASSET_META record is POSITIONED by its metadata digest
+# (exec_root_b2.asset_meta_digest), so "no asset with this id exists" names no single leaf and a settlement witness could
+# not show it: every span whose transition asks for a missing asset (an asset_create checking its derived id is free, a
+# transfer of an unknown id) was unprovable — the shadow run measured 85500, 86040, 86220 and 93240 (2026-11-03), each a
+# plain asset read. From this exec cursor every asset also commits record_key(T_ASSET_ID, aid) -> ONE, positioned by the
+# id alone, whose absence proves the asset absent (execnode/settle_b2 FAMILIES "assets"). A span crossing the gate is
+# unprovable (its first root inserts every id record), and block_apply.close touches the state at the gate
+# (exec_root_b2.projection_gate_at), so a memoised root moves there like a cold one. Exec-root consensus only.
+# INVARIANT: STWO_SETTLE_HEIGHT >= EXEC_ASSET_ID_ROOT_HEIGHT (tests/test_gate_reroll_transfer.py). Tip 100439 at 6.1
+# s/block when this was chosen (~25 h ahead): if the push slips past ~110,000, move it.
+EXEC_ASSET_ID_ROOT_HEIGHT = 115000 if CHAIN_GENERATION == 29 else 1   # exec cursor; L1 was at 100439 when this was written
 
 # THE STWO SETTLEMENT OF A SPAN (G8, doc/stwo-migration.md 9.5; doc/stwo/g4-settlement-statement.md section 5). From this L1
 # height a `settle` may carry `stwo`: the DA commitment of an execnode/settle_b2 bundle (a witness of authenticated

@@ -28,6 +28,7 @@ REROLL = {
     "DEVICE_ATTEST_HEIGHT": 1,
     "EXEC_ADDR_ROOT_HEIGHT": 1,                # gen 29: the zkvm digest registry is committed in the exec root (G4)
     "EXEC_CARRY_ROOT_HEIGHT": 1,               # gen 29: the dividend carry is committed in the exec root (G8 prerequisite)
+    "EXEC_ASSET_ID_ROOT_HEIGHT": 1,            # gen 29 (115000): every asset's id is committed in the exec root (G8 prerequisite)
     "STWO_SETTLE_HEIGHT": 1,                   # gen 29 DORMANT (1 << 62): a settle carries a Stwo proof of its span (G8)
     "SETTLE_FIELDS_HEIGHT": 1,                 # gen 29 (86400): a settle's retired proof fields are refused by key
     "STWO_JS_GRIND_HEIGHT": 1,                 # gen 29 DORMANT (1 << 62): a Stwo spend grinds before LogUp and composition
@@ -152,9 +153,13 @@ def main():
     #     may never fire before the carry gate, or every Stwo settle between them is refused (live AND at a reroll)
     for g in (P.CHAIN_GENERATION, P.CHAIN_GENERATION + 1):
         _v = {n: eval(re.search(r"^" + n + r" = ([^#\n]+)", src, re.M).group(1).strip(), {"CHAIN_GENERATION": g})  # noqa: S307
-              for n in ("STWO_SETTLE_HEIGHT", "EXEC_CARRY_ROOT_HEIGHT")}
+              for n in ("STWO_SETTLE_HEIGHT", "EXEC_CARRY_ROOT_HEIGHT", "EXEC_ASSET_ID_ROOT_HEIGHT")}
         check(f"generation {g}: STWO_SETTLE_HEIGHT >= EXEC_CARRY_ROOT_HEIGHT",
               _v["STWO_SETTLE_HEIGHT"] >= _v["EXEC_CARRY_ROOT_HEIGHT"] >= 1, _v)
+        # ...and the asset ids: below EXEC_ASSET_ID_ROOT_HEIGHT a span that asks for a missing asset is unprovable, so a
+        # Stwo settle gate firing first would stall settlement at the first asset_create (measured: 4 shadow spans)
+        check(f"generation {g}: STWO_SETTLE_HEIGHT >= EXEC_ASSET_ID_ROOT_HEIGHT",
+              _v["STWO_SETTLE_HEIGHT"] >= _v["EXEC_ASSET_ID_ROOT_HEIGHT"] >= 1, _v)
     # ...and the exec node's memoised root moves at the carry gate (block_apply.close touches the state there)
     check("block_apply.close touches the state at a root-shape gate", "_B2.projection_gate_at(h)" in exn
           and "_st._touch()" in exn)

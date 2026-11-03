@@ -151,6 +151,22 @@ FAMILIES = {
     "addr": ("rec", lambda p, a: [(B2.record_key(B2.T_ADDR, p[0]), B2.addr_value(a))],
              lambda p: B2.record_key(B2.T_ADDR, p[0])),
 }
+# FROM protocol.EXEC_ASSET_ID_ROOT_HEIGHT an asset also commits its id alone (exec_root_b2.T_ASSET_ID), and that leaf's
+# absence proves the asset absent. Below the gate the metadata leaf is positioned by its digest, so absence names no leaf
+# (None: an asset read of a missing id is Unprovable). The table a replay uses is chosen by the span's START cursor
+# (families_at); a span crossing the gate is refused in _replay, so one table holds for the whole span.
+_FAMILIES_ASSET_IDS = dict(FAMILIES, assets=(
+    "rec", lambda p, m: [(B2.record_key(T_ASSET_META, p[0], asset_meta_digest(m)), B2.ONE),
+                         (B2.record_key(B2.T_ASSET_ID, p[0]), B2.ONE)],
+    lambda p: B2.record_key(B2.T_ASSET_ID, p[0])))
+
+
+def families_at(cursor):
+    """the family table for a span starting at `cursor`. INVARIANT: the prover, the verifier and _real_entry all take it
+    from the same start cursor, and it matches exec_root_b2.records_projection at every cursor of the span."""
+    return _FAMILIES_ASSET_IDS if B2.asset_id_root_at(cursor) else FAMILIES
+
+
 # a NEW withdrawal / outbox entry is written without being read: its key is past the counter that numbers it, which the
 # transition only ever increments, so no entry exists there (the blind-write rule, Store.write)
 _NUMBERED_BY = {"wd": "wd_nonce", "dwd": "dw_nonce", "uwd": "uw_nonce", "outbox": "outbox_seq"}
@@ -166,8 +182,9 @@ class Store:
     """Every entry the replay touched: its PRE value (as opened) and its CURRENT value. `source(family, path)` supplies
     a pre value the first time an entry is touched (the prover: the real pre-state; the verifier: the openings)."""
 
-    def __init__(self, source):
+    def __init__(self, source, fams=FAMILIES):
         self.source = source
+        self.fams = fams                                 # families_at(the span's start cursor)
         self.pre, self.cur = {}, {}
         self.blind = set()                               # entries written past their counter (never opened)
 
@@ -588,6 +605,10 @@ def _replay(store, blocks, cursor, chain, runs):
         # root does not hold and no witness can open. Replayed without it, the span would compute a root the chain never
         # had. Load-bearing for the verifier, like the registry's refusal above.
         raise Unprovable("the span crosses EXEC_CARRY_ROOT_HEIGHT (the carry's first root)")
+    if blocks and B2.asset_id_root_at(int(blocks[-1]["block_number"])) and not B2.asset_id_root_at(int(cursor)):
+        # the same for the asset ids: the first root at EXEC_ASSET_ID_ROOT_HEIGHT inserts a T_ASSET_ID record for EVERY
+        # asset, which no witness carries. Load-bearing for the verifier, like the two refusals above.
+        raise Unprovable("the span crosses EXEC_ASSET_ID_ROOT_HEIGHT (the asset ids' first root)")
     oracle = Oracle(runs, chain)
     st = WitnessState.build(store, cursor, chain.div_carry, oracle)
     states = {NS: st}
@@ -661,7 +682,7 @@ def _changes(store):
     need = {"kv": set(), "rec": set()}
 
     def diff(fam, path, pre, post):
-        half, leaves, abs_key = FAMILIES[fam]
+        half, leaves, abs_key = store.fams[fam]
         a = dict(leaves(path, pre)) if pre is not ABSENT else {}
         b = dict(leaves(path, post)) if post is not ABSENT else {}
         need[half] |= set(a) | set(b)
@@ -826,7 +847,7 @@ def prove_span(pre_state, blocks, chain, binary):
 
     def source(fam, path):
         return _real_entry(src, fam, path)
-    store = Store(source)
+    store = Store(source, families_at(pre_state.cursor))
     _replay(store, blocks, pre_state.cursor, chain, trace)
     changes, need = _changes(store)
     trees = {"kv": kv_tree, "rec": rec_tree}
@@ -895,6 +916,8 @@ def _real_entry(st, fam, path):
     if fam == "addr":
         a = st.zk_addrs.get(path[0])
         return ABSENT if a is None else a
+    if fam == "assets" and B2.asset_id_root_at(st.cursor) and path[0] not in st.assets:
+        return ABSENT                                    # provable from EXEC_ASSET_ID_ROOT_HEIGHT: its T_ASSET_ID leaf is absent
     m = {"assets": st.assets, "wd": st.withdrawals, "dwd": st.dividend_withdrawals, "uwd": st.unshield_withdrawals,
          "outbox": st.outbox}[fam]
     v = m.get(path[0])
@@ -947,6 +970,7 @@ def _canonical_opening(fam, path, v):
 def _verifier_store(bundle):
     """the Store over the bundle's openings, each checked against the pre halves' proofs; Refused on any mismatch"""
     truth = {"kv": {}, "rec": {}}
+    fams = families_at(int(bundle["cursor"]))          # verify_span checked the bundle's cursor is the span's
     roots = {"kv": bytes.fromhex(bundle["kv_pre"]), "rec": bytes.fromhex(bundle["rec_pre"])}
     for half in ("kv", "rec"):
         for khex, pj in bundle["proofs"][half].items():
@@ -958,9 +982,9 @@ def _verifier_store(bundle):
             truth[half][k] = val
     opened = {}
     for fam, path, v in bundle["openings"]:
-        if fam not in FAMILIES:
+        if fam not in fams:
             raise Refused(f"an opening of unknown family {fam!r}")
-        half, leaves, abs_key = FAMILIES[fam]
+        half, leaves, abs_key = fams[fam]
         path = tuple(str(x) for x in path)
         v = _dec(v)
         t = truth[half]
@@ -993,7 +1017,7 @@ def _verifier_store(bundle):
         if (fam, path) not in opened:
             raise Unprovable(f"the span touches {fam} {path}, which the witness does not open")
         return copy.deepcopy(opened[(fam, path)])
-    store = Store(source)
+    store = Store(source, fams)
     store.truth = truth
     return store
 

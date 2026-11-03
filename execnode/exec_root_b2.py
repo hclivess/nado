@@ -127,15 +127,30 @@ def carry_root_at(cursor) -> bool:
     return bool(H) and int(cursor) >= H
 
 
+# EVERY ASSET'S ID (protocol.EXEC_ASSET_ID_ROOT_HEIGHT, 2026-11-03): one record per ExecState.assets entry, positioned by
+# the id alone and valued ONE. The T_ASSET_META record beside it is positioned by the metadata digest, so its absence at
+# one position says nothing about the id; this record's absence proves no asset has the id (execnode/settle_b2). From the
+# gate's cursor only, so every root before it is unchanged.
+T_ASSET_ID = 15
+
+
+def asset_id_root_at(cursor) -> bool:
+    """Whether the root AT `cursor` commits every asset's id (protocol.EXEC_ASSET_ID_ROOT_HEIGHT). ONE predicate for the
+    exec node's root and the settlement replay."""
+    from protocol import EXEC_ASSET_ID_ROOT_HEIGHT as H
+    return bool(H) and int(cursor) >= H
+
+
 def projection_gate_at(cursor) -> bool:
     """Whether the projection's SHAPE changes at exactly `cursor` with no state mutation (a cursor-gated record kind
     starts there). The exec node memoises its root on mutations (ExecState._touch), so block_apply.close touches the state
     at this cursor; without it a block that mutates nothing at the gate keeps the previous cursor's root, which a cold
     projection (a restarted node, a stash check, the prover) computes WITH the new record — two roots for one state.
-    INVARIANT: every cursor-gated record kind added to records_projection is named here. (EXEC_ADDR_ROOT_HEIGHT predates
+    INVARIANT: every cursor-gated record kind added to records_projection is named here (EXEC_CARRY_ROOT_HEIGHT,
+    EXEC_ASSET_ID_ROOT_HEIGHT). (EXEC_ADDR_ROOT_HEIGHT predates
     this and is already behind the live tip; it is deliberately not named, so no replay of its blocks moves.)"""
-    from protocol import EXEC_CARRY_ROOT_HEIGHT as H
-    return bool(H) and int(cursor) == H
+    from protocol import EXEC_CARRY_ROOT_HEIGHT as H, EXEC_ASSET_ID_ROOT_HEIGHT as A
+    return any(bool(g) and int(cursor) == g for g in (H, A))
 
 
 def genesis_canary() -> str:
@@ -253,8 +268,11 @@ def records_projection(st):
     for aid, row in getattr(st, "abal", {}).items():
         for holder, amt in row.items():
             _amount(out, record_key(T_ASSET_BAL, aid, holder), amt)
+    ids = asset_id_root_at(getattr(st, "cursor", -1))     # every asset's id (T_ASSET_ID), from its gate
     for aid, meta in getattr(st, "assets", {}).items():
         out[record_key(T_ASSET_META, aid, asset_meta_digest(meta))] = ONE
+        if ids:
+            out[record_key(T_ASSET_ID, aid)] = ONE
     for aid, owners in getattr(st, "allow", {}).items():
         for owner, row in owners.items():
             for spender, amt in row.items():

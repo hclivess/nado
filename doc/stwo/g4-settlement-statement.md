@@ -395,8 +395,14 @@ does today):
    address registered long before the span proves (test section 5). A span crossing the gate is unprovable: the root at
    the gate inserts the whole registry, which no witness carries, and the verifier refuses it outright rather than
    compute a root without that insert.
-3. **Creating an asset.** `asset_create` refuses an existing id, and an asset's leaf key includes its metadata digest,
-   so no single leaf shows that an id is absent.
+3. **A missing asset, below `EXEC_ASSET_ID_ROOT_HEIGHT` only.** `asset_create` refuses an existing id, and a transfer
+   of an unknown id is skipped, so both ask whether an asset exists. An asset's `T_ASSET_META` leaf key includes its
+   metadata digest, so no single leaf shows that an id is absent. The shadow run found four live spans unprovable for
+   this alone (85500, 86040, 86220, 93240; 2026-11-03). From the gate (exec cursor 115000 on generation 29, 1 at a reroll)
+   every asset also commits `record_key(T_ASSET_ID, aid) -> ONE`, positioned by the id alone, and its absence proves the
+   asset absent (`settle_b2.families_at`: the table is chosen by the span's start cursor). A span crossing the gate is
+   unprovable, since its first root inserts every id record. `STWO_SETTLE_HEIGHT` must not fire below this gate
+   (tests/test_gate_reroll_transfer.py); tests/test_a_settlement_proves_an_asset_absent_from_the_asset_id_gate.py.
 4. **The shielded pools, private calls, deliveries INTO this namespace, non-integer storage (KVX).** Their state is
    committed as digests or lists, not one leaf per entry.
 5. **A span crossing `EXEC_CARRY_ROOT_HEIGHT`.** The gate's first root inserts the dividend carry record, which no
