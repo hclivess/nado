@@ -18,6 +18,8 @@
     {"unit": "nado-ipfs.service",         "role": "operator", "source": "repo",
      "files": ["nado-ipfs.service"]},
     {"unit": "nado-nft-upload.service",   "role": "operator", "source": "repo",
-     "files": ["nado-nft-upload.service"]}
+     "files": ["nado-nft-upload.service"]},
+    {"unit": "nado-otc-mm.service",       "role": "operator", "source": "repo",
+     "files": ["nado-otc-mm.service"]}
   ]
 }

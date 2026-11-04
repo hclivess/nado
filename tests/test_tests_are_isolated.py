@@ -23,7 +23,7 @@ import sys
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS)
-LIVE = {"test_otc_swap_e2e.py", "test_nft_market_live_e2e.mjs"}          # real transactions on the live node, by hand: the OTC swap (operator keys) and the NFT market walk (two funded throwaway wallets)
+LIVE = {"test_otc_swap_e2e.py", "test_nft_market_live_e2e.mjs", "test_otc_market_maker_live_e2e.py"}   # real transactions on the live node, by hand: the OTC swap (operator keys), the NFT market walk (two funded throwaway wallets) and the market maker pay/walk runs (operator keys)
 DANGER = re.compile(r"^\s*(from\s+(ops|memserver|genesis|nado|loops)\b|import\s+(ops|memserver|genesis|nado|loops)\b)", re.M)
 # the HOME assignment, or the shared harness's isolate() that does exactly that (tests/_harness.py; it imports no node code)
 ASSIGN_HOME = re.compile(r'^\s*(_?os\.environ\["HOME"\]\s*=|(\w+\s*=\s*)?_harness\.isolate\()', re.M)

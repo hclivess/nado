@@ -75,3 +75,5 @@ copy is deliberately never refreshed from the checkout.
 - DEX price sampler: `scripts/dex_price_sampler.py` run by hand → `ops/dex_prices.py` in the node; its history now
   carries the chain id and starts fresh on a reroll (the old file showed betanet-7 prices on betanet-8).
 - `scripts/install-timers.sh`: deleted — the reconciler replaces it.
+- OTC market maker: `otc_mm.py watch` run from a session worktree (it stopped with the session, while real orders
+  were filled and waiting for it) → `scripts/otc_mm.py` + `deploy/units/nado-otc-mm.service` (2026-11-04).

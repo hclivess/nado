@@ -1,0 +1,21 @@
+# OTC market maker (scripts/otc_mm.py watch). A TEMPLATE — see nado-bet-oracle.service. Does the maker's half of the node
+# wallet's ETH ask orders: lock + bind on a fill, claim the matching ETH and settle, expire an unpaid order and refund
+# our NADO lock. Ran from a session worktree until 2026-11-04, so it died with the session; every path it takes is pinned
+# by tests/test_the_otc_market_maker_ends_every_path_with_the_money_where_it_belongs.py.
+[Unit]
+Description=NADO OTC market maker (the node wallet's ETH ask orders: lock, claim, settle, refund)
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@REPO@
+Environment=HOME=@HOME@
+ExecStart=@REPO@/nado_venv/bin/python @REPO@/scripts/otc_mm.py watch
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
