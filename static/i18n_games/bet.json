@@ -2169,7 +2169,7 @@
   "bet.configuredSources": "Skonfigurowane źródła",
   "bet.connecting": "Łączenie z łańcuchem…",
   "bet.countFiltered": " (przefiltrowano z {all})",
-  "bet.countShown": "Wyświetlono {shown} z {total} meczów",
+  "bet.countShown": "Wyświetlono {shown} z {total} {total|one:meczu|few:meczów|many:meczów|other:meczu}",
   "bet.createBtn": "Utwórz rynek",
   "bet.createHead": "➕ Utwórz rynek",
   "bet.createNote": "Każdy może wystawić rynek — mecz, walkę, dowolne pytanie tak/nie. <b>Ty wybierasz, kto go rozstrzyga:</b> zostaw rozstrzygającego pustego, by rozliczyć samemu, albo podaj zestaw adresów i wymagaj zgody M z N. Gracze są zawsze chronieni terminem → zwrot.",

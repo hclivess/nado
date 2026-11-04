@@ -144,6 +144,10 @@ falling back to English.
 the user asked about translations afterwards. The feature "worked" in every test. It just spoke the
 wrong language to fifteen sixteenths of the people it was built for.
 
+A number with a noun needs the language's plural forms, not the code's two English ones: write
+`{n|one:blok|few:bloki|many:bloków|other:bloku}` (or `{word@n|...}` where the code passes the word) — `t()` picks the
+form with `Intl.PluralRules`. Polish has four forms; "5 pola" for "5 tiles" was wrong until 2026-11-04.
+
 Note `ar` is right-to-left: check that any string you add still reads correctly when the layout flips,
 and keep interpolations (`{a}`, `{n}`) intact in every table — a dropped placeholder is a broken
 sentence, not a cosmetic issue.

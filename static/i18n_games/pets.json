@@ -6343,7 +6343,7 @@
   "pets.acceptSell": "Akceptuj &amp; sprzedaj",
   "pets.adoptBtn": "🥚 Adoptuj · spal 1 NADO",
   "pets.adoptHead": "Adoptuj jajo — spal 1 NADO",
-  "pets.adoptManyBtn": "🥚 Adoptuj jaja: {n} · spal {n} NADO",
+  "pets.adoptManyBtn": "🥚 Adoptuj {n} {n|one:jajo|few:jaja|many:jaj|other:jaja} · spal {n} NADO",
   "pets.adoptNote": "Jaja kupuje się, <b>paląc NADO</b> — opłata 1 NADO jest niszczona na zawsze (wysyłana na martwy klucz, którego nie kontroluje żaden portfel), nikt jej nie dostaje. Zwierzę z jaja wybiera hash bloku, który w chwili podpisu <b>jeszcze nie istnieje</b> — nie my i nie Ty: jedno z <b>1000+ zwierząt</b> w sześciu poziomach rzadkości (Pospolity → Omega). Wykluwa się nakarmione na <b>30 dni</b>; potem je prawdziwe NADO (też palone — ok. 0.1 NADO/dzień przy średnim apetycie, brzuch mieści do 30 dni) i <b>umiera, jeśli przestaniesz</b>. Możesz mieć tyle, ile zdołasz wykarmić.",
   "pets.adoptOneBtn": "🥚 Adoptuj jajo · spal 1 NADO",
   "pets.adoptingN": "Adoptowanie… (zostało: {n})",

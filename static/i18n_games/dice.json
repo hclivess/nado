@@ -1768,7 +1768,7 @@
   "dice.opening": "Ty (otwieranie…)",
   "dice.payout": "wypłata",
   "dice.phaseClosed": "stół zamknięty",
-  "dice.phaseRolling": "🟢 rzut co {every} — następny za {next} · {n} {rolls}",
+  "dice.phaseRolling": "🟢 rzut co {every} — następny za {next} · {n} {rolls@n|one:rzut|few:rzuty|many:rzutów|other:rzutu}",
   "dice.pickFirst": "Najpierw wybierz stół.",
   "dice.placeRoll": "Rzuć",
   "dice.playingAs": "Grasz jako",

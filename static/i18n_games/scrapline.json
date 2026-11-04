@@ -3376,7 +3376,7 @@
   "scrap.fx7": "taran: +{n}% twojej osłony jako obrażenia",
   "scrap.fx8": "nadmiar leczenia staje się osłoną",
   "scrap.fxAllWeapons": "WSZYSTKIE bronie",
-  "scrap.fxBurn": "podpalenie: {n} obrażeń na sekundę, słabnie",
+  "scrap.fxBurn": "podpalenie: {n} {n|one:obrażenie|few:obrażenia|many:obrażeń|other:obrażenia} na sekundę, słabnie",
   "scrap.fxBurnEmber": "podpalenie dla ŻAR",
   "scrap.fxCd": "czasy odnowienia",
   "scrap.fxMaxHp": "maks. HP",

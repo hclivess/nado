@@ -49,9 +49,30 @@
   }
   let LANG = pickLang();
 
+  // PLURAL FORMS (2026-11-04, Polish): English has two forms and the code picks one ("tile"/"tiles" by n === 1), but
+  // Polish has four (1 pole, 2-4 pola, 5+ pól, 1.5 pola) — "Odkryj 5 pola" was wrong for every count of five or more.
+  // A table may therefore write {n|one:pole|few:pola|many:pól|other:pola}: the form for the value of {n}, chosen by
+  // Intl.PluralRules for the page's language. {tiles@n|...} declines a word the code passes as {tiles} by the count
+  // in {n} instead, so a language that needs more forms ignores the code's two-form word (tools/build_i18n.py counts
+  // both names as used, keeping the every-placeholder check strict). Categories: zero one two few many other.
+  const _plural = {};
+  function pluralForm(count, forms) {
+    const n = Number(count);
+    let cat = "other";
+    try { if (Number.isFinite(n)) cat = (_plural[LANG] = _plural[LANG] || new Intl.PluralRules(LANG)).select(n); } catch (e) {}
+    const by = {};
+    for (const f of forms.split("|")) { const i = f.indexOf(":"); if (i > 0) by[f.slice(0, i)] = f.slice(i + 1); }
+    return by[cat] != null ? by[cat] : (by.other != null ? by.other : "");
+  }
   function t(key, fb, vars) {
     let s = (T[LANG] && T[LANG][key]) || T.en[key] || (fb != null ? fb : key);
-    if (vars) for (const k in vars) s = s.split("{" + k + "}").join(String(vars[k]));  // {name} placeholders
+    if (vars) {
+      s = s.replace(/\{([A-Za-z_]\w*)(?:@([A-Za-z_]\w*))?\|([^{}]*)\}/g, (m, a, b, forms) => {
+        const cnt = b || a;                                   // {word@count|...} counts by `count`; {count|...} by itself
+        return cnt in vars ? pluralForm(vars[cnt], forms) : m;
+      });
+      for (const k in vars) s = s.split("{" + k + "}").join(String(vars[k]));  // {name} placeholders
+    }
     return s;
   }
 

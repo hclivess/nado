@@ -1607,7 +1607,7 @@
   "slots.walletMain": "Portfel — NADO (łańcuch główny)",
   "slots.walletTitle": "Portfel",
   "slots.winLine": "{syms} — WYGRANA {n} NADO ({mult}×)!",
-  "slots.winsCount": "wygrane: {c} · ",
+  "slots.winsCount": "{c} {c|one:wygrana|few:wygrane|many:wygranych|other:wygranej} · ",
   "slots.withdraw": "Wypłać",
   "slots.you": "TY",
   "slots.youLower": "ty",

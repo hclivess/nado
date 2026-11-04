@@ -68,6 +68,21 @@ short = full({"e.x": "Text"})
 del short["ar"]
 check("a file without all 17 languages is refused", *refused([src("short.json", short)], "missing ['ar']"))
 
+# PLURAL TOKENS (2026-11-04): {n|one:..|other:..} and {word@n|...} use the placeholders they name, so a language that
+# declines a counted word itself still passes the same-placeholders rule — and a malformed token is refused
+plur = full({"f.x": "Reveal {n} {tiles}"})
+plur["pl"]["f.x"] = "Odkryj {n} {tiles@n|one:pole|few:pola|many:pól|other:pola}"
+check("a {word@count|...} token counts as using both placeholders", B.load_and_validate([src("plur.json", plur)])["pl"][0][1].startswith("Odkryj"))
+noother = full({"g.x": "{n} blocks"})
+noother["pl"]["g.x"] = "{n} {n|one:blok|few:bloki}"
+check("a plural token without `other` is refused", *refused([src("noother.json", noother)], "plural token"))
+badcat = full({"h.x": "{n} blocks"})
+badcat["pl"]["h.x"] = "{n} {n|single:blok|other:bloków}"
+check("a plural token with an unknown category is refused", *refused([src("badcat.json", badcat)], "plural token"))
+lost = full({"i.x": "Reveal {n} {tiles}"})
+lost["pl"]["i.x"] = "Odkryj {n|one:pole|few:pola|many:pól|other:pola}"
+check("a token that drops the code's word placeholder is still refused", *refused([src("lost.json", lost)], "i.x [pl] placeholders"))
+
 tmpl = open(B.TEMPLATE, encoding="utf-8").read()
 out = B.render(B.load_and_validate([good]), tmpl)
 check("the rendered file carries every key in every language",

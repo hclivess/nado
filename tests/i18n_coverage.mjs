@@ -134,7 +134,9 @@ if (undef_.length) { fails++; console.error(`FAIL: ${undef_.length} referenced k
 // passed {k,n,t} to "{b}", and shield.badCode was one key for two messages, one with {m} and one without — each
 // rendered a literal "{t}" / "{b}" / "{m}" to the user in every language (fixed 2026-10-10).
 {
-  const ph = (x) => [...new Set([...String(x).matchAll(/\{([A-Za-z_]\w*)\}/g)].map((m) => m[1]))].sort().join(",");
+  // a plural token ({n|one:..|other:..}, {word@n|...}) uses the placeholders it names (static/i18n/runtime.js.tmpl t())
+  const ph = (x) => [...new Set([...[...String(x).matchAll(/\{([A-Za-z_]\w*)\}/g)].map((m) => m[1]),
+    ...[...String(x).matchAll(/\{([A-Za-z_]\w*)(?:@([A-Za-z_]\w*))?\|[^{}]*\}/g)].flatMap((m) => m[2] ? [m[1], m[2]] : [m[1]])])].sort().join(",");
   const files = STATIC_FILES.filter((f) => /\.(js|html)$/.test(f) && f !== "i18n.js").map((f) => "static/" + f);
   const bad = [];
   for (const f of files) {
