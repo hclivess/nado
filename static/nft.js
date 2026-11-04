@@ -153,6 +153,17 @@ async function finishMint() {
     T("callRegister", "register “{n}” · {r} royalty", { n: a.name, r: pct(p.bps) }), { phase: "register", id: p.seed });
 }
 
+// register from the NFT's own page, any time after the mint (the creator's way back when step 2 never ran: nftAssets)
+function registerLater(aid) {
+  const a = assets[String(aid)];
+  if (!a || a.issuer !== dapp.me) return;
+  const roy = Number($("rRoyalty").value || 0), coll = Number($("rColl").value || 0);
+  if (!(roy >= 0 && roy <= MAX_ROYALTY_PCT)) return notify(T("needRoyalty", "Royalty is between 0 and 25 %."));
+  const bps = Math.round(roy * 100);
+  dapp.call("register", [randId(), big(a.id), Number(a.seed), bps, coll], null,
+    T("callRegister", "register “{n}” · {r} royalty", { n: a.name, r: pct(bps) }), { phase: "register", id: Number(a.seed) });
+}
+
 // objkt-style upload: the file goes to this site's IPFS node (pinned there — the local copy that keeps it alive) and its
 // ipfs:// link fills the media field. The service re-checks everything; these checks only save a pointless upload.
 // The drop zone is the SDK's enhanceFile — never the operating-system file button (operator 2026-11-01).
@@ -307,9 +318,18 @@ function card(aid) {
 }
 const grid = (aids, empty) => aids.length ? `<div class="grid">${aids.map(card).join("")}</div>` : `<div class="dim">${empty}</div>`;
 const registeredAssets = () => ids("t_mk").map((t) => String(field("t_asset", t))).filter((a) => assets[a]);
+// EVERY NFT MINTED HERE IS SHOWN, REGISTERED OR NOT. A mint is two signatures and the second (register) lived only in
+// the minting tab: a creator who closed it, came back in another tab or dismissed the prompt got an NFT that existed
+// on chain (in their wallet, its media pinned) but appeared nowhere on this site — Nacho1 and a Korachi1, 2026-11-04.
+// An unregistered one is listed (its page says no royalty is paid yet) and its creator can register it from there.
+const isNft = (a) => !!a && !a.dec && !a.mintable && a.sym === "NFT" && !!mediaUrl(a.uri);
+const nftAssets = () => {
+  const reg = registeredAssets(), seen = new Set(reg);
+  return reg.concat(Object.keys(assets).filter((a) => !seen.has(a) && isNft(assets[a])));
+};
 
 function viewExplore() {
-  const all = registeredAssets();
+  const all = nftAssets();                 // not registeredAssets(): an unregistered mint is still an NFT (nftAssets)
   const forSale = all.filter((a) => listingsOf(a).length || auctionsOf(a).length || dutchOf(a).length);
   return `<h2>${T("forSale", "For sale")}</h2>${grid(forSale, T("noneForSale", "Nothing is for sale yet."))}
     <h2 class="mt2">${T("allNfts", "All NFTs")}</h2>${grid(all, T("noneYet", "No NFTs yet — mint the first one."))}`;
@@ -372,6 +392,14 @@ function viewToken(aid) {
               : h > 0n ? `<button class="primary sm" data-act="accept" data-id="${o}" data-aid="${esc(aid)}">${T("acceptBtn", "Accept")}</button>` : ""}</div>`;
   }).join("");
   const history = historyHtml(aid);
+  // the issuer can register at any time (the contract proves hash(issuer, seed) == asset, once): the way back for a
+  // mint whose second signature never happened (nftAssets)
+  const copts = myCollections().map((c) => `<option value="${c}">${esc(field("c_name", c) || "")}</option>`).join("");
+  const regForm = !k.registered && me && me === k.creator && isNft(assets[aid]) ? `<div class="card"><h3>${T("regTitle", "Register the royalty")}</h3>
+      <p class="small dim">${T("regLater", "Its royalty is not recorded yet. Only you, its creator, can register it — once.")}</p>
+      <div class="row"><div><label>${T("fRoyalty", "Royalty (%)")}</label><input id="rRoyalty" value="10" inputmode="decimal"></div>
+      <div><label>${T("fColl", "Collection")}</label><select id="rColl"><option value="0">${T("noCollOpt", "— none —")}</option>${copts}</select></div></div>
+      <div class="row mt"><button class="primary" data-act="register" data-aid="${esc(aid)}">${T("regOk", "Register")}</button></div></div>` : "";
   const sell = h > 0n ? `<div class="card"><h3>${T("sellH", "Sell yours")} <span class="dim small">(${T("youHold", "you hold {h}", { h })})</span></h3>
       <div class="row"><div><label>${T("fUnits", "Editions")}</label><input id="sUnits" value="1" inputmode="numeric"></div>
       <div><label>${T("fPrice", "Price / reserve / start (NADO each)")}</label><input id="sPrice" inputmode="decimal"></div></div>
@@ -398,6 +426,7 @@ function viewToken(aid) {
       ${warn.map((w) => `<p class="small warnline">${w}</p>`).join("")}
       ${mediaUrl(k.uri) ? `<a class="small" href="${esc(mediaUrl(k.uri))}" target="_blank" rel="noopener noreferrer">${T("openMedia", "Open the original")}</a>` : ""}
     </div></div>
+    ${regForm}
     ${ls || as || ds ? `<div class="card"><h3>${T("onSale", "On sale")}</h3>${ls}${as}${ds}</div>` : ""}
     ${sell}
     <div class="card"><h3>${T("offers", "Offers")}</h3>${os || `<div class="dim small">${T("noOffers", "No offers yet.")}</div>`}</div>
@@ -485,10 +514,10 @@ function viewCollection(c) {
 
 function viewUser(addr) {
   const p = profileOf(addr);
-  const created = registeredAssets().filter((a) => tokenInfo(a).creator === addr);
+  const created = nftAssets().filter((a) => tokenInfo(a).creator === addr);   // incl. unregistered (nftAssets)
   const av = p && p.av !== "-" ? mediaUrl(p.av) : "";
   const isMe = addr === dapp.me;
-  const owned = isMe ? Object.keys(mine).filter((a) => assets[a] && !assets[a].dec && tokenInfo(a).registered) : [];
+  const owned = isMe ? Object.keys(mine).filter((a) => assets[a] && !assets[a].dec && (tokenInfo(a).registered || isNft(assets[a]))) : [];
   const myOffers = isMe ? ids("o_mk").filter((o) => field("o_bidder", o) === addr && field("o_st", o) === OPEN) : [];
   return `<div class="profile">${av ? `<img class="avatar" src="${esc(av)}" alt="">` : ""}
       <div><h1>${p && p.name && p.name !== "-" ? esc(p.name) : esc(disp(addr))}</h1>
@@ -591,7 +620,7 @@ function wireUI() {
     const acts = { buy: () => buy(id), unlist: () => unlist(id), bid: () => bid(id), settle: () => settle(id),
       cancelA: () => cancelAuction(id), dbuy: () => dbuy(id), dcancel: () => dcancel(id), cancelO: () => cancelOffer(id),
       expireO: () => expireOffer(id), accept: () => accept(id, aid), list: () => list(aid), auction: () => auction(aid),
-      dutch: () => dutch(aid), offer: () => makeOffer(aid, 0), collOffer: () => makeOffer(0, Number(b.dataset.coll)) };
+      dutch: () => dutch(aid), register: () => registerLater(aid), offer: () => makeOffer(aid, 0), collOffer: () => makeOffer(0, Number(b.dataset.coll)) };
     if (!dapp.me && b.dataset.act !== "settle") return notify(T("signInFirst", "Sign in with your NADO wallet first."));
     (acts[b.dataset.act] || (() => {}))();
   });
