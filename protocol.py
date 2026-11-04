@@ -1684,6 +1684,7 @@ def split_open_block_reward(reward: int):
 #                                    cap_block_budget (one test, both sides)
 #   EXEC_BUDGET_V2_HEIGHT            reverting calls pay into the exec budget — rules_budget_v2 is applying_height() >= 1
 #   SIG_SCHEMES_HEIGHT               an account signs with its address's scheme — `>= 1` with None kept in sig_scheme_check
+#   (SIG_SCHEME_KEYS_HEIGHT is keyed on generation 29 below: multisig members and auth keys of every offered scheme)
 #   BLAKE_EXEC_HEIGHT                the BLAKE2s exec root and the 256-bit VM — unconditional at EVERY height (the gate's
 #                                    predicate already covered cursors -1 and 0); exec_root_b2.blake_exec_at is deleted
 # GEN-29 GATES RETIRED IN G9 (slice 5c): LEGACY_SHIELD_CLOSE_HEIGHT (10000) and LEGACY_TRANSFER_CLOSE_HEIGHT (14000)
@@ -1706,6 +1707,10 @@ def split_open_block_reward(reward: int):
 #                                    proof of its span, which L1 verifies and marks proven — G8)
 #                                    STWO_JS_GRIND_HEIGHT ((1 << 62) = DORMANT; -> 1: a Stwo spend proves at NODE_CFG_128G,
 #                                    which grinds before its LogUp elements and composition coefficient too)
+#                                    SIG_SCHEME_KEYS_HEIGHT (123000, L1 height; -> 1: a multisig member and an auth key may
+#                                    sign with any offered scheme, and an account of another scheme may send `auth`)
+#                                    MSIG_PAY_FLEXIBLE_HEIGHT (123000, L1 height; -> 1: a payment to a multisig account
+#                                    lands anywhere in its [min_block, max_block] window)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2353,8 +2358,29 @@ SIG_SCHEMES_OFFERED = ("mldsa44", "mldsa65", "mldsa87", "slhdsa128s")
 # ceremony that enrols a validator, the messaging key and auth configs (key_authorized and ops/auth_ops verify ML-DSA-44
 # keys), and legacy_claim (a format-1 address is a slice of an ML-DSA-44 key). Refused at admission, so nobody holds a
 # stake or an identity the chain cannot later verify. Widening this is a feature per surface, never a one-line change.
-SIG_ML44_ONLY_RECIPIENTS = ("auth", "bond", "register", "attest", "commit", "reveal", "duty", "msgkey",
+SIG_ML44_ONLY_RECIPIENTS = ("bond", "register", "attest", "commit", "reveal", "duty", "msgkey",
                             "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready", "legacy_claim")
+# MULTISIG MEMBERS AND AUTH KEYS OF EVERY OFFERED SCHEME (operator 2026-11-04: "extend it to multisig and auth"). From this
+# L1 height a signature ENTRY (a multisig member's, or an auth-configured account's) may carry `alg` — absent = ML-DSA-44,
+# its only spelling — and is sized, priced and verified by it; an auth config's key may be [alg, pubkey] (an ML-DSA-44
+# key stays a bare pubkey string); and `auth` leaves SIG_ML44_ONLY_RECIPIENTS, so an account of another scheme can
+# protect and rotate itself. Below it every entry, key and `auth` tx is ML-DSA-44, as before.
+#   - A MULTISIG MEMBER ADDRESS ALREADY COMMITS TO ITS SCHEME: an entry derives make_address(public_key, alg), so a key
+#     shown under the wrong alg is "a non-member key" — the entry's alg needs no other binding.
+#   - AN AUTH KEY IS NEVER A VALIDATOR KEY: key_authorized and key_valid_at match a BARE key string, so an [alg, pubkey]
+#     key never signs a block, an attestation or a message login, and every SIG_ML44_ONLY_RECIPIENTS kind refuses an
+#     entry that carries `alg`.
+#   - FEES per entry at its scheme's multiplier: a multisig spend pays MIN_TX_FEE x the sum; a configured account's list
+#     pays the sum minus its first entry's (the first is what a single-key tx carries) and, when it pays at all and any
+#     entry is of another scheme, at least the whole sum — what the same keys pay signing one by one.
+# tests/test_a_multisig_member_and_an_auth_key_sign_with_their_own_scheme.py (both rule sets).
+SIG_SCHEME_KEYS_HEIGHT = 123000 if CHAIN_GENERATION == 29 else 1   # L1 height; tip 120811 when this was written (2026-11-04)
+# A PAYMENT TO A MULTISIG ACCOUNT LANDS FLEXIBLY (ops/block_ops._lands_flexibly): from this L1 height a transfer whose
+# recipient is a multisig address is includable anywhere in [min_block, max_block], as every other value transfer is.
+# Before it, is_address() refused the MSIG_PREFIX and the transfer could land only in the block numbered exactly its
+# max_block, so a shared account could not be funded by an ordinary send. Producer and verifier both read it.
+# tests/test_a_payment_to_a_multisig_account_lands_in_its_window.py (both rule sets).
+MSIG_PAY_FLEXIBLE_HEIGHT = 123000 if CHAIN_GENERATION == 29 else 1   # L1 height, with SIG_SCHEME_KEYS_HEIGHT (2026-11-04)
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
@@ -2839,6 +2865,8 @@ CLIENT_EXPORTS = (
     "CHAIN_GENERATION",
     # the wallet offers a signature scheme per account (doc/signature-schemes.md)
     "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
+    # multisig members and auth keys of every offered scheme from this height (static/interface.js schemeKeysLive)
+    "SIG_SCHEME_KEYS_HEIGHT",
     # the node config a Stwo spend proves at (static/interface.js stwoCfgId; execnode/stwo_js_native.config_id_at)
     "STWO_JS_GRIND_HEIGHT",
     # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT, BLAKE_EXEC_HEIGHT and

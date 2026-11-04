@@ -135,7 +135,7 @@ def valid_block_timestamp(new_block):
         return True
 
 
-def _lands_flexibly(transaction):
+def _lands_flexibly(transaction, block_number=None):
     """True if a tx has NO landing-block-dependent protocol timing, so it may be included in ANY block in its
     [min_block, max_block] window (a plain EXPIRY window) instead of one exact height. Value transfers, `blob`
     (exec-layer, applied in L1 order regardless of which block), bridge in/out, and `dividend_withdraw` (a
@@ -183,8 +183,19 @@ def _lands_flexibly(transaction):
     # challenger draw is likewise a function of the landing height, so it too is identical on every node.
     # What would NOT be safe is an exact-landing message whose timing bound was computed from max_block
     # and then applied at a different height; there is no such rule here.
-    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth",
-                  "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready") or is_address(r))
+    if (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw", "faucet", "auth",
+              "tpm_enrol", "tpm_challenge", "tpm_commit", "tpm_reveal", "tpm_ready") or is_address(r)):
+        return True
+    # A PAYMENT TO A MULTISIG ACCOUNT is a value transfer like any other, but is_address() deliberately refuses the
+    # MSIG_PREFIX, so it took the exact-landing branch and — like the faucet above — was includable only in the one
+    # block numbered exactly its max_block: a shared account could not be funded by an ordinary transfer (found by the
+    # scheme-wallet walk, 2026-11-04: accepted into every mempool, never mined). From MSIG_PAY_FLEXIBLE_HEIGHT it lands
+    # in [min_block, max_block]; below it the old classification stands so history replays. INVARIANT: both callers
+    # (match_transactions_target, check_target_match) pass the block number, so producer and verifier agree.
+    from protocol import MSIG_PREFIX, MSIG_PAY_FLEXIBLE_HEIGHT
+    from ops.address_ops import validate_address
+    return (block_number is not None and int(block_number) >= MSIG_PAY_FLEXIBLE_HEIGHT and isinstance(r, str)
+            and bool(MSIG_PREFIX) and r.startswith(MSIG_PREFIX) and validate_address(r, allow_reserved=False))
 
 
 def check_target_match(transaction_list, block_number, logger):
@@ -194,7 +205,7 @@ def check_target_match(transaction_list, block_number, logger):
     try:
         for transaction in transaction_list:
             tb = transaction["max_block"]
-            if _lands_flexibly(transaction):
+            if _lands_flexibly(transaction, block_number):
                 # eligible window [min_block, max_block] (see match_transactions_target): too-early is as
                 # invalid as expired, so no producer can front-run a tx before it has propagated.
                 if block_number < transaction.get("min_block", 0) or block_number > tb:
@@ -231,7 +242,7 @@ def match_transactions_target(transaction_list, block_number, logger):
                 # the bridge-deposit double-credit. verify_block enforces the same rule for remote blocks.
                 if txid in seen or kv_ops.tx_get(txid) is not None:
                     continue
-                if _lands_flexibly(transaction):
+                if _lands_flexibly(transaction, block_number):
                     # INCLUSION DELAY: a flexibly-landing tx becomes eligible only from its sender-set
                     # min_block (default 0). Set to submit_tip + a couple blocks by wallets, this guarantees
                     # the tx has gossiped to EVERY producer before any of them may include it — so all nodes

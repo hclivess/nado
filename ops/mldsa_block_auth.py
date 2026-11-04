@@ -43,6 +43,8 @@ a stark envelope is accepted wherever a prover can supply one — same block has
 AUTH_DOMAIN = "nado-auth-v1"          # domain separator; a reroll-time constant
 KIND_SINGLE_MLDSA44 = 1               # one ML-DSA-44 signature by the sender's own key
 KIND_MULTISIG_MLDSA44 = 2             # a descriptor account: M member signatures over the same txid
+# (from SIG_SCHEME_KEYS_HEIGHT a member's entry may name another scheme in its own `alg`: the leaf keeps kind 2 and the
+# entry count, and the scheme rides in the body the block hash commits — a new kind would move every leaf, for nothing)
 # ONE SIGNATURE BY THE SENDER'S OWN KEY IN ANOTHER SCHEME (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES"): the leaf
 # declares which, so a validity proof can never be checked as the wrong scheme's. A tx without `alg` keeps kind 1, so no
 # existing leaf, root or block hash moves. INVARIANT: never reuse a kind number — the leaf is in the block-hash preimage.

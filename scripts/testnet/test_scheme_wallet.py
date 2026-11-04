@@ -110,7 +110,11 @@ def main():
                 pass
             time.sleep(3)
         print("[scheme-wallet] funded; driving the browser against node1", flush=True)
-        proc = subprocess.run(["node", os.path.join(HERE, "wallet_schemes.mjs"), url(1, "/wallet"), MASTER, MASTER_KD["public_key"], MASTER_KD["address"], SLH["address"], PAYEE],
+        # multisig members and auth keys of every scheme: walked only where the rule holds on a fresh testnet (from block 1)
+        keys_live = P.SIG_SCHEME_KEYS_HEIGHT <= 1
+        print(f"[scheme-wallet] multisig + auth walk: {'on' if keys_live else 'SKIPPED — SIG_SCHEME_KEYS_HEIGHT is ' + str(P.SIG_SCHEME_KEYS_HEIGHT) + ' on this tree'}", flush=True)
+        proc = subprocess.run(["node", os.path.join(HERE, "wallet_schemes.mjs"), url(1, "/wallet"), MASTER, MASTER_KD["public_key"], MASTER_KD["address"], SLH["address"], PAYEE]
+                              + (["keys"] if keys_live else []),
                               capture_output=True, text=True, timeout=max(600, run_seconds))
         for line in proc.stdout.splitlines():
             print("[scheme-wallet] " + line, flush=True)
@@ -131,7 +135,10 @@ def main():
             ok_all = ok_all and good
         txs = get(1, f"/get_transactions_of_account?address={SLH['address']}&limit=50").get("transactions", [])
         sent = [x for x in txs if x.get("sender") == SLH["address"]]
-        named = bool(sent) and all(x.get("alg") == "slhdsa128s" for x in sent)
+        # every tx the SLH-DSA account sent names its scheme — a single-key one at the top level, an auth entry list (the
+        # protect and the rotation) in its entries
+        named = bool(sent) and all(x.get("alg") == "slhdsa128s" or (isinstance(x.get("signature"), list) and all(
+            e.get("alg") == "slhdsa128s" for e in x["signature"])) for x in sent)
         print(f"[scheme-wallet] the landed transfer names its scheme: {named} ({[x.get('alg') for x in sent]})", flush=True)
         ok_all = ok_all and named
         print(f"\n[scheme-wallet] RESULT: {'PASS' if ok_all else 'FAIL'}", flush=True)

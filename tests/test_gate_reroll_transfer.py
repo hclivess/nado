@@ -32,6 +32,8 @@ REROLL = {
     "STWO_SETTLE_HEIGHT": 1,                   # gen 29 DORMANT (1 << 62): a settle carries a Stwo proof of its span (G8)
     "SETTLE_FIELDS_HEIGHT": 1,                 # gen 29 (86400): a settle's retired proof fields are refused by key
     "STWO_JS_GRIND_HEIGHT": 1,                 # gen 29 DORMANT (1 << 62): a Stwo spend grinds before LogUp and composition
+    "SIG_SCHEME_KEYS_HEIGHT": 1,               # gen 29 (123000): multisig members and auth keys sign with any offered scheme
+    "MSIG_PAY_FLEXIBLE_HEIGHT": 1,             # gen 29 (123000): a payment to a multisig account lands in its window
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }

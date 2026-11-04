@@ -12,9 +12,10 @@ created on first credit like any other. SPENDING is where multisig differs from 
   * the tx body carries "multisig": descriptor (inside the SIGNED body, committed by the txid), and
     NO top-level public_key (there is none — the descriptor hash plays that role, so PUBKEY-ONCE
     never stores anything for a multisig account and every spend re-carries its full descriptor);
-  * the "signature" field is a LIST of {"public_key", "signature"} entries — each a normal ML-DSA-44
-    signature over unhex(txid) by a DISTINCT descriptor member (bound member->key by make_address,
-    exactly like proof_sender). At least `threshold` valid entries are required, and every entry
+  * the "signature" field is a LIST of {"public_key", "signature"} entries — each a normal signature
+    over unhex(txid) by a DISTINCT descriptor member (bound member->key by make_address, exactly like
+    proof_sender). ML-DSA-44 unless the entry names its scheme in "alg" (protocol.SIG_SCHEME_KEYS_HEIGHT):
+    a member address commits to its scheme, so a key under the wrong alg derives a non-member. At least `threshold` valid entries are required, and every entry
     must be valid (garbage/non-member/duplicate entries hard-fail rather than merely not counting,
     so acceptance is deterministic and verification work is bounded by len(members)).
 
@@ -100,12 +101,13 @@ def verify_multisig_origin(transaction) -> bool:
         assert isinstance(entry, dict), "each multisig signature entry must be an object"
         public_key = entry.get("public_key")
         signature = entry.get("signature")
+        alg = entry.get("alg")                 # absent = ML-DSA-44; its shape and gate are excluded_witness_check's
         assert isinstance(public_key, str) and isinstance(signature, str), \
             "multisig signature entry needs public_key + signature hex"
-        member = make_address(public_key)
+        member = make_address(public_key, alg=alg)
         assert member in members, "signature by a non-member key"
         assert member not in signed_by, "duplicate signature by the same member"
-        assert verify(signed=signature, public_key=public_key, message=message), \
+        assert verify(signed=signature, public_key=public_key, message=message, alg=alg), \
             f"invalid multisig signature from {member}"
         signed_by.add(member)
 
@@ -148,7 +150,7 @@ def draft_multisig_spend(threshold, members, recipient, amount, fee, max_block, 
     return body
 
 
-def add_member_signature(transaction, private_key):
+def add_member_signature(transaction, private_key, alg=None):
     """Append one member's signature entry to a proposal (verifying the txid first, so a member can
     never be tricked into signing a body that doesn't match the id they're shown). Idempotent per
     member; raises if the key isn't a descriptor member. Returns (transaction, signatures_present)."""
@@ -157,12 +159,13 @@ def add_member_signature(transaction, private_key):
     threshold, members = validate_descriptor(transaction["multisig"])
     body = {k: v for k, v in transaction.items() if k not in ("signature", "txid")}
     assert create_txid(body) == transaction["txid"], "proposal txid does not match its contents"
-    keydict = from_private_key(private_key)
+    keydict = from_private_key(private_key, alg=alg)
     assert keydict["address"] in members, "this key is not a member of the multisig"
     entries = transaction.setdefault("signature", [])
-    if not any(make_address(e.get("public_key", "")) == keydict["address"] for e in entries):
-        entries.append({
-            "public_key": keydict["public_key"],
-            "signature": sign(private_key=private_key, message=unhex(transaction["txid"])),
-        })
+    if not any(make_address(e.get("public_key", ""), alg=e.get("alg")) == keydict["address"] for e in entries):
+        entry = {"public_key": keydict["public_key"],
+                 "signature": sign(private_key=private_key, message=unhex(transaction["txid"]), alg=alg)}
+        if alg:
+            entry["alg"] = alg
+        entries.append(entry)
     return transaction, len(entries)

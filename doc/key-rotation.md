@@ -76,8 +76,10 @@ policy := ["ID", i]                        # authenticator i signed
   is satisfied by a *set of valid signatures*; a transaction pays for every signature it presents, and
   the evaluator refuses more than `AUTH_MAX_KEYS` signatures outright. Single-key accounts (all of them
   today) cost exactly what they cost now: one verify.
-- **Only ML-DSA.** One scheme, one verifier, one per-signature cost; scheme agility belongs to
-  Roadmap Track G and composes later as a per-authenticator attribute.
+- **Only ML-DSA** in the first design; scheme agility composed later as a per-authenticator attribute, as planned.
+  From `SIG_SCHEME_KEYS_HEIGHT` an authenticator may be `[alg, pubkey]` of any offered scheme, each signature entry
+  names its `alg`, and each pays its scheme's fee multiple (doc/signature-schemes.md, "Multisig members and auth keys
+  of every scheme").
 
 The two policies are the whole idea. `signing` is what a thief with the hot key gets. `reconfig` is
 what it takes to change the keys — and if `reconfig` is not satisfiable by the hot key alone, the thief

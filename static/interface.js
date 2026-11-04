@@ -107,6 +107,7 @@ const ADDR_BODY = P.ADDRESS_BODY, ADDR_LEN = ADDR_PREFIX.length + ADDR_BODY + AD
 const ADDR_RE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");    // strict (lowercase)
 const ADDR_RE_I = new RegExp(ADDR_RE.source, "i");
 const ADDR_RE_LOOSE = new RegExp("^" + ADDR_PREFIX + "[0-9a-f]{40,}$", "i");
+const MSIG_RE = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$");   // strict (lowercase)
 const MSIG_RE_I = new RegExp("^" + MSIG_PREFIX + "[0-9a-f]{" + (ADDR_BODY + ADDR_CK * 2) + "}$", "i");   // policy accounts are payable
 const ADDR_PRE_RE = new RegExp("^" + ADDR_PREFIX), ADDR_PRE_RE_I = new RegExp("^" + ADDR_PREFIX, "i");
 // DOMAIN-SEPARATION TAGS — protocol.py DOMAIN_MSIG / DOMAIN_REGISTER / DOMAIN_RANDAO_COMMIT are imported above.
@@ -320,8 +321,8 @@ function schemeFee(alg, fee) {
   return fee ? Math.max(Number(fee), MIN_TX_FEE * units) : fee;
 }
 // Surfaces the chain verifies with ML-DSA-44 only (protocol SIG_ML44_ONLY_RECIPIENTS: mining and its stake, messaging,
-// auth configs, legacy claims — and multisig membership, forum sign-in): an account of another scheme is told so instead
-// of signing something no node will accept.
+// legacy claims — and forum sign-in): an account of another scheme is told so instead of signing something no node
+// will accept. (Auth configs and multisig membership take every offered scheme from SIG_SCHEME_KEYS_HEIGHT.)
 function ml44Only(w, what) {
   if (schemeOf(w) === SIG_ML44) return false;
   log("warn", i18("sig.ml44Only", "{what} needs an ML-DSA-44 account — this one signs with {s}. Switch to your Main account for it.",
@@ -508,6 +509,16 @@ function validateAddress(addr) {
   return blake2bHash(addr.slice(0, -ADDR_CK * 2), ADDR_CK) === addr.slice(-ADDR_CK * 2);
 }
 
+// A NADO PAYMENT may go to a multisig account too (ops/address_ops.validate_address takes its prefix): Send refused one as
+// "Invalid recipient", so the shared account the Multisig tab says to "fund like any address" could not be funded from
+// it (found by the scheme-wallet walk, 2026-11-04). Only for plain NADO: a multisig account makes plain transfers only,
+// so an asset, an allowance or a membership sent to one could never move — those keep validateAddress.
+function validatePayee(addr) {
+  addr = (addr || "").trim();
+  if (validateAddress(addr)) return true;
+  return MSIG_RE.test(addr) && blake2bHash(addr.slice(0, -ADDR_CK * 2), ADDR_CK) === addr.slice(-ADDR_CK * 2);
+}
+
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter).
 // case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
@@ -608,7 +619,7 @@ async function relayCorroborated(url, candTip) {
 async function validateSendTo() {
  const v = ($("sendTo").value || "").trim().toLowerCase();
   if (!v) { setMsg("sendToMsg", "", null); return; }
-  if (validateAddress(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
+  if (validatePayee(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
   // A reserved recipient is valid as typed — looksLikeAlias already excludes these, but say so plainly
   // rather than falling through to "invalid", which is what a user sending to the faucet would have read.
   if (isSendableReserved(v)) {
@@ -3299,15 +3310,45 @@ function renderAllowedOrigins() {
  * more. The recovery key is a SEPARATE 24-word phrase, shown once, never stored; it is pasted only when an
  * action needs it (rotating with the full policy, cancelling a thief's pending change).
  * Wire shape mirrors ops/auth_ops.py + ops/multisig_ops.py: `signature` = [{public_key, signature}, ...].
+ * AN ACCOUNT OF ANOTHER SCHEME PROTECTS ITSELF IN ITS OWN SCHEME (protocol SIG_SCHEME_KEYS_HEIGHT, operator 2026-11-04):
+ * its signer children and its recovery key are keys of that scheme, a config names them [alg, pubkey], and each entry
+ * carries its `alg` — so a hash-based account is never guarded by a lattice key. An ML-DSA-44 account is unchanged.
  * ---------------------------------------------------------------------------------------------- */
 const DOMAIN_HD_AUTH = "hd-auth-signer-v1";       // signer-child derivation: blake2b([DOMAIN, master, acctIdx, k], 32)
 const AUTH_SCAN = 48;                              // how many signer children a wiped device scans to re-find its key
 const LS_AUTH_SIGNER = "nado_auth_signer_v1";     // chain-scoped {account: k}
 const AUTH_FEE_PER_ENTRY = MIN_TX_FEE;
 
+// the scheme of the active account's own keys (Main and every unmarked child: ML-DSA-44)
+function authAlg() { return hdAlg(state.activeIdx || 0); }
+// a signer child of another scheme takes its seed from [domain, master, index, k, alg] — no seed serves two schemes, and
+// an ML-DSA-44 signer keeps exactly the seed it always had (as accountChildSeed does for accounts)
 function authSignerKeypair(master, acctIdx, k) {
   if (!k) return accountKeypair(master, acctIdx);
-  return keypairFromPriv(blake2bHash([DOMAIN_HD_AUTH, master, acctIdx, k], 32));
+  const alg = hdAlg(acctIdx);
+  return keypairFromPriv(blake2bHash(alg ? [DOMAIN_HD_AUTH, master, acctIdx, k, alg] : [DOMAIN_HD_AUTH, master, acctIdx, k], 32), alg);
+}
+// how a config names a key (ops/auth_ops.key_pair): a bare pubkey for ML-DSA-44, [alg, pubkey] for another scheme
+function authKey(kp) { return kp.alg && kp.alg !== SIG_ML44 ? [kp.alg, kp.publicKey] : kp.publicKey; }
+function authKeyIn(keys, kp) { const want = JSON.stringify(authKey(kp)); return (keys || []).some((k) => JSON.stringify(k) === want); }
+function schemeKeysLive() {
+  const h = Number(P.SIG_SCHEME_KEYS_HEIGHT);
+  return Number.isFinite(h) && state.latest != null && state.latest >= h;
+}
+// One signature entry by keypair `kp` (its `alg` names a scheme other than ML-DSA-44) over msgBytes, verified before it
+// is returned — hedged signing can rarely produce one that does not verify (see finalizeTransaction).
+function schemeSignEntry(kp, msgBytes) {
+  const alg = kp.alg && kp.alg !== SIG_ML44 ? kp.alg : undefined;
+  const { publicKey, secretKey } = schemeKeygen(alg, hexToBytes(kp.privateKey));
+  for (let i = 0; i < 8; i++) {
+    const sig = schemeSign(alg, secretKey, msgBytes);
+    if (schemeVerify(alg, publicKey, msgBytes, sig)) {
+      const e = { public_key: bytesToHex(publicKey), signature: bytesToHex(sig) };
+      if (alg) e.alg = alg;
+      return e;
+    }
+  }
+  throw new Error("could not produce a verifying signature — please retry");
 }
 function policySatisfied(p, signers) {
   if (p[0] === "ID") return signers.has(p[1]);
@@ -3332,24 +3373,27 @@ function mldsaSignHex(privHex, msgBytes) {
   }
   throw new Error("could not produce a verifying signature — please retry");
 }
-function authPop(sender, cfg, privHex) {
+function authPop(sender, cfg, kp) {
   // ops/auth_ops.pop_message: blake2b(["auth-pop-v1", CHAIN_ID, sender, cfg]) — canonical JSON, sorted keys
-  return mldsaSignHex(privHex, hexToBytes(blake2bHash(["auth-pop-v1", CHAIN_ID, sender, cfg]))).signature;
+  return schemeSignEntry(kp, hexToBytes(blake2bHash(["auth-pop-v1", CHAIN_ID, sender, cfg]))).signature;
 }
-function authBuildTx(sender, signerPrivs, data, tipHeight) {
-  // an auth config's keys are ML-DSA-44 (ops/auth_ops), and so is the account it configures
-  if (state.wallet && state.wallet.address === sender && schemeOf(state.wallet) !== SIG_ML44)
-    throw new Error(i18("sig.ml44Only", "{what} needs an ML-DSA-44 account — this one signs with {s}. Switch to your Main account for it.",
-      { what: i18("sig.whatAuth", "Key rotation"), s: SIG_NAMES[schemeOf(state.wallet)] }));
+// Below SIG_SCHEME_KEYS_HEIGHT an auth config's keys, and the account it configures, are ML-DSA-44 (ops/auth_ops):
+// an account of another scheme is told so instead of signing a change no node accepts. True = blocked.
+function authSchemeBlocked() {
+  return !schemeKeysLive() && ml44Only({ alg: authAlg() }, i18("sig.whatAuth", "Key rotation"));
+}
+function authBuildTx(sender, signers, data, tipHeight) {
+  // each entry at its scheme's fee multiple (transaction_ops._entry_units): a paying list pays the whole sum
+  const units = signers.reduce((n, kp) => n + ((P.SIG_SCHEME_SIZES || {})[kp.alg || SIG_ML44] || [0, 0, 1])[2], 0);
   const body = { sender, recipient: "auth", amount: 0, timestamp: nowSeconds(), data, nonce: randNonce(),
-                 max_block: tipHeight + 40, chain_id: CHAIN_ID, fee: AUTH_FEE_PER_ENTRY * Math.max(1, signerPrivs.length),
+                 max_block: tipHeight + 40, chain_id: CHAIN_ID, fee: AUTH_FEE_PER_ENTRY * Math.max(1, units),
                  min_block: guardFrom(tipHeight) };
   const txid = createTxid(body);
   const m = hexToBytes(txid);
-  return { ...body, txid, signature: signerPrivs.map((p) => mldsaSignHex(p, m)) };
+  return { ...body, txid, signature: signers.map((kp) => schemeSignEntry(kp, m)) };
 }
-function authProtectedCfg(v, hotPub, recPub) {
-  return { v, keys: [hotPub, recPub], sign: ["ID", 0], reconf: ["THRESHOLD", 2, [["ID", 0], ["ID", 1]]] };
+function authProtectedCfg(v, hot, rec) {
+  return { v, keys: [authKey(hot), authKey(rec)], sign: ["ID", 0], reconf: ["THRESHOLD", 2, [["ID", 0], ["ID", 1]]] };
 }
 function authBindingGet() { return lsChainGet(LS_AUTH_SIGNER, {}) || {}; }
 function authBindingSet(account, k) { const b = authBindingGet(); b[account] = k; lsChainSet(LS_AUTH_SIGNER, b); }
@@ -3381,8 +3425,8 @@ async function authSync(acc) {
     state.authAcct.signerIdx = 0;
     return;
   }
-  const sole = cfg.keys.map((k, i) => policySatisfied(cfg.sign, new Set([i])) ? k : null);
-  const tryK = (k) => { const kp = authSignerKeypair(master, idx, k); return sole.includes(kp.publicKey) ? kp : null; };
+  const sole = cfg.keys.filter((k, i) => policySatisfied(cfg.sign, new Set([i])));
+  const tryK = (k) => { const kp = authSignerKeypair(master, idx, k); return authKeyIn(sole, kp) ? kp : null; };
   let k = authBindingGet()[account], kp = (k != null) ? tryK(k) : null;
   if (!kp) { for (k = 0; k <= AUTH_SCAN; k++) { kp = tryK(k); if (kp) break; } }
   if (!kp) {                                         // no key of this seed can spend: the recovery phrase is needed
@@ -3392,7 +3436,8 @@ async function authSync(acc) {
   authBindingSet(account, k);
   state.authAcct.signerIdx = k;
   if (state.wallet.publicKey !== kp.publicKey || state.wallet.address !== account) {
-    state.wallet = { privateKey: kp.privateKey, publicKey: kp.publicKey, address: account };
+    // the signer keeps its scheme: a protected account of another scheme sends tagged txs with its signer child's key
+    state.wallet = { privateKey: kp.privateKey, publicKey: kp.publicKey, address: account, ...(kp.alg ? { alg: kp.alg } : {}) };
     state._hdExpectedAddr = account;
   }
 }
@@ -3445,15 +3490,15 @@ function authAskRecovery(kind) {
 }
 async function authRecoveryKeypair() {
   const seed = await mnemonicToSeed($("authRecoveryPhrase").value);
-  return keypairFromPriv(bytesToHex(seed));
+  return keypairFromPriv(bytesToHex(seed), authAlg());      // the recovery key is a key of the account's own scheme
 }
 
 /* PROTECT: generate the recovery phrase, show it once, then install [hot, recovery] with reconf = both. */
 let _authNewRec = null;
 async function authProtectStart() {
-  if (!state.wallet || !state.authAcct) return;
+  if (!state.wallet || !state.authAcct || authSchemeBlocked()) return;
   const seed = new Uint8Array(32); crypto.getRandomValues(seed);
-  _authNewRec = keypairFromPriv(bytesToHex(seed));
+  _authNewRec = keypairFromPriv(bytesToHex(seed), authAlg());
   $("authNewPhrase").textContent = await seedToMnemonic(seed);
   $("authPhraseAck").checked = false; $("btnAuthPhraseGo").disabled = true;
   show("authPhraseReveal", true);
@@ -3464,9 +3509,9 @@ async function authProtectGo() {
   const latest = await getLatestBlock(); if (!latest) return;
   const cur = authEffective(await getAccount(account), latest.block_number);
   const v = (cur ? cur.v : 0) + 1;
-  const cfg = authProtectedCfg(v, state.wallet.publicKey, _authNewRec.publicKey);
-  const data = { op: "set", cfg, pop: { [_authNewRec.publicKey]: authPop(account, cfg, _authNewRec.privateKey) } };
-  const tx = authBuildTx(account, [state.wallet.privateKey], data, latest.block_number);
+  const cfg = authProtectedCfg(v, state.wallet, _authNewRec);
+  const data = { op: "set", cfg, pop: { [_authNewRec.publicKey]: authPop(account, cfg, _authNewRec) } };
+  const tx = authBuildTx(account, [state.wallet], data, latest.block_number);
   show("authPhraseReveal", false); $("authNewPhrase").textContent = ""; _authNewRec = null;   // the phrase leaves memory here
   const res = await submitTransaction(tx);
   if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
@@ -3478,20 +3523,19 @@ async function authProtectGo() {
 /* ROTATE: move signing to the next HD signer child. Protected accounts rotate immediately with hot + recovery;
  * without the phrase (or on a single-key account) the change pends for ~a day and the old key keeps working. */
 async function authRotateGo(withRecovery) {
-  const master = masterSeedOf(); if (!master || !state.wallet || !state.authAcct) return;
+  const master = masterSeedOf(); if (!master || !state.wallet || !state.authAcct || authSchemeBlocked()) return;
   const account = state.authAcct.address, idx = state.activeIdx || 0;
   const latest = await getLatestBlock(); if (!latest) return;
   const acc = await getAccount(account);
   const cur = authEffective(acc, latest.block_number);
   let k = (state.authAcct.signerIdx || 0) + 1, nk = authSignerKeypair(master, idx, k);
-  while (cur && cur.keys.includes(nk.publicKey)) { k++; nk = authSignerKeypair(master, idx, k); }
-  const keys = cur ? [nk.publicKey, ...cur.keys.slice(1)] : [nk.publicKey];
+  while (cur && authKeyIn(cur.keys, nk)) { k++; nk = authSignerKeypair(master, idx, k); }
+  const keys = cur ? [authKey(nk), ...cur.keys.slice(1)] : [authKey(nk)];
   const cfg = cur ? { v: cur.v + 1, keys, sign: cur.sign, reconf: cur.reconf } : { v: 1, keys, sign: ["ID", 0], reconf: ["ID", 0] };
-  const signers = [state.authAcct.orphan ? null : state.wallet.privateKey];
-  if (withRecovery) { const rk = await authRecoveryKeypair(); if (!cur || !cur.keys.includes(rk.publicKey)) throw new Error(i18("auth.wrongPhrase", "That recovery phrase does not belong to this account.")); signers.push(rk.privateKey); }
-  const privs = signers.filter(Boolean);
-  const data = { op: "set", cfg, pop: { [nk.publicKey]: authPop(account, cfg, nk.privateKey) } };
-  const tx = authBuildTx(account, privs, data, latest.block_number);
+  const signers = [state.authAcct.orphan ? null : state.wallet];
+  if (withRecovery) { const rk = await authRecoveryKeypair(); if (!cur || !authKeyIn(cur.keys, rk)) throw new Error(i18("auth.wrongPhrase", "That recovery phrase does not belong to this account.")); signers.push(rk); }
+  const data = { op: "set", cfg, pop: { [nk.publicKey]: authPop(account, cfg, nk) } };
+  const tx = authBuildTx(account, signers.filter(Boolean), data, latest.block_number);
   const res = await submitTransaction(tx);
   if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
   log("info", i18("auth.submitted", "Key change submitted — waiting for it to land…"));
@@ -3500,11 +3544,11 @@ async function authRotateGo(withRecovery) {
 }
 
 async function authCancelGo(withRecovery) {
-  if (!state.wallet || !state.authAcct) return;
+  if (!state.wallet || !state.authAcct || authSchemeBlocked()) return;
   const account = state.authAcct.address;
   const latest = await getLatestBlock(); if (!latest) return;
-  const priv = withRecovery ? (await authRecoveryKeypair()).privateKey : state.wallet.privateKey;
-  const tx = authBuildTx(account, [priv], { op: "cancel" }, latest.block_number);
+  const kp = withRecovery ? await authRecoveryKeypair() : state.wallet;
+  const tx = authBuildTx(account, [kp], { op: "cancel" }, latest.block_number);
   const res = await submitTransaction(tx);
   if (!(res.data && res.data.result)) { log("err", i18("auth.refused", "Key change refused: {m}", { m: (res.data && res.data.message) || "" })); return; }
   await authWaitLanded(account, (a2) => !a2.auth_pending, i18("auth.cancel", "Cancel pending change"));
@@ -6224,7 +6268,7 @@ async function doSend() {
   // recipient), while a valid address is lowercase hex anyway — so "Alice" sends to "alice".
   const recipient = $("sendTo").value.trim().toLowerCase();
   let resolvedOwner = null;
-  if (!validateAddress(recipient) && !isSendableReserved(recipient)) {
+  if (!validatePayee(recipient) && !isSendableReserved(recipient)) {
     if (looksLikeAlias(recipient)) {
       setMsg("sendMsg", `Resolving alias "${recipient}"…`, null);
       resolvedOwner = await resolveAlias(recipient);
@@ -9942,21 +9986,17 @@ function msigCheckProposal(tx) {
   return tx;
 }
 
+// the member address an entry signs as: its key under its own scheme (ops/multisig_ops.verify_multisig_origin)
+function msigEntryAddress(e) { return makeAddress(String(e.public_key || ""), ADDR_PREFIX, e.alg || undefined); }
+
 /* Add THIS wallet's signature entry (if it is a member and hasn't signed). Returns true if added. */
 function msigTrySignLocal(tx) {
   const w = state.wallet;
   if (!w || !tx.multisig.members.includes(w.address)) return false;
-  if (schemeOf(w) !== SIG_ML44) return false;      // multisig members sign with ML-DSA-44 (ops/multisig_ops)
-  if (tx.signature.some((e) => e && makeAddress(String(e.public_key || "")) === w.address)) return false;
-  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(w.privateKey));
-  const m = hexToBytes(tx.txid);
-  let sig = null;   // hedged signing can rarely produce a non-verifying sig — verify + retry (see finalizeTransaction)
-  for (let k = 0; k < 8; k++) {
-    const s = ml_dsa44.sign(secretKey, m);
-    if (ml_dsa44.verify(publicKey, m, s)) { sig = bytesToHex(s); break; }
-  }
-  if (!sig) throw new Error("could not produce a verifying signature — please retry");
-  tx.signature.push({ public_key: bytesToHex(publicKey), signature: sig });
+  // a member of another scheme signs in it from SIG_SCHEME_KEYS_HEIGHT (its entry names its `alg`); before, ML-DSA-44 only
+  if (schemeOf(w) !== SIG_ML44 && !schemeKeysLive()) return false;
+  if (tx.signature.some((e) => e && msigEntryAddress(e) === w.address)) return false;
+  tx.signature.push(schemeSignEntry(w, hexToBytes(tx.txid)));
   return true;
 }
 
@@ -10000,7 +10040,18 @@ async function msigPropose() {
     let rawAmount;
     try { rawAmount = nadoToRaw($("msigAmount").value); } catch (e) { setMsg("msigProposeMsg", i18("msg.badAmount", "Invalid amount."), "err"); return; }
     if (rawAmount <= 0n) { setMsg("msigProposeMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
-    const fee = MIN_TX_FEE * d.members.length;   // consensus floor is MIN_TX_FEE per signature ENTRY — cover all members signing
+    // consensus floor is MIN_TX_FEE per signature ENTRY at its scheme's multiple — cover every member signing. A member's
+    // scheme shows in the key it published (every scheme's key has its own length); one that never sent counts at the
+    // largest multiple once members of every scheme may sign (SIG_SCHEME_KEYS_HEIGHT), else ML-DSA-44's.
+    const sizes = P.SIG_SCHEME_SIZES || {};
+    const maxUnits = schemeKeysLive() ? Math.max(1, ...(P.SIG_SCHEMES_OFFERED || []).map((a) => (sizes[a] || [0, 0, 1])[2])) : 1;
+    let units = 0;
+    for (const m of d.members) {
+      let pk = ""; try { pk = String(((await getAccount(m)) || {}).public_key || ""); } catch (e) {}
+      const a = pk && Object.keys(sizes).find((x) => sizes[x][0] === pk.length);
+      units += a ? sizes[a][2] : maxUnits;
+    }
+    const fee = MIN_TX_FEE * units;
     const acc = await getAccount(sender);
     const balance = BigInt((acc && acc.balance) || 0);
     if (rawAmount + BigInt(fee) > balance) {
@@ -10033,7 +10084,7 @@ function msigRefreshStatus() {
   // max_block and threshold, and this ran on paste. Escape strings and coerce numbers before any markup.
   const _e = (v) => escapeHtml(String(v));
   const mine = state.wallet && d.members.includes(state.wallet.address);
-  const signed = tx.signature.map((e) => makeAddress(String(e.public_key || "")));
+  const signed = tx.signature.map(msigEntryAddress);
   const iSigned = state.wallet && signed.includes(state.wallet.address);
   const ready = signed.length >= d.threshold;
   const rows = [

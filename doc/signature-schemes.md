@@ -10,7 +10,7 @@ Every account can sign with one of these schemes, all post-quantum and all final
 
 | scheme | standard | public key | signature | fee floor | why pick it |
 |---|---|---|---|---|---|
-| **ML-DSA-44** (default) | FIPS 204 | 1,312 B | 2,420 B | x1 | smallest, and the only scheme for mining, messaging, key rotation and multisig |
+| **ML-DSA-44** (default) | FIPS 204 | 1,312 B | 2,420 B | x1 | smallest, and the only scheme for mining and messaging |
 | ML-DSA-65 | FIPS 204 | 1,952 B | 3,309 B | x2 | NIST category 3 instead of 2 |
 | ML-DSA-87 | FIPS 204 | 2,592 B | 4,627 B | x2 | NIST category 5 |
 | SLH-DSA-SHA2-128s | FIPS 205 | 32 B | 7,856 B | x3 | hash-based: it survives a break of lattice cryptography, which ML-DSA does not |
@@ -56,7 +56,7 @@ This binding is why no account record grows a field:
 2. `sig_scheme_check`, which refuses `alg` if:
    - the gate is not live;
    - the scheme is not offered, or is the default;
-   - the signature is an entry list or a multisig;
+   - the signature is an entry list or a multisig (an entry names its own scheme instead — see below);
    - the kind is one the chain verifies off the transaction with ML-DSA-44 only (`SIG_ML44_ONLY_RECIPIENTS`).
 3. `excluded_witness_check`, now sized by the transaction's scheme (`SIG_SCHEME_SIZES`).
 4. The fee floor. A paying transaction pays `MIN_TX_FEE` times the scheme's multiplier. A fee-exempt kind stays exempt:
@@ -69,10 +69,47 @@ key the chain later checks with ML-DSA-44:
   status attestations;
 - the TPM ceremony (`tpm_*`), which enrols a validator;
 - `msgkey`, because messaging verifies through `key_authorized`;
-- `auth`, because auth configs hold ML-DSA-44 keys;
 - `legacy_claim`, because a format-1 address is a slice of an ML-DSA-44 key.
 
-Multisig members are also ML-DSA-44: a member signature is checked against the member's address as an ML-DSA-44 key.
+`auth` was on this list until `SIG_SCHEME_KEYS_HEIGHT`; from it an account of any scheme configures its own keys.
+
+## Multisig members and auth keys of every scheme
+
+From `SIG_SCHEME_KEYS_HEIGHT` (L1 123000 on generation 29, block 1 after a reroll; operator 2026-11-04: *"extend it to
+multisig and auth"*), the two entry-list surfaces take every offered scheme. Below it every entry and key is ML-DSA-44,
+exactly as before. `tests/test_a_multisig_member_and_an_auth_key_sign_with_their_own_scheme.py` pins both rule sets.
+
+- **A signature entry may carry `alg`.** Absent means ML-DSA-44, its only spelling; `"alg": "mldsa44"` is refused.
+  `excluded_witness_check` sizes each entry by its own `alg`, and a top-level `alg` beside an entry list is still
+  refused, because each entry names its own.
+- **Multisig.** A member's entry derives `make_address(public_key, alg)`. The member address already commits to its
+  scheme, so a key shown under another `alg` is "a non-member key", and the entry's `alg` needs no other binding.
+- **Auth configs.** A key is a bare pubkey string (ML-DSA-44) or `[alg, pubkey]` for another scheme, one spelling each.
+  Matching is always on the pair. The pop map stays keyed by the pubkey hex, since every scheme's key has its own
+  length. An account of another scheme reads its implicit config as `[[alg, its key]]`.
+- **What stays ML-DSA-44.** `key_authorized` and `key_valid_at` ask about a bare key string, so an `[alg, pubkey]`
+  authenticator never signs a block, an attestation or a messaging login. Every `SIG_ML44_ONLY_RECIPIENTS` kind also
+  refuses an entry that carries `alg`.
+- **Fees.** Each entry counts at its scheme's multiplier:
+  - a multisig spend pays `MIN_TX_FEE` times the sum;
+  - a configured account's list pays the sum minus its first entry's;
+  - when that list pays at all and any entry is of another scheme, it pays at least the whole sum. That is what the
+    same keys pay signing one at a time.
+  ML-DSA-44 lists pay exactly what they did.
+- **The wallet.** Each account protects itself in its own scheme (`static/interface.js`, `authKey`):
+  - an SLH-DSA account's signer children and recovery key are SLH-DSA keys, so a hash-based account is never guarded
+    by a lattice key;
+  - a signer child of another scheme takes its seed from `[DOMAIN_HD_AUTH, master, index, k, alg]`, while an ML-DSA-44
+    signer keeps the seed it always had;
+  - a multisig member of any scheme co-signs in it;
+  - the proposal's fee counts each member at the multiple of the key it published, or at the largest multiple if it
+    has none yet.
+
+  `tests/test_the_wallets_multisig_and_auth_txs_of_every_scheme_validate_in_the_node.py` runs that code against the
+  node, and `scripts/testnet/test_scheme_wallet.py` walks it in a browser once the rule holds from block 1.
+- **Not covered yet: a protected member signing a multisig.** A member signs with the key that derives its address.
+  If that account rotated its key, the wallet signs with the rotated key, which is a non-member. This holds for every
+  scheme.
 Widening any of these is a feature per surface, never a one-line change.
 
 **The block auth leaf** (`ops/mldsa_block_auth.py`) declares the scheme in its `kind` (3 to 6). An untagged
@@ -142,7 +179,5 @@ Consensus checks `verify() == true`, never signature bytes.
 ## Not done, deliberately
 
 - **No scheme for the chain's own signatures** (blocks, attestations, duties). A validator stays ML-DSA-44.
-- **No per-key schemes in auth configs or multisig yet.** Each needs its own shape (a key entry with an `alg`), its own
-  canonical spelling in `excluded_witness_check`, and its own pop and tests.
 - **No messaging or forum sign-in for other schemes.** Both verify an account key through `key_authorized`, and
   `static/messaging.js` sizes its envelope for ML-DSA-44.

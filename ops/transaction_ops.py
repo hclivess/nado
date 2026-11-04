@@ -268,27 +268,36 @@ def resolve_slash(data, judge_height=None):
     return (r[0], r[1]) if r else None
 
 
+def _signature_entry(kd, msg):
+    """One signature entry by keydict `kd` over `msg`; a key of another scheme names it in `alg` (SIG_SCHEME_KEYS_HEIGHT),
+    an ML-DSA-44 key carries none — absence is its only spelling."""
+    alg = kd.get("alg")
+    e = {"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg, alg=alg)}
+    if alg and alg != _P.SIG_DEFAULT:
+        e["alg"] = alg
+    return e
+
+
 def sign_entries(body, signer_keydicts):
     """Finalize a drafted tx body for a CONFIGURED account: set the txid and a LIST of signature entries
     (one per keydict) over it. The body must not carry a top-level public_key (each entry carries its own)."""
     tx = {k: v for k, v in body.items() if k not in ("txid", "signature", "public_key")}
     tx["txid"] = create_txid(tx)
     msg = unhex(tx["txid"])
-    tx["signature"] = [{"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg)}
-                       for kd in signer_keydicts]
+    tx["signature"] = [_signature_entry(kd, msg) for kd in signer_keydicts]
     return tx
 
 
 def auth_pop(sender, cfg, keydict):
     """A new authenticator's proof of possession for `cfg` on `sender` (ops/auth_ops.pop_message)."""
     from ops.auth_ops import pop_message
-    return sign(private_key=keydict["private_key"], message=pop_message(sender, cfg))
+    return sign(private_key=keydict["private_key"], message=pop_message(sender, cfg), alg=keydict.get("alg"))
 
 
 def construct_auth_tx(sender, signer_keydicts, data, fee, max_block, min_block=0):
     """Build a SIGNED `auth` tx (doc/key-rotation.md): data = {"op": "set", "cfg", "pop"} | {"op": "cancel"},
-    authenticated by a LIST of signature entries — one per signer keydict, each an ML-DSA signature over the
-    txid — the multisig wire shape. Fee-paying (never exempt), zero amount. The `sender` is the account being
+    authenticated by a LIST of signature entries — one per signer keydict, each a signature over the txid in
+    the keydict's own scheme — the multisig wire shape. Fee-paying (never exempt), zero amount. The `sender` is the account being
     reconfigured; the signers are whichever of its authenticators are acting."""
     tx = {"sender": sender, "recipient": "auth", "amount": 0, "timestamp": get_timestamp_seconds(),
           "data": data, "nonce": create_nonce(), "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
@@ -296,8 +305,7 @@ def construct_auth_tx(sender, signer_keydicts, data, fee, max_block, min_block=0
         tx["min_block"] = int(min_block)
     tx["txid"] = create_txid(tx)
     msg = unhex(tx["txid"])
-    tx["signature"] = [{"public_key": kd["public_key"], "signature": sign(private_key=kd["private_key"], message=msg)}
-                       for kd in signer_keydicts]
+    tx["signature"] = [_signature_entry(kd, msg) for kd in signer_keydicts]
     return tx
 
 
@@ -1927,6 +1935,16 @@ def tx_shape_check(transaction, block_height):
     assert size <= cap, f"transaction is {size} bytes, over the {cap}-byte limit for a {recipient if recipient in RESERVED_RECIPIENTS else 'transfer'}"
 
 
+def _entry_units(entries) -> list:
+    """The fee-floor multiplier of each signature entry, by its `alg` (absent = ML-DSA-44 = 1). Shapes are
+    excluded_witness_check's, which ran first; anything malformed counts 1 and is refused there or by validate_origin."""
+    out = []
+    for e in entries:
+        a = e.get("alg") if isinstance(e, dict) else None
+        out.append(_P.SIG_SCHEME_SIZES[a][2] if a in _P.SIG_SCHEME_SIZES else 1)
+    return out
+
+
 def tx_alg(transaction) -> str:
     """The signature scheme a transaction signs with: its `alg`, or ML-DSA-44 when absent (protocol.py "USER-SELECTABLE
     SIGNATURE SCHEMES"). Only meaningful after sig_scheme_check accepted the transaction."""
@@ -1937,10 +1955,16 @@ def sig_scheme_check(transaction, block_height):
     """A transaction's `alg` (protocol.py "USER-SELECTABLE SIGNATURE SCHEMES", doc/signature-schemes.md). Pure shape —
     no state — so the mempool and block verification agree. Absent: ML-DSA-44, every one that does not choose.
     Present: the height is at least 1, the scheme is offered and is NOT the default (absence is
-    the only spelling of ML-DSA-44 — one transaction, one byte string), the tx is signed by its one key (auth configs
-    and multisig members are ML-DSA-44), and it is not a kind whose key the chain verifies off the transaction with
-    ML-DSA-44 only (SIG_ML44_ONLY_RECIPIENTS). INVARIANT: runs before excluded_witness_check, which sizes the witnesses
-    by this scheme."""
+    the only spelling of ML-DSA-44 — one transaction, one byte string), the tx is signed by its one key (an entry list names
+    each entry's scheme in the entry, from SIG_SCHEME_KEYS_HEIGHT), and it is not a kind whose key the chain verifies off
+    the transaction with ML-DSA-44 only (SIG_ML44_ONLY_RECIPIENTS) — nor, for those kinds, an entry of another scheme.
+    INVARIANT: runs before excluded_witness_check, which sizes the witnesses by this scheme."""
+    recipient = transaction.get("recipient")
+    if isinstance(transaction.get("signature"), list) and recipient in _P.SIG_ML44_ONLY_RECIPIENTS:
+        # a kind whose key the chain later checks as ML-DSA-44 takes no entry of another scheme either
+        # (SIG_SCHEME_KEYS_HEIGHT; below it no entry can carry `alg` at all — excluded_witness_check)
+        assert all(not (isinstance(e, dict) and "alg" in e) for e in transaction["signature"]), \
+            f"a {recipient} transaction is ML-DSA-44 only"
     if "alg" not in transaction:
         return
     alg = transaction["alg"]
@@ -1952,8 +1976,9 @@ def sig_scheme_check(transaction, block_height):
         f"alg must be one of {', '.join(a for a in _P.SIG_SCHEMES_OFFERED if a != _P.SIG_DEFAULT)} (absent = {_P.SIG_DEFAULT})"
     assert not isinstance(transaction.get("signature"), list) and transaction.get("multisig") is None, \
         "an entry-list or multisig signature is ML-DSA-44 only"
-    assert transaction.get("recipient") not in _P.SIG_ML44_ONLY_RECIPIENTS, \
-        f"a {transaction.get('recipient')} transaction is ML-DSA-44 only"
+    assert recipient not in _P.SIG_ML44_ONLY_RECIPIENTS, f"a {recipient} transaction is ML-DSA-44 only"
+    # an account of another scheme configures its own keys from SIG_SCHEME_KEYS_HEIGHT (auth was ML-DSA-44 only before)
+    assert recipient != "auth" or int(block_height) >= _P.SIG_SCHEME_KEYS_HEIGHT, "an auth transaction is ML-DSA-44 only"
 
 
 _LOWER_HEX = frozenset("0123456789abcdef")
@@ -1983,7 +2008,7 @@ def excluded_witness_check(transaction, block_height):
     is 0 on a genesis tip."""
     if block_height is None or int(block_height) < 1:
         return
-    # SIZED BY THE TX'S SCHEME (sig_scheme_check ran first): entry lists are ML-DSA-44 only, so they keep its sizes
+    # SIZED BY THE TX'S SCHEME (sig_scheme_check ran first); an entry list is sized per entry by its own `alg` below
     pk_n, sig_n, _ = _P.SIG_SCHEME_SIZES[tx_alg(transaction)]
     # PRESENT means canonical: an honest client that relies on the key it already published OMITS the field, it never
     # sends null or "" (validate_origin reads both as "omitted", so either was a free re-encoding of an absent key)
@@ -1998,14 +2023,23 @@ def excluded_witness_check(transaction, block_height):
         # relayer adding ITS key to an account's list-signed FIRST tx (same txid, still valid) took the account over.
         # sign_entries, the wallet's auth/multisig builders and draft_multisig_spend never send one.
         assert "public_key" not in transaction, "a transaction signed with an entry list carries no top-level public_key"
+        # SIG_SCHEME_KEYS_HEIGHT: an entry may name its scheme in `alg` — an offered one and never the default, absence
+        # being ML-DSA-44's only spelling — and is then sized by it. Below the height an entry is ML-DSA-44 only.
+        keys_live = int(block_height) >= _P.SIG_SCHEME_KEYS_HEIGHT
+        shapes = ({"signature"}, {"signature", "public_key"}) + (
+            ({"signature", "alg"}, {"signature", "public_key", "alg"}) if keys_live else ())
         for entry in sig:
-            assert isinstance(entry, dict) and set(entry) in ({"signature"}, {"signature", "public_key"}), \
-                "a signature entry carries exactly signature and, optionally, public_key"
-            assert _canonical_hex(entry["signature"], sig_n), \
-                f"a signature entry's signature must be exactly {sig_n} lowercase hex characters"
+            assert isinstance(entry, dict) and set(entry) in shapes, \
+                "a signature entry carries exactly signature and, optionally, public_key" + (" and alg" if keys_live else "")
+            if "alg" in entry:
+                assert isinstance(entry["alg"], str) and entry["alg"] in _P.SIG_SCHEMES_OFFERED and entry["alg"] != _P.SIG_DEFAULT, \
+                    f"a signature entry's alg must be one of {', '.join(a for a in _P.SIG_SCHEMES_OFFERED if a != _P.SIG_DEFAULT)} (absent = {_P.SIG_DEFAULT})"
+            e_pk, e_sig, _ = _P.SIG_SCHEME_SIZES[entry.get("alg") or _P.SIG_DEFAULT]
+            assert _canonical_hex(entry["signature"], e_sig), \
+                f"a signature entry's signature must be exactly {e_sig} lowercase hex characters"
             if "public_key" in entry:
-                assert _canonical_hex(entry["public_key"], pk_n), \
-                    f"a signature entry's public_key must be exactly {pk_n} lowercase hex characters"
+                assert _canonical_hex(entry["public_key"], e_pk), \
+                    f"a signature entry's public_key must be exactly {e_pk} lowercase hex characters"
     else:
         assert _canonical_hex(sig, sig_n), f"signature must be exactly {sig_n} lowercase hex characters"
 
@@ -2072,14 +2106,19 @@ def validate_transaction(transaction, logger, block_height, deep=False):
         assert transaction["recipient"] not in RESERVED_RECIPIENTS, \
             "a multisig account can only make plain transfers"
         assert isinstance(transaction.get("signature"), list), "multisig tx needs a signature list"
-        assert transaction.get("fee", 0) >= MIN_TX_FEE * len(transaction["signature"]), \
+        # each entry at its scheme's multiplier (SIG_SCHEME_KEYS_HEIGHT; an ML-DSA-44 entry is 1, so below it = len)
+        assert transaction.get("fee", 0) >= MIN_TX_FEE * sum(_entry_units(transaction["signature"])), \
             "multisig fee below the per-signature floor"
     if isinstance(transaction.get("signature"), list) and transaction.get("multisig") is None:
         # a configured account pays the fee floor for every signature entry BEYOND the first (bounded by
         # AUTH_MAX_KEYS in verify_entries) — the first is what a single-key tx already carries, so a
-        # fee-exempt duty signed by one authenticator stays exempt
-        assert transaction.get("fee", 0) >= MIN_TX_FEE * (len(transaction["signature"]) - 1), \
+        # fee-exempt duty signed by one authenticator stays exempt. Each entry counts at its scheme's multiplier, and a
+        # PAYING list with an entry of another scheme pays at least the whole sum — what its keys pay one at a time.
+        _units = _entry_units(transaction["signature"])
+        assert transaction.get("fee", 0) >= MIN_TX_FEE * (sum(_units) - (_units[0] if _units else 0)), \
             "fee below the per-signature floor"
+        if any(u != 1 for u in _units) and transaction.get("fee") != 0:
+            assert transaction.get("fee", 0) >= MIN_TX_FEE * sum(_units), "fee below the per-signature floor"
     _fee = transaction.get("fee")
     if "alg" in transaction and isinstance(_fee, int) and not isinstance(_fee, bool) and _fee != 0:   # type: checked below
         # a larger witness costs every node more bytes to carry and keep, and the fee is otherwise flat: a PAYING tx pays

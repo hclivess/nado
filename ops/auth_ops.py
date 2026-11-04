@@ -1,6 +1,7 @@
 """ACCOUNT AUTHENTICATION AS STATE (doc/key-rotation.md, Roadmap Track H).
 
-An address may carry an auth config — a list of ML-DSA authenticators, a SIGNING policy (who may spend / act
+An address may carry an auth config — a list of authenticators (ML-DSA-44, or from SIG_SCHEME_KEYS_HEIGHT any
+offered scheme as [alg, pubkey]), a SIGNING policy (who may spend / act
 for the address) and a RECONFIG policy (who may change the config) — so keys rotate and a stolen hot key can
 be recovered while the address and everything keyed by it (bond, ramp, fidelity, aliases, exec balances)
 stays. An account WITHOUT a config is exactly today's account: one key, the one the address was derived
@@ -46,6 +47,32 @@ def pop_message(sender: str, cfg: dict) -> bytes:
 PUBKEY_HEX = 2624          # ML-DSA-44 public key: 1312 bytes
 
 
+# ---- keys of every offered scheme (protocol.SIG_SCHEME_KEYS_HEIGHT) -------------------------------------------------
+# A config key is a bare pubkey string (ML-DSA-44, its only spelling) or [alg, pubkey] for another offered scheme; a
+# signature entry names its scheme in `alg` (absent = ML-DSA-44). Every match below is on the PAIR (alg, pubkey), so a
+# key never authorizes under a scheme it was not installed with, and key_authorized — which asks about a bare ML-DSA-44
+# key (blocks, attestations, messaging) — can never match an [alg, pubkey] key.
+def key_pair(k) -> tuple:
+    """(alg, pubkey) of a config key."""
+    return (P.SIG_DEFAULT, k) if isinstance(k, str) else (k[0], k[1])
+
+
+def entry_pair(e) -> tuple:
+    """(alg, pubkey) a signature entry claims."""
+    return (e.get("alg") or P.SIG_DEFAULT, e.get("public_key"))
+
+
+def valid_key(k, block_height) -> bool:
+    """One config key in its one canonical spelling: an ML-DSA-44 pubkey string, or — from SIG_SCHEME_KEYS_HEIGHT —
+    [alg, pubkey] with alg offered and not the default, the key exactly that scheme's size in lowercase hex."""
+    if isinstance(k, str):
+        return _is_hex(k, PUBKEY_HEX)
+    if block_height is None or int(block_height) < P.SIG_SCHEME_KEYS_HEIGHT:
+        return False
+    return (isinstance(k, list) and len(k) == 2 and isinstance(k[0], str) and k[0] in P.SIG_SCHEMES_OFFERED
+            and k[0] != P.SIG_DEFAULT and _is_hex(k[1], P.SIG_SCHEME_SIZES[k[0]][0]))
+
+
 # ---- policy language ----------------------------------------------------------------------------------
 def _is_hex(s, n=None):
     return isinstance(s, str) and (n is None or len(s) == n) and all(c in "0123456789abcdef" for c in s)
@@ -88,7 +115,7 @@ def policy_keys(policy) -> set:
     return out
 
 
-def validate_config(cfg):
+def validate_config(cfg, block_height=None):
     """Canonical-shape check of an auth config. Raises AssertionError. Returns (version, keys)."""
     assert isinstance(cfg, dict) and set(cfg.keys()) == {"v", "keys", "sign", "reconf"}, \
         "auth config must have exactly v, keys, sign, reconf"
@@ -96,8 +123,11 @@ def validate_config(cfg):
     assert isinstance(v, int) and not isinstance(v, bool) and v >= 1, "auth config version must be an int >= 1"
     keys = cfg["keys"]
     assert isinstance(keys, list) and 1 <= len(keys) <= AUTH_MAX_KEYS, f"auth config needs 1..{AUTH_MAX_KEYS} keys"
-    assert all(_is_hex(k, PUBKEY_HEX) for k in keys), "every authenticator must be a 2624-hex ML-DSA-44 public key"
-    assert len(set(keys)) == len(keys), "duplicate authenticator"
+    assert all(valid_key(k, block_height) for k in keys), \
+        "every authenticator must be a 2624-hex ML-DSA-44 public key" + (
+            "" if block_height is None or int(block_height) < P.SIG_SCHEME_KEYS_HEIGHT else " or [alg, public key] of another offered scheme")
+    # no two by one key: every scheme's key has its own length, so the hex alone decides
+    assert len({key_pair(k)[1] for k in keys}) == len(keys), "duplicate authenticator"
     validate_policy(cfg["sign"], len(keys))
     validate_policy(cfg["reconf"], len(keys))
     # every key must be reachable by SOME policy, else it is dead weight nobody can ever use to prove possession of
@@ -112,7 +142,12 @@ def implicit_config(address: str, acc) -> dict:
     both policies ID(0). `keys` is [] before the first transaction — the key then rides in that tx and is
     checked by derivation (make_address) instead of membership."""
     pk = (acc or {}).get("public_key")
-    return {"v": 0, "keys": [pk] if pk else [], "sign": ["ID", 0], "reconf": ["ID", 0], "implicit": True}
+    key = pk
+    if pk and make_address(pk) != address:
+        # an account of another scheme: its stored key derives the address only under the scheme it was made with
+        alg = next((a for a in P.SIG_SCHEMES_OFFERED if a != P.SIG_DEFAULT and make_address(pk, alg=a) == address), None)
+        key = [alg, pk] if alg else pk
+    return {"v": 0, "keys": [key] if pk else [], "sign": ["ID", 0], "reconf": ["ID", 0], "implicit": True}
 
 
 def effective_config(address: str, acc, height) -> dict:
@@ -133,13 +168,15 @@ def is_configured(acc) -> bool:
     return bool(acc) and (acc.get("auth") is not None or acc.get("auth_pending") is not None)
 
 
-def signer_index(pubkey: str, address: str, cfg: dict):
-    """Which authenticator `pubkey` is under `cfg`, or None. An implicit config with no stored key yet
-    accepts the key that DERIVES the address (the first-transaction case)."""
+def signer_index(pubkey: str, address: str, cfg: dict, alg=None):
+    """Which authenticator `pubkey` under scheme `alg` (None = ML-DSA-44) is under `cfg`, or None. An implicit config
+    with no stored key yet accepts the key that DERIVES the address under that scheme (the first-transaction case)."""
     keys = cfg.get("keys") or []
-    if pubkey in keys:
-        return keys.index(pubkey)
-    if cfg.get("implicit") and not keys and make_address(pubkey) == address:
+    want = (alg or P.SIG_DEFAULT, pubkey)
+    for i, k in enumerate(keys):
+        if key_pair(k) == want:
+            return i
+    if cfg.get("implicit") and not keys and isinstance(pubkey, str) and make_address(pubkey, alg=alg) == address:
         return 0
     return None
 
@@ -150,7 +187,10 @@ def entries_of(transaction) -> list:
     sig = transaction.get("signature")
     if isinstance(sig, list):
         return sig
-    return [{"public_key": transaction.get("public_key"), "signature": sig}]
+    e = {"public_key": transaction.get("public_key"), "signature": sig}
+    if transaction.get("alg"):                       # a single-key tx names its scheme at the top level
+        e["alg"] = transaction["alg"]
+    return [e]
 
 
 def resolve_entries(transaction, cfg: dict) -> list:
@@ -161,8 +201,10 @@ def resolve_entries(transaction, cfg: dict) -> list:
     keys = cfg.get("keys") or []
     sole = [k for i, k in enumerate(keys) if policy_satisfied(cfg["sign"], {i})]
     for e in entries:
-        if isinstance(e, dict) and e.get("public_key") is None and len(sole) == 1:
-            e["public_key"] = sole[0]
+        # the sole key fills an omitted one only under its own scheme: an entry naming another scheme stays None and fails
+        if isinstance(e, dict) and e.get("public_key") is None and len(sole) == 1 and \
+                key_pair(sole[0])[0] == (e.get("alg") or P.SIG_DEFAULT):
+            e["public_key"] = key_pair(sole[0])[1]
     return entries
 
 
@@ -178,12 +220,14 @@ def verify_entries(transaction, address: str, cfg: dict) -> set:
         assert isinstance(e, dict), "signature entry must be an object"
         # the entry list is outside the txid: its keys and hex spelling are pinned by
         # transaction_ops.excluded_witness_check (audit 2026-09-25) — a new entry field must be added THERE too
-        pk, sig = e.get("public_key"), e.get("signature")
-        assert _is_hex(pk, PUBKEY_HEX) and isinstance(sig, str), "signature entry needs public_key + signature hex"
-        i = signer_index(pk, address, cfg)
+        alg, pk = entry_pair(e)
+        sig = e.get("signature")
+        assert alg in P.SIG_SCHEME_SIZES and _is_hex(pk, P.SIG_SCHEME_SIZES[alg][0]) and isinstance(sig, str), \
+            "signature entry needs public_key + signature hex"
+        i = signer_index(pk, address, cfg, alg)
         assert i is not None, "signature by a key that does not authorize this account"
         assert i not in signers, "duplicate signature by the same authenticator"
-        assert verify(signed=sig, public_key=pk, message=message), "invalid signature"
+        assert verify(signed=sig, public_key=pk, message=message, alg=None if alg == P.SIG_DEFAULT else alg), "invalid signature"
         signers.add(i)
     return signers
 
@@ -193,7 +237,7 @@ def signer_indices(transaction, address: str, cfg: dict) -> set:
     as verify_entries, so apply and validate agree on which policy the tx satisfied."""
     out = set()
     for e in resolve_entries(transaction, cfg):
-        i = signer_index(e.get("public_key"), address, cfg)
+        i = signer_index(e.get("public_key"), address, cfg, e.get("alg"))
         if i is not None:
             out.add(i)
     return out
@@ -255,7 +299,7 @@ def validate_auth_tx(transaction, block_height: int, signers: set):
         return
     assert op == "set", "auth op must be set or cancel"
     assert set(d.keys()) == {"op", "cfg", "pop"}, "set carries exactly cfg and pop"
-    v, keys = validate_config(d["cfg"])
+    v, keys = validate_config(d["cfg"], block_height)
     assert v == int(cur.get("v", 0)) + 1, "auth config version must be current + 1"
     full = policy_satisfied(cur["reconf"], signers)
     partial = (not full) and policy_satisfied(cur["sign"], signers)
@@ -269,13 +313,17 @@ def validate_auth_tx(transaction, block_height: int, signers: set):
     assert isinstance(pop, dict), "pop must map new public keys to signatures"
     # a key that SIGNED this tx has already proven possession (its signature over the txid verified); a
     # first-ever transaction from a legacy account therefore installs its own derived key without a pop
-    have = set(cur.get("keys") or []) | {e.get("public_key") for e in resolve_entries(transaction, cur)
-                                          if signer_index(e.get("public_key"), address, cur) is not None}
+    # (alg, pubkey) pairs throughout: a key already installed under one scheme proves nothing about another
+    have = {key_pair(k) for k in cur.get("keys") or []} | {
+        entry_pair(e) for e in resolve_entries(transaction, cur)
+        if signer_index(e.get("public_key"), address, cur, e.get("alg")) is not None}
     message = pop_message(address, d["cfg"])
-    new = [k for k in keys if k not in have]
-    assert set(pop.keys()) == set(new), "pop must cover exactly the new authenticators"
-    for k in new:
-        assert isinstance(pop[k], str) and verify(signed=pop[k], public_key=k, message=message), \
+    new = [key_pair(k) for k in keys if key_pair(k) not in have]
+    # pop is keyed by the pubkey hex alone: every scheme's key has its own length, so it names one key
+    assert set(pop.keys()) == {pk for _, pk in new}, "pop must cover exactly the new authenticators"
+    for alg, pk in new:
+        assert isinstance(pop[pk], str) and verify(signed=pop[pk], public_key=pk, message=message,
+                                                   alg=None if alg == P.SIG_DEFAULT else alg), \
             "proof of possession failed"
 
 

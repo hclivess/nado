@@ -22,6 +22,7 @@ from ops.key_ops import load_keys, keyfile_found
 from ops import transaction_ops as T
 from config import get_timestamp_seconds
 from hashing import create_nonce
+import protocol as P
 from protocol import CHAIN_ID, MIN_TX_FEE, TX_TARGET_MARGIN, ALIAS_REGISTRATION_FEE
 
 DEC = 10 ** 10  # NADO has 10 decimals
@@ -223,11 +224,12 @@ def c_msig_propose(kd, node, a):
     JSON to --out for the co-signers. Fee defaults to the per-signature floor for the full member set."""
     from ops import multisig_ops as M
     members = _msig_members(a)
-    fee = raw(a.fee) if a.fee else MIN_TX_FEE * len(members)
+    # an entry pays its scheme's multiple (SIG_SCHEME_KEYS_HEIGHT): cover a member of the costliest scheme in every seat
+    fee = raw(a.fee) if a.fee else MIN_TX_FEE * len(members) * max(P.SIG_SCHEME_SIZES[x][2] for x in P.SIG_SCHEMES_OFFERED)
     # generous target: co-signing takes real time; the mempool accepts up to tip+360
     tx = M.draft_multisig_spend(int(a.threshold), members, a.to.strip().lower(), raw(a.amount),
                                 fee, _tip(node) + 300, a.memo or "")
-    _, n = M.add_member_signature(tx, kd["private_key"])
+    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"))   # a member of another scheme signs in it
     with open(a.out, "w") as f:
         json.dump(tx, f)
     print("proposal written:", a.out)
@@ -239,7 +241,7 @@ def c_msig_sign(kd, node, a):
     from ops import multisig_ops as M
     with open(a.file) as f:
         tx = json.load(f)
-    _, n = M.add_member_signature(tx, kd["private_key"])
+    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"))   # a member of another scheme signs in it
     with open(a.file, "w") as f:
         json.dump(tx, f)
     need = tx["multisig"]["threshold"]
