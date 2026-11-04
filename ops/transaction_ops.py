@@ -2028,9 +2028,19 @@ def excluded_witness_check(transaction, block_height):
         keys_live = int(block_height) >= _P.SIG_SCHEME_KEYS_HEIGHT
         shapes = ({"signature"}, {"signature", "public_key"}) + (
             ({"signature", "alg"}, {"signature", "public_key", "alg"}) if keys_live else ())
+        # MSIG_MEMBER_AUTH_HEIGHT: a MULTISIG entry may also name its `member` (a protected member's rotated key derives
+        # another address); always beside its public_key, which the member check needs, and only on a multisig spend
+        member_live = transaction.get("multisig") is not None and int(block_height) >= _P.MSIG_MEMBER_AUTH_HEIGHT
+        if member_live:
+            shapes = shapes + tuple(sh | {"member"} for sh in shapes if "public_key" in sh)
         for entry in sig:
             assert isinstance(entry, dict) and set(entry) in shapes, \
-                "a signature entry carries exactly signature and, optionally, public_key" + (" and alg" if keys_live else "")
+                "a signature entry carries exactly signature and, optionally, public_key" + (" and alg" if keys_live else "") \
+                + (" and member" if member_live else "")
+            if "member" in entry:
+                # one spelling: an address string exactly as it validates (lowercase hex, its own checksum)
+                assert isinstance(entry["member"], str) and validate_address(entry["member"], allow_reserved=False), \
+                    "a signature entry's member must be a valid address"
             if "alg" in entry:
                 assert isinstance(entry["alg"], str) and entry["alg"] in _P.SIG_SCHEMES_OFFERED and entry["alg"] != _P.SIG_DEFAULT, \
                     f"a signature entry's alg must be one of {', '.join(a for a in _P.SIG_SCHEMES_OFFERED if a != _P.SIG_DEFAULT)} (absent = {_P.SIG_DEFAULT})"
@@ -3499,7 +3509,7 @@ def validate_origin(transaction: dict, block_height=None):
     # origin question (descriptor -> sender binding, M distinct valid member sigs) lives there.
     if transaction.get("multisig") is not None:
         from ops.multisig_ops import verify_multisig_origin
-        return verify_multisig_origin(transaction)
+        return verify_multisig_origin(transaction, block_height)
 
     # ACCOUNT AUTHENTICATION AS STATE (ops/auth_ops.py, doc/key-rotation.md): a CONFIGURED account — or any
     # tx that signs with a LIST of entries — is judged by its effective config at `block_height`: every

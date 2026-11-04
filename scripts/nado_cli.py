@@ -229,7 +229,8 @@ def c_msig_propose(kd, node, a):
     # generous target: co-signing takes real time; the mempool accepts up to tip+360
     tx = M.draft_multisig_spend(int(a.threshold), members, a.to.strip().lower(), raw(a.amount),
                                 fee, _tip(node) + 300, a.memo or "")
-    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"))   # a member of another scheme signs in it
+    # a member of another scheme signs in it; --member: the member a PROTECTED account's rotated key signs for
+    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"), member=getattr(a, "member", None))
     with open(a.out, "w") as f:
         json.dump(tx, f)
     print("proposal written:", a.out)
@@ -241,7 +242,8 @@ def c_msig_sign(kd, node, a):
     from ops import multisig_ops as M
     with open(a.file) as f:
         tx = json.load(f)
-    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"))   # a member of another scheme signs in it
+    # a member of another scheme signs in it; --member: the member a PROTECTED account's rotated key signs for
+    _, n = M.add_member_signature(tx, kd["private_key"], alg=kd.get("alg"), member=getattr(a, "member", None))
     with open(a.file, "w") as f:
         json.dump(tx, f)
     need = tx["multisig"]["threshold"]
@@ -280,7 +282,9 @@ def main():
     s = sub.add_parser("msig-propose"); s.add_argument("to"); s.add_argument("amount")
     s.add_argument("--threshold", required=True); s.add_argument("--members", required=True)
     s.add_argument("--memo", default=""); s.add_argument("--fee"); s.add_argument("--out", default="msig_proposal.json")
+    s.add_argument("--member", help="the member address this key signs for, when it is a protected account's rotated key")
     s = sub.add_parser("msig-sign"); s.add_argument("file")
+    s.add_argument("--member", help="the member address this key signs for, when it is a protected account's rotated key")
     s = sub.add_parser("msig-submit"); s.add_argument("file")
 
     a = p.parse_args()

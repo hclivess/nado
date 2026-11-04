@@ -100,6 +100,7 @@ helpers = "\n".join([
     fn_src("authKeyIn"), fn_src("schemeKeysLive"), fn_src("schemeSignEntry"), fn_src("authPop"), fn_src("authBuildTx"),
     fn_src("authProtectedCfg"), fn_src("msigEntryAddress"), fn_src("msigTrySignLocal"),
     const_line("const ADDR_RE ="), const_line("const MSIG_RE ="), fn_src("validateAddress"), fn_src("validatePayee"),
+    fn_src("msigMemberAuthLive"), fn_src("masterSeedOf"),
 ])
 js = r"""
 const C = await import(process.argv[2]);
@@ -143,6 +144,12 @@ const cfg2 = { v: 2, keys: [authKey(nk), ...cfg1.keys.slice(1)], sign: cfg1.sign
 out.rotate = authBuildTx(hot.address, [hot, rec], { op: "set", cfg: cfg2, pop: { [nk.publicKey]: authPop(hot.address, cfg2, nk) } }, IN.post);
 out.inOwn = authKeyIn(cfg1.keys, rec);
 out.inOther = authKeyIn(cfg1.keys, { publicKey: rec.publicKey });
+// ---- the PROTECTED SLH-DSA account co-signs a multisig with its rotated key (state.wallet = its signer child) ----
+state.activeIdx = 1; state.masterSeed = IN.seeds.master;
+state.wallet = { privateKey: nk.privateKey, publicKey: nk.publicKey, address: hot.address, alg: nk.alg };
+const pm = IN.protMsig, pmPre = JSON.parse(JSON.stringify(IN.protMsig));
+state.latest = IN.memberPost; out.protSigned = msigTrySignLocal(pm); out.protMsig = pm;
+state.latest = IN.memberPre; out.protSignedPre = msigTrySignLocal(pmPre); out.protMsigPre = pmPre;
 state.activeIdx = 0;
 out.ml44Signer = authSignerKeypair(IN.seeds.master, 0, 2).privateKey;
 // a file, not stdout: process.exit drops a pipe's unflushed tail, and three SLH-DSA signatures are ~50 KB
@@ -156,9 +163,15 @@ if not node:
 script = os.path.join(os.environ["HOME"], "walletsigkeys.mjs")
 open(script, "w").write(js)
 pexp = {k: getattr(P, k) for k in ("ADDRESS_PREFIX", "ADDRESS_BODY", "ADDRESS_CHECKSUM", "DOMAIN_ADDRESS_V2", "MIN_TX_FEE",
-                                   "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_SCHEME_KEYS_HEIGHT", "CHAIN_ID", "MSIG_PREFIX")}
+                                   "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_SCHEME_KEYS_HEIGHT", "CHAIN_ID", "MSIG_PREFIX",
+                                   "MSIG_MEMBER_AUTH_HEIGHT")}
+MPOST = P.MSIG_MEMBER_AUTH_HEIGHT
+prot_members = sorted([SACC["address"], MM["address"]])
+create_account(multisig_address(1, prot_members), balance=10 ** 12)
+prot_msig = draft_multisig_spend(1, prot_members, PAYEE, 1000, P.MIN_TX_FEE * 6, MPOST + 10)
 inp = {"P": pexp, "seeds": SEEDS, "proposal": proposal, "pre": PRE, "post": POST,
-       "msigAddr": multisig_address(2, members), "plainAddr": PAYEE}
+       "msigAddr": multisig_address(2, members), "plainAddr": PAYEE, "protMsig": prot_msig,
+       "memberPost": MPOST, "memberPre": MPOST - 1}
 res = os.path.join(os.environ["HOME"], "walletsigkeys.json")
 r = subprocess.run([node, script, os.path.join(ROOT, "static", "vendor", "nado-crypto.js"), json.dumps(inp), res],
                    capture_output=True, text=True, timeout=900, cwd=ROOT)
@@ -198,6 +211,17 @@ if out:
           and rt["fee"] == 6 * P.MIN_TX_FEE, ([e.get("alg") for e in rt["signature"]], rt["fee"]))
     v = verdict(rt, POST)
     check("the node accepts the wallet's SLH-DSA rotation (the reconfig policy)", v is None, v)
+    T.validate_transaction(copy.deepcopy(rt), logger, block_height=POST)
+    A.apply_auth_tx(rt, POST, logger)
+    # the protected account, now signing with its rotated key, co-signs a multisig in the wallet
+    pe = (out["protMsig"]["signature"] or [{}])[0]
+    check("from the member gate the protected account signs with its current key and names itself",
+          out["protSigned"] is True and pe.get("member") == SACC["address"] and pe.get("public_key") == out["nk"]["pk"], pe.get("member"))
+    v = verdict(out["protMsig"], P.MSIG_MEMBER_AUTH_HEIGHT)
+    check("...and the node accepts it", v is None, v)
+    pp = (out["protMsigPre"]["signature"] or [{}])[0]
+    check("below the gate the wallet signs with the account's base key (what the chain accepts then), no member",
+          out["protSignedPre"] is True and "member" not in pp and pp.get("public_key") == out["hot"]["pk"], pp.get("public_key", "")[:12])
     check("the wallet's SLH-DSA signer child is the scheme-separated seed",
           out["nk"]["alg"] == SLH and out["nk"]["privateKey"] == blake2b_hash(["hd-auth-signer-v1", SEEDS["master"], 1, 1, SLH], size=32))
     check("an ML-DSA-44 account's signer child keeps the seed it always had",

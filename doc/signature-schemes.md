@@ -107,9 +107,14 @@ exactly as before. `tests/test_a_multisig_member_and_an_auth_key_sign_with_their
 
   `tests/test_the_wallets_multisig_and_auth_txs_of_every_scheme_validate_in_the_node.py` runs that code against the
   node, and `scripts/testnet/test_scheme_wallet.py` walks it in a browser once the rule holds from block 1.
-- **Not covered yet: a protected member signing a multisig.** A member signs with the key that derives its address.
-  If that account rotated its key, the wallet signs with the rotated key, which is a non-member. This holds for every
-  scheme.
+- **A protected member signs with its current key** (`MSIG_MEMBER_AUTH_HEIGHT`, L1 124500 on generation 29). A member
+  whose account has an auth config signs with a key that alone satisfies its signing policy (`multisig_ops.member_signs`,
+  under the entry's scheme). Its entry names it in `member` whenever that key does not derive the member's address, and
+  never when it does: one spelling. Its rotated-away keys, including the possibly stolen key it rotated away from, no
+  longer sign for it. An unprotected member is unchanged. Below the height a member was only the address its key
+  derives. The wallet signs with its signer child and `member` from the height, and with the account's base key before
+  it. The CLI's `msig-sign` / `msig-propose` take `--member`.
+  `tests/test_a_protected_multisig_member_signs_with_its_current_key.py` pins both rule sets.
 Widening any of these is a feature per surface, never a one-line change.
 
 **The block auth leaf** (`ops/mldsa_block_auth.py`) declares the scheme in its `kind` (3 to 6). An untagged

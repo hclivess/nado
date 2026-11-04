@@ -111,8 +111,9 @@ def main():
             time.sleep(3)
         print("[scheme-wallet] funded; driving the browser against node1", flush=True)
         # multisig members and auth keys of every scheme: walked only where the rule holds on a fresh testnet (from block 1)
-        keys_live = P.SIG_SCHEME_KEYS_HEIGHT <= 1
-        print(f"[scheme-wallet] multisig + auth walk: {'on' if keys_live else 'SKIPPED — SIG_SCHEME_KEYS_HEIGHT is ' + str(P.SIG_SCHEME_KEYS_HEIGHT) + ' on this tree'}", flush=True)
+        gates = {g: getattr(P, g) for g in ("SIG_SCHEME_KEYS_HEIGHT", "MSIG_PAY_FLEXIBLE_HEIGHT", "MSIG_MEMBER_AUTH_HEIGHT")}
+        keys_live = max(gates.values()) <= 1
+        print(f"[scheme-wallet] multisig + auth walk: {'on' if keys_live else 'SKIPPED — gates on this tree: ' + str(gates)}", flush=True)
         proc = subprocess.run(["node", os.path.join(HERE, "wallet_schemes.mjs"), url(1, "/wallet"), MASTER, MASTER_KD["public_key"], MASTER_KD["address"], SLH["address"], PAYEE]
                               + (["keys"] if keys_live else []),
                               capture_output=True, text=True, timeout=max(600, run_seconds))

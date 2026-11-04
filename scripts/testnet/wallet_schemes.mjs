@@ -194,6 +194,34 @@ try {
     await send(payee, "1");
     const paid2 = await waitFor(async () => (await payeeBal()) >= before2 + 10n ** 10n);
     step("the protected SLH-DSA account sends with its rotated key", !!paid2, await page.$eval("#sendMsg", (e) => e.textContent).catch(() => ""));
+
+    // ---- the PROTECTED member co-signs the shared account with its rotated key (MSIG_MEMBER_AUTH_HEIGHT) ----
+    await tab("tab.govern", "multisig");
+    await page.waitForSelector("#msigTo", { visible: true, timeout: 15000 });
+    await page.$eval("#msigMembers", (e) => { e.value = ""; }); await page.type("#msigMembers", masterAddr + "\n" + slh);
+    await page.$eval("#msigThreshold", (e) => { e.value = ""; }); await page.type("#msigThreshold", "2");
+    await page.click("#btnMsigDerive");
+    await page.waitForSelector("#msigDerived", { visible: true, timeout: 15000 });
+    await page.$eval("#msigBlob", (e) => { e.value = ""; });
+    await page.$eval("#msigTo", (e) => { e.value = ""; }); await page.type("#msigTo", payee);
+    await page.$eval("#msigAmount", (e) => { e.value = ""; }); await page.type("#msigAmount", "1");
+    await page.click("#btnMsigPropose");
+    await waitFor(async () => (await page.$eval("#msigBlob", (e) => e.value)).length > 100, 60000);
+    const blob2 = await page.$eval("#msigBlob", (e) => e.value);
+    let prop2 = {}; try { prop2 = JSON.parse(blob2); } catch (e) {}
+    const pe = (prop2.signature || [])[0] || {};
+    step("the protected member signs with its rotated key, naming itself", pe.member === slh && pe.alg === "slhdsa128s", JSON.stringify({ member: pe.member, alg: pe.alg }));
+    await page.select("#accountBar select", "0");
+    await page.waitForFunction((m) => document.querySelector("#walAddr").textContent.trim() === m, { timeout: 30000 }, masterAddr);
+    await tab("tab.govern", "multisig");
+    await page.waitForSelector("#msigBlob", { visible: true, timeout: 15000 });
+    await page.$eval("#msigBlob", (e, v) => { e.value = v; e.dispatchEvent(new Event("input", { bubbles: true })); }, blob2);
+    await page.click("#btnMsigSign"); await confirm();
+    await waitFor(async () => { try { return JSON.parse(await page.$eval("#msigBlob", (e) => e.value)).signature.length === 2; } catch (e) { return false; } }, 60000);
+    const before3 = await payeeBal();
+    await page.click("#btnMsigSubmit"); await confirm();
+    const paid3 = await waitFor(async () => (await payeeBal()) >= before3 + 10n ** 10n);
+    step("the spend co-signed by the protected member lands on chain", !!paid3, await page.$eval("#msigMsg", (e) => e.textContent).catch(() => ""));
   }
   step("no page errors", errors.length === 0, errors.join(" | "));
 } catch (e) {

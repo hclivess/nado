@@ -1711,6 +1711,8 @@ def split_open_block_reward(reward: int):
 #                                    sign with any offered scheme, and an account of another scheme may send `auth`)
 #                                    MSIG_PAY_FLEXIBLE_HEIGHT (123000, L1 height; -> 1: a payment to a multisig account
 #                                    lands anywhere in its [min_block, max_block] window)
+#                                    MSIG_MEMBER_AUTH_HEIGHT (124500, L1 height; -> 1: a protected multisig member signs
+#                                    with its current key, and its rotated-away keys no longer do)
 # ---------------------------------------------------------------------------------------------------------------
 DEVICE_ATTEST_HEIGHT = 1                 # gen 25: every register tx from block 1 carries a hardware attestation (block 0 has no txs)
 
@@ -2381,6 +2383,12 @@ SIG_SCHEME_KEYS_HEIGHT = 123000 if CHAIN_GENERATION == 29 else 1   # L1 height; 
 # max_block, so a shared account could not be funded by an ordinary send. Producer and verifier both read it.
 # tests/test_a_payment_to_a_multisig_account_lands_in_its_window.py (both rule sets).
 MSIG_PAY_FLEXIBLE_HEIGHT = 123000 if CHAIN_GENERATION == 29 else 1   # L1 height, with SIG_SCHEME_KEYS_HEIGHT (2026-11-04)
+# A PROTECTED MULTISIG MEMBER SIGNS WITH ITS CURRENT KEY (ops/multisig_ops.member_signs): from this L1 height a member
+# whose account has an auth config signs with a key that alone satisfies its signing policy, naming itself in the
+# entry's `member` when that key does not derive its address; its rotated-away keys no longer sign for it. Before it, a
+# member was only the address its key derives: the owner's current key could not sign after a rotation, and the old
+# (possibly stolen) key still could. tests/test_a_protected_multisig_member_signs_with_its_current_key.py.
+MSIG_MEMBER_AUTH_HEIGHT = 124500 if CHAIN_GENERATION == 29 else 1   # L1 height; tip 122189 when this was written (2026-11-04)
 
 # DEVICE MOVE VOIDS THROUGH THE EPOCH (account_ops._evict_voids): from this height an eviction voids every recert of the
 # evicted identity up to and including the eviction's epoch. TPM ENROLMENT v3 (ops/tpm_enrol): from this height a
@@ -2866,7 +2874,7 @@ CLIENT_EXPORTS = (
     # the wallet offers a signature scheme per account (doc/signature-schemes.md)
     "SIG_SCHEME_SIZES", "SIG_SCHEMES_OFFERED", "SIG_ML44_ONLY_RECIPIENTS",
     # multisig members and auth keys of every offered scheme from this height (static/interface.js schemeKeysLive)
-    "SIG_SCHEME_KEYS_HEIGHT",
+    "SIG_SCHEME_KEYS_HEIGHT", "MSIG_MEMBER_AUTH_HEIGHT",
     # the node config a Stwo spend proves at (static/interface.js stwoCfgId; execnode/stwo_js_native.config_id_at)
     "STWO_JS_GRIND_HEIGHT",
     # (STWO_POOL_HEIGHT, WIDE_DEPOSIT_CLOSE_HEIGHT, STWO_FEE_TO_HEIGHT, STWO_JS_128_HEIGHT, BLAKE_EXEC_HEIGHT and

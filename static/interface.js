@@ -9987,7 +9987,12 @@ function msigCheckProposal(tx) {
 }
 
 // the member address an entry signs as: its key under its own scheme (ops/multisig_ops.verify_multisig_origin)
-function msigEntryAddress(e) { return makeAddress(String(e.public_key || ""), ADDR_PREFIX, e.alg || undefined); }
+// (an entry that names its `member` signs for that member — a protected member's rotated key, MSIG_MEMBER_AUTH_HEIGHT)
+function msigEntryAddress(e) { return e.member || makeAddress(String(e.public_key || ""), ADDR_PREFIX, e.alg || undefined); }
+function msigMemberAuthLive() {
+  const h = Number(P.MSIG_MEMBER_AUTH_HEIGHT);
+  return Number.isFinite(h) && state.latest != null && state.latest >= h;
+}
 
 /* Add THIS wallet's signature entry (if it is a member and hasn't signed). Returns true if added. */
 function msigTrySignLocal(tx) {
@@ -9996,7 +10001,21 @@ function msigTrySignLocal(tx) {
   // a member of another scheme signs in it from SIG_SCHEME_KEYS_HEIGHT (its entry names its `alg`); before, ML-DSA-44 only
   if (schemeOf(w) !== SIG_ML44 && !schemeKeysLive()) return false;
   if (tx.signature.some((e) => e && msigEntryAddress(e) === w.address)) return false;
-  tx.signature.push(schemeSignEntry(w, hexToBytes(tx.txid)));
+  // A PROTECTED MEMBER signs with its current key (state.wallet is its signer child after authSync), whose address is
+  // not the member's: from MSIG_MEMBER_AUTH_HEIGHT the entry names the member, and the chain checks the key against the
+  // member's auth config. Before it the chain accepts only the key that derives the member address, so the wallet signs
+  // with the account's base key (it signed with the rotated key before 2026-11-04 — an entry no node accepted).
+  let kp = w;
+  const derives = makeAddress(w.publicKey, ADDR_PREFIX, w.alg && w.alg !== SIG_ML44 ? w.alg : undefined) === w.address;
+  if (!derives && !msigMemberAuthLive()) {
+    const master = masterSeedOf();
+    if (!master) return false;
+    kp = accountKeypair(master, state.activeIdx || 0);
+    if (kp.address !== w.address) return false;        // no base key of this seed derives the member: nothing to sign with
+  }
+  const entry = schemeSignEntry(kp, hexToBytes(tx.txid));
+  if (kp === w && !derives) entry.member = w.address;
+  tx.signature.push(entry);
   return true;
 }
 

@@ -34,6 +34,7 @@ REROLL = {
     "STWO_JS_GRIND_HEIGHT": 1,                 # gen 29 DORMANT (1 << 62): a Stwo spend grinds before LogUp and composition
     "SIG_SCHEME_KEYS_HEIGHT": 1,               # gen 29 (123000): multisig members and auth keys sign with any offered scheme
     "MSIG_PAY_FLEXIBLE_HEIGHT": 1,             # gen 29 (123000): a payment to a multisig account lands in its window
+    "MSIG_MEMBER_AUTH_HEIGHT": 1,              # gen 29 (124500): a protected multisig member signs with its current key
     # (every gen-25 gate is gone: slice 1 deleted the "never" gates with their code, slice 2 inlined the "from block 1"
     #  and "from epoch 0" gates as unconditional rules — see DELETED below)
 }
