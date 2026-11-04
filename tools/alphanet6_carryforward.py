@@ -165,7 +165,9 @@ def exec_assets_doc(d: dict, amap=None) -> dict:
     holdings and allowances — an asset record holds no height — with zero holdings dropped and amounts as decimal
     strings (never floats). An asset's id derives from (issuer, seed) through the VM hash; `amap` (tools/carry.asset_map,
     which refuses a record that is not its id's preimage) keys all three by the carried ids; None keeps them unchecked."""
-    assets, abal, allow = d.get("assets") or {}, d.get("abal") or {}, d.get("allow") or {}
+    from protocol import CHAIN_GENERATION
+    # ONE-TIME (tools/carry.DEAD_E2E_ASSETS): delete this call with the constant in the gen-29 -> 30 reroll commit
+    assets, abal, allow = _carry.drop_dead_e2e_assets(d.get("assets"), d.get("abal"), d.get("allow"), CHAIN_GENERATION)
     if amap is not None:
         assets, abal, allow = _carry.carry_assets(assets, abal, allow, amap)
     return {"assets": json.loads(json.dumps(assets)),

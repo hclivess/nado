@@ -13,6 +13,21 @@ weeks into the new chain, silently leaving the old behaviour live until then.
 
 ---
 
+## 2026-11-04 — DELETE IN THE GEN-29 -> 30 REROLL COMMIT: the one-time drop of the two dead e2e NFTs
+
+The operator chose this as the single exception to "the carry carries everything" ("exclude those tests from reroll ... just
+this once", "make sure to clean up this rule after reroll"). `tools/carry.DEAD_E2E_ASSETS` names the two "NADO e2e #1"
+NFTs that the live marketplace test bought into its throwaway wallet 5bc8d5…; that wallet's key was deleted, so nobody can
+ever move them. `drop_dead_e2e_assets`, called from `tools/carry.main` and `tools/alphanet6_carryforward.exec_assets_doc`,
+leaves them out when carrying out of generation 29. It refuses if either has moved. The third e2e NFT, bought by a real
+account, carries.
+
+DELETE, in the commit that bumps `CHAIN_GENERATION` to 30: `DEAD_E2E_HOLDER`, `DEAD_E2E_ASSETS`, `drop_dead_e2e_assets`,
+its two calls, `tests/test_the_dead_e2e_nfts_are_dropped_from_the_gen29_carry_only.py` and this entry. That test fails as
+soon as the generation is not 29 while the constant exists, so the reroll cannot ship with this left in.
+WHY NOT EARLIER: the carry runs at reroll step 7, BEFORE the generation bump at step 8 (doc/reroll.md). Deleting this
+code before that point would carry both NFTs.
+
 
 
 ## 2026-10-28 — the dividend carry is committed in the exec root from EXEC_CARRY_ROOT_HEIGHT; owed: the dead `dc`, and the touch for EXEC_ADDR_ROOT_HEIGHT

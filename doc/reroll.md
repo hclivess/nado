@@ -191,6 +191,9 @@ how many it kept. **L1 genesis refuses** a non-empty SHIELD_ESCROW that no exec 
 `app_state`), or any `pool_value` the Stwo pool's `stwo_value` does not explain. A carried wide pool would sit at depth 48
 where the exec layer insists on 12 at genesis. Holders of those notes unshield first. Also refused: exec assets held by a
 contract that would reset (the ledger of whose they are would be lost).
+**One-time exception, gen 29 -> 30 only** (operator 2026-11-04): two e2e test NFTs in the deleted test wallet 5bc8d5… are
+dropped (`tools/carry.DEAD_E2E_ASSETS`). The dry run's asset count is two lower for that reason. Delete the rule in the
+reroll commit (SCHEDULED_CLEANUPS.md; a test fails until you do).
 
 **Dry run, any day, read-only** — what the carry would do right now:
 

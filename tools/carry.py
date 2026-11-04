@@ -94,6 +94,34 @@ def carry_assets(assets, abal, allow, amap):
     return rk(assets), rk(abal), rk(allow)
 
 
+# ONE-TIME DROP — DELETE THIS CONSTANT, drop_dead_e2e_assets AND THEIR TWO CALLS IN THE GEN-29 -> 30 REROLL COMMIT.
+# Operator decision 2026-11-04 ("can you exclude those tests from reroll? just this once"), the single exception to
+# "the carry carries everything": two "NADO e2e #1" NFTs that tests/test_nft_market_live_e2e.mjs minted and bought
+# on 2026-11-02, both held by its THROWAWAY buyer wallet, whose key was deleted after its NADO was refunded. Nobody can
+# ever move them. The third e2e NFT (1434…) was bought by a real account and carries like any other.
+# tests/test_the_dead_e2e_nfts_are_dropped_from_the_gen29_carry_only.py fails once CHAIN_GENERATION is not 29 while this
+# exists, so it cannot outlive the reroll as dead code (operator: "we dont want any dead code anywhere").
+DEAD_E2E_HOLDER = "5bc8d5e6c675bc5191f678554c710c7258564fc39428a3a2a9"
+DEAD_E2E_ASSETS = ("104869888350921478032902072223307978352504946196815718260202515069341290909983",
+                   "53401527492837637851213353284726434709995117202726070615869967605222578950045")
+
+
+def drop_dead_e2e_assets(assets, abal, allow, generation):
+    """(assets, abal, allow) without DEAD_E2E_ASSETS when carrying out of generation 29; unchanged otherwise. Refuses
+    if either is held by anyone but the dead test wallet, or has an allowance: then a live account has it, and it
+    carries like any other asset — the carry never drops what someone can use."""
+    if int(generation) != 29:
+        return assets, abal, allow
+    assets, abal, allow = dict(assets or {}), dict(abal or {}), dict(allow or {})
+    for aid in DEAD_E2E_ASSETS:
+        hs = {h: int(n) for h, n in (abal.get(aid) or {}).items() if int(n)}
+        if aid in assets and (hs != {DEAD_E2E_HOLDER: 1} or allow.get(aid)):
+            raise Refused(f"e2e asset {aid} is no longer only in the dead test wallet ({hs}): it carries — "
+                          "remove it from DEAD_E2E_ASSETS")
+        assets.pop(aid, None); abal.pop(aid, None); allow.pop(aid, None)
+    return assets, abal, allow
+
+
 def module_of(contract):
     """The execnode.games module whose build() is exactly this contract's code, or None."""
     import importlib
@@ -165,8 +193,9 @@ def main():
     _isolate()
     s = json.load(open(path))
     try:
+        from protocol import CHAIN_GENERATION
         amap = asset_map(s.get("assets"))
-        carry_assets(s.get("assets"), s.get("abal"), s.get("allow"), amap)
+        carry_assets(*drop_dead_e2e_assets(s.get("assets"), s.get("abal"), s.get("allow"), CHAIN_GENERATION), amap)   # ONE-TIME (DEAD_E2E_ASSETS)
         contracts, reg, counts = carry_contracts(s.get("contracts") or {}, s.get("zk_addrs") or {}, int(s.get("cursor", 0)))
     except Refused as e:
         sys.exit(str(e))
