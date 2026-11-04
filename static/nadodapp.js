@@ -1459,7 +1459,7 @@ export class NadoDapp {
     if (!this._healedMe) this.me = this._healMe();   // crypto is bound now — finish any deferred session heal
     this._handleReturn(); if (this.me) await this.refresh();
   }
-  onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err) — game marks its own local state + status
+  onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err, err2) — game marks its own local state + status; err2 = a failed `then` step (signBlob opts.then)
 
   // --- delegated signing (the wallet holds the key; the game NEVER sees it) -------------------------
   // Two transports. (1) REDIRECT: navigate the whole tab to the wallet, which signs + submits + bounces
@@ -1556,7 +1556,7 @@ export class NadoDapp {
         job.onResult(d.ok === 1 || d.ok === true || d.ok === "1", d);
       } else {
         const ok = d.ok === 1 || d.ok === true || d.ok === "1";   // the "ok=1" param rides as a STRING
-        this._applyReturn(job.pend, ok, d.addr || null, d.err ? String(d.err) : "");
+        this._applyReturn(job.pend, ok, d.addr || null, d.err ? String(d.err) : "", d.err2 ? String(d.err2) : "");
         try { this.refresh(); } catch (e) {}                      // pull the freshly-landed state, no reload
       }
       this._bgPump();                                             // serve the next queued request
@@ -1605,7 +1605,12 @@ export class NadoDapp {
   signBlob(blob, label, pend, opts) {
     // CLICK-TIME: gates/panels flip NOW — before any signing, submitting or landing
     this._pendAdd(pend, !!(opts && opts.stakes), !!(opts && opts.tipExpire));
-    this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue));
+    // opts.then: ONE value-free contract call the wallet signs and submits right after `blob`, under the SAME confirm —
+    // one approval for a two-step action (the NFT mint + its royalty, as objkt/fxhash configure everything before the
+    // mint; a second popup minutes later lost royalties, 2026-11-04). Always the visible confirm, never background.
+    const then = opts && opts.then ? { then: encBig(opts.then), confirm: 1 } : {};
+    this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}, then), pend,
+             !!(opts && opts.bg) && !opts.then, !!(opts && opts.isValue));
   }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
   // opts.confirm forces the wallet's manual confirm (e.g. a poker bet that moves chips you already escrowed) —
@@ -1638,7 +1643,7 @@ export class NadoDapp {
     this.signBlob(p, label, pend, Object.assign({}, opts, { bg, isValue, stakes }));
   }
   // apply a signing RESULT (from either transport) — set the address / inflight / balance-watch and fire onReturn
-  _applyReturn(pend, ok, addr, err) {
+  _applyReturn(pend, ok, addr, err, err2 = "") {
     // heal here too: an older wallet build (or a stale wallet tab) can hand back a pre-debrand address,
     // which would re-poison the session we just cleaned up at load.
     if (ok && addr) { const a = healAddress(addr) || addr; this.me = a; localStorage.setItem(this.LS_ME, a); }
@@ -1654,7 +1659,7 @@ export class NadoDapp {
     // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line clears the
     // moment the balances MOVE (or after 3 min).
     if (ok && pend && (pend.phase === "deposit" || pend.phase === "withdraw")) this._balWatch = { phase: pend.phase, exec: null };
-    if (this._onReturn) this._onReturn(pend, ok, err);
+    if (this._onReturn) this._onReturn(pend, ok, err, err2);
   }
   // Read + STRIP the wallet return params right now (constructor time), so a later reflectUrl() can't clobber
   // them. Returns {ok, addr, err} or null. The hash is preserved (only the query is canonicalised away).
@@ -1662,10 +1667,11 @@ export class NadoDapp {
     try {
       const p = new URLSearchParams(location.search);
       if (!p.has("ok")) return null;   // not a return — leave ?game=/?table= invite links untouched
-      const r = { ok: p.get("ok") === "1", addr: p.get("addr") || null, err: p.get("err") ? decodeURIComponent(p.get("err")) : "" };
+      const r = { ok: p.get("ok") === "1", addr: p.get("addr") || null, err: p.get("err") ? decodeURIComponent(p.get("err")) : "",
+                  err2: p.get("err2") ? decodeURIComponent(p.get("err2")) : "" };
       // strip ONLY the wallet-return params; KEEP any app params (?game=/?table=/?market=) so a signed-in-from-invite
       // visitor still lands on the shared game rather than a blank slate.
-      p.delete("ok"); p.delete("addr"); p.delete("err");
+      p.delete("ok"); p.delete("addr"); p.delete("err"); p.delete("err2"); p.delete("txid2");
       const qs = p.toString();
       try { history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash); } catch (e) {}
       return r;
@@ -1676,7 +1682,7 @@ export class NadoDapp {
     if (!r) return;
     let pend = null; try { pend = JSON.parse(localStorage.getItem(this.LS_P) || "null"); } catch {}
     localStorage.removeItem(this.LS_P);
-    this._applyReturn(pend, r.ok, r.addr, r.err);
+    this._applyReturn(pend, r.ok, r.addr, r.err, r.err2);
   }
   // ── CLICK-TIME PENDING (the instant-feedback registry) ──────────────────────────────────────────
   // The gap this closes: between CLICKING an action and its effect being visible on-chain there are three

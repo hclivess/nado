@@ -2,7 +2,7 @@
  * test_nft_market_live_e2e.mjs — LIVE (tests/test_tests_are_isolated.py LIVE; scripts/run_tests.sh skips it). The NFT
  * marketplace walked end to end on the REAL site, as its users: nft.nadochain.com in headless Chromium, every signature
  * through the real wallet at get.nadochain.com, every step read back from the exec node.
- *   seller: sign in -> drop a file on the upload zone (pinned on IPFS) -> mint (asset_create) -> register the royalty
+ *   seller: sign in -> drop a file on the upload zone (pinned on IPFS) -> mint + royalty in ONE wallet approval
  *           -> list 1 edition at 0.5 NADO
  *   buyer:  sign in -> deposit with the slider -> buy -> holds the NFT; the token page's history shows mint, list, sale
  * It moves real coins: run it with two THROWAWAY wallets, each funded with ~2 NADO, never a real wallet or a node key
@@ -107,7 +107,7 @@ async function seller() {
   st.uri = uri; save();
   log("  zone shows:", await evl(`document.querySelector(".fdrop").textContent.replace(/\\s+/g," ").trim().slice(0,160)`));
   const r = await fetch("https://nft.nadochain.com/ipfs/" + uri.slice(7)); log("  public /ipfs/ fetch:", r.status, r.headers.get("content-type"));
-  // 2. mint (asset_create, signed in the wallet) then register (the royalty)
+  // 2. mint: asset_create and the royalty register, both from ONE wallet approval (nadodapp signBlob opts.then)
   await evl(`document.getElementById("mName").value = "NADO e2e #1"; document.getElementById("mRoyalty").value = "10"; document.getElementById("btnMint").click(); true`);
   const asset = await until("asset created on chain", async () => {
     const a = await exj("/exec/assets?issuer=" + W.address); const list = Array.isArray(a) ? a : (a.assets || a.issued || []);

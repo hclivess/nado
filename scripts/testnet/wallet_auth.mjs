@@ -127,7 +127,11 @@ try {
   // ("signature by a key that does not authorize this account", 2026-11-03). The answer must be ok=1, and the tx must land.
   const payload = Buffer.from(JSON.stringify({ blob: { op: "asset_create", seed: 4242, name: "auth e2e", sym: "NFT", dec: 0,
     supply: 1, mintable: false, uri: "ipfs://bafkreibg6q77z5g4becu7dwji4valvbjzznjyicmbxvo62rnpnllcrfam4" },
-    label: "create NFT", confirm: 1, chain: await pageChain() })).toString("base64");
+    label: "create NFT", confirm: 1, chain: await pageChain(),
+    // ONE APPROVAL, TWO STEPS (nadodapp signBlob opts.then): the royalty `register` rides the mint's confirm. The testnet
+    // has no NFT contract, so the call is a no-op on the exec layer — what is proven here is the WALLET: one confirm
+    // shows both, signs both with the protected account's signer, and both transactions land on L1.
+    then: { op: "call", contract: "0".repeat(32), method: "register", args: [7, "1", 4242, 1000, 0] } })).toString("base64");
   const ret = "https://nft.nadochain.com/";
   let answer = null;
   await page.setRequestInterception(true);
@@ -138,7 +142,11 @@ try {
                   { waitUntil: "domcontentloaded", timeout: 60000 });
   // the wallet shows its confirm (confirm: 1) unless it refuses outright — then it answers at once with ok=0
   await waitFor(async () => answer || await page.$(".modal-ok"), "the wallet showed the mint confirm", 60000);
-  if (!answer) { await page.$eval(".modal-ok", (e) => e.click()); step("dApp mint request confirmed", true); }
+  if (!answer) {
+    const shown = await page.evaluate(() => (document.querySelector(".modal") || document.body).innerText);
+    step("the one confirm shows the follow-up step", /Then, in the same approval/.test(shown) && /register/.test(shown), shown.slice(0, 400));
+    await page.$eval(".modal-ok", (e) => e.click()); step("dApp mint request confirmed", true);
+  }
   await waitFor(async () => !!answer, "the wallet answered the dApp", 120000);
   const q = new URL(answer || ret).searchParams;
   step("the wallet answered ok=1 (signed by the protected account's signer)", q.get("ok") === "1", decodeURIComponent(q.get("err") || answer || ""));
@@ -146,6 +154,11 @@ try {
   const landed = !!txid && await waitFor(async () => { const r = await fetch(`${api}/get_transaction?txid=${txid}`); return r.ok && !!(await r.json()); },
                                          "mint landed", 240000);
   step("the mint landed on chain", landed, txid);
+  const txid2 = q.get("txid2") || "";
+  step("the follow-up was submitted from the same confirm (txid2, no err2)", !!txid2 && !q.get("err2"), answer || "");
+  const landedThen = !!txid2 && await waitFor(async () => { const r = await fetch(`${api}/get_transaction?txid=${txid2}`); return r.ok && !!(await r.json()); },
+                                           "follow-up landed", 240000);
+  step("the follow-up landed on chain", landedThen, txid2);
 } catch (e) {
   step("browser flow", false, e && e.message ? e.message : String(e));
 } finally {

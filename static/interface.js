@@ -5497,6 +5497,22 @@ async function resumePendingExecSign() {
   // the dApp may send a FULL blob payload (call.blob) or the legacy {cid,method,args} call shape
   const blob = decodeDeep(call.blob || { op: "call", contract: call.cid, method: call.method, args: call.args || [] });
   if (call.ns && call.ns !== "default" && blob.ns === undefined) blob.ns = call.ns;
+  // ONE APPROVAL, TWO STEPS (`then`, nadodapp signBlob opts.then): a dApp action that is two transactions — the NFT
+  // mint and its royalty registration — signs both from this one confirm instead of a second popup minutes later, which
+  // is how creators lost their royalty (2026-11-04). The follow-up is held to a VALUE-FREE contract call: no value, no
+  // asset, no amount, no recipient. So nothing it does can move money the confirm did not show. It is shown as its own
+  // row, it always needs the visible confirm (never autosign, never the hidden frame), and it is submitted only after
+  // the first transaction is accepted.
+  let thenBlob = null;
+  if (call.then !== undefined) {
+    thenBlob = decodeDeep(call.then);
+    const okThen = thenBlob && typeof thenBlob === "object" && thenBlob.op === "call" && typeof thenBlob.contract === "string"
+      && typeof thenBlob.method === "string" && Array.isArray(thenBlob.args)
+      && ["value", "asset", "amount", "to", "spender"].every((k) => thenBlob[k] === undefined);
+    if (!okThen) { back("ok=0&err=" + encodeURIComponent("bad follow-up call")); return; }
+    if (call.ns && call.ns !== "default" && thenBlob.ns === undefined) thenBlob.ns = call.ns;
+    if (bg) return needUI();
+  }
   // AUDIT FIX: show the REAL action (op + key fields), never just the dApp's free-text label, so the confirm can't be spoofed
   const rows = [{ k: i18("dapp.action", "Action"), v: String(blob.op || "call") }];
   if (blob.contract) rows.push({ k: i18("dapp.contract", "Contract"), v: String(blob.contract).slice(0, 22) });
@@ -5518,6 +5534,8 @@ async function resumePendingExecSign() {
   // (it can't be spoofed by the dApp's label) so signing a staking call is always an informed choice.
   let escrow = 0n; try { escrow = blob.value ? BigInt(blob.value) : 0n; } catch (e) { escrow = 0n; }
   if (escrow > 0n) rows.push({ k: i18("dapp.escrows", "Escrows from your exec balance"), v: _unit(escrow) });
+  if (thenBlob) rows.push({ k: i18("dapp.then", "Then, in the same approval"),
+    v: (String(thenBlob.contract).slice(0, 22) + " · " + thenBlob.method + "(" + thenBlob.args.map((a) => typeof a === "bigint" ? a.toString() : JSON.stringify(a)).join(", ") + ")").slice(0, 240) });
   // AUTOSIGN (opt-in): value-free contract calls from APPROVED game origins (chess moves, settles, reveals —
   // nothing escrows, nothing moves beyond the network fee) can sign+submit without the confirm tap, so a game
   // isn't interrupted on every action. Anything that moves NADO (value/deposit/withdraw) ALWAYS confirms.
@@ -5535,8 +5553,21 @@ async function resumePendingExecSign() {
       if (!latest) throw new Error("relay unavailable");
       return buildBlobTx(signer, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
     });
-    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + signer.address);
-    else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
+    if (!(res && res.data && res.data.result)) { back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80))); return; }
+    if (!thenBlob) { back("ok=1&txid=" + tx.txid + "&addr=" + signer.address); return; }
+    // the follow-up (`then`): the first is accepted whatever happens here, so a failed follow-up still answers ok=1,
+    // naming its error in err2 for the dApp to offer the step again (nft.js: Register on the NFT's page)
+    let tail = "";
+    try {
+      const r2 = await submitResilient(async () => {
+        const latest = await getLatestBlock();
+        if (!latest) throw new Error("relay unavailable");
+        return buildBlobTx(signer, thenBlob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), guardFrom(latest.block_number));
+      });
+      tail = r2.res && r2.res.data && r2.res.data.result ? "&txid2=" + r2.tx.txid
+        : "&err2=" + encodeURIComponent(((r2.res && r2.res.data && r2.res.data.message) || "rejected").slice(0, 80));
+    } catch (e) { tail = "&err2=" + encodeURIComponent(String(e.message || e).slice(0, 80)); }
+    back("ok=1&txid=" + tx.txid + tail + "&addr=" + signer.address);
   };
   // AUTOSIGN IS DEFAULT-ON for value-free moves (user ask: zero friction for non-monetary actions). Only
   // an explicit "0" (turned off in Settings) disables it. Anything moving NADO never autosigns.
@@ -5549,7 +5580,7 @@ async function resumePendingExecSign() {
   // Held to what its label promises — exec-layer contract CALLS — so it never signs an asset_transfer, asset_approve
   // or transfer_contract, and never an asset-valued call (audit 2026-09-25).
   const autosignAll = localStorage.getItem("nado_autosign_all") === "1" && silentOk && (blob.op || "call") === "call" && !_assetId;
-  if (autosignAll || (valueFree && autosignOn) || smallBet) {
+  if (!thenBlob && (autosignAll || (valueFree && autosignOn) || smallBet)) {   // two steps always confirm (thenBlob)
     if (!bg) signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce (not needed in a hidden frame)
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;

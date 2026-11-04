@@ -12,7 +12,8 @@
 // UNTRUSTED TEXT: names, descriptions, bios, avatar and media links come from the chain, i.e. from anyone. Every one
 // goes through esc() before it reaches innerHTML, and a media link is used only if it is ipfs:// or https://.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, gate, canPay, notify, confirmingLabel, wireWallet, financeLabels,
-         renderWallet, alertBar, loadQR, uiConfirm, disp, esc, base, BLOCK_TIME, enhanceFile } from "./nadodapp.js";
+         renderWallet, alertBar, loadQR, disp, esc, base, BLOCK_TIME, enhanceFile } from "./nadodapp.js";
+import { blake2s, personOf, bytesWord, hashWords } from "./blake2s.js";
 
 const CID = "b0162edacd9f4c6c6a27391c692d90c5";      // set by execnode/games/redeploy.py wire() at deploy
 const dapp = new NadoDapp({ cid: CID, app: "NFT" });
@@ -23,7 +24,7 @@ const MAX_UPLOAD = 5 * 1024 * 1024;   // scripts/operator/nft_upload.py MAX_BYTE
 const MAX_ROYALTY_PCT = 25, MIN_DUR = 60, MAX_DUR = 201600, EXTEND = 50, MIN_RAISE_PCT = 5;
 const SALE_KIND = { 1: "listing", 2: "offer", 3: "auction", 4: "dutch" };
 
-let sto = null, assets = {}, mine = {}, cursor = 0, pendingMint = null;
+let sto = null, assets = {}, mine = {}, cursor = 0;
 
 // ---- small helpers ----------------------------------------------------------------------------------------------
 const big = (v) => { try { return BigInt(v || 0); } catch (e) { return 0n; } };
@@ -131,26 +132,24 @@ function mint() {
   if (!mediaUrl(uri) || uri.length > 128) return notify(T("needUri", "Paste an ipfs:// or https:// link to the media (at most 128 characters)."));
   if (!ed) return notify(T("needEditions", "Editions must be a whole number of at least 1."));
   if (!(roy >= 0 && roy <= MAX_ROYALTY_PCT)) return notify(T("needRoyalty", "Royalty is between 0 and 25 %."));
-  const seed = randId();
-  pendingMint = { seed, bps: Math.round(roy * 100), coll };
-  try { localStorage.setItem("nft_pending_mint", JSON.stringify(pendingMint)); } catch (e) {}
+  // ONE APPROVAL (objkt / fxhash: everything is configured before the mint). The royalty registration rides the mint's
+  // own confirm as its `then` step (nadodapp signBlob opts.then), so there is no second popup minutes later — the
+  // creator who missed that popup got an NFT with no royalty and no listing (2026-11-04). `register` needs only the
+  // asset's id, which is hash(issuer, seed) and known before the asset exists (assetId), so the two may land in
+  // either order. If the step fails, the NFT's page offers Register to its creator (registerLater).
+  const seed = randId(), bps = Math.round(roy * 100);
   dapp.signBlob({ op: "asset_create", seed, name, sym: "NFT", dec: 0, supply: ed, mintable: false, uri },
-    T("callMint", "create NFT “{n}” · {e} editions", { n: name, e: ed }), { phase: "mint", id: seed }, { confirm: true });
+    T("callMint1", "create NFT “{n}” · {e} editions · {r} royalty", { n: name, e: ed, r: pct(bps) }), { phase: "mint", id: seed },
+    { confirm: true, then: { op: "call", contract: CID, method: "register", args: [randId(), assetId(dapp.me, seed), seed, bps, coll] } });
 }
 
-// step 2 of a mint: once the asset exists (found by its seed among the caller's assets), register its royalty
-async function finishMint() {
-  if (!pendingMint || !dapp.me) return;
-  const a = Object.values(assets).find((x) => x.issuer === dapp.me && Number(x.seed) === pendingMint.seed);
-  if (!a) return;
-  const p = pendingMint; pendingMint = null;
-  try { localStorage.removeItem("nft_pending_mint"); } catch (e) {}
-  const ok = await uiConfirm({ title: T("regTitle", "Register the royalty"),
-    body: T("regBody", "“{n}” exists. One more signature records your {r} royalty on every sale through this marketplace.", { n: a.name, r: pct(p.bps) }),
-    confirmText: T("regOk", "Register") });
-  if (!ok) return;
-  dapp.call("register", [randId(), big(a.id), p.seed, p.bps, p.coll], null,
-    T("callRegister", "register “{n}” · {r} royalty", { n: a.name, r: pct(p.bps) }), { phase: "register", id: p.seed });
+// execnode/state.asset_id: the VM hash over (the issuer's address digest, seed); the digest is
+// execnode/runtimes.zkvm_addr_digest — BLAKE2s, person "NADOvmA1", over canonical_bytes(["zkvmaddr", addr]). Pinned
+// against the Python by tests/test_an_nft_mints_with_its_royalty_in_one_approval.py.
+const ADDR_PERSON = personOf("NADOvmA1");
+function assetId(addr, seed) {
+  const digest = bytesWord(blake2s(new TextEncoder().encode(JSON.stringify(["zkvmaddr", String(addr)])), ADDR_PERSON));
+  return hashWords([digest, BigInt(seed)]);
 }
 
 // register from the NFT's own page, any time after the mint (the creator's way back when step 2 never ran: nftAssets)
@@ -537,7 +536,7 @@ function viewCreate() {
   const opts = myCollections().map((c) => `<option value="${c}">${esc(field("c_name", c) || "")}</option>`).join("");
   const v = (s) => (s && s !== "-" ? esc(s) : "");
   return `<div class="card"><h3>${T("mintH", "Mint an NFT")}</h3>
-      <p class="small dim">${T("mintIntro2", "Choose your file — it is stored on IPFS and pinned by this site. Two signatures: one creates the NFT, one records its royalty.")}</p>
+      <p class="small dim">${T("mintIntro3", "Choose your file — it is stored on IPFS and pinned by this site. Set the royalty and collection here: one approval in your wallet creates the NFT and records its royalty.")}</p>
       <label>${T("fTitle", "Title")}</label><input id="mName" maxlength="64">
       <label class="mt">${T("fFile", "File")}</label>
       <input id="mFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/webm,audio/mpeg,audio/ogg,audio/wav,audio/flac,audio/mp4,model/gltf-binary,.glb">
@@ -606,7 +605,6 @@ async function refresh() {
     if (mineR && mineR.assets) for (const a of mineR.assets) mine[String(a.id)] = a;
   } catch (e) { /* a relay blip keeps the last good view */ }
   render();
-  finishMint();
 }
 
 function wireUI() {
@@ -627,9 +625,11 @@ function wireUI() {
   $("navMe").onclick = (ev) => { ev.preventDefault(); location.hash = "#user/" + encodeURIComponent(dapp.me || ""); };
 }
 
-dapp.onReturn((pend, ok, err) => {
+dapp.onReturn((pend, ok, err, err2) => {
+  // the mint landed but its royalty step was not submitted: say so, and where to finish it (registerLater)
+  if (ok && err2 && pend && pend.phase === "mint") notify(T("regFailed", "Your NFT is being created, but its royalty was not recorded ({e}). Open the NFT and press Register.", { e: err2 }));
   dapp.showReturn(pend, ok, err, {
-    mint: T("mintSent", "Creating your NFT — the royalty signature follows once it lands…"),
+    mint: T("mintSent2", "Creating your NFT with its royalty — confirming…"),
     register: T("regSent", "Royalty registered — confirming…"),
     buy: T("buySent", "Buying — confirming…"), bid: T("bidSent", "Bid placed — confirming…"),
     list: T("listSent", "Listing — confirming…"), offer: T("offerSent", "Offer posted — confirming…"),
@@ -639,7 +639,6 @@ dapp.onReturn((pend, ok, err) => {
 
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(T("cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  try { pendingMint = JSON.parse(localStorage.getItem("nft_pending_mint") || "null"); } catch (e) { pendingMint = null; }
   wireUI(); loadQR();
   refresh();
   setInterval(refresh, 4000);

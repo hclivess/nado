@@ -41,7 +41,8 @@
   "dapp.swapRefundTitle": "Reclaim an expired swap lock",
   "dapp.swapTitle": "Lock NADO for an atomic swap",
   "dapp.title": "Sign a contract call",
-  "dapp.bodyAsset": "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} from your exec balance into the contract (no L1 funds move beyond the network fee)."
+  "dapp.bodyAsset": "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} from your exec balance into the contract (no L1 funds move beyond the network fee).",
+  "dapp.then": "Then, in the same approval"
  },
  "cs": {
   "dapp.action": "Akce",
@@ -85,7 +86,8 @@
   "dapp.swapRefundTitle": "Vzít zpět propadlý zámek swapu",
   "dapp.swapTitle": "Uzamknout NADO pro atomický swap",
   "dapp.title": "Podepsat volání kontraktu",
-  "dapp.bodyAsset": "{app} chce podepsat a odeslat tuto akci z vaší peněženky ({a}). Do kontraktu uloží do úschovy {v} z vašeho exec zůstatku (z L1 se nepohnou žádné prostředky kromě síťového poplatku)."
+  "dapp.bodyAsset": "{app} chce podepsat a odeslat tuto akci z vaší peněženky ({a}). Do kontraktu uloží do úschovy {v} z vašeho exec zůstatku (z L1 se nepohnou žádné prostředky kromě síťového poplatku).",
+  "dapp.then": "Poté, v rámci téhož schválení"
  },
  "es": {
   "dapp.action": "Acción",
@@ -129,7 +131,8 @@
   "dapp.swapRefundTitle": "Recuperar un bloqueo de intercambio expirado",
   "dapp.swapTitle": "Bloquear NADO para un intercambio atómico",
   "dapp.title": "Firmar una llamada de contrato",
-  "dapp.bodyAsset": "{app} quiere firmar y enviar esto desde tu billetera ({a}). RETIENE {v} de tu saldo de ejecución en el contrato (no se mueven fondos de L1 salvo la comisión de red)."
+  "dapp.bodyAsset": "{app} quiere firmar y enviar esto desde tu billetera ({a}). RETIENE {v} de tu saldo de ejecución en el contrato (no se mueven fondos de L1 salvo la comisión de red).",
+  "dapp.then": "Después, en la misma aprobación"
  },
  "pt": {
   "dapp.action": "Ação",
@@ -173,7 +176,8 @@
   "dapp.swapRefundTitle": "Recuperar um bloqueio de troca expirado",
   "dapp.swapTitle": "Bloquear NADO para uma troca atómica",
   "dapp.title": "Assinar uma chamada de contrato",
-  "dapp.bodyAsset": "{app} quer assinar e enviar isto da sua carteira ({a}). Ele RETÉM {v} do seu saldo de execução no contrato (nenhum fundo de L1 se move além da taxa de rede)."
+  "dapp.bodyAsset": "{app} quer assinar e enviar isto da sua carteira ({a}). Ele RETÉM {v} do seu saldo de execução no contrato (nenhum fundo de L1 se move além da taxa de rede).",
+  "dapp.then": "Depois, na mesma aprovação"
  },
  "fr": {
   "dapp.action": "Action",
@@ -217,7 +221,8 @@
   "dapp.swapRefundTitle": "Récupérer un verrou d'échange expiré",
   "dapp.swapTitle": "Verrouiller des NADO pour un échange atomique",
   "dapp.title": "Signer un appel de contrat",
-  "dapp.bodyAsset": "{app} veut signer et soumettre ceci depuis votre portefeuille ({a}). Cela MET EN DÉPÔT {v} de votre solde d’exécution dans le contrat (aucun fonds L1 ne bouge hormis les frais de réseau)."
+  "dapp.bodyAsset": "{app} veut signer et soumettre ceci depuis votre portefeuille ({a}). Cela MET EN DÉPÔT {v} de votre solde d’exécution dans le contrat (aucun fonds L1 ne bouge hormis les frais de réseau).",
+  "dapp.then": "Puis, dans la même approbation"
  },
  "de": {
   "dapp.action": "Aktion",
@@ -261,7 +266,8 @@
   "dapp.swapRefundTitle": "Abgelaufene Tauschsperre zurückholen",
   "dapp.swapTitle": "NADO für einen atomaren Tausch sperren",
   "dapp.title": "Vertragsaufruf signieren",
-  "dapp.bodyAsset": "{app} möchte dies aus Ihrer Wallet ({a}) signieren und senden. Es HINTERLEGT {v} aus Ihrem Exec-Guthaben im Vertrag (außer der Netzwerkgebühr bewegen sich keine L1-Mittel)."
+  "dapp.bodyAsset": "{app} möchte dies aus Ihrer Wallet ({a}) signieren und senden. Es HINTERLEGT {v} aus Ihrem Exec-Guthaben im Vertrag (außer der Netzwerkgebühr bewegen sich keine L1-Mittel).",
+  "dapp.then": "Danach, in derselben Freigabe"
  },
  "it": {
   "dapp.action": "Azione",
@@ -305,7 +311,8 @@
   "dapp.swapRefundTitle": "Recupera un blocco di scambio scaduto",
   "dapp.swapTitle": "Blocca NADO per uno scambio atomico",
   "dapp.title": "Firma una chiamata al contratto",
-  "dapp.bodyAsset": "{app} vuole firmare e inviare questo dal tuo wallet ({a}). Mette IN DEPOSITO {v} dal tuo saldo di esecuzione nel contratto (nessun fondo L1 si muove oltre la commissione di rete)."
+  "dapp.bodyAsset": "{app} vuole firmare e inviare questo dal tuo wallet ({a}). Mette IN DEPOSITO {v} dal tuo saldo di esecuzione nel contratto (nessun fondo L1 si muove oltre la commissione di rete).",
+  "dapp.then": "Poi, nella stessa approvazione"
  },
  "ru": {
   "dapp.action": "Действие",
@@ -349,7 +356,8 @@
   "dapp.swapRefundTitle": "Вернуть истёкший замок обмена",
   "dapp.swapTitle": "Заблокировать NADO для атомарного обмена",
   "dapp.title": "Подписать вызов контракта",
-  "dapp.bodyAsset": "{app} хочет подписать и отправить это из вашего кошелька ({a}). Это ПОМЕЩАЕТ В ЭСКРОУ {v} из вашего exec-баланса в контракт (средства L1, кроме сетевой комиссии, не двигаются)."
+  "dapp.bodyAsset": "{app} хочет подписать и отправить это из вашего кошелька ({a}). Это ПОМЕЩАЕТ В ЭСКРОУ {v} из вашего exec-баланса в контракт (средства L1, кроме сетевой комиссии, не двигаются).",
+  "dapp.then": "Затем, в рамках того же подтверждения"
  },
  "zh": {
   "dapp.action": "操作",
@@ -393,7 +401,8 @@
   "dapp.swapRefundTitle": "取回已过期的交换锁",
   "dapp.swapTitle": "为原子交换锁定 NADO",
   "dapp.title": "签名合约调用",
-  "dapp.bodyAsset": "{app} 想从你的钱包（{a}）签名并提交此操作。它会将你执行层余额中的 {v} 托管到合约中（除网络手续费外不动用 L1 资金）。"
+  "dapp.bodyAsset": "{app} 想从你的钱包（{a}）签名并提交此操作。它会将你执行层余额中的 {v} 托管到合约中（除网络手续费外不动用 L1 资金）。",
+  "dapp.then": "随后，在同一次批准中"
  },
  "ja": {
   "dapp.action": "アクション",
@@ -437,7 +446,8 @@
   "dapp.swapRefundTitle": "期限切れのスワップロックを取り戻す",
   "dapp.swapTitle": "アトミックスワップのために NADO をロック",
   "dapp.title": "コントラクト呼び出しに署名",
-  "dapp.bodyAsset": "{app} があなたのウォレット（{a}）からこれに署名して送信しようとしています。実行レイヤー残高から {v} をコントラクトにエスクローします（ネットワーク手数料以外に L1 の資金は動きません）。"
+  "dapp.bodyAsset": "{app} があなたのウォレット（{a}）からこれに署名して送信しようとしています。実行レイヤー残高から {v} をコントラクトにエスクローします（ネットワーク手数料以外に L1 の資金は動きません）。",
+  "dapp.then": "続けて、同じ承認で"
  },
  "ko": {
   "dapp.action": "작업",
@@ -481,7 +491,8 @@
   "dapp.swapRefundTitle": "만료된 스왑 잠금 되찾기",
   "dapp.swapTitle": "원자적 스왑을 위해 NADO 잠금",
   "dapp.title": "컨트랙트 호출 서명",
-  "dapp.bodyAsset": "{app}이(가) 지갑({a})에서 이 작업에 서명하고 제출하려 합니다. 실행 레이어 잔액에서 {v}을(를) 컨트랙트에 에스크로합니다(네트워크 수수료 외에 L1 자금은 이동하지 않습니다)."
+  "dapp.bodyAsset": "{app}이(가) 지갑({a})에서 이 작업에 서명하고 제출하려 합니다. 실행 레이어 잔액에서 {v}을(를) 컨트랙트에 에스크로합니다(네트워크 수수료 외에 L1 자금은 이동하지 않습니다).",
+  "dapp.then": "이어서, 같은 승인으로"
  },
  "ar": {
   "dapp.action": "الإجراء",
@@ -525,7 +536,8 @@
   "dapp.swapRefundTitle": "استرداد قفل مبادلة منتهٍ",
   "dapp.swapTitle": "قفل NADO لمبادلة ذرية",
   "dapp.title": "توقيع استدعاء عقد",
-  "dapp.bodyAsset": "يريد {app} توقيع هذا وإرساله من محفظتك ({a}). سيحجز {v} من رصيد التنفيذ لديك في العقد (لا تتحرك أي أموال L1 سوى رسوم الشبكة)."
+  "dapp.bodyAsset": "يريد {app} توقيع هذا وإرساله من محفظتك ({a}). سيحجز {v} من رصيد التنفيذ لديك في العقد (لا تتحرك أي أموال L1 سوى رسوم الشبكة).",
+  "dapp.then": "ثم، ضمن الموافقة نفسها"
  },
  "hi": {
   "dapp.action": "क्रिया",
@@ -569,7 +581,8 @@
   "dapp.swapRefundTitle": "समाप्त स्वैप लॉक वापस लें",
   "dapp.swapTitle": "एटॉमिक स्वैप के लिए NADO लॉक करें",
   "dapp.title": "अनुबंध कॉल पर हस्ताक्षर करें",
-  "dapp.bodyAsset": "{app} आपके वॉलेट ({a}) से इस पर हस्ताक्षर करके सबमिट करना चाहता है। यह आपके exec बैलेंस से {v} अनुबंध में एस्क्रो करता है (नेटवर्क शुल्क के अलावा L1 की कोई राशि नहीं हिलती)।"
+  "dapp.bodyAsset": "{app} आपके वॉलेट ({a}) से इस पर हस्ताक्षर करके सबमिट करना चाहता है। यह आपके exec बैलेंस से {v} अनुबंध में एस्क्रो करता है (नेटवर्क शुल्क के अलावा L1 की कोई राशि नहीं हिलती)।",
+  "dapp.then": "फिर, इसी स्वीकृति में"
  },
  "tr": {
   "dapp.action": "İşlem",
@@ -613,7 +626,8 @@
   "dapp.swapRefundTitle": "Süresi dolmuş takas kilidini geri al",
   "dapp.swapTitle": "Atomik takas için NADO kilitle",
   "dapp.title": "Bir sözleşme çağrısını imzala",
-  "dapp.bodyAsset": "{app} bunu cüzdanınızdan ({a}) imzalayıp göndermek istiyor. Exec bakiyenizden {v} tutarını sözleşmede EMANETE ALIR (ağ ücreti dışında L1 fonu hareket etmez)."
+  "dapp.bodyAsset": "{app} bunu cüzdanınızdan ({a}) imzalayıp göndermek istiyor. Exec bakiyenizden {v} tutarını sözleşmede EMANETE ALIR (ağ ücreti dışında L1 fonu hareket etmez).",
+  "dapp.then": "Ardından, aynı onayla"
  },
  "id": {
   "dapp.action": "Tindakan",
@@ -657,7 +671,8 @@
   "dapp.swapRefundTitle": "Ambil kembali kunci pertukaran yang kedaluwarsa",
   "dapp.swapTitle": "Kunci NADO untuk pertukaran atomik",
   "dapp.title": "Tanda tangani panggilan kontrak",
-  "dapp.bodyAsset": "{app} ingin menandatangani dan mengirim ini dari dompet Anda ({a}). Ini MENITIPKAN {v} dari saldo exec Anda ke dalam kontrak (tidak ada dana L1 yang berpindah selain biaya jaringan)."
+  "dapp.bodyAsset": "{app} ingin menandatangani dan mengirim ini dari dompet Anda ({a}). Ini MENITIPKAN {v} dari saldo exec Anda ke dalam kontrak (tidak ada dana L1 yang berpindah selain biaya jaringan).",
+  "dapp.then": "Lalu, dalam persetujuan yang sama"
  },
  "vi": {
   "dapp.action": "Hành động",
@@ -701,6 +716,7 @@
   "dapp.swapRefundTitle": "Lấy lại khóa hoán đổi đã hết hạn",
   "dapp.swapTitle": "Khóa NADO cho hoán đổi nguyên tử",
   "dapp.title": "Ký một lệnh gọi hợp đồng",
-  "dapp.bodyAsset": "{app} muốn ký và gửi thao tác này từ ví của bạn ({a}). Nó KÝ QUỸ {v} từ số dư exec của bạn vào hợp đồng (không có tiền L1 nào bị chuyển ngoài phí mạng)."
+  "dapp.bodyAsset": "{app} muốn ký và gửi thao tác này từ ví của bạn ({a}). Nó KÝ QUỸ {v} từ số dư exec của bạn vào hợp đồng (không có tiền L1 nào bị chuyển ngoài phí mạng).",
+  "dapp.then": "Sau đó, trong cùng lần duyệt"
  }
 }
