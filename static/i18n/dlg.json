@@ -382,5 +382,29 @@
   "dlg.selfWarn": "Đây là địa chỉ của chính bạn.",
   "dlg.sendTitle": "Xác nhận chuyển",
   "dlg.to": "Đến"
+ },
+ "pl": {
+  "dlg.aliasName": "Alias",
+  "dlg.aliasReg": "Zarejestruj alias",
+  "dlg.aliasUnreg": "Wyrejestruj alias",
+  "dlg.aliasXfer": "Przenieś alias",
+  "dlg.amount": "Kwota",
+  "dlg.cancel": "Anuluj",
+  "dlg.confirm": "Potwierdź",
+  "dlg.dirBond": "dostępne → oszczędności",
+  "dlg.dirUnbond": "oszczędności → dostępne",
+  "dlg.direction": "Kierunek",
+  "dlg.fee": "Opłata sieciowa",
+  "dlg.forget": "Usuń portfel",
+  "dlg.forgetBody": "Najpierw upewnij się, że masz zapisany klucz prywatny — tego nie da się cofnąć.",
+  "dlg.forgetTitle": "Usunąć ten portfel?",
+  "dlg.free": "Bezpłatnie (bez opłaty)",
+  "dlg.lockNote": "Oszczędności pozostają zablokowane przez {n} bl. po wypłacie.",
+  "dlg.notice": "Uwaga",
+  "dlg.ok": "OK",
+  "dlg.selfAddr": "twój adres (ty)",
+  "dlg.selfWarn": "To jest TWÓJ WŁASNY adres.",
+  "dlg.sendTitle": "Potwierdź przelew",
+  "dlg.to": "Do"
  }
 }

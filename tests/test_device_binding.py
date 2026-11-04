@@ -304,9 +304,12 @@ def t_binding_modes():
     check("wallet: the rebind confirmation asks the relay before the tap is spent", '"/devbind_lookup"' in js and 'i18("bind.rebindAsk"' in js and 'i18("bind.rebindWait"' in js)
     check("wallet: the binding mode is visible on the lease panel", 'i18("bind.perm"' in js and 'i18("bind.lease"' in js and 'id="bindModeLine"' in open(os.path.join(ROOT, "static", "interface.html")).read())
     i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
+    # the language count comes from the generator (a literal 16 until Polish made it 17, 2026-11-04)
+    import ast, re as _re
+    _nl = len(ast.literal_eval(_re.search(r"^LANGS = (\[[^\]]*\])", open(os.path.join(ROOT, "tools", "build_i18n.py")).read(), _re.M).group(1)))
     for k in ("bind.perm", "bind.lease", "bind.rebindAsk", "bind.rebindWait", "hw.modes", "node.status.perm", "bind.renewNoTap"):
         n = i18n.count('"' + k + '":')
-        check(f"i18n: {k} in every language", n >= 16 and n % 16 == 0, n)
+        check(f"i18n: {k} in every language", n >= _nl and n % _nl == 0, n)
 
 
 def t_instant_rebind():

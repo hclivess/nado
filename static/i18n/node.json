@@ -398,5 +398,30 @@
   "node.status.perm": "Gắn trọn đời với {d} (độ trung thành {f}) — tự gia hạn, không cần làm gì.",
   "node.status.renewable": "Kỳ thuê đang có hiệu lực (độ trung thành {f}) — chạm ngay để gia hạn đúng hạn.",
   "node.title": "Chứng thực ví hoặc node khác"
+ },
+ "pl": {
+  "node.addrPh": "adres portfela lub węzła (46 znaków hex)",
+  "node.blurb": "Poręcz za inny portfel lub węzeł z tego urządzenia. Wklej adres (portfela albo węzła — ze strony /status), a potem naciśnij przycisk: to urządzenie atestuje ten adres, oświadczenie trafia do sieci, a drugi portfel lub węzeł rejestruje się z nim. Odnawiaj raz na dzierżawę (36 h z telefonu, 7 dni z komputera z Windows). To urządzenie zostaje powiązane, więc póki trwa dzierżawa, nie może poręczyć za drugą tożsamość.",
+  "node.btn": "Atestuj ten adres",
+  "node.due": "do odnowienia: {n}",
+  "node.err.addr": "To nie jest adres NADO (46 znaków hex).",
+  "node.item.again": "Atestuj ponownie",
+  "node.item.expired": "brak aktywnej dzierżawy — atestuj ponownie",
+  "node.item.fid": "wierność {f}",
+  "node.item.held": "dzierżawa aktywna — odnowienie nagradzane od ≈ {c}; kończy się za {t}",
+  "node.item.perm": "powiązany na stałe z urządzeniem {d} — odnawia się sam",
+  "node.item.remove": "Zapomnij",
+  "node.item.renewable": "można odnowić — dzierżawa kończy się za {t} (≈ {c})",
+  "node.log.attesting": "Atestacja węzła {a} — zatwierdź monit na tym urządzeniu.",
+  "node.log.dropFailed": "Przekaźnik odrzucił atestację: {e}",
+  "node.log.dropped": "Atestacja dostarczona do sieci — węzeł zarejestruje się w ciągu ~1 min (docelowy blok {b}).",
+  "node.log.registered": "Węzeł {a} zarejestrowany — wierność {f}.",
+  "node.log.timeout": "Nie widać jeszcze dzierżawy — węzeł może być offline, na innym łańcuchu lub nie odpytuje sieci; sprawdź jego /node_attest_status.",
+  "node.status.addr": "Wpisz adres węzła, aby zobaczyć jego dzierżawę.",
+  "node.status.held": "Dzierżawa aktywna (wierność {f}) — odnowienie nagradzane od epoki {e}; na razie nic nie musisz robić.",
+  "node.status.needsTap": "Brak dzierżawy open-lane — dotknięcie tutaj zarejestruje węzeł.",
+  "node.status.perm": "Powiązany na stałe z urządzeniem {d} (wierność {f}) — odnawia się sam, nic nie musisz robić.",
+  "node.status.renewable": "Dzierżawa aktywna (wierność {f}) — dotknij teraz, aby odnowić ją na czas.",
+  "node.title": "Atestuj inny portfel lub węzeł"
  }
 }

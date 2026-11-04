@@ -270,5 +270,22 @@
   "shadow.stop": "Dừng",
   "shadow.stopTitle": "Ngừng dùng riêng tư?",
   "shadow.stopBody": "{g} sẽ lại thấy tài khoản gốc của ví bạn. Hãy trả số dư của tài khoản riêng tư trước nếu bạn muốn đưa nó về số dư riêng tư."
+ },
+ "pl": {
+  "shadow.title": "Korzystaj z aplikacji prywatnie",
+  "shadow.lead": "Gra, DEX czy pożyczki widzą osobne konto zasilone z Twojego prywatnego salda. Nic w łańcuchu nie wiąże go z tym portfelem.",
+  "shadow.game": "Aplikacja",
+  "shadow.fundOk": "Zasil prywatnie",
+  "shadow.fundTitle": "Zasil prywatne konto",
+  "shadow.fundBody": "Aplikacja widzi osobne konto, którego nic w łańcuchu nie wiąże z tym portfelem. Jego aktywność i saldo są publiczne; do kogo należy — nie. Na Twoje prywatne saldo wraca tylko NADO: najpierw sprzedaj tokeny i zamknij pożyczki.",
+  "shadow.notYet": "Prywatne konta ruszą, gdy sieć zacznie przyjmować wypłaty opłacane przez przekaźnik. Spróbuj później.",
+  "shadow.funded": "{a} NADO jest w drodze na Twoje prywatne konto dla {g}. Dotrze, gdy sieć je rozliczy (kilka minut).",
+  "shadow.empty": "To prywatne konto nie ma nic do zwrotu.",
+  "shadow.returnTitle": "Zwróć na prywatne saldo",
+  "shadow.returnOk": "Zwróć",
+  "shadow.row": "{g}: {b} NADO",
+  "shadow.stop": "Zakończ",
+  "shadow.stopTitle": "Przestać korzystać prywatnie?",
+  "shadow.stopBody": "{g} znów zobaczy własne konto Twojego portfela. Jeśli chcesz odzyskać saldo prywatnego konta, najpierw zwróć je na prywatne saldo."
  }
 }

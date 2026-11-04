@@ -27,9 +27,11 @@ j = src.find('i18("dapp.bodyValue"', i)
 check("the NADO sentence (dapp.bodyValue) is only the fallback after the asset branch", i >= 0 and j > i)
 check("_unit names the asset's units when the call carries one",
       '_unit = (v) => _assetId ? String(v) + " " + i18("dapp.assetUnits"' in src)
+import ast as _ast, re as _re
+_LANGS = _ast.literal_eval(_re.search(r"^LANGS = (\[[^\]]*\])", open(os.path.join(ROOT, "tools", "build_i18n.py")).read(), _re.M).group(1))   # 16 until Polish, 2026-11-04
 tables = json.load(open(os.path.join(ROOT, "static", "i18n", "dapp.json"), encoding="utf8"))
-check("dapp.bodyAsset exists in all 16 languages with {app}, {a} and {v} kept, and none says NADO for the amount",
-      len(tables) == 16 and all(all(p in t.get("dapp.bodyAsset", "") for p in ("{app}", "{a}", "{v}"))
+check("dapp.bodyAsset exists in all 17 languages with {app}, {a} and {v} kept, and none says NADO for the amount",
+      set(tables) == set(_LANGS) and all(all(p in t.get("dapp.bodyAsset", "") for p in ("{app}", "{a}", "{v}"))
                                 and "{v} NADO" not in t["dapp.bodyAsset"] for t in tables.values()))
 print("ALL PASS" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

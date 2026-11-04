@@ -262,9 +262,9 @@ def t_wallet_wiring():
     # says "the literal appears 16 times" — not "16 languages define it". i18n.js is LAYERED: a later table overrides an
     # earlier one for the same key, so a legitimate redefinition (T93 replaced T74's verb-phrase buttons with the
     # picker's bare device names) doubled the count to 32 and this check failed for a reason that was not a bug. Ask the
-    # real question instead: does every one of the 16 languages define each hardware-picker string?
+    # real question instead: does every one of the 17 languages define each hardware-picker string?
     i18n = open(os.path.join(ROOT, "static", "i18n.js"), encoding="utf-8").read()
-    langs = ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi")
+    langs = ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi", "pl")
     defined = {l: set() for l in langs}
     for m in re.finditer(r'"?([a-z]{2})"?:\s*\{', i18n):
         lang = m.group(1)
@@ -289,7 +289,7 @@ def t_wallet_wiring():
     want = {"hw.ledger", "hw.trezor", "hw.none", "hw.remote", "hw.other",
             "hw.cap.ledger", "hw.cap.trezor", "hw.cap.none", "hw.cap.remote"}
     gaps = {l: sorted(want - defined[l]) for l in langs if want - defined[l]}
-    check("i18n: every hardware-picker string is defined in all 16 languages", not gaps, gaps)
+    check("i18n: every hardware-picker string is defined in all 17 languages", not gaps, gaps)
     # and no key is defined twice by the SAME language in the same table pass — a duplicate is dead weight whose only
     # effect is to make counts like the old one above lie (48 such entries were deleted from T74 the same day).
     dupes = [k for k in want if i18n.count('"%s"' % k) != len(langs)]

@@ -414,5 +414,31 @@
   "tab.swap": "Hoán đổi",
   "tab.wallet": "Ví",
   "tab.web": "Trang web"
+ },
+ "pl": {
+  "tab.aliases": "Aliasy",
+  "tab.apps": "Aplikacje",
+  "tab.assets": "Aktywa",
+  "tab.explore": "Odkrywaj",
+  "tab.explorer": "Eksplorator",
+  "tab.govern": "Zarządzanie",
+  "tab.history": "Historia",
+  "tab.messages": "Wiadomości",
+  "tab.multisig": "Multisig",
+  "tab.overview": "Przegląd",
+  "tab.quorum": "Kworum",
+  "tab.receive": "Odbierz",
+  "tab.rich": "Najbogatsi",
+  "tab.rollup": "Kontrakty",
+  "tab.rollups": "Rollupy",
+  "tab.send": "Wyślij",
+  "tab.settings": "Ustawienia",
+  "tab.settlement": "Rozliczenie",
+  "tab.shield": "Osłona",
+  "tab.stake": "Oszczędności",
+  "tab.stats": "Statystyki",
+  "tab.swap": "Wymiana",
+  "tab.wallet": "Portfel",
+  "tab.web": "Web"
  }
 }

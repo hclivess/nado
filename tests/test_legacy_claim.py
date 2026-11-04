@@ -14,7 +14,7 @@ Pins, on real tables (throwaway HOME) with real signed transactions:
      claimable — the `>= 1` the deleted LEGACY_CLAIM_HEIGHT gate leaves behind — and from block 1 it is;
   4. ACCEPTED RISK, pinned so nobody mistakes it for a bug: a key built to share the old address's 21 bytes can claim
      too (the operator's decision; the exposure those accounts already carried);
-  5. the wallet claims by itself: from the base key only, with the exact balance, and says so in 16 languages.
+  5. the wallet claims by itself: from the base key only, with the exact balance, and says so in 17 languages.
 
 Run: python3 tests/test_legacy_claim.py
 """
@@ -128,8 +128,8 @@ check("...from this key's own old address, never a keyed one", "legacyAddress(w.
 check("...with the exact balance", "buildLegacyClaimTx(w, legacy, Number(bal)" in fn)
 # the strings' SOURCE (i18n.js is generated from static/i18n/*.json since 2026-10-10; this read the T118 patch table)
 _misc = json.load(open(os.path.join(ROOT, "static", "i18n", "misc.json"), encoding="utf-8"))
-check("...and says so in all 16 languages", all(_misc[l].get("legacy.claiming") for l in
-      ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi")))
+check("...and says so in all 17 languages", all(_misc[l].get("legacy.claiming") for l in
+      ("en", "cs", "es", "pt", "fr", "de", "it", "ru", "zh", "ja", "ko", "ar", "hi", "tr", "id", "vi", "pl")))
 
 kv_ops.close_all()
 print("ALL PASS — an old address is claimed by its own key" if not _report.fails else f"{_report.fails} FAILURES")

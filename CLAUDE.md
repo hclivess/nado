@@ -121,14 +121,14 @@ failure: a claim about another component that nothing checked, and a workflow no
 yourself, say exactly that, name which hops you verified by measurement and which you did not, and do
 not let "the code is correct" stand in for "the user can do it".
 
-### 7. The wallet speaks 16 languages, and every one of them is your job
+### 7. The wallet speaks 17 languages, and every one of them is your job
 
-`static/i18n.js` carries **16 language tables** — en, cs, es, pt, fr, de, it, ru, zh, ja, ko, ar, hi,
-tr, id, vi — and a user-facing string added in English only is a half-finished string. Every
-`i18("key", "English default")` you introduce needs its key in **all sixteen** tables, not just `en`:
+`static/i18n.js` carries **17 language tables** — en, cs, es, pt, fr, de, it, ru, zh, ja, ko, ar, hi,
+tr, id, vi, pl — and a user-facing string added in English only is a half-finished string. Every
+`i18("key", "English default")` you introduce needs its key in **all seventeen** tables, not just `en`:
 the English default is a fallback for a missing translation, not a substitute for one.
 `static/i18n.js` is **generated**: add the key to its JSON source (`static/i18n/<prefix>.json` or
-`static/i18n_games/<game>.json`, all 16 languages) and run `python3 tools/build_i18n.py` — never edit
+`static/i18n_games/<game>.json`, all 17 languages) and run `python3 tools/build_i18n.py` — never edit
 i18n.js itself.
 
 ```bash

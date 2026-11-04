@@ -32,6 +32,9 @@
  "ko": {
   "shield.badCodeReason": "잘못된 수령 코드: {m}"
  },
+ "pl": {
+  "shield.badCodeReason": "Nieprawidłowy kod odbioru: {m}"
+ },
  "pt": {
   "shield.badCodeReason": "Código de resgate inválido: {m}"
  },

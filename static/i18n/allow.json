@@ -350,5 +350,27 @@
   "allow.spender": "Người chi tiêu",
   "allow.toYou": "Phê duyệt cấp cho bạn",
   "allow.upTo": "tối đa"
+ },
+ "pl": {
+  "allow.approve": "Zatwierdź",
+  "allow.dlgApprove": "Zatwierdź wydającego",
+  "allow.dlgRevoke": "Cofnij zgodę",
+  "allow.dlgSpend": "Wykorzystaj zgodę",
+  "allow.from": "od",
+  "allow.fromOwner": "Od",
+  "allow.granted": "Zgody, które udzieliłeś",
+  "allow.head": "Zgody (delegowane wydatki)",
+  "allow.intro": "Upoważnij kogoś innego do przenoszenia ustalonej kwoty Twojego tokena\n      w Twoim imieniu — opiekuna, powiernika lub inne konto. Nigdy nie przeniesie więcej, niż zatwierdzisz,\n      ani więcej, niż posiadasz. Ponowne zatwierdzenie zastępuje kwotę; zatwierdzenie 0 cofa zgodę.",
+  "allow.noneGranted": "Nie udzieliłeś żadnych zgód.",
+  "allow.noneToYou": "Nikt nie udzielił Ci zgody.",
+  "allow.of": "z",
+  "allow.overGrant": "Więcej, niż obejmuje Twoja zgoda.",
+  "allow.pickGrant": "Wybierz zgodę do wykorzystania.",
+  "allow.revoke": "cofnij",
+  "allow.revoked": "0 (cofnięta)",
+  "allow.spend": "Wydaj",
+  "allow.spender": "Wydający",
+  "allow.toYou": "Zgody udzielone Tobie",
+  "allow.upTo": "do"
  }
 }

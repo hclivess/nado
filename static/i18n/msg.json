@@ -398,5 +398,30 @@
   "msg.title": "Tin nhắn",
   "msg.toPh": "bí danh hoặc địa chỉ",
   "msg.youPrefix": "Bạn: "
+ },
+ "pl": {
+  "msg.aliasFailed": "Operacja na aliasie nie powiodła się:",
+  "msg.amountPos": "Kwota musi być większa od zera.",
+  "msg.badAmount": "Nieprawidłowa kwota.",
+  "msg.badRecipient": "Nieprawidłowy odbiorca — podaj 46-znakowy adres lub zarejestrowany alias.",
+  "msg.bodyPh": "Napisz wiadomość…",
+  "msg.cancelled": "Anulowano.",
+  "msg.checking": "Sprawdzanie salda…",
+  "msg.dustBelowFee": "Saldo jest niższe niż opłata sieciowa — nie ma czego wysłać.",
+  "msg.failed": "nie powiodło się:",
+  "msg.needBundle": "Wiadomości wymagają modułu kryptograficznego ML-KEM — odśwież stronę.",
+  "msg.new": "Nowa",
+  "msg.noAlias": "Nie ma takiego aliasu:",
+  "msg.noConv": "Brak rozmów — wpisz alias lub adres powyżej i przywitaj się.",
+  "msg.noKeyYet": "brak klucza do wiadomości w łańcuchu — odbiorca musi raz otworzyć NADO, by go opublikować",
+  "msg.pick": "Wybierz rozmowę albo wpisz alias/adres powyżej i wyślij wiadomość.",
+  "msg.send": "Wyślij",
+  "msg.sendAllSet": "Ustawiono kwotę na całe dostępne saldo minus opłata sieciowa ({a} NADO).",
+  "msg.sendFail": "wysyłanie nie powiodło się",
+  "msg.sendFailed": "Wysyłanie nie powiodło się:",
+  "msg.sub": "Poza łańcuchem · szyfrowanie end-to-end · postkwantowe · za darmo. Historia zostaje na tym urządzeniu.",
+  "msg.title": "Wiadomości",
+  "msg.toPh": "alias lub adres",
+  "msg.youPrefix": "Ty: "
  }
 }

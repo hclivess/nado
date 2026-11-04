@@ -6,7 +6,7 @@ generator makes each failure a refusal instead of a surprise. Pins, each on a th
   * a language whose key set drifts from `en` is refused (a silent English fallback);
   * a {placeholder} that differs from `en` in any language is refused (a literal "{t}" on screen);
   * an empty string is refused (t() treats "" as missing);
-  * a file without all 16 languages is refused;
+  * a file without all 17 languages is refused;
   * a clean set builds, every language carrying every key, in the generated output;
   * and the real tree builds clean and the committed i18n.js is exactly its output.
 Pure: reads JSON and writes nothing outside a temp dir. Run: python3 tests/test_i18n_generator_refuses_bad_sources.py
@@ -66,7 +66,7 @@ check("an empty string is refused", *refused([src("empty.json", empty)], "d.x [v
 
 short = full({"e.x": "Text"})
 del short["ar"]
-check("a file without all 16 languages is refused", *refused([src("short.json", short)], "missing ['ar']"))
+check("a file without all 17 languages is refused", *refused([src("short.json", short)], "missing ['ar']"))
 
 tmpl = open(B.TEMPLATE, encoding="utf-8").read()
 out = B.render(B.load_and_validate([good]), tmpl)

@@ -142,6 +142,19 @@
   "sig.whatMining": "채굴",
   "sig.whatMsg": "메시지"
  },
+ "pl": {
+  "sig.ml44Only": "{what} wymaga konta ML-DSA-44 — to konto podpisuje schematem {s}. Przełącz się na konto główne.",
+  "sig.noLib": "Ta strona nie może podpisywać schematem {s} — odśwież ją.",
+  "sig.note44": "Domyślny. Najmniejsze podpisy, działa wszędzie w portfelu.",
+  "sig.noteMl": "Wyższy poziom bezpieczeństwa niż ML-DSA-44. Opłaty x{n}.",
+  "sig.noteSlh": "Oparty na haszach: bezpieczny nawet wtedy, gdy schematy kratowe zostaną złamane. Duże podpisy — opłaty x{n}.",
+  "sig.pickBody": "Każdy z tych schematów jest postkwantowy. Schemat jest częścią adresu konta i nie można go później zmienić. Aby odtworzyć to konto z frazy odzyskiwania, dodaj je ponownie z tym samym schematem.",
+  "sig.pickTitle": "Schemat podpisu dla nowego konta",
+  "sig.whatAuth": "Zmiana klucza",
+  "sig.whatForum": "Logowanie do forum",
+  "sig.whatMining": "Wydobywanie",
+  "sig.whatMsg": "Wiadomości"
+ },
  "pt": {
   "sig.ml44Only": "{what} exige uma conta ML-DSA-44 — esta assina com {s}. Mude para a sua conta principal.",
   "sig.noLib": "Esta página não consegue assinar com {s} — recarregue-a.",

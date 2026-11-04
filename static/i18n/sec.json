@@ -398,5 +398,30 @@
   "sec.title": "🔐 Bảo mật ví",
   "sec.tooShort": "Mật khẩu phải có ít nhất 8 ký tự.",
   "sec.wrongPass": "Sai mật khẩu."
+ },
+ "pl": {
+  "sec.autolock": "Automatyczna blokada po bezczynności",
+  "sec.autolockOff": "Wył.",
+  "sec.confirmPass": "Potwierdź hasło:",
+  "sec.dlEnc": "⤓ Pobierz zaszyfrowaną kopię zapasową",
+  "sec.dlEncOk": "Pobrano zaszyfrowaną kopię zapasową — do przywrócenia potrzebne jest Twoje hasło.",
+  "sec.encErr": "Szyfrowanie nie powiodło się: {m}",
+  "sec.encrypt": "Zaszyfruj portfel hasłem",
+  "sec.encrypted": "Portfel zaszyfrowany ✓",
+  "sec.enterPass": "Wpisz hasło do portfela:",
+  "sec.intro": "Zaszyfruj hasłem klucz prywatny zapisany w tej przeglądarce (AES-256-GCM). Jest odszyfrowywany tylko w pamięci, gdy portfel jest odblokowany, a automatyczna blokada zamyka go ponownie po okresie bezczynności.",
+  "sec.lockNow": "🔒 Zablokuj teraz",
+  "sec.mismatch": "Hasła nie są zgodne.",
+  "sec.needSecure": "Ten portfel zaszyfrowano przez WebCrypto — otwórz go przez HTTPS lub na localhost, by go odblokować, a potem zaszyfruj ponownie, by był przenośny.",
+  "sec.notEnc": "Najpierw zaszyfruj portfel — wtedy pobierzesz zaszyfrowaną kopię zapasową.",
+  "sec.notReady": "Moduł kryptograficzny wciąż się wczytuje — spróbuj za chwilę.",
+  "sec.off": "Niezaszyfrowany — zapisany jawnym tekstem na tym urządzeniu.",
+  "sec.on": "Zaszyfrowany w spoczynku ✓",
+  "sec.remove": "Usuń hasło (zapis jawnym tekstem)",
+  "sec.removed": "Hasło usunięte — klucz zapisany jawnym tekstem.",
+  "sec.setPass": "Ustaw hasło do portfela (min. 8 znaków):",
+  "sec.title": "🔐 Bezpieczeństwo portfela",
+  "sec.tooShort": "Hasło musi mieć co najmniej 8 znaków.",
+  "sec.wrongPass": "Błędne hasło."
  }
 }

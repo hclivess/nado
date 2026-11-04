@@ -3,7 +3,7 @@
 The SDK's wallet row says "Buy in", "Cash out" and "playable" (game words). The NFT marketplace and Lend shipped with
 them, and the DEX overrode them with English-only literals (found 2026-11-02 on the live NFT walk). An app whose lobby
 entry carries kind:"finance" must set dapp.walletLabels = financeLabels() (static/nadodapp.js), whose three strings are
-defined in all 16 languages.
+defined in all 17 languages.
 """
 import json
 import os
@@ -31,9 +31,11 @@ for host in finance:
     check(f"static/{host}.js sets the finance labels before wiring the wallet", bool(m and w and m.start() < w.start()))
 sdk = open(os.path.join(ROOT, "static", "nadodapp.js"), encoding="utf8").read()
 check("the SDK's financeLabels uses translated keys", all(f'_t("{k}"' in sdk for k in ("depositBtn", "withdrawBtn", "ofUsable")))
+import ast as _ast, re as _re
+_LANGS = _ast.literal_eval(_re.search(r"^LANGS = (\[[^\]]*\])", open(os.path.join(ROOT, "tools", "build_i18n.py")).read(), _re.M).group(1))   # 16 until Polish, 2026-11-04
 tables = json.load(open(os.path.join(ROOT, "static", "i18n_games", "sdk.json"), encoding="utf8"))
-check("the three labels exist in all 16 languages, with {n} kept",
-      len(tables) == 16 and all(all(f"sdk.{k}" in t for k in ("depositBtn", "withdrawBtn", "ofUsable"))
+check("the three labels exist in all 17 languages, with {n} kept",
+      set(tables) == set(_LANGS) and all(all(f"sdk.{k}" in t for k in ("depositBtn", "withdrawBtn", "ofUsable"))
                                 and "{n}" in t["sdk.ofUsable"] for t in tables.values()))
 print("ALL PASS" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

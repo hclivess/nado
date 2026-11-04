@@ -53,7 +53,7 @@ DECLARED = {
     "scrapline_sim_lab.mjs": ("library", "the combat sim test_scrapline_engine_referee imports"),
     "stormhold_bot.mjs": ("library", "the move generator the stormhold engine tests play with"),
     # ---- suite: run by scripts/run_tests.sh by name
-    "i18n_coverage.mjs": ("suite", "every wallet key in all 16 languages; CLAUDE.md, the pre-push hook, CI and the wallet skill call it by name"),
+    "i18n_coverage.mjs": ("suite", "every wallet key in all 17 languages; CLAUDE.md, the pre-push hook, CI and the wallet skill call it by name"),
     "selftest_vectors_crosscheck.mjs": ("suite", "Python <-> JS parity over the wallet's self-test vectors; CI calls it by name"),
     # ---- tools: by hand, by a script, or against something live
     "assets_ui_e2e.mjs": ("tool", "drives the wallet's Assets tab over CDP: needs chromium and a node serving /static"),

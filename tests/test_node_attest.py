@@ -212,7 +212,11 @@ def t_wiring():
     check("wallet: the tap attests for the NODE's address over the same challenge derivation and drops it on the relay",
           "attestDevice(addr, anchorHash, targetBlock)" in js and '"/node_attest_drop"' in js and "nodeAttestInit()" in js)
     i18n = open(os.path.join(ROOT, "static", "i18n.js")).read()
-    check("i18n: node strings present in all 16 languages", i18n.count('"node.btn"') >= 16 and i18n.count('"node.btn"') % 16 == 0, i18n.count('"node.btn"'))
+    # the language count comes from the generator (it was a literal 16 until Polish made it 17, 2026-11-04)
+    import ast, re as _re
+    _langs = ast.literal_eval(_re.search(r"^LANGS = (\[[^\]]*\])", open(os.path.join(ROOT, "tools", "build_i18n.py")).read(), _re.M).group(1))
+    check(f"i18n: node strings present in all {len(_langs)} languages", i18n.count('"node.btn"') >= len(_langs)
+          and i18n.count('"node.btn"') % len(_langs) == 0, i18n.count('"node.btn"'))
 
 
 if __name__ == "__main__":
