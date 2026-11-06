@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title data-i18n="land.title">NADO Land — one planet, built block by block on land you own</title>
+<meta name="description" content="Land: a permanent planet in your browser. Own a plot as an NFT, build on it block by block with others in real time, and anchor your build on the NADO chain. Post-quantum secure, no install.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://land.nadochain.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NADO">
+<meta property="og:url" content="https://land.nadochain.com/">
+<meta property="og:title" content="NADO Land — one planet, built block by block on land you own">
+<meta property="og:description" content="Own a plot as an NFT, build on it in real time, anchor your build on chain.">
+<meta property="og:image" content="https://nadochain.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@nadochain">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2219%22%20fill%3D%22%232f6fb0%22/%3E%3Cpath%20d%3D%22M9%2026c6-3%209%203%2015-1s9-6%2015-2v6c-6%208-24%209-30-3z%22%20fill%3D%22%235f9e3a%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--accent:#00ad93;--accent2:#00c9a7;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:var(--sans)}
+  #world{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  header{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:10px 14px;
+    background:linear-gradient(rgba(11,15,20,.72),rgba(11,15,20,0));pointer-events:none;z-index:5}
+  header>*{pointer-events:auto}
+  header h1{font-size:17px;margin:0;font-weight:800;text-shadow:0 1px 3px #000}header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev)}
+  #hudInfo{position:fixed;top:52px;left:14px;font-size:12.5px;line-height:1.55;z-index:4;text-shadow:0 1px 2px #000;max-width:min(560px,calc(100vw - 28px))}
+  #hudInfo .dim{color:#c9d4de}
+  .pill{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:3px 9px;background:rgba(19,26,35,.85);border:1px solid var(--border)}
+  .pill.ok{border-color:var(--accent2);color:var(--accent2)}
+  .btn,button.ghost{font:inherit;font-size:12px;font-weight:700;color:var(--txt);background:rgba(19,26,35,.88);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;text-decoration:none}
+  .btn:hover,button.ghost:hover{border-color:var(--accent2)}
+  #hudGpu{position:fixed;right:12px;bottom:10px;font:11px var(--mono);color:var(--dim);z-index:4}
+  #cross{position:fixed;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;z-index:3;pointer-events:none}
+  #cross:before,#cross:after{content:"";position:absolute;background:rgba(255,255,255,.85);box-shadow:0 0 2px #000}
+  #cross:before{left:8px;top:0;width:2px;height:18px}#cross:after{top:8px;left:0;height:2px;width:18px}
+  #hotwrap{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:4;text-align:center}
+  #hotName{font-size:12px;font-weight:700;text-shadow:0 1px 2px #000;margin-bottom:4px;min-height:16px}
+  #hotbar{display:flex;gap:4px;padding:4px;background:rgba(11,15,20,.6);border:1px solid var(--border);border-radius:10px}
+  .hs{position:relative;width:44px;height:44px;border:2px solid transparent;border-radius:7px;display:grid;place-items:center;cursor:pointer}
+  .hs.on{border-color:#fff}.hs canvas{width:32px;height:32px;image-rendering:pixelated}
+  .hs span{position:absolute;left:3px;top:1px;font-size:10px;font-weight:800;text-shadow:0 1px 2px #000}
+  #help{position:fixed;inset:0;display:grid;place-items:center;z-index:6;pointer-events:none}
+  #help .card{pointer-events:auto;max-width:420px;margin:16px;background:rgba(19,26,35,.94);border:1px solid var(--border);border-radius:14px;padding:18px 20px;font-size:13.5px;line-height:1.6}
+  #help h2{margin:0 0 8px;font-size:17px}#help kbd{font:11px var(--mono);border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:#0b0f14}
+  #help .go{margin-top:12px;font-weight:800;color:var(--accent2)}
+  #palette{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(0,0,0,.45)}
+  #palette .card{max-width:min(620px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px}
+  #palette h2{margin:0 0 10px;font-size:16px;display:flex;align-items:center}#palette h2 button{margin-left:auto}
+  #palGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px}
+  .pb{font:inherit;font-size:11px;color:var(--txt);background:#0b0f14;border:1px solid var(--border);border-radius:9px;padding:8px 4px;cursor:pointer;display:grid;justify-items:center;gap:5px}
+  .pb:hover{border-color:var(--accent2)}.pb canvas{width:40px;height:40px;image-rendering:pixelated}
+  #loading{position:fixed;inset:0;display:grid;place-items:center;z-index:9;background:var(--bg);font-size:15px;color:var(--dim);padding:24px;text-align:center}
+  .hidden{display:none!important}
+  #touchUi{display:none}
+  body.touch #touchUi{display:block}
+  body.touch #help .keys{display:none}
+  #touchUi button{position:fixed;z-index:5;width:58px;height:58px;border-radius:50%;font:inherit;font-size:12px;font-weight:800;color:var(--txt);
+    background:rgba(19,26,35,.7);border:1px solid var(--border);touch-action:none}
+  #tJump{right:18px;bottom:96px}#tDown{right:84px;bottom:96px}#tFly{right:18px;bottom:162px}
+  #tBreak{right:150px;bottom:96px}#tPlace{right:84px;bottom:162px}#tPal{right:150px;bottom:162px}
+  body.touch #hotwrap{bottom:8px}
+  @media (max-width:620px){header h1{font-size:15px}.hs{width:34px;height:34px}.hs canvas{width:24px;height:24px}}
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+<header>
+  <h1>NADO <span class="a" data-i18n="land.name">Land</span></h1>
+  <a class="hub" href="https://nadochain.com/apps.html" data-i18n="land.hub">All apps</a>
+</header>
+<div id="hudInfo"><div id="hudPos"></div><div id="hudPlot"></div></div>
+<div id="cross"></div>
+<div id="hotwrap"><div id="hotName"></div><div id="hotbar"></div></div>
+<div id="hudGpu"></div>
+<div id="help"><div class="card">
+  <h2 data-i18n="land.helpTitle">Welcome to the planet</h2>
+  <div data-i18n="land.helpBody">Every plot is a title you can own. Build on yours, block by block — or walk the wilderness and find land you like.</div>
+  <div class="keys">
+    <div><kbd>W A S D</kbd> <span data-i18n="land.kMove">walk</span> · <kbd>Space</kbd> <span data-i18n="land.kJump">jump</span> · <kbd>Shift</kbd> <span data-i18n="land.kRun">run</span> · <kbd>F</kbd> <span data-i18n="land.kFly">fly</span></div>
+    <div><kbd data-i18n="land.kLeft">left click</kbd> <span data-i18n="land.kBreak">break</span> · <kbd data-i18n="land.kRight">right click</kbd> <span data-i18n="land.kPlace">place</span> · <kbd>1–9</kbd> <span data-i18n="land.kPick">pick a block</span> · <kbd>E</kbd> <span data-i18n="land.kAll">all blocks</span></div>
+  </div>
+  <div class="go" data-i18n="land.clickToPlay">Click the world to play</div>
+</div></div>
+<div id="palette" class="hidden"><div class="card">
+  <h2><span data-i18n="land.palTitle">Blocks</span><button id="palClose" class="ghost" data-i18n="land.close">Close</button></h2>
+  <div id="palGrid"></div>
+</div></div>
+<div id="touchUi">
+  <button id="tJump" data-i18n="land.tJump">Jump</button><button id="tDown" data-i18n="land.tDown">Down</button>
+  <button id="tFly" data-i18n="land.tFly">Fly</button><button id="tBreak" data-i18n="land.tBreak">Break</button>
+  <button id="tPlace" data-i18n="land.tPlace">Place</button><button id="tPal" data-i18n="land.tPal">Blocks</button>
+</div>
+<div id="loading" data-i18n="land.loading">Approaching the planet…</div>
+<script type="module" src="/static/land.js"></script>
+</body>
+</html>
